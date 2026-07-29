@@ -1,11 +1,7 @@
 package com.hiczp.minecraft.protocol.transport
 
 import kotlinx.coroutines.test.runTest
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertNull
+import kotlin.test.*
 
 class MinecraftFrameCodecTest {
     @Test

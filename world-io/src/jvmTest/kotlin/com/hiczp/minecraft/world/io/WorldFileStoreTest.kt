@@ -9,8 +9,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import java.nio.file.Files
-import java.nio.file.Path as NioPath
 import kotlin.test.*
+import java.nio.file.Path as NioPath
 
 class WorldFileStoreTest {
     @Test

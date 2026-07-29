@@ -4,8 +4,8 @@ import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.data.VanillaProtocolData
 import com.hiczp.minecraft.protocol.data.VanillaStaticData
 import com.hiczp.minecraft.protocol.data.requireRegistry
-import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
 import com.hiczp.minecraft.protocol.model.packet.BundleDelimiterPacket
+import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
 import com.hiczp.minecraft.protocol.model.packet.SetEntityMetadataPacket
 import com.hiczp.minecraft.protocol.model.packet.SpawnEntityPacket
 import com.hiczp.minecraft.protocol.model.type.*

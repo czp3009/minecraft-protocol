@@ -184,6 +184,7 @@ class ProtocolModelInvariantTest {
             result = SlotDisplay.Empty,
             craftingStation = SlotDisplay.Empty,
         )
+
         fun entry(
             id: Int = 0,
             group: Int? = null,
