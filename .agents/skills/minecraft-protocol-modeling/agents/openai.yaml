@@ -1,0 +1,4 @@
+interface:
+  display_name: "Minecraft Protocol Modeling"
+  short_description: "Update and audit the Minecraft KMP network stack"
+  default_prompt: "Use $minecraft-protocol-modeling [Minecraft version or protocol:<id>] to update and strongly verify the network protocol stack, including official server and client interoperability; omit the optional target for the Wiki's latest stable version."

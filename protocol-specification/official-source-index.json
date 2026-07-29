@@ -1,0 +1,13 @@
+{
+  "decompiler": {
+    "name": "Vineflower",
+    "version": "1.12.0"
+  },
+  "minecraft_version": "26.2",
+  "packet_count": 256,
+  "packet_source_count": 226,
+  "protocol_version": 776,
+  "schema_version": 1,
+  "server_sha1": "823e2250d24b3ddac457a60c92a6a941943fcd6a",
+  "wiki_revision_id": 3685492
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Minecraft World Storage"
+  short_description: "Update and verify NBT and Anvil world storage"
+  default_prompt: "Use $minecraft-world-storage to update and verify the world-storage modules against the selected official Minecraft server."

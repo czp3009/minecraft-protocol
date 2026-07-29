@@ -1,0 +1,20 @@
+{
+  "minecraft_version": "26.2",
+  "protocol_version": 776,
+  "repositories": {
+    "mcprotocollib": {
+      "nearby_tags": [],
+      "status": "exact-version-unavailable",
+      "url": "https://github.com/GeyserMC/MCProtocolLib.git"
+    },
+    "minestom": {
+      "cache_path": "build/protocol-reference/auxiliary/minestom/2026.07.22-26.2",
+      "commit": "84ab796cc87ae6b84613f56b106c66283c55f559",
+      "status": "exact-version",
+      "tag": "2026.07.22-26.2",
+      "url": "https://github.com/Minestom/Minestom.git"
+    }
+  },
+  "schema_version": 1,
+  "wiki_revision_id": 3685492
+}

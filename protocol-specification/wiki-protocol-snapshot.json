@@ -1,0 +1,27 @@
+{
+  "cross_checks": {
+    "java_major_version": 25,
+    "mojang_latest_release": "26.2",
+    "packet_list_note_protocol": 773,
+    "status": "warning",
+    "warnings": [
+      "Wiki page is internally inconsistent: the introduction declares protocol 776, while the packet-list note says 773"
+    ]
+  },
+  "minecraft_version": "26.2",
+  "normal_packet_count": 256,
+  "packet_count": 257,
+  "protocol_version": 776,
+  "schema_version": 1,
+  "selection": {
+    "mode": "latest",
+    "requested_target": null
+  },
+  "source": {
+    "revision_id": 3685492,
+    "revision_timestamp": "2026-07-22T21:04:53Z",
+    "sha256": "8f5ea94df70391e448b10aeb8817654aea2a99906b887b595225e3460564e5ff",
+    "title": "Java Edition protocol/Packets",
+    "url": "https://minecraft.wiki/w/Java_Edition_protocol/Packets"
+  }
+}

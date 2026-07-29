@@ -1,0 +1,219 @@
+package com.hiczp.minecraft.protocol.serialization
+
+import com.hiczp.minecraft.protocol.model.packet.*
+import com.hiczp.minecraft.protocol.model.type.*
+import kotlinx.serialization.KSerializer
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+
+class PlayAdvancedPacketTest {
+    @Test
+    fun `particle registry dispatch writes only the selected payload`() {
+        assertBytes(
+            ParticleOptions.Simple(ParticleType.SULFUR_BUBBLES),
+            ParticleOptions.serializer(),
+            "04",
+        )
+        assertBytes(
+            ParticleOptions.Block(ParticleType.BLOCK, 300),
+            ParticleOptions.serializer(),
+            "01ac02",
+        )
+        assertBytes(
+            ParticleOptions.Color(ParticleType.TINTED_LEAVES, 0x11223344),
+            ParticleOptions.serializer(),
+            "2b11223344",
+        )
+    }
+
+    @Test
+    fun `entity metadata uses serializer IDs and ff terminator`() {
+        assertBytes(
+            SetEntityMetadataPacket(
+                entityId = 1,
+                metadata = EntityMetadata(
+                    listOf(
+                        EntityMetadataEntry(
+                            2,
+                            EntityDataValue.IntValue(300),
+                        ),
+                    ),
+                ),
+            ),
+            SetEntityMetadataPacket.serializer(),
+            "010201ac02ff",
+        )
+        assertBytes(
+            EntityMetadata(
+                listOf(
+                    EntityMetadataEntry(
+                        0,
+                        EntityDataValue.OptionalBlockState(null),
+                    ),
+                ),
+            ),
+            EntityMetadata.serializer(),
+            "000f00ff",
+        )
+    }
+
+    @Test
+    fun `recipe displays recursively dispatch through built in type IDs`() {
+        val packet = PlaceGhostRecipePacket(
+            containerId = 1,
+            recipeDisplay = RecipeDisplay.Shapeless(
+                ingredients = listOf(SlotDisplay.Empty),
+                result = SlotDisplay.Item(2),
+                craftingStation = SlotDisplay.AnyFuel,
+            ),
+        )
+        assertBytes(
+            packet,
+            PlaceGhostRecipePacket.serializer(),
+            "01000100040201",
+        )
+    }
+
+    @Test
+    fun `player info action mask controls entry fields`() {
+        val packet = PlayerInfoUpdatePacket(
+            PlayerInfoUpdatePayload(
+                actions = setOf(
+                    PlayerInfoAction.ADD_PLAYER,
+                    PlayerInfoAction.UPDATE_LATENCY,
+                ),
+                entries = listOf(
+                    PlayerInfoEntry(
+                        profileId = Uuid(0, 0),
+                        profile = PlayerListProfile("a", emptyList()),
+                        latency = 300,
+                    ),
+                ),
+            ),
+        )
+        assertBytes(
+            packet,
+            PlayerInfoUpdatePacket.serializer(),
+            "110100000000000000000000000000000000016100ac02",
+        )
+    }
+
+    @Test
+    fun `objective action owns all conditionally present fields`() {
+        val packet = SetObjectivePacket(
+            objectiveName = "x",
+            update = ObjectiveUpdate.Add(
+                displayName = TextComponent(NbtString("x")),
+                renderType = ObjectiveRenderType.HEARTS,
+                numberFormat = NumberFormat.Blank,
+            ),
+        )
+        assertBytes(
+            packet,
+            SetObjectivePacket.serializer(),
+            "01780008000178010100",
+        )
+    }
+
+    @Test
+    fun `filter masks and waypoint unions round trip`() {
+        assertBytes(
+            FilterMask.PartiallyFiltered(BitSet(longArrayOf(5))),
+            FilterMask.serializer(),
+            "02010000000000000005",
+        )
+
+        val packet = WaypointPacket(
+            operation = WaypointOperation.UPDATE,
+            waypoint = TrackedWaypoint.Chunk(
+                identifier = WaypointIdentifier.Entity(Uuid(0, 0)),
+                icon = WaypointIcon(Identifier("test"), 0x112233),
+                x = -1,
+                z = 300,
+            ),
+        )
+        val encoded = MinecraftFormat.encodeToByteArray(
+            WaypointPacket.serializer(),
+            packet,
+        )
+        assertEquals(
+            packet,
+            MinecraftFormat.decodeFromByteArray(
+                WaypointPacket.serializer(),
+                encoded,
+            ),
+        )
+    }
+
+    @Test
+    fun `waypoint color has one optional marker around three rgb bytes`() {
+        val style = Identifier("minecraft:test")
+        val styleHex = "0e6d696e6563726166743a74657374"
+        assertBytes(
+            WaypointIcon(style),
+            WaypointIcon.serializer(),
+            "${styleHex}00",
+        )
+        assertBytes(
+            WaypointIcon(style, 0x11_22_33),
+            WaypointIcon.serializer(),
+            "${styleHex}01112233",
+        )
+    }
+
+    @Test
+    fun `map color patch uses zero width as its only absence sentinel`() {
+        assertBytes(
+            MapDataPacket(
+                mapId = 1,
+                scale = 1,
+                locked = false,
+                decorations = null,
+                colorPatch = null,
+            ),
+            MapDataPacket.serializer(),
+            "0101000000",
+        )
+        assertBytes(
+            MapDataPacket(
+                mapId = 1,
+                scale = 1,
+                locked = false,
+                decorations = emptyList(),
+                colorPatch = MapColorPatch(
+                    startX = 3,
+                    startY = 4,
+                    width = 2,
+                    height = 1,
+                    colors = ByteString(byteArrayOf(5, 6)),
+                ),
+            ),
+            MapDataPacket.serializer(),
+            "010100010002010304020506",
+        )
+    }
+
+    private fun <T> assertBytes(
+        value: T,
+        serializer: KSerializer<T>,
+        expectedHex: String,
+    ) {
+        val expected = expectedHex.hexBytes()
+        assertContentEquals(
+            expected,
+            MinecraftFormat.encodeToByteArray(serializer, value),
+        )
+        assertEquals(
+            value,
+            MinecraftFormat.decodeFromByteArray(serializer, expected),
+        )
+    }
+}
+
+private fun String.hexBytes(): ByteArray {
+    require(length % 2 == 0)
+    return ByteArray(length / 2) { index ->
+        substring(index * 2, index * 2 + 2).toInt(16).toByte()
+    }
+}

@@ -1,0 +1,397 @@
+@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+
+package com.hiczp.minecraft.protocol.serialization
+
+import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.protocol.model.wire.*
+import kotlinx.serialization.Serializable
+import kotlin.test.*
+
+class MinecraftFormatTest {
+    @Test
+    fun `companion is the default format and factory creates configured instances`() {
+        assertTrue(MinecraftFormat === MinecraftFormat.Default)
+        assertEquals(MinecraftFormatConfiguration(), MinecraftFormat.configuration)
+
+        val configuration = MinecraftFormatConfiguration(
+            strictBooleans = false,
+            chunkSectionCount = 24,
+        )
+        val configured = MinecraftFormat(configuration)
+
+        assertTrue(configured !== MinecraftFormat.Default)
+        assertEquals(configuration, configured.configuration)
+    }
+
+    @Test
+    fun `var numbers match protocol golden vectors`() {
+        val varInts = listOf(
+            0 to "00",
+            1 to "01",
+            127 to "7f",
+            128 to "8001",
+            255 to "ff01",
+            2_147_483_647 to "ffffffff07",
+            -1 to "ffffffff0f",
+            -2_147_483_648 to "8080808008",
+        )
+        for ((value, hex) in varInts) {
+            assertContentEquals(
+                hex.hexBytes(),
+                MinecraftFormat.encodeToByteArray(VarIntValue.serializer(), VarIntValue(value)),
+            )
+            assertEquals(
+                VarIntValue(value),
+                MinecraftFormat.decodeFromByteArray(VarIntValue.serializer(), hex.hexBytes()),
+            )
+        }
+
+        val varLongs = listOf(
+            0L to "00",
+            128L to "8001",
+            Long.MAX_VALUE to "ffffffffffffffff7f",
+            -1L to "ffffffffffffffffff01",
+        )
+        for ((value, hex) in varLongs) {
+            assertContentEquals(
+                hex.hexBytes(),
+                MinecraftFormat.encodeToByteArray(VarLongValue.serializer(), VarLongValue(value)),
+            )
+            assertEquals(
+                VarLongValue(value),
+                MinecraftFormat.decodeFromByteArray(VarLongValue.serializer(), hex.hexBytes()),
+            )
+        }
+    }
+
+    @Test
+    fun `fixed primitives are big endian and unsigned hints are honored`() {
+        val value = PrimitiveValue(
+            byte = 0xFE.toByte(),
+            short = 0x1234,
+            int = 0x12345678,
+            long = 0x0102030405060708,
+            unsignedByte = 255,
+            unsignedShort = 65_535,
+        )
+        val expected = "fe1234123456780102030405060708ffffff".hexBytes()
+        assertContentEquals(
+            expected,
+            MinecraftFormat.encodeToByteArray(PrimitiveValue.serializer(), value),
+        )
+        assertEquals(
+            value,
+            MinecraftFormat.decodeFromByteArray(PrimitiveValue.serializer(), expected),
+        )
+    }
+
+    @Test
+    fun `strings enforce UTF-16 and UTF-8 limits`() {
+        val value = LimitedString("éé")
+        assertContentEquals(
+            "04c3a9c3a9".hexBytes(),
+            MinecraftFormat.encodeToByteArray(LimitedString.serializer(), value),
+        )
+        assertEquals(
+            value,
+            MinecraftFormat.decodeFromByteArray(
+                LimitedString.serializer(),
+                "04c3a9c3a9".hexBytes(),
+            ),
+        )
+        assertFailsWith<MinecraftSerializationException> {
+            MinecraftFormat.encodeToByteArray(
+                LimitedString.serializer(),
+                LimitedString("abc"),
+            )
+        }
+        assertFailsWith<MinecraftSerializationException> {
+            MinecraftFormat.decodeFromByteArray(
+                LimitedString.serializer(),
+                "02c328".hexBytes(),
+            )
+        }
+    }
+
+    @Test
+    fun `collections maps nullable and byte shapes round trip`() {
+        val collection = CollectionValue(
+            values = listOf(1, 2, 300),
+            map = linkedMapOf("a" to 1, "b" to 2),
+            optional = 7,
+        )
+        val encoded = MinecraftFormat.encodeToByteArray(CollectionValue.serializer(), collection)
+        assertEquals(
+            collection,
+            MinecraftFormat.decodeFromByteArray(CollectionValue.serializer(), encoded),
+        )
+
+        assertContentEquals(
+            "030102ac02020161000000010162000000020100000007".hexBytes(),
+            encoded,
+        )
+
+        val bytes = ByteShapes(
+            prefixed = ByteString(byteArrayOf(1, 2, 3)),
+            fixed = ByteString(byteArrayOf(4, 5)),
+            remaining = ByteString(byteArrayOf(6, 7, 8)),
+        )
+        val byteEncoding = "030102030405060708".hexBytes()
+        assertContentEquals(
+            byteEncoding,
+            MinecraftFormat.encodeToByteArray(ByteShapes.serializer(), bytes),
+        )
+        assertEquals(
+            bytes,
+            MinecraftFormat.decodeFromByteArray(ByteShapes.serializer(), byteEncoding),
+        )
+    }
+
+    @Test
+    fun `network NBT has exact unnamed encoding`() {
+        val value = NbtValue(
+            NbtCompound(
+                linkedMapOf(
+                    "name" to NbtString("value"),
+                    "numbers" to NbtList(listOf(NbtInt(1), NbtInt(2))),
+                ),
+            ),
+        )
+        val encoded = MinecraftFormat.encodeToByteArray(NbtValue.serializer(), value)
+        assertEquals(
+            value,
+            MinecraftFormat.decodeFromByteArray(NbtValue.serializer(), encoded),
+        )
+        assertEquals(10, encoded.first().toInt())
+        assertEquals(0, encoded.last().toInt())
+    }
+
+    @Test
+    fun `network NBT strings use Java modified UTF`() {
+        val value = NbtValue(NbtString("\u0000Aé😀"))
+        val expected =
+            "08000bc08041c3a9eda0bdedb880".hexBytes()
+
+        assertContentEquals(
+            expected,
+            MinecraftFormat.encodeToByteArray(NbtValue.serializer(), value),
+        )
+        assertEquals(
+            value,
+            MinecraftFormat.decodeFromByteArray(
+                NbtValue.serializer(),
+                expected,
+            ),
+        )
+    }
+
+    @Test
+    fun `length-prefixed nullable NBT uses TAG End rather than boolean`() {
+        val absent = LengthPrefixedOptionalNbt(null)
+        assertContentEquals(
+            "0100".hexBytes(),
+            MinecraftFormat.encodeToByteArray(
+                LengthPrefixedOptionalNbt.serializer(),
+                absent,
+            ),
+        )
+        assertEquals(
+            absent,
+            MinecraftFormat.decodeFromByteArray(
+                LengthPrefixedOptionalNbt.serializer(),
+                "0100".hexBytes(),
+            ),
+        )
+
+        val present = LengthPrefixedOptionalNbt(NbtString("ok"))
+        val expected = "050800026f6b".hexBytes()
+        assertContentEquals(
+            expected,
+            MinecraftFormat.encodeToByteArray(
+                LengthPrefixedOptionalNbt.serializer(),
+                present,
+            ),
+        )
+        assertEquals(
+            present,
+            MinecraftFormat.decodeFromByteArray(
+                LengthPrefixedOptionalNbt.serializer(),
+                expected,
+            ),
+        )
+        assertFailsWith<MinecraftSerializationException> {
+            MinecraftFormat.decodeFromByteArray(
+                LengthPrefixedOptionalNbt.serializer(),
+                "060800026f6b00".hexBytes(),
+            )
+        }
+    }
+
+    @Test
+    fun `low precision vectors match vanilla golden bytes`() {
+        val zero = LowPrecisionVectorValue(Vector3d(0.0, 0.0, 0.0))
+        assertContentEquals(
+            "00".hexBytes(),
+            MinecraftFormat.encodeToByteArray(LowPrecisionVectorValue.serializer(), zero),
+        )
+
+        val unitX = LowPrecisionVectorValue(Vector3d(1.0, 0.0, 0.0))
+        assertContentEquals(
+            "f1ff7ffeffff".hexBytes(),
+            MinecraftFormat.encodeToByteArray(LowPrecisionVectorValue.serializer(), unitX),
+        )
+        val unitDecoded = MinecraftFormat.decodeFromByteArray(
+            LowPrecisionVectorValue.serializer(),
+            "f1ff7ffeffff".hexBytes(),
+        )
+        assertEquals(1.0, unitDecoded.value.x, 0.000_001)
+        assertEquals(0.0, unitDecoded.value.y, 0.000_001)
+        assertEquals(0.0, unitDecoded.value.z, 0.000_001)
+
+        val continuation = LowPrecisionVectorValue(Vector3d(4.0, 0.0, 0.0))
+        assertContentEquals(
+            "f4ff7ffeffff01".hexBytes(),
+            MinecraftFormat.encodeToByteArray(
+                LowPrecisionVectorValue.serializer(),
+                continuation,
+            ),
+        )
+        assertEquals(
+            continuation,
+            MinecraftFormat.decodeFromByteArray(
+                LowPrecisionVectorValue.serializer(),
+                "f4ff7ffeffff01".hexBytes(),
+            ),
+        )
+
+    }
+
+    @Test
+    fun `low precision vectors sanitize and validate their compact representation`() {
+        val clamped = LowPrecisionVectorValue(
+            Vector3d(Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, Double.NaN),
+        )
+        assertContentEquals(
+            "f7ff7ffe0003ffffffff0f".hexBytes(),
+            MinecraftFormat.encodeToByteArray(
+                LowPrecisionVectorValue.serializer(),
+                clamped,
+            ),
+        )
+        val decoded = MinecraftFormat.decodeFromByteArray(
+            LowPrecisionVectorValue.serializer(),
+            "f7ff7ffe0003ffffffff0f".hexBytes(),
+        )
+        assertEquals(17_179_869_183.0, decoded.value.x, 0.000_001)
+        assertEquals(-17_179_869_183.0, decoded.value.y, 0.000_001)
+        assertEquals(0.0, decoded.value.z, 0.000_001)
+
+        val belowThreshold = LowPrecisionVectorValue(
+            Vector3d(3.0E-5, -3.0E-5, 0.0),
+        )
+        assertContentEquals(
+            "00".hexBytes(),
+            MinecraftFormat.encodeToByteArray(
+                LowPrecisionVectorValue.serializer(),
+                belowThreshold,
+            ),
+        )
+        assertFailsWith<MinecraftSerializationException> {
+            MinecraftFormat.decodeFromByteArray(
+                LowPrecisionVectorValue.serializer(),
+                "04ffffffffff".hexBytes(),
+            )
+        }
+    }
+
+    @Test
+    fun `malformed lengths varints booleans and trailing bytes are rejected`() {
+        assertFailsWith<MinecraftSerializationException> {
+            MinecraftFormat.decodeFromByteArray(
+                VarIntValue.serializer(),
+                "808080808000".hexBytes(),
+            )
+        }
+        assertFailsWith<MinecraftSerializationException> {
+            MinecraftFormat.decodeFromByteArray(
+                NullableValue.serializer(),
+                "02".hexBytes(),
+            )
+        }
+        assertFailsWith<MinecraftSerializationException> {
+            MinecraftFormat.decodeFromByteArray(
+                VarIntValue.serializer(),
+                "0000".hexBytes(),
+            )
+        }
+        val strict = MinecraftFormat(
+            MinecraftFormatConfiguration(rejectNonMinimalVarNumbers = true),
+        )
+        assertFailsWith<MinecraftSerializationException> {
+            strict.decodeFromByteArray(
+                VarIntValue.serializer(),
+                "8000".hexBytes(),
+            )
+        }
+    }
+}
+
+@Serializable
+private data class VarIntValue(@VarInt val value: Int)
+
+@Serializable
+private data class VarLongValue(@VarLong val value: Long)
+
+@Serializable
+private data class PrimitiveValue(
+    val byte: Byte,
+    val short: Short,
+    val int: Int,
+    val long: Long,
+    @UnsignedByte val unsignedByte: Int,
+    @UnsignedShort val unsignedShort: Int,
+)
+
+@Serializable
+private data class LimitedString(@MaxLength(2) val value: String)
+
+@Serializable
+private data class CollectionValue(
+    @com.hiczp.minecraft.protocol.model.wire.VarIntElements
+    val values: List<Int>,
+    val map: Map<String, Int>,
+    val optional: Int?,
+)
+
+@Serializable
+private data class ByteShapes(
+    val prefixed: ByteString,
+    @FixedLength(2) val fixed: ByteString,
+    @RemainingBytes val remaining: ByteString,
+)
+
+@Serializable
+private data class NbtValue(val value: NbtTag)
+
+@Serializable
+private data class LengthPrefixedOptionalNbt(
+    @ByteLengthPrefixed(6)
+    @NbtEndOptional
+    val value: NbtTag?,
+)
+
+@Serializable
+private data class LowPrecisionVectorValue(
+    @LowPrecisionVector
+    val value: Vector3d,
+)
+
+@Serializable
+private data class NullableValue(val value: Int?)
+
+private fun String.hexBytes(): ByteArray {
+    require(length % 2 == 0)
+    return ByteArray(length / 2) { index ->
+        substring(index * 2, index * 2 + 2).toInt(16).toByte()
+    }
+}
