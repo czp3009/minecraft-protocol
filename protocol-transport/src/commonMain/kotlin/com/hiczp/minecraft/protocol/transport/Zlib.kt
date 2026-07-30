@@ -1,8 +1,7 @@
 package com.hiczp.minecraft.protocol.transport
 
-import io.ktor.util.*
-import io.ktor.utils.io.*
-import kotlinx.io.readByteArray
+import com.hiczp.minecraft.compression.RawDeflate
+import com.hiczp.minecraft.compression.RawDeflateException
 
 internal object Zlib {
     private const val COMPRESSION_METHOD_DEFLATE = 8
@@ -10,10 +9,14 @@ internal object Zlib {
     private const val MOD_ADLER = 65_521
 
     suspend fun compress(input: ByteArray): ByteArray {
-        val rawDeflate = DeflateEncoder
-            .encode(ByteReadChannel(input))
-            .readRemaining()
-            .readByteArray()
+        val rawDeflate = try {
+            RawDeflate.encode(input)
+        } catch (failure: RawDeflateException) {
+            throw MinecraftTransportException(
+                "Cannot deflate packet",
+                failure,
+            )
+        }
         val output = ByteArray(rawDeflate.size + 6)
         output[0] = 0x78
         output[1] = 0x9C.toByte()
@@ -51,26 +54,19 @@ internal object Zlib {
         }
 
         val rawDeflate = input.copyOfRange(2, input.size - 4)
-        val decoded = DeflateEncoder.decode(ByteReadChannel(rawDeflate))
         val output = try {
-            val bytes = decoded.readByteArray(expectedSize)
-            val extra = ByteArray(1)
-            val count = decoded.readAvailable(extra)
-            if (count >= 0) {
-                decoded.cancel(
-                    MinecraftTransportException(
-                        "Compressed packet exceeds its declared size $expectedSize",
-                    ),
-                )
-                throw MinecraftTransportException(
-                    "Compressed packet exceeds its declared size $expectedSize",
-                )
-            }
-            bytes
-        } catch (failure: MinecraftTransportException) {
-            throw failure
-        } catch (failure: Throwable) {
-            throw MinecraftTransportException("Invalid zlib-compressed packet", failure)
+            RawDeflate.decode(rawDeflate, expectedSize)
+        } catch (failure: RawDeflateException) {
+            throw MinecraftTransportException(
+                "Invalid zlib-compressed packet",
+                failure,
+            )
+        }
+        if (output.size != expectedSize) {
+            throw MinecraftTransportException(
+                "Compressed packet produced ${output.size} bytes; declared " +
+                        "size is $expectedSize",
+            )
         }
 
         val expectedChecksum =

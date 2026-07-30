@@ -1,4 +1,8 @@
 import com.hiczp.minecraft.protocol.buildScript.*
+import org.jetbrains.kotlin.gradle.targets.js.yarn.YarnPlugin
+import org.jetbrains.kotlin.gradle.targets.js.yarn.YarnRootExtension
+import org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnPlugin
+import org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnRootExtension
 
 plugins {
     id("java-base")
@@ -9,6 +13,17 @@ plugins {
 
 group = "com.hiczp"
 version = "0.0.1"
+
+plugins.withType<YarnPlugin> {
+    extensions.configure<YarnRootExtension> {
+        lockFileDirectory = layout.buildDirectory.dir("kotlin-js-store/js").get().asFile
+    }
+}
+plugins.withType<WasmYarnPlugin> {
+    extensions.configure<WasmYarnRootExtension> {
+        lockFileDirectory = layout.buildDirectory.dir("kotlin-js-store/wasm").get().asFile
+    }
+}
 
 val vineflower = configurations.create("vineflower")
 
@@ -30,17 +45,19 @@ tasks.register<RefreshProtocolSpecificationTask>(
     }
 }
 
-tasks.register<RefreshProtocolSpecificationTask>(
-    "checkProtocolSpecification",
-) {
-    group = "minecraft protocol"
-    description = "Check that the checked-in Wiki snapshot is the current Wiki revision."
-    repositoryDirectory.set(layout.projectDirectory)
-    checkOnly.set(true)
-    if (protocolTarget.isPresent) {
-        target.set(protocolTarget)
+val checkProtocolSpecification =
+    tasks.register<RefreshProtocolSpecificationTask>(
+        "checkProtocolSpecification",
+    ) {
+        group = "minecraft protocol"
+        description =
+            "Check that the checked-in Wiki snapshot is the current Wiki revision."
+        repositoryDirectory.set(layout.projectDirectory)
+        checkOnly.set(true)
+        if (protocolTarget.isPresent) {
+            target.set(protocolTarget)
+        }
     }
-}
 
 val protocolSnapshot = layout.projectDirectory.file(
     "protocol-specification/wiki-protocol-snapshot.json",
@@ -76,6 +93,50 @@ val downloadOfficialMinecraftServer =
         description = "Download and SHA-1 verify the Mojang server for the Wiki target."
         repositoryDirectory.set(layout.projectDirectory)
         mustRunAfter("refreshProtocolSpecification")
+    }
+
+val generateOfficialServerProperties =
+    tasks.register<GenerateOfficialServerPropertiesTask>(
+        "generateOfficialServerProperties",
+    ) {
+        group = "minecraft protocol"
+        description =
+            "Generate the exact official server.properties inventory."
+        dependsOn(downloadOfficialMinecraftServer)
+        repositoryDirectory.set(layout.projectDirectory)
+        javaExecutable.set(protocolJavaExecutable)
+        reportFile.set(
+            layout.buildDirectory.file(
+                "reports/protocol-update/official-server-properties.json",
+            ),
+        )
+        outputs.upToDateWhen { false }
+    }
+
+val checkOfficialServerPropertiesCompatibility =
+    tasks.register<CheckOfficialServerPropertiesCompatibilityTask>(
+        "checkOfficialServerPropertiesCompatibility",
+    ) {
+        group = "verification"
+        description =
+            "Require an exhaustive compatibility decision for every official " +
+                    "server.properties entry."
+        dependsOn(generateOfficialServerProperties)
+        repositoryDirectory.set(layout.projectDirectory)
+        officialPropertiesFile.set(generateOfficialServerProperties.flatMap {
+            it.reportFile
+        })
+        compatibilityFile.set(
+            layout.projectDirectory.file(
+                "protocol-specification/server-properties-compatibility.json",
+            ),
+        )
+        reportFile.set(
+            layout.buildDirectory.file(
+                "reports/protocol-update/" +
+                        "server-properties-compatibility.json",
+            ),
+        )
     }
 
 val minecraftClientDirectoryOverride =
@@ -505,6 +566,7 @@ val protocolJvmTest = tasks.register("protocolJvmTest") {
     description = "Run every protocol module's JVM test suite."
     dependsOn(
         buildLogicTest,
+        ":compression:jvmTest",
         ":nbt:jvmTest",
         ":protocol-model:jvmTest",
         ":protocol-serialization:jvmTest",
@@ -522,6 +584,7 @@ val protocolLayeredTest = tasks.register("protocolLayeredTest") {
     description =
         "Run every independently named protocol layer suite."
     dependsOn(
+        ":compression:compressionLayerTest",
         ":nbt:nbtLayerTest",
         ":protocol-model:modelContractLayerTest",
         ":protocol-serialization:minecraftFormatLayerTest",
@@ -597,6 +660,7 @@ val worldStorageJvmTest = tasks.register("worldStorageJvmTest") {
     description = "Run every world-storage module's JVM test suite."
     dependsOn(
         buildLogicTest,
+        ":compression:jvmTest",
         ":nbt:jvmTest",
         ":world-format:jvmTest",
         ":world-io:jvmTest",
@@ -607,6 +671,7 @@ val worldStorageLayeredTest = tasks.register("worldStorageLayeredTest") {
     group = "verification"
     description = "Run NBT, Anvil format, compression, and filesystem suites."
     dependsOn(
+        ":compression:compressionLayerTest",
         ":nbt:nbtLayerTest",
         ":world-format:worldFormatLayerTest",
         ":world-io:worldIoLayerTest",
@@ -626,11 +691,13 @@ tasks.register("verifyProtocolUpdate") {
     description =
         "Run the complete headless-CI protocol test, audit, and interoperability gate."
     dependsOn(
+        checkProtocolSpecification,
         auditProtocolModels,
         checkProtocolNullability,
         checkPacketRegistry,
         checkVanillaStaticData,
         checkOfficialNetworkRegistries,
+        checkOfficialServerPropertiesCompatibility,
         checkOfficialProtocolConformance,
         checkOfficialCodecConformance,
         checkProtocolWorkspaceHygiene,
@@ -648,6 +715,7 @@ tasks.register("verifyProtocolUpdate") {
         ":protocol-auth:compileCommonMainKotlinMetadata",
         ":protocol-client:compileCommonMainKotlinMetadata",
         ":protocol-server:compileCommonMainKotlinMetadata",
+        ":compression:compileCommonMainKotlinMetadata",
         ":nbt:compileCommonMainKotlinMetadata",
     )
 }
@@ -660,6 +728,7 @@ val verifyWorldStorageUpdate = tasks.register("verifyWorldStorageUpdate") {
         worldStorageLayeredTest,
         worldStorageJvmTest,
         officialWorldStorageInteropTest,
+        ":compression:compileCommonMainKotlinMetadata",
         ":nbt:compileCommonMainKotlinMetadata",
         ":world-format:compileCommonMainKotlinMetadata",
         ":world-io:compileCommonMainKotlinMetadata",
@@ -674,6 +743,20 @@ tasks.register("verifyMinecraftLibrary") {
         "verifyProtocolUpdate",
         verifyWorldStorageUpdate,
     )
+}
+
+val test = tasks.register("test") {
+    group = "verification"
+    description =
+        "Run every module check plus the complete headless Minecraft library gate."
+    dependsOn(
+        subprojects.map { "${it.path}:check" },
+        "verifyMinecraftLibrary",
+    )
+}
+
+tasks.named("check") {
+    dependsOn(test)
 }
 
 subprojects {

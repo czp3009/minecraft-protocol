@@ -2,12 +2,13 @@
 
 ## Module boundaries
 
+- `compression` owns portable raw DEFLATE shared by network zlib and world-storage zlib/gzip wrappers.
 - `protocol-model` owns the format-neutral NBT value algebra because packet models also use it.
 - `nbt` owns binary NBT streams, named and unnamed roots, modified UTF, safety limits, and byte-array conveniences. Its
   primary API is
   `kotlinx.io.Source` and `kotlinx.io.Sink`.
-- `world-format` owns filesystem-independent Anvil coordinates, header and sector layout, compression dispatch,
-  external-chunk representation, and NBT composition.
+- `world-format` owns filesystem-independent Anvil coordinates, header and sector layout, compression dispatch and
+  wrapper checksums, external-chunk representation, and NBT composition.
 - `world-io` owns `kotlinx.io.files.FileSystem` and `SystemFileSystem`
   adapters, world paths, atomic file replacement, and region-directory operations.
 

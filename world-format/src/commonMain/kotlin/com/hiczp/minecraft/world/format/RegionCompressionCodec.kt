@@ -1,8 +1,7 @@
 package com.hiczp.minecraft.world.format
 
-import io.ktor.util.*
-import io.ktor.utils.io.*
-import kotlinx.io.readByteArray
+import com.hiczp.minecraft.compression.RawDeflate
+import com.hiczp.minecraft.compression.RawDeflateException
 
 interface RegionCompressionCodec {
     suspend fun compress(input: ByteArray): ByteArray
@@ -41,7 +40,17 @@ sealed class RegionCompressionCodecs(
         maximumOutputBytes: Int,
     ): ByteArray {
         require(maximumOutputBytes >= 0)
-        return codec(compression).decompress(input, maximumOutputBytes)
+        val output = codec(compression).decompress(
+            input,
+            maximumOutputBytes,
+        )
+        if (output.size > maximumOutputBytes) {
+            throw RegionFormatException(
+                "Decompressed chunk size ${output.size} exceeds configured " +
+                        "limit $maximumOutputBytes",
+            )
+        }
+        return output
     }
 
     private fun codec(compression: RegionCompression): RegionCompressionCodec =
@@ -313,47 +322,20 @@ private object Lz4BlockCodec : RegionCompressionCodec {
 
 private suspend fun compressRawDeflate(input: ByteArray): ByteArray =
     try {
-        DeflateEncoder
-            .encode(ByteReadChannel(input))
-            .readRemaining()
-            .readByteArray()
-    } catch (failure: Throwable) {
+        RawDeflate.encode(input)
+    } catch (failure: RawDeflateException) {
         throw RegionFormatException("Cannot deflate region chunk", failure)
     }
 
 private suspend fun decompressRawDeflate(
     input: ByteArray,
     maximumOutputBytes: Int,
-): ByteArray {
-    val decoded = DeflateEncoder.decode(ByteReadChannel(input))
-    val output = ByteArrayAccumulator()
-    val chunk = ByteArray(8_192)
+): ByteArray =
     try {
-        while (true) {
-            val read = decoded.readAvailable(chunk)
-            if (read < 0) break
-            if (read == 0) continue
-            if (output.size > maximumOutputBytes - read) {
-                decoded.cancel(
-                    RegionFormatException(
-                        "Inflated chunk exceeds configured limit " +
-                                maximumOutputBytes,
-                    ),
-                )
-                throw RegionFormatException(
-                    "Inflated chunk exceeds configured limit " +
-                            maximumOutputBytes,
-                )
-            }
-            output.write(chunk, 0, read)
-        }
-    } catch (failure: RegionFormatException) {
-        throw failure
-    } catch (failure: Throwable) {
+        RawDeflate.decode(input, maximumOutputBytes)
+    } catch (failure: RawDeflateException) {
         throw RegionFormatException("Invalid DEFLATE stream", failure)
     }
-    return output.toByteArray()
-}
 
 private fun decodeLz4Block(
     input: ByteArray,

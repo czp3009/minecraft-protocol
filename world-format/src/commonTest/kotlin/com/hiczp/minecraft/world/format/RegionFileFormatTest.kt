@@ -3,9 +3,11 @@ package com.hiczp.minecraft.world.format
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.protocol.model.type.NbtCompound
 import com.hiczp.minecraft.protocol.model.type.NbtInt
+import com.hiczp.minecraft.protocol.model.type.NbtList
 import com.hiczp.minecraft.protocol.model.type.NbtString
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.Buffer
+import kotlin.random.Random
 import kotlin.test.*
 
 class RegionFileFormatTest {
@@ -35,6 +37,39 @@ class RegionFileFormatTest {
             RegionPosition(-2, 1),
             ChunkPosition(-33, 63).region,
         )
+    }
+
+    @Test
+    fun everyLocalIndexAndRandomAbsoluteCoordinateRoundTrips() {
+        for (index in 0 until REGION_CHUNK_COUNT) {
+            assertEquals(index, LocalChunkPosition.fromIndex(index).index)
+        }
+
+        val random = Random(0x52454749)
+        val boundaries = listOf(
+            Int.MIN_VALUE,
+            Int.MIN_VALUE + 1,
+            -REGION_SIDE - 1,
+            -REGION_SIDE,
+            -1,
+            0,
+            1,
+            REGION_SIDE - 1,
+            REGION_SIDE,
+            REGION_SIDE + 1,
+            Int.MAX_VALUE - 1,
+            Int.MAX_VALUE,
+        )
+        val coordinates = boundaries + List(10_000) { random.nextInt() }
+        coordinates.forEachIndexed { index, x ->
+            val z = coordinates[coordinates.lastIndex - index]
+            val position = ChunkPosition(x, z)
+            assertEquals(
+                position,
+                position.region.chunk(position.local),
+                "Coordinate sample $index failed",
+            )
+        }
     }
 
     @Test
@@ -132,6 +167,101 @@ class RegionFileFormatTest {
     }
 
     @Test
+    fun externalizationUsesTheExactVanillaSectorThreshold() {
+        val inline = LocalChunkPosition(0, 0)
+        val external = LocalChunkPosition(1, 0)
+        val largestInlinePayload =
+            255 * REGION_SECTOR_BYTES - Int.SIZE_BYTES - 1
+        val firstExternalPayload = largestInlinePayload + 1
+        val encoded = RegionFileFormat.encodeToByteArray(
+            RegionFile(
+                linkedMapOf(
+                    inline to RegionChunk(
+                        RegionCompression.NONE,
+                        RegionChunkPayload.Inline(
+                            ByteArray(largestInlinePayload),
+                        ),
+                    ),
+                    external to RegionChunk(
+                        RegionCompression.NONE,
+                        RegionChunkPayload.Inline(
+                            ByteArray(firstExternalPayload),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val decoded = RegionFileFormat.decodeFromByteArray(encoded.bytes)
+
+        assertFalse(decoded[inline]!!.payload.isExternal)
+        assertTrue(decoded[external]!!.payload.isExternal)
+        assertEquals(setOf(external), encoded.externalChunks.keys)
+        assertEquals(
+            firstExternalPayload,
+            encoded.externalChunks.getValue(external).size,
+        )
+    }
+
+    @Test
+    fun deterministicallyRoundTripsRandomRegionStructures() {
+        val random = Random(0x4D434152)
+        val positions = (0 until REGION_CHUNK_COUNT)
+            .map(LocalChunkPosition::fromIndex)
+
+        repeat(100) { sample ->
+            val selected = positions
+                .shuffled(random)
+                .take(random.nextInt(33))
+                .sortedBy(LocalChunkPosition::index)
+            val sourceChunks = linkedMapOf<LocalChunkPosition, RegionChunk>()
+            selected.forEach { position ->
+                val bytes = ByteArray(random.nextInt(8_193)) {
+                    random.nextInt().toByte()
+                }
+                val payload = if (random.nextBoolean()) {
+                    RegionChunkPayload.Inline(bytes)
+                } else {
+                    RegionChunkPayload.External(bytes)
+                }
+                sourceChunks[position] = RegionChunk(
+                    compression = RegionCompression.entries[
+                        random.nextInt(RegionCompression.entries.size)
+                    ],
+                    payload = payload,
+                    timestamp = random.nextInt(),
+                )
+            }
+
+            val encoded = RegionFileFormat.encodeToByteArray(
+                RegionFile(sourceChunks),
+            )
+            val decoded = RegionFileFormat.decodeFromByteArray(encoded.bytes)
+
+            assertEquals(sourceChunks.keys, decoded.chunks.keys)
+            sourceChunks.forEach { (position, source) ->
+                val actual = decoded[position]!!
+                assertEquals(source.compression, actual.compression)
+                assertEquals(source.timestamp, actual.timestamp)
+                if (source.payload.isExternal) {
+                    assertTrue(actual.payload.isExternal)
+                    assertNull(actual.payload.compressedBytes)
+                    assertContentEquals(
+                        source.payload.compressedBytes,
+                        encoded.externalChunks.getValue(position),
+                    )
+                } else {
+                    assertFalse(actual.payload.isExternal)
+                    assertContentEquals(
+                        source.payload.compressedBytes,
+                        actual.payload.compressedBytes,
+                        "Random region sample $sample at $position failed",
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
     fun rejectsUnresolvedExternalPayloadWhenEncoding() {
         assertFailsWith<RegionFormatException> {
             RegionFileFormat.encodeToByteArray(
@@ -155,6 +285,18 @@ class RegionFileFormatTest {
             RegionFileFormat.decodeFromByteArray(beforeHeader)
         }
 
+        val zeroAllocation = ByteArray(3 * REGION_SECTOR_BYTES)
+        writeInt(zeroAllocation, 0, 2 shl 8)
+        assertFailsWith<RegionFormatException> {
+            RegionFileFormat.decodeFromByteArray(zeroAllocation)
+        }
+
+        val outsideFile = ByteArray(3 * REGION_SECTOR_BYTES)
+        writeInt(outsideFile, 0, (3 shl 8) or 1)
+        assertFailsWith<RegionFormatException> {
+            RegionFileFormat.decodeFromByteArray(outsideFile)
+        }
+
         val overlap = ByteArray(3 * REGION_SECTOR_BYTES)
         writeInt(overlap, 0, (2 shl 8) or 1)
         writeInt(overlap, 4, (2 shl 8) or 1)
@@ -169,6 +311,24 @@ class RegionFileFormatTest {
         writeInt(excessiveLength, 2 * REGION_SECTOR_BYTES, REGION_SECTOR_BYTES)
         assertFailsWith<RegionFormatException> {
             RegionFileFormat.decodeFromByteArray(excessiveLength)
+        }
+
+        for (length in listOf(0, -1)) {
+            assertFailsWith<RegionFormatException> {
+                RegionFileFormat.decodeFromByteArray(
+                    singleRecord(
+                        length = length,
+                        version = RegionCompression.NONE.id,
+                    ),
+                )
+            }
+        }
+
+        val truncatedRecord = ByteArray(REGION_HEADER_BYTES + Int.SIZE_BYTES)
+        writeInt(truncatedRecord, 0, (2 shl 8) or 1)
+        writeInt(truncatedRecord, REGION_HEADER_BYTES, 1)
+        assertFailsWith<RegionFormatException> {
+            RegionFileFormat.decodeFromByteArray(truncatedRecord)
         }
     }
 
@@ -211,6 +371,110 @@ class RegionFileFormatTest {
     }
 
     @Test
+    fun loadsChunkNbtFromRegionBytesAndStreamsWithoutFilesystem() = runTest {
+        val position = LocalChunkPosition(7, 11)
+        val document = NbtDocument(
+            rootName = "",
+            root = NbtCompound(
+                mapOf(
+                    "DataVersion" to NbtInt(4_000),
+                    "xPos" to NbtInt(-25),
+                    "zPos" to NbtInt(43),
+                    "Status" to NbtString("minecraft:full"),
+                    "sections" to NbtList(
+                        listOf(
+                            NbtCompound(
+                                mapOf(
+                                    "Y" to NbtInt(-4),
+                                    "block_states" to NbtCompound(emptyMap()),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val chunkNbt = RegionChunkNbtFormat()
+        val encodedRegion = RegionFileFormat.encodeToByteArray(
+            RegionFile(
+                mapOf(
+                    position to chunkNbt.encode(
+                        document = document,
+                        compression = RegionCompression.ZLIB,
+                        timestamp = 1_234_567,
+                    ),
+                ),
+            ),
+        )
+
+        assertTrue(encodedRegion.externalChunks.isEmpty())
+        val arrayLoaded = RegionFileFormat.decodeFromByteArray(encodedRegion.bytes)
+        assertEquals(1_234_567, arrayLoaded[position]?.timestamp)
+        assertEquals(document, chunkNbt.decode(arrayLoaded[position]!!))
+
+        val stream = Buffer().also { it.write(encodedRegion.bytes) }
+        val streamLoaded = RegionFileFormat.decode(stream)
+        assertTrue(stream.exhausted())
+        assertEquals(document, chunkNbt.decode(streamLoaded[position]!!))
+    }
+
+    @Test
+    fun decodesIndependentStoredFixedAndDynamicDeflateWrappers() = runTest {
+        val hello = "hello world".encodeToByteArray()
+        val dynamic =
+            "The quick brown fox jumps over the lazy dog. "
+                .repeat(100)
+                .encodeToByteArray()
+        val samples = listOf(
+            Triple(
+                RegionCompression.ZLIB,
+                hello,
+                hexBytes(
+                    "7801010b00f4ff68656c6c6f20776f726c641a0b045d",
+                ),
+            ),
+            Triple(
+                RegionCompression.ZLIB,
+                dynamic,
+                hexBytes(
+                    "789cedca470180301045412b5f016a628092d0d910084d3d88e0f8ce" +
+                            "33aef35a735f8faa929d8b825d1af21c37d9e193f68fa7f2b9d5585" +
+                            "bc891c96432994c2693c96432994c2693ffc82f1dc84f97",
+                ),
+            ),
+            Triple(
+                RegionCompression.GZIP,
+                hello,
+                hexBytes(
+                    "1f8b08000000000000ffcb48cdc9c95728cf2fca49010085114a0d" +
+                            "0b000000",
+                ),
+            ),
+            Triple(
+                RegionCompression.GZIP,
+                dynamic,
+                hexBytes(
+                    "1f8b08000000000000ffedca470180301045412b5f016a628092d0d9" +
+                            "10084d3d88e0f8ce33aef35a735f8faa929d8b825d1af21c37d9e19" +
+                            "3f68fa7f2b9d5585bc891c96432994c2693c96432994c2693ffc82f" +
+                            "38398b9b94110000",
+                ),
+            ),
+        )
+
+        samples.forEach { (compression, expected, encoded) ->
+            assertContentEquals(
+                expected,
+                RegionCompressionCodecs.decompress(
+                    compression,
+                    encoded,
+                    expected.size,
+                ),
+            )
+        }
+    }
+
+    @Test
     fun compressionRejectsCorruptionAndOutputLimit() = runTest {
         val input = ByteArray(10_000) { (it * 31).toByte() }
         for (compression in listOf(
@@ -240,6 +504,66 @@ class RegionFileFormatTest {
     }
 
     @Test
+    fun everyCompressionModeRoundTripsSizeAndLimitBoundaries() = runTest {
+        val random = Random(0x434F4D50)
+        val sizes = listOf(
+            0,
+            1,
+            15,
+            16,
+            255,
+            256,
+            8_191,
+            8_192,
+            65_535,
+            65_536,
+            65_537,
+            131_089,
+        )
+        val samples = sizes.map { size ->
+            ByteArray(size) { random.nextInt().toByte() }
+        } + List(12) {
+            ByteArray(random.nextInt(32_769)) {
+                random.nextInt().toByte()
+            }
+        }
+
+        for (compression in listOf(
+            RegionCompression.GZIP,
+            RegionCompression.ZLIB,
+            RegionCompression.NONE,
+            RegionCompression.LZ4,
+        )) {
+            samples.forEachIndexed { index, input ->
+                val encoded = RegionCompressionCodecs.compress(
+                    compression,
+                    input,
+                )
+                assertContentEquals(
+                    input,
+                    RegionCompressionCodecs.decompress(
+                        compression,
+                        encoded,
+                        input.size,
+                    ),
+                    "$compression sample $index failed",
+                )
+                if (input.isNotEmpty()) {
+                    assertFailsWith<RegionFormatException>(
+                        "$compression accepted output above its limit",
+                    ) {
+                        RegionCompressionCodecs.decompress(
+                            compression,
+                            encoded,
+                            input.size - 1,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     fun customCompressionIsInjectable() = runTest {
         val reversingCodec = object : RegionCompressionCodec {
             override suspend fun compress(input: ByteArray): ByteArray =
@@ -262,6 +586,9 @@ class RegionFileFormatTest {
             input,
             codecs.decompress(RegionCompression.CUSTOM, encoded, 3),
         )
+        assertFailsWith<RegionFormatException> {
+            codecs.decompress(RegionCompression.CUSTOM, encoded, 2)
+        }
     }
 
     @Test
@@ -479,6 +806,20 @@ class RegionFileFormatTest {
                 it[it.lastIndex] = (it.last().toInt() xor 1).toByte()
             },
         )
+        rejects(
+            RegionCompression.GZIP,
+            ByteArray(19) { 1 }.also {
+                gzip.copyInto(it, endIndex = 10)
+                it[3] = 0x08
+            },
+        )
+        rejects(
+            RegionCompression.GZIP,
+            ByteArray(19) { 1 }.also {
+                gzip.copyInto(it, endIndex = 10)
+                it[3] = 0x10
+            },
+        )
 
         rejects(
             RegionCompression.LZ4,
@@ -498,6 +839,91 @@ class RegionFileFormatTest {
             RegionCompression.LZ4,
             lz4 + byteArrayOf(0),
         )
+
+        fun malformedLz4(
+            compressedLength: Int,
+            originalLength: Int,
+        ): ByteArray = lz4.copyOf().also {
+            writeIntLittleEndian(it, 9, compressedLength)
+            writeIntLittleEndian(it, 13, originalLength)
+        }
+
+        rejects(RegionCompression.LZ4, malformedLz4(-1, input.size))
+        rejects(RegionCompression.LZ4, malformedLz4(input.size, -1))
+        rejects(RegionCompression.LZ4, malformedLz4(input.size, 65_537))
+        rejects(RegionCompression.LZ4, malformedLz4(0, input.size))
+        rejects(
+            RegionCompression.LZ4,
+            malformedLz4(input.size - 1, input.size),
+        )
+        rejects(
+            RegionCompression.LZ4,
+            RegionCompressionCodecs
+                .compress(RegionCompression.LZ4, byteArrayOf())
+                .also { writeIntLittleEndian(it, 17, 1) },
+        )
+    }
+
+    @Test
+    fun gzipDecoderAcceptsEveryOptionalHeaderField() = runTest {
+        val input = "optional-gzip-header\u0000".encodeToByteArray()
+        val ordinary = RegionCompressionCodecs.compress(
+            RegionCompression.GZIP,
+            input,
+        )
+        val header = ordinary.copyOfRange(0, 10).also {
+            it[3] = 0x1E
+        }
+        val optionalFields =
+            byteArrayOf(3, 0, 1, 2, 3) +
+                    "region.mca".encodeToByteArray() +
+                    byteArrayOf(0) +
+                    "generated by test".encodeToByteArray() +
+                    byteArrayOf(0)
+        val headerWithoutCrc = header + optionalFields
+        val headerCrc = crc32(headerWithoutCrc) and 0xFFFF
+        val withOptionalHeader =
+            headerWithoutCrc +
+                    byteArrayOf(
+                        headerCrc.toByte(),
+                        (headerCrc ushr 8).toByte(),
+                    ) +
+                    ordinary.copyOfRange(10, ordinary.size)
+
+        assertContentEquals(
+            input,
+            RegionCompressionCodecs.decompress(
+                RegionCompression.GZIP,
+                withOptionalHeader,
+                input.size,
+            ),
+        )
+    }
+
+    @Test
+    fun contentBackedRegionValuesUseContentEquality() {
+        val inlineA = RegionChunkPayload.Inline(byteArrayOf(1, 2))
+        val inlineB = RegionChunkPayload.Inline(byteArrayOf(1, 2))
+        val externalA = RegionChunkPayload.External(byteArrayOf(3, 4))
+        val externalB = RegionChunkPayload.External(byteArrayOf(3, 4))
+        assertEquals(inlineA, inlineB)
+        assertEquals(inlineA.hashCode(), inlineB.hashCode())
+        assertEquals(externalA, externalB)
+        assertEquals(externalA.hashCode(), externalB.hashCode())
+        assertNotEquals(externalA, RegionChunkPayload.External())
+
+        val position = LocalChunkPosition(1, 2)
+        val first = EncodedRegionFile(
+            bytes = byteArrayOf(5, 6),
+            externalChunks = mapOf(position to byteArrayOf(7, 8)),
+        )
+        val second = EncodedRegionFile(
+            bytes = byteArrayOf(5, 6),
+            externalChunks = mapOf(position to byteArrayOf(7, 8)),
+        )
+        assertEquals(first, second)
+        assertEquals(first.hashCode(), second.hashCode())
+        assertNotEquals(first, second.copy(bytes = byteArrayOf(5, 9)))
     }
 
     @Test
@@ -543,6 +969,15 @@ class RegionFileFormatTest {
             ),
         )
 
+    private fun hexBytes(value: String): ByteArray {
+        require(value.length % 2 == 0)
+        return ByteArray(value.length / 2) { index ->
+            value.substring(index * 2, index * 2 + 2)
+                .toInt(16)
+                .toByte()
+        }
+    }
+
     private fun singleRecord(length: Int, version: Int): ByteArray =
         ByteArray(3 * REGION_SECTOR_BYTES).also {
             writeInt(it, 0, (2 shl 8) or 1)
@@ -555,5 +990,31 @@ class RegionFileFormatTest {
         bytes[offset + 1] = (value ushr 16).toByte()
         bytes[offset + 2] = (value ushr 8).toByte()
         bytes[offset + 3] = value.toByte()
+    }
+
+    private fun writeIntLittleEndian(
+        bytes: ByteArray,
+        offset: Int,
+        value: Int,
+    ) {
+        bytes[offset] = value.toByte()
+        bytes[offset + 1] = (value ushr 8).toByte()
+        bytes[offset + 2] = (value ushr 16).toByte()
+        bytes[offset + 3] = (value ushr 24).toByte()
+    }
+
+    private fun crc32(bytes: ByteArray): Int {
+        var crc = -1
+        bytes.forEach { byte ->
+            crc = crc xor (byte.toInt() and 0xFF)
+            repeat(8) {
+                crc = if (crc and 1 != 0) {
+                    (crc ushr 1) xor 0xEDB88320.toInt()
+                } else {
+                    crc ushr 1
+                }
+            }
+        }
+        return crc.inv()
     }
 }

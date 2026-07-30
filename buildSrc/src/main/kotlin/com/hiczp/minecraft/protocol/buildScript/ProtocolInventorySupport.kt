@@ -195,5 +195,12 @@ internal fun kotlinSources(root: Path): List<Path> {
     }
 }
 
+internal fun protocolAuditSources(repository: Path): List<Path> =
+    listOf("protocol-model", "protocol-serialization")
+        .flatMap { module ->
+            kotlinSources(repository.resolve(module).resolve("src"))
+        }
+        .sorted()
+
 internal fun lineNumber(text: String, index: Int): Int =
     text.take(index).count { it == '\n' } + 1

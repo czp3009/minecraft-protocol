@@ -48,6 +48,28 @@ class AesCfb8CipherTest {
     }
 
     @Test
+    fun decryptionPreservesStateAcrossEmptyAndArbitraryChunks() {
+        val secret = ByteArray(16) { (it * 13).toByte() }
+        val plaintext = ByteArray(513) { (it * 29).toByte() }
+        val ciphertext = AesCfb8Cipher.encryptor(secret).process(plaintext)
+        val decryptor = AesCfb8Cipher.decryptor(secret)
+
+        assertContentEquals(byteArrayOf(), decryptor.process(byteArrayOf()))
+        val decoded = buildList {
+            addAll(decryptor.process(ciphertext.copyOfRange(0, 1)).asList())
+            addAll(decryptor.process(byteArrayOf()).asList())
+            addAll(decryptor.process(ciphertext.copyOfRange(1, 256)).asList())
+            addAll(
+                decryptor.process(
+                    ciphertext.copyOfRange(256, ciphertext.size),
+                ).asList(),
+            )
+        }.toByteArray()
+
+        assertContentEquals(plaintext, decoded)
+    }
+
+    @Test
     fun rejectsNonAes128KeysAndInitializationVectors() {
         assertFailsWith<IllegalArgumentException> {
             AesCfb8Cipher.encryptor(ByteArray(15))

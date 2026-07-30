@@ -5,8 +5,12 @@ description: Closed-loop workflow to update, implement, test, and audit this rep
 
 # Minecraft World Storage
 
-Bring `nbt`, `world-format`, and `world-io` to the selected Minecraft release and finish with an official-server
-generate, library rewrite, and official-server reload cycle.
+Bring `compression`, `nbt`, `world-format`, and `world-io` to the selected Minecraft release and finish with an
+official-server generate, library rewrite, and official-server reload cycle.
+
+This skill is optional guidance for an agent performing the same work a human performs through Gradle. It is not a
+project input. Never make Gradle, production code, or tests consume this skill, its references, or files generated only
+for the agent.
 
 ## Command interface
 
@@ -40,8 +44,7 @@ Reject malformed or extra arguments. Never mix sources from different target sna
    .\gradlew.bat prepareWorldStorageUpdate
    ```
 
-   A release refresh may change the JDK required to analyze the official server, so a single Gradle invocation is
-   invalid.
+   Preparation must be a new invocation so it is configured from the newly written target snapshot.
 5. Read the refreshed protocol snapshot, locate the exact official NBT, region-file, compression, dimension-path, and
    storage sources, then build a dependency-ordered work queue.
 6. In update mode, implement every queue item and keep iterating until all completion gates pass. Stop after reporting
@@ -104,14 +107,6 @@ Completion requires stream and byte-array NBT, every official region compression
 chunk/entity/POI containers, standalone NBT files, current dimension and player-storage paths, historical path access
 where the public API promises it, hostile-input limits, filesystem round trips, and the exact official server accepting
 files rewritten by this library. A final interop result never replaces the lower testing layers.
-
-## Analysis Java
-
-The official server's Java requirement belongs only to analysis and interoperability. It must not change the library
-bytecode target, Kotlin language version, Android target, or native/JS publication matrix.
-
-Do not install a JDK automatically. If the exact official server requires a newer JDK that is unavailable, ask the user
-to install it, then let Gradle discover it or pass its path through the documented analysis-Java property.
 
 ## Self-correction
 

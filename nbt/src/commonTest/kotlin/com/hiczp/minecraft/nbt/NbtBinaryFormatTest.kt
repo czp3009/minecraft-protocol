@@ -3,6 +3,7 @@ package com.hiczp.minecraft.nbt
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
+import kotlin.random.Random
 import kotlin.test.*
 
 class NbtBinaryFormatTest {
@@ -302,4 +303,175 @@ class NbtBinaryFormatTest {
             allocationLimited.decodeTagFromByteArray(declaredIntArray)
         }
     }
+
+    @Test
+    fun deterministicallyRoundTripsRandomNestedValues() {
+        val random = Random(0x4E4254)
+
+        repeat(250) {
+            val tag = randomTag(random, depth = 3)
+            val encoded = NbtBinaryFormat.encodeTagToByteArray(tag)
+            assertEquals(
+                tag,
+                NbtBinaryFormat.decodeTagFromByteArray(encoded),
+                "Random NBT sample $it failed",
+            )
+        }
+    }
+
+    @Test
+    fun everyTagKindRejectsEveryTruncatedPrefix() {
+        val samples = listOf(
+            NbtEnd,
+            NbtByte(Byte.MIN_VALUE),
+            NbtShort(Short.MIN_VALUE),
+            NbtInt(Int.MIN_VALUE),
+            NbtLong(Long.MIN_VALUE),
+            NbtFloat(Float.NEGATIVE_INFINITY),
+            NbtDouble(Double.POSITIVE_INFINITY),
+            NbtByteArray(byteArrayOf(1, 2)),
+            NbtString("\u0000😀"),
+            NbtList(listOf(NbtInt(1), NbtInt(2))),
+            NbtCompound(mapOf("value" to NbtLong(1))),
+            NbtIntArray(intArrayOf(1, 2)),
+            NbtLongArray(longArrayOf(1, 2)),
+        )
+
+        samples.forEach { sample ->
+            val encoded = NbtBinaryFormat.encodeTagToByteArray(sample)
+            for (endIndex in encoded.indices) {
+                assertFailsWith<NbtFormatException>(
+                    "Accepted ${sample::class.simpleName} prefix $endIndex/" +
+                            encoded.size,
+                ) {
+                    NbtBinaryFormat.decodeTagFromByteArray(
+                        encoded.copyOf(endIndex),
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun byteArrayCollectionAndExactEncodedLimitsAreIndependent() {
+        val byteFriendly = NbtBinaryFormat(
+            NbtBinaryFormatConfiguration(
+                maximumCollectionSize = 1,
+                maximumByteArraySize = 3,
+            ),
+        )
+        val bytes = NbtByteArray(byteArrayOf(1, 2, 3))
+        assertEquals(
+            bytes,
+            byteFriendly.decodeTagFromByteArray(
+                byteFriendly.encodeTagToByteArray(bytes),
+            ),
+        )
+        assertFailsWith<NbtFormatException> {
+            byteFriendly.encodeTagToByteArray(
+                NbtIntArray(intArrayOf(1, 2)),
+            )
+        }
+
+        val collectionFriendly = NbtBinaryFormat(
+            NbtBinaryFormatConfiguration(
+                maximumCollectionSize = 3,
+                maximumByteArraySize = 1,
+            ),
+        )
+        val list = NbtList(listOf(NbtInt(1), NbtInt(2), NbtInt(3)))
+        assertEquals(
+            list,
+            collectionFriendly.decodeTagFromByteArray(
+                collectionFriendly.encodeTagToByteArray(list),
+            ),
+        )
+        assertFailsWith<NbtFormatException> {
+            collectionFriendly.encodeTagToByteArray(
+                NbtByteArray(byteArrayOf(1, 2)),
+            )
+        }
+
+        val encoded = NbtBinaryFormat.encodeTagToByteArray(NbtInt(1))
+        val exact = NbtBinaryFormat(
+            NbtBinaryFormatConfiguration(
+                maximumEncodedBytes = encoded.size.toLong(),
+            ),
+        )
+        assertEquals(NbtInt(1), exact.decodeTagFromByteArray(encoded))
+        assertContentEquals(encoded, exact.encodeTagToByteArray(NbtInt(1)))
+    }
+
+    @Test
+    fun modifiedUtfAcceptsItsExactMaximumAndRejectsOneByteMore() {
+        val maximum = "a".repeat(65_535)
+        assertEquals(
+            NbtString(maximum),
+            NbtBinaryFormat.decodeTagFromByteArray(
+                NbtBinaryFormat.encodeTagToByteArray(NbtString(maximum)),
+            ),
+        )
+        assertFailsWith<NbtFormatException> {
+            NbtBinaryFormat.encodeTagToByteArray(
+                NbtString("$maximum\u0000"),
+            )
+        }
+    }
+
+    private fun randomTag(random: Random, depth: Int): NbtTag {
+        if (depth == 0) return randomLeaf(random, random.nextInt(10))
+        return when (random.nextInt(12)) {
+            0 -> {
+                val size = random.nextInt(5)
+                val leafKind = random.nextInt(10)
+                NbtList(List(size) { randomLeaf(random, leafKind) })
+            }
+
+            1, 2 -> NbtCompound(
+                buildMap {
+                    repeat(random.nextInt(5)) { index ->
+                        put("entry-$index\u0000", randomTag(random, depth - 1))
+                    }
+                },
+            )
+
+            else -> randomLeaf(random, random.nextInt(10))
+        }
+    }
+
+    private fun randomLeaf(random: Random, kind: Int): NbtTag =
+        when (kind) {
+            0 -> NbtByte(random.nextInt().toByte())
+            1 -> NbtShort(random.nextInt().toShort())
+            2 -> NbtInt(random.nextInt())
+            3 -> NbtLong(random.nextLong())
+            4 -> {
+                val value = random.nextDouble(-1.0e6, 1.0e6).toFloat()
+                NbtFloat(Float.fromBits(value.toBits()))
+            }
+
+            5 -> NbtDouble(random.nextDouble(-1.0e100, 1.0e100))
+            6 -> NbtByteArray(ByteArray(random.nextInt(9)) {
+                random.nextInt().toByte()
+            })
+
+            7 -> NbtString(
+                buildString {
+                    repeat(random.nextInt(9)) {
+                        append(
+                            listOf("a", "\u0000", "é", "😀")
+                                [random.nextInt(4)],
+                        )
+                    }
+                },
+            )
+
+            8 -> NbtIntArray(IntArray(random.nextInt(9)) {
+                random.nextInt()
+            })
+
+            else -> NbtLongArray(LongArray(random.nextInt(9)) {
+                random.nextLong()
+            })
+        }
 }

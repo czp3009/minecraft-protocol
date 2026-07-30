@@ -5,6 +5,7 @@ package com.hiczp.minecraft.protocol.serialization
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.wire.*
 import kotlinx.serialization.Serializable
+import kotlin.random.Random
 import kotlin.test.*
 
 class MinecraftFormatTest {
@@ -60,6 +61,71 @@ class MinecraftFormatTest {
             assertEquals(
                 VarLongValue(value),
                 MinecraftFormat.decodeFromByteArray(VarLongValue.serializer(), hex.hexBytes()),
+            )
+        }
+    }
+
+    @Test
+    fun `var numbers round trip deterministic boundary-heavy samples`() {
+        val random = Random(0x2602_0776)
+        val intValues = buildList {
+            addAll(
+                listOf(
+                    Int.MIN_VALUE,
+                    -16_384,
+                    -129,
+                    -128,
+                    -1,
+                    0,
+                    1,
+                    127,
+                    128,
+                    16_383,
+                    16_384,
+                    Int.MAX_VALUE,
+                ),
+            )
+            repeat(1_000) { add(random.nextInt()) }
+        }
+        intValues.forEach { value ->
+            val encoded = MinecraftFormat.encodeToByteArray(
+                VarIntValue.serializer(),
+                VarIntValue(value),
+            )
+            assertEquals(
+                VarIntValue(value),
+                MinecraftFormat.decodeFromByteArray(
+                    VarIntValue.serializer(),
+                    encoded,
+                ),
+            )
+        }
+
+        val longValues = buildList {
+            addAll(
+                listOf(
+                    Long.MIN_VALUE,
+                    Int.MIN_VALUE.toLong() - 1,
+                    -1L,
+                    0L,
+                    1L,
+                    Int.MAX_VALUE.toLong() + 1,
+                    Long.MAX_VALUE,
+                ),
+            )
+            repeat(1_000) { add(random.nextLong()) }
+        }
+        longValues.forEach { value ->
+            val encoded = MinecraftFormat.encodeToByteArray(
+                VarLongValue.serializer(),
+                VarLongValue(value),
+            )
+            assertEquals(
+                VarLongValue(value),
+                MinecraftFormat.decodeFromByteArray(
+                    VarLongValue.serializer(),
+                    encoded,
+                ),
             )
         }
     }
@@ -145,6 +211,106 @@ class MinecraftFormatTest {
             bytes,
             MinecraftFormat.decodeFromByteArray(ByteShapes.serializer(), byteEncoding),
         )
+    }
+
+    @Test
+    fun `byte array and general collection allocation limits are independent`() {
+        val byteFocused = MinecraftFormat(
+            MinecraftFormatConfiguration(
+                maximumCollectionSize = 1,
+                maximumByteArraySize = 3,
+            ),
+        )
+        val bytes = BytesValue(ByteString(byteArrayOf(1, 2, 3)))
+        val encodedBytes = byteArrayOf(3, 1, 2, 3)
+        assertContentEquals(
+            encodedBytes,
+            byteFocused.encodeToByteArray(BytesValue.serializer(), bytes),
+        )
+        assertEquals(
+            bytes,
+            byteFocused.decodeFromByteArray(
+                BytesValue.serializer(),
+                encodedBytes,
+            ),
+        )
+        assertFailsWith<MinecraftSerializationException> {
+            byteFocused.encodeToByteArray(
+                IntListValue.serializer(),
+                IntListValue(listOf(1, 2)),
+            )
+        }
+        assertFailsWith<MinecraftSerializationException> {
+            byteFocused.decodeFromByteArray(
+                IntListValue.serializer(),
+                "020000000100000002".hexBytes(),
+            )
+        }
+
+        val collectionFocused = MinecraftFormat(
+            MinecraftFormatConfiguration(
+                maximumCollectionSize = 3,
+                maximumByteArraySize = 2,
+            ),
+        )
+        assertFailsWith<MinecraftSerializationException> {
+            collectionFocused.encodeToByteArray(
+                BytesValue.serializer(),
+                bytes,
+            )
+        }
+        assertFailsWith<MinecraftSerializationException> {
+            collectionFocused.decodeFromByteArray(
+                BytesValue.serializer(),
+                encodedBytes,
+            )
+        }
+        val values = IntListValue(listOf(1, 2, 3))
+        assertEquals(
+            values,
+            collectionFocused.decodeFromByteArray(
+                IntListValue.serializer(),
+                collectionFocused.encodeToByteArray(
+                    IntListValue.serializer(),
+                    values,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `format configuration and fixed byte widths reject every invalid boundary`() {
+        assertFailsWith<IllegalArgumentException> {
+            MinecraftFormatConfiguration(maximumCollectionSize = -1)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            MinecraftFormatConfiguration(maximumByteArraySize = -1)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            MinecraftFormatConfiguration(maximumNbtDepth = -1)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            MinecraftFormatConfiguration(chunkSectionCount = -1)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            MinecraftFormatConfiguration(blockStateRegistrySize = 0)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            MinecraftFormatConfiguration(biomeRegistrySize = 0)
+        }
+
+        assertFailsWith<MinecraftSerializationException> {
+            MinecraftFormat.encodeToByteArray(
+                FixedBytes.serializer(),
+                FixedBytes(ByteString(byteArrayOf(1))),
+            )
+        }
+        assertFailsWith<MinecraftSerializationException> {
+            MinecraftFormat.decodeFromByteArray(
+                FixedBytes.serializer(),
+                byteArrayOf(1),
+            )
+        }
     }
 
     @Test
@@ -333,6 +499,17 @@ class MinecraftFormatTest {
                 "8000".hexBytes(),
             )
         }
+
+        val permissive = MinecraftFormat(
+            MinecraftFormatConfiguration(strictBooleans = false),
+        )
+        assertEquals(
+            NullableValue(7),
+            permissive.decodeFromByteArray(
+                NullableValue.serializer(),
+                "0200000007".hexBytes(),
+            ),
+        )
     }
 }
 
@@ -368,6 +545,18 @@ private data class ByteShapes(
     val prefixed: ByteString,
     @FixedLength(2) val fixed: ByteString,
     @RemainingBytes val remaining: ByteString,
+)
+
+@Serializable
+private data class BytesValue(val value: ByteString)
+
+@Serializable
+private data class IntListValue(val values: List<Int>)
+
+@Serializable
+private data class FixedBytes(
+    @FixedLength(2)
+    val value: ByteString,
 )
 
 @Serializable

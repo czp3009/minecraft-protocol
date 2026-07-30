@@ -1,48 +1,53 @@
 # minecraft-protocol
 
-An idiomatic Kotlin Multiplatform implementation of the Minecraft Java Edition protocol. It includes
-kotlinx.serialization-based packet models and codecs, official-derived Configuration data, Ktor transport, typed
-sessions, authentication helpers, client/server connection orchestration, binary NBT, and Anvil world-file support.
+`minecraft-protocol` is an idiomatic Kotlin Multiplatform library for the Minecraft Java Edition protocol and world
+storage formats. It provides kotlinx.serialization packet models and codecs, typed vanilla Configuration data, Ktor
+transport and sessions, authentication helpers, client/server connection orchestration, binary NBT, and Anvil world I/O.
 
-The implemented target is exposed by `MinecraftProtocol` in
-`protocol-model`. Version-dependent source evidence is stored separately in
-`protocol-specification`.
+The implemented release and protocol number are exposed by `MinecraftProtocol` in `protocol-model`. Checked-in
+version-dependent evidence lives in `protocol-specification`.
+
+This is infrastructure for Minecraft applications, not a complete gameplay server. `protocol-server` can admit an
+offline client through Play and project a finite initial set of chunks and entities; authoritative worlds, ticking, game
+rules, persistence policy, and gameplay remain application concerns.
+
+## Requirements
+
+- JDK 25. Gradle and every JVM/Android compilation target use Java 25.
+- An Android SDK configured through the usual Gradle mechanisms, including `local.properties`, when running the full
+  multiplatform gate.
+- Network access on the first exhaustive verification run so Gradle can acquire normal build dependencies and
+  hash-verified Minecraft reference artifacts.
+
+Use the checked-in wrapper; a separate Gradle installation is unnecessary. Gradle provisions the Node/Yarn and Kotlin
+Native tooling used by the non-JVM targets. The checked-in daemon JVM criteria selects a discoverable JDK 25, so
+`JAVA_HOME` does not need to point at it explicitly. JS and Wasm tests run with Gradle-provisioned Node/D8 and do not
+require a machine-installed browser. The official-client E2E does not require Minecraft, a launcher, an account, a
+display server, or a manually started process.
 
 ## Modules
 
-| Module                   | Purpose                                                                                                                    |
-|--------------------------|----------------------------------------------------------------------------------------------------------------------------|
-| `nbt`                    | Named and unnamed binary NBT over `kotlinx.io` streams, with modified UTF and hostile-input limits                         |
-| `protocol-model`         | Packet payloads, shared protocol values, sealed variants, and logical serializers                                          |
-| `protocol-serialization` | `MinecraftFormat`, physical wire rules, and packet lookup by state, direction, and ID                                      |
-| `protocol-vanilla-data`  | Typed block/entity catalogues, Known Packs, feature flags, registries, and tags captured from the matching official server |
-| `protocol-transport`     | Ktor sockets, VarInt21 framing, zlib compression, and AES/CFB8 encryption                                                  |
-| `protocol-session`       | Typed packet dispatch, direction checks, and protocol state transitions                                                    |
-| `protocol-auth`          | Offline identities, session-service calls, server hashes, and cryptography abstractions                                    |
-| `protocol-client`        | Status, Login/Configuration, Play-context, and direct Ktor socket client API                                               |
-| `protocol-server`        | Connection orchestration plus finite initial chunk/entity projection with direct Ktor socket access                        |
-| `world-format`           | Filesystem-independent Anvil regions, vanilla compression modes, external chunks, and NBT composition                      |
-| `world-io`               | `kotlinx.io.files` paths, standalone NBT files, and atomic chunk/entity/POI region storage                                 |
+| Module                   | Purpose |
+|--------------------------|---|
+| `compression`            | Portable raw DEFLATE shared by network zlib and world-storage zlib/gzip |
+| `nbt`                    | Named and unnamed binary NBT over `kotlinx.io`, including modified UTF and hostile-input limits |
+| `protocol-model`         | Packet payloads, shared values, sealed variants, and logical serializers |
+| `protocol-serialization` | `MinecraftFormat`, physical wire rules, and packet lookup by state/direction/ID |
+| `protocol-vanilla-data`  | Typed Known Packs, feature flags, registries, tags, and finite vanilla catalogues |
+| `protocol-transport`     | Ktor sockets, VarInt21 framing, zlib compression, and AES/CFB8 encryption |
+| `protocol-session`       | Typed packet dispatch, direction checks, and protocol-state transitions |
+| `protocol-auth`          | Offline identities, session-service calls, server hashes, and cryptography |
+| `protocol-client`        | Status, Login/Configuration, Play context, and direct Ktor client API |
+| `protocol-server`        | Connection orchestration and finite initial chunk/entity projection |
+| `world-format`           | Filesystem-independent Anvil regions, compression modes, external chunks, and NBT composition |
+| `world-io`               | World paths, standalone NBT, and atomic chunk/entity/POI region storage |
 
-`protocol-vanilla-data` is compiled Kotlin protocol data rather than a runtime Datapack or gameplay implementation. The
-server module can project an initial flat chunk set and entity snapshots into Play packets, then returns the live
-session to its caller. Authoritative worlds, ticking, persistence, and gameplay remain application concerns.
+`nbt` and `world-format` expose `Source`/`Sink` APIs on stream-capable targets. `world-io` targets JVM, Android, and
+Native platforms with filesystem support; browser-like consumers use the stream modules directly. Portable JS/Wasm tests
+load complete in-memory region byte arrays and streams through compression into chunk NBT under Node/D8. They do not
+assume browser filesystem or listening-server support.
 
-`nbt` and `world-format` expose `Source`/`Sink` APIs on stream-capable targets.
-`world-io` is published for JVM, Android, and Native targets with a supported filesystem. Browser-like JS consumers use
-the stream modules directly.
-
-## Source authority
-
-The matching official server JAR is the primary source and behavioral authority. The Minecraft Wiki is the secondary
-descriptive source; exact-version MCProtocolLib and Minestom are auxiliary references in that order. Target discovery
-may use the Wiki's current stable release, but every implemented wire rule is checked against the matching official JAR.
-
-Nullability is determined from official codecs, constructors, access paths, annotations, optionals, and sentinels first.
-If official code is inconclusive, the fallback order is Wiki, MCProtocolLib, then Minestom. Unresolved values remain
-nullable and carry `@UnknownNullability`.
-
-## Encoding a packet payload
+## Encoding packet payloads
 
 ```kotlin
 val encoded = MinecraftPacketRegistry.encodePayload(packet)
@@ -55,56 +60,118 @@ val decoded = MinecraftPacketRegistry.decodePayload(
 )
 ```
 
-Use a configured `MinecraftFormat` when decoding values that depend on active connection context, such as chunk section
-counts.
+Use a configured `MinecraftFormat` for values whose physical representation depends on negotiated connection context,
+such as chunk section counts. The client and server module READMEs contain their higher-level connection examples.
+
+## Integrating `server.properties`
+
+This library deliberately does not read or own `server.properties`: a complete server may use that file, another
+configuration format, or dynamic administration. It does expose the protocol and storage controls needed to map the
+official settings without patching library internals:
+
+- `MinecraftServer.bind` controls the Minecraft bind address and port.
+- `MinecraftServerConfiguration` controls Status availability, transfer admission, proxy-aware session verification,
+  authentication mode, compression, player-count metadata, distances, MOTD, hardcore, game mode, difficulty, and the
+  secure-chat claim.
+- `MinecraftServerHandler` controls status JSON, profile admission, per-player Play Login, and optional Configuration
+  packets such as resource packs, server links, cookies, custom payloads, and a code of conduct. Client responses before
+  Finish Configuration are delivered back to the handler; ordered `configurationTasks` can hold Play entry until a code
+  of conduct or required resource pack reaches the application's accepted terminal state.
+- `MinecraftInitialWorld` makes difficulty, lock state, player abilities, chunks, and entities explicit. In particular,
+  `allow-flight` is an application-side movement policy; it must not be confused with granting flight abilities.
+- `MinecraftWorldPaths` accepts an arbitrary world root, while `WorldRegionStore.writeChunkNbt` accepts the region
+  compression mode.
+
+The consuming full server still owns gameplay and operations settings: whitelist and operator data, spam/idle/rate
+limits, permissions, world generation, ticking and watchdogs, entity tracking, spawn protection, text filtering, Query,
+RCON, JMX, and the JSON-RPC management service. These are not silently emulated, but the library does not install fixed
+values that prevent the application from implementing them.
+
+The exhaustive, version-bound decision for every property generated by the matching official server is checked in at
+[
+`protocol-specification/server-properties-compatibility.json`](protocol-specification/server-properties-compatibility.json).
+`checkOfficialServerPropertiesCompatibility` starts the verified official server in settings-initialization mode under
+`build/`, regenerates the inventory, and fails on any unreviewed property or default-value drift. For example, a
+server-properties adapter would map a negative `network-compression-threshold` to `compressionThreshold = null`; all
+non-negative values map directly. Set `enforcesSecureChat` only after the consuming server really validates secure
+profiles and signed chat.
 
 ## Verification
 
-```powershell
-.\gradlew.bat buildLogicTest
-.\gradlew.bat protocolJvmTest
-.\gradlew.bat protocolLayeredTest
-.\gradlew.bat checkOfficialNetworkRegistries
-.\gradlew.bat checkOfficialCodecConformance
-.\gradlew.bat officialServerInteropTest
-.\gradlew.bat verifyProtocolUpdate
-.\gradlew.bat verifyWorldStorageUpdate
-.\gradlew.bat verifyMinecraftLibrary
-.\gradlew.bat headlessOfficialClientToServerEndToEndTest
-.\gradlew.bat officialClientToServerEndToEndTest
+From the repository root, the single canonical command is:
+
+```shell
+./gradlew test
 ```
 
-`buildLogicTest` verifies the deterministic parsers, hashes, atomic writes, and path checks used by `buildSrc`.
-`protocolJvmTest` and `worldStorageJvmTest` include it. The JVM and layered suites are display-free and do not read a
-Minecraft installation, launcher profile, account, or machine-specific path.
+On Windows use `.\gradlew.bat test`. It runs every module's multiplatform `check` task and the complete deterministic
+Minecraft library gate. That includes:
 
-The official-server gate exercises both low-level codecs and the production Ktor client through Status, Login,
-Configuration, compression, and Play. The headless official-client gate downloads and verifies the matching client,
-libraries, natives, assets, and a pinned HeadlessMC launcher under `build/`. It launches an isolated offline profile
-without a display server, connects it to the production server, and requires chunk/entity synchronization, teleportation
-and chunk-batch acknowledgements, client ticks, and a Play KeepAlive round trip. `verifyProtocolUpdate` includes this
-headless gate. It does not read a launcher installation or use Minecraft account credentials.
+- shared, JVM, Android host, JS, Wasm, Linux Native, and host-supported native compilation/tests;
+- model invariants, primitive/composite codecs, golden payloads, malformed input, and registry-wide round trips;
+- framing, partial I/O, compression, encryption, sessions, authentication, and production Ktor sockets;
+- finite-registry, nullability, source-freshness, official packet-codec, and exhaustive `server.properties`
+  compatibility audits;
+- production-client interoperability with the matching official server;
+- a matching official client against the production server, headlessly and in offline mode;
+- official-server world generation, library decode/rewrite, and official-server reload.
 
-`officialClientToServerEndToEndTest` runs the same scenario by launching the desktop client directly. It is an
-additional graphical-environment acceptance test and is not required by the headless CI aggregate.
+The official-client test downloads the exact Mojang client, libraries, natives, and assets into `build/`, validates the
+published sizes and hashes, and launches it through a pinned SHA-256-verified HeadlessMC adapter. It verifies
+Status/Login/Configuration/Play, initial chunks and entities, teleport/chunk-batch/player-loaded acknowledgements,
+client ticks and keepalives, broad clientbound Play packet families, cookies and pings, Respawn followed by another
+world projection, a Play-to-Configuration round trip, and a third Play/world synchronization. Its JSON report records
+the exact live packet types and separates business probes from liveness-barrier traffic. All services are started and
+stopped by Gradle.
 
-The world-storage interoperability gate asks the exact official server to generate a world, rewrites its standalone NBT
-and region containers through this library, then requires the official server to load and save those files.
+The first run is intentionally heavier; verified artifacts are reused from `build/`. The optional
+`officialClientToServerEndToEndTest` launches the desktop client directly and is not part of `test`, because it requires
+a graphical environment.
 
-Override the prepared client directory or analysis Java for diagnostics:
+Useful focused commands while developing are:
 
-```powershell
-.\gradlew.bat officialClientToServerEndToEndTest `
-  "-PminecraftClientDirectory=C:\path\to\.minecraft" `
-  "-PminecraftClientJavaExecutable=C:\path\to\java.exe"
+```shell
+./gradlew buildLogicTest
+./gradlew protocolLayeredTest
+./gradlew protocolJvmTest
+./gradlew worldStorageLayeredTest
+./gradlew headlessOfficialClientToServerEndToEndTest
+./gradlew officialServerInteropTest
+./gradlew officialWorldStorageInteropTest
+./gradlew verifyProtocolUpdate
+./gradlew verifyWorldStorageUpdate
+./gradlew verifyMinecraftLibrary
 ```
 
-By default, all official server/client runtime files remain under Gradle's
-`build` directory.
+All generated servers, clients, worlds, logs, reports, downloads, and process working directories remain under
+`build/`.
 
-## Updating the protocol
+## Source authority
 
-The index at `.agents/skills/README.md` describes the network, world-storage, and full-library closed-loop update
-skills. They discover the latest stable Wiki target by default and accept an explicit Minecraft release or protocol
-target. Deterministic acquisition, inventory, source indexing, registry generation, audits, and tests are exposed as
-Gradle tasks.
+Wire and storage behavior follows the matching official server JAR. The revision-matched Minecraft Wiki is the secondary
+descriptive source; exact-version MCProtocolLib and Minestom are auxiliary references in that order. Nullability follows
+the same evidence order, with unresolved values kept nullable and marked `@UnknownNullability`.
+
+Refresh and verification tasks derive changing versions, IDs, inventories, hashes, and evidence rather than embedding
+them in documentation.
+
+## Updating for a Minecraft release
+
+The actual development workflow is the source tree plus Gradle. Start with the refresh/preparation task for the area,
+make the required code and evidence changes, and finish with the corresponding aggregate:
+
+```shell
+./gradlew refreshProtocolSpecification
+./gradlew prepareProtocolUpdate
+./gradlew verifyProtocolUpdate
+
+./gradlew prepareWorldStorageUpdate
+./gradlew verifyWorldStorageUpdate
+```
+
+Run refresh and preparation as separate invocations so preparation consumes the newly written target snapshot. A pinned
+target can be passed to refresh as `-PprotocolTarget=<release>` or `-PprotocolTarget=protocol:<id>`.
+
+The playbooks indexed in `.agents/skills/README.md` are optional instructions for coding agents performing the same
+human development work. They may call Gradle, but Gradle never reads those skills or their scratch output; deleting the
+skill directory does not change the project.

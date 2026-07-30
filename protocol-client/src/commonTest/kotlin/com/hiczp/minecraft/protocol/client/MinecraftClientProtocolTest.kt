@@ -126,6 +126,79 @@ class MinecraftClientProtocolTest {
         server.await()
     }
 
+    @Test
+    fun derivesPlayFormatFromTheSynchronizedCustomRegistries() = runTest {
+        val (clientSession, serverSession) = sessionPair()
+        val client = MinecraftClientProtocol(
+            clientSession,
+            "localhost",
+            25_565,
+        )
+        val identity = MinecraftOfflineIdentity("RegistryProbe")
+        val dimension = Identifier("test:world")
+        val dimensionTypeRegistry = RegistryDataPacket(
+            registryId = Identifier("dimension_type"),
+            entries = listOf(
+                RegistryEntry(
+                    id = Identifier("test:short_dimension"),
+                    data = NbtCompound(
+                        mapOf(
+                            "min_y" to NbtInt(0),
+                            "height" to NbtInt(32),
+                            "has_skylight" to NbtByte(0),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val biomeRegistry = RegistryDataPacket(
+            registryId = Identifier("worldgen/biome"),
+            entries = listOf(
+                RegistryEntry(Identifier("test:first"), null),
+                RegistryEntry(Identifier("test:second"), null),
+            ),
+        )
+        val playLogin = playLogin(
+            dimensionTypeId = 0,
+            dimension = dimension,
+        )
+        val server = async {
+            assertIs<HandshakePacket>(serverSession.receive())
+            assertIs<LoginStartPacket>(serverSession.receive())
+            serverSession.send(
+                LoginSuccessPacket(
+                    GameProfile(identity.id, identity.name, emptyList()),
+                    Uuid(1, 2),
+                ),
+            )
+            assertEquals(LoginAcknowledgedPacket, serverSession.receive())
+            assertIs<ConfigurationClientInformationPacket>(
+                serverSession.receive(),
+            )
+            serverSession.send(dimensionTypeRegistry)
+            serverSession.send(biomeRegistry)
+            serverSession.send(FinishConfigurationPacket)
+            assertEquals(
+                AcknowledgeFinishConfigurationPacket,
+                serverSession.receive(),
+            )
+            serverSession.send(playLogin)
+        }
+
+        val result = client.login(identity)
+
+        assertEquals(playLogin, result.playLogin)
+        assertEquals(
+            2,
+            clientSession.format.configuration.chunkSectionCount,
+        )
+        assertEquals(
+            2,
+            clientSession.format.configuration.biomeRegistrySize,
+        )
+        server.await()
+    }
+
     private fun sessionPair(): Pair<MinecraftSession, MinecraftSession> {
         val clientToServer = ByteChannel()
         val serverToClient = ByteChannel()
@@ -138,12 +211,14 @@ class MinecraftClientProtocolTest {
         )
     }
 
-    private fun playLogin(): PlayLoginPacket {
-        val overworld = Identifier("overworld")
+    private fun playLogin(
+        dimensionTypeId: Int = 0,
+        dimension: Identifier = Identifier("overworld"),
+    ): PlayLoginPacket {
         return PlayLoginPacket(
             playerId = 1,
             hardcore = false,
-            levels = setOf(overworld),
+            levels = setOf(dimension),
             maxPlayers = 20,
             chunkRadius = 8,
             simulationDistance = 8,
@@ -151,8 +226,8 @@ class MinecraftClientProtocolTest {
             showDeathScreen = true,
             limitedCrafting = false,
             spawnInfo = CommonPlayerSpawnInfo(
-                dimensionTypeId = 0,
-                dimension = overworld,
+                dimensionTypeId = dimensionTypeId,
+                dimension = dimension,
                 seed = 0,
                 gameMode = GameMode.CREATIVE,
                 previousGameMode = null,

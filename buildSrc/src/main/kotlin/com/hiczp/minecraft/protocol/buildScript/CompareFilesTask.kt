@@ -2,10 +2,8 @@ package com.hiczp.minecraft.protocol.buildScript
 
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.RegularFileProperty
-import org.gradle.api.tasks.InputFile
-import org.gradle.api.tasks.PathSensitive
-import org.gradle.api.tasks.PathSensitivity
-import org.gradle.api.tasks.TaskAction
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.*
 import org.gradle.work.DisableCachingByDefault
 
 @DisableCachingByDefault(
@@ -20,12 +18,37 @@ abstract class CompareFilesTask : DefaultTask() {
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val actualFile: RegularFileProperty
 
+    @get:Input
+    abstract val compareJsonSemantically: Property<Boolean>
+
+    init {
+        compareJsonSemantically.convention(false)
+    }
+
     @TaskAction
     fun compare() {
         val expected = expectedFile.get().asFile
         val actual = actualFile.get().asFile
-        check(expected.readBytes().contentEquals(actual.readBytes())) {
+        check(
+            matchingFileContents(
+                expected = expected.readBytes(),
+                actual = actual.readBytes(),
+                compareJsonSemantically = compareJsonSemantically.get(),
+            ),
+        ) {
             "$actual differs from $expected"
         }
     }
 }
+
+internal fun matchingFileContents(
+    expected: ByteArray,
+    actual: ByteArray,
+    compareJsonSemantically: Boolean,
+): Boolean =
+    if (compareJsonSemantically) {
+        expected.decodeJsonObject("expected JSON") ==
+                actual.decodeJsonObject("actual JSON")
+    } else {
+        expected.contentEquals(actual)
+    }

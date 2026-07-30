@@ -10,10 +10,13 @@ JAR. Use the Minecraft Wiki as the secondary descriptive source and finish with 
 interoperability run. The project server can project a finite initial set of chunks and entities, then leaves worlds,
 ticking, persistence, and gameplay to the consuming application.
 
+This skill is an optional agent playbook. It may call the project's normal Gradle tasks, but it is not itself a build
+input. Never make Gradle, production code, or tests read this skill, its references, or skill-generated scratch.
+
 ## Scope
 
-This skill owns the `protocol-*` modules and their shared packet-NBT use of
-`nbt`. The `minecraft-world-storage` skill owns named NBT files, Anvil region containers, dimension paths, and save
+This skill owns the `protocol-*` modules and their shared use of `compression` plus packet NBT from `nbt`. The
+`minecraft-world-storage` skill owns named NBT files, Anvil region containers, dimension paths, and save
 interoperability. Use
 `minecraft-library-update` when a release update must close both workflows.
 
@@ -38,8 +41,8 @@ Pass a supplied target through the deterministic refresh task:
 .\gradlew.bat refreshProtocolSpecification "-PprotocolTarget=<target>"
 ```
 
-The target applies to the whole invocation. After refresh, derive the official JAR, analysis JDK, auxiliary versions,
-model inventory, and all evidence from the resulting snapshot; never mix it with latest-version artifacts.
+The target applies to the whole invocation. After refresh, derive the official JAR, auxiliary versions, model inventory,
+and all evidence from the resulting snapshot; never mix it with latest-version artifacts.
 
 ## Default invocation contract
 
@@ -73,8 +76,7 @@ explanation, or status report. Honor an explicitly requested pinned version inst
    .\gradlew.bat prepareProtocolUpdate
    ```
 
-   The separate invocations are required because the first may change the Minecraft version and therefore the Java
-   version needed only for analysis.
+   The separate invocation is required so preparation configures itself from the newly written target snapshot.
 5. Read:
     - `protocol-specification/wiki-protocol-snapshot.json`;
     - `protocol-specification/official-packet-audit.json`;
@@ -112,7 +114,6 @@ Use Gradle tasks for every operation that can be made deterministic:
 - caching every linked protocol subpage at the selected packet-page revision timestamp;
 - parsing version numbers and packet-list rows;
 - downloading and hashing official artifacts;
-- selecting the analysis JDK;
 - running the vanilla data generator;
 - comparing Wiki IDs/names with `reports/packets.json`;
 - unpacking, decompiling, hashing, and indexing official packet classes;
@@ -132,8 +133,8 @@ Use Gradle tasks for every operation that can be made deterministic:
 - compilation, tests, and final verification.
 
 Changing protocol facts must be derived and written by deterministic tasks. This includes target identifiers,
-inventories, analysis-Java requirements, source revisions, normalization cases, codec exceptions, counts, and hashes. Do
-not copy those values into this skill or its Markdown references.
+inventories, source revisions, normalization cases, codec exceptions, counts, and hashes. Do not copy those values into
+this skill or its Markdown references.
 
 Use language-model judgment only for information that is not reliably machine-structured:
 
@@ -247,19 +248,9 @@ no display server is required.
 environment exists. Do not use account tokens for offline-mode testing and do not copy launcher credentials into
 commands, logs, or reports.
 
-## Analysis Java is not the project Java
-
-Read the official version metadata before running the server or decompiler. The required Java version is an
-analysis-only toolchain. It must not change the library's JVM bytecode target, Android target, Kotlin language level, or
-other KMP targets.
-
-Do not automatically install a newer JDK. If the matching official JAR requires a Java version that is not installed,
-pause and ask the user to install that JDK. After installation, let Gradle detect it or use
-`-Dorg.gradle.java.installations.paths=<jdk-home>`.
-
 ## Self-correction
 
-Treat this skill, its scripts, and its Gradle tasks as production code:
+Treat project code/tasks as production code and these optional instructions as maintained development guidance:
 
 1. when execution exposes a repeatable omission, false positive, stale assumption, or unstable manual step, stop the
    affected workflow;

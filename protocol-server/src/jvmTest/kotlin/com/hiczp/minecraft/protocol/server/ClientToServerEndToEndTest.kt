@@ -4,6 +4,7 @@ import com.hiczp.minecraft.protocol.client.MinecraftClientConnection
 import com.hiczp.minecraft.protocol.client.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
+import com.hiczp.minecraft.protocol.model.type.Difficulty
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.Uuid
 import com.hiczp.minecraft.protocol.model.type.Vector3d
@@ -16,6 +17,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import com.hiczp.minecraft.protocol.model.type.GameMode as PlayerGameMode
 
 class ClientToServerEndToEndTest {
     @Test
@@ -27,6 +29,9 @@ class ClientToServerEndToEndTest {
                 port = 0,
                 configuration = MinecraftServerConfiguration(
                     compressionThreshold = 64,
+                    gameMode = PlayerGameMode.CREATIVE,
+                    difficulty = Difficulty.HARD,
+                    difficultyLocked = true,
                 ),
             ).use { server ->
                 val statusServer = async(Dispatchers.IO) {
@@ -116,6 +121,8 @@ class ClientToServerEndToEndTest {
                     var chunkReceived = false
                     var entityReceived = false
                     var keepAliveReceived = false
+                    var difficultyReceived = false
+                    var abilitiesReceived = false
                     withTimeout(10_000) {
                         while (!keepAliveReceived) {
                             when (val packet = client.session.receive()) {
@@ -140,6 +147,18 @@ class ClientToServerEndToEndTest {
                                     entityReceived =
                                         packet.typeId == testPig().typeId
 
+                                is ClientboundChangeDifficultyPacket ->
+                                    difficultyReceived =
+                                        packet.difficulty == Difficulty.HARD &&
+                                                packet.locked
+
+                                is ClientboundPlayerAbilitiesPacket ->
+                                    abilitiesReceived =
+                                        packet.abilities ==
+                                                vanillaPlayerAbilities(
+                                                    PlayerGameMode.CREATIVE,
+                                                )
+
                                 is PlayClientboundKeepAlivePacket -> {
                                     assertEquals(KEEP_ALIVE_ID, packet.id)
                                     client.session.send(
@@ -158,6 +177,8 @@ class ClientToServerEndToEndTest {
                     val serverResult = playServer.await()
                     assertTrue(chunkReceived)
                     assertTrue(entityReceived)
+                    assertTrue(difficultyReceived)
+                    assertTrue(abilitiesReceived)
                     assertEquals(
                         1,
                         serverResult.synchronization.chunkCount,
@@ -174,6 +195,10 @@ class ClientToServerEndToEndTest {
                     assertEquals(
                         clientResult.playLogin,
                         serverResult.negotiation.login,
+                    )
+                    assertEquals(
+                        PlayerGameMode.CREATIVE,
+                        clientResult.playLogin.spawnInfo.gameMode,
                     )
                     assertEquals(
                         server.configuration.protocolData

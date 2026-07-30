@@ -13,6 +13,7 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            implementation(project(":compression"))
             api(libs.ktor.network)
             implementation(libs.ktor.utils)
             implementation(libs.kotlinx.coroutines.core)

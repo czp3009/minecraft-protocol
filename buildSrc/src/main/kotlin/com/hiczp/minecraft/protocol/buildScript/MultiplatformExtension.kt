@@ -14,8 +14,9 @@ inline fun KotlinMultiplatformExtension.configureAllTargets(
     includeWasmWasi: Boolean = true,
     includeJs: Boolean = true,
     includeWasmJs: Boolean = true,
+    includeWasmJsD8: Boolean = true,
 ) {
-    jvmToolchain(21)
+    jvmToolchain(25)
 
     applyDefaultHierarchyTemplate()
 
@@ -49,23 +50,30 @@ inline fun KotlinMultiplatformExtension.configureAllTargets(
         this.namespace = namespace
         this.compileSdk = 36
         this.minSdk = 34
+        withHostTest {}
         compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_21)
+            jvmTarget.set(JvmTarget.JVM_25)
         }
     }
 
     if (includeJs) {
         js {
-            browser()
-            nodejs()
+            nodejs {
+                testTask { test ->
+                    test.useMocha { mocha ->
+                        mocha.timeout = "15s"
+                    }
+                }
+            }
         }
     }
 
     if (includeWasmJs) {
         wasmJs {
-            browser()
             nodejs()
-            d8()
+            if (includeWasmJsD8) {
+                d8()
+            }
         }
     }
 

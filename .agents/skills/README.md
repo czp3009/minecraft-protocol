@@ -1,6 +1,11 @@
-# Project skills
+# Optional agent playbooks
 
-These skills form the repository's update workflow. Invoke the narrowest skill that owns the requested change.
+These skills teach a coding agent how to carry out repository work that a human can perform directly with the Gradle
+commands documented in the root README. They are an optional assistance layer, not part of the project's build,
+development, publication, or runtime inputs. Removing `.agents/skills` must not change any Gradle task or library
+behavior.
+
+Invoke the narrowest skill that owns the requested change.
 
 | Skill                         | Scope                                                                                                                                                                                                                     |
 |-------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -15,4 +20,6 @@ All workflows use the matching official JAR as the primary source and behavioral
 second, then exact-version MCProtocolLib and Minestom. Nullability follows the same order, falling through to the next
 source only when the earlier source is inconclusive.
 
-Gradle tasks own deterministic artifacts under `build/`. Agent-only scratch belongs under `temp/`.
+Skills may invoke Gradle in the same way as a human. Gradle tasks own deterministic artifacts under `build/`; they must
+never read skill files or skill-generated output. Agent-only scratch belongs under `temp/`, which Gradle and its helper
+scripts must never access.

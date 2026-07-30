@@ -155,8 +155,8 @@ class PlayClientboundMovementPacketTest {
                 flying = false,
                 canFly = true,
                 instantBuild = true,
-                flyingSpeed = 0.05f,
-                walkingSpeed = 0.1f,
+                flyingSpeed = Float.fromBits(0x3D4C_CCCD),
+                walkingSpeed = Float.fromBits(0x3DCC_CCCD),
             ),
         )
         val canonical = "0d3d4ccccd3dcccccd".hexBytes()

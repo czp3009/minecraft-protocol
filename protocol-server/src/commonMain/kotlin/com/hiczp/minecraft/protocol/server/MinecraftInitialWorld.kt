@@ -1,13 +1,11 @@
 package com.hiczp.minecraft.protocol.server
 
-import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
-import com.hiczp.minecraft.protocol.data.VanillaStaticData
-import com.hiczp.minecraft.protocol.data.registryId
-import com.hiczp.minecraft.protocol.data.requireRegistry
+import com.hiczp.minecraft.protocol.data.*
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftFormat
 import kotlin.math.floor
+import com.hiczp.minecraft.protocol.model.type.GameMode as PlayerGameMode
 
 /**
  * A finite initial projection sent after Play Login. Applications remain the
@@ -21,21 +19,31 @@ data class MinecraftInitialWorld(
     val spawnPitch: Float = 0.0f,
     val viewDistance: Int,
     val simulationDistance: Int,
+    val difficulty: Difficulty = Difficulty.EASY,
+    val difficultyLocked: Boolean = false,
+    val playerAbilities: PlayerAbilities =
+        vanillaPlayerAbilities(PlayerGameMode.SURVIVAL),
     val teleportId: Int = 1,
     val chunks: List<MinecraftChunkSnapshot>,
     val entities: List<MinecraftEntitySnapshot> = emptyList(),
 ) {
     init {
-        require(dimension == dimensionType.id) {
-            "The initial dimension must match its dimension type"
-        }
         require(spawnPosition.isFinite()) {
             "The initial player position must be finite"
         }
+        spawnPosition.toBlockPosition()
         require(spawnYaw.isFinite() && spawnPitch.isFinite()) {
             "The initial player rotation must be finite"
         }
-        require(viewDistance >= 0)
+        require(
+            viewDistance in
+                    MinecraftServerConfiguration.MIN_VIEW_DISTANCE..
+                    MinecraftServerConfiguration.MAX_VIEW_DISTANCE,
+        ) {
+            "View distance must be in " +
+                    "${MinecraftServerConfiguration.MIN_VIEW_DISTANCE}.." +
+                    MinecraftServerConfiguration.MAX_VIEW_DISTANCE
+        }
         require(simulationDistance >= 0)
         require(teleportId >= 0)
         require(
@@ -116,6 +124,9 @@ data class MinecraftInitialWorld(
                 spawnPosition = spawnPosition,
                 viewDistance = configuration.viewDistance,
                 simulationDistance = configuration.simulationDistance,
+                difficulty = configuration.difficulty,
+                difficultyLocked = configuration.difficultyLocked,
+                playerAbilities = vanillaPlayerAbilities(configuration.gameMode),
                 chunks = chunks,
                 entities = entities,
             )
@@ -142,13 +153,13 @@ suspend fun MinecraftServerConnection.synchronizeInitialWorld(
     require(session.state == ConnectionState.PLAY) {
         "Initial world synchronization requires a Play session"
     }
-    val expectedDimension = MinecraftDimensionLayout.from(
-        protocol.configuration.protocolData,
-        world.dimensionType.id,
+    validateInitialWorld(
+        world = world,
+        login = checkNotNull(protocol.negotiatedPlayLogin) {
+            "Initial world synchronization requires a completed Play login"
+        },
+        configuration = protocol.configuration,
     )
-    require(world.dimensionType == expectedDimension) {
-        "Initial dimension type does not match synchronized registry data"
-    }
     val biomeRegistrySize = protocol.configuration.protocolData
         .requireRegistry(Identifier("worldgen/biome"))
         .entries
@@ -164,8 +175,8 @@ suspend fun MinecraftServerConnection.synchronizeInitialWorld(
 
     session.send(
         ClientboundChangeDifficultyPacket(
-            difficulty = Difficulty.PEACEFUL,
-            locked = true,
+            difficulty = world.difficulty,
+            locked = world.difficultyLocked,
         ),
     )
     session.send(
@@ -182,14 +193,7 @@ suspend fun MinecraftServerConnection.synchronizeInitialWorld(
     )
     session.send(
         ClientboundPlayerAbilitiesPacket(
-            PlayerAbilities(
-                invulnerable = true,
-                flying = false,
-                canFly = true,
-                instantBuild = true,
-                flyingSpeed = DEFAULT_FLYING_SPEED,
-                walkingSpeed = DEFAULT_WALKING_SPEED,
-            ),
+            world.playerAbilities,
         ),
     )
     session.send(SetRenderDistancePacket(world.viewDistance))
@@ -232,6 +236,34 @@ suspend fun MinecraftServerConnection.synchronizeInitialWorld(
     )
 }
 
+internal fun validateInitialWorld(
+    world: MinecraftInitialWorld,
+    login: PlayLoginPacket,
+    configuration: MinecraftServerConfiguration,
+) {
+    require(world.dimension == login.spawnInfo.dimension) {
+        "Initial world dimension does not match the Play login dimension"
+    }
+    require(world.dimension in login.levels) {
+        "Initial world dimension is absent from the advertised Play levels"
+    }
+    require(
+        world.dimensionType.registryId == login.spawnInfo.dimensionTypeId,
+    ) {
+        "Initial dimension-type registry ID does not match Play login"
+    }
+    val expectedDimension = MinecraftDimensionLayout.from(
+        configuration.protocolData.completeRegistryPackets(),
+        login.spawnInfo.dimensionTypeId,
+    )
+    require(world.dimensionType == expectedDimension) {
+        "Initial dimension type does not match synchronized registry data"
+    }
+    require(world.entities.none { it.entityId == login.playerId }) {
+        "Initial entities must not reuse the player entity ID"
+    }
+}
+
 private fun Vector3d.toBlockPosition(): BlockPosition =
     BlockPosition(
         x = floor(x).toInt(),
@@ -241,6 +273,20 @@ private fun Vector3d.toBlockPosition(): BlockPosition =
 
 private fun Vector3d.isFinite(): Boolean =
     x.isFinite() && y.isFinite() && z.isFinite()
+
+fun vanillaPlayerAbilities(gameMode: PlayerGameMode): PlayerAbilities =
+    PlayerAbilities(
+        invulnerable =
+            gameMode == PlayerGameMode.CREATIVE ||
+                    gameMode == PlayerGameMode.SPECTATOR,
+        flying = gameMode == PlayerGameMode.SPECTATOR,
+        canFly =
+            gameMode == PlayerGameMode.CREATIVE ||
+                    gameMode == PlayerGameMode.SPECTATOR,
+        instantBuild = gameMode == PlayerGameMode.CREATIVE,
+        flyingSpeed = DEFAULT_FLYING_SPEED,
+        walkingSpeed = DEFAULT_WALKING_SPEED,
+    )
 
 private const val DEFAULT_FLYING_SPEED: Float = 0.05f
 private const val DEFAULT_WALKING_SPEED: Float = 0.1f

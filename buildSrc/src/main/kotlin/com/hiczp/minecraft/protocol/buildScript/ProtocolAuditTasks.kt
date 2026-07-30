@@ -198,15 +198,13 @@ abstract class AuditProtocolModelsTask : MinecraftProtocolToolTask() {
             }
         }
 
-        listOf("protocol-model", "protocol-serialization").forEach { module ->
-            kotlinSources(root.resolve(module)).forEach { path ->
-                inspectKotlinSource(
-                    root,
-                    path,
-                    nullableCustomSerializers,
-                    errors,
-                )
-            }
+        protocolAuditSources(root).forEach { path ->
+            inspectKotlinSource(
+                root,
+                path,
+                nullableCustomSerializers,
+                errors,
+            )
         }
         return errors
     }

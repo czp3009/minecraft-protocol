@@ -132,7 +132,7 @@ abstract class AuditNullabilityTask : MinecraftProtocolToolTask() {
             "unknown_count" to
                     jsonNumber(properties.count { it.unknownAnnotation }),
             "inventory_sha256" to
-                    jsonString(propertySignature(properties)),
+                    jsonString(inventorySignature(properties)),
             "sources" to JsonArray(
                 bySource.map { (source, sourceProperties) ->
                     jsonObjectOf(
@@ -209,7 +209,7 @@ abstract class AuditNullabilityTask : MinecraftProtocolToolTask() {
                     "Nullability ledger must contain a coverage mapping"
                 emptyMap()
             }
-        val expectedInventorySignature = propertySignature(properties)
+        val expectedInventorySignature = inventorySignature(properties)
         if (
             coverage["inventory_sha256"] != expectedInventorySignature
         ) {
@@ -637,16 +637,25 @@ abstract class AuditNullabilityTask : MinecraftProtocolToolTask() {
 
     private fun propertySignature(
         properties: List<ModelProperty>,
-    ): String = properties.joinToString("\n") {
+    ): String = signatureRows(properties.map(::propertySignatureRow))
+
+    private fun inventorySignature(
+        properties: List<ModelProperty>,
+    ): String = stableNullabilityInventorySignature(
+        properties.map(::propertySignatureRow),
+    )
+
+    private fun propertySignatureRow(
+        property: ModelProperty,
+    ): String =
         listOf(
-            it.id,
-            it.owner,
-            it.name,
-            it.type,
-            if (it.nullable) "nullable" else "non-null",
-            if (it.unknownAnnotation) "unknown" else "known",
+            property.id,
+            property.owner,
+            property.name,
+            property.type,
+            if (property.nullable) "nullable" else "non-null",
+            if (property.unknownAnnotation) "unknown" else "known",
         ).joinToString("|")
-    }.toByteArray(StandardCharsets.UTF_8).sha256()
 
     private fun propertiesBySource(
         properties: List<ModelProperty>,
@@ -709,6 +718,15 @@ abstract class AuditNullabilityTask : MinecraftProtocolToolTask() {
         )
     }
 }
+
+internal fun stableNullabilityInventorySignature(
+    propertyRows: List<String>,
+): String = signatureRows(propertyRows.sorted())
+
+private fun signatureRows(rows: List<String>): String =
+    rows.joinToString("\n")
+        .toByteArray(StandardCharsets.UTF_8)
+        .sha256()
 
 private fun Any?.asStringMapOrNull(): Map<String, Any?>? {
     val map = this as? Map<*, *> ?: return null

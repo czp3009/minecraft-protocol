@@ -28,8 +28,9 @@
   because entry position defines runtime numeric IDs. For reproducible committed snapshots, canonicalize only
   order-insensitive structures such as NBT compound keys, tag-registry/tag ordering, and tag membership sets. Require
   every raw captured packet to round-trip byte-for-byte before canonicalization.
-- `protocol-transport` owns Ktor socket exposure, framing, compression, and stream encryption. It stops at packet-data
-  bytes.
+- `compression` owns portable raw DEFLATE shared with world storage.
+- `protocol-transport` owns Ktor socket exposure, framing, the Minecraft zlib wrapper, compression thresholds, and
+  stream encryption. It stops at packet-data bytes.
 - `protocol-session` owns typed packet dispatch, direction validation, and connection-state transitions.
 - `protocol-auth` owns offline identity, server hashes, session-service calls, and portable cryptographic abstractions.
 - `protocol-client` and `protocol-server` own their respective connection orchestration APIs. The server returns control
@@ -100,6 +101,9 @@ can resolve and remove it.
 - an all-property source signature proving that every current constructor property, including non-null properties,
   belongs to a reviewed source batch;
 - ordered four-source evidence for every nullable or unresolved property.
+
+Canonicalize the global all-property signature by stable property ID so filesystem traversal and case-sensitive file
+ordering cannot invalidate otherwise identical evidence. Keep each source-batch signature scoped to that source.
 
 Never treat “the Kotlin source already says non-null” as evidence. A source signature is only a stale-change gate; the
 language-model review that approves it must inspect the official codec first and the Wiki when official evidence is

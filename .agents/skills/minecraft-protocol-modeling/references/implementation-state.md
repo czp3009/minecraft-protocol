@@ -1,8 +1,8 @@
 # Discovering implementation state
 
-Do not record the current Minecraft version, protocol number, Wiki revision, packet/type counts, Java requirement,
-source tags, nullable-field counts, hashes, exception lists, or last passing results in this skill. Those facts change
-independently of the workflow.
+Do not record the current Minecraft version, protocol number, Wiki revision, packet/type counts, source tags,
+nullable-field counts, hashes, exception lists, or last passing results in this skill. Those facts change independently
+of the workflow.
 
 At the start of every invocation, obtain current state from deterministic project tasks:
 

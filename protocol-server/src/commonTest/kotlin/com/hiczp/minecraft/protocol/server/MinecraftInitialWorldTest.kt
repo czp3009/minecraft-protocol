@@ -219,6 +219,16 @@ class MinecraftInitialWorldTest {
         assertFailsWith<IllegalArgumentException> {
             create(dimension = nether, fullBrightSky = true)
         }
+
+        listOf(nether.minY, nether.minY + nether.height - 1).forEach { groundY ->
+            val chunk = create(
+                dimension = nether,
+                groundY = groundY,
+                fullBrightSky = false,
+            )
+            assertTrue(chunk.lightData.skyYMask.words.isEmpty())
+            assertTrue(chunk.lightData.skyUpdates.isEmpty())
+        }
     }
 
     @Test
@@ -318,17 +328,39 @@ class MinecraftInitialWorldTest {
             entities = entities,
         )
 
-        assertFailsWith<IllegalArgumentException> {
-            world(id = Identifier("the_nether"))
-        }
+        assertEquals(
+            Identifier("test:custom_world"),
+            world(id = Identifier("test:custom_world")).dimension,
+        )
         assertFailsWith<IllegalArgumentException> {
             world(position = Vector3d(Double.NaN, 0.0, 0.0))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            world(
+                position = Vector3d(
+                    BlockPosition.MAX_XZ + 1.0,
+                    0.0,
+                    0.0,
+                ),
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            world(
+                position = Vector3d(
+                    0.0,
+                    BlockPosition.MIN_Y - 1.0,
+                    0.0,
+                ),
+            )
         }
         assertFailsWith<IllegalArgumentException> { world(yaw = Float.NaN) }
         assertFailsWith<IllegalArgumentException> {
             world(pitch = Float.POSITIVE_INFINITY)
         }
-        assertFailsWith<IllegalArgumentException> { world(viewDistance = -1) }
+        assertFailsWith<IllegalArgumentException> { world(viewDistance = 1) }
+        assertFailsWith<IllegalArgumentException> { world(viewDistance = 33) }
+        assertEquals(2, world(viewDistance = 2).viewDistance)
+        assertEquals(32, world(viewDistance = 32).viewDistance)
         assertFailsWith<IllegalArgumentException> {
             world(simulationDistance = -1)
         }
@@ -356,6 +388,126 @@ class MinecraftInitialWorldTest {
                 chunkRadius = -1,
             )
         }
+    }
+
+    @Test
+    fun initialWorldMustMatchTheNegotiatedPlayContext() {
+        val configuration = MinecraftServerConfiguration(
+            compressionThreshold = null,
+        )
+        val overworld = MinecraftDimensionLayout.from(
+            VanillaProtocolData,
+            Identifier("overworld"),
+        )
+        val nether = MinecraftDimensionLayout.from(
+            VanillaProtocolData,
+            Identifier("the_nether"),
+        )
+        val profile = GameProfile(Uuid(1, 2), "Probe", emptyList())
+        val login = configuration.playLogin(profile)
+
+        fun world(
+            dimension: Identifier = login.spawnInfo.dimension,
+            dimensionType: MinecraftDimensionLayout = overworld,
+            entities: List<MinecraftEntitySnapshot> = emptyList(),
+        ) = MinecraftInitialWorld(
+            dimension = dimension,
+            dimensionType = dimensionType,
+            spawnPosition = Vector3d(0.5, 65.0, 0.5),
+            viewDistance = 8,
+            simulationDistance = 8,
+            chunks = emptyList(),
+            entities = entities,
+        )
+
+        validateInitialWorld(world(), login, configuration)
+
+        assertFailsWith<IllegalArgumentException> {
+            validateInitialWorld(
+                world(dimension = Identifier("the_nether")),
+                login,
+                configuration,
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            validateInitialWorld(
+                world(dimensionType = nether),
+                login,
+                configuration,
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            validateInitialWorld(
+                world(dimensionType = overworld.copy(height = 16)),
+                login,
+                configuration,
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            validateInitialWorld(
+                world(
+                    entities = listOf(
+                        MinecraftEntitySnapshot(
+                            entityId = login.playerId,
+                            uuid = Uuid(3, 4),
+                            type = Identifier("pig"),
+                            position = Vector3d(0.0, 65.0, 0.0),
+                        ),
+                    ),
+                ),
+                login,
+                configuration,
+            )
+        }
+
+        val customDimension = Identifier("test:custom_world")
+        val customLogin = login.copy(
+            levels = setOf(customDimension),
+            spawnInfo = login.spawnInfo.copy(dimension = customDimension),
+        )
+        validateInitialWorld(
+            world(dimension = customDimension),
+            customLogin,
+            configuration,
+        )
+    }
+
+    @Test
+    fun vanillaWorldConfigurationKeepsDifficultyAndEveryGameModeAbility() {
+        val expected = mapOf(
+            com.hiczp.minecraft.protocol.model.type.GameMode.SURVIVAL to
+                    PlayerAbilities(false, false, false, false, 0.05f, 0.1f),
+            com.hiczp.minecraft.protocol.model.type.GameMode.CREATIVE to
+                    PlayerAbilities(true, false, true, true, 0.05f, 0.1f),
+            com.hiczp.minecraft.protocol.model.type.GameMode.ADVENTURE to
+                    PlayerAbilities(false, false, false, false, 0.05f, 0.1f),
+            com.hiczp.minecraft.protocol.model.type.GameMode.SPECTATOR to
+                    PlayerAbilities(true, true, true, false, 0.05f, 0.1f),
+        )
+        expected.forEach { (gameMode, abilities) ->
+            assertEquals(abilities, vanillaPlayerAbilities(gameMode))
+        }
+
+        val configuration = MinecraftServerConfiguration(
+            compressionThreshold = null,
+            gameMode =
+                com.hiczp.minecraft.protocol.model.type.GameMode.SPECTATOR,
+            difficulty = Difficulty.HARD,
+            difficultyLocked = true,
+        )
+        val world = MinecraftInitialWorld.flatVanilla(
+            configuration,
+            chunkRadius = 0,
+        )
+
+        assertEquals(Difficulty.HARD, world.difficulty)
+        assertTrue(world.difficultyLocked)
+        assertEquals(
+            expected.getValue(
+                com.hiczp.minecraft.protocol.model.type.GameMode.SPECTATOR,
+            ),
+            world.playerAbilities,
+        )
     }
 
     private fun packedEntry(

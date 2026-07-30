@@ -10,6 +10,7 @@ kotlin {
     configureAllTargets(
         namespace = "com.hiczp.minecraft.protocol.auth",
         includeWasmWasi = false,
+        includeWasmJsD8 = false,
     )
 
     sourceSets {

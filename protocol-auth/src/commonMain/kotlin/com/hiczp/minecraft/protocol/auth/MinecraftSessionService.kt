@@ -65,7 +65,7 @@ class MinecraftSessionService(
                 JoinedMinecraftProfile(
                     profile = GameProfile(
                         id = parseMinecraftUuid(body.id),
-                        name = username,
+                        name = body.name ?: username,
                         properties = body.properties.map { property ->
                             ProfileProperty(
                                 name = property.name,
@@ -116,6 +116,7 @@ private data class JoinRequest(
 @Serializable
 private data class HasJoinedResponse(
     val id: String,
+    val name: String? = null,
     val properties: List<ProfilePropertyResponse> = emptyList(),
     val profileActions: List<ProfileActionResponse>? = null,
 )

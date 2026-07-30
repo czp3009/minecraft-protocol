@@ -13,9 +13,9 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            implementation(project(":compression"))
             api(project(":nbt"))
             api(libs.kotlinx.io.core)
-            implementation(libs.ktor.utils)
         }
 
         commonTest.dependencies {

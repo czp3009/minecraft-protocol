@@ -14,6 +14,13 @@ class VanillaRegistry internal constructor(
     entries: List<Identifier>,
 ) {
     val entries: List<Identifier> = entries.toList()
+
+    init {
+        require(this.entries.distinct().size == this.entries.size) {
+            "$id contains duplicate vanilla registry entries"
+        }
+    }
+
     private val ids: Map<Identifier, Int> =
         this.entries.withIndex().associate { (index, entry) -> entry to index }
 
@@ -44,6 +51,27 @@ class VanillaBlockStateRegistry internal constructor(
     states: List<VanillaBlockState>,
 ) {
     val states: List<VanillaBlockState> = states.toList()
+
+    init {
+        require(this.states.withIndex().all { (index, state) ->
+            state.id == index
+        }) {
+            "Vanilla block-state IDs must be contiguous and ordered"
+        }
+        require(
+            this.states
+                .groupBy(VanillaBlockState::block)
+                .values
+                .all { blockStates ->
+                    blockStates.map(VanillaBlockState::properties)
+                        .distinct()
+                        .size == blockStates.size
+                },
+        ) {
+            "A vanilla block has duplicate property combinations"
+        }
+    }
+
     private val byBlock: Map<Identifier, List<VanillaBlockState>> =
         this.states.groupBy(VanillaBlockState::block)
     private val defaults: Map<Identifier, VanillaBlockState> =

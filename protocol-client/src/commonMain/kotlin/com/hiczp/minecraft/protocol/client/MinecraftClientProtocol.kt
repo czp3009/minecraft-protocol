@@ -162,7 +162,19 @@ class MinecraftClientProtocol(
                 }
 
                 is FeatureFlagsPacket -> featureFlags = packet
-                is RegistryDataPacket -> registries += packet
+                is RegistryDataPacket -> {
+                    if (
+                        registries.any {
+                            it.registryId == packet.registryId
+                        }
+                    ) {
+                        throw MinecraftClientException(
+                            "Server sent duplicate registry " +
+                                    packet.registryId,
+                        )
+                    }
+                    registries += packet
+                }
                 is ConfigurationUpdateTagsPacket -> tags = packet
                 is CodeOfConductPacket -> {
                     if (!handler.acceptCodeOfConduct(packet)) {
@@ -211,13 +223,20 @@ class MinecraftClientProtocol(
         registries: List<RegistryDataPacket>,
         playLogin: PlayLoginPacket,
     ) {
+        if (playLogin.spawnInfo.dimension !in playLogin.levels) {
+            throw MinecraftClientException(
+                "Play Login selected dimension " +
+                        "${playLogin.spawnInfo.dimension}, but it is absent " +
+                        "from the advertised levels",
+            )
+        }
         val dimensionTypeRegistryId = Identifier("dimension_type")
         val dimensionTypeRegistry =
             registries.registry(dimensionTypeRegistryId)
                 ?: VanillaProtocolData.requireRegistry(dimensionTypeRegistryId)
         val dimensionType = dimensionTypeRegistry.entries.getOrNull(
             playLogin.spawnInfo.dimensionTypeId,
-        ) ?: error(
+        ) ?: throw MinecraftClientException(
             "Play Login selected absent dimension-type registry ID " +
                     playLogin.spawnInfo.dimensionTypeId,
         )
@@ -240,6 +259,11 @@ class MinecraftClientProtocol(
                 )
             .entries
             .size
+        if (biomeRegistrySize == 0) {
+            throw MinecraftClientException(
+                "The synchronized biome registry is empty",
+            )
+        }
         session.format = MinecraftFormat(
             configuration = session.format.configuration.copy(
                 chunkSectionCount = dimension.sectionCount,

@@ -12,12 +12,12 @@ import com.hiczp.minecraft.protocol.session.MinecraftSession
 import com.hiczp.minecraft.protocol.session.MinecraftSessionSide
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import io.ktor.client.*
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respond
+import io.ktor.client.engine.mock.*
 import io.ktor.http.*
 import io.ktor.utils.io.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import kotlin.test.*
 
 class MinecraftServerProtocolTest {
@@ -30,7 +30,10 @@ class MinecraftServerProtocolTest {
             MinecraftServerConfiguration(maximumPlayers = -1)
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftServerConfiguration(viewDistance = -1)
+            MinecraftServerConfiguration(viewDistance = 1)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            MinecraftServerConfiguration(viewDistance = 33)
         }
         assertFailsWith<IllegalArgumentException> {
             MinecraftServerConfiguration(simulationDistance = -1)
@@ -51,12 +54,18 @@ class MinecraftServerProtocolTest {
             compressionThreshold = null,
             statusDescription = "\"line\\\n\t\u0001",
             maximumPlayers = 7,
+            hardcore = true,
+            gameMode = com.hiczp.minecraft.protocol.model.type.GameMode.SPECTATOR,
+            difficulty = Difficulty.HARD,
+            difficultyLocked = true,
+            enforcesSecureChat = true,
         )
         val json = configuration.statusJson(onlinePlayers = 3)
 
         assertTrue(json.contains("\"max\": 7"))
         assertTrue(json.contains("\"online\": 3"))
         assertTrue(json.contains("\\\"line\\\\\\n\\t\\u0001"))
+        assertTrue(json.contains("\"enforcesSecureChat\": false"))
         assertFalse(json.contains('\u0001'))
         val login = configuration.playLogin(
             GameProfile(Uuid(1, 2), "Probe", emptyList()),
@@ -64,6 +73,137 @@ class MinecraftServerProtocolTest {
         assertEquals(configuration.viewDistance, login.chunkRadius)
         assertEquals(configuration.simulationDistance, login.simulationDistance)
         assertFalse(login.onlineMode)
+        assertTrue(login.hardcore)
+        assertEquals(configuration.gameMode, login.spawnInfo.gameMode)
+        assertFalse(login.enforcesSecureChat)
+        assertEquals(10, MinecraftServerConfiguration().viewDistance)
+        assertEquals(10, MinecraftServerConfiguration().simulationDistance)
+        assertEquals("A Minecraft Server", MinecraftServerConfiguration().statusDescription)
+        assertEquals(
+            "127.0.0.1",
+            byteArrayOf(127, 0, 0, 1).toNumericIpAddress(),
+        )
+        assertEquals(
+            "2001:db8:0:0:0:0:0:1",
+            byteArrayOf(
+                0x20,
+                0x01,
+                0x0d,
+                0xb8.toByte(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+            ).toNumericIpAddress(),
+        )
+        assertFailsWith<IllegalArgumentException> {
+            byteArrayOf(1, 2, 3).toNumericIpAddress()
+        }
+        assertFailsWith<IllegalArgumentException> {
+            MinecraftServerConfigurationTask(" ", emptyList()) { true }
+        }
+        assertEquals(
+            2,
+            MinecraftServerConfiguration(
+                compressionThreshold = null,
+                viewDistance = 2,
+            ).viewDistance,
+        )
+        assertEquals(
+            32,
+            MinecraftServerConfiguration(
+                compressionThreshold = null,
+                viewDistance = 32,
+            ).viewDistance,
+        )
+    }
+
+    @Test
+    fun rejectsInvalidHandlerProducedPlayLoginContext() {
+        val protocol = MinecraftServerProtocol(
+            sessionPair().second,
+            MinecraftServerConfiguration(compressionThreshold = null),
+        )
+        val valid = protocol.configuration.playLogin(
+            GameProfile(Uuid(1, 2), "Probe", emptyList()),
+        )
+
+        protocol.validatePlayLogin(valid.copy(chunkRadius = 2))
+        protocol.validatePlayLogin(valid.copy(chunkRadius = 32))
+
+        listOf(
+            valid.copy(maxPlayers = -1),
+            valid.copy(chunkRadius = 1),
+            valid.copy(chunkRadius = 33),
+            valid.copy(simulationDistance = -1),
+            valid.copy(levels = emptySet()),
+            valid.copy(
+                spawnInfo = valid.spawnInfo.copy(
+                    dimensionTypeId = Int.MAX_VALUE,
+                ),
+            ),
+        ).forEach { invalid ->
+            assertFailsWith<MinecraftServerException> {
+                protocol.validatePlayLogin(invalid)
+            }
+        }
+
+        val malformedDimensionData =
+            object : ProtocolDataSet by VanillaProtocolData {
+                override fun registryPackets(
+                    clientKnownPacks: List<KnownPack>,
+                ): List<RegistryDataPacket> =
+                    VanillaProtocolData.registryPackets(clientKnownPacks)
+                        .map { registry ->
+                            if (
+                                registry.registryId !=
+                                Identifier("dimension_type")
+                            ) {
+                                registry
+                            } else {
+                                registry.copy(
+                                    entries = registry.entries.mapIndexed { index, entry ->
+                                        if (
+                                            index !=
+                                            valid.spawnInfo.dimensionTypeId
+                                        ) {
+                                            entry
+                                        } else {
+                                            entry.copy(
+                                                data = NbtCompound(
+                                                    checkNotNull(
+                                                        entry.data as?
+                                                                NbtCompound,
+                                                    ).value + (
+                                                            "height" to
+                                                                    NbtInt(1)
+                                                            ),
+                                                ),
+                                            )
+                                        }
+                                    },
+                                )
+                            }
+                        }
+            }
+        val malformedProtocol = MinecraftServerProtocol(
+            sessionPair().second,
+            MinecraftServerConfiguration(
+                compressionThreshold = null,
+                protocolData = malformedDimensionData,
+            ),
+        )
+        assertFailsWith<MinecraftServerException> {
+            malformedProtocol.validatePlayLogin(valid)
+        }
     }
 
     @Test
@@ -82,7 +222,12 @@ class MinecraftServerProtocolTest {
             ).negotiate()
         }
 
-        client.send(handshake(HandshakeNextState.STATUS))
+        client.send(
+            handshake(
+                HandshakeNextState.STATUS,
+                protocolVersion = MinecraftProtocol.PROTOCOL_VERSION + 1,
+            ),
+        )
         client.send(StatusRequestPacket)
         assertEquals(
             StatusResponsePacket("""{"custom":true}"""),
@@ -94,6 +239,150 @@ class MinecraftServerProtocolTest {
             MinecraftServerNegotiationResult.StatusCompleted,
             negotiation.await(),
         )
+    }
+
+    @Test
+    fun disabledStatusAndTransfersFollowOfficialHandshakePolicy() = runTest {
+        run {
+            val (client, server) = sessionPair()
+            val negotiation = async {
+                assertFailsWith<MinecraftServerException> {
+                    MinecraftServerProtocol(
+                        server,
+                        MinecraftServerConfiguration(
+                            compressionThreshold = null,
+                            statusEnabled = false,
+                        ),
+                    ).negotiate()
+                }
+            }
+
+            client.send(handshake(HandshakeNextState.STATUS))
+
+            assertTrue(
+                negotiation.await().message.orEmpty()
+                    .contains("Status requests are disabled"),
+            )
+        }
+
+        run {
+            val (client, server) = sessionPair()
+            val negotiation = async {
+                assertFailsWith<MinecraftServerException> {
+                    MinecraftServerProtocol(
+                        server,
+                        MinecraftServerConfiguration(
+                            compressionThreshold = null,
+                            acceptsTransfers = false,
+                        ),
+                    ).negotiate()
+                }
+            }
+
+            client.send(handshake(HandshakeNextState.TRANSFER))
+
+            val disconnect = assertIs<LoginDisconnectPacket>(client.receive())
+            assertTrue(disconnect.reason.json.contains("transfers_disabled"))
+            assertTrue(
+                negotiation.await().message.orEmpty()
+                    .contains("Transfer connections are disabled"),
+            )
+        }
+    }
+
+    @Test
+    fun enabledTransfersRemainVisibleToEveryAdmissionStage() = runTest {
+        val transferFlags = mutableListOf<Boolean>()
+        val handler = object : MinecraftServerHandler {
+            override suspend fun acceptProfile(
+                profile: GameProfile,
+                transferred: Boolean,
+            ): Boolean {
+                transferFlags += transferred
+                return true
+            }
+
+            override suspend fun playLogin(
+                profile: GameProfile,
+                clientInformation: ClientInformation,
+                transferred: Boolean,
+                configuration: MinecraftServerConfiguration,
+            ): PlayLoginPacket {
+                transferFlags += transferred
+                return configuration.playLogin(profile)
+            }
+
+            override suspend fun configurationPackets(
+                profile: GameProfile,
+                clientInformation: ClientInformation,
+                acceptedKnownPacks: List<KnownPack>,
+                transferred: Boolean,
+                configuration: MinecraftServerConfiguration,
+            ): List<Packet> {
+                transferFlags += transferred
+                return emptyList()
+            }
+        }
+        val (client, server) = sessionPair()
+        val negotiation = async {
+            MinecraftServerProtocol(
+                server,
+                MinecraftServerConfiguration(
+                    compressionThreshold = null,
+                    acceptsTransfers = true,
+                ),
+                handler,
+            ).negotiate()
+        }
+
+        val login = completeOfflineLogin(client, HandshakeNextState.TRANSFER)
+        val result = assertIs<MinecraftServerNegotiationResult.PlayReady>(
+            negotiation.await(),
+        )
+
+        assertTrue(result.transferred)
+        assertEquals(login, result.login)
+        assertEquals(listOf(true, true, true), transferFlags)
+    }
+
+    @Test
+    fun rejectsUnsupportedLoginAndTransferProtocolVersions() = runTest {
+        for (nextState in listOf(
+            HandshakeNextState.LOGIN,
+            HandshakeNextState.TRANSFER,
+        )) {
+            val (client, server) = sessionPair()
+            val negotiation = async {
+                assertFailsWith<MinecraftServerException> {
+                    MinecraftServerProtocol(
+                        server,
+                        MinecraftServerConfiguration(
+                            compressionThreshold = null,
+                            acceptsTransfers = true,
+                        ),
+                    ).negotiate()
+                }
+            }
+
+            client.send(
+                handshake(
+                    nextState,
+                    protocolVersion = MinecraftProtocol.PROTOCOL_VERSION - 1,
+                ),
+            )
+
+            assertTrue(
+                assertIs<LoginDisconnectPacket>(client.receive())
+                    .reason.json.contains("Unsupported protocol version"),
+            )
+            val failure = negotiation.await()
+            assertTrue(failure.message.orEmpty().contains("Unsupported protocol"))
+            assertTrue(
+                failure.message.orEmpty().contains(
+                    MinecraftProtocol.PROTOCOL_VERSION.toString(),
+                ),
+            )
+        }
     }
 
     @Test
@@ -134,7 +423,43 @@ class MinecraftServerProtocolTest {
             client.send(handshake(HandshakeNextState.LOGIN))
             client.send(LoginStartPacket("Rejected", Uuid(0, 1)))
             assertTrue(
+                assertIs<LoginDisconnectPacket>(client.receive())
+                    .reason.json.contains("server policy"),
+            )
+            assertTrue(
                 negotiation.await().message.orEmpty().contains("was rejected"),
+            )
+        }
+
+        run {
+            val customReason =
+                JsonTextComponent("""{"translate":"test.custom_rejection"}""")
+            val (client, server) = sessionPair()
+            val negotiation = async {
+                assertFailsWith<MinecraftServerException> {
+                    MinecraftServerProtocol(
+                        server,
+                        MinecraftServerConfiguration(compressionThreshold = null),
+                        object : MinecraftServerHandler {
+                            override suspend fun profileRejection(
+                                profile: GameProfile,
+                                transferred: Boolean,
+                                configuration: MinecraftServerConfiguration,
+                            ): JsonTextComponent = customReason
+                        },
+                    ).negotiate()
+                }
+            }
+            client.send(handshake(HandshakeNextState.LOGIN))
+            client.send(LoginStartPacket("CustomReject", Uuid(0, 2)))
+
+            assertEquals(
+                LoginDisconnectPacket(customReason),
+                client.receive(),
+            )
+            assertTrue(
+                negotiation.await().message.orEmpty()
+                    .contains("test.custom_rejection"),
             )
         }
     }
@@ -151,10 +476,12 @@ class MinecraftServerProtocolTest {
                 ),
             )
             var hasJoinedRequests = 0
+            var hasJoinedIpAddress: String? = null
             val serverService = MinecraftSessionService(
                 HttpClient(
-                    MockEngine {
+                    MockEngine { request ->
                         hasJoinedRequests++
+                        hasJoinedIpAddress = request.url.parameters["ip"]
                         respond(
                             """
                             {
@@ -179,6 +506,8 @@ class MinecraftServerProtocolTest {
             val configuration = MinecraftServerConfiguration(
                 authentication = authentication,
                 compressionThreshold = null,
+                preventProxyConnections = true,
+                enforcesSecureChat = true,
             )
             val identity = MinecraftOnlineIdentity(
                 name = "OnlineProbe",
@@ -189,7 +518,11 @@ class MinecraftServerProtocolTest {
             )
             val (client, server) = sessionPair()
             val serverResult = async {
-                MinecraftServerProtocol(server, configuration).negotiate()
+                MinecraftServerProtocol(
+                    server,
+                    configuration,
+                    clientIpAddress = "203.0.113.42",
+                ).negotiate()
             }
 
             val clientResult = MinecraftClientProtocol(
@@ -204,9 +537,198 @@ class MinecraftServerProtocolTest {
             assertEquals(identityId, negotiation.profile.id)
             assertEquals(identityId, clientResult.login.profile.id)
             assertTrue(negotiation.login.onlineMode)
+            assertTrue(negotiation.login.enforcesSecureChat)
+            assertEquals(1, hasJoinedRequests)
+            assertEquals("203.0.113.42", hasJoinedIpAddress)
+
+            val (missingIpClient, missingIpServer) = sessionPair()
+            val missingIpResult = async {
+                assertFailsWith<MinecraftServerException> {
+                    MinecraftServerProtocol(
+                        missingIpServer,
+                        configuration,
+                    ).negotiate()
+                }
+            }
+            missingIpClient.send(handshake(HandshakeNextState.LOGIN))
+            missingIpClient.send(
+                LoginStartPacket("MissingIp", Uuid(0x50, 0x60)),
+            )
+            val request = assertIs<EncryptionRequestPacket>(
+                missingIpClient.receive(),
+            )
+            val encryption = MinecraftEncryption.answerServerChallenge(
+                request,
+                IdentityCryptography,
+            )
+            missingIpClient.send(encryption.response)
+            missingIpClient.enableEncryption(encryption.sharedSecret)
+
+            assertTrue(
+                missingIpResult.await().message.orEmpty()
+                    .contains("requires the client IP address"),
+            )
             assertEquals(1, hasJoinedRequests)
             clientService.httpClient.close()
             serverService.httpClient.close()
+        }
+
+    @Test
+    fun configurationExtensionsAllowOptionalPacketsAndClientResponses() =
+        runTest {
+            val observed = mutableListOf<Packet>()
+            val resourcePackId = Uuid(0x10, 0x20)
+            val handler = object : MinecraftServerHandler {
+                override suspend fun configurationPackets(
+                    profile: GameProfile,
+                    clientInformation: ClientInformation,
+                    acceptedKnownPacks: List<KnownPack>,
+                    transferred: Boolean,
+                    configuration: MinecraftServerConfiguration,
+                ): List<Packet> =
+                    listOf(ConfigurationServerLinksPacket(emptyList()))
+
+                override suspend fun configurationTasks(
+                    profile: GameProfile,
+                    clientInformation: ClientInformation,
+                    acceptedKnownPacks: List<KnownPack>,
+                    transferred: Boolean,
+                    configuration: MinecraftServerConfiguration,
+                ): List<MinecraftServerConfigurationTask> =
+                    listOf(
+                        MinecraftServerConfigurationTask(
+                            name = "code-of-conduct",
+                            packets = listOf(
+                                CodeOfConductPacket("Be kind"),
+                            ),
+                        ) { packet ->
+                            packet === AcceptCodeOfConductPacket
+                        },
+                        MinecraftServerConfigurationTask(
+                            name = "resource-pack",
+                            packets = listOf(
+                                ConfigurationAddResourcePackPacket(
+                                    uuid = resourcePackId,
+                                    url =
+                                        "https://example.invalid/resources.zip",
+                                    hash = "",
+                                    forced = false,
+                                    promptMessage =
+                                        TextComponent.literal("Optional"),
+                                ),
+                            ),
+                        ) { packet ->
+                            packet is ConfigurationResourcePackResponsePacket &&
+                                    packet.uuid == resourcePackId &&
+                                    packet.result ==
+                                    ResourcePackResult.SUCCESSFULLY_DOWNLOADED
+                        },
+                    )
+
+                override suspend fun onPacket(packet: Packet) {
+                    observed += packet
+                }
+            }
+            val (client, server) = sessionPair()
+            val negotiation = async {
+                MinecraftServerProtocol(
+                    server,
+                    MinecraftServerConfiguration(compressionThreshold = null),
+                    handler,
+                ).negotiate()
+            }
+
+            reachConfigurationExtensions(client)
+            assertIs<ConfigurationServerLinksPacket>(client.receive())
+            assertEquals(CodeOfConductPacket("Be kind"), client.receive())
+            client.send(AcceptCodeOfConductPacket)
+            val pack = assertIs<ConfigurationAddResourcePackPacket>(
+                client.receive(),
+            )
+            assertEquals(resourcePackId, pack.uuid)
+            client.send(
+                ConfigurationResourcePackResponsePacket(
+                    resourcePackId,
+                    ResourcePackResult.ACCEPTED,
+                ),
+            )
+            yield()
+            assertFalse(negotiation.isCompleted)
+            client.send(
+                ConfigurationResourcePackResponsePacket(
+                    resourcePackId,
+                    ResourcePackResult.SUCCESSFULLY_DOWNLOADED,
+                ),
+            )
+            assertEquals(FinishConfigurationPacket, client.receive())
+            client.send(AcknowledgeFinishConfigurationPacket)
+            assertIs<PlayLoginPacket>(client.receive())
+
+            negotiation.await()
+            assertEquals(
+                listOf<Packet>(
+                    AcceptCodeOfConductPacket,
+                    ConfigurationResourcePackResponsePacket(
+                        resourcePackId,
+                        ResourcePackResult.ACCEPTED,
+                    ),
+                    ConfigurationResourcePackResponsePacket(
+                        resourcePackId,
+                        ResourcePackResult.SUCCESSFULLY_DOWNLOADED,
+                    ),
+                ),
+                observed,
+            )
+        }
+
+    @Test
+    fun configurationExtensionsRejectWrongStateDirectionAndManagedPackets() =
+        runTest {
+            val invalidPackets = listOf<Packet>(
+                StatusResponsePacket("{}"),
+                ConfigurationServerboundPluginMessagePacket(
+                    CustomPayload.Unknown(
+                        Identifier("test:serverbound"),
+                        ByteString(byteArrayOf(1)),
+                    ),
+                ),
+                FinishConfigurationPacket,
+            )
+            invalidPackets.forEach { invalid ->
+                val (client, server) = sessionPair()
+                val negotiation = async {
+                    assertFailsWith<MinecraftServerException> {
+                        MinecraftServerProtocol(
+                            server,
+                            MinecraftServerConfiguration(
+                                compressionThreshold = null,
+                            ),
+                            object : MinecraftServerHandler {
+                                override suspend fun configurationPackets(
+                                    profile: GameProfile,
+                                    clientInformation: ClientInformation,
+                                    acceptedKnownPacks: List<KnownPack>,
+                                    transferred: Boolean,
+                                    configuration: MinecraftServerConfiguration,
+                                ): List<Packet> = listOf(invalid)
+                            },
+                        ).negotiate()
+                    }
+                }
+
+                reachConfigurationExtensions(client)
+
+                val failure = negotiation.await()
+                assertTrue(
+                    failure.message.orEmpty().contains(
+                        if (invalid === FinishConfigurationPacket) {
+                            "managed by MinecraftServerProtocol"
+                        } else {
+                            "clientbound Configuration packet"
+                        },
+                    ),
+                )
+            }
         }
 
     @Test
@@ -306,9 +828,44 @@ class MinecraftServerProtocolTest {
             particleStatus = ParticleStatus.ALL,
         )
 
-    private fun handshake(nextState: HandshakeNextState): HandshakePacket =
+    private suspend fun reachConfigurationExtensions(
+        client: MinecraftSession,
+        nextState: HandshakeNextState = HandshakeNextState.LOGIN,
+    ) {
+        client.send(handshake(nextState))
+        client.send(LoginStartPacket("ConfigProbe", Uuid(0, 1)))
+        assertIs<LoginSuccessPacket>(client.receive())
+        client.send(LoginAcknowledgedPacket)
+        client.send(ConfigurationClientInformationPacket(clientInformation()))
+        assertIs<FeatureFlagsPacket>(client.receive())
+        val packs = assertIs<ConfigurationClientboundKnownPacksPacket>(
+            client.receive(),
+        )
+        client.send(
+            ConfigurationServerboundKnownPacksPacket(packs.knownPacks),
+        )
+        repeat(VanillaProtocolData.registryPackets(packs.knownPacks).size) {
+            assertIs<RegistryDataPacket>(client.receive())
+        }
+        assertIs<ConfigurationUpdateTagsPacket>(client.receive())
+    }
+
+    private suspend fun completeOfflineLogin(
+        client: MinecraftSession,
+        nextState: HandshakeNextState,
+    ): PlayLoginPacket {
+        reachConfigurationExtensions(client, nextState)
+        assertEquals(FinishConfigurationPacket, client.receive())
+        client.send(AcknowledgeFinishConfigurationPacket)
+        return assertIs(client.receive())
+    }
+
+    private fun handshake(
+        nextState: HandshakeNextState,
+        protocolVersion: Int = MinecraftProtocol.PROTOCOL_VERSION,
+    ): HandshakePacket =
         HandshakePacket(
-            protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
+            protocolVersion = protocolVersion,
             serverAddress = "localhost",
             serverPort = 25_565,
             nextState = nextState,

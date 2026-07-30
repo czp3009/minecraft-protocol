@@ -6,11 +6,9 @@ import com.hiczp.minecraft.protocol.model.type.GameProfile
 import com.hiczp.minecraft.protocol.model.type.Uuid
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import io.ktor.utils.io.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertNotNull
+import kotlin.test.*
 
 class MinecraftSessionTest {
     @Test
@@ -59,6 +57,22 @@ class MinecraftSessionTest {
     }
 
     @Test
+    fun negativeSetCompressionDisablesAnAlreadyActiveCodec() = runTest {
+        val (client, server) = sessionPair()
+        loginHandshake(client, server)
+
+        server.send(SetCompressionPacket(16))
+        assertEquals(SetCompressionPacket(16), client.receive())
+        assertEquals(16, server.frames.codec.compressionThreshold)
+        assertEquals(16, client.frames.codec.compressionThreshold)
+
+        server.send(SetCompressionPacket(-1))
+        assertEquals(SetCompressionPacket(-1), client.receive())
+        assertNull(server.frames.codec.compressionThreshold)
+        assertNull(client.frames.codec.compressionThreshold)
+    }
+
+    @Test
     fun entersPlayOnlyAfterTheConfigurationAcknowledgement() = runTest {
         val (client, server) = sessionPair()
         loginHandshake(client, server)
@@ -83,15 +97,49 @@ class MinecraftSessionTest {
     }
 
     @Test
-    fun rejectsTheWrongDirectionAndState() = runTest {
-        val (client, _) = sessionPair()
+    fun rejectsTheWrongDirectionAndStateIndependently() = runTest {
+        val (client, server) = sessionPair()
+
+        assertFailsWith<MinecraftSessionException> {
+            client.send(StatusRequestPacket)
+        }
+
+        client.send(
+            HandshakePacket(
+                protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
+                serverAddress = "localhost",
+                serverPort = 25_565,
+                nextState = HandshakeNextState.STATUS,
+            ),
+        )
+        server.receive()
 
         assertFailsWith<MinecraftSessionException> {
             client.send(StatusResponsePacket("{}"))
         }
         assertFailsWith<MinecraftSessionException> {
-            client.send(StatusRequestPacket)
+            server.send(StatusRequestPacket)
         }
+    }
+
+    @Test
+    fun appliesStateTransitionsOnlyAfterACompleteWireWrite() = runTest {
+        val (client, _) = sessionPair()
+        client.frames.output.cancel(
+            CancellationException("Closed before the test write"),
+        )
+
+        assertFails {
+            client.send(
+                HandshakePacket(
+                    protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
+                    serverAddress = "localhost",
+                    serverPort = 25_565,
+                    nextState = HandshakeNextState.STATUS,
+                ),
+            )
+        }
+        assertEquals(ConnectionState.HANDSHAKE, client.state)
     }
 
     @Test

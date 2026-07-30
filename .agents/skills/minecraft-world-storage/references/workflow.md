@@ -10,7 +10,7 @@ Run target refresh and preparation separately:
 ```
 
 Add the quoted `-PprotocolTarget` argument to the refresh command for a pinned target. Read the resulting snapshot to
-obtain the target and analysis JDK.
+obtain the exact target and matching official artifacts.
 
 Search the exact decompiled server by behavior and constants, not only by remembered class names. Locate:
 
@@ -30,6 +30,7 @@ items. Consult matching MCProtocolLib and then Minestom snapshots only after off
 Use the smallest applicable tasks while iterating:
 
 ```powershell
+.\gradlew.bat :compression:compressionLayerTest
 .\gradlew.bat :nbt:compileKotlinJvm
 .\gradlew.bat :nbt:nbtLayerTest
 .\gradlew.bat :world-format:compileKotlinJvm

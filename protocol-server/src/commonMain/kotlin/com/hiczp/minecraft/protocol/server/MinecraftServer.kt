@@ -31,6 +31,8 @@ class MinecraftServer private constructor(
                 session = session,
                 configuration = configuration,
                 handler = handler,
+                clientIpAddress = (clientSocket.remoteAddress as? InetSocketAddress)
+                    ?.numericHostAddress(),
             ),
         )
     }
@@ -58,6 +60,27 @@ class MinecraftServer private constructor(
             )
     }
 }
+
+internal fun InetSocketAddress.numericHostAddress(): String =
+    resolveAddress()?.toNumericIpAddress() ?: hostname
+
+internal fun ByteArray.toNumericIpAddress(): String =
+    when (size) {
+        4 -> joinToString(".") { byte ->
+            (byte.toInt() and 0xFF).toString()
+        }
+
+        16 -> asList().chunked(2).joinToString(":") { pair ->
+            (
+                    (pair[0].toInt() and 0xFF) shl 8 or
+                            (pair[1].toInt() and 0xFF)
+                    ).toString(16)
+        }
+
+        else -> throw IllegalArgumentException(
+            "IP addresses must contain 4 or 16 bytes",
+        )
+    }
 
 class MinecraftServerConnection internal constructor(
     val socket: Socket,

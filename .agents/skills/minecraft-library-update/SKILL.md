@@ -8,6 +8,9 @@ description: Top-level closed-loop orchestrator for updating and verifying this 
 Coordinate the network-protocol and world-storage workflows with one target, then finish with whole-library
 verification.
 
+This is optional agent orchestration over the same Gradle workflow documented for humans. It is not a project input;
+Gradle and production code must remain fully functional if this skill and all other agent files are removed.
+
 ## Command interface
 
 Invoke this skill with one of:
@@ -64,8 +67,8 @@ workflow and architecture rules.
 
 The matching official JAR is the primary source and final behavioral authority; the Wiki is secondary, followed by
 exact-version MCProtocolLib and Minestom. The final report identifies the selected target from generated state, passed
-gates, source disagreements, nullable uncertainty, unsupported platforms, custom-extension limits, and any external
-client/JDK prerequisite.
+gates, source disagreements, nullable uncertainty, unsupported platforms, custom-extension limits, and any genuine
+external prerequisite.
 
 ## Self-correction
 

@@ -23,8 +23,8 @@ For an explicitly pinned skill invocation, pass its single target only to the re
 Keep the whole `-P` argument quoted on Windows; otherwise a dotted version may be split while invoking
 `gradlew.bat`.
 
-The first refreshes the target and analysis-Java requirement. The second is a new Gradle invocation so toolchain
-selection sees that refreshed requirement. It also runs `prepareWikiProtocolReferences`, which caches every linked
+The first refreshes the target snapshot. The second is a new Gradle invocation so all preparation inputs are configured
+from that refreshed state. It also runs `prepareWikiProtocolReferences`, which caches every linked
 `Java Edition protocol/*` subpage under
 `build/protocol-reference/wiki/<packet-revision>/references/` at or before the packet page's own revision timestamp.
 Read its `index.json` before using those pages as evidence.
@@ -61,25 +61,6 @@ unpacked/decompiled comparison copies, and compaction-survival notes belong ther
 must never read from or write to `temp/`. Never leave LLM scratch files in `build/` or invocation-only reports in the
 repository root. The workflow must not edit `.gitignore`.
 
-## Analysis JDK
-
-The Mojang version metadata supplies the required Java major version. This JDK is only for running/decompiling official
-artifacts and launching the client interoperability probe. It is independent of the project's Java/Kotlin/KMP targets.
-
-Do not install a JDK automatically. If Gradle cannot find the required version, ask the user to install it. Gradle
-normally auto-detects installed JDKs. A nonstandard installation can be exposed for one invocation with:
-
-```powershell
-.\gradlew.bat prepareProtocolUpdate "-Dorg.gradle.java.installations.paths=C:\path\to\jdk"
-```
-
-The data-generator executable may also be overridden with
-`-PprotocolJavaExecutable=C:\path\to\java.exe`.
-
-The official-client probe accepts
-`-PminecraftClientJavaExecutable=C:\path\to\java.exe`. This is also an analysis/test process and does not change the
-project toolchain.
-
 ## Iteration
 
 Use focused tasks first:
@@ -95,6 +76,7 @@ Use focused tasks first:
 .\gradlew.bat :protocol-serialization:packetPayloadLayerTest
 .\gradlew.bat :protocol-serialization:packetTransportLayerTest
 .\gradlew.bat :protocol-vanilla-data:vanillaDataLayerTest
+.\gradlew.bat :compression:compressionLayerTest
 .\gradlew.bat :protocol-transport:transportLayerTest
 .\gradlew.bat :protocol-session:sessionLayerTest
 .\gradlew.bat :protocol-auth:authLayerTest
@@ -134,6 +116,8 @@ compares every emitted finite registry with the matching vanilla data-generator 
 the Kotlin codec, then canonicalizes only order-insensitive NBT compounds and tag sets before writing committed data. It
 must preserve registry and entry order because those positions define runtime IDs. Run `checkVanillaProtocolData` in a
 fresh process after every generator change to prove that repeated official-server launches produce the same snapshot.
+Compare the generated Kotlin payload byte-for-byte, but compare its JSON evidence manifest structurally so harmless
+whitespace or object-key formatting cannot make the gate fail.
 
 `refreshOfficialProtocolConformance` updates exact Wiki/JAR/Kotlin/test fingerprints in the committed ledger. It
 deliberately converts reviews to
@@ -180,9 +164,10 @@ properties, or worlds that escape Gradle's build directories.
 .\gradlew.bat verifyProtocolUpdate
 ```
 
-The aggregate gate includes every local test layer, official codec differentials, fresh vanilla data, official-server
-interoperability, and the headless matching-official-client acceptance test. Its downloaded inputs remain inside the
-project build tree. A graphical host may additionally run the direct desktop launcher:
+The aggregate gate includes the current Wiki specification check, every local test layer, official codec differentials,
+fresh vanilla data, official-server interoperability, and the headless matching-official-client acceptance test. Its
+downloaded inputs remain inside the project build tree. A graphical host may additionally run the direct desktop
+launcher:
 
 ```powershell
 .\gradlew.bat officialClientToServerEndToEndTest

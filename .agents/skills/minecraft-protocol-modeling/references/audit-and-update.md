@@ -17,13 +17,11 @@ In update mode, first run `refreshProtocolSpecification` in its own Gradle invoc
 - Wiki version/protocol/revision/hash;
 - normal and legacy packet inventory;
 - Mojang latest stable release;
-- analysis-only Java requirement;
 - page-internal version warnings.
 
 Then run `prepareProtocolUpdate`. It deterministically:
 
 - downloads and SHA-1 verifies the exact official server bundle;
-- uses a locally installed analysis JDK;
 - runs vanilla data generators;
 - compares the Wiki list to vanilla `packets.json`;
 - verifies and unpacks the nested implementation JAR;

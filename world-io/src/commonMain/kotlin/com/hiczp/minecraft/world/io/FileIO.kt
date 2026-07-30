@@ -3,6 +3,7 @@ package com.hiczp.minecraft.world.io
 import kotlinx.io.buffered
 import kotlinx.io.files.FileSystem
 import kotlinx.io.files.Path
+import kotlin.random.Random
 
 internal fun FileSystem.readByteArray(
     path: Path,
@@ -50,7 +51,11 @@ internal fun FileSystem.writeByteArrayAtomically(
     val parent = path.parent
         ?: throw WorldIOException("File has no parent directory: $path")
     createDirectories(parent)
-    val temporary = Path(parent, ".${path.name}.minecraft-protocol.tmp")
+    val temporary = Path(
+        parent,
+        ".${path.name}.minecraft-protocol-" +
+                "${Random.nextLong().toULong()}.tmp",
+    )
     try {
         val sink = sink(temporary).buffered()
         try {

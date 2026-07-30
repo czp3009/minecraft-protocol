@@ -5,6 +5,7 @@ import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -63,15 +64,20 @@ internal object OfficialVanillaDataGenerator {
             .redirectErrorStream(true)
             .start()
         val logThread = Thread.ofVirtual().name("vanilla-data-capture-log").start {
-            process.inputStream.bufferedReader().useLines { lines ->
-                lines.forEach { line ->
-                    synchronized(serverLog) {
-                        serverLog.appendLine(line)
-                        if (serverLog.length > 200_000) {
-                            serverLog.delete(0, serverLog.length - 150_000)
+            try {
+                process.inputStream.bufferedReader().useLines { lines ->
+                    lines.forEach { line ->
+                        synchronized(serverLog) {
+                            serverLog.appendLine(line)
+                            if (serverLog.length > 200_000) {
+                                serverLog.delete(0, serverLog.length - 150_000)
+                            }
                         }
                     }
                 }
+            } catch (_: IOException) {
+                // Process teardown closes the diagnostic stream while this
+                // virtual thread may still be draining it.
             }
         }
 

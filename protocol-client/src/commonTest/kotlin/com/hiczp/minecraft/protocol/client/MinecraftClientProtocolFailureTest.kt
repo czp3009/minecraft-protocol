@@ -211,6 +211,62 @@ class MinecraftClientProtocolFailureTest {
     }
 
     @Test
+    fun encryptedLoginSkipsSessionJoinWhenAuthenticationIsNotRequested() =
+        runTest {
+            var joinRequests = 0
+            val service = MinecraftSessionService(
+                HttpClient(
+                    MockEngine {
+                        joinRequests++
+                        respond("", HttpStatusCode.NoContent)
+                    },
+                ),
+            )
+            val identity = MinecraftOnlineIdentity(
+                name = "NoAuthProbe",
+                id = Uuid(1, 2),
+                accessToken = "token",
+                sessionService = service,
+                cryptography = IdentityCryptography,
+            )
+            val (clientSession, serverSession) = sessionPair()
+            val server = async {
+                serverSession.receive()
+                serverSession.receive()
+                serverSession.send(
+                    encryptionRequest(shouldAuthenticate = false),
+                )
+                val response = assertIs<EncryptionResponsePacket>(
+                    serverSession.receive(),
+                )
+                serverSession.enableEncryption(
+                    response.sharedSecret.toByteArray(),
+                )
+                serverSession.send(
+                    LoginSuccessPacket(
+                        GameProfile(identity.id, identity.name, emptyList()),
+                        Uuid(3, 4),
+                    ),
+                )
+                serverSession.receive()
+                serverSession.receive()
+                serverSession.send(FinishConfigurationPacket)
+                serverSession.receive()
+                serverSession.send(playLogin())
+            }
+
+            MinecraftClientProtocol(
+                clientSession,
+                "localhost",
+                25_565,
+            ).login(identity)
+
+            assertEquals(0, joinRequests)
+            server.await()
+            service.httpClient.close()
+        }
+
+    @Test
     fun customHandlerAnswersEveryRequestAndObservesUnhandledPackets() =
         runTest {
             val (clientSession, serverSession) = sessionPair()
@@ -395,6 +451,88 @@ class MinecraftClientProtocolFailureTest {
         }
     }
 
+    @Test
+    fun rejectsAmbiguousRegistriesAndInvalidPlayDimensionContext() = runTest {
+        val missingLevel = assertPlayLoginRejected(
+            playLogin(
+                levels = setOf(Identifier("the_nether")),
+            ),
+        )
+        assertTrue(
+            missingLevel.message.orEmpty().contains("advertised levels"),
+        )
+
+        val missingDimensionType = assertPlayLoginRejected(
+            playLogin(dimensionTypeId = Int.MAX_VALUE),
+        )
+        assertTrue(
+            missingDimensionType.message.orEmpty()
+                .contains("absent dimension-type"),
+        )
+
+        val (clientSession, serverSession) = sessionPair()
+        val identity = MinecraftOfflineIdentity("DuplicateProbe")
+        val duplicate = RegistryDataPacket(
+            Identifier("test:duplicate"),
+            emptyList(),
+        )
+        val server = async {
+            serverSession.receive()
+            serverSession.receive()
+            serverSession.send(
+                LoginSuccessPacket(
+                    GameProfile(identity.id, identity.name, emptyList()),
+                    Uuid(3, 4),
+                ),
+            )
+            serverSession.receive()
+            serverSession.receive()
+            serverSession.send(duplicate)
+            serverSession.send(duplicate)
+        }
+        val failure = assertFailsWith<MinecraftClientException> {
+            MinecraftClientProtocol(
+                clientSession,
+                "localhost",
+                25_565,
+            ).login(identity)
+        }
+        assertTrue(failure.message.orEmpty().contains("duplicate registry"))
+        server.await()
+    }
+
+    private suspend fun assertPlayLoginRejected(
+        playLogin: PlayLoginPacket,
+    ): MinecraftClientException =
+        kotlinx.coroutines.coroutineScope {
+            val (clientSession, serverSession) = sessionPair()
+            val identity = MinecraftOfflineIdentity("InvalidPlayProbe")
+            val server = async {
+                serverSession.receive()
+                serverSession.receive()
+                serverSession.send(
+                    LoginSuccessPacket(
+                        GameProfile(identity.id, identity.name, emptyList()),
+                        Uuid(3, 4),
+                    ),
+                )
+                serverSession.receive()
+                serverSession.receive()
+                serverSession.send(FinishConfigurationPacket)
+                serverSession.receive()
+                serverSession.send(playLogin)
+            }
+            val failure = assertFailsWith<MinecraftClientException> {
+                MinecraftClientProtocol(
+                    clientSession,
+                    "localhost",
+                    25_565,
+                ).login(identity)
+            }
+            server.await()
+            failure
+        }
+
     private suspend fun assertPhaseLimit(
         expectedMessage: String,
         script: suspend (
@@ -434,22 +572,26 @@ class MinecraftClientProtocolFailureTest {
         )
     }
 
-    private fun encryptionRequest(): EncryptionRequestPacket =
+    private fun encryptionRequest(
+        shouldAuthenticate: Boolean = true,
+    ): EncryptionRequestPacket =
         EncryptionRequestPacket(
             serverId = "",
             publicKey = ByteString(byteArrayOf(1, 2, 3)),
             verifyToken = ByteString(byteArrayOf(4, 5, 6, 7)),
-            shouldAuthenticate = true,
+            shouldAuthenticate = shouldAuthenticate,
         )
 
     private fun playLogin(
         onlineMode: Boolean = false,
+        dimension: Identifier = Identifier("overworld"),
+        levels: Set<Identifier> = setOf(dimension),
+        dimensionTypeId: Int = 0,
     ): PlayLoginPacket {
-        val overworld = Identifier("overworld")
         return PlayLoginPacket(
             playerId = 1,
             hardcore = false,
-            levels = setOf(overworld),
+            levels = levels,
             maxPlayers = 20,
             chunkRadius = 8,
             simulationDistance = 8,
@@ -457,8 +599,8 @@ class MinecraftClientProtocolFailureTest {
             showDeathScreen = true,
             limitedCrafting = false,
             spawnInfo = CommonPlayerSpawnInfo(
-                dimensionTypeId = 0,
-                dimension = overworld,
+                dimensionTypeId = dimensionTypeId,
+                dimension = dimension,
                 seed = 0,
                 gameMode =
                     com.hiczp.minecraft.protocol.model.type.GameMode.CREATIVE,

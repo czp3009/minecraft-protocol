@@ -255,6 +255,7 @@ val checkVanillaProtocolDataManifest =
             "Require committed vanilla-data manifest to equal a fresh capture."
         dependsOn(captureOfficialVanillaData)
         expectedFile.set(capturedVanillaDataManifest)
+        compareJsonSemantically.set(true)
         actualFile.set(
             rootProject.layout.projectDirectory.file(
                 "protocol-specification/vanilla-configuration-data.json",

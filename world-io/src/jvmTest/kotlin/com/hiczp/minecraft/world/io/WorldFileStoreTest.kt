@@ -5,6 +5,10 @@ import com.hiczp.minecraft.protocol.model.type.NbtCompound
 import com.hiczp.minecraft.protocol.model.type.NbtInt
 import com.hiczp.minecraft.protocol.model.type.NbtString
 import com.hiczp.minecraft.world.format.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
@@ -18,6 +22,38 @@ class WorldFileStoreTest {
         val paths = MinecraftWorldPaths(Path("world"))
 
         assertEquals("world/level.dat".platformPath(), paths.levelData.toString())
+        assertEquals(
+            "world/level.dat_old".platformPath(),
+            paths.previousLevelData.toString(),
+        )
+        assertEquals(
+            "world/session.lock".platformPath(),
+            paths.sessionLock.toString(),
+        )
+        assertEquals(
+            "world/dimensions/minecraft/overworld".platformPath(),
+            paths.dimension(DimensionDirectory.Overworld).toString(),
+        )
+        assertEquals(
+            "world/dimensions/minecraft/the_nether".platformPath(),
+            paths.dimension(DimensionDirectory.Nether).toString(),
+        )
+        assertEquals(
+            "world/dimensions/minecraft/the_end".platformPath(),
+            paths.dimension(DimensionDirectory.End).toString(),
+        )
+        assertEquals(
+            "world",
+            paths.dimension(DimensionDirectory.LegacyOverworld).toString(),
+        )
+        assertEquals(
+            "world/DIM-1".platformPath(),
+            paths.dimension(DimensionDirectory.LegacyNether).toString(),
+        )
+        assertEquals(
+            "world/DIM1".platformPath(),
+            paths.dimension(DimensionDirectory.LegacyEnd).toString(),
+        )
         assertEquals(
             "world/dimensions/minecraft/the_nether/entities/r.-1.2.mca"
                 .platformPath(),
@@ -76,11 +112,7 @@ class WorldFileStoreTest {
                 store.write(path, document, compression)
 
                 assertEquals(document, store.read(path, compression))
-                assertFalse(
-                    SystemFileSystem.exists(
-                        Path(root, ".${path.name}.minecraft-protocol.tmp"),
-                    ),
-                )
+                assertNoAtomicTemporaryFiles(root, path.name)
             }
         }
     }
@@ -162,18 +194,68 @@ class WorldFileStoreTest {
     @Test
     fun fileLimitsAreEnforcedBeforeDecode() = withTemporaryWorld {
         runTest {
-            val strict = NbtFileStore(
+            val decompressedLimited = NbtFileStore(
                 configuration = NbtFileStoreConfiguration(
-                    maximumCompressedBytes = 1,
+                    maximumCompressedBytes = Int.MAX_VALUE,
                     maximumDecompressedBytes = 1,
                 ),
             )
             assertFailsWith<WorldIOException> {
-                strict.write(
+                decompressedLimited.write(
                     Path(root, "too-large.dat"),
                     sampleDocument(),
                     NbtFileCompression.NONE,
                 )
+            }
+
+            val compressedPath = Path(root, "compressed-too-large.dat")
+            val compressedLimited = NbtFileStore(
+                configuration = NbtFileStoreConfiguration(
+                    maximumCompressedBytes = 0,
+                    maximumDecompressedBytes = Int.MAX_VALUE,
+                ),
+            )
+            assertFailsWith<WorldIOException> {
+                compressedLimited.write(
+                    compressedPath,
+                    sampleDocument(),
+                    NbtFileCompression.NONE,
+                )
+            }
+            assertFalse(SystemFileSystem.exists(compressedPath))
+
+            val readablePath = Path(root, "read-limit.dat")
+            NbtFileStore().write(
+                readablePath,
+                sampleDocument(),
+                NbtFileCompression.NONE,
+            )
+            val encodedSize = Files.size(NioPath.of(readablePath.toString()))
+                .toInt()
+            assertEquals(
+                sampleDocument(),
+                NbtFileStore(
+                    configuration = NbtFileStoreConfiguration(
+                        maximumCompressedBytes = encodedSize,
+                        maximumDecompressedBytes = encodedSize,
+                    ),
+                ).read(readablePath, NbtFileCompression.NONE),
+            )
+            assertFailsWith<WorldIOException> {
+                NbtFileStore(
+                    configuration = NbtFileStoreConfiguration(
+                        maximumCompressedBytes = encodedSize - 1,
+                        maximumDecompressedBytes = encodedSize,
+                    ),
+                ).read(readablePath, NbtFileCompression.NONE)
+            }
+            assertFailsWith<RegionFormatException> {
+                NbtFileStore(
+                    configuration = NbtFileStoreConfiguration(
+                        maximumCompressedBytes = encodedSize,
+                        maximumDecompressedBytes = encodedSize - 1,
+                    ),
+                ).read(readablePath, NbtFileCompression.NONE)
             }
         }
     }
@@ -193,21 +275,80 @@ class WorldFileStoreTest {
             WorldRegionStoreConfiguration(maximumExternalChunkBytes = -1)
         }
 
-        assertFailsWith<IllegalArgumentException> {
-            DimensionDirectory.Custom("", "path")
-        }
-        assertFailsWith<IllegalArgumentException> {
-            DimensionDirectory.Custom("bad/name", "path")
-        }
-        assertFailsWith<IllegalArgumentException> {
-            DimensionDirectory.Custom("bad\\name", "path")
+        for (namespace in listOf(
+            "",
+            ".",
+            "..",
+            "bad/name",
+            "bad\\name",
+            "Bad",
+            "bad name",
+            "bad:name",
+        )) {
+            assertFailsWith<IllegalArgumentException> {
+                DimensionDirectory.Custom(namespace, "path")
+            }
         }
         assertFailsWith<IllegalArgumentException> {
             DimensionDirectory.Custom("example", "")
         }
-        for (segment in listOf(".", "..", "bad/name", "bad\\name", " ")) {
+        for (path in listOf(
+            "/path",
+            "path/",
+            "path//segment",
+        )) {
+            assertFailsWith<IllegalArgumentException> {
+                DimensionDirectory.Custom("example", path)
+            }
+        }
+        for (segment in listOf(
+            ".",
+            "..",
+            "bad/name",
+            "bad\\name",
+            "Bad",
+            "bad name",
+            "bad:name",
+            " ",
+        )) {
             assertFailsWith<IllegalArgumentException> {
                 DimensionDirectory.Custom("example", listOf(segment))
+            }
+        }
+
+        val mutableSegments = mutableListOf("safe", "dimension")
+        val custom = DimensionDirectory.Custom("example", mutableSegments)
+        mutableSegments[0] = ".."
+        assertEquals(listOf("safe", "dimension"), custom.pathSegments)
+        assertEquals(
+            "world/dimensions/example/safe/dimension".platformPath(),
+            MinecraftWorldPaths(Path("world")).dimension(custom).toString(),
+        )
+        assertEquals(custom, custom.copy())
+
+        val paths = MinecraftWorldPaths(Path("world"))
+        val playerPathFactories = listOf<(String) -> Path>(
+            paths::playerData,
+            paths::advancement,
+            paths::statistics,
+            paths::legacyPlayerData,
+            paths::legacyAdvancement,
+            paths::legacyStatistics,
+        )
+        for (invalidPlayerKey in listOf(
+            "",
+            ".",
+            "..",
+            "../escape",
+            "bad/name",
+            "bad\\name",
+            "bad:name",
+            "bad name",
+        )) {
+            playerPathFactories.forEach { pathFactory ->
+                assertFailsWith<IllegalArgumentException> {
+                    pathFactory(invalidPlayerKey)
+                }
             }
         }
     }
@@ -241,14 +382,79 @@ class WorldFileStoreTest {
         }
 
     @Test
+    fun distinguishesMissingZeroByteHeaderOnlyAndTruncatedRegions() =
+        withTemporaryWorld {
+            val paths = MinecraftWorldPaths(root)
+            val store = WorldRegionStore(paths)
+            val position = RegionPosition(4, -7)
+            val path = paths.regionFile(position)
+
+            assertNull(store.readRegion(position))
+
+            SystemFileSystem.writeByteArrayAtomically(path, byteArrayOf())
+            assertEquals(RegionFile(), store.readRegion(position))
+
+            SystemFileSystem.writeByteArrayAtomically(
+                path,
+                ByteArray(REGION_HEADER_BYTES),
+            )
+            assertEquals(RegionFile(), store.readRegion(position))
+
+            SystemFileSystem.writeByteArrayAtomically(path, byteArrayOf(1))
+            assertFailsWith<RegionFormatException> {
+                store.readRegion(position)
+            }
+        }
+
+    @Test
+    fun chunkUpdatesPreserveUnrelatedEntriesAndRemoveOnlyTheirSidecars() =
+        withTemporaryWorld {
+            val paths = MinecraftWorldPaths(root)
+            val store = WorldRegionStore(paths)
+            val first = ChunkPosition(0, 0)
+            val second = ChunkPosition(1, 0)
+            val firstChunk = RegionChunk(
+                RegionCompression.NONE,
+                RegionChunkPayload.External(byteArrayOf(1)),
+                timestamp = 1,
+            )
+            val secondChunk = RegionChunk(
+                RegionCompression.NONE,
+                RegionChunkPayload.External(byteArrayOf(2)),
+                timestamp = 2,
+            )
+
+            store.writeChunk(first, firstChunk)
+            store.writeChunk(second, secondChunk)
+            assertEquals(firstChunk, store.readChunk(first))
+            assertEquals(secondChunk, store.readChunk(second))
+
+            store.writeChunk(first, null)
+
+            assertNull(store.readChunk(first))
+            assertEquals(secondChunk, store.readChunk(second))
+            assertFalse(SystemFileSystem.exists(paths.externalChunk(first)))
+            assertTrue(SystemFileSystem.exists(paths.externalChunk(second)))
+        }
+
+    @Test
+    fun atomicWritesRejectParentlessDestinationsWithoutArtifacts() = runTest {
+        val path = Path("parentless-world-store-test.dat")
+        assertFailsWith<WorldIOException> {
+            NbtFileStore().write(
+                path,
+                sampleDocument(),
+                NbtFileCompression.NONE,
+            )
+        }
+        assertFalse(SystemFileSystem.exists(path))
+    }
+
+    @Test
     fun failedAtomicWriteRemovesItsTemporaryFile() = withTemporaryWorld {
         runTest {
             val destination = Path(root, "blocked.dat")
             Files.createDirectories(NioPath.of(destination.toString()))
-            val temporary = Path(
-                root,
-                ".${destination.name}.minecraft-protocol.tmp",
-            )
 
             assertFailsWith<WorldIOException> {
                 NbtFileStore().write(
@@ -259,9 +465,44 @@ class WorldFileStoreTest {
             }
 
             assertTrue(Files.isDirectory(NioPath.of(destination.toString())))
-            assertFalse(SystemFileSystem.exists(temporary))
+            assertNoAtomicTemporaryFiles(root, destination.name)
         }
     }
+
+    @Test
+    fun concurrentAtomicWritesUseIndependentTemporaryFiles() =
+        withTemporaryWorld {
+            runTest {
+                val destination = Path(root, "concurrent.dat")
+                val documents = List(64) { index ->
+                    NbtDocument(
+                        root = NbtCompound(
+                            mapOf(
+                                "writer" to NbtInt(index),
+                                "payload" to NbtString("x".repeat(8_192)),
+                            ),
+                        ),
+                        rootName = "root",
+                    )
+                }
+                val store = NbtFileStore()
+
+                coroutineScope {
+                    documents.map { document ->
+                        async(Dispatchers.Default) {
+                            store.write(
+                                destination,
+                                document,
+                                NbtFileCompression.NONE,
+                            )
+                        }
+                    }.awaitAll()
+                }
+
+                assertTrue(store.read(destination, NbtFileCompression.NONE) in documents)
+                assertNoAtomicTemporaryFiles(root, destination.name)
+            }
+        }
 
     @Test
     fun missingAndOversizedExternalChunksFailAtTheFileBoundary() =
@@ -411,4 +652,20 @@ class WorldFileStoreTest {
         replace('/', java.io.File.separatorChar)
 
     private class TemporaryWorld(val root: Path)
+}
+
+private fun assertNoAtomicTemporaryFiles(
+    directory: Path,
+    destinationName: String,
+) {
+    val prefix = ".$destinationName.minecraft-protocol-"
+    Files.list(NioPath.of(directory.toString())).use { entries ->
+        assertFalse(
+            entries.anyMatch {
+                val name = it.fileName.toString()
+                name.startsWith(prefix) && name.endsWith(".tmp")
+            },
+            "Atomic-write temporary file was left behind for $destinationName",
+        )
+    }
 }

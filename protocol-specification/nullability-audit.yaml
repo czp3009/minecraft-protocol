@@ -21,7 +21,7 @@ shared:
       allowed to override Wiki 3685492 or the exact official 26.2 JAR.
 
 coverage:
-  inventory_sha256: 90c539f544d1672f003ccf9eebc5878ea0c7d3065a5c60ccce5bec17a7f5acac
+  inventory_sha256: fc79c6fb95d15e8e155589bf6cee74ff0bf3c9d3d969eaa232477eb27ee5c854
   property_count: 1505
   nullable_count: 118
   sources:

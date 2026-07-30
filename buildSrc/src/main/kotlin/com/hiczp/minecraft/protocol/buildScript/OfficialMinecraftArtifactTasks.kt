@@ -1,15 +1,19 @@
 package com.hiczp.minecraft.protocol.buildScript
 
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
+import java.util.*
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.zip.ZipFile
@@ -82,6 +86,92 @@ abstract class DownloadOfficialMinecraftServerTask :
             "Resolved Minecraft cache directory escaped its parent"
         }
         return directory
+    }
+}
+
+abstract class GenerateOfficialServerPropertiesTask :
+    MinecraftProtocolToolTask() {
+    @get:Input
+    abstract val javaExecutable: Property<String>
+
+    @get:OutputFile
+    abstract val reportFile: RegularFileProperty
+
+    @TaskAction
+    fun generate() {
+        val target = repository.readMinecraftProtocolTarget()
+        val serverJar = repository
+            .resolve("build/protocol-reference/mojang")
+            .resolve(target.minecraftVersion)
+            .resolve("server.jar")
+            .toAbsolutePath()
+            .normalize()
+        check(serverJar.isRegularFile()) {
+            "Official server is missing; run downloadOfficialMinecraftServer"
+        }
+        val workDirectory = repository
+            .resolve("build/protocol-reference/official-server-properties")
+            .resolve(target.minecraftVersion)
+            .toAbsolutePath()
+            .normalize()
+        workDirectory.deleteTree()
+        workDirectory.createDirectories()
+        val result = runProcess(
+            listOf(
+                javaExecutable.get(),
+                "-Djava.awt.headless=true",
+                "-jar",
+                serverJar.toString(),
+                "--initSettings",
+                "nogui",
+            ),
+            workingDirectory = workDirectory,
+            timeout = Duration.ofMinutes(2),
+        )
+        check(result.exitCode == 0) {
+            "Official server --initSettings exited with " +
+                    "${result.exitCode}:\n${result.output}"
+        }
+        val propertiesPath = workDirectory.resolve("server.properties")
+        check(propertiesPath.isRegularFile()) {
+            "Official server did not generate server.properties"
+        }
+        val properties = Properties()
+        Files.newBufferedReader(
+            propertiesPath,
+            StandardCharsets.UTF_8,
+        ).use(properties::load)
+        val entries = properties.stringPropertyNames()
+            .sorted()
+            .map { name ->
+                val value = properties.getProperty(name)
+                jsonObjectOf(
+                    "name" to jsonString(name),
+                    "default" to jsonString(
+                        if (name == "management-server-secret") {
+                            check(value.isNotEmpty()) {
+                                "Official management-server-secret is empty"
+                            }
+                            "<generated-secret>"
+                        } else {
+                            value
+                        },
+                    ),
+                )
+            }
+        val report = jsonObjectOf(
+            "schema_version" to jsonNumber(1),
+            "minecraft_version" to jsonString(target.minecraftVersion),
+            "protocol_version" to jsonNumber(target.protocolVersion),
+            "official_server_sha1" to jsonString(serverJar.sha1()),
+            "property_count" to jsonNumber(entries.size),
+            "properties" to JsonArray(entries),
+        )
+        val output = reportFile.asFile.get().toPath()
+        output.writeJson(report)
+        logger.lifecycle(
+            "Generated ${entries.size} official server properties: $output",
+        )
     }
 }
 

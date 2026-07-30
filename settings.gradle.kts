@@ -17,6 +17,7 @@ dependencyResolutionManagement {
 }
 
 include(
+    ":compression",
     ":nbt",
     ":protocol-model",
     ":protocol-serialization",

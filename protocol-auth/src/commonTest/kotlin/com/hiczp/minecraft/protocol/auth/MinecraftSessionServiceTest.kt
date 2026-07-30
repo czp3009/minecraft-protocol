@@ -165,6 +165,34 @@ class MinecraftSessionServiceTest {
         service.httpClient.close()
     }
 
+    @Test
+    fun hasJoinedUsesTheVerifiedCanonicalProfileNameWhenPresent() = runTest {
+        val service = MinecraftSessionService(
+            HttpClient(
+                MockEngine {
+                    respond(
+                        """
+                        {
+                          "id": "b50ad385829d3141a2167e7d7539ba7f",
+                          "name": "CanonicalName",
+                          "properties": []
+                        }
+                        """.trimIndent(),
+                        HttpStatusCode.OK,
+                        headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                },
+            ),
+        )
+
+        val joined = assertNotNull(
+            service.hasJoined("canonicalname", "hash"),
+        )
+
+        assertEquals("CanonicalName", joined.profile.name)
+        service.httpClient.close()
+    }
+
     private fun serviceResponding(
         status: HttpStatusCode,
         body: String = "",

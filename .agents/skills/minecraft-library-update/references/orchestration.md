@@ -5,11 +5,11 @@
 Use this order for cross-cutting changes:
 
 1. target snapshot and official artifacts;
-2. shared protocol values and NBT algebra;
+2. shared protocol values, NBT algebra, and raw compression;
 3. binary NBT;
 4. packet serialization and vanilla Configuration data;
 5. transport, sessions, authentication, client, and server;
-6. region compression and containers;
+6. region compression wrappers and containers;
 7. filesystem and world paths;
 8. official server and client interoperability;
 9. representative multiplatform compilation.

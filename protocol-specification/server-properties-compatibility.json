@@ -1,0 +1,561 @@
+{
+  "schema_version": 1,
+  "minecraft_version": "26.2",
+  "protocol_version": 776,
+  "official_server_sha1": "823e2250d24b3ddac457a60c92a6a941943fcd6a",
+  "property_count": 69,
+  "properties": [
+    {
+      "name": "accepts-transfers",
+      "default": "false",
+      "scope": "protocol",
+      "library_support": "direct",
+      "library_mapping": "MinecraftServerConfiguration.acceptsTransfers gates HandshakeNextState.TRANSFER, sends the vanilla transfer-disabled Login disconnect, and exposes the transfer flag to admission, Configuration, Play Login, and the negotiation result.",
+      "consumer_responsibility": "Parse the property, opt in explicitly, and restore or validate any application state carried from the transferring server."
+    },
+    {
+      "name": "allow-flight",
+      "default": "false",
+      "scope": "gameplay-policy",
+      "library_support": "extension-point",
+      "library_mapping": "MinecraftInitialWorld.playerAbilities is configurable and serverbound movement packets remain available after negotiation; this property does not itself grant the client flight.",
+      "consumer_responsibility": "Track legitimate abilities and implement the vanilla-style illegal-flight detection and disconnect policy in the gameplay loop."
+    },
+    {
+      "name": "broadcast-console-to-ops",
+      "default": "true",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "The library has no command console or operator broadcast subsystem and imposes no fixed behavior.",
+      "consumer_responsibility": "Implement console command output routing and operator audiences in the complete server."
+    },
+    {
+      "name": "broadcast-rcon-to-ops",
+      "default": "true",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "The library has no RCON or operator broadcast subsystem and imposes no fixed behavior.",
+      "consumer_responsibility": "Implement RCON command output routing and operator audiences in the complete server."
+    },
+    {
+      "name": "bug-report-link",
+      "default": "",
+      "scope": "protocol",
+      "library_support": "extension-point",
+      "library_mapping": "ConfigurationServerLinksPacket and PlayServerLinksPacket model custom or built-in bug-report links, and MinecraftServerHandler.configurationPackets can send the Configuration form.",
+      "consumer_responsibility": "Validate the configured URI and construct the desired server-link packet."
+    },
+    {
+      "name": "chat-spam-threshold-seconds",
+      "default": "10",
+      "scope": "gameplay-policy",
+      "library_support": "extension-point",
+      "library_mapping": "Typed chat packets are exposed to the application after Play; the library does not install a fixed spam window.",
+      "consumer_responsibility": "Measure chat activity, choose exemptions, and warn or disconnect according to the configured threshold."
+    },
+    {
+      "name": "command-spam-threshold-seconds",
+      "default": "10",
+      "scope": "gameplay-policy",
+      "library_support": "extension-point",
+      "library_mapping": "Typed command packets are exposed to the application after Play; the library does not install a fixed spam window.",
+      "consumer_responsibility": "Measure command activity, choose exemptions, and warn or disconnect according to the configured threshold."
+    },
+    {
+      "name": "difficulty",
+      "default": "easy",
+      "scope": "protocol",
+      "library_support": "direct",
+      "library_mapping": "MinecraftServerConfiguration.difficulty flows through MinecraftInitialWorld.flatVanilla to ClientboundChangeDifficultyPacket, while custom worlds may select their own Difficulty.",
+      "consumer_responsibility": "Parse the property and apply its gameplay effects in addition to sending the protocol-visible value."
+    },
+    {
+      "name": "enable-code-of-conduct",
+      "default": "false",
+      "scope": "protocol",
+      "library_support": "extension-point",
+      "library_mapping": "CodeOfConductPacket and AcceptCodeOfConductPacket are modeled, and an ordered MinecraftServerHandler.configurationTasks exchange can wait for acceptance before Finish Configuration.",
+      "consumer_responsibility": "Load the code-of-conduct text, decide whether acceptance is mandatory, and reject clients that do not accept it."
+    },
+    {
+      "name": "enable-jmx-monitoring",
+      "default": "false",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "The multiplatform library has no JVM-only JMX management server and does not reserve or hardcode one.",
+      "consumer_responsibility": "Expose JMX metrics in the JVM server application when requested."
+    },
+    {
+      "name": "enable-query",
+      "default": "false",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "The Minecraft Query UDP service is separate from the Java Edition TCP protocol implemented here.",
+      "consumer_responsibility": "Create, secure, and stop a Query listener in the complete server."
+    },
+    {
+      "name": "enable-rcon",
+      "default": "false",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "RCON is a separate administrative protocol and is not started or constrained by this library.",
+      "consumer_responsibility": "Create, authenticate, and stop an RCON service in the complete server."
+    },
+    {
+      "name": "enable-status",
+      "default": "true",
+      "scope": "protocol",
+      "library_support": "direct",
+      "library_mapping": "MinecraftServerConfiguration.statusEnabled gates Status handshakes before a request is read, matching the official server's no-status-response behavior.",
+      "consumer_responsibility": "Map the property to the configuration and close failed negotiations through the normal connection lifecycle."
+    },
+    {
+      "name": "enforce-secure-profile",
+      "default": "true",
+      "scope": "protocol",
+      "library_support": "extension-point",
+      "library_mapping": "Online authentication primitives, signed-chat packet models, and MinecraftServerConfiguration.enforcesSecureChat provide the authentication and wire-facing pieces without falsely forcing a policy.",
+      "consumer_responsibility": "Validate profile keys and signed chat or commands throughout Play, and set enforcesSecureChat only when that enforcement is genuinely active."
+    },
+    {
+      "name": "enforce-whitelist",
+      "default": "false",
+      "scope": "gameplay-policy",
+      "library_support": "extension-point",
+      "library_mapping": "MinecraftServerHandler.profileRejection is invoked before Login succeeds, can return a custom Login disconnect component, and delegates to acceptProfile for existing handlers; no whitelist source is hardcoded.",
+      "consumer_responsibility": "Own the whitelist, operator bypass rules, reload semantics, and online-player eviction policy."
+    },
+    {
+      "name": "entity-broadcast-range-percentage",
+      "default": "100",
+      "scope": "gameplay-policy",
+      "library_support": "extension-point",
+      "library_mapping": "Finite initial projection accepts an explicit entity list and Play exposes all entity spawn, move, update, and removal packet models; no tracking radius is fixed.",
+      "consumer_responsibility": "Calculate per-entity tracking ranges and choose each recipient in the authoritative entity tracker."
+    },
+    {
+      "name": "force-gamemode",
+      "default": "false",
+      "scope": "gameplay-policy",
+      "library_support": "extension-point",
+      "library_mapping": "MinecraftServerConfiguration.gameMode supplies the default, while MinecraftServerHandler.playLogin can choose a persisted or forced mode per profile.",
+      "consumer_responsibility": "Decide whether saved player modes are retained and issue later game-mode updates when policy changes."
+    },
+    {
+      "name": "function-permission-level",
+      "default": "2",
+      "scope": "gameplay-policy",
+      "library_support": "not-applicable",
+      "library_mapping": "The library does not execute command functions or impose a permission model.",
+      "consumer_responsibility": "Implement function execution and permission checks in the command subsystem."
+    },
+    {
+      "name": "gamemode",
+      "default": "survival",
+      "scope": "protocol",
+      "library_support": "direct",
+      "library_mapping": "MinecraftServerConfiguration.gameMode configures CommonPlayerSpawnInfo and vanilla initial PlayerAbilities; MinecraftServerHandler.playLogin can override it per player.",
+      "consumer_responsibility": "Parse the property and implement the corresponding gameplay rules and persisted-player selection."
+    },
+    {
+      "name": "generate-structures",
+      "default": "true",
+      "scope": "world-storage",
+      "library_support": "not-applicable",
+      "library_mapping": "World modules encode supplied NBT and region data but contain no fixed terrain or structure generator.",
+      "consumer_responsibility": "Configure structure generation in the consuming server's world generator."
+    },
+    {
+      "name": "generator-settings",
+      "default": "{}",
+      "scope": "world-storage",
+      "library_support": "not-applicable",
+      "library_mapping": "World-format accepts already composed chunk NBT and does not interpret or restrict a generator-settings schema.",
+      "consumer_responsibility": "Parse the selected generator's settings and produce matching chunks and level metadata."
+    },
+    {
+      "name": "hardcore",
+      "default": "false",
+      "scope": "protocol",
+      "library_support": "direct",
+      "library_mapping": "MinecraftServerConfiguration.hardcore is written to PlayLoginPacket instead of being hardcoded.",
+      "consumer_responsibility": "Implement hardcore difficulty, death, ban, and world rules in the complete server."
+    },
+    {
+      "name": "hide-online-players",
+      "default": "false",
+      "scope": "protocol",
+      "library_support": "extension-point",
+      "library_mapping": "MinecraftServerHandler.statusJson controls the complete Status JSON document, so player samples and counts can be included, hidden, or transformed.",
+      "consumer_responsibility": "Build the player sample and privacy behavior from current server state."
+    },
+    {
+      "name": "initial-disabled-packs",
+      "default": "",
+      "scope": "protocol",
+      "library_support": "extension-point",
+      "library_mapping": "MinecraftServerConfiguration.protocolData is injectable and supplies the Known Packs, registries, tags, and feature flags negotiated with clients.",
+      "consumer_responsibility": "Resolve enabled data packs, generate a coherent ProtocolDataSet, and keep its registries consistent with generated worlds."
+    },
+    {
+      "name": "initial-enabled-packs",
+      "default": "vanilla",
+      "scope": "protocol",
+      "library_support": "extension-point",
+      "library_mapping": "MinecraftServerConfiguration.protocolData is injectable and supplies the Known Packs, registries, tags, and feature flags negotiated with clients.",
+      "consumer_responsibility": "Resolve enabled data packs, generate a coherent ProtocolDataSet, and keep its registries consistent with generated worlds."
+    },
+    {
+      "name": "level-name",
+      "default": "world",
+      "scope": "world-storage",
+      "library_support": "direct",
+      "library_mapping": "MinecraftWorldPaths takes an arbitrary root Path; no world directory name is embedded in world-io.",
+      "consumer_responsibility": "Resolve the configured level directory safely and pass that path to MinecraftWorldPaths."
+    },
+    {
+      "name": "level-seed",
+      "default": "",
+      "scope": "world-storage",
+      "library_support": "extension-point",
+      "library_mapping": "Chunk NBT and initial-world snapshots are caller supplied, and MinecraftServerHandler.playLogin can set the spawn-info seed; the library does not substitute a constant authoritative seed.",
+      "consumer_responsibility": "Parse or generate the seed, use it in world generation, persist it, and expose the protocol's hashed seed where appropriate."
+    },
+    {
+      "name": "level-type",
+      "default": "minecraft:normal",
+      "scope": "world-storage",
+      "library_support": "extension-point",
+      "library_mapping": "World chunks and dimension data are injectable and MinecraftServerHandler.playLogin controls isFlat and isDebug; the flat helper is optional.",
+      "consumer_responsibility": "Select and run the requested generator, then construct consistent dimension registry and Play data."
+    },
+    {
+      "name": "log-ips",
+      "default": "true",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "The library does not install an access logger or force remote addresses into log messages.",
+      "consumer_responsibility": "Apply address redaction consistently in application logs, audit trails, and administrative services."
+    },
+    {
+      "name": "management-server-allowed-origins",
+      "default": "",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "The official JSON-RPC management service is outside the Minecraft wire and storage library.",
+      "consumer_responsibility": "Validate and enforce WebSocket or HTTP origins in any management server implementation."
+    },
+    {
+      "name": "management-server-enabled",
+      "default": "false",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "The library starts no JSON-RPC management endpoint and therefore does not fix its lifecycle.",
+      "consumer_responsibility": "Implement and explicitly start or stop the management service."
+    },
+    {
+      "name": "management-server-host",
+      "default": "localhost",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "No management listener address is owned or hardcoded by the library.",
+      "consumer_responsibility": "Bind the management service to the configured interface with an appropriate security policy."
+    },
+    {
+      "name": "management-server-port",
+      "default": "0",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "No management listener port is owned or hardcoded by the library.",
+      "consumer_responsibility": "Validate and bind the configured management-service port."
+    },
+    {
+      "name": "management-server-secret",
+      "default": "<generated-secret>",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "The library has no management authentication secret and never generates or logs one.",
+      "consumer_responsibility": "Generate, store, compare, rotate, and redact the management credential securely."
+    },
+    {
+      "name": "management-server-tls-enabled",
+      "default": "true",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "Management-server TLS is separate from Minecraft transport encryption and is not configured by protocol-transport.",
+      "consumer_responsibility": "Configure TLS for the management endpoint and reject unsafe combinations."
+    },
+    {
+      "name": "management-server-tls-keystore",
+      "default": "",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "The library does not load a management TLS keystore.",
+      "consumer_responsibility": "Resolve and load the configured keystore without exposing its contents."
+    },
+    {
+      "name": "management-server-tls-keystore-password",
+      "default": "",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "The library does not request, retain, or log a management keystore password.",
+      "consumer_responsibility": "Supply and protect the keystore password in the management service."
+    },
+    {
+      "name": "max-chained-neighbor-updates",
+      "default": "1000000",
+      "scope": "gameplay-policy",
+      "library_support": "not-applicable",
+      "library_mapping": "There is no block-tick or neighbor-update engine in the finite protocol/world projection library.",
+      "consumer_responsibility": "Count and limit chained block updates in the authoritative world simulation."
+    },
+    {
+      "name": "max-players",
+      "default": "20",
+      "scope": "protocol",
+      "library_support": "direct",
+      "library_mapping": "MinecraftServerConfiguration.maximumPlayers drives Status and Play Login metadata, while MinecraftServerHandler.profileRejection supplies the admission decision and wire-visible reason.",
+      "consumer_responsibility": "Track concurrent players, apply operator or reserved-slot policy, and reject excess admissions."
+    },
+    {
+      "name": "max-tick-time",
+      "default": "60000",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "The library has no authoritative server tick loop or watchdog and therefore fixes no timeout.",
+      "consumer_responsibility": "Measure ticks and implement watchdog shutdown or recovery in the full server runtime."
+    },
+    {
+      "name": "max-world-size",
+      "default": "29999984",
+      "scope": "gameplay-policy",
+      "library_support": "extension-point",
+      "library_mapping": "Coordinate models enforce only physical protocol bounds; callers choose which chunks, teleports, and movements are accepted.",
+      "consumer_responsibility": "Clamp the configured border and enforce it in generation, movement, teleportation, and chunk loading."
+    },
+    {
+      "name": "motd",
+      "default": "A Minecraft Server",
+      "scope": "protocol",
+      "library_support": "direct",
+      "library_mapping": "MinecraftServerConfiguration.statusDescription configures the default Status response, and MinecraftServerHandler.statusJson can supply a richer component.",
+      "consumer_responsibility": "Parse formatting or component syntax as desired and expose current status state."
+    },
+    {
+      "name": "network-compression-threshold",
+      "default": "256",
+      "scope": "protocol",
+      "library_support": "direct",
+      "library_mapping": "MinecraftServerConfiguration.compressionThreshold selects the Login compression packet and transport threshold; null disables compression.",
+      "consumer_responsibility": "Map a negative server.properties value to null and a non-negative value directly."
+    },
+    {
+      "name": "online-mode",
+      "default": "true",
+      "scope": "protocol",
+      "library_support": "direct",
+      "library_mapping": "MinecraftServerAuthentication.Offline or Online selects offline UUIDs versus injected cryptography and session-service verification, and Play Login reports the resulting mode.",
+      "consumer_responsibility": "Construct Online authentication with production cryptography/session services or explicitly choose Offline and handle its identity risks."
+    },
+    {
+      "name": "op-permission-level",
+      "default": "4",
+      "scope": "gameplay-policy",
+      "library_support": "not-applicable",
+      "library_mapping": "The library does not define operators, commands, or permission levels.",
+      "consumer_responsibility": "Own operator data and enforce the configured command permission level."
+    },
+    {
+      "name": "pause-when-empty-seconds",
+      "default": "60",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "The library has no global tick scheduler to pause and does not assume one.",
+      "consumer_responsibility": "Observe player occupancy and pause or resume the full server simulation."
+    },
+    {
+      "name": "player-idle-timeout",
+      "default": "0",
+      "scope": "gameplay-policy",
+      "library_support": "extension-point",
+      "library_mapping": "After Play entry, the application owns packet dispatch and can observe activity without a library-fixed idle timer.",
+      "consumer_responsibility": "Define activity, exemptions, warning behavior, and disconnect timing."
+    },
+    {
+      "name": "prevent-proxy-connections",
+      "default": "false",
+      "scope": "protocol",
+      "library_support": "direct",
+      "library_mapping": "MinecraftServerConfiguration.preventProxyConnections passes the accepted socket's numeric peer address to MinecraftSessionService.hasJoined and fails closed when the address is unavailable.",
+      "consumer_responsibility": "Map the property and ensure any trusted proxy architecture preserves the intended authentication semantics."
+    },
+    {
+      "name": "query.port",
+      "default": "25565",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "The separate UDP Query protocol is not bound by MinecraftServer.",
+      "consumer_responsibility": "Validate and bind this port when implementing Query."
+    },
+    {
+      "name": "rate-limit",
+      "default": "0",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "MinecraftServer exposes accepted Ktor sockets but does not impose a global per-address connection limiter.",
+      "consumer_responsibility": "Track connection attempts, choose proxy-aware address keys, and reject excess connections before expensive negotiation."
+    },
+    {
+      "name": "rcon.password",
+      "default": "",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "The library does not retain or compare RCON credentials.",
+      "consumer_responsibility": "Require, protect, and authenticate the configured RCON password."
+    },
+    {
+      "name": "rcon.port",
+      "default": "25575",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "MinecraftServer binds only the Minecraft TCP socket requested by its caller.",
+      "consumer_responsibility": "Validate and bind the separate RCON port."
+    },
+    {
+      "name": "region-file-compression",
+      "default": "deflate",
+      "scope": "world-storage",
+      "library_support": "direct",
+      "library_mapping": "WorldRegionStore.writeChunkNbt accepts RegionCompression, and the built-in codecs cover vanilla GZIP, ZLIB/deflate, uncompressed, and LZ4 region payloads.",
+      "consumer_responsibility": "Map the textual setting to RegionCompression and decide migration behavior for existing chunks."
+    },
+    {
+      "name": "require-resource-pack",
+      "default": "false",
+      "scope": "protocol",
+      "library_support": "extension-point",
+      "library_mapping": "ConfigurationAddResourcePackPacket exposes its forced flag, and an ordered MinecraftServerHandler.configurationTasks exchange can wait for a chosen terminal resource-pack response before Play.",
+      "consumer_responsibility": "Set forced, evaluate every response state, and disconnect clients when the configured requirement is not met."
+    },
+    {
+      "name": "resource-pack",
+      "default": "",
+      "scope": "protocol",
+      "library_support": "extension-point",
+      "library_mapping": "ConfigurationAddResourcePackPacket and PlayAddResourcePackPacket accept a caller-supplied URL; no URL is embedded by the library.",
+      "consumer_responsibility": "Validate and serve the configured resource-pack URL and choose when to push it."
+    },
+    {
+      "name": "resource-pack-id",
+      "default": "",
+      "scope": "protocol",
+      "library_support": "extension-point",
+      "library_mapping": "Resource-pack push and response packets carry an arbitrary Uuid selected by the application.",
+      "consumer_responsibility": "Parse or derive a stable UUID and correlate responses to the active pack."
+    },
+    {
+      "name": "resource-pack-prompt",
+      "default": "",
+      "scope": "protocol",
+      "library_support": "extension-point",
+      "library_mapping": "ConfigurationAddResourcePackPacket.promptMessage accepts an optional TextComponent.",
+      "consumer_responsibility": "Parse the configured component and supply null when no prompt is configured."
+    },
+    {
+      "name": "resource-pack-sha1",
+      "default": "",
+      "scope": "protocol",
+      "library_support": "extension-point",
+      "library_mapping": "Resource-pack push packets expose the complete hash string and apply its wire length bound without replacing it.",
+      "consumer_responsibility": "Validate or calculate the pack SHA-1 and keep it synchronized with the served bytes."
+    },
+    {
+      "name": "server-ip",
+      "default": "",
+      "scope": "protocol",
+      "library_support": "direct",
+      "library_mapping": "MinecraftServer.bind accepts an arbitrary host and defaults to the wildcard address rather than reading a file.",
+      "consumer_responsibility": "Map an empty value to the desired wildcard interface or pass the configured address."
+    },
+    {
+      "name": "server-port",
+      "default": "25565",
+      "scope": "protocol",
+      "library_support": "direct",
+      "library_mapping": "MinecraftServer.bind accepts an arbitrary port and exposes the bound port.",
+      "consumer_responsibility": "Validate and pass the configured TCP port."
+    },
+    {
+      "name": "simulation-distance",
+      "default": "10",
+      "scope": "protocol",
+      "library_support": "direct",
+      "library_mapping": "MinecraftServerConfiguration.simulationDistance flows to Play Login and initial SetSimulationDistancePacket without an embedded value.",
+      "consumer_responsibility": "Apply official range normalization and use the value to control the authoritative simulation."
+    },
+    {
+      "name": "spawn-protection",
+      "default": "16",
+      "scope": "gameplay-policy",
+      "library_support": "extension-point",
+      "library_mapping": "Spawn position and all block interaction packets are typed, while the library installs no fixed protected radius.",
+      "consumer_responsibility": "Determine spawn, operator exemptions, dimensions, and deny protected interactions."
+    },
+    {
+      "name": "status-heartbeat-interval",
+      "default": "0",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "This setting controls official JSON-RPC management notifications, not the Minecraft Status handshake.",
+      "consumer_responsibility": "Schedule management-server heartbeat notifications when that optional service exists."
+    },
+    {
+      "name": "sync-chunk-writes",
+      "default": "true",
+      "scope": "world-storage",
+      "library_support": "extension-point",
+      "library_mapping": "WorldRegionStore exposes explicit completing write operations and contains no hidden global write queue.",
+      "consumer_responsibility": "Await writes for synchronous semantics or schedule and safely drain a serialized background writer for asynchronous semantics."
+    },
+    {
+      "name": "text-filtering-config",
+      "default": "",
+      "scope": "gameplay-policy",
+      "library_support": "extension-point",
+      "library_mapping": "Chat, command, book, and sign packet contents remain typed and available to the application; no filtering endpoint is hardcoded.",
+      "consumer_responsibility": "Configure the external filtering service and apply results consistently to every relevant content path."
+    },
+    {
+      "name": "text-filtering-version",
+      "default": "0",
+      "scope": "gameplay-policy",
+      "library_support": "extension-point",
+      "library_mapping": "The protocol library does not assume a filtering service version and leaves content policy above packet transport.",
+      "consumer_responsibility": "Select the external filtering API behavior corresponding to the configured version."
+    },
+    {
+      "name": "use-native-transport",
+      "default": "true",
+      "scope": "operations",
+      "library_support": "not-applicable",
+      "library_mapping": "Ktor SelectorManager and socket construction are supplied by the caller; the library does not select a JVM native event-loop implementation.",
+      "consumer_responsibility": "Choose and configure the runtime's supported Ktor transport/event loop."
+    },
+    {
+      "name": "view-distance",
+      "default": "10",
+      "scope": "protocol",
+      "library_support": "direct",
+      "library_mapping": "MinecraftServerConfiguration.viewDistance is validated against the protocol's supported range and flows to Play Login, initial render distance, and the flat projection radius.",
+      "consumer_responsibility": "Normalize the property, stream and unload chunks as players move, and enforce resource limits."
+    },
+    {
+      "name": "white-list",
+      "default": "false",
+      "scope": "gameplay-policy",
+      "library_support": "extension-point",
+      "library_mapping": "MinecraftServerHandler.profileRejection is the pre-Login admission hook, supports a custom disconnect reason, and does not assume a whitelist implementation.",
+      "consumer_responsibility": "Load and mutate whitelist state and combine the enabled flag with enforce-whitelist semantics."
+    }
+  ]
+}

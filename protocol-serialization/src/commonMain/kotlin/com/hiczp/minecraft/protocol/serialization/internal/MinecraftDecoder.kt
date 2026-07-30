@@ -34,7 +34,7 @@ internal class MinecraftDecoder(
         val collection = when (descriptor.kind) {
             StructureKind.LIST,
             StructureKind.MAP,
-                -> readCollectionSize()
+                -> readCollectionSize(descriptor)
 
             else -> null
         }
@@ -438,7 +438,9 @@ internal class MinecraftDecoder(
         return value
     }
 
-    private fun readCollectionSize(): DecodedCollection {
+    private fun readCollectionSize(
+        descriptor: SerialDescriptor,
+    ): DecodedCollection {
         val hints = takePendingHints()
         val size = when {
             hints.any { it is RemainingBytes } -> reader.remaining
@@ -459,13 +461,14 @@ internal class MinecraftDecoder(
 
             else -> reader.readVarInt(configuration.rejectNonMinimalVarNumbers)
         }
-        if (size < 0 || size > configuration.maximumCollectionSize) {
+        val configuredMaximum =
+            if (isByteArrayDescriptor(descriptor)) {
+                configuration.maximumByteArraySize
+            } else {
+                configuration.maximumCollectionSize
+            }
+        if (size < 0 || size > configuredMaximum) {
             throw MinecraftSerializationException("Invalid collection size: $size")
-        }
-        if (hints.any { it is RemainingBytes || it is FixedLength } &&
-            size > configuration.maximumByteArraySize
-        ) {
-            throw MinecraftSerializationException("Byte array exceeds configured limit: $size")
         }
         val maximum = hints.filterIsInstance<MaxCollectionSize>().singleOrNull()?.elements
         if (maximum != null && size > maximum) {
@@ -530,6 +533,9 @@ internal class MinecraftDecoder(
     private fun isPalettedContainerDescriptor(descriptor: SerialDescriptor): Boolean =
         descriptor.serialName == PALETTED_CONTAINER_SERIAL_NAME
 
+    private fun isByteArrayDescriptor(descriptor: SerialDescriptor): Boolean =
+        descriptor.serialName == BYTE_ARRAY_SERIAL_NAME
+
     private data class Frame(
         val descriptor: SerialDescriptor,
         var nextIndex: Int = 0,
@@ -551,5 +557,6 @@ internal class MinecraftDecoder(
             "com.hiczp.minecraft.protocol.model.type.Vector3d"
         const val PALETTED_CONTAINER_SERIAL_NAME: String =
             "com.hiczp.minecraft.protocol.model.type.PalettedContainer"
+        const val BYTE_ARRAY_SERIAL_NAME: String = "kotlin.ByteArray"
     }
 }

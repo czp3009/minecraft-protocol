@@ -6,6 +6,7 @@ import com.hiczp.minecraft.protocol.model.packet.ConfigurationUpdateTagsPacket
 import io.ktor.network.selector.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -46,15 +47,20 @@ internal object OfficialServerClientInteropRunner {
             .redirectErrorStream(true)
             .start()
         val logThread = Thread.ofVirtual().name("official-client-interop-log").start {
-            process.inputStream.bufferedReader().useLines { lines ->
-                lines.forEach { line ->
-                    synchronized(serverLog) {
-                        serverLog.appendLine(line)
-                        if (serverLog.length > 200_000) {
-                            serverLog.delete(0, serverLog.length - 150_000)
+            try {
+                process.inputStream.bufferedReader().useLines { lines ->
+                    lines.forEach { line ->
+                        synchronized(serverLog) {
+                            serverLog.appendLine(line)
+                            if (serverLog.length > 200_000) {
+                                serverLog.delete(0, serverLog.length - 150_000)
+                            }
                         }
                     }
                 }
+            } catch (_: IOException) {
+                // Process teardown closes the diagnostic stream while this
+                // virtual thread may still be draining it.
             }
         }
 

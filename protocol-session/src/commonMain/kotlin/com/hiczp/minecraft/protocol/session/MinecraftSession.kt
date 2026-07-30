@@ -133,7 +133,9 @@ class MinecraftSession(
     private fun applyPostWireEffects(packet: Packet) {
         when (packet) {
             is SetCompressionPacket ->
-                frames.configureCompression(packet.threshold)
+                frames.configureCompression(
+                    packet.threshold.takeIf { it >= 0 },
+                )
 
             is HandshakePacket ->
                 state = when (packet.nextState) {

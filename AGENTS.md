@@ -1,86 +1,85 @@
-# Repository guidance
+# Agent development guide
 
-## Scope and structure
+This file is for coding agents. Humans should start with [README.md](README.md), which explains the project, public
+usage, prerequisites, and Gradle commands. Read the closest module-level `AGENTS.md` before changing that module; its
+rules extend this file.
 
-- `nbt` owns the shared binary NBT stream format.
-- `protocol-model` owns format-independent Minecraft Java Edition packet and shared value models.
-- `protocol-serialization` owns the kotlinx.serialization binary format, physical wire encodings, and runtime packet
-  registry.
-- `protocol-vanilla-data` owns typed, committed static and Configuration data captured from the matching official
-  server.
-- `protocol-transport` owns Ktor socket exposure, framing, compression, and encryption.
-- `protocol-session` owns typed packet dispatch and connection-state changes.
-- `protocol-auth` owns offline identity, session services, and cryptographic abstractions.
-- `protocol-client` and `protocol-server` own connection orchestration through Play entry; the server also owns finite
-  initial chunk/entity projection.
-- `world-format` owns filesystem-independent Anvil region containers, compression, coordinates, and chunk NBT
-  composition.
-- `world-io` owns `kotlinx.io.files` world paths and filesystem adapters.
-- `protocol-specification` owns the checked-in, version-dependent target and evidence state.
-- `.agents/skills` owns the indexed network, world-storage, and full-library closed-loop workflows.
-- `buildSrc` owns shared Gradle configuration.
+## Work in the owning layer
 
-Guidance in a module-level `AGENTS.md` extends this file.
+- `compression`: portable raw DEFLATE shared by network and world formats.
+- `nbt`: binary NBT stream representation.
+- `protocol-model`: format-independent packet and shared value models.
+- `protocol-serialization`: Minecraft wire encodings and the runtime packet registry.
+- `protocol-vanilla-data`: committed typed data captured from the matching official server.
+- `protocol-transport`: Ktor sockets, framing, compression, and encryption.
+- `protocol-session`: typed dispatch and connection-state transitions.
+- `protocol-auth`: offline identity, session services, and cryptographic abstractions.
+- `protocol-client` / `protocol-server`: connection orchestration through Play; the server also projects a finite
+  initial chunk/entity view.
+- `world-format`: filesystem-independent Anvil containers, coordinates, compression, and chunk NBT composition.
+- `world-io`: `kotlinx.io.files` paths and filesystem adapters.
+- `protocol-specification`: checked-in target-dependent evidence.
+- `buildSrc`: shared Gradle configuration and deterministic protocol/storage tooling.
 
-## Protocol authority
+Do not move physical byte encodings into models, network I/O into serialization, or filesystem behavior into
+`world-format`. Gameplay, authoritative ticking worlds, persistence policy, and a general Minecraft server are outside
+the library's scope.
 
-Use the matching official server JAR as the primary source and behavioral authority for protocol and storage behavior.
-Use the Minecraft Wiki second for descriptions, names, and details that official code does not expose directly. Use
-exact-version MCProtocolLib and then Minestom only as tertiary evidence. Resolve every disagreement in favor of official
-behavior and record it in project specification state.
+## Evidence and modeling
 
-For nullability, inspect the matching official JAR first, including codecs, constructors, access paths, annotations,
-optionals, and sentinels. If that evidence is inconclusive, consult the Wiki, then MCProtocolLib, then Minestom. Keep an
-unresolved property nullable and annotate it with
-`@UnknownNullability`.
+Use the matching official server JAR as the primary behavioral authority. Use the revision-matched Minecraft Wiki for
+descriptions and facts that official code does not expose, then exact-version MCProtocolLib and Minestom as tertiary
+evidence. Resolve conflicts in favor of official behavior and keep changing evidence in `protocol-specification`, not in
+guidance prose.
 
-Derive changing facts through the protocol refresh tasks. Keep Minecraft versions, protocol IDs, inventories, source
-hashes, nullable counts, and test results out of agent guidance and skill prose.
+When the official `server.properties` inventory changes, update the version-bound compatibility decisions in
+`protocol-specification/server-properties-compatibility.json`. The library does not parse that file format, but
+protocol-visible or storage-visible choices must remain configurable through public APIs or explicit application
+extension points.
 
-## Kotlin design
+For nullability, inspect official codecs, constructors, access paths, annotations, optionals, and sentinels first. Fall
+back through Wiki, MCProtocolLib, and Minestom only when the preceding evidence is inconclusive. Keep unresolved values
+nullable and annotate them with `@UnknownNullability`.
 
-- Write idiomatic Kotlin Multiplatform code.
-- Keep models free of buffer access and network I/O.
-- Express logical variants with sealed types, logical serializers, and model-associated annotations.
-- Express physical byte representation in `protocol-serialization`.
-- Use `kotlinx.io.Source` and `Sink` for portable binary formats, and
-  `kotlinx.io.files.FileSystem` for modules that support files.
-- Use the minimum practical visibility. Kotlin's default `public` visibility needs no keyword.
-- Keep serializer and codec helpers internal or private when they are implementation details.
-- Represent unresolved nullability with a nullable Kotlin type and
-  `@UnknownNullability`.
+Write idiomatic Kotlin Multiplatform code:
 
-## Verification
+- keep shared models free of buffers and I/O;
+- represent logical variants with sealed types and logical serializers;
+- put physical representation in `protocol-serialization`;
+- use `kotlinx.io.Source`/`Sink` and, where supported, `kotlinx.io.files.FileSystem`;
+- omit redundant `public`, and keep implementation helpers internal or private.
 
-Protocol changes pass every relevant layer:
+Match tests to actual platform capabilities. Exercise portable Web code under the Gradle-provisioned Node/D8 runtimes;
+browser-runtime tests are not a repository gate. Keep in-memory protocol state, NBT, compression, Anvil
+`ByteArray`/`Source` loading, and chunk composition portable, but do not invent browser filesystem or listening-server
+support. Run `world-io` and production socket tests only on targets that expose the required filesystem or networking
+primitives. Do not add browser-driver infrastructure unless a task explicitly requires browser-specific behavior.
 
-1. model contracts and invariants;
-2. primitive and composite MinecraftFormat codecs;
-3. packet branch, golden-payload, malformed-input, registry-wide tests, and finite-registry ID/name audits;
-4. framing, compression, encryption, partial-I/O, and Ktor socket tests;
-5. session, authentication, client/server orchestration, and initial-world projection tests;
-6. differential execution through the matching official packet codecs;
-7. offline-mode production-client interoperability with the matching official server;
-8. offline-mode matching official-client interoperability with the production server, including initial chunks/entities
-   and client acknowledgements.
+## Development and verification
 
-`verifyProtocolUpdate` is the headless-CI aggregate protocol gate.
-`verifyWorldStorageUpdate` is the deterministic NBT and world-storage gate.
-`verifyMinecraftLibrary` composes both gates. The protocol gate prepares the matching official client and a
-hash-verified headless launcher under `build/`; it does not require a display, launcher installation, account, or
-machine-specific Minecraft path.
-`officialClientToServerEndToEndTest` is the additional direct desktop-client acceptance test. Representative
-multiplatform compilation remains part of final verification.
+Inspect existing code and generated specification state before editing. Preserve unrelated user changes. Prefer focused
+module tests while iterating, then run the canonical repository gate:
 
-World-storage changes also pass binary format, malformed-input, compression differential, real filesystem, and official
-generate/rewrite/reload tests.
+```shell
+./gradlew test
+```
 
-## Workspace ownership
+This gate is intentionally layered: model/codec tests do not replace malformed-input, registry, transport, session,
+socket, official-codec, official-server, official-client, world-storage, or multiplatform checks. See
+[README.md](README.md#verification) for the human-facing command and scope description.
 
-- Gradle tasks read and write transient artifacts under `build/`.
-- Agent scratch, manual decompilation, and compaction notes belong under
-  `temp/`.
-- Checked-in version-dependent evidence belongs under
-  `protocol-specification/`.
-- The update workflow preserves unrelated user changes and leaves
-  `.gitignore` unchanged.
+Gradle owns deterministic downloads, generated runtimes, reports, worlds, and test artifacts under `build/`. Checked-in
+target evidence belongs under `protocol-specification/`. Agent-only notes, manual decompilation, and other scratch
+belong under `temp/`. Preserve `.gitignore`.
+
+## Optional agent skills
+
+`.agents/skills` contains optional playbooks that help an agent perform release-wide protocol and storage work. They may
+invoke the same Gradle commands a human would invoke, but they are not project inputs:
+
+- project source, Gradle logic, tests, and runtime code must never read skill files or skill-generated scratch;
+- Gradle tasks and their helper scripts must never read from or write to `temp/`;
+- removing `.agents/skills` must not affect compilation, tests, publication, or runtime behavior.
+
+Use the narrowest applicable skill for an update or exhaustive audit. Ordinary development remains fully defined by the
+source tree, Gradle tasks, specification state, and README.

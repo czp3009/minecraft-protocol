@@ -49,7 +49,13 @@ internal class MinecraftEncoder(
         descriptor: SerialDescriptor,
         collectionSize: Int,
     ): CompositeEncoder {
-        if (collectionSize < 0 || collectionSize > configuration.maximumCollectionSize) {
+        val configuredMaximum =
+            if (isByteArrayDescriptor(descriptor)) {
+                configuration.maximumByteArraySize
+            } else {
+                configuration.maximumCollectionSize
+            }
+        if (collectionSize < 0 || collectionSize > configuredMaximum) {
             throw MinecraftSerializationException("Invalid collection size: $collectionSize")
         }
         val hints = takePendingHints()
@@ -379,6 +385,9 @@ internal class MinecraftEncoder(
     private fun isNbtDescriptor(descriptor: SerialDescriptor): Boolean =
         descriptor.serialName == NBT_SERIAL_NAME
 
+    private fun isByteArrayDescriptor(descriptor: SerialDescriptor): Boolean =
+        descriptor.serialName == BYTE_ARRAY_SERIAL_NAME
+
     private inline fun <T> withHints(hints: List<Annotation>, block: () -> T): T {
         val previous = pendingHints
         pendingHints = hints
@@ -399,6 +408,7 @@ internal class MinecraftEncoder(
         const val DEFAULT_STRING_MAXIMUM: Int = 32_767
         const val NBT_SERIAL_NAME: String =
             "com.hiczp.minecraft.protocol.model.type.NbtTag"
+        const val BYTE_ARRAY_SERIAL_NAME: String = "kotlin.ByteArray"
     }
 
     private data class Frame(

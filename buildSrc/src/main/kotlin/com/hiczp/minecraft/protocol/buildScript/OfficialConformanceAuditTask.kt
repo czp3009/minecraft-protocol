@@ -219,26 +219,7 @@ abstract class AuditOfficialConformanceTask :
             "Official codec report is not passing and complete; run " +
                     "checkOfficialCodecConformance"
         }
-        val stableKeys = listOf(
-            "schema_version",
-            "minecraft_version",
-            "protocol_version",
-            "official_server_inner_sha256",
-            "fixture_sha256",
-            "expected_packet_count",
-            "covered_packet_count",
-            "fixture_count",
-            "passed",
-            "failed",
-        )
-        val stableEntries = linkedMapOf<String, JsonElement>()
-        stableKeys.forEach {
-            stableEntries[it] = official[it] ?: JsonNull
-        }
-        stableEntries["results"] = results
-        val officialFingerprint = renderCanonicalJson(
-            JsonObject(stableEntries),
-        ).toByteArray(StandardCharsets.UTF_8).sha256()
+        val officialFingerprint = officialCodecEvidenceFingerprint(official)
         return jsonObjectOf(
             REGISTRY_EVIDENCE_ID to jsonObjectOf(
                 "kind" to jsonString("registry-round-trip"),
@@ -525,9 +506,20 @@ abstract class AuditOfficialConformanceTask :
             return
         }
         if (actualObject != expected) {
+            val actualCodecFingerprint = actualObject
+                .get(OFFICIAL_CODEC_EVIDENCE_ID)
+                ?.jsonObject
+                ?.optionalString("sha256_without_generation_time")
+            val expectedCodecFingerprint = expected
+                .getValue(OFFICIAL_CODEC_EVIDENCE_ID)
+                .jsonObject
+                .requiredString("sha256_without_generation_time")
             errors += "Ledger test evidence is stale; run " +
                     "refreshOfficialProtocolConformance and re-review " +
-                    "invalidated entries"
+                    "invalidated entries " +
+                    "(official codec fingerprint: ledger=" +
+                    "$actualCodecFingerprint, current=" +
+                    "$expectedCodecFingerprint)"
         }
         val registry = actualObject[REGISTRY_EVIDENCE_ID]
                 as? JsonObject
@@ -752,3 +744,73 @@ abstract class AuditOfficialConformanceTask :
         )
     }
 }
+
+/**
+ * Produces the stable portion of the exact-version codec report.
+ *
+ * The official debug-subscription codec decodes an ordered payload into a set.
+ * Its first and second successful re-encodings can therefore either stabilize
+ * immediately or use another valid iteration order after a cold JVM start. The
+ * full report keeps that diagnostic distinction, while checked-in evidence
+ * canonicalizes both successful non-byte-identical outcomes for that one
+ * order-insensitive fixture. Packet bytes, failures, exact re-encodings,
+ * normalized output from every other fixture, fixture hashes, and every other
+ * result field remain significant.
+ */
+internal fun officialCodecEvidenceFingerprint(report: JsonObject): String {
+    val stableKeys = listOf(
+        "schema_version",
+        "minecraft_version",
+        "protocol_version",
+        "official_server_inner_sha256",
+        "fixture_sha256",
+        "expected_packet_count",
+        "covered_packet_count",
+        "fixture_count",
+        "passed",
+        "failed",
+    )
+    val stableEntries = linkedMapOf<String, JsonElement>()
+    stableKeys.forEach {
+        stableEntries[it] = report[it] ?: JsonNull
+    }
+    stableEntries["results"] = JsonArray(
+        report.requiredArray("results").map(::stableOfficialCodecResult),
+    )
+    return renderCanonicalJson(JsonObject(stableEntries))
+        .toByteArray(StandardCharsets.UTF_8)
+        .sha256()
+}
+
+private fun stableOfficialCodecResult(result: JsonElement): JsonElement {
+    val objectResult = result as? JsonObject ?: return result
+    val validation = objectResult.optionalString("validation")
+    if (
+        validation !in successfulOfficialNormalizations ||
+        objectResult.optionalString("key") !=
+        ORDER_INSENSITIVE_OFFICIAL_CODEC_KEY ||
+        objectResult.optionalString("sample") !=
+        ORDER_INSENSITIVE_OFFICIAL_CODEC_SAMPLE
+    ) {
+        return result
+    }
+    return JsonObject(
+        objectResult.toMutableMap().apply {
+            remove("normalized_payload_sha256")
+            remove("normalized_payload_size")
+            this["validation"] = jsonString(
+                "complete-decode-and-official-reencode",
+            )
+        },
+    )
+}
+
+private val successfulOfficialNormalizations = setOf(
+    "complete-decode-and-stable-official-normalization",
+    "complete-decode-with-nondeterministic-official-reencoding",
+)
+
+private const val ORDER_INSENSITIVE_OFFICIAL_CODEC_KEY =
+    "PLAY/SERVERBOUND/0x17"
+private const val ORDER_INSENSITIVE_OFFICIAL_CODEC_SAMPLE =
+    "all-subscriptions"

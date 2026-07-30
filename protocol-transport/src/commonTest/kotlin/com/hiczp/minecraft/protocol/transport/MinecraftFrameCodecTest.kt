@@ -1,9 +1,29 @@
 package com.hiczp.minecraft.protocol.transport
 
 import kotlinx.coroutines.test.runTest
+import kotlin.random.Random
 import kotlin.test.*
 
 class MinecraftFrameCodecTest {
+    @Test
+    fun compressiblePacketMayExceedTheCompressedFrameCeiling() = runTest {
+        val codec = MinecraftFrameCodec()
+        codec.configureCompression(0)
+        val packetData = ByteArray(
+            MinecraftTransportConfiguration.MAXIMUM_FRAME_SIZE + 1,
+        ) { index ->
+            "minecraft"[index % "minecraft".length].code.toByte()
+        }
+
+        val frame = codec.encodeFrame(packetData)
+
+        assertTrue(
+            frame.size <
+                    MinecraftTransportConfiguration.MAXIMUM_FRAME_SIZE,
+        )
+        assertContentEquals(packetData, codec.decodeFrame(frame))
+    }
+
     @Test
     fun roundTripsAnUncompressedFrame() = runTest {
         val codec = MinecraftFrameCodec()
@@ -24,17 +44,63 @@ class MinecraftFrameCodecTest {
     }
 
     @Test
-    fun decodesAStandardZlibStream() = runTest {
+    fun roundTripsCompressionThresholdBoundariesAndDeterministicPayloads() =
+        runTest {
+            val random = Random(0x2602_0776)
+            val thresholds = listOf<Int?>(null, 0, 1, 2, 32, 256)
+            thresholds.forEach { threshold ->
+                val codec = MinecraftFrameCodec()
+                codec.configureCompression(threshold)
+                val sizes = buildSet {
+                    add(1)
+                    threshold?.let {
+                        add(maxOf(1, it - 1))
+                        add(maxOf(1, it))
+                        add(maxOf(1, it + 1))
+                    }
+                    repeat(20) { add(random.nextInt(1, 4_097)) }
+                }
+                sizes.forEach { size ->
+                    val packetData = ByteArray(size)
+                    random.nextBytes(packetData)
+                    assertContentEquals(
+                        packetData,
+                        codec.decodeFrame(codec.encodeFrame(packetData)),
+                        "threshold=$threshold size=$size",
+                    )
+                }
+            }
+        }
+
+    @Test
+    fun decodesStandardStoredFixedAndDynamicZlibStreams() = runTest {
         val codec = MinecraftFrameCodec()
         codec.configureCompression(1)
-        val body = byteArrayOf(11) + hexBytes(
-            "789ccb48cdc9c95728cf2fca4901001a0b045d",
+        val hello = "hello world".encodeToByteArray()
+        val dynamic =
+            "The quick brown fox jumps over the lazy dog. "
+                .repeat(100)
+                .encodeToByteArray()
+        val samples = listOf(
+            hello to hexBytes(
+                "7801010b00f4ff68656c6c6f20776f726c641a0b045d",
+            ),
+            hello to hexBytes(
+                "789ccb48cdc9c95728cf2fca4901001a0b045d",
+            ),
+            dynamic to hexBytes(
+                "789cedca470180301045412b5f016a628092d0d910084d3d88e0f8ce" +
+                        "33aef35a735f8faa929d8b825d1af21c37d9e193f68fa7f2b9d5585" +
+                        "bc891c96432994c2693c96432994c2693ffc82f1dc84f97",
+            ),
         )
 
-        assertContentEquals(
-            "hello world".encodeToByteArray(),
-            codec.decodeFrameBody(body),
-        )
+        samples.forEach { (expected, zlib) ->
+            assertContentEquals(
+                expected,
+                codec.decodeFrameBody(encodeVarInt(expected.size) + zlib),
+            )
+        }
     }
 
     @Test
@@ -57,6 +123,34 @@ class MinecraftFrameCodecTest {
                         hexBytes("789ccb48cdc9c95728cf2fca4901001a0b045c"),
             )
         }
+    }
+
+    @Test
+    fun rejectsEveryMalformedZlibEnvelopeClass() = runTest {
+        val codec = MinecraftFrameCodec()
+        codec.configureCompression(1)
+
+        suspend fun reject(zlib: ByteArray, declaredSize: Int = 1) {
+            assertFailsWith<MinecraftTransportException> {
+                codec.decodeFrameBody(encodeVarInt(declaredSize) + zlib)
+            }
+        }
+
+        reject(byteArrayOf(0x78, 0x9C.toByte(), 0, 0, 0))
+        reject(byteArrayOf(0x79, 0, 0, 0, 0, 0))
+        reject(byteArrayOf(0x88.toByte(), 0, 0, 0, 0, 0))
+        reject(byteArrayOf(0x78, 0, 0, 0, 0, 0))
+        reject(byteArrayOf(0x78, 0x20, 0, 0, 0, 0))
+
+        val hello = "hello world".encodeToByteArray()
+        val compressed = Zlib.compress(hello)
+        reject(compressed, declaredSize = hello.size - 1)
+        reject(compressed, declaredSize = hello.size + 1)
+
+        val wrongChecksum = compressed.copyOf()
+        wrongChecksum[wrongChecksum.lastIndex] =
+            (wrongChecksum.last().toInt() xor 1).toByte()
+        reject(wrongChecksum, declaredSize = hello.size)
     }
 
     @Test
