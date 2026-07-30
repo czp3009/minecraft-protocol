@@ -13,13 +13,14 @@ Invoke the narrowest skill that owns the requested change.
 | `minecraft-world-storage`     | Binary NBT, Anvil region containers, compression, dimension paths, filesystem adapters, and official save-file interoperability                                                                                           |
 | `minecraft-library-update`    | Release-wide orchestration of both workflows and complete library verification                                                                                                                                            |
 
-All accept no target for the current stable Wiki release, an explicit Minecraft release, or `protocol:<id>`. Use the
-same explicit target across skills during one update.
+All retain the release selected by `MinecraftTarget.version` when no target is given. An explicitly requested Minecraft
+release changes only that buildSrc constant before refresh. Protocol-ID selectors are not supported. Use the same target
+across skills during one update.
 
 All workflows use the matching official JAR as the primary source and behavioral authority, the revision-pinned Wiki
 second, then exact-version MCProtocolLib and Minestom. Nullability follows the same order, falling through to the next
 source only when the earlier source is inconclusive.
 
 Skills may invoke Gradle in the same way as a human. Gradle tasks own deterministic artifacts under `build/`; they must
-never read skill files or skill-generated output. Agent-only scratch belongs under `temp/`, which Gradle and its helper
-scripts must never access.
+never read skill files or skill-generated output. Agent-only reference clones, manual decompilation, and scratch belong
+under `temp/`, which Gradle and its helper scripts must never access.

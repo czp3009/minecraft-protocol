@@ -1,5 +1,5 @@
-import com.hiczp.minecraft.protocol.buildScript.CompareFilesTask
-import com.hiczp.minecraft.protocol.buildScript.CopyFileTask
+import com.hiczp.minecraft.protocol.buildScript.GeneratePacketRegistrySourceTask
+import com.hiczp.minecraft.protocol.buildScript.MinecraftTarget
 import com.hiczp.minecraft.protocol.buildScript.configureAllTargets
 
 plugins {
@@ -8,267 +8,178 @@ plugins {
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
 }
 
+val generatedPacketRegistryDirectory = layout.buildDirectory.dir(
+    "generated/sources/packetRegistry/commonMain/kotlin",
+)
+val generatePacketRegistrySource =
+    tasks.register<GeneratePacketRegistrySourceTask>(
+        "generatePacketRegistrySource",
+    ) {
+        dependsOn(
+            rootProject.tasks.named("generateOfficialMinecraftReports"),
+        )
+        repositoryDirectory.set(rootProject.layout.projectDirectory)
+        packetsReport.set(
+            rootProject.layout.buildDirectory.file(
+                "protocol-reference/mojang/${MinecraftTarget.version}/" +
+                        "generated/reports/packets.json",
+            ),
+        )
+        packetSources.from(
+            rootProject.fileTree(
+                "protocol-model/src/commonMain/kotlin/com/hiczp/" +
+                        "minecraft/protocol/model/packet",
+            ) {
+                include("**/*.kt")
+            },
+        )
+        outputFile.set(
+            generatedPacketRegistryDirectory.map {
+                it.file(
+                    "com/hiczp/minecraft/protocol/serialization/" +
+                            "GeneratedPacketRegistryEntries.kt",
+                )
+            },
+        )
+    }
+
 kotlin {
     configureAllTargets("com.hiczp.minecraft.protocol.serialization")
 
     sourceSets {
-        commonMain.dependencies {
-            api(project(":protocol-model"))
-            implementation(project(":nbt"))
-            api(libs.kotlinx.serialization.core)
+        commonMain {
+            kotlin.srcDir(
+                files(generatedPacketRegistryDirectory)
+                    .builtBy(generatePacketRegistrySource),
+            )
+            dependencies {
+                api(project(":protocol-model"))
+                implementation(project(":nbt"))
+                api(libs.kotlinx.serialization.core)
+            }
         }
 
         commonTest.dependencies {
             implementation(kotlin("test"))
         }
+
+        jvmTest {
+            kotlin.srcDir("src/jvmInteropSupport/kotlin")
+        }
     }
 }
 
-val jvmTestCompilation = kotlin.targets
-    .getByName("jvm")
-    .compilations
-    .getByName("test")
-
-fun registerJvmLayerTest(
-    name: String,
-    description: String,
-    vararg testPatterns: String,
-) = tasks.register<Test>(name) {
-    group = "verification"
-    this.description = description
-    dependsOn(jvmTestCompilation.compileTaskProvider)
-    testClassesDirs = jvmTestCompilation.output.classesDirs
-    classpath = files(
-        jvmTestCompilation.output.allOutputs,
-        jvmTestCompilation.runtimeDependencyFiles,
-    )
-    filter {
-        testPatterns.forEach(::includeTestsMatching)
-    }
+val jvmTarget = kotlin.targets.getByName("jvm")
+val jvmMainCompilation = jvmTarget.compilations.getByName("main")
+val jvmToolCompilation = jvmTarget.compilations.create("tool") {
+    associateWith(jvmMainCompilation)
 }
-
-registerJvmLayerTest(
-    "minecraftFormatLayerTest",
-    "Test primitive, annotation, composite-value, boundary, and malformed codecs.",
-    "com.hiczp.minecraft.protocol.serialization.MinecraftFormatTest",
-    "com.hiczp.minecraft.protocol.serialization.*SerializationTest",
+kotlin.sourceSets.getByName("jvmTool").kotlin.srcDir(
+    "src/jvmInteropSupport/kotlin",
 )
 
-registerJvmLayerTest(
-    "packetPayloadLayerTest",
-    "Test packet-specific branches, golden payloads, and registry-wide round trips.",
-    "com.hiczp.minecraft.protocol.serialization.*PacketTest",
-    "com.hiczp.minecraft.protocol.serialization.PacketRegistryTest",
-)
-
-registerJvmLayerTest(
-    "packetTransportLayerTest",
-    "Test test-only packet framing, partial reads, limits, and compression branches.",
-    "com.hiczp.minecraft.protocol.serialization.PacketFramingTest",
-)
-
-tasks.register<JavaExec>("generateOfficialCodecFixtures") {
-    group = "minecraft protocol"
-    description = "Emit one protocol-valid payload per packet for the vanilla codec oracle."
-    dependsOn(jvmTestCompilation.compileTaskProvider)
-    classpath(
-        jvmTestCompilation.output.allOutputs,
-        jvmTestCompilation.runtimeDependencyFiles,
-    )
-    mainClass.set(
-        "com.hiczp.minecraft.protocol.serialization.OfficialCodecFixtureGenerator",
-    )
-    args(
-        layout.buildDirectory.file(
-            "reports/protocol-update/official-codec-fixtures.tsv",
-        ).get().asFile.absolutePath,
-    )
-}
-
-tasks.register<JavaExec>("generateNetworkRegistryManifest") {
-    group = "minecraft protocol"
-    description =
-        "Emit executable local IDs and names for finite protocol registries."
-    dependsOn(jvmTestCompilation.compileTaskProvider)
-    classpath(
-        jvmTestCompilation.output.allOutputs,
-        jvmTestCompilation.runtimeDependencyFiles,
-    )
-    mainClass.set(
-        "com.hiczp.minecraft.protocol.serialization.NetworkRegistryManifestGenerator",
-    )
-    args(
-        layout.buildDirectory.file(
-            "reports/protocol-update/network-registries.tsv",
-        ).get().asFile.absolutePath,
-    )
-}
-
-val protocolSnapshotText = rootProject.file(
-    "protocol-specification/wiki-protocol-snapshot.json",
-).readText()
-val analysisJavaVersion = Regex("\"java_major_version\"\\s*:\\s*(\\d+)")
-    .find(protocolSnapshotText)
-    ?.groupValues
-    ?.get(1)
-    ?.toInt()
-    ?: error("Wiki protocol snapshot does not declare java_major_version")
-val protocolMinecraftVersion = Regex("\"minecraft_version\"\\s*:\\s*\"([^\"]+)\"")
-    .find(protocolSnapshotText)
-    ?.groupValues
-    ?.get(1)
-    ?: error("Wiki protocol snapshot does not declare minecraft_version")
-val analysisJavaLauncher = extensions
+val java25Launcher = extensions
     .getByType<JavaToolchainService>()
     .launcherFor {
-        languageVersion.set(JavaLanguageVersion.of(analysisJavaVersion))
+        languageVersion.set(JavaLanguageVersion.of(25))
     }
+val officialServerJar = rootProject.layout.buildDirectory.file(
+    "protocol-reference/mojang/${MinecraftTarget.version}/server.jar",
+)
+val generatedConfigurationDirectory = layout.buildDirectory.dir(
+    "generated/vanilla-configuration",
+)
+val generatedConfigurationSource = generatedConfigurationDirectory.map {
+    it.file(
+        "commonMain/kotlin/com/hiczp/minecraft/protocol/data/" +
+                "VanillaConfigurationPayloads.kt",
+    )
+}
+val generatedConfigurationReport = generatedConfigurationDirectory.map {
+    it.file("configuration.json")
+}
+val configurationCaptureWorkDirectory = layout.buildDirectory.dir(
+    "tmp/vanilla-configuration/${MinecraftTarget.version}",
+)
 
-tasks.register<JavaExec>("officialServerInteropTest") {
-    group = "verification"
-    description =
-        "Run Status and offline Login/Configuration against the exact official server."
+tasks.register<JavaExec>("generateVanillaConfigurationData") {
     dependsOn(
-        jvmTestCompilation.compileTaskProvider,
+        jvmToolCompilation.compileTaskProvider,
         rootProject.tasks.named("downloadOfficialMinecraftServer"),
     )
+    javaLauncher.set(java25Launcher)
     classpath(
-        jvmTestCompilation.output.allOutputs,
-        jvmTestCompilation.runtimeDependencyFiles,
+        jvmToolCompilation.output.allOutputs,
+        jvmToolCompilation.runtimeDependencyFiles,
     )
     mainClass.set(
-        "com.hiczp.minecraft.protocol.serialization.OfficialServerInteropRunner",
+        "com.hiczp.minecraft.protocol.serialization." +
+                "OfficialVanillaDataGenerator",
     )
+    inputs.file(officialServerJar)
+        .withPathSensitivity(PathSensitivity.NONE)
+    inputs.property("minecraftVersion", MinecraftTarget.version)
+    outputs.files(
+        generatedConfigurationSource,
+        generatedConfigurationReport,
+    )
+    outputs.cacheIf("The official capture is canonicalized") { true }
     args(
-        analysisJavaLauncher.get().executablePath.asFile.absolutePath,
-        rootProject.file(
-            "build/protocol-reference/mojang/$protocolMinecraftVersion/server.jar",
-        ).absolutePath,
-        rootProject.file(
-            "build/protocol-reference/official-server-interop/" +
-                    protocolMinecraftVersion,
-        ).absolutePath,
-        rootProject.file(
-            "build/reports/protocol-update/official-server-interop.json",
-        ).absolutePath,
-    )
-    outputs.upToDateWhen { false }
-}
-
-val capturedVanillaDataSource = layout.buildDirectory.file(
-    "generated/vanilla-data/com/hiczp/minecraft/protocol/data/" +
-            "VanillaConfigurationPayloads.kt",
-)
-val capturedVanillaDataManifest = layout.buildDirectory.file(
-    "reports/protocol-update/vanilla-configuration-data.json",
-)
-
-val captureOfficialVanillaData =
-    tasks.register<JavaExec>("captureOfficialVanillaData") {
-        group = "minecraft protocol"
-        description =
-            "Capture both Known Packs branches from the exact official server."
-        dependsOn(
-            jvmTestCompilation.compileTaskProvider,
-            rootProject.tasks.named("downloadOfficialMinecraftServer"),
-        )
-        classpath(
-            jvmTestCompilation.output.allOutputs,
-            jvmTestCompilation.runtimeDependencyFiles,
-        )
-        mainClass.set(
-            "com.hiczp.minecraft.protocol.serialization.OfficialVanillaDataGenerator",
-        )
-        args(
-            analysisJavaLauncher.get().executablePath.asFile.absolutePath,
-            rootProject.file(
-                "build/protocol-reference/mojang/$protocolMinecraftVersion/server.jar",
-            ).absolutePath,
-            rootProject.file(
-                "build/protocol-reference/vanilla-data-capture/" +
-                        protocolMinecraftVersion,
-            ).absolutePath,
-            capturedVanillaDataSource.get().asFile.absolutePath,
-            capturedVanillaDataManifest.get().asFile.absolutePath,
-        )
-        outputs.files(capturedVanillaDataSource, capturedVanillaDataManifest)
-        outputs.upToDateWhen { false }
-    }
-
-val updateVanillaProtocolDataSource =
-    tasks.register<CopyFileTask>("updateVanillaProtocolDataSource") {
-        group = "minecraft protocol"
-        description = "Commit the latest exact official vanilla Kotlin data."
-        dependsOn(captureOfficialVanillaData)
-        sourceFile.set(capturedVanillaDataSource)
-        destinationFile.set(
-            rootProject.layout.projectDirectory.file(
-                "protocol-vanilla-data/src/commonMain/kotlin/" +
-                        "com/hiczp/minecraft/protocol/data/" +
-                        "VanillaConfigurationPayloads.kt",
-            ),
-        )
-    }
-
-val updateVanillaProtocolDataManifest =
-    tasks.register<CopyFileTask>("updateVanillaProtocolDataManifest") {
-        group = "minecraft protocol"
-        description = "Commit the latest exact official vanilla-data manifest."
-        dependsOn(captureOfficialVanillaData)
-        sourceFile.set(capturedVanillaDataManifest)
-        destinationFile.set(
-            rootProject.layout.projectDirectory.file(
-                "protocol-specification/vanilla-configuration-data.json",
-            ),
-        )
-    }
-
-tasks.register("updateVanillaProtocolData") {
-    group = "minecraft protocol"
-    description = "Commit the latest exact official vanilla-data snapshot."
-    dependsOn(
-        updateVanillaProtocolDataSource,
-        updateVanillaProtocolDataManifest,
+        java25Launcher.get().executablePath.asFile.absolutePath,
+        officialServerJar.get().asFile.absolutePath,
+        configurationCaptureWorkDirectory.get().asFile.absolutePath,
+        generatedConfigurationSource.get().asFile.absolutePath,
+        generatedConfigurationReport.get().asFile.absolutePath,
     )
 }
 
-val checkVanillaProtocolDataSource =
-    tasks.register<CompareFilesTask>("checkVanillaProtocolDataSource") {
-        group = "verification"
-        description =
-            "Require committed vanilla Kotlin data to equal a fresh capture."
-        dependsOn(captureOfficialVanillaData)
-        expectedFile.set(capturedVanillaDataSource)
-        actualFile.set(
-            rootProject.layout.projectDirectory.file(
-                "protocol-vanilla-data/src/commonMain/kotlin/" +
-                        "com/hiczp/minecraft/protocol/data/" +
-                        "VanillaConfigurationPayloads.kt",
-            ),
-        )
-    }
-
-val checkVanillaProtocolDataManifest =
-    tasks.register<CompareFilesTask>("checkVanillaProtocolDataManifest") {
-        group = "verification"
-        description =
-            "Require committed vanilla-data manifest to equal a fresh capture."
-        dependsOn(captureOfficialVanillaData)
-        expectedFile.set(capturedVanillaDataManifest)
-        compareJsonSemantically.set(true)
-        actualFile.set(
-            rootProject.layout.projectDirectory.file(
-                "protocol-specification/vanilla-configuration-data.json",
-            ),
-        )
-    }
-
-tasks.register("checkVanillaProtocolData") {
-    group = "verification"
-    description =
-        "Require the committed vanilla-data snapshot to equal a fresh official capture."
+tasks.named<Test>("jvmTest") {
     dependsOn(
-        checkVanillaProtocolDataSource,
-        checkVanillaProtocolDataManifest,
+        rootProject.tasks.named("downloadOfficialMinecraftServer"),
+        rootProject.tasks.named("compileOfficialCodecOracle"),
+    )
+    systemProperty(
+        "minecraft.protocol.java",
+        java25Launcher.get().executablePath.asFile.absolutePath,
+    )
+    systemProperty(
+        "minecraft.protocol.serverJar",
+        officialServerJar.get().asFile.absolutePath,
+    )
+    systemProperty(
+        "minecraft.protocol.officialServerWork",
+        layout.buildDirectory.dir(
+            "test-runtimes/official-server/${MinecraftTarget.version}",
+        ).get().asFile.absolutePath,
+    )
+    systemProperty(
+        "minecraft.protocol.officialServerReport",
+        layout.buildDirectory.file(
+            "reports/tests/official-server.json",
+        ).get().asFile.absolutePath,
+    )
+    systemProperty(
+        "minecraft.protocol.codecOracleClasses",
+        rootProject.layout.buildDirectory.dir(
+            "generated/official-codec-oracle/classes",
+        ).get().asFile.absolutePath,
+    )
+    systemProperty(
+        "minecraft.protocol.officialRuntime",
+        rootProject.layout.buildDirectory.dir(
+            "protocol-reference/mojang/${MinecraftTarget.version}/runtime",
+        ).get().asFile.absolutePath,
+    )
+    systemProperty(
+        "minecraft.protocol.codecFixtures",
+        layout.buildDirectory.file(
+            "tmp/official-codec/fixtures.tsv",
+        ).get().asFile.absolutePath,
+    )
+    systemProperty(
+        "minecraft.protocol.codecReport",
+        layout.buildDirectory.file(
+            "reports/tests/official-codec.json",
+        ).get().asFile.absolutePath,
     )
 }

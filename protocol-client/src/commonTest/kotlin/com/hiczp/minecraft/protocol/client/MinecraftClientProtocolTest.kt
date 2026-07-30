@@ -27,7 +27,7 @@ class MinecraftClientProtocolTest {
             assertEquals(StatusRequestPacket, serverSession.receive())
             serverSession.send(
                 StatusResponsePacket(
-                    """{"version":{"name":"26.2","protocol":776}}""",
+                    """{"version":{"name":"${MinecraftProtocol.MINECRAFT_VERSION}","protocol":${MinecraftProtocol.PROTOCOL_VERSION}}}""",
                 ),
             )
             val ping = assertIs<StatusPingRequestPacket>(serverSession.receive())

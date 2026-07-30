@@ -25,20 +25,3 @@ kotlin {
         }
     }
 }
-
-val jvmTestCompilation = kotlin.targets
-    .getByName("jvm")
-    .compilations
-    .getByName("test")
-
-tasks.register<Test>("sessionLayerTest") {
-    group = "verification"
-    description =
-        "Test typed packet dispatch, directions, protocol states, and transitions."
-    dependsOn(jvmTestCompilation.compileTaskProvider)
-    testClassesDirs = jvmTestCompilation.output.classesDirs
-    classpath = files(
-        jvmTestCompilation.output.allOutputs,
-        jvmTestCompilation.runtimeDependencyFiles,
-    )
-}

@@ -1,3 +1,5 @@
+import com.hiczp.minecraft.protocol.buildScript.GenerateMinecraftProtocolSourceTask
+import com.hiczp.minecraft.protocol.buildScript.MinecraftTarget
 import com.hiczp.minecraft.protocol.buildScript.configureAllTargets
 
 plugins {
@@ -6,12 +8,41 @@ plugins {
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
 }
 
+val generatedProtocolSourceDirectory = layout.buildDirectory.dir(
+    "generated/sources/minecraftProtocol/commonMain/kotlin",
+)
+val generateMinecraftProtocolSource =
+    tasks.register<GenerateMinecraftProtocolSourceTask>(
+        "generateMinecraftProtocolSource",
+    ) {
+        dependsOn(rootProject.tasks.named("downloadOfficialMinecraftServer"))
+        repositoryDirectory.set(rootProject.layout.projectDirectory)
+        serverJar.set(
+            rootProject.layout.buildDirectory.file(
+                "protocol-reference/mojang/${MinecraftTarget.version}/server.jar",
+            ),
+        )
+        outputFile.set(
+            generatedProtocolSourceDirectory.map {
+                it.file(
+                    "com/hiczp/minecraft/protocol/model/MinecraftProtocol.kt",
+                )
+            },
+        )
+    }
+
 kotlin {
     configureAllTargets("com.hiczp.minecraft.protocol.model")
 
     sourceSets {
-        commonMain.dependencies {
-            api(libs.kotlinx.serialization.core)
+        commonMain {
+            kotlin.srcDir(
+                files(generatedProtocolSourceDirectory)
+                    .builtBy(generateMinecraftProtocolSource),
+            )
+            dependencies {
+                api(libs.kotlinx.serialization.core)
+            }
         }
 
         commonTest.dependencies {
@@ -20,23 +51,18 @@ kotlin {
     }
 }
 
-val jvmTestCompilation = kotlin.targets
-    .getByName("jvm")
-    .compilations
-    .getByName("test")
-
-tasks.register<Test>("modelContractLayerTest") {
-    group = "verification"
-    description = "Test format-independent protocol model values and invariants."
-    dependsOn(jvmTestCompilation.compileTaskProvider)
-    testClassesDirs = jvmTestCompilation.output.classesDirs
-    classpath = files(
-        jvmTestCompilation.output.allOutputs,
-        jvmTestCompilation.runtimeDependencyFiles,
+tasks.named<Test>("jvmTest") {
+    dependsOn(rootProject.tasks.named("generateProtocolSpecification"))
+    systemProperty(
+        "minecraft.protocol.expectedSpecification",
+        rootProject.layout.buildDirectory.dir(
+            "generated/protocol-specification/complete",
+        ).get().asFile.absolutePath,
     )
-    filter {
-        includeTestsMatching(
-            "com.hiczp.minecraft.protocol.model.ProtocolModelContractTest",
-        )
-    }
+    systemProperty(
+        "minecraft.protocol.checkedInSpecification",
+        rootProject.layout.projectDirectory.dir(
+            "protocol-specification",
+        ).asFile.absolutePath,
+    )
 }

@@ -14,20 +14,3 @@ kotlin {
         }
     }
 }
-
-val jvmTestCompilation = kotlin.targets
-    .getByName("jvm")
-    .compilations
-    .getByName("test")
-
-tasks.register<Test>("compressionLayerTest") {
-    group = "verification"
-    description =
-        "Test portable raw-DEFLATE blocks, limits, malformed input, and JVM differential behavior."
-    dependsOn(jvmTestCompilation.compileTaskProvider)
-    testClassesDirs = jvmTestCompilation.output.classesDirs
-    classpath = files(
-        jvmTestCompilation.output.allOutputs,
-        jvmTestCompilation.runtimeDependencyFiles,
-    )
-}

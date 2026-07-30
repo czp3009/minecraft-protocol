@@ -64,13 +64,39 @@ internal fun FileSystem.writeByteArrayAtomically(
         } finally {
             sink.close()
         }
-        atomicMove(temporary, path)
+        replaceAtomically(temporary, path)
     } catch (failure: Throwable) {
         runCatching {
             if (exists(temporary)) delete(temporary)
         }
         throw WorldIOException("Cannot atomically write $path", failure)
     }
+}
+
+/**
+ * Concurrent replacements can briefly fail while another atomic rename still
+ * owns the destination on some filesystems. The source remains present in that
+ * case, so retrying the same atomic operation preserves the contract.
+ */
+private fun FileSystem.replaceAtomically(source: Path, destination: Path) {
+    var lastFailure: Throwable? = null
+    repeat(256) { attempt ->
+        try {
+            atomicMove(source, destination)
+            return
+        } catch (failure: Throwable) {
+            lastFailure = failure
+            val destinationMetadata = metadataOrNull(destination)
+            if (
+                !exists(source) ||
+                destinationMetadata?.isDirectory == true ||
+                attempt == 255
+            ) {
+                throw failure
+            }
+        }
+    }
+    throw checkNotNull(lastFailure)
 }
 
 internal fun FileSystem.deleteIfExists(path: Path) {

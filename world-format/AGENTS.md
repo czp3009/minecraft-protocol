@@ -8,4 +8,5 @@ This file extends the repository `AGENTS.md`.
 - Reject overlaps, truncation, overflow, invalid versions, checksum failures, and decompression-limit violations.
 - Keep custom compression injectable and built-in machinery private.
 
-Run `:world-format:worldFormatLayerTest` after changes and the official world interop gate after a wire-format change.
+Run `:world-format:jvmTest` while iterating and `:world-io:jvmTest` after a wire-format change; the latter includes
+official world interoperability. Finish with the root `test` gate.

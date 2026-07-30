@@ -22,5 +22,4 @@ regions.writeChunkNbt(
 The default filesystem is `SystemFileSystem`; callers may supply another supported `FileSystem`. This module targets
 JVM, Android, and Native rather than browser-like JS. Stream-only consumers use `nbt` and `world-format`.
 
-Run `.\gradlew.bat :world-io:worldIoLayerTest` for filesystem tests and
-`.\gradlew.bat officialWorldStorageInteropTest` for official compatibility.
+Run `.\gradlew.bat :world-io:jvmTest` for filesystem tests and official compatibility.

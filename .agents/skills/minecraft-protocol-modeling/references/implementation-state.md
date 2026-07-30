@@ -1,26 +1,21 @@
 # Discovering implementation state
 
-Do not record the current Minecraft version, protocol number, Wiki revision, packet/type counts, source tags,
-nullable-field counts, hashes, exception lists, or last passing results in this skill. Those facts change independently
-of the workflow.
+Never copy the current version, protocol number, packet counts, registry counts, hashes, or last passing result into
+skill prose.
 
-At the start of every invocation, obtain current state from deterministic project tasks:
+At each invocation:
 
-1. Run `refreshProtocolSpecification` with the optional command target.
-2. Run `prepareProtocolUpdate` in a separate Gradle invocation.
-3. Read the refreshed files in the project-level
-   `protocol-specification/` directory.
-4. Read `build/reports/protocol-update/work-queue.json`,
-   `nullability-inventory.json`, the official codec report, and every other report named by the Gradle workflow.
-5. Read the official-server production-client report, committed/fresh vanilla-data report, and official-client
-   production-server report when present.
-6. Inspect the current source tree and Gradle task graph rather than trusting a previous invocation's prose.
-7. Run every completion gate before reporting the implementation current.
+1. read `MinecraftTarget.version` and confirm with `gradlew -q minecraftVersion`;
+2. inspect `protocol-specification/target.json`, `packets.json`, `registries.json`, `blocks.json`,
+   `configuration.json`, and `server-properties.json`;
+3. inspect current source annotations and generated-source task wiring before editing;
+4. inspect existing standard tests and their latest reports under module `build/reports/tests`;
+5. run affected JVM tests rather than trusting old reports;
+6. run the root `test` gate before declaring a release-wide update complete.
 
-The project-level specification directory is version-dependent checked-in state. The skill's own Markdown references
-describe only stable procedures and design rules. Gradle-owned transient artifacts remain under `build/`; LLM scratch
-remains under `temp/`.
+If specification files are absent after `clean`, regenerate them explicitly. Production source and Gradle configuration
+must not read the checked-in specification as a compile input.
 
-If a newly discovered fact is needed by a later deterministic check, add it to an appropriately source-bound project
-report or specification schema and teach the refresh/check tasks to maintain it. Do not copy the value into skill
-instructions.
+When a newly discovered fact can be derived exactly, teach the deterministic generator to emit it. When it requires
+semantic judgment, encode it in source/tests and cite the evidence in development discussion rather than adding a
+mutable specification ledger.

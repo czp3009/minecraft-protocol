@@ -17,4 +17,4 @@ val document = chunk?.let { RegionChunkNbtFormat().decode(it) }
 ```
 
 The module does not open paths or impose a typed, version-specific chunk schema. Run
-`.\gradlew.bat :world-format:worldFormatLayerTest` for its focused suite.
+`.\gradlew.bat :world-format:jvmTest` for its focused suite.

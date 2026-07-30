@@ -11,24 +11,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import kotlinx.serialization.json.*
-import java.io.File
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.time.Duration
 import java.util.concurrent.TimeUnit
-import java.util.jar.JarFile
 import kotlin.io.path.absolutePathString
 
 /**
- * Black-box interoperability runner for the matching official client.
- *
- * The five-argument form starts the unmodified desktop client directly. A
- * sixth HeadlessMC JAR argument replaces LWJGL with stubs so the same client
- * can run on a CI worker without a display server.
+ * Black-box interoperability runner for the matching official client through
+ * HeadlessMC's LWJGL stubs. No display server or GUI path is involved.
  */
 internal object OfficialClientEndToEndRunner {
     private const val PLAYER_NAME = "KmpE2EClient"
@@ -54,9 +51,9 @@ internal object OfficialClientEndToEndRunner {
 
     @JvmStatic
     fun main(arguments: Array<String>) {
-        require(arguments.size == 5 || arguments.size == 6) {
+        require(arguments.size == 6) {
             "Expected <client-java> <minecraft-directory> <version> " +
-                    "<work-directory> <report.json> [headlessmc.jar]"
+                    "<work-directory> <report.json> <headlessmc.jar>"
         }
         val javaExecutable = Path.of(arguments[0]).toAbsolutePath().normalize()
         val minecraftDirectory =
@@ -65,10 +62,9 @@ internal object OfficialClientEndToEndRunner {
         val workDirectory =
             Path.of(arguments[3]).toAbsolutePath().normalize()
         val report = Path.of(arguments[4]).toAbsolutePath().normalize()
-        val headlessLauncher = arguments.getOrNull(5)
-            ?.let(Path::of)
-            ?.toAbsolutePath()
-            ?.normalize()
+        val headlessLauncher = Path.of(arguments[5])
+            .toAbsolutePath()
+            .normalize()
 
         require(Files.isRegularFile(javaExecutable)) {
             "Minecraft analysis Java does not exist: $javaExecutable"
@@ -77,10 +73,8 @@ internal object OfficialClientEndToEndRunner {
             "Prepared Minecraft client directory does not exist: " +
                     minecraftDirectory
         }
-        if (headlessLauncher != null) {
-            require(Files.isRegularFile(headlessLauncher)) {
-                "HeadlessMC launcher does not exist: $headlessLauncher"
-            }
+        require(Files.isRegularFile(headlessLauncher)) {
+            "HeadlessMC launcher does not exist: $headlessLauncher"
         }
         Files.createDirectories(workDirectory)
         Files.createDirectories(report.parent)
@@ -98,10 +92,7 @@ internal object OfficialClientEndToEndRunner {
             "run-${System.currentTimeMillis()}",
         )
         val gameDirectory = runDirectory.resolve("game")
-        val nativeDirectory = runDirectory.resolve("natives")
         Files.createDirectories(gameDirectory)
-        Files.createDirectories(nativeDirectory)
-        installation.extractNativeLibraries(nativeDirectory)
         writeClientOptions(gameDirectory)
 
         val clientLog = StringBuilder()
@@ -122,14 +113,13 @@ internal object OfficialClientEndToEndRunner {
                                 "minecraft-protocol official client E2E",
                         ),
                     ).use { server ->
-                        val launched = launchClient(
+                        val launched = launchHeadlessClient(
                             javaExecutable = javaExecutable,
                             minecraftDirectory = minecraftDirectory,
                             installation = installation,
                             gameDirectory = gameDirectory,
-                            nativeDirectory = nativeDirectory,
+                            launcher = headlessLauncher,
                             port = server.port,
-                            headlessLauncher = headlessLauncher,
                         )
                         process = launched
                         logThread = captureLog(
@@ -145,18 +135,13 @@ internal object OfficialClientEndToEndRunner {
                 output = report,
                 installation = installation,
                 outcome = outcome,
-                headless = headlessLauncher != null,
             )
             println(
                 "Official Minecraft ${installation.version} client reached " +
                         "Play twice, accepted initial, Respawn, and " +
                         "post-Configuration world projections, and " +
-                        "completed Play/Configuration packet round trips" +
-                        if (headlessLauncher == null) {
-                            ""
-                        } else {
-                            " without a display server"
-                        },
+                        "completed Play/Configuration packet round trips " +
+                        "without a display server",
             )
         } catch (failure: Throwable) {
             val log = synchronized(clientLog) { clientLog.toString() }
@@ -495,7 +480,9 @@ internal object OfficialClientEndToEndRunner {
                 TextComponent.literal("minecraft-protocol E2E"),
             ),
             SetSubtitleTextPacket(
-                TextComponent.literal("official 26.2 client"),
+                TextComponent.literal(
+                    "official ${MinecraftProtocol.MINECRAFT_VERSION} client",
+                ),
             ),
             SystemChatMessagePacket(
                 content = TextComponent.literal(
@@ -1685,99 +1672,6 @@ internal object OfficialClientEndToEndRunner {
             )
         }
 
-    private fun launchClient(
-        javaExecutable: Path,
-        minecraftDirectory: Path,
-        installation: ClientInstallation,
-        gameDirectory: Path,
-        nativeDirectory: Path,
-        port: Int,
-        headlessLauncher: Path?,
-    ): Process =
-        if (headlessLauncher == null) {
-            launchDesktopClient(
-                javaExecutable = javaExecutable,
-                installation = installation,
-                gameDirectory = gameDirectory,
-                nativeDirectory = nativeDirectory,
-                port = port,
-            )
-        } else {
-            launchHeadlessClient(
-                javaExecutable = javaExecutable,
-                minecraftDirectory = minecraftDirectory,
-                installation = installation,
-                gameDirectory = gameDirectory,
-                launcher = headlessLauncher,
-                port = port,
-            )
-        }
-
-    private fun launchDesktopClient(
-        javaExecutable: Path,
-        installation: ClientInstallation,
-        gameDirectory: Path,
-        nativeDirectory: Path,
-        port: Int,
-    ): Process {
-        val command = buildList {
-            add(javaExecutable.absolutePathString())
-            add("-Xms256M")
-            add("-Xmx1G")
-            add("--sun-misc-unsafe-memory-access=allow")
-            add("--enable-native-access=ALL-UNNAMED")
-            add("-Djava.library.path=${nativeDirectory.absolutePathString()}")
-            add("-Djna.tmpdir=${nativeDirectory.absolutePathString()}")
-            add(
-                "-Dorg.lwjgl.system.SharedLibraryExtractPath=" +
-                        nativeDirectory.absolutePathString(),
-            )
-            add(
-                "-Dio.netty.native.workdir=" +
-                        nativeDirectory.absolutePathString(),
-            )
-            add("-Dminecraft.launcher.brand=minecraft-protocol-e2e")
-            add("-Dminecraft.launcher.version=1")
-            add("-cp")
-            add(installation.classpath)
-            add(installation.mainClass)
-            addAll(
-                listOf(
-                    "--username",
-                    PLAYER_NAME,
-                    "--version",
-                    installation.version,
-                    "--gameDir",
-                    gameDirectory.absolutePathString(),
-                    "--assetsDir",
-                    installation.assetsDirectory.absolutePathString(),
-                    "--assetIndex",
-                    installation.assetIndex,
-                    "--uuid",
-                    offlineUuid(PLAYER_NAME).toUndashedString(),
-                    "--accessToken",
-                    "0",
-                    "--clientId",
-                    "0",
-                    "--xuid",
-                    "0",
-                    "--versionType",
-                    "release",
-                    "--width",
-                    "854",
-                    "--height",
-                    "480",
-                    "--quickPlayMultiplayer",
-                    "127.0.0.1:$port",
-                ),
-            )
-        }
-        return ProcessBuilder(command)
-            .directory(gameDirectory.toFile())
-            .redirectErrorStream(true)
-            .start()
-    }
-
     private fun launchHeadlessClient(
         javaExecutable: Path,
         minecraftDirectory: Path,
@@ -1898,7 +1792,6 @@ internal object OfficialClientEndToEndRunner {
         output: Path,
         installation: ClientInstallation,
         outcome: EndToEndOutcome,
-        headless: Boolean,
     ) {
         Files.writeString(
             output,
@@ -1908,14 +1801,8 @@ internal object OfficialClientEndToEndRunner {
             |  "minecraft_version": "${installation.version}",
             |  "protocol_version": ${MinecraftProtocol.PROTOCOL_VERSION},
             |  "official_client_sha1": "${installation.clientSha1}",
-            |  "client": "${
-                if (headless) {
-                    "official client with HeadlessMC LWJGL stubs"
-                } else {
-                    "unmodified official desktop client"
-                }
-            }",
-            |  "headless": $headless,
+            |  "client": "official client with HeadlessMC LWJGL stubs",
+            |  "headless": true,
             |  "server_stack": "protocol-server -> protocol-session -> protocol-transport",
             |  "online_mode": false,
             |  "status_connections": ${outcome.statusConnections},
@@ -2072,49 +1959,9 @@ private data class ReconfigurationOutcome(
 
 private data class ClientInstallation(
     val version: String,
-    val mainClass: String,
     val javaMajorVersion: Int,
-    val assetIndex: String,
-    val assetsDirectory: Path,
-    val clientJar: Path,
     val clientSha1: String,
-    val libraries: List<ClientLibrary>,
 ) {
-    val classpath: String
-        get() = (libraries.map(ClientLibrary::file) + listOf(clientJar))
-            .joinToString(File.pathSeparator)
-
-    fun extractNativeLibraries(output: Path) {
-        libraries.asSequence()
-            .filter(ClientLibrary::nativeForCurrentArchitecture)
-            .forEach { library ->
-                JarFile(library.file.toFile()).use { jar ->
-                    jar.entries().asSequence()
-                        .filterNot { it.isDirectory }
-                        .filter { entry ->
-                            entry.name.substringAfterLast('.')
-                                .lowercase() in NATIVE_EXTENSIONS
-                        }
-                        .filter { entry ->
-                            !entry.name.startsWith("META-INF/") &&
-                                    entryMatchesArchitecture(entry.name)
-                        }
-                        .forEach { entry ->
-                            val target = output.resolve(
-                                entry.name.substringAfterLast('/'),
-                            )
-                            jar.getInputStream(entry).use { input ->
-                                Files.copy(
-                                    input,
-                                    target,
-                                    StandardCopyOption.REPLACE_EXISTING,
-                                )
-                            }
-                        }
-                }
-            }
-    }
-
     companion object {
         fun load(
             minecraftDirectory: Path,
@@ -2139,230 +1986,13 @@ private data class ClientInstallation(
             require(sha1(clientJar) == expectedClientSha1) {
                 "Official client JAR failed its Mojang SHA-1"
             }
-            val libraries = root.requiredArray("libraries")
-                .map { it.jsonObject }
-                .filter(::isAllowedOnCurrentPlatform)
-                .flatMap { library ->
-                    val coordinate = library.requiredString("name")
-                    val downloads = library.requiredObject("downloads")
-                    buildList {
-                        (downloads["artifact"] as? JsonObject)?.let {
-                            add(
-                                loadLibrary(
-                                    minecraftDirectory,
-                                    coordinate,
-                                    it,
-                                ),
-                            )
-                        }
-                        (downloads["classifiers"] as? JsonObject)
-                            ?.forEach { (classifier, element) ->
-                                if (
-                                    isNativeClassifierForCurrentArchitecture(
-                                        classifier,
-                                    )
-                                ) {
-                                    add(
-                                        loadLibrary(
-                                            minecraftDirectory,
-                                            "$coordinate:$classifier",
-                                            element.jsonObject,
-                                        ),
-                                    )
-                                }
-                            }
-                    }
-                }
-            val assetIndex = root.requiredObject("assetIndex")
-            val assetIndexId = assetIndex.requiredString("id")
-            val assetsDirectory = minecraftDirectory.resolve("assets")
-            val assetIndexPath = assetsDirectory
-                .resolve("indexes")
-                .resolve("$assetIndexId.json")
-                .normalize()
-            require(Files.isRegularFile(assetIndexPath)) {
-                "Official client asset index does not exist: $assetIndexPath"
-            }
-            require(Files.size(assetIndexPath) == assetIndex.requiredLong("size")) {
-                "Official client asset index has the wrong size: $assetIndexPath"
-            }
-            require(sha1(assetIndexPath) == assetIndex.requiredString("sha1")) {
-                "Official client asset index failed its Mojang SHA-1"
-            }
-            validateAssets(
-                assetsDirectory = assetsDirectory,
-                index = Json.parseToJsonElement(
-                    Files.readString(assetIndexPath),
-                ).jsonObject,
-            )
             return ClientInstallation(
                 version = version,
-                mainClass = root.requiredString("mainClass"),
                 javaMajorVersion = root.requiredObject("javaVersion")
                     .requiredInt("majorVersion"),
-                assetIndex = assetIndexId,
-                assetsDirectory = assetsDirectory,
-                clientJar = clientJar,
                 clientSha1 = expectedClientSha1,
-                libraries = libraries,
             )
         }
-
-        private fun loadLibrary(
-            minecraftDirectory: Path,
-            coordinate: String,
-            artifact: JsonObject,
-        ): ClientLibrary {
-            val file = minecraftDirectory
-                .resolve("libraries")
-                .resolve(artifact.requiredString("path"))
-                .normalize()
-            require(Files.isRegularFile(file)) {
-                "Official client library does not exist: $file"
-            }
-            require(Files.size(file) == artifact.requiredLong("size")) {
-                "Official client library has the wrong size: $file"
-            }
-            require(sha1(file) == artifact.requiredString("sha1")) {
-                "Official client library failed its Mojang SHA-1: $file"
-            }
-            return ClientLibrary(coordinate, file)
-        }
-
-        private fun validateAssets(
-            assetsDirectory: Path,
-            index: JsonObject,
-        ) {
-            index.requiredObject("objects").forEach { (name, element) ->
-                val asset = element.jsonObject
-                val hash = asset.requiredString("hash")
-                require(SHA1.matches(hash)) {
-                    "Official client asset $name has an invalid SHA-1"
-                }
-                val file = assetsDirectory
-                    .resolve("objects")
-                    .resolve(hash.substring(0, 2))
-                    .resolve(hash)
-                    .normalize()
-                require(Files.isRegularFile(file)) {
-                    "Official client asset does not exist: $name ($file)"
-                }
-                require(Files.size(file) == asset.requiredLong("size")) {
-                    "Official client asset has the wrong size: $name ($file)"
-                }
-                require(sha1(file) == hash) {
-                    "Official client asset failed its Mojang SHA-1: " +
-                            "$name ($file)"
-                }
-            }
-        }
-    }
-}
-
-private data class ClientLibrary(
-    val coordinate: String,
-    val file: Path,
-) {
-    val nativeForCurrentArchitecture: Boolean
-        get() = isNativeClassifierForCurrentArchitecture(
-            coordinate.substringAfterLast(':'),
-        )
-}
-
-private fun isNativeClassifierForCurrentArchitecture(
-    classifier: String,
-): Boolean {
-    if (!classifier.startsWith("natives-")) return false
-    return when {
-        CURRENT_OS == "windows" && CURRENT_ARCH == "x64" ->
-            classifier == "natives-windows"
-
-        CURRENT_OS == "windows" && CURRENT_ARCH == "x86" ->
-            classifier == "natives-windows-x86"
-
-        CURRENT_OS == "windows" && CURRENT_ARCH == "arm64" ->
-            classifier == "natives-windows-arm64"
-
-        CURRENT_OS == "linux" && CURRENT_ARCH == "x64" ->
-            classifier == "natives-linux"
-
-        CURRENT_OS == "linux" && CURRENT_ARCH == "arm64" ->
-            classifier == "natives-linux-arm64"
-
-        CURRENT_OS == "osx" && CURRENT_ARCH == "x64" ->
-            classifier == "natives-macos"
-
-        CURRENT_OS == "osx" && CURRENT_ARCH == "arm64" ->
-            classifier == "natives-macos-arm64"
-
-        else -> false
-    }
-}
-
-private fun isAllowedOnCurrentPlatform(library: JsonObject): Boolean {
-    val rules = library["rules"] as? JsonArray ?: return true
-    var allowed = false
-    rules.forEach { element ->
-        val rule = element.jsonObject
-        if (ruleMatchesCurrentPlatform(rule)) {
-            allowed = rule.requiredString("action") == "allow"
-        }
-    }
-    return allowed
-}
-
-private fun ruleMatchesCurrentPlatform(rule: JsonObject): Boolean {
-    val operatingSystem = rule["os"] as? JsonObject
-    if (operatingSystem != null) {
-        val name = operatingSystem["name"]
-            ?.jsonPrimitive
-            ?.contentOrNull
-        if (name != null && name != CURRENT_OS) return false
-        val architecture = operatingSystem["arch"]
-            ?.jsonPrimitive
-            ?.contentOrNull
-        if (architecture != null && !Regex(architecture).matches(CURRENT_ARCH)) {
-            return false
-        }
-        val version = operatingSystem["version"]
-            ?.jsonPrimitive
-            ?.contentOrNull
-        if (
-            version != null &&
-            !Regex(version).containsMatchIn(System.getProperty("os.version"))
-        ) {
-            return false
-        }
-    }
-    val features = rule["features"] as? JsonObject
-    if (features != null) {
-        return features.values.all {
-            it.jsonPrimitive.booleanOrNull == false
-        }
-    }
-    return true
-}
-
-private fun entryMatchesArchitecture(name: String): Boolean {
-    val normalized = name.lowercase()
-    return when (CURRENT_ARCH) {
-        "x64" ->
-            "/arm64/" !in normalized &&
-                    "/aarch64/" !in normalized &&
-                    "/x86/" !in normalized
-
-        "arm64" ->
-            "/x64/" !in normalized &&
-                    "/x86_64/" !in normalized &&
-                    "/x86/" !in normalized
-
-        "x86" ->
-            "/x64/" !in normalized &&
-                    "/x86_64/" !in normalized &&
-                    "/arm64/" !in normalized &&
-                    "/aarch64/" !in normalized
-
-        else -> false
     }
 }
 
@@ -2406,37 +2036,10 @@ private fun sha1(path: Path): String =
 private fun JsonObject.requiredObject(name: String): JsonObject =
     getValue(name).jsonObject
 
-private fun JsonObject.requiredArray(name: String): JsonArray =
-    getValue(name).jsonArray
-
 private fun JsonObject.requiredString(name: String): String =
     getValue(name).jsonPrimitive.content
 
 private fun JsonObject.requiredInt(name: String): Int =
     requiredString(name).toInt()
 
-private fun JsonObject.requiredLong(name: String): Long =
-    requiredString(name).toLong()
-
-private val CURRENT_OS: String = when {
-    System.getProperty("os.name").startsWith("Windows", ignoreCase = true) ->
-        "windows"
-
-    System.getProperty("os.name").startsWith("Mac", ignoreCase = true) ->
-        "osx"
-
-    else -> "linux"
-}
-
-private val CURRENT_ARCH: String = when (
-    System.getProperty("os.arch").lowercase()
-) {
-    "amd64", "x86_64" -> "x64"
-    "aarch64", "arm64" -> "arm64"
-    "x86", "i386", "i486", "i586", "i686" -> "x86"
-    else -> System.getProperty("os.arch").lowercase()
-}
-
-private val NATIVE_EXTENSIONS = setOf("dll", "so", "dylib", "jnilib")
-private val SHA1 = Regex("[0-9a-f]{40}")
 private const val CONNECTION_STABILITY_DELAY_MILLIS: Long = 1_500

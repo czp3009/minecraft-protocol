@@ -10,7 +10,7 @@ rules extend this file.
 - `nbt`: binary NBT stream representation.
 - `protocol-model`: format-independent packet and shared value models.
 - `protocol-serialization`: Minecraft wire encodings and the runtime packet registry.
-- `protocol-vanilla-data`: committed typed data captured from the matching official server.
+- `protocol-vanilla-data`: generated typed data captured from the matching official server.
 - `protocol-transport`: Ktor sockets, framing, compression, and encryption.
 - `protocol-session`: typed dispatch and connection-state transitions.
 - `protocol-auth`: offline identity, session services, and cryptographic abstractions.
@@ -29,13 +29,8 @@ the library's scope.
 
 Use the matching official server JAR as the primary behavioral authority. Use the revision-matched Minecraft Wiki for
 descriptions and facts that official code does not expose, then exact-version MCProtocolLib and Minestom as tertiary
-evidence. Resolve conflicts in favor of official behavior and keep changing evidence in `protocol-specification`, not in
-guidance prose.
-
-When the official `server.properties` inventory changes, update the version-bound compatibility decisions in
-`protocol-specification/server-properties-compatibility.json`. The library does not parse that file format, but
-protocol-visible or storage-visible choices must remain configurable through public APIs or explicit application
-extension points.
+evidence. Resolve conflicts in favor of official behavior. `protocol-specification` contains only deterministic facts
+generated from the official JAR; semantic decisions belong in source, tests, and public documentation.
 
 For nullability, inspect official codecs, constructors, access paths, annotations, optionals, and sentinels first. Fall
 back through Wiki, MCProtocolLib, and Minestom only when the preceding evidence is inconclusive. Keep unresolved values
@@ -55,22 +50,60 @@ browser-runtime tests are not a repository gate. Keep in-memory protocol state, 
 support. Run `world-io` and production socket tests only on targets that expose the required filesystem or networking
 primitives. Do not add browser-driver infrastructure unless a task explicitly requires browser-specific behavior.
 
+## Version and deterministic generation
+
+`MinecraftTarget.version` in `buildSrc` is the only manually selected Minecraft version. `./gradlew -q
+minecraftVersion` prints it. Do not read a version from checked-in specification files or duplicate it in module build
+scripts. The official server JAR's `version.json` supplies the protocol number and other version facts.
+
+Java is independent of Minecraft: `KotlinMultiplatformExtension.configureAllTargets` fixes the whole project at Java 25.
+Never infer or change that project toolchain from Mojang metadata.
+
+Automate everything that can be derived exactly:
+
+- Gradle downloads and verifies official artifacts under `build/`, keyed by `MinecraftTarget.version`.
+- official reports plus packet annotations generate protocol constants, the runtime packet registry, and vanilla static
+  data under the owning module's `build/generated`;
+- a private JVM tool captures both official Configuration Known Packs branches and generates typed data under
+  `build/generated`;
+- published source JARs include generated Kotlin;
+- `refreshProtocolSpecification` synchronizes canonical official evidence from `build/` into the checked-in
+  `protocol-specification` directory.
+
+Compilation and tests may depend on these cacheable tasks and network access on the first run. Production code and
+normal compilation must not read or rewrite `protocol-specification`; standard tests compare it with freshly generated
+evidence but never rewrite it. Only `refreshProtocolSpecification` writes it. Root `clean` also removes it through the
+refresh task's generated clean rule, so run the refresh task after cleaning when a checked-in tree is needed.
+
+Do not commit generated runtime Kotlin. Do not hand-transcribe deterministic intermediate data into code. Gradle tasks
+must not perform human-oriented decompilation, download Wiki/third-party source trees, or invoke agent workflows.
+
 ## Development and verification
 
 Inspect existing code and generated specification state before editing. Preserve unrelated user changes. Prefer focused
-module tests while iterating, then run the canonical repository gate:
+JVM tests while iterating:
+
+```shell
+./gradlew :affected-module:jvmTest
+```
+
+After affected JVM suites and official interoperability pass, run the canonical repository gate once:
 
 ```shell
 ./gradlew test
 ```
 
-This gate is intentionally layered: model/codec tests do not replace malformed-input, registry, transport, session,
-socket, official-codec, official-server, official-client, world-storage, or multiplatform checks. See
-[README.md](README.md#verification) for the human-facing command and scope description.
+Do not use Native compilation as the first feedback loop; it is substantially slower. The final gate runs every
+host-runnable standard KMP test task, and no host operating system is a design-time first-class platform. All test
+logic, including official codec/server/client and world interoperability, lives under the applicable `commonTest`,
+`jvmTest`, or other standard test source set and is launched by `test` or the platform's standard test task. Do not add
+custom layer-test or interoperability-test tasks.
 
 Gradle owns deterministic downloads, generated runtimes, reports, worlds, and test artifacts under `build/`. Checked-in
 target evidence belongs under `protocol-specification/`. Agent-only notes, manual decompilation, and other scratch
-belong under `temp/`. Preserve `.gitignore`.
+belong under `temp/`; `temp/` is exceptional scratch, not a development pipeline. If manual investigation requires a
+decompiler that is not installed, tell the user what is missing instead of adding a Gradle decompilation task or
+installing it silently. Preserve `.gitignore`.
 
 ## Optional agent skills
 

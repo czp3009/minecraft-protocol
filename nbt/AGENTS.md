@@ -8,4 +8,5 @@ This file extends the repository `AGENTS.md`.
 - Apply limits before allocation and reject malformed or trailing byte-array input.
 - Keep packet and filesystem adapters outside this module.
 
-Run `:nbt:nbtLayerTest` after changes. Shared NBT changes also require the packet-format and world-storage gates.
+Run `:nbt:jvmTest` while iterating. Shared NBT changes also require the protocol-serialization and world-storage JVM
+suites, followed by the root `test` gate.

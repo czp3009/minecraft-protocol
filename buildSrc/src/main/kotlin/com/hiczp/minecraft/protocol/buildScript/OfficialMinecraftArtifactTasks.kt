@@ -4,10 +4,17 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
+import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -26,22 +33,44 @@ private const val ASSET_OBJECT_BASE_URL =
     "https://resources.download.minecraft.net"
 private val sha1Pattern = Regex("[0-9a-f]{40}")
 
+@CacheableTask
 abstract class DownloadOfficialMinecraftServerTask :
     MinecraftProtocolToolTask() {
+    @get:Input
+    abstract val minecraftVersion: Property<String>
+
+    @get:Internal
+    abstract val offline: Property<Boolean>
+
+    @get:OutputFile
+    abstract val serverJar: RegularFileProperty
+
+    @get:OutputFile
+    abstract val metadataFile: RegularFileProperty
+
+    init {
+        offline.convention(false)
+    }
+
     @TaskAction
     fun download() {
-        val target = repository.readMinecraftProtocolTarget()
-        val metadata = resolveServerDownload(target.minecraftVersion)
-        val versionDirectory = officialServerDirectory(target.minecraftVersion)
-        val serverJar = versionDirectory.resolve("server.jar")
+        val version = minecraftVersion.get()
+        require(version.matches(Regex("[0-9A-Za-z._-]+"))) {
+            "Unsafe Minecraft version identifier: $version"
+        }
+        val metadata = resolveServerDownload(version)
+        val serverJar = serverJar.asFile.get().toPath()
         val changed = ProtocolHttp.ensureDownload(
             url = metadata.requiredString("server_url"),
             destination = serverJar,
             expectedSize = metadata.requiredLong("server_size"),
             expectedSha1 = metadata.requiredString("server_sha1"),
+            offline = offline.get(),
         )
-        versionDirectory.resolve("download-metadata.json")
-            .writeJson(metadata, sortKeys = true)
+        metadataFile.asFile.get().toPath().writeJson(
+            metadata,
+            sortKeys = true,
+        )
         val action = if (changed) "Downloaded and verified" else "Verified"
         logger.lifecycle(
             "$action Mojang server: $serverJar (${serverJar.sha1()})",
@@ -76,23 +105,17 @@ abstract class DownloadOfficialMinecraftServerTask :
             "java_major_version" to jsonNumber(javaMajor),
         )
     }
-
-    private fun officialServerDirectory(version: String): Path {
-        val root = repository.resolve("build/protocol-reference/mojang")
-            .toAbsolutePath()
-            .normalize()
-        val directory = root.resolve(version).normalize()
-        check(directory.parent == root) {
-            "Resolved Minecraft cache directory escaped its parent"
-        }
-        return directory
-    }
 }
 
+@CacheableTask
 abstract class GenerateOfficialServerPropertiesTask :
     MinecraftProtocolToolTask() {
-    @get:Input
+    @get:Internal
     abstract val javaExecutable: Property<String>
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val serverJar: RegularFileProperty
 
     @get:OutputFile
     abstract val reportFile: RegularFileProperty
@@ -100,20 +123,11 @@ abstract class GenerateOfficialServerPropertiesTask :
     @TaskAction
     fun generate() {
         val target = repository.readMinecraftProtocolTarget()
-        val serverJar = repository
-            .resolve("build/protocol-reference/mojang")
-            .resolve(target.minecraftVersion)
-            .resolve("server.jar")
-            .toAbsolutePath()
-            .normalize()
+        val serverJar = serverJar.asFile.get().toPath()
         check(serverJar.isRegularFile()) {
             "Official server is missing; run downloadOfficialMinecraftServer"
         }
-        val workDirectory = repository
-            .resolve("build/protocol-reference/official-server-properties")
-            .resolve(target.minecraftVersion)
-            .toAbsolutePath()
-            .normalize()
+        val workDirectory = temporaryDir.toPath()
         workDirectory.deleteTree()
         workDirectory.createDirectories()
         val result = runProcess(
@@ -175,48 +189,53 @@ abstract class GenerateOfficialServerPropertiesTask :
     }
 }
 
+@CacheableTask
 abstract class GenerateOfficialMinecraftReportsTask :
     MinecraftProtocolToolTask() {
-    @get:Input
+    @get:Internal
     abstract val javaExecutable: Property<String>
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val serverJar: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val downloadMetadata: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
 
     @TaskAction
     fun generate() {
         val target = repository.readMinecraftProtocolTarget()
-        val versionDirectory = officialServerDirectory(target.minecraftVersion)
-        val serverJar = versionDirectory.resolve("server.jar")
-        val metadata = versionDirectory.resolve("download-metadata.json")
+        val serverJar = serverJar.asFile.get().toPath()
+        val metadata = downloadMetadata.asFile.get().toPath()
             .readJsonObject()
         check(serverJar.isRegularFile()) {
             "Official server is missing; run downloadOfficialMinecraftServer"
         }
-        val outputDirectory = versionDirectory.resolve("generated")
-        val packetsReport = outputDirectory.resolve("reports/packets.json")
-        val marker = versionDirectory.resolve("reports-metadata.json")
-        val markerValue = jsonObjectOf(
-            "minecraft_version" to
-                    jsonString(metadata.requiredString("minecraft_version")),
-            "server_sha1" to
-                    jsonString(metadata.requiredString("server_sha1")),
-        )
-        if (
-            packetsReport.isRegularFile() &&
-            marker.isRegularFile() &&
-            marker.readJsonObject() == markerValue
+        check(
+            metadata.requiredString("minecraft_version") ==
+                    target.minecraftVersion &&
+                    metadata.requiredString("server_sha1") ==
+                    serverJar.sha1(),
         ) {
-            logger.lifecycle(
-                "Official packet report is current: $packetsReport",
-            )
-            return
+            "Official server JAR does not match its Mojang metadata"
         }
+        val outputDirectory = outputDirectory.asFile.get().toPath()
+        val workDirectory = temporaryDir.toPath()
+        workDirectory.deleteTree()
+        workDirectory.createDirectories()
+        val generatorOutput = workDirectory.resolve("generated")
+        val packetsReport =
+            generatorOutput.resolve("reports/packets.json")
 
         validateAnalysisJava(
             javaExecutable.get(),
-            metadata.requiredInt("java_major_version"),
+            target.javaMajorVersion,
             target.minecraftVersion,
         )
-        outputDirectory.deleteTree()
-        outputDirectory.createDirectories()
         val command = listOf(
             javaExecutable.get(),
             "-DbundlerMainClass=net.minecraft.data.Main",
@@ -224,19 +243,19 @@ abstract class GenerateOfficialMinecraftReportsTask :
             serverJar.toString(),
             "--reports",
             "--output",
-            outputDirectory.toString(),
+            generatorOutput.toString(),
         )
         logger.lifecycle(
             "Running vanilla data generator for protocol reports...",
         )
-        val result = runProcess(command, versionDirectory)
+        val result = runProcess(command, workDirectory)
         check(result.exitCode == 0) {
             "Vanilla data generator exited with ${result.exitCode}:\n" +
                     result.output.lineSequence().toList().takeLast(80)
                         .joinToString("\n")
         }
         check(packetsReport.isRegularFile()) {
-            val candidates = Files.walk(outputDirectory).use { paths ->
+            val candidates = Files.walk(generatorOutput).use { paths ->
                 paths.filter {
                     Files.isRegularFile(it) &&
                             it.fileName.toString().contains(
@@ -244,7 +263,7 @@ abstract class GenerateOfficialMinecraftReportsTask :
                                 ignoreCase = true,
                             ) &&
                             it.fileName.toString().endsWith(".json")
-                }.map { outputDirectory.relativize(it).toString() }
+                }.map { generatorOutput.relativize(it).toString() }
                     .sorted()
                     .toList()
             }
@@ -252,9 +271,22 @@ abstract class GenerateOfficialMinecraftReportsTask :
                     "packet-like outputs: " +
                     candidates.ifEmpty { listOf("none") }.joinToString()
         }
-        marker.writeJson(markerValue, sortKeys = true)
+        outputDirectory.deleteTree()
+        listOf(
+            "packets.json",
+            "registries.json",
+            "blocks.json",
+        ).forEach { name ->
+            val source = generatorOutput.resolve("reports/$name")
+            check(source.isRegularFile()) {
+                "Vanilla data generator did not create reports/$name"
+            }
+            outputDirectory.resolve("reports/$name")
+                .atomicWrite(Files.readAllBytes(source))
+        }
         logger.lifecycle(
-            "Generated official packet report: $packetsReport",
+            "Generated official protocol reports: " +
+                    outputDirectory.resolve("reports"),
         )
     }
 
@@ -282,28 +314,28 @@ abstract class GenerateOfficialMinecraftReportsTask :
                     "analysis JDK does not change the library's Java/KMP targets."
         }
     }
-
-    private fun officialServerDirectory(version: String): Path =
-        repository.resolve("build/protocol-reference/mojang")
-            .resolve(version)
-            .toAbsolutePath()
-            .normalize()
 }
 
+@CacheableTask
 abstract class UnpackOfficialMinecraftServerTask :
     MinecraftProtocolToolTask() {
+    @get:Input
+    abstract val minecraftVersion: Property<String>
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val serverJar: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val runtimeDirectory: DirectoryProperty
+
     @TaskAction
     fun unpack() {
-        val target = repository.readMinecraftProtocolTarget()
-        val versionDirectory = repository
-            .resolve("build/protocol-reference/mojang")
-            .resolve(target.minecraftVersion)
-            .toAbsolutePath()
-            .normalize()
-        val bundle = versionDirectory.resolve("server.jar")
-        val output = versionDirectory.resolve("server-inner.jar")
-        val nested: ByteArray
-        val expectedSha256: String
+        val version = minecraftVersion.get()
+        val bundle = serverJar.asFile.get().toPath()
+        val output = runtimeDirectory.asFile.get().toPath()
+        output.deleteTree()
+        output.createDirectories()
         ZipFile(bundle.toFile()).use { archive ->
             val versionsEntry = archive.getEntry("META-INF/versions.list")
                 ?: error("Server bundle has no META-INF/versions.list")
@@ -313,10 +345,10 @@ abstract class UnpackOfficialMinecraftServerTask :
             check(fields.size == 3) {
                 "META-INF/versions.list has an unexpected shape"
             }
-            expectedSha256 = fields[0].lowercase()
-            check(fields[1] == target.minecraftVersion) {
+            val expectedSha256 = fields[0].lowercase()
+            check(fields[1] == version) {
                 "Server bundle contains ${fields[1]}, expected " +
-                        target.minecraftVersion
+                        version
             }
             check(expectedSha256.matches(Regex("[0-9a-f]{64}"))) {
                 "Nested server SHA-256 is malformed"
@@ -324,33 +356,63 @@ abstract class UnpackOfficialMinecraftServerTask :
             val entryName = "META-INF/versions/${fields[2]}"
             val entry = archive.getEntry(entryName)
                 ?: error("Server bundle has no $entryName")
-            nested = archive.getInputStream(entry).use { it.readBytes() }
+            val implementation = archive.getInputStream(entry).use {
+                it.readBytes()
+            }
+            check(implementation.sha256() == expectedSha256) {
+                "Nested server JAR failed its bundle SHA-256 verification"
+            }
+            output.resolve("server.jar").atomicWrite(implementation)
+
+            val librariesEntry = archive.getEntry("META-INF/libraries.list")
+                ?: error("Server bundle has no META-INF/libraries.list")
+            val libraries = archive.getInputStream(librariesEntry).use {
+                it.readBytes().toString(StandardCharsets.UTF_8)
+            }.lineSequence().filter(String::isNotBlank).toList()
+            libraries.forEach { line ->
+                val libraryFields = line.split('\t')
+                check(libraryFields.size == 3) {
+                    "META-INF/libraries.list has an unexpected row"
+                }
+                val digest = libraryFields[0].lowercase()
+                check(digest.matches(Regex("[0-9a-f]{64}"))) {
+                    "Bundled library SHA-256 is malformed"
+                }
+                val relative = libraryFields[2]
+                val libraryEntryName = "META-INF/libraries/$relative"
+                val libraryEntry = archive.getEntry(libraryEntryName)
+                    ?: error("Server bundle has no $libraryEntryName")
+                val content = archive.getInputStream(libraryEntry).use {
+                    it.readBytes()
+                }
+                check(content.sha256() == digest) {
+                    "Bundled library failed SHA-256 verification: $relative"
+                }
+                output.resolve("libraries")
+                    .safeResolve(relative)
+                    .atomicWrite(content)
+            }
         }
-        val actualSha256 = nested.sha256()
-        check(actualSha256 == expectedSha256) {
-            "Nested server JAR failed its bundle SHA-256 verification: " +
-                    "expected $expectedSha256, got $actualSha256"
-        }
-        if (output.isRegularFile() && output.sha256() == actualSha256) {
-            logger.lifecycle(
-                "Official implementation JAR is current: $output",
-            )
-            return
-        }
-        output.atomicWrite(nested)
         logger.lifecycle(
-            "Extracted verified official implementation JAR: $output",
+            "Extracted verified official server runtime: $output",
         )
     }
 }
 
+@CacheableTask
 abstract class PrepareOfficialMinecraftClientTask :
     MinecraftProtocolToolTask() {
     @get:Input
+    abstract val minecraftVersion: Property<String>
+
+    @get:Internal
     abstract val offline: Property<Boolean>
 
-    @get:Input
+    @get:Internal
     abstract val workers: Property<Int>
+
+    @get:OutputDirectory
+    abstract val clientDirectory: DirectoryProperty
 
     init {
         offline.convention(false)
@@ -359,25 +421,26 @@ abstract class PrepareOfficialMinecraftClientTask :
 
     @TaskAction
     fun prepare() {
-        val target = repository.readMinecraftProtocolTarget()
         val workerCount = workers.get()
         require(workerCount > 0) { "workers must be positive" }
-        prepareClient(target.minecraftVersion, offline.get(), workerCount)
+        val version = minecraftVersion.get()
+        require(version.matches(Regex("[0-9A-Za-z._-]+"))) {
+            "Unsafe Minecraft version identifier: $version"
+        }
+        prepareClient(
+            version,
+            clientDirectory.asFile.get().toPath(),
+            offline.get(),
+            workerCount,
+        )
     }
 
     private fun prepareClient(
         version: String,
+        clientRoot: Path,
         offline: Boolean,
         workerCount: Int,
     ) {
-        val expectedParent = repository
-            .resolve("build/protocol-reference/mojang-client")
-            .toAbsolutePath()
-            .normalize()
-        val clientRoot = expectedParent.resolve(version).normalize()
-        check(clientRoot.parent == expectedParent) {
-            "Client cache escaped its expected parent"
-        }
         val (metadata, source) = acquireMetadata(
             clientRoot,
             version,

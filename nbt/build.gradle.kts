@@ -19,19 +19,3 @@ kotlin {
         }
     }
 }
-
-val jvmTestCompilation = kotlin.targets
-    .getByName("jvm")
-    .compilations
-    .getByName("test")
-
-tasks.register<Test>("nbtLayerTest") {
-    group = "verification"
-    description = "Test named and unnamed NBT stream codecs, limits, and malformed input."
-    dependsOn(jvmTestCompilation.compileTaskProvider)
-    testClassesDirs = jvmTestCompilation.output.classesDirs
-    classpath = files(
-        jvmTestCompilation.output.allOutputs,
-        jvmTestCompilation.runtimeDependencyFiles,
-    )
-}

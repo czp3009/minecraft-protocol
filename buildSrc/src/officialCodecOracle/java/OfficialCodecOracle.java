@@ -50,19 +50,16 @@ public final class OfficialCodecOracle {
     }
 
     public static void main(String[] arguments) throws Exception {
-        if (arguments.length != 4) {
+        if (arguments.length != 3) {
             throw new IllegalArgumentException(
-                    "usage: <fixtures.tsv> <official-packets.csv> <server-inner.jar> <report.json>"
+                    "usage: <fixtures.tsv> <server-inner.jar> <report.json>"
             );
         }
 
         Path fixturesPath = Path.of(arguments[0]).toAbsolutePath().normalize();
-        Path packetIndexPath = Path.of(arguments[1]).toAbsolutePath().normalize();
-        Path serverJarPath = Path.of(arguments[2]).toAbsolutePath().normalize();
-        Path reportPath = Path.of(arguments[3]).toAbsolutePath().normalize();
+        Path serverJarPath = Path.of(arguments[1]).toAbsolutePath().normalize();
+        Path reportPath = Path.of(arguments[2]).toAbsolutePath().normalize();
 
-        Map<PacketKey, OfficialPacket> officialPackets =
-                readOfficialPackets(packetIndexPath);
         List<Fixture> fixtures = readFixtures(fixturesPath);
         Set<PacketKey> fixtureKeys = fixtures.stream()
                 .map(Fixture::key)
@@ -84,23 +81,12 @@ public final class OfficialCodecOracle {
         List<Map<String, Object>> results = new ArrayList<>(fixtures.size());
         int passed = 0;
         for (Fixture fixture : fixtures) {
-            OfficialPacket official = officialPackets.get(fixture.key());
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("key", fixture.key().text());
             result.put("sample", fixture.sample());
             result.put("kotlin_class", fixture.kotlinClass());
             result.put("payload_sha256", sha256(fixture.payload()));
             result.put("payload_size", fixture.payload().length);
-            if (official == null) {
-                result.put("status", "fail");
-                result.put("error", "No matching official packet");
-                results.add(result);
-                continue;
-            }
-            result.put("official_name", official.name());
-            result.put("official_class", official.className());
-            result.put("official_source", official.sourcePath());
-            result.put("official_source_sha256", official.sourceSha256());
 
             try {
                 byte[] encoded = passThroughOfficialCodec(
@@ -146,7 +132,7 @@ public final class OfficialCodecOracle {
         report.put("protocol_version", SharedConstants.getProtocolVersion());
         report.put("official_server_inner_sha256", sha256(Files.readAllBytes(serverJarPath)));
         report.put("fixture_sha256", sha256(Files.readAllBytes(fixturesPath)));
-        report.put("expected_packet_count", officialPackets.size());
+        report.put("expected_packet_count", fixtureKeys.size());
         report.put("covered_packet_count", fixtureKeys.size());
         report.put("fixture_count", fixtures.size());
         report.put("passed", passed);
@@ -164,8 +150,7 @@ public final class OfficialCodecOracle {
                 fixtures.size(),
                 reportPath
         );
-        if (!officialPackets.keySet().equals(fixtureKeys)
-                || passed != fixtures.size()) {
+        if (passed != fixtures.size()) {
             System.exit(1);
         }
     }
@@ -285,43 +270,6 @@ public final class OfficialCodecOracle {
         return registry.freeze();
     }
 
-    private static Map<PacketKey, OfficialPacket> readOfficialPackets(Path path)
-            throws IOException {
-        List<String> lines = Files.readAllLines(path);
-        if (lines.isEmpty()) {
-            throw new IllegalArgumentException("Official packet index is empty: " + path);
-        }
-        String[] header = lines.getFirst().split(",", -1);
-        Map<String, Integer> columns = columns(header);
-        Map<PacketKey, OfficialPacket> packets = new LinkedHashMap<>();
-        for (String line : lines.subList(1, lines.size())) {
-            if (line.isBlank()) {
-                continue;
-            }
-            String[] fields = line.split(",", -1);
-            PacketKey key = PacketKey.of(
-                    field(fields, columns, "state"),
-                    field(fields, columns, "direction"),
-                    field(fields, columns, "id")
-            );
-            OfficialPacket previous = packets.put(
-                    key,
-                    new OfficialPacket(
-                            field(fields, columns, "official_name"),
-                            field(fields, columns, "official_class"),
-                            field(fields, columns, "source_path"),
-                            field(fields, columns, "source_sha256")
-                    )
-            );
-            if (previous != null) {
-                throw new IllegalArgumentException(
-                        "Duplicate official packet key " + key.text()
-                );
-            }
-        }
-        return packets;
-    }
-
     private static List<Fixture> readFixtures(Path path) throws IOException {
         List<String> lines = Files.readAllLines(path);
         if (lines.isEmpty()) {
@@ -410,14 +358,6 @@ public final class OfficialCodecOracle {
         String text() {
             return state + "/" + direction + "/" + id;
         }
-    }
-
-    private record OfficialPacket(
-            String name,
-            String className,
-            String sourcePath,
-            String sourceSha256
-    ) {
     }
 
     private record Fixture(

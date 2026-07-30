@@ -7,5 +7,6 @@ This module inherits the repository guidance.
   version.
 - Synchronized registry data comes from the matching official server's actual Configuration packets.
 - Complete and Known-Pack-omitted registry branches remain available.
-- Generated Kotlin stays in functional `data` packages.
+- Generated Kotlin stays under `build/generated` in functional `data` packages and is included in published source JARs.
+  Do not commit generated payload source.
 - Gameplay behavior, world simulation, and general Datapack interpretation belong outside this module.

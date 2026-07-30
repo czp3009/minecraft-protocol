@@ -27,20 +27,3 @@ kotlin {
         }
     }
 }
-
-val jvmTestCompilation = kotlin.targets
-    .getByName("jvm")
-    .compilations
-    .getByName("test")
-
-tasks.register<Test>("authLayerTest") {
-    group = "verification"
-    description =
-        "Test offline UUIDs, server hashes, session HTTP, and JVM RSA login crypto."
-    dependsOn(jvmTestCompilation.compileTaskProvider)
-    testClassesDirs = jvmTestCompilation.output.classesDirs
-    classpath = files(
-        jvmTestCompilation.output.allOutputs,
-        jvmTestCompilation.runtimeDependencyFiles,
-    )
-}

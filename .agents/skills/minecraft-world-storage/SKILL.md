@@ -22,14 +22,9 @@ $minecraft-world-storage <minecraft-release>
 $minecraft-world-storage protocol:<decimal-id>
 ```
 
-Accept zero or one target argument. With no argument, select the stable target resolved by the Minecraft Wiki refresh.
-Pass an explicit target unchanged to:
-
-```powershell
-.\gradlew.bat refreshProtocolSpecification "-PprotocolTarget=<target>"
-```
-
-Reject malformed or extra arguments. Never mix sources from different target snapshots.
+Accept zero or one Minecraft release argument. With no argument, retain `MinecraftTarget.version`. For an explicitly
+requested release, change only that buildSrc constant and then refresh. Reject protocol-ID selectors, malformed
+releases, and extra arguments. Never mix sources from different releases.
 
 ## Start every invocation
 
@@ -37,16 +32,15 @@ Reject malformed or extra arguments. Never mix sources from different target sna
    [references/workflow.md](references/workflow.md) completely.
 2. Read the repository and applicable module `AGENTS.md` files.
 3. Preserve unrelated user changes.
-4. Run the target refresh and source preparation as separate Gradle invocations:
+4. Print the selected version and refresh deterministic official evidence:
 
    ```powershell
-   .\gradlew.bat refreshProtocolSpecification ["-PprotocolTarget=<target>"]
-   .\gradlew.bat prepareWorldStorageUpdate
+   .\gradlew.bat -q minecraftVersion
+   .\gradlew.bat refreshProtocolSpecification
    ```
 
-   Preparation must be a new invocation so it is configured from the newly written target snapshot.
-5. Read the refreshed protocol snapshot, locate the exact official NBT, region-file, compression, dimension-path, and
-   storage sources, then build a dependency-ordered work queue.
+5. Read `protocol-specification/target.json`, locate exact official NBT, region-file, compression, dimension-path, and
+   storage behavior, then build a dependency-ordered work queue.
 6. In update mode, implement every queue item and keep iterating until all completion gates pass. Stop after reporting
    only when the user explicitly requests a read-only audit.
 
@@ -64,17 +58,17 @@ implementation, then use Wiki prose for descriptions and details official code d
 projects are clarifying evidence only.
 
 Do not place version numbers, compression tables, directory layouts, data versions, constants, hashes, or test counts in
-this skill. Derive them anew from the refreshed Wiki pages, official reports, decompiled JAR, and executable tests.
+this skill. Derive them anew from the official artifact/reports and executable tests.
 
 ## Gradle and language-model boundary
 
-Use Gradle for deterministic work: target selection, downloads, hashes, official JAR unpacking/decompilation, auxiliary
-source acquisition, compilation, unit tests, malformed-input tests, JVM reference-library differentials, real filesystem
-tests, and official-server interoperability.
+Use Gradle for deterministic project work: verified downloads, official reports, generated source, compilation, unit
+tests, malformed-input tests, JVM reference-library differentials, real filesystem tests, and official-server
+interoperability.
 
 Use language-model judgment for Wiki prose, semantic format interpretation, idiomatic API design, and discrepancies that
-cannot be normalized mechanically. When a repeated deterministic manual step appears, implement a Gradle task or script
-and update this skill before continuing.
+cannot be normalized mechanically. Human-oriented decompilation and third-party acquisition stay in this skill or
+`temp/`, never Gradle. If a needed decompiler is unavailable, tell the user instead of installing it silently.
 
 Gradle and its scripts own `build/` and never access `temp/`. Only the language-model workflow may use repository-root
 `temp/` for scratch notes, manual extraction, ad hoc comparisons, or context-compaction state. Leave
@@ -88,20 +82,13 @@ For each coherent batch:
 2. inspect auxiliary implementations only where useful;
 3. implement the smallest idiomatic KMP API at the correct layer;
 4. add valid, boundary, malformed, limit, round-trip, and cross-implementation tests at every affected layer;
-5. run focused compilation and layer tests;
+5. run affected standard JVM tests;
 6. run the official world rewrite/reload test when binary NBT, compression, container layout, paths, or filesystem
    behavior changes;
 7. update module documentation and agent guidance when stable architecture or workflow rules change;
 8. rerun the work queue and repeat until no gap remains.
 
-Finish with:
-
-```powershell
-.\gradlew.bat verifyWorldStorageUpdate
-```
-
-Then run the representative multiplatform compilation commands in
-`references/workflow.md`.
+Finish the storage JVM path with `:world-io:jvmTest`, then run the root `test` gate once all JVM suites are stable.
 
 Completion requires stream and byte-array NBT, every official region compression path, inline and external chunks,
 chunk/entity/POI containers, standalone NBT files, current dimension and player-storage paths, historical path access

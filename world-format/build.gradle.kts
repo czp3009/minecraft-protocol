@@ -28,19 +28,3 @@ kotlin {
         }
     }
 }
-
-val jvmTestCompilation = kotlin.targets
-    .getByName("jvm")
-    .compilations
-    .getByName("test")
-
-tasks.register<Test>("worldFormatLayerTest") {
-    group = "verification"
-    description = "Test Anvil region structure, compression, limits, and malformed input."
-    dependsOn(jvmTestCompilation.compileTaskProvider)
-    testClassesDirs = jvmTestCompilation.output.classesDirs
-    classpath = files(
-        jvmTestCompilation.output.allOutputs,
-        jvmTestCompilation.runtimeDependencyFiles,
-    )
-}

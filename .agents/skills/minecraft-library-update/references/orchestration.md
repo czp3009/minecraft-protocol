@@ -4,7 +4,7 @@
 
 Use this order for cross-cutting changes:
 
-1. target snapshot and official artifacts;
+1. buildSrc target and official artifacts;
 2. shared protocol values, NBT algebra, and raw compression;
 3. binary NBT;
 4. packet serialization and vanilla Configuration data;
@@ -12,22 +12,21 @@ Use this order for cross-cutting changes:
 6. region compression wrappers and containers;
 7. filesystem and world paths;
 8. official server and client interoperability;
-9. representative multiplatform compilation.
+9. standard multiplatform tests.
 
 Run each sub-workflow's focused tests immediately after its layer changes.
 
 ## Aggregate gates
 
-The headless-CI aggregate is:
+The complete aggregate is:
 
 ```powershell
-.\gradlew.bat verifyMinecraftLibrary
+.\gradlew.bat test
 ```
 
-It composes the strict network and world-storage gates, including the matching official server and the matching official
-client launched through the pinned headless adapter. Proprietary artifacts are downloaded, verified, and retained inside
-`build/`. Offline-mode tests never require account tokens or an installed launcher. The direct desktop-client task
-remains an additional graphical acceptance test.
+It composes standard KMP tests, including the matching official server, official codecs, the matching official client
+launched through the pinned headless adapter, and official world reload. Proprietary artifacts are downloaded, verified,
+cached inside `build/`, and never require account tokens or an installed launcher. GUI testing is excluded.
 
 ## Reporting
 

@@ -21,8 +21,8 @@ $minecraft-library-update <minecraft-release>
 $minecraft-library-update protocol:<decimal-id>
 ```
 
-Accept zero or one target argument. Zero arguments select the current stable Wiki target. Reject malformed or extra
-arguments.
+Accept zero or one release argument. Zero arguments retain `MinecraftTarget.version`; an explicit release changes that
+single buildSrc constant before refresh. Reject protocol-ID selectors, malformed releases, and extra arguments.
 
 ## Required sub-workflows
 
@@ -36,31 +36,28 @@ Treat this as update mode unless the user explicitly asks for a read-only audit.
 
 ## Orchestration
 
-1. Execute the `minecraft-protocol-modeling` workflow with the invocation target through `verifyProtocolUpdate`.
-2. Execute the `minecraft-world-storage` workflow with the same target through
-   `verifyWorldStorageUpdate`.
-3. When both run in one uninterrupted invocation, reuse the already refreshed snapshot for the second workflow only
-   after verifying that its target matches exactly. Do not refresh to "latest" a second time.
-4. Resolve cross-module effects in dependency order. Shared NBT changes require both workflows' lower-level and
+1. Select the target once in `MinecraftTarget.version` and run `refreshProtocolSpecification`.
+2. Execute the `minecraft-protocol-modeling` workflow through its affected JVM suites.
+3. Execute the `minecraft-world-storage` workflow against the same official artifact through `:world-io:jvmTest`.
+4. Reuse the same generated reports and verified artifacts; never select or refresh another target mid-invocation.
+5. Resolve cross-module effects in dependency order. Shared NBT changes require both workflows' lower-level and
    interoperability gates.
-5. Run:
+6. Run:
 
    ```powershell
-   .\gradlew.bat verifyMinecraftLibrary
+   .\gradlew.bat test
    ```
 
-6. Run the representative KMP compilation commands required by both sub-workflows.
-7. Confirm that the aggregate ran the build-local headless official-client-to-project-server gate required by the
-   network skill. Its artifacts are prepared under `build/`; run the separate direct desktop launcher only as an
-   additional acceptance test when that environment exists.
+7. Confirm the aggregate ran official codec/server/headless-client/world tests through standard platform test tasks.
 
 Do not replace a failed lower layer with a successful end-to-end test. Continue until every applicable deterministic
 gate passes or a genuine external prerequisite requires user action.
 
 ## Workspace and evidence
 
-Gradle owns downloaded artifacts, generated worlds, decompilation, reports, and tests under `build/`. Only the language
-model uses `temp/` for invocation scratch. Gradle never reads or writes `temp/`. Leave `.gitignore` unchanged.
+Gradle owns downloaded artifacts, generated source, worlds, reports, and tests under `build/`. Human/agent decompilation
+and third-party reference checkouts are exceptional scratch under `temp/`, never Gradle inputs. Leave
+`.gitignore` unchanged.
 
 Keep target-dependent facts in refreshed specification state and generated reports. Skill prose contains only stable
 workflow and architecture rules.

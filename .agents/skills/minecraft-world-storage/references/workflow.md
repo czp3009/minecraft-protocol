@@ -2,17 +2,18 @@
 
 ## Preparation
 
-Run target refresh and preparation separately:
+Confirm the buildSrc target and refresh official evidence:
 
 ```powershell
+.\gradlew.bat -q minecraftVersion
 .\gradlew.bat refreshProtocolSpecification
-.\gradlew.bat prepareWorldStorageUpdate
 ```
 
-Add the quoted `-PprotocolTarget` argument to the refresh command for a pinned target. Read the resulting snapshot to
-obtain the exact target and matching official artifacts.
+For an explicit release request, edit only `MinecraftTarget.version` before refresh. Read `target.json` to obtain
+official protocol/artifact facts.
 
-Search the exact decompiled server by behavior and constants, not only by remembered class names. Locate:
+When structured reports and executable behavior are insufficient, manually decompile the exact server into `temp/` and
+search by behavior and constants, not only remembered class names. Locate:
 
 - binary NBT input, output, accounting, and compressed-file helpers;
 - region file, region compression registration, allocation bitmap, external sidecar, and storage-cache code;
@@ -30,44 +31,21 @@ items. Consult matching MCProtocolLib and then Minestom snapshots only after off
 Use the smallest applicable tasks while iterating:
 
 ```powershell
-.\gradlew.bat :compression:compressionLayerTest
-.\gradlew.bat :nbt:compileKotlinJvm
-.\gradlew.bat :nbt:nbtLayerTest
-.\gradlew.bat :world-format:compileKotlinJvm
-.\gradlew.bat :world-format:worldFormatLayerTest
-.\gradlew.bat :world-io:compileKotlinJvm
-.\gradlew.bat :world-io:worldIoLayerTest
+.\gradlew.bat :compression:jvmTest
+.\gradlew.bat :nbt:jvmTest
+.\gradlew.bat :world-format:jvmTest
+.\gradlew.bat :world-io:jvmTest
 ```
 
-The format suite includes reference-library differential tests. The file suite uses real temporary files through
-`SystemFileSystem`.
-
-Run strong interoperability after relevant changes:
-
-```powershell
-.\gradlew.bat officialWorldStorageInteropTest
-```
-
-This task generates a world with the exact downloaded official server, decodes every generated region container and
-chunk, rewrites standalone NBT and region containers, then requires the same official server to load and save the
-rewritten world. Include empty on-disk containers in this audit.
+The format suite includes reference-library differentials. `:world-io:jvmTest` uses real temporary files and generates a
+world with the exact official server, rewrites it, and requires that server to reload it.
 
 ## Completion gates
 
-Run:
+After all affected JVM suites pass, run:
 
 ```powershell
-.\gradlew.bat verifyWorldStorageUpdate
-```
-
-Then compile representative publication families:
-
-```powershell
-.\gradlew.bat :nbt:compileKotlinJs
-.\gradlew.bat :nbt:compileKotlinLinuxX64
-.\gradlew.bat :world-format:compileKotlinJs
-.\gradlew.bat :world-format:compileKotlinLinuxX64
-.\gradlew.bat :world-io:compileKotlinLinuxX64
+.\gradlew.bat test
 ```
 
 Do not add a JS filesystem target merely to make this list symmetrical.

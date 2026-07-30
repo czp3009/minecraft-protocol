@@ -1,3 +1,5 @@
+import com.hiczp.minecraft.protocol.buildScript.GenerateVanillaStaticDataSourceTask
+import com.hiczp.minecraft.protocol.buildScript.MinecraftTarget
 import com.hiczp.minecraft.protocol.buildScript.configureAllTargets
 
 plugins {
@@ -6,34 +8,74 @@ plugins {
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
 }
 
+val generatedStaticDataDirectory = layout.buildDirectory.dir(
+    "generated/sources/vanillaStaticData/commonMain/kotlin",
+)
+val generateVanillaStaticDataSource =
+    tasks.register<GenerateVanillaStaticDataSourceTask>(
+        "generateVanillaStaticDataSource",
+    ) {
+        dependsOn(
+            rootProject.tasks.named("generateOfficialMinecraftReports"),
+        )
+        repositoryDirectory.set(rootProject.layout.projectDirectory)
+        serverJar.set(
+            rootProject.layout.buildDirectory.file(
+                "protocol-reference/mojang/${MinecraftTarget.version}/server.jar",
+            ),
+        )
+        registriesFile.set(
+            rootProject.layout.buildDirectory.file(
+                "protocol-reference/mojang/${MinecraftTarget.version}/" +
+                        "generated/reports/registries.json",
+            ),
+        )
+        blocksFile.set(
+            rootProject.layout.buildDirectory.file(
+                "protocol-reference/mojang/${MinecraftTarget.version}/" +
+                        "generated/reports/blocks.json",
+            ),
+        )
+        outputFile.set(
+            generatedStaticDataDirectory.map {
+                it.file(
+                    "com/hiczp/minecraft/protocol/data/" +
+                            "VanillaStaticDataPayloads.kt",
+                )
+            },
+        )
+    }
+
+val generatedConfigurationDirectory =
+    project(":protocol-serialization").layout.buildDirectory.dir(
+        "generated/vanilla-configuration/commonMain/kotlin",
+    )
+
 kotlin {
     configureAllTargets("com.hiczp.minecraft.protocol.data")
 
     sourceSets {
-        commonMain.dependencies {
-            api(project(":protocol-model"))
-            implementation(project(":protocol-serialization"))
-            implementation(libs.kotlinx.serialization.core)
+        commonMain {
+            kotlin.srcDir(
+                files(generatedStaticDataDirectory)
+                    .builtBy(generateVanillaStaticDataSource),
+            )
+            kotlin.srcDir(
+                files(generatedConfigurationDirectory)
+                    .builtBy(
+                        ":protocol-serialization:" +
+                                "generateVanillaConfigurationData",
+                    ),
+            )
+            dependencies {
+                api(project(":protocol-model"))
+                implementation(project(":protocol-serialization"))
+                implementation(libs.kotlinx.serialization.core)
+            }
         }
 
         commonTest.dependencies {
             implementation(kotlin("test"))
         }
     }
-}
-
-val jvmTestCompilation = kotlin.targets
-    .getByName("jvm")
-    .compilations
-    .getByName("test")
-
-tasks.register<Test>("vanillaDataLayerTest") {
-    group = "verification"
-    description = "Test generated vanilla registries, tags, and static protocol data."
-    dependsOn(jvmTestCompilation.compileTaskProvider)
-    testClassesDirs = jvmTestCompilation.output.classesDirs
-    classpath = files(
-        jvmTestCompilation.output.allOutputs,
-        jvmTestCompilation.runtimeDependencyFiles,
-    )
 }

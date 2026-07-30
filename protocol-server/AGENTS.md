@@ -17,8 +17,8 @@ Fire-and-forget Configuration traffic belongs in `configurationPackets`; respons
 task and then Finish Configuration are acknowledged. Do not hardcode difficulty, game mode, abilities, Status behavior,
 transfer admission, resource-pack policy, or secure-chat claims.
 
-JVM unit and integration tests remain in process and display-free. The headless environment test launches the matching
+JVM unit and integration tests remain in process and display-free. The standard `jvmTest` task launches the matching
 official client prepared under the root project's `build/` tree with dummy offline credentials and a hash-verified
 launcher adapter. It must prove initial chunks and entities are accepted, observe client acknowledgements and ticks,
 complete a bidirectional Play packet, keep all runtime files under Gradle's build directory, and avoid launcher account
-credentials. Direct desktop launch remains an additional acceptance path.
+credentials. GUI desktop-client testing is not part of the repository.

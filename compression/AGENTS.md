@@ -8,5 +8,5 @@ This file extends the repository `AGENTS.md`.
   and checksums remain in their owning modules.
 - Test fixed, dynamic, and stored streams against independent JVM zlib behavior plus malformed and truncation matrices.
 
-Run `:compression:compressionLayerTest` after changes. Shared codec changes also require protocol transport and
-world-format gates.
+Run `:compression:jvmTest` while iterating. Shared codec changes also require the protocol-transport and world-format
+JVM suites, followed by the root `test` gate.

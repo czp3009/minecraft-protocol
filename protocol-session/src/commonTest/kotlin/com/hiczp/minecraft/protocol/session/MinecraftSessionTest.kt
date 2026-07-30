@@ -28,7 +28,9 @@ class MinecraftSessionTest {
 
         client.send(StatusRequestPacket)
         assertEquals(StatusRequestPacket, server.receive())
-        val response = StatusResponsePacket("""{"version":{"protocol":776}}""")
+        val response = StatusResponsePacket(
+            """{"version":{"protocol":${MinecraftProtocol.PROTOCOL_VERSION}}}""",
+        )
         server.send(response)
         assertEquals(response, client.receive())
     }

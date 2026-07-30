@@ -561,18 +561,23 @@ internal data class MinecraftProtocolTarget(
 )
 
 internal fun Path.readMinecraftProtocolTarget(): MinecraftProtocolTarget {
-    val snapshot = resolve(
-        "protocol-specification/wiki-protocol-snapshot.json",
-    ).readJsonObject()
-    val minecraftVersion = snapshot.requiredString("minecraft_version")
-    require(minecraftVersion.matches(Regex("[0-9A-Za-z._-]+"))) {
-        "Unsafe Minecraft version identifier: $minecraftVersion"
+    val serverJar = resolve("build/protocol-reference/mojang")
+        .resolve(MinecraftTarget.version)
+        .resolve("server.jar")
+    check(serverJar.isRegularFile()) {
+        "Official server JAR is missing: $serverJar"
+    }
+    val version = serverJar.readZipEntry("version.json")
+        .decodeJsonObject("$serverJar!/version.json")
+    val minecraftVersion = version.requiredString("id")
+    check(minecraftVersion == MinecraftTarget.version) {
+        "Official server identifies Minecraft $minecraftVersion; " +
+                "buildSrc selects ${MinecraftTarget.version}"
     }
     return MinecraftProtocolTarget(
         minecraftVersion = minecraftVersion,
-        protocolVersion = snapshot.requiredInt("protocol_version"),
-        javaMajorVersion = snapshot.requiredObject("cross_checks")
-            .requiredInt("java_major_version"),
+        protocolVersion = version.requiredInt("protocol_version"),
+        javaMajorVersion = version.requiredInt("java_version"),
     )
 }
 

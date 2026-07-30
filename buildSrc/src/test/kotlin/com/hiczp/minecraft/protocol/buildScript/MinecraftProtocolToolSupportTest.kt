@@ -12,13 +12,7 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 class MinecraftProtocolToolSupportTest {
     @Test
@@ -160,35 +154,36 @@ class MinecraftProtocolToolSupportTest {
     }
 
     @Test
-    fun readsAndValidatesCheckedInProtocolTarget() = withTemporaryDirectory {
-        val specification = resolve("protocol-specification")
-        specification.createDirectories()
-        val snapshot = specification.resolve("wiki-protocol-snapshot.json")
-        snapshot.writeText(
-            """
-            {
-              "minecraft_version": "26.1",
-              "protocol_version": 777,
-              "cross_checks": {"java_major_version": 25}
-            }
-            """.trimIndent(),
+    fun readsAndValidatesOfficialJarProtocolTarget() = withTemporaryDirectory {
+        val serverJar = resolve(
+            "build/protocol-reference/mojang/${MinecraftTarget.version}/" +
+                    "server.jar",
         )
+        serverJar.parent.createDirectories()
+        fun writeVersion(id: String) {
+            ZipOutputStream(Files.newOutputStream(serverJar)).use { zip ->
+                zip.putNextEntry(ZipEntry("version.json"))
+                zip.write(
+                    """
+                    {
+                      "id": "$id",
+                      "protocol_version": 777,
+                      "java_version": 25
+                    }
+                    """.trimIndent().encodeToByteArray(),
+                )
+                zip.closeEntry()
+            }
+        }
+        writeVersion(MinecraftTarget.version)
 
         assertEquals(
-            MinecraftProtocolTarget("26.1", 777, 25),
+            MinecraftProtocolTarget(MinecraftTarget.version, 777, 25),
             readMinecraftProtocolTarget(),
         )
 
-        snapshot.writeText(
-            """
-            {
-              "minecraft_version": "../unsafe",
-              "protocol_version": 777,
-              "cross_checks": {"java_major_version": 25}
-            }
-            """.trimIndent(),
-        )
-        assertFailsWith<IllegalArgumentException> {
+        writeVersion("different-release")
+        assertFailsWith<IllegalStateException> {
             readMinecraftProtocolTarget()
         }
     }

@@ -36,6 +36,6 @@ val format = MinecraftFormat(
 )
 ```
 
-The module's verification includes primitive and composite codec tests, packet-specific golden vectors and branches,
-full registry round trips, test-only framing/compression tests, finite-registry comparison with vanilla, official codec
-differentials, and a real offline-mode official server session.
+The module's standard `jvmTest` includes primitive and composite codecs, packet-specific golden vectors and branches,
+full registry round trips, test-only framing/compression, direct official-codec differentials, and a real offline-mode
+official server session.
