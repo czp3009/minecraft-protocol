@@ -1,6 +1,5 @@
 package com.hiczp.minecraft.test
 
-import kotlinx.serialization.json.jsonObject
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -91,8 +90,6 @@ data class OfficialServerRuntime(
 )
 
 internal object OfficialArtifacts {
-    private const val VERSION_MANIFEST_URL =
-        "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
     private const val HEADLESS_VERSION = "2.10.0"
     private const val HEADLESS_SIZE = 13_010_386L
     private const val HEADLESS_SHA256 =
@@ -184,14 +181,7 @@ internal object OfficialArtifacts {
         jar: Path,
         metadataFile: Path,
     ): OfficialServerArtifact {
-        val manifest = TestHttp.getJson(VERSION_MANIFEST_URL)
-        val entry = manifest.requiredArray("versions")
-            .map { it.jsonObject }
-            .firstOrNull {
-                it.requiredString("id") == version &&
-                        it.requiredString("type") == "release"
-            }
-            ?: error("Mojang manifest has no stable release $version")
+        val entry = officialReleaseManifestEntry(version)
         val metadataUrl = entry.requiredString("url")
         val metadataBytes = TestHttp.getBytes(metadataUrl)
         val metadataSha1 = entry.requiredString("sha1").lowercase()

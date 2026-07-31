@@ -1,5 +1,5 @@
 @file:OptIn(
-    com.hiczp.minecraft.protocol.model.type.InternalDataComponentRegistryApi::class,
+    InternalDataComponentRegistryApi::class,
 )
 
 package com.hiczp.minecraft.protocol.serialization

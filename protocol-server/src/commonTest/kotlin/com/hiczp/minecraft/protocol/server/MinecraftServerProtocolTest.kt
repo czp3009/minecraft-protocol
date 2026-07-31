@@ -8,6 +8,7 @@ import com.hiczp.minecraft.protocol.data.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.protocol.model.type.GameMode
 import com.hiczp.minecraft.protocol.session.MinecraftSession
 import com.hiczp.minecraft.protocol.session.MinecraftSessionSide
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
@@ -55,7 +56,7 @@ class MinecraftServerProtocolTest {
             statusDescription = "\"line\\\n\t\u0001",
             maximumPlayers = 7,
             hardcore = true,
-            gameMode = com.hiczp.minecraft.protocol.model.type.GameMode.SPECTATOR,
+            gameMode = GameMode.SPECTATOR,
             difficulty = Difficulty.HARD,
             difficultyLocked = true,
             enforcesSecureChat = true,
@@ -684,7 +685,7 @@ class MinecraftServerProtocolTest {
     @Test
     fun configurationExtensionsRejectWrongStateDirectionAndManagedPackets() =
         runTest {
-            val invalidPackets = listOf<Packet>(
+            val invalidPackets = listOf(
                 StatusResponsePacket("{}"),
                 ConfigurationServerboundPluginMessagePacket(
                     CustomPayload.Unknown(
@@ -765,7 +766,7 @@ class MinecraftServerProtocolTest {
                     .contains("Client Information packet limit"),
             )
             assertEquals(1, observed.size)
-            assertTrue(observed.single() == ignored)
+            assertEquals(ignored, observed.single())
         }
 
         run {
@@ -794,7 +795,7 @@ class MinecraftServerProtocolTest {
                     .contains("Known Packs packet limit"),
             )
             assertEquals(1, observed.size)
-            assertTrue(observed.single() == ignored)
+            assertEquals(ignored, observed.single())
         }
     }
 

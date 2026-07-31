@@ -47,7 +47,7 @@ class MinecraftFrameCodecTest {
     fun roundTripsCompressionThresholdBoundariesAndDeterministicPayloads() =
         runTest {
             val random = Random(0x2602_0776)
-            val thresholds = listOf<Int?>(null, 0, 1, 2, 32, 256)
+            val thresholds = listOf(null, 0, 1, 2, 32, 256)
             thresholds.forEach { threshold ->
                 val codec = MinecraftFrameCodec()
                 codec.configureCompression(threshold)

@@ -5,6 +5,7 @@ import com.hiczp.minecraft.protocol.model.packet.DebugChunkValuePacket
 import com.hiczp.minecraft.protocol.model.packet.DebugEntityValuePacket
 import com.hiczp.minecraft.protocol.model.packet.DebugEventPacket
 import com.hiczp.minecraft.protocol.model.type.*
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
 import kotlin.test.*
 
@@ -153,12 +154,12 @@ class DebugSubscriptionPacketTest {
                 data.toString(),
             )
             assertEquals(
-                event,
-                MinecraftFormat.decodeFromByteArray(
+                expected = event,
+                actual = MinecraftFormat.decodeFromByteArray(
                     DebugSubscriptionEvent.serializer(),
                     expected,
                 ),
-                data.toString(),
+                message = data.toString(),
             )
         }
     }
@@ -340,7 +341,7 @@ class DebugSubscriptionPacketTest {
 
     private fun <T> assertPacketBytes(
         packet: T,
-        serializer: kotlinx.serialization.KSerializer<T>,
+        serializer: KSerializer<T>,
         expectedHex: String,
     ) {
         val expected = expectedHex.hexBytes()

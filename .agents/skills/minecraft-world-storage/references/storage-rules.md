@@ -30,8 +30,8 @@ filesystem code resolves the matching sidecar before NBT decoding or re-encoding
 ## Binary behavior
 
 Derive all tag IDs, string rules, root naming, recursion accounting, region header fields, sector arithmetic,
-stream-version flags, external thresholds, compression registrations, checksums, and directory layouts from the selected
-exact official JAR first, then use the selected Wiki as descriptive evidence.
+stream-version flags, external thresholds, compression registrations, checksums, and directory layouts from the official
+JAR for the selected release first. Then use the selected Wiki as descriptive evidence.
 
 NBT strings must match the official Java binary behavior, including its modified-UTF representation. Region LZ4 must
 match the exact legacy block stream used by the official dependency rather than assuming the standard LZ4 frame format.

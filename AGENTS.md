@@ -21,7 +21,7 @@ rules extend this file.
 - `protocol-symbol-processor`: private KSP processor for source-derived packet and data-component dispatch.
 - `minecraft-test-support`: private JVM library for reusable official-artifact and process fixtures used by standard
   tests.
-- `protocol-specification`: a hand-written overview plus checked-in target-dependent evidence under `generated/`.
+- `protocol-specification`: a handwritten overview plus checked-in target-dependent evidence under `generated/`.
 - `buildSrc`: shared Gradle configuration and self-validating generators whose inputs are not Kotlin source.
 
 Do not move physical byte encodings into models, network I/O into serialization, or filesystem behavior into
@@ -41,7 +41,7 @@ Use the matching official server JAR as the primary behavioral authority. Use th
 descriptions and facts that official code does not expose, then exact-version MCProtocolLib and Minestom as tertiary
 evidence. Resolve conflicts in favor of official behavior. `protocol-specification/generated` contains only
 deterministic facts generated from the official JAR; semantic decisions belong in source, tests, and public
-documentation. Its README is a hand-written, version-independent overview and is not a project input.
+documentation. Its README is a handwritten, version-independent overview and is not a project input.
 
 For nullability, inspect official codecs, constructors, access paths, annotations, optionals, and sentinels first. Fall
 back through Wiki, MCProtocolLib, and Minestom only when the preceding evidence is inconclusive. Keep unresolved values
@@ -63,9 +63,9 @@ primitives. Do not add browser-driver infrastructure unless a task explicitly re
 
 ## Version and deterministic generation
 
-`MinecraftTarget.version` in `buildSrc` is the only manually selected Minecraft version. `./gradlew -q
-minecraftVersion` prints it. Do not read a version from checked-in specification files or duplicate it in module build
-scripts. The official server JAR's `version.json` supplies the protocol number and other version facts.
+`MinecraftTarget.version` in `buildSrc` is the only manually selected Minecraft version.
+`./gradlew -q minecraftVersion` prints it. Do not read a version from checked-in specification files or duplicate it in
+module build scripts. The official server JAR's `version.json` supplies the protocol number and other version facts.
 
 Java is independent of Minecraft: `KotlinMultiplatformExtension.configureAllTargets` fixes the whole project at Java 25.
 Never infer or change that project toolchain from Mojang metadata.

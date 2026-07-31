@@ -15,7 +15,7 @@ At each invocation:
 
 Production source, tests, and normal Gradle tasks must not read checked-in specification evidence.
 `refreshProtocolSpecification` is the sole writer and replaces `protocol-specification/generated` with a standard Gradle
-`Sync`; its hand-written README is outside that Sync.
+`Sync`; its handwritten README is outside that Sync.
 
 When a newly discovered fact can be derived exactly, teach the deterministic generator to emit it. When it requires
 semantic judgment, encode it in source/tests and cite the evidence in development discussion rather than adding a

@@ -2,6 +2,7 @@ import com.hiczp.minecraft.protocol.buildScript.DownloadOfficialMinecraftServerT
 import com.hiczp.minecraft.protocol.buildScript.GenerateMinecraftProtocolSourceTask
 import com.hiczp.minecraft.protocol.buildScript.GenerateOfficialMinecraftReportsTask
 import com.hiczp.minecraft.protocol.buildScript.configureAllTargets
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -25,6 +26,7 @@ val generateMinecraftProtocolSource =
     tasks.register<GenerateMinecraftProtocolSourceTask>(
         "generateMinecraftProtocolSource",
     ) {
+        description = "Generate protocol constants for the selected Minecraft release."
         val download = rootProject.tasks
             .named<DownloadOfficialMinecraftServerTask>(
                 "downloadOfficialMinecraftServer",
@@ -83,7 +85,7 @@ generatePacketDefinitions.configureEach {
         .withPathSensitivity(PathSensitivity.NONE)
 }
 
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask<*>>()
+tasks.withType<KotlinCompilationTask<*>>()
     .configureEach {
         dependsOn(generatePacketDefinitions)
     }

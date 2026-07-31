@@ -122,10 +122,10 @@ class PlayClientboundPlayerWorldPacketTest {
         )
 
         val settings = RecipeBookSettings(
-            crafting = RecipeBookTypeSettings(true, false),
-            furnace = RecipeBookTypeSettings(false, true),
-            blastFurnace = RecipeBookTypeSettings(true, false),
-            smoker = RecipeBookTypeSettings(false, true),
+            crafting = RecipeBookTypeSettings(open = true, filtering = false),
+            furnace = RecipeBookTypeSettings(open = false, filtering = true),
+            blastFurnace = RecipeBookTypeSettings(open = true, filtering = false),
+            smoker = RecipeBookTypeSettings(open = false, filtering = true),
         )
         assertPacketBytes(
             RecipeBookSettingsPacket(settings),

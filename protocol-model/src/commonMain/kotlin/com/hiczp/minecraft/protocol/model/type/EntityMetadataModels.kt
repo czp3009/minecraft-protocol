@@ -1,8 +1,9 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+@file:OptIn(ExperimentalSerializationApi::class)
 
 package com.hiczp.minecraft.protocol.model.type
 
 import com.hiczp.minecraft.protocol.model.wire.*
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -254,13 +255,13 @@ internal object EntityMetadataSerializer : KSerializer<EntityMetadata> {
 
     override fun serialize(encoder: Encoder, value: EntityMetadata) {
         val output = encoder.beginStructure(descriptor)
-        for (entry in value.entries) {
-            output.encodeIntElement(descriptor, INDEX, entry.index)
+        for ((index, entryValue) in value.entries) {
+            output.encodeIntElement(descriptor, INDEX, index)
             output.encodeSerializableElement(
                 descriptor,
                 VALUE,
                 EntityDataValue.serializer(),
-                entry.value,
+                entryValue,
             )
         }
         output.encodeIntElement(descriptor, INDEX, EOF)
@@ -595,8 +596,7 @@ internal object EntityDataValueSerializer : KSerializer<EntityDataValue> {
 
     override fun deserialize(decoder: Decoder): EntityDataValue {
         val input = decoder.beginStructure(descriptor)
-        val type = input.decodeIntElement(descriptor, SERIALIZER_ID)
-        val value = when (type) {
+        val value = when (val type = input.decodeIntElement(descriptor, SERIALIZER_ID)) {
             0 -> EntityDataValue.ByteValue(
                 input.decodeByteElement(descriptor, BYTE),
             )

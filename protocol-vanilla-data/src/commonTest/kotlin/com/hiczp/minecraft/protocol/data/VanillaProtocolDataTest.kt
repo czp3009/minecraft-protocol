@@ -238,7 +238,7 @@ class VanillaProtocolDataTest {
                 0,
             )
 
-        listOf<NbtTag?>(
+        listOf(
             null,
             NbtInt(1),
             NbtCompound(emptyMap()),

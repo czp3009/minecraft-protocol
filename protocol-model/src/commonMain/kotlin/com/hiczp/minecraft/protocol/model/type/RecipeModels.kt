@@ -1,5 +1,3 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-
 package com.hiczp.minecraft.protocol.model.type
 
 import com.hiczp.minecraft.protocol.model.wire.OptionalVarInt
@@ -296,8 +294,7 @@ internal object SlotDisplaySerializer : KSerializer<SlotDisplay> {
 
     override fun deserialize(decoder: Decoder): SlotDisplay {
         val input = decoder.beginStructure(descriptor)
-        val type = input.decodeIntElement(descriptor, TYPE)
-        val value = when (type) {
+        val value = when (val type = input.decodeIntElement(descriptor, TYPE)) {
             0 -> SlotDisplay.Empty
             1 -> SlotDisplay.AnyFuel
             2 -> SlotDisplay.WithAnyPotion(
@@ -517,8 +514,7 @@ internal object RecipeDisplaySerializer : KSerializer<RecipeDisplay> {
 
     override fun deserialize(decoder: Decoder): RecipeDisplay {
         val input = decoder.beginStructure(descriptor)
-        val type = input.decodeIntElement(descriptor, TYPE)
-        val value = when (type) {
+        val value = when (val type = input.decodeIntElement(descriptor, TYPE)) {
             0 -> input.payload(
                 SHAPELESS,
                 ShapelessRecipePayload.serializer(),

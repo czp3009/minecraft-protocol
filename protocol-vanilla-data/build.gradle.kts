@@ -20,6 +20,7 @@ val generateVanillaStaticDataSource =
     tasks.register<GenerateVanillaStaticDataSourceTask>(
         "generateVanillaStaticDataSource",
     ) {
+        description = "Generate typed vanilla registry and block-state source."
         val download = rootProject.tasks
             .named<DownloadOfficialMinecraftServerTask>(
                 "downloadOfficialMinecraftServer",
@@ -54,6 +55,7 @@ val generateVanillaConfigurationData =
     tasks.register<GenerateVanillaConfigurationDataTask>(
         "generateVanillaConfigurationData",
     ) {
+        description = "Generate vanilla Configuration payload source and its manifest."
         val download = rootProject.tasks
             .named<DownloadOfficialMinecraftServerTask>(
                 "downloadOfficialMinecraftServer",

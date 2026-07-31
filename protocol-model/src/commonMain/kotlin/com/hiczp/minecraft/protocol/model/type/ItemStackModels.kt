@@ -1,5 +1,5 @@
 @file:OptIn(
-    kotlinx.serialization.ExperimentalSerializationApi::class,
+    ExperimentalSerializationApi::class,
     InternalDataComponentRegistryApi::class,
 )
 

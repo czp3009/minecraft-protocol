@@ -1,7 +1,10 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+@file:OptIn(ExperimentalSerializationApi::class)
 
 package com.hiczp.minecraft.protocol.model.wire
 
+import com.hiczp.minecraft.protocol.model.type.NbtTag
+import com.hiczp.minecraft.protocol.model.type.Vector3d
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialInfo
 
 /**
@@ -38,7 +41,7 @@ annotation class UnsignedShort
 annotation class Angle
 
 /**
- * Encode a [com.hiczp.minecraft.protocol.model.type.Vector3d] with vanilla's
+ * Encode a [Vector3d] with vanilla's
  * six-byte low-precision vector representation plus its optional scale VarInt.
  */
 @SerialInfo
@@ -120,7 +123,7 @@ annotation class NbtEndOptional
 annotation class NullSentinelByte(val value: Int = -1)
 
 /**
- * Encode a concrete [com.hiczp.minecraft.protocol.model.type.NbtTag] subtype as
+ * Encode a concrete [NbtTag] subtype as
  * unnamed network NBT. The marker is only needed when the declared property
  * type is narrower than NbtTag, whose descriptor is recognized directly.
  */

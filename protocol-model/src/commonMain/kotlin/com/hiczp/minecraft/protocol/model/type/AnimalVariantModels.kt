@@ -1,5 +1,3 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-
 package com.hiczp.minecraft.protocol.model.type
 
 import com.hiczp.minecraft.protocol.model.wire.VarInt

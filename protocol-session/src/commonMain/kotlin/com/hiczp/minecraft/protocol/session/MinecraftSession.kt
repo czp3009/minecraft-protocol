@@ -13,12 +13,10 @@ enum class MinecraftSessionSide {
 class MinecraftSession(
     val frames: MinecraftFrameStream,
     val side: MinecraftSessionSide,
-    format: MinecraftFormat = MinecraftFormat.Default,
+    var format: MinecraftFormat = MinecraftFormat.Default,
 ) {
     var state: ConnectionState = ConnectionState.HANDSHAKE
         private set
-
-    var format: MinecraftFormat = format
 
     val outboundDirection: PacketDirection
         get() =
@@ -174,7 +172,7 @@ class MinecraftSessionException(
     cause: Throwable? = null,
 ) : Exception(message, cause)
 
-private data class DecodedPacketData(
+private class DecodedPacketData(
     val id: Int,
     val payload: ByteArray,
 )

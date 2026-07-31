@@ -72,7 +72,7 @@ data class LookAtPacket(
 data class SynchronizePlayerPositionPacket(
     @VarInt
     val teleportId: Int,
-    val change: com.hiczp.minecraft.protocol.model.type.PositionMoveRotation,
+    val change: PositionMoveRotation,
     val relatives: RelativeMovements,
 ) : PlayStatePacket, ClientboundPacket
 

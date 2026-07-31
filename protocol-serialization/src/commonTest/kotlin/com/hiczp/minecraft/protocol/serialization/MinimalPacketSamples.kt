@@ -1,4 +1,4 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+@file:OptIn(ExperimentalSerializationApi::class)
 
 package com.hiczp.minecraft.protocol.serialization
 
@@ -6,6 +6,7 @@ import com.hiczp.minecraft.protocol.model.type.NbtString
 import com.hiczp.minecraft.protocol.model.type.NbtTag
 import com.hiczp.minecraft.protocol.model.wire.FixedLength
 import kotlinx.serialization.DeserializationStrategy
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.AbstractDecoder
@@ -16,8 +17,7 @@ import kotlinx.serialization.modules.polymorphic
 /**
  * Constructs one deliberately small, protocol-valid value from a serializer.
  *
- * This is test infrastructure for exercising every registered packet codec. It
- * does not attempt to manufacture semantically useful game data.
+ * This infrastructure exercises every registered packet codec. It does not manufacture semantically useful game data.
  */
 internal fun <T> KSerializer<T>.minimalProtocolValue(): T =
     protocolValue(ProtocolSampleProfile.MINIMAL)

@@ -1,14 +1,14 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+@file:OptIn(ExperimentalSerializationApi::class)
 
 package com.hiczp.minecraft.protocol.serialization.internal
 
 import com.hiczp.minecraft.protocol.model.type.NbtCompound
 import com.hiczp.minecraft.protocol.model.type.NbtEnd
-import com.hiczp.minecraft.protocol.model.type.NbtTag
 import com.hiczp.minecraft.protocol.model.wire.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftFormatConfiguration
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
 import kotlinx.serialization.DeserializationStrategy
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.encoding.CompositeDecoder
@@ -27,8 +27,6 @@ internal class MinecraftDecoder(
 
     val remaining: Int
         get() = reader.remaining
-
-    fun readNbt(): NbtTag = nbtCodec.readUnnamed(reader)
 
     override fun beginStructure(descriptor: SerialDescriptor): CompositeDecoder {
         val collection = when (descriptor.kind) {
@@ -71,13 +69,7 @@ internal class MinecraftDecoder(
         if (frame.nextIndex >= maximumIndex) {
             return CompositeDecoder.DECODE_DONE
         }
-        val index = frame.nextIndex++
-        val descriptorIndex = when (descriptor.kind) {
-            StructureKind.LIST -> 0
-            StructureKind.MAP -> index % descriptor.elementsCount
-            else -> index
-        }
-        return index
+        return frame.nextIndex++
     }
 
     override fun decodeCollectionSize(descriptor: SerialDescriptor): Int {
@@ -419,7 +411,7 @@ internal class MinecraftDecoder(
             annotation.maxBytes,
             configuration.maximumByteArraySize,
         )
-        if (size < 0 || size > maximum) {
+        if (size !in 0..maximum) {
             throw MinecraftSerializationException(
                 "Invalid length-prefixed value size $size; maximum is $maximum",
             )
@@ -467,21 +459,10 @@ internal class MinecraftDecoder(
             } else {
                 configuration.maximumCollectionSize
             }
-        if (size < 0 || size > configuredMaximum) {
+        if (size !in 0..configuredMaximum) {
             throw MinecraftSerializationException("Invalid collection size: $size")
         }
-        val maximum = hints.filterIsInstance<MaxCollectionSize>().singleOrNull()?.elements
-        if (maximum != null && size > maximum) {
-            throw MinecraftSerializationException(
-                "Collection size $size exceeds protocol limit $maximum",
-            )
-        }
-        val maximumBytes = hints.filterIsInstance<MaxByteLength>().singleOrNull()?.bytes
-        if (maximumBytes != null && size > maximumBytes) {
-            throw MinecraftSerializationException(
-                "Byte-array size $size exceeds protocol limit $maximumBytes",
-            )
-        }
+        validateCollectionHints(size, hints)
         return DecodedCollection(
             size,
             hints.filter {

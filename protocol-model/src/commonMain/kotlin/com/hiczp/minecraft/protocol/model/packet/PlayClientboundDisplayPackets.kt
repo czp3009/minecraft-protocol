@@ -1,4 +1,4 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+@file:OptIn(ExperimentalSerializationApi::class)
 
 package com.hiczp.minecraft.protocol.model.packet
 
@@ -6,6 +6,7 @@ import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.wire.FixedLength
 import com.hiczp.minecraft.protocol.model.wire.VarInt
 import com.hiczp.minecraft.protocol.model.wire.WrappedEnum
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException

@@ -8,6 +8,7 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
 
 class Lz4JavaCompatibilityTest {
     @Test
@@ -38,13 +39,11 @@ class Lz4JavaCompatibilityTest {
                     encodedOffset + 21 + length,
                 ),
             )
-            kotlin.test.assertEquals(expected, actual)
+            assertEquals(expected, actual)
             inputOffset += length
             encodedOffset += 21 + length
         }
-        val decoded = LZ4BlockInputStream(
-            ByteArrayInputStream(encoded),
-        ).use { it.readBytes() }
+        val decoded = LZ4BlockInputStream.newBuilder().build(ByteArrayInputStream(encoded)).use { it.readBytes() }
 
         assertContentEquals(input, decoded)
     }

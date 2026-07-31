@@ -32,8 +32,8 @@ class EarlyPacketSerializationTest {
             MinecraftFormat.encodeToByteArray(HandshakePacket.serializer(), packet),
         )
         assertEquals(
-            packet,
-            MinecraftFormat.decodeFromByteArray(HandshakePacket.serializer(), expected),
+            expected = packet,
+            actual = MinecraftFormat.decodeFromByteArray(HandshakePacket.serializer(), expected),
         )
     }
 
@@ -48,8 +48,8 @@ class EarlyPacketSerializationTest {
             ),
         )
         assertEquals(
-            packet,
-            MinecraftFormat.decodeFromByteArray(
+            expected = packet,
+            actual = MinecraftFormat.decodeFromByteArray(
                 LegacyServerListPingPacket.serializer(),
                 byteArrayOf(1),
             ),

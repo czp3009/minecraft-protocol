@@ -385,8 +385,8 @@ class ItemStackSerializationTest {
             MinecraftFormat.encodeToByteArray(ItemStack.serializer(), stack),
         )
         assertEquals(
-            stack,
-            MinecraftFormat.decodeFromByteArray(ItemStack.serializer(), expected),
+            expected = stack,
+            actual = MinecraftFormat.decodeFromByteArray(ItemStack.serializer(), expected),
         )
     }
 }

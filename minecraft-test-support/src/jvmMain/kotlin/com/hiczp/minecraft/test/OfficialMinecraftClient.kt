@@ -16,8 +16,6 @@ data class OfficialClientInstallation(
 )
 
 internal object OfficialClientPreparation {
-    private const val VERSION_MANIFEST_URL =
-        "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
     private const val ASSET_OBJECT_BASE_URL =
         "https://resources.download.minecraft.net"
     private val sha1Pattern = Regex("[0-9a-f]{40}")
@@ -158,14 +156,7 @@ internal object OfficialClientPreparation {
             return it
         }
 
-        val manifest = TestHttp.getJson(VERSION_MANIFEST_URL)
-        val entry = manifest.requiredArray("versions")
-            .map { it.jsonObject }
-            .firstOrNull {
-                it.requiredString("id") == version &&
-                        it.requiredString("type") == "release"
-            }
-            ?: error("Mojang manifest has no stable release $version")
+        val entry = officialReleaseManifestEntry(version)
         val metadataUrl = entry.requiredString("url")
         val expectedSha1 = validateSha1(
             entry.requiredString("sha1"),

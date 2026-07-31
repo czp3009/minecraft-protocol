@@ -198,9 +198,8 @@ internal object OfficialCodecFixtureGenerator {
                         containerId = 1,
                         recipeDisplay = RecipeDisplay.Shapeless(
                             ingredients = listOf(sample.value),
-                            result = com.hiczp.minecraft.protocol.model.type.SlotDisplay.Empty,
-                            craftingStation =
-                                com.hiczp.minecraft.protocol.model.type.SlotDisplay.Empty,
+                            result = SlotDisplay.Empty,
+                            craftingStation = SlotDisplay.Empty,
                         ),
                     )
                 }
@@ -569,8 +568,7 @@ internal object OfficialCodecFixtureGenerator {
                 value = DataComponent.Consumable(
                     consumeSeconds = 1.0f,
                     animation = ItemUseAnimation.EAT,
-                    sound = com.hiczp.minecraft.protocol.model.type.SoundEventHolder
-                        .Reference(0),
+                    sound = SoundEventHolder.Reference(0),
                     hasConsumeParticles = true,
                     onConsumeEffects = listOf(sample.value),
                 ),

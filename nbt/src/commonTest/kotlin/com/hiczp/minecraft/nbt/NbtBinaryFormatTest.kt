@@ -157,7 +157,7 @@ class NbtBinaryFormatTest {
     @Test
     fun rejectsNamedEndAndNonCompoundDocuments() {
         assertFailsWith<IllegalArgumentException> {
-            NamedNbtTag("", com.hiczp.minecraft.protocol.model.type.NbtEnd)
+            NamedNbtTag("", NbtEnd)
         }
 
         val namedString = NbtBinaryFormat.encodeNamedTagToByteArray(

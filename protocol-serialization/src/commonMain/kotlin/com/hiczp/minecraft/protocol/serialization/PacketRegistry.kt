@@ -1,5 +1,5 @@
 @file:OptIn(
-    com.hiczp.minecraft.protocol.model.packet.InternalPacketRegistryApi::class,
+    InternalPacketRegistryApi::class,
 )
 
 package com.hiczp.minecraft.protocol.serialization
@@ -59,17 +59,12 @@ class PacketRegistry(
 ) {
     val entries: List<PacketCodec<out Packet>> = entries.toList()
 
-    private val byKey: Map<PacketKey, PacketCodec<out Packet>>
-    private val byClass: Map<KClass<out Packet>, PacketCodec<out Packet>>
-
-    init {
-        byKey = uniqueIndex(this.entries, PacketCodec<out Packet>::key, "packet key")
-        byClass = uniqueIndex(
-            this.entries,
-            PacketCodec<out Packet>::packetClass,
-            "packet class",
-        )
-    }
+    private val byKey = uniqueIndex(this.entries, PacketCodec<out Packet>::key, "packet key")
+    private val byClass = uniqueIndex(
+        this.entries,
+        PacketCodec<out Packet>::packetClass,
+        "packet class",
+    )
 
     fun codec(
         state: ConnectionState,

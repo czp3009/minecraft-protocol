@@ -313,31 +313,11 @@ internal object ProtocolHttp {
         offline: Boolean = false,
         timeout: Duration = Duration.ofSeconds(60),
         attempts: Int = 4,
-    ): Boolean = ensureDownload(
-        url = url,
-        destination = destination,
-        expectedSize = expectedSize,
-        digestAlgorithm = "SHA-1",
-        expectedDigest = expectedSha1,
-        offline = offline,
-        timeout = timeout,
-        attempts = attempts,
-    )
-
-    private fun ensureDownload(
-        url: String,
-        destination: Path,
-        expectedSize: Long,
-        digestAlgorithm: String,
-        expectedDigest: String,
-        offline: Boolean,
-        timeout: Duration,
-        attempts: Int,
     ): Boolean {
         if (
             destination.isRegularFile() &&
             Files.size(destination) == expectedSize &&
-            destination.digest(digestAlgorithm) == expectedDigest
+            destination.digest("SHA-1") == expectedSha1
         ) {
             return false
         }
@@ -375,9 +355,9 @@ internal object ProtocolHttp {
                     "Downloaded artifact has wrong size: $url"
                 }
                 check(
-                    temporary.digest(digestAlgorithm) == expectedDigest,
+                    temporary.digest("SHA-1") == expectedSha1,
                 ) {
-                    "Downloaded artifact failed $digestAlgorithm: $url"
+                    "Downloaded artifact failed SHA-1: $url"
                 }
                 Files.move(
                     temporary,

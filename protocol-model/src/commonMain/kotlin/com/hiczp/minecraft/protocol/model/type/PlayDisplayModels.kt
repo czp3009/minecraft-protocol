@@ -1,8 +1,9 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+@file:OptIn(ExperimentalSerializationApi::class)
 
 package com.hiczp.minecraft.protocol.model.type
 
 import com.hiczp.minecraft.protocol.model.wire.*
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -12,6 +13,8 @@ import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.descriptors.element
+import kotlinx.serialization.encoding.CompositeDecoder
+import kotlinx.serialization.encoding.CompositeEncoder
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 
@@ -472,7 +475,7 @@ internal object ObjectiveUpdateSerializer : KSerializer<ObjectiveUpdate> {
     }
 
     private fun encodeObjectivePayload(
-        output: kotlinx.serialization.encoding.CompositeEncoder,
+        output: CompositeEncoder,
         displayName: TextComponent,
         renderType: ObjectiveRenderType,
         numberFormat: NumberFormat?,
@@ -498,7 +501,7 @@ internal object ObjectiveUpdateSerializer : KSerializer<ObjectiveUpdate> {
     }
 
     private fun decodeObjectivePayload(
-        input: kotlinx.serialization.encoding.CompositeDecoder,
+        input: CompositeDecoder,
         add: Boolean,
     ): ObjectiveUpdate {
         val displayName = input.decodeSerializableElement(
@@ -581,7 +584,7 @@ internal object TeamUpdateSerializer : KSerializer<TeamUpdate> {
     }
 
     private fun encodeParameters(
-        output: kotlinx.serialization.encoding.CompositeEncoder,
+        output: CompositeEncoder,
         value: TeamParameters,
     ) {
         output.encodeSerializableElement(
@@ -593,7 +596,7 @@ internal object TeamUpdateSerializer : KSerializer<TeamUpdate> {
     }
 
     private fun encodePlayers(
-        output: kotlinx.serialization.encoding.CompositeEncoder,
+        output: CompositeEncoder,
         value: List<String>,
     ) {
         output.encodeSerializableElement(
@@ -605,7 +608,7 @@ internal object TeamUpdateSerializer : KSerializer<TeamUpdate> {
     }
 
     private fun decodeParameters(
-        input: kotlinx.serialization.encoding.CompositeDecoder,
+        input: CompositeDecoder,
     ): TeamParameters = input.decodeSerializableElement(
         descriptor,
         PARAMETERS,
@@ -613,7 +616,7 @@ internal object TeamUpdateSerializer : KSerializer<TeamUpdate> {
     )
 
     private fun decodePlayers(
-        input: kotlinx.serialization.encoding.CompositeDecoder,
+        input: CompositeDecoder,
     ): List<String> = input.decodeSerializableElement(
         descriptor,
         PLAYERS,

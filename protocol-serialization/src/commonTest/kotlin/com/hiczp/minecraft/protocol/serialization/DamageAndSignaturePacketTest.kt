@@ -33,8 +33,8 @@ class DamageAndSignaturePacketTest {
             MinecraftFormat.encodeToByteArray(DamageEventPacket.serializer(), packet),
         )
         assertEquals(
-            packet,
-            MinecraftFormat.decodeFromByteArray(DamageEventPacket.serializer(), expected),
+            expected = packet,
+            actual = MinecraftFormat.decodeFromByteArray(DamageEventPacket.serializer(), expected),
         )
     }
 
@@ -57,8 +57,8 @@ class DamageAndSignaturePacketTest {
             MinecraftFormat.encodeToByteArray(DebugSamplePacket.serializer(), packet),
         )
         assertEquals(
-            packet,
-            MinecraftFormat.decodeFromByteArray(DebugSamplePacket.serializer(), expected),
+            expected = packet,
+            actual = MinecraftFormat.decodeFromByteArray(DebugSamplePacket.serializer(), expected),
         )
     }
 

@@ -1,5 +1,3 @@
-@file:OptIn(kotlin.io.encoding.ExperimentalEncodingApi::class)
-
 package com.hiczp.minecraft.protocol.data
 
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol

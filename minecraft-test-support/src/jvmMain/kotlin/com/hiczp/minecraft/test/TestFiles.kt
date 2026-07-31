@@ -61,13 +61,6 @@ internal fun JsonObject.requiredLong(name: String): Long =
             ?: error("JSON property '$name' is not an integer")
     }
 
-internal fun JsonObject.optionalBoolean(name: String): Boolean? =
-    get(name)?.jsonPrimitive?.let { value ->
-        check(!value.isString) { "JSON property '$name' is not a Boolean" }
-        value.booleanOrNull
-            ?: error("JSON property '$name' is not a Boolean")
-    }
-
 internal fun Path.writeJson(value: JsonElement) {
     atomicWriteText(testJson.encodeToString(JsonElement.serializer(), value) + "\n")
 }
@@ -280,6 +273,19 @@ internal object TestHttp {
         }
 }
 
+private const val VERSION_MANIFEST_URL =
+    "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+
+internal fun officialReleaseManifestEntry(version: String): JsonObject =
+    TestHttp.getJson(VERSION_MANIFEST_URL)
+        .requiredArray("versions")
+        .map { it.jsonObject }
+        .firstOrNull {
+            it.requiredString("id") == version &&
+                    it.requiredString("type") == "release"
+        }
+        ?: error("Mojang manifest has no stable release $version")
+
 internal fun jsonObjectOf(
     vararg entries: Pair<String, JsonElement>,
 ): JsonObject = JsonObject(linkedMapOf(*entries))
@@ -287,6 +293,3 @@ internal fun jsonObjectOf(
 internal fun jsonString(value: String): JsonPrimitive = JsonPrimitive(value)
 
 internal fun jsonNumber(value: Number): JsonPrimitive = JsonPrimitive(value)
-
-internal fun JsonElement.objectOrNull(): JsonObject? =
-    takeUnless { it === JsonNull }?.jsonObject

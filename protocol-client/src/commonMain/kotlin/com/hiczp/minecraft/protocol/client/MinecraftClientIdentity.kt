@@ -18,12 +18,10 @@ data class MinecraftOfflineIdentity(
 class MinecraftOnlineIdentity(
     override val name: String,
     override val id: Uuid,
-    accessToken: String,
+    internal val accessToken: String,
     val sessionService: MinecraftSessionService,
     val cryptography: MinecraftCryptography,
 ) : MinecraftClientIdentity {
-    internal val accessToken: String = accessToken
-
     override fun toString(): String =
         "MinecraftOnlineIdentity(name=$name, id=$id, accessToken=<redacted>)"
 }

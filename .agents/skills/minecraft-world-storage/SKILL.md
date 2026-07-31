@@ -91,10 +91,17 @@ For each coherent batch:
 Finish the storage JVM path with `:world-io:jvmTest`, then run the applicable standard platform tests or the KMP
 `allTests` selector once all JVM suites are stable.
 
-Completion requires stream and byte-array NBT, every official region compression path, inline and external chunks,
-chunk/entity/POI containers, standalone NBT files, current dimension and player-storage paths, historical path access
-where the public API promises it, hostile-input limits, filesystem round trips, and the exact official server accepting
-files rewritten by this library. A final interop result never replaces the lower testing layers.
+Completion requires:
+
+- stream and byte-array NBT;
+- every official region compression path;
+- inline and external chunks plus chunk, entity, and POI containers;
+- standalone NBT files and current dimension and player-storage paths;
+- historical path access where the public API promises it;
+- hostile-input limits and filesystem round trips;
+- acceptance of rewritten files by the exact official server.
+
+A final interop result never replaces the lower testing layers.
 
 ## Self-correction
 

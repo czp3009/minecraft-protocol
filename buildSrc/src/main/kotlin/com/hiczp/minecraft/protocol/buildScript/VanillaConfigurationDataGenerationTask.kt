@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.protocol.buildScript
 
+import kotlinx.serialization.json.JsonObject
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.*
@@ -90,7 +91,7 @@ abstract class GenerateVanillaConfigurationDataTask :
     }
 
     private fun validateManifest(
-        report: kotlinx.serialization.json.JsonObject,
+        report: JsonObject,
         expectedVersion: String,
         expectedServerSha256: String,
     ) {

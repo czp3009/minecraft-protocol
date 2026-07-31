@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.test
 
 import java.io.File
+import java.lang.reflect.InvocationTargetException
 import java.net.URLClassLoader
 import java.nio.file.Files
 import java.nio.file.Path
@@ -82,7 +83,7 @@ object OfficialCodecOracle {
                             report.toAbsolutePath().normalize().toString(),
                         ),
                     )
-                } catch (failure: java.lang.reflect.InvocationTargetException) {
+                } catch (failure: InvocationTargetException) {
                     throw failure.targetException
                 }
             } finally {

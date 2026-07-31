@@ -1,15 +1,12 @@
-@file:OptIn(ExperimentalEncodingApi::class)
-
 package com.hiczp.minecraft.protocol.data
 
-import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
+import com.hiczp.minecraft.protocol.model.type.KnownPack
 import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
 import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
 
 internal data class VanillaConfigurationSnapshot(
-    val knownPacks: List<com.hiczp.minecraft.protocol.model.type.KnownPack>,
+    val knownPacks: List<KnownPack>,
     val featureFlags: FeatureFlagsPacket,
     val completeRegistries: List<RegistryDataPacket>,
     val clientKnownRegistries: List<RegistryDataPacket>,
@@ -17,15 +14,6 @@ internal data class VanillaConfigurationSnapshot(
 )
 
 internal fun decodeVanillaConfigurationSnapshot(): VanillaConfigurationSnapshot {
-    check(VanillaConfigurationPayloads.minecraftVersion == MinecraftProtocol.MINECRAFT_VERSION) {
-        "Vanilla data targets ${VanillaConfigurationPayloads.minecraftVersion}, " +
-                "but models target ${MinecraftProtocol.MINECRAFT_VERSION}"
-    }
-    check(VanillaConfigurationPayloads.protocolVersion == MinecraftProtocol.PROTOCOL_VERSION) {
-        "Vanilla data targets protocol ${VanillaConfigurationPayloads.protocolVersion}, " +
-                "but models target ${MinecraftProtocol.PROTOCOL_VERSION}"
-    }
-
     val knownPacks = decodeConfigurationPacket(
         id = 0x0E,
         chunks = VanillaConfigurationPayloads.knownPacks,
@@ -77,5 +65,5 @@ private fun decodeConfigurationPacket(
     state = ConnectionState.CONFIGURATION,
     direction = PacketDirection.CLIENTBOUND,
     id = id,
-    payload = Base64.Default.decode(chunks.joinToString(separator = "")),
+    payload = Base64.decode(chunks.joinToString(separator = "")),
 )

@@ -1,5 +1,3 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-
 package com.hiczp.minecraft.protocol.model.type
 
 import com.hiczp.minecraft.protocol.model.wire.VarInt
@@ -570,18 +568,18 @@ internal object ParticleOptionsSerializer : KSerializer<ParticleOptions> {
         val id = input.decodeIntElement(descriptor, TYPE)
         val type = ParticleType.entries.getOrNull(id)
             ?: throw SerializationException("Unknown particle type $id")
-        val result = when {
-            type in ParticleOptions.BLOCK_PARTICLE_TYPES -> {
+        val result = when (type) {
+            in ParticleOptions.BLOCK_PARTICLE_TYPES -> {
                 val payload = input.payload(BLOCK, BlockParticlePayload.serializer())
                 ParticleOptions.Block(type, payload.blockStateId)
             }
 
-            type in ParticleOptions.GEYSER_PARTICLE_TYPES -> {
+            in ParticleOptions.GEYSER_PARTICLE_TYPES -> {
                 val payload = input.payload(GEYSER, GeyserParticlePayload.serializer())
                 ParticleOptions.Geyser(type, payload.waterBlocks)
             }
 
-            type in ParticleOptions.GEYSER_BASE_PARTICLE_TYPES -> {
+            in ParticleOptions.GEYSER_BASE_PARTICLE_TYPES -> {
                 val payload = input.payload(
                     GEYSER_BASE,
                     GeyserBaseParticlePayload.serializer(),
@@ -593,17 +591,17 @@ internal object ParticleOptionsSerializer : KSerializer<ParticleOptions> {
                 )
             }
 
-            type == ParticleType.DRAGON_BREATH -> {
+            ParticleType.DRAGON_BREATH -> {
                 val payload = input.payload(POWER, PowerParticlePayload.serializer())
                 ParticleOptions.Power(payload.power)
             }
 
-            type == ParticleType.DUST -> {
+            ParticleType.DUST -> {
                 val payload = input.payload(DUST, DustParticlePayload.serializer())
                 ParticleOptions.Dust(payload.color, payload.scale)
             }
 
-            type == ParticleType.DUST_COLOR_TRANSITION -> {
+            ParticleType.DUST_COLOR_TRANSITION -> {
                 val payload = input.payload(
                     DUST_TRANSITION,
                     DustTransitionParticlePayload.serializer(),
@@ -615,17 +613,17 @@ internal object ParticleOptionsSerializer : KSerializer<ParticleOptions> {
                 )
             }
 
-            type == ParticleType.EFFECT || type == ParticleType.INSTANT_EFFECT -> {
+            ParticleType.EFFECT, ParticleType.INSTANT_EFFECT -> {
                 val payload = input.payload(SPELL, SpellParticlePayload.serializer())
                 ParticleOptions.Spell(type, payload.color, payload.power)
             }
 
-            type in ParticleOptions.COLOR_PARTICLE_TYPES -> {
+            in ParticleOptions.COLOR_PARTICLE_TYPES -> {
                 val payload = input.payload(COLOR, ColorParticlePayload.serializer())
                 ParticleOptions.Color(type, payload.color)
             }
 
-            type == ParticleType.SCULK_CHARGE -> {
+            ParticleType.SCULK_CHARGE -> {
                 val payload = input.payload(
                     SCULK_CHARGE,
                     SculkChargeParticlePayload.serializer(),
@@ -633,12 +631,12 @@ internal object ParticleOptionsSerializer : KSerializer<ParticleOptions> {
                 ParticleOptions.SculkCharge(payload.roll)
             }
 
-            type == ParticleType.ITEM -> {
+            ParticleType.ITEM -> {
                 val payload = input.payload(ITEM, ItemParticlePayload.serializer())
                 ParticleOptions.Item(payload.item)
             }
 
-            type == ParticleType.VIBRATION -> {
+            ParticleType.VIBRATION -> {
                 val payload = input.payload(
                     VIBRATION,
                     VibrationParticlePayload.serializer(),
@@ -646,12 +644,12 @@ internal object ParticleOptionsSerializer : KSerializer<ParticleOptions> {
                 ParticleOptions.Vibration(payload.destination, payload.arrivalInTicks)
             }
 
-            type == ParticleType.TRAIL -> {
+            ParticleType.TRAIL -> {
                 val payload = input.payload(TRAIL, TrailParticlePayload.serializer())
                 ParticleOptions.Trail(payload.target, payload.color, payload.duration)
             }
 
-            type == ParticleType.SHRIEK -> {
+            ParticleType.SHRIEK -> {
                 val payload = input.payload(SHRIEK, ShriekParticlePayload.serializer())
                 ParticleOptions.Shriek(payload.delay)
             }

@@ -11,6 +11,8 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertTrue
 
+private const val MAXIMUM_MUTATION_OUTPUT_BYTES = 32_768
+
 class RawDeflateJvmDifferentialTest {
     @Test
     fun decoderReadsEveryJvmCompressionLevelAcrossBoundaries() {
@@ -118,12 +120,11 @@ class RawDeflateJvmDifferentialTest {
             mutated[index] =
                 (mutated[index].toInt() xor (1 shl random.nextInt(8)))
                     .toByte()
-            val maximumOutput = 32_768
             val expected = runCatching {
-                strictJvmInflate(mutated, maximumOutput)
+                strictJvmInflate(mutated)
             }
             val actual = runCatching {
-                RawDeflate.decode(mutated, maximumOutput)
+                RawDeflate.decode(mutated, MAXIMUM_MUTATION_OUTPUT_BYTES)
             }
 
             if (expected.isSuccess) {
@@ -204,10 +205,7 @@ class RawDeflateJvmDifferentialTest {
         return output
     }
 
-    private fun strictJvmInflate(
-        input: ByteArray,
-        maximumOutputBytes: Int,
-    ): ByteArray {
+    private fun strictJvmInflate(input: ByteArray): ByteArray {
         val inflater = Inflater(true)
         return try {
             inflater.setInput(input)
@@ -216,7 +214,7 @@ class RawDeflateJvmDifferentialTest {
             while (!inflater.finished()) {
                 val count = inflater.inflate(buffer)
                 if (count > 0) {
-                    if (output.size() > maximumOutputBytes - count) {
+                    if (output.size() > MAXIMUM_MUTATION_OUTPUT_BYTES - count) {
                         throw DataFormatException("Output limit exceeded")
                     }
                     output.write(buffer, 0, count)

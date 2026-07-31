@@ -440,7 +440,7 @@ abstract class GenerateOfficialMinecraftReportsTask :
             listOf(executable, "-version"),
             timeout = Duration.ofSeconds(30),
         )
-        val actualMajor = Regex("""version\s+"(\d+)(?:\.|")""")
+        val actualMajor = Regex("""version\s+"(\d+)[."]""")
             .find(result.output)
             ?.groupValues
             ?.get(1)

@@ -466,9 +466,9 @@ class WorldFileStoreTest {
                 )
             }
 
-            assertTrue(
-                SystemFileSystem.metadataOrNull(destination)?.isDirectory ==
-                        true,
+            assertEquals(
+                expected = true,
+                actual = SystemFileSystem.metadataOrNull(destination)?.isDirectory,
             )
             assertNoAtomicTemporaryFiles(root, destination.name)
         }

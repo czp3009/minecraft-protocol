@@ -11,8 +11,8 @@ import kotlinx.serialization.encoding.Encoder
 /**
  * Minecraft's packed 26/12/26-bit block position.
  *
- * It has a scalar serial form so every kotlinx.serialization format agrees on
- * the same logical value. Human-facing tools can use [x], [y], and [z].
+ * It has a scalar serial form so every `kotlinx.serialization` format agrees on the same logical value.
+ * Human-facing tools can use [x], [y], and [z].
  */
 @Serializable(with = BlockPositionSerializer::class)
 data class BlockPosition(

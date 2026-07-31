@@ -20,8 +20,8 @@ class ChunkSerializationTest {
             MinecraftFormat.encodeToByteArray(ChunkSection.serializer(), section),
         )
         assertEquals(
-            section,
-            MinecraftFormat.decodeFromByteArray(ChunkSection.serializer(), expected),
+            expected = section,
+            actual = MinecraftFormat.decodeFromByteArray(ChunkSection.serializer(), expected),
         )
     }
 

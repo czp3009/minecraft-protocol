@@ -44,8 +44,8 @@ class CommandPacketTest {
             MinecraftFormat.encodeToByteArray(CommandsPacket.serializer(), packet),
         )
         assertEquals(
-            packet,
-            MinecraftFormat.decodeFromByteArray(CommandsPacket.serializer(), expected),
+            expected = packet,
+            actual = MinecraftFormat.decodeFromByteArray(CommandsPacket.serializer(), expected),
         )
 
     }

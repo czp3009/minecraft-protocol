@@ -3,6 +3,7 @@ package com.hiczp.minecraft.protocol.client
 import com.hiczp.minecraft.protocol.auth.*
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.protocol.model.type.GameMode
 import com.hiczp.minecraft.protocol.session.MinecraftSession
 import com.hiczp.minecraft.protocol.session.MinecraftSessionSide
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
@@ -11,6 +12,7 @@ import io.ktor.client.engine.mock.*
 import io.ktor.http.*
 import io.ktor.utils.io.*
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.test.runTest
 import kotlin.test.*
 
@@ -504,7 +506,7 @@ class MinecraftClientProtocolFailureTest {
     private suspend fun assertPlayLoginRejected(
         playLogin: PlayLoginPacket,
     ): MinecraftClientException =
-        kotlinx.coroutines.coroutineScope {
+        coroutineScope {
             val (clientSession, serverSession) = sessionPair()
             val identity = MinecraftOfflineIdentity("InvalidPlayProbe")
             val server = async {
@@ -543,7 +545,7 @@ class MinecraftClientProtocolFailureTest {
     ) {
         val (clientSession, serverSession) = sessionPair()
         val identity = MinecraftOfflineIdentity("LimitProbe")
-        kotlinx.coroutines.coroutineScope {
+        coroutineScope {
             val server = async { script(clientSession, serverSession, identity) }
             val failure = assertFailsWith<MinecraftClientException> {
                 MinecraftClientProtocol(
@@ -602,8 +604,7 @@ class MinecraftClientProtocolFailureTest {
                 dimensionTypeId = dimensionTypeId,
                 dimension = dimension,
                 seed = 0,
-                gameMode =
-                    com.hiczp.minecraft.protocol.model.type.GameMode.CREATIVE,
+                gameMode = GameMode.CREATIVE,
                 previousGameMode = null,
                 isDebug = false,
                 isFlat = true,

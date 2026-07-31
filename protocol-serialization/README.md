@@ -1,6 +1,6 @@
 # protocol-serialization
 
-Minecraft Java Edition packet-payload serialization built on kotlinx.serialization.
+Minecraft Java Edition packet-payload serialization built on `kotlinx.serialization`.
 
 `MinecraftFormat` implements `BinaryFormat` and interprets the structural serializers and wire annotations supplied by
 `protocol-model`.

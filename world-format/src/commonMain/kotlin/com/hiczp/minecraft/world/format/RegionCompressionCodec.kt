@@ -320,14 +320,14 @@ private object Lz4BlockCodec : RegionCompressionCodec {
     }
 }
 
-private suspend fun compressRawDeflate(input: ByteArray): ByteArray =
+private fun compressRawDeflate(input: ByteArray): ByteArray =
     try {
         RawDeflate.encode(input)
     } catch (failure: RawDeflateException) {
         throw RegionFormatException("Cannot deflate region chunk", failure)
     }
 
-private suspend fun decompressRawDeflate(
+private fun decompressRawDeflate(
     input: ByteArray,
     maximumOutputBytes: Int,
 ): ByteArray =
@@ -496,10 +496,9 @@ private fun xxHashRound(accumulator: Int, value: Int): Int =
 private fun ByteArray.regionMatches(
     offset: Int,
     expected: ByteArray,
-): Boolean {
-    if (offset < 0 || offset > size - expected.size) return false
-    return expected.indices.all { this[offset + it] == expected[it] }
-}
+): Boolean =
+    offset in 0..size - expected.size &&
+            expected.indices.all { this[offset + it] == expected[it] }
 
 private fun requireRange(
     bytes: ByteArray,

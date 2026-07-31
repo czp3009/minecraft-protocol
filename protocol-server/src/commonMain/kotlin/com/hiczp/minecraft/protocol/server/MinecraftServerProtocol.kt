@@ -8,6 +8,7 @@ import com.hiczp.minecraft.protocol.data.completeRegistryPackets
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.ClientInformation
 import com.hiczp.minecraft.protocol.model.type.GameProfile
+import com.hiczp.minecraft.protocol.model.type.JsonTextComponent
 import com.hiczp.minecraft.protocol.model.type.KnownPack
 import com.hiczp.minecraft.protocol.session.MinecraftSession
 
@@ -18,7 +19,7 @@ sealed interface MinecraftServerNegotiationResult {
         val profile: GameProfile,
         val clientInformation: ClientInformation,
         val acceptedKnownPacks: List<KnownPack>,
-        val login: com.hiczp.minecraft.protocol.model.packet.PlayLoginPacket,
+        val login: PlayLoginPacket,
         val transferred: Boolean = false,
     ) : MinecraftServerNegotiationResult
 }
@@ -36,7 +37,7 @@ class MinecraftServerProtocol(
     suspend fun negotiate(): MinecraftServerNegotiationResult {
         val handshake = requirePacket<HandshakePacket>(session.receive())
         return when (session.state) {
-            com.hiczp.minecraft.protocol.model.packet.ConnectionState.STATUS ->
+            ConnectionState.STATUS ->
                 if (configuration.statusEnabled) {
                     handleStatus()
                 } else {
@@ -45,36 +46,30 @@ class MinecraftServerProtocol(
                     )
                 }
 
-            com.hiczp.minecraft.protocol.model.packet.ConnectionState.LOGIN -> {
+            ConnectionState.LOGIN -> {
                 val transferred =
                     handshake.nextState == HandshakeNextState.TRANSFER
                 if (transferred && !configuration.acceptsTransfers) {
                     session.send(
                         LoginDisconnectPacket(
-                            com.hiczp.minecraft.protocol.model.type
-                                .JsonTextComponent(
-                                    """{"translate":"multiplayer.disconnect.transfers_disabled"}""",
-                                ),
+                            JsonTextComponent(
+                                """{"translate":"multiplayer.disconnect.transfers_disabled"}""",
+                            ),
                         ),
                     )
                     throw MinecraftServerException(
                         "Transfer connections are disabled by configuration",
                     )
                 }
-                if (
-                    handshake.protocolVersion !=
-                    configuration.protocolData.protocolVersion
-                ) {
-                    val message =
-                        "Unsupported protocol version " +
-                                "${handshake.protocolVersion}; expected " +
-                                configuration.protocolData.protocolVersion
+                val actualVersion = handshake.protocolVersion
+                val expectedVersion = configuration.protocolData.protocolVersion
+                if (actualVersion != expectedVersion) {
+                    val message = "Unsupported protocol version $actualVersion; expected $expectedVersion"
                     session.send(
                         LoginDisconnectPacket(
-                            com.hiczp.minecraft.protocol.model.type
-                                .JsonTextComponent(
-                                    """{"text":"${escapeJson(message)}"}""",
-                                ),
+                            JsonTextComponent(
+                                """{"text":"${escapeJson(message)}"}""",
+                            ),
                         ),
                     )
                     throw MinecraftServerException(
@@ -123,7 +118,7 @@ class MinecraftServerProtocol(
         val clientInformation = awaitClientInformation()
         session.send(configuration.protocolData.featureFlags)
         session.send(
-            com.hiczp.minecraft.protocol.model.packet.ConfigurationClientboundKnownPacksPacket(
+            ConfigurationClientboundKnownPacksPacket(
                 configuration.protocolData.knownPacks,
             ),
         )

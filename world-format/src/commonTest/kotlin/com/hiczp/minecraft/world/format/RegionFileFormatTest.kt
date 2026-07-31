@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.world.format
 
+import com.hiczp.minecraft.nbt.NbtBinaryFormat
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.protocol.model.type.NbtCompound
 import com.hiczp.minecraft.protocol.model.type.NbtInt
@@ -13,7 +14,10 @@ import kotlin.test.*
 class RegionFileFormatTest {
     @Test
     fun decodesOfficialZeroByteEmptyRegion() {
-        assertEquals(RegionFile(), RegionFileFormat.decodeFromByteArray(byteArrayOf()))
+        assertEquals(
+            expected = RegionFile(),
+            actual = RegionFileFormat.decodeFromByteArray(byteArrayOf()),
+        )
         assertFailsWith<RegionFormatException> {
             RegionFileFormat.decodeFromByteArray(ByteArray(1))
         }
@@ -963,7 +967,7 @@ class RegionFileFormatTest {
     }
 
     private fun nbtBinaryFormatBytes(): ByteArray =
-        com.hiczp.minecraft.nbt.NbtBinaryFormat.encodeDocumentToByteArray(
+        NbtBinaryFormat.encodeDocumentToByteArray(
             NbtDocument(
                 NbtCompound(mapOf("value" to NbtInt(1))),
             ),

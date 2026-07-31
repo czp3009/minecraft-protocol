@@ -57,6 +57,7 @@ val downloadOfficialMinecraftServer =
     tasks.register<DownloadOfficialMinecraftServerTask>(
         "downloadOfficialMinecraftServer",
     ) {
+        description = "Download and verify the selected official Minecraft server JAR."
         offline.set(gradle.startParameter.isOffline)
         serverJar.set(officialServerJar)
         metadataFile.set(officialServerMetadata)
@@ -66,6 +67,7 @@ val generateOfficialMinecraftReports =
     tasks.register<GenerateOfficialMinecraftReportsTask>(
         "generateOfficialMinecraftReports",
     ) {
+        description = "Generate official data reports for the selected Minecraft release."
         javaExecutable.set(
             java25Launcher.map {
                 it.executablePath.asFile.absolutePath
@@ -84,6 +86,7 @@ val officialServerProperties =
     tasks.register<GenerateOfficialServerPropertiesTask>(
         "generateOfficialServerProperties",
     ) {
+        description = "Capture default properties from the selected official server."
         javaExecutable.set(
             java25Launcher.map {
                 it.executablePath.asFile.absolutePath
@@ -103,6 +106,7 @@ val generatedProtocolSpecification =
     tasks.register<GenerateProtocolSpecificationTask>(
         "generateProtocolSpecification",
     ) {
+        description = "Generate protocol specification evidence from official artifacts."
         dependsOn(":protocol-vanilla-data:generateVanillaConfigurationData")
         serverJar.set(downloadOfficialMinecraftServer.flatMap {
             it.serverJar
@@ -142,8 +146,7 @@ val generatedProtocolSpecification =
 
 tasks.register<Sync>("refreshProtocolSpecification") {
     group = "minecraft"
-    description =
-        "Regenerate checked-in evidence from the selected official server."
+    description = "Regenerate checked-in evidence from the selected official server."
     from(generatedProtocolSpecification.flatMap {
         it.outputDirectory
     })

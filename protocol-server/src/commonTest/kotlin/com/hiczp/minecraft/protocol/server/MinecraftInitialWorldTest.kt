@@ -110,7 +110,7 @@ class MinecraftInitialWorldTest {
         assertTrue(chunk.lightData.blockUpdates.isEmpty())
 
         val format = MinecraftFormat(
-            MinecraftFormat.Default.configuration.copy(
+            MinecraftFormat.configuration.copy(
                 chunkSectionCount = dimension.sectionCount,
                 blockStateRegistrySize = VanillaStaticData.blockStates.size,
                 biomeRegistrySize = VanillaProtocolData.requireRegistry(
@@ -474,15 +474,27 @@ class MinecraftInitialWorldTest {
 
     @Test
     fun vanillaWorldConfigurationKeepsDifficultyAndEveryGameModeAbility() {
+        val survivalAbilities = PlayerAbilities(
+            invulnerable = false,
+            flying = false,
+            canFly = false,
+            instantBuild = false,
+            flyingSpeed = 0.05f,
+            walkingSpeed = 0.1f,
+        )
         val expected = mapOf(
-            com.hiczp.minecraft.protocol.model.type.GameMode.SURVIVAL to
-                    PlayerAbilities(false, false, false, false, 0.05f, 0.1f),
-            com.hiczp.minecraft.protocol.model.type.GameMode.CREATIVE to
-                    PlayerAbilities(true, false, true, true, 0.05f, 0.1f),
-            com.hiczp.minecraft.protocol.model.type.GameMode.ADVENTURE to
-                    PlayerAbilities(false, false, false, false, 0.05f, 0.1f),
-            com.hiczp.minecraft.protocol.model.type.GameMode.SPECTATOR to
-                    PlayerAbilities(true, true, true, false, 0.05f, 0.1f),
+            GameMode.SURVIVAL to survivalAbilities,
+            GameMode.CREATIVE to survivalAbilities.copy(
+                invulnerable = true,
+                canFly = true,
+                instantBuild = true,
+            ),
+            GameMode.ADVENTURE to survivalAbilities,
+            GameMode.SPECTATOR to survivalAbilities.copy(
+                invulnerable = true,
+                flying = true,
+                canFly = true,
+            ),
         )
         expected.forEach { (gameMode, abilities) ->
             assertEquals(abilities, vanillaPlayerAbilities(gameMode))
@@ -490,8 +502,7 @@ class MinecraftInitialWorldTest {
 
         val configuration = MinecraftServerConfiguration(
             compressionThreshold = null,
-            gameMode =
-                com.hiczp.minecraft.protocol.model.type.GameMode.SPECTATOR,
+            gameMode = GameMode.SPECTATOR,
             difficulty = Difficulty.HARD,
             difficultyLocked = true,
         )
@@ -503,9 +514,7 @@ class MinecraftInitialWorldTest {
         assertEquals(Difficulty.HARD, world.difficulty)
         assertTrue(world.difficultyLocked)
         assertEquals(
-            expected.getValue(
-                com.hiczp.minecraft.protocol.model.type.GameMode.SPECTATOR,
-            ),
+            expected.getValue(GameMode.SPECTATOR),
             world.playerAbilities,
         )
     }

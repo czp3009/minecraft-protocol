@@ -462,7 +462,7 @@ private fun checkDepth(
 }
 
 private fun checkLength(length: Int, maximum: Int, kind: String) {
-    if (length < 0 || length > maximum) {
+    if (length !in 0..maximum) {
         throw NbtFormatException(
             "$kind length $length is outside configured range 0..$maximum",
         )

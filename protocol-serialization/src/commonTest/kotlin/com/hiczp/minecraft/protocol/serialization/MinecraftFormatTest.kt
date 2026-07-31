@@ -1,5 +1,3 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-
 package com.hiczp.minecraft.protocol.serialization
 
 import com.hiczp.minecraft.protocol.model.type.*
@@ -11,7 +9,7 @@ import kotlin.test.*
 class MinecraftFormatTest {
     @Test
     fun `companion is the default format and factory creates configured instances`() {
-        assertTrue(MinecraftFormat === MinecraftFormat.Default)
+        assertSame(MinecraftFormat, MinecraftFormat.Default)
         assertEquals(MinecraftFormatConfiguration(), MinecraftFormat.configuration)
 
         val configuration = MinecraftFormatConfiguration(
@@ -146,8 +144,8 @@ class MinecraftFormatTest {
             MinecraftFormat.encodeToByteArray(PrimitiveValue.serializer(), value),
         )
         assertEquals(
-            value,
-            MinecraftFormat.decodeFromByteArray(PrimitiveValue.serializer(), expected),
+            expected = value,
+            actual = MinecraftFormat.decodeFromByteArray(PrimitiveValue.serializer(), expected),
         )
     }
 
@@ -343,8 +341,8 @@ class MinecraftFormatTest {
             MinecraftFormat.encodeToByteArray(NbtValue.serializer(), value),
         )
         assertEquals(
-            value,
-            MinecraftFormat.decodeFromByteArray(
+            expected = value,
+            actual = MinecraftFormat.decodeFromByteArray(
                 NbtValue.serializer(),
                 expected,
             ),
@@ -379,8 +377,8 @@ class MinecraftFormatTest {
             ),
         )
         assertEquals(
-            present,
-            MinecraftFormat.decodeFromByteArray(
+            expected = present,
+            actual = MinecraftFormat.decodeFromByteArray(
                 LengthPrefixedOptionalNbt.serializer(),
                 expected,
             ),
@@ -534,7 +532,7 @@ private data class LimitedString(@MaxLength(2) val value: String)
 
 @Serializable
 private data class CollectionValue(
-    @com.hiczp.minecraft.protocol.model.wire.VarIntElements
+    @VarIntElements
     val values: List<Int>,
     val map: Map<String, Int>,
     val optional: Int?,

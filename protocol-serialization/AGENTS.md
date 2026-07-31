@@ -2,7 +2,7 @@
 
 This module inherits the repository guidance.
 
-- `MinecraftFormat` implements packet payload encoding and decoding through kotlinx.serialization.
+- `MinecraftFormat` implements packet payload encoding and decoding through `kotlinx.serialization`.
 - `internal` contains physical primitive, NBT, palette, and wire-hint implementations.
 - `PacketRegistry` adapts the packet definitions generated in `protocol-model` into physical wire serializers.
 - KSP generates `GeneratedPacketDefinitions.kt` and `GeneratedDataComponentSerializers.kt` from model annotations,

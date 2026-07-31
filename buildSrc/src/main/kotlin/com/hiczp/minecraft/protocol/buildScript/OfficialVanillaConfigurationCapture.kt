@@ -814,7 +814,7 @@ private data class ConfigurationCapture(
         )
 }
 
-private data class CapturedPacket(
+private class CapturedPacket(
     val name: String,
     val payload: ByteArray,
 ) {

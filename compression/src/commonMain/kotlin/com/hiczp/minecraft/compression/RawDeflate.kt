@@ -610,7 +610,7 @@ private class DeflateByteAccumulator(
         distance: Int,
         length: Int,
     ) {
-        if (distance <= 0 || distance > size) {
+        if (distance !in 1..size) {
             throw RawDeflateException(
                 "DEFLATE match distance $distance exceeds output size $size",
             )

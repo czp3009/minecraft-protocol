@@ -159,8 +159,7 @@ internal object OfficialWorldStorageInteropRunner {
                 }
                 .forEach { position ->
                     val path = paths.regionFile(position, storage)
-                    val metadata = regions.fileSystem.metadataOrNull(path)
-                    if (metadata == null) return@forEach
+                    regions.fileSystem.metadataOrNull(path) ?: return@forEach
                     val region = regions.readRegion(position, storage)
                         ?: error("Region disappeared while reading: $path")
                     regionFileCount++

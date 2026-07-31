@@ -40,8 +40,8 @@ class PlayClientboundWorldPacketTest {
             MinecraftFormat.encodeToByteArray(SpawnEntityPacket.serializer(), packet),
         )
         assertEquals(
-            packet,
-            MinecraftFormat.decodeFromByteArray(SpawnEntityPacket.serializer(), expected),
+            expected = packet,
+            actual = MinecraftFormat.decodeFromByteArray(SpawnEntityPacket.serializer(), expected),
         )
     }
 
@@ -67,14 +67,14 @@ class PlayClientboundWorldPacketTest {
 
         for ((action, actionHex) in actions) {
             val packet = BossBarPacket(ZERO_UUID, action)
-            val expected = ("00000000000000000000000000000000" + actionHex).hexBytes()
+            val expected = "00000000000000000000000000000000$actionHex".hexBytes()
             assertContentEquals(
                 expected,
                 MinecraftFormat.encodeToByteArray(BossBarPacket.serializer(), packet),
             )
             assertEquals(
-                packet,
-                MinecraftFormat.decodeFromByteArray(BossBarPacket.serializer(), expected),
+                expected = packet,
+                actual = MinecraftFormat.decodeFromByteArray(BossBarPacket.serializer(), expected),
             )
         }
     }
@@ -115,8 +115,8 @@ class PlayClientboundWorldPacketTest {
             MinecraftFormat.encodeToByteArray(ChunkBiomesPacket.serializer(), packet),
         )
         assertEquals(
-            packet,
-            MinecraftFormat.decodeFromByteArray(ChunkBiomesPacket.serializer(), expected),
+            expected = packet,
+            actual = MinecraftFormat.decodeFromByteArray(ChunkBiomesPacket.serializer(), expected),
         )
     }
 

@@ -1,5 +1,3 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-
 package com.hiczp.minecraft.protocol.serialization
 
 import com.hiczp.minecraft.protocol.serialization.internal.MinecraftDecoder
@@ -13,7 +11,7 @@ import kotlinx.serialization.modules.EmptySerializersModule
 import kotlinx.serialization.modules.SerializersModule
 
 /**
- * A kotlinx.serialization binary format for Minecraft packet payloads.
+ * A `kotlinx.serialization` binary format for Minecraft packet payloads.
  *
  * It does not add packet IDs, frame lengths, compression, or encryption.
  */
@@ -25,10 +23,7 @@ sealed class MinecraftFormat(
         MinecraftFormatConfiguration(),
         EmptySerializersModule(),
     ) {
-        /**
-         * Creates a format with connection- or application-specific
-         * configuration.
-         */
+        /** Creates a format with connection- or application-specific configuration. */
         operator fun invoke(
             configuration: MinecraftFormatConfiguration = MinecraftFormatConfiguration(),
             serializersModule: SerializersModule = EmptySerializersModule(),

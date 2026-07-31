@@ -238,7 +238,7 @@ internal object OfficialServerInteropRunner {
             }
             println("Official login/configuration packets: ${received.joinToString()}")
             return LoginInteropResult(
-                loginSucceeded = loginSucceeded,
+                loginSucceeded = true,
                 compressionThreshold = connection.compressionThreshold,
                 configurationStarted = configurationStarted,
                 knownPacksExchanged = knownPacksExchanged,

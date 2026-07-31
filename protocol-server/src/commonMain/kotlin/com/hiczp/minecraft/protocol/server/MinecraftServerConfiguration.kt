@@ -14,8 +14,8 @@ data class MinecraftServerConfiguration(
     val protocolData: ProtocolDataSet = VanillaProtocolData,
     val compressionThreshold: Int? = 256,
     val sessionId: Uuid = Uuid(
-        Random.Default.nextLong(),
-        Random.Default.nextLong(),
+        Random.nextLong(),
+        Random.nextLong(),
     ),
     val statusEnabled: Boolean = true,
     val acceptsTransfers: Boolean = false,

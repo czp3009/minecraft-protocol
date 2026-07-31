@@ -17,6 +17,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 import com.hiczp.minecraft.protocol.model.type.GameMode as PlayerGameMode
 
 class ClientToServerEndToEndTest {
@@ -76,7 +77,7 @@ class ClientToServerEndToEndTest {
                         var teleportConfirmed = false
                         var chunkBatchConfirmed = false
                         var keepAliveConfirmed = false
-                        withTimeout(10_000) {
+                        withTimeout(10.seconds) {
                             repeat(server.configuration.maximumPacketsPerPhase) {
                                 when (val packet = connection.session.receive()) {
                                     is ConfirmTeleportationPacket ->
@@ -123,7 +124,7 @@ class ClientToServerEndToEndTest {
                     var keepAliveReceived = false
                     var difficultyReceived = false
                     var abilitiesReceived = false
-                    withTimeout(10_000) {
+                    withTimeout(10.seconds) {
                         while (!keepAliveReceived) {
                             when (val packet = client.session.receive()) {
                                 is SynchronizePlayerPositionPacket ->

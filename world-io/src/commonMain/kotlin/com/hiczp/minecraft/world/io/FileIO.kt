@@ -15,7 +15,7 @@ internal fun FileSystem.readByteArray(
     if (!metadata.isRegularFile) {
         throw WorldIOException("Path is not a regular file: $path")
     }
-    if (metadata.size < 0 || metadata.size > maximumBytes) {
+    if (metadata.size !in 0L..maximumBytes.toLong()) {
         throw WorldIOException(
             "File $path size ${metadata.size} exceeds limit $maximumBytes",
         )

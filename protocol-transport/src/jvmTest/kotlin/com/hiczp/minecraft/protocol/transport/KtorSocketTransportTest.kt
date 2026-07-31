@@ -12,8 +12,7 @@ class KtorSocketTransportTest {
     @Test
     fun exchangesEncryptedCompressedFramesOverARealTcpSocket() = runBlocking {
         SelectorManager(Dispatchers.IO).use { selector ->
-            val listener = aSocket(selector).tcp().bind("127.0.0.1", 0)
-            try {
+            aSocket(selector).tcp().bind("127.0.0.1", 0).use { listener ->
                 val server = async(Dispatchers.IO) {
                     MinecraftTransport(listener.accept())
                 }
@@ -36,8 +35,6 @@ class KtorSocketTransportTest {
 
                 client.close()
                 accepted.close()
-            } finally {
-                listener.close()
             }
         }
     }

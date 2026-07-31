@@ -1,7 +1,7 @@
 # minecraft-protocol
 
 `minecraft-protocol` is an idiomatic Kotlin Multiplatform library for the Minecraft Java Edition protocol and world
-storage formats. It provides kotlinx.serialization packet models and codecs, typed vanilla Configuration data, Ktor
+storage formats. It provides `kotlinx.serialization` packet models and codecs, typed vanilla Configuration data, Ktor
 transport and sessions, authentication helpers, client/server connection orchestration, binary NBT, and Anvil world I/O.
 
 The implemented release and protocol number are exposed by `MinecraftProtocol` in `protocol-model`. Checked-in
@@ -27,20 +27,20 @@ display server, or a manually started process.
 
 ## Modules
 
-| Module                   | Purpose |
-|--------------------------|---|
-| `compression`            | Portable raw DEFLATE shared by network zlib and world-storage zlib/gzip |
+| Module                   | Purpose                                                                                         |
+|--------------------------|-------------------------------------------------------------------------------------------------|
+| `compression`            | Portable raw DEFLATE shared by network zlib and world-storage zlib/gzip                         |
 | `nbt`                    | Named and unnamed binary NBT over `kotlinx.io`, including modified UTF and hostile-input limits |
-| `protocol-model`         | Packet payloads, shared values, sealed variants, and logical serializers |
-| `protocol-serialization` | `MinecraftFormat`, physical wire rules, and packet lookup by state/direction/ID |
-| `protocol-vanilla-data`  | Typed Known Packs, feature flags, registries, tags, and finite vanilla catalogues |
-| `protocol-transport`     | Ktor sockets, VarInt21 framing, zlib compression, and AES/CFB8 encryption |
-| `protocol-session`       | Typed packet dispatch, direction checks, and protocol-state transitions |
-| `protocol-auth`          | Offline identities, session-service calls, server hashes, and cryptography |
-| `protocol-client`        | Status, Login/Configuration, Play context, and direct Ktor client API |
-| `protocol-server`        | Connection orchestration and finite initial chunk/entity projection |
-| `world-format`           | Filesystem-independent Anvil regions, compression modes, external chunks, and NBT composition |
-| `world-io`               | World paths, standalone NBT, and atomic chunk/entity/POI region storage |
+| `protocol-model`         | Packet payloads, shared values, sealed variants, and logical serializers                        |
+| `protocol-serialization` | `MinecraftFormat`, physical wire rules, and packet lookup by state/direction/ID                 |
+| `protocol-vanilla-data`  | Typed Known Packs, feature flags, registries, tags, and finite vanilla catalogues               |
+| `protocol-transport`     | Ktor sockets, VarInt21 framing, zlib compression, and AES/CFB8 encryption                       |
+| `protocol-session`       | Typed packet dispatch, direction checks, and protocol-state transitions                         |
+| `protocol-auth`          | Offline identities, session-service calls, server hashes, and cryptography                      |
+| `protocol-client`        | Status, Login/Configuration, Play context, and direct Ktor client API                           |
+| `protocol-server`        | Connection orchestration and finite initial chunk/entity projection                             |
+| `world-format`           | Filesystem-independent Anvil regions, compression modes, external chunks, and NBT composition   |
+| `world-io`               | World paths, standalone NBT, and atomic chunk/entity/POI region storage                         |
 
 The published modules above are the runtime library layer. Build-time preparation has two mechanisms:
 non-source-driven generators are cacheable task types in `buildSrc`, registered only by the module that owns their
@@ -135,7 +135,7 @@ does not define an additional `test` task. Together the applicable platform suit
 
 The official-client JVM test calls the private test-support library, which downloads the exact Mojang client, libraries,
 natives, and assets into `build/`, validates the published sizes and hashes, and launches it through a pinned
-SHA-256-verified HeadlessMC adapter. It verifies
+SHA-256-verified HeadlessMC adapter. The test verifies
 Status/Login/Configuration/Play, initial chunks and entities, teleport/chunk-batch/player-loaded acknowledgements,
 client ticks and keepalives, broad clientbound Play packet families, cookies and pings, Respawn followed by another
 world projection, a Play-to-Configuration round trip, and a third Play/world synchronization. All services are started
@@ -174,7 +174,7 @@ Gradle downloads that official server, reads its `version.json`, runs its data g
 Configuration packets, and generates runtime Kotlin under module `build/generated` directories. KSP generates the
 dispatch tables derived from Kotlin annotations; cacheable `buildSrc` tasks own generation driven by official non-source
 inputs. Published source JARs include those generated files. The checked-in `protocol-specification/generated`
-directory contains canonical official evidence for reviewing release diffs; its hand-written README describes those
+directory contains canonical official evidence for reviewing release diffs; its handwritten README describes those
 files. Compilation, tests, and production code do not read it.
 
 ## Updating for a Minecraft release
@@ -187,7 +187,7 @@ Change `MinecraftTarget.version`, then regenerate the deterministic evidence:
 
 Review the specification diff, update hand-modeled semantics that cannot be derived mechanically, run affected
 `jvmTest` tasks, then run the applicable standard platform tests or `./gradlew allTests`. Root `clean` preserves the
-hand-written overview and checked-in generated evidence; only `refreshProtocolSpecification` replaces
+handwritten overview and checked-in generated evidence; only `refreshProtocolSpecification` replaces
 `protocol-specification/generated`.
 
 The playbooks indexed in `.agents/skills/README.md` are optional instructions for coding agents performing the same

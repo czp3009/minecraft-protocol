@@ -89,10 +89,9 @@ class MinecraftSessionService(
         }
     }
 
-    private suspend fun io.ktor.client.statement.HttpResponse.toAuthenticationException(operation: String): MinecraftAuthenticationException {
-        val message =
-            "Minecraft session $operation failed with HTTP ${status.value}: " +
-                    bodyAsText().take(1_024)
+    private suspend fun HttpResponse.toAuthenticationException(operation: String): MinecraftAuthenticationException {
+        val responseBody = bodyAsText().take(1_024)
+        val message = "Minecraft session $operation failed with HTTP ${status.value}: $responseBody"
         return if (status.value >= 500) {
             MinecraftAuthenticationUnavailableException(message)
         } else {

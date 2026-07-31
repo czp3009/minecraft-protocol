@@ -176,7 +176,7 @@ data class MinecraftChunkSnapshot(
             entryCount: Int,
             valueAt: (Int) -> Int,
         ): PackedLongArray {
-            require(bitsPerEntry in 1..Int.SIZE_BITS - 1)
+            require(bitsPerEntry in 1..<Int.SIZE_BITS)
             require(entryCount >= 0)
             val entriesPerLong = Long.SIZE_BITS / bitsPerEntry
             val values = LongArray(

@@ -86,8 +86,7 @@ class MinecraftClientProtocol(
             if (++loginPackets > options.maximumPacketsPerPhase) {
                 throw MinecraftClientException("Login packet limit exceeded")
             }
-            val packet = session.receive()
-            when (packet) {
+            when (val packet = session.receive()) {
                 is LoginDisconnectPacket ->
                     throw MinecraftClientException(
                         "Server rejected Login: ${packet.reason.json}",
@@ -127,12 +126,11 @@ class MinecraftClientProtocol(
         var tags: ConfigurationUpdateTagsPacket? = null
         val registries = mutableListOf<RegistryDataPacket>()
         var configurationPackets = 0
-        while (session.state == com.hiczp.minecraft.protocol.model.packet.ConnectionState.CONFIGURATION) {
+        while (session.state == ConnectionState.CONFIGURATION) {
             if (++configurationPackets > options.maximumPacketsPerPhase) {
                 throw MinecraftClientException("Configuration packet limit exceeded")
             }
-            val packet = session.receive()
-            when (packet) {
+            when (val packet = session.receive()) {
                 is ConfigurationDisconnectPacket ->
                     throw MinecraftClientException(
                         "Server rejected Configuration: ${packet.reason}",

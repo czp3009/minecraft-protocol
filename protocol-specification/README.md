@@ -10,5 +10,5 @@ This directory keeps the reviewable official evidence used to audit the library'
 - `configuration.json` describes payloads observed through both official Known Packs negotiation branches.
 - `server-properties.json` records the official default property inventory, with generated secrets normalized.
 
-This README is a hand-written overview for people. No build, generation, refresh, or test task reads, rewrites, or
+This README is a handwritten overview for people. No build, generation, refresh, or test task reads, rewrites, or
 validates it.

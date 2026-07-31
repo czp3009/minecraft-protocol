@@ -11,7 +11,7 @@ Run commands from the repository root. On Windows use `.\gradlew.bat`; on Unix-l
 
 The first command prints only the buildSrc-selected release. The refresh command downloads/verifies the official server,
 runs official reports, captures both Configuration Known Packs branches, generates an expected specification under
-`build/`, then replaces `protocol-specification/generated`. It never reads or writes the hand-written
+`build/`, then replaces `protocol-specification/generated`. It never reads or writes the handwritten
 `protocol-specification/README.md`.
 
 Compilation automatically invokes only the deterministic prerequisites it needs:
@@ -25,7 +25,7 @@ Those tasks are internal implementation details and remain ungrouped. Generated 
 separate verification tasks, generator snapshot tests, or buildSrc unit tests. Use KSP for source-to-source generation
 and cacheable `buildSrc` task types for generation driven by non-source inputs.
 
-Root `clean` removes build directories but preserves `protocol-specification`, including its hand-written overview and
+Root `clean` removes build directories but preserves `protocol-specification`, including its handwritten overview and
 checked-in generated evidence. Normal compilation and tests never read that directory; only the explicit refresh Sync
 task writes `protocol-specification/generated`.
 

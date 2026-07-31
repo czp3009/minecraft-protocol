@@ -429,10 +429,8 @@ private class ProtocolModelProcessor(
         )
     }
 
-    private fun com.google.devtools.ksp.symbol.KSValueArgument.enumName():
-            String {
-        val argument = value
-        return when (argument) {
+    private fun KSValueArgument.enumName(): String {
+        return when (val argument = value) {
             is KSType -> argument.declaration.simpleName.asString()
             is KSClassDeclaration -> argument.simpleName.asString()
             else -> error(

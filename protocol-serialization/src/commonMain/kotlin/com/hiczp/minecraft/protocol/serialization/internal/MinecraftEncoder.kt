@@ -1,4 +1,4 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+@file:OptIn(ExperimentalSerializationApi::class)
 
 package com.hiczp.minecraft.protocol.serialization.internal
 
@@ -9,6 +9,7 @@ import com.hiczp.minecraft.protocol.model.type.Vector3d
 import com.hiczp.minecraft.protocol.model.wire.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftFormatConfiguration
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind
@@ -25,8 +26,6 @@ internal class MinecraftEncoder(
     private val nbtCodec: NbtBinaryCodec = NbtBinaryCodec(configuration)
     private val frames: MutableList<Frame> = mutableListOf()
     private var pendingHints: List<Annotation> = emptyList()
-
-    fun writeNbt(tag: NbtTag): Unit = nbtCodec.writeUnnamed(writer, tag)
 
     override fun beginStructure(descriptor: SerialDescriptor): CompositeEncoder {
         frames += Frame(descriptor)
@@ -55,22 +54,11 @@ internal class MinecraftEncoder(
             } else {
                 configuration.maximumCollectionSize
             }
-        if (collectionSize < 0 || collectionSize > configuredMaximum) {
+        if (collectionSize !in 0..configuredMaximum) {
             throw MinecraftSerializationException("Invalid collection size: $collectionSize")
         }
         val hints = takePendingHints()
-        val maximum = hints.filterIsInstance<MaxCollectionSize>().singleOrNull()?.elements
-        if (maximum != null && collectionSize > maximum) {
-            throw MinecraftSerializationException(
-                "Collection size $collectionSize exceeds protocol limit $maximum",
-            )
-        }
-        val maximumBytes = hints.filterIsInstance<MaxByteLength>().singleOrNull()?.bytes
-        if (maximumBytes != null && collectionSize > maximumBytes) {
-            throw MinecraftSerializationException(
-                "Byte-array size $collectionSize exceeds protocol limit $maximumBytes",
-            )
-        }
+        validateCollectionHints(collectionSize, hints)
         val fixed = hints.filterIsInstance<FixedLength>().singleOrNull()
         if (fixed != null && collectionSize != fixed.bytes) {
             throw MinecraftSerializationException(

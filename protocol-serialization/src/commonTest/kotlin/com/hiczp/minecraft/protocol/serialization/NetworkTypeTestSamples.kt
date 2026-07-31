@@ -93,14 +93,14 @@ internal fun commandParserRegistrySamples():
             NamedNetworkTypeSample(
                 "entity",
                 "minecraft:entity",
-                CommandParser.Entity(false, false),
+                CommandParser.Entity(single = false, playersOnly = false),
             ),
         )
         add(
             NamedNetworkTypeSample(
                 "score_holder",
                 "minecraft:score_holder",
-                CommandParser.ScoreHolder(false),
+                CommandParser.ScoreHolder(allowsMultiple = false),
             ),
         )
         add(

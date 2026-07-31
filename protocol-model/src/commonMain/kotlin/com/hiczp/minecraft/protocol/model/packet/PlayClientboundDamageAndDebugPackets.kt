@@ -37,7 +37,7 @@ data class DebugBlockValuePacket(
 ) : PlayStatePacket, ClientboundPacket
 
 /**
- * Vanilla writes a packed [net.minecraft.world.level.ChunkPos] long. On the
+ * Vanilla writes a packed `net.minecraft.world.level.ChunkPos` long. On the
  * wire that is Z first and X second because Z occupies the high 32 bits.
  */
 @Serializable

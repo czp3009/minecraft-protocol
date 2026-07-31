@@ -98,7 +98,7 @@ sealed class RegionFileFormat(
             val length = readInt(bytes, recordOffset)
             val allocatedPayloadBytes =
                 allocatedSectors * REGION_SECTOR_BYTES - Int.SIZE_BYTES
-            if (length <= 0 || length > allocatedPayloadBytes) {
+            if (length !in 1..allocatedPayloadBytes) {
                 throw RegionFormatException(
                     "Chunk $position declares invalid record length $length " +
                             "for $allocatedSectors allocated sector(s)",
@@ -243,7 +243,7 @@ private class ConfiguredRegionFileFormat(
     configuration: RegionFileFormatConfiguration,
 ) : RegionFileFormat(configuration)
 
-private data class ChunkPlan(
+private class ChunkPlan(
     val position: LocalChunkPosition,
     val chunk: RegionChunk,
     val compressedBytes: ByteArray,

@@ -6,6 +6,7 @@ import com.hiczp.minecraft.protocol.data.VanillaStaticData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.protocol.model.type.GameMode
 import com.hiczp.minecraft.test.MinecraftTestProcess
 import com.hiczp.minecraft.test.OfficialClientInstallation
 import io.ktor.network.selector.*
@@ -17,6 +18,8 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 import kotlin.io.path.absolutePathString
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
 
 /**
  * Black-box interoperability runner for the matching official client through
@@ -149,9 +152,10 @@ internal object OfficialClientEndToEndRunner {
                 }
             }
         try {
-            return withTimeout(Duration.ofMinutes(2).toMillis()) {
+            return withTimeout(2.minutes) {
                 var statusConnections = 0
-                while (true) {
+                var outcome: EndToEndOutcome? = null
+                while (outcome == null) {
                     check(process.isAlive) {
                         "Official client exited with ${process.exitCode}"
                     }
@@ -289,13 +293,13 @@ internal object OfficialClientEndToEndRunner {
                                         world = world,
                                         observedPlayPackets = observed,
                                     )
-                                delay(CONNECTION_STABILITY_DELAY_MILLIS)
+                                delay(CONNECTION_STABILITY_DELAY)
                                 check(process.isAlive) {
                                     "Official client exited after protocol " +
                                             "round-trip probes"
                                 }
                                 connection.close()
-                                return@withTimeout EndToEndOutcome(
+                                outcome = EndToEndOutcome(
                                     statusConnections = statusConnections,
                                     playerName = negotiation.profile.name,
                                     acceptedKnownPacks =
@@ -373,7 +377,7 @@ internal object OfficialClientEndToEndRunner {
                         throw failure
                     }
                 }
-                error("Unreachable")
+                outcome
             }
         } finally {
             processWatcher.interrupt()
@@ -766,9 +770,7 @@ internal object OfficialClientEndToEndRunner {
                                 properties = emptyList(),
                             ),
                             chatSession = null,
-                            gameMode =
-                                com.hiczp.minecraft.protocol.model.type
-                                    .GameMode.CREATIVE,
+                            gameMode = GameMode.CREATIVE,
                             listed = true,
                             latency = 1,
                             displayName =
@@ -1510,7 +1512,7 @@ internal object OfficialClientEndToEndRunner {
                     "$cookieRoundTrip, keepAlive=$keepAliveRoundTrip, ping=" +
                     "$pingRoundTrip, knownPacks=${knownPacks != null}"
         }
-        val acceptedKnownPacks = checkNotNull(knownPacks).knownPacks
+        val acceptedKnownPacks = knownPacks.knownPacks
         connection.protocol.configuration.protocolData
             .registryPackets(acceptedKnownPacks)
             .forEach { connection.session.send(it) }
@@ -1918,4 +1920,4 @@ private fun javaMajorVersion(javaExecutable: Path): Int {
         ?: error("Could not parse Java version from: $output")
 }
 
-private const val CONNECTION_STABILITY_DELAY_MILLIS: Long = 1_500
+private val CONNECTION_STABILITY_DELAY = 1_500.milliseconds

@@ -1,4 +1,4 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+@file:OptIn(ExperimentalSerializationApi::class)
 
 package com.hiczp.minecraft.protocol.model.packet
 
@@ -8,6 +8,7 @@ import com.hiczp.minecraft.protocol.model.type.ResourcePackResult
 import com.hiczp.minecraft.protocol.model.type.Uuid
 import com.hiczp.minecraft.protocol.model.wire.MaxLength
 import com.hiczp.minecraft.protocol.model.wire.VarInt
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
