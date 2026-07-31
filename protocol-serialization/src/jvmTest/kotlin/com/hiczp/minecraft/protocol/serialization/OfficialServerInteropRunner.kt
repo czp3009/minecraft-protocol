@@ -3,18 +3,16 @@ package com.hiczp.minecraft.protocol.serialization
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.test.MinecraftTestEnvironment
+import com.hiczp.minecraft.test.startOfficialServer
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
-import java.io.IOException
-import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
 import java.time.Duration
-import java.util.concurrent.TimeUnit
-import kotlin.io.path.absolutePathString
 
 /**
  * Black-box smoke test against the exact official server in offline mode.
@@ -24,23 +22,12 @@ import kotlin.io.path.absolutePathString
  * transport/client implementation.
  */
 internal object OfficialServerInteropRunner {
-    @JvmStatic
-    fun main(arguments: Array<String>) {
-        require(arguments.size == 4) {
-            "Expected <analysis-java> <official-server.jar> " +
-                    "<work-directory> <report.json>"
-        }
-        val javaExecutable = Path.of(arguments[0]).toAbsolutePath().normalize()
-        val serverJar = Path.of(arguments[1]).toAbsolutePath().normalize()
-        val workDirectory = Path.of(arguments[2]).toAbsolutePath().normalize()
-        val report = Path.of(arguments[3]).toAbsolutePath().normalize()
-        require(Files.isRegularFile(javaExecutable)) {
-            "Analysis Java does not exist: $javaExecutable"
-        }
-        require(Files.isRegularFile(serverJar)) {
-            "Official server does not exist: $serverJar"
-        }
-
+    fun run(
+        environment: MinecraftTestEnvironment,
+        workDirectory: Path,
+        report: Path,
+    ) {
+        val serverJar = environment.officialServer().jar
         Files.createDirectories(workDirectory)
         Files.createDirectories(report.parent)
         Files.deleteIfExists(report)
@@ -69,88 +56,36 @@ internal object OfficialServerInteropRunner {
             """.trimMargin(),
         )
 
-        val serverLog = StringBuilder()
-        val process = ProcessBuilder(
-            javaExecutable.absolutePathString(),
-            "-Djava.awt.headless=true",
-            "-jar",
-            serverJar.absolutePathString(),
-            "nogui",
-        )
-            .directory(workDirectory.toFile())
-            .redirectErrorStream(true)
-            .start()
-        val logThread = Thread.ofVirtual().name("official-server-log").start {
+        environment.startOfficialServer(
+            workDirectory = workDirectory,
+            threadName = "official-server-log",
+        ).use { server ->
             try {
-                process.inputStream.bufferedReader().useLines { lines ->
-                    lines.forEach { line ->
-                        synchronized(serverLog) {
-                            serverLog.appendLine(line)
-                            if (serverLog.length > 200_000) {
-                                serverLog.delete(0, serverLog.length - 150_000)
-                            }
-                        }
-                    }
-                }
-            } catch (_: IOException) {
-                // Process teardown closes the diagnostic stream while this
-                // virtual thread may still be draining it.
+                server.waitForLog(
+                    "[Server thread/INFO]: Done (",
+                    Duration.ofMinutes(2),
+                )
+                server.waitForPort(
+                    "127.0.0.1",
+                    port,
+                    Duration.ofMinutes(2),
+                )
+                verifyStatus(port)
+                val login = verifyOfflineLoginAndConfiguration(port)
+                writeReport(report, serverJar, login)
+                println(
+                    "Official server interop passed for protocol " +
+                            MinecraftProtocol.PROTOCOL_VERSION,
+                )
+            } catch (failure: Throwable) {
+                throw AssertionError(
+                    "Official server interop failed.\n" +
+                            "--- official server log ---\n" +
+                            server.logText(),
+                    failure,
+                )
             }
         }
-
-        try {
-            waitForServer(process, port, serverLog)
-            verifyStatus(port)
-            val login = verifyOfflineLoginAndConfiguration(port)
-            writeReport(report, serverJar, login)
-            println(
-                "Official server interop passed for protocol " +
-                        MinecraftProtocol.PROTOCOL_VERSION,
-            )
-        } catch (failure: Throwable) {
-            val log = synchronized(serverLog) { serverLog.toString() }
-            throw AssertionError(
-                "Official server interop failed.\n--- official server log ---\n$log",
-                failure,
-            )
-        } finally {
-            process.destroy()
-            if (!process.waitFor(10, TimeUnit.SECONDS)) {
-                process.destroyForcibly()
-                process.waitFor(10, TimeUnit.SECONDS)
-            }
-            logThread.join(Duration.ofSeconds(5))
-        }
-    }
-
-    private fun waitForServer(
-        process: Process,
-        port: Int,
-        serverLog: StringBuilder,
-    ) {
-        val deadline = System.nanoTime() + Duration.ofMinutes(2).toNanos()
-        while (System.nanoTime() < deadline) {
-            check(process.isAlive) {
-                "Official server exited with ${process.exitValue()}: " +
-                        synchronized(serverLog) { serverLog.toString() }
-            }
-            val ready = synchronized(serverLog) {
-                serverLog.contains("[Server thread/INFO]: Done (")
-            }
-            if (!ready) {
-                Thread.sleep(100)
-                continue
-            }
-            try {
-                Socket().use { socket ->
-                    socket.connect(InetSocketAddress("127.0.0.1", port), 250)
-                    return
-                }
-            } catch (_: Exception) {
-                Thread.sleep(100)
-            }
-        }
-        error("Official server did not listen on port $port within two minutes")
     }
 
     private fun verifyStatus(port: Int) {
@@ -385,7 +320,7 @@ internal object OfficialServerInteropRunner {
             body.writeVarInt(encoded.key.id)
             body.write(encoded.payload)
             val bytes = body.toByteArray()
-            TestPacketFraming.writeFrame(
+            JvmPacketFraming.writeFrame(
                 output,
                 bytes,
                 compressionThreshold,
@@ -394,7 +329,7 @@ internal object OfficialServerInteropRunner {
         }
 
         fun receive(state: ConnectionState): Packet {
-            val frame = TestPacketFraming.readFrame(
+            val frame = JvmPacketFraming.readFrame(
                 input,
                 compressionThreshold,
             )

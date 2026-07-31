@@ -9,4 +9,8 @@ This module inherits the repository guidance.
 - Complete and Known-Pack-omitted registry branches remain available.
 - Generated Kotlin stays under `build/generated` in functional `data` packages and is included in published source JARs.
   Do not commit generated payload source.
+- Register Configuration and static-data generators only in this module. Each generator validates its own captured
+  output before publishing it to the generated source directories.
+- No production or test source reads checked-in `protocol-specification` evidence. The explicit root
+  `refreshProtocolSpecification` Sync task is solely responsible for replacing that review material.
 - Gameplay behavior, world simulation, and general Datapack interpretation belong outside this module.

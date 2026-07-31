@@ -45,10 +45,11 @@ Treat this as update mode unless the user explicitly asks for a read-only audit.
 6. Run:
 
    ```powershell
-   .\gradlew.bat test
+   .\gradlew.bat allTests
    ```
 
-7. Confirm the aggregate ran official codec/server/headless-client/world tests through standard platform test tasks.
+7. Confirm the standard aggregate ran official codec/server/headless-client/world tests through their standard platform
+   test tasks.
 
 Do not replace a failed lower layer with a successful end-to-end test. Continue until every applicable deterministic
 gate passes or a genuine external prerequisite requires user action.

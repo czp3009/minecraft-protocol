@@ -11,9 +11,10 @@
 7. official codec and server/client interoperability;
 8. broader KMP verification.
 
-For a release change, refresh specification first and review its diff. The official packets report drives registry
-coverage; local packet annotations drive Kotlin class references. The one intentional non-report registry entry is the
-legacy server-list ping and remains explicitly modeled/tested.
+For a release change, refresh specification first and review its diff. KSP derives packet definitions from local
+annotations and checks their keys and names against the official packets report. It also derives data-component dispatch
+from model annotations. The one intentional non-report packet is the legacy server-list ping and remains explicitly
+modeled/tested.
 
 ## Completeness checks
 
@@ -27,8 +28,9 @@ legacy server-list ping and remains explicitly modeled/tested.
 - the matching official headless client accepts the production server's initial world;
 - official world generation/rewrite/reload passes when storage is affected;
 - generated source is absent from Git source directories but present in published source JARs;
+- runtime modules contain no generator entry points, process launchers, or other build/test scaffolding;
 - no Gradle task reads skills or `temp/`, and no vanilla subprocess leaves files outside `build/`;
-- affected JVM suites pass before the full root `test`.
+- affected JVM suites pass before the applicable standard platform tests or `allTests`.
 
 Audit-only requests report concrete gaps and evidence without writing. Update requests continue through implementation
 and verification. Do not declare completion from counts, self-round-trips, stale reports, or one end-to-end result

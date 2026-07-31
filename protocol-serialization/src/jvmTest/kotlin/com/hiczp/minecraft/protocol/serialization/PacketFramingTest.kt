@@ -31,7 +31,7 @@ class PacketFramingTest {
     fun `reader tolerates a stream that returns only one byte at a time`() {
         val payload = ByteArray(1_024) { (it * 17).toByte() }
         val output = ByteArrayOutputStream()
-        TestPacketFraming.writeFrame(output, payload, compressionThreshold = 32)
+        JvmPacketFraming.writeFrame(output, payload, compressionThreshold = 32)
         val oneByteInput = object : InputStream() {
             private val delegate = ByteArrayInputStream(output.toByteArray())
 
@@ -43,26 +43,26 @@ class PacketFramingTest {
 
         assertContentEquals(
             payload,
-            TestPacketFraming.readFrame(oneByteInput, compressionThreshold = 32),
+            JvmPacketFraming.readFrame(oneByteInput, compressionThreshold = 32),
         )
     }
 
     @Test
     fun `truncated oversized and non-minimal frames are rejected`() {
         assertFailsWith<EOFException> {
-            TestPacketFraming.readFrame(
+            JvmPacketFraming.readFrame(
                 ByteArrayInputStream(byteArrayOf(0x80.toByte())),
                 compressionThreshold = null,
             )
         }
         assertFailsWith<EOFException> {
-            TestPacketFraming.readFrame(
+            JvmPacketFraming.readFrame(
                 ByteArrayInputStream(byteArrayOf(0x02, 0x01)),
                 compressionThreshold = null,
             )
         }
         assertFails {
-            TestPacketFraming.readFrame(
+            JvmPacketFraming.readFrame(
                 ByteArrayInputStream(
                     byteArrayOf(
                         0x80.toByte(),
@@ -77,13 +77,13 @@ class PacketFramingTest {
             )
         }
         assertFails {
-            TestPacketFraming.readFrame(
+            JvmPacketFraming.readFrame(
                 ByteArrayInputStream(byteArrayOf(0x81.toByte(), 0x00, 0x01)),
                 compressionThreshold = null,
             )
         }
         assertFails {
-            TestPacketFraming.readFrame(
+            JvmPacketFraming.readFrame(
                 ByteArrayInputStream(byteArrayOf(0x08)),
                 compressionThreshold = null,
                 maximumFrameSize = 7,
@@ -94,14 +94,14 @@ class PacketFramingTest {
     @Test
     fun `compression threshold and zlib length invariants are enforced`() {
         assertFails {
-            TestPacketFraming.readFrame(
+            JvmPacketFraming.readFrame(
                 ByteArrayInputStream(framed(byteArrayOf(0x00, 0x01, 0x02, 0x03))),
                 compressionThreshold = 3,
             )
         }
 
         val valid = ByteArrayOutputStream().also {
-            TestPacketFraming.writeFrame(
+            JvmPacketFraming.writeFrame(
                 it,
                 ByteArray(64) { index -> index.toByte() },
                 compressionThreshold = 64,
@@ -109,14 +109,14 @@ class PacketFramingTest {
         }.toByteArray()
         valid[1] = 65
         assertFails {
-            TestPacketFraming.readFrame(
+            JvmPacketFraming.readFrame(
                 ByteArrayInputStream(valid),
                 compressionThreshold = 64,
             )
         }
 
         assertFails {
-            TestPacketFraming.readFrame(
+            JvmPacketFraming.readFrame(
                 ByteArrayInputStream(framed(byteArrayOf(0x40, 0x78, 0x01, 0x00))),
                 compressionThreshold = 64,
             )
@@ -128,8 +128,8 @@ class PacketFramingTest {
         compressionThreshold: Int?,
     ): ByteArray {
         val output = ByteArrayOutputStream()
-        TestPacketFraming.writeFrame(output, payload, compressionThreshold)
-        return TestPacketFraming.readFrame(
+        JvmPacketFraming.writeFrame(output, payload, compressionThreshold)
+        return JvmPacketFraming.readFrame(
             ByteArrayInputStream(output.toByteArray()),
             compressionThreshold,
         )

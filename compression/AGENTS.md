@@ -9,4 +9,4 @@ This file extends the repository `AGENTS.md`.
 - Test fixed, dynamic, and stored streams against independent JVM zlib behavior plus malformed and truncation matrices.
 
 Run `:compression:jvmTest` while iterating. Shared codec changes also require the protocol-transport and world-format
-JVM suites, followed by the root `test` gate.
+JVM suites, followed by the applicable standard KMP `allTests` tasks.

@@ -16,8 +16,8 @@ rules, persistence policy, and gameplay remain application concerns.
 - JDK 25. Gradle and every JVM/Android compilation target use Java 25.
 - An Android SDK configured through the usual Gradle mechanisms, including `local.properties`, when running the full
   multiplatform gate.
-- Network access on the first exhaustive verification run so Gradle can acquire normal build dependencies and
-  hash-verified Minecraft reference artifacts.
+- Network access on the first exhaustive verification run so Gradle can acquire normal build dependencies and standard
+  JVM tests can acquire hash-verified Minecraft reference artifacts.
 
 Use the checked-in wrapper; a separate Gradle installation is unnecessary. Gradle provisions the Node/Yarn and Kotlin
 Native tooling used by the non-JVM targets. The checked-in daemon JVM criteria selects a discoverable JDK 25, so
@@ -41,6 +41,15 @@ display server, or a manually started process.
 | `protocol-server`        | Connection orchestration and finite initial chunk/entity projection |
 | `world-format`           | Filesystem-independent Anvil regions, compression modes, external chunks, and NBT composition |
 | `world-io`               | World paths, standalone NBT, and atomic chunk/entity/POI region storage |
+
+The published modules above are the runtime library layer. Build-time preparation has two mechanisms:
+non-source-driven generators are cacheable task types in `buildSrc`, registered only by the module that owns their
+output, while source-to-source generation uses the private `protocol-symbol-processor` KSP module. Neither mechanism is
+part of the published runtime API.
+
+`minecraft-test-support` is a private, unpublished JVM fixture library used only by repository tests. Calling it from a
+standard `jvmTest` acquires and verifies official artifacts and manages external test processes without adding Gradle
+preparation tasks or command-line helper applications.
 
 `nbt` and `world-format` expose `Source`/`Sink` APIs on stream-capable targets. `world-io` targets JVM, Android, and
 Native platforms with filesystem support; browser-like consumers use the stream modules directly. Portable JS/Wasm tests
@@ -88,42 +97,55 @@ RCON, JMX, and the JSON-RPC management service. These are not silently emulated,
 values that prevent the application from implementing them.
 
 The official default inventory is generated into
-[`protocol-specification/server-properties.json`](protocol-specification/server-properties.json) for review. It is
-evidence, not a runtime configuration file. For example, a consuming adapter would map a negative
+[`protocol-specification/generated/server-properties.json`](protocol-specification/generated/server-properties.json)
+for review. It is evidence, not a runtime configuration file. For example, a consuming adapter would map a negative
 `network-compression-threshold` to `compressionThreshold = null`; all non-negative values map directly. Set
 `enforcesSecureChat` only after the consuming server really validates secure profiles and signed chat.
 
 ## Verification
 
-From the repository root, the single canonical command is:
+Use the affected module's standard JVM test task for the normal development loop:
 
 ```shell
-./gradlew test
+./gradlew :protocol-serialization:jvmTest
 ```
 
-On Windows use `.\gradlew.bat test`. It runs each module's standard Kotlin Multiplatform `allTests` task plus
-build-logic tests. That includes:
+For a repository-wide JVM pass, use Gradle's standard task selector:
+
+```shell
+./gradlew jvmTest
+```
+
+After the JVM path is stable, select every module's standard Kotlin Multiplatform aggregate with:
+
+```shell
+./gradlew allTests
+```
+
+On Windows replace `./gradlew` with `.\gradlew.bat`. These are standard KMP tasks and task selectors; the root project
+does not define an additional `test` task. Together the applicable platform suites cover:
 
 - shared, JVM, Android host, JS, Wasm, and host-supported Native tests;
 - model invariants, primitive/composite codecs, golden payloads, malformed input, and registry-wide round trips;
 - framing, partial I/O, compression, encryption, sessions, authentication, and production Ktor sockets;
-- checked-in specification consistency and direct execution of official packet codecs;
+- direct execution of official packet codecs;
 - production-client interoperability with the matching official server;
 - a matching official client against the production server, headlessly and in offline mode;
 - official-server world generation, library decode/rewrite, and official-server reload.
 
-The official-client test downloads the exact Mojang client, libraries, natives, and assets into `build/`, validates the
-published sizes and hashes, and launches it through a pinned SHA-256-verified HeadlessMC adapter. It verifies
+The official-client JVM test calls the private test-support library, which downloads the exact Mojang client, libraries,
+natives, and assets into `build/`, validates the published sizes and hashes, and launches it through a pinned
+SHA-256-verified HeadlessMC adapter. It verifies
 Status/Login/Configuration/Play, initial chunks and entities, teleport/chunk-batch/player-loaded acknowledgements,
 client ticks and keepalives, broad clientbound Play packet families, cookies and pings, Respawn followed by another
 world projection, a Play-to-Configuration round trip, and a third Play/world synchronization. All services are started
 and stopped by standard JVM tests. GUI client testing is not part of the repository.
 
-The first run is intentionally heavier. Gradle keys the verified server, client, libraries, assets, reports, generated
-sources, and test outputs by the selected Minecraft version, so unchanged follow-up runs avoid downloads and expensive
-generation.
+The first run is intentionally heavier. Production tasks and the private test-support library key the verified server,
+client, libraries, assets, reports, generated sources, and test outputs by the selected Minecraft version, so unchanged
+follow-up runs avoid downloads and expensive generation.
 
-During development, run the affected JVM suite first:
+Examples of focused JVM suites are:
 
 ```shell
 ./gradlew :protocol-serialization:jvmTest
@@ -132,8 +154,8 @@ During development, run the affected JVM suite first:
 ./gradlew :world-io:jvmTest
 ```
 
-Only after JVM verification is stable should you run the full multiplatform `test` gate. All generated source, servers,
-clients, worlds, logs, reports, downloads, and process working directories remain under `build/`.
+Only after JVM verification is stable should you run the applicable platform tasks or `allTests`. All generated source,
+servers, clients, worlds, logs, reports, downloads, and process working directories remain under `build/`.
 
 ## Source authority
 
@@ -149,9 +171,11 @@ single manually selected Minecraft release. Print it with:
 ```
 
 Gradle downloads that official server, reads its `version.json`, runs its data generator and codecs, captures its
-Configuration packets, and generates runtime Kotlin under module `build/generated` directories. Published source JARs
-include those generated files. The checked-in `protocol-specification` directory contains canonical official evidence
-for reviewing release diffs; production code does not read it.
+Configuration packets, and generates runtime Kotlin under module `build/generated` directories. KSP generates the
+dispatch tables derived from Kotlin annotations; cacheable `buildSrc` tasks own generation driven by official non-source
+inputs. Published source JARs include those generated files. The checked-in `protocol-specification/generated`
+directory contains canonical official evidence for reviewing release diffs; its hand-written README describes those
+files. Compilation, tests, and production code do not read it.
 
 ## Updating for a Minecraft release
 
@@ -162,8 +186,9 @@ Change `MinecraftTarget.version`, then regenerate the deterministic evidence:
 ```
 
 Review the specification diff, update hand-modeled semantics that cannot be derived mechanically, run affected
-`jvmTest` tasks, then run `./gradlew test`. Root `clean` removes `protocol-specification` as a generated output; run the
-refresh task afterward before verification or committing.
+`jvmTest` tasks, then run the applicable standard platform tests or `./gradlew allTests`. Root `clean` preserves the
+hand-written overview and checked-in generated evidence; only `refreshProtocolSpecification` replaces
+`protocol-specification/generated`.
 
 The playbooks indexed in `.agents/skills/README.md` are optional instructions for coding agents performing the same
 human development work. They may call Gradle, but Gradle never reads those skills or their scratch output; deleting the

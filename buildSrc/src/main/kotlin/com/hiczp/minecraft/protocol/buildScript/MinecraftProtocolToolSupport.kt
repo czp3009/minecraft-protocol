@@ -2,14 +2,14 @@ package com.hiczp.minecraft.protocol.buildScript
 
 import kotlinx.serialization.json.*
 import org.gradle.api.DefaultTask
-import org.gradle.api.file.DirectoryProperty
-import org.gradle.api.tasks.Internal
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
 import java.io.IOException
 import java.net.URI
-import java.net.URLEncoder
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -26,14 +26,12 @@ internal val protocolJson = Json {
 }
 
 abstract class MinecraftProtocolToolTask : DefaultTask() {
-    @get:Internal
-    abstract val repositoryDirectory: DirectoryProperty
+    @get:Input
+    abstract val minecraftVersion: Property<String>
 
-    @get:Internal
-    protected val repository: Path
-        get() = repositoryDirectory.asFile.get().toPath()
-            .toAbsolutePath()
-            .normalize()
+    init {
+        minecraftVersion.convention(MinecraftTarget.version)
+    }
 }
 
 internal fun Path.readJsonObject(): JsonObject =
@@ -82,23 +80,6 @@ internal fun JsonObject.requiredLong(name: String): Long =
             ?: error("JSON property '$name' is not an integer")
     }
 
-internal fun JsonObject.optionalString(name: String): String? =
-    get(name)?.jsonPrimitive?.let { value ->
-        check(value.isString) {
-            "JSON property '$name' is not a string"
-        }
-        value.content
-    }
-
-internal fun JsonObject.optionalBoolean(name: String): Boolean? =
-    get(name)?.jsonPrimitive?.let { value ->
-        check(!value.isString) {
-            "JSON property '$name' is not a Boolean"
-        }
-        value.booleanOrNull
-            ?: error("JSON property '$name' is not a Boolean")
-    }
-
 internal fun jsonObjectOf(
     vararg entries: Pair<String, JsonElement>,
 ): JsonObject = JsonObject(linkedMapOf(*entries))
@@ -121,42 +102,6 @@ internal fun renderJson(
     sortKeys: Boolean = false,
 ): String = buildString {
     appendJson(value, 0, sortKeys)
-}
-
-internal fun renderCanonicalJson(value: JsonElement): String =
-    buildString {
-        appendCanonicalJson(value)
-    }
-
-private fun StringBuilder.appendCanonicalJson(value: JsonElement) {
-    when (value) {
-        JsonNull -> append("null")
-        is JsonPrimitive -> {
-            if (value.isString) appendJsonString(value.content)
-            else append(value.toString())
-        }
-
-        is JsonArray -> {
-            append('[')
-            value.forEachIndexed { index, element ->
-                if (index > 0) append(',')
-                appendCanonicalJson(element)
-            }
-            append(']')
-        }
-
-        is JsonObject -> {
-            append('{')
-            value.entries.sortedBy { it.key }
-                .forEachIndexed { index, (key, element) ->
-                    if (index > 0) append(',')
-                    appendJsonString(key)
-                    append(':')
-                    appendCanonicalJson(element)
-                }
-            append('}')
-        }
-    }
 }
 
 private fun StringBuilder.appendJson(
@@ -267,12 +212,17 @@ internal fun Path.atomicWrite(content: ByteArray) {
     }
 }
 
-internal fun Path.writeIfChanged(content: String): Boolean {
-    if (exists() && readText() == content) {
-        return false
+internal inline fun <T> Path.withExclusiveFileLock(block: () -> T): T {
+    parent.createDirectories()
+    return FileChannel.open(
+        this,
+        StandardOpenOption.CREATE,
+        StandardOpenOption.WRITE,
+    ).use { channel ->
+        channel.lock().use {
+            block()
+        }
     }
-    atomicWriteText(content)
-    return true
 }
 
 internal fun ByteArray.sha1(): String =
@@ -355,17 +305,6 @@ internal object ProtocolHttp {
         timeout: Duration = Duration.ofSeconds(60),
     ): JsonObject = getBytes(url, timeout).decodeJsonObject(url)
 
-    fun getJson(
-        url: String,
-        parameters: Map<String, Any>,
-        timeout: Duration = Duration.ofSeconds(60),
-    ): JsonObject {
-        val query = parameters.entries.joinToString("&") { (key, value) ->
-            "${encodeQuery(key)}=${encodeQuery(value.toString())}"
-        }
-        return getJson("$url?$query", timeout)
-    }
-
     fun ensureDownload(
         url: String,
         destination: Path,
@@ -380,25 +319,6 @@ internal object ProtocolHttp {
         expectedSize = expectedSize,
         digestAlgorithm = "SHA-1",
         expectedDigest = expectedSha1,
-        offline = offline,
-        timeout = timeout,
-        attempts = attempts,
-    )
-
-    fun ensureDownloadSha256(
-        url: String,
-        destination: Path,
-        expectedSize: Long,
-        expectedSha256: String,
-        offline: Boolean = false,
-        timeout: Duration = Duration.ofSeconds(60),
-        attempts: Int = 4,
-    ): Boolean = ensureDownload(
-        url = url,
-        destination = destination,
-        expectedSize = expectedSize,
-        digestAlgorithm = "SHA-256",
-        expectedDigest = expectedSha256,
         offline = offline,
         timeout = timeout,
         attempts = attempts,
@@ -480,8 +400,6 @@ internal object ProtocolHttp {
         )
     }
 
-    private fun encodeQuery(value: String): String =
-        URLEncoder.encode(value, StandardCharsets.UTF_8)
 }
 
 internal data class ProcessResult(
@@ -527,26 +445,6 @@ internal fun runProcess(
     return ProcessResult(process.exitValue(), output.toString())
 }
 
-internal fun Path.safeResolve(relative: String): Path {
-    val normalizedRelative = relative.replace('\\', '/')
-    val segments = normalizedRelative.split('/')
-    require(
-        normalizedRelative.isNotEmpty() &&
-                !normalizedRelative.startsWith('/') &&
-                segments.none {
-                    it.isEmpty() ||
-                            it == "." ||
-                            it == ".." ||
-                            ':' in it
-                },
-    ) {
-        "Unsafe relative path: $relative"
-    }
-    return segments.fold(this) { current, segment ->
-        current.resolve(segment)
-    }.normalize()
-}
-
 internal fun Path.readZipEntry(name: String): ByteArray =
     ZipFile(toFile()).use { zip ->
         val entry = zip.getEntry(name)
@@ -560,19 +458,18 @@ internal data class MinecraftProtocolTarget(
     val javaMajorVersion: Int,
 )
 
-internal fun Path.readMinecraftProtocolTarget(): MinecraftProtocolTarget {
-    val serverJar = resolve("build/protocol-reference/mojang")
-        .resolve(MinecraftTarget.version)
-        .resolve("server.jar")
-    check(serverJar.isRegularFile()) {
-        "Official server JAR is missing: $serverJar"
+internal fun Path.readMinecraftProtocolTarget(
+    expectedVersion: String,
+): MinecraftProtocolTarget {
+    check(isRegularFile()) {
+        "Official server JAR is missing: $this"
     }
-    val version = serverJar.readZipEntry("version.json")
-        .decodeJsonObject("$serverJar!/version.json")
+    val version = readZipEntry("version.json")
+        .decodeJsonObject("$this!/version.json")
     val minecraftVersion = version.requiredString("id")
-    check(minecraftVersion == MinecraftTarget.version) {
+    check(minecraftVersion == expectedVersion) {
         "Official server identifies Minecraft $minecraftVersion; " +
-                "buildSrc selects ${MinecraftTarget.version}"
+                "build selects $expectedVersion"
     }
     return MinecraftProtocolTarget(
         minecraftVersion = minecraftVersion,

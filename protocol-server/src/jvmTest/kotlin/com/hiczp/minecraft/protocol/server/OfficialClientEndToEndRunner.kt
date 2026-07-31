@@ -6,21 +6,16 @@ import com.hiczp.minecraft.protocol.data.VanillaStaticData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.test.MinecraftTestProcess
+import com.hiczp.minecraft.test.OfficialClientInstallation
 import io.ktor.network.selector.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.MessageDigest
 import java.time.Duration
-import java.util.concurrent.TimeUnit
 import kotlin.io.path.absolutePathString
 
 /**
@@ -49,23 +44,15 @@ internal object OfficialClientEndToEndRunner {
         "official-client-cookie".encodeToByteArray(),
     )
 
-    @JvmStatic
-    fun main(arguments: Array<String>) {
-        require(arguments.size == 6) {
-            "Expected <client-java> <minecraft-directory> <version> " +
-                    "<work-directory> <report.json> <headlessmc.jar>"
-        }
-        val javaExecutable = Path.of(arguments[0]).toAbsolutePath().normalize()
-        val minecraftDirectory =
-            Path.of(arguments[1]).toAbsolutePath().normalize()
-        val version = arguments[2]
-        val workDirectory =
-            Path.of(arguments[3]).toAbsolutePath().normalize()
-        val report = Path.of(arguments[4]).toAbsolutePath().normalize()
-        val headlessLauncher = Path.of(arguments[5])
-            .toAbsolutePath()
-            .normalize()
-
+    fun run(
+        javaExecutable: Path,
+        installation: OfficialClientInstallation,
+        workDirectory: Path,
+        report: Path,
+        headlessLauncher: Path,
+    ) {
+        val minecraftDirectory = installation.directory
+        val version = installation.version
         require(Files.isRegularFile(javaExecutable)) {
             "Minecraft analysis Java does not exist: $javaExecutable"
         }
@@ -79,14 +66,12 @@ internal object OfficialClientEndToEndRunner {
         Files.createDirectories(workDirectory)
         Files.createDirectories(report.parent)
 
-        val installation = ClientInstallation.load(
-            minecraftDirectory = minecraftDirectory,
-            version = version,
-        )
         require(
-            installation.javaMajorVersion == javaMajorVersion(javaExecutable),
+            installation.requiredJavaMajor ==
+                    javaMajorVersion(javaExecutable),
         ) {
-            "Minecraft $version requires Java ${installation.javaMajorVersion}"
+            "Minecraft $version requires Java " +
+                    installation.requiredJavaMajor
         }
         val runDirectory = workDirectory.resolve(
             "run-${System.currentTimeMillis()}",
@@ -95,9 +80,7 @@ internal object OfficialClientEndToEndRunner {
         Files.createDirectories(gameDirectory)
         writeClientOptions(gameDirectory)
 
-        val clientLog = StringBuilder()
-        var process: Process? = null
-        var logThread: Thread? = null
+        var process: MinecraftTestProcess? = null
         try {
             val outcome = runBlocking {
                 SelectorManager(Dispatchers.IO).use { selector ->
@@ -120,13 +103,9 @@ internal object OfficialClientEndToEndRunner {
                             gameDirectory = gameDirectory,
                             launcher = headlessLauncher,
                             port = server.port,
+                            logFile = runDirectory.resolve("client.log"),
                         )
                         process = launched
-                        logThread = captureLog(
-                            process = launched,
-                            clientLog = clientLog,
-                            output = runDirectory.resolve("client.log"),
-                        )
                         awaitPlayRoundTrip(server, launched)
                     }
                 }
@@ -144,27 +123,26 @@ internal object OfficialClientEndToEndRunner {
                         "without a display server",
             )
         } catch (failure: Throwable) {
-            val log = synchronized(clientLog) { clientLog.toString() }
             throw AssertionError(
                 "Official client -> production initial-world E2E failed.\n" +
-                        "--- official client log ---\n$log",
+                        "--- official client log ---\n" +
+                        process?.logText().orEmpty(),
                 failure,
             )
         } finally {
-            process?.let(::stopProcess)
-            logThread?.join(Duration.ofSeconds(5))
+            process?.close()
         }
     }
 
     private suspend fun awaitPlayRoundTrip(
         server: MinecraftServer,
-        process: Process,
+        process: MinecraftTestProcess,
     ): EndToEndOutcome {
         val processWatcher = Thread.ofVirtual()
             .name("official-client-e2e-process")
             .start {
                 try {
-                    process.waitFor()
+                    process.awaitExit()
                     server.close()
                 } catch (_: InterruptedException) {
                     Thread.currentThread().interrupt()
@@ -175,7 +153,7 @@ internal object OfficialClientEndToEndRunner {
                 var statusConnections = 0
                 while (true) {
                     check(process.isAlive) {
-                        "Official client exited with ${process.exitValue()}"
+                        "Official client exited with ${process.exitCode}"
                     }
                     val connection = try {
                         server.accept()
@@ -183,7 +161,7 @@ internal object OfficialClientEndToEndRunner {
                         if (!process.isAlive) {
                             error(
                                 "Official client exited with " +
-                                        process.exitValue(),
+                                        process.exitCode,
                             )
                         }
                         throw failure
@@ -1675,11 +1653,12 @@ internal object OfficialClientEndToEndRunner {
     private fun launchHeadlessClient(
         javaExecutable: Path,
         minecraftDirectory: Path,
-        installation: ClientInstallation,
+        installation: OfficialClientInstallation,
         gameDirectory: Path,
         launcher: Path,
         port: Int,
-    ): Process {
+        logFile: Path,
+    ): MinecraftTestProcess {
         val playerUuid = offlineUuid(PLAYER_NAME).toUndashedString()
         val minecraftJvmArguments = listOf(
             "-Xms256M",
@@ -1723,54 +1702,13 @@ internal object OfficialClientEndToEndRunner {
             "-lwjgl",
             "-offline",
         )
-        return ProcessBuilder(command)
-            .directory(gameDirectory.parent.toFile())
-            .redirectErrorStream(true)
-            .start()
-    }
-
-    private fun captureLog(
-        process: Process,
-        clientLog: StringBuilder,
-        output: Path,
-    ): Thread =
-        Thread.ofVirtual().name("official-client-e2e-log").start {
-            try {
-                Files.newBufferedWriter(output).use { writer ->
-                    process.inputStream.bufferedReader().useLines { lines ->
-                        lines.forEach { line ->
-                            writer.appendLine(line)
-                            writer.flush()
-                            synchronized(clientLog) {
-                                clientLog.appendLine(line)
-                                if (clientLog.length > 300_000) {
-                                    clientLog.delete(
-                                        0,
-                                        clientLog.length - 200_000,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (failure: IOException) {
-                if (failure.message != "Stream closed") throw failure
-            }
-        }
-
-    private fun stopProcess(process: Process) {
-        val descendants = process.toHandle().descendants().toList()
-        descendants.asReversed().forEach { handle ->
-            if (handle.isAlive) handle.destroy()
-        }
-        process.destroy()
-        if (!process.waitFor(10, TimeUnit.SECONDS)) {
-            descendants.asReversed().forEach { handle ->
-                if (handle.isAlive) handle.destroyForcibly()
-            }
-            process.destroyForcibly()
-            process.waitFor(10, TimeUnit.SECONDS)
-        }
+        return MinecraftTestProcess.start(
+            command = command,
+            workingDirectory = gameDirectory.parent,
+            threadName = "official-client-e2e-log",
+            logFile = logFile,
+            maximumLogCharacters = 300_000,
+        )
     }
 
     private fun writeClientOptions(gameDirectory: Path) {
@@ -1790,7 +1728,7 @@ internal object OfficialClientEndToEndRunner {
 
     private fun writeReport(
         output: Path,
-        installation: ClientInstallation,
+        installation: OfficialClientInstallation,
         outcome: EndToEndOutcome,
     ) {
         Files.writeString(
@@ -1957,58 +1895,20 @@ private data class ReconfigurationOutcome(
     val observedPackets: List<String>,
 )
 
-private data class ClientInstallation(
-    val version: String,
-    val javaMajorVersion: Int,
-    val clientSha1: String,
-) {
-    companion object {
-        fun load(
-            minecraftDirectory: Path,
-            version: String,
-        ): ClientInstallation {
-            val versionDirectory =
-                minecraftDirectory.resolve("versions").resolve(version)
-            val jsonPath = versionDirectory.resolve("$version.json")
-            val clientJar = versionDirectory.resolve("$version.jar")
-            require(Files.isRegularFile(jsonPath)) {
-                "Official client metadata does not exist: $jsonPath"
-            }
-            require(Files.isRegularFile(clientJar)) {
-                "Official client JAR does not exist: $clientJar"
-            }
-            val root = Json.parseToJsonElement(
-                Files.readString(jsonPath),
-            ).jsonObject
-            val expectedClientSha1 = root.requiredObject("downloads")
-                .requiredObject("client")
-                .requiredString("sha1")
-            require(sha1(clientJar) == expectedClientSha1) {
-                "Official client JAR failed its Mojang SHA-1"
-            }
-            return ClientInstallation(
-                version = version,
-                javaMajorVersion = root.requiredObject("javaVersion")
-                    .requiredInt("majorVersion"),
-                clientSha1 = expectedClientSha1,
-            )
-        }
-    }
-}
-
 private fun javaMajorVersion(javaExecutable: Path): Int {
-    val process = ProcessBuilder(
-        javaExecutable.absolutePathString(),
-        "-version",
-    )
-        .redirectErrorStream(true)
-        .start()
-    val output = process.inputStream.bufferedReader().readText()
-    check(process.waitFor(15, TimeUnit.SECONDS)) {
-        "Timed out querying $javaExecutable"
-    }
-    check(process.exitValue() == 0) {
-        "Could not query $javaExecutable: $output"
+    val output = MinecraftTestProcess.start(
+        command = listOf(javaExecutable.absolutePathString(), "-version"),
+        workingDirectory = javaExecutable.parent,
+        threadName = "official-client-java-version",
+    ).use { process ->
+        val exitCode = process.awaitExit(Duration.ofSeconds(15))
+        check(exitCode != null) {
+            "Timed out querying $javaExecutable"
+        }
+        check(exitCode == 0) {
+            "Could not query $javaExecutable: ${process.logText()}"
+        }
+        process.logText()
     }
     return Regex("""version "(\d+)""")
         .find(output)
@@ -2017,29 +1917,5 @@ private fun javaMajorVersion(javaExecutable: Path): Int {
         ?.toInt()
         ?: error("Could not parse Java version from: $output")
 }
-
-private fun sha1(path: Path): String =
-    MessageDigest.getInstance("SHA-1").run {
-        Files.newInputStream(path).use { stream ->
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            while (true) {
-                val read = stream.read(buffer)
-                if (read < 0) break
-                update(buffer, 0, read)
-            }
-        }
-        digest().joinToString(separator = "") { byte ->
-            (byte.toInt() and 0xFF).toString(16).padStart(2, '0')
-        }
-    }
-
-private fun JsonObject.requiredObject(name: String): JsonObject =
-    getValue(name).jsonObject
-
-private fun JsonObject.requiredString(name: String): String =
-    getValue(name).jsonPrimitive.content
-
-private fun JsonObject.requiredInt(name: String): Int =
-    requiredString(name).toInt()
 
 private const val CONNECTION_STABILITY_DELAY_MILLIS: Long = 1_500

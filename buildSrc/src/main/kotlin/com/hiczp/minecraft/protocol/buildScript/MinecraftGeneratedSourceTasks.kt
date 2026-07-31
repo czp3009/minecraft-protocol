@@ -3,13 +3,7 @@ package com.hiczp.minecraft.protocol.buildScript
 import kotlinx.serialization.json.JsonObject
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
-import org.gradle.api.tasks.CacheableTask
-import org.gradle.api.tasks.InputFile
-import org.gradle.api.tasks.OutputDirectory
-import org.gradle.api.tasks.OutputFile
-import org.gradle.api.tasks.PathSensitive
-import org.gradle.api.tasks.PathSensitivity
-import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.*
 import java.nio.file.Path
 
 @CacheableTask
@@ -24,7 +18,8 @@ abstract class GenerateMinecraftProtocolSourceTask :
 
     @TaskAction
     fun generate() {
-        val target = repository.readMinecraftProtocolTarget()
+        val target = serverJar.asFile.get().toPath()
+            .readMinecraftProtocolTarget(minecraftVersion.get())
         val source = """
             |package com.hiczp.minecraft.protocol.model
             |
@@ -55,8 +50,8 @@ abstract class GenerateMinecraftProtocolSourceTask :
  * Builds the complete, reviewable protocol evidence tree under build/.
  *
  * The public refresh task is a Sync from this directory into
- * protocol-specification, so ordinary compilation never mutates the source
- * tree.
+ * protocol-specification/generated, so ordinary compilation never mutates the
+ * source tree.
  */
 @CacheableTask
 abstract class GenerateProtocolSpecificationTask :
@@ -94,8 +89,10 @@ abstract class GenerateProtocolSpecificationTask :
 
     @TaskAction
     fun generate() {
-        val target = repository.readMinecraftProtocolTarget()
         val serverJarPath = serverJar.asFile.get().toPath()
+        val target = serverJarPath.readMinecraftProtocolTarget(
+            minecraftVersion.get(),
+        )
         val output = outputDirectory.asFile.get().toPath()
         output.deleteTree()
         output.toFile().mkdirs()
@@ -140,29 +137,6 @@ abstract class GenerateProtocolSpecificationTask :
         copyCanonicalJson(
             serverPropertiesReport.asFile.get().toPath(),
             output.resolve("server-properties.json"),
-        )
-        output.resolve("README.md").atomicWriteText(
-            """
-            |# Generated protocol specification
-            |
-            |This directory contains deterministic evidence extracted from the
-            |official Minecraft ${target.minecraftVersion} server selected in
-            |`buildSrc`.
-            |
-            |- `target.json`: official version, protocol, Java requirement, and
-            |  artifact digests.
-            |- `packets.json`, `registries.json`, and `blocks.json`: canonical
-            |  official data-generator reports.
-            |- `configuration.json`: payload facts captured through both
-            |  official Known Packs negotiation branches.
-            |- `server-properties.json`: the official default property
-            |  inventory, with generated secrets normalized.
-            |
-            |Regenerate the directory with
-            |`./gradlew refreshProtocolSpecification`. Runtime and compilation
-            |code never read this checked-in directory.
-            |
-        """.trimMargin(),
         )
         logger.lifecycle(
             "Generated protocol specification for Minecraft " +

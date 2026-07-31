@@ -38,14 +38,17 @@ Use Gradle for deterministic project work:
 
 - verified official artifact acquisition;
 - official data-generator reports;
-- protocol constants, packet registry, static vanilla data, and Configuration payload source generation under
-  `build/generated`;
+- non-source-driven protocol constants, static vanilla data, and Configuration payload generation through cacheable task
+  types in `buildSrc`;
+- source-derived packet and data-component dispatch generation through KSP;
 - canonical checked-in official evidence through `refreshProtocolSpecification`;
 - official codec/server/headless-client/world tests through standard KMP test tasks;
 - compilation, publication source JARs, and final verification.
 
 Do not hand-edit generated Kotlin or transcribe generated data into source. Do not add separate layer, audit, or
-interoperability test tasks: test logic belongs in `commonTest`, `jvmTest`, or another standard test source set.
+interoperability test tasks: test logic belongs in `commonTest`, `jvmTest`, or another standard test source set. Do not
+regenerate deterministic output merely to compare it with itself or checked-in evidence. Each preparation task validates
+its own work, and Gradle owns reuse through declared inputs, outputs, implementation, and dependencies.
 
 Use agent judgment for semantic work a deterministic program cannot perform: interpreting codec control flow,
 nullability, invariants, conditional shapes, Wiki prose, and exact-version third-party disagreements; then encode the
@@ -81,8 +84,8 @@ For each dependency-ordered batch:
 6. repeat until the JVM and official interoperability path is stable.
 
 Finish by refreshing specification evidence when the target or generated facts changed, reviewing the diff, and running
-the root `test` gate once. Do not start with Native compilation; Windows, Linux, and macOS are peers, and the current
-host is only the place this invocation happens to run.
+the applicable standard platform tests or the KMP `allTests` selector. Do not start with Native compilation; Windows,
+Linux, and macOS are peers, and the current host is only the place this invocation happens to run.
 
 ## Self-correction
 

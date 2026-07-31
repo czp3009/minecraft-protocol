@@ -1,12 +1,14 @@
-# Generated protocol specification
+# Protocol specification
 
-This directory contains deterministic evidence extracted from the official Minecraft 26.2 server selected in
-`buildSrc`.
+This directory keeps the reviewable official evidence used to audit the library's protocol model and generated data.
 
-- `target.json`: official version, protocol, Java requirement, and artifact digests.
-- `packets.json`, `registries.json`, and `blocks.json`: canonical official data-generator reports.
-- `configuration.json`: payload facts captured through both official Known Packs negotiation branches.
-- `server-properties.json`: the official default property inventory, with generated secrets normalized.
+`generated/` is replaced in full by
+`./gradlew refreshProtocolSpecification`. Its files are deterministic:
 
-Regenerate the directory with
-`./gradlew refreshProtocolSpecification`. Runtime and compilation code never read this checked-in directory.
+- `target.json` records the selected release, protocol, Java requirement, and official artifact digests.
+- `packets.json`, `registries.json`, and `blocks.json` are canonical official data-generator reports.
+- `configuration.json` describes payloads observed through both official Known Packs negotiation branches.
+- `server-properties.json` records the official default property inventory, with generated secrets normalized.
+
+This README is a hand-written overview for people. No build, generation, refresh, or test task reads, rewrites, or
+validates it.

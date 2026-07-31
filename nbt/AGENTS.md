@@ -9,4 +9,4 @@ This file extends the repository `AGENTS.md`.
 - Keep packet and filesystem adapters outside this module.
 
 Run `:nbt:jvmTest` while iterating. Shared NBT changes also require the protocol-serialization and world-storage JVM
-suites, followed by the root `test` gate.
+suites, followed by the applicable standard KMP `allTests` tasks.

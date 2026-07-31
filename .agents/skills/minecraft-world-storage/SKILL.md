@@ -39,8 +39,8 @@ releases, and extra arguments. Never mix sources from different releases.
    .\gradlew.bat refreshProtocolSpecification
    ```
 
-5. Read `protocol-specification/target.json`, locate exact official NBT, region-file, compression, dimension-path, and
-   storage behavior, then build a dependency-ordered work queue.
+5. Read `protocol-specification/generated/target.json`, locate exact official NBT, region-file, compression,
+   dimension-path, and storage behavior, then build a dependency-ordered work queue.
 6. In update mode, implement every queue item and keep iterating until all completion gates pass. Stop after reporting
    only when the user explicitly requests a read-only audit.
 
@@ -88,7 +88,8 @@ For each coherent batch:
 7. update module documentation and agent guidance when stable architecture or workflow rules change;
 8. rerun the work queue and repeat until no gap remains.
 
-Finish the storage JVM path with `:world-io:jvmTest`, then run the root `test` gate once all JVM suites are stable.
+Finish the storage JVM path with `:world-io:jvmTest`, then run the applicable standard platform tests or the KMP
+`allTests` selector once all JVM suites are stable.
 
 Completion requires stream and byte-array NBT, every official region compression path, inline and external chunks,
 chunk/entity/POI containers, standalone NBT files, current dimension and player-storage paths, historical path access

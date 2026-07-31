@@ -9,4 +9,4 @@ This file extends the repository `AGENTS.md`.
 - Keep custom compression injectable and built-in machinery private.
 
 Run `:world-format:jvmTest` while iterating and `:world-io:jvmTest` after a wire-format change; the latter includes
-official world interoperability. Finish with the root `test` gate.
+official world interoperability. Finish with the applicable standard KMP `allTests` tasks.

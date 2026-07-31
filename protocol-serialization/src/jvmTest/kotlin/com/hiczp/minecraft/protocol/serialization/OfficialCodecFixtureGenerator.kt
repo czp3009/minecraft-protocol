@@ -14,12 +14,8 @@ import java.util.*
  * official server JAR and is not part of the multiplatform library.
  */
 internal object OfficialCodecFixtureGenerator {
-    @JvmStatic
-    fun main(arguments: Array<String>) {
-        require(arguments.size == 1) {
-            "Expected one output path argument"
-        }
-        val output = Path.of(arguments.single()).toAbsolutePath().normalize()
+    fun generate(output: Path) {
+        val output = output.toAbsolutePath().normalize()
         Files.createDirectories(output.parent)
 
         val format = MinecraftFormat(

@@ -17,6 +17,4 @@ dependencies {
     compileOnly(libs.kotlin.gradle.plugin)
     compileOnly(libs.android.kotlin.multiplatform.library.plugin)
     implementation(libs.kotlinx.serialization.json)
-    testImplementation(kotlin("test"))
-    testImplementation(gradleTestKit())
 }

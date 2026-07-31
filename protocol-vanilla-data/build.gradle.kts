@@ -1,6 +1,4 @@
-import com.hiczp.minecraft.protocol.buildScript.GenerateVanillaStaticDataSourceTask
-import com.hiczp.minecraft.protocol.buildScript.MinecraftTarget
-import com.hiczp.minecraft.protocol.buildScript.configureAllTargets
+import com.hiczp.minecraft.protocol.buildScript.*
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -11,31 +9,32 @@ plugins {
 val generatedStaticDataDirectory = layout.buildDirectory.dir(
     "generated/sources/vanillaStaticData/commonMain/kotlin",
 )
+val generatedConfigurationDirectory = layout.buildDirectory.dir(
+    "generated/sources/vanillaConfiguration/commonMain/kotlin",
+)
+val generatedConfigurationReport = layout.buildDirectory.file(
+    "generated/reports/vanillaConfiguration/configuration.json",
+)
+
 val generateVanillaStaticDataSource =
     tasks.register<GenerateVanillaStaticDataSourceTask>(
         "generateVanillaStaticDataSource",
     ) {
-        dependsOn(
-            rootProject.tasks.named("generateOfficialMinecraftReports"),
-        )
-        repositoryDirectory.set(rootProject.layout.projectDirectory)
-        serverJar.set(
-            rootProject.layout.buildDirectory.file(
-                "protocol-reference/mojang/${MinecraftTarget.version}/server.jar",
-            ),
-        )
-        registriesFile.set(
-            rootProject.layout.buildDirectory.file(
-                "protocol-reference/mojang/${MinecraftTarget.version}/" +
-                        "generated/reports/registries.json",
-            ),
-        )
-        blocksFile.set(
-            rootProject.layout.buildDirectory.file(
-                "protocol-reference/mojang/${MinecraftTarget.version}/" +
-                        "generated/reports/blocks.json",
-            ),
-        )
+        val download = rootProject.tasks
+            .named<DownloadOfficialMinecraftServerTask>(
+                "downloadOfficialMinecraftServer",
+            )
+        val reports = rootProject.tasks
+            .named<GenerateOfficialMinecraftReportsTask>(
+                "generateOfficialMinecraftReports",
+            )
+        serverJar.set(download.flatMap { it.serverJar })
+        registriesFile.set(reports.flatMap {
+            it.outputDirectory.file("reports/registries.json")
+        })
+        blocksFile.set(reports.flatMap {
+            it.outputDirectory.file("reports/blocks.json")
+        })
         outputFile.set(
             generatedStaticDataDirectory.map {
                 it.file(
@@ -46,10 +45,42 @@ val generateVanillaStaticDataSource =
         )
     }
 
-val generatedConfigurationDirectory =
-    project(":protocol-serialization").layout.buildDirectory.dir(
-        "generated/vanilla-configuration/commonMain/kotlin",
-    )
+val java25Launcher = extensions
+    .getByType<JavaToolchainService>()
+    .launcherFor {
+        languageVersion.set(JavaLanguageVersion.of(25))
+    }
+val generateVanillaConfigurationData =
+    tasks.register<GenerateVanillaConfigurationDataTask>(
+        "generateVanillaConfigurationData",
+    ) {
+        val download = rootProject.tasks
+            .named<DownloadOfficialMinecraftServerTask>(
+                "downloadOfficialMinecraftServer",
+            )
+        val reports = rootProject.tasks
+            .named<GenerateOfficialMinecraftReportsTask>(
+                "generateOfficialMinecraftReports",
+            )
+        javaExecutable.set(
+            java25Launcher.map {
+                it.executablePath.asFile.absolutePath
+            },
+        )
+        serverJar.set(download.flatMap { it.serverJar })
+        packetsReport.set(reports.flatMap {
+            it.outputDirectory.file("reports/packets.json")
+        })
+        generatedKotlin.set(
+            generatedConfigurationDirectory.map {
+                it.file(
+                    "com/hiczp/minecraft/protocol/data/" +
+                            "VanillaConfigurationPayloads.kt",
+                )
+            },
+        )
+        manifest.set(generatedConfigurationReport)
+    }
 
 kotlin {
     configureAllTargets("com.hiczp.minecraft.protocol.data")
@@ -62,10 +93,7 @@ kotlin {
             )
             kotlin.srcDir(
                 files(generatedConfigurationDirectory)
-                    .builtBy(
-                        ":protocol-serialization:" +
-                                "generateVanillaConfigurationData",
-                    ),
+                    .builtBy(generateVanillaConfigurationData),
             )
             dependencies {
                 api(project(":protocol-model"))

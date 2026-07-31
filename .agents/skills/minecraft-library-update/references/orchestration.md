@@ -4,8 +4,8 @@
 
 Use this order for cross-cutting changes:
 
-1. buildSrc target and official artifacts;
-2. shared protocol values, NBT algebra, and raw compression;
+1. buildSrc target, official artifacts, and non-source-driven generators;
+2. KSP source generation, shared protocol values, NBT algebra, and raw compression;
 3. binary NBT;
 4. packet serialization and vanilla Configuration data;
 5. transport, sessions, authentication, client, and server;
@@ -21,12 +21,14 @@ Run each sub-workflow's focused tests immediately after its layer changes.
 The complete aggregate is:
 
 ```powershell
-.\gradlew.bat test
+.\gradlew.bat allTests
 ```
 
-It composes standard KMP tests, including the matching official server, official codecs, the matching official client
-launched through the pinned headless adapter, and official world reload. Proprietary artifacts are downloaded, verified,
-cached inside `build/`, and never require account tokens or an installed launcher. GUI testing is excluded.
+Gradle selects each module's standard KMP aggregate; the root project does not define a replacement `test` task. The JVM
+suites include the matching official server, official codecs, the matching official client launched through the pinned
+headless adapter, and official world reload. Test code acquires these artifacts through the ordinary private
+test-support library, verifies and caches them inside `build/`, and never requires account tokens or an installed
+launcher. GUI testing is excluded.
 
 ## Reporting
 

@@ -9,4 +9,6 @@ This file extends the repository `AGENTS.md`.
 - Commit external payloads before region headers and remove stale sidecars after the region commit.
 - Keep timestamps explicit and batch region mutations when possible.
 
-Run `:world-io:jvmTest` after changes; it includes official world interoperability. Finish with the root `test` gate.
+Run `:world-io:jvmTest` after changes; it includes official world interoperability. Finish with the applicable standard
+KMP platform tasks or `allTests`. Filesystem behavior expressible with `kotlinx.io.files` belongs in `commonTest`; keep
+only official-process and genuinely JVM-specific checks in `jvmTest`.

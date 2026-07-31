@@ -3,132 +3,106 @@ package com.hiczp.minecraft.protocol.client
 import com.hiczp.minecraft.protocol.data.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.ConfigurationUpdateTagsPacket
+import com.hiczp.minecraft.test.MinecraftTestEnvironment
+import com.hiczp.minecraft.test.startOfficialServer
 import io.ktor.network.selector.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
-import java.io.IOException
-import java.net.InetSocketAddress
 import java.net.ServerSocket
-import java.net.Socket
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
 import java.time.Duration
-import java.util.concurrent.TimeUnit
-import kotlin.io.path.absolutePathString
 
 internal object OfficialServerClientInteropRunner {
-    @JvmStatic
-    fun main(arguments: Array<String>) {
-        require(arguments.size == 4) {
-            "Expected <analysis-java> <official-server.jar> " +
-                    "<work-directory> <report.json>"
-        }
-        val javaExecutable = Path.of(arguments[0]).toAbsolutePath().normalize()
-        val serverJar = Path.of(arguments[1]).toAbsolutePath().normalize()
-        val workDirectory = Path.of(arguments[2]).toAbsolutePath().normalize()
-        val report = Path.of(arguments[3]).toAbsolutePath().normalize()
-        require(Files.isRegularFile(javaExecutable))
-        require(Files.isRegularFile(serverJar))
+    fun run(
+        environment: MinecraftTestEnvironment,
+        workDirectory: Path,
+        report: Path,
+    ) {
+        val serverJar = environment.officialServer().jar
         Files.createDirectories(workDirectory)
         Files.createDirectories(report.parent)
         val port = ServerSocket(0).use { it.localPort }
         writeServerConfiguration(workDirectory, port)
 
-        val serverLog = StringBuilder()
-        val process = ProcessBuilder(
-            javaExecutable.absolutePathString(),
-            "-Djava.awt.headless=true",
-            "-jar",
-            serverJar.absolutePathString(),
-            "nogui",
-        )
-            .directory(workDirectory.toFile())
-            .redirectErrorStream(true)
-            .start()
-        val logThread = Thread.ofVirtual().name("official-client-interop-log").start {
+        environment.startOfficialServer(
+            workDirectory = workDirectory,
+            threadName = "official-client-interop-log",
+        ).use { server ->
             try {
-                process.inputStream.bufferedReader().useLines { lines ->
-                    lines.forEach { line ->
-                        synchronized(serverLog) {
-                            serverLog.appendLine(line)
-                            if (serverLog.length > 200_000) {
-                                serverLog.delete(0, serverLog.length - 150_000)
+                server.waitForLog(
+                    "[Server thread/INFO]: Done (",
+                    Duration.ofMinutes(2),
+                )
+                server.waitForPort(
+                    "127.0.0.1",
+                    port,
+                    Duration.ofMinutes(2),
+                )
+                val result = runBlocking {
+                    SelectorManager(Dispatchers.IO).use { selector ->
+                        MinecraftClientConnection.connect(
+                            selectorManager = selector,
+                            host = "127.0.0.1",
+                            port = port,
+                        ).use { statusClient ->
+                            val status = statusClient.protocol.queryStatus(
+                                0x0102_0304_0506_0708,
+                            )
+                            check(
+                                Regex(
+                                    """"protocol"\s*:\s*${MinecraftProtocol.PROTOCOL_VERSION}""",
+                                ).containsMatchIn(
+                                    status.response.jsonResponse,
+                                ),
+                            ) {
+                                "Official status did not advertise protocol " +
+                                        MinecraftProtocol.PROTOCOL_VERSION
                             }
                         }
-                    }
-                }
-            } catch (_: IOException) {
-                // Process teardown closes the diagnostic stream while this
-                // virtual thread may still be draining it.
-            }
-        }
 
-        try {
-            waitForServer(process, port, serverLog)
-            val result = runBlocking {
-                SelectorManager(Dispatchers.IO).use { selector ->
-                    MinecraftClientConnection.connect(
-                        selectorManager = selector,
-                        host = "127.0.0.1",
-                        port = port,
-                    ).use { statusClient ->
-                        val status = statusClient.protocol.queryStatus(
-                            0x0102_0304_0506_0708,
-                        )
-                        check(
-                            Regex(
-                                """"protocol"\s*:\s*${MinecraftProtocol.PROTOCOL_VERSION}""",
-                            ).containsMatchIn(status.response.jsonResponse),
-                        ) {
-                            "Official status did not advertise protocol " +
-                                    MinecraftProtocol.PROTOCOL_VERSION
+                        MinecraftClientConnection.connect(
+                            selectorManager = selector,
+                            host = "127.0.0.1",
+                            port = port,
+                        ).use { loginClient ->
+                            val login = loginClient.protocol.login(
+                                MinecraftOfflineIdentity("KmpClientProbe"),
+                                options = MinecraftClientOptions(
+                                    information =
+                                        MinecraftClientOptions()
+                                            .information.copy(
+                                                viewDistance = 2,
+                                            ),
+                                ),
+                            )
+                            check(
+                                loginClient.transport.frames.codec
+                                    .compressionThreshold == 64,
+                            ) {
+                                "Official server did not negotiate " +
+                                        "compression threshold 64"
+                            }
+                            verifyVanillaConfiguration(login)
+                            login
                         }
                     }
-
-                    MinecraftClientConnection.connect(
-                        selectorManager = selector,
-                        host = "127.0.0.1",
-                        port = port,
-                    ).use { loginClient ->
-                        val login = loginClient.protocol.login(
-                            MinecraftOfflineIdentity("KmpClientProbe"),
-                            options = MinecraftClientOptions(
-                                information =
-                                    MinecraftClientOptions().information.copy(
-                                        viewDistance = 2,
-                                    ),
-                            ),
-                        )
-                        check(
-                            loginClient.transport.frames.codec.compressionThreshold == 64,
-                        ) {
-                            "Official server did not negotiate compression threshold 64"
-                        }
-                        verifyVanillaConfiguration(login)
-                        login
-                    }
                 }
+                writeReport(report, serverJar, result)
+                println(
+                    "Production client reached Play against official " +
+                            "Minecraft " +
+                            MinecraftProtocol.MINECRAFT_VERSION,
+                )
+            } catch (failure: Throwable) {
+                throw AssertionError(
+                    "Official production-client interop failed.\n" +
+                            "--- official server log ---\n" +
+                            server.logText(),
+                    failure,
+                )
             }
-            writeReport(report, serverJar, result)
-            println(
-                "Production client reached Play against official Minecraft " +
-                        MinecraftProtocol.MINECRAFT_VERSION,
-            )
-        } catch (failure: Throwable) {
-            val log = synchronized(serverLog) { serverLog.toString() }
-            throw AssertionError(
-                "Official production-client interop failed.\n" +
-                        "--- official server log ---\n$log",
-                failure,
-            )
-        } finally {
-            process.destroy()
-            if (!process.waitFor(10, TimeUnit.SECONDS)) {
-                process.destroyForcibly()
-                process.waitFor(10, TimeUnit.SECONDS)
-            }
-            logThread.join(Duration.ofSeconds(5))
         }
     }
 
@@ -196,36 +170,6 @@ internal object OfficialServerClientInteropRunner {
             |view-distance=2
             """.trimMargin(),
         )
-    }
-
-    private fun waitForServer(
-        process: Process,
-        port: Int,
-        serverLog: StringBuilder,
-    ) {
-        val deadline = System.nanoTime() + Duration.ofMinutes(2).toNanos()
-        while (System.nanoTime() < deadline) {
-            check(process.isAlive) {
-                "Official server exited with ${process.exitValue()}: " +
-                        synchronized(serverLog) { serverLog.toString() }
-            }
-            val ready = synchronized(serverLog) {
-                serverLog.contains("[Server thread/INFO]: Done (")
-            }
-            if (!ready) {
-                Thread.sleep(100)
-                continue
-            }
-            try {
-                Socket().use { socket ->
-                    socket.connect(InetSocketAddress("127.0.0.1", port), 250)
-                    return
-                }
-            } catch (_: Exception) {
-                Thread.sleep(100)
-            }
-        }
-        error("Official server did not listen on port $port within two minutes")
     }
 
     private fun writeReport(

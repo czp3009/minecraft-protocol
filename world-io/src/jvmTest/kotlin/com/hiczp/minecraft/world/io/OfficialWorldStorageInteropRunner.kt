@@ -1,14 +1,14 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.protocol.model.type.NbtCompound
+import com.hiczp.minecraft.test.MinecraftTestEnvironment
+import com.hiczp.minecraft.test.startOfficialServer
 import com.hiczp.minecraft.world.format.RegionPosition
 import kotlinx.coroutines.runBlocking
 import java.net.ServerSocket
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
-import java.util.concurrent.TimeUnit
-import kotlin.io.path.absolutePathString
 import kotlinx.io.files.Path as IoPath
 
 /**
@@ -17,26 +17,17 @@ import kotlinx.io.files.Path as IoPath
  * to load and save the rewritten world.
  */
 internal object OfficialWorldStorageInteropRunner {
-    @JvmStatic
-    fun main(arguments: Array<String>) {
-        require(arguments.size == 4) {
-            "Expected <analysis-java> <official-server.jar> " +
-                    "<work-directory> <report.json>"
-        }
-        val javaExecutable = Path.of(arguments[0]).toAbsolutePath().normalize()
-        val serverJar = Path.of(arguments[1]).toAbsolutePath().normalize()
-        val workDirectory = Path.of(arguments[2]).toAbsolutePath().normalize()
-        val report = Path.of(arguments[3]).toAbsolutePath().normalize()
-        require(Files.isRegularFile(javaExecutable))
-        require(Files.isRegularFile(serverJar))
-
+    fun run(
+        environment: MinecraftTestEnvironment,
+        workDirectory: Path,
+        report: Path,
+    ) {
         recreateDirectory(workDirectory)
         Files.createDirectories(report.parent)
         Files.writeString(workDirectory.resolve("eula.txt"), "eula=true\n")
 
         runOfficialServer(
-            javaExecutable,
-            serverJar,
+            environment,
             workDirectory,
             generateChunk = true,
         )
@@ -50,8 +41,7 @@ internal object OfficialWorldStorageInteropRunner {
         }
 
         runOfficialServer(
-            javaExecutable,
-            serverJar,
+            environment,
             workDirectory,
             generateChunk = false,
         )
@@ -78,8 +68,7 @@ internal object OfficialWorldStorageInteropRunner {
     }
 
     private fun runOfficialServer(
-        javaExecutable: Path,
-        serverJar: Path,
+        environment: MinecraftTestEnvironment,
         workDirectory: Path,
         generateChunk: Boolean,
     ) {
@@ -103,83 +92,40 @@ internal object OfficialWorldStorageInteropRunner {
             """.trimMargin(),
         )
 
-        val log = StringBuilder()
-        val process = ProcessBuilder(
-            javaExecutable.absolutePathString(),
-            "-Djava.awt.headless=true",
-            "-jar",
-            serverJar.absolutePathString(),
-            "nogui",
-        )
-            .directory(workDirectory.toFile())
-            .redirectErrorStream(true)
-            .start()
-        val logThread = Thread.ofVirtual().name("official-world-log").start {
-            process.inputStream.bufferedReader().useLines { lines ->
-                lines.forEach { line ->
-                    synchronized(log) {
-                        log.appendLine(line)
-                        if (log.length > 300_000) {
-                            log.delete(0, log.length - 200_000)
-                        }
-                    }
+        environment.startOfficialServer(
+            workDirectory = workDirectory,
+            threadName = "official-world-log",
+        ).use { server ->
+            try {
+                server.waitForLog(
+                    "[Server thread/INFO]: Done (",
+                    Duration.ofMinutes(3),
+                )
+                if (generateChunk) {
+                    server.sendLine("forceload add 0 0")
+                    server.sendLine("save-all flush")
+                    server.waitForLog(
+                        "Saved the game",
+                        Duration.ofMinutes(3),
+                    )
                 }
+                server.sendLine("stop")
+                val exitCode = server.awaitExit(Duration.ofSeconds(90))
+                check(exitCode != null) {
+                    "Official server did not stop within 90 seconds"
+                }
+                check(exitCode == 0) {
+                    "Official server exited with $exitCode"
+                }
+            } catch (failure: Throwable) {
+                throw AssertionError(
+                    "Official world interoperability failed.\n" +
+                            "--- official server log ---\n" +
+                            server.logText(),
+                    failure,
+                )
             }
         }
-
-        try {
-            waitForLog(process, log, "[Server thread/INFO]: Done (")
-            if (generateChunk) {
-                process.outputWriter().apply {
-                    write("forceload add 0 0\n")
-                    write("save-all flush\n")
-                    flush()
-                }
-                waitForLog(process, log, "Saved the game")
-            }
-            process.outputWriter().apply {
-                write("stop\n")
-                flush()
-            }
-            check(process.waitFor(90, TimeUnit.SECONDS)) {
-                "Official server did not stop within 90 seconds"
-            }
-            check(process.exitValue() == 0) {
-                "Official server exited with ${process.exitValue()}"
-            }
-        } catch (failure: Throwable) {
-            throw AssertionError(
-                "Official world interoperability failed.\n" +
-                        "--- official server log ---\n" +
-                        synchronized(log) { log.toString() },
-                failure,
-            )
-        } finally {
-            if (process.isAlive) {
-                process.destroy()
-                if (!process.waitFor(10, TimeUnit.SECONDS)) {
-                    process.destroyForcibly()
-                    process.waitFor(10, TimeUnit.SECONDS)
-                }
-            }
-            logThread.join(Duration.ofSeconds(5))
-        }
-    }
-
-    private fun waitForLog(
-        process: Process,
-        log: StringBuilder,
-        text: String,
-    ) {
-        val deadline = System.nanoTime() + Duration.ofMinutes(3).toNanos()
-        while (System.nanoTime() < deadline) {
-            check(process.isAlive) {
-                "Official server exited before log marker '$text'"
-            }
-            if (synchronized(log) { text in log }) return
-            Thread.sleep(100)
-        }
-        error("Official server did not emit '$text' within three minutes")
     }
 
     private fun auditAndRewrite(

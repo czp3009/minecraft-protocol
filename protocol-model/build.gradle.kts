@@ -1,27 +1,35 @@
+import com.hiczp.minecraft.protocol.buildScript.DownloadOfficialMinecraftServerTask
 import com.hiczp.minecraft.protocol.buildScript.GenerateMinecraftProtocolSourceTask
-import com.hiczp.minecraft.protocol.buildScript.MinecraftTarget
+import com.hiczp.minecraft.protocol.buildScript.GenerateOfficialMinecraftReportsTask
 import com.hiczp.minecraft.protocol.buildScript.configureAllTargets
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.ksp)
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
 }
 
 val generatedProtocolSourceDirectory = layout.buildDirectory.dir(
     "generated/sources/minecraftProtocol/commonMain/kotlin",
 )
+val generatedPacketDefinitionsDirectory = layout.buildDirectory.dir(
+    "generated/ksp/metadata/commonMain/kotlin",
+)
+// Run the aggregating processor once over commonMain. KSP does not attach the
+// common-metadata output to every platform compilation or source JAR, so the
+// shared output and task dependency are wired explicitly below.
+val generatePacketDefinitions =
+    tasks.matching { it.name == "kspCommonMainKotlinMetadata" }
 val generateMinecraftProtocolSource =
     tasks.register<GenerateMinecraftProtocolSourceTask>(
         "generateMinecraftProtocolSource",
     ) {
-        dependsOn(rootProject.tasks.named("downloadOfficialMinecraftServer"))
-        repositoryDirectory.set(rootProject.layout.projectDirectory)
-        serverJar.set(
-            rootProject.layout.buildDirectory.file(
-                "protocol-reference/mojang/${MinecraftTarget.version}/server.jar",
-            ),
-        )
+        val download = rootProject.tasks
+            .named<DownloadOfficialMinecraftServerTask>(
+                "downloadOfficialMinecraftServer",
+            )
+        serverJar.set(download.flatMap { it.serverJar })
         outputFile.set(
             generatedProtocolSourceDirectory.map {
                 it.file(
@@ -30,6 +38,24 @@ val generateMinecraftProtocolSource =
             },
         )
     }
+
+val officialReports = rootProject.tasks.named<GenerateOfficialMinecraftReportsTask>(
+    "generateOfficialMinecraftReports",
+)
+val packetsReport = officialReports.flatMap {
+    it.outputDirectory.file("reports/packets.json")
+}
+
+ksp {
+    arg(
+        "minecraft.packetsReport",
+        packetsReport.map { it.asFile.absolutePath },
+    )
+}
+
+dependencies {
+    add("kspCommonMainMetadata", project(":protocol-symbol-processor"))
+}
 
 kotlin {
     configureAllTargets("com.hiczp.minecraft.protocol.model")
@@ -40,6 +66,7 @@ kotlin {
                 files(generatedProtocolSourceDirectory)
                     .builtBy(generateMinecraftProtocolSource),
             )
+            kotlin.srcDir(generatedPacketDefinitionsDirectory)
             dependencies {
                 api(libs.kotlinx.serialization.core)
             }
@@ -51,18 +78,15 @@ kotlin {
     }
 }
 
-tasks.named<Test>("jvmTest") {
-    dependsOn(rootProject.tasks.named("generateProtocolSpecification"))
-    systemProperty(
-        "minecraft.protocol.expectedSpecification",
-        rootProject.layout.buildDirectory.dir(
-            "generated/protocol-specification/complete",
-        ).get().asFile.absolutePath,
-    )
-    systemProperty(
-        "minecraft.protocol.checkedInSpecification",
-        rootProject.layout.projectDirectory.dir(
-            "protocol-specification",
-        ).asFile.absolutePath,
-    )
+generatePacketDefinitions.configureEach {
+    inputs.file(packetsReport)
+        .withPathSensitivity(PathSensitivity.NONE)
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask<*>>()
+    .configureEach {
+        dependsOn(generatePacketDefinitions)
+    }
+tasks.matching { it.name.endsWith("SourcesJar") }.configureEach {
+    dependsOn(generatePacketDefinitions)
 }

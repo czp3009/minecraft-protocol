@@ -21,6 +21,6 @@ All workflows use the matching official JAR as the primary source and behavioral
 second, then exact-version MCProtocolLib and Minestom. Nullability follows the same order, falling through to the next
 source only when the earlier source is inconclusive.
 
-Skills may invoke Gradle in the same way as a human. Gradle tasks own deterministic artifacts under `build/`; they must
-never read skill files or skill-generated output. Agent-only reference clones, manual decompilation, and scratch belong
-under `temp/`, which Gradle and its helper scripts must never access.
+Skills may invoke Gradle in the same way as a human. Production tasks and standard tests keep deterministic artifacts
+under `build/`; they must never read skill files or skill-generated output. Agent-only reference clones, manual
+decompilation, and scratch belong under `temp/`, which Gradle and its helper scripts must never access.

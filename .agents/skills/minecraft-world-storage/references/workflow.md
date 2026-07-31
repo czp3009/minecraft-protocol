@@ -9,8 +9,8 @@ Confirm the buildSrc target and refresh official evidence:
 .\gradlew.bat refreshProtocolSpecification
 ```
 
-For an explicit release request, edit only `MinecraftTarget.version` before refresh. Read `target.json` to obtain
-official protocol/artifact facts.
+For an explicit release request, edit only `MinecraftTarget.version` before refresh. Read
+`protocol-specification/generated/target.json` to obtain official protocol/artifact facts.
 
 When structured reports and executable behavior are insufficient, manually decompile the exact server into `temp/` and
 search by behavior and constants, not only remembered class names. Locate:
@@ -45,10 +45,11 @@ world with the exact official server, rewrites it, and requires that server to r
 After all affected JVM suites pass, run:
 
 ```powershell
-.\gradlew.bat test
+.\gradlew.bat allTests
 ```
 
-Do not add a JS filesystem target merely to make this list symmetrical.
+This selects the modules' standard KMP aggregates; do not add a root verification task or a JS filesystem target merely
+to make this list symmetrical.
 
 The completion report identifies source disagreements, unimplemented custom extensions, unsupported targets, and any
 remaining uncertainty. It does not copy volatile counts or version facts into this reference.

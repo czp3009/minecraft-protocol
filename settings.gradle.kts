@@ -29,4 +29,6 @@ include(
     ":protocol-server",
     ":world-format",
     ":world-io",
+    ":minecraft-test-support",
+    ":protocol-symbol-processor",
 )

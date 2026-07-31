@@ -1,40 +1,24 @@
 package com.hiczp.minecraft.protocol.client
 
-import java.nio.file.Files
-import java.nio.file.Path
+import com.hiczp.minecraft.protocol.model.MinecraftProtocol
+import com.hiczp.minecraft.test.MinecraftTestEnvironment
 import kotlin.test.Test
 
 class OfficialServerClientInteropTest {
     @Test
     fun productionClientReachesPlayAgainstOfficialServer() {
-        val work = configuredPath(
-            "minecraft.protocol.clientInteropWork",
+        val environment = MinecraftTestEnvironment.forModule(
+            moduleName = "protocol-client",
+            minecraftVersion = MinecraftProtocol.MINECRAFT_VERSION,
         )
-        deleteTree(work)
-        OfficialServerClientInteropRunner.main(
-            arrayOf(
-                configuredPath("minecraft.protocol.java").toString(),
-                configuredPath("minecraft.protocol.serverJar").toString(),
-                work.toString(),
-                configuredPath(
-                    "minecraft.protocol.clientInteropReport",
-                ).toString(),
+        OfficialServerClientInteropRunner.run(
+            environment = environment,
+            workDirectory = environment.freshWorkDirectory(
+                "official-server/${MinecraftProtocol.MINECRAFT_VERSION}",
+            ),
+            report = environment.reportFile(
+                "official-server-client.json",
             ),
         )
-    }
-
-    private fun configuredPath(property: String): Path =
-        Path.of(
-            requireNotNull(System.getProperty(property)) {
-                "Gradle did not configure $property"
-            },
-        ).toAbsolutePath().normalize()
-
-    private fun deleteTree(root: Path) {
-        if (!Files.exists(root)) return
-        Files.walk(root).use { paths ->
-            paths.sorted(Comparator.reverseOrder())
-                .forEach(Files::delete)
-        }
     }
 }

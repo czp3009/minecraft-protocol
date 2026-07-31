@@ -5,12 +5,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.gradle.api.file.RegularFileProperty
-import org.gradle.api.tasks.CacheableTask
-import org.gradle.api.tasks.InputFile
-import org.gradle.api.tasks.OutputFile
-import org.gradle.api.tasks.PathSensitive
-import org.gradle.api.tasks.PathSensitivity
-import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.*
 import java.nio.charset.StandardCharsets
 import java.util.*
 import kotlin.io.path.isRegularFile
@@ -39,7 +34,8 @@ abstract class GenerateVanillaStaticDataSourceTask :
 
     @TaskAction
     fun generate() {
-        val target = repository.readMinecraftProtocolTarget()
+        val target = serverJar.asFile.get().toPath()
+            .readMinecraftProtocolTarget(minecraftVersion.get())
         val registriesPath = registriesFile.asFile.get().toPath()
         val blocksPath = blocksFile.asFile.get().toPath()
         check(registriesPath.isRegularFile()) {

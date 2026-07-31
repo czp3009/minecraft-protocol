@@ -1,4 +1,7 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+@file:OptIn(
+    kotlinx.serialization.ExperimentalSerializationApi::class,
+    InternalDataComponentRegistryApi::class,
+)
 
 package com.hiczp.minecraft.protocol.model.type
 
@@ -143,9 +146,17 @@ enum class DataComponentType(
     }
 }
 
-@SerialInfo
 @Target(AnnotationTarget.CLASS)
-annotation class DataComponentInfo(val type: DataComponentType)
+@Retention(AnnotationRetention.SOURCE)
+internal annotation class DataComponentInfo(val type: DataComponentType)
+
+@RequiresOptIn(
+    message = "Generated data-component serializer dispatch is an internal " +
+            "protocol implementation API.",
+    level = RequiresOptIn.Level.WARNING,
+)
+@Retention(AnnotationRetention.BINARY)
+annotation class InternalDataComponentRegistryApi
 
 @Serializable(with = DataComponentSerializer::class)
 sealed interface DataComponent {
@@ -1054,8 +1065,9 @@ internal abstract class DataComponentSerializerBase(
     }
 
     final override fun serialize(encoder: Encoder, value: DataComponent) {
-        val valueSerializer = serializerForValue(value)
-        val type = componentInfo(valueSerializer).type
+        val type = GeneratedDataComponentSerializers.type(value)
+        val valueSerializer =
+            GeneratedDataComponentSerializers.serializer(type)
         val output = encoder.beginStructure(descriptor)
         output.encodeIntElement(descriptor, TYPE, type.protocolId)
         @Suppress("UNCHECKED_CAST")
@@ -1074,7 +1086,8 @@ internal abstract class DataComponentSerializerBase(
         var value: DataComponent? = null
         if (input.decodeSequentially()) {
             type = decodeType(input.decodeIntElement(descriptor, TYPE))
-            val valueSerializer = serializerForType(type)
+            val valueSerializer =
+                GeneratedDataComponentSerializers.serializer(type)
             @Suppress("UNCHECKED_CAST")
             value = input.decodeSerializableElement(
                 descriptor,
@@ -1093,7 +1106,9 @@ internal abstract class DataComponentSerializerBase(
                         value = input.decodeSerializableElement(
                             descriptor,
                             VALUE,
-                            serializerForType(actualType) as
+                            GeneratedDataComponentSerializers.serializer(
+                                actualType,
+                            ) as
                                     DeserializationStrategy<DataComponent>,
                         )
                     }
@@ -1109,7 +1124,7 @@ internal abstract class DataComponentSerializerBase(
         val result = value ?: throw SerializationException(
             "Missing data component value for ${type?.wireName ?: "unknown type"}",
         )
-        if (componentInfo(serializerForValue(result)).type != type) {
+        if (GeneratedDataComponentSerializers.type(result) != type) {
             throw SerializationException("Data component type/value mismatch")
         }
         return result
@@ -1356,485 +1371,8 @@ internal object ItemStackTemplateSerializer : KSerializer<ItemStackTemplate> {
     private const val COMPONENTS: Int = 2
 }
 
-private fun serializerForValue(
-    value: DataComponent,
-): KSerializer<out DataComponent> = when (value) {
-    is DataComponent.CustomData -> DataComponent.CustomData.serializer()
-    is DataComponent.MaxStackSize -> DataComponent.MaxStackSize.serializer()
-    is DataComponent.MaxDamage -> DataComponent.MaxDamage.serializer()
-    is DataComponent.Damage -> DataComponent.Damage.serializer()
-    DataComponent.Unbreakable -> DataComponent.Unbreakable.serializer()
-    is DataComponent.UseEffects -> DataComponent.UseEffects.serializer()
-    is DataComponent.CustomName -> DataComponent.CustomName.serializer()
-    is DataComponent.MinimumAttackCharge ->
-        DataComponent.MinimumAttackCharge.serializer()
-
-    is DataComponent.DamageType -> DataComponent.DamageType.serializer()
-    is DataComponent.ItemName -> DataComponent.ItemName.serializer()
-    is DataComponent.ItemModel -> DataComponent.ItemModel.serializer()
-    is DataComponent.Lore -> DataComponent.Lore.serializer()
-    is DataComponent.Rarity -> DataComponent.Rarity.serializer()
-    is DataComponent.Enchantments -> DataComponent.Enchantments.serializer()
-    is DataComponent.CanPlaceOn -> DataComponent.CanPlaceOn.serializer()
-    is DataComponent.CanBreak -> DataComponent.CanBreak.serializer()
-    is DataComponent.AttributeModifiers ->
-        DataComponent.AttributeModifiers.serializer()
-
-    is DataComponent.CustomModelData ->
-        DataComponent.CustomModelData.serializer()
-
-    is DataComponent.TooltipDisplay ->
-        DataComponent.TooltipDisplay.serializer()
-
-    is DataComponent.RepairCost -> DataComponent.RepairCost.serializer()
-    DataComponent.CreativeSlotLock ->
-        DataComponent.CreativeSlotLock.serializer()
-
-    is DataComponent.EnchantmentGlintOverride ->
-        DataComponent.EnchantmentGlintOverride.serializer()
-
-    is DataComponent.IntangibleProjectile ->
-        DataComponent.IntangibleProjectile.serializer()
-
-    is DataComponent.Food -> DataComponent.Food.serializer()
-    is DataComponent.Consumable -> DataComponent.Consumable.serializer()
-    is DataComponent.UseRemainder -> DataComponent.UseRemainder.serializer()
-    is DataComponent.UseCooldown -> DataComponent.UseCooldown.serializer()
-    is DataComponent.DamageResistant ->
-        DataComponent.DamageResistant.serializer()
-
-    is DataComponent.Tool -> DataComponent.Tool.serializer()
-    is DataComponent.Weapon -> DataComponent.Weapon.serializer()
-    is DataComponent.AttackRange -> DataComponent.AttackRange.serializer()
-    is DataComponent.Enchantable -> DataComponent.Enchantable.serializer()
-    is DataComponent.Equippable -> DataComponent.Equippable.serializer()
-    is DataComponent.Repairable -> DataComponent.Repairable.serializer()
-    DataComponent.Glider -> DataComponent.Glider.serializer()
-    is DataComponent.TooltipStyle -> DataComponent.TooltipStyle.serializer()
-    is DataComponent.DeathProtection ->
-        DataComponent.DeathProtection.serializer()
-
-    is DataComponent.BlocksAttacks ->
-        DataComponent.BlocksAttacks.serializer()
-
-    is DataComponent.PiercingWeapon ->
-        DataComponent.PiercingWeapon.serializer()
-
-    is DataComponent.KineticWeapon ->
-        DataComponent.KineticWeapon.serializer()
-
-    is DataComponent.SwingAnimation ->
-        DataComponent.SwingAnimation.serializer()
-
-    is DataComponent.AdditionalTradeCost ->
-        DataComponent.AdditionalTradeCost.serializer()
-
-    is DataComponent.StoredEnchantments ->
-        DataComponent.StoredEnchantments.serializer()
-
-    is DataComponent.Dye -> DataComponent.Dye.serializer()
-    is DataComponent.DyedColor -> DataComponent.DyedColor.serializer()
-    is DataComponent.MapColor -> DataComponent.MapColor.serializer()
-    is DataComponent.MapId -> DataComponent.MapId.serializer()
-    is DataComponent.MapDecorations ->
-        DataComponent.MapDecorations.serializer()
-
-    is DataComponent.MapPostProcessingValue ->
-        DataComponent.MapPostProcessingValue.serializer()
-
-    is DataComponent.ChargedProjectiles ->
-        DataComponent.ChargedProjectiles.serializer()
-
-    is DataComponent.BundleContents ->
-        DataComponent.BundleContents.serializer()
-
-    is DataComponent.PotionContents ->
-        DataComponent.PotionContents.serializer()
-
-    is DataComponent.PotionDurationScale ->
-        DataComponent.PotionDurationScale.serializer()
-
-    is DataComponent.SuspiciousStewEffects ->
-        DataComponent.SuspiciousStewEffects.serializer()
-
-    is DataComponent.WritableBookContent ->
-        DataComponent.WritableBookContent.serializer()
-
-    is DataComponent.WrittenBookContent ->
-        DataComponent.WrittenBookContent.serializer()
-
-    is DataComponent.Trim -> DataComponent.Trim.serializer()
-    is DataComponent.DebugStickState ->
-        DataComponent.DebugStickState.serializer()
-
-    is DataComponent.EntityData -> DataComponent.EntityData.serializer()
-    is DataComponent.BucketEntityData ->
-        DataComponent.BucketEntityData.serializer()
-
-    is DataComponent.BlockEntityData ->
-        DataComponent.BlockEntityData.serializer()
-
-    is DataComponent.Instrument -> DataComponent.Instrument.serializer()
-    is DataComponent.ProvidesTrimMaterial ->
-        DataComponent.ProvidesTrimMaterial.serializer()
-
-    is DataComponent.OminousBottleAmplifier ->
-        DataComponent.OminousBottleAmplifier.serializer()
-
-    is DataComponent.JukeboxPlayable ->
-        DataComponent.JukeboxPlayable.serializer()
-
-    is DataComponent.ProvidesBannerPatterns ->
-        DataComponent.ProvidesBannerPatterns.serializer()
-
-    is DataComponent.Recipes -> DataComponent.Recipes.serializer()
-    is DataComponent.LodestoneTracker ->
-        DataComponent.LodestoneTracker.serializer()
-
-    is DataComponent.FireworkExplosionValue ->
-        DataComponent.FireworkExplosionValue.serializer()
-
-    is DataComponent.Fireworks -> DataComponent.Fireworks.serializer()
-    is DataComponent.Profile -> DataComponent.Profile.serializer()
-    is DataComponent.NoteBlockSound ->
-        DataComponent.NoteBlockSound.serializer()
-
-    is DataComponent.BannerPatterns ->
-        DataComponent.BannerPatterns.serializer()
-
-    is DataComponent.BaseColor -> DataComponent.BaseColor.serializer()
-    is DataComponent.PotDecorations ->
-        DataComponent.PotDecorations.serializer()
-
-    is DataComponent.Container -> DataComponent.Container.serializer()
-    is DataComponent.BlockState -> DataComponent.BlockState.serializer()
-    is DataComponent.Bees -> DataComponent.Bees.serializer()
-    is DataComponent.SulfurCubeContent ->
-        DataComponent.SulfurCubeContent.serializer()
-
-    is DataComponent.Lock -> DataComponent.Lock.serializer()
-    is DataComponent.ContainerLoot -> DataComponent.ContainerLoot.serializer()
-    is DataComponent.BreakSound -> DataComponent.BreakSound.serializer()
-    is DataComponent.VillagerVariant ->
-        DataComponent.VillagerVariant.serializer()
-
-    is DataComponent.WolfVariant -> DataComponent.WolfVariant.serializer()
-    is DataComponent.WolfSoundVariant ->
-        DataComponent.WolfSoundVariant.serializer()
-
-    is DataComponent.WolfCollar -> DataComponent.WolfCollar.serializer()
-    is DataComponent.FoxVariantValue ->
-        DataComponent.FoxVariantValue.serializer()
-
-    is DataComponent.SalmonSize -> DataComponent.SalmonSize.serializer()
-    is DataComponent.ParrotVariantValue ->
-        DataComponent.ParrotVariantValue.serializer()
-
-    is DataComponent.TropicalFishPatternValue ->
-        DataComponent.TropicalFishPatternValue.serializer()
-
-    is DataComponent.TropicalFishBaseColor ->
-        DataComponent.TropicalFishBaseColor.serializer()
-
-    is DataComponent.TropicalFishPatternColor ->
-        DataComponent.TropicalFishPatternColor.serializer()
-
-    is DataComponent.MooshroomVariantValue ->
-        DataComponent.MooshroomVariantValue.serializer()
-
-    is DataComponent.RabbitVariantValue ->
-        DataComponent.RabbitVariantValue.serializer()
-
-    is DataComponent.PigVariant -> DataComponent.PigVariant.serializer()
-    is DataComponent.PigSoundVariant ->
-        DataComponent.PigSoundVariant.serializer()
-
-    is DataComponent.CowVariant -> DataComponent.CowVariant.serializer()
-    is DataComponent.CowSoundVariant ->
-        DataComponent.CowSoundVariant.serializer()
-
-    is DataComponent.ChickenVariant ->
-        DataComponent.ChickenVariant.serializer()
-
-    is DataComponent.ChickenSoundVariant ->
-        DataComponent.ChickenSoundVariant.serializer()
-
-    is DataComponent.ZombieNautilusVariant ->
-        DataComponent.ZombieNautilusVariant.serializer()
-
-    is DataComponent.FrogVariant -> DataComponent.FrogVariant.serializer()
-    is DataComponent.HorseVariantValue ->
-        DataComponent.HorseVariantValue.serializer()
-
-    is DataComponent.PaintingVariant ->
-        DataComponent.PaintingVariant.serializer()
-
-    is DataComponent.LlamaVariantValue ->
-        DataComponent.LlamaVariantValue.serializer()
-
-    is DataComponent.AxolotlVariantValue ->
-        DataComponent.AxolotlVariantValue.serializer()
-
-    is DataComponent.CatVariant -> DataComponent.CatVariant.serializer()
-    is DataComponent.CatSoundVariant ->
-        DataComponent.CatSoundVariant.serializer()
-
-    is DataComponent.CatCollar -> DataComponent.CatCollar.serializer()
-    is DataComponent.SheepColor -> DataComponent.SheepColor.serializer()
-    is DataComponent.ShulkerColor ->
-        DataComponent.ShulkerColor.serializer()
-}
-
-private fun serializerForType(
-    type: DataComponentType,
-): KSerializer<out DataComponent> = when (type) {
-    DataComponentType.CUSTOM_DATA -> DataComponent.CustomData.serializer()
-    DataComponentType.MAX_STACK_SIZE -> DataComponent.MaxStackSize.serializer()
-    DataComponentType.MAX_DAMAGE -> DataComponent.MaxDamage.serializer()
-    DataComponentType.DAMAGE -> DataComponent.Damage.serializer()
-    DataComponentType.UNBREAKABLE -> DataComponent.Unbreakable.serializer()
-    DataComponentType.USE_EFFECTS -> DataComponent.UseEffects.serializer()
-    DataComponentType.CUSTOM_NAME -> DataComponent.CustomName.serializer()
-    DataComponentType.MINIMUM_ATTACK_CHARGE ->
-        DataComponent.MinimumAttackCharge.serializer()
-
-    DataComponentType.DAMAGE_TYPE -> DataComponent.DamageType.serializer()
-    DataComponentType.ITEM_NAME -> DataComponent.ItemName.serializer()
-    DataComponentType.ITEM_MODEL -> DataComponent.ItemModel.serializer()
-    DataComponentType.LORE -> DataComponent.Lore.serializer()
-    DataComponentType.RARITY -> DataComponent.Rarity.serializer()
-    DataComponentType.ENCHANTMENTS -> DataComponent.Enchantments.serializer()
-    DataComponentType.CAN_PLACE_ON -> DataComponent.CanPlaceOn.serializer()
-    DataComponentType.CAN_BREAK -> DataComponent.CanBreak.serializer()
-    DataComponentType.ATTRIBUTE_MODIFIERS ->
-        DataComponent.AttributeModifiers.serializer()
-
-    DataComponentType.CUSTOM_MODEL_DATA ->
-        DataComponent.CustomModelData.serializer()
-
-    DataComponentType.TOOLTIP_DISPLAY ->
-        DataComponent.TooltipDisplay.serializer()
-
-    DataComponentType.REPAIR_COST -> DataComponent.RepairCost.serializer()
-    DataComponentType.CREATIVE_SLOT_LOCK ->
-        DataComponent.CreativeSlotLock.serializer()
-
-    DataComponentType.ENCHANTMENT_GLINT_OVERRIDE ->
-        DataComponent.EnchantmentGlintOverride.serializer()
-
-    DataComponentType.INTANGIBLE_PROJECTILE ->
-        DataComponent.IntangibleProjectile.serializer()
-
-    DataComponentType.FOOD -> DataComponent.Food.serializer()
-    DataComponentType.CONSUMABLE -> DataComponent.Consumable.serializer()
-    DataComponentType.USE_REMAINDER ->
-        DataComponent.UseRemainder.serializer()
-
-    DataComponentType.USE_COOLDOWN -> DataComponent.UseCooldown.serializer()
-    DataComponentType.DAMAGE_RESISTANT ->
-        DataComponent.DamageResistant.serializer()
-
-    DataComponentType.TOOL -> DataComponent.Tool.serializer()
-    DataComponentType.WEAPON -> DataComponent.Weapon.serializer()
-    DataComponentType.ATTACK_RANGE -> DataComponent.AttackRange.serializer()
-    DataComponentType.ENCHANTABLE -> DataComponent.Enchantable.serializer()
-    DataComponentType.EQUIPPABLE -> DataComponent.Equippable.serializer()
-    DataComponentType.REPAIRABLE -> DataComponent.Repairable.serializer()
-    DataComponentType.GLIDER -> DataComponent.Glider.serializer()
-    DataComponentType.TOOLTIP_STYLE ->
-        DataComponent.TooltipStyle.serializer()
-
-    DataComponentType.DEATH_PROTECTION ->
-        DataComponent.DeathProtection.serializer()
-
-    DataComponentType.BLOCKS_ATTACKS ->
-        DataComponent.BlocksAttacks.serializer()
-
-    DataComponentType.PIERCING_WEAPON ->
-        DataComponent.PiercingWeapon.serializer()
-
-    DataComponentType.KINETIC_WEAPON ->
-        DataComponent.KineticWeapon.serializer()
-
-    DataComponentType.SWING_ANIMATION ->
-        DataComponent.SwingAnimation.serializer()
-
-    DataComponentType.ADDITIONAL_TRADE_COST ->
-        DataComponent.AdditionalTradeCost.serializer()
-
-    DataComponentType.STORED_ENCHANTMENTS ->
-        DataComponent.StoredEnchantments.serializer()
-
-    DataComponentType.DYE -> DataComponent.Dye.serializer()
-    DataComponentType.DYED_COLOR -> DataComponent.DyedColor.serializer()
-    DataComponentType.MAP_COLOR -> DataComponent.MapColor.serializer()
-    DataComponentType.MAP_ID -> DataComponent.MapId.serializer()
-    DataComponentType.MAP_DECORATIONS ->
-        DataComponent.MapDecorations.serializer()
-
-    DataComponentType.MAP_POST_PROCESSING ->
-        DataComponent.MapPostProcessingValue.serializer()
-
-    DataComponentType.CHARGED_PROJECTILES ->
-        DataComponent.ChargedProjectiles.serializer()
-
-    DataComponentType.BUNDLE_CONTENTS ->
-        DataComponent.BundleContents.serializer()
-
-    DataComponentType.POTION_CONTENTS ->
-        DataComponent.PotionContents.serializer()
-
-    DataComponentType.POTION_DURATION_SCALE ->
-        DataComponent.PotionDurationScale.serializer()
-
-    DataComponentType.SUSPICIOUS_STEW_EFFECTS ->
-        DataComponent.SuspiciousStewEffects.serializer()
-
-    DataComponentType.WRITABLE_BOOK_CONTENT ->
-        DataComponent.WritableBookContent.serializer()
-
-    DataComponentType.WRITTEN_BOOK_CONTENT ->
-        DataComponent.WrittenBookContent.serializer()
-
-    DataComponentType.TRIM -> DataComponent.Trim.serializer()
-    DataComponentType.DEBUG_STICK_STATE ->
-        DataComponent.DebugStickState.serializer()
-
-    DataComponentType.ENTITY_DATA -> DataComponent.EntityData.serializer()
-    DataComponentType.BUCKET_ENTITY_DATA ->
-        DataComponent.BucketEntityData.serializer()
-
-    DataComponentType.BLOCK_ENTITY_DATA ->
-        DataComponent.BlockEntityData.serializer()
-
-    DataComponentType.INSTRUMENT -> DataComponent.Instrument.serializer()
-    DataComponentType.PROVIDES_TRIM_MATERIAL ->
-        DataComponent.ProvidesTrimMaterial.serializer()
-
-    DataComponentType.OMINOUS_BOTTLE_AMPLIFIER ->
-        DataComponent.OminousBottleAmplifier.serializer()
-
-    DataComponentType.JUKEBOX_PLAYABLE ->
-        DataComponent.JukeboxPlayable.serializer()
-
-    DataComponentType.PROVIDES_BANNER_PATTERNS ->
-        DataComponent.ProvidesBannerPatterns.serializer()
-
-    DataComponentType.RECIPES -> DataComponent.Recipes.serializer()
-    DataComponentType.LODESTONE_TRACKER ->
-        DataComponent.LodestoneTracker.serializer()
-
-    DataComponentType.FIREWORK_EXPLOSION ->
-        DataComponent.FireworkExplosionValue.serializer()
-
-    DataComponentType.FIREWORKS -> DataComponent.Fireworks.serializer()
-    DataComponentType.PROFILE -> DataComponent.Profile.serializer()
-    DataComponentType.NOTE_BLOCK_SOUND ->
-        DataComponent.NoteBlockSound.serializer()
-
-    DataComponentType.BANNER_PATTERNS ->
-        DataComponent.BannerPatterns.serializer()
-
-    DataComponentType.BASE_COLOR -> DataComponent.BaseColor.serializer()
-    DataComponentType.POT_DECORATIONS ->
-        DataComponent.PotDecorations.serializer()
-
-    DataComponentType.CONTAINER -> DataComponent.Container.serializer()
-    DataComponentType.BLOCK_STATE -> DataComponent.BlockState.serializer()
-    DataComponentType.BEES -> DataComponent.Bees.serializer()
-    DataComponentType.SULFUR_CUBE_CONTENT ->
-        DataComponent.SulfurCubeContent.serializer()
-
-    DataComponentType.LOCK -> DataComponent.Lock.serializer()
-    DataComponentType.CONTAINER_LOOT ->
-        DataComponent.ContainerLoot.serializer()
-
-    DataComponentType.BREAK_SOUND -> DataComponent.BreakSound.serializer()
-    DataComponentType.VILLAGER_VARIANT ->
-        DataComponent.VillagerVariant.serializer()
-
-    DataComponentType.WOLF_VARIANT ->
-        DataComponent.WolfVariant.serializer()
-
-    DataComponentType.WOLF_SOUND_VARIANT ->
-        DataComponent.WolfSoundVariant.serializer()
-
-    DataComponentType.WOLF_COLLAR -> DataComponent.WolfCollar.serializer()
-    DataComponentType.FOX_VARIANT ->
-        DataComponent.FoxVariantValue.serializer()
-
-    DataComponentType.SALMON_SIZE -> DataComponent.SalmonSize.serializer()
-    DataComponentType.PARROT_VARIANT ->
-        DataComponent.ParrotVariantValue.serializer()
-
-    DataComponentType.TROPICAL_FISH_PATTERN ->
-        DataComponent.TropicalFishPatternValue.serializer()
-
-    DataComponentType.TROPICAL_FISH_BASE_COLOR ->
-        DataComponent.TropicalFishBaseColor.serializer()
-
-    DataComponentType.TROPICAL_FISH_PATTERN_COLOR ->
-        DataComponent.TropicalFishPatternColor.serializer()
-
-    DataComponentType.MOOSHROOM_VARIANT ->
-        DataComponent.MooshroomVariantValue.serializer()
-
-    DataComponentType.RABBIT_VARIANT ->
-        DataComponent.RabbitVariantValue.serializer()
-
-    DataComponentType.PIG_VARIANT -> DataComponent.PigVariant.serializer()
-    DataComponentType.PIG_SOUND_VARIANT ->
-        DataComponent.PigSoundVariant.serializer()
-
-    DataComponentType.COW_VARIANT -> DataComponent.CowVariant.serializer()
-    DataComponentType.COW_SOUND_VARIANT ->
-        DataComponent.CowSoundVariant.serializer()
-
-    DataComponentType.CHICKEN_VARIANT ->
-        DataComponent.ChickenVariant.serializer()
-
-    DataComponentType.CHICKEN_SOUND_VARIANT ->
-        DataComponent.ChickenSoundVariant.serializer()
-
-    DataComponentType.ZOMBIE_NAUTILUS_VARIANT ->
-        DataComponent.ZombieNautilusVariant.serializer()
-
-    DataComponentType.FROG_VARIANT ->
-        DataComponent.FrogVariant.serializer()
-
-    DataComponentType.HORSE_VARIANT ->
-        DataComponent.HorseVariantValue.serializer()
-
-    DataComponentType.PAINTING_VARIANT ->
-        DataComponent.PaintingVariant.serializer()
-
-    DataComponentType.LLAMA_VARIANT ->
-        DataComponent.LlamaVariantValue.serializer()
-
-    DataComponentType.AXOLOTL_VARIANT ->
-        DataComponent.AxolotlVariantValue.serializer()
-
-    DataComponentType.CAT_VARIANT -> DataComponent.CatVariant.serializer()
-    DataComponentType.CAT_SOUND_VARIANT ->
-        DataComponent.CatSoundVariant.serializer()
-
-    DataComponentType.CAT_COLLAR -> DataComponent.CatCollar.serializer()
-    DataComponentType.SHEEP_COLOR -> DataComponent.SheepColor.serializer()
-    DataComponentType.SHULKER_COLOR ->
-        DataComponent.ShulkerColor.serializer()
-}
-
-private fun componentInfo(
-    serializer: KSerializer<out DataComponent>,
-): DataComponentInfo = serializer.descriptor.annotations
-    .filterIsInstance<DataComponentInfo>()
-    .singleOrNull()
-    ?: throw SerializationException(
-        "${serializer.descriptor.serialName} lacks @DataComponentInfo",
-    )
-
 private fun componentType(value: DataComponent): DataComponentType =
-    componentInfo(serializerForValue(value)).type
+    GeneratedDataComponentSerializers.type(value)
 
 private fun normalizePatch(
     added: List<DataComponent>,

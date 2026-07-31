@@ -1,9 +1,10 @@
+@file:OptIn(
+    com.hiczp.minecraft.protocol.model.packet.InternalPacketRegistryApi::class,
+)
+
 package com.hiczp.minecraft.protocol.serialization
 
-import com.hiczp.minecraft.protocol.model.packet.ConnectionState
-import com.hiczp.minecraft.protocol.model.packet.Packet
-import com.hiczp.minecraft.protocol.model.packet.PacketDirection
-import com.hiczp.minecraft.protocol.model.packet.PacketFraming
+import com.hiczp.minecraft.protocol.model.packet.*
 import kotlinx.serialization.KSerializer
 import kotlin.reflect.KClass
 
@@ -138,6 +139,19 @@ object MinecraftPacketRegistry {
         format: MinecraftFormat = MinecraftFormat.Default,
     ): Packet = delegate.decodePayload(state, direction, id, payload, format)
 }
+
+private fun generatedPacketCodecs(): List<PacketCodec<out Packet>> =
+    GeneratedPacketDefinitions.entries.map { definition ->
+        definition.toPacketCodec()
+    }
+
+private fun <T : Packet> PacketDefinition<T>.toPacketCodec(): PacketCodec<T> =
+    PacketCodec(
+        key = PacketKey(state, direction, id),
+        framing = framing,
+        packetClass = packetClass,
+        serializer = serializer,
+    )
 
 private fun <K, V> uniqueIndex(
     values: List<V>,

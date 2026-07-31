@@ -33,13 +33,10 @@ enum class PacketFraming {
     LEGACY_UNFRAMED,
 }
 
-/**
- * Human-readable protocol metadata. The runtime registry remains explicit so it
- * works on every Kotlin target without reflection.
- */
+/** Source metadata consumed by KSP to build the portable runtime registry. */
 @Target(AnnotationTarget.CLASS)
-@Retention(AnnotationRetention.BINARY)
-annotation class PacketInfo(
+@Retention(AnnotationRetention.SOURCE)
+internal annotation class PacketInfo(
     val id: Int,
     val state: ConnectionState,
     val direction: PacketDirection,
