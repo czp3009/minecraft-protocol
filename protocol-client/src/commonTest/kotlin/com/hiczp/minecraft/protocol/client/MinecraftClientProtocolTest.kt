@@ -16,6 +16,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.uuid.Uuid
 
 class MinecraftClientProtocolTest {
     @Test
@@ -47,7 +48,7 @@ class MinecraftClientProtocolTest {
         val identity = MinecraftOfflineIdentity("ClientProbe")
         val loginSuccess = LoginSuccessPacket(
             profile = GameProfile(identity.id, identity.name, emptyList()),
-            sessionId = Uuid(10, 20),
+            sessionId = Uuid.fromLongs(10, 20),
         )
         val playLogin = playLogin()
         val corePack = KnownPack("minecraft", "core", MinecraftProtocol.MINECRAFT_VERSION)
@@ -168,7 +169,7 @@ class MinecraftClientProtocolTest {
             serverSession.send(
                 LoginSuccessPacket(
                     GameProfile(identity.id, identity.name, emptyList()),
-                    Uuid(1, 2),
+                    Uuid.fromLongs(1, 2),
                 ),
             )
             assertEquals(LoginAcknowledgedPacket, serverSession.receive())

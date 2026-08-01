@@ -6,14 +6,16 @@ import com.hiczp.minecraft.protocol.data.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.PlayLoginPacket
 import com.hiczp.minecraft.protocol.model.type.*
+import kotlinx.serialization.json.*
 import kotlin.random.Random
+import kotlin.uuid.Uuid
 
 data class MinecraftServerConfiguration(
     val authentication: MinecraftServerAuthentication =
         MinecraftServerAuthentication.Offline,
     val protocolData: ProtocolDataSet = VanillaProtocolData,
     val compressionThreshold: Int? = 256,
-    val sessionId: Uuid = Uuid(
+    val sessionId: Uuid = Uuid.fromLongs(
         Random.nextLong(),
         Random.nextLong(),
     ),
@@ -52,23 +54,26 @@ data class MinecraftServerConfiguration(
             enforcesSecureChat &&
                     authentication is MinecraftServerAuthentication.Online
 
-    fun statusJson(onlinePlayers: Int = 0): String =
-        """
-        |{
-        |  "version": {
-        |    "name": "${escapeJson(protocolData.minecraftVersion)}",
-        |    "protocol": ${protocolData.protocolVersion}
-        |  },
-        |  "players": {
-        |    "max": $maximumPlayers,
-        |    "online": $onlinePlayers
-        |  },
-        |  "description": {
-        |    "text": "${escapeJson(statusDescription)}"
-        |  },
-        |  "enforcesSecureChat": $effectiveSecureChatEnforcement
-        |}
-        """.trimMargin()
+    fun statusJson(onlinePlayers: Int = 0): String {
+        require(onlinePlayers >= 0) { "Online player count cannot be negative" }
+        return serverJson.encodeToString(
+            JsonElement.serializer(),
+            buildJsonObject {
+                putJsonObject("version") {
+                    put("name", protocolData.minecraftVersion)
+                    put("protocol", protocolData.protocolVersion)
+                }
+                putJsonObject("players") {
+                    put("max", maximumPlayers)
+                    put("online", onlinePlayers)
+                }
+                putJsonObject("description") {
+                    put("text", statusDescription)
+                }
+                put("enforcesSecureChat", effectiveSecureChatEnforcement)
+            },
+        )
+    }
 
     fun playLogin(profile: GameProfile): PlayLoginPacket {
         val dimension = Identifier("overworld")
@@ -109,23 +114,7 @@ data class MinecraftServerConfiguration(
     }
 }
 
-internal fun escapeJson(value: String): String = buildString {
-    value.forEach { character ->
-        when (character) {
-            '\\' -> append("\\\\")
-            '"' -> append("\\\"")
-            '\b' -> append("\\b")
-            '\u000C' -> append("\\f")
-            '\n' -> append("\\n")
-            '\r' -> append("\\r")
-            '\t' -> append("\\t")
-            else ->
-                if (character.code < 0x20) {
-                    append("\\u")
-                    append(character.code.toString(16).padStart(4, '0'))
-                } else {
-                    append(character)
-                }
-        }
-    }
-}
+internal fun textComponentJson(key: String, value: String): String =
+    buildJsonObject { put(key, value) }.toString()
+
+private val serverJson = Json { prettyPrint = true }

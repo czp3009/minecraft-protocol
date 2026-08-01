@@ -1,82 +1,39 @@
 package com.hiczp.minecraft.protocol.serialization.internal
 
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
+import kotlinx.io.Buffer
 
-internal class MinecraftWriter(initialCapacity: Int = 128) {
-    private var bytes: ByteArray = ByteArray(initialCapacity)
-    private var size: Int = 0
+internal typealias MinecraftWriter = Buffer
 
-    fun writeByte(value: Int) {
-        ensureCapacity(1)
-        bytes[size++] = value.toByte()
-    }
+internal fun MinecraftWriter.writeByte(value: Int) {
+    writeByte(value.toByte())
+}
 
-    fun writeBytes(value: ByteArray) {
-        ensureCapacity(value.size)
-        value.copyInto(bytes, destinationOffset = size)
-        size += value.size
-    }
+internal fun MinecraftWriter.writeShort(value: Int) {
+    writeShort(value.toShort())
+}
 
-    fun writeShort(value: Int) {
-        ensureCapacity(2)
-        bytes[size++] = (value ushr 8).toByte()
-        bytes[size++] = value.toByte()
-    }
-
-    fun writeInt(value: Int) {
-        ensureCapacity(4)
-        bytes[size++] = (value ushr 24).toByte()
-        bytes[size++] = (value ushr 16).toByte()
-        bytes[size++] = (value ushr 8).toByte()
-        bytes[size++] = value.toByte()
-    }
-
-    fun writeLong(value: Long) {
-        ensureCapacity(8)
-        bytes[size++] = (value ushr 56).toByte()
-        bytes[size++] = (value ushr 48).toByte()
-        bytes[size++] = (value ushr 40).toByte()
-        bytes[size++] = (value ushr 32).toByte()
-        bytes[size++] = (value ushr 24).toByte()
-        bytes[size++] = (value ushr 16).toByte()
-        bytes[size++] = (value ushr 8).toByte()
-        bytes[size++] = value.toByte()
-    }
-
-    fun writeVarInt(value: Int) {
-        var remaining = value
-        while (true) {
-            if (remaining and 0x7F.inv() == 0) {
-                writeByte(remaining)
-                return
-            }
-            writeByte(remaining and 0x7F or 0x80)
-            remaining = remaining ushr 7
+internal fun MinecraftWriter.writeVarInt(value: Int) {
+    var remaining = value
+    while (true) {
+        if (remaining and 0x7F.inv() == 0) {
+            writeByte(remaining)
+            return
         }
+        writeByte(remaining and 0x7F or 0x80)
+        remaining = remaining ushr 7
     }
+}
 
-    fun writeVarLong(value: Long) {
-        var remaining = value
-        while (true) {
-            if (remaining and 0x7FL.inv() == 0L) {
-                writeByte(remaining.toInt())
-                return
-            }
-            writeByte((remaining and 0x7F or 0x80).toInt())
-            remaining = remaining ushr 7
+internal fun MinecraftWriter.writeVarLong(value: Long) {
+    var remaining = value
+    while (true) {
+        if (remaining and 0x7FL.inv() == 0L) {
+            writeByte(remaining.toInt())
+            return
         }
-    }
-
-    fun toByteArray(): ByteArray = bytes.copyOf(size)
-
-    private fun ensureCapacity(additional: Int) {
-        val required = size + additional
-        if (required <= bytes.size) return
-        var newSize = bytes.size.coerceAtLeast(1)
-        while (newSize < required) {
-            newSize = (newSize * 2).coerceAtLeast(required)
-        }
-        bytes = bytes.copyOf(newSize)
+        writeByte((remaining and 0x7F or 0x80).toInt())
+        remaining = remaining ushr 7
     }
 }
 

@@ -10,7 +10,7 @@ This module inherits the repository guidance.
 - Common tests own golden payloads, branch coverage, limits, malformed input, and registry-wide round trips.
 - Configuration capture is implemented entirely by the `buildSrc` task registered in `protocol-vanilla-data`; this
   runtime module exposes no generator bridge or CLI.
-- Keep portable branch samples and round trips in `commonTest`. JVM tests own test-only packet framing, official-codec
-  differential execution, and official-server interoperability through `minecraft-test-support`. They run through the
-  standard `jvmTest` task.
+- Keep portable branch samples and round trips in `commonTest`. The official-server scenario shares the portable Ktor
+  transport and `minecraft-test-support` external-process fixture across supported host targets; only the reflective
+  official-codec differential oracle remains in `jvmTest`. Both run through standard platform test tasks.
 - Production transport APIs enter a dedicated networking stage and package.

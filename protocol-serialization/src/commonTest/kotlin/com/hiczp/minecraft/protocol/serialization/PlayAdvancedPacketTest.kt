@@ -6,6 +6,7 @@ import kotlinx.serialization.KSerializer
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.uuid.Uuid
 
 class PlayAdvancedPacketTest {
     @Test
@@ -85,7 +86,7 @@ class PlayAdvancedPacketTest {
                 ),
                 entries = listOf(
                     PlayerInfoEntry(
-                        profileId = Uuid(0, 0),
+                        profileId = Uuid.fromLongs(0, 0),
                         profile = PlayerListProfile("a", emptyList()),
                         latency = 300,
                     ),
@@ -127,7 +128,7 @@ class PlayAdvancedPacketTest {
         val packet = WaypointPacket(
             operation = WaypointOperation.UPDATE,
             waypoint = TrackedWaypoint.Chunk(
-                identifier = WaypointIdentifier.Entity(Uuid(0, 0)),
+                identifier = WaypointIdentifier.Entity(Uuid.fromLongs(0, 0)),
                 icon = WaypointIcon(Identifier("test"), 0x112233),
                 x = -1,
                 z = 300,
@@ -199,7 +200,7 @@ class PlayAdvancedPacketTest {
         serializer: KSerializer<T>,
         expectedHex: String,
     ) {
-        val expected = expectedHex.hexBytes()
+        val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(serializer, value),
@@ -208,12 +209,5 @@ class PlayAdvancedPacketTest {
             value,
             MinecraftFormat.decodeFromByteArray(serializer, expected),
         )
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
 }

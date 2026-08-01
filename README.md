@@ -4,8 +4,8 @@
 storage formats. It provides `kotlinx.serialization` packet models and codecs, typed vanilla Configuration data, Ktor
 transport and sessions, authentication helpers, client/server connection orchestration, binary NBT, and Anvil world I/O.
 
-The implemented release and protocol number are exposed by `MinecraftProtocol` in `protocol-model`. Checked-in
-version-dependent evidence lives in `protocol-specification`.
+The implemented release and protocol number are exposed by `MinecraftProtocol` in `protocol-model`. Deterministic
+version-dependent analysis and generated source stay under Gradle-managed `build/` directories.
 
 This is infrastructure for Minecraft applications, not a complete gameplay server. `protocol-server` can admit an
 offline client through Play and project a finite initial set of chunks and entities; authoritative worlds, ticking, game
@@ -13,17 +13,20 @@ rules, persistence policy, and gameplay remain application concerns.
 
 ## Requirements
 
-- JDK 25. Gradle and every JVM/Android compilation target use Java 25.
+- A JDK with Java major version 25 or newer, with its `java` command available on `PATH`. The project deliberately
+  standardizes its Gradle JVM toolchain and JVM/Android bytecode target on Java 25 as one convenient, uniform baseline.
 - An Android SDK configured through the usual Gradle mechanisms, including `local.properties`, when running the full
   multiplatform gate.
 - Network access on the first exhaustive verification run so Gradle can acquire normal build dependencies and standard
-  JVM tests can acquire hash-verified Minecraft reference artifacts.
+  tests can acquire hash-verified Minecraft reference artifacts.
 
-Use the checked-in wrapper; a separate Gradle installation is unnecessary. Gradle provisions the Node/Yarn and Kotlin
-Native tooling used by the non-JVM targets. The checked-in daemon JVM criteria selects a discoverable JDK 25, so
-`JAVA_HOME` does not need to point at it explicitly. JS and Wasm tests run with Gradle-provisioned Node/D8 and do not
-require a machine-installed browser. The official-client E2E does not require Minecraft, a launcher, an account, a
-display server, or a manually started process.
+Use the checked-in wrapper; a separate Gradle installation is unnecessary. The configured Java 25 toolchain and bytecode
+target are a project policy for convenience and consistency, not a claim that the Kotlin sources intrinsically depend on
+Java 25-only APIs. Standard tests launch official Minecraft processes through the `java` command on `PATH`; that command
+may report any Java major version of 25 or newer, and no exact minor or patch release is required. Gradle provisions the
+Node/Yarn and Kotlin Native tooling used by the non-JVM targets. JS and Wasm tests run with Gradle-provisioned Node/D8
+and do not require a machine-installed browser. The official-client E2E does not require Minecraft, a launcher, an
+account, a display server, or a manually started process.
 
 ## Modules
 
@@ -42,14 +45,16 @@ display server, or a manually started process.
 | `world-format`           | Filesystem-independent Anvil regions, compression modes, external chunks, and NBT composition   |
 | `world-io`               | World paths, standalone NBT, and atomic chunk/entity/POI region storage                         |
 
-The published modules above are the runtime library layer. Build-time preparation has two mechanisms:
-non-source-driven generators are cacheable task types in `buildSrc`, registered only by the module that owns their
-output, while source-to-source generation uses the private `protocol-symbol-processor` KSP module. Neither mechanism is
-part of the published runtime API.
+The published modules above are the runtime library layer. Root official-analysis tasks first turn the matching JAR into
+Gradle-managed data artifacts. Non-source-driven generators are cacheable task types in `buildSrc`, registered only by
+the runtime module that owns their generated source, while source-to-source generation uses the private
+`protocol-symbol-processor` KSP module and its standard output. None of this build preparation is part of the published
+runtime API.
 
-`minecraft-test-support` is a private, unpublished JVM fixture library used only by repository tests. Calling it from a
-standard `jvmTest` acquires and verifies official artifacts and manages external test processes without adding Gradle
-preparation tasks or command-line helper applications.
+`minecraft-test-support` is a private, unpublished Kotlin Multiplatform fixture library used only by repository tests.
+Its ordinary resource APIs acquire and verify official artifacts, allocate unique workspaces and endpoints, wait for
+readiness, retain bounded logs, and close directly owned peer processes from standard JVM, desktop Native, and Node
+tests; no Gradle preparation task or command-line helper is involved.
 
 `nbt` and `world-format` expose `Source`/`Sink` APIs on stream-capable targets. `world-io` targets JVM, Android, and
 Native platforms with filesystem support; browser-like consumers use the stream modules directly. Portable JS/Wasm tests
@@ -96,11 +101,9 @@ limits, permissions, world generation, ticking and watchdogs, entity tracking, s
 RCON, JMX, and the JSON-RPC management service. These are not silently emulated, but the library does not install fixed
 values that prevent the application from implementing them.
 
-The official default inventory is generated into
-[`protocol-specification/generated/server-properties.json`](protocol-specification/generated/server-properties.json)
-for review. It is evidence, not a runtime configuration file. For example, a consuming adapter would map a negative
-`network-compression-threshold` to `compressionThreshold = null`; all non-negative values map directly. Set
-`enforcesSecureChat` only after the consuming server really validates secure profiles and signed chat.
+For example, a consuming adapter would map a negative `network-compression-threshold` to
+`compressionThreshold = null`; all non-negative values map directly. Set `enforcesSecureChat` only after the consuming
+server really validates secure profiles and signed chat.
 
 ## Verification
 
@@ -163,32 +166,35 @@ Wire and storage behavior follows the matching official server JAR. The revision
 descriptive source; exact-version MCProtocolLib and Minestom are auxiliary references in that order. Nullability follows
 the same evidence order, with unresolved values kept nullable and marked `@UnknownNullability`.
 
-[`MinecraftTarget.version`](buildSrc/src/main/kotlin/com/hiczp/minecraft/protocol/buildScript/MinecraftTarget.kt) is the
-single manually selected Minecraft release. Print it with:
+[
+`MinecraftTarget.MINECRAFT_VERSION`](buildSrc/src/main/kotlin/com/hiczp/minecraft/protocol/buildScript/MinecraftTarget.kt)
+is the single manually selected Minecraft release. Print it with:
 
 ```shell
 ./gradlew -q minecraftVersion
 ```
 
-Gradle downloads that official server, reads its `version.json`, runs its data generator and codecs, captures its
-Configuration packets, and generates runtime Kotlin under module `build/generated` directories. KSP generates the
-dispatch tables derived from Kotlin annotations; cacheable `buildSrc` tasks own generation driven by official non-source
-inputs. Published source JARs include those generated files. The checked-in `protocol-specification/generated`
-directory contains canonical official evidence for reviewing release diffs; its handwritten README describes those
-files. Compilation, tests, and production code do not read it.
+Gradle downloads that official server and runs a root official-analysis task group. Each analyzer owns one distinct
+subdirectory below `build/generated/official-minecraft/<version>/`: target facts, official data-generator reports, or a
+complete capture of both Configuration Known Packs branches. These outputs are exposed as Gradle artifacts.
+
+The owning runtime modules consume those artifacts through cacheable data-to-source tasks; those generators never read
+the official JAR. KSP uses its standard generated-source location for dispatch tables derived from Kotlin annotations.
+Published source JARs include all generated Kotlin. No target-dependent JSON or generated Kotlin is checked into the
+source tree.
 
 ## Updating for a Minecraft release
 
-Change `MinecraftTarget.version`, then regenerate the deterministic evidence:
+Change `MinecraftTarget.MINECRAFT_VERSION`, then let the normal build regenerate what its task graph needs. To run the
+whole official-analysis layer explicitly:
 
 ```shell
-./gradlew refreshProtocolSpecification
+./gradlew officialMinecraftAnalysis
 ```
 
-Review the specification diff, update hand-modeled semantics that cannot be derived mechanically, run affected
-`jvmTest` tasks, then run the applicable standard platform tests or `./gradlew allTests`. Root `clean` preserves the
-handwritten overview and checked-in generated evidence; only `refreshProtocolSpecification` replaces
-`protocol-specification/generated`.
+Update hand-modeled semantics that cannot be derived mechanically, run affected `jvmTest` tasks, then run the applicable
+standard platform tests or `./gradlew allTests`. Gradle derives reuse entirely from declared inputs, outputs, task
+implementation, and artifact provenance; there is no refresh/copy/freshness-comparison workflow.
 
 The playbooks indexed in `.agents/skills/README.md` are optional instructions for coding agents performing the same
 human development work. They may call Gradle, but Gradle never reads those skills or their scratch output; deleting the

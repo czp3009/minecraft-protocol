@@ -3,9 +3,10 @@ package com.hiczp.minecraft.world.io
 import kotlinx.io.buffered
 import kotlinx.io.files.FileSystem
 import kotlinx.io.files.Path
+import kotlinx.io.readByteArray
 import kotlin.random.Random
 
-internal fun FileSystem.readByteArray(
+internal fun FileSystem.readFileWithinLimit(
     path: Path,
     maximumBytes: Int,
 ): ByteArray {
@@ -22,26 +23,17 @@ internal fun FileSystem.readByteArray(
     }
 
     val source = source(path).buffered()
-    val output = FileByteAccumulator(
-        initialCapacity = metadata.size.toInt().coerceAtLeast(1),
-    )
-    val chunk = ByteArray(8_192)
     try {
-        while (true) {
-            val read = source.readAtMostTo(chunk)
-            if (read < 0) break
-            if (read == 0) continue
-            if (output.size > maximumBytes - read) {
-                throw WorldIOException(
-                    "File $path grew beyond limit $maximumBytes while reading",
-                )
-            }
-            output.append(chunk, read)
+        val bytes = source.readByteArray(metadata.size.toInt())
+        if (!source.exhausted()) {
+            throw WorldIOException(
+                "File $path grew beyond limit $maximumBytes while reading",
+            )
         }
+        return bytes
     } finally {
         source.close()
     }
-    return output.toByteArray()
 }
 
 internal fun FileSystem.writeByteArrayAtomically(
@@ -107,26 +99,3 @@ class WorldIOException(
     message: String,
     cause: Throwable? = null,
 ) : RuntimeException(message, cause)
-
-private class FileByteAccumulator(initialCapacity: Int) {
-    private var bytes = ByteArray(initialCapacity)
-    var size: Int = 0
-        private set
-
-    fun append(source: ByteArray, length: Int) {
-        ensureCapacity(size + length)
-        source.copyInto(bytes, destinationOffset = size, endIndex = length)
-        size += length
-    }
-
-    fun toByteArray(): ByteArray = bytes.copyOf(size)
-
-    private fun ensureCapacity(required: Int) {
-        if (required <= bytes.size) return
-        var capacity = bytes.size.coerceAtLeast(1)
-        while (capacity < required) {
-            capacity = (capacity * 2).coerceAtLeast(required)
-        }
-        bytes = bytes.copyOf(capacity)
-    }
-}

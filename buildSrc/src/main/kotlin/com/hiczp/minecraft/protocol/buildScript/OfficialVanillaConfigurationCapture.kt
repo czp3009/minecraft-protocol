@@ -1,10 +1,17 @@
 package com.hiczp.minecraft.protocol.buildScript
 
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
+import com.squareup.kotlinpoet.CodeBlock
+import com.squareup.kotlinpoet.FileSpec
+import com.squareup.kotlinpoet.KModifier.CONST
+import com.squareup.kotlinpoet.KModifier.INTERNAL
+import com.squareup.kotlinpoet.LIST
+import com.squareup.kotlinpoet.MemberName
+import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
+import com.squareup.kotlinpoet.PropertySpec
+import com.squareup.kotlinpoet.STRING
+import com.squareup.kotlinpoet.TypeSpec
+import kotlinx.serialization.json.*
 import java.io.*
-import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.ByteBuffer
@@ -16,12 +23,14 @@ import java.nio.file.Path
 import java.time.Duration
 import java.util.*
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.locks.ReentrantLock
 import java.util.zip.DataFormatException
 import java.util.zip.Deflater
 import java.util.zip.Inflater
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.createDirectories
 import kotlin.io.path.isRegularFile
+import kotlin.concurrent.withLock
 
 internal data class OfficialPacketKey(
     val state: String,
@@ -86,6 +95,7 @@ internal class OfficialPacketIds private constructor(
 internal object OfficialVanillaConfigurationCapture {
     private const val COMPRESSION_THRESHOLD = 64
     private const val MAXIMUM_PACKETS = 512
+    private const val MAXIMUM_BIND_ATTEMPTS = 5
 
     fun capture(
         javaExecutable: String,
@@ -104,12 +114,50 @@ internal object OfficialVanillaConfigurationCapture {
 
         workDirectory.deleteTree()
         workDirectory.createDirectories()
-        val port = ServerSocket(0).use { it.localPort }
-        writeServerConfiguration(workDirectory, port)
+        var lastBindFailure: Throwable? = null
+        for (attempt in 1..MAXIMUM_BIND_ATTEMPTS) {
+            val attemptDirectory = workDirectory.resolve("attempt-$attempt")
+            attemptDirectory.createDirectories()
+            val port = ServerSocket(0).use { it.localPort }
+            writeServerConfiguration(attemptDirectory, port)
+            try {
+                return captureFromRunningServer(
+                    java = java,
+                    serverJar = serverJar,
+                    workDirectory = attemptDirectory,
+                    port = port,
+                    target = target,
+                    packetIds = packetIds,
+                )
+            } catch (failure: Throwable) {
+                if (
+                    attempt == MAXIMUM_BIND_ATTEMPTS ||
+                    !failure.isPortBindFailure()
+                ) {
+                    throw failure
+                }
+                lastBindFailure = failure
+            }
+        }
+        throw AssertionError(
+            "Official server could not acquire a loopback port after " +
+                    "$MAXIMUM_BIND_ATTEMPTS attempts",
+            lastBindFailure,
+        )
+    }
 
+    private fun captureFromRunningServer(
+        java: Path,
+        serverJar: Path,
+        workDirectory: Path,
+        port: Int,
+        target: MinecraftProtocolTarget,
+        packetIds: OfficialPacketIds,
+    ): VanillaConfigurationCaptureResult {
         val process = ProcessBuilder(
             java.absolutePathString(),
             "-Djava.awt.headless=true",
+            "-Djoml.nounsafe=true",
             "-jar",
             serverJar.absolutePathString(),
             "nogui",
@@ -119,7 +167,7 @@ internal object OfficialVanillaConfigurationCapture {
             .start()
         val log = BoundedProcessLog(process, "vanilla-data-capture-log")
         try {
-            waitForServer(process, port, log)
+            waitForServer(process, log)
             val complete = captureConfiguration(
                 port = port,
                 name = "FullDataProbe",
@@ -158,6 +206,16 @@ internal object OfficialVanillaConfigurationCapture {
             }
             log.close()
         }
+    }
+
+    private fun Throwable.isPortBindFailure(): Boolean {
+        val diagnostic = generateSequence(this) { it.cause }
+            .joinToString("\n") { it.message.orEmpty() }
+        return listOf(
+            "failed to bind to port",
+            "address already in use",
+            "bindexception",
+        ).any { marker -> diagnostic.contains(marker, ignoreCase = true) }
     }
 
     private fun captureConfiguration(
@@ -203,7 +261,7 @@ internal object OfficialVanillaConfigurationCapture {
                     LOGIN to "login_disconnect" ->
                         error(
                             "Official server rejected $name: " +
-                                    packet.payload.toHex(),
+                                    packet.payload.toHexString(),
                         )
 
                     LOGIN to "cookie_request" -> {
@@ -258,7 +316,7 @@ internal object OfficialVanillaConfigurationCapture {
                     CONFIGURATION to "disconnect" ->
                         error(
                             "Official server rejected $name: " +
-                                    packet.payload.toHex(),
+                                    packet.payload.toHexString(),
                         )
 
                     CONFIGURATION to "cookie_request" -> {
@@ -400,23 +458,7 @@ internal object OfficialVanillaConfigurationCapture {
         }
         complete.registries.zip(clientKnown.registries)
             .forEach { (full, compact) ->
-                check(full.registryId == compact.registryId) {
-                    "Registry order changed: ${full.registryId} vs " +
-                            compact.registryId
-                }
-                check(
-                    full.entries.map(RegistryEntryPayload::id) ==
-                            compact.entries.map(RegistryEntryPayload::id),
-                ) {
-                    "Registry entries changed for ${full.registryId}"
-                }
-                check(full.entries.all { it.data != null }) {
-                    "Full-data capture omitted data in ${full.registryId}"
-                }
-                check(compact.entries.all { it.data == null }) {
-                    "Known-pack capture retained data in " +
-                            compact.registryId
-                }
+                validateRegistryPair(full, compact)
             }
     }
 
@@ -465,32 +507,13 @@ internal object OfficialVanillaConfigurationCapture {
 
     private fun waitForServer(
         process: Process,
-        port: Int,
         log: BoundedProcessLog,
     ) {
-        val deadline = System.nanoTime() + Duration.ofMinutes(2).toNanos()
-        while (System.nanoTime() < deadline) {
-            check(process.isAlive) {
-                "Official server exited with ${process.exitValue()}: " +
-                        log.content()
-            }
-            if (!log.contains("[Server thread/INFO]: Done (")) {
-                Thread.sleep(100)
-                continue
-            }
-            try {
-                Socket().use { socket ->
-                    socket.connect(
-                        InetSocketAddress("127.0.0.1", port),
-                        250,
-                    )
-                    return
-                }
-            } catch (_: IOException) {
-                Thread.sleep(100)
-            }
-        }
-        error("Official server did not listen on port $port within two minutes")
+        log.awaitContains(
+            text = "[Server thread/INFO]: Done (",
+            process = process,
+            timeout = Duration.ofMinutes(2),
+        )
     }
 }
 
@@ -503,66 +526,78 @@ internal data class VanillaConfigurationCaptureResult(
     val completePacketSequence: List<String>,
     val clientKnownPacketSequence: List<String>,
 ) {
-    fun renderKotlin(target: MinecraftProtocolTarget): String =
-        buildString {
-            appendLine("package com.hiczp.minecraft.protocol.data")
-            appendLine()
-            appendLine(
-                "/** Exact official-server packet payloads; " +
-                        "regenerated by Gradle. */",
+    fun renderKotlin(target: MinecraftProtocolTarget): FileSpec {
+        val payloads = TypeSpec.objectBuilder("VanillaConfigurationPayloads")
+            .addModifiers(INTERNAL)
+            .addKdoc(
+                "Exact official-server packet payloads; regenerated by Gradle.\n",
             )
-            appendLine("internal object VanillaConfigurationPayloads {")
-            appendLine(
-                "    const val minecraftVersion: String = " +
-                        quoteKotlin(target.minecraftVersion),
+            .addProperty(
+                PropertySpec.builder("minecraftVersion", STRING, CONST)
+                    .initializer("%S", target.minecraftVersion)
+                    .build(),
             )
-            appendLine(
-                "    const val protocolVersion: Int = " +
-                        target.protocolVersion,
+            .addProperty(
+                PropertySpec.builder("protocolVersion", Int::class, CONST)
+                    .initializer("%L", target.protocolVersion)
+                    .build(),
             )
-            appendPayload("knownPacks", knownPacks.encode())
-            appendPayload("featureFlags", featureFlags.encode())
-            appendPayloadList(
+            .addPayload("knownPacks", knownPacks.encode())
+            .addPayload("featureFlags", featureFlags.encode())
+            .addPayloadList(
                 "completeRegistries",
                 completeRegistries.map(RegistryPayload::encode),
             )
-            appendPayloadList(
+            .addPayloadList(
                 "clientKnownRegistries",
                 clientKnownRegistries.map(RegistryPayload::encode),
             )
-            appendPayload("tags", tags.encode())
-            appendLine("}")
-        }
+            .addPayload("tags", tags.encode())
+            .build()
+        return FileSpec.builder(
+            "com.hiczp.minecraft.protocol.data",
+            "VanillaConfigurationPayloads",
+        ).addType(payloads)
+            .build()
+    }
 
-    fun renderManifest(
+    fun toAnalysisJson(
         target: MinecraftProtocolTarget,
-        serverJar: Path,
+        serverSha256: String,
     ): JsonObject {
+        check(serverSha256.matches(Regex("[0-9a-f]{64}"))) {
+            "Official server SHA-256 is invalid"
+        }
         val registries = completeRegistries.zip(clientKnownRegistries)
             .map { (full, compact) ->
-                val ids = full.entries.joinToString(
-                    separator = "\n",
-                    transform = RegistryEntryPayload::id,
-                ).encodeToByteArray()
+                validateRegistryPair(full, compact)
                 jsonObjectOf(
                     "id" to jsonString(full.registryId),
-                    "entry_count" to jsonNumber(full.entries.size),
-                    "entry_ids_sha256" to jsonString(ids.sha256()),
-                    "full_payload_sha256" to
-                            jsonString(full.encode().sha256()),
-                    "known_pack_payload_sha256" to
-                            jsonString(compact.encode().sha256()),
-                    "known_pack_omits_entry_data" to jsonBoolean(
-                        compact.entries.all { it.data == null },
+                    "entries" to JsonArray(
+                        full.entries.map {
+                            jsonString(it.id)
+                        },
+                    ),
+                    "complete_payload_base64" to jsonString(
+                        Base64.getEncoder().encodeToString(full.encode()),
+                    ),
+                    "client_known_payload_base64" to jsonString(
+                        Base64.getEncoder().encodeToString(compact.encode()),
                     ),
                 )
             }
-        val tagSummaries = tags.registries.map { registry ->
+        val structuredTags = tags.registries.map { registry ->
             jsonObjectOf(
                 "registry" to jsonString(registry.registry),
-                "tag_count" to jsonNumber(registry.tags.size),
-                "entries_count" to jsonNumber(
-                    registry.tags.sumOf { it.entries.size },
+                "tags" to JsonArray(
+                    registry.tags.map { tag ->
+                        jsonObjectOf(
+                            "name" to jsonString(tag.name),
+                            "entries" to JsonArray(
+                                tag.entries.map(::jsonNumber),
+                            ),
+                        )
+                    },
                 ),
             )
         }
@@ -570,7 +605,7 @@ internal data class VanillaConfigurationCaptureResult(
             "schema_version" to jsonNumber(1),
             "minecraft_version" to jsonString(target.minecraftVersion),
             "protocol_version" to jsonNumber(target.protocolVersion),
-            "official_server_sha256" to jsonString(serverJar.sha256()),
+            "official_server_sha256" to jsonString(serverSha256),
             "known_packs" to JsonArray(
                 knownPacks.values.map { pack ->
                     jsonObjectOf(
@@ -584,7 +619,18 @@ internal data class VanillaConfigurationCaptureResult(
                 featureFlags.values.map(::jsonString),
             ),
             "registries" to JsonArray(registries),
-            "tags" to JsonArray(tagSummaries),
+            "tags" to JsonArray(structuredTags),
+            "payloads" to jsonObjectOf(
+                "known_packs_base64" to jsonString(
+                    Base64.getEncoder().encodeToString(knownPacks.encode()),
+                ),
+                "feature_flags_base64" to jsonString(
+                    Base64.getEncoder().encodeToString(featureFlags.encode()),
+                ),
+                "tags_base64" to jsonString(
+                    Base64.getEncoder().encodeToString(tags.encode()),
+                ),
+            ),
             "packet_sequence_full" to JsonArray(
                 completePacketSequence.map(::jsonString),
             ),
@@ -594,45 +640,270 @@ internal data class VanillaConfigurationCaptureResult(
         )
     }
 
-    private fun StringBuilder.appendPayload(
-        name: String,
-        payload: ByteArray,
-    ) {
-        appendLine()
-        appendLine("    val $name: List<String> = listOf(")
-        appendBase64Chunks(payload, "        ")
-        appendLine("    )")
-    }
+    companion object {
+        private const val PAYLOAD_CHUNK_SIZE = 12_000
+        private val LIST_OF = MemberName("kotlin.collections", "listOf")
 
-    private fun StringBuilder.appendPayloadList(
-        name: String,
-        payloads: List<ByteArray>,
-    ) {
-        appendLine()
-        appendLine("    val $name: List<List<String>> = listOf(")
-        payloads.forEach { payload ->
-            appendLine("        listOf(")
-            appendBase64Chunks(payload, "            ")
-            appendLine("        ),")
+        fun fromAnalysisJson(
+            document: JsonObject,
+            expectedTarget: OfficialMinecraftTargetReport,
+        ): VanillaConfigurationCaptureResult {
+            check(document.requiredInt("schema_version") == 1) {
+                "Unsupported vanilla Configuration analysis schema"
+            }
+            val target = expectedTarget.target
+            check(
+                document.requiredString("minecraft_version") ==
+                        target.minecraftVersion &&
+                        document.requiredInt("protocol_version") ==
+                        target.protocolVersion,
+            ) {
+                "Vanilla Configuration analysis targets a different release"
+            }
+            check(
+                document.requiredString("official_server_sha256") ==
+                        expectedTarget.serverSha256,
+            ) {
+                "Vanilla Configuration analysis describes a different server JAR"
+            }
+
+            val describedKnownPacks = document.requiredArray("known_packs")
+                .map { element ->
+                    val pack = element.jsonObject
+                    KnownPackPayload(
+                        namespace = pack.requiredString("namespace"),
+                        id = pack.requiredString("id"),
+                        version = pack.requiredString("version"),
+                    )
+                }
+            val describedFeatureFlags = document
+                .requiredArray("feature_flags")
+                .mapIndexed { index, element ->
+                    element.requiredStringValue("feature_flags[$index]")
+                }
+            val payloads = document.requiredObject("payloads")
+            val knownPacksBytes = payloads.decodeBase64(
+                "known_packs_base64",
+            )
+            val featureFlagsBytes = payloads.decodeBase64(
+                "feature_flags_base64",
+            )
+            val tagsBytes = payloads.decodeBase64("tags_base64")
+            val knownPacks = KnownPacksPayload.decode(knownPacksBytes)
+            val featureFlags = FeatureFlagsPayload.decode(featureFlagsBytes)
+            check(knownPacks.encode().contentEquals(knownPacksBytes)) {
+                "Known Packs payload is not canonical"
+            }
+            check(featureFlags.encode().contentEquals(featureFlagsBytes)) {
+                "Feature Flags payload is not canonical"
+            }
+            check(knownPacks.values == describedKnownPacks) {
+                "Known Packs payload disagrees with its structured index"
+            }
+            check(featureFlags.values == describedFeatureFlags) {
+                "Feature Flags payload disagrees with its structured index"
+            }
+
+            val completeRegistries = mutableListOf<RegistryPayload>()
+            val clientKnownRegistries = mutableListOf<RegistryPayload>()
+            document.requiredArray("registries")
+                .forEachIndexed { index, element ->
+                    val registry = element.jsonObject
+                    val id = registry.requiredString("id")
+                    val entryIds = registry.requiredArray("entries")
+                        .mapIndexed { entryIndex, entry ->
+                            entry.requiredStringValue(
+                                "registries[$index].entries[$entryIndex]",
+                            )
+                        }
+                    val completeBytes = registry.decodeBase64(
+                        "complete_payload_base64",
+                    )
+                    val clientKnownBytes = registry.decodeBase64(
+                        "client_known_payload_base64",
+                    )
+                    val complete = RegistryPayload.decode(completeBytes)
+                    val clientKnown = RegistryPayload.decode(clientKnownBytes)
+                    check(complete.encode().contentEquals(completeBytes)) {
+                        "Complete registry payload $id is not canonical"
+                    }
+                    check(
+                        clientKnown.encode().contentEquals(clientKnownBytes),
+                    ) {
+                        "Client-known registry payload $id is not canonical"
+                    }
+                    check(
+                        complete.registryId == id &&
+                                clientKnown.registryId == id &&
+                                complete.entries.map(RegistryEntryPayload::id) ==
+                                entryIds &&
+                                clientKnown.entries.map(RegistryEntryPayload::id) ==
+                                entryIds,
+                    ) {
+                        "Registry payload $id disagrees with its structured index"
+                    }
+                    check(complete.entries.all { it.data != null }) {
+                        "Complete registry payload $id omits entry data"
+                    }
+                    check(clientKnown.entries.all { it.data == null }) {
+                        "Client-known registry payload $id retains entry data"
+                    }
+                    completeRegistries += complete
+                    clientKnownRegistries += clientKnown
+                }
+
+            val describedTags = TagsPayload(
+                document.requiredArray("tags").mapIndexed { index, element ->
+                    val registry = element.jsonObject
+                    RegistryTagsPayload(
+                        registry = registry.requiredString("registry"),
+                        tags = registry.requiredArray("tags")
+                            .mapIndexed { tagIndex, tagElement ->
+                                val tag = tagElement.jsonObject
+                                TagPayload(
+                                    name = tag.requiredString("name"),
+                                    entries = tag.requiredArray("entries")
+                                        .mapIndexed { entryIndex, entry ->
+                                            entry.requiredIntValue(
+                                                "tags[$index].tags[$tagIndex]" +
+                                                        ".entries[$entryIndex]",
+                                            )
+                                        },
+                                )
+                            },
+                    )
+                },
+            )
+            val tags = TagsPayload.decode(tagsBytes)
+            check(tags.encode().contentEquals(tagsBytes)) {
+                "Tags payload is not canonical"
+            }
+            check(tags == describedTags) {
+                "Tags payload disagrees with its structured index"
+            }
+            check(knownPacks.values.isNotEmpty()) {
+                "Official server offered no Known Packs"
+            }
+            check(completeRegistries.isNotEmpty()) {
+                "Official server produced no Configuration registries"
+            }
+            check(tags.registries.isNotEmpty()) {
+                "Official server produced no Configuration tags"
+            }
+            return VanillaConfigurationCaptureResult(
+                knownPacks = knownPacks,
+                featureFlags = featureFlags,
+                completeRegistries = completeRegistries,
+                clientKnownRegistries = clientKnownRegistries,
+                tags = tags,
+                completePacketSequence = document.stringList(
+                    "packet_sequence_full",
+                ),
+                clientKnownPacketSequence = document.stringList(
+                    "packet_sequence_known_packs",
+                ),
+            )
         }
-        appendLine("    )")
-    }
 
-    private fun StringBuilder.appendBase64Chunks(
-        payload: ByteArray,
-        indentation: String,
-    ) {
-        Base64.getEncoder().encodeToString(payload)
-            .chunked(PAYLOAD_CHUNK_SIZE)
-            .forEach { chunk ->
-                append(indentation)
-                append(quoteKotlin(chunk))
-                appendLine(",")
+        private fun JsonObject.decodeBase64(name: String): ByteArray =
+            try {
+                Base64.getDecoder().decode(requiredString(name))
+            } catch (failure: IllegalArgumentException) {
+                throw IllegalStateException(
+                    "JSON property '$name' is not canonical Base64",
+                    failure,
+                )
+            }
+
+        private fun JsonObject.stringList(name: String): List<String> =
+            requiredArray(name).mapIndexed { index, element ->
+                element.requiredStringValue("$name[$index]")
+            }
+
+        private fun JsonElement.requiredStringValue(path: String): String =
+            jsonPrimitive.let { value ->
+                check(value.isString) {
+                    "JSON value '$path' is not a string"
+                }
+                value.content
+            }
+
+        private fun JsonElement.requiredIntValue(path: String): Int =
+            jsonPrimitive.let { value ->
+                check(!value.isString) {
+                    "JSON value '$path' is not an integer"
+                }
+                value.intOrNull
+                    ?: error("JSON value '$path' is not an integer")
             }
     }
 
-    private companion object {
-        const val PAYLOAD_CHUNK_SIZE = 12_000
+    private fun TypeSpec.Builder.addPayload(
+        name: String,
+        payload: ByteArray,
+    ): TypeSpec.Builder = addProperty(
+        PropertySpec.builder(name, LIST.parameterizedBy(STRING))
+            .initializer(payloadInitializer(payload))
+            .build(),
+    )
+
+    private fun TypeSpec.Builder.addPayloadList(
+        name: String,
+        payloads: List<ByteArray>,
+    ): TypeSpec.Builder = addProperty(
+        PropertySpec.builder(
+            name,
+            LIST.parameterizedBy(LIST.parameterizedBy(STRING)),
+        ).initializer(
+            CodeBlock.builder()
+                .add("%M(\n", LIST_OF)
+                .indent()
+                .apply {
+                    payloads.forEach { payload ->
+                        add("%L,\n", payloadInitializer(payload))
+                    }
+                }
+                .unindent()
+                .add(")")
+                .build(),
+        ).build(),
+    )
+
+    private fun payloadInitializer(
+        payload: ByteArray,
+    ): CodeBlock = CodeBlock.builder()
+        .add("%M(\n", LIST_OF)
+        .indent()
+        .apply {
+            Base64.getEncoder().encodeToString(payload)
+                .chunked(PAYLOAD_CHUNK_SIZE)
+                .forEach { chunk -> add("%S,\n", chunk) }
+        }
+        .unindent()
+        .add(")")
+        .build()
+
+}
+
+private fun validateRegistryPair(
+    complete: RegistryPayload,
+    clientKnown: RegistryPayload,
+) {
+    check(complete.registryId == clientKnown.registryId) {
+        "Registry order changed: ${complete.registryId} vs " +
+                clientKnown.registryId
+    }
+    check(
+        complete.entries.map(RegistryEntryPayload::id) ==
+                clientKnown.entries.map(RegistryEntryPayload::id),
+    ) {
+        "Registry entries changed for ${complete.registryId}"
+    }
+    check(complete.entries.all { it.data != null }) {
+        "Full-data capture omitted data in ${complete.registryId}"
+    }
+    check(clientKnown.entries.all { it.data == null }) {
+        "Known-pack capture retained data in ${clientKnown.registryId}"
     }
 }
 
@@ -1407,12 +1678,14 @@ private class BoundedProcessLog(
     process: Process,
     threadName: String,
 ) : AutoCloseable {
+    private val lock = ReentrantLock()
+    private val changed = lock.newCondition()
     private val content = StringBuilder()
     private val thread = Thread.ofVirtual().name(threadName).start {
         try {
             process.inputStream.bufferedReader().useLines { lines ->
                 lines.forEach { line ->
-                    synchronized(content) {
+                    lock.withLock {
                         content.appendLine(line)
                         if (content.length > 200_000) {
                             content.delete(
@@ -1420,19 +1693,43 @@ private class BoundedProcessLog(
                                 content.length - 150_000,
                             )
                         }
+                        changed.signalAll()
                     }
                 }
             }
         } catch (_: IOException) {
             // Expected when process teardown closes the diagnostic stream.
+        } finally {
+            lock.withLock {
+                changed.signalAll()
+            }
         }
     }
 
-    fun contains(text: String): Boolean =
-        synchronized(content) { text in content }
+    fun awaitContains(
+        text: String,
+        process: Process,
+        timeout: Duration,
+    ) {
+        val deadline = System.nanoTime() + timeout.toNanos()
+        lock.withLock {
+            while (text !in content) {
+                check(process.isAlive) {
+                    "Official server exited with ${process.exitValue()}: " +
+                            content
+                }
+                val remaining = deadline - System.nanoTime()
+                check(remaining > 0) {
+                    "Official server did not report '$text' within $timeout: " +
+                            content
+                }
+                changed.awaitNanos(remaining)
+            }
+        }
+    }
 
     fun content(): String =
-        synchronized(content) { content.toString() }
+        lock.withLock { content.toString() }
 
     override fun close() {
         thread.join(Duration.ofSeconds(5))
@@ -1448,11 +1745,6 @@ private fun varIntSize(value: Int): Int {
     }
     return size
 }
-
-private fun ByteArray.toHex(): String =
-    joinToString(separator = "") {
-        (it.toInt() and 0xFF).toString(16).padStart(2, '0')
-    }
 
 private const val HANDSHAKE = "handshake"
 private const val LOGIN = "login"

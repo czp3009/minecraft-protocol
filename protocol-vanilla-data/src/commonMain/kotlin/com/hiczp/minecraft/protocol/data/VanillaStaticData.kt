@@ -2,6 +2,8 @@ package com.hiczp.minecraft.protocol.data
 
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.type.Identifier
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlin.io.encoding.Base64
 
 /**
@@ -135,6 +137,27 @@ private data class VanillaStaticDataSnapshot(
     val blockStates: VanillaBlockStateRegistry,
 )
 
+@Serializable
+private data class VanillaStaticDataPayload(
+    val format: String,
+    val registries: List<VanillaRegistryPayload>,
+    val blockStates: List<VanillaBlockStatePayload>,
+)
+
+@Serializable
+private data class VanillaRegistryPayload(
+    val id: String,
+    val entries: List<String>,
+)
+
+@Serializable
+private data class VanillaBlockStatePayload(
+    val id: Int,
+    val block: String,
+    val properties: Map<String, String>,
+    val isDefault: Boolean,
+)
+
 private fun decodeVanillaStaticData(): VanillaStaticDataSnapshot {
     check(
         VanillaStaticDataPayloads.minecraftVersion ==
@@ -153,74 +176,39 @@ private fun decodeVanillaStaticData(): VanillaStaticDataSnapshot {
                 MinecraftProtocol.PROTOCOL_VERSION
     }
 
-    val text = Base64.Default.decode(
-        VanillaStaticDataPayloads.payload.joinToString(separator = ""),
-    ).decodeToString()
-    val lines = text.lineSequence().iterator()
-    check(lines.hasNext() && lines.next() == STATIC_DATA_FORMAT) {
+    val payload = Json.decodeFromString<VanillaStaticDataPayload>(
+        Base64.Default.decode(
+            VanillaStaticDataPayloads.payload.joinToString(separator = ""),
+        ).decodeToString(),
+    )
+    check(payload.format == STATIC_DATA_FORMAT) {
         "Unsupported vanilla static-data payload"
     }
     val registries = linkedMapOf<Identifier, VanillaRegistry>()
-    val states = mutableListOf<VanillaBlockState>()
-    lines.forEach { line ->
-        if (line.isEmpty()) return@forEach
-        val fields = line.split('\t')
-        when (fields.first()) {
-            "R" -> {
-                check(fields.size == 3) {
-                    "Malformed vanilla registry payload row"
-                }
-                val id = Identifier(fields[1])
-                val entries =
-                    if (fields[2].isEmpty()) {
-                        emptyList()
-                    } else {
-                        fields[2].split(',').map { Identifier(it) }
-                    }
-                check(
-                    registries.put(id, VanillaRegistry(id, entries)) == null,
-                ) {
-                    "Duplicate vanilla registry $id"
-                }
-            }
-
-            "S" -> {
-                check(fields.size == 5) {
-                    "Malformed vanilla block-state payload row"
-                }
-                val id = fields[1].toInt()
-                check(id == states.size) {
-                    "Expected vanilla block-state ID ${states.size}, got $id"
-                }
-                val properties =
-                    if (fields[4].isEmpty()) {
-                        emptyMap()
-                    } else {
-                        fields[4].split(',').associate { property ->
-                            val separator = property.indexOf('=')
-                            check(separator > 0) {
-                                "Malformed block-state property '$property'"
-                            }
-                            property.substring(0, separator) to
-                                    property.substring(separator + 1)
-                        }
-                    }
-                states += VanillaBlockState(
-                    id = id,
-                    block = Identifier(fields[2]),
-                    properties = properties,
-                    isDefault = when (fields[3]) {
-                        "0" -> false
-                        "1" -> true
-                        else -> error(
-                            "Malformed block-state default flag ${fields[3]}",
-                        )
-                    },
-                )
-            }
-
-            else -> error("Unknown vanilla static-data row ${fields.first()}")
+    payload.registries.forEach { registry ->
+        val id = Identifier(registry.id)
+        check(
+            registries.put(
+                id,
+                VanillaRegistry(
+                    id,
+                    registry.entries.map { Identifier(it) },
+                ),
+            ) == null,
+        ) {
+            "Duplicate vanilla registry $id"
         }
+    }
+    val states = payload.blockStates.mapIndexed { expectedId, state ->
+        check(state.id == expectedId) {
+            "Expected vanilla block-state ID $expectedId, got ${state.id}"
+        }
+        VanillaBlockState(
+            id = state.id,
+            block = Identifier(state.block),
+            properties = state.properties,
+            isDefault = state.isDefault,
+        )
     }
     check(registries.isNotEmpty()) {
         "Vanilla static-data payload has no registries"
@@ -234,4 +222,4 @@ private fun decodeVanillaStaticData(): VanillaStaticDataSnapshot {
     )
 }
 
-private const val STATIC_DATA_FORMAT: String = "minecraft-static-data-v1"
+private const val STATIC_DATA_FORMAT: String = "minecraft-static-data-v2"

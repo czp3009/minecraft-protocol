@@ -9,8 +9,8 @@ This module inherits the repository guidance.
 - Complete and Known-Pack-omitted registry branches remain available.
 - Generated Kotlin stays under `build/generated` in functional `data` packages and is included in published source JARs.
   Do not commit generated payload source.
-- Register Configuration and static-data generators only in this module. Each generator validates its own captured
-  output before publishing it to the generated source directories.
-- No production or test source reads checked-in `protocol-specification` evidence. The explicit root
-  `refreshProtocolSpecification` Sync task is solely responsible for replacing that review material.
+- Root official-analysis tasks capture JAR-derived reports and both Configuration branches as complete data under the
+  root `build/generated/official-minecraft/<version>/` tree.
+- Register Configuration and static-data source generators only in this module. They consume Gradle artifacts containing
+  official-analysis JSON, never the official JAR, and validate the data before publishing generated source.
 - Gameplay behavior, world simulation, and general Datapack interpretation belong outside this module.

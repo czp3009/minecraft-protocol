@@ -1,7 +1,10 @@
 package com.hiczp.minecraft.protocol.model
 
+import com.hiczp.minecraft.protocol.model.packet.BundleItemSelectedPacket
+import com.hiczp.minecraft.protocol.model.packet.PlayerChatMessagePacket
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlin.test.*
+import kotlin.uuid.Uuid
 
 class ProtocolModelInvariantTest {
     @Test
@@ -346,6 +349,86 @@ class ProtocolModelInvariantTest {
         assertFailsWith<IllegalArgumentException> {
             DebugSubscriptionData.RedstoneWireOrientation(48)
         }
+    }
+
+    @Test
+    fun `registry holders sentinels and fixed fields reject invalid values`() {
+        listOf(
+            { PaintingVariantHolder.Reference(-1) },
+            { InstrumentHolder.Reference(-1) },
+            { JukeboxSongHolder.Reference(-1) },
+            { TrimMaterialHolder.Reference(-1) },
+            { TrimPatternHolder.Reference(-1) },
+            { ChatTypeHolder.Reference(-1) },
+            { DialogHolder.Reference(-1) },
+            {
+                CommonPlayerSpawnInfo(
+                    dimensionTypeId = -1,
+                    dimension = Identifier("overworld"),
+                    seed = 0,
+                    gameMode = GameMode.SURVIVAL,
+                    previousGameMode = null,
+                    isDebug = false,
+                    isFlat = false,
+                    lastDeathLocation = null,
+                    portalCooldown = 0,
+                    seaLevel = 63,
+                )
+            },
+            { MapDecoration(-1, 0, 0, 0, null) },
+            {
+                MobEffectDetails(
+                    amplifier = -1,
+                    duration = 1,
+                    ambient = false,
+                    showParticles = true,
+                    showIcon = true,
+                )
+            },
+            {
+                MobEffectDetails(
+                    amplifier = 256,
+                    duration = 1,
+                    ambient = false,
+                    showParticles = true,
+                    showIcon = true,
+                )
+            },
+            { BundleItemSelectedPacket(slotId = 0, selectedItemIndex = -2) },
+            {
+                PlayerChatMessagePacket(
+                    globalIndex = 0,
+                    sender = Uuid.fromLongs(0, 0),
+                    index = 0,
+                    signature = ByteString(ByteArray(255)),
+                    body = PackedSignedMessageBody("", 0, 0, emptyList()),
+                    unsignedContent = null,
+                    filterMask = FilterMask.PassThrough,
+                    chatType = BoundChatType(
+                        ChatTypeHolder.Reference(0),
+                        TextComponent.literal("sender"),
+                        null,
+                    ),
+                )
+            },
+        ).forEach { invalid ->
+            assertFailsWith<IllegalArgumentException> { invalid() }
+        }
+
+        assertEquals(
+            -1,
+            BundleItemSelectedPacket(0, -1).selectedItemIndex,
+        )
+        assertEquals(
+            255,
+            MobEffectDetails(
+                amplifier = 255,
+                duration = 1,
+                ambient = false,
+                showParticles = true,
+                showIcon = true,
+            ).amplifier,
+        )
     }
 
     @Test

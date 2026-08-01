@@ -16,14 +16,19 @@ import io.ktor.client.*
 import io.ktor.client.engine.mock.*
 import io.ktor.http.*
 import io.ktor.utils.io.*
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.yield
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.*
+import kotlin.uuid.Uuid
 
 class MinecraftServerProtocolTest {
     @Test
-    fun validatesConfigurationAndEscapesStatusJson() {
+    fun validatesConfigurationAndBuildsStructuredStatusJson() {
         assertFailsWith<IllegalArgumentException> {
             MinecraftServerConfiguration(compressionThreshold = -1)
         }
@@ -62,14 +67,24 @@ class MinecraftServerProtocolTest {
             enforcesSecureChat = true,
         )
         val json = configuration.statusJson(onlinePlayers = 3)
-
-        assertTrue(json.contains("\"max\": 7"))
-        assertTrue(json.contains("\"online\": 3"))
-        assertTrue(json.contains("\\\"line\\\\\\n\\t\\u0001"))
-        assertTrue(json.contains("\"enforcesSecureChat\": false"))
-        assertFalse(json.contains('\u0001'))
+        val status = Json.parseToJsonElement(json).jsonObject
+        val players = status.getValue("players").jsonObject
+        assertEquals(7, players.getValue("max").jsonPrimitive.int)
+        assertEquals(3, players.getValue("online").jsonPrimitive.int)
+        assertEquals(
+            "\"line\\\n\t\u0001",
+            status.getValue("description").jsonObject
+                .getValue("text").jsonPrimitive.content,
+        )
+        assertFalse(
+            status.getValue("enforcesSecureChat").jsonPrimitive
+                .content.toBooleanStrict(),
+        )
+        assertFailsWith<IllegalArgumentException> {
+            configuration.statusJson(onlinePlayers = -1)
+        }
         val login = configuration.playLogin(
-            GameProfile(Uuid(1, 2), "Probe", emptyList()),
+            GameProfile(Uuid.fromLongs(1, 2), "Probe", emptyList()),
         )
         assertEquals(configuration.viewDistance, login.chunkRadius)
         assertEquals(configuration.simulationDistance, login.simulationDistance)
@@ -134,7 +149,7 @@ class MinecraftServerProtocolTest {
             MinecraftServerConfiguration(compressionThreshold = null),
         )
         val valid = protocol.configuration.playLogin(
-            GameProfile(Uuid(1, 2), "Probe", emptyList()),
+            GameProfile(Uuid.fromLongs(1, 2), "Probe", emptyList()),
         )
 
         protocol.validatePlayLogin(valid.copy(chunkRadius = 2))
@@ -422,7 +437,7 @@ class MinecraftServerProtocolTest {
                 }
             }
             client.send(handshake(HandshakeNextState.LOGIN))
-            client.send(LoginStartPacket("Rejected", Uuid(0, 1)))
+            client.send(LoginStartPacket("Rejected", Uuid.fromLongs(0, 1)))
             assertTrue(
                 assertIs<LoginDisconnectPacket>(client.receive())
                     .reason.json.contains("server policy"),
@@ -452,7 +467,7 @@ class MinecraftServerProtocolTest {
                 }
             }
             client.send(handshake(HandshakeNextState.LOGIN))
-            client.send(LoginStartPacket("CustomReject", Uuid(0, 2)))
+            client.send(LoginStartPacket("CustomReject", Uuid.fromLongs(0, 2)))
 
             assertEquals(
                 LoginDisconnectPacket(customReason),
@@ -468,7 +483,7 @@ class MinecraftServerProtocolTest {
     @Test
     fun onlineAuthenticationNegotiatesEncryptedPlayThroughSessionServices() =
         runTest {
-            val identityId = Uuid(0x1020, 0x3040)
+            val identityId = Uuid.fromLongs(0x1020, 0x3040)
             val clientService = MinecraftSessionService(
                 HttpClient(
                     MockEngine {
@@ -553,7 +568,7 @@ class MinecraftServerProtocolTest {
             }
             missingIpClient.send(handshake(HandshakeNextState.LOGIN))
             missingIpClient.send(
-                LoginStartPacket("MissingIp", Uuid(0x50, 0x60)),
+                LoginStartPacket("MissingIp", Uuid.fromLongs(0x50, 0x60)),
             )
             val request = assertIs<EncryptionRequestPacket>(
                 missingIpClient.receive(),
@@ -578,7 +593,8 @@ class MinecraftServerProtocolTest {
     fun configurationExtensionsAllowOptionalPacketsAndClientResponses() =
         runTest {
             val observed = mutableListOf<Packet>()
-            val resourcePackId = Uuid(0x10, 0x20)
+            val acceptedResponseObserved = CompletableDeferred<Unit>()
+            val resourcePackId = Uuid.fromLongs(0x10, 0x20)
             val handler = object : MinecraftServerHandler {
                 override suspend fun configurationPackets(
                     profile: GameProfile,
@@ -628,6 +644,13 @@ class MinecraftServerProtocolTest {
 
                 override suspend fun onPacket(packet: Packet) {
                     observed += packet
+                    if (
+                        packet is ConfigurationResourcePackResponsePacket &&
+                        packet.uuid == resourcePackId &&
+                        packet.result == ResourcePackResult.ACCEPTED
+                    ) {
+                        acceptedResponseObserved.complete(Unit)
+                    }
                 }
             }
             val (client, server) = sessionPair()
@@ -653,7 +676,7 @@ class MinecraftServerProtocolTest {
                     ResourcePackResult.ACCEPTED,
                 ),
             )
-            yield()
+            acceptedResponseObserved.await()
             assertFalse(negotiation.isCompleted)
             client.send(
                 ConfigurationResourcePackResponsePacket(
@@ -738,7 +761,7 @@ class MinecraftServerProtocolTest {
             client: MinecraftSession,
         ) {
             client.send(handshake(HandshakeNextState.LOGIN))
-            client.send(LoginStartPacket("LimitProbe", Uuid(0, 1)))
+            client.send(LoginStartPacket("LimitProbe", Uuid.fromLongs(0, 1)))
             assertIs<LoginSuccessPacket>(client.receive())
             client.send(LoginAcknowledgedPacket)
         }
@@ -834,7 +857,7 @@ class MinecraftServerProtocolTest {
         nextState: HandshakeNextState = HandshakeNextState.LOGIN,
     ) {
         client.send(handshake(nextState))
-        client.send(LoginStartPacket("ConfigProbe", Uuid(0, 1)))
+        client.send(LoginStartPacket("ConfigProbe", Uuid.fromLongs(0, 1)))
         assertIs<LoginSuccessPacket>(client.receive())
         client.send(LoginAcknowledgedPacket)
         client.send(ConfigurationClientInformationPacket(clientInformation()))

@@ -12,28 +12,28 @@ class PlayCommonPacketTest {
     @Test
     fun `container cookie cooldown and chat packets match official primitive codecs`() {
         assertContentEquals(
-            "ac02".hexBytes(),
+            "ac02".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(
                 ClientboundCloseContainerPacket.serializer(),
                 ClientboundCloseContainerPacket(300),
             ),
         )
         assertContentEquals(
-            "010002fffd".hexBytes(),
+            "010002fffd".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(
                 SetContainerPropertyPacket.serializer(),
                 SetContainerPropertyPacket(1, 2, -3),
             ),
         )
         assertContentEquals(
-            "0e6d696e6563726166743a74657374".hexBytes(),
+            "0e6d696e6563726166743a74657374".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(
                 PlayCookieRequestPacket.serializer(),
                 PlayCookieRequestPacket(Identifier("minecraft:test")),
             ),
         )
         assertContentEquals(
-            "0f6d696e6563726166743a67726f757014".hexBytes(),
+            "0f6d696e6563726166743a67726f757014".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(
                 SetCooldownPacket.serializer(),
                 SetCooldownPacket(Identifier("minecraft:group"), 20),
@@ -44,7 +44,7 @@ class PlayCommonPacketTest {
             ChatSuggestionsAction.SET,
             listOf("one", "two"),
         )
-        val suggestionsBytes = "0202036f6e650374776f".hexBytes()
+        val suggestionsBytes = "0202036f6e650374776f".hexToByteArray()
         assertContentEquals(
             suggestionsBytes,
             MinecraftFormat.encodeToByteArray(
@@ -69,7 +69,7 @@ class PlayCommonPacketTest {
         val brandBytes = (
                 "0f6d696e6563726166743a6272616e64" +
                         "0776616e696c6c61"
-                ).hexBytes()
+                ).hexToByteArray()
         assertContentEquals(
             brandBytes,
             MinecraftFormat.encodeToByteArray(
@@ -91,7 +91,7 @@ class PlayCommonPacketTest {
                 ByteString(byteArrayOf(1, 2, 3)),
             ),
         )
-        val unknownBytes = "0b6578616d706c653a726177010203".hexBytes()
+        val unknownBytes = "0b6578616d706c653a726177010203".hexToByteArray()
         assertContentEquals(
             unknownBytes,
             MinecraftFormat.encodeToByteArray(
@@ -107,12 +107,5 @@ class PlayCommonPacketTest {
             ),
         )
 
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
 }

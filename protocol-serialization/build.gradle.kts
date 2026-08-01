@@ -1,4 +1,5 @@
 import com.hiczp.minecraft.protocol.buildScript.configureAllTargets
+import com.hiczp.minecraft.protocol.buildScript.createHostProcessTestSourceSet
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -8,6 +9,12 @@ plugins {
 
 kotlin {
     configureAllTargets("com.hiczp.minecraft.protocol.serialization")
+    createHostProcessTestSourceSet("externalProcessTest") {
+        dependencies {
+            implementation(project(":minecraft-test-support"))
+            implementation(project(":protocol-transport"))
+        }
+    }
 
     sourceSets {
         commonMain {
@@ -20,10 +27,12 @@ kotlin {
 
         commonTest.dependencies {
             implementation(kotlin("test"))
+            implementation(libs.kotlinx.coroutines.test)
         }
 
         jvmTest.dependencies {
-            implementation(project(":minecraft-test-support"))
+            implementation(libs.kotlinx.serialization.json)
         }
+
     }
 }

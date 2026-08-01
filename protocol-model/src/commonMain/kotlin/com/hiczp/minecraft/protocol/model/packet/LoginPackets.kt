@@ -1,11 +1,15 @@
 package com.hiczp.minecraft.protocol.model.packet
 
-import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.protocol.model.type.ByteString
+import com.hiczp.minecraft.protocol.model.type.GameProfile
+import com.hiczp.minecraft.protocol.model.type.Identifier
+import com.hiczp.minecraft.protocol.model.type.JsonTextComponent
 import com.hiczp.minecraft.protocol.model.wire.MaxByteLength
 import com.hiczp.minecraft.protocol.model.wire.MaxLength
 import com.hiczp.minecraft.protocol.model.wire.RemainingBytes
 import com.hiczp.minecraft.protocol.model.wire.VarInt
 import kotlinx.serialization.Serializable
+import kotlin.uuid.Uuid
 
 @Serializable
 @PacketInfo(0x00, ConnectionState.LOGIN, PacketDirection.CLIENTBOUND, "login_disconnect")

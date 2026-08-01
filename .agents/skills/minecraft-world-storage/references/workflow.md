@@ -2,15 +2,15 @@
 
 ## Preparation
 
-Confirm the buildSrc target and refresh official evidence:
+Confirm the buildSrc target and generate official analysis:
 
 ```powershell
 .\gradlew.bat -q minecraftVersion
-.\gradlew.bat refreshProtocolSpecification
+.\gradlew.bat officialMinecraftAnalysis
 ```
 
-For an explicit release request, edit only `MinecraftTarget.version` before refresh. Read
-`protocol-specification/generated/target.json` to obtain official protocol/artifact facts.
+For an explicit release request, edit only `MinecraftTarget.MINECRAFT_VERSION`. Read
+`build/generated/official-minecraft/<version>/target/target.json` to obtain official protocol/artifact facts.
 
 When structured reports and executable behavior are insufficient, manually decompile the exact server into `temp/` and
 search by behavior and constants, not only remembered class names. Locate:

@@ -37,7 +37,7 @@ class CommandPacketTest {
                         "0601" +
                         "146d696e6563726166743a61736b5f736572766572" +
                         "00"
-                ).hexBytes()
+                ).hexToByteArray()
 
         assertContentEquals(
             expected,
@@ -77,7 +77,7 @@ class CommandPacketTest {
 
         for ((parser, hex) in cases) {
             val value = ParserValue(parser)
-            val bytes = hex.hexBytes()
+            val bytes = hex.hexToByteArray()
             assertContentEquals(
                 bytes,
                 MinecraftFormat.encodeToByteArray(ParserValue.serializer(), value),
@@ -114,20 +114,20 @@ class CommandPacketTest {
             ),
         )
         assertContentEquals(
-            "0300".hexBytes(),
+            "0300".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(ParserValue.serializer(), value),
         )
 
         val decoded = MinecraftFormat.decodeFromByteArray(
             ParserValue.serializer(),
-            "0303800000007fffffff".hexBytes(),
+            "0303800000007fffffff".hexToByteArray(),
         )
         assertEquals(
             ParserValue(CommandParser.IntegerRange()),
             decoded,
         )
         assertContentEquals(
-            "0300".hexBytes(),
+            "0300".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(ParserValue.serializer(), decoded),
         )
     }
@@ -137,7 +137,7 @@ class CommandPacketTest {
         assertFailsWith<SerializationException> {
             MinecraftFormat.decodeFromByteArray(
                 ParserValue.serializer(),
-                "39".hexBytes(),
+                "39".hexToByteArray(),
             )
         }
 
@@ -163,10 +163,3 @@ class CommandPacketTest {
 private data class ParserValue(
     val parser: CommandParser,
 )
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
-    }
-}

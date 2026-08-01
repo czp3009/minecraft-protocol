@@ -4,6 +4,7 @@ import com.hiczp.minecraft.protocol.serialization.internal.MinecraftDecoder
 import com.hiczp.minecraft.protocol.serialization.internal.MinecraftEncoder
 import com.hiczp.minecraft.protocol.serialization.internal.MinecraftReader
 import com.hiczp.minecraft.protocol.serialization.internal.MinecraftWriter
+import kotlinx.io.readByteArray
 import kotlinx.serialization.BinaryFormat
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
@@ -37,7 +38,7 @@ sealed class MinecraftFormat(
         val writer = MinecraftWriter()
         val encoder = MinecraftEncoder(writer, configuration, serializersModule)
         encoder.encodeSerializableValue(serializer, value)
-        return writer.toByteArray()
+        return writer.readByteArray()
     }
 
     override fun <T> decodeFromByteArray(

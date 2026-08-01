@@ -166,7 +166,7 @@ class PlayClientboundGamePacketTest {
         serializer: KSerializer<T>,
         expectedHex: String,
     ) {
-        val expected = expectedHex.hexBytes()
+        val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(serializer, packet),
@@ -175,12 +175,5 @@ class PlayClientboundGamePacketTest {
             packet,
             MinecraftFormat.decodeFromByteArray(serializer, expected),
         )
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
 }

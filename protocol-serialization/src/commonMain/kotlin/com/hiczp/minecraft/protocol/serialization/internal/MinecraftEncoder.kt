@@ -9,6 +9,7 @@ import com.hiczp.minecraft.protocol.model.type.Vector3d
 import com.hiczp.minecraft.protocol.model.wire.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftFormatConfiguration
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
+import kotlinx.io.readByteArray
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.descriptors.SerialDescriptor
@@ -17,6 +18,7 @@ import kotlinx.serialization.encoding.AbstractEncoder
 import kotlinx.serialization.encoding.CompositeEncoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.modules.SerializersModule
+import kotlin.uuid.Uuid
 
 internal class MinecraftEncoder(
     private val writer: MinecraftWriter,
@@ -155,7 +157,7 @@ internal class MinecraftEncoder(
             )
         }
         writer.writeVarInt(bytes.size)
-        writer.writeBytes(bytes)
+        writer.write(bytes)
     }
 
     override fun encodeEnum(enumDescriptor: SerialDescriptor, index: Int) {
@@ -210,6 +212,7 @@ internal class MinecraftEncoder(
     ) {
         when {
             value is NbtTag -> nbtCodec.writeUnnamed(writer, value)
+            value is Uuid -> writer.write(value.toByteArray())
             pendingHints.any { it is NetworkNbt } -> {
                 throw MinecraftSerializationException(
                     "@NetworkNbt can only be used with an NbtTag subtype",
@@ -343,7 +346,7 @@ internal class MinecraftEncoder(
             serializersModule,
         )
         encode(nested)
-        val bytes = nestedWriter.toByteArray()
+        val bytes = nestedWriter.readByteArray()
         val maximum = minOf(
             annotation.maxBytes,
             configuration.maximumByteArraySize,
@@ -354,7 +357,7 @@ internal class MinecraftEncoder(
             )
         }
         writer.writeVarInt(bytes.size)
-        writer.writeBytes(bytes)
+        writer.write(bytes)
     }
 
     private fun elementHints(

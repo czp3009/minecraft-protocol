@@ -4,6 +4,7 @@ import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.type.Angle
 import com.hiczp.minecraft.protocol.model.wire.*
 import kotlinx.serialization.Serializable
+import kotlin.uuid.Uuid
 
 @Serializable
 @PacketInfo(

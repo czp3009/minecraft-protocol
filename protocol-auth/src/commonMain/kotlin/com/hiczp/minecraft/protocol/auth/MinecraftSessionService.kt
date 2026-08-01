@@ -2,13 +2,13 @@ package com.hiczp.minecraft.protocol.auth
 
 import com.hiczp.minecraft.protocol.model.type.GameProfile
 import com.hiczp.minecraft.protocol.model.type.ProfileProperty
-import com.hiczp.minecraft.protocol.model.type.Uuid
 import io.ktor.client.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlin.uuid.Uuid
 
 data class JoinedMinecraftProfile(
     val profile: GameProfile,

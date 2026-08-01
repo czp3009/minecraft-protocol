@@ -7,6 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.uuid.Uuid
 
 class ConnectionStatePacketTest {
     @Test
@@ -42,7 +43,7 @@ class ConnectionStatePacketTest {
             "ac02",
         )
         assertPacketBytes(
-            LoginStartPacket("a", Uuid(1, 2)),
+            LoginStartPacket("a", Uuid.fromLongs(1, 2)),
             LoginStartPacket.serializer(),
             "0161" +
                     "0000000000000001" +
@@ -50,8 +51,8 @@ class ConnectionStatePacketTest {
         )
         assertPacketBytes(
             LoginSuccessPacket(
-                GameProfile(Uuid(1, 2), "a", emptyList()),
-                Uuid(3, 4),
+                GameProfile(Uuid.fromLongs(1, 2), "a", emptyList()),
+                Uuid.fromLongs(3, 4),
             ),
             LoginSuccessPacket.serializer(),
             "0000000000000001" +
@@ -262,7 +263,7 @@ class ConnectionStatePacketTest {
         )
         assertPacketBytes(
             ConfigurationAddResourcePackPacket(
-                uuid = Uuid(0, 0),
+                uuid = Uuid.fromLongs(0, 0),
                 url = "u",
                 hash = "h",
                 forced = true,
@@ -277,7 +278,7 @@ class ConnectionStatePacketTest {
         )
         assertPacketBytes(
             ConfigurationResourcePackResponsePacket(
-                Uuid(0, 0),
+                Uuid.fromLongs(0, 0),
                 ResourcePackResult.ACCEPTED,
             ),
             ConfigurationResourcePackResponsePacket.serializer(),
@@ -359,7 +360,7 @@ class ConnectionStatePacketTest {
         assertFailsWith<MinecraftSerializationException> {
             MinecraftFormat.encodeToByteArray(
                 LoginStartPacket.serializer(),
-                LoginStartPacket("x".repeat(17), Uuid(0, 0)),
+                LoginStartPacket("x".repeat(17), Uuid.fromLongs(0, 0)),
             )
         }
         assertFailsWith<MinecraftSerializationException> {
@@ -394,7 +395,7 @@ class ConnectionStatePacketTest {
         serializer: KSerializer<T>,
         expectedHex: String,
     ) {
-        val expected = expectedHex.hexBytes()
+        val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(serializer, value),
@@ -403,12 +404,5 @@ class ConnectionStatePacketTest {
             value,
             MinecraftFormat.decodeFromByteArray(serializer, expected),
         )
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
 }

@@ -1,8 +1,7 @@
-import com.hiczp.minecraft.protocol.buildScript.DownloadOfficialMinecraftServerTask
+import com.google.devtools.ksp.gradle.KspAATask
 import com.hiczp.minecraft.protocol.buildScript.GenerateMinecraftProtocolSourceTask
-import com.hiczp.minecraft.protocol.buildScript.GenerateOfficialMinecraftReportsTask
 import com.hiczp.minecraft.protocol.buildScript.configureAllTargets
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
+import org.gradle.jvm.tasks.Jar
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -11,41 +10,50 @@ plugins {
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
 }
 
+val officialMinecraftTarget = configurations.create(
+    "officialMinecraftTarget",
+) {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    isTransitive = false
+}
+val officialMinecraftReports = configurations.create(
+    "officialMinecraftReports",
+) {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    isTransitive = false
+}
+val officialTargetFile = layout.file(
+    officialMinecraftTarget.elements.map { it.single().asFile },
+)
+val officialReportsDirectory = layout.dir(
+    officialMinecraftReports.elements.map { it.single().asFile },
+)
+
 val generatedProtocolSourceDirectory = layout.buildDirectory.dir(
     "generated/sources/minecraftProtocol/commonMain/kotlin",
 )
 val generatedPacketDefinitionsDirectory = layout.buildDirectory.dir(
     "generated/ksp/metadata/commonMain/kotlin",
 )
-// Run the aggregating processor once over commonMain. KSP does not attach the
-// common-metadata output to every platform compilation or source JAR, so the
-// shared output and task dependency are wired explicitly below.
-val generatePacketDefinitions =
-    tasks.matching { it.name == "kspCommonMainKotlinMetadata" }
+val generatePacketDefinitions = tasks.withType<KspAATask>().matching {
+    it.name == "kspCommonMainKotlinMetadata"
+}
 val generateMinecraftProtocolSource =
     tasks.register<GenerateMinecraftProtocolSourceTask>(
         "generateMinecraftProtocolSource",
     ) {
         description = "Generate protocol constants for the selected Minecraft release."
-        val download = rootProject.tasks
-            .named<DownloadOfficialMinecraftServerTask>(
-                "downloadOfficialMinecraftServer",
-            )
-        serverJar.set(download.flatMap { it.serverJar })
-        outputFile.set(
+        targetFile = officialTargetFile
+        outputFile =
             generatedProtocolSourceDirectory.map {
-                it.file(
-                    "com/hiczp/minecraft/protocol/model/MinecraftProtocol.kt",
-                )
-            },
-        )
+                it.file("com/hiczp/minecraft/protocol/model/MinecraftProtocol.kt")
+            }
     }
 
-val officialReports = rootProject.tasks.named<GenerateOfficialMinecraftReportsTask>(
-    "generateOfficialMinecraftReports",
-)
-val packetsReport = officialReports.flatMap {
-    it.outputDirectory.file("reports/packets.json")
+val packetsReport = officialReportsDirectory.map {
+    it.file("reports/packets.json")
 }
 
 ksp {
@@ -56,6 +64,20 @@ ksp {
 }
 
 dependencies {
+    add(
+        officialMinecraftTarget.name,
+        project(
+            path = ":",
+            configuration = "officialMinecraftTargetElements",
+        ),
+    )
+    add(
+        officialMinecraftReports.name,
+        project(
+            path = ":",
+            configuration = "officialMinecraftReportsElements",
+        ),
+    )
     add("kspCommonMainMetadata", project(":protocol-symbol-processor"))
 }
 
@@ -78,6 +100,14 @@ kotlin {
             implementation(kotlin("test"))
         }
     }
+
+    targets.configureEach {
+        compilations.configureEach {
+            compileTaskProvider.configure {
+                dependsOn(generatePacketDefinitions)
+            }
+        }
+    }
 }
 
 generatePacketDefinitions.configureEach {
@@ -85,10 +115,6 @@ generatePacketDefinitions.configureEach {
         .withPathSensitivity(PathSensitivity.NONE)
 }
 
-tasks.withType<KotlinCompilationTask<*>>()
-    .configureEach {
-        dependsOn(generatePacketDefinitions)
-    }
-tasks.matching { it.name.endsWith("SourcesJar") }.configureEach {
+tasks.withType<Jar>().configureEach {
     dependsOn(generatePacketDefinitions)
 }

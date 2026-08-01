@@ -12,6 +12,7 @@ import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.descriptors.element
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlin.uuid.Uuid
 
 /** A 256-byte chat signature or an index into the connection signature cache. */
 @Serializable(with = PackedMessageSignatureSerializer::class)

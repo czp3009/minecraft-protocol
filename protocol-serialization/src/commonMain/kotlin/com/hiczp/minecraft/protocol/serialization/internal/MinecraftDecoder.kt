@@ -14,6 +14,7 @@ import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.encoding.CompositeDecoder
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.modules.SerializersModule
+import kotlin.uuid.Uuid
 
 internal class MinecraftDecoder(
     private val reader: MinecraftReader,
@@ -260,6 +261,11 @@ internal class MinecraftDecoder(
             isNbtDescriptor(deserializer.descriptor) -> {
                 @Suppress("UNCHECKED_CAST")
                 (nbtCodec.readUnnamed(reader) as T)
+            }
+
+            isUuidDescriptor(deserializer.descriptor) -> {
+                @Suppress("UNCHECKED_CAST")
+                (Uuid.fromByteArray(reader.readBytes(Uuid.SIZE_BYTES)) as T)
             }
 
             pendingHints.any { it is LowPrecisionVector } -> {
@@ -517,6 +523,9 @@ internal class MinecraftDecoder(
     private fun isByteArrayDescriptor(descriptor: SerialDescriptor): Boolean =
         descriptor.serialName == BYTE_ARRAY_SERIAL_NAME
 
+    private fun isUuidDescriptor(descriptor: SerialDescriptor): Boolean =
+        descriptor.serialName == UUID_SERIAL_NAME
+
     private data class Frame(
         val descriptor: SerialDescriptor,
         var nextIndex: Int = 0,
@@ -539,5 +548,6 @@ internal class MinecraftDecoder(
         const val PALETTED_CONTAINER_SERIAL_NAME: String =
             "com.hiczp.minecraft.protocol.model.type.PalettedContainer"
         const val BYTE_ARRAY_SERIAL_NAME: String = "kotlin.ByteArray"
+        const val UUID_SERIAL_NAME: String = "kotlin.uuid.Uuid"
     }
 }

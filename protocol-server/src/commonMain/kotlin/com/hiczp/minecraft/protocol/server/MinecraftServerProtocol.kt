@@ -53,7 +53,10 @@ class MinecraftServerProtocol(
                     session.send(
                         LoginDisconnectPacket(
                             JsonTextComponent(
-                                """{"translate":"multiplayer.disconnect.transfers_disabled"}""",
+                                textComponentJson(
+                                    "translate",
+                                    "multiplayer.disconnect.transfers_disabled",
+                                ),
                             ),
                         ),
                     )
@@ -68,7 +71,7 @@ class MinecraftServerProtocol(
                     session.send(
                         LoginDisconnectPacket(
                             JsonTextComponent(
-                                """{"text":"${escapeJson(message)}"}""",
+                                textComponentJson("text", message),
                             ),
                         ),
                     )

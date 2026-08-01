@@ -1,7 +1,9 @@
 package com.hiczp.minecraft.world.format
 
+import kotlinx.io.Buffer
 import kotlinx.io.Sink
 import kotlinx.io.Source
+import kotlinx.io.readByteArray
 
 data class RegionFileFormatConfiguration(
     val maximumRegionBytes: Int = 512 * 1_048_576,
@@ -253,43 +255,20 @@ private class ChunkPlan(
 )
 
 private fun readBounded(source: Source, maximumBytes: Int): ByteArray {
-    val output = RegionByteAccumulator()
+    val output = Buffer()
     val chunk = ByteArray(8_192)
     while (true) {
         val read = source.readAtMostTo(chunk)
         if (read < 0) break
         if (read == 0) continue
-        if (output.size > maximumBytes - read) {
+        if (output.size > maximumBytes.toLong() - read) {
             throw RegionFormatException(
                 "Region stream exceeds configured limit $maximumBytes",
             )
         }
-        output.append(chunk, read)
+        output.write(chunk, endIndex = read)
     }
-    return output.toByteArray()
-}
-
-private class RegionByteAccumulator {
-    private var bytes = ByteArray(8_192)
-    var size: Int = 0
-        private set
-
-    fun append(source: ByteArray, length: Int) {
-        ensureCapacity(size + length)
-        source.copyInto(bytes, destinationOffset = size, endIndex = length)
-        size += length
-    }
-
-    fun toByteArray(): ByteArray = bytes.copyOf(size)
-
-    private fun ensureCapacity(required: Int) {
-        if (required <= bytes.size) return
-        var capacity = bytes.size
-        while (capacity < required) {
-            capacity = (capacity * 2).coerceAtLeast(required)
-        }
-        bytes = bytes.copyOf(capacity)
-    }
+    return output.readByteArray()
 }
 
 private fun readInt(bytes: ByteArray, offset: Int): Int =

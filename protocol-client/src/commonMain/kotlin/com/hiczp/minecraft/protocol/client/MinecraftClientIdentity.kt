@@ -3,7 +3,7 @@ package com.hiczp.minecraft.protocol.client
 import com.hiczp.minecraft.protocol.auth.MinecraftCryptography
 import com.hiczp.minecraft.protocol.auth.MinecraftSessionService
 import com.hiczp.minecraft.protocol.auth.offlineUuid
-import com.hiczp.minecraft.protocol.model.type.Uuid
+import kotlin.uuid.Uuid
 
 sealed interface MinecraftClientIdentity {
     val name: String

@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.protocol.serialization
 
 import com.hiczp.minecraft.protocol.model.type.*
+import kotlin.uuid.Uuid
 
 internal data class NamedNetworkTypeSample<T>(
     val name: String,
@@ -361,7 +362,7 @@ internal fun entityDataValueSamples():
             NamedNetworkTypeSample(
                 "optional_uuid-value",
                 "optional_uuid",
-                EntityDataValue.OptionalLivingEntityReference(Uuid(1, 2)),
+                EntityDataValue.OptionalLivingEntityReference(Uuid.fromLongs(1, 2)),
             ),
         )
         add(

@@ -13,7 +13,7 @@ import org.gradle.api.tasks.TaskAction
  * [configureAllTargets].
  */
 object MinecraftTarget {
-    const val version: String = "26.2"
+    const val MINECRAFT_VERSION: String = "26.2"
 }
 
 abstract class PrintMinecraftVersionTask : DefaultTask() {

@@ -57,7 +57,7 @@ class PlayClientboundUpdatePacketTest {
                             "0b6d696e6563726166743a78" +
                             "0000000000000000" +
                             "8001"
-                    ).hexBytes(),
+                    ).hexToByteArray(),
         )
         assertEquals(
             AttributeModifierOperation.ADD_VALUE,
@@ -173,7 +173,7 @@ class PlayClientboundUpdatePacketTest {
 
         val invalidBuiltIn = MinecraftFormat.decodeFromByteArray(
             PlayServerLinksPacket.serializer(),
-            "01017f0175".hexBytes(),
+            "01017f0175".hexToByteArray(),
         )
         assertEquals(
             builtIn,
@@ -186,7 +186,7 @@ class PlayClientboundUpdatePacketTest {
         serializer: KSerializer<T>,
         expectedHex: String,
     ) {
-        val expected = expectedHex.hexBytes()
+        val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(serializer, packet),
@@ -195,12 +195,5 @@ class PlayClientboundUpdatePacketTest {
             packet,
             MinecraftFormat.decodeFromByteArray(serializer, expected),
         )
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
 }

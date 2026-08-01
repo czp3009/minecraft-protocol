@@ -144,7 +144,7 @@ class DebugSubscriptionPacketTest {
 
         for ((data, expectedHex) in cases) {
             val event = DebugSubscriptionEvent(data)
-            val expected = expectedHex.hexBytes()
+            val expected = expectedHex.hexToByteArray()
             assertContentEquals(
                 expected,
                 MinecraftFormat.encodeToByteArray(
@@ -224,7 +224,7 @@ class DebugSubscriptionPacketTest {
         // The 0x01 immediately after type 0x04 is the list length omitted by
         // the current Wiki table but present in DebugGoalInfo.STREAM_CODEC.
         assertContentEquals(
-            "040102010178".hexBytes(),
+            "040102010178".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(
                 DebugSubscriptionEvent.serializer(),
                 goalSelector,
@@ -266,7 +266,7 @@ class DebugSubscriptionPacketTest {
     fun `debug enum failure policies match their official codecs`() {
         val intersection = MinecraftFormat.decodeFromByteArray(
             DebugSubscriptionEvent.serializer(),
-            "067f".hexBytes(),
+            "067f".hexToByteArray(),
         )
         assertEquals(
             DebugSubscriptionEvent(
@@ -277,7 +277,7 @@ class DebugSubscriptionPacketTest {
             intersection,
         )
         assertContentEquals(
-            "0600".hexBytes(),
+            "0600".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(
                 DebugSubscriptionEvent.serializer(),
                 intersection,
@@ -287,7 +287,7 @@ class DebugSubscriptionPacketTest {
         assertFails {
             MinecraftFormat.decodeFromByteArray(
                 DebugSubscriptionEvent.serializer(),
-                "0930".hexBytes(),
+                "0930".hexToByteArray(),
             )
         }
         assertFails {
@@ -304,7 +304,7 @@ class DebugSubscriptionPacketTest {
                                 "00000000" +
                                 "0000" +
                                 "00000000"
-                        ).hexBytes(),
+                        ).hexToByteArray(),
             )
         }
     }
@@ -316,7 +316,7 @@ class DebugSubscriptionPacketTest {
                 DebugSubscriptionUpdate.serializer(),
                 // Vanilla's type 0 subscription has a null valueStreamCodec,
                 // so even an absent optional cannot be dispatched.
-                "0000".hexBytes(),
+                "0000".hexToByteArray(),
             )
         }
 
@@ -333,7 +333,7 @@ class DebugSubscriptionPacketTest {
         assertFailsWith<SerializationException> {
             MinecraftFormat.decodeFromByteArray(
                 DebugSubscriptionEvent.serializer(),
-                "10".hexBytes(),
+                "10".hexToByteArray(),
             )
         }
 
@@ -344,7 +344,7 @@ class DebugSubscriptionPacketTest {
         serializer: KSerializer<T>,
         expectedHex: String,
     ) {
-        val expected = expectedHex.hexBytes()
+        val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(serializer, packet),
@@ -358,12 +358,5 @@ class DebugSubscriptionPacketTest {
     private companion object {
         const val ZERO_POSITION_HEX: String = "0000000000000000"
         val ZERO_POSITION: BlockPosition = BlockPosition(0, 0, 0)
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
 }

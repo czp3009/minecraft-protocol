@@ -18,7 +18,7 @@ class PlayClientboundStatePacketTest {
         )
         val invalidSlot = MinecraftFormat.decodeFromByteArray(
             DisplayObjectivePacket.serializer(),
-            "7f0178".hexBytes(),
+            "7f0178".hexToByteArray(),
         )
         assertEquals(DisplaySlot.LIST, invalidSlot.slot)
 
@@ -133,7 +133,7 @@ class PlayClientboundStatePacketTest {
                 "f3" +
                         "01" +
                         "0b6d696e6563726166743a78"
-                ).hexBytes()
+                ).hexToByteArray()
         val decoded = MinecraftFormat.decodeFromByteArray(
             StopSoundPacket.serializer(),
             highFlags,
@@ -143,7 +143,7 @@ class PlayClientboundStatePacketTest {
             decoded,
         )
         assertContentEquals(
-            "03010b6d696e6563726166743a78".hexBytes(),
+            "03010b6d696e6563726166743a78".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(StopSoundPacket.serializer(), decoded),
         )
 
@@ -189,7 +189,7 @@ class PlayClientboundStatePacketTest {
         assertFailsWith<MinecraftSerializationException> {
             MinecraftFormat.decodeFromByteArray(
                 TagQueryResponsePacket.serializer(),
-                "0108000178".hexBytes(),
+                "0108000178".hexToByteArray(),
             )
         }
     }
@@ -249,7 +249,7 @@ class PlayClientboundStatePacketTest {
         serializer: KSerializer<T>,
         expectedHex: String,
     ) {
-        val expected = expectedHex.hexBytes()
+        val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(serializer, packet),
@@ -263,12 +263,5 @@ class PlayClientboundStatePacketTest {
     private companion object {
         const val NBT_X_HEX: String = "08000178"
         val TEXT_X: TextComponent = TextComponent(NbtString("x"))
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
 }

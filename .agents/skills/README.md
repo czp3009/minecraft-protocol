@@ -13,8 +13,8 @@ Invoke the narrowest skill that owns the requested change.
 | `minecraft-world-storage`     | Binary NBT, Anvil region containers, compression, dimension paths, filesystem adapters, and official save-file interoperability                                                                                           |
 | `minecraft-library-update`    | Release-wide orchestration of both workflows and complete library verification                                                                                                                                            |
 
-All retain the release selected by `MinecraftTarget.version` when no target is given. An explicitly requested Minecraft
-release changes only that buildSrc constant before refresh. Protocol-ID selectors are not supported. Use the same target
+All retain the release selected by `MinecraftTarget.MINECRAFT_VERSION` when no target is given. An explicitly requested
+Minecraft release changes only that buildSrc constant. Protocol-ID selectors are not supported. Use the same target
 across skills during one update.
 
 All workflows use the matching official JAR as the primary source and behavioral authority, the revision-pinned Wiki

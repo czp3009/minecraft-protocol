@@ -1,17 +1,14 @@
 package com.hiczp.minecraft.protocol.buildScript
 
-import kotlinx.serialization.json.JsonArray
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.*
-import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import java.time.Duration
-import java.util.*
 import kotlin.io.path.createDirectories
 import kotlin.io.path.isRegularFile
 
@@ -41,13 +38,12 @@ abstract class DownloadOfficialMinecraftServerTask :
             "Unsafe Minecraft version identifier: $version"
         }
         val metadataPath = metadataFile.asFile.get().toPath()
-        metadataPath.parent.resolve(".test-support.lock")
-            .withExclusiveFileLock {
-                downloadLocked(version, metadataPath)
-            }
+        runBlocking {
+            download(version, metadataPath)
+        }
     }
 
-    private fun downloadLocked(
+    private suspend fun download(
         version: String,
         metadataPath: Path,
     ) {
@@ -79,7 +75,15 @@ abstract class DownloadOfficialMinecraftServerTask :
                     "the required Java version"
         }
         if (!offline.get()) {
-            metadataPath.writeJson(metadata, sortKeys = true)
+            metadataPath.writeJson(
+                JsonObject(
+                    metadata + (
+                            "server_sha256" to
+                                    jsonString(serverJar.sha256())
+                            ),
+                ),
+                sortKeys = true,
+            )
         }
         val action = if (changed) "Downloaded and verified" else "Verified"
         logger.lifecycle(
@@ -87,7 +91,7 @@ abstract class DownloadOfficialMinecraftServerTask :
         )
     }
 
-    private fun resolveServerDownload(version: String): JsonObject {
+    private suspend fun resolveServerDownload(version: String): JsonObject {
         val manifest = ProtocolHttp.getJson(VERSION_MANIFEST_URL)
         val entry = manifest.requiredArray("versions")
             .map { it.jsonObject }
@@ -158,107 +162,55 @@ abstract class DownloadOfficialMinecraftServerTask :
 }
 
 @CacheableTask
-abstract class GenerateOfficialServerPropertiesTask :
+abstract class AnalyzeOfficialMinecraftTargetTask :
     MinecraftProtocolToolTask() {
-    @get:Internal
-    abstract val javaExecutable: Property<String>
-
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val serverJar: RegularFileProperty
 
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val downloadMetadata: RegularFileProperty
+
     @get:OutputFile
-    abstract val reportFile: RegularFileProperty
+    abstract val outputFile: RegularFileProperty
 
     @TaskAction
-    fun generate() {
-        val serverJar = serverJar.asFile.get().toPath()
-        val target = serverJar.readMinecraftProtocolTarget(
+    fun analyze() {
+        val server = serverJar.asFile.get().toPath()
+        val target = server.readMinecraftProtocolTarget(
             minecraftVersion.get(),
         )
-        check(serverJar.isRegularFile()) {
-            "Official server is missing; run downloadOfficialMinecraftServer"
-        }
-        val workDirectory = temporaryDir.toPath()
-        workDirectory.deleteTree()
-        workDirectory.createDirectories()
-        val result = runProcess(
-            listOf(
-                javaExecutable.get(),
-                "-Djava.awt.headless=true",
-                "-jar",
-                serverJar.toString(),
-                "--initSettings",
-                "nogui",
-            ),
-            workingDirectory = workDirectory,
-            timeout = Duration.ofMinutes(2),
-        )
-        check(result.exitCode == 0) {
-            "Official server --initSettings exited with " +
-                    "${result.exitCode}:\n${result.output}"
-        }
-        val propertiesPath = workDirectory.resolve("server.properties")
-        check(propertiesPath.isRegularFile()) {
-            "Official server did not generate server.properties"
-        }
-        val properties = Properties()
-        Files.newBufferedReader(
-            propertiesPath,
-            StandardCharsets.UTF_8,
-        ).use(properties::load)
-        val entries = properties.stringPropertyNames()
-            .sorted()
-            .map { name ->
-                val value = properties.getProperty(name)
-                jsonObjectOf(
-                    "name" to jsonString(name),
-                    "default" to jsonString(
-                        if (name == "management-server-secret") {
-                            check(value.isNotEmpty()) {
-                                "Official management-server-secret is empty"
-                            }
-                            "<generated-secret>"
-                        } else {
-                            value
-                        },
-                    ),
-                )
-            }
-        check(entries.isNotEmpty()) {
-            "Official server generated no properties"
-        }
-        val propertyNames = entries.map {
-            it.requiredString("name")
-        }.toSet()
+        val metadata = downloadMetadata.asFile.get().toPath()
+            .readJsonObject()
         check(
-            setOf(
-                "online-mode",
-                "server-port",
-                "level-name",
-                "network-compression-threshold",
-            ).all(propertyNames::contains),
+            metadata.requiredString("minecraft_version") ==
+                    target.minecraftVersion &&
+                    metadata.requiredString("server_sha1") == server.sha1(),
         ) {
-            "Official server.properties is missing baseline properties"
+            "Official server JAR does not match its Mojang metadata"
         }
         val report = jsonObjectOf(
             "schema_version" to jsonNumber(1),
             "minecraft_version" to jsonString(target.minecraftVersion),
             "protocol_version" to jsonNumber(target.protocolVersion),
-            "official_server_sha1" to jsonString(serverJar.sha1()),
-            "property_count" to jsonNumber(entries.size),
-            "properties" to JsonArray(entries),
+            "java_major_version" to jsonNumber(target.javaMajorVersion),
+            "official_server_sha1" to jsonString(server.sha1()),
+            "official_server_sha256" to jsonString(server.sha256()),
+            "version_metadata_sha1" to jsonString(
+                metadata.requiredString("version_metadata_sha1"),
+            ),
         )
-        val output = reportFile.asFile.get().toPath()
-        output.writeJson(report)
+        val output = outputFile.asFile.get().toPath()
+        output.writeJson(report, sortKeys = true)
         logger.lifecycle(
-            "Generated ${entries.size} official server properties: $output",
+            "Analyzed Minecraft ${target.minecraftVersion} target: $output",
         )
     }
 }
 
 @CacheableTask
-abstract class GenerateOfficialMinecraftReportsTask :
+abstract class AnalyzeOfficialMinecraftReportsTask :
     MinecraftProtocolToolTask() {
     @get:Internal
     abstract val javaExecutable: Property<String>
@@ -294,18 +246,32 @@ abstract class GenerateOfficialMinecraftReportsTask :
             "Official server JAR does not match its Mojang metadata"
         }
         val outputDirectory = outputDirectory.asFile.get().toPath()
-        val workDirectory = temporaryDir.toPath()
-        workDirectory.deleteTree()
-        workDirectory.createDirectories()
+        val workDirectory = createIsolatedTemporaryDirectory("reports")
+        val reports = try {
+            generateReports(serverJar, target, workDirectory)
+        } finally {
+            workDirectory.deleteTree()
+        }
+        outputDirectory.deleteTree()
+        reports.forEach { (name, report) ->
+            outputDirectory.resolve("reports/$name")
+                .writeJson(report, sortKeys = true)
+        }
+        logger.lifecycle(
+            "Generated official protocol reports: " +
+                    outputDirectory.resolve("reports"),
+        )
+    }
+
+    private fun generateReports(
+        serverJar: Path,
+        target: MinecraftProtocolTarget,
+        workDirectory: Path,
+    ): Map<String, JsonObject> {
         val generatorOutput = workDirectory.resolve("generated")
         val packetsReport =
             generatorOutput.resolve("reports/packets.json")
 
-        validateAnalysisJava(
-            javaExecutable.get(),
-            target.javaMajorVersion,
-            target.minecraftVersion,
-        )
         val command = listOf(
             javaExecutable.get(),
             "-DbundlerMainClass=net.minecraft.data.Main",
@@ -353,15 +319,7 @@ abstract class GenerateOfficialMinecraftReportsTask :
             source.readJsonObject()
         }
         validateReports(reports)
-        outputDirectory.deleteTree()
-        reports.forEach { (name, report) ->
-            outputDirectory.resolve("reports/$name")
-                .writeJson(report, sortKeys = true)
-        }
-        logger.lifecycle(
-            "Generated official protocol reports: " +
-                    outputDirectory.resolve("reports"),
-        )
+        return reports
     }
 
     private fun validateReports(reports: Map<String, JsonObject>) {
@@ -431,28 +389,4 @@ abstract class GenerateOfficialMinecraftReportsTask :
         }
     }
 
-    private fun validateAnalysisJava(
-        executable: String,
-        requiredMajor: Int,
-        minecraftVersion: String,
-    ) {
-        val result = runProcess(
-            listOf(executable, "-version"),
-            timeout = Duration.ofSeconds(30),
-        )
-        val actualMajor = Regex("""version\s+"(\d+)[."]""")
-            .find(result.output)
-            ?.groupValues
-            ?.get(1)
-            ?.toInt()
-            ?: 0
-        check(result.exitCode == 0 && actualMajor >= requiredMajor) {
-            "Minecraft $minecraftVersion analysis requires Java " +
-                    "$requiredMajor or newer, but '$executable' reports Java " +
-                    "${actualMajor.takeIf { it > 0 } ?: "unknown"}. Install the " +
-                    "required JDK and let Gradle detect it (or set " +
-                    "-Dorg.gradle.java.installations.paths=<jdk-home>). This " +
-                    "analysis JDK does not change the library's Java/KMP targets."
-        }
-    }
 }

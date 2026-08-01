@@ -1,15 +1,31 @@
 package com.hiczp.minecraft.protocol.buildScript
 
+import io.ktor.client.HttpClient
+import io.ktor.client.call.HttpClientCall
+import io.ktor.client.engine.ProxyBuilder
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpRequestRetry
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.UserAgent
+import io.ktor.client.plugins.api.Send
+import io.ktor.client.plugins.api.createClientPlugin
+import io.ktor.client.plugins.timeout
+import io.ktor.client.request.get
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.http.Url
+import io.ktor.http.isSuccess
+import io.ktor.util.AttributeKey
+import io.ktor.utils.io.exhausted
+import io.ktor.utils.io.readRemaining
+import kotlinx.io.buffered
+import kotlinx.io.readByteArray
+import kotlinx.io.files.Path as IoPath
+import kotlinx.io.files.SystemFileSystem
 import kotlinx.serialization.json.*
 import org.gradle.api.DefaultTask
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
-import java.io.IOException
-import java.net.URI
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
-import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -20,9 +36,12 @@ import java.time.Duration
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipFile
 import kotlin.io.path.*
+import kotlin.time.Duration as KotlinDuration
+import kotlin.time.Duration.Companion.seconds
 
 internal val protocolJson = Json {
     ignoreUnknownKeys = false
+    prettyPrint = true
 }
 
 abstract class MinecraftProtocolToolTask : DefaultTask() {
@@ -30,7 +49,7 @@ abstract class MinecraftProtocolToolTask : DefaultTask() {
     abstract val minecraftVersion: Property<String>
 
     init {
-        minecraftVersion.convention(MinecraftTarget.version)
+        minecraftVersion.convention(MinecraftTarget.MINECRAFT_VERSION)
     }
 }
 
@@ -100,88 +119,20 @@ internal fun Path.writeJson(
 internal fun renderJson(
     value: JsonElement,
     sortKeys: Boolean = false,
-): String = buildString {
-    appendJson(value, 0, sortKeys)
-}
+): String = protocolJson.encodeToString(
+    JsonElement.serializer(),
+    if (sortKeys) value.withSortedObjectKeys() else value,
+)
 
-private fun StringBuilder.appendJson(
-    value: JsonElement,
-    depth: Int,
-    sortKeys: Boolean,
-) {
-    when (value) {
-        JsonNull -> append("null")
-        is JsonPrimitive -> {
-            if (value.isString) {
-                appendJsonString(value.content)
-            } else {
-                append(value.toString())
-            }
-        }
+private fun JsonElement.withSortedObjectKeys(): JsonElement = when (this) {
+    is JsonArray -> JsonArray(map { it.withSortedObjectKeys() })
+    is JsonObject -> JsonObject(
+        entries.sortedBy { it.key }.associateTo(linkedMapOf()) { (key, value) ->
+            key to value.withSortedObjectKeys()
+        },
+    )
 
-        is JsonArray -> {
-            if (value.isEmpty()) {
-                append("[]")
-                return
-            }
-            append("[\n")
-            value.forEachIndexed { index, element ->
-                append("  ".repeat(depth + 1))
-                appendJson(element, depth + 1, sortKeys)
-                if (index != value.lastIndex) append(',')
-                append('\n')
-            }
-            append("  ".repeat(depth))
-            append(']')
-        }
-
-        is JsonObject -> {
-            if (value.isEmpty()) {
-                append("{}")
-                return
-            }
-            val entries = if (sortKeys) {
-                value.entries.sortedBy { it.key }
-            } else {
-                value.entries.toList()
-            }
-            append("{\n")
-            entries.forEachIndexed { index, (key, element) ->
-                append("  ".repeat(depth + 1))
-                appendJsonString(key)
-                append(": ")
-                appendJson(element, depth + 1, sortKeys)
-                if (index != entries.lastIndex) append(',')
-                append('\n')
-            }
-            append("  ".repeat(depth))
-            append('}')
-        }
-    }
-}
-
-private fun StringBuilder.appendJsonString(value: String) {
-    append('"')
-    value.forEach { character ->
-        when (character) {
-            '"' -> append("\\\"")
-            '\\' -> append("\\\\")
-            '\b' -> append("\\b")
-            '\u000C' -> append("\\f")
-            '\n' -> append("\\n")
-            '\r' -> append("\\r")
-            '\t' -> append("\\t")
-            else -> {
-                if (character.code in 0x20..0x7E) {
-                    append(character)
-                } else {
-                    append("\\u")
-                    append(character.code.toString(16).padStart(4, '0'))
-                }
-            }
-        }
-    }
-    append('"')
+    else -> this
 }
 
 internal fun Path.atomicWriteText(content: String) {
@@ -212,17 +163,13 @@ internal fun Path.atomicWrite(content: ByteArray) {
     }
 }
 
-internal inline fun <T> Path.withExclusiveFileLock(block: () -> T): T {
-    parent.createDirectories()
-    return FileChannel.open(
-        this,
-        StandardOpenOption.CREATE,
-        StandardOpenOption.WRITE,
-    ).use { channel ->
-        channel.lock().use {
-            block()
-        }
-    }
+internal fun DefaultTask.createIsolatedTemporaryDirectory(
+    prefix: String,
+): Path {
+    val root = temporaryDir.toPath().parent
+        .resolve("$name-runs")
+        .createDirectories()
+    return Files.createTempDirectory(root, "$prefix-")
 }
 
 internal fun ByteArray.sha1(): String =
@@ -252,67 +199,89 @@ private fun Path.digest(algorithm: String): String {
     return digest.digest().toHexString()
 }
 
-private fun ByteArray.toHexString(): String =
-    joinToString(separator = "") {
-        (it.toInt() and 0xFF).toString(16).padStart(2, '0')
-    }
-
 internal object ProtocolHttp {
+    private const val MAX_RETRIES = 3
+    private const val STREAM_BUFFER_SIZE = 1024L * 1024L
     private const val USER_AGENT =
         "minecraft-protocol Gradle tools/1.0 " +
                 "(https://github.com/hiczp/minecraft-protocol)"
 
-    private val client = HttpClient.newBuilder()
-        .followRedirects(HttpClient.Redirect.NORMAL)
-        .build()
+    private class RetryableResponseBody(
+        val consume: suspend (HttpResponse) -> Unit,
+    )
 
-    fun getBytes(
-        url: String,
-        timeout: Duration = Duration.ofSeconds(60),
-        attempts: Int = 4,
-    ): ByteArray {
-        var lastFailure: Throwable? = null
-        repeat(attempts) { attempt ->
-            try {
-                val request = HttpRequest.newBuilder(URI.create(url))
-                    .timeout(timeout)
-                    .header("User-Agent", USER_AGENT)
-                    .GET()
-                    .build()
-                val response = client.send(
-                    request,
-                    HttpResponse.BodyHandlers.ofByteArray(),
-                )
-                check(response.statusCode() in 200..299) {
-                    "HTTP ${response.statusCode()} for $url"
-                }
-                return response.body()
-            } catch (failure: Throwable) {
-                lastFailure = failure
-                if (attempt + 1 < attempts) {
-                    Thread.sleep(500L shl attempt)
-                }
-            }
+    private val retryableResponseBodyKey =
+        AttributeKey<RetryableResponseBody>("RetryableResponseBody")
+
+    private val retryableResponseBodyPlugin = createClientPlugin(
+        "RetryableResponseBody",
+    ) {
+        on(Send) { request ->
+            val call: HttpClientCall = proceed(request)
+            request.attributes.getOrNull(retryableResponseBodyKey)
+                ?.consume
+                ?.invoke(call.response)
+            call
         }
-        throw IOException(
-            "Request failed after $attempts attempts: $url",
-            lastFailure,
-        )
     }
 
-    fun getJson(
+    private val client = HttpClient(CIO) {
+        environmentProxy()?.let { configuredProxy ->
+            engine {
+                proxy = configuredProxy
+            }
+        }
+        install(HttpRequestRetry) {
+            retryOnServerErrors(maxRetries = MAX_RETRIES)
+            retryOnException(
+                maxRetries = MAX_RETRIES,
+                retryOnTimeout = true,
+            )
+            exponentialDelay()
+        }
+        install(retryableResponseBodyPlugin)
+        install(HttpTimeout)
+        install(UserAgent) {
+            agent = USER_AGENT
+        }
+    }
+
+    suspend fun getBytes(
         url: String,
-        timeout: Duration = Duration.ofSeconds(60),
+        timeout: KotlinDuration = 60.seconds,
+    ): ByteArray {
+        var content: ByteArray? = null
+        val response = client.get(url) {
+            configureTimeout(timeout)
+            attributes.put(
+                retryableResponseBodyKey,
+                RetryableResponseBody { current ->
+                    content = current.bodyAsChannel()
+                        .readRemaining()
+                        .readByteArray()
+                },
+            )
+        }
+        check(response.status.isSuccess()) {
+            "HTTP ${response.status.value} for $url"
+        }
+        return checkNotNull(content) {
+            "HTTP response body was not consumed: $url"
+        }
+    }
+
+    suspend fun getJson(
+        url: String,
+        timeout: KotlinDuration = 60.seconds,
     ): JsonObject = getBytes(url, timeout).decodeJsonObject(url)
 
-    fun ensureDownload(
+    suspend fun ensureDownload(
         url: String,
         destination: Path,
         expectedSize: Long,
         expectedSha1: String,
         offline: Boolean = false,
-        timeout: Duration = Duration.ofSeconds(60),
-        attempts: Int = 4,
+        timeout: KotlinDuration = 60.seconds,
     ): Boolean {
         if (
             destination.isRegularFile() &&
@@ -325,61 +294,94 @@ internal object ProtocolHttp {
             "Official artifact is absent or invalid: $destination"
         }
         destination.parent.createDirectories()
-        var lastFailure: Throwable? = null
-        repeat(attempts) { attempt ->
-            val temporary = Files.createTempFile(
-                destination.parent,
-                ".${destination.name}.",
-                ".download",
-            )
-            try {
-                val request = HttpRequest.newBuilder(URI.create(url))
-                    .timeout(timeout)
-                    .header("User-Agent", USER_AGENT)
-                    .GET()
-                    .build()
-                val response = client.send(
-                    request,
-                    HttpResponse.BodyHandlers.ofInputStream(),
-                )
-                check(response.statusCode() in 200..299) {
-                    "HTTP ${response.statusCode()} for $url"
-                }
-                response.body().use { input ->
-                    Files.newOutputStream(
-                        temporary,
-                        StandardOpenOption.TRUNCATE_EXISTING,
-                    ).use(input::copyTo)
-                }
-                check(Files.size(temporary) == expectedSize) {
-                    "Downloaded artifact has wrong size: $url"
-                }
-                check(
-                    temporary.digest("SHA-1") == expectedSha1,
-                ) {
-                    "Downloaded artifact failed SHA-1: $url"
-                }
-                Files.move(
-                    temporary,
-                    destination,
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-                return true
-            } catch (failure: Throwable) {
-                lastFailure = failure
-                Files.deleteIfExists(temporary)
-                if (attempt + 1 < attempts) {
-                    Thread.sleep(500L shl attempt)
-                }
-            }
-        }
-        throw IOException(
-            "Artifact download failed after $attempts attempts: $url",
-            lastFailure,
+        val temporary = Files.createTempFile(
+            destination.parent,
+            ".${destination.name}.",
+            ".download",
         )
+        try {
+            val response = client.get(url) {
+                configureTimeout(timeout)
+                attributes.put(
+                    retryableResponseBodyKey,
+                    RetryableResponseBody { current ->
+                        SystemFileSystem.sink(IoPath(temporary.toString()))
+                            .buffered()
+                            .use { sink ->
+                                val channel = current.bodyAsChannel()
+                                while (!channel.exhausted()) {
+                                    channel.readRemaining(STREAM_BUFFER_SIZE)
+                                        .transferTo(sink)
+                                }
+                            }
+                    },
+                )
+            }
+            check(response.status.isSuccess()) {
+                "HTTP ${response.status.value} for $url"
+            }
+            check(Files.size(temporary) == expectedSize) {
+                "Downloaded artifact has wrong size: $url"
+            }
+            check(
+                temporary.digest("SHA-1") == expectedSha1,
+            ) {
+                "Downloaded artifact failed SHA-1: $url"
+            }
+            Files.move(
+                temporary,
+                destination,
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+            return true
+        } finally {
+            Files.deleteIfExists(temporary)
+        }
     }
 
+    private fun environmentProxy() = run {
+        if (environmentVariable("NO_PROXY", "no_proxy") == "*") {
+            return@run null
+        }
+        val (name, value) = listOf(
+            "HTTPS_PROXY",
+            "https_proxy",
+            "HTTP_PROXY",
+            "http_proxy",
+        ).firstNotNullOfOrNull { name ->
+            System.getenv(name)
+                ?.takeIf(String::isNotBlank)
+                ?.let { value -> name to value }
+        } ?: return@run null
+
+        runCatching { ProxyBuilder.http(Url(value)) }
+            .getOrElse { failure ->
+                throw IllegalArgumentException(
+                    "Invalid proxy URL in $name",
+                    failure,
+                )
+            }
+    }
+
+    private fun environmentVariable(
+        upperCase: String,
+        lowerCase: String,
+    ): String? = System.getenv(upperCase) ?: System.getenv(lowerCase)
+
+    private fun io.ktor.client.request.HttpRequestBuilder.configureTimeout(
+        timeout: KotlinDuration,
+    ) {
+        require(timeout.isPositive() && timeout.isFinite()) {
+            "HTTP timeout must be positive and finite: $timeout"
+        }
+        val timeoutMillis = timeout.inWholeMilliseconds
+        timeout {
+            requestTimeoutMillis = timeoutMillis
+            connectTimeoutMillis = timeoutMillis
+            socketTimeoutMillis = timeoutMillis
+        }
+    }
 }
 
 internal data class ProcessResult(
@@ -437,6 +439,55 @@ internal data class MinecraftProtocolTarget(
     val protocolVersion: Int,
     val javaMajorVersion: Int,
 )
+
+internal data class OfficialMinecraftTargetReport(
+    val target: MinecraftProtocolTarget,
+    val serverSha1: String,
+    val serverSha256: String,
+    val versionMetadataSha1: String,
+)
+
+internal fun Path.readOfficialMinecraftTargetReport(): OfficialMinecraftTargetReport {
+    check(isRegularFile()) {
+        "Official Minecraft target analysis is missing: $this"
+    }
+    val report = readJsonObject()
+    check(report.requiredInt("schema_version") == 1) {
+        "Unsupported official Minecraft target schema"
+    }
+    val serverSha1 = report.requiredString("official_server_sha1")
+    val serverSha256 = report.requiredString("official_server_sha256")
+    val metadataSha1 = report.requiredString("version_metadata_sha1")
+    check(serverSha1.matches(Regex("[0-9a-f]{40}"))) {
+        "Official Minecraft target has an invalid server SHA-1"
+    }
+    check(serverSha256.matches(Regex("[0-9a-f]{64}"))) {
+        "Official Minecraft target has an invalid server SHA-256"
+    }
+    check(metadataSha1.matches(Regex("[0-9a-f]{40}"))) {
+        "Official Minecraft target has an invalid metadata SHA-1"
+    }
+    return OfficialMinecraftTargetReport(
+        target = MinecraftProtocolTarget(
+            minecraftVersion = report.requiredString("minecraft_version"),
+            protocolVersion = report.requiredInt("protocol_version"),
+            javaMajorVersion = report.requiredInt("java_major_version"),
+        ),
+        serverSha1 = serverSha1,
+        serverSha256 = serverSha256,
+        versionMetadataSha1 = metadataSha1,
+    ).also {
+        check(it.target.minecraftVersion.isNotBlank()) {
+            "Official Minecraft target has an empty version"
+        }
+        check(it.target.protocolVersion >= 0) {
+            "Official Minecraft target has a negative protocol version"
+        }
+        check(it.target.javaMajorVersion > 0) {
+            "Official Minecraft target has no Java requirement"
+        }
+    }
+}
 
 internal fun Path.readMinecraftProtocolTarget(
     expectedVersion: String,

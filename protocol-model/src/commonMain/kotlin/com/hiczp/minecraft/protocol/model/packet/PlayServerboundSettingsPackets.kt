@@ -5,7 +5,6 @@ package com.hiczp.minecraft.protocol.model.packet
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.RecipeBookCategory
 import com.hiczp.minecraft.protocol.model.type.ResourcePackResult
-import com.hiczp.minecraft.protocol.model.type.Uuid
 import com.hiczp.minecraft.protocol.model.wire.MaxLength
 import com.hiczp.minecraft.protocol.model.wire.VarInt
 import kotlinx.serialization.ExperimentalSerializationApi
@@ -17,6 +16,7 @@ import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.descriptors.element
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlin.uuid.Uuid
 
 @Serializable
 @PacketInfo(

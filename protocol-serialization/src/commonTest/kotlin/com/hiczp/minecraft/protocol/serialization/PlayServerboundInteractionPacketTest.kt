@@ -7,6 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.uuid.Uuid
 
 class PlayServerboundInteractionPacketTest {
     @Test
@@ -42,7 +43,7 @@ class PlayServerboundInteractionPacketTest {
             "01",
         )
         assertPacketBytes(
-            TeleportToEntityPacket(Uuid(0, 0)),
+            TeleportToEntityPacket(Uuid.fromLongs(0, 0)),
             TeleportToEntityPacket.serializer(),
             "00000000000000000000000000000000",
         )
@@ -79,7 +80,7 @@ class PlayServerboundInteractionPacketTest {
                             "00" +
                             "7f" +
                             "00"
-                    ).hexBytes(),
+                    ).hexToByteArray(),
         )
         assertEquals(TestInstanceAction.INIT, fallback.action)
         assertEquals(StructureRotation.COUNTERCLOCKWISE_90, fallback.data.rotation)
@@ -94,7 +95,7 @@ class PlayServerboundInteractionPacketTest {
                             "00" +
                             "00" +
                             "00"
-                    ).hexBytes(),
+                    ).hexToByteArray(),
             MinecraftFormat.encodeToByteArray(TestInstanceBlockActionPacket.serializer(), fallback),
         )
     }
@@ -150,7 +151,7 @@ class PlayServerboundInteractionPacketTest {
         serializer: KSerializer<T>,
         expectedHex: String,
     ) {
-        val expected = expectedHex.hexBytes()
+        val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(serializer, packet),
@@ -159,12 +160,5 @@ class PlayServerboundInteractionPacketTest {
             packet,
             MinecraftFormat.decodeFromByteArray(serializer, expected),
         )
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
 }

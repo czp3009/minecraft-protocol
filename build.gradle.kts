@@ -1,6 +1,8 @@
 import com.hiczp.minecraft.protocol.buildScript.*
+import org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootExtension
 import org.jetbrains.kotlin.gradle.targets.js.yarn.YarnPlugin
 import org.jetbrains.kotlin.gradle.targets.js.yarn.YarnRootExtension
+import org.jetbrains.kotlin.gradle.targets.wasm.nodejs.WasmNodeJsRootExtension
 import org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnPlugin
 import org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnRootExtension
 
@@ -26,9 +28,21 @@ plugins.withType<WasmYarnPlugin> {
         lockFileDirectory =
             layout.buildDirectory.dir("kotlin-js-store/wasm").get().asFile
     }
+    val wasmNpmInstall = extensions
+        .getByType<WasmNodeJsRootExtension>()
+        .npmInstallTaskProvider
+    plugins.withType<YarnPlugin> {
+        val jsNpmInstall = extensions
+            .getByType<NodeJsRootExtension>()
+            .npmInstallTaskProvider
+        // Both KGP Yarn 1 installs use the same process-wide network mutex.
+        wasmNpmInstall.configure {
+            mustRunAfter(jsNpmInstall)
+        }
+    }
 }
 
-val minecraftVersion = MinecraftTarget.version
+val minecraftVersion = MinecraftTarget.MINECRAFT_VERSION
 val officialServerDirectory = layout.buildDirectory.dir(
     "protocol-reference/mojang/$minecraftVersion",
 )
@@ -38,121 +52,144 @@ val officialServerJar = officialServerDirectory.map {
 val officialServerMetadata = officialServerDirectory.map {
     it.file("download-metadata.json")
 }
-val officialReportsDirectory = officialServerDirectory.map {
-    it.dir("generated")
+val officialAnalysisDirectory = layout.buildDirectory.dir(
+    "generated/official-minecraft/$minecraftVersion",
+)
+val officialTargetFile = officialAnalysisDirectory.map {
+    it.file("target/target.json")
+}
+val officialReportsDirectory = officialAnalysisDirectory.map {
+    it.dir("data-generator-reports")
+}
+val officialConfigurationFile = officialAnalysisDirectory.map {
+    it.file("configuration/configuration.json")
 }
 
 val javaToolchains = extensions.getByType<JavaToolchainService>()
 val java25Launcher = javaToolchains.launcherFor {
-    languageVersion.set(JavaLanguageVersion.of(25))
+    languageVersion = JavaLanguageVersion.of(25)
 }
 
 tasks.register<PrintMinecraftVersionTask>("minecraftVersion") {
     group = "help"
     description = "Print the official Minecraft release selected in buildSrc."
-    this.minecraftVersion.set(MinecraftTarget.version)
+    this.minecraftVersion = MinecraftTarget.MINECRAFT_VERSION
 }
 
 val downloadOfficialMinecraftServer =
     tasks.register<DownloadOfficialMinecraftServerTask>(
         "downloadOfficialMinecraftServer",
     ) {
+        group = "official minecraft"
         description = "Download and verify the selected official Minecraft server JAR."
-        offline.set(gradle.startParameter.isOffline)
-        serverJar.set(officialServerJar)
-        metadataFile.set(officialServerMetadata)
+        offline = gradle.startParameter.isOffline
+        serverJar = officialServerJar
+        metadataFile = officialServerMetadata
     }
 
-val generateOfficialMinecraftReports =
-    tasks.register<GenerateOfficialMinecraftReportsTask>(
-        "generateOfficialMinecraftReports",
+val analyzeOfficialMinecraftTarget =
+    tasks.register<AnalyzeOfficialMinecraftTargetTask>(
+        "analyzeOfficialMinecraftTarget",
     ) {
-        description = "Generate official data reports for the selected Minecraft release."
-        javaExecutable.set(
+        group = "official minecraft analysis"
+        description = "Analyze version and protocol facts in the official server JAR."
+        serverJar = downloadOfficialMinecraftServer.flatMap {
+            it.serverJar
+        }
+        downloadMetadata = downloadOfficialMinecraftServer.flatMap {
+            it.metadataFile
+        }
+        outputFile = officialTargetFile
+    }
+
+val analyzeOfficialMinecraftReports =
+    tasks.register<AnalyzeOfficialMinecraftReportsTask>(
+        "analyzeOfficialMinecraftReports",
+    ) {
+        group = "official minecraft analysis"
+        description = "Capture official packets, registries, and blocks reports."
+        javaExecutable =
             java25Launcher.map {
                 it.executablePath.asFile.absolutePath
-            },
-        )
-        serverJar.set(downloadOfficialMinecraftServer.flatMap {
+            }
+        serverJar = downloadOfficialMinecraftServer.flatMap {
             it.serverJar
-        })
-        downloadMetadata.set(downloadOfficialMinecraftServer.flatMap {
+        }
+        downloadMetadata = downloadOfficialMinecraftServer.flatMap {
             it.metadataFile
-        })
-        outputDirectory.set(officialReportsDirectory)
+        }
+        outputDirectory = officialReportsDirectory
     }
 
-val officialServerProperties =
-    tasks.register<GenerateOfficialServerPropertiesTask>(
-        "generateOfficialServerProperties",
+val analyzeOfficialMinecraftConfiguration =
+    tasks.register<AnalyzeOfficialMinecraftConfigurationTask>(
+        "analyzeOfficialMinecraftConfiguration",
     ) {
-        description = "Capture default properties from the selected official server."
-        javaExecutable.set(
+        group = "official minecraft analysis"
+        description = "Capture both official Configuration Known Packs branches."
+        javaExecutable =
             java25Launcher.map {
                 it.executablePath.asFile.absolutePath
-            },
-        )
-        serverJar.set(downloadOfficialMinecraftServer.flatMap {
+            }
+        serverJar = downloadOfficialMinecraftServer.flatMap {
             it.serverJar
-        })
-        reportFile.set(
-            layout.buildDirectory.file(
-                "generated/protocol-specification/server-properties.json",
-            ),
-        )
+        }
+        packetsReport =
+            analyzeOfficialMinecraftReports.flatMap {
+                it.outputDirectory.file("reports/packets.json")
+            }
+        outputFile = officialConfigurationFile
     }
 
-val generatedProtocolSpecification =
-    tasks.register<GenerateProtocolSpecificationTask>(
-        "generateProtocolSpecification",
-    ) {
-        description = "Generate protocol specification evidence from official artifacts."
-        dependsOn(":protocol-vanilla-data:generateVanillaConfigurationData")
-        serverJar.set(downloadOfficialMinecraftServer.flatMap {
-            it.serverJar
-        })
-        downloadMetadata.set(downloadOfficialMinecraftServer.flatMap {
-            it.metadataFile
-        })
-        packetsReport.set(
-            officialReportsDirectory.map {
-                it.file("reports/packets.json")
-            },
-        )
-        registriesReport.set(
-            officialReportsDirectory.map {
-                it.file("reports/registries.json")
-            },
-        )
-        blocksReport.set(
-            officialReportsDirectory.map {
-                it.file("reports/blocks.json")
-            },
-        )
-        serverPropertiesReport.set(officialServerProperties.flatMap {
-            it.reportFile
-        })
-        configurationReport.set(
-            project(":protocol-vanilla-data").layout.buildDirectory.file(
-                "generated/reports/vanillaConfiguration/configuration.json",
-            ),
-        )
-        outputDirectory.set(
-            layout.buildDirectory.dir(
-                "generated/protocol-specification/generated",
-            ),
-        )
-    }
-
-tasks.register<Sync>("refreshProtocolSpecification") {
-    group = "minecraft"
-    description = "Regenerate checked-in evidence from the selected official server."
-    from(generatedProtocolSpecification.flatMap {
-        it.outputDirectory
-    })
-    into(
-        layout.projectDirectory.dir("protocol-specification/generated"),
+tasks.register("officialMinecraftAnalysis") {
+    group = "official minecraft analysis"
+    description = "Run every official Minecraft analysis task."
+    dependsOn(
+        analyzeOfficialMinecraftTarget,
+        analyzeOfficialMinecraftReports,
+        analyzeOfficialMinecraftConfiguration,
     )
+}
+
+val officialMinecraftTargetElements = configurations.create(
+    "officialMinecraftTargetElements",
+) {
+    isCanBeConsumed = true
+    isCanBeResolved = false
+}
+val officialMinecraftReportsElements = configurations.create(
+    "officialMinecraftReportsElements",
+) {
+    isCanBeConsumed = true
+    isCanBeResolved = false
+}
+val officialMinecraftConfigurationElements = configurations.create(
+    "officialMinecraftConfigurationElements",
+) {
+    isCanBeConsumed = true
+    isCanBeResolved = false
+}
+
+artifacts {
+    add(
+        officialMinecraftTargetElements.name,
+        analyzeOfficialMinecraftTarget.flatMap { it.outputFile },
+    ) {
+        builtBy(analyzeOfficialMinecraftTarget)
+    }
+    add(
+        officialMinecraftReportsElements.name,
+        analyzeOfficialMinecraftReports.flatMap { it.outputDirectory },
+    ) {
+        type = "directory"
+        builtBy(analyzeOfficialMinecraftReports)
+    }
+    add(
+        officialMinecraftConfigurationElements.name,
+        analyzeOfficialMinecraftConfiguration.flatMap { it.outputFile },
+    ) {
+        builtBy(analyzeOfficialMinecraftConfiguration)
+    }
 }
 
 subprojects {

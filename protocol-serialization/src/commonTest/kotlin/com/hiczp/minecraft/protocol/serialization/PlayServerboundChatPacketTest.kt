@@ -8,6 +8,7 @@ import kotlinx.serialization.KSerializer
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.uuid.Uuid
 
 class PlayServerboundChatPacketTest {
     @Test
@@ -61,7 +62,7 @@ class PlayServerboundChatPacketTest {
         assertPacketBytes(
             PlayerSessionPacket(
                 ChatSessionData(
-                    sessionId = Uuid(1, 2),
+                    sessionId = Uuid.fromLongs(1, 2),
                     profilePublicKey = ProfilePublicKeyData(
                         expiresAtEpochMillis = 3,
                         encodedKey = ByteString(
@@ -85,7 +86,7 @@ class PlayServerboundChatPacketTest {
         serializer: KSerializer<T>,
         expectedHex: String,
     ) {
-        val expected = expectedHex.hexBytes()
+        val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(serializer, packet),
@@ -94,12 +95,5 @@ class PlayServerboundChatPacketTest {
             packet,
             MinecraftFormat.decodeFromByteArray(serializer, expected),
         )
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
 }

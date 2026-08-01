@@ -15,6 +15,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.test.runTest
 import kotlin.test.*
+import kotlin.uuid.Uuid
 
 class MinecraftClientProtocolFailureTest {
     @Test
@@ -31,7 +32,7 @@ class MinecraftClientProtocolFailureTest {
         )
         val online = MinecraftOnlineIdentity(
             name = "ClientProbe",
-            id = Uuid(1, 2),
+            id = Uuid.fromLongs(1, 2),
             accessToken = "secret-token",
             sessionService = service,
             cryptography = IdentityCryptography,
@@ -157,7 +158,7 @@ class MinecraftClientProtocolFailureTest {
         )
         val identity = MinecraftOnlineIdentity(
             name = "OnlineProbe",
-            id = Uuid(1, 2),
+            id = Uuid.fromLongs(1, 2),
             accessToken = "token",
             sessionService = service,
             cryptography = IdentityCryptography,
@@ -165,7 +166,7 @@ class MinecraftClientProtocolFailureTest {
         val (clientSession, serverSession) = sessionPair()
         val success = LoginSuccessPacket(
             GameProfile(identity.id, identity.name, emptyList()),
-            Uuid(3, 4),
+            Uuid.fromLongs(3, 4),
         )
         val play = playLogin(onlineMode = true)
         val server = async {
@@ -226,7 +227,7 @@ class MinecraftClientProtocolFailureTest {
             )
             val identity = MinecraftOnlineIdentity(
                 name = "NoAuthProbe",
-                id = Uuid(1, 2),
+                id = Uuid.fromLongs(1, 2),
                 accessToken = "token",
                 sessionService = service,
                 cryptography = IdentityCryptography,
@@ -247,7 +248,7 @@ class MinecraftClientProtocolFailureTest {
                 serverSession.send(
                     LoginSuccessPacket(
                         GameProfile(identity.id, identity.name, emptyList()),
-                        Uuid(3, 4),
+                        Uuid.fromLongs(3, 4),
                     ),
                 )
                 serverSession.receive()
@@ -299,7 +300,7 @@ class MinecraftClientProtocolFailureTest {
             val identity = MinecraftOfflineIdentity("HandlerProbe")
             val success = LoginSuccessPacket(
                 GameProfile(identity.id, identity.name, emptyList()),
-                Uuid(3, 4),
+                Uuid.fromLongs(3, 4),
             )
             val server = async {
                 serverSession.receive()
@@ -379,7 +380,7 @@ class MinecraftClientProtocolFailureTest {
                 serverSession.send(
                     LoginSuccessPacket(
                         GameProfile(identity.id, identity.name, emptyList()),
-                        Uuid(3, 4),
+                        Uuid.fromLongs(3, 4),
                     ),
                 )
                 serverSession.receive()
@@ -416,33 +417,33 @@ class MinecraftClientProtocolFailureTest {
 
     @Test
     fun enforcesIndependentPacketLimitsForLoginConfigurationAndPlay() = runTest {
-        assertPhaseLimit("Login packet limit") { client, server, identity ->
+        assertPhaseLimit("Login packet limit") { _, server, _ ->
             server.receive()
             server.receive()
             val key = Identifier("test:cookie")
             server.send(LoginCookieRequestPacket(key))
             server.receive()
         }
-        assertPhaseLimit("Configuration packet limit") { client, server, identity ->
+        assertPhaseLimit("Configuration packet limit") { _, server, identity ->
             server.receive()
             server.receive()
             server.send(
                 LoginSuccessPacket(
                     GameProfile(identity.id, identity.name, emptyList()),
-                    Uuid(3, 4),
+                    Uuid.fromLongs(3, 4),
                 ),
             )
             server.receive()
             server.receive()
             server.send(FeatureFlagsPacket(emptySet()))
         }
-        assertPhaseLimit("Play Login packet limit") { client, server, identity ->
+        assertPhaseLimit("Play Login packet limit") { _, server, identity ->
             server.receive()
             server.receive()
             server.send(
                 LoginSuccessPacket(
                     GameProfile(identity.id, identity.name, emptyList()),
-                    Uuid(3, 4),
+                    Uuid.fromLongs(3, 4),
                 ),
             )
             server.receive()
@@ -484,7 +485,7 @@ class MinecraftClientProtocolFailureTest {
             serverSession.send(
                 LoginSuccessPacket(
                     GameProfile(identity.id, identity.name, emptyList()),
-                    Uuid(3, 4),
+                    Uuid.fromLongs(3, 4),
                 ),
             )
             serverSession.receive()
@@ -515,7 +516,7 @@ class MinecraftClientProtocolFailureTest {
                 serverSession.send(
                     LoginSuccessPacket(
                         GameProfile(identity.id, identity.name, emptyList()),
-                        Uuid(3, 4),
+                        Uuid.fromLongs(3, 4),
                     ),
                 )
                 serverSession.receive()

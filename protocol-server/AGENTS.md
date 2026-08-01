@@ -17,8 +17,10 @@ Fire-and-forget Configuration traffic belongs in `configurationPackets`; respons
 task and then Finish Configuration are acknowledged. Do not hardcode difficulty, game mode, abilities, Status behavior,
 transfer admission, resource-pack policy, or secure-chat claims.
 
-JVM unit and integration tests remain in process and display-free. The standard `jvmTest` task launches the matching
-official client by calling the ordinary `minecraft-test-support` library with dummy offline credentials and a
-hash-verified launcher adapter. It must prove initial chunks and entities are accepted, observe client acknowledgements
-and ticks, complete a bidirectional Play packet, keep all runtime files under build directories, and avoid launcher
-account credentials. GUI desktop-client testing is not part of the repository.
+Portable client/server end-to-end scenarios belong in `commonTest` and run on every target whose standard test runtime
+supports Ktor sockets. The shared `externalProcessTest` source set launches the matching official client on JVM, desktop
+Native, and supported Node runtimes by calling the ordinary `minecraft-test-support` library with dummy offline
+credentials and a hash-verified launcher adapter. An external Java process is not a JVM-specific test capability. The
+test must prove initial chunks and entities are accepted, observe client acknowledgements and ticks, complete a
+bidirectional Play packet, keep all runtime files under build directories, and avoid launcher account credentials. GUI
+desktop-client testing is not part of the repository.

@@ -27,7 +27,7 @@ class DamageAndSignaturePacketTest {
                         "3ff0000000000000" +
                         "4000000000000000" +
                         "4008000000000000"
-                ).hexBytes()
+                ).hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(DamageEventPacket.serializer(), packet),
@@ -51,7 +51,7 @@ class DamageAndSignaturePacketTest {
                         "0000000000000003" +
                         "0000000000000004" +
                         "00"
-                ).hexBytes()
+                ).hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(DebugSamplePacket.serializer(), packet),
@@ -66,14 +66,14 @@ class DamageAndSignaturePacketTest {
     fun `packed message signature chooses cache ID or exact 256 raw bytes`() {
         val cached = DeleteMessagePacket(PackedMessageSignature.Cached(3))
         assertContentEquals(
-            "04".hexBytes(),
+            "04".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(DeleteMessagePacket.serializer(), cached),
         )
         assertEquals(
             cached,
             MinecraftFormat.decodeFromByteArray(
                 DeleteMessagePacket.serializer(),
-                "04".hexBytes(),
+                "04".hexToByteArray(),
             ),
         )
 
@@ -97,12 +97,5 @@ class DamageAndSignaturePacketTest {
                 encoded,
             ),
         )
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
 }

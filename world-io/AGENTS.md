@@ -10,5 +10,6 @@ This file extends the repository `AGENTS.md`.
 - Keep timestamps explicit and batch region mutations when possible.
 
 Run `:world-io:jvmTest` after changes; it includes official world interoperability. Finish with the applicable standard
-KMP platform tasks or `allTests`. Filesystem behavior expressible with `kotlinx.io.files` belongs in `commonTest`; keep
-only official-process and genuinely JVM-specific checks in `jvmTest`.
+KMP platform tasks or `allTests`. Filesystem behavior expressible with `kotlinx.io.files` belongs in `commonTest`;
+official-process tests shared by JVM and desktop Native belong in `externalProcessTest`, while only genuinely
+JVM-specific checks belong in `jvmTest`.

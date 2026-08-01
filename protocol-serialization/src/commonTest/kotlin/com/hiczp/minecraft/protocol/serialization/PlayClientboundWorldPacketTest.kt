@@ -6,6 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.uuid.Uuid
 
 class PlayClientboundWorldPacketTest {
     @Test
@@ -33,7 +34,7 @@ class PlayClientboundWorldPacketTest {
                         "00" +
                         "01fe7f" +
                         "ac02"
-                ).hexBytes()
+                ).hexToByteArray()
 
         assertContentEquals(
             expected,
@@ -67,7 +68,7 @@ class PlayClientboundWorldPacketTest {
 
         for ((action, actionHex) in actions) {
             val packet = BossBarPacket(ZERO_UUID, action)
-            val expected = "00000000000000000000000000000000$actionHex".hexBytes()
+            val expected = "00000000000000000000000000000000$actionHex".hexToByteArray()
             assertContentEquals(
                 expected,
                 MinecraftFormat.encodeToByteArray(BossBarPacket.serializer(), packet),
@@ -83,7 +84,7 @@ class PlayClientboundWorldPacketTest {
     fun `difficulty is VarInt and wraps out of range IDs like vanilla`() {
         val packet = ClientboundChangeDifficultyPacket(Difficulty.HARD, locked = false)
         assertContentEquals(
-            "0300".hexBytes(),
+            "0300".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(
                 ClientboundChangeDifficultyPacket.serializer(),
                 packet,
@@ -93,7 +94,7 @@ class PlayClientboundWorldPacketTest {
             packet,
             MinecraftFormat.decodeFromByteArray(
                 ClientboundChangeDifficultyPacket.serializer(),
-                "ff0100".hexBytes(),
+                "ff0100".hexToByteArray(),
             ),
         )
     }
@@ -109,7 +110,7 @@ class PlayClientboundWorldPacketTest {
                 ),
             ),
         )
-        val expected = "01000000020000000102aabb".hexBytes()
+        val expected = "01000000020000000102aabb".hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(ChunkBiomesPacket.serializer(), packet),
@@ -136,19 +137,12 @@ class PlayClientboundWorldPacketTest {
             MinecraftFormat.decodeFromByteArray(
                 BlockEntityDataPacket.serializer(),
                 // Position, type ID, then an unnamed NBT Int instead of Compound.
-                "0000000000000000010300000000".hexBytes(),
+                "0000000000000000010300000000".hexToByteArray(),
             )
         }
     }
 
     private companion object {
-        val ZERO_UUID: Uuid = Uuid(0, 0)
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
+        val ZERO_UUID: Uuid = Uuid.fromLongs(0, 0)
     }
 }

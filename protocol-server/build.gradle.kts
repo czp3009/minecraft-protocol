@@ -1,4 +1,5 @@
 import com.hiczp.minecraft.protocol.buildScript.configureAllTargets
+import com.hiczp.minecraft.protocol.buildScript.createHostProcessTestSourceSet
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -11,7 +12,14 @@ kotlin {
         namespace = "com.hiczp.minecraft.protocol.server",
         includeWasmWasi = false,
         includeWasmJsD8 = false,
+        nodeTestTimeout = "60m",
     )
+    createHostProcessTestSourceSet("externalProcessTest") {
+        dependencies {
+            implementation(project(":minecraft-test-support"))
+            implementation(libs.kotlinx.serialization.json)
+        }
+    }
 
     sourceSets {
         commonMain.dependencies {
@@ -22,6 +30,7 @@ kotlin {
             api(project(":protocol-vanilla-data"))
             api(libs.ktor.network)
             implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.kotlinx.serialization.json)
         }
 
         commonTest.dependencies {
@@ -31,9 +40,5 @@ kotlin {
             implementation(libs.ktor.client.mock)
         }
 
-        jvmTest.dependencies {
-            implementation(project(":minecraft-test-support"))
-            implementation(libs.kotlinx.serialization.json)
-        }
     }
 }

@@ -6,6 +6,7 @@ import kotlinx.serialization.KSerializer
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.uuid.Uuid
 
 class PlayClientboundPlayerWorldPacketTest {
     @Test
@@ -93,7 +94,7 @@ class PlayClientboundPlayerWorldPacketTest {
 
         val withUnknownBits = (
                 "01" + "00".repeat(56) + "ffffff81"
-                ).hexBytes()
+                ).hexToByteArray()
         assertEquals(
             packet,
             MinecraftFormat.decodeFromByteArray(
@@ -295,7 +296,7 @@ class PlayClientboundPlayerWorldPacketTest {
         serializer: KSerializer<T>,
         expectedHex: String,
     ) {
-        val expected = expectedHex.hexBytes()
+        val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(serializer, packet),
@@ -310,14 +311,7 @@ class PlayClientboundPlayerWorldPacketTest {
         const val ZERO_POSITION_HEX: String = "0000000000000000"
         const val VECTOR_123_HEX: String =
             "3ff000000000000040000000000000004008000000000000"
-        val ZERO_UUID: Uuid = Uuid(0, 0)
+        val ZERO_UUID: Uuid = Uuid.fromLongs(0, 0)
         val TEXT_X: TextComponent = TextComponent(NbtString("x"))
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
 }

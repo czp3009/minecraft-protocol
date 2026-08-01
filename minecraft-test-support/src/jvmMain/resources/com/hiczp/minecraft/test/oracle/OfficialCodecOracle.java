@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.test.oracle;
 
+import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -48,13 +49,16 @@ import net.minecraft.server.Bootstrap;
  * re-encoding official codecs from their observed behavior.
  */
 public final class OfficialCodecOracle {
+    private static final Gson GSON =
+            new GsonBuilder().setPrettyPrinting().create();
+
     private OfficialCodecOracle() {
     }
 
     public static void run(String[] arguments) throws Exception {
         if (arguments.length != 3) {
             throw new IllegalArgumentException(
-                    "usage: <fixtures.tsv> <server-inner.jar> <report.json>"
+                    "usage: <fixtures.json> <server-inner.jar> <report.json>"
             );
         }
 
@@ -144,13 +148,7 @@ public final class OfficialCodecOracle {
         Files.createDirectories(reportPath.getParent());
         Files.writeString(
                 reportPath,
-                new GsonBuilder().setPrettyPrinting().create().toJson(report) + "\n"
-        );
-        System.err.printf(
-                "Official codec oracle: %d/%d passed; report: %s%n",
-                passed,
-                fixtures.size(),
-                reportPath
+                GSON.toJson(report) + "\n"
         );
         if (passed != fixtures.size()) {
             throw new AssertionError(
@@ -277,52 +275,29 @@ public final class OfficialCodecOracle {
     }
 
     private static List<Fixture> readFixtures(Path path) throws IOException {
-        List<String> lines = Files.readAllLines(path);
-        if (lines.isEmpty()) {
+        FixtureInput[] inputs = GSON.fromJson(
+                Files.readString(path),
+                FixtureInput[].class
+        );
+        if (inputs == null || inputs.length == 0) {
             throw new IllegalArgumentException("Fixture file is empty: " + path);
         }
-        String[] header = lines.getFirst().split("\t", -1);
-        Map<String, Integer> columns = columns(header);
-        List<Fixture> fixtures = new ArrayList<>();
-        for (String line : lines.subList(1, lines.size())) {
-            if (line.isBlank()) {
-                continue;
-            }
-            String[] fields = line.split("\t", -1);
+        List<Fixture> fixtures = new ArrayList<>(inputs.length);
+        for (FixtureInput input : inputs) {
             fixtures.add(
                     new Fixture(
                             PacketKey.of(
-                                    field(fields, columns, "state"),
-                                    field(fields, columns, "direction"),
-                                    field(fields, columns, "id")
+                                    input.state(),
+                                    input.direction(),
+                                    input.id()
                             ),
-                            field(fields, columns, "kotlin_class"),
-                            field(fields, columns, "sample"),
-                            HexFormat.of().parseHex(field(fields, columns, "payload_hex"))
+                            input.kotlinClass(),
+                            input.sample(),
+                            HexFormat.of().parseHex(input.payloadHex())
                     )
             );
         }
         return fixtures;
-    }
-
-    private static Map<String, Integer> columns(String[] header) {
-        Map<String, Integer> columns = new LinkedHashMap<>();
-        for (int index = 0; index < header.length; index++) {
-            columns.put(header[index], index);
-        }
-        return columns;
-    }
-
-    private static String field(
-            String[] fields,
-            Map<String, Integer> columns,
-            String name
-    ) {
-        Integer index = columns.get(name);
-        if (index == null || index >= fields.length) {
-            throw new IllegalArgumentException("Missing column " + name);
-        }
-        return fields[index];
     }
 
     private static String normalizeId(String value) {
@@ -353,17 +328,27 @@ public final class OfficialCodecOracle {
     }
 
     private record PacketKey(String state, String direction, String id) {
-        static PacketKey of(String state, String direction, String id) {
+        static PacketKey of(String state, String direction, int id) {
             return new PacketKey(
                     state.toUpperCase(),
                     direction.toUpperCase(),
-                    normalizeId(id)
+                    normalizeId(Integer.toString(id))
             );
         }
 
         String text() {
             return state + "/" + direction + "/" + id;
         }
+    }
+
+    private record FixtureInput(
+            String state,
+            String direction,
+            int id,
+            String kotlinClass,
+            String sample,
+            String payloadHex
+    ) {
     }
 
     private record Fixture(

@@ -37,10 +37,10 @@ class PlayServerboundCommandAndStructurePacketTest {
 
         val decoded = MinecraftFormat.decodeFromByteArray(
             ProgramCommandBlockPacket.serializer(),
-            "00000000000000000000ff".hexBytes(),
+            "00000000000000000000ff".hexToByteArray(),
         )
         assertContentEquals(
-            "0000000000000000000007".hexBytes(),
+            "0000000000000000000007".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(ProgramCommandBlockPacket.serializer(), decoded),
         )
     }
@@ -84,7 +84,7 @@ class PlayServerboundCommandAndStructurePacketTest {
             JigsawJoint.ALIGNED,
             MinecraftFormat.decodeFromByteArray(
                 JigsawJoint.serializer(),
-                "07756e6b6e6f776e".hexBytes(),
+                "07756e6b6e6f776e".hexToByteArray(),
             ),
         )
     }
@@ -129,7 +129,7 @@ class PlayServerboundCommandAndStructurePacketTest {
                             "000000" +
                             "40000000" +
                             "00ff"
-                    ).hexBytes(),
+                    ).hexToByteArray(),
         )
         assertEquals(StructureOffset(-48, 48, 48), decoded.offset)
         assertEquals(StructureSize(0, 48, 48), decoded.size)
@@ -143,7 +143,7 @@ class PlayServerboundCommandAndStructurePacketTest {
                             "000000" +
                             "3f800000" +
                             "000f"
-                    ).hexBytes(),
+                    ).hexToByteArray(),
             MinecraftFormat.encodeToByteArray(ProgramStructureBlockPacket.serializer(), decoded),
         )
     }
@@ -161,7 +161,7 @@ class PlayServerboundCommandAndStructurePacketTest {
         )
         val fallback = MinecraftFormat.decodeFromByteArray(
             SetTestBlockPacket.serializer(),
-            "00000000000000007f00".hexBytes(),
+            "00000000000000007f00".hexToByteArray(),
         )
         assertEquals(TestBlockMode.START, fallback.mode)
 
@@ -197,7 +197,7 @@ class PlayServerboundCommandAndStructurePacketTest {
         serializer: KSerializer<T>,
         expectedHex: String,
     ) {
-        val expected = expectedHex.hexBytes()
+        val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(serializer, packet),
@@ -206,12 +206,5 @@ class PlayServerboundCommandAndStructurePacketTest {
             packet,
             MinecraftFormat.decodeFromByteArray(serializer, expected),
         )
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
 }

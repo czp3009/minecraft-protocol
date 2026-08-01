@@ -39,7 +39,7 @@ class PlayServerboundInitialPacketTest {
         assertFails {
             MinecraftFormat.decodeFromByteArray(
                 BundleItemSelectedPacket.serializer(),
-                "01feffffff0f".hexBytes(),
+                "01feffffff0f".hexToByteArray(),
             )
         }
     }
@@ -55,7 +55,7 @@ class PlayServerboundInitialPacketTest {
             Difficulty.HARD,
             MinecraftFormat.decodeFromByteArray(
                 ServerboundChangeDifficultyPacket.serializer(),
-                "ff01".hexBytes(),
+                "ff01".hexToByteArray(),
             ).difficulty,
         )
         assertPacketBytes(
@@ -67,7 +67,7 @@ class PlayServerboundInitialPacketTest {
             GameMode.SURVIVAL,
             MinecraftFormat.decodeFromByteArray(
                 ChangeGameModePacket.serializer(),
-                "7f".hexBytes(),
+                "7f".hexToByteArray(),
             ).gameMode,
         )
     }
@@ -152,7 +152,7 @@ class PlayServerboundInitialPacketTest {
         serializer: KSerializer<T>,
         expectedHex: String,
     ) {
-        val expected = expectedHex.hexBytes()
+        val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(serializer, packet),
@@ -161,12 +161,5 @@ class PlayServerboundInitialPacketTest {
             packet,
             MinecraftFormat.decodeFromByteArray(serializer, expected),
         )
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
 }

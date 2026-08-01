@@ -22,8 +22,9 @@ $minecraft-world-storage <minecraft-release>
 $minecraft-world-storage protocol:<decimal-id>
 ```
 
-Accept zero or one Minecraft release argument. With no argument, retain `MinecraftTarget.version`. For an explicitly
-requested release, change only that buildSrc constant and then refresh. Reject protocol-ID selectors, malformed
+Accept zero or one Minecraft release argument. With no argument, retain `MinecraftTarget.MINECRAFT_VERSION`. For an
+explicitly requested release, change only that buildSrc constant and then run official analysis. Reject protocol-ID
+selectors, malformed
 releases, and extra arguments. Never mix sources from different releases.
 
 ## Start every invocation
@@ -32,14 +33,15 @@ releases, and extra arguments. Never mix sources from different releases.
    [references/workflow.md](references/workflow.md) completely.
 2. Read the repository and applicable module `AGENTS.md` files.
 3. Preserve unrelated user changes.
-4. Print the selected version and refresh deterministic official evidence:
+4. Print the selected version and generate deterministic official analysis:
 
    ```powershell
    .\gradlew.bat -q minecraftVersion
-   .\gradlew.bat refreshProtocolSpecification
+   .\gradlew.bat officialMinecraftAnalysis
    ```
 
-5. Read `protocol-specification/generated/target.json`, locate exact official NBT, region-file, compression,
+5. Read `build/generated/official-minecraft/<version>/target/target.json`, locate exact official NBT, region-file,
+   compression,
    dimension-path, and storage behavior, then build a dependency-ordered work queue.
 6. In update mode, implement every queue item and keep iterating until all completion gates pass. Stop after reporting
    only when the user explicitly requests a read-only audit.
@@ -113,4 +115,4 @@ When the workflow reveals a repeatable omission, stale assumption, unstable step
 4. forward-test the changed task;
 5. re-read the changed instructions and resume the same work queue.
 
-Keep changing evidence in generated reports or checked-in specification state, not in skill prose.
+Keep changing evidence in generated official-analysis data and reports under `build/`, not in skill prose.

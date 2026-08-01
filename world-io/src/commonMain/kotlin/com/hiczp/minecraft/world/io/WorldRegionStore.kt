@@ -36,7 +36,7 @@ class WorldRegionStore(
     ): RegionFile? {
         val regionPath = paths.regionFile(position, storage, dimension)
         if (!fileSystem.exists(regionPath)) return null
-        val encoded = fileSystem.readByteArray(
+        val encoded = fileSystem.readFileWithinLimit(
             regionPath,
             configuration.maximumRegionBytes,
         )
@@ -51,7 +51,7 @@ class WorldRegionStore(
                     val absolute = position.chunk(local)
                     val externalPath =
                         paths.externalChunk(absolute, storage, dimension)
-                    val bytes = fileSystem.readByteArray(
+                    val bytes = fileSystem.readFileWithinLimit(
                         externalPath,
                         configuration.maximumExternalChunkBytes,
                     )
@@ -174,7 +174,7 @@ class WorldRegionStore(
     ): Set<LocalChunkPosition> {
         if (!regionPathExists) return emptySet()
         val path = paths.regionFile(position, storage, dimension)
-        val encoded = fileSystem.readByteArray(
+        val encoded = fileSystem.readFileWithinLimit(
             path,
             configuration.maximumRegionBytes,
         )

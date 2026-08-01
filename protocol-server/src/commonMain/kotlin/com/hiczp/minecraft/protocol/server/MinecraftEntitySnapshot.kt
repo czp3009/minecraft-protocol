@@ -5,7 +5,11 @@ import com.hiczp.minecraft.protocol.model.packet.BundleDelimiterPacket
 import com.hiczp.minecraft.protocol.model.packet.ClientboundPacket
 import com.hiczp.minecraft.protocol.model.packet.SetEntityMetadataPacket
 import com.hiczp.minecraft.protocol.model.packet.SpawnEntityPacket
-import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.protocol.model.type.Angle
+import com.hiczp.minecraft.protocol.model.type.EntityMetadata
+import com.hiczp.minecraft.protocol.model.type.Identifier
+import com.hiczp.minecraft.protocol.model.type.Vector3d
+import kotlin.uuid.Uuid
 
 /**
  * The client-facing state needed for an initial entity spawn.

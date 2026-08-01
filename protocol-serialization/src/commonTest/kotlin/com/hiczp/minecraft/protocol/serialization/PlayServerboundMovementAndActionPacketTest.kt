@@ -41,11 +41,11 @@ class PlayServerboundMovementAndActionPacketTest {
 
         val decoded = MinecraftFormat.decodeFromByteArray(
             SetPlayerMovementFlagsPacket.serializer(),
-            "ff".hexBytes(),
+            "ff".hexToByteArray(),
         )
         assertEquals(flags, decoded.flags)
         assertContentEquals(
-            "03".hexBytes(),
+            "03".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(SetPlayerMovementFlagsPacket.serializer(), decoded),
         )
     }
@@ -98,10 +98,10 @@ class PlayServerboundMovementAndActionPacketTest {
         )
         val ability = MinecraftFormat.decodeFromByteArray(
             ServerboundPlayerAbilitiesPacket.serializer(),
-            "ff".hexBytes(),
+            "ff".hexToByteArray(),
         )
         assertContentEquals(
-            "02".hexBytes(),
+            "02".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(ServerboundPlayerAbilitiesPacket.serializer(), ability),
         )
         assertPacketBytes(
@@ -126,11 +126,11 @@ class PlayServerboundMovementAndActionPacketTest {
 
         val wrappedFace = MinecraftFormat.decodeFromByteArray(
             PlayerActionPacket.serializer(),
-            "000000000000000000ff00".hexBytes(),
+            "000000000000000000ff00".hexToByteArray(),
         )
         assertEquals(BlockFace.SOUTH, wrappedFace.face)
         assertContentEquals(
-            "0000000000000000000300".hexBytes(),
+            "0000000000000000000300".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(PlayerActionPacket.serializer(), wrappedFace),
         )
         assertPacketBytes(
@@ -162,11 +162,11 @@ class PlayServerboundMovementAndActionPacketTest {
         )
         val decoded = MinecraftFormat.decodeFromByteArray(
             PlayerInputPacket.serializer(),
-            "ff".hexBytes(),
+            "ff".hexToByteArray(),
         )
         assertEquals(all, decoded.input)
         assertContentEquals(
-            "7f".hexBytes(),
+            "7f".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(PlayerInputPacket.serializer(), decoded),
         )
         assertPacketBytes(PlayerLoadedPacket, PlayerLoadedPacket.serializer(), "")
@@ -177,7 +177,7 @@ class PlayServerboundMovementAndActionPacketTest {
         serializer: KSerializer<T>,
         expectedHex: String,
     ) {
-        val expected = expectedHex.hexBytes()
+        val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(serializer, packet),
@@ -186,12 +186,5 @@ class PlayServerboundMovementAndActionPacketTest {
             packet,
             MinecraftFormat.decodeFromByteArray(serializer, expected),
         )
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
 }

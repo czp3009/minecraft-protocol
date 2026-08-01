@@ -36,12 +36,12 @@ class MinecraftFormatTest {
         )
         for ((value, hex) in varInts) {
             assertContentEquals(
-                hex.hexBytes(),
+                hex.hexToByteArray(),
                 MinecraftFormat.encodeToByteArray(VarIntValue.serializer(), VarIntValue(value)),
             )
             assertEquals(
                 VarIntValue(value),
-                MinecraftFormat.decodeFromByteArray(VarIntValue.serializer(), hex.hexBytes()),
+                MinecraftFormat.decodeFromByteArray(VarIntValue.serializer(), hex.hexToByteArray()),
             )
         }
 
@@ -53,12 +53,12 @@ class MinecraftFormatTest {
         )
         for ((value, hex) in varLongs) {
             assertContentEquals(
-                hex.hexBytes(),
+                hex.hexToByteArray(),
                 MinecraftFormat.encodeToByteArray(VarLongValue.serializer(), VarLongValue(value)),
             )
             assertEquals(
                 VarLongValue(value),
-                MinecraftFormat.decodeFromByteArray(VarLongValue.serializer(), hex.hexBytes()),
+                MinecraftFormat.decodeFromByteArray(VarLongValue.serializer(), hex.hexToByteArray()),
             )
         }
     }
@@ -138,7 +138,7 @@ class MinecraftFormatTest {
             unsignedByte = 255,
             unsignedShort = 65_535,
         )
-        val expected = "fe1234123456780102030405060708ffffff".hexBytes()
+        val expected = "fe1234123456780102030405060708ffffff".hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(PrimitiveValue.serializer(), value),
@@ -153,14 +153,14 @@ class MinecraftFormatTest {
     fun `strings enforce UTF-16 and UTF-8 limits`() {
         val value = LimitedString("éé")
         assertContentEquals(
-            "04c3a9c3a9".hexBytes(),
+            "04c3a9c3a9".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(LimitedString.serializer(), value),
         )
         assertEquals(
             value,
             MinecraftFormat.decodeFromByteArray(
                 LimitedString.serializer(),
-                "04c3a9c3a9".hexBytes(),
+                "04c3a9c3a9".hexToByteArray(),
             ),
         )
         assertFailsWith<MinecraftSerializationException> {
@@ -172,7 +172,7 @@ class MinecraftFormatTest {
         assertFailsWith<MinecraftSerializationException> {
             MinecraftFormat.decodeFromByteArray(
                 LimitedString.serializer(),
-                "02c328".hexBytes(),
+                "02c328".hexToByteArray(),
             )
         }
     }
@@ -191,7 +191,7 @@ class MinecraftFormatTest {
         )
 
         assertContentEquals(
-            "030102ac02020161000000010162000000020100000007".hexBytes(),
+            "030102ac02020161000000010162000000020100000007".hexToByteArray(),
             encoded,
         )
 
@@ -200,7 +200,7 @@ class MinecraftFormatTest {
             fixed = ByteString(byteArrayOf(4, 5)),
             remaining = ByteString(byteArrayOf(6, 7, 8)),
         )
-        val byteEncoding = "030102030405060708".hexBytes()
+        val byteEncoding = "030102030405060708".hexToByteArray()
         assertContentEquals(
             byteEncoding,
             MinecraftFormat.encodeToByteArray(ByteShapes.serializer(), bytes),
@@ -241,7 +241,7 @@ class MinecraftFormatTest {
         assertFailsWith<MinecraftSerializationException> {
             byteFocused.decodeFromByteArray(
                 IntListValue.serializer(),
-                "020000000100000002".hexBytes(),
+                "020000000100000002".hexToByteArray(),
             )
         }
 
@@ -334,7 +334,7 @@ class MinecraftFormatTest {
     fun `network NBT strings use Java modified UTF`() {
         val value = NbtValue(NbtString("\u0000Aé😀"))
         val expected =
-            "08000bc08041c3a9eda0bdedb880".hexBytes()
+            "08000bc08041c3a9eda0bdedb880".hexToByteArray()
 
         assertContentEquals(
             expected,
@@ -353,7 +353,7 @@ class MinecraftFormatTest {
     fun `length-prefixed nullable NBT uses TAG End rather than boolean`() {
         val absent = LengthPrefixedOptionalNbt(null)
         assertContentEquals(
-            "0100".hexBytes(),
+            "0100".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(
                 LengthPrefixedOptionalNbt.serializer(),
                 absent,
@@ -363,12 +363,12 @@ class MinecraftFormatTest {
             absent,
             MinecraftFormat.decodeFromByteArray(
                 LengthPrefixedOptionalNbt.serializer(),
-                "0100".hexBytes(),
+                "0100".hexToByteArray(),
             ),
         )
 
         val present = LengthPrefixedOptionalNbt(NbtString("ok"))
-        val expected = "050800026f6b".hexBytes()
+        val expected = "050800026f6b".hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(
@@ -386,7 +386,7 @@ class MinecraftFormatTest {
         assertFailsWith<MinecraftSerializationException> {
             MinecraftFormat.decodeFromByteArray(
                 LengthPrefixedOptionalNbt.serializer(),
-                "060800026f6b00".hexBytes(),
+                "060800026f6b00".hexToByteArray(),
             )
         }
     }
@@ -395,18 +395,18 @@ class MinecraftFormatTest {
     fun `low precision vectors match vanilla golden bytes`() {
         val zero = LowPrecisionVectorValue(Vector3d(0.0, 0.0, 0.0))
         assertContentEquals(
-            "00".hexBytes(),
+            "00".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(LowPrecisionVectorValue.serializer(), zero),
         )
 
         val unitX = LowPrecisionVectorValue(Vector3d(1.0, 0.0, 0.0))
         assertContentEquals(
-            "f1ff7ffeffff".hexBytes(),
+            "f1ff7ffeffff".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(LowPrecisionVectorValue.serializer(), unitX),
         )
         val unitDecoded = MinecraftFormat.decodeFromByteArray(
             LowPrecisionVectorValue.serializer(),
-            "f1ff7ffeffff".hexBytes(),
+            "f1ff7ffeffff".hexToByteArray(),
         )
         assertEquals(1.0, unitDecoded.value.x, 0.000_001)
         assertEquals(0.0, unitDecoded.value.y, 0.000_001)
@@ -414,7 +414,7 @@ class MinecraftFormatTest {
 
         val continuation = LowPrecisionVectorValue(Vector3d(4.0, 0.0, 0.0))
         assertContentEquals(
-            "f4ff7ffeffff01".hexBytes(),
+            "f4ff7ffeffff01".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(
                 LowPrecisionVectorValue.serializer(),
                 continuation,
@@ -424,7 +424,7 @@ class MinecraftFormatTest {
             continuation,
             MinecraftFormat.decodeFromByteArray(
                 LowPrecisionVectorValue.serializer(),
-                "f4ff7ffeffff01".hexBytes(),
+                "f4ff7ffeffff01".hexToByteArray(),
             ),
         )
 
@@ -436,7 +436,7 @@ class MinecraftFormatTest {
             Vector3d(Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, Double.NaN),
         )
         assertContentEquals(
-            "f7ff7ffe0003ffffffff0f".hexBytes(),
+            "f7ff7ffe0003ffffffff0f".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(
                 LowPrecisionVectorValue.serializer(),
                 clamped,
@@ -444,7 +444,7 @@ class MinecraftFormatTest {
         )
         val decoded = MinecraftFormat.decodeFromByteArray(
             LowPrecisionVectorValue.serializer(),
-            "f7ff7ffe0003ffffffff0f".hexBytes(),
+            "f7ff7ffe0003ffffffff0f".hexToByteArray(),
         )
         assertEquals(17_179_869_183.0, decoded.value.x, 0.000_001)
         assertEquals(-17_179_869_183.0, decoded.value.y, 0.000_001)
@@ -454,7 +454,7 @@ class MinecraftFormatTest {
             Vector3d(3.0E-5, -3.0E-5, 0.0),
         )
         assertContentEquals(
-            "00".hexBytes(),
+            "00".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(
                 LowPrecisionVectorValue.serializer(),
                 belowThreshold,
@@ -463,7 +463,7 @@ class MinecraftFormatTest {
         assertFailsWith<MinecraftSerializationException> {
             MinecraftFormat.decodeFromByteArray(
                 LowPrecisionVectorValue.serializer(),
-                "04ffffffffff".hexBytes(),
+                "04ffffffffff".hexToByteArray(),
             )
         }
     }
@@ -473,19 +473,19 @@ class MinecraftFormatTest {
         assertFailsWith<MinecraftSerializationException> {
             MinecraftFormat.decodeFromByteArray(
                 VarIntValue.serializer(),
-                "808080808000".hexBytes(),
+                "808080808000".hexToByteArray(),
             )
         }
         assertFailsWith<MinecraftSerializationException> {
             MinecraftFormat.decodeFromByteArray(
                 NullableValue.serializer(),
-                "02".hexBytes(),
+                "02".hexToByteArray(),
             )
         }
         assertFailsWith<MinecraftSerializationException> {
             MinecraftFormat.decodeFromByteArray(
                 VarIntValue.serializer(),
-                "0000".hexBytes(),
+                "0000".hexToByteArray(),
             )
         }
         val strict = MinecraftFormat(
@@ -494,7 +494,7 @@ class MinecraftFormatTest {
         assertFailsWith<MinecraftSerializationException> {
             strict.decodeFromByteArray(
                 VarIntValue.serializer(),
-                "8000".hexBytes(),
+                "8000".hexToByteArray(),
             )
         }
 
@@ -505,7 +505,7 @@ class MinecraftFormatTest {
             NullableValue(7),
             permissive.decodeFromByteArray(
                 NullableValue.serializer(),
-                "0200000007".hexBytes(),
+                "0200000007".hexToByteArray(),
             ),
         )
     }
@@ -575,10 +575,3 @@ private data class LowPrecisionVectorValue(
 
 @Serializable
 private data class NullableValue(val value: Int?)
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
-    }
-}

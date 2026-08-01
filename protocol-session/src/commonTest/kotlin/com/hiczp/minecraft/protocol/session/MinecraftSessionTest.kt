@@ -3,12 +3,12 @@ package com.hiczp.minecraft.protocol.session
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.GameProfile
-import com.hiczp.minecraft.protocol.model.type.Uuid
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import io.ktor.utils.io.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlin.test.*
+import kotlin.uuid.Uuid
 
 class MinecraftSessionTest {
     @Test
@@ -47,8 +47,8 @@ class MinecraftSessionTest {
         assertEquals(threshold, client.frames.codec.compressionThreshold)
 
         val success = LoginSuccessPacket(
-            GameProfile(Uuid(1, 2), "SessionProbe", emptyList()),
-            sessionId = Uuid(3, 4),
+            GameProfile(Uuid.fromLongs(1, 2), "SessionProbe", emptyList()),
+            sessionId = Uuid.fromLongs(3, 4),
         )
         server.send(success)
         assertEquals(success, client.receive())
@@ -80,8 +80,8 @@ class MinecraftSessionTest {
         loginHandshake(client, server)
         server.send(
             LoginSuccessPacket(
-                GameProfile(Uuid(1, 2), "SessionProbe", emptyList()),
-                sessionId = Uuid(3, 4),
+                GameProfile(Uuid.fromLongs(1, 2), "SessionProbe", emptyList()),
+                sessionId = Uuid.fromLongs(3, 4),
             ),
         )
         client.receive()
@@ -228,7 +228,7 @@ class MinecraftSessionTest {
             ),
         )
         server.receive()
-        client.send(LoginStartPacket("SessionProbe", Uuid(1, 2)))
+        client.send(LoginStartPacket("SessionProbe", Uuid.fromLongs(1, 2)))
         server.receive()
     }
 
@@ -239,8 +239,8 @@ class MinecraftSessionTest {
         loginHandshake(client, server)
         server.send(
             LoginSuccessPacket(
-                GameProfile(Uuid(1, 2), "SessionProbe", emptyList()),
-                sessionId = Uuid(3, 4),
+                GameProfile(Uuid.fromLongs(1, 2), "SessionProbe", emptyList()),
+                sessionId = Uuid.fromLongs(3, 4),
             ),
         )
         client.receive()

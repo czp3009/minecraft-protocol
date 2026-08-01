@@ -159,7 +159,7 @@ class PlayClientboundMovementPacketTest {
                 walkingSpeed = Float.fromBits(0x3DCC_CCCD),
             ),
         )
-        val canonical = "0d3d4ccccd3dcccccd".hexBytes()
+        val canonical = "0d3d4ccccd3dcccccd".hexToByteArray()
         assertContentEquals(
             canonical,
             MinecraftFormat.encodeToByteArray(
@@ -171,7 +171,7 @@ class PlayClientboundMovementPacketTest {
             packet,
             MinecraftFormat.decodeFromByteArray(
                 ClientboundPlayerAbilitiesPacket.serializer(),
-                "fd3d4ccccd3dcccccd".hexBytes(),
+                "fd3d4ccccd3dcccccd".hexToByteArray(),
             ),
         )
 
@@ -182,7 +182,7 @@ class PlayClientboundMovementPacketTest {
         serializer: KSerializer<T>,
         expectedHex: String,
     ) {
-        val expected = expectedHex.hexBytes()
+        val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(serializer, packet),
@@ -196,12 +196,5 @@ class PlayClientboundMovementPacketTest {
     private companion object {
         const val ZERO_POSITION_HEX: String = "0000000000000000"
         val ZERO_POSITION: BlockPosition = BlockPosition(0, 0, 0)
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
 }

@@ -26,7 +26,7 @@ class EarlyPacketSerializationTest {
                         "6c6f63616c686f7374" +
                         "63dd" +
                         "02"
-                ).hexBytes()
+                ).hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(HandshakePacket.serializer(), packet),
@@ -63,7 +63,7 @@ class EarlyPacketSerializationTest {
             payload = null,
         )
         assertContentEquals(
-            ("0e6d696e6563726166743a74657374" + "0100").hexBytes(),
+            ("0e6d696e6563726166743a74657374" + "0100").hexToByteArray(),
             MinecraftFormat.encodeToByteArray(
                 ConfigurationCustomClickActionPacket.serializer(),
                 absent,
@@ -82,12 +82,5 @@ class EarlyPacketSerializationTest {
                 bytes,
             ),
         )
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
 }

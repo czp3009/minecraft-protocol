@@ -13,7 +13,7 @@ class ChunkSerializationTest {
     @Test
     fun `wiki chunk-section example has exact bytes`() {
         val section = wikiExampleSection()
-        val expected = "00000000000001022703ccffccffccffccff".hexBytes()
+        val expected = "00000000000001022703ccffccffccffccff".hexToByteArray()
 
         assertContentEquals(
             expected,
@@ -39,7 +39,7 @@ class ChunkSerializationTest {
                 "0012" +
                         "00000000000001022703ccffccffccffccff" +
                         "00"
-                ).hexBytes()
+                ).hexToByteArray()
 
         assertContentEquals(
             expected,
@@ -146,11 +146,4 @@ class ChunkSerializationTest {
             ),
         ),
     )
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
-    }
 }

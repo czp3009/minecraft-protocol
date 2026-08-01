@@ -3,6 +3,11 @@ package com.hiczp.minecraft.protocol.symbolprocessor
 import com.google.devtools.ksp.processing.*
 import com.google.devtools.ksp.symbol.*
 import com.google.devtools.ksp.validate
+import com.squareup.kotlinpoet.*
+import com.squareup.kotlinpoet.AnnotationSpec.UseSiteTarget.FILE
+import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
+import com.squareup.kotlinpoet.ksp.toClassName
+import com.squareup.kotlinpoet.ksp.writeTo
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -89,26 +94,13 @@ private class ProtocolModelProcessor(
             .mapNotNull(KSDeclaration::containingFile)
             .distinctBy(KSFile::filePath)
             .toTypedArray()
-        codeGenerator.createNewFile(
-            dependencies = Dependencies(
-                aggregating = true,
-                sources = sourceFiles,
-            ),
-            packageName = PACKET_PACKAGE,
-            fileName = REGISTRY_FILE,
-        ).bufferedWriter().use { output ->
-            output.write(renderRegistry(localPackets))
-        }
-        codeGenerator.createNewFile(
-            dependencies = Dependencies(
-                aggregating = true,
-                sources = sourceFiles,
-            ),
-            packageName = DATA_COMPONENT_PACKAGE,
-            fileName = DATA_COMPONENT_REGISTRY_FILE,
-        ).bufferedWriter().use { output ->
-            output.write(renderDataComponentRegistry(dataComponents))
-        }
+        val dependencies = Dependencies(
+            aggregating = true,
+            sources = sourceFiles,
+        )
+        renderRegistry(localPackets).writeTo(codeGenerator, dependencies)
+        renderDataComponentRegistry(dataComponents)
+            .writeTo(codeGenerator, dependencies)
         generated = true
         return emptyList()
     }
@@ -215,71 +207,72 @@ private class ProtocolModelProcessor(
         return valid
     }
 
-    private fun renderRegistry(packets: List<LocalPacket>): String =
-        buildString {
-            appendLine(
-                "// Generated from @PacketInfo declarations by KSP. " +
-                        "Do not edit.",
-            )
-            appendLine("@file:OptIn(InternalPacketRegistryApi::class)")
-            appendLine()
-            appendLine("package $PACKET_PACKAGE")
-            appendLine()
-            appendLine("import kotlinx.serialization.KSerializer")
-            appendLine()
-            appendLine("@InternalPacketRegistryApi")
-            appendLine("object GeneratedPacketDefinitions {")
-            appendLine(
-                "    val entries: List<PacketDefinition<out Packet>> = " +
-                        "listOf(",
-            )
-            packets.sortedBy { it.key.sortKey() }.forEach { packet ->
-                appendLine("        generatedPacketDefinition(")
-                appendLine(
-                    "            ConnectionState.${packet.key.state},",
-                )
-                appendLine(
-                    "            PacketDirection.${packet.key.direction},",
-                )
-                appendLine(
-                    "            0x${
-                        packet.key.id.toString(16)
+    private fun renderRegistry(packets: List<LocalPacket>): FileSpec {
+        val packet = ClassName(PACKET_PACKAGE, "Packet")
+        val packetDefinition = ClassName(PACKET_PACKAGE, "PacketDefinition")
+        val connectionState = ClassName(PACKET_PACKAGE, "ConnectionState")
+        val packetDirection = ClassName(PACKET_PACKAGE, "PacketDirection")
+        val packetFraming = ClassName(PACKET_PACKAGE, "PacketFraming")
+        val registryApi = ClassName(PACKET_PACKAGE, "InternalPacketRegistryApi")
+        val entriesInitializer = CodeBlock.builder()
+            .add("%M(\n", LIST_OF)
+            .indent()
+            .apply {
+                packets.sortedBy { it.key.sortKey() }.forEach { definition ->
+                    val id = "0x${
+                        definition.key.id.toString(16)
                             .uppercase()
                             .padStart(2, '0')
-                    },",
-                )
-                append("            ${packet.qualifiedName}.serializer()")
-                if (packet.key == LEGACY_PACKET_KEY) {
-                    append(",\n            PacketFraming.LEGACY_UNFRAMED")
+                    }"
+                    add("%T(\n", packetDefinition)
+                    indent()
+                    add("state = %T.%L,\n", connectionState, definition.key.state)
+                    add(
+                        "direction = %T.%L,\n",
+                        packetDirection,
+                        definition.key.direction,
+                    )
+                    add("id = %L,\n", id)
+                    add(
+                        "framing = %T.%L,\n",
+                        packetFraming,
+                        if (definition.key == LEGACY_PACKET_KEY) {
+                            "LEGACY_UNFRAMED"
+                        } else {
+                            "NORMAL"
+                        },
+                    )
+                    add("packetClass = %T::class,\n", definition.typeName)
+                    add("serializer = %T.serializer(),\n", definition.typeName)
+                    unindent()
+                    add("),\n")
                 }
-                appendLine(",")
-                appendLine("        ),")
             }
-            appendLine("    )")
-            appendLine("}")
-            appendLine()
-            appendLine(
-                "private inline fun <reified T : Packet> " +
-                        "generatedPacketDefinition(",
+            .unindent()
+            .add(")")
+            .build()
+        val generatedRegistry = TypeSpec.objectBuilder(REGISTRY_FILE)
+            .addAnnotation(registryApi)
+            .addProperty(
+                PropertySpec.builder(
+                    "entries",
+                    LIST.parameterizedBy(
+                        packetDefinition.parameterizedBy(
+                            WildcardTypeName.producerOf(packet),
+                        ),
+                    ),
+                ).initializer(entriesInitializer)
+                    .build(),
             )
-            appendLine("    state: ConnectionState,")
-            appendLine("    direction: PacketDirection,")
-            appendLine("    id: Int,")
-            appendLine("    serializer: KSerializer<T>,")
-            appendLine(
-                "    framing: PacketFraming = PacketFraming.NORMAL,",
-            )
-            appendLine(
-                "): PacketDefinition<T> = PacketDefinition(",
-            )
-            appendLine("    state = state,")
-            appendLine("    direction = direction,")
-            appendLine("    id = id,")
-            appendLine("    framing = framing,")
-            appendLine("    packetClass = T::class,")
-            appendLine("    serializer = serializer,")
-            appendLine(")")
-        }
+            .build()
+        return generatedFile(
+            packageName = PACKET_PACKAGE,
+            fileName = REGISTRY_FILE,
+            comment = "Generated from @PacketInfo declarations by KSP. Do not edit.",
+            apiAnnotation = registryApi,
+            type = generatedRegistry,
+        )
+    }
 
     private fun validateDataComponents(
         components: List<LocalDataComponent>,
@@ -331,48 +324,96 @@ private class ProtocolModelProcessor(
 
     private fun renderDataComponentRegistry(
         components: List<LocalDataComponent>,
-    ): String = buildString {
-        appendLine(
-            "// Generated from @DataComponentInfo declarations by KSP. " +
-                    "Do not edit.",
+    ): FileSpec {
+        val dataComponent = ClassName(DATA_COMPONENT_PACKAGE, "DataComponent")
+        val dataComponentType = ClassName(
+            DATA_COMPONENT_PACKAGE,
+            "DataComponentType",
         )
-        appendLine(
-            "@file:OptIn(InternalDataComponentRegistryApi::class)",
+        val registryApi = ClassName(
+            DATA_COMPONENT_PACKAGE,
+            "InternalDataComponentRegistryApi",
         )
-        appendLine()
-        appendLine("package $DATA_COMPONENT_PACKAGE")
-        appendLine()
-        appendLine("import kotlinx.serialization.KSerializer")
-        appendLine()
-        appendLine("@InternalDataComponentRegistryApi")
-        appendLine("object GeneratedDataComponentSerializers {")
-        appendLine("    fun serializer(")
-        appendLine("        type: DataComponentType,")
-        appendLine(
-            "    ): KSerializer<out DataComponent> = when (type) {",
-        )
-        components.sortedBy(LocalDataComponent::type).forEach { component ->
-            appendLine(
-                "        DataComponentType.${component.type} -> " +
-                        "${component.qualifiedName}.serializer()",
+        val serializer = ClassName("kotlinx.serialization", "KSerializer")
+        val sorted = components.sortedBy(LocalDataComponent::type)
+        val serializerBody = CodeBlock.builder()
+            .add("return when (type) {\n")
+            .indent()
+            .apply {
+                sorted.forEach { component ->
+                    add(
+                        "%T.%L -> %T.serializer()\n",
+                        dataComponentType,
+                        component.type,
+                        component.typeName,
+                    )
+                }
+            }
+            .unindent()
+            .add("}\n")
+            .build()
+        val typeBody = CodeBlock.builder()
+            .add("return when (value) {\n")
+            .indent()
+            .apply {
+                sorted.forEach { component ->
+                    add(
+                        "is %T -> %T.%L\n",
+                        component.typeName,
+                        dataComponentType,
+                        component.type,
+                    )
+                }
+            }
+            .unindent()
+            .add("}\n")
+            .build()
+        val generatedRegistry = TypeSpec.objectBuilder(DATA_COMPONENT_REGISTRY_FILE)
+            .addAnnotation(registryApi)
+            .addFunction(
+                FunSpec.builder("serializer")
+                    .addParameter("type", dataComponentType)
+                    .returns(
+                        serializer.parameterizedBy(
+                            WildcardTypeName.producerOf(dataComponent),
+                        ),
+                    )
+                    .addCode(serializerBody)
+                    .build(),
             )
-        }
-        appendLine("    }")
-        appendLine()
-        appendLine("    fun type(")
-        appendLine("        value: DataComponent,")
-        appendLine(
-            "    ): DataComponentType = when (value) {",
-        )
-        components.sortedBy(LocalDataComponent::type).forEach { component ->
-            appendLine(
-                "        is ${component.qualifiedName} -> " +
-                        "DataComponentType.${component.type}",
+            .addFunction(
+                FunSpec.builder("type")
+                    .addParameter("value", dataComponent)
+                    .returns(dataComponentType)
+                    .addCode(typeBody)
+                    .build(),
             )
-        }
-        appendLine("    }")
-        appendLine("}")
+            .build()
+        return generatedFile(
+            packageName = DATA_COMPONENT_PACKAGE,
+            fileName = DATA_COMPONENT_REGISTRY_FILE,
+            comment = "Generated from @DataComponentInfo declarations by KSP. Do not edit.",
+            apiAnnotation = registryApi,
+            type = generatedRegistry,
+        )
     }
+
+    private fun generatedFile(
+        packageName: String,
+        fileName: String,
+        comment: String,
+        apiAnnotation: ClassName,
+        type: TypeSpec,
+    ): FileSpec = FileSpec.builder(packageName, fileName)
+        .addFileComment("%L\n", comment)
+        .addAnnotation(
+            AnnotationSpec.builder(ClassName("kotlin", "OptIn"))
+                .useSiteTarget(FILE)
+                .addMember("%T::class", apiAnnotation)
+                .build(),
+        )
+        .addType(type)
+        .build()
 
     private fun KSClassDeclaration.packetInfo(): KSAnnotation? =
         annotation(PACKET_INFO)
@@ -393,10 +434,9 @@ private class ProtocolModelProcessor(
             it.name?.asString()
                 ?: error("@$PACKET_INFO_SIMPLE_NAME has an unnamed argument")
         }
-        val qualifiedName = declaration.qualifiedName?.asString()
-            ?: error(
-                "@$PACKET_INFO_SIMPLE_NAME requires a named packet class",
-            )
+        checkNotNull(declaration.qualifiedName) {
+            "@$PACKET_INFO_SIMPLE_NAME requires a named packet class"
+        }
         return LocalPacket(
             key = PacketKey(
                 state = arguments.getValue("state").enumName(),
@@ -404,7 +444,7 @@ private class ProtocolModelProcessor(
                 id = arguments.getValue("id").value as Int,
             ),
             className = declaration.simpleName.asString(),
-            qualifiedName = qualifiedName,
+            typeName = declaration.toClassName(),
             officialName = arguments.getValue("officialName").value as String,
             declaration = declaration,
         )
@@ -420,11 +460,7 @@ private class ProtocolModelProcessor(
         )
         return LocalDataComponent(
             type = type,
-            qualifiedName = declaration.qualifiedName?.asString()
-                ?: error(
-                    "@$DATA_COMPONENT_INFO_SIMPLE_NAME requires a named " +
-                            "data-component class",
-                ),
+            typeName = declaration.toClassName(),
             declaration = declaration,
         )
     }
@@ -460,7 +496,7 @@ private class ProtocolModelProcessor(
     private data class LocalPacket(
         val key: PacketKey,
         val className: String,
-        val qualifiedName: String,
+        val typeName: ClassName,
         val officialName: String,
         val declaration: KSDeclaration,
     )
@@ -472,7 +508,7 @@ private class ProtocolModelProcessor(
 
     private data class LocalDataComponent(
         val type: String,
-        val qualifiedName: String,
+        val typeName: ClassName,
         val declaration: KSDeclaration,
     )
 
@@ -510,5 +546,6 @@ private class ProtocolModelProcessor(
             direction = "SERVERBOUND",
             id = 0xFE,
         )
+        val LIST_OF = MemberName("kotlin.collections", "listOf")
     }
 }

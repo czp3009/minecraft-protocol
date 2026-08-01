@@ -11,6 +11,7 @@ import com.hiczp.minecraft.protocol.model.packet.SpawnEntityPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftFormat
 import kotlin.test.*
+import kotlin.uuid.Uuid
 
 class MinecraftInitialWorldTest {
     @Test
@@ -147,7 +148,7 @@ class MinecraftInitialWorldTest {
     fun entitySnapshotResolvesVanillaTypeAndBundlesMetadata() {
         val entity = MinecraftEntitySnapshot(
             entityId = 17,
-            uuid = Uuid(1, 2),
+            uuid = Uuid.fromLongs(1, 2),
             type = Identifier("pig"),
             position = Vector3d(1.5, 65.0, -2.5),
             metadata = EntityMetadata(emptyList()),
@@ -243,7 +244,7 @@ class MinecraftInitialWorldTest {
             headYaw: Float = yaw,
         ) = MinecraftEntitySnapshot(
             entityId = id,
-            uuid = Uuid(0, 1),
+            uuid = Uuid.fromLongs(0, 1),
             type = type,
             position = position,
             velocity = velocity,
@@ -299,7 +300,7 @@ class MinecraftInitialWorldTest {
         )
         val entity = MinecraftEntitySnapshot(
             entityId = 1,
-            uuid = Uuid(0, 1),
+            uuid = Uuid.fromLongs(0, 1),
             type = Identifier("pig"),
             position = Vector3d(0.0, 65.0, 0.0),
         )
@@ -403,7 +404,7 @@ class MinecraftInitialWorldTest {
             VanillaProtocolData,
             Identifier("the_nether"),
         )
-        val profile = GameProfile(Uuid(1, 2), "Probe", emptyList())
+        val profile = GameProfile(Uuid.fromLongs(1, 2), "Probe", emptyList())
         val login = configuration.playLogin(profile)
 
         fun world(
@@ -449,7 +450,7 @@ class MinecraftInitialWorldTest {
                     entities = listOf(
                         MinecraftEntitySnapshot(
                             entityId = login.playerId,
-                            uuid = Uuid(3, 4),
+                            uuid = Uuid.fromLongs(3, 4),
                             type = Identifier("pig"),
                             position = Vector3d(0.0, 65.0, 0.0),
                         ),

@@ -13,6 +13,7 @@ import kotlinx.serialization.encoding.AbstractDecoder
 import kotlinx.serialization.encoding.CompositeDecoder
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
+import kotlin.uuid.Uuid
 
 /**
  * Constructs one deliberately small, protocol-valid value from a serializer.
@@ -85,6 +86,16 @@ private class MinimalProtocolValueDecoder(
 
     override fun decodeString(): String = "minecraft:test"
 
+    override fun <T> decodeSerializableValue(
+        deserializer: DeserializationStrategy<T>,
+    ): T {
+        if (deserializer.descriptor.serialName == UUID_SERIAL_NAME) {
+            @Suppress("UNCHECKED_CAST")
+            return Uuid.NIL as T
+        }
+        return super.decodeSerializableValue(deserializer)
+    }
+
     override fun decodeEnum(enumDescriptor: SerialDescriptor): Int =
         when {
             profile == ProtocolSampleProfile.LAST_ENUM ->
@@ -107,14 +118,16 @@ private class MinimalProtocolValueDecoder(
         deserializer: DeserializationStrategy<T>,
         previousValue: T?,
     ): T {
-        return deserializer.deserialize(
-            MinimalProtocolValueDecoder(
-                profile,
-                descriptor.getElementAnnotations(index),
-            ),
+        return MinimalProtocolValueDecoder(
+            profile,
+            descriptor.getElementAnnotations(index),
+        ).decodeSerializableValue(
+            deserializer,
         )
     }
 }
+
+private const val UUID_SERIAL_NAME: String = "kotlin.uuid.Uuid"
 
 private val minimalValueSerializersModule: SerializersModule = SerializersModule {
     polymorphic(NbtTag::class) {

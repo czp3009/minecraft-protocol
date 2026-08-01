@@ -4,12 +4,12 @@ import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.RecipeBookCategory
 import com.hiczp.minecraft.protocol.model.type.ResourcePackResult
-import com.hiczp.minecraft.protocol.model.type.Uuid
 import kotlinx.serialization.KSerializer
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.uuid.Uuid
 
 class PlayServerboundSettingsPacketTest {
     @Test
@@ -49,7 +49,7 @@ class PlayServerboundSettingsPacketTest {
     fun `resource pack response is uuid followed by strict VarInt result`() {
         assertPacketBytes(
             PlayResourcePackResponsePacket(
-                id = Uuid(0, 0),
+                id = Uuid.fromLongs(0, 0),
                 result = ResourcePackResult.DISCARDED,
             ),
             PlayResourcePackResponsePacket.serializer(),
@@ -104,7 +104,7 @@ class PlayServerboundSettingsPacketTest {
         serializer: KSerializer<T>,
         expectedHex: String,
     ) {
-        val expected = expectedHex.hexBytes()
+        val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(serializer, packet),
@@ -113,12 +113,5 @@ class PlayServerboundSettingsPacketTest {
             packet,
             MinecraftFormat.decodeFromByteArray(serializer, expected),
         )
-    }
-}
-
-private fun String.hexBytes(): ByteArray {
-    require(length % 2 == 0)
-    return ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
 }

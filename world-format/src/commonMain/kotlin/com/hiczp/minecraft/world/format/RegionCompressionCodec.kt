@@ -2,6 +2,9 @@ package com.hiczp.minecraft.world.format
 
 import com.hiczp.minecraft.compression.RawDeflate
 import com.hiczp.minecraft.compression.RawDeflateException
+import kotlinx.io.Buffer
+import kotlinx.io.readByteArray
+import kotlinx.io.writeIntLe
 
 interface RegionCompressionCodec {
     suspend fun compress(input: ByteArray): ByteArray
@@ -215,34 +218,34 @@ private object GzipCodec : RegionCompressionCodec {
  */
 private object Lz4BlockCodec : RegionCompressionCodec {
     override suspend fun compress(input: ByteArray): ByteArray {
-        val output = ByteArrayAccumulator()
+        val output = Buffer()
         var offset = 0
         while (offset < input.size) {
             val length = minOf(LZ4_BLOCK_SIZE, input.size - offset)
             output.write(LZ4_MAGIC)
-            output.writeByte(LZ4_RAW_METHOD or LZ4_COMPRESSION_LEVEL)
-            output.writeIntLittleEndian(length)
-            output.writeIntLittleEndian(length)
-            output.writeIntLittleEndian(
+            output.writeByte((LZ4_RAW_METHOD or LZ4_COMPRESSION_LEVEL).toByte())
+            output.writeIntLe(length)
+            output.writeIntLe(length)
+            output.writeIntLe(
                 xxHash32(input, offset, length, LZ4_XXHASH_SEED) and
                         LZ4_CHECKSUM_MASK,
             )
-            output.write(input, offset, length)
+            output.write(input, startIndex = offset, endIndex = offset + length)
             offset += length
         }
         output.write(LZ4_MAGIC)
-        output.writeByte(LZ4_RAW_METHOD or LZ4_COMPRESSION_LEVEL)
-        output.writeIntLittleEndian(0)
-        output.writeIntLittleEndian(0)
-        output.writeIntLittleEndian(0)
-        return output.toByteArray()
+        output.writeByte((LZ4_RAW_METHOD or LZ4_COMPRESSION_LEVEL).toByte())
+        output.writeIntLe(0)
+        output.writeIntLe(0)
+        output.writeIntLe(0)
+        return output.readByteArray()
     }
 
     override suspend fun decompress(
         input: ByteArray,
         maximumOutputBytes: Int,
     ): ByteArray {
-        val output = ByteArrayAccumulator()
+        val output = Buffer()
         var offset = 0
         while (true) {
             requireRange(input, offset, LZ4_HEADER_LENGTH, "LZ4 block header")
@@ -284,9 +287,9 @@ private object Lz4BlockCodec : RegionCompressionCodec {
                         "Trailing bytes after LZ4Block end marker",
                     )
                 }
-                return output.toByteArray()
+                return output.readByteArray()
             }
-            if (output.size > maximumOutputBytes - originalLength) {
+            if (output.size > maximumOutputBytes.toLong() - originalLength) {
                 throw RegionFormatException(
                     "LZ4 output exceeds configured limit $maximumOutputBytes",
                 )
@@ -550,48 +553,6 @@ private fun writeIntBigEndian(bytes: ByteArray, offset: Int, value: Int) {
     bytes[offset + 1] = (value ushr 16).toByte()
     bytes[offset + 2] = (value ushr 8).toByte()
     bytes[offset + 3] = value.toByte()
-}
-
-private class ByteArrayAccumulator {
-    private var bytes = ByteArray(8_192)
-    var size: Int = 0
-        private set
-
-    fun writeByte(value: Int) {
-        ensureCapacity(size + 1)
-        bytes[size++] = value.toByte()
-    }
-
-    fun writeIntLittleEndian(value: Int) {
-        ensureCapacity(size + 4)
-        writeIntLittleEndian(bytes, size, value)
-        size += 4
-    }
-
-    fun write(value: ByteArray) = write(value, 0, value.size)
-
-    fun write(value: ByteArray, offset: Int, length: Int) {
-        require(offset >= 0 && length >= 0 && offset <= value.size - length)
-        ensureCapacity(size + length)
-        value.copyInto(
-            bytes,
-            destinationOffset = size,
-            startIndex = offset,
-            endIndex = offset + length,
-        )
-        size += length
-    }
-
-    fun toByteArray(): ByteArray = bytes.copyOf(size)
-
-    private fun ensureCapacity(required: Int) {
-        if (required <= bytes.size) return
-        var capacity = bytes.size
-        while (capacity < required) {
-            capacity = (capacity * 2).coerceAtLeast(required)
-        }
-        bytes = bytes.copyOf(capacity)
-    }
 }
 
 private val GZIP_FIXED_HEADER = byteArrayOf(

@@ -1,9 +1,25 @@
 package com.hiczp.minecraft.protocol.buildScript
 
+import com.squareup.kotlinpoet.CodeBlock
+import com.squareup.kotlinpoet.FileSpec
+import com.squareup.kotlinpoet.KModifier.CONST
+import com.squareup.kotlinpoet.KModifier.INTERNAL
+import com.squareup.kotlinpoet.LIST
+import com.squareup.kotlinpoet.MemberName
+import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
+import com.squareup.kotlinpoet.PropertySpec
+import com.squareup.kotlinpoet.STRING
+import com.squareup.kotlinpoet.TypeSpec
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import org.gradle.api.DefaultTask
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.*
 import java.nio.charset.StandardCharsets
@@ -16,10 +32,10 @@ import kotlin.io.path.isRegularFile
  */
 @CacheableTask
 abstract class GenerateVanillaStaticDataSourceTask :
-    MinecraftProtocolToolTask() {
+    DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
-    abstract val serverJar: RegularFileProperty
+    abstract val targetFile: RegularFileProperty
 
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
@@ -34,8 +50,9 @@ abstract class GenerateVanillaStaticDataSourceTask :
 
     @TaskAction
     fun generate() {
-        val target = serverJar.asFile.get().toPath()
-            .readMinecraftProtocolTarget(minecraftVersion.get())
+        val target = targetFile.asFile.get().toPath()
+            .readOfficialMinecraftTargetReport()
+            .target
         val registriesPath = registriesFile.asFile.get().toPath()
         val blocksPath = blocksFile.asFile.get().toPath()
         check(registriesPath.isRegularFile()) {
@@ -53,7 +70,7 @@ abstract class GenerateVanillaStaticDataSourceTask :
             minecraftVersion = target.minecraftVersion,
             protocolVersion = target.protocolVersion,
             payload = payload,
-        )
+        ).toString()
         val output = outputFile.asFile.get().toPath()
         output.atomicWriteText(source)
         logger.lifecycle("Generated vanilla static data: $output")
@@ -62,29 +79,35 @@ abstract class GenerateVanillaStaticDataSourceTask :
     private fun buildPayload(
         registries: JsonObject,
         blocks: JsonObject,
-    ): String = buildString {
-        appendLine(FORMAT)
-        registries.entries.sortedBy { it.key }.forEach { (registryId, value) ->
-            requireToken(registryId, "registry identifier")
-            val entries = value.jsonObject.requiredObject("entries")
-                .map { (entryId, entryValue) ->
-                    requireToken(entryId, "registry entry identifier")
-                    entryValue.jsonObject.requiredInt("protocol_id") to entryId
+    ): String {
+        val registryPayloads = buildJsonArray {
+            registries.entries.sortedBy { it.key }.forEach { (registryId, value) ->
+                val entries = value.jsonObject.requiredObject("entries")
+                    .map { (entryId, entryValue) ->
+                        entryValue.jsonObject.requiredInt("protocol_id") to entryId
+                    }
+                    .sortedBy { it.first }
+                check(entries.map { it.first } == entries.indices.toList()) {
+                    "$registryId protocol IDs are not contiguous from zero"
                 }
-                .sortedBy { it.first }
-            check(entries.map { it.first } == entries.indices.toList()) {
-                "$registryId protocol IDs are not contiguous from zero"
+                add(
+                    buildJsonObject {
+                        put("id", registryId)
+                        put(
+                            "entries",
+                            buildJsonArray {
+                                entries.forEach { (_, entryId) ->
+                                    add(entryId)
+                                }
+                            },
+                        )
+                    },
+                )
             }
-            append("R\t")
-            append(registryId)
-            append('\t')
-            append(entries.joinToString(",") { it.second })
-            append('\n')
         }
 
-        val statesById = linkedMapOf<Int, String>()
+        val statesById = linkedMapOf<Int, JsonObject>()
         blocks.entries.sortedBy { it.key }.forEach { (blockId, value) ->
-            requireToken(blockId, "block identifier")
             value.jsonObject.requiredArray("states").forEach { element ->
                 val state = element.jsonObject
                 val stateId = state.requiredInt("id")
@@ -98,27 +121,21 @@ abstract class GenerateVanillaStaticDataSourceTask :
                     ?.jsonObject
                     ?.entries
                     ?.sortedBy { it.key }
-                    ?.joinToString(",") { (name, propertyValue) ->
-                        requirePropertyToken(name, "block-state property name")
-                        val property = propertyValue.jsonPrimitive.content
-                        requirePropertyToken(
-                            property,
-                            "block-state property value",
-                        )
-                        "$name=$property"
-                    }
                     .orEmpty()
-                val line = buildString {
-                    append("S\t")
-                    append(stateId)
-                    append('\t')
-                    append(blockId)
-                    append('\t')
-                    append(if (isDefault) '1' else '0')
-                    append('\t')
-                    append(properties)
+                val payload = buildJsonObject {
+                    put("id", stateId)
+                    put("block", blockId)
+                    put(
+                        "properties",
+                        buildJsonObject {
+                            properties.forEach { (name, propertyValue) ->
+                                put(name, propertyValue.jsonPrimitive.content)
+                            }
+                        },
+                    )
+                    put("isDefault", isDefault)
                 }
-                check(statesById.put(stateId, line) == null) {
+                check(statesById.put(stateId, payload) == null) {
                     "Duplicate block-state ID $stateId"
                 }
             }
@@ -127,66 +144,72 @@ abstract class GenerateVanillaStaticDataSourceTask :
         check(orderedIds == orderedIds.indices.toList()) {
             "Block-state IDs are not contiguous from zero"
         }
-        orderedIds.forEach { stateId ->
-            appendLine(statesById.getValue(stateId))
+        val payload = buildJsonObject {
+            put("format", FORMAT)
+            put("registries", registryPayloads)
+            put(
+                "blockStates",
+                buildJsonArray {
+                    orderedIds.forEach { stateId ->
+                        add(statesById.getValue(stateId))
+                    }
+                },
+            )
         }
+        return Json.encodeToString(payload)
     }
 
     private fun renderSource(
         minecraftVersion: String,
         protocolVersion: Int,
         payload: String,
-    ): String {
+    ): FileSpec {
         val encoded = Base64.getEncoder().encodeToString(
             payload.toByteArray(StandardCharsets.UTF_8),
         )
         val chunks = encoded.chunked(SOURCE_CHUNK_SIZE)
-        return buildString {
-            appendLine("package com.hiczp.minecraft.protocol.data")
-            appendLine()
-            appendLine(
-                "/** Exact official static registries and block states; " +
-                        "regenerated by Gradle. */",
-            )
-            appendLine("internal object VanillaStaticDataPayloads {")
-            appendLine(
-                "    const val minecraftVersion: String = " +
-                        "\"${escapeKotlin(minecraftVersion)}\"",
-            )
-            appendLine(
-                "    const val protocolVersion: Int = $protocolVersion",
-            )
-            appendLine()
-            appendLine("    val payload: List<String> = listOf(")
-            chunks.forEach { chunk ->
-                appendLine("        \"$chunk\",")
+        val payloadInitializer = CodeBlock.builder()
+            .add("%M(\n", LIST_OF)
+            .indent()
+            .apply {
+                chunks.forEach { chunk -> add("%S,\n", chunk) }
             }
-            appendLine("    )")
-            appendLine("}")
-        }
+            .unindent()
+            .add(")")
+            .build()
+        return FileSpec.builder(
+            "com.hiczp.minecraft.protocol.data",
+            "VanillaStaticDataPayloads",
+        ).addType(
+            TypeSpec.objectBuilder("VanillaStaticDataPayloads")
+                .addModifiers(INTERNAL)
+                .addKdoc(
+                    "Exact official static registries and block states; regenerated by Gradle.\n",
+                )
+                .addProperty(
+                    PropertySpec.builder("minecraftVersion", STRING, CONST)
+                        .initializer("%S", minecraftVersion)
+                        .build(),
+                )
+                .addProperty(
+                    PropertySpec.builder("protocolVersion", Int::class, CONST)
+                        .initializer("%L", protocolVersion)
+                        .build(),
+                )
+                .addProperty(
+                    PropertySpec.builder(
+                        "payload",
+                        LIST.parameterizedBy(STRING),
+                    ).initializer(payloadInitializer)
+                        .build(),
+                )
+                .build(),
+        ).build()
     }
-
-    private fun requireToken(value: String, description: String) {
-        require(
-            value.isNotEmpty() &&
-                    value.none { it == '\t' || it == '\n' || it == '\r' || it == ',' },
-        ) {
-            "Unsafe $description '$value' in vanilla report"
-        }
-    }
-
-    private fun requirePropertyToken(value: String, description: String) {
-        requireToken(value, description)
-        require('=' !in value) {
-            "Unsafe $description '$value' in vanilla report"
-        }
-    }
-
-    private fun escapeKotlin(value: String): String =
-        value.replace("\\", "\\\\").replace("\"", "\\\"")
 
     companion object {
-        private const val FORMAT: String = "minecraft-static-data-v1"
+        private const val FORMAT: String = "minecraft-static-data-v2"
         private const val SOURCE_CHUNK_SIZE: Int = 12_000
+        private val LIST_OF = MemberName("kotlin.collections", "listOf")
     }
 }

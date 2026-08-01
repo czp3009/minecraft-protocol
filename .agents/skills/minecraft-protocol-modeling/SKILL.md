@@ -6,7 +6,8 @@ description: Closed-loop workflow for updating, implementing, testing, and audit
 # Minecraft protocol modeling
 
 Align the complete protocol stack with the exact official server selected by
-`MinecraftTarget.version`. This skill is an optional development playbook, never a project input. Removing `.agents`
+`MinecraftTarget.MINECRAFT_VERSION`. This skill is an optional development playbook, never a project input. Removing
+`.agents`
 must not affect Gradle, compilation, tests, publication, or runtime behavior.
 
 ## Start every invocation
@@ -23,25 +24,27 @@ described in `implementation-state.md`.
 
 ## Target selection
 
-The one target variable is `MinecraftTarget.version` in
+The one target variable is `MinecraftTarget.MINECRAFT_VERSION` in
 `buildSrc/src/main/kotlin/com/hiczp/minecraft/protocol/buildScript/MinecraftTarget.kt`.
 
 - With no explicit user-selected release, keep that value and print it with `.\gradlew.bat -q minecraftVersion`.
-- When the user explicitly requests another release, change only that constant, then run
-  `refreshProtocolSpecification`.
+- When the user explicitly requests another release, change only that constant, then run `officialMinecraftAnalysis`.
 - Never add a Gradle property, Wiki-derived default, protocol-ID selector, or second version constant.
-- Java remains independently fixed at 25 in `configureAllTargets`; never infer it from Minecraft.
+- Java policy remains independent of Minecraft. Keep the deliberately uniform Gradle toolchain and bytecode target at
+  25; this is a convenience policy, not an intrinsic Java 25 API requirement. External official processes may use any
+  `java` major version of 25 or newer from `PATH`; never pin a minor or patch release or infer the project toolchain
+  from Mojang metadata.
 
 ## Automation boundary
 
 Use Gradle for deterministic project work:
 
 - verified official artifact acquisition;
-- official data-generator reports;
+- official target, data-generator-report, and Configuration analysis under
+  `build/generated/official-minecraft/<version>/`;
 - non-source-driven protocol constants, static vanilla data, and Configuration payload generation through cacheable task
   types in `buildSrc`;
 - source-derived packet and data-component dispatch generation through KSP;
-- canonical checked-in official evidence through `refreshProtocolSpecification`;
 - official codec/server/headless-client/world tests through standard KMP test tasks;
 - compilation, publication source JARs, and final verification.
 
@@ -66,8 +69,8 @@ is missing; do not install one silently or add a Gradle decompilation task.
 3. exact-version MCProtocolLib;
 4. exact-version Minestom.
 
-Clear official behavior wins. `protocol-specification` contains deterministic official facts only; semantic judgments
-belong in code, tests, and public documentation, not a hand-maintained ledger.
+Clear official behavior wins. Deterministic official-analysis data stays under `build/`; semantic judgments belong in
+code, tests, and public documentation, not a hand-maintained ledger.
 
 ## Execution contract
 
@@ -83,12 +86,12 @@ For each dependency-ordered batch:
 5. run affected `jvmTest` tasks;
 6. repeat until the JVM and official interoperability path is stable.
 
-Finish by refreshing specification evidence when the target or generated facts changed, reviewing the diff, and running
-the applicable standard platform tests or the KMP `allTests` selector. Do not start with Native compilation; Windows,
-Linux, and macOS are peers, and the current host is only the place this invocation happens to run.
+Finish by running the required official analysis and generated-source tasks through their normal consumers, then the
+applicable standard platform tests or the KMP `allTests` selector. Do not start with Native compilation; Windows, Linux,
+and macOS are peers, and the current host is only the place this invocation happens to run.
 
 ## Self-correction
 
 When the workflow itself proves stale or flaky, fix the narrowest project task, skill reference, or skill script,
 forward-test the fix, and resume the same work queue. Stable workflow knowledge must be written here or in the owning
-`AGENTS.md`; changing release facts must remain generated project evidence.
+`AGENTS.md`; changing release facts must remain generated build analysis.

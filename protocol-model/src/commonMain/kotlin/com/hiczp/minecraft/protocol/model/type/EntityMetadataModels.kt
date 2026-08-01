@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalSerializationApi::class)
+@file:OptIn(ExperimentalSerializationApi::class, ExperimentalUuidApi::class)
 
 package com.hiczp.minecraft.protocol.model.type
 
@@ -9,6 +9,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.nullable
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.descriptors.element
@@ -16,6 +17,8 @@ import kotlinx.serialization.encoding.CompositeDecoder
 import kotlinx.serialization.encoding.CompositeEncoder
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 @Serializable
 data class Vector3f(
@@ -380,24 +383,24 @@ internal object EntityDataValueSerializer : KSerializer<EntityDataValue> {
     override fun serialize(encoder: Encoder, value: EntityDataValue) {
         val output = encoder.beginStructure(descriptor)
         when (value) {
-            is EntityDataValue.ByteValue -> output.primitive(BYTE, 0) {
-                encodeByteElement(descriptor, BYTE, value.value)
+            is EntityDataValue.ByteValue -> output.primitive(BYTE, 0) { index ->
+                encodeByteElement(descriptor, index, value.value)
             }
 
-            is EntityDataValue.IntValue -> output.primitive(VAR_INT, 1) {
-                encodeIntElement(descriptor, VAR_INT, value.value)
+            is EntityDataValue.IntValue -> output.primitive(VAR_INT, 1) { index ->
+                encodeIntElement(descriptor, index, value.value)
             }
 
-            is EntityDataValue.LongValue -> output.primitive(VAR_LONG, 2) {
-                encodeLongElement(descriptor, VAR_LONG, value.value)
+            is EntityDataValue.LongValue -> output.primitive(VAR_LONG, 2) { index ->
+                encodeLongElement(descriptor, index, value.value)
             }
 
-            is EntityDataValue.FloatValue -> output.primitive(FLOAT, 3) {
-                encodeFloatElement(descriptor, FLOAT, value.value)
+            is EntityDataValue.FloatValue -> output.primitive(FLOAT, 3) { index ->
+                encodeFloatElement(descriptor, index, value.value)
             }
 
-            is EntityDataValue.StringValue -> output.primitive(STRING, 4) {
-                encodeStringElement(descriptor, STRING, value.value)
+            is EntityDataValue.StringValue -> output.primitive(STRING, 4) { index ->
+                encodeStringElement(descriptor, index, value.value)
             }
 
             is EntityDataValue.ComponentValue -> output.serializable(
@@ -421,8 +424,8 @@ internal object EntityDataValueSerializer : KSerializer<EntityDataValue> {
                 value.value,
             )
 
-            is EntityDataValue.BooleanValue -> output.primitive(BOOLEAN, 8) {
-                encodeBooleanElement(descriptor, BOOLEAN, value.value)
+            is EntityDataValue.BooleanValue -> output.primitive(BOOLEAN, 8) { index ->
+                encodeBooleanElement(descriptor, index, value.value)
             }
 
             is EntityDataValue.Rotations -> output.serializable(
@@ -460,17 +463,17 @@ internal object EntityDataValueSerializer : KSerializer<EntityDataValue> {
                 value.value,
             )
 
-            is EntityDataValue.BlockState -> output.primitive(BLOCK_STATE, 14) {
-                encodeIntElement(descriptor, BLOCK_STATE, value.stateId)
+            is EntityDataValue.BlockState -> output.primitive(BLOCK_STATE, 14) { index ->
+                encodeIntElement(descriptor, index, value.stateId)
             }
 
             is EntityDataValue.OptionalBlockState -> output.primitive(
                 OPTIONAL_BLOCK_STATE,
                 15,
-            ) {
+            ) { index ->
                 encodeIntElement(
                     descriptor,
-                    OPTIONAL_BLOCK_STATE,
+                    index,
                     value.stateId ?: 0,
                 )
             }
@@ -499,10 +502,10 @@ internal object EntityDataValueSerializer : KSerializer<EntityDataValue> {
             is EntityDataValue.OptionalUnsignedInt -> output.primitive(
                 OPTIONAL_UNSIGNED_INT,
                 19,
-            ) {
+            ) { index ->
                 encodeIntElement(
                     descriptor,
-                    OPTIONAL_UNSIGNED_INT,
+                    index,
                     value.value?.plus(1) ?: 0,
                 )
             }
@@ -517,8 +520,8 @@ internal object EntityDataValueSerializer : KSerializer<EntityDataValue> {
             is EntityDataValue.RegistryVariant -> output.primitive(
                 REGISTRY_ID,
                 value.registry.serializerId,
-            ) {
-                encodeIntElement(descriptor, REGISTRY_ID, value.registryId)
+            ) { index ->
+                encodeIntElement(descriptor, index, value.registryId)
             }
 
             is EntityDataValue.OptionalGlobalPosition -> output.nullable(
@@ -757,10 +760,10 @@ internal object EntityDataValueSerializer : KSerializer<EntityDataValue> {
     private inline fun CompositeEncoder.primitive(
         payloadIndex: Int,
         serializerId: Int,
-        payload: CompositeEncoder.() -> Unit,
+        payload: CompositeEncoder.(Int) -> Unit,
     ) {
         encodeIntElement(descriptor, SERIALIZER_ID, serializerId)
-        payload()
+        payload(payloadIndex)
     }
 
     private fun <T> CompositeEncoder.serializable(

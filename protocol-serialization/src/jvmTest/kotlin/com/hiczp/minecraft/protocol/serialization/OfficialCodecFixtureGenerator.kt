@@ -3,10 +3,15 @@ package com.hiczp.minecraft.protocol.serialization
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.type.GameMode
+import kotlinx.io.files.Path
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.nio.file.Files
-import java.nio.file.Path
 import java.util.*
+import kotlin.uuid.Uuid
 
 /**
  * Emits protocol-valid Kotlin payloads for the exact-version vanilla codec
@@ -14,15 +19,18 @@ import java.util.*
  * official server JAR and is not part of the multiplatform library.
  */
 internal object OfficialCodecFixtureGenerator {
+    private val fixtureJson = Json { prettyPrint = true }
+
     fun generate(output: Path) {
-        val output = output.toAbsolutePath().normalize()
+        val output = java.nio.file.Path.of(output.toString())
+            .toAbsolutePath()
+            .normalize()
         Files.createDirectories(output.parent)
 
         val format = MinecraftFormat(
             MinecraftFormatConfiguration(chunkSectionCount = 0),
         )
-        val lines = buildList {
-            add("state\tdirection\tid\tkotlin_class\tsample\tpayload_hex")
+        val fixtures = buildJsonArray {
             for (codec in MinecraftPacketRegistry.entries) {
                 if (codec.framing != PacketFraming.NORMAL) {
                     continue
@@ -40,22 +48,25 @@ internal object OfficialCodecFixtureGenerator {
                     val payload = runCatching {
                         MinecraftPacketRegistry.encodePayload(sample, format)
                     }.getOrNull() ?: continue
-                    val payloadHex = HexFormat.of().formatHex(payload.payload)
+                    val payloadHex = payload.payload.toHexString()
                     if (!seenPayloads.add(payloadHex)) {
                         continue
                     }
                     add(
-                        listOf(
-                            codec.key.state.name,
-                            codec.key.direction.name,
-                            "0x${codec.key.id.toString(16).uppercase().padStart(2, '0')}",
-                            codec.packetClass.qualifiedName
-                                ?: error(
-                                    "Packet class has no qualified name: ${codec.packetClass}",
-                                ),
-                            sampleName,
-                            payloadHex,
-                        ).joinToString("\t"),
+                        buildJsonObject {
+                            put("state", codec.key.state.name)
+                            put("direction", codec.key.direction.name)
+                            put("id", codec.key.id)
+                            put(
+                                "kotlinClass",
+                                codec.packetClass.qualifiedName
+                                    ?: error(
+                                        "Packet class has no qualified name: ${codec.packetClass}",
+                                    ),
+                            )
+                            put("sample", sampleName)
+                            put("payloadHex", payloadHex)
+                        },
                     )
                 }
                 check(seenPayloads.isNotEmpty()) {
@@ -63,8 +74,10 @@ internal object OfficialCodecFixtureGenerator {
                 }
             }
         }
-        Files.writeString(output, lines.joinToString(separator = "\n", postfix = "\n"))
-        println("Wrote ${lines.size - 1} official codec fixtures to $output")
+        Files.writeString(
+            output,
+            fixtureJson.encodeToString(fixtures) + "\n",
+        )
     }
 
     private fun explicitSamples(className: String?): List<Pair<String, Packet>>? =
@@ -168,7 +181,7 @@ internal object OfficialCodecFixtureGenerator {
 
             BossBarPacket::class.qualifiedName ->
                 bossBarActionSamples().map { (name, action) ->
-                    name to BossBarPacket(Uuid(1, 2), action)
+                    name to BossBarPacket(Uuid.fromLongs(1, 2), action)
                 }
 
             PlayerInfoUpdatePacket::class.qualifiedName ->
@@ -312,7 +325,7 @@ internal object OfficialCodecFixtureGenerator {
         )
 
     private fun playerInfoUpdateSamples(): List<Pair<String, Packet>> {
-        val profileId = Uuid(1, 2)
+        val profileId = Uuid.fromLongs(1, 2)
         fun packet(
             name: String,
             action: PlayerInfoAction,
@@ -450,7 +463,7 @@ internal object OfficialCodecFixtureGenerator {
     }
 
     private fun waypointSamples(): List<Pair<String, Packet>> {
-        val entity = WaypointIdentifier.Entity(Uuid(1, 2))
+        val entity = WaypointIdentifier.Entity(Uuid.fromLongs(1, 2))
         val named = WaypointIdentifier.Named("named")
         val plainIcon = WaypointIcon(Identifier("minecraft:test"))
         val coloredIcon = WaypointIcon(
@@ -485,7 +498,7 @@ internal object OfficialCodecFixtureGenerator {
                     "Ha8p8YEeOBi1w4j6/2HZRk5uJI2i9QIDAQAB",
         )
         return ChatSessionData(
-            sessionId = Uuid(1L, 2L),
+            sessionId = Uuid.fromLongs(1L, 2L),
             profilePublicKey = ProfilePublicKeyData(
                 expiresAtEpochMillis = 1L,
                 encodedKey = ByteString(encodedKey),

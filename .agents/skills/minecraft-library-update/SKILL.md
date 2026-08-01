@@ -21,8 +21,8 @@ $minecraft-library-update <minecraft-release>
 $minecraft-library-update protocol:<decimal-id>
 ```
 
-Accept zero or one release argument. Zero arguments retain `MinecraftTarget.version`; an explicit release changes that
-single buildSrc constant before refresh. Reject protocol-ID selectors, malformed releases, and extra arguments.
+Accept zero or one release argument. Zero arguments retain `MinecraftTarget.MINECRAFT_VERSION`; an explicit release
+changes that single buildSrc constant. Reject protocol-ID selectors, malformed releases, and extra arguments.
 
 ## Required sub-workflows
 
@@ -36,10 +36,10 @@ Treat this as update mode unless the user explicitly asks for a read-only audit.
 
 ## Orchestration
 
-1. Select the target once in `MinecraftTarget.version` and run `refreshProtocolSpecification`.
+1. Select the target once in `MinecraftTarget.MINECRAFT_VERSION` and run `officialMinecraftAnalysis`.
 2. Execute the `minecraft-protocol-modeling` workflow through its affected JVM suites.
 3. Execute the `minecraft-world-storage` workflow against the same official artifact through `:world-io:jvmTest`.
-4. Reuse the same generated reports and verified artifacts; never select or refresh another target mid-invocation.
+4. Reuse the same generated analysis and verified artifacts; never select another target mid-invocation.
 5. Resolve cross-module effects in dependency order. Shared NBT changes require both workflows' lower-level and
    interoperability gates.
 6. Run:
@@ -60,8 +60,8 @@ Gradle owns downloaded artifacts, generated source, worlds, reports, and tests u
 and third-party reference checkouts are exceptional scratch under `temp/`, never Gradle inputs. Leave
 `.gitignore` unchanged.
 
-Keep target-dependent facts in refreshed specification state and generated reports. Skill prose contains only stable
-workflow and architecture rules.
+Keep target-dependent facts in generated official-analysis state and reports under `build/`. Skill prose contains only
+stable workflow and architecture rules.
 
 The matching official JAR is the primary source and final behavioral authority; the Wiki is secondary, followed by
 exact-version MCProtocolLib and Minestom. The final report identifies the selected target from generated state, passed

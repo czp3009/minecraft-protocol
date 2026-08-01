@@ -5,10 +5,8 @@ import com.hiczp.minecraft.protocol.model.type.NbtCompound
 import com.hiczp.minecraft.protocol.model.type.NbtInt
 import com.hiczp.minecraft.protocol.model.type.NbtString
 import com.hiczp.minecraft.world.format.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
@@ -493,15 +491,24 @@ class WorldFileStoreTest {
                 val store = NbtFileStore()
 
                 coroutineScope {
-                    documents.map { document ->
+                    val ready = Channel<Unit>(documents.size)
+                    val start = CompletableDeferred<Unit>()
+                    val writes = documents.map { document ->
                         async(Dispatchers.Default) {
+                            ready.send(Unit)
+                            start.await()
                             store.write(
                                 destination,
                                 document,
                                 NbtFileCompression.NONE,
                             )
                         }
-                    }.awaitAll()
+                    }
+                    repeat(documents.size) {
+                        ready.receive()
+                    }
+                    start.complete(Unit)
+                    writes.awaitAll()
                 }
 
                 assertTrue(store.read(destination, NbtFileCompression.NONE) in documents)

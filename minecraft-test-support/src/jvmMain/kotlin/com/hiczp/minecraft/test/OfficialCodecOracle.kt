@@ -1,17 +1,16 @@
 package com.hiczp.minecraft.test
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.io.files.Path
+import kotlinx.io.files.SystemFileSystem
 import java.io.File
 import java.lang.reflect.InvocationTargetException
 import java.net.URLClassLoader
-import java.nio.file.Files
-import java.nio.file.Path
 import java.util.*
 import javax.tools.DiagnosticCollector
 import javax.tools.JavaFileObject
 import javax.tools.StandardLocation
 import javax.tools.ToolProvider
-import kotlin.io.path.createDirectories
-import kotlin.io.path.isRegularFile
 
 /**
  * Compiles and loads the exact-version official codec bridge inside the test
@@ -21,49 +20,56 @@ import kotlin.io.path.isRegularFile
 object OfficialCodecOracle {
     private const val LOG4J_CONFIGURATION_PROPERTY =
         "log4j2.configurationFile"
+    private const val JOML_NO_UNSAFE_PROPERTY = "joml.nounsafe"
+    private val verificationLock = Mutex()
 
-    fun verify(
+    suspend fun verify(
         environment: MinecraftTestEnvironment,
         fixtures: Path,
         report: Path,
-    ) = synchronized(this) {
+    ) {
+        verificationLock.lock()
+        try {
+            verifyLocked(environment, fixtures, report)
+        } finally {
+            verificationLock.unlock()
+        }
+    }
+
+    private suspend fun verifyLocked(
+        environment: MinecraftTestEnvironment,
+        fixtures: Path,
+        report: Path,
+    ) {
         require(fixtures.isRegularFile()) {
             "Official codec fixtures are absent: $fixtures"
         }
         val runtime = environment.officialServerRuntime()
         val classes = compileBridge(environment, runtime)
-        report.parent.createDirectories()
-        Files.deleteIfExists(report)
+        prepareReport(report)
 
         val urls = buildList {
-            add(classes.toUri().toURL())
-            add(runtime.implementationJar.toUri().toURL())
-            addAll(runtime.libraries.map { it.toUri().toURL() })
+            add(classes.toNioPath().toUri().toURL())
+            add(runtime.implementationJar.toNioPath().toUri().toURL())
+            addAll(
+                runtime.libraries.map {
+                    it.toNioPath().toUri().toURL()
+                },
+            )
         }.toTypedArray()
         val loggingConfiguration = environment.temporaryFile(
             "official-codec-log4j2.xml",
         )
-        loggingConfiguration.atomicWrite(
-            """
-            <?xml version="1.0" encoding="UTF-8"?>
-            <Configuration status="OFF">
-                <Appenders>
-                    <Null name="Null"/>
-                </Appenders>
-                <Loggers>
-                    <Root level="off">
-                        <AppenderRef ref="Null"/>
-                    </Root>
-                </Loggers>
-            </Configuration>
-            """.trimIndent().encodeToByteArray(),
-        )
+        loggingConfiguration.atomicWriteText(log4jNullConfigurationXml())
         val previousLoggingConfiguration =
             System.getProperty(LOG4J_CONFIGURATION_PROPERTY)
+        val previousJomlNoUnsafe =
+            System.getProperty(JOML_NO_UNSAFE_PROPERTY)
         System.setProperty(
             LOG4J_CONFIGURATION_PROPERTY,
-            loggingConfiguration.toUri().toString(),
+            loggingConfiguration.toNioPath().toUri().toString(),
         )
+        System.setProperty(JOML_NO_UNSAFE_PROPERTY, "true")
         URLClassLoader(urls, ClassLoader.getPlatformClassLoader()).use { loader ->
             val previous = Thread.currentThread().contextClassLoader
             Thread.currentThread().contextClassLoader = loader
@@ -78,9 +84,9 @@ object OfficialCodecOracle {
                     method.invoke(
                         null,
                         arrayOf(
-                            fixtures.toAbsolutePath().normalize().toString(),
-                            runtime.implementationJar.toString(),
-                            report.toAbsolutePath().normalize().toString(),
+                            fixtures.toNioPath().toString(),
+                            runtime.implementationJar.toNioPath().toString(),
+                            report.toNioPath().toString(),
                         ),
                     )
                 } catch (failure: InvocationTargetException) {
@@ -94,6 +100,14 @@ object OfficialCodecOracle {
                     System.setProperty(
                         LOG4J_CONFIGURATION_PROPERTY,
                         previousLoggingConfiguration,
+                    )
+                }
+                if (previousJomlNoUnsafe == null) {
+                    System.clearProperty(JOML_NO_UNSAFE_PROPERTY)
+                } else {
+                    System.setProperty(
+                        JOML_NO_UNSAFE_PROPERTY,
+                        previousJomlNoUnsafe,
                     )
                 }
             }
@@ -113,6 +127,11 @@ object OfficialCodecOracle {
         }
     }
 
+    private fun prepareReport(report: Path) {
+        requireNotNull(report.parent).ensureDirectory()
+        SystemFileSystem.delete(report, mustExist = false)
+    }
+
     private fun compileBridge(
         environment: MinecraftTestEnvironment,
         runtime: OfficialServerRuntime,
@@ -126,66 +145,84 @@ object OfficialCodecOracle {
         }.use { it.readBytes() }
         val key = sourceBytes.sha256() +
                 "-" + runtime.implementationJar.sha256()
-        val root = environment.sharedCacheDirectory
-            .resolve("official-codec-oracle")
-            .safeResolve(key)
-        val classes = root.resolve("classes")
-        val classFile = classes.resolve(
+        val root = Path(
+            environment.sharedCacheDirectory,
+            "official-codec-oracle",
+        ).safeResolve(key)
+        val classes = Path(root, "classes")
+        val classFile = classes.safeResolve(
             "com/hiczp/minecraft/test/oracle/OfficialCodecOracle.class",
         )
-        root.resolve(".test-support.lock").withExclusiveLock {
-            if (classFile.isRegularFile()) return classes
-
-            classes.deleteTree()
-            classes.createDirectories()
-            val source = root.resolve(
-                "src/com/hiczp/minecraft/test/oracle/OfficialCodecOracle.java",
-            )
-            source.atomicWrite(sourceBytes)
-
-            val compiler = checkNotNull(ToolProvider.getSystemJavaCompiler()) {
-                "Official codec tests require a full JDK, not a JRE"
-            }
-            val diagnostics = DiagnosticCollector<JavaFileObject>()
-            compiler.getStandardFileManager(
-                diagnostics,
-                Locale.ROOT,
-                Charsets.UTF_8,
-            ).use { fileManager ->
-                fileManager.setLocationFromPaths(
-                    StandardLocation.CLASS_OUTPUT,
-                    listOf(classes),
+        Path(root, ".test-support.lock").withExclusiveJvmFileLock {
+            if (!classFile.isRegularFile()) {
+                compileBridgeLocked(
+                    sourceBytes = sourceBytes,
+                    root = root,
+                    classes = classes,
+                    classFile = classFile,
+                    runtime = runtime,
                 )
-                val classpath = buildList {
-                    add(runtime.implementationJar)
-                    addAll(runtime.libraries)
-                }.joinToString(File.pathSeparator)
-                val units =
-                    fileManager.getJavaFileObjectsFromPaths(listOf(source))
-                val success = compiler.getTask(
-                    null,
-                    fileManager,
-                    diagnostics,
-                    listOf(
-                        "--release",
-                        "25",
-                        "-classpath",
-                        classpath,
-                    ),
-                    null,
-                    units,
-                ).call()
-                check(success) {
-                    diagnostics.diagnostics.joinToString(
-                        prefix = "Official codec bridge compilation failed:\n",
-                        separator = "\n",
-                    )
-                }
-            }
-            check(classFile.isRegularFile()) {
-                "Official codec bridge compiler produced no class"
             }
         }
         return classes
+    }
+
+    private fun compileBridgeLocked(
+        sourceBytes: ByteArray,
+        root: Path,
+        classes: Path,
+        classFile: Path,
+        runtime: OfficialServerRuntime,
+    ) {
+        classes.deleteTree()
+        classes.ensureDirectory()
+        val source = root.safeResolve(
+            "src/com/hiczp/minecraft/test/oracle/OfficialCodecOracle.java",
+        )
+        source.atomicWrite(sourceBytes)
+
+        val compiler = checkNotNull(ToolProvider.getSystemJavaCompiler()) {
+            "Official codec tests require a full JDK, not a JRE"
+        }
+        val diagnostics = DiagnosticCollector<JavaFileObject>()
+        compiler.getStandardFileManager(
+            diagnostics,
+            Locale.ROOT,
+            Charsets.UTF_8,
+        ).use { fileManager ->
+            fileManager.setLocationFromPaths(
+                StandardLocation.CLASS_OUTPUT,
+                listOf(classes.toNioPath()),
+            )
+            val classpath = buildList {
+                add(runtime.implementationJar)
+                addAll(runtime.libraries)
+            }.joinToString(File.pathSeparator)
+            val units = fileManager.getJavaFileObjectsFromPaths(
+                listOf(source.toNioPath()),
+            )
+            val success = compiler.getTask(
+                null,
+                fileManager,
+                diagnostics,
+                listOf(
+                    "--release",
+                    "25",
+                    "-classpath",
+                    classpath,
+                ),
+                null,
+                units,
+            ).call()
+            check(success) {
+                diagnostics.diagnostics.joinToString(
+                    prefix = "Official codec bridge compilation failed:\n",
+                    separator = "\n",
+                )
+            }
+        }
+        check(classFile.isRegularFile()) {
+            "Official codec bridge compiler produced no class"
+        }
     }
 }

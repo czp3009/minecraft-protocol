@@ -43,7 +43,7 @@ class NbtFileStore(
         path: Path,
         compression: NbtFileCompression = NbtFileCompression.GZIP,
     ): NbtDocument {
-        val compressed = fileSystem.readByteArray(
+        val compressed = fileSystem.readFileWithinLimit(
             path,
             configuration.maximumCompressedBytes,
         )

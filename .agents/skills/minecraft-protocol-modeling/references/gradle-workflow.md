@@ -6,13 +6,13 @@ Run commands from the repository root. On Windows use `.\gradlew.bat`; on Unix-l
 
 ```powershell
 .\gradlew.bat -q minecraftVersion
-.\gradlew.bat refreshProtocolSpecification
+.\gradlew.bat officialMinecraftAnalysis
 ```
 
-The first command prints only the buildSrc-selected release. The refresh command downloads/verifies the official server,
-runs official reports, captures both Configuration Known Packs branches, generates an expected specification under
-`build/`, then replaces `protocol-specification/generated`. It never reads or writes the handwritten
-`protocol-specification/README.md`.
+The first command prints only the buildSrc-selected release. The analysis lifecycle downloads/verifies the official
+server and produces target facts, data-generator reports, and both Configuration Known Packs branches in separate
+subdirectories of `build/generated/official-minecraft/<version>/`. The lifecycle has no outputs of its own; consumers
+depend on the precise Gradle artifact they need.
 
 Compilation automatically invokes only the deterministic prerequisites it needs:
 
@@ -20,14 +20,11 @@ Compilation automatically invokes only the deterministic prerequisites it needs:
   from model annotations and validates packet coverage against the official report;
 - `protocol-vanilla-data` generates static and Configuration payload sources.
 
-Those tasks are internal implementation details and remain ungrouped. Generated Kotlin lives under module
-`build/generated` and is included in source JARs. Each task validates its own downloads and outputs; do not create
-separate verification tasks, generator snapshot tests, or buildSrc unit tests. Use KSP for source-to-source generation
-and cacheable `buildSrc` task types for generation driven by non-source inputs.
-
-Root `clean` removes build directories but preserves `protocol-specification`, including its handwritten overview and
-checked-in generated evidence. Normal compilation and tests never read that directory; only the explicit refresh Sync
-task writes `protocol-specification/generated`.
+Generated Kotlin lives in KSP's standard location or the owning module's `build/generated/sources` tree and is included
+in source JARs. Each task validates its own downloads and outputs; do not create separate verification tasks, generator
+snapshot tests, or buildSrc unit tests. Use KSP for source-to-source generation and cacheable `buildSrc` task types for
+generation driven by non-source inputs. Data-driven source generators consume analysis artifacts and never read the
+official JAR. There is no checked-in evidence, refresh/copy task, or manual freshness comparison.
 
 ## Iteration order
 
@@ -47,8 +44,8 @@ Prefer the narrowest affected JVM suite:
 `protocol-serialization:jvmTest` includes the official codec and raw official-server session.
 `protocol-client:jvmTest` includes the production client against the official server.
 `protocol-server:jvmTest` includes the matching official client through the pinned headless launcher. These tests call
-the ordinary `minecraft-test-support` JVM library to acquire and verify test-only artifacts at runtime; they do not
-depend on Gradle preparation tasks, helper CLIs, or system-property wiring.
+the ordinary Kotlin Multiplatform `minecraft-test-support` library to acquire and verify test-only artifacts at runtime;
+they do not depend on Gradle preparation tasks, helper CLIs, or system-property wiring.
 
 Use standard platform variants when deliberately validating a particular platform. Do not create filtered/layer test
 tasks.
@@ -70,9 +67,9 @@ Version-dependent task inputs include the selected release and verified artifact
 must report artifact preparation and generation tasks `UP-TO-DATE` or `FROM-CACHE`. When changing task inputs/outputs,
 forward-test configuration-cache storage and an unchanged rerun.
 
-`MinecraftTarget.version` is the sole manually selected, target-dependent domain variable. Do not add application-level
-freshness flags or comparisons; Gradle still tracks task implementation, source annotations, declared files, and task
-dependency provenance normally.
+`MinecraftTarget.MINECRAFT_VERSION` is the sole manually selected, target-dependent domain variable. Do not add
+application-level freshness flags or comparisons; Gradle still tracks task implementation, source annotations, declared
+files, and task dependency provenance normally.
 
 All server/client libraries, assets, reports, worlds, logs, and generated source remain under `build/`. Gradle never
 reads or writes `temp/` or `.agents/skills`.

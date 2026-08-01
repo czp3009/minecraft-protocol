@@ -19,7 +19,7 @@ internal class NbtBinaryCodec(
 ) {
     fun writeUnnamed(writer: MinecraftWriter, tag: NbtTag) {
         try {
-            writer.writeBytes(format(Long.MAX_VALUE).encodeTagToByteArray(tag))
+            writer.write(format(Long.MAX_VALUE).encodeTagToByteArray(tag))
         } catch (exception: NbtFormatException) {
             throw MinecraftSerializationException(
                 "Cannot encode packet NBT: ${exception.message}",

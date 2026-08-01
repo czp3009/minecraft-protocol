@@ -14,5 +14,6 @@ This module inherits the repository guidance.
   complete coverage and generates portable runtime handoff tables under `build/generated`; keep manual dispatch tables
   out of source.
 - Nullable declarations inspect the matching official JAR first. Inconclusive official evidence falls back to the Wiki,
-  MCProtocolLib, then Minestom. Semantic conclusions remain in code and tests, not generated specification files.
-- `MinecraftProtocol.kt` is generated from the official JAR under `build/generated`; do not add a source-tree copy.
+  MCProtocolLib, then Minestom. Semantic conclusions remain in code and tests, not generated analysis files.
+- `MinecraftProtocol.kt` is generated from the root target-analysis JSON under `build/generated`; its generator never
+  reads the official JAR. Do not add a source-tree copy.
