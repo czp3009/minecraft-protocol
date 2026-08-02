@@ -1,6 +1,4 @@
-import com.hiczp.minecraft.protocol.buildScript.GenerateVanillaConfigurationSourceTask
-import com.hiczp.minecraft.protocol.buildScript.GenerateVanillaStaticDataSourceTask
-import com.hiczp.minecraft.protocol.buildScript.configureAllTargets
+import com.hiczp.minecraft.protocol.buildScript.*
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -8,36 +6,12 @@ plugins {
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
 }
 
-val officialMinecraftTarget = configurations.create(
-    "officialMinecraftTarget",
-) {
-    isCanBeConsumed = false
-    isCanBeResolved = true
-    isTransitive = false
-}
-val officialMinecraftReports = configurations.create(
-    "officialMinecraftReports",
-) {
-    isCanBeConsumed = false
-    isCanBeResolved = true
-    isTransitive = false
-}
-val officialMinecraftConfiguration = configurations.create(
-    "officialMinecraftConfiguration",
-) {
-    isCanBeConsumed = false
-    isCanBeResolved = true
-    isTransitive = false
-}
-val officialTargetFile = layout.file(
-    officialMinecraftTarget.elements.map { it.single().asFile },
-)
-val officialReportsDirectory = layout.dir(
-    officialMinecraftReports.elements.map { it.single().asFile },
-)
-val officialConfigurationFile = layout.file(
-    officialMinecraftConfiguration.elements.map { it.single().asFile },
-)
+val officialTargetFile =
+    officialMinecraftAnalysisFile("officialMinecraftTarget")
+val officialReportsDirectory =
+    officialMinecraftAnalysisDirectory("officialMinecraftReports")
+val officialConfigurationFile =
+    officialMinecraftAnalysisFile("officialMinecraftConfiguration")
 
 val generatedStaticDataDirectory = layout.buildDirectory.dir(
     "generated/sources/vanillaStaticData/commonMain/kotlin",
@@ -76,30 +50,6 @@ val generateVanillaConfigurationSource =
                 it.file("com/hiczp/minecraft/protocol/data/VanillaConfigurationPayloads.kt")
             }
     }
-
-dependencies {
-    add(
-        officialMinecraftTarget.name,
-        project(
-            path = ":",
-            configuration = "officialMinecraftTargetElements",
-        ),
-    )
-    add(
-        officialMinecraftReports.name,
-        project(
-            path = ":",
-            configuration = "officialMinecraftReportsElements",
-        ),
-    )
-    add(
-        officialMinecraftConfiguration.name,
-        project(
-            path = ":",
-            configuration = "officialMinecraftConfigurationElements",
-        ),
-    )
-}
 
 kotlin {
     configureAllTargets("com.hiczp.minecraft.protocol.data")

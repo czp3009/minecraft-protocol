@@ -151,46 +151,22 @@ tasks.register("officialMinecraftAnalysis") {
     )
 }
 
-val officialMinecraftTargetElements = configurations.create(
-    "officialMinecraftTargetElements",
-) {
-    isCanBeConsumed = true
-    isCanBeResolved = false
-}
-val officialMinecraftReportsElements = configurations.create(
-    "officialMinecraftReportsElements",
-) {
-    isCanBeConsumed = true
-    isCanBeResolved = false
-}
-val officialMinecraftConfigurationElements = configurations.create(
-    "officialMinecraftConfigurationElements",
-) {
-    isCanBeConsumed = true
-    isCanBeResolved = false
-}
-
-artifacts {
-    add(
-        officialMinecraftTargetElements.name,
-        analyzeOfficialMinecraftTarget.flatMap { it.outputFile },
-    ) {
-        builtBy(analyzeOfficialMinecraftTarget)
-    }
-    add(
-        officialMinecraftReportsElements.name,
-        analyzeOfficialMinecraftReports.flatMap { it.outputDirectory },
-    ) {
-        type = "directory"
-        builtBy(analyzeOfficialMinecraftReports)
-    }
-    add(
-        officialMinecraftConfigurationElements.name,
-        analyzeOfficialMinecraftConfiguration.flatMap { it.outputFile },
-    ) {
-        builtBy(analyzeOfficialMinecraftConfiguration)
-    }
-}
+publishOfficialMinecraftAnalysis(
+    "officialMinecraftTarget",
+    analyzeOfficialMinecraftTarget.flatMap { it.outputFile },
+    analyzeOfficialMinecraftTarget,
+)
+publishOfficialMinecraftAnalysis(
+    "officialMinecraftReports",
+    analyzeOfficialMinecraftReports.flatMap { it.outputDirectory },
+    analyzeOfficialMinecraftReports,
+    directory = true,
+)
+publishOfficialMinecraftAnalysis(
+    "officialMinecraftConfiguration",
+    analyzeOfficialMinecraftConfiguration.flatMap { it.outputFile },
+    analyzeOfficialMinecraftConfiguration,
+)
 
 subprojects {
     group = rootProject.group

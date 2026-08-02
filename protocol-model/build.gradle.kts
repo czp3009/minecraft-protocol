@@ -1,6 +1,8 @@
 import com.google.devtools.ksp.gradle.KspAATask
 import com.hiczp.minecraft.protocol.buildScript.GenerateMinecraftProtocolSourceTask
 import com.hiczp.minecraft.protocol.buildScript.configureAllTargets
+import com.hiczp.minecraft.protocol.buildScript.officialMinecraftAnalysisDirectory
+import com.hiczp.minecraft.protocol.buildScript.officialMinecraftAnalysisFile
 import org.gradle.jvm.tasks.Jar
 
 plugins {
@@ -10,26 +12,10 @@ plugins {
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
 }
 
-val officialMinecraftTarget = configurations.create(
-    "officialMinecraftTarget",
-) {
-    isCanBeConsumed = false
-    isCanBeResolved = true
-    isTransitive = false
-}
-val officialMinecraftReports = configurations.create(
-    "officialMinecraftReports",
-) {
-    isCanBeConsumed = false
-    isCanBeResolved = true
-    isTransitive = false
-}
-val officialTargetFile = layout.file(
-    officialMinecraftTarget.elements.map { it.single().asFile },
-)
-val officialReportsDirectory = layout.dir(
-    officialMinecraftReports.elements.map { it.single().asFile },
-)
+val officialTargetFile =
+    officialMinecraftAnalysisFile("officialMinecraftTarget")
+val officialReportsDirectory =
+    officialMinecraftAnalysisDirectory("officialMinecraftReports")
 
 val generatedProtocolSourceDirectory = layout.buildDirectory.dir(
     "generated/sources/minecraftProtocol/commonMain/kotlin",
@@ -37,6 +23,7 @@ val generatedProtocolSourceDirectory = layout.buildDirectory.dir(
 val generatedPacketDefinitionsDirectory = layout.buildDirectory.dir(
     "generated/ksp/metadata/commonMain/kotlin",
 )
+// KSP registers this task after this script runs; match it lazily.
 val generatePacketDefinitions = tasks.withType<KspAATask>().matching {
     it.name == "kspCommonMainKotlinMetadata"
 }
@@ -64,20 +51,6 @@ ksp {
 }
 
 dependencies {
-    add(
-        officialMinecraftTarget.name,
-        project(
-            path = ":",
-            configuration = "officialMinecraftTargetElements",
-        ),
-    )
-    add(
-        officialMinecraftReports.name,
-        project(
-            path = ":",
-            configuration = "officialMinecraftReportsElements",
-        ),
-    )
     add("kspCommonMainMetadata", project(":protocol-symbol-processor"))
 }
 
@@ -90,6 +63,10 @@ kotlin {
                 files(generatedProtocolSourceDirectory)
                     .builtBy(generateMinecraftProtocolSource),
             )
+            // KSP does not wire the common-metadata processor output into
+            // downstream compilations. A plain srcDir plus explicit task
+            // dependencies is required: builtBy here would make the metadata
+            // KSP task (which reads this source set) depend on itself.
             kotlin.srcDir(generatedPacketDefinitionsDirectory)
             dependencies {
                 api(libs.kotlinx.serialization.core)
@@ -110,11 +87,13 @@ kotlin {
     }
 }
 
+tasks.withType<Jar>().configureEach {
+    dependsOn(generatePacketDefinitions)
+}
+
+// The KSP option alone is a plain string; track the report's content so the
+// processor reruns when the official analysis data changes.
 generatePacketDefinitions.configureEach {
     inputs.file(packetsReport)
         .withPathSensitivity(PathSensitivity.NONE)
-}
-
-tasks.withType<Jar>().configureEach {
-    dependsOn(generatePacketDefinitions)
 }
