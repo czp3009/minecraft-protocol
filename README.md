@@ -1,5 +1,7 @@
 # minecraft-protocol
 
+> This is a very early-stage experimental project; please do not use it in a production environment.
+
 `minecraft-protocol` is an idiomatic Kotlin Multiplatform library for the Minecraft Java Edition protocol and world
 storage formats. It provides `kotlinx.serialization` packet models and codecs, typed vanilla Configuration data, Ktor
 transport and sessions, authentication helpers, client/server connection orchestration, binary NBT, and Anvil world I/O.
