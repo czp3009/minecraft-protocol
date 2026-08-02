@@ -33,3 +33,5 @@ kotlin {
 
     }
 }
+
+officialDownloads { server() }

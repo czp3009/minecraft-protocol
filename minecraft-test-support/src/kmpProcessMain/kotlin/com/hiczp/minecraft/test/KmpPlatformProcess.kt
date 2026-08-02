@@ -6,9 +6,6 @@ import io.matthewnelson.kmp.process.Stdio
 import io.matthewnelson.kmp.process.changeDir
 import kotlinx.io.files.Path
 
-internal actual fun platformEnvironmentVariable(name: String): String? =
-    Process.Current.environment()[name]
-
 internal actual suspend fun startPlatformProcess(
     command: List<String>,
     workingDirectory: Path,

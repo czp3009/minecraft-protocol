@@ -42,3 +42,5 @@ kotlin {
 
     }
 }
+
+officialDownloads { client(); headlessMc() }

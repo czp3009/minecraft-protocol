@@ -22,5 +22,8 @@ out
 Thumbs.db
 desktop.ini
 
-# temp
+# Temp
 /temp
+
+# Misc
+/nul

@@ -36,3 +36,5 @@ kotlin {
 
     }
 }
+
+officialDownloads { server(); codecOracle() }

@@ -2,7 +2,6 @@ package com.hiczp.minecraft.test
 
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
-import kotlin.time.Duration.Companion.minutes
 
 /**
  * Repository-local test environment acquired directly by a standard test.
@@ -16,6 +15,22 @@ class MinecraftTestEnvironment private constructor(
 ) {
     internal val sharedCacheDirectory: Path =
         Path(repositoryRoot, "build", "protocol-reference")
+
+    /** Root for version-specific artifacts. */
+    internal val versionCacheRoot: Path
+        get() = Path(sharedCacheDirectory, minecraftVersion)
+
+    internal fun serverCacheDir(): Path =
+        Path(versionCacheRoot, "mojang-server")
+
+    internal fun clientCacheDir(): Path =
+        Path(versionCacheRoot, "mojang-client")
+
+    internal fun headlessMcCacheDir(): Path =
+        Path(versionCacheRoot, "headlessmc")
+
+    internal fun codecOracleCacheDir(): Path =
+        Path(versionCacheRoot, "codec-oracle")
 
     fun freshWorkDirectory(name: String): Path {
         val requested = Path(moduleBuildDirectory, "test-runtimes")
@@ -99,32 +114,28 @@ internal object OfficialArtifacts {
     suspend fun server(
         environment: MinecraftTestEnvironment,
     ): OfficialServerArtifact {
-        val version = environment.minecraftVersion
-        val directory = Path(environment.sharedCacheDirectory, "mojang")
-            .safeResolve(version)
+        val directory = environment.serverCacheDir()
         val jar = Path(directory, "server.jar")
         val metadataFile = Path(directory, "download-metadata.json")
-        return loadVerifiedServer(version, jar, metadataFile)
-            ?: downloadServer(version, jar, metadataFile)
+        return loadVerifiedServer(
+            environment.minecraftVersion, jar, metadataFile,
+        ) ?: error(
+            "Official server artifact is missing; " +
+                    "run the Gradle downloadOfficialMinecraftServer task first",
+        )
     }
 
     suspend fun headlessLauncher(
         environment: MinecraftTestEnvironment,
     ): Path {
-        val directory = Path(
-            environment.sharedCacheDirectory,
-            "headlessmc",
-        ).safeResolve(HEADLESS_VERSION)
-        val destination =
-            Path(directory, "headlessmc-launcher-$HEADLESS_VERSION.jar")
-        TestHttp.ensureDownload(
-            url = HEADLESS_URL,
-            destination = destination,
-            expectedSize = HEADLESS_SIZE,
-            digestAlgorithm = "SHA-256",
-            expectedDigest = HEADLESS_SHA256,
-            timeout = 5.minutes,
+        val destination = Path(
+            environment.headlessMcCacheDir(),
+            "headlessmc-launcher.jar",
         )
+        check(destination.isRegularFile()) {
+            "HeadlessMC launcher is missing; " +
+                    "run the Gradle downloadHeadlessMc task first"
+        }
         check(destination.sha256() == HEADLESS_SHA256) {
             "HeadlessMC launcher failed its SHA-256 verification"
         }
@@ -156,52 +167,6 @@ internal object OfficialArtifacts {
         }.getOrNull()
     }
 
-    private suspend fun downloadServer(
-        version: String,
-        jar: Path,
-        metadataFile: Path,
-    ): OfficialServerArtifact {
-        val entry = officialReleaseManifestEntry(version)
-        val metadataUrl = entry.requiredString("url")
-        val metadataBytes = TestHttp.getBytes(metadataUrl)
-        val metadataSha1 = entry.requiredString("sha1").lowercase()
-        check(metadataBytes.sha1() == metadataSha1) {
-            "Mojang version metadata failed its manifest SHA-1"
-        }
-        val metadata = metadataBytes.decodeJsonObject(metadataUrl)
-        check(metadata.requiredString("id") == version) {
-            "Mojang metadata identifies a different release"
-        }
-        val server = metadata.requiredObject("downloads")
-            .requiredObject("server")
-        val expectedSha1 = server.requiredString("sha1").lowercase()
-        val expectedSize = server.requiredLong("size")
-        TestHttp.ensureDownload(
-            url = server.requiredString("url"),
-            destination = jar,
-            expectedSize = expectedSize,
-            digestAlgorithm = "SHA-1",
-            expectedDigest = expectedSha1,
-        )
-        val javaMajor = metadata.requiredObject("javaVersion")
-            .requiredInt("majorVersion")
-        val serverSha256 = jar.sha256()
-        metadataFile.writeJson(
-            jsonObjectOf(
-                "minecraft_version" to jsonString(version),
-                "version_metadata_url" to jsonString(metadataUrl),
-                "version_metadata_sha1" to jsonString(metadataSha1),
-                "server_url" to jsonString(server.requiredString("url")),
-                "server_sha1" to jsonString(expectedSha1),
-                "server_sha256" to jsonString(serverSha256),
-                "server_size" to jsonNumber(expectedSize),
-                "java_major_version" to jsonNumber(javaMajor),
-            ),
-        )
-        return checkNotNull(loadVerifiedServer(version, jar, metadataFile)) {
-            "Downloaded official server did not pass its own verification"
-        }
-    }
 }
 
 private fun discoverRepositoryRoot(): Path {

@@ -17,9 +17,8 @@ fun Project.publishOfficialMinecraftAnalysis(
     builtBy: Any,
     directory: Boolean = false,
 ) {
-    val elements = configurations.create("${name}Elements") {
-        it.isCanBeConsumed = true
-        it.isCanBeResolved = false
+    val elements = configurations.consumable("${name}Elements") {
+        description = "Official Minecraft analysis: $name"
     }
     artifacts.add(elements.name, artifact) {
         it.builtBy(builtBy)
@@ -59,6 +58,7 @@ private fun Project.officialMinecraftAnalysis(name: String): Configuration {
         it.isCanBeConsumed = false
         it.isCanBeResolved = true
         it.isTransitive = false
+        it.description = "Official Minecraft analysis: $name"
     }
     dependencies.add(
         configuration.name,
@@ -70,4 +70,21 @@ private fun Project.officialMinecraftAnalysis(name: String): Configuration {
         ),
     )
     return configuration
+}
+
+/**
+ * Publishes the official codec oracle Java source from the
+ * `:minecraft-test-support` module so the root project can consume it as
+ * an input to [CompileOfficialCodecOracleTask].
+ */
+fun Project.publishCodecOracleSource() {
+    val elements = configurations.consumable("codecOracleSourceElements") {
+        description = "Official codec oracle Java source"
+    }
+    artifacts.add(
+        elements.name,
+        layout.projectDirectory.file(
+            "src/jvmMain/resources/com/hiczp/minecraft/test/oracle/OfficialCodecOracle.java",
+        ),
+    )
 }

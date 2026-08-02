@@ -1,4 +1,5 @@
-import com.hiczp.minecraft.protocol.buildScript.*
+import com.hiczp.minecraft.protocol.buildScript.OfficialDownloadsExtension
+import com.hiczp.minecraft.protocol.buildScript.applyOfficialDownloadsConvention
 import org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootExtension
 import org.jetbrains.kotlin.gradle.targets.js.yarn.YarnPlugin
 import org.jetbrains.kotlin.gradle.targets.js.yarn.YarnRootExtension
@@ -35,140 +36,40 @@ plugins.withType<WasmYarnPlugin> {
         val jsNpmInstall = extensions
             .getByType<NodeJsRootExtension>()
             .npmInstallTaskProvider
-        // Both KGP Yarn 1 installs use the same process-wide network mutex.
-        wasmNpmInstall.configure {
-            mustRunAfter(jsNpmInstall)
-        }
+        wasmNpmInstall.configure { mustRunAfter(jsNpmInstall) }
     }
 }
 
-val minecraftVersion = MinecraftTarget.MINECRAFT_VERSION
-val officialServerDirectory = layout.buildDirectory.dir(
-    "protocol-reference/mojang/$minecraftVersion",
-)
-val officialServerJar = officialServerDirectory.map {
-    it.file("server.jar")
-}
-val officialServerMetadata = officialServerDirectory.map {
-    it.file("download-metadata.json")
-}
-val officialAnalysisDirectory = layout.buildDirectory.dir(
-    "generated/official-minecraft/$minecraftVersion",
-)
-val officialTargetFile = officialAnalysisDirectory.map {
-    it.file("target/target.json")
-}
-val officialReportsDirectory = officialAnalysisDirectory.map {
-    it.dir("data-generator-reports")
-}
-val officialConfigurationFile = officialAnalysisDirectory.map {
-    it.file("configuration/configuration.json")
-}
+// ── Download task chain and analysis tasks ────────────────────────
+val official = applyOfficialDownloadsConvention()
 
-val javaToolchains = extensions.getByType<JavaToolchainService>()
-val java25Launcher = javaToolchains.launcherFor {
-    languageVersion = JavaLanguageVersion.of(25)
-}
-
-tasks.register<PrintMinecraftVersionTask>("minecraftVersion") {
-    group = "help"
-    description = "Print the official Minecraft release selected in buildSrc."
-    this.minecraftVersion = MinecraftTarget.MINECRAFT_VERSION
-}
-
-val downloadOfficialMinecraftServer =
-    tasks.register<DownloadOfficialMinecraftServerTask>(
-        "downloadOfficialMinecraftServer",
-    ) {
-        group = "official minecraft"
-        description = "Download and verify the selected official Minecraft server JAR."
-        offline = gradle.startParameter.isOffline
-        serverJar = officialServerJar
-        metadataFile = officialServerMetadata
-    }
-
-val analyzeOfficialMinecraftTarget =
-    tasks.register<AnalyzeOfficialMinecraftTargetTask>(
-        "analyzeOfficialMinecraftTarget",
-    ) {
-        group = "official minecraft analysis"
-        description = "Analyze version and protocol facts in the official server JAR."
-        serverJar = downloadOfficialMinecraftServer.flatMap {
-            it.serverJar
-        }
-        downloadMetadata = downloadOfficialMinecraftServer.flatMap {
-            it.metadataFile
-        }
-        outputFile = officialTargetFile
-    }
-
-val analyzeOfficialMinecraftReports =
-    tasks.register<AnalyzeOfficialMinecraftReportsTask>(
-        "analyzeOfficialMinecraftReports",
-    ) {
-        group = "official minecraft analysis"
-        description = "Capture official packets, registries, and blocks reports."
-        javaExecutable =
-            java25Launcher.map {
-                it.executablePath.asFile.absolutePath
-            }
-        serverJar = downloadOfficialMinecraftServer.flatMap {
-            it.serverJar
-        }
-        downloadMetadata = downloadOfficialMinecraftServer.flatMap {
-            it.metadataFile
-        }
-        outputDirectory = officialReportsDirectory
-    }
-
-val analyzeOfficialMinecraftConfiguration =
-    tasks.register<AnalyzeOfficialMinecraftConfigurationTask>(
-        "analyzeOfficialMinecraftConfiguration",
-    ) {
-        group = "official minecraft analysis"
-        description = "Capture both official Configuration Known Packs branches."
-        javaExecutable =
-            java25Launcher.map {
-                it.executablePath.asFile.absolutePath
-            }
-        serverJar = downloadOfficialMinecraftServer.flatMap {
-            it.serverJar
-        }
-        packetsReport =
-            analyzeOfficialMinecraftReports.flatMap {
-                it.outputDirectory.file("reports/packets.json")
-            }
-        outputFile = officialConfigurationFile
-    }
-
-tasks.register("officialMinecraftAnalysis") {
-    group = "official minecraft analysis"
-    description = "Run every official Minecraft analysis task."
-    dependsOn(
-        analyzeOfficialMinecraftTarget,
-        analyzeOfficialMinecraftReports,
-        analyzeOfficialMinecraftConfiguration,
-    )
-}
-
-publishOfficialMinecraftAnalysis(
-    "officialMinecraftTarget",
-    analyzeOfficialMinecraftTarget.flatMap { it.outputFile },
-    analyzeOfficialMinecraftTarget,
-)
-publishOfficialMinecraftAnalysis(
-    "officialMinecraftReports",
-    analyzeOfficialMinecraftReports.flatMap { it.outputDirectory },
-    analyzeOfficialMinecraftReports,
-    directory = true,
-)
-publishOfficialMinecraftAnalysis(
-    "officialMinecraftConfiguration",
-    analyzeOfficialMinecraftConfiguration.flatMap { it.outputFile },
-    analyzeOfficialMinecraftConfiguration,
-)
-
+// ── Subproject DSL: wire test dependencies to download tasks ─────
 subprojects {
     group = rootProject.group
     version = rootProject.version
+
+    val ext = extensions.create(
+        "officialDownloads", OfficialDownloadsExtension::class.java,
+    )
+    afterEvaluate {
+        if (ext.needsServer || ext.needsClient ||
+            ext.needsHeadlessMc || ext.needsCodecOracle
+        ) {
+            tasks.withType(Test::class.java).configureEach {
+                if (ext.needsServer) dependsOn(official.downloadServer)
+                if (ext.needsClient) {
+                    dependsOn(official.downloadClient)
+                    dependsOn(official.downloadAssets)
+                }
+                if (ext.needsHeadlessMc) {
+                    dependsOn(official.downloadHeadlessMc)
+                    dependsOn(official.prepareHeadlessMc)
+                }
+                if (ext.needsCodecOracle) {
+                    dependsOn(official.extractServerRuntime)
+                    dependsOn(official.compileCodecOracle)
+                }
+            }
+        }
+    }
 }

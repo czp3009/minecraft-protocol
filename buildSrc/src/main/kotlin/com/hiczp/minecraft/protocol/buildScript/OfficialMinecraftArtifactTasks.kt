@@ -3,6 +3,7 @@ package com.hiczp.minecraft.protocol.buildScript
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
@@ -10,16 +11,18 @@ import org.gradle.api.tasks.*
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
+import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
-
-internal const val VERSION_MANIFEST_URL =
-    "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
 
 @CacheableTask
 abstract class DownloadOfficialMinecraftServerTask :
     MinecraftProtocolToolTask() {
     @get:Internal
     abstract val offline: Property<Boolean>
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val versionMetadata: RegularFileProperty
 
     @get:OutputFile
     abstract val serverJar: RegularFileProperty
@@ -37,126 +40,62 @@ abstract class DownloadOfficialMinecraftServerTask :
         require(version.matches(Regex("[0-9A-Za-z._-]+"))) {
             "Unsafe Minecraft version identifier: $version"
         }
-        val metadataPath = metadataFile.asFile.get().toPath()
-        runBlocking {
-            download(version, metadataPath)
+        val metadata = versionMetadata.asFile.get().toPath()
+            .readJsonObject()
+        check(metadata.requiredString("id") == version) {
+            "Version metadata identifies a different release"
         }
-    }
-
-    private suspend fun download(
-        version: String,
-        metadataPath: Path,
-    ) {
-        val metadata =
-            if (offline.get()) {
-                check(metadataPath.isRegularFile()) {
-                    "Official download metadata is absent in offline mode: " +
-                            metadataPath
-                }
-                metadataPath.readJsonObject()
-            } else {
-                resolveServerDownload(version)
-            }
-        validateDownloadMetadata(metadata, version)
-        val serverJar = serverJar.asFile.get().toPath()
-        val changed = ProtocolHttp.ensureDownload(
-            url = metadata.requiredString("server_url"),
-            destination = serverJar,
-            expectedSize = metadata.requiredLong("server_size"),
-            expectedSha1 = metadata.requiredString("server_sha1"),
-            offline = offline.get(),
-        )
-        val target = serverJar.readMinecraftProtocolTarget(version)
-        check(
-            target.javaMajorVersion ==
-                    metadata.requiredInt("java_major_version"),
-        ) {
-            "Official server version.json and Mojang metadata disagree on " +
-                    "the required Java version"
-        }
-        if (!offline.get()) {
-            metadataPath.writeJson(
-                JsonObject(
-                    metadata + (
-                            "server_sha256" to
-                                    jsonString(serverJar.sha256())
-                            ),
-                ),
-                sortKeys = true,
-            )
-        }
-        val action = if (changed) "Downloaded and verified" else "Verified"
-        logger.lifecycle(
-            "$action Mojang server: $serverJar (${serverJar.sha1()})",
-        )
-    }
-
-    private suspend fun resolveServerDownload(version: String): JsonObject {
-        val manifest = ProtocolHttp.getJson(VERSION_MANIFEST_URL)
-        val entry = manifest.requiredArray("versions")
-            .map { it.jsonObject }
-            .firstOrNull {
-                it.requiredString("id") == version &&
-                        it.requiredString("type") == "release"
-            }
-            ?: error("Mojang manifest has no stable release $version")
-        val metadataUrl = entry.requiredString("url")
-        val versionMetadataBytes = ProtocolHttp.getBytes(metadataUrl)
-        check(versionMetadataBytes.sha1() == entry.requiredString("sha1")) {
-            "Mojang version metadata failed its manifest SHA-1"
-        }
-        val versionMetadata = versionMetadataBytes.decodeJsonObject(
-            metadataUrl,
-        )
-        check(versionMetadata.requiredString("id") == version) {
-            "Mojang version metadata identifies a different release"
-        }
-        val server = versionMetadata.requiredObject("downloads")
+        val server = metadata.requiredObject("downloads")
             .requiredObject("server")
-        val javaMajor = versionMetadata["javaVersion"]
+        val serverUrl = server.requiredString("url")
+        val serverSha1 = server.requiredString("sha1").lowercase()
+        val serverSize = server.requiredLong("size")
+        val javaMajor = metadata["javaVersion"]
             ?.jsonObject
             ?.requiredInt("majorVersion")
             ?: 0
-        return jsonObjectOf(
-            "minecraft_version" to jsonString(version),
-            "version_metadata_url" to jsonString(metadataUrl),
-            "version_metadata_sha1" to
-                    jsonString(entry.requiredString("sha1")),
-            "server_url" to jsonString(server.requiredString("url")),
-            "server_sha1" to jsonString(server.requiredString("sha1")),
-            "server_size" to jsonNumber(server.requiredLong("size")),
-            "java_major_version" to jsonNumber(javaMajor),
-        )
-    }
 
-    private fun validateDownloadMetadata(
-        metadata: JsonObject,
-        expectedVersion: String,
-    ) {
-        check(
-            metadata.requiredString("minecraft_version") == expectedVersion,
-        ) {
-            "Official download metadata targets a different Minecraft release"
-        }
-        listOf("version_metadata_url", "server_url").forEach { key ->
-            val url = metadata.requiredString(key)
-            check(url.startsWith("https://")) {
-                "Official download metadata has an unsafe $key"
+        val destination = serverJar.asFile.get().toPath()
+        val metadataPath = metadataFile.asFile.get().toPath()
+        runBlocking {
+            val changed = ProtocolHttp.ensureDownload(
+                url = serverUrl,
+                destination = destination,
+                expectedSize = serverSize,
+                expectedSha1 = serverSha1,
+                offline = offline.get(),
+            )
+
+            val target = destination.readMinecraftProtocolTarget(version)
+            check(target.javaMajorVersion == javaMajor) {
+                "Official server version.json and Mojang metadata disagree " +
+                        "on the required Java version"
             }
-        }
-        listOf("version_metadata_sha1", "server_sha1").forEach { key ->
-            check(
-                metadata.requiredString(key)
-                    .matches(Regex("[0-9a-f]{40}")),
-            ) {
-                "Official download metadata has an invalid $key"
+            if (!offline.get()) {
+                val versionMetadataSha1 =
+                    versionMetadata.asFile.get().toPath().sha1()
+                metadataPath.writeJson(
+                    jsonObjectOf(
+                        "schema_version" to jsonNumber(1),
+                        "minecraft_version" to jsonString(version),
+                        "version_metadata_sha1" to jsonString(
+                            versionMetadataSha1,
+                        ),
+                        "server_url" to jsonString(serverUrl),
+                        "server_sha1" to jsonString(serverSha1),
+                        "server_sha256" to jsonString(
+                            destination.sha256(),
+                        ),
+                        "server_size" to jsonNumber(serverSize),
+                        "java_major_version" to jsonNumber(javaMajor),
+                    ),
+                    sortKeys = true,
+                )
             }
-        }
-        check(metadata.requiredLong("server_size") > 0) {
-            "Official download metadata has an invalid server size"
-        }
-        check(metadata.requiredInt("java_major_version") > 0) {
-            "Official download metadata has no Java requirement"
+            val action = if (changed) "Downloaded and verified" else "Verified"
+            logger.lifecycle(
+                "$action Mojang server: $destination (${destination.sha1()})",
+            )
         }
     }
 }
@@ -389,4 +328,166 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
         }
     }
 
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ExtractOfficialServerRuntimeTask
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Extracts the real Minecraft server implementation JAR and its libraries from
+ * the official server bundle (which is a fat JAR with a versioned manifest).
+ * The extracted runtime is what `OfficialCodecOracle` loads at test time.
+ */
+@CacheableTask
+abstract class ExtractOfficialServerRuntimeTask :
+    MinecraftProtocolToolTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val serverJar: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun extract() {
+        val bundle = serverJar.asFile.get().toPath()
+        val version = minecraftVersion.get()
+        val output = outputDirectory.asFile.get().toPath()
+
+        output.deleteTree()
+        output.createDirectories()
+
+        java.util.zip.ZipFile(bundle.toFile()).use { archive ->
+            // Read version manifest
+            val versionFields = archive.getInputStream(
+                archive.getEntry("META-INF/versions.list"),
+            ).use { it.readBytes().decodeToString().trim().split('\t') }
+            check(versionFields.size == 3)
+            check(versionFields[1] == version)
+
+            val implDigest = versionFields[0].lowercase()
+            check(implDigest.matches(Regex("[0-9a-f]{64}")))
+
+            // Extract implementation JAR
+            val impl = archive.getInputStream(
+                archive.getEntry("META-INF/versions/${versionFields[2]}"),
+            ).use { it.readBytes() }
+            check(impl.sha256() == implDigest)
+            val implJar = output.resolve("server.jar")
+            implJar.atomicWrite(impl)
+
+            // Extract libraries
+            archive.getInputStream(
+                archive.getEntry("META-INF/libraries.list"),
+            ).use { input ->
+                input.readBytes().decodeToString()
+                    .lineSequence()
+                    .filter(String::isNotBlank)
+                    .forEach { line ->
+                        val fields = line.split('\t')
+                        check(fields.size == 3)
+                        val digest = fields[0].lowercase()
+                        check(digest.matches(Regex("[0-9a-f]{64}")))
+                        val relative = fields[2]
+                        val content = archive.getInputStream(
+                            archive.getEntry("META-INF/libraries/$relative"),
+                        ).use { it.readBytes() }
+                        check(content.sha256() == digest)
+                        output.resolve("libraries").resolve(relative)
+                            .atomicWrite(content)
+                    }
+            }
+        }
+        logger.lifecycle(
+            "Extracted official server runtime for $version: $output",
+        )
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CompileOfficialCodecOracleTask
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Compiles the `OfficialCodecOracle.java` bridge against the extracted server
+ * runtime.  Tests only load the pre-compiled class; no compilation happens at
+ * test time.
+ */
+@CacheableTask
+abstract class CompileOfficialCodecOracleTask : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val sourceFile: RegularFileProperty
+
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val runtimeDirectory: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun compile() {
+        val source = sourceFile.asFile.get().toPath()
+        check(source.isRegularFile()) {
+            "Official codec bridge source is missing: $source"
+        }
+        val runtime = runtimeDirectory.asFile.get().toPath()
+        val implJar = runtime.resolve("server.jar")
+        check(implJar.isRegularFile()) {
+            "Server runtime implementation JAR is missing: $implJar"
+        }
+        val libsDir = runtime.resolve("libraries")
+        val libraries = if (libsDir.isDirectory()) {
+            Files.walk(libsDir).use { walk ->
+                walk.filter { Files.isRegularFile(it) }
+                    .map { it.toFile() }
+                    .toList()
+            }
+        } else {
+            emptyList()
+        }
+
+        val classes = outputDirectory.asFile.get().toPath()
+        classes.deleteTree()
+        classes.createDirectories()
+
+        val compiler = checkNotNull(
+            javax.tools.ToolProvider.getSystemJavaCompiler(),
+        ) { "Codec oracle compilation requires a full JDK" }
+        val diagnostics = javax.tools.DiagnosticCollector<javax.tools.JavaFileObject>()
+        compiler.getStandardFileManager(
+            diagnostics,
+            java.util.Locale.ROOT,
+            java.nio.charset.StandardCharsets.UTF_8,
+        ).use { fileManager ->
+            fileManager.setLocationFromPaths(
+                javax.tools.StandardLocation.CLASS_OUTPUT,
+                listOf(classes),
+            )
+            val classpath = buildList {
+                add(implJar.toFile())
+                addAll(libraries)
+            }.joinToString(java.io.File.pathSeparator)
+            val units = fileManager.getJavaFileObjectsFromPaths(
+                listOf(source),
+            )
+            val success = compiler.getTask(
+                null,
+                fileManager,
+                diagnostics,
+                listOf("--release", "25", "-classpath", classpath),
+                null,
+                units,
+            ).call()
+            check(success) {
+                diagnostics.diagnostics.joinToString(
+                    prefix = "Codec oracle bridge compilation failed:\n",
+                    separator = "\n",
+                )
+            }
+        }
+        logger.lifecycle("Compiled official codec oracle bridge: $classes")
+    }
 }

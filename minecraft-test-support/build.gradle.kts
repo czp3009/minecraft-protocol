@@ -1,6 +1,7 @@
 import com.hiczp.minecraft.protocol.buildScript.configureDesktopNativeTargets
 import com.hiczp.minecraft.protocol.buildScript.configureWebTargets
 import com.hiczp.minecraft.protocol.buildScript.createHostProcessTestSourceSet
+import com.hiczp.minecraft.protocol.buildScript.publishCodecOracleSource
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -72,3 +73,6 @@ kotlin {
 
     }
 }
+
+officialDownloads { server(); client(); headlessMc() }
+publishCodecOracleSource()
