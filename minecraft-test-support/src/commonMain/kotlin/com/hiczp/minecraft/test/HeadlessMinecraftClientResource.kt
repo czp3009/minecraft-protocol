@@ -1,43 +1,39 @@
 package com.hiczp.minecraft.test
 
-import io.github.oshai.kotlinlogging.DirectLoggerFactory
 import kotlinx.io.files.Path
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
-
-private val headlessClientLogger = DirectLoggerFactory.logger(
-    "com.hiczp.minecraft.test.HeadlessMinecraftClientResource",
-)
 
 data class HeadlessMinecraftClientConfiguration(
     val playerName: String,
     val endpoint: MinecraftTestEndpoint,
-    val downloadWorkers: Int = DEFAULT_CLIENT_DOWNLOAD_WORKERS,
-    val threadName: String = "official-headless-client",
-    val logFile: Path? = null,
-    val maximumLogCharacters: Int = 300_000,
 ) {
     init {
         require(playerName.matches(Regex("[A-Za-z0-9_]{1,16}"))) {
             "Unsafe offline player name: $playerName"
         }
-        require(endpoint.host == "127.0.0.1" && endpoint.port in 1..0xFFFF) {
+        require(endpoint.host == LOOPBACK && endpoint.port in 1..0xFFFF) {
             "Headless client tests require a valid loopback endpoint"
-        }
-        require(downloadWorkers > 0) { "downloadWorkers must be positive" }
-        require(threadName.isNotBlank()) { "threadName must not be blank" }
-        require(maximumLogCharacters > 0) {
-            "maximumLogCharacters must be positive"
         }
     }
 }
 
-/** A complete official-client + HeadlessMC process test resource. */
+/** A ready official-client process with an isolated game directory. */
 class HeadlessMinecraftClientResource private constructor(
-    val installation: OfficialClientInstallation,
+    private val installation: OfficialClientInstallation,
+    val endpoint: MinecraftTestEndpoint,
     private val process: MinecraftTestProcess,
 ) : AutoCloseable {
+    private lateinit var managedResource: ManagedMinecraftTestResource
+
     val isAlive: Boolean
         get() = process.isAlive
+
+    val minecraftVersion: String
+        get() = installation.version
+
+    val officialClientSha1: String
+        get() = installation.clientSha1
 
     val exitCode: Int
         get() = process.exitCode
@@ -47,28 +43,32 @@ class HeadlessMinecraftClientResource private constructor(
     suspend fun awaitExit(): Int = process.awaitExit()
 
     override fun close() {
+        managedResource.close()
+    }
+
+    internal fun attach(resource: ManagedMinecraftTestResource) {
+        check(!::managedResource.isInitialized)
+        managedResource = resource
+    }
+
+    internal suspend fun cleanup() {
         process.close()
+        runCatching { process.awaitExit() }
     }
 
     internal companion object {
         suspend fun start(
-            preparedClient: PreparedHeadlessMinecraftClient,
+            layout: MinecraftTestLayout,
             workDirectory: Path,
             configuration: HeadlessMinecraftClientConfiguration,
         ): HeadlessMinecraftClientResource {
-            val installation = preparedClient.installation
-            val launcher = preparedClient.launcher
-            require(installation.directory.isDirectory()) {
-                "Prepared Minecraft client directory does not exist: " +
-                        installation.directory
-            }
-            require(launcher.isRegularFile()) {
-                "HeadlessMC launcher does not exist: $launcher"
-            }
+            val installation = OfficialClientPreparation.prepare(layout)
+            val launcher = OfficialArtifacts.headlessLauncher(layout)
+            val gameDirectory = Path(workDirectory, "game")
+            gameDirectory.ensureDirectory()
+            writeClientOptions(gameDirectory)
 
-            val runDirectory = prepareRunDirectory(workDirectory)
-            val gameDirectory = Path(runDirectory, "game")
-            val java = preparedClient.javaExecutable.toString()
+            val java = layout.javaExecutable.toString()
             val endpoint = configuration.endpoint
             val command = listOf(
                 java,
@@ -93,8 +93,7 @@ class HeadlessMinecraftClientResource private constructor(
                 "-Dhmc.offline.username=${configuration.playerName}",
                 "-Dhmc.offline.uuid=${offlineUuid(configuration.playerName)}",
                 "-Dhmc.offline.token=0",
-                "-Dhmc.gameargs=--quickPlayMultiplayer " +
-                        "${endpoint.host}:${endpoint.port}",
+                "-Dhmc.gameargs=--quickPlayMultiplayer ${endpoint.host}:${endpoint.port}",
                 "-Dhmc.jline.enabled=false",
                 "-Dhmc.filehandler.enabled=false",
                 "-Dhmc.rethrow.launch.exceptions=true",
@@ -110,22 +109,32 @@ class HeadlessMinecraftClientResource private constructor(
                 "-inmemory",
                 "-offline",
             )
-            headlessClientLogger.info {
-                "Launching isolated HeadlessMC client in $runDirectory " +
-                        "for ${endpoint.host}:${endpoint.port}"
-            }
             val process = MinecraftTestProcess.start(
                 command = command,
-                workingDirectory = runDirectory,
-                threadName = configuration.threadName,
-                logFile = configuration.logFile
-                    ?: Path(runDirectory, "client.log"),
-                maximumLogCharacters = configuration.maximumLogCharacters,
+                workingDirectory = workDirectory,
+                threadName = "official-headless-client",
+                logFile = Path(workDirectory, "client.log"),
+                maximumLogCharacters = MAXIMUM_LOG_CHARACTERS,
             )
-            return HeadlessMinecraftClientResource(
-                installation = installation,
-                process = process,
-            )
+            try {
+                process.waitForLog(LAUNCH_READY_MARKER, LAUNCH_TIMEOUT)
+                return HeadlessMinecraftClientResource(
+                    installation = installation,
+                    endpoint = endpoint,
+                    process = process,
+                )
+            } catch (failure: Throwable) {
+                process.close()
+                runCatching { process.awaitExit() }
+                throw AssertionError(
+                    """
+                    |Official client failed to enter its in-memory launcher.
+                    |--- official client log ---
+                    |${process.logText()}
+                    """.trimMargin(),
+                    failure,
+                )
+            }
         }
 
         private fun offlineUuid(name: String): String {
@@ -135,18 +144,8 @@ class HeadlessMinecraftClientResource private constructor(
             return Uuid.fromByteArray(bytes).toHexString()
         }
 
-        private fun prepareRunDirectory(workDirectory: Path): Path {
-            workDirectory.ensureDirectory()
-            val runDirectory = createUniqueDirectory(workDirectory, "run-")
-            val gameDirectory = Path(runDirectory, "game")
-            gameDirectory.ensureDirectory()
-            writeClientOptions(gameDirectory)
-            return runDirectory
-        }
-
         private fun writeClientOptions(gameDirectory: Path) {
-            Path(gameDirectory, "options.txt").atomicWriteText(
-                """
+            val options = """
                 |autoSuggestions:false
                 |enableVsync:false
                 |maxFps:30
@@ -154,45 +153,17 @@ class HeadlessMinecraftClientResource private constructor(
                 |pauseOnLostFocus:false
                 |renderDistance:2
                 |simulationDistance:5
-                """.trimMargin() + "\n",
+            """.trimMargin()
+            Path(gameDirectory, "options.txt").atomicWriteText(
+                "$options\n",
             )
         }
+
+        private val LAUNCH_TIMEOUT = 45.seconds
+        private const val LAUNCH_READY_MARKER =
+            "Launching with simple in-memory launcher"
+        private const val MAXIMUM_LOG_CHARACTERS = 300_000
     }
 }
 
-/**
- * Verified immutable inputs from which isolated HeadlessMC resources can be
- * started without holding a server socket open during artifact preparation.
- */
-class PreparedHeadlessMinecraftClient internal constructor(
-    val installation: OfficialClientInstallation,
-    internal val launcher: Path,
-    internal val javaExecutable: Path,
-) {
-    suspend fun start(
-        workDirectory: Path,
-        configuration: HeadlessMinecraftClientConfiguration,
-    ): HeadlessMinecraftClientResource =
-        HeadlessMinecraftClientResource.start(
-            preparedClient = this,
-            workDirectory = workDirectory,
-            configuration = configuration,
-        )
-}
-
-suspend fun MinecraftTestEnvironment.prepareHeadlessMinecraftClient(
-    downloadWorkers: Int = DEFAULT_CLIENT_DOWNLOAD_WORKERS,
-): PreparedHeadlessMinecraftClient {
-    headlessClientLogger.info {
-        "Preparing official client artifacts for $minecraftVersion"
-    }
-    val prepared = PreparedHeadlessMinecraftClient(
-        installation = officialClient(downloadWorkers),
-        launcher = headlessMinecraftLauncher(),
-        javaExecutable = javaExecutable,
-    )
-    headlessClientLogger.info {
-        "Official client artifacts and HeadlessMC launcher are ready"
-    }
-    return prepared
-}
+private const val LOOPBACK = "127.0.0.1"

@@ -20,7 +20,7 @@ rules, persistence policy, and gameplay remain application concerns.
 - An Android SDK configured through the usual Gradle mechanisms, including `local.properties`, when running the full
   multiplatform gate.
 - Network access on the first exhaustive verification run so Gradle can acquire normal build dependencies and standard
-  tests can acquire hash-verified Minecraft reference artifacts.
+  root fixture tasks can acquire and verify Minecraft reference artifacts.
 
 Use the checked-in wrapper; a separate Gradle installation is unnecessary. The configured Java 25 toolchain and bytecode
 target are a project policy for convenience and consistency, not a claim that the Kotlin sources intrinsically depend on
@@ -54,9 +54,10 @@ the runtime module that owns their generated source, while source-to-source gene
 runtime API.
 
 `minecraft-test-support` is a private, unpublished Kotlin Multiplatform fixture library used only by repository tests.
-Its ordinary resource APIs acquire and verify official artifacts, allocate unique workspaces and endpoints, wait for
-readiness, retain bounded logs, and close directly owned peer processes from standard JVM, desktop Native, and Node
-tests; no Gradle preparation task or command-line helper is involved.
+Root Gradle tasks prepare immutable, hash-verified official artifacts and expose them as lazy inputs of the standard
+host-process test tasks. The library validates those local inputs, allocates unique workspaces and endpoints, waits for
+readiness, retains bounded logs, and asynchronously closes directly owned peer processes from JVM, desktop Native, and
+Node tests. It does not download at test runtime or use a command-line fixture helper.
 
 `nbt` and `world-format` expose `Source`/`Sink` APIs on stream-capable targets. `world-io` targets JVM, Android, and
 Native platforms with filesystem support; browser-like consumers use the stream modules directly. Portable JS/Wasm tests
@@ -138,17 +139,17 @@ does not define an additional `test` task. Together the applicable platform suit
 - a matching official client against the production server, headlessly and in offline mode;
 - official-server world generation, library decode/rewrite, and official-server reload.
 
-The official-client JVM test calls the private test-support library, which downloads the exact Mojang client, libraries,
-natives, and assets into `build/`, validates the published sizes and hashes, and launches it through a pinned
-SHA-256-verified HeadlessMC adapter. The test verifies
+The official-client host-process tests call the private test-support library after Gradle has downloaded the exact
+Mojang client, libraries, natives, and assets into `build/` and validated their published sizes and hashes. The library
+launches that local fixture through a pinned SHA-256-verified HeadlessMC adapter. The test verifies
 Status/Login/Configuration/Play, initial chunks and entities, teleport/chunk-batch/player-loaded acknowledgements,
 client ticks and keepalives, broad clientbound Play packet families, cookies and pings, Respawn followed by another
 world projection, a Play-to-Configuration round trip, and a third Play/world synchronization. All services are started
-and stopped by standard JVM tests. GUI client testing is not part of the repository.
+and stopped by standard JVM, host Native, or supported Node tests. GUI client testing is not part of the repository.
 
-The first run is intentionally heavier. Production tasks and the private test-support library key the verified server,
-client, libraries, assets, reports, generated sources, and test outputs by the selected Minecraft version, so unchanged
-follow-up runs avoid downloads and expensive generation.
+The first run is intentionally heavier. Gradle's production, analysis, and fixture tasks key the verified server,
+client, libraries, assets, reports, and generated sources by the selected Minecraft version, so unchanged follow-up runs
+are `UP-TO-DATE` or restored from the build cache instead of downloading or regenerating them.
 
 Examples of focused JVM suites are:
 

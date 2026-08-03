@@ -16,22 +16,20 @@ object OfficialCodecOracle {
     private const val JOML_NO_UNSAFE_PROPERTY = "joml.nounsafe"
 
     suspend fun verify(
-        environment: MinecraftTestEnvironment,
         fixtures: Path,
         report: Path,
     ) {
         require(fixtures.isRegularFile()) {
             "Official codec fixtures are absent: $fixtures"
         }
-        val runtime = environment.officialServerRuntime()
+        val runtime = officialServerRuntime()
 
         // Pre-compiled bridge classes (produced by compileOfficialCodecOracle)
-        val classes = environment.codecOracleCacheDir()
+        val classes = MinecraftTestSupport.layout.codecOracleCacheDirectory()
             .safeResolve("classes")
 
         check(classes.isDirectory()) {
-            "Official codec bridge is not compiled: $classes; " +
-                    "run the Gradle compileOfficialCodecOracle task first"
+            "Official codec bridge is not compiled: $classes; run the Gradle compileOfficialCodecOracle task first"
         }
         val classFile = classes.safeResolve(
             "com/hiczp/minecraft/test/oracle/OfficialCodecOracle.class",
@@ -50,7 +48,7 @@ object OfficialCodecOracle {
                 },
             )
         }.toTypedArray()
-        val loggingConfiguration = environment.temporaryFile(
+        val loggingConfiguration = MinecraftTestSupport.temporaryFile(
             "official-codec-log4j2.xml",
         )
         loggingConfiguration.atomicWriteText(log4jNullConfigurationXml())

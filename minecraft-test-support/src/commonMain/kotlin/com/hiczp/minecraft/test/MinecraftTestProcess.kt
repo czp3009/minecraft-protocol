@@ -56,19 +56,25 @@ class MinecraftTestProcess private constructor(
                 }
             }
         } ?: error(
-            "Test process did not emit '$marker' within $timeout:\n" +
-                    logText(),
+            """
+            |Test process did not emit '$marker' within $timeout:
+            |${logText()}
+            """.trimMargin(),
         )
         observed.failure?.let { failure ->
             throw IllegalStateException(
-                "Test process output failed before log marker '$marker':\n" +
-                        observed.text,
+                """
+                |Test process output failed before log marker '$marker':
+                |${observed.text}
+                """.trimMargin(),
                 failure,
             )
         }
         check(marker in observed.text) {
-            "Test process exited with ${observed.exitCode} before log marker " +
-                    "'$marker':\n${observed.text}"
+            """
+            |Test process exited with ${observed.exitCode} before log marker '$marker':
+            |${observed.text}
+            """.trimMargin()
         }
     }
 
@@ -177,7 +183,7 @@ private class ProcessLog(
 
     fun append(line: String) {
         snapshot.update { current ->
-            val combined = current.text + line + "\n"
+            val combined = "${current.text}$line\n"
             current.copy(
                 text = if (combined.length <= maximumCharacters) {
                     combined

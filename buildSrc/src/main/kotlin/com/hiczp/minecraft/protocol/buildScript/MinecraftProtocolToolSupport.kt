@@ -126,7 +126,7 @@ internal fun Path.writeJson(
     value: JsonElement,
     sortKeys: Boolean = false,
 ) {
-    atomicWriteText(renderJson(value, sortKeys) + "\n")
+    atomicWriteText("${renderJson(value, sortKeys)}\n")
 }
 
 internal fun renderJson(
@@ -216,9 +216,7 @@ internal object ProtocolHttp {
     private const val MAX_RETRIES = 3
     private const val MAX_ATTEMPTS = MAX_RETRIES + 1
     private const val STREAM_BUFFER_SIZE = 1024L * 1024L
-    private const val USER_AGENT =
-        "minecraft-protocol Gradle tools/1.0 " +
-                "(https://github.com/hiczp/minecraft-protocol)"
+    private const val USER_AGENT = "minecraft-protocol Gradle tools/1.0 (https://github.com/hiczp/minecraft-protocol)"
     private val logger = Logging.getLogger(ProtocolHttp::class.java)
 
     private class RetryableResponseBody(
@@ -290,8 +288,7 @@ internal object ProtocolHttp {
                 }
                 ?: "unknown HTTP failure"
             logger.warn(
-                "External download attempt ${retry.retryCount}/$MAX_ATTEMPTS " +
-                        "failed; retrying ${responseBody.url}: $reason",
+                "External download attempt ${retry.retryCount}/$MAX_ATTEMPTS failed; retrying ${responseBody.url}: $reason",
             )
         }
     }
@@ -401,8 +398,7 @@ internal object ProtocolHttp {
                     val actualHash = temporary.digest(hashAlgorithm)
                     if (actualHash != expectedHash) {
                         throw InvalidDownloadedArtifactException(
-                            "$hashAlgorithm mismatch (received $actualHash; " +
-                                    "expected $expectedHash)",
+                            "$hashAlgorithm mismatch (received $actualHash; expected $expectedHash)",
                         )
                     }
                 }
@@ -450,10 +446,7 @@ internal object ProtocolHttp {
                     append(failure.friendlyDownloadReason())
                     append('\n')
                     append(proxyDiagnostic())
-                    append(
-                        "\nCheck the network connection, proxy/VPN, and " +
-                                "firewall, then rerun the failed Gradle task.",
-                    )
+                    append("\nCheck the network connection, proxy/VPN, and firewall, then rerun the failed Gradle task.")
                 },
                 failure,
             )
@@ -487,26 +480,22 @@ internal object ProtocolHttp {
                 "the remote server returned ${cause.message}"
 
             is EOFException ->
-                "the HTTP response ended before all bytes arrived " +
-                        "(the connection or proxy returned a truncated body)"
+                "the HTTP response ended before all bytes arrived (the connection or proxy returned a truncated body)"
 
             is UnknownHostException ->
                 "DNS could not resolve ${cause.message ?: "the remote host"}"
 
             is ConnectException ->
-                "the connection could not be established" +
-                        cause.message?.let { ": $it" }.orEmpty()
+                "the connection could not be established${cause.message?.let { ": $it" }.orEmpty()}"
 
             is SSLException ->
-                "the TLS connection failed" +
-                        cause.message?.let { ": $it" }.orEmpty()
+                "the TLS connection failed${cause.message?.let { ": $it" }.orEmpty()}"
 
             is InvalidDownloadedArtifactException ->
                 "the received file failed integrity validation: ${cause.message}"
 
             is IOException ->
-                "the network connection failed" +
-                        cause.message?.let { ": $it" }.orEmpty()
+                "the network connection failed${cause.message?.let { ": $it" }.orEmpty()}"
 
             else -> cause.message
                 ?.takeIf(String::isNotBlank)
@@ -535,9 +524,7 @@ internal object ProtocolHttp {
         return if (configuredProperties.isEmpty()) {
             "Proxy configuration: no JVM proxy system property is set."
         } else {
-            "Proxy configuration: ${configuredProperties.joinToString()} " +
-                    "${if (configuredProperties.size == 1) "is" else "are"} " +
-                    "set (values hidden); the JVM default proxy selector is used."
+            "Proxy configuration: ${configuredProperties.joinToString()} ${if (configuredProperties.size == 1) "is" else "are"} set (values hidden); the JVM default proxy selector is used."
         }
     }
 
@@ -705,8 +692,7 @@ internal fun Path.readMinecraftProtocolTarget(
         .decodeJsonObject("$this!/version.json")
     val minecraftVersion = version.requiredString("id")
     check(minecraftVersion == expectedVersion) {
-        "Official server identifies Minecraft $minecraftVersion; " +
-                "build selects $expectedVersion"
+        "Official server identifies Minecraft $minecraftVersion; build selects $expectedVersion"
     }
     return MinecraftProtocolTarget(
         minecraftVersion = minecraftVersion,

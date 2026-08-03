@@ -1,4 +1,3 @@
-import com.android.build.api.dsl.KotlinMultiplatformAndroidLibraryTarget
 import com.hiczp.minecraft.protocol.buildScript.BuildVersions
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -37,25 +36,20 @@ kotlin {
     androidNativeX64()
     androidNativeX86()
 
-    targets.withType(KotlinMultiplatformAndroidLibraryTarget::class.java)
-        .configureEach {
-            namespace = "com.hiczp.minecraft.protocol.transport"
-            compileSdk = BuildVersions.ANDROID_COMPILE_SDK
-            minSdk = BuildVersions.ANDROID_MIN_SDK
-            withHostTest {}
-            compilerOptions {
-                jvmTarget.set(
-                    JvmTarget.fromTarget(BuildVersions.JAVA_VERSION.toString()),
-                )
-            }
+    android {
+        namespace = "com.hiczp.minecraft.protocol.transport"
+        compileSdk = BuildVersions.ANDROID_COMPILE_SDK
+        minSdk = BuildVersions.ANDROID_MIN_SDK
+        withHostTest {}
+        compilerOptions {
+            jvmTarget.set(
+                JvmTarget.fromTarget(BuildVersions.JAVA_VERSION.toString()),
+            )
         }
+    }
 
     wasmJs {
-        nodejs {
-            testTask {
-                environment("NODE_USE_ENV_PROXY", "1")
-            }
-        }
+        nodejs()
     }
 
     sourceSets {

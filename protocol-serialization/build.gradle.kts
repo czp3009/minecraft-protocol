@@ -1,4 +1,3 @@
-import com.android.build.api.dsl.KotlinMultiplatformAndroidLibraryTarget
 import com.hiczp.minecraft.protocol.buildScript.BuildVersions
 import com.hiczp.minecraft.protocol.buildScript.createHostProcessTestSourceSet
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
@@ -39,50 +38,36 @@ kotlin {
     androidNativeX64()
     androidNativeX86()
 
-    targets.withType(KotlinMultiplatformAndroidLibraryTarget::class.java)
-        .configureEach {
-            namespace = "com.hiczp.minecraft.protocol.serialization"
-            compileSdk = BuildVersions.ANDROID_COMPILE_SDK
-            minSdk = BuildVersions.ANDROID_MIN_SDK
-            withHostTest {}
-            compilerOptions {
-                jvmTarget.set(
-                    JvmTarget.fromTarget(BuildVersions.JAVA_VERSION.toString()),
-                )
-            }
+    android {
+        namespace = "com.hiczp.minecraft.protocol.serialization"
+        compileSdk = BuildVersions.ANDROID_COMPILE_SDK
+        minSdk = BuildVersions.ANDROID_MIN_SDK
+        withHostTest {}
+        compilerOptions {
+            jvmTarget.set(
+                JvmTarget.fromTarget(BuildVersions.JAVA_VERSION.toString()),
+            )
         }
+    }
 
     js {
-        nodejs {
-            testTask {
-                environment("NODE_USE_ENV_PROXY", "1")
-            }
-        }
+        nodejs()
         browser()
     }
 
     wasmJs {
-        nodejs {
-            testTask {
-                environment("NODE_USE_ENV_PROXY", "1")
-            }
-        }
-        browser()
-        d8()
+        nodejs()
     }
 
     wasmWasi {
         nodejs()
     }
 
-    // The serializer is portable to JS, but this fixture depends on the
-    // socket-backed protocol-transport module, whose JS target is omitted.
     createHostProcessTestSourceSet(
-        name = "externalProcessTest",
-        includeJsTarget = false,
+        requiresOfficialServer = true,
+        requiresCodecOracle = true,
     ) {
         dependencies {
-            implementation(project(":minecraft-test-support"))
             implementation(project(":protocol-transport"))
         }
     }
@@ -107,5 +92,3 @@ kotlin {
 
     }
 }
-
-officialDownloads { server(); codecOracle() }

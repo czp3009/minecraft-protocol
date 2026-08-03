@@ -1,22 +1,17 @@
 package com.hiczp.minecraft.protocol.buildScript
 
 import org.gradle.api.Project
-import org.gradle.api.tasks.TaskProvider
+import org.gradle.api.file.FileCollection
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.jvm.toolchain.JavaToolchainService
 
 /**
- * Holds the root-project download task providers so [build.gradle.kts] can
- * wire subproject test dependencies explicitly.
+ * Lazy, semantic fixture inputs consumed by standard host-process test tasks.
  */
-class OfficialDownloadTaskRefs(
-    val downloadServer: TaskProvider<DownloadOfficialMinecraftServerTask>,
-    val downloadClient: TaskProvider<DownloadOfficialMinecraftClientTask>,
-    val downloadAssets: TaskProvider<DownloadOfficialMinecraftAssetsTask>,
-    val downloadHeadlessMc: TaskProvider<DownloadHeadlessMcTask>,
-    val prepareHeadlessMc: TaskProvider<PrepareHeadlessMcClientTask>,
-    val extractServerRuntime: TaskProvider<ExtractOfficialServerRuntimeTask>,
-    val compileCodecOracle: TaskProvider<CompileOfficialCodecOracleTask>,
+class OfficialMinecraftFixtureOutputs(
+    val officialServer: FileCollection,
+    val officialClient: FileCollection,
+    val codecOracle: FileCollection,
 )
 
 /**
@@ -25,7 +20,7 @@ class OfficialDownloadTaskRefs(
  * `@Input`/`@Output` + `TaskProvider.flatMap` — no explicit `dependsOn` is
  * needed on the download/preparation chain.
  */
-fun Project.applyOfficialDownloadsConvention(): OfficialDownloadTaskRefs {
+fun Project.applyOfficialDownloadsConvention(): OfficialMinecraftFixtureOutputs {
     val minecraftVersion = MinecraftTarget.MINECRAFT_VERSION
     val protocolRef = layout.buildDirectory.dir("protocol-reference")
     val versionManifestFile = protocolRef.map { it.file("version_manifest_v2.json") }
@@ -266,15 +261,33 @@ fun Project.applyOfficialDownloadsConvention(): OfficialDownloadTaskRefs {
         analyzeConfig,
     )
 
-    return OfficialDownloadTaskRefs(
-        downloadServer = downloadServer,
-        downloadClient = downloadClient,
-        downloadAssets = downloadAssets,
-        downloadHeadlessMc = downloadHeadlessMc,
-        prepareHeadlessMc = prepareHeadlessMc,
-        extractServerRuntime = extractRuntime,
-        compileCodecOracle = compileCodecOracle,
+    val fixtureOutputs = OfficialMinecraftFixtureOutputs(
+        officialServer = files(
+            downloadServer.flatMap { it.serverJar },
+            downloadServer.flatMap { it.metadataFile },
+        ),
+        officialClient = files(
+            metadataOut,
+            downloadClient.flatMap { it.clientJar },
+            downloadClient.flatMap { it.librariesDirectory },
+            downloadClient.flatMap { it.assetIndexesDirectory },
+            downloadClient.flatMap { it.downloadMetadataFile },
+            downloadAssets.flatMap { it.outputDirectory },
+            downloadHeadlessMc.flatMap { it.outputFile },
+            prepareHeadlessMc.flatMap { it.outputDirectory },
+        ),
+        codecOracle = files(
+            downloadServer.flatMap { it.serverJar },
+            downloadServer.flatMap { it.metadataFile },
+            extractRuntime.flatMap { it.outputDirectory },
+            compileCodecOracle.flatMap { it.outputDirectory },
+        ),
     )
+    extensions.add(
+        "officialMinecraftFixtureOutputs",
+        fixtureOutputs,
+    )
+    return fixtureOutputs
 }
 
 private const val VERSION_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"

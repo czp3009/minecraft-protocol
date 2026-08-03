@@ -11,5 +11,5 @@ This file extends the repository `AGENTS.md`.
 
 Run `:world-io:jvmTest` after changes; it includes official world interoperability. Finish with the applicable standard
 KMP platform tasks or `allTests`. Filesystem behavior expressible with `kotlinx.io.files` belongs in `commonTest`;
-official-process tests shared by JVM and desktop Native belong in `externalProcessTest`, while only genuinely
+official-process tests shared by JVM and desktop Native belong in `hostProcessTest`, while only genuinely
 JVM-specific checks belong in `jvmTest`.

@@ -21,29 +21,21 @@ kotlin {
     macosArm64()
 
     js {
-        nodejs {
-            testTask {
-                environment("NODE_USE_ENV_PROXY", "1")
-            }
-        }
+        nodejs()
     }
 
     wasmJs {
-        nodejs {
-            testTask {
-                environment("NODE_USE_ENV_PROXY", "1")
-            }
-        }
+        nodejs()
     }
 
-    createHostProcessTestSourceSet("hostProcessTest")
+    createHostProcessTestSourceSet()
 
     sourceSets {
         commonMain.dependencies {
+            implementation(project(":protocol-model"))
             api(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.io.core)
-            implementation(libs.ktor.client.core)
             implementation(libs.ktor.network)
             implementation(libs.kotlincrypto.hash.md)
             implementation(libs.kotlincrypto.hash.sha1)
@@ -61,12 +53,8 @@ kotlin {
         jvmMain {
             dependsOn(kmpProcessMain)
             dependencies {
-                implementation(libs.ktor.client.cio)
                 implementation(libs.xmlutil.serialization)
             }
-        }
-        nativeMain.dependencies {
-            implementation(libs.ktor.client.curl)
         }
         linuxMain {
             dependsOn(kmpProcessMain)
@@ -76,9 +64,6 @@ kotlin {
         }
         webMain {
             dependsOn(kmpProcessMain)
-            dependencies {
-                implementation(libs.ktor.client.js)
-            }
         }
 
         commonTest.dependencies {
@@ -90,5 +75,4 @@ kotlin {
     }
 }
 
-officialDownloads { server(); client(); headlessMc() }
 publishCodecOracleSource()

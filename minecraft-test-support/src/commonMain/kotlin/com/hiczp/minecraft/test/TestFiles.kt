@@ -11,6 +11,7 @@ import org.kotlincrypto.hash.md.MD5
 import org.kotlincrypto.hash.sha1.SHA1
 import org.kotlincrypto.hash.sha2.SHA256
 import kotlin.random.Random
+import kotlin.uuid.Uuid
 
 // ── JSON ──────────────────────────────────────────────────────────
 
@@ -92,7 +93,7 @@ internal fun Path.readJsonObject(): JsonObject =
 // ── JSON I/O ─────────────────────────────────────────────────────
 
 internal fun Path.writeJson(value: JsonElement) {
-    atomicWriteText(testJson.encodeToString(JsonElement.serializer(), value.withSortedObjectKeys()) + "\n")
+    atomicWriteText("${testJson.encodeToString(JsonElement.serializer(), value.withSortedObjectKeys())}\n")
 }
 
 private fun JsonElement.withSortedObjectKeys(): JsonElement = when (this) {
@@ -177,11 +178,10 @@ internal fun Path.deleteTree() {
     SystemFileSystem.delete(this)
 }
 
-internal fun createUniqueDirectory(parent: Path, prefix: String): Path {
-    require(prefix.isNotEmpty()) { "Directory prefix is empty" }
+internal fun createUniqueDirectory(parent: Path): Path {
     parent.ensureDirectory()
     repeat(UNIQUE_PATH_ATTEMPTS) {
-        val candidate = Path(parent, "$prefix${randomSuffix()}")
+        val candidate = Path(parent, Uuid.random().toString())
         val created = runCatching { SystemFileSystem.createDirectories(candidate, mustCreate = true) }.isSuccess
         if (created) return candidate
     }

@@ -1,4 +1,3 @@
-import com.android.build.api.dsl.KotlinMultiplatformAndroidLibraryTarget
 import com.hiczp.minecraft.protocol.buildScript.BuildVersions
 import com.hiczp.minecraft.protocol.buildScript.createHostProcessTestSourceSet
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
@@ -39,30 +38,24 @@ kotlin {
     androidNativeX64()
     androidNativeX86()
 
-    targets.withType(KotlinMultiplatformAndroidLibraryTarget::class.java)
-        .configureEach {
-            namespace = "com.hiczp.minecraft.protocol.server"
-            compileSdk = BuildVersions.ANDROID_COMPILE_SDK
-            minSdk = BuildVersions.ANDROID_MIN_SDK
-            withHostTest {}
-            compilerOptions {
-                jvmTarget.set(
-                    JvmTarget.fromTarget(BuildVersions.JAVA_VERSION.toString()),
-                )
-            }
-        }
-
-    wasmJs {
-        nodejs {
-            testTask {
-                environment("NODE_USE_ENV_PROXY", "1")
-            }
+    android {
+        namespace = "com.hiczp.minecraft.protocol.server"
+        compileSdk = BuildVersions.ANDROID_COMPILE_SDK
+        minSdk = BuildVersions.ANDROID_MIN_SDK
+        withHostTest {}
+        compilerOptions {
+            jvmTarget.set(
+                JvmTarget.fromTarget(BuildVersions.JAVA_VERSION.toString()),
+            )
         }
     }
 
-    createHostProcessTestSourceSet("externalProcessTest") {
+    wasmJs {
+        nodejs()
+    }
+
+    createHostProcessTestSourceSet(requiresOfficialClient = true) {
         dependencies {
-            implementation(project(":minecraft-test-support"))
             implementation(libs.kotlinx.serialization.json)
         }
     }
@@ -88,5 +81,3 @@ kotlin {
 
     }
 }
-
-officialDownloads { client(); headlessMc() }

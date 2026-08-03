@@ -13,21 +13,18 @@ internal data class OfficialServerRuntime(
  * `extractOfficialServerRuntime` Gradle task).  No lock or extraction happens
  * at test time; this is pure disk I/O.
  */
-internal suspend fun MinecraftTestEnvironment.officialServerRuntime():
-        OfficialServerRuntime {
-    val server = officialServer()
-    val output = Path(serverCacheDir(), "runtime")
-    return loadServerRuntime(server.jar, output, minecraftVersion)
+internal fun officialServerRuntime(): OfficialServerRuntime {
+    val layout = MinecraftTestSupport.layout
+    OfficialArtifacts.server(layout)
+    val output = Path(layout.serverCacheDirectory(), "runtime")
+    return loadServerRuntime(output)
 }
 
 internal fun loadServerRuntime(
-    bundle: Path,
     output: Path,
-    expectedVersion: String,
 ): OfficialServerRuntime {
     check(output.isDirectory()) {
-        "Official runtime is absent: $output; " +
-                "run the Gradle extractOfficialServerRuntime task first"
+        "Official runtime is absent: $output; run the Gradle extractOfficialServerRuntime task first"
     }
     val implementation = Path(output, "server.jar")
     check(implementation.isRegularFile()) {

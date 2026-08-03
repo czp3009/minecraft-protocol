@@ -64,9 +64,12 @@ Write idiomatic Kotlin Multiplatform code:
   narrow call-site branch or omission;
 - construct and serialize JSON with `kotlinx.serialization.json` elements, builders, or serializers. Do not implement
   JSON escaping or generate JSON reports and protocol components with large string templates;
-- generate Kotlin source with KotlinPoet in both KSP processors and Gradle generators. Do not hand-build source text,
-  escaping, imports, declarations, or control flow with string concatenation or templates;
-- when literal multiline text is genuinely required, use a triple-quoted string instead of concatenating quoted lines;
+- across the entire repository, every code-generation site must use a language-aware code-generation library such as
+  KotlinPoet for Kotlin or JavaPoet for Java. This applies to all modules, source sets, build logic, processors, tasks,
+  scripts, tests, tools, and target languages. Never hand-build generated source text, escaping, imports, declarations,
+  or control flow with string concatenation or templates;
+- keep string literals on one line whenever practical; when a string genuinely cannot fit on one line, use a
+  triple-quoted string instead of concatenating quoted lines with `+`;
 - treat externally consumable declarations as library API even when this repository has no internal caller; do not add
   `unused` suppressions solely to silence that expected condition;
 - omit redundant `public`, and keep implementation helpers internal or private.
@@ -126,7 +129,8 @@ Keep production build automation and test infrastructure separate:
 - let Gradle decide reuse from declared inputs, outputs, implementation, and dependency provenance; do not add manual
   freshness comparisons or regenerate deterministic output merely to compare it;
 - put shared test setup in ordinary library APIs under `minecraft-test-support` and call them from standard test source
-  sets; do not add Gradle preparation tasks, command-line helpers, or system-property wiring for test fixtures;
+  sets. Root Gradle tasks prepare only immutable official fixture inputs and expose them lazily to standard test tasks;
+  do not add fixture launch tasks, command-line helpers, or system-property wiring for runtime resource management;
 - test resources share only verified immutable downloads. Every running server/client owns a unique work directory,
   directly launched process, logs, and internally selected endpoint; bound-port failures retry before returning a ready
   resource. Prefer an external launcher's supported in-process mode over spawning an opaque child process; each resource

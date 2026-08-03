@@ -1,4 +1,3 @@
-import com.android.build.api.dsl.KotlinMultiplatformAndroidLibraryTarget
 import com.hiczp.minecraft.protocol.buildScript.BuildVersions
 import com.hiczp.minecraft.protocol.buildScript.createHostProcessTestSourceSet
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -36,24 +35,19 @@ kotlin {
     androidNativeX64()
     androidNativeX86()
 
-    targets.withType(KotlinMultiplatformAndroidLibraryTarget::class.java)
-        .configureEach {
-            namespace = "com.hiczp.minecraft.world.io"
-            compileSdk = BuildVersions.ANDROID_COMPILE_SDK
-            minSdk = BuildVersions.ANDROID_MIN_SDK
-            withHostTest {}
-            compilerOptions {
-                jvmTarget.set(
-                    JvmTarget.fromTarget(BuildVersions.JAVA_VERSION.toString()),
-                )
-            }
-        }
-
-    createHostProcessTestSourceSet("externalProcessTest") {
-        dependencies {
-            implementation(project(":minecraft-test-support"))
+    android {
+        namespace = "com.hiczp.minecraft.world.io"
+        compileSdk = BuildVersions.ANDROID_COMPILE_SDK
+        minSdk = BuildVersions.ANDROID_MIN_SDK
+        withHostTest {}
+        compilerOptions {
+            jvmTarget.set(
+                JvmTarget.fromTarget(BuildVersions.JAVA_VERSION.toString()),
+            )
         }
     }
+
+    createHostProcessTestSourceSet(requiresOfficialServer = true)
 
     sourceSets {
         commonMain.dependencies {
@@ -69,5 +63,3 @@ kotlin {
 
     }
 }
-
-officialDownloads { server() }

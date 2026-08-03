@@ -76,7 +76,7 @@ internal object OfficialCodecFixtureGenerator {
         }
         Files.writeString(
             output,
-            fixtureJson.encodeToString(fixtures) + "\n",
+            "${fixtureJson.encodeToString(fixtures)}\n",
         )
     }
 
@@ -492,10 +492,7 @@ internal object OfficialCodecFixtureGenerator {
 
     private fun officialChatSession(): ChatSessionData {
         val encodedKey = Base64.getDecoder().decode(
-            "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCXm27m9IJ99sRdr7KVI0d6" +
-                    "dPaaDcR5VqzvQkUFFzObLW2WCXxEIywlQM4ti7xieFthhktqHF3fLzg85ySq" +
-                    "mz/VVAPS0eH1ebJ7Q8Gd43Iz1B/GRZ4FuDOlwJdP+yCcnnJL9rUzKXgm0hmt" +
-                    "Ha8p8YEeOBi1w4j6/2HZRk5uJI2i9QIDAQAB",
+            "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCXm27m9IJ99sRdr7KVI0d6dPaaDcR5VqzvQkUFFzObLW2WCXxEIywlQM4ti7xieFthhktqHF3fLzg85ySqmz/VVAPS0eH1ebJ7Q8Gd43Iz1B/GRZ4FuDOlwJdP+yCcnnJL9rUzKXgm0hmtHa8p8YEeOBi1w4j6/2HZRk5uJI2i9QIDAQAB",
         )
         return ChatSessionData(
             sessionId = Uuid.fromLongs(1L, 2L),

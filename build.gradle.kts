@@ -1,4 +1,3 @@
-import com.hiczp.minecraft.protocol.buildScript.OfficialDownloadsExtension
 import com.hiczp.minecraft.protocol.buildScript.applyOfficialDownloadsConvention
 import org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootExtension
 import org.jetbrains.kotlin.gradle.targets.js.yarn.YarnPlugin
@@ -41,35 +40,9 @@ plugins.withType<WasmYarnPlugin> {
 }
 
 // ── Download task chain and analysis tasks ────────────────────────
-val official = applyOfficialDownloadsConvention()
+applyOfficialDownloadsConvention()
 
-// ── Subproject DSL: wire test dependencies to download tasks ─────
 subprojects {
     group = rootProject.group
     version = rootProject.version
-
-    val ext = extensions.create(
-        "officialDownloads", OfficialDownloadsExtension::class.java,
-    )
-    afterEvaluate {
-        if (ext.needsServer || ext.needsClient ||
-            ext.needsHeadlessMc || ext.needsCodecOracle
-        ) {
-            tasks.withType(Test::class.java).configureEach {
-                if (ext.needsServer) dependsOn(official.downloadServer)
-                if (ext.needsClient) {
-                    dependsOn(official.downloadClient)
-                    dependsOn(official.downloadAssets)
-                }
-                if (ext.needsHeadlessMc) {
-                    dependsOn(official.downloadHeadlessMc)
-                    dependsOn(official.prepareHeadlessMc)
-                }
-                if (ext.needsCodecOracle) {
-                    dependsOn(official.extractServerRuntime)
-                    dependsOn(official.compileCodecOracle)
-                }
-            }
-        }
-    }
 }

@@ -44,8 +44,10 @@ Prefer the narrowest affected JVM suite:
 `protocol-serialization:jvmTest` includes the official codec and raw official-server session.
 `protocol-client:jvmTest` includes the production client against the official server.
 `protocol-server:jvmTest` includes the matching official client through the pinned headless launcher. These tests call
-the ordinary Kotlin Multiplatform `minecraft-test-support` library to acquire and verify test-only artifacts at runtime;
-they do not depend on Gradle preparation tasks, helper CLIs, or system-property wiring.
+the ordinary Kotlin Multiplatform `minecraft-test-support` library to validate local immutable artifacts and manage
+isolated process resources. The `hostProcessTest` helper maps each module's semantic fixture requirements to lazy
+outputs of the root preparation tasks and the actual standard platform test task inputs; there are no helper CLIs,
+fixture path system properties, custom test task types, or runtime downloads.
 
 Use standard platform variants when deliberately validating a particular platform. Do not create filtered/layer test
 tasks.

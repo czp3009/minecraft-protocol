@@ -12,11 +12,6 @@ import kotlin.time.Duration
 
 class TestResourceConfigurationTest {
     @Test
-    fun officialServerUsesAutomaticPortByDefault() {
-        assertEquals(0, OfficialMinecraftServerConfiguration().port)
-    }
-
-    @Test
     fun automaticPortIsSelectedAndReleasedThroughPortableSockets() = runTest {
         val selectedPort = selectAvailableLoopbackPort()
         assertTrue(selectedPort in 1..65_535)
@@ -34,12 +29,6 @@ class TestResourceConfigurationTest {
     @Test
     fun officialServerConfigurationRejectsInvalidResourceLimits() {
         assertFailsWith<IllegalArgumentException> {
-            OfficialMinecraftServerConfiguration(port = -1)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            OfficialMinecraftServerConfiguration(port = 65_536)
-        }
-        assertFailsWith<IllegalArgumentException> {
             OfficialMinecraftServerConfiguration(
                 startupTimeout = Duration.ZERO,
             )
@@ -51,12 +40,6 @@ class TestResourceConfigurationTest {
         }
         assertFailsWith<IllegalArgumentException> {
             OfficialMinecraftServerConfiguration(maximumBindAttempts = 0)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            OfficialMinecraftServerConfiguration(threadName = " ")
-        }
-        assertFailsWith<IllegalArgumentException> {
-            OfficialMinecraftServerConfiguration(maximumLogCharacters = 0)
         }
     }
 
@@ -76,27 +59,6 @@ class TestResourceConfigurationTest {
             HeadlessMinecraftClientConfiguration(
                 "Player",
                 MinecraftTestEndpoint("127.0.0.1", 0),
-            )
-        }
-        assertFailsWith<IllegalArgumentException> {
-            HeadlessMinecraftClientConfiguration(
-                "Player",
-                endpoint,
-                downloadWorkers = 0,
-            )
-        }
-        assertFailsWith<IllegalArgumentException> {
-            HeadlessMinecraftClientConfiguration(
-                "Player",
-                endpoint,
-                threadName = " ",
-            )
-        }
-        assertFailsWith<IllegalArgumentException> {
-            HeadlessMinecraftClientConfiguration(
-                "Player",
-                endpoint,
-                maximumLogCharacters = 0,
             )
         }
     }

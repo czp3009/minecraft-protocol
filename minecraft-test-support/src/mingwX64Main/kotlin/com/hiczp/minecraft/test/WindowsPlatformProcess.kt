@@ -156,8 +156,7 @@ private class WindowsPlatformProcess(
                 0u -> break
                 WAIT_TIMEOUT.toUInt() -> yield()
                 else -> error(
-                    "Waiting for Windows process $processId failed with " +
-                            "$wait (error ${GetLastError()})",
+                    "Waiting for Windows process $processId failed with $wait (error ${GetLastError()})",
                 )
             }
         }
@@ -187,8 +186,7 @@ private class WindowsPlatformProcess(
             )
         }
         check(WaitForSingleObject(processHandle, INFINITE) == 0u) {
-            "Waiting for terminated Windows process $processId failed with " +
-                    GetLastError()
+            "Waiting for terminated Windows process $processId failed with ${GetLastError()}"
         }
     }
 }
@@ -216,8 +214,7 @@ private suspend fun readOutput(
                     0u -> processExited = true
                     WAIT_TIMEOUT.toUInt() -> yield()
                     else -> error(
-                        "Waiting for Windows process output failed with " +
-                                "$wait (error ${GetLastError()})",
+                        "Waiting for Windows process output failed with $wait (error ${GetLastError()})",
                     )
                 }
                 continue

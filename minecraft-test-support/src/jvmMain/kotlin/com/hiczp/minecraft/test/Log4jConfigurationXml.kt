@@ -7,8 +7,8 @@ import nl.adaptivity.xmlutil.serialization.XML
 import nl.adaptivity.xmlutil.serialization.XmlElement
 import nl.adaptivity.xmlutil.serialization.XmlSerialName
 
-internal fun log4jNullConfigurationXml(): String =
-    XML.v1 {
+internal fun log4jNullConfigurationXml(): String {
+    val encoded = XML.v1 {
         setIndent(4)
         xmlDeclMode = XmlDeclMode.Charset
         xmlVersion = XmlVersion.XML10
@@ -26,7 +26,9 @@ internal fun log4jNullConfigurationXml(): String =
                 ),
             ),
         ),
-    ) + "\n"
+    )
+    return "$encoded\n"
+}
 
 @Serializable
 @XmlSerialName("Configuration")

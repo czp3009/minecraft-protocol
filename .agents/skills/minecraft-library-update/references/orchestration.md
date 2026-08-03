@@ -26,9 +26,10 @@ The complete aggregate is:
 
 Gradle selects each module's standard KMP aggregate; the root project does not define a replacement `test` task. The JVM
 suites include the matching official server, official codecs, the matching official client launched through the pinned
-headless adapter, and official world reload. Test code acquires these artifacts through the ordinary private
-test-support library, verifies and caches them inside `build/`, and never requires account tokens or an installed
-launcher. GUI testing is excluded.
+headless adapter, and official world reload. Root fixture tasks prepare and verify immutable artifacts under `build/` as
+lazy inputs of the standard platform tests. Test code uses the ordinary private test-support library only to validate
+the local inputs and manage isolated process resources; it never requires account tokens or an installed launcher. GUI
+testing is excluded.
 
 ## Reporting
 

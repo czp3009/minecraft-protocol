@@ -68,8 +68,7 @@ abstract class DownloadOfficialMinecraftServerTask :
 
             val target = destination.readMinecraftProtocolTarget(version)
             check(target.javaMajorVersion == javaMajor) {
-                "Official server version.json and Mojang metadata disagree " +
-                        "on the required Java version"
+                "Official server version.json and Mojang metadata disagree on the required Java version"
             }
             val versionMetadataSha1 =
                 versionMetadata.asFile.get().toPath().sha1()
@@ -91,8 +90,7 @@ abstract class DownloadOfficialMinecraftServerTask :
                 sortKeys = true,
             )
             logger.lifecycle(
-                "Downloaded and verified Mojang server: $destination " +
-                        "(${destination.sha1()})",
+                "Downloaded and verified Mojang server: $destination (${destination.sha1()})",
             )
         }
     }
@@ -195,8 +193,7 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
                 .writeJson(report, sortKeys = true)
         }
         logger.lifecycle(
-            "Generated official protocol reports: " +
-                    outputDirectory.resolve("reports"),
+            "Generated official protocol reports: ${outputDirectory.resolve("reports")}",
         )
     }
 
@@ -223,9 +220,10 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
         )
         val result = runProcess(command, workDirectory)
         check(result.exitCode == 0) {
-            "Vanilla data generator exited with ${result.exitCode}:\n" +
-                    result.output.lineSequence().toList().takeLast(80)
-                        .joinToString("\n")
+            """
+            Vanilla data generator exited with ${result.exitCode}:
+            ${result.output.lineSequence().toList().takeLast(80).joinToString("\n")}
+            """.trimIndent()
         }
         check(packetsReport.isRegularFile()) {
             val candidates = Files.walk(generatorOutput).use { paths ->
@@ -240,9 +238,13 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
                     .sorted()
                     .toList()
             }
-            "Vanilla data generator did not create reports/packets.json; " +
-                    "packet-like outputs: " +
-                    candidates.ifEmpty { listOf("none") }.joinToString()
+            "Vanilla data generator did not create reports/packets.json; packet-like outputs: ${
+                candidates.ifEmpty {
+                    listOf(
+                        "none"
+                    )
+                }.joinToString()
+            }"
         }
         val reports = listOf(
             "packets.json",
@@ -282,12 +284,10 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
                     it.jsonObject.requiredInt("protocol_id")
                 }
                 check(ids.isNotEmpty() && ids.all { it >= 0 }) {
-                    "Official packets report has invalid entries for " +
-                            "$state/$direction"
+                    "Official packets report has invalid entries for $state/$direction"
                 }
                 check(ids.distinct().size == ids.size) {
-                    "Official packets report has duplicate IDs for " +
-                            "$state/$direction"
+                    "Official packets report has duplicate IDs for $state/$direction"
                 }
             }
         }

@@ -138,8 +138,7 @@ abstract class DownloadHeadlessMcTask : DefaultTask() {
     companion object {
         const val HEADLESS_VERSION = "2.10.0"
         const val HEADLESS_URL =
-            "https://github.com/headlesshq/headlessmc/releases/download/" +
-                    "$HEADLESS_VERSION/headlessmc-launcher-$HEADLESS_VERSION.jar"
+            "https://github.com/headlesshq/headlessmc/releases/download/$HEADLESS_VERSION/headlessmc-launcher-$HEADLESS_VERSION.jar"
         const val HEADLESS_SIZE = 13_010_386L
         const val HEADLESS_SHA256 =
             "52bd5006f478377b3893011d458562977d38c65ead6d2b31089beb4d614f13cd"
@@ -313,8 +312,7 @@ abstract class DownloadOfficialMinecraftClientTask : DefaultTask() {
             ),
         )
         logger.lifecycle(
-            "Official Minecraft client $version is ready: downloaded and " +
-                    "verified all ${libraries.size + 2} artifacts",
+            "Official Minecraft client $version is ready: downloaded and verified all ${libraries.size + 2} artifacts",
         )
     }
 
@@ -387,8 +385,7 @@ abstract class DownloadOfficialMinecraftAssetsTask : DefaultTask() {
             .filter { it.isRegularFile() && it.name.endsWith(".json") }
             .toList()
         check(indexFiles.size == 1) {
-            "Expected exactly one asset index file in $indexesDir, " +
-                    "found ${indexFiles.size}: ${indexFiles.map { it.name }}"
+            "Expected exactly one asset index file in $indexesDir, found ${indexFiles.size}: ${indexFiles.map { it.name }}"
         }
         val index = indexFiles.single().readJsonObject()
         val objects = index.requiredObject("objects")
