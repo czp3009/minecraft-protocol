@@ -138,6 +138,9 @@ Keep production build automation and test infrastructure separate:
 
 ## Development and verification
 
+Use `./gradlew` on Unix-like platforms and `.\gradlew.bat` on Windows. The examples in this file show the Unix form;
+agents must use the native wrapper for the current platform.
+
 Inspect existing code and official-analysis state before editing. Preserve unrelated user changes. Prefer focused JVM
 tests while iterating:
 

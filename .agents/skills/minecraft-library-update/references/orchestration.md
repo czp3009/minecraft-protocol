@@ -20,8 +20,8 @@ Run each sub-workflow's focused tests immediately after its layer changes.
 
 The complete aggregate is:
 
-```powershell
-.\gradlew.bat allTests
+```shell
+./gradlew allTests
 ```
 
 Gradle selects each module's standard KMP aggregate; the root project does not define a replacement `test` task. The JVM

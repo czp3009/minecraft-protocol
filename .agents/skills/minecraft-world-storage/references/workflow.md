@@ -4,9 +4,9 @@
 
 Confirm the buildSrc target and generate official analysis:
 
-```powershell
-.\gradlew.bat -q minecraftVersion
-.\gradlew.bat officialMinecraftAnalysis
+```shell
+./gradlew -q minecraftVersion
+./gradlew officialMinecraftAnalysis
 ```
 
 For an explicit release request, edit only `MinecraftTarget.MINECRAFT_VERSION`. Read
@@ -30,11 +30,11 @@ items. Consult matching MCProtocolLib and then Minestom snapshots only after off
 
 Use the smallest applicable tasks while iterating:
 
-```powershell
-.\gradlew.bat :compression:jvmTest
-.\gradlew.bat :nbt:jvmTest
-.\gradlew.bat :world-format:jvmTest
-.\gradlew.bat :world-io:jvmTest
+```shell
+./gradlew :compression:jvmTest
+./gradlew :nbt:jvmTest
+./gradlew :world-format:jvmTest
+./gradlew :world-io:jvmTest
 ```
 
 The format suite includes reference-library differentials. `:world-io:jvmTest` uses real temporary files and generates a
@@ -44,8 +44,8 @@ world with the exact official server, rewrites it, and requires that server to r
 
 After all affected JVM suites pass, run:
 
-```powershell
-.\gradlew.bat allTests
+```shell
+./gradlew allTests
 ```
 
 This selects the modules' standard KMP aggregates; do not add a root verification task or a JS filesystem target merely

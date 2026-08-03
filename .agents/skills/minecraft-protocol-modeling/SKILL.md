@@ -27,7 +27,7 @@ described in `implementation-state.md`.
 The one target variable is `MinecraftTarget.MINECRAFT_VERSION` in
 `buildSrc/src/main/kotlin/com/hiczp/minecraft/protocol/buildScript/MinecraftTarget.kt`.
 
-- With no explicit user-selected release, keep that value and print it with `.\gradlew.bat -q minecraftVersion`.
+- With no explicit user-selected release, keep that value and print it with `./gradlew -q minecraftVersion`.
 - When the user explicitly requests another release, change only that constant, then run `officialMinecraftAnalysis`.
 - Never add a Gradle property, Wiki-derived default, protocol-ID selector, or second version constant.
 - Java policy remains independent of Minecraft. Keep the deliberately uniform Gradle toolchain and bytecode target at

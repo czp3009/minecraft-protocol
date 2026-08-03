@@ -44,8 +44,8 @@ Treat this as update mode unless the user explicitly asks for a read-only audit.
    interoperability gates.
 6. Run:
 
-   ```powershell
-   .\gradlew.bat allTests
+   ```shell
+   ./gradlew allTests
    ```
 
 7. Confirm the standard aggregate ran official codec/server/headless-client/world tests through their standard platform

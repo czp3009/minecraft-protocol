@@ -35,9 +35,9 @@ releases, and extra arguments. Never mix sources from different releases.
 3. Preserve unrelated user changes.
 4. Print the selected version and generate deterministic official analysis:
 
-   ```powershell
-   .\gradlew.bat -q minecraftVersion
-   .\gradlew.bat officialMinecraftAnalysis
+   ```shell
+   ./gradlew -q minecraftVersion
+   ./gradlew officialMinecraftAnalysis
    ```
 
 5. Read `build/generated/official-minecraft/<version>/target/target.json`, locate exact official NBT, region-file,

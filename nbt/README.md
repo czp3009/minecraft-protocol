@@ -17,4 +17,4 @@ val bytes = NbtBinaryFormat.encodeDocumentToByteArray(document)
 val decoded = NbtBinaryFormat.decodeDocumentFromByteArray(bytes)
 ```
 
-Run `.\gradlew.bat :nbt:jvmTest` for the focused suite.
+Run `./gradlew :nbt:jvmTest` for the focused suite.

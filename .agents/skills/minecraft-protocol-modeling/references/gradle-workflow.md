@@ -1,12 +1,12 @@
 # Gradle workflow
 
-Run commands from the repository root. On Windows use `.\gradlew.bat`; on Unix-like systems use `./gradlew`.
+Run commands from the repository root. Examples use `./gradlew`; on Windows substitute `.\gradlew.bat`.
 
 ## Version and generation
 
-```powershell
-.\gradlew.bat -q minecraftVersion
-.\gradlew.bat officialMinecraftAnalysis
+```shell
+./gradlew -q minecraftVersion
+./gradlew officialMinecraftAnalysis
 ```
 
 The first command prints only the buildSrc-selected release. The analysis lifecycle downloads/verifies the official
@@ -30,15 +30,15 @@ official JAR. There is no checked-in evidence, refresh/copy task, or manual fres
 
 Prefer the narrowest affected JVM suite:
 
-```powershell
-.\gradlew.bat :protocol-model:jvmTest
-.\gradlew.bat :protocol-serialization:jvmTest
-.\gradlew.bat :protocol-vanilla-data:jvmTest
-.\gradlew.bat :protocol-transport:jvmTest
-.\gradlew.bat :protocol-session:jvmTest
-.\gradlew.bat :protocol-auth:jvmTest
-.\gradlew.bat :protocol-client:jvmTest
-.\gradlew.bat :protocol-server:jvmTest
+```shell
+./gradlew :protocol-model:jvmTest
+./gradlew :protocol-serialization:jvmTest
+./gradlew :protocol-vanilla-data:jvmTest
+./gradlew :protocol-transport:jvmTest
+./gradlew :protocol-session:jvmTest
+./gradlew :protocol-auth:jvmTest
+./gradlew :protocol-client:jvmTest
+./gradlew :protocol-server:jvmTest
 ```
 
 `protocol-serialization:jvmTest` includes the official codec and raw official-server session.
@@ -56,8 +56,8 @@ tasks.
 
 After JVM suites pass:
 
-```powershell
-.\gradlew.bat allTests
+```shell
+./gradlew allTests
 ```
 
 This is Gradle's standard task selector over every module's KMP `allTests` task; the root build does not define a
