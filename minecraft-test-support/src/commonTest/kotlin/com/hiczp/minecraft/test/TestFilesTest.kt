@@ -2,14 +2,11 @@ package com.hiczp.minecraft.test
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.runTest
+import kotlinx.io.files.Path
+import kotlinx.io.files.SystemFileSystem
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
-import kotlin.test.assertTrue
+import kotlin.test.*
 import kotlin.uuid.Uuid
 
 class TestFilesTest {
@@ -26,10 +23,11 @@ class TestFilesTest {
             assertNotEquals(first, second)
             assertEquals(layout.minecraftVersion, first.parent?.name)
             assertEquals("official-server", first.parent?.parent?.name)
+            assertEquals("runtimes", first.parent?.parent?.parent?.name)
             Uuid.parse(first.name)
             Uuid.parse(second.name)
-            assertTrue(first.isBelow(layout.moduleBuildDirectory))
-            assertTrue(second.isBelow(layout.moduleBuildDirectory))
+            assertTrue(first.isBelow(layout.repositoryBuildDirectory))
+            assertTrue(second.isBelow(layout.repositoryBuildDirectory))
         } finally {
             first.deleteTree()
             second.deleteTree()
@@ -37,7 +35,7 @@ class TestFilesTest {
     }
 
     @Test
-    fun publicFilePathsStayInsideTheOwningModuleBuildDirectory() {
+    fun publicFilePathsStayInsideTheRepositoryBuildDirectory() {
         val layout = MinecraftTestSupport.layout
         val firstReport = MinecraftTestSupport.reportFile(
             "fixtures/report.json",
@@ -47,13 +45,38 @@ class TestFilesTest {
         )
 
         assertNotEquals(firstReport, secondReport)
-        assertTrue(firstReport.isBelow(layout.moduleBuildDirectory))
-        assertTrue(secondReport.isBelow(layout.moduleBuildDirectory))
+        assertTrue(firstReport.isBelow(layout.repositoryBuildDirectory))
+        assertTrue(secondReport.isBelow(layout.repositoryBuildDirectory))
         assertFailsWith<IllegalArgumentException> {
             MinecraftTestSupport.reportFile("../../outside.json")
         }
         assertFailsWith<IllegalArgumentException> {
             MinecraftTestSupport.temporaryFile("../../outside.bin")
+        }
+    }
+
+    @Test
+    fun repositoryRootIsFoundFromCurrentDirectory() {
+        val currentDirectory = SystemFileSystem.resolve(Path("."))
+        val root = discoverRepositoryRoot(currentDirectory)
+        assertNotNull(root)
+        val markerFile = Path(root, ".minecraft-protocol-root")
+        assertTrue(markerFile.isRegularFile())
+    }
+
+    @Test
+    fun repositoryRootRejectsWrongMagic() {
+        val parentDir = MinecraftTestSupport.newScratchDirectory()
+        val subDir = Path(parentDir, "sub")
+        subDir.ensureDirectory()
+        val badMarker = Path(parentDir, ".minecraft-protocol-root")
+        try {
+            badMarker.atomicWriteText("wrong-magic\n")
+            assertFailsWith<IllegalStateException> {
+                discoverRepositoryRoot(subDir)
+            }
+        } finally {
+            parentDir.deleteTree()
         }
     }
 

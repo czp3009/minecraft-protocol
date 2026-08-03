@@ -7,13 +7,14 @@ import kotlinx.io.files.SystemFileSystem
 internal data class MinecraftTestLayout(
     val minecraftVersion: String,
     val repositoryRoot: Path,
-    val moduleBuildDirectory: Path,
     val javaExecutable: Path,
 ) {
+    val repositoryBuildDirectory: Path
+        get() = Path(repositoryRoot, "build")
+
     val versionCacheRoot: Path
         get() = Path(
-            repositoryRoot,
-            "build",
+            repositoryBuildDirectory,
             "protocol-reference",
             minecraftVersion,
         )
@@ -33,24 +34,37 @@ internal data class MinecraftTestLayout(
     fun newRuntimeDirectory(kind: MinecraftRuntimeKind): Path =
         createUniqueDirectory(
             Path(
-                moduleBuildDirectory,
-                "test-runtimes",
+                repositoryBuildDirectory,
+                "minecraft-test-support",
+                "runtimes",
                 kind.directoryName,
                 minecraftVersion,
             ),
         )
 
     fun newScratchDirectory(): Path = createUniqueDirectory(
-        Path(moduleBuildDirectory, "tmp", "minecraft-test-support"),
+        Path(
+            repositoryBuildDirectory,
+            "minecraft-test-support",
+            "tmp",
+        ),
     )
 
     fun reportFile(name: String): Path = uniqueFile(
-        root = Path(moduleBuildDirectory, "reports", "tests"),
+        root = Path(
+            repositoryBuildDirectory,
+            "minecraft-test-support",
+            "reports",
+        ),
         name = name,
     )
 
     fun temporaryFile(name: String): Path = uniqueFile(
-        root = Path(moduleBuildDirectory, "tmp", "minecraft-test-support"),
+        root = Path(
+            repositoryBuildDirectory,
+            "minecraft-test-support",
+            "tmp",
+        ),
         name = name,
     )
 
@@ -66,14 +80,9 @@ internal data class MinecraftTestLayout(
         fun discover(): MinecraftTestLayout {
             val currentDirectory = SystemFileSystem.resolve(Path("."))
             val repositoryRoot = discoverRepositoryRoot(currentDirectory)
-            val module = discoverOwningModule(
-                repositoryRoot = repositoryRoot,
-                currentDirectory = currentDirectory,
-            )
             return MinecraftTestLayout(
                 minecraftVersion = MinecraftProtocol.MINECRAFT_VERSION,
                 repositoryRoot = repositoryRoot,
-                moduleBuildDirectory = Path(module, "build"),
                 javaExecutable = Path("java"),
             )
         }
@@ -146,47 +155,23 @@ internal object OfficialArtifacts {
     }
 }
 
-private fun discoverRepositoryRoot(start: Path): Path {
+private const val ROOT_MARKER_MAGIC = "minecraft-protocol-root-v1"
+
+internal fun discoverRepositoryRoot(start: Path): Path {
     var candidate: Path? = start
     while (candidate != null) {
-        if (Path(candidate, "settings.gradle.kts").isRegularFile()) {
+        val markerFile = Path(candidate, ".minecraft-protocol-root")
+        if (markerFile.isRegularFile()) {
+            val content = markerFile.readText().trim()
+            check(content == ROOT_MARKER_MAGIC) {
+                "File $markerFile has unexpected content: expected " +
+                        "'$ROOT_MARKER_MAGIC' but found '$content'"
+            }
             return candidate
         }
         candidate = candidate.parent
     }
-    error("Could not locate the minecraft-protocol repository root from $start")
+    error(
+        "Could not locate the minecraft-protocol repository root. No valid .minecraft-protocol-root marker found when searching upward from $start. Tests must run from inside the repository tree.",
+    )
 }
-
-private fun discoverOwningModule(
-    repositoryRoot: Path,
-    currentDirectory: Path,
-): Path {
-    val modules = SystemFileSystem.list(repositoryRoot)
-        .filter { candidate ->
-            candidate.isDirectory() &&
-                    Path(candidate, "build.gradle.kts").isRegularFile()
-        }
-    modules.singleOrNull { module ->
-        currentDirectory == module || currentDirectory.isBelow(module)
-    }?.let { return it }
-
-    val currentComponents = generateSequence(currentDirectory) { it.parent }
-        .takeWhile { it != repositoryRoot }
-        .map(Path::name)
-        .toSet()
-    val encodedMatches = modules.filter { module ->
-        currentComponents.any { component ->
-            component == module.name ||
-                    component.startsWith("${module.name}-") ||
-                    component.endsWith("-${module.name}") ||
-                    "-${module.name}-" in component
-        }
-    }
-    return encodedMatches.maxByOrNull { it.name.length }
-        ?: error(
-            "Could not infer the owning Gradle module from test working directory $currentDirectory",
-        )
-}
-
-private fun Path.isBelow(ancestor: Path): Boolean =
-    generateSequence(parent) { it.parent }.any { it == ancestor }

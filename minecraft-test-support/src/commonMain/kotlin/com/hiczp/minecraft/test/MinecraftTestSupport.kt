@@ -3,13 +3,9 @@
 package com.hiczp.minecraft.test
 
 import io.github.oshai.kotlinlogging.DirectLoggerFactory
-import kotlinx.coroutines.CoroutineName
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.io.files.Path
@@ -28,8 +24,7 @@ private val minecraftTestSupportLogger = DirectLoggerFactory.logger(
  */
 object MinecraftTestSupport {
     private val cleanupScope = CoroutineScope(
-        SupervisorJob() + Dispatchers.Default +
-                CoroutineName("minecraft-test-resource-cleanup"),
+        SupervisorJob() + Dispatchers.Default + CoroutineName("minecraft-test-resource-cleanup")
     )
     private val registryMutex = Mutex()
     private val resources = linkedSetOf<ManagedMinecraftTestResource>()

@@ -28,3 +28,6 @@ This module inherits the repository guidance.
 - Keep module-specific protocol assertions in the consuming module's tests.
 - Keep shared caches and all test work under repository or module `build/`
   directories.
+- The repository root is identified at runtime by the committed `.minecraft-protocol-root`
+  marker file. Runtime directories (runtimes, reports, temporary files) are created under
+  `<repositoryRoot>/build/minecraft-test-support/` and are isolated by UUID.
