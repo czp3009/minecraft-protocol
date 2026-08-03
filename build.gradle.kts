@@ -1,5 +1,7 @@
 import com.hiczp.minecraft.protocol.buildScript.applyOfficialDownloadsConvention
 import org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootExtension
+import org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest
+import org.jetbrains.kotlin.gradle.targets.js.testing.mocha.KotlinMocha
 import org.jetbrains.kotlin.gradle.targets.js.yarn.YarnPlugin
 import org.jetbrains.kotlin.gradle.targets.js.yarn.YarnRootExtension
 import org.jetbrains.kotlin.gradle.targets.wasm.nodejs.WasmNodeJsRootExtension
@@ -45,4 +47,12 @@ applyOfficialDownloadsConvention()
 subprojects {
     group = rootProject.group
     version = rootProject.version
+
+    pluginManager.withPlugin("org.jetbrains.kotlin.multiplatform") {
+        tasks.withType<KotlinJsTest>().configureEach {
+            onTestFrameworkSet {
+                (this as? KotlinMocha)?.timeout = "30s"
+            }
+        }
+    }
 }
