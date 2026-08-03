@@ -9,8 +9,8 @@ import org.gradle.api.tasks.TaskAction
  * The one manually selected Minecraft release for this repository.
  *
  * Everything version-dependent is derived from the matching official JAR.
- * The project's Java toolchain remains independently fixed in
- * [configureAllTargets].
+ * The project's platform versions remain independently fixed by
+ * [BuildVersions].
  */
 object MinecraftTarget {
     const val MINECRAFT_VERSION: String = "26.2"

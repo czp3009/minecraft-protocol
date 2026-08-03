@@ -35,7 +35,11 @@ fun Project.applyOfficialDownloadsConvention(): OfficialDownloadTaskRefs {
     val serverJarFile = serverDir.map { it.file("server.jar") }
     val serverMetadataF = serverDir.map { it.file("download-metadata.json") }
     val clientDir = versionRoot.map { it.dir("mojang-client") }
+    val clientJarFile = clientDir.map { it.file("client.jar") }
+    val clientLibrariesDir = clientDir.map { it.dir("libraries") }
+    val clientAssetsIndexes = clientDir.map { it.dir("assets/indexes") }
     val clientAssetsObj = clientDir.map { it.dir("assets/objects") }
+    val clientMetadataFile = clientDir.map { it.file("download-metadata.json") }
     val headlessMcJarFile = versionRoot.map { it.dir("headlessmc") }
         .map { it.file("headlessmc-launcher.jar") }
     val analysisRoot = layout.buildDirectory.dir(
@@ -46,8 +50,10 @@ fun Project.applyOfficialDownloadsConvention(): OfficialDownloadTaskRefs {
     val configFile = analysisRoot.map { it.file("configuration/configuration.json") }
 
     val toolchains = extensions.getByType(JavaToolchainService::class.java)
-    val java25 = toolchains.launcherFor { spec ->
-        spec.languageVersion.set(JavaLanguageVersion.of(25))
+    val projectJava = toolchains.launcherFor { spec ->
+        spec.languageVersion.set(
+            JavaLanguageVersion.of(BuildVersions.JAVA_VERSION),
+        )
     }
 
     tasks.register("minecraftVersion", PrintMinecraftVersionTask::class.java) { task ->
@@ -62,6 +68,8 @@ fun Project.applyOfficialDownloadsConvention(): OfficialDownloadTaskRefs {
     ) { task ->
         task.group = "official minecraft"
         task.description = "Download the Mojang version manifest."
+        task.offline.set(gradle.startParameter.isOffline)
+        task.minecraftVersion.set(MinecraftTarget.MINECRAFT_VERSION)
         task.manifestUrl.set(VERSION_MANIFEST_URL)
         task.outputFile.set(versionManifestFile)
     }
@@ -72,6 +80,7 @@ fun Project.applyOfficialDownloadsConvention(): OfficialDownloadTaskRefs {
     ) { task ->
         task.group = "official minecraft"
         task.description = "Download version metadata."
+        task.offline.set(gradle.startParameter.isOffline)
         task.minecraftVersion.set(MinecraftTarget.MINECRAFT_VERSION)
         task.manifestFile.set(downloadManifest.flatMap { it.outputFile })
         task.outputFile.set(versionMetadataFile)
@@ -101,7 +110,10 @@ fun Project.applyOfficialDownloadsConvention(): OfficialDownloadTaskRefs {
         task.offline.set(gradle.startParameter.isOffline)
         task.minecraftVersion.set(MinecraftTarget.MINECRAFT_VERSION)
         task.metadataFile.set(metadataOut)
-        task.outputDirectory.set(clientDir)
+        task.clientJar.set(clientJarFile)
+        task.librariesDirectory.set(clientLibrariesDir)
+        task.assetIndexesDirectory.set(clientAssetsIndexes)
+        task.downloadMetadataFile.set(clientMetadataFile)
     }
 
     // ── layer 2c: headlessmc (standalone, no metadata needed) ────
@@ -110,6 +122,7 @@ fun Project.applyOfficialDownloadsConvention(): OfficialDownloadTaskRefs {
     ) { task ->
         task.group = "official minecraft"
         task.description = "Download the HeadlessMC launcher."
+        task.offline.set(gradle.startParameter.isOffline)
         task.minecraftVersion.set(MinecraftTarget.MINECRAFT_VERSION)
         task.outputFile.set(headlessMcJarFile)
     }
@@ -165,8 +178,9 @@ fun Project.applyOfficialDownloadsConvention(): OfficialDownloadTaskRefs {
     ) { task ->
         task.group = "official minecraft"
         task.description = "Download all official asset objects."
+        task.offline.set(gradle.startParameter.isOffline)
         task.assetIndexesDir.set(downloadClient.flatMap {
-            it.outputDirectory.dir("assets/indexes")
+            it.assetIndexesDirectory
         })
         task.outputDirectory.set(clientAssetsObj)
     }
@@ -180,11 +194,11 @@ fun Project.applyOfficialDownloadsConvention(): OfficialDownloadTaskRefs {
         task.description =
             "Prepare the HeadlessMC versions/ directory layout."
         task.minecraftVersion.set(MinecraftTarget.MINECRAFT_VERSION)
-        task.clientJar.set(downloadClient.flatMap {
-            it.outputDirectory.file("client.jar")
-        })
+        task.clientJar.set(downloadClient.flatMap { it.clientJar })
         task.versionMetadata.set(metadataOut)
-        task.outputDirectory.set(clientDir.map { it.dir("versions") })
+        task.outputDirectory.set(clientDir.map {
+            it.dir("versions").dir(minecraftVersion)
+        })
     }
 
     // ── analysis (reads server artifacts) ────────────────────────
@@ -205,7 +219,9 @@ fun Project.applyOfficialDownloadsConvention(): OfficialDownloadTaskRefs {
     ) { task ->
         task.group = "official minecraft analysis"
         task.description = "Capture packets, registries, and blocks reports."
-        task.javaExecutable.set(java25.map { it.executablePath.asFile.absolutePath })
+        task.javaExecutable.set(projectJava.map {
+            it.executablePath.asFile.absolutePath
+        })
         task.serverJar.set(downloadServer.flatMap { it.serverJar })
         task.downloadMetadata.set(downloadServer.flatMap { it.metadataFile })
         task.outputDirectory.set(reportsDir)
@@ -217,7 +233,9 @@ fun Project.applyOfficialDownloadsConvention(): OfficialDownloadTaskRefs {
     ) { task ->
         task.group = "official minecraft analysis"
         task.description = "Capture Configuration Known Packs branches."
-        task.javaExecutable.set(java25.map { it.executablePath.asFile.absolutePath })
+        task.javaExecutable.set(projectJava.map {
+            it.executablePath.asFile.absolutePath
+        })
         task.serverJar.set(downloadServer.flatMap { it.serverJar })
         task.packetsReport.set(analyzeReports.flatMap {
             it.outputDirectory.file("reports/packets.json")

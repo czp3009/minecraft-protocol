@@ -1,9 +1,11 @@
+import com.hiczp.minecraft.protocol.buildScript.BuildVersions
+
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
 }
 
 kotlin {
-    jvmToolchain(25)
+    jvmToolchain(BuildVersions.JAVA_VERSION)
     jvm()
 
     sourceSets {

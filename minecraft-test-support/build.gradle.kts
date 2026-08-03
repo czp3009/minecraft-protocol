@@ -1,24 +1,40 @@
-import com.hiczp.minecraft.protocol.buildScript.configureDesktopNativeTargets
-import com.hiczp.minecraft.protocol.buildScript.configureWebTargets
+import com.hiczp.minecraft.protocol.buildScript.BuildVersions
 import com.hiczp.minecraft.protocol.buildScript.createHostProcessTestSourceSet
 import com.hiczp.minecraft.protocol.buildScript.publishCodecOracleSource
+import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.kotlinSerialization)
 }
 
+@OptIn(ExperimentalWasmDsl::class)
 kotlin {
-    jvmToolchain(25)
+    jvmToolchain(BuildVersions.JAVA_VERSION)
     applyDefaultHierarchyTemplate()
 
     jvm()
-    configureDesktopNativeTargets()
-    configureWebTargets(
-        includeWasmJsD8 = false,
-        includeWasmWasi = false,
-        nodeTestTimeout = "60m",
-    )
+
+    mingwX64()
+    linuxArm64()
+    linuxX64()
+    macosArm64()
+
+    js {
+        nodejs {
+            testTask {
+                environment("NODE_USE_ENV_PROXY", "1")
+            }
+        }
+    }
+
+    wasmJs {
+        nodejs {
+            testTask {
+                environment("NODE_USE_ENV_PROXY", "1")
+            }
+        }
+    }
 
     createHostProcessTestSourceSet("hostProcessTest")
 

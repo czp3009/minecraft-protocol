@@ -58,7 +58,7 @@ abstract class DownloadOfficialMinecraftServerTask :
         val destination = serverJar.asFile.get().toPath()
         val metadataPath = metadataFile.asFile.get().toPath()
         runBlocking {
-            val changed = ProtocolHttp.ensureDownload(
+            ProtocolHttp.downloadVerified(
                 url = serverUrl,
                 destination = destination,
                 expectedSize = serverSize,
@@ -71,30 +71,28 @@ abstract class DownloadOfficialMinecraftServerTask :
                 "Official server version.json and Mojang metadata disagree " +
                         "on the required Java version"
             }
-            if (!offline.get()) {
-                val versionMetadataSha1 =
-                    versionMetadata.asFile.get().toPath().sha1()
-                metadataPath.writeJson(
-                    jsonObjectOf(
-                        "schema_version" to jsonNumber(1),
-                        "minecraft_version" to jsonString(version),
-                        "version_metadata_sha1" to jsonString(
-                            versionMetadataSha1,
-                        ),
-                        "server_url" to jsonString(serverUrl),
-                        "server_sha1" to jsonString(serverSha1),
-                        "server_sha256" to jsonString(
-                            destination.sha256(),
-                        ),
-                        "server_size" to jsonNumber(serverSize),
-                        "java_major_version" to jsonNumber(javaMajor),
+            val versionMetadataSha1 =
+                versionMetadata.asFile.get().toPath().sha1()
+            metadataPath.writeJson(
+                jsonObjectOf(
+                    "schema_version" to jsonNumber(1),
+                    "minecraft_version" to jsonString(version),
+                    "version_metadata_sha1" to jsonString(
+                        versionMetadataSha1,
                     ),
-                    sortKeys = true,
-                )
-            }
-            val action = if (changed) "Downloaded and verified" else "Verified"
+                    "server_url" to jsonString(serverUrl),
+                    "server_sha1" to jsonString(serverSha1),
+                    "server_sha256" to jsonString(
+                        destination.sha256(),
+                    ),
+                    "server_size" to jsonNumber(serverSize),
+                    "java_major_version" to jsonNumber(javaMajor),
+                ),
+                sortKeys = true,
+            )
             logger.lifecycle(
-                "$action Mojang server: $destination (${destination.sha1()})",
+                "Downloaded and verified Mojang server: $destination " +
+                        "(${destination.sha1()})",
             )
         }
     }
@@ -477,7 +475,12 @@ abstract class CompileOfficialCodecOracleTask : DefaultTask() {
                 null,
                 fileManager,
                 diagnostics,
-                listOf("--release", "25", "-classpath", classpath),
+                listOf(
+                    "--release",
+                    BuildVersions.JAVA_VERSION.toString(),
+                    "-classpath",
+                    classpath,
+                ),
                 null,
                 units,
             ).call()

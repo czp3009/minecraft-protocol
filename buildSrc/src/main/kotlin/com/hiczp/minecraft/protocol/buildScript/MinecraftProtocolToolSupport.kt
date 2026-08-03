@@ -1,31 +1,30 @@
 package com.hiczp.minecraft.protocol.buildScript
 
-import io.ktor.client.HttpClient
-import io.ktor.client.call.HttpClientCall
-import io.ktor.client.engine.ProxyBuilder
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.HttpRequestRetry
-import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.plugins.UserAgent
-import io.ktor.client.plugins.api.Send
-import io.ktor.client.plugins.api.createClientPlugin
-import io.ktor.client.plugins.timeout
-import io.ktor.client.request.get
-import io.ktor.client.statement.HttpResponse
-import io.ktor.client.statement.bodyAsChannel
-import io.ktor.http.Url
-import io.ktor.http.isSuccess
+import io.ktor.client.*
+import io.ktor.client.call.*
+import io.ktor.client.engine.java.*
+import io.ktor.client.plugins.*
+import io.ktor.client.plugins.api.*
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
 import io.ktor.util.AttributeKey
-import io.ktor.utils.io.exhausted
-import io.ktor.utils.io.readRemaining
+import io.ktor.utils.io.*
 import kotlinx.io.buffered
-import kotlinx.io.readByteArray
-import kotlinx.io.files.Path as IoPath
 import kotlinx.io.files.SystemFileSystem
+import kotlinx.io.readByteArray
 import kotlinx.serialization.json.*
 import org.gradle.api.DefaultTask
+import org.gradle.api.GradleException
+import org.gradle.api.logging.Logging
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
+import java.io.EOFException
+import java.io.IOException
+import java.net.Authenticator
+import java.net.ConnectException
+import java.net.PasswordAuthentication
+import java.net.UnknownHostException
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -34,10 +33,24 @@ import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 import java.time.Duration
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipFile
+import javax.net.ssl.SSLException
 import kotlin.io.path.*
-import kotlin.time.Duration as KotlinDuration
+import kotlin.text.Regex
+import kotlin.text.StringBuilder
+import kotlin.text.appendLine
+import kotlin.text.buildString
+import kotlin.text.isNotBlank
+import kotlin.text.lowercase
+import kotlin.text.matches
+import kotlin.text.orEmpty
+import kotlin.text.toByteArray
+import kotlin.text.toCharArray
+import kotlin.text.toHexString
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.io.files.Path as IoPath
+import kotlin.time.Duration as KotlinDuration
 
 internal val protocolJson = Json {
     ignoreUnknownKeys = false
@@ -201,14 +214,28 @@ private fun Path.digest(algorithm: String): String {
 
 internal object ProtocolHttp {
     private const val MAX_RETRIES = 3
+    private const val MAX_ATTEMPTS = MAX_RETRIES + 1
     private const val STREAM_BUFFER_SIZE = 1024L * 1024L
     private const val USER_AGENT =
         "minecraft-protocol Gradle tools/1.0 " +
                 "(https://github.com/hiczp/minecraft-protocol)"
+    private val logger = Logging.getLogger(ProtocolHttp::class.java)
 
     private class RetryableResponseBody(
+        val url: String,
         val consume: suspend (HttpResponse) -> Unit,
-    )
+    ) {
+        val attempts = AtomicInteger()
+    }
+
+    private class UnexpectedHttpStatusException(
+        statusCode: Int,
+        statusDescription: String,
+    ) : IOException("HTTP $statusCode $statusDescription")
+
+    private class InvalidDownloadedArtifactException(
+        message: String,
+    ) : IOException(message)
 
     private val retryableResponseBodyKey =
         AttributeKey<RetryableResponseBody>("RetryableResponseBody")
@@ -217,18 +244,26 @@ internal object ProtocolHttp {
         "RetryableResponseBody",
     ) {
         on(Send) { request ->
+            val responseBody =
+                request.attributes.getOrNull(retryableResponseBodyKey)
+            responseBody?.attempts?.incrementAndGet()
             val call: HttpClientCall = proceed(request)
-            request.attributes.getOrNull(retryableResponseBodyKey)
-                ?.consume
-                ?.invoke(call.response)
+            responseBody?.consume?.invoke(call.response)
             call
         }
     }
 
-    private val client = HttpClient(CIO) {
-        environmentProxy()?.let { configuredProxy ->
+    private val systemPropertyProxyAuthenticator =
+        createSystemPropertyProxyAuthenticator()
+
+    private val client = HttpClient(Java) {
+        // Keep engine.proxy unset so JDK HttpClient uses the default
+        // ProxySelector and therefore the same JVM proxy properties as Gradle.
+        systemPropertyProxyAuthenticator?.let { proxyAuthenticator ->
             engine {
-                proxy = configuredProxy
+                config {
+                    authenticator(proxyAuthenticator)
+                }
             }
         }
         install(HttpRequestRetry) {
@@ -244,26 +279,39 @@ internal object ProtocolHttp {
         install(UserAgent) {
             agent = USER_AGENT
         }
+    }.also { httpClient ->
+        httpClient.monitor.subscribe(HttpRequestRetryEvent) { retry ->
+            val responseBody = retry.request.attributes
+                .getOrNull(retryableResponseBodyKey)
+                ?: return@subscribe
+            val reason = retry.cause?.friendlyDownloadReason()
+                ?: retry.response?.status?.let { status ->
+                    "HTTP ${status.value} ${status.description}"
+                }
+                ?: "unknown HTTP failure"
+            logger.warn(
+                "External download attempt ${retry.retryCount}/$MAX_ATTEMPTS " +
+                        "failed; retrying ${responseBody.url}: $reason",
+            )
+        }
     }
 
     suspend fun getBytes(
         url: String,
         timeout: KotlinDuration = 60.seconds,
+        offline: Boolean = false,
+        validate: (ByteArray) -> Unit = {},
     ): ByteArray {
+        requireOnline(url, offline)
         var content: ByteArray? = null
-        val response = client.get(url) {
-            configureTimeout(timeout)
-            attributes.put(
-                retryableResponseBodyKey,
-                RetryableResponseBody { current ->
-                    content = current.bodyAsChannel()
-                        .readRemaining()
-                        .readByteArray()
-                },
-            )
-        }
-        check(response.status.isSuccess()) {
-            "HTTP ${response.status.value} for $url"
+        executeDownload(url, timeout) { current ->
+            val bytes = current.bodyAsChannel()
+                .readRemaining()
+                .readByteArray()
+            if (current.status.isSuccess()) {
+                validate(bytes)
+                content = bytes
+            }
         }
         return checkNotNull(content) {
             "HTTP response body was not consumed: $url"
@@ -273,26 +321,59 @@ internal object ProtocolHttp {
     suspend fun getJson(
         url: String,
         timeout: KotlinDuration = 60.seconds,
-    ): JsonObject = getBytes(url, timeout).decodeJsonObject(url)
+        offline: Boolean = false,
+    ): JsonObject {
+        var content: JsonObject? = null
+        getBytes(url, timeout, offline) { bytes ->
+            content = bytes.decodeJsonObject(url)
+        }
+        return checkNotNull(content)
+    }
 
-    suspend fun ensureDownload(
+    suspend fun downloadVerified(
         url: String,
         destination: Path,
         expectedSize: Long,
         expectedSha1: String,
         offline: Boolean = false,
         timeout: KotlinDuration = 60.seconds,
-    ): Boolean {
-        if (
-            destination.isRegularFile() &&
-            Files.size(destination) == expectedSize &&
-            destination.digest("SHA-1") == expectedSha1
-        ) {
-            return false
-        }
-        check(!offline) {
-            "Official artifact is absent or invalid: $destination"
-        }
+    ) = downloadVerified(
+        url = url,
+        destination = destination,
+        expectedSize = expectedSize,
+        expectedHash = expectedSha1,
+        hashAlgorithm = "SHA-1",
+        offline = offline,
+        timeout = timeout,
+    )
+
+    suspend fun downloadVerifiedSha256(
+        url: String,
+        destination: Path,
+        expectedSize: Long,
+        expectedSha256: String,
+        offline: Boolean = false,
+        timeout: KotlinDuration = 60.seconds,
+    ) = downloadVerified(
+        url = url,
+        destination = destination,
+        expectedSize = expectedSize,
+        expectedHash = expectedSha256,
+        hashAlgorithm = "SHA-256",
+        offline = offline,
+        timeout = timeout,
+    )
+
+    private suspend fun downloadVerified(
+        url: String,
+        destination: Path,
+        expectedSize: Long,
+        expectedHash: String,
+        hashAlgorithm: String,
+        offline: Boolean,
+        timeout: KotlinDuration,
+    ) {
+        requireOnline(url, offline, destination)
         destination.parent.createDirectories()
         val temporary = Files.createTempFile(
             destination.parent,
@@ -300,33 +381,31 @@ internal object ProtocolHttp {
             ".download",
         )
         try {
-            val response = client.get(url) {
-                configureTimeout(timeout)
-                attributes.put(
-                    retryableResponseBodyKey,
-                    RetryableResponseBody { current ->
-                        SystemFileSystem.sink(IoPath(temporary.toString()))
-                            .buffered()
-                            .use { sink ->
-                                val channel = current.bodyAsChannel()
-                                while (!channel.exhausted()) {
-                                    channel.readRemaining(STREAM_BUFFER_SIZE)
-                                        .transferTo(sink)
-                                }
-                            }
-                    },
-                )
-            }
-            check(response.status.isSuccess()) {
-                "HTTP ${response.status.value} for $url"
-            }
-            check(Files.size(temporary) == expectedSize) {
-                "Downloaded artifact has wrong size: $url"
-            }
-            check(
-                temporary.digest("SHA-1") == expectedSha1,
-            ) {
-                "Downloaded artifact failed SHA-1: $url"
+            executeDownload(url, timeout) { current ->
+                SystemFileSystem.sink(IoPath(temporary.toString()))
+                    .buffered()
+                    .use { sink ->
+                        val channel = current.bodyAsChannel()
+                        while (!channel.exhausted()) {
+                            channel.readRemaining(STREAM_BUFFER_SIZE)
+                                .transferTo(sink)
+                        }
+                    }
+                if (current.status.isSuccess()) {
+                    val actualSize = Files.size(temporary)
+                    if (actualSize != expectedSize) {
+                        throw InvalidDownloadedArtifactException(
+                            "received $actualSize bytes; expected $expectedSize",
+                        )
+                    }
+                    val actualHash = temporary.digest(hashAlgorithm)
+                    if (actualHash != expectedHash) {
+                        throw InvalidDownloadedArtifactException(
+                            "$hashAlgorithm mismatch (received $actualHash; " +
+                                    "expected $expectedHash)",
+                        )
+                    }
+                }
             }
             Files.move(
                 temporary,
@@ -334,40 +413,167 @@ internal object ProtocolHttp {
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING,
             )
-            return true
         } finally {
             Files.deleteIfExists(temporary)
         }
     }
 
-    private fun environmentProxy() = run {
-        if (environmentVariable("NO_PROXY", "no_proxy") == "*") {
-            return@run null
-        }
-        val (name, value) = listOf(
-            "HTTPS_PROXY",
-            "https_proxy",
-            "HTTP_PROXY",
-            "http_proxy",
-        ).firstNotNullOfOrNull { name ->
-            System.getenv(name)
-                ?.takeIf(String::isNotBlank)
-                ?.let { value -> name to value }
-        } ?: return@run null
-
-        runCatching { ProxyBuilder.http(Url(value)) }
-            .getOrElse { failure ->
-                throw IllegalArgumentException(
-                    "Invalid proxy URL in $name",
-                    failure,
+    private suspend fun executeDownload(
+        url: String,
+        timeout: KotlinDuration,
+        consume: suspend (HttpResponse) -> Unit,
+    ) {
+        val responseBody = RetryableResponseBody(url, consume)
+        try {
+            val response = client.get(url) {
+                configureTimeout(timeout)
+                attributes.put(retryableResponseBodyKey, responseBody)
+            }
+            if (!response.status.isSuccess()) {
+                throw UnexpectedHttpStatusException(
+                    response.status.value,
+                    response.status.description,
                 )
             }
+        } catch (failure: kotlinx.coroutines.CancellationException) {
+            throw failure
+        } catch (failure: Throwable) {
+            throw GradleException(
+                buildString {
+                    val attempts = responseBody.attempts.get().coerceAtLeast(1)
+                    append("Could not download external resource after ")
+                    append(attempts)
+                    append(if (attempts == 1) " attempt.\n" else " attempts.\n")
+                    append("URL: ")
+                    append(url)
+                    append("\nReason: ")
+                    append(failure.friendlyDownloadReason())
+                    append('\n')
+                    append(proxyDiagnostic())
+                    append(
+                        "\nCheck the network connection, proxy/VPN, and " +
+                                "firewall, then rerun the failed Gradle task.",
+                    )
+                },
+                failure,
+            )
+        }
     }
 
-    private fun environmentVariable(
-        upperCase: String,
-        lowerCase: String,
-    ): String? = System.getenv(upperCase) ?: System.getenv(lowerCase)
+    private fun requireOnline(
+        url: String,
+        offline: Boolean,
+        destination: Path? = null,
+    ) {
+        if (!offline) return
+        throw GradleException(
+            buildString {
+                append("Cannot download external resource because Gradle is offline.\n")
+                append("URL: ")
+                append(url)
+                destination?.let {
+                    append("\nMissing or invalid file: ")
+                    append(it)
+                }
+                append("\nRerun without --offline after network access is available.")
+            },
+        )
+    }
+
+    private fun Throwable.friendlyDownloadReason(): String {
+        val cause = rootCause()
+        return when (cause) {
+            is UnexpectedHttpStatusException ->
+                "the remote server returned ${cause.message}"
+
+            is EOFException ->
+                "the HTTP response ended before all bytes arrived " +
+                        "(the connection or proxy returned a truncated body)"
+
+            is UnknownHostException ->
+                "DNS could not resolve ${cause.message ?: "the remote host"}"
+
+            is ConnectException ->
+                "the connection could not be established" +
+                        cause.message?.let { ": $it" }.orEmpty()
+
+            is SSLException ->
+                "the TLS connection failed" +
+                        cause.message?.let { ": $it" }.orEmpty()
+
+            is InvalidDownloadedArtifactException ->
+                "the received file failed integrity validation: ${cause.message}"
+
+            is IOException ->
+                "the network connection failed" +
+                        cause.message?.let { ": $it" }.orEmpty()
+
+            else -> cause.message
+                ?.takeIf(String::isNotBlank)
+                ?: cause.javaClass.simpleName
+        }
+    }
+
+    private fun Throwable.rootCause(): Throwable {
+        var current = this
+        val seen = mutableSetOf<Throwable>()
+        while (current.cause != null && seen.add(current)) {
+            current = current.cause!!
+        }
+        return current
+    }
+
+    private fun proxyDiagnostic(): String {
+        val configuredProperties = listOf(
+            "https.proxyHost",
+            "http.proxyHost",
+            "socksProxyHost",
+            "java.net.useSystemProxies",
+        ).filter { name ->
+            System.getProperty(name)?.isNotBlank() == true
+        }
+        return if (configuredProperties.isEmpty()) {
+            "Proxy configuration: no JVM proxy system property is set."
+        } else {
+            "Proxy configuration: ${configuredProperties.joinToString()} " +
+                    "${if (configuredProperties.size == 1) "is" else "are"} " +
+                    "set (values hidden); the JVM default proxy selector is used."
+        }
+    }
+
+    private fun createSystemPropertyProxyAuthenticator(): Authenticator? {
+        val credentials = listOf("http", "https").mapNotNull { protocol ->
+            val username = System.getProperty("$protocol.proxyUser")
+                ?.takeIf(String::isNotBlank)
+                ?: return@mapNotNull null
+            protocol to ProxyCredentials(
+                username = username,
+                password = System.getProperty("$protocol.proxyPassword")
+                    .orEmpty(),
+            )
+        }.toMap()
+        if (credentials.isEmpty()) return null
+
+        return object : Authenticator() {
+            override fun getPasswordAuthentication(): PasswordAuthentication? {
+                if (requestorType != RequestorType.PROXY) return null
+                val protocol = requestingURL?.protocol?.lowercase()
+                    ?: requestingProtocol?.lowercase()
+                val selected = credentials[protocol]
+                    ?: credentials.values.singleOrNull()
+                    ?: return null
+                return PasswordAuthentication(
+                    selected.username,
+                    selected.password.toCharArray(),
+                )
+            }
+        }
+    }
+
+    private data class ProxyCredentials(
+        val username: String,
+        val password: String,
+    )
 
     private fun io.ktor.client.request.HttpRequestBuilder.configureTimeout(
         timeout: KotlinDuration,
@@ -516,4 +722,3 @@ internal fun Path.deleteTree() {
             .forEach(Files::delete)
     }
 }
-

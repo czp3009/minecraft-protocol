@@ -123,18 +123,6 @@ internal object OfficialClientPreparation {
                     "${libraries.size} libraries, ${assets.size} assets indexed"
         }
 
-        Path(clientRoot, "download-metadata.json").writeJson(
-            jsonObjectOf(
-                "schema_version" to jsonNumber(1),
-                "minecraft_version" to jsonString(version),
-                "client_sha1" to jsonString(expectedClientSha1),
-                "asset_index_id" to jsonString(assetIndexId),
-                "asset_index_sha1" to jsonString(expectedAssetIndexSha1),
-                "library_artifact_count" to jsonNumber(libraries.size),
-                "asset_object_count" to jsonNumber(assets.size),
-            ),
-        )
-
         return OfficialClientInstallation(
             directory = clientRoot,
             version = version,

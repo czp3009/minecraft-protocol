@@ -87,12 +87,11 @@ primitives. Do not add browser-driver infrastructure unless a task explicitly re
 minecraftVersion` prints it. Do not duplicate it in module build scripts. The official server JAR's `version.json`
 supplies the protocol number and other version facts.
 
-Java policy is independent of the selected Minecraft release. For convenience and consistency,
-`KotlinMultiplatformExtension.configureAllTargets` deliberately fixes the Gradle JVM toolchain and JVM/Android bytecode
-target at Java 25 across the project; this uniform baseline does not mean the Kotlin sources intrinsically require Java
-25-only APIs. Tests that launch official Minecraft processes use the `java` command on `PATH`, whose major version may
-be 25 or newer; never require an exact minor or patch release. Do not infer or change the project toolchain from Mojang
-metadata.
+Java policy is independent of the selected Minecraft release. Each owning module's explicit platform configuration uses
+`BuildVersions` in `buildSrc` to fix the Gradle JVM toolchain and JVM/Android bytecode target at Java 25; this uniform
+baseline does not mean the Kotlin sources intrinsically require Java 25-only APIs. Tests that launch official Minecraft
+processes use the `java` command on `PATH`, whose major version may be 25 or newer; never require an exact minor or
+patch release. Do not infer or change the project toolchain from Mojang metadata.
 
 Automate everything that can be derived exactly:
 
