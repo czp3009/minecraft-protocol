@@ -35,7 +35,3 @@ val format = MinecraftFormat(
     MinecraftFormatConfiguration(chunkSectionCount = sectionCount),
 )
 ```
-
-The module's standard tests include primitive and composite codecs, packet-specific golden vectors and branches, full
-registry round trips, test-only framing/compression, and a real offline-mode official server session on supported host
-targets. The reflective direct official-codec differential remains JVM-only.

@@ -30,5 +30,6 @@ include(
     ":world-format",
     ":world-io",
     ":minecraft-test-support",
+    ":minecraft-test-fixture-host",
     ":protocol-symbol-processor",
 )

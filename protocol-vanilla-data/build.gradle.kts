@@ -56,7 +56,6 @@ val generateVanillaConfigurationSource =
 @OptIn(ExperimentalWasmDsl::class)
 kotlin {
     jvmToolchain(BuildVersions.JAVA_VERSION)
-    applyDefaultHierarchyTemplate()
 
     jvm()
 
@@ -76,11 +75,6 @@ kotlin {
 
     tvosSimulatorArm64()
     tvosArm64()
-
-    androidNativeArm32()
-    androidNativeArm64()
-    androidNativeX64()
-    androidNativeX86()
 
     android {
         namespace = "com.hiczp.minecraft.protocol.data"

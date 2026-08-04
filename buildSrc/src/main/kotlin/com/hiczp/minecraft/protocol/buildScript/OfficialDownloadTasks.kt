@@ -9,12 +9,13 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.FileSystemOperations
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.*
 import java.nio.file.Files
 import java.nio.file.Path
-import kotlin.io.path.copyTo
+import javax.inject.Inject
 import kotlin.io.path.createDirectories
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.name
@@ -135,23 +136,14 @@ abstract class DownloadVersionMetadataTask : DefaultTask() {
 
 @CacheableTask
 abstract class DownloadHeadlessMcTask : DefaultTask() {
-    companion object {
-        const val HEADLESS_VERSION = "2.10.0"
-        const val HEADLESS_URL =
-            "https://github.com/headlesshq/headlessmc/releases/download/$HEADLESS_VERSION/headlessmc-launcher-$HEADLESS_VERSION.jar"
-        const val HEADLESS_SIZE = 13_010_386L
-        const val HEADLESS_SHA256 =
-            "52bd5006f478377b3893011d458562977d38c65ead6d2b31089beb4d614f13cd"
-    }
-
     @get:Input
-    abstract val minecraftVersion: Property<String>
+    abstract val headlessMcVersion: Property<String>
 
     @get:Internal
     abstract val offline: Property<Boolean>
 
     @get:OutputFile
-    abstract val outputFile: RegularFileProperty
+    abstract val launcherFile: RegularFileProperty
 
     init {
         offline.convention(false)
@@ -159,13 +151,14 @@ abstract class DownloadHeadlessMcTask : DefaultTask() {
 
     @TaskAction
     fun download() {
-        val destination = outputFile.asFile.get().toPath()
+        val version = headlessMcVersion.get()
+        val destination = launcherFile.asFile.get().toPath()
         runBlocking {
             ProtocolHttp.downloadVerifiedSha256(
-                url = HEADLESS_URL,
+                url = "https://github.com/headlesshq/headlessmc/releases/download/$version/headlessmc-launcher-$version.jar",
                 destination = destination,
-                expectedSize = HEADLESS_SIZE,
-                expectedSha256 = HEADLESS_SHA256,
+                expectedSize = HeadlessMcTarget.LAUNCHER_SIZE,
+                expectedSha256 = HeadlessMcTarget.LAUNCHER_SHA256,
                 offline = offline.get(),
             )
         }
@@ -176,15 +169,73 @@ abstract class DownloadHeadlessMcTask : DefaultTask() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// DownloadHeadlessMcDummyFilesTask
+// ═══════════════════════════════════════════════════════════════════════════════
+
+@CacheableTask
+abstract class DownloadHeadlessMcDummyFilesTask : DefaultTask() {
+    @get:Input
+    abstract val headlessMcVersion: Property<String>
+
+    @get:Internal
+    abstract val offline: Property<Boolean>
+
+    @get:OutputFile
+    abstract val dummyOggFile: RegularFileProperty
+
+    @get:OutputFile
+    abstract val dummyPngFile: RegularFileProperty
+
+    @get:OutputFile
+    abstract val dummyJsonFile: RegularFileProperty
+
+    init {
+        offline.convention(false)
+    }
+
+    @TaskAction
+    fun download() {
+        val version = headlessMcVersion.get()
+        val sourceRoot =
+            "https://raw.githubusercontent.com/headlesshq/headlessmc/$version/headlessmc-launcher/src/main/resources/assets"
+        runBlocking {
+            coroutineScope {
+                listOf(
+                    async {
+                        ProtocolHttp.downloadVerifiedSha256(
+                            url = "$sourceRoot/dummy.ogg",
+                            destination = dummyOggFile.asFile.get().toPath(),
+                            expectedSize = HeadlessMcTarget.DUMMY_OGG_SIZE,
+                            expectedSha256 = HeadlessMcTarget.DUMMY_OGG_SHA256,
+                            offline = offline.get(),
+                        )
+                    },
+                    async {
+                        ProtocolHttp.downloadVerifiedSha256(
+                            url = "$sourceRoot/dummy.png",
+                            destination = dummyPngFile.asFile.get().toPath(),
+                            expectedSize = HeadlessMcTarget.DUMMY_PNG_SIZE,
+                            expectedSha256 = HeadlessMcTarget.DUMMY_PNG_SHA256,
+                            offline = offline.get(),
+                        )
+                    },
+                ).awaitAll()
+            }
+        }
+        dummyJsonFile.asFile.get().toPath()
+            .atomicWrite("{}".encodeToByteArray())
+        logger.lifecycle(
+            "Downloaded and verified HeadlessMC $version dummy files and created its JSON replacement",
+        )
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // DownloadOfficialMinecraftClientTask
 // ═══════════════════════════════════════════════════════════════════════════════
 
 @CacheableTask
 abstract class DownloadOfficialMinecraftClientTask : DefaultTask() {
-    companion object {
-        private const val LIBRARY_CONCURRENCY = 8
-    }
-
     @get:Input
     abstract val minecraftVersion: Property<String>
 
@@ -194,12 +245,6 @@ abstract class DownloadOfficialMinecraftClientTask : DefaultTask() {
 
     @get:OutputFile
     abstract val clientJar: RegularFileProperty
-
-    @get:OutputDirectory
-    abstract val librariesDirectory: DirectoryProperty
-
-    @get:OutputDirectory
-    abstract val assetIndexesDirectory: DirectoryProperty
 
     @get:OutputFile
     abstract val downloadMetadataFile: RegularFileProperty
@@ -217,139 +262,190 @@ abstract class DownloadOfficialMinecraftClientTask : DefaultTask() {
         val metadata = metadataFile.asFile.get().toPath()
             .readJsonObject()
         check(metadata.requiredString("id") == version)
-
-        runBlocking {
-            downloadClientArtifacts(
-                version = version,
-                metadata = metadata,
-                clientJar = clientJar.asFile.get().toPath(),
-                librariesDirectory = librariesDirectory.asFile.get().toPath(),
-                assetIndexesDirectory = assetIndexesDirectory.asFile.get().toPath(),
-                downloadMetadataFile = downloadMetadataFile.asFile.get().toPath(),
-            )
-        }
-    }
-
-    private suspend fun downloadClientArtifacts(
-        version: String,
-        metadata: JsonObject,
-        clientJar: Path,
-        librariesDirectory: Path,
-        assetIndexesDirectory: Path,
-        downloadMetadataFile: Path,
-    ) {
-        // Client JAR
         val client = metadata.requiredObject("downloads")
             .requiredObject("client")
-        val clientUrl = client.requiredString("url")
-        val clientSha1 = client.requiredString("sha1").lowercase()
-        val clientSize = client.requiredLong("size")
-        ProtocolHttp.downloadVerified(
-            url = clientUrl,
-            destination = clientJar,
-            expectedSize = clientSize,
-            expectedSha1 = clientSha1,
-            offline = offline.get(),
-        )
+        val destination = clientJar.asFile.get().toPath()
+        runBlocking {
+            ProtocolHttp.downloadVerified(
+                url = client.requiredString("url"),
+                destination = destination,
+                expectedSize = client.requiredLong("size"),
+                expectedSha1 = client.requiredString("sha1").lowercase(),
+                offline = offline.get(),
+            )
+        }
         logger.lifecycle(
-            "Downloaded and verified official client JAR: $clientJar",
+            "Downloaded and verified official client JAR: $destination",
         )
+        val assetIndex = metadata.requiredObject("assetIndex")
+        downloadMetadataFile.asFile.get().toPath().writeJson(
+            jsonObjectOf(
+                "schema_version" to jsonNumber(1),
+                "minecraft_version" to jsonString(version),
+                "client_sha1" to jsonString(
+                    client.requiredString("sha1").lowercase(),
+                ),
+                "client_url" to jsonString(client.requiredString("url")),
+                "library_count" to jsonNumber(
+                    collectClientLibraryArtifacts(metadata).size,
+                ),
+                "asset_index_id" to jsonString(
+                    assetIndex.requiredString("id"),
+                ),
+                "asset_index_sha1" to jsonString(
+                    assetIndex.requiredString("sha1").lowercase(),
+                ),
+            ),
+        )
+    }
+}
 
-        // Libraries
-        val libraries = collectLibraryArtifacts(metadata)
+// ═══════════════════════════════════════════════════════════════════════════════
+// DownloadOfficialMinecraftClientLibrariesTask
+// ═══════════════════════════════════════════════════════════════════════════════
+
+@CacheableTask
+abstract class DownloadOfficialMinecraftClientLibrariesTask : DefaultTask() {
+    companion object {
+        private const val LIBRARY_CONCURRENCY = 8
+    }
+
+    @get:Input
+    abstract val minecraftVersion: Property<String>
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val metadataFile: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val librariesDirectory: DirectoryProperty
+
+    @get:Internal
+    abstract val offline: Property<Boolean>
+
+    init {
+        offline.convention(false)
+    }
+
+    @TaskAction
+    fun download() {
+        val version = minecraftVersion.get()
+        val metadata = metadataFile.asFile.get().toPath()
+            .readJsonObject()
+        check(metadata.requiredString("id") == version)
+        val libraries = collectClientLibraryArtifacts(metadata)
+        val output = librariesDirectory.asFile.get().toPath()
         logger.lifecycle(
             "Downloading ${libraries.size} official client library artifacts (concurrency=$LIBRARY_CONCURRENCY)",
         )
         val sorted = libraries.entries.sortedBy { it.key }
-        coroutineScope {
-            val semaphore = Semaphore(LIBRARY_CONCURRENCY)
-            sorted.map { (relative, artifact) ->
-                async {
-                    semaphore.acquire()
-                    try {
-                        ProtocolHttp.downloadVerified(
-                            url = artifact.url,
-                            destination = librariesDirectory.resolve(relative),
-                            expectedSize = artifact.size,
-                            expectedSha1 = artifact.sha1,
-                            offline = offline.get(),
-                        )
-                    } finally {
-                        semaphore.release()
+        runBlocking {
+            coroutineScope {
+                val semaphore = Semaphore(LIBRARY_CONCURRENCY)
+                sorted.map { (relative, artifact) ->
+                    async {
+                        semaphore.acquire()
+                        try {
+                            ProtocolHttp.downloadVerified(
+                                url = artifact.url,
+                                destination = output.resolve(relative),
+                                expectedSize = artifact.size,
+                                expectedSha1 = artifact.sha1,
+                                offline = offline.get(),
+                            )
+                        } finally {
+                            semaphore.release()
+                        }
                     }
-                }
-            }.awaitAll()
-        }
-
-        // Asset index
-        val assetIndex = metadata.requiredObject("assetIndex")
-        val assetIndexUrl = assetIndex.requiredString("url")
-        val assetIndexSha1 = assetIndex.requiredString("sha1").lowercase()
-        val assetIndexSize = assetIndex.requiredLong("size")
-        val assetIndexId = assetIndex.requiredString("id")
-        val assetIndexFile = assetIndexesDirectory.resolve("$assetIndexId.json")
-        ProtocolHttp.downloadVerified(
-            url = assetIndexUrl,
-            destination = assetIndexFile,
-            expectedSize = assetIndexSize,
-            expectedSha1 = assetIndexSha1,
-            offline = offline.get(),
-        )
-        logger.lifecycle(
-            "Downloaded and verified official asset index $assetIndexId",
-        )
-
-        // Write download metadata
-        downloadMetadataFile.writeJson(
-            jsonObjectOf(
-                "schema_version" to jsonNumber(1),
-                "minecraft_version" to jsonString(version),
-                "client_sha1" to jsonString(clientSha1),
-                "client_url" to jsonString(clientUrl),
-                "library_count" to jsonNumber(libraries.size),
-                "asset_index_id" to jsonString(assetIndexId),
-                "asset_index_sha1" to jsonString(assetIndexSha1),
-            ),
-        )
-        logger.lifecycle(
-            "Official Minecraft client $version is ready: downloaded and verified all ${libraries.size + 2} artifacts",
-        )
-    }
-
-    private fun collectLibraryArtifacts(
-        metadata: JsonObject,
-    ): Map<String, ArtifactSpec> {
-        val artifacts = linkedMapOf<String, ArtifactSpec>()
-        metadata.requiredArray("libraries").forEach { element ->
-            val library = element.jsonObject
-            val downloads = library["downloads"]?.jsonObject ?: return@forEach
-            val candidates = buildList {
-                downloads["artifact"]?.jsonObject?.let { add("artifact" to it) }
-                downloads["classifiers"]?.jsonObject?.forEach { (name, value) ->
-                    add("classifier $name" to value.jsonObject)
-                }
-            }
-            candidates.forEach { (_, value) ->
-                val sha1 = value.requiredString("sha1").lowercase()
-                val size = value.requiredLong("size")
-                val url = value.requiredString("url")
-                val path = value.requiredString("path")
-                val previous = artifacts.put(
-                    path,
-                    ArtifactSpec(sha1, size, url),
-                )
-                check(previous == null || previous == ArtifactSpec(sha1, size, url))
+                }.awaitAll()
             }
         }
-        return artifacts
+        logger.lifecycle(
+            "Downloaded and verified ${libraries.size} official client library artifacts",
+        )
     }
-
-    private data class ArtifactSpec(
-        val sha1: String,
-        val size: Long,
-        val url: String,
-    )
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DownloadOfficialMinecraftAssetIndexTask
+// ═══════════════════════════════════════════════════════════════════════════════
+
+@CacheableTask
+abstract class DownloadOfficialMinecraftAssetIndexTask : DefaultTask() {
+    @get:Input
+    abstract val minecraftVersion: Property<String>
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val metadataFile: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val assetIndexesDirectory: DirectoryProperty
+
+    @get:Internal
+    abstract val offline: Property<Boolean>
+
+    init {
+        offline.convention(false)
+    }
+
+    @TaskAction
+    fun download() {
+        val version = minecraftVersion.get()
+        val metadata = metadataFile.asFile.get().toPath()
+            .readJsonObject()
+        check(metadata.requiredString("id") == version)
+        val assetIndex = metadata.requiredObject("assetIndex")
+        val assetIndexId = assetIndex.requiredString("id")
+        val destination = assetIndexesDirectory.asFile.get().toPath()
+            .resolve("$assetIndexId.json")
+        runBlocking {
+            ProtocolHttp.downloadVerified(
+                url = assetIndex.requiredString("url"),
+                destination = destination,
+                expectedSize = assetIndex.requiredLong("size"),
+                expectedSha1 = assetIndex.requiredString("sha1").lowercase(),
+                offline = offline.get(),
+            )
+        }
+        logger.lifecycle(
+            "Downloaded and verified official asset index: $destination",
+        )
+    }
+}
+
+private fun collectClientLibraryArtifacts(
+    metadata: JsonObject,
+): Map<String, ClientArtifactSpec> {
+    val artifacts = linkedMapOf<String, ClientArtifactSpec>()
+    metadata.requiredArray("libraries").forEach { element ->
+        val library = element.jsonObject
+        val downloads = library["downloads"]?.jsonObject ?: return@forEach
+        val candidates = buildList {
+            downloads["artifact"]?.jsonObject?.let { add(it) }
+            downloads["classifiers"]?.jsonObject?.values?.forEach {
+                add(it.jsonObject)
+            }
+        }
+        candidates.forEach { value ->
+            val artifact = ClientArtifactSpec(
+                sha1 = value.requiredString("sha1").lowercase(),
+                size = value.requiredLong("size"),
+                url = value.requiredString("url"),
+            )
+            val path = value.requiredString("path")
+            val previous = artifacts.put(path, artifact)
+            check(previous == null || previous == artifact)
+        }
+    }
+    return artifacts
+}
+
+private data class ClientArtifactSpec(
+    val sha1: String,
+    val size: Long,
+    val url: String,
+)
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DownloadOfficialMinecraftAssetsTask
@@ -358,12 +454,24 @@ abstract class DownloadOfficialMinecraftClientTask : DefaultTask() {
 @CacheableTask
 abstract class DownloadOfficialMinecraftAssetsTask : DefaultTask() {
     companion object {
-        private const val ASSET_CONCURRENCY = 32
+        private const val ASSET_CONCURRENCY = 8
     }
 
     @get:InputDirectory
     @get:PathSensitive(PathSensitivity.NONE)
-    abstract val assetIndexesDir: DirectoryProperty
+    abstract val assetIndexesDirectory: DirectoryProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val dummyOggFile: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val dummyPngFile: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val dummyJsonFile: RegularFileProperty
 
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
@@ -375,46 +483,37 @@ abstract class DownloadOfficialMinecraftAssetsTask : DefaultTask() {
         offline.convention(false)
     }
 
+    @get:Inject
+    abstract val fileSystemOperations: FileSystemOperations
+
     @TaskAction
     fun download() {
-        val indexesDir = assetIndexesDir.asFile.get().toPath()
-        check(Files.isDirectory(indexesDir)) {
-            "Asset indexes directory does not exist: $indexesDir"
-        }
-        val indexFiles = Files.list(indexesDir)
-            .filter { it.isRegularFile() && it.name.endsWith(".json") }
-            .toList()
-        check(indexFiles.size == 1) {
-            "Expected exactly one asset index file in $indexesDir, found ${indexFiles.size}: ${indexFiles.map { it.name }}"
-        }
-        val index = indexFiles.single().readJsonObject()
-        val objects = index.requiredObject("objects")
+        val dummyAssets = mapOf(
+            "ogg" to dummyOggFile.asFile.get(),
+            "png" to dummyPngFile.asFile.get(),
+            "json" to dummyJsonFile.asFile.get(),
+        )
+        val assets = readOfficialClientAssets(
+            assetIndexesDirectory.asFile.get().toPath(),
+            dummyAssets.keys,
+        )
         val root = outputDirectory.asFile.get().toPath()
-
-        val assets = linkedMapOf<String, Long>()
-        objects.forEach { (_, element) ->
-            val value = element.jsonObject
-            val hash = value.requiredString("hash").lowercase()
-            val size = value.requiredLong("size")
-            assets[hash] = size
-        }
-
+        val officialAssets = assets.filter { it.dummyFormat == null }
         logger.lifecycle(
-            "Downloading ${assets.size} official asset objects (concurrency=$ASSET_CONCURRENCY)",
+            "Downloading ${officialAssets.size} official client asset objects without HeadlessMC replacements (concurrency=$ASSET_CONCURRENCY)",
         )
         runBlocking {
             val semaphore = Semaphore(ASSET_CONCURRENCY)
             coroutineScope {
-                assets.entries.map { (hash, size) ->
+                officialAssets.map { asset ->
                     async {
                         semaphore.acquire()
                         try {
-                            val relative = "${hash.take(2)}/$hash"
                             ProtocolHttp.downloadVerified(
-                                url = "https://resources.download.minecraft.net/$relative",
-                                destination = root.resolve(relative),
-                                expectedSize = size,
-                                expectedSha1 = hash,
+                                url = "https://resources.download.minecraft.net/${asset.relativePath}",
+                                destination = root.resolve(asset.relativePath),
+                                expectedSize = asset.size,
+                                expectedSha1 = asset.hash,
                                 offline = offline.get(),
                             )
                         } finally {
@@ -424,57 +523,76 @@ abstract class DownloadOfficialMinecraftAssetsTask : DefaultTask() {
                 }.awaitAll()
             }
         }
+        fileSystemOperations.sync { sync ->
+            sync.preserve { preserved ->
+                preserved.include(officialAssets.map { it.relativePath })
+            }
+            assets.filter { it.dummyFormat != null }.forEach { asset ->
+                sync.from(dummyAssets.getValue(asset.dummyFormat!!)) { copy ->
+                    copy.into(asset.hash.take(2))
+                    copy.rename { asset.hash }
+                }
+            }
+            sync.into(outputDirectory)
+        }
+        val expectedPaths = assets.mapTo(mutableSetOf()) { it.relativePath }
+        val actualPaths = Files.walk(root).use { paths ->
+            paths.filter(Files::isRegularFile)
+                .map { root.relativize(it).joinToString("/") }
+                .toList()
+                .toSet()
+        }
+        check(actualPaths == expectedPaths) {
+            val missing = expectedPaths - actualPaths
+            val unexpected = actualPaths - expectedPaths
+            "Prepared asset objects do not match the official index; missing=$missing, unexpected=$unexpected"
+        }
         logger.lifecycle(
-            "Downloaded and verified all ${assets.size} official asset objects",
+            "Downloaded ${officialAssets.size} verified official and wrote ${assets.size - officialAssets.size} HeadlessMC dummy asset objects",
         )
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// PrepareHeadlessMcClientTask
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/**
- * Creates the standard Minecraft launcher directory layout that HeadlessMC
- * expects under `-Dhmc.mcdir`:
- *   `versions/<version>/<version>.jar`
- *   `versions/<version>/<version>.json`
- *
- * This task depends on [DownloadOfficialMinecraftClientTask] for the client
- * JAR and on [DownloadVersionMetadataTask] for the version metadata.
- */
-@CacheableTask
-abstract class PrepareHeadlessMcClientTask : DefaultTask() {
-    @get:Input
-    abstract val minecraftVersion: Property<String>
-
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.NONE)
-    abstract val clientJar: RegularFileProperty
-
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.NONE)
-    abstract val versionMetadata: RegularFileProperty
-
-    @get:OutputDirectory
-    abstract val outputDirectory: DirectoryProperty
-
-    @TaskAction
-    fun prepare() {
-        val version = minecraftVersion.get()
-        val versionDir = outputDirectory.asFile.get().toPath()
-        versionDir.createDirectories()
-
-        val clientJarSrc = clientJar.asFile.get().toPath()
-        val jarDst = versionDir.resolve("$version.jar")
-        clientJarSrc.copyTo(jarDst, overwrite = true)
-
-        val metadataSrc = versionMetadata.asFile.get().toPath()
-        val jsonDst = versionDir.resolve("$version.json")
-        metadataSrc.copyTo(jsonDst, overwrite = true)
-
-        logger.lifecycle(
-            "Prepared HeadlessMC version directory for $version: $versionDir",
-        )
+private fun readOfficialClientAssets(
+    indexesDirectory: Path,
+    dummyFormats: Set<String>,
+): List<OfficialClientAsset> {
+    check(Files.isDirectory(indexesDirectory)) {
+        "Asset indexes directory does not exist: $indexesDirectory"
     }
+    val indexFiles = Files.list(indexesDirectory).use { paths ->
+        paths.filter { it.isRegularFile() && it.name.endsWith(".json") }
+            .toList()
+    }
+    check(indexFiles.size == 1) {
+        "Expected exactly one asset index file in $indexesDirectory, found ${indexFiles.size}: ${indexFiles.map { it.name }}"
+    }
+    val assets = linkedMapOf<String, OfficialClientAsset>()
+    indexFiles.single().readJsonObject()
+        .requiredObject("objects")
+        .forEach { (name, element) ->
+            val value = element.jsonObject
+            val format = name.substringAfterLast('/')
+                .substringAfterLast('.', "")
+                .lowercase()
+            val asset = OfficialClientAsset(
+                hash = value.requiredString("hash").lowercase(),
+                size = value.requiredLong("size"),
+                dummyFormat = format.takeIf(dummyFormats::contains),
+            )
+            val previous = assets.putIfAbsent(asset.hash, asset)
+            check(previous == null || previous == asset) {
+                "Asset index maps ${asset.hash} to incompatible formats"
+            }
+        }
+    return assets.values.toList()
+}
+
+private data class OfficialClientAsset(
+    val hash: String,
+    val size: Long,
+    val dummyFormat: String?,
+) {
+    val relativePath: String
+        get() = "${hash.take(2)}/$hash"
 }

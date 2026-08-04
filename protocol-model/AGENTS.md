@@ -1,19 +1,22 @@
-# protocol-model guidance
+# protocol-model
 
-This module inherits the repository guidance.
+This module owns format-independent packet payloads and shared protocol values.
 
-- `model.packet` contains packet payload declarations and their protocol identity annotations.
-- `model.type` contains reusable protocol values and sealed wire-shape variants.
-- `model.wire` contains declarative hints consumed by binary formats.
-- Logical presence and discriminator rules stay with the associated model through Kotlin types, annotations, or logical
-  serializers.
-- Model code remains valid in common Kotlin source sets.
-- Constructor invariants reject states that cannot form valid protocol values.
-- New or changed model invariants receive format-independent common tests.
-- Packet and data-component identity annotations are source-retained KSP inputs. The private processor validates
-  complete coverage and generates portable runtime handoff tables under `build/generated`; keep manual dispatch tables
-  out of source.
-- Nullable declarations inspect the matching official JAR first. Inconclusive official evidence falls back to the Wiki,
-  MCProtocolLib, then Minestom. Semantic conclusions remain in code and tests, not generated analysis files.
-- `MinecraftProtocol.kt` is generated from the root target-analysis JSON under `build/generated`; its generator never
-  reads the official JAR. Do not add a source-tree copy.
+## Source structure
+
+- `model.packet` contains packet declarations and `@PacketInfo` protocol identities.
+- `model.type` contains reusable values and sealed logical variants.
+- `model.wire` contains declarative hints interpreted by physical formats.
+
+Models remain valid in common Kotlin source sets, contain no buffers or I/O, and enforce intrinsic value invariants in
+constructors. Presence and discriminator rules stay with the corresponding model through Kotlin types, annotations, or
+logical serializers.
+
+## Generation and tests
+
+Packet and data-component identity annotations are KSP inputs. The private processor validates coverage against the
+official packets report and generates portable runtime handoff tables; manual dispatch tables do not belong in source.
+`MinecraftProtocol.kt` is generated from the root target-analysis artifact and has no source-tree copy.
+
+Add format-independent common tests for new or changed invariants. Run `:protocol-model:jvmTest` and
+`:protocol-serialization:jvmTest` after changing packet identities, wire hints, or shared values.

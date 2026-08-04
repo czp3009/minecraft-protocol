@@ -1,70 +1,65 @@
 # minecraft-protocol
 
-> This is a very early-stage experimental project; please do not use it in a production environment.
+> This is an early-stage experimental project. It is not ready for production use.
 
-`minecraft-protocol` is an idiomatic Kotlin Multiplatform library for the Minecraft Java Edition protocol and world
-storage formats. It provides `kotlinx.serialization` packet models and codecs, typed vanilla Configuration data, Ktor
-transport and sessions, authentication helpers, client/server connection orchestration, binary NBT, and Anvil world I/O.
+`minecraft-protocol` is a Kotlin Multiplatform library for the Minecraft Java Edition network protocol and world-storage
+formats. It provides typed packet models, `kotlinx.serialization` codecs, Ktor transport and connection orchestration,
+authentication helpers, version-matched vanilla Configuration data, binary NBT, and Anvil world I/O.
 
-The implemented release and protocol number are exposed by `MinecraftProtocol` in `protocol-model`. Deterministic
-version-dependent analysis and generated source stay under Gradle-managed `build/` directories.
-
-This is infrastructure for Minecraft applications, not a complete gameplay server. `protocol-server` can admit an
-offline client through Play and project a finite initial set of chunks and entities; authoritative worlds, ticking, game
-rules, persistence policy, and gameplay remain application concerns.
-
-## Requirements
-
-- A JDK with Java major version 25 or newer, with its `java` command available on `PATH`. The project deliberately
-  standardizes its Gradle JVM toolchain and JVM/Android bytecode target on Java 25 as one convenient, uniform baseline.
-- An Android SDK configured through the usual Gradle mechanisms, including `local.properties`, when running the full
-  multiplatform gate.
-- Network access on the first exhaustive verification run so Gradle can acquire normal build dependencies and standard
-  root fixture tasks can acquire and verify Minecraft reference artifacts.
-
-Use the checked-in wrapper; a separate Gradle installation is unnecessary. The configured Java 25 toolchain and bytecode
-target are a project policy for convenience and consistency, not a claim that the Kotlin sources intrinsically depend on
-Java 25-only APIs. Standard tests launch official Minecraft processes through the `java` command on `PATH`; that command
-may report any Java major version of 25 or newer, and no exact minor or patch release is required. Gradle provisions the
-Node/Yarn and Kotlin Native tooling used by the non-JVM targets. JS and Wasm tests run with Gradle-provisioned Node/D8
-and do not require a machine-installed browser. The official-client E2E does not require Minecraft, a launcher, an
-account, a display server, or a manually started process.
+The selected Minecraft release and protocol number are exposed by `MinecraftProtocol`. This repository contains
+infrastructure for Minecraft applications, not a complete game server: gameplay, authoritative worlds, ticking,
+persistence policy, permissions, and operations remain application responsibilities.
 
 ## Modules
 
-| Module                   | Purpose                                                                                         |
-|--------------------------|-------------------------------------------------------------------------------------------------|
-| `compression`            | Portable raw DEFLATE shared by network zlib and world-storage zlib/gzip                         |
-| `nbt`                    | Named and unnamed binary NBT over `kotlinx.io`, including modified UTF and hostile-input limits |
-| `protocol-model`         | Packet payloads, shared values, sealed variants, and logical serializers                        |
-| `protocol-serialization` | `MinecraftFormat`, physical wire rules, and packet lookup by state/direction/ID                 |
-| `protocol-vanilla-data`  | Typed Known Packs, feature flags, registries, tags, and finite vanilla catalogues               |
-| `protocol-transport`     | Ktor sockets, VarInt21 framing, zlib compression, and AES/CFB8 encryption                       |
-| `protocol-session`       | Typed packet dispatch, direction checks, and protocol-state transitions                         |
-| `protocol-auth`          | Offline identities, session-service calls, server hashes, and cryptography                      |
-| `protocol-client`        | Status, Login/Configuration, Play context, and direct Ktor client API                           |
-| `protocol-server`        | Connection orchestration and finite initial chunk/entity projection                             |
-| `world-format`           | Filesystem-independent Anvil regions, compression modes, external chunks, and NBT composition   |
-| `world-io`               | World paths, standalone NBT, and atomic chunk/entity/POI region storage                         |
+Depend on the narrowest module that provides the required API. Higher layers expose their lower-layer API dependencies
+transitively where needed.
 
-The published modules above are the runtime library layer. Root official-analysis tasks first turn the matching JAR into
-Gradle-managed data artifacts. Non-source-driven generators are cacheable task types in `buildSrc`, registered only by
-the runtime module that owns their generated source, while source-to-source generation uses the private
-`protocol-symbol-processor` KSP module and its standard output. None of this build preparation is part of the published
-runtime API.
+| Module                                                       | Purpose                                                                |
+|--------------------------------------------------------------|------------------------------------------------------------------------|
+| [`compression`](compression/README.md)                       | Portable raw DEFLATE shared by network and world formats               |
+| [`nbt`](nbt/README.md)                                       | Named and unnamed binary NBT over `kotlinx.io`                         |
+| [`protocol-model`](protocol-model/README.md)                 | Format-independent packet payloads and shared protocol values          |
+| [`protocol-serialization`](protocol-serialization/README.md) | Minecraft wire encodings and packet lookup by state, direction, and ID |
+| [`protocol-vanilla-data`](protocol-vanilla-data/README.md)   | Version-matched Known Packs, registries, tags, and vanilla catalogues  |
+| [`protocol-transport`](protocol-transport/README.md)         | Ktor sockets, framing, compression, and encryption                     |
+| [`protocol-session`](protocol-session/README.md)             | Typed dispatch and connection-state transitions                        |
+| [`protocol-auth`](protocol-auth/README.md)                   | Offline identities, session services, hashes, and cryptography         |
+| [`protocol-client`](protocol-client/README.md)               | Status, Login, Configuration, and a Play-ready client connection       |
+| [`protocol-server`](protocol-server/README.md)               | Connection admission and finite initial chunk/entity projection        |
+| [`world-format`](world-format/README.md)                     | Filesystem-independent Anvil containers and chunk NBT composition      |
+| [`world-io`](world-io/README.md)                             | World paths and filesystem-backed NBT and region stores                |
 
-`minecraft-test-support` is a private, unpublished Kotlin Multiplatform fixture library used only by repository tests.
-Root Gradle tasks prepare immutable, hash-verified official artifacts and expose them as lazy inputs of the standard
-host-process test tasks. The library validates those local inputs, allocates unique workspaces and endpoints, waits for
-readiness, retains bounded logs, and asynchronously closes directly owned peer processes from JVM, desktop Native, and
-Node tests. It does not download at test runtime or use a command-line fixture helper.
+`protocol-symbol-processor`, `minecraft-test-support`, and `minecraft-test-fixture-host` are private build or test
+infrastructure and are not application dependencies.
 
-`nbt` and `world-format` expose `Source`/`Sink` APIs on stream-capable targets. `world-io` targets JVM, Android, and
-Native platforms with filesystem support; browser-like consumers use the stream modules directly. Portable JS/Wasm tests
-load complete in-memory region byte arrays and streams through compression into chunk NBT under Node/D8. They do not
-assume browser filesystem or listening-server support.
+## Requirements
 
-## Encoding packet payloads
+- A JDK with Java major version 25 or newer and `java` on `PATH`.
+- An Android SDK configured through the standard Gradle mechanisms when running Android or the complete multiplatform
+  test suite.
+- Network access for the first build or exhaustive test run so Gradle can download dependencies and verified official
+  Minecraft fixtures.
+
+Use the checked-in Gradle wrapper; a separate Gradle installation is unnecessary. Gradle provisions Node, D8, Yarn, and
+Kotlin Native tooling for configured non-JVM targets. Browser drivers, an installed Minecraft launcher, an account, and
+a display server are not test prerequisites.
+
+## Using the library from this checkout
+
+The project does not publish a stable binary release. Source integrations use Gradle project dependencies, for example:
+
+```kotlin
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation(project(":protocol-client"))
+        }
+    }
+}
+```
+
+Packet payloads can be encoded and decoded through the generated registry:
 
 ```kotlin
 val encoded = MinecraftPacketRegistry.encodePayload(packet)
@@ -77,97 +72,50 @@ val decoded = MinecraftPacketRegistry.decodePayload(
 )
 ```
 
-Use a configured `MinecraftFormat` for values whose physical representation depends on negotiated connection context,
-such as chunk section counts. The client and server module READMEs contain their higher-level connection examples.
+Use a configured `MinecraftFormat` when a physical encoding depends on negotiated context such as the chunk section
+count. The module guides contain the corresponding entry points and examples:
 
-## Integrating `server.properties`
+- [`protocol-client`](protocol-client/README.md) connects to Status or Login and returns a live Play session.
+- [`protocol-server`](protocol-server/README.md) binds a Ktor server socket and maps application policy into protocol
+  configuration and handler APIs.
+- [`nbt`](nbt/README.md) reads and writes binary NBT streams and byte arrays.
+- [`world-format`](world-format/README.md) handles in-memory Anvil containers; [`world-io`](world-io/README.md) adds
+  supported filesystems and world paths.
 
-This library deliberately does not read or own `server.properties`: a complete server may use that file, another
-configuration format, or dynamic administration. It does expose the protocol and storage controls needed to map the
-official settings without patching library internals:
+Most model, serialization, and stream APIs target common Kotlin. Socket APIs run where the configured Ktor engine
+exposes TCP. `world-io` targets JVM, Android, and Native filesystems; browser-like consumers use `nbt` and
+`world-format` through streams or byte arrays.
 
-- `MinecraftServer.bind` controls the Minecraft bind address and port.
-- `MinecraftServerConfiguration` controls Status availability, transfer admission, proxy-aware session verification,
-  authentication mode, compression, player-count metadata, distances, MOTD, hardcore, game mode, difficulty, and the
-  secure-chat claim.
-- `MinecraftServerHandler` controls status JSON, profile admission, per-player Play Login, and optional Configuration
-  packets such as resource packs, server links, cookies, custom payloads, and a code of conduct. Client responses before
-  Finish Configuration are delivered back to the handler; ordered `configurationTasks` can hold Play entry until a code
-  of conduct or required resource pack reaches the application's accepted terminal state.
-- `MinecraftInitialWorld` makes difficulty, lock state, player abilities, chunks, and entities explicit. In particular,
-  `allow-flight` is an application-side movement policy; it must not be confused with granting flight abilities.
-- `MinecraftWorldPaths` accepts an arbitrary world root, while `WorldRegionStore.writeChunkNbt` accepts the region
-  compression mode.
+## Building and testing
 
-The consuming full server still owns gameplay and operations settings: whitelist and operator data, spam/idle/rate
-limits, permissions, world generation, ticking and watchdogs, entity tracking, spawn protection, text filtering, Query,
-RCON, JMX, and the JSON-RPC management service. These are not silently emulated, but the library does not install fixed
-values that prevent the application from implementing them.
-
-For example, a consuming adapter would map a negative `network-compression-threshold` to
-`compressionThreshold = null`; all non-negative values map directly. Set `enforcesSecureChat` only after the consuming
-server really validates secure profiles and signed chat.
-
-## Verification
-
-Use the affected module's standard JVM test task for the normal development loop:
+Use a focused JVM suite during normal development:
 
 ```shell
 ./gradlew :protocol-serialization:jvmTest
 ```
 
-For a repository-wide JVM pass, use Gradle's standard task selector:
+Run every repository JVM suite with Gradle's standard selector:
 
 ```shell
 ./gradlew jvmTest
 ```
 
-After the JVM path is stable, select every module's standard Kotlin Multiplatform aggregate with:
+Run every configured Kotlin Multiplatform test aggregate with:
 
 ```shell
 ./gradlew allTests
 ```
 
-On Windows replace `./gradlew` with `.\gradlew.bat`. These are standard KMP tasks and task selectors; the root project
-does not define an additional `test` task. Together the applicable platform suites cover:
+On Windows, replace `./gradlew` with `.\gradlew.bat`. The root project does not define a replacement `test` task.
 
-- shared, JVM, Android host, JS, Wasm, and host-supported Native tests;
-- model invariants, primitive/composite codecs, golden payloads, malformed input, and registry-wide round trips;
-- framing, partial I/O, compression, encryption, sessions, authentication, and production Ktor sockets;
-- direct execution of official packet codecs;
-- production-client interoperability with the matching official server;
-- a matching official client against the production server, headlessly and in offline mode;
-- official-server world generation, library decode/rewrite, and official-server reload.
+Applicable standard test tasks cover portable unit tests, real Ktor sockets, official-codec differentials, a production
+client against the matching official server, a matching headless official client against the production server, and an
+official world generate/rewrite/reload cycle. Gradle prepares exact verified fixtures and starts the shared JVM Fixture
+Host only when a test requests them. Gradle outputs and Fixture Host processes, logs, reports, and worlds remain under
+`build/`; a test-local filesystem sandbox uses the system temporary directory and is removed by the test client.
+Unchanged preparation is reused by Gradle.
 
-The official-client host-process tests call the private test-support library after Gradle has downloaded the exact
-Mojang client, libraries, natives, and assets into `build/` and validated their published sizes and hashes. The library
-launches that local fixture through a pinned SHA-256-verified HeadlessMC adapter. The test verifies
-Status/Login/Configuration/Play, initial chunks and entities, teleport/chunk-batch/player-loaded acknowledgements,
-client ticks and keepalives, broad clientbound Play packet families, cookies and pings, Respawn followed by another
-world projection, a Play-to-Configuration round trip, and a third Play/world synchronization. All services are started
-and stopped by standard JVM, host Native, or supported Node tests. GUI client testing is not part of the repository.
-
-The first run is intentionally heavier. Gradle's production, analysis, and fixture tasks key the verified server,
-client, libraries, assets, reports, and generated sources by the selected Minecraft version, so unchanged follow-up runs
-are `UP-TO-DATE` or restored from the build cache instead of downloading or regenerating them.
-
-Examples of focused JVM suites are:
-
-```shell
-./gradlew :protocol-serialization:jvmTest
-./gradlew :protocol-client:jvmTest
-./gradlew :protocol-server:jvmTest
-./gradlew :world-io:jvmTest
-```
-
-Only after JVM verification is stable should you run the applicable platform tasks or `allTests`. All generated source,
-servers, clients, worlds, logs, reports, downloads, and process working directories remain under `build/`.
-
-## Source authority
-
-Wire and storage behavior follows the matching official server JAR. The revision-matched Minecraft Wiki is the secondary
-descriptive source; exact-version MCProtocolLib and Minestom are auxiliary references in that order. Nullability follows
-the same evidence order, with unresolved values kept nullable and marked `@UnknownNullability`.
+## Minecraft release and generated data
 
 [
 `MinecraftTarget.MINECRAFT_VERSION`](buildSrc/src/main/kotlin/com/hiczp/minecraft/protocol/buildScript/MinecraftTarget.kt)
@@ -177,28 +125,17 @@ is the single manually selected Minecraft release. Print it with:
 ./gradlew -q minecraftVersion
 ```
 
-Gradle downloads that official server and runs a root official-analysis task group. Each analyzer owns one distinct
-subdirectory below `build/generated/official-minecraft/<version>/`: target facts, official data-generator reports, or a
-complete capture of both Configuration Known Packs branches. These outputs are exposed as Gradle artifacts.
-
-The owning runtime modules consume those artifacts through cacheable data-to-source tasks; those generators never read
-the official JAR. KSP uses its standard generated-source location for dispatch tables derived from Kotlin annotations.
-Published source JARs include all generated Kotlin. No target-dependent JSON or generated Kotlin is checked into the
-source tree.
-
-## Updating for a Minecraft release
-
-Change `MinecraftTarget.MINECRAFT_VERSION`, then let the normal build regenerate what its task graph needs. To run the
-whole official-analysis layer explicitly:
+To change the target, update that constant and run the affected standard build or test tasks. The complete official
+analysis layer is also available directly:
 
 ```shell
 ./gradlew officialMinecraftAnalysis
 ```
 
-Update hand-modeled semantics that cannot be derived mechanically, run affected `jvmTest` tasks, then run the applicable
-standard platform tests or `./gradlew allTests`. Gradle derives reuse entirely from declared inputs, outputs, task
-implementation, and artifact provenance; there is no refresh/copy/freshness-comparison workflow.
+Gradle downloads and verifies the matching official server, writes deterministic analysis below
+`build/generated/official-minecraft/<version>/`, and generates version-dependent Kotlin in the owning modules' build
+directories. Generated Kotlin and target evidence are not checked into the source tree.
 
-The playbooks indexed in `.agents/skills/README.md` are optional instructions for coding agents performing the same
-human development work. They may call Gradle, but Gradle never reads those skills or their scratch output; deleting the
-skill directory does not change the project.
+The matching official server JAR is the primary behavioral authority. The revision-matched Minecraft Wiki is secondary,
+followed by exact-version MCProtocolLib and Minestom. See [AGENTS.md](AGENTS.md) for repository development rules and
+module ownership.

@@ -1,26 +1,28 @@
 # protocol-server
 
-This module owns server-side connection acceptance and protocol orchestration. Its public API exposes Ktor
-`ServerSocket` and accepted `Socket` values.
+This module owns server-side socket acceptance and protocol orchestration. It negotiates Status or Login, supports
+offline and injected online authentication, synchronizes `ProtocolDataSet`, enters Play, and returns control to the
+application. Initial-world APIs project finite chunks and entity snapshots; gameplay remains outside the module.
 
-The default protocol negotiates Status or Login, supports offline and injected online authentication, synchronizes
-`ProtocolDataSet`, enters Play, and then returns control to the application. Initial-world APIs project finite chunk and
-entity snapshots; the module contains no gameplay loop.
+## Application boundary
 
-Keep per-connection state in `MinecraftServerConnection` and
-`MinecraftServerProtocol`. Applications own concurrency, persistence, worlds, entities, and player behavior.
+Per-connection state belongs to `MinecraftServerConnection` and `MinecraftServerProtocol`. Application concurrency,
+players, worlds, persistence, and gameplay remain caller-owned.
 
-Do not read `server.properties` in this module. Keep protocol-visible server choices configurable through
-`MinecraftServerConfiguration`, and keep application-specific decisions in `MinecraftServerHandler`. Optional
-Fire-and-forget Configuration traffic belongs in `configurationPackets`; response-gated exchanges belong in ordered
-`configurationTasks`. Validate every task packet's state/direction, and continue dispatching client responses until each
-task and then Finish Configuration are acknowledged. Do not hardcode difficulty, game mode, abilities, Status behavior,
-transfer admission, resource-pack policy, or secure-chat claims.
+The module does not read `server.properties`. Protocol-visible choices belong in `MinecraftServerConfiguration`, and
+application decisions belong in `MinecraftServerHandler`. Fire-and-forget Configuration traffic uses
+`configurationPackets`; response-gated exchanges use ordered `configurationTasks`. Each task validates packet state and
+direction and continues dispatching client responses until the task and Finish Configuration are acknowledged.
 
-Portable in-process client/server scenarios belong in `commonTest` and run on every target whose standard test runtime
-supports Ktor sockets. Scenarios that require the matching external official client belong in the shared
-`hostProcessTest` source set on JVM, host desktop Native, and supported Node runtimes. They call the ordinary
-`minecraft-test-support` library with dummy offline credentials and a hash-verified launcher adapter. The test must
-prove initial chunks and entities are accepted, observe client acknowledgements and ticks, complete a bidirectional Play
-packet, keep all runtime files under build directories, and avoid launcher account credentials. GUI desktop-client
-testing is not part of the repository.
+Do not hardcode difficulty, game mode, abilities, Status behavior, transfer admission, resource-pack policy, or
+secure-chat claims.
+
+## Tests
+
+Portable in-process client/server behavior belongs in `commonTest`. The matching external official-client scenario also
+belongs in `commonTest` and uses dummy offline credentials through `minecraft-test-support`; the Fixture Host owns the
+verified HeadlessMC adapter, process, files, and logs. The scenario verifies initial world acceptance, client
+acknowledgements and ticks, and bidirectional Play traffic. GUI client and account-backed tests are outside the
+repository gate.
+
+Run `:protocol-server:jvmTest` after changes.

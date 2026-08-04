@@ -74,7 +74,7 @@ private fun Project.officialMinecraftAnalysis(name: String): Configuration {
 
 /**
  * Publishes the official codec oracle Java source from the
- * `:minecraft-test-support` module so the root project can consume it as
+ * owning fixture-host module so the root project can consume it as
  * an input to [CompileOfficialCodecOracleTask].
  */
 fun Project.publishCodecOracleSource() {

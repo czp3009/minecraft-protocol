@@ -1,24 +1,31 @@
 package com.hiczp.minecraft.protocol.buildScript
 
 import org.gradle.api.Project
+import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
+import org.gradle.api.file.RegularFile
+import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.Sync
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.jvm.toolchain.JavaToolchainService
 
-/**
- * Lazy, semantic fixture inputs consumed by standard host-process test tasks.
- */
+/** Lazy fixture inputs consumed by standard official-peer test tasks. */
 class OfficialMinecraftFixtureOutputs(
     val officialServer: FileCollection,
     val officialClient: FileCollection,
     val codecOracle: FileCollection,
+    val serverCacheDirectory: Provider<Directory>,
+    val clientCacheDirectory: Provider<Directory>,
+    val versionMetadataFile: Provider<RegularFile>,
+    val headlessLauncherFile: Provider<RegularFile>,
+    val serverRuntimeDirectory: Provider<Directory>,
+    val codecClassesDirectory: Provider<Directory>,
 )
 
 /**
  * Registers every official-Minecraft download task and analysis task on the
- * root project.  All dependency ordering is inferred by Gradle through
- * `@Input`/`@Output` + `TaskProvider.flatMap` — no explicit `dependsOn` is
- * needed on the download/preparation chain.
+ * root project. Gradle infers the download and preparation order from task
+ * inputs, outputs, and `TaskProvider.flatMap` provenance.
  */
 fun Project.applyOfficialDownloadsConvention(): OfficialMinecraftFixtureOutputs {
     val minecraftVersion = MinecraftTarget.MINECRAFT_VERSION
@@ -28,15 +35,24 @@ fun Project.applyOfficialDownloadsConvention(): OfficialMinecraftFixtureOutputs 
     val versionMetadataFile = versionRoot.map { it.file("version.json") }
     val serverDir = versionRoot.map { it.dir("mojang-server") }
     val serverJarFile = serverDir.map { it.file("server.jar") }
-    val serverMetadataF = serverDir.map { it.file("download-metadata.json") }
+    val serverMetadataFile = serverDir.map { it.file("download-metadata.json") }
+    val serverRuntimeDirectory = serverDir.map { it.dir("runtime") }
     val clientDir = versionRoot.map { it.dir("mojang-client") }
     val clientJarFile = clientDir.map { it.file("client.jar") }
     val clientLibrariesDir = clientDir.map { it.dir("libraries") }
     val clientAssetsIndexes = clientDir.map { it.dir("assets/indexes") }
-    val clientAssetsObj = clientDir.map { it.dir("assets/objects") }
+    val clientAssetObjectsDirectory = clientDir.map { it.dir("assets/objects") }
     val clientMetadataFile = clientDir.map { it.file("download-metadata.json") }
-    val headlessMcJarFile = versionRoot.map { it.dir("headlessmc") }
-        .map { it.file("headlessmc-launcher.jar") }
+    val headlessMcDirectory = versionRoot.map { it.dir("headlessmc") }
+    val headlessMcJarFile = headlessMcDirectory.map {
+        it.file("headlessmc-launcher.jar")
+    }
+    val headlessMcDummyOggFile = headlessMcDirectory.map { it.file("dummy.ogg") }
+    val headlessMcDummyPngFile = headlessMcDirectory.map { it.file("dummy.png") }
+    val headlessMcDummyJsonFile = headlessMcDirectory.map { it.file("dummy.json") }
+    val headlessMcClientVersionDirectory = clientDir.map {
+        it.dir("versions").dir(minecraftVersion)
+    }
     val analysisRoot = layout.buildDirectory.dir(
         "generated/official-minecraft/$minecraftVersion",
     )
@@ -57,7 +73,6 @@ fun Project.applyOfficialDownloadsConvention(): OfficialMinecraftFixtureOutputs 
         task.minecraftVersion.set(MinecraftTarget.MINECRAFT_VERSION)
     }
 
-    // ── layer 0: manifest ────────────────────────────────────────
     val downloadManifest = tasks.register(
         "downloadVersionManifest", DownloadVersionManifestTask::class.java,
     ) { task ->
@@ -69,7 +84,6 @@ fun Project.applyOfficialDownloadsConvention(): OfficialMinecraftFixtureOutputs 
         task.outputFile.set(versionManifestFile)
     }
 
-    // ── layer 1: version metadata (reads manifest) ──────────────
     val downloadMetadata = tasks.register(
         "downloadVersionMetadata", DownloadVersionMetadataTask::class.java,
     ) { task ->
@@ -82,7 +96,6 @@ fun Project.applyOfficialDownloadsConvention(): OfficialMinecraftFixtureOutputs 
     }
     val metadataOut = downloadMetadata.flatMap { it.outputFile }
 
-    // ── layer 2a: server (reads metadata) ───────────────────────
     val downloadServer = tasks.register(
         "downloadOfficialMinecraftServer",
         DownloadOfficialMinecraftServerTask::class.java,
@@ -92,50 +105,87 @@ fun Project.applyOfficialDownloadsConvention(): OfficialMinecraftFixtureOutputs 
         task.offline.set(gradle.startParameter.isOffline)
         task.versionMetadata.set(metadataOut)
         task.serverJar.set(serverJarFile)
-        task.metadataFile.set(serverMetadataF)
+        task.metadataFile.set(serverMetadataFile)
+    }
+    val prepareServer = tasks.register("prepareOfficialMinecraftServer") { task ->
+        task.group = "official minecraft"
+        task.description = "Prepare the official Minecraft server fixture."
+        task.dependsOn(downloadServer)
     }
 
-    // ── layer 2b: client (reads metadata) ────────────────────────
     val downloadClient = tasks.register(
         "downloadOfficialMinecraftClient",
         DownloadOfficialMinecraftClientTask::class.java,
     ) { task ->
         task.group = "official minecraft"
-        task.description = "Download client JAR, libraries, and asset index."
+        task.description = "Download the official client JAR."
         task.offline.set(gradle.startParameter.isOffline)
         task.minecraftVersion.set(MinecraftTarget.MINECRAFT_VERSION)
         task.metadataFile.set(metadataOut)
         task.clientJar.set(clientJarFile)
-        task.librariesDirectory.set(clientLibrariesDir)
-        task.assetIndexesDirectory.set(clientAssetsIndexes)
         task.downloadMetadataFile.set(clientMetadataFile)
     }
+    val downloadClientLibraries = tasks.register(
+        "downloadOfficialMinecraftClientLibraries",
+        DownloadOfficialMinecraftClientLibrariesTask::class.java,
+    ) { task ->
+        task.group = "official minecraft"
+        task.description = "Download the official client libraries."
+        task.offline.set(gradle.startParameter.isOffline)
+        task.minecraftVersion.set(MinecraftTarget.MINECRAFT_VERSION)
+        task.metadataFile.set(metadataOut)
+        task.librariesDirectory.set(clientLibrariesDir)
+    }
+    val downloadClientAssetIndex = tasks.register(
+        "downloadOfficialMinecraftAssetIndex",
+        DownloadOfficialMinecraftAssetIndexTask::class.java,
+    ) { task ->
+        task.group = "official minecraft"
+        task.description = "Download the official client asset index."
+        task.offline.set(gradle.startParameter.isOffline)
+        task.minecraftVersion.set(MinecraftTarget.MINECRAFT_VERSION)
+        task.metadataFile.set(metadataOut)
+        task.assetIndexesDirectory.set(clientAssetsIndexes)
+    }
 
-    // ── layer 2c: headlessmc (standalone, no metadata needed) ────
     val downloadHeadlessMc = tasks.register(
         "downloadHeadlessMc", DownloadHeadlessMcTask::class.java,
     ) { task ->
         task.group = "official minecraft"
         task.description = "Download the HeadlessMC launcher."
         task.offline.set(gradle.startParameter.isOffline)
-        task.minecraftVersion.set(MinecraftTarget.MINECRAFT_VERSION)
-        task.outputFile.set(headlessMcJarFile)
+        task.headlessMcVersion.set(HeadlessMcTarget.HEADLESS_MC_VERSION)
+        task.launcherFile.set(headlessMcJarFile)
+    }
+    val downloadHeadlessMcDummyFiles = tasks.register(
+        "downloadHeadlessMcDummyFiles",
+        DownloadHeadlessMcDummyFilesTask::class.java,
+    ) { task ->
+        task.group = "official minecraft"
+        task.description = "Download the HeadlessMC dummy files."
+        task.offline.set(gradle.startParameter.isOffline)
+        task.headlessMcVersion.set(HeadlessMcTarget.HEADLESS_MC_VERSION)
+        task.dummyOggFile.set(headlessMcDummyOggFile)
+        task.dummyPngFile.set(headlessMcDummyPngFile)
+        task.dummyJsonFile.set(headlessMcDummyJsonFile)
+    }
+    val prepareHeadlessMc = tasks.register("prepareHeadlessMc") { task ->
+        task.group = "official minecraft"
+        task.description = "Prepare the HeadlessMC launcher."
+        task.dependsOn(downloadHeadlessMc)
     }
 
-    // ── layer 3a: server runtime (reads server jar) ─────────────
     val extractRuntime = tasks.register(
         "extractOfficialServerRuntime",
         ExtractOfficialServerRuntimeTask::class.java,
     ) { task ->
         task.group = "official minecraft"
-        task.description =
-            "Extract the server implementation JAR and libraries."
-        task.serverJar.set(downloadServer.flatMap { it.serverJar })
-        task.outputDirectory.set(serverDir.map { it.dir("runtime") })
+        task.description = "Extract the server implementation JAR and libraries."
+        task.dependsOn(prepareServer)
+        task.serverJar.set(serverJarFile)
+        task.outputDirectory.set(serverRuntimeDirectory)
     }
 
-    // ── layer 4: codec oracle (reads runtime) ────────────────────
-    // Source published by :minecraft-test-support via consumable cfg.
     val codecOracleSourceCfg = configurations.create("codecOracleSource") {
         it.isCanBeConsumed = false
         it.isCanBeResolved = true
@@ -146,15 +196,14 @@ fun Project.applyOfficialDownloadsConvention(): OfficialMinecraftFixtureOutputs 
         "codecOracleSource",
         dependencies.project(
             mapOf(
-                "path" to ":minecraft-test-support",
+                "path" to ":minecraft-test-fixture-host",
                 "configuration" to "codecOracleSourceElements",
             ),
         ),
     )
-    val codecSourceFile = layout.file(codecOracleSourceCfg.elements.map {
-        it.single().asFile
-    })
+    val codecSourceFile = layout.file(codecOracleSourceCfg.elements.map { it.single().asFile })
     val codecOracleDir = versionRoot.map { it.dir("codec-oracle") }
+    val codecClassesDirectory = codecOracleDir.map { it.dir("classes") }
     val compileCodecOracle = tasks.register(
         "compileOfficialCodecOracle",
         CompileOfficialCodecOracleTask::class.java,
@@ -163,48 +212,72 @@ fun Project.applyOfficialDownloadsConvention(): OfficialMinecraftFixtureOutputs 
         task.description = "Compile the official codec bridge."
         task.sourceFile.set(codecSourceFile)
         task.runtimeDirectory.set(extractRuntime.flatMap { it.outputDirectory })
-        task.outputDirectory.set(codecOracleDir.map { it.dir("classes") })
+        task.outputDirectory.set(codecClassesDirectory)
+    }
+    val prepareCodecOracle = tasks.register(
+        "prepareOfficialMinecraftCodecOracle",
+    ) { task ->
+        task.group = "official minecraft"
+        task.description = "Prepare the official Minecraft codec oracle fixture."
+        task.dependsOn(compileCodecOracle)
     }
 
-    // ── layer 3b: assets (reads client asset index) ─────────────
     val downloadAssets = tasks.register(
         "downloadOfficialMinecraftAssets",
         DownloadOfficialMinecraftAssetsTask::class.java,
     ) { task ->
         task.group = "official minecraft"
-        task.description = "Download all official asset objects."
+        task.description = "Download the official client assets required beside HeadlessMC dummy files."
         task.offline.set(gradle.startParameter.isOffline)
-        task.assetIndexesDir.set(downloadClient.flatMap {
+        task.assetIndexesDirectory.set(downloadClientAssetIndex.flatMap {
             it.assetIndexesDirectory
         })
-        task.outputDirectory.set(clientAssetsObj)
+        task.dummyOggFile.set(downloadHeadlessMcDummyFiles.flatMap {
+            it.dummyOggFile
+        })
+        task.dummyPngFile.set(downloadHeadlessMcDummyFiles.flatMap {
+            it.dummyPngFile
+        })
+        task.dummyJsonFile.set(downloadHeadlessMcDummyFiles.flatMap {
+            it.dummyJsonFile
+        })
+        task.outputDirectory.set(clientAssetObjectsDirectory)
     }
-
-    // ── layer 3c: headlessmc layout (reads client jar + metadata)
-    val prepareHeadlessMc = tasks.register(
-        "prepareHeadlessMcClient",
-        PrepareHeadlessMcClientTask::class.java,
+    val createHeadlessMcClientLayout = tasks.register(
+        "createHeadlessMcClientLayout",
+        Sync::class.java,
     ) { task ->
         task.group = "official minecraft"
-        task.description =
-            "Prepare the HeadlessMC versions/ directory layout."
-        task.minecraftVersion.set(MinecraftTarget.MINECRAFT_VERSION)
-        task.clientJar.set(downloadClient.flatMap { it.clientJar })
-        task.versionMetadata.set(metadataOut)
-        task.outputDirectory.set(clientDir.map {
-            it.dir("versions").dir(minecraftVersion)
-        })
+        task.description = "Create the client version layout required by HeadlessMC."
+        task.from(downloadClient.flatMap { it.clientJar }) { copy ->
+            copy.rename { "$minecraftVersion.jar" }
+        }
+        task.from(metadataOut) { copy ->
+            copy.rename { "$minecraftVersion.json" }
+        }
+        task.into(headlessMcClientVersionDirectory)
+    }
+    val prepareClient = tasks.register("prepareOfficialMinecraftClient") { task ->
+        task.group = "official minecraft"
+        task.description = "Prepare the official Minecraft client fixture."
+        task.dependsOn(
+            downloadClient,
+            downloadClientLibraries,
+            downloadClientAssetIndex,
+            downloadAssets,
+            createHeadlessMcClientLayout,
+        )
     }
 
-    // ── analysis (reads server artifacts) ────────────────────────
     val analyzeTarget = tasks.register(
         "analyzeOfficialMinecraftTarget",
         AnalyzeOfficialMinecraftTargetTask::class.java,
     ) { task ->
         task.group = "official minecraft analysis"
         task.description = "Analyze version and protocol facts."
-        task.serverJar.set(downloadServer.flatMap { it.serverJar })
-        task.downloadMetadata.set(downloadServer.flatMap { it.metadataFile })
+        task.dependsOn(prepareServer)
+        task.serverJar.set(serverJarFile)
+        task.downloadMetadata.set(serverMetadataFile)
         task.outputFile.set(targetFile)
     }
 
@@ -214,11 +287,10 @@ fun Project.applyOfficialDownloadsConvention(): OfficialMinecraftFixtureOutputs 
     ) { task ->
         task.group = "official minecraft analysis"
         task.description = "Capture packets, registries, and blocks reports."
-        task.javaExecutable.set(projectJava.map {
-            it.executablePath.asFile.absolutePath
-        })
-        task.serverJar.set(downloadServer.flatMap { it.serverJar })
-        task.downloadMetadata.set(downloadServer.flatMap { it.metadataFile })
+        task.dependsOn(prepareServer)
+        task.javaExecutable.set(projectJava.map { it.executablePath.asFile.absolutePath })
+        task.serverJar.set(serverJarFile)
+        task.downloadMetadata.set(serverMetadataFile)
         task.outputDirectory.set(reportsDir)
     }
 
@@ -228,10 +300,9 @@ fun Project.applyOfficialDownloadsConvention(): OfficialMinecraftFixtureOutputs 
     ) { task ->
         task.group = "official minecraft analysis"
         task.description = "Capture Configuration Known Packs branches."
-        task.javaExecutable.set(projectJava.map {
-            it.executablePath.asFile.absolutePath
-        })
-        task.serverJar.set(downloadServer.flatMap { it.serverJar })
+        task.dependsOn(prepareServer)
+        task.javaExecutable.set(projectJava.map { it.executablePath.asFile.absolutePath })
+        task.serverJar.set(serverJarFile)
         task.packetsReport.set(analyzeReports.flatMap {
             it.outputDirectory.file("reports/packets.json")
         })
@@ -263,30 +334,33 @@ fun Project.applyOfficialDownloadsConvention(): OfficialMinecraftFixtureOutputs 
 
     val fixtureOutputs = OfficialMinecraftFixtureOutputs(
         officialServer = files(
-            downloadServer.flatMap { it.serverJar },
-            downloadServer.flatMap { it.metadataFile },
-        ),
+            serverJarFile,
+            serverMetadataFile,
+        ).builtBy(prepareServer),
         officialClient = files(
-            metadataOut,
-            downloadClient.flatMap { it.clientJar },
-            downloadClient.flatMap { it.librariesDirectory },
-            downloadClient.flatMap { it.assetIndexesDirectory },
-            downloadClient.flatMap { it.downloadMetadataFile },
-            downloadAssets.flatMap { it.outputDirectory },
-            downloadHeadlessMc.flatMap { it.outputFile },
-            prepareHeadlessMc.flatMap { it.outputDirectory },
-        ),
+            versionMetadataFile,
+            clientJarFile,
+            clientLibrariesDir,
+            clientAssetsIndexes,
+            clientMetadataFile,
+            headlessMcJarFile,
+            headlessMcClientVersionDirectory,
+            clientAssetObjectsDirectory,
+        ).builtBy(prepareClient, prepareHeadlessMc),
         codecOracle = files(
-            downloadServer.flatMap { it.serverJar },
-            downloadServer.flatMap { it.metadataFile },
-            extractRuntime.flatMap { it.outputDirectory },
-            compileCodecOracle.flatMap { it.outputDirectory },
-        ),
+            serverJarFile,
+            serverMetadataFile,
+            serverRuntimeDirectory,
+            codecClassesDirectory,
+        ).builtBy(prepareCodecOracle),
+        serverCacheDirectory = serverDir,
+        clientCacheDirectory = clientDir,
+        versionMetadataFile = versionMetadataFile,
+        headlessLauncherFile = headlessMcJarFile,
+        serverRuntimeDirectory = serverRuntimeDirectory,
+        codecClassesDirectory = codecClassesDirectory,
     )
-    extensions.add(
-        "officialMinecraftFixtureOutputs",
-        fixtureOutputs,
-    )
+    extensions.add("officialMinecraftFixtureOutputs", fixtureOutputs)
     return fixtureOutputs
 }
 

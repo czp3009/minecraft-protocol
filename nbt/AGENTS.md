@@ -1,12 +1,16 @@
-# NBT module guidance
+# nbt
 
-This file extends the repository `AGENTS.md`.
+This module owns named and unnamed binary NBT over `kotlinx.io.Source` and `Sink`. Packet integration and filesystem
+adapters remain in their owning modules.
 
-- Keep the public binary API centered on `kotlinx.io.Source` and `Sink`.
-- Match official Java modified UTF and named-root behavior.
-- Preserve every NBT tag without version-specific chunk semantics.
-- Apply limits before allocation and reject malformed or trailing byte-array input.
-- Keep packet and filesystem adapters outside this module.
+## Invariants
 
-Run `:nbt:jvmTest` while iterating. Shared NBT changes also require the protocol-serialization and world-storage JVM
-suites, followed by the applicable standard KMP `allTests` tasks.
+- Encoding matches the official named-root and Java modified-UTF behavior.
+- Every NBT tag is preserved without imposing version-specific chunk semantics.
+- Depth, allocation, string, and byte limits are applied before untrusted work.
+- Byte-array decoding rejects malformed and trailing input; stream decoding consumes exactly one value.
+
+## Verification
+
+Run `:nbt:jvmTest`. A binary behavior change also requires `:protocol-serialization:jvmTest`,
+`:world-format:jvmTest`, and `:world-io:jvmTest`.

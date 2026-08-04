@@ -16,5 +16,4 @@ val chunk = region[ChunkPosition(x, z).local]
 val document = chunk?.let { RegionChunkNbtFormat().decode(it) }
 ```
 
-The module does not open paths or impose a typed, version-specific chunk schema. Run
-`./gradlew :world-format:jvmTest` for its focused suite.
+The module does not open paths or impose a typed, version-specific chunk schema.

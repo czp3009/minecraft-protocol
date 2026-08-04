@@ -1,12 +1,17 @@
-# World format module guidance
+# world-format
 
-This file extends the repository `AGENTS.md`.
+This module owns filesystem-independent Anvil coordinates, region headers and sectors, compression dispatch, external
+chunk representation, and NBT composition.
 
-- Keep region container parsing independent of filesystems, decompression, and NBT decoding.
-- Derive sector, version, compression, and external-chunk behavior from the exact official server.
-- Preserve compressed bytes when callers only inspect or repack a region.
-- Reject overlaps, truncation, overflow, invalid versions, checksum failures, and decompression-limit violations.
-- Keep custom compression injectable and built-in machinery private.
+## Invariants
 
-Run `:world-format:jvmTest` while iterating and `:world-io:jvmTest` after a wire-format change; the latter includes
-official world interoperability. Finish with the applicable standard KMP `allTests` tasks.
+- Container parsing remains separate from filesystem access, decompression, and NBT decoding.
+- Callers can inspect or repack a region without inflating preserved compressed payloads.
+- Sector, version, compression, checksum, and external-chunk behavior match the selected official server.
+- Parsing rejects overlaps, truncation, overflow, invalid versions, checksum failures, and decompression-limit
+  violations.
+- Custom compression stays injectable through the public registry; built-in machinery remains private.
+
+## Verification
+
+Run `:world-format:jvmTest`. A region-wire change also requires `:world-io:jvmTest`.

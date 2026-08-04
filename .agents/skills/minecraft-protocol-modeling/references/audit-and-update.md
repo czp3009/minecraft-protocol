@@ -1,37 +1,43 @@
-# Audit and update procedure
+# Protocol audit and update checklist
 
-## Work-queue order
+Use this reference for a release-wide update or an exhaustive protocol audit. For a narrow change, select only the
+affected items and their downstream verification.
 
-1. selected official artifact and generated evidence;
-2. primitive format correctness and safety;
-3. shared leaf types and logical unions;
-4. packets in state/direction/ID order;
-5. registry/static/Configuration data;
-6. transport, session, auth, client, and server flows;
-7. official codec and server/client interoperability;
-8. broader KMP verification.
+## Work queue
 
-For a release change, refresh specification first and review its diff. KSP derives packet definitions from local
-annotations and checks their keys and names against the official packets report. It also derives data-component dispatch
-from model annotations. The one intentional non-report packet is the legacy server-list ping and remains explicitly
-modeled/tested.
+1. selected official artifact and generated target/report artifacts;
+2. primitive physical encodings, limits, and malformed input;
+3. shared values, logical variants, and constructor invariants;
+4. packets in connection-state, direction, and ID order;
+5. runtime packet and data-component dispatch;
+6. static vanilla data and both Configuration Known Packs branches;
+7. framing, compression, encryption, session transitions, and authentication;
+8. client and server orchestration through Play and reconfiguration;
+9. official codec, server, and headless-client interoperability;
+10. affected standard KMP platform tests.
 
-## Completeness checks
+## Completion evidence
 
-- every official report packet has one local annotated model and runtime registry entry;
-- every normal packet can encode/decode and has representative branch samples;
-- generated static and Configuration data match the selected official server;
-- official codec fixtures decode completely and re-encode acceptably through the JAR's real codecs;
-- malformed/truncated/oversized input is rejected before unbounded work;
-- Status, Login, Configuration, compression, Play, and relevant reconfiguration transitions are tested;
-- the production client reaches Play against the official server;
-- the matching official headless client accepts the production server's initial world;
-- official world generation/rewrite/reload passes when storage is affected;
-- generated source is absent from Git source directories but present in published source JARs;
-- runtime modules contain no generator entry points, process launchers, or other build/test scaffolding;
-- no Gradle task reads skills or `temp/`, and no vanilla subprocess leaves files outside `build/`;
-- affected JVM suites pass before the applicable standard platform tests or `allTests`.
+- Every official report packet has one annotated local model and one runtime registry entry, except the explicitly
+  modeled legacy unframed server-list ping.
+- Packet fields match official order, conditions, discriminators, primitive encodings, collection shapes, optional
+  shapes, and limits; representative branches encode and decode completely.
+- Malformed, truncated, oversized, and allocation-amplifying inputs fail at their owning boundary.
+- Generated static and Configuration data match the selected official server, including complete and Known-Pack-omitted
+  branches.
+- Status, Login, Configuration, compression, Play, and implemented reconfiguration transitions have deterministic tests.
+- The production client reaches Play against the official server, and the matching headless official client accepts the
+  production server's initial world and required acknowledgements.
+- OGG, PNG, and JSON are the complete fixed HeadlessMC placeholder formats. `DownloadHeadlessMcDummyFilesTask` downloads
+  and verifies the upstream OGG and PNG files and creates the JSON `{}` replacement;
+  `DownloadOfficialMinecraftAssetsTask`
+  substitutes those formats and retains verified official objects for every other format. Before changing
+  `HeadlessMcTarget.HEADLESS_MC_VERSION`, inspect the matching upstream `DummyAssets` implementation and update the
+  placeholder set, source paths, expected sizes, digests, or generated JSON bytes when its behavior differs, then rerun
+  official headless-client interoperability.
+- Official codec fixtures pass through the real official runtime rather than a copied implementation.
+- Generated source is absent from Git source directories and present in the owning publication output.
+- Runtime modules contain no generator entry point, process launcher, or fixture implementation.
+- Every affected focused JVM suite passes before the applicable platform aggregate.
 
-Audit-only requests report concrete gaps and evidence without writing. Update requests continue through implementation
-and verification. Do not declare completion from counts, self-round-trips, stale reports, or one end-to-end result
-alone.
+When storage modules are affected, include the world-storage workflow and its official generate/rewrite/reload gate.

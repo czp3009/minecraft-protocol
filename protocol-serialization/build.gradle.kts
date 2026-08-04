@@ -1,5 +1,5 @@
 import com.hiczp.minecraft.protocol.buildScript.BuildVersions
-import com.hiczp.minecraft.protocol.buildScript.createHostProcessTestSourceSet
+import com.hiczp.minecraft.protocol.buildScript.useMinecraftTestFixtures
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -12,7 +12,6 @@ plugins {
 @OptIn(ExperimentalWasmDsl::class)
 kotlin {
     jvmToolchain(BuildVersions.JAVA_VERSION)
-    applyDefaultHierarchyTemplate()
 
     jvm()
 
@@ -32,11 +31,6 @@ kotlin {
 
     tvosSimulatorArm64()
     tvosArm64()
-
-    androidNativeArm32()
-    androidNativeArm64()
-    androidNativeX64()
-    androidNativeX86()
 
     android {
         namespace = "com.hiczp.minecraft.protocol.serialization"
@@ -63,14 +57,10 @@ kotlin {
         nodejs()
     }
 
-    createHostProcessTestSourceSet(
+    useMinecraftTestFixtures(
         requiresOfficialServer = true,
         requiresCodecOracle = true,
-    ) {
-        dependencies {
-            implementation(project(":protocol-transport"))
-        }
-    }
+    )
 
     sourceSets {
         commonMain {
@@ -83,12 +73,30 @@ kotlin {
 
         commonTest.dependencies {
             implementation(kotlin("test"))
+            implementation(project(":minecraft-test-support"))
             implementation(libs.kotlinx.coroutines.test)
-        }
-
-        jvmTest.dependencies {
             implementation(libs.kotlinx.serialization.json)
         }
 
+        jvmTest.dependencies {
+            implementation(project(":protocol-transport"))
+        }
+        named("androidHostTest") {
+            dependencies {
+                implementation(project(":protocol-transport"))
+            }
+        }
+        nativeTest.dependencies {
+            implementation(project(":protocol-transport"))
+        }
+        wasmJsTest.dependencies {
+            implementation(project(":protocol-transport"))
+        }
+    }
+}
+
+tasks.withType(AbstractTestTask::class.java).configureEach {
+    if (name == "jsNodeTest") {
+        filter.excludeTestsMatching("*OfficialServerInteropTest*")
     }
 }

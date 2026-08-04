@@ -1,0 +1,313 @@
+package com.hiczp.minecraft.protocol.buildScript
+
+import org.gradle.api.Project
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.FileCollection
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.provider.Provider
+import org.gradle.api.services.BuildService
+import org.gradle.api.services.BuildServiceParameters
+import org.gradle.api.tasks.Sync
+import org.gradle.build.event.BuildEventsListenerRegistry
+import org.gradle.tooling.events.FinishEvent
+import org.gradle.tooling.events.OperationCompletionListener
+import org.gradle.tooling.events.task.TaskFinishEvent
+import java.io.BufferedWriter
+import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import javax.inject.Inject
+
+data class MinecraftTestFixtureConnection(
+    val rpcUrl: String,
+    val ownerId: String,
+)
+
+abstract class MinecraftTestFixtureService :
+    BuildService<MinecraftTestFixtureService.Parameters>,
+    OperationCompletionListener,
+    AutoCloseable {
+    interface Parameters : BuildServiceParameters {
+        val hostClasspathDirectory: DirectoryProperty
+        val hostWorkingDirectory: DirectoryProperty
+        val minecraftVersion: Property<String>
+        val serverCacheDirectory: DirectoryProperty
+        val clientCacheDirectory: DirectoryProperty
+        val versionMetadataFile: RegularFileProperty
+        val headlessLauncherFile: RegularFileProperty
+        val serverRuntimeDirectory: DirectoryProperty
+        val codecClassesDirectory: DirectoryProperty
+        val fixtureWorkRoot: DirectoryProperty
+    }
+
+    private val lock = Any()
+    private val ownersByTask = mutableMapOf<String, String>()
+    private var host: RunningFixtureHost? = null
+
+    fun connectionFor(taskPath: String): MinecraftTestFixtureConnection =
+        synchronized(lock) {
+            val runningHost = host ?: startHost().also { host = it }
+            val owner = ownersByTask.getOrPut(taskPath, ::newOwnerId)
+            MinecraftTestFixtureConnection(
+                rpcUrl = runningHost.rpcUrl,
+                ownerId = owner,
+            )
+        }
+
+    override fun onFinish(finishEvent: FinishEvent) {
+        val task = finishEvent as? TaskFinishEvent ?: return
+        val ownerAndHost = synchronized(lock) {
+            val owner = ownersByTask.remove(task.descriptor.taskPath) ?: return
+            owner to host
+        }
+        ownerAndHost.second?.closeOwner(ownerAndHost.first)
+    }
+
+    override fun close() {
+        val runningHost = synchronized(lock) {
+            ownersByTask.clear()
+            host.also { host = null }
+        }
+        runningHost?.close()
+    }
+
+    private fun startHost(): RunningFixtureHost {
+        val classpath = parameters.hostClasspathDirectory.get().asFile
+            .walkTopDown()
+            .filter(File::isFile)
+            .sortedBy(File::getAbsolutePath)
+            .joinToString(File.pathSeparator, transform = File::getAbsolutePath)
+        check(classpath.isNotEmpty()) {
+            "Minecraft test fixture host classpath is empty"
+        }
+        val process = ProcessBuilder(
+            javaExecutable(),
+            "-cp",
+            classpath,
+            FIXTURE_HOST_MAIN_CLASS,
+            parameters.minecraftVersion.get(),
+            parameters.serverCacheDirectory.get().asFile.absolutePath,
+            parameters.clientCacheDirectory.get().asFile.absolutePath,
+            parameters.versionMetadataFile.get().asFile.absolutePath,
+            parameters.headlessLauncherFile.get().asFile.absolutePath,
+            parameters.serverRuntimeDirectory.get().asFile.absolutePath,
+            parameters.codecClassesDirectory.get().asFile.absolutePath,
+            parameters.fixtureWorkRoot.get().asFile.absolutePath,
+        )
+            .directory(parameters.hostWorkingDirectory.get().asFile)
+            .redirectErrorStream(true)
+            .start()
+        val input = process.outputStream.bufferedWriter()
+
+        val ready = CountDownLatch(1)
+        val output = BoundedOutput(HOST_LOG_LIMIT)
+        var rpcUrl: String? = null
+        Thread({
+            process.inputStream.bufferedReader().useLines { lines ->
+                lines.forEach { line ->
+                    output.append(line)
+                    if (line.startsWith(READY_PREFIX)) {
+                        rpcUrl = line.removePrefix(READY_PREFIX).takeIf(String::isNotBlank)
+                        ready.countDown()
+                    }
+                }
+            }
+            ready.countDown()
+        }, "minecraft-test-fixture-host-output").apply {
+            isDaemon = true
+            start()
+        }
+
+        if (!ready.await(HOST_START_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            process.destroyForcibly()
+            error("Minecraft test fixture host did not become ready within $HOST_START_TIMEOUT_SECONDS seconds:\n${output.text()}")
+        }
+        val resolvedRpcUrl = rpcUrl
+        if (resolvedRpcUrl == null || !process.isAlive) {
+            process.destroyForcibly()
+            error("Minecraft test fixture host exited before becoming ready:\n${output.text()}")
+        }
+        return RunningFixtureHost(
+            process = process,
+            input = input,
+            output = output,
+            rpcUrl = resolvedRpcUrl,
+        )
+    }
+}
+
+class MinecraftTestFixtureInfrastructure(
+    val service: Provider<MinecraftTestFixtureService>,
+    val hostClasspath: FileCollection,
+)
+
+fun Project.applyMinecraftTestFixtureServiceConvention(
+    fixtureOutputs: OfficialMinecraftFixtureOutputs,
+): MinecraftTestFixtureInfrastructure {
+    check(this == rootProject) {
+        "Minecraft test fixture service must be registered on the root project"
+    }
+    val hostRuntime = configurations.create("minecraftTestFixtureHostRuntime") {
+        it.isCanBeConsumed = false
+        it.isCanBeResolved = true
+        it.isTransitive = true
+        it.description = "Runtime classpath for the JVM Minecraft test fixture host"
+    }
+    dependencies.add(
+        hostRuntime.name,
+        dependencies.project(
+            mapOf(
+                "path" to MINECRAFT_TEST_FIXTURE_HOST_PROJECT,
+                "configuration" to "jvmRuntimeElements",
+            ),
+        ),
+    )
+    val hostRuntimeDirectory = layout.buildDirectory.dir("minecraft-test-support/fixture-host-runtime")
+    val prepareHostRuntime = tasks.register(
+        "prepareMinecraftTestFixtureHostRuntime",
+        Sync::class.java,
+    ) { task ->
+        task.group = "verification"
+        task.description = "Prepare the JVM Minecraft test fixture host runtime."
+        task.from(hostRuntime)
+        task.into(hostRuntimeDirectory)
+    }
+    val preparedHostRuntime = files(hostRuntimeDirectory).apply {
+        builtBy(prepareHostRuntime)
+    }
+    val service = gradle.sharedServices.registerIfAbsent(
+        "minecraftTestFixtureService",
+        MinecraftTestFixtureService::class.java,
+    ) { registration ->
+        registration.parameters.hostClasspathDirectory.set(
+            hostRuntimeDirectory,
+        )
+        registration.parameters.hostWorkingDirectory.set(
+            layout.projectDirectory,
+        )
+        registration.parameters.minecraftVersion.set(
+            MinecraftTarget.MINECRAFT_VERSION,
+        )
+        registration.parameters.serverCacheDirectory.set(
+            fixtureOutputs.serverCacheDirectory,
+        )
+        registration.parameters.clientCacheDirectory.set(
+            fixtureOutputs.clientCacheDirectory,
+        )
+        registration.parameters.versionMetadataFile.set(
+            fixtureOutputs.versionMetadataFile,
+        )
+        registration.parameters.headlessLauncherFile.set(
+            fixtureOutputs.headlessLauncherFile,
+        )
+        registration.parameters.serverRuntimeDirectory.set(
+            fixtureOutputs.serverRuntimeDirectory,
+        )
+        registration.parameters.codecClassesDirectory.set(
+            fixtureOutputs.codecClassesDirectory,
+        )
+        registration.parameters.fixtureWorkRoot.set(
+            layout.buildDirectory.dir("minecraft-test-support"),
+        )
+    }
+    objects.newInstance(MinecraftTestFixtureEventRegistrar::class.java)
+        .register(service)
+    val infrastructure = MinecraftTestFixtureInfrastructure(
+        service = service,
+        hostClasspath = preparedHostRuntime,
+    )
+    extensions.add("minecraftTestFixtureInfrastructure", infrastructure)
+    return infrastructure
+}
+
+private abstract class MinecraftTestFixtureEventRegistrar @Inject constructor(
+    private val events: BuildEventsListenerRegistry,
+) {
+    fun register(service: Provider<MinecraftTestFixtureService>) {
+        events.onTaskCompletion(service)
+    }
+}
+
+private class RunningFixtureHost(
+    private val process: Process,
+    private val input: BufferedWriter,
+    private val output: BoundedOutput,
+    val rpcUrl: String,
+) : AutoCloseable {
+    fun closeOwner(owner: String) {
+        if (!process.isAlive) return
+        runCatching {
+            writeCommand("$CLOSE_OWNER_COMMAND_PREFIX$owner")
+        }
+    }
+
+    override fun close() {
+        if (!process.isAlive) return
+        runCatching {
+            synchronized(input) {
+                input.write(SHUTDOWN_COMMAND)
+                input.newLine()
+                input.close()
+            }
+        }
+        if (!process.waitFor(HOST_STOP_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            process.destroy()
+        }
+        if (!process.waitFor(HOST_DESTROY_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            process.destroyForcibly()
+        }
+        check(process.waitFor(HOST_DESTROY_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            "Minecraft test fixture host did not exit:\n${output.text()}"
+        }
+    }
+
+    private fun writeCommand(command: String) {
+        synchronized(input) {
+            input.write(command)
+            input.newLine()
+            input.flush()
+        }
+    }
+}
+
+private class BoundedOutput(
+    private val maximumCharacters: Int,
+) {
+    private val content = StringBuilder()
+
+    @Synchronized
+    fun append(line: String) {
+        content.append(line).append('\n')
+        if (content.length > maximumCharacters) {
+            content.delete(0, content.length - maximumCharacters)
+        }
+    }
+
+    @Synchronized
+    fun text(): String = content.toString()
+}
+
+private fun newOwnerId(): String = java.util.UUID.randomUUID().toString()
+
+private fun javaExecutable(): String {
+    val executable = if (System.getProperty("os.name").startsWith("Windows")) {
+        "java.exe"
+    } else {
+        "java"
+    }
+    return File(System.getProperty("java.home"), "bin/$executable").absolutePath
+}
+
+internal const val FIXTURE_RPC_URL_ENV = "MINECRAFT_TEST_FIXTURE_RPC_URL"
+internal const val FIXTURE_OWNER_ENV = "MINECRAFT_TEST_FIXTURE_OWNER"
+
+private const val FIXTURE_HOST_MAIN_CLASS = "com.hiczp.minecraft.test.MinecraftTestFixtureHostKt"
+private const val MINECRAFT_TEST_FIXTURE_HOST_PROJECT = ":minecraft-test-fixture-host"
+private const val READY_PREFIX = "MINECRAFT_TEST_FIXTURE_READY "
+private const val HOST_LOG_LIMIT = 200_000
+private const val HOST_START_TIMEOUT_SECONDS = 30L
+private const val HOST_STOP_TIMEOUT_SECONDS = 15L
+private const val HOST_DESTROY_TIMEOUT_SECONDS = 5L
+private const val SHUTDOWN_COMMAND = "shutdown"
+private const val CLOSE_OWNER_COMMAND_PREFIX = "close-owner "

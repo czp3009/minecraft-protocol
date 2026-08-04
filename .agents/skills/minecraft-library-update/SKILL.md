@@ -1,76 +1,46 @@
 ---
 name: minecraft-library-update
-description: Top-level closed-loop orchestrator for updating and verifying this repository's complete Kotlin Multiplatform Minecraft library for the latest stable or explicitly selected release. Use when a Minecraft release changes, when all protocol and world-storage modules must be refreshed together, or when a complete freshness and interoperability audit is requested.
+description: Coordinate a complete update or audit of this repository's Kotlin Multiplatform Minecraft protocol and world-storage modules for the repository-selected or explicitly selected release. Use when one Minecraft release change spans both domains or when complete library freshness and interoperability must be established.
 ---
 
-# Minecraft Library Update
+# Minecraft library update
 
-Coordinate the network-protocol and world-storage workflows with one target, then finish with whole-library
-verification.
+Execute the same release-wide development path available to a human through repository source, `AGENTS.md`, and standard
+Gradle tasks. This skill only coordinates the two domain workflows; it introduces no project input or alternate gate.
 
-This is optional agent orchestration over the same Gradle workflow documented for humans. It is not a project input;
-Gradle and production code must remain fully functional if this skill and all other agent files are removed.
+## Load the domain workflows
 
-## Command interface
+Read these skills completely, including every reference they require:
 
-Invoke this skill with one of:
+1. `../minecraft-protocol-modeling/SKILL.md`
+2. `../minecraft-world-storage/SKILL.md`
 
-```text
-$minecraft-library-update
-$minecraft-library-update <minecraft-release>
-$minecraft-library-update protocol:<decimal-id>
-```
+Read the root `AGENTS.md` before editing. Module `AGENTS.md` files remain authoritative for local implementation rules.
 
-Accept zero or one release argument. Zero arguments retain `MinecraftTarget.MINECRAFT_VERSION`; an explicit release
-changes that single buildSrc constant. Reject protocol-ID selectors, malformed releases, and extra arguments.
+## Select one release
 
-## Required sub-workflows
+Apply the target-selection rule in root `AGENTS.md` once and confirm the result with `./gradlew -q minecraftVersion`.
+Both domain workflows use that same release and the same Gradle-produced artifacts for the entire invocation. An
+explicit release change is followed by `./gradlew officialMinecraftAnalysis` before target-specific modeling.
 
-Before acting, read these files and every reference they require completely:
+## Coordinate the update
 
-1. `../minecraft-protocol-modeling/SKILL.md`;
-2. `../minecraft-world-storage/SKILL.md`;
-3. [references/orchestration.md](references/orchestration.md).
+1. Inspect the current source, build wiring, generated analysis, tests, and worktree before building a work queue.
+2. Order cross-domain changes as build preparation, shared compression/NBT values, binary NBT, packet serialization and
+   vanilla data, transport/session/auth/client/server, Anvil containers, filesystem paths, and interoperability.
+3. Apply the protocol-modeling workflow and its affected standard JVM tests.
+4. Apply the world-storage workflow and its affected standard JVM tests. Changes to shared compression or NBT run both
+   domains' dependent suites.
+5. Resolve every lower-layer failure before relying on an end-to-end result.
+6. After the JVM path is stable, run the applicable standard platform tests and `./gradlew allTests`.
 
-Treat this as update mode unless the user explicitly asks for a read-only audit. Preserve unrelated user changes.
+Read-only audit mode applies only when the user explicitly requests an audit without changes. Update mode continues
+through implementation and verification until the applicable standard gates pass or a genuine external prerequisite
+requires user action.
 
-## Orchestration
+## Report
 
-1. Select the target once in `MinecraftTarget.MINECRAFT_VERSION` and run `officialMinecraftAnalysis`.
-2. Execute the `minecraft-protocol-modeling` workflow through its affected JVM suites.
-3. Execute the `minecraft-world-storage` workflow against the same official artifact through `:world-io:jvmTest`.
-4. Reuse the same generated analysis and verified artifacts; never select another target mid-invocation.
-5. Resolve cross-module effects in dependency order. Shared NBT changes require both workflows' lower-level and
-   interoperability gates.
-6. Run:
-
-   ```shell
-   ./gradlew allTests
-   ```
-
-7. Confirm the standard aggregate ran official codec/server/headless-client/world tests through their standard platform
-   test tasks.
-
-Do not replace a failed lower layer with a successful end-to-end test. Continue until every applicable deterministic
-gate passes or a genuine external prerequisite requires user action.
-
-## Workspace and evidence
-
-Gradle owns downloaded artifacts, generated source, worlds, reports, and tests under `build/`. Human/agent decompilation
-and third-party reference checkouts are exceptional scratch under `temp/`, never Gradle inputs. Leave
-`.gitignore` unchanged.
-
-Keep target-dependent facts in generated official-analysis state and reports under `build/`. Skill prose contains only
-stable workflow and architecture rules.
-
-The matching official JAR is the primary source and final behavioral authority; the Wiki is secondary, followed by
-exact-version MCProtocolLib and Minestom. The final report identifies the selected target from generated state, passed
-gates, source disagreements, nullable uncertainty, unsupported platforms, custom-extension limits, and any genuine
-external prerequisite.
-
-## Self-correction
-
-If either sub-workflow exposes a repeatable process defect, patch the owning skill or Gradle task, validate every
-changed skill with the skill-creator
-`quick_validate.py`, forward-test the change, and resume the same invocation. Do not preserve orchestration fixes only
-in conversation.
+Report the selected release, changed owning layers, standard tasks run in the current worktree, official
+interoperability results, source disagreements, unresolved nullability or format evidence, unsupported platform
+capabilities, and any external prerequisite. Historical reports and one successful end-to-end test do not establish
+completion.

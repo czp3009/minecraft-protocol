@@ -1,33 +1,23 @@
-# Minecraft test-support guidance
+# minecraft-test-support
 
-This module inherits the repository guidance.
+This module is the only official-peer test dependency consumed by subprojects. Its production surface is limited to the
+KMP kotlinx.rpc contract, Ktor client, serializable models, remote server/client handles, and structured-use helpers.
 
-- Expose ordinary Kotlin Multiplatform library APIs called directly by standard test source sets. Keep external-process
-  support on JVM, desktop Native, and Node runtimes; do not fake process support on mobile devices or browsers.
-- Consume only immutable official artifacts prepared and verified by the root Gradle download tasks. Test runtime code
-  validates those local inputs but never downloads, refreshes, or repairs them and never relies on system properties for
-  fixture paths.
-- Manage external Minecraft and launcher processes as test resources. Never turn this library into a CLI application.
-- Prefer a launcher's supported in-process mode so the resource directly owns the actual peer process. Do not discover
-  descendants by polling the operating-system process table or maintain a global PID registry; retain each process
-  object created by the resource and make cleanup idempotent.
-- Resource objects own artifact preparation, an atomically unique work directory, configuration, process lifecycle,
-  bounded logs, readiness, final endpoint, and cleanup. Expose the endpoint only after readiness succeeds.
-- Determine official-server readiness through a complete network status-response and pong exchange while monitoring
-  process exit; startup log text may locate the lifecycle phase but is not itself a ready endpoint.
-- Share only immutable verified downloads implicitly. Callers may deliberately share one resource through ordinary test
-  lifecycle scope, but the library never pools running processes by configuration; retry official-server bind failures
-  rather than exposing a guessed port.
-- `MinecraftTestSupport` owns the executable-wide cleanup scope and resource registry. Each resource has one
-  `official-{server,client}/<version>/<UUID>` directory, implements `AutoCloseable`, makes `close()` idempotent and
-  non-blocking, and completes process/directory cleanup asynchronously with shutdown cleanup as a best-effort fallback.
-- Keep portable network scenarios and assertions in the consuming module's `commonTest`; capability-gated test entry
-  points live in the shared `hostProcessTest` source set used by JVM, host desktop Native, and Node targets. The
-  official
-  peer being a JAR is not a reason to make otherwise portable protocol logic JVM-specific.
-- Keep module-specific protocol assertions in the consuming module's tests.
-- Keep shared caches and all test work under repository or module `build/`
-  directories.
-- The repository root is identified at runtime by the committed `.minecraft-protocol-root`
-  marker file. Runtime directories (runtimes, reports, temporary files) are created under
-  `<repositoryRoot>/build/minecraft-test-support/` and are isolated by UUID.
+## Remote boundary
+
+- Official fixtures are always remote. Status, logs, commands, event waits, reports, codec verification, and world
+  snapshots cross the API as suspend operations.
+- Host paths, process objects, official-artifact discovery, Gradle types, launchers, report writers, and host-filesystem
+  implementations do not belong in this module.
+- The generated kRPC client uses Ktor WebSocket and JSON. This module has no hand-written request routing, downloader,
+  process abstraction, or reconnect protocol.
+- `close()` is idempotent and returns after the host accepts asynchronous cleanup. `useRemote` is the structured-use
+  helper; task-owner and Build Service cleanup are host-side fallbacks.
+
+Fixture entry points and scenarios belong in each consumer's `commonTest`. A standard platform test source set contains
+only an unavoidable replaceable implementation. Unsupported devices and runtimes do not receive fake reachability. A
+world snapshot crosses RPC as a map of relative paths to file contents; the `world-io` client materializes it in a
+self-owned system temporary directory that has no relationship to a Fixture Host path. Ordinary protocol tests stay
+filesystem-free.
+
+Run `:minecraft-test-support:jvmTest` after contract or client changes.

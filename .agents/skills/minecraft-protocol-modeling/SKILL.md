@@ -1,97 +1,46 @@
 ---
 name: minecraft-protocol-modeling
-description: Closed-loop workflow for updating, implementing, testing, and auditing this repository's Kotlin Multiplatform Minecraft Java Edition protocol stack against the single official release selected in buildSrc. Use for release upgrades, packet/type/registry/vanilla-data work, MinecraftFormat, transport, session, auth, client/server APIs, interoperability, or completeness audits.
+description: Update, implement, test, or audit this repository's Kotlin Multiplatform Minecraft Java Edition protocol stack against its selected official release. Use for release changes, packets and shared types, MinecraftFormat and registries, vanilla Configuration data, transport, sessions, authentication, client/server APIs, protocol interoperability, or completeness audits.
 ---
 
 # Minecraft protocol modeling
 
-Align the complete protocol stack with the exact official server selected by
-`MinecraftTarget.MINECRAFT_VERSION`. This skill is an optional development playbook, never a project input. Removing
-`.agents`
-must not affect Gradle, compilation, tests, publication, or runtime behavior.
+Execute the protocol development path defined by repository source, `AGENTS.md`, and standard Gradle tasks. The skill
+coordinates investigation and implementation; it does not replace generators, tests, or the task graph.
 
-## Start every invocation
+## Establish current state
 
-Read all four references before acting:
+1. Read the root `AGENTS.md` and every affected module's nearest `AGENTS.md`.
+2. Read [references/audit-and-update.md](references/audit-and-update.md).
+3. Inspect the worktree, current source annotations and tests, build wiring, and available generated analysis before
+   deciding what is missing.
+4. Apply the root guide's target-selection rule and confirm the selected release before reading release-specific
+   evidence.
 
-- [references/modeling-rules.md](references/modeling-rules.md)
-- [references/audit-and-update.md](references/audit-and-update.md)
-- [references/gradle-workflow.md](references/gradle-workflow.md)
-- [references/implementation-state.md](references/implementation-state.md)
+A protocol number discovered in evidence is not authorization to select a different Minecraft release. An explicit
+release change is followed by `./gradlew officialMinecraftAnalysis` before target-specific modeling.
 
-Then read the root and nearest module `AGENTS.md`, preserve unrelated changes, and discover current state exactly as
-described in `implementation-state.md`.
+## Execute the human development loop
 
-## Target selection
+1. Build a dependency-ordered work queue from the concrete request and the completeness checklist.
+2. Inspect the matching Gradle-produced reports and executable official behavior using the evidence order in root
+   `AGENTS.md`. Use manual decompilation or exact-version secondary sources only when higher evidence is insufficient.
+3. Implement each conclusion in the owning runtime, build, processor, or test layer defined by the applicable
+   `AGENTS.md`.
+4. Add or update standard tests at every affected layer, including invalid and boundary behavior where relevant.
+5. Run the narrowest affected JVM test tasks after each coherent batch. Do not substitute an interoperability result for
+   lower-layer tests.
+6. Repeat the inventory after implementation so newly exposed gaps enter the same queue.
+7. After the JVM path is stable, run the applicable standard platform tasks or `./gradlew allTests`.
 
-The one target variable is `MinecraftTarget.MINECRAFT_VERSION` in
-`buildSrc/src/main/kotlin/com/hiczp/minecraft/protocol/buildScript/MinecraftTarget.kt`.
+Use only the existing Gradle producers and standard test tasks. Optional manual evidence stays within the `temp/`
+boundary defined by root `AGENTS.md`.
 
-- With no explicit user-selected release, keep that value and print it with `./gradlew -q minecraftVersion`.
-- When the user explicitly requests another release, change only that constant, then run `officialMinecraftAnalysis`.
-- Never add a Gradle property, Wiki-derived default, protocol-ID selector, or second version constant.
-- Java policy remains independent of Minecraft. Keep the deliberately uniform Gradle toolchain and bytecode target at
-  25; this is a convenience policy, not an intrinsic Java 25 API requirement. External official processes may use any
-  `java` major version of 25 or newer from `PATH`; never pin a minor or patch release or infer the project toolchain
-  from Mojang metadata.
+An explicit read-only audit reports concrete gaps without writing. Every other invocation implements and verifies gaps
+within the requested scope before reporting completion.
 
-## Automation boundary
+## Report
 
-Use Gradle for deterministic project work:
-
-- verified official artifact acquisition;
-- official target, data-generator-report, and Configuration analysis under
-  `build/generated/official-minecraft/<version>/`;
-- non-source-driven protocol constants, static vanilla data, and Configuration payload generation through cacheable task
-  types in `buildSrc`;
-- source-derived packet and data-component dispatch generation through KSP;
-- official codec/server/headless-client/world tests through standard KMP test tasks;
-- compilation, publication source JARs, and final verification.
-
-Do not hand-edit generated Kotlin or transcribe generated data into source. Do not add separate layer, audit, or
-interoperability test tasks: test logic belongs in `commonTest`, `jvmTest`, or another standard test source set. Do not
-regenerate deterministic output merely to compare it with itself or checked-in evidence. Each preparation task validates
-its own work, and Gradle owns reuse through declared inputs, outputs, implementation, and dependencies.
-
-Use agent judgment for semantic work a deterministic program cannot perform: interpreting codec control flow,
-nullability, invariants, conditional shapes, Wiki prose, and exact-version third-party disagreements; then encode the
-conclusion in idiomatic source and tests.
-
-Wiki/MCProtocolLib/Minestom acquisition and human-oriented decompilation are skill/manual work, not Gradle tasks. Put
-invocation-only clones, decompiled trees, and notes under repository `temp/`. Treat `temp/` as exceptional scratch, not
-a routine pipeline. If semantic analysis requires a decompiler and none is installed, stop and tell the user which tool
-is missing; do not install one silently or add a Gradle decompilation task.
-
-## Evidence order
-
-1. matching official server JAR, its reports, and executable codecs;
-2. revision-matched Minecraft Wiki;
-3. exact-version MCProtocolLib;
-4. exact-version Minestom.
-
-Clear official behavior wins. Deterministic official-analysis data stays under `build/`; semantic judgments belong in
-code, tests, and public documentation, not a hand-maintained ledger.
-
-## Execution contract
-
-An ordinary invocation is update mode: identify gaps, implement them, add tests, and continue until completion gates
-pass. Use read-only audit mode only when explicitly requested.
-
-For each dependency-ordered batch:
-
-1. inspect the official report/codec and, only when needed, manually inspect decompiled official code under `temp/`;
-2. consult secondary evidence for facts the JAR does not expose;
-3. update format-neutral models, physical serialization, and higher protocol layers in their owning modules;
-4. add focused standard tests, including malformed input and official differentials where relevant;
-5. run affected `jvmTest` tasks;
-6. repeat until the JVM and official interoperability path is stable.
-
-Finish by running the required official analysis and generated-source tasks through their normal consumers, then the
-applicable standard platform tests or the KMP `allTests` selector. Do not start with Native compilation; Windows, Linux,
-and macOS are peers, and the current host is only the place this invocation happens to run.
-
-## Self-correction
-
-When the workflow itself proves stale or flaky, fix the narrowest project task, skill reference, or skill script,
-forward-test the fix, and resume the same work queue. Stable workflow knowledge must be written here or in the owning
-`AGENTS.md`; changing release facts must remain generated build analysis.
+Report concrete source changes, evidence that determined non-obvious modeling decisions, standard tasks run in the
+current worktree, interoperability results, unresolved evidence, and unsupported platform capabilities. Counts,
+self-round-trips, stale reports, and remembered release facts are not completion evidence.

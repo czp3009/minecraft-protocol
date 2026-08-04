@@ -8,5 +8,4 @@ Authentication support for Minecraft Java Edition.
 - Encryption Request/Response helpers behind a portable cryptography interface.
 - A JVM JCA implementation for RSA-1024, PKCS#1 v1.5, and secure random bytes.
 
-The session service accepts an application-owned Ktor `HttpClient`; tests use a mock engine and never require a
-Minecraft account.
+The session service accepts an application-owned Ktor `HttpClient`.

@@ -16,5 +16,3 @@ val document = NbtDocument(
 val bytes = NbtBinaryFormat.encodeDocumentToByteArray(document)
 val decoded = NbtBinaryFormat.decodeDocumentFromByteArray(bytes)
 ```
-
-Run `./gradlew :nbt:jvmTest` for the focused suite.

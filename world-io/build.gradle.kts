@@ -1,5 +1,5 @@
 import com.hiczp.minecraft.protocol.buildScript.BuildVersions
-import com.hiczp.minecraft.protocol.buildScript.createHostProcessTestSourceSet
+import com.hiczp.minecraft.protocol.buildScript.useMinecraftTestFixtures
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -9,7 +9,6 @@ plugins {
 
 kotlin {
     jvmToolchain(BuildVersions.JAVA_VERSION)
-    applyDefaultHierarchyTemplate()
 
     jvm()
 
@@ -30,11 +29,6 @@ kotlin {
     tvosSimulatorArm64()
     tvosArm64()
 
-    androidNativeArm32()
-    androidNativeArm64()
-    androidNativeX64()
-    androidNativeX86()
-
     android {
         namespace = "com.hiczp.minecraft.world.io"
         compileSdk = BuildVersions.ANDROID_COMPILE_SDK
@@ -47,7 +41,7 @@ kotlin {
         }
     }
 
-    createHostProcessTestSourceSet(requiresOfficialServer = true)
+    useMinecraftTestFixtures(requiresOfficialServer = true)
 
     sourceSets {
         commonMain.dependencies {
@@ -58,8 +52,8 @@ kotlin {
 
         commonTest.dependencies {
             implementation(kotlin("test"))
+            implementation(project(":minecraft-test-support"))
             implementation(libs.kotlinx.coroutines.test)
         }
-
     }
 }

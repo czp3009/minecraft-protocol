@@ -1,118 +1,44 @@
 ---
 name: minecraft-world-storage
-description: Closed-loop workflow to update, implement, test, and audit this repository's Kotlin Multiplatform binary NBT, Anvil region, compression, dimension-path, and world filesystem support against the matching official server JAR as primary authority, with selected Minecraft Wiki documentation and exact-version third-party sources as secondary evidence. Use for nbt, world-format, world-io, level.dat, playerdata, chunk/entity/POI region files, save compatibility, or world-storage freshness audits.
+description: Update, implement, test, or audit this repository's Kotlin Multiplatform raw compression, binary NBT, Anvil region, dimension-path, and world filesystem support against the selected official Minecraft server. Use for compression, nbt, world-format, world-io, level.dat, playerdata, chunk/entity/POI region files, save compatibility, or storage completeness audits.
 ---
 
-# Minecraft World Storage
+# Minecraft world storage
 
-Bring `compression`, `nbt`, `world-format`, and `world-io` to the selected Minecraft release and finish with an
-official-server generate, library rewrite, and official-server reload cycle.
+Execute the storage development path defined by repository source, `AGENTS.md`, and standard Gradle tasks. The skill
+coordinates investigation and implementation; it does not supply build inputs or a separate verification path.
 
-This skill is optional guidance for an agent performing the same work a human performs through Gradle. It is not a
-project input. Never make Gradle, production code, or tests consume this skill, its references, or files generated only
-for the agent.
+## Establish current state
 
-## Command interface
+1. Read the root `AGENTS.md` and the `AGENTS.md` files in every affected storage module.
+2. Read [references/workflow.md](references/workflow.md).
+3. Inspect the worktree, current APIs and tests, build wiring, and available generated analysis.
+4. Confirm the selected release according to the root guide before inspecting release-specific storage behavior.
 
-Invoke this skill with one of:
+Storage work never changes the selected release from a protocol number alone. After an explicit release change, run
+`./gradlew officialMinecraftAnalysis` before modeling storage behavior.
 
-```text
-$minecraft-world-storage
-$minecraft-world-storage <minecraft-release>
-$minecraft-world-storage protocol:<decimal-id>
-```
+## Execute the human development loop
 
-Accept zero or one Minecraft release argument. With no argument, retain `MinecraftTarget.MINECRAFT_VERSION`. For an
-explicitly requested release, change only that buildSrc constant and then run official analysis. Reject protocol-ID
-selectors, malformed
-releases, and extra arguments. Never mix sources from different releases.
+1. Build a dependency-ordered queue covering only the requested behavior and its downstream storage layers.
+2. Inspect Gradle-produced official evidence and executable behavior first. Use Wiki prose, exact-version secondary
+   implementations, or manual decompilation only where the higher evidence is insufficient.
+3. Implement the smallest coherent change in the owning module according to its `AGENTS.md`.
+4. Add valid, boundary, malformed, limit, round-trip, and cross-implementation tests at the affected layers.
+5. Run the affected standard JVM tasks after each coherent batch.
+6. Run the official world generate/rewrite/reload scenario when binary NBT, compression, region layout, paths, or
+   filesystem behavior changes.
+7. Repeat the inventory until the requested scope has no unexplained gap.
+8. After the JVM path is stable, run the applicable standard platform tasks or `./gradlew allTests`.
 
-## Start every invocation
+Use the existing Gradle producers and standard tests. Any optional manual investigation follows the `temp/` boundary in
+root `AGENTS.md`.
 
-1. Read [references/storage-rules.md](references/storage-rules.md) and
-   [references/workflow.md](references/workflow.md) completely.
-2. Read the repository and applicable module `AGENTS.md` files.
-3. Preserve unrelated user changes.
-4. Print the selected version and generate deterministic official analysis:
+Only an explicit read-only audit stops after reporting concrete gaps. Other invocations implement and verify gaps within
+the requested scope.
 
-   ```shell
-   ./gradlew -q minecraftVersion
-   ./gradlew officialMinecraftAnalysis
-   ```
+## Report
 
-5. Read `build/generated/official-minecraft/<version>/target/target.json`, locate exact official NBT, region-file,
-   compression,
-   dimension-path, and storage behavior, then build a dependency-ordered work queue.
-6. In update mode, implement every queue item and keep iterating until all completion gates pass. Stop after reporting
-   only when the user explicitly requests a read-only audit.
-
-## Source authority
-
-Use evidence in this order:
-
-1. the matching official server JAR;
-2. current target-relevant Minecraft Wiki documentation;
-3. exact-version MCProtocolLib;
-4. exact-version Minestom.
-
-The official JAR is the primary source and final behavioral authority. Start with its structured reports and exact
-implementation, then use Wiki prose for descriptions and details official code does not expose directly. Auxiliary
-projects are clarifying evidence only.
-
-Do not place version numbers, compression tables, directory layouts, data versions, constants, hashes, or test counts in
-this skill. Derive them anew from the official artifact/reports and executable tests.
-
-## Gradle and language-model boundary
-
-Use Gradle for deterministic project work: verified downloads, official reports, generated source, compilation, unit
-tests, malformed-input tests, JVM reference-library differentials, real filesystem tests, and official-server
-interoperability.
-
-Use language-model judgment for Wiki prose, semantic format interpretation, idiomatic API design, and discrepancies that
-cannot be normalized mechanically. Human-oriented decompilation and third-party acquisition stay in this skill or
-`temp/`, never Gradle. If a needed decompiler is unavailable, tell the user instead of installing it silently.
-
-Gradle and its scripts own `build/` and never access `temp/`. Only the language-model workflow may use repository-root
-`temp/` for scratch notes, manual extraction, ad hoc comparisons, or context-compaction state. Leave
-`.gitignore` unchanged.
-
-## Implementation loop
-
-For each coherent batch:
-
-1. inspect the matching official source and then the target Wiki description;
-2. inspect auxiliary implementations only where useful;
-3. implement the smallest idiomatic KMP API at the correct layer;
-4. add valid, boundary, malformed, limit, round-trip, and cross-implementation tests at every affected layer;
-5. run affected standard JVM tests;
-6. run the official world rewrite/reload test when binary NBT, compression, container layout, paths, or filesystem
-   behavior changes;
-7. update module documentation and agent guidance when stable architecture or workflow rules change;
-8. rerun the work queue and repeat until no gap remains.
-
-Finish the storage JVM path with `:world-io:jvmTest`, then run the applicable standard platform tests or the KMP
-`allTests` selector once all JVM suites are stable.
-
-Completion requires:
-
-- stream and byte-array NBT;
-- every official region compression path;
-- inline and external chunks plus chunk, entity, and POI containers;
-- standalone NBT files and current dimension and player-storage paths;
-- historical path access where the public API promises it;
-- hostile-input limits and filesystem round trips;
-- acceptance of rewritten files by the exact official server.
-
-A final interop result never replaces the lower testing layers.
-
-## Self-correction
-
-When the workflow reveals a repeatable omission, stale assumption, unstable step, or false-positive gate:
-
-1. stop the affected sequence;
-2. patch this skill, its reference, or the responsible Gradle task;
-3. validate this skill with the skill-creator `quick_validate.py`;
-4. forward-test the changed task;
-5. re-read the changed instructions and resume the same work queue.
-
-Keep changing evidence in generated official-analysis data and reports under `build/`, not in skill prose.
+Report changed owning layers, evidence behind non-obvious format decisions, standard tasks run in the current worktree,
+the official reload result when applicable, unsupported target capabilities, custom extension limits, and unresolved
+evidence. A successful reload does not replace lower-layer tests.

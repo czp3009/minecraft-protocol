@@ -2,16 +2,41 @@
 
 A Kotlin Multiplatform server-side Minecraft Java Edition protocol API.
 
-It provides Ktor TCP binding and accepted connections, Status, offline or injected online Login, vanilla Configuration
-data synchronization, and a Play-ready connection result. `MinecraftInitialWorld` can send a finite flat chunk
-projection and initial entity snapshots. It does not own a gameplay loop: after bootstrap, the application owns every
-subsequent packet.
+`MinecraftServer` binds a Ktor TCP socket. Each accepted `MinecraftServerConnection` negotiates Status or Login,
+synchronizes vanilla Configuration data, and returns either a completed Status exchange or a Play-ready connection.
 
-The host-process suite uses the production client and server over loopback, decodes real chunk/entity packets, and runs
-without a display or installed Minecraft runtime.
+```kotlin
+SelectorManager(Dispatchers.Default).use { selector ->
+    MinecraftServer.bind(selectorManager = selector).use { server ->
+        server.accept().use { connection ->
+            when (val result = connection.negotiate()) {
+                MinecraftServerNegotiationResult.StatusCompleted -> Unit
+                is MinecraftServerNegotiationResult.PlayReady -> {
+                    // The application now owns the live Play session.
+                }
+            }
+        }
+    }
+}
+```
 
-Standard JVM, host Native, and supported Node test tasks launch the matching official client through an SHA-256-verified
-HeadlessMC adapter, with all client artifacts prepared under the root project's `build/` directory. In offline mode it
-must
-complete Configuration, process Play Login and the initial world, acknowledge teleportation and the chunk batch, emit
-client ticks, and answer a Play KeepAlive. GUI client infrastructure is intentionally excluded.
+The application owns the accept loop, connection concurrency, player state, subsequent Play packets, persistence, and
+gameplay. `MinecraftInitialWorld` can project a finite flat set of chunks and initial entity snapshots; it is a
+bootstrap view, not an authoritative world or game loop.
+
+## Application configuration
+
+This module does not read `server.properties`. Applications map their configuration into these APIs:
+
+- `MinecraftServer.bind` selects the bind address and port.
+- `MinecraftServerConfiguration` selects authentication, compression, Status and transfer behavior, distances, player
+  metadata, game mode, difficulty, and the protocol-visible secure-chat claim.
+- `MinecraftServerHandler` supplies status JSON, profile admission, Play Login, optional Configuration packets, and
+  ordered response-gated Configuration tasks.
+- `MinecraftInitialWorld` supplies difficulty, abilities, chunks, and entities for initial synchronization.
+
+A negative `network-compression-threshold` maps to `compressionThreshold = null`; non-negative values map directly.
+`enforcesSecureChat` is valid only when the application actually validates secure profiles and signed chat.
+
+Operational settings such as whitelist and operator data, rate and idle limits, permissions, world generation, ticking,
+watchdogs, spawn protection, Query, RCON, JMX, and management services remain outside this library.

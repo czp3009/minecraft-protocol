@@ -5,7 +5,6 @@ Format-independent Kotlin models for Minecraft Java Edition packet payloads and 
 The module provides:
 
 - packet marker interfaces grouped by connection state and direction;
-- `@PacketInfo` metadata for deterministic registry generation;
 - structured values for NBT, items, chunks, chat, commands, entities, registries, recipes, and other packet fields;
 - sealed variants and logical `kotlinx.serialization` serializers for conditional protocol shapes;
 - wire-hint annotations interpreted by `protocol-serialization`.
