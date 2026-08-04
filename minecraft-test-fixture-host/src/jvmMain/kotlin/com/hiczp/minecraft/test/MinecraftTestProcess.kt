@@ -7,13 +7,19 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.io.files.Path
+import java.io.File
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 internal class MinecraftTestProcess private constructor(
     private val process: RunningProcess,
     private val log: ProcessLog,
     private val exit: CompletableDeferred<Int>,
-) : AutoCloseable {
+    private val shutdownCommand: String?,
+) {
+    private val shutdownMutex = Mutex()
+    private var shutdownRequested = false
+
     val isAlive: Boolean
         get() = !exit.isCompleted
 
@@ -94,8 +100,34 @@ internal class MinecraftTestProcess private constructor(
         }
     }
 
-    override fun close() {
-        process.destroy()
+    suspend fun terminate(
+        gracefulTimeout: Duration = PROCESS_GRACEFUL_SHUTDOWN_TIMEOUT,
+        forcedTimeout: Duration = PROCESS_FORCED_SHUTDOWN_TIMEOUT,
+    ): Int {
+        requestStop()
+        awaitExitWithin(gracefulTimeout)?.let { return it }
+        forceStop()
+        return checkNotNull(awaitExitWithin(forcedTimeout)) {
+            "Test process did not exit after forced termination:\n${logText()}"
+        }
+    }
+
+    internal suspend fun requestStop() {
+        shutdownMutex.withLock {
+            if (shutdownRequested || !process.isAlive) return
+            shutdownRequested = true
+            val command = shutdownCommand
+            if (command == null) {
+                process.destroy()
+            } else {
+                runCatching { process.sendLine(command) }
+                    .onFailure { process.destroy() }
+            }
+        }
+    }
+
+    internal fun forceStop() {
+        process.destroyForcibly()
     }
 
     companion object {
@@ -103,6 +135,7 @@ internal class MinecraftTestProcess private constructor(
             command: List<String>,
             workingDirectory: Path,
             threadName: String,
+            shutdownCommand: String? = null,
         ): MinecraftTestProcess {
             require(command.isNotEmpty()) { "Process command is empty" }
             require(threadName.isNotBlank()) { "Process name is blank" }
@@ -111,7 +144,7 @@ internal class MinecraftTestProcess private constructor(
             val log = ProcessLog()
             val process = RunningProcess(
                 process = ProcessBuilder(command)
-                    .directory(java.io.File(workingDirectory.toString()))
+                    .directory(File(workingDirectory.toString()))
                     .redirectErrorStream(true)
                     .start(),
                 onOutput = { line ->
@@ -122,6 +155,13 @@ internal class MinecraftTestProcess private constructor(
                 SupervisorJob() + Dispatchers.Default + CoroutineName(threadName),
             )
             val exit = CompletableDeferred<Int>()
+            val testProcess = MinecraftTestProcess(
+                process = process,
+                log = log,
+                exit = exit,
+                shutdownCommand = shutdownCommand,
+            )
+            val shutdownState = MinecraftTestProcesses.register(testProcess)
             scope.launch {
                 try {
                     val exitCode = process.awaitExit()
@@ -130,10 +170,64 @@ internal class MinecraftTestProcess private constructor(
                 } catch (failure: Throwable) {
                     log.fail(failure)
                     exit.completeExceptionally(failure)
+                } finally {
+                    MinecraftTestProcesses.unregister(testProcess)
                 }
             }
-            return MinecraftTestProcess(process, log, exit)
+            when (shutdownState) {
+                PROCESS_SHUTDOWN_REQUESTED -> testProcess.requestStop()
+                PROCESS_FORCE_REQUESTED -> testProcess.forceStop()
+            }
+            return testProcess
         }
+    }
+}
+
+internal object MinecraftTestProcesses {
+    private val lock = Any()
+    private val processes = linkedSetOf<MinecraftTestProcess>()
+    private val processCount = MutableStateFlow(0)
+    private var shutdownState = PROCESS_RUNNING
+
+    fun register(process: MinecraftTestProcess): Int = synchronized(lock) {
+        check(processes.add(process)) {
+            "Minecraft test process was registered twice"
+        }
+        processCount.value = processes.size
+        shutdownState
+    }
+
+    fun unregister(process: MinecraftTestProcess) {
+        synchronized(lock) {
+            processes.remove(process)
+            processCount.value = processes.size
+        }
+    }
+
+    suspend fun requestStopAll() {
+        val snapshot = synchronized(lock) {
+            if (shutdownState < PROCESS_SHUTDOWN_REQUESTED) {
+                shutdownState = PROCESS_SHUTDOWN_REQUESTED
+            }
+            processes.toList()
+        }
+        coroutineScope {
+            snapshot.forEach { process ->
+                launch { process.requestStop() }
+            }
+        }
+    }
+
+    fun forceStopAll() {
+        val snapshot = synchronized(lock) {
+            shutdownState = PROCESS_FORCE_REQUESTED
+            processes.toList()
+        }
+        snapshot.forEach(MinecraftTestProcess::forceStop)
+    }
+
+    suspend fun awaitEmpty() {
+        processCount.first { count -> count == 0 }
     }
 }
 
@@ -141,6 +235,9 @@ private class RunningProcess(
     private val process: Process,
     onOutput: (String) -> Unit,
 ) {
+    val isAlive: Boolean
+        get() = process.isAlive
+
     private val scope = CoroutineScope(
         SupervisorJob() + Dispatchers.IO +
                 CoroutineName("minecraft-test-process-output"),
@@ -177,8 +274,21 @@ private class RunningProcess(
 
     fun destroy() {
         runCatching { input.close() }
-        runCatching { process.inputStream.close() }
-        if (process.isAlive) process.destroy()
+        terminateTree { handle -> handle.destroy() }
+    }
+
+    fun destroyForcibly() {
+        runCatching { input.close() }
+        terminateTree { handle -> handle.destroyForcibly() }
+    }
+
+    private fun terminateTree(terminate: (ProcessHandle) -> Boolean) {
+        val descendants = runCatching {
+            process.descendants().use { handles -> handles.toList() }
+        }.getOrDefault(emptyList())
+        (descendants.asReversed() + process.toHandle()).forEach { handle ->
+            if (handle.isAlive) runCatching { terminate(handle) }
+        }
     }
 }
 
@@ -214,3 +324,10 @@ private data class ProcessSnapshot(
 )
 
 private const val MAXIMUM_LOG_CHARACTERS = 200_000
+private const val PROCESS_RUNNING = 0
+private const val PROCESS_SHUTDOWN_REQUESTED = 1
+private const val PROCESS_FORCE_REQUESTED = 2
+internal val PROCESS_GRACEFUL_SHUTDOWN_TIMEOUT =
+    10.seconds
+internal val PROCESS_FORCED_SHUTDOWN_TIMEOUT =
+    5.seconds

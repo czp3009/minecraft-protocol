@@ -21,9 +21,11 @@ import java.nio.file.LinkOption
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.pathString
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.uuid.Uuid
+import java.nio.file.Path as NioPath
 
 fun main(arguments: Array<String>) = runBlocking {
-    require(arguments.size == 8) {
+    require(arguments.size == 9) {
         "Expected Minecraft version, fixture inputs, and work root"
     }
     val minecraftVersion = arguments[0]
@@ -37,6 +39,7 @@ fun main(arguments: Array<String>) = runBlocking {
             serverRuntimeDirectory = Path(arguments[5]),
             codecClassesDirectory = Path(arguments[6]),
             fixtureWorkRoot = Path(arguments[7]),
+            hostWorkRoot = Path(arguments[8]),
             javaExecutable = Path("java"),
         ),
     )
@@ -57,7 +60,10 @@ fun main(arguments: Array<String>) = runBlocking {
             while (true) {
                 val command = readlnOrNull() ?: break
                 when {
-                    command == SHUTDOWN_COMMAND -> break
+                    command == SHUTDOWN_COMMAND -> {
+                        resources.stopAcceptingCreations()
+                        break
+                    }
                     command.startsWith(CLOSE_OWNER_COMMAND_PREFIX) ->
                         resources.closeOwner(
                             command.removePrefix(CLOSE_OWNER_COMMAND_PREFIX),
@@ -65,15 +71,19 @@ fun main(arguments: Array<String>) = runBlocking {
                 }
             }
         } finally {
+            resources.stopAcceptingCreations()
             shutdown.complete(Unit)
         }
     }
     shutdown.await()
-    runCatching { resources.closeAll() }
-    server.stop(
-        gracePeriodMillis = HOST_STOP_GRACE_MILLIS,
-        timeoutMillis = HOST_STOP_TIMEOUT_MILLIS,
-    )
+    try {
+        resources.shutdown()
+    } finally {
+        server.stop(
+            gracePeriodMillis = HOST_STOP_GRACE_MILLIS,
+            timeoutMillis = HOST_STOP_TIMEOUT_MILLIS,
+        )
+    }
 }
 
 private fun Application.fixtureHostModule(resources: HostedFixtureResources) {
@@ -181,12 +191,13 @@ private class HostedFixtureResources {
     // is returned by the managed resource's post-directory-cleanup callback.
     private val processSlots = Semaphore(PROCESS_POOL_SLOTS)
     private val resources = linkedMapOf<String, HostedFixtureResource>()
+    private var acceptingCreations = true
 
     suspend fun createServer(
         owner: String,
         request: CreateOfficialServerRequest,
     ): FixtureResourceDescriptor {
-        processSlots.acquire()
+        acquireProcessSlot()
         val resource = try {
             HostedMinecraftTestSupport.newOfficialServer(
                 OfficialMinecraftServerConfiguration(
@@ -205,7 +216,12 @@ private class HostedFixtureResources {
         hosted.invokeOnCleanupCompletion { processSlots.release() }
         return try {
             val descriptor = resource.descriptor(id)
-            mutex.withLock { resources[id] = hosted }
+            mutex.withLock {
+                check(acceptingCreations) {
+                    "Minecraft test fixture host is shutting down"
+                }
+                resources[id] = hosted
+            }
             descriptor
         } catch (failure: Throwable) {
             hosted.close()
@@ -217,7 +233,7 @@ private class HostedFixtureResources {
         owner: String,
         request: CreateOfficialClientRequest,
     ): FixtureResourceDescriptor {
-        processSlots.acquire()
+        acquireProcessSlot()
         val resource = try {
             HostedMinecraftTestSupport.newOfficialClient(
                 HeadlessMinecraftClientConfiguration(
@@ -234,7 +250,12 @@ private class HostedFixtureResources {
         hosted.invokeOnCleanupCompletion { processSlots.release() }
         return try {
             val descriptor = resource.descriptor(id)
-            mutex.withLock { resources[id] = hosted }
+            mutex.withLock {
+                check(acceptingCreations) {
+                    "Minecraft test fixture host is shutting down"
+                }
+                resources[id] = hosted
+            }
             descriptor
         } catch (failure: Throwable) {
             hosted.close()
@@ -316,13 +337,39 @@ private class HostedFixtureResources {
         owned.forEach(HostedFixtureResource::close)
     }
 
-    suspend fun closeAll() {
+    suspend fun stopAcceptingCreations() {
+        mutex.withLock {
+            acceptingCreations = false
+        }
+        HostedMinecraftTestSupport.stopAcceptingResourceCreations()
+    }
+
+    suspend fun shutdown() {
+        stopAcceptingCreations()
         val remaining = mutex.withLock {
             resources.values.toList().also { resources.clear() }
         }
         remaining.forEach(HostedFixtureResource::close)
-        HostedMinecraftTestSupport.closeAll()
-        HostedMinecraftTestSupport.awaitCleanup()
+        HostedMinecraftTestSupport.shutdown()
+    }
+
+    private suspend fun acquireProcessSlot() {
+        mutex.withLock {
+            check(acceptingCreations) {
+                "Minecraft test fixture host is shutting down"
+            }
+        }
+        processSlots.acquire()
+        try {
+            mutex.withLock {
+                check(acceptingCreations) {
+                    "Minecraft test fixture host is shutting down"
+                }
+            }
+        } catch (failure: Throwable) {
+            processSlots.release()
+            throw failure
+        }
     }
 
     private suspend fun resource(id: String): HostedFixtureResource =
@@ -447,7 +494,7 @@ private fun writeWorldFiles(
 private fun resolveExistingWorldFile(
     server: HostedOfficialMinecraftServerResource,
     relativePath: String,
-): java.nio.file.Path {
+): NioPath {
     val root = server.worldDirectory.toNioPath().toAbsolutePath().normalize()
     val safe = Path(root.toString()).safeResolve(relativePath)
         .toNioPath().toAbsolutePath().normalize()
@@ -457,7 +504,7 @@ private fun resolveExistingWorldFile(
     return safe
 }
 
-private fun newResourceId(): String = kotlin.uuid.Uuid.random().toString()
+private fun newResourceId(): String = Uuid.random().toString()
 
 private const val LOOPBACK = "127.0.0.1"
 private const val RPC_PATH = "/rpc"
@@ -466,4 +513,4 @@ private const val SHUTDOWN_COMMAND = "shutdown"
 private const val CLOSE_OWNER_COMMAND_PREFIX = "close-owner "
 private const val HOST_STOP_GRACE_MILLIS = 1_000L
 private const val HOST_STOP_TIMEOUT_MILLIS = 10_000L
-private const val PROCESS_POOL_SLOTS = 4
+private const val PROCESS_POOL_SLOTS = 8

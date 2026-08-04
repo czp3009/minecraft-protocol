@@ -79,7 +79,7 @@ kotlin {
         }
         webMain.dependencies {
             implementation(libs.kotlinx.rpc.krpc.ktor.client)
-            implementation(libs.ktor.client.js)
+            implementation(libs.ktor.client.cio)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))

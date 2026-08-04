@@ -28,6 +28,8 @@ class TestFilesTest {
             assertEquals("runtimes", first.parent?.parent?.parent?.name)
             assertTrue(first.name.startsWith("run-"))
             assertTrue(second.name.startsWith("run-"))
+            assertTrue(first.isBelow(layout.hostWorkRoot))
+            assertTrue(second.isBelow(layout.hostWorkRoot))
             assertTrue(first.isBelow(layout.fixtureWorkRoot))
             assertTrue(second.isBelow(layout.fixtureWorkRoot))
         } finally {

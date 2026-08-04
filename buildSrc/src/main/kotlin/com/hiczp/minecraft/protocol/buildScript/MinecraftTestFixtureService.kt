@@ -15,8 +15,11 @@ import org.gradle.tooling.events.OperationCompletionListener
 import org.gradle.tooling.events.task.TaskFinishEvent
 import java.io.BufferedWriter
 import java.io.File
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import java.util.UUID
 import javax.inject.Inject
 
 data class MinecraftTestFixtureConnection(
@@ -44,9 +47,13 @@ abstract class MinecraftTestFixtureService :
     private val lock = Any()
     private val ownersByTask = mutableMapOf<String, String>()
     private var host: RunningFixtureHost? = null
+    private var acceptingConnections = true
 
     fun connectionFor(taskPath: String): MinecraftTestFixtureConnection =
         synchronized(lock) {
+            check(acceptingConnections) {
+                "Minecraft test fixture service is shutting down"
+            }
             val runningHost = host ?: startHost().also { host = it }
             val owner = ownersByTask.getOrPut(taskPath, ::newOwnerId)
             MinecraftTestFixtureConnection(
@@ -66,6 +73,7 @@ abstract class MinecraftTestFixtureService :
 
     override fun close() {
         val runningHost = synchronized(lock) {
+            acceptingConnections = false
             ownersByTask.clear()
             host.also { host = null }
         }
@@ -81,6 +89,14 @@ abstract class MinecraftTestFixtureService :
         check(classpath.isNotEmpty()) {
             "Minecraft test fixture host classpath is empty"
         }
+        val fixtureWorkRoot = parameters.fixtureWorkRoot.get().asFile
+        val hostWorkRoot = File(
+            fixtureWorkRoot,
+            "hosts/${newOwnerId()}",
+        ).absoluteFile
+        check(!hostWorkRoot.exists()) {
+            "Minecraft test fixture host work directory already exists: $hostWorkRoot"
+        }
         val process = ProcessBuilder(
             javaExecutable(),
             "-cp",
@@ -93,7 +109,8 @@ abstract class MinecraftTestFixtureService :
             parameters.headlessLauncherFile.get().asFile.absolutePath,
             parameters.serverRuntimeDirectory.get().asFile.absolutePath,
             parameters.codecClassesDirectory.get().asFile.absolutePath,
-            parameters.fixtureWorkRoot.get().asFile.absolutePath,
+            fixtureWorkRoot.absolutePath,
+            hostWorkRoot.absolutePath,
         )
             .directory(parameters.hostWorkingDirectory.get().asFile)
             .redirectErrorStream(true)
@@ -120,19 +137,30 @@ abstract class MinecraftTestFixtureService :
         }
 
         if (!ready.await(HOST_START_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            process.destroyForcibly()
-            error("Minecraft test fixture host did not become ready within $HOST_START_TIMEOUT_SECONDS seconds:\n${output.text()}")
+            failFixtureHostStart(
+                process = process,
+                input = input,
+                output = output,
+                hostWorkRoot = hostWorkRoot,
+                message = "Minecraft test fixture host did not become ready within $HOST_START_TIMEOUT_SECONDS seconds",
+            )
         }
         val resolvedRpcUrl = rpcUrl
         if (resolvedRpcUrl == null || !process.isAlive) {
-            process.destroyForcibly()
-            error("Minecraft test fixture host exited before becoming ready:\n${output.text()}")
+            failFixtureHostStart(
+                process = process,
+                input = input,
+                output = output,
+                hostWorkRoot = hostWorkRoot,
+                message = "Minecraft test fixture host exited before becoming ready",
+            )
         }
         return RunningFixtureHost(
             process = process,
             input = input,
             output = output,
             rpcUrl = resolvedRpcUrl,
+            hostWorkRoot = hostWorkRoot,
         )
     }
 }
@@ -234,6 +262,7 @@ private class RunningFixtureHost(
     private val input: BufferedWriter,
     private val output: BoundedOutput,
     val rpcUrl: String,
+    private val hostWorkRoot: File,
 ) : AutoCloseable {
     fun closeOwner(owner: String) {
         if (!process.isAlive) return
@@ -243,23 +272,61 @@ private class RunningFixtureHost(
     }
 
     override fun close() {
-        if (!process.isAlive) return
-        runCatching {
-            synchronized(input) {
-                input.write(SHUTDOWN_COMMAND)
-                input.newLine()
-                input.close()
+        val observedProcesses = linkedMapOf<Long, ProcessHandle>()
+        observeProcessTree(process, observedProcesses)
+        var closeFailure: Throwable? = null
+        var hostExited = !process.isAlive
+        try {
+            if (process.isAlive) {
+                runCatching {
+                    synchronized(input) {
+                        input.write(SHUTDOWN_COMMAND)
+                        input.newLine()
+                        input.close()
+                    }
+                }
+            }
+            if (!hostExited) {
+                hostExited = process.waitFor(
+                    HOST_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
+                    TimeUnit.SECONDS,
+                )
+            }
+        } catch (failure: Throwable) {
+            closeFailure?.addSuppressed(failure)
+                ?: run { closeFailure = failure }
+        }
+        observeProcessTree(process, observedProcesses)
+        if (
+            !hostExited ||
+            observedProcesses.values.any(ProcessHandle::isAlive)
+        ) {
+            try {
+                forceProcessTree(process, observedProcesses)
+                check(
+                    awaitProcessTreeExit(
+                        observedProcesses,
+                        HOST_FORCED_SHUTDOWN_TIMEOUT_SECONDS,
+                    ),
+                ) {
+                    "Minecraft test fixture host process tree did not exit:\n${output.text()}"
+                }
+            } catch (failure: Throwable) {
+                closeFailure?.addSuppressed(failure)
+                    ?: run { closeFailure = failure }
             }
         }
-        if (!process.waitFor(HOST_STOP_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            process.destroy()
+        try {
+            if (hostWorkRoot.exists()) {
+                check(hostWorkRoot.deleteRecursively()) {
+                    "Could not delete Minecraft test fixture host work directory: $hostWorkRoot"
+                }
+            }
+        } catch (failure: Throwable) {
+            closeFailure?.addSuppressed(failure)
+                ?: run { closeFailure = failure }
         }
-        if (!process.waitFor(HOST_DESTROY_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            process.destroyForcibly()
-        }
-        check(process.waitFor(HOST_DESTROY_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            "Minecraft test fixture host did not exit:\n${output.text()}"
-        }
+        closeFailure?.let { throw it }
     }
 
     private fun writeCommand(command: String) {
@@ -268,6 +335,88 @@ private class RunningFixtureHost(
             input.newLine()
             input.flush()
         }
+    }
+}
+
+private fun failFixtureHostStart(
+    process: Process,
+    input: BufferedWriter,
+    output: BoundedOutput,
+    hostWorkRoot: File,
+    message: String,
+): Nothing {
+    val failure = IllegalStateException("$message:\n${output.text()}")
+    val observedProcesses = linkedMapOf<Long, ProcessHandle>()
+    runCatching { input.close() }
+        .onFailure(failure::addSuppressed)
+    runCatching {
+        observeProcessTree(process, observedProcesses)
+        forceProcessTree(process, observedProcesses)
+        check(
+            awaitProcessTreeExit(
+                observedProcesses,
+                HOST_FORCED_SHUTDOWN_TIMEOUT_SECONDS,
+            ),
+        ) {
+            "Minecraft test fixture host process tree did not exit after startup failure"
+        }
+    }.onFailure(failure::addSuppressed)
+    runCatching {
+        if (hostWorkRoot.exists()) {
+            check(hostWorkRoot.deleteRecursively()) {
+                "Could not delete Minecraft test fixture host work directory: $hostWorkRoot"
+            }
+        }
+    }.onFailure(failure::addSuppressed)
+    throw failure
+}
+
+private fun observeProcessTree(
+    process: Process,
+    observedProcesses: MutableMap<Long, ProcessHandle>,
+) {
+    if (process.isAlive) {
+        runCatching {
+            process.descendants().use { descendants ->
+                descendants.forEach { handle ->
+                    observedProcesses.putIfAbsent(handle.pid(), handle)
+                }
+            }
+        }
+    }
+    val hostHandle = process.toHandle()
+    observedProcesses.putIfAbsent(hostHandle.pid(), hostHandle)
+}
+
+private fun forceProcessTree(
+    process: Process,
+    observedProcesses: Map<Long, ProcessHandle>,
+) {
+    val hostPid = process.pid()
+    observedProcesses.values
+        .filter { handle -> handle.pid() != hostPid }
+        .asReversed()
+        .plus(observedProcesses[hostPid])
+        .filterNotNull()
+        .filter(ProcessHandle::isAlive)
+        .forEach { handle -> runCatching { handle.destroyForcibly() } }
+}
+
+private fun awaitProcessTreeExit(
+    observedProcesses: Map<Long, ProcessHandle>,
+    timeoutSeconds: Long,
+): Boolean {
+    val exits = observedProcesses.values
+        .filter(ProcessHandle::isAlive)
+        .map(ProcessHandle::onExit)
+        .toTypedArray()
+    if (exits.isEmpty()) return true
+    return try {
+        CompletableFuture.allOf(*exits)
+            .get(timeoutSeconds, TimeUnit.SECONDS)
+        true
+    } catch (_: TimeoutException) {
+        false
     }
 }
 
@@ -288,7 +437,7 @@ private class BoundedOutput(
     fun text(): String = content.toString()
 }
 
-private fun newOwnerId(): String = java.util.UUID.randomUUID().toString()
+private fun newOwnerId(): String = UUID.randomUUID().toString()
 
 private fun javaExecutable(): String {
     val executable = if (System.getProperty("os.name").startsWith("Windows")) {
@@ -307,7 +456,7 @@ private const val MINECRAFT_TEST_FIXTURE_HOST_PROJECT = ":minecraft-test-fixture
 private const val READY_PREFIX = "MINECRAFT_TEST_FIXTURE_READY "
 private const val HOST_LOG_LIMIT = 200_000
 private const val HOST_START_TIMEOUT_SECONDS = 30L
-private const val HOST_STOP_TIMEOUT_SECONDS = 15L
-private const val HOST_DESTROY_TIMEOUT_SECONDS = 5L
+private const val HOST_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = 30L
+private const val HOST_FORCED_SHUTDOWN_TIMEOUT_SECONDS = 5L
 private const val SHUTDOWN_COMMAND = "shutdown"
 private const val CLOSE_OWNER_COMMAND_PREFIX = "close-owner "

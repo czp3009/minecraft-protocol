@@ -40,6 +40,7 @@ import net.minecraft.network.protocol.game.GameProtocols;
 import net.minecraft.network.protocol.handshake.HandshakeProtocols;
 import net.minecraft.network.protocol.login.LoginProtocols;
 import net.minecraft.network.protocol.status.StatusProtocols;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.Bootstrap;
 
 /**
@@ -254,7 +255,7 @@ public final class OfficialCodecOracle {
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static Registry<?> materializeRegistry(
             HolderLookup.Provider provider,
-            net.minecraft.resources.ResourceKey key
+            ResourceKey key
     ) {
         HolderLookup.RegistryLookup lookup = provider.lookupOrThrow(key);
         MappedRegistry registry = new MappedRegistry(

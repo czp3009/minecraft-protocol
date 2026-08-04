@@ -1,4 +1,4 @@
-@file:OptIn(kotlin.concurrent.atomics.ExperimentalAtomicApi::class)
+@file:OptIn(ExperimentalAtomicApi::class)
 
 package com.hiczp.minecraft.test
 
@@ -10,6 +10,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.io.files.Path
 import kotlin.concurrent.atomics.AtomicInt
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
 
 private val minecraftTestSupportLogger = DirectLoggerFactory.logger(
     "com.hiczp.minecraft.test.MinecraftTestSupport",
@@ -19,7 +20,7 @@ private val minecraftTestSupportLogger = DirectLoggerFactory.logger(
  * Creates and owns isolated official-Minecraft process resources for tests.
  *
  * The fixture-host JVM has one registry and cleanup scope. RPC close requests
- * schedule cleanup; [closeAll] is the host-shutdown fallback.
+ * schedule cleanup; [shutdown] is the bounded host-shutdown fallback.
  */
 internal object HostedMinecraftTestSupport {
     private val cleanupScope = CoroutineScope(
@@ -29,6 +30,11 @@ internal object HostedMinecraftTestSupport {
     private val registryMutex = Mutex()
     private val resources = linkedSetOf<ManagedMinecraftTestResource>()
     private val resourceCount = MutableStateFlow(0)
+    private val resourceCreationCount = MutableStateFlow(0)
+    private val shutdownState = AtomicInt(SHUTDOWN_NOT_STARTED)
+    private val shutdownCompleted = CompletableDeferred<Unit>()
+
+    private var acceptingResourceCreations = true
 
     private var configuredLayout: MinecraftTestLayout? = null
 
@@ -40,10 +46,7 @@ internal object HostedMinecraftTestSupport {
         }
 
     init {
-        installMinecraftTestShutdownHook(
-            closeResources = ::closeAll,
-            awaitCleanup = ::awaitCleanup,
-        )
+        installMinecraftTestShutdownHook(::shutdown)
     }
 
     internal fun configure(selected: MinecraftTestLayout) {
@@ -61,33 +64,38 @@ internal object HostedMinecraftTestSupport {
         configuration: OfficialMinecraftServerConfiguration =
             OfficialMinecraftServerConfiguration(),
     ): HostedOfficialMinecraftServerResource {
-        val workDirectory = layout.newRuntimeDirectory(
-            MinecraftRuntimeKind.OFFICIAL_SERVER,
-        )
-        var startedResource: HostedOfficialMinecraftServerResource? = null
-        return try {
-            HostedOfficialMinecraftServerResource.start(
-                layout = layout,
-                workDirectory = workDirectory,
-                configuration = configuration,
-            ).also { resource ->
-                startedResource = resource
-                resource.attach(
-                    manage(workDirectory, resource::cleanup),
-                )
-            }
-        } catch (failure: Throwable) {
-            startedResource?.let { resource ->
-                runCatching { resource.cleanup() }
+        beginResourceCreation()
+        try {
+            val workDirectory = layout.newRuntimeDirectory(
+                MinecraftRuntimeKind.OFFICIAL_SERVER,
+            )
+            var startedResource: HostedOfficialMinecraftServerResource? = null
+            return try {
+                HostedOfficialMinecraftServerResource.start(
+                    layout = layout,
+                    workDirectory = workDirectory,
+                    configuration = configuration,
+                ).also { resource ->
+                    startedResource = resource
+                    resource.attach(
+                        manage(workDirectory, resource::cleanup),
+                    )
+                }
+            } catch (failure: Throwable) {
+                startedResource?.let { resource ->
+                    runCatching { resource.cleanup() }
+                        .onFailure { cleanupFailure ->
+                            failure.addSuppressed(cleanupFailure)
+                        }
+                }
+                runCatching { workDirectory.deleteTree() }
                     .onFailure { cleanupFailure ->
                         failure.addSuppressed(cleanupFailure)
                     }
+                throw failure
             }
-            runCatching { workDirectory.deleteTree() }
-                .onFailure { cleanupFailure ->
-                    failure.addSuppressed(cleanupFailure)
-                }
-            throw failure
+        } finally {
+            finishResourceCreation()
         }
     }
 
@@ -95,44 +103,88 @@ internal object HostedMinecraftTestSupport {
     suspend fun newOfficialClient(
         configuration: HeadlessMinecraftClientConfiguration,
     ): HostedHeadlessMinecraftClientResource {
-        val workDirectory = layout.newRuntimeDirectory(
-            MinecraftRuntimeKind.OFFICIAL_CLIENT,
-        )
-        var startedResource: HostedHeadlessMinecraftClientResource? = null
-        return try {
-            HostedHeadlessMinecraftClientResource.start(
-                layout = layout,
-                workDirectory = workDirectory,
-                configuration = configuration,
-            ).also { resource ->
-                startedResource = resource
-                resource.attach(
-                    manage(workDirectory, resource::cleanup),
-                )
-            }
-        } catch (failure: Throwable) {
-            startedResource?.let { resource ->
-                runCatching { resource.cleanup() }
+        beginResourceCreation()
+        try {
+            val workDirectory = layout.newRuntimeDirectory(
+                MinecraftRuntimeKind.OFFICIAL_CLIENT,
+            )
+            var startedResource: HostedHeadlessMinecraftClientResource? = null
+            return try {
+                HostedHeadlessMinecraftClientResource.start(
+                    layout = layout,
+                    workDirectory = workDirectory,
+                    configuration = configuration,
+                ).also { resource ->
+                    startedResource = resource
+                    resource.attach(
+                        manage(workDirectory, resource::cleanup),
+                    )
+                }
+            } catch (failure: Throwable) {
+                startedResource?.let { resource ->
+                    runCatching { resource.cleanup() }
+                        .onFailure { cleanupFailure ->
+                            failure.addSuppressed(cleanupFailure)
+                        }
+                }
+                runCatching { workDirectory.deleteTree() }
                     .onFailure { cleanupFailure ->
                         failure.addSuppressed(cleanupFailure)
                     }
+                throw failure
             }
-            runCatching { workDirectory.deleteTree() }
-                .onFailure { cleanupFailure ->
-                    failure.addSuppressed(cleanupFailure)
-                }
-            throw failure
+        } finally {
+            finishResourceCreation()
         }
     }
 
     /** Allocates a collision-safe report path below the host work root. */
     fun reportFile(name: String): Path = layout.reportFile(name)
 
-    /** Asynchronously closes every resource still owned by this executable. */
-    fun closeAll() {
-        cleanupScope.launch {
-            registryMutex.withLock { resources.toList() }
-                .forEach(ManagedMinecraftTestResource::close)
+    internal suspend fun stopAcceptingResourceCreations() {
+        registryMutex.withLock {
+            acceptingResourceCreations = false
+        }
+    }
+
+    internal suspend fun shutdown() {
+        if (!shutdownState.compareAndSet(
+                SHUTDOWN_NOT_STARTED,
+                SHUTDOWN_IN_PROGRESS,
+            )
+        ) {
+            shutdownCompleted.await()
+            return
+        }
+        try {
+            stopAcceptingResourceCreations()
+            closeAll()
+            MinecraftTestProcesses.requestStopAll()
+            val stoppedGracefully = withTimeoutOrNull(
+                PROCESS_GRACEFUL_SHUTDOWN_TIMEOUT,
+            ) {
+                awaitQuiescence()
+                true
+            } ?: false
+            if (!stoppedGracefully) {
+                minecraftTestSupportLogger.warn {
+                    "Minecraft test processes exceeded the graceful shutdown timeout; forcing termination"
+                }
+                MinecraftTestProcesses.forceStopAll()
+                check(
+                    withTimeoutOrNull(PROCESS_FORCED_SHUTDOWN_TIMEOUT) {
+                        awaitQuiescence()
+                        true
+                    } == true,
+                ) {
+                    "Minecraft test processes or resource directories remained after forced termination"
+                }
+            }
+            shutdownState.store(SHUTDOWN_COMPLETE)
+            shutdownCompleted.complete(Unit)
+        } catch (failure: Throwable) {
+            shutdownCompleted.completeExceptionally(failure)
+            throw failure
         }
     }
 
@@ -156,12 +208,41 @@ internal object HostedMinecraftTestSupport {
             cleanup = cleanup,
         )
         registryMutex.withLock {
+            check(acceptingResourceCreations) {
+                "Minecraft test fixture host is shutting down"
+            }
             check(resources.add(resource)) {
                 "Minecraft test resource was registered twice"
             }
             resourceCount.value = resources.size
         }
         return resource
+    }
+
+    private suspend fun beginResourceCreation() {
+        registryMutex.withLock {
+            check(acceptingResourceCreations) {
+                "Minecraft test fixture host is shutting down"
+            }
+            resourceCreationCount.value += 1
+        }
+    }
+
+    private suspend fun finishResourceCreation() {
+        registryMutex.withLock {
+            resourceCreationCount.value -= 1
+        }
+    }
+
+    private suspend fun awaitQuiescence() {
+        resourceCreationCount.first { count -> count == 0 }
+        resourceCount.first { count -> count == 0 }
+        MinecraftTestProcesses.awaitEmpty()
+    }
+
+    private suspend fun closeAll() {
+        registryMutex.withLock { resources.toList() }
+            .forEach(ManagedMinecraftTestResource::close)
     }
 
     internal fun scheduleCleanup(resource: ManagedMinecraftTestResource) {
@@ -230,16 +311,18 @@ internal class ManagedMinecraftTestResource(
 }
 
 internal fun installMinecraftTestShutdownHook(
-    closeResources: () -> Unit,
-    awaitCleanup: suspend () -> Unit,
+    shutdown: suspend () -> Unit,
 ) {
     Runtime.getRuntime().addShutdownHook(
         Thread(
             {
-                closeResources()
-                runBlocking { awaitCleanup() }
+                runBlocking { shutdown() }
             },
             "minecraft-test-resource-shutdown",
         ),
     )
 }
+
+private const val SHUTDOWN_NOT_STARTED = 0
+private const val SHUTDOWN_IN_PROGRESS = 1
+private const val SHUTDOWN_COMPLETE = 2

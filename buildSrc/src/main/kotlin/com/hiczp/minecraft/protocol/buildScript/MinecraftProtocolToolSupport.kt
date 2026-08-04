@@ -10,6 +10,7 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.util.AttributeKey
 import io.ktor.utils.io.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.io.buffered
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.readByteArray
@@ -48,6 +49,7 @@ import kotlin.text.orEmpty
 import kotlin.text.toByteArray
 import kotlin.text.toCharArray
 import kotlin.text.toHexString
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.io.files.Path as IoPath
 import kotlin.time.Duration as KotlinDuration
@@ -216,6 +218,9 @@ internal object ProtocolHttp {
     private const val MAX_RETRIES = 3
     private const val MAX_ATTEMPTS = MAX_RETRIES + 1
     private const val STREAM_BUFFER_SIZE = 1024L * 1024L
+    private val DOWNLOAD_REQUEST_TIMEOUT = 10.minutes
+    private val DOWNLOAD_CONNECT_TIMEOUT = 30.seconds
+    private val DOWNLOAD_SOCKET_TIMEOUT = 60.seconds
     private const val USER_AGENT = "minecraft-protocol Gradle tools/1.0 (https://github.com/hiczp/minecraft-protocol)"
     private val logger = Logging.getLogger(ProtocolHttp::class.java)
 
@@ -295,13 +300,13 @@ internal object ProtocolHttp {
 
     suspend fun getBytes(
         url: String,
-        timeout: KotlinDuration = 60.seconds,
+        connectTimeout: KotlinDuration = DOWNLOAD_CONNECT_TIMEOUT,
         offline: Boolean = false,
         validate: (ByteArray) -> Unit = {},
     ): ByteArray {
         requireOnline(url, offline)
         var content: ByteArray? = null
-        executeDownload(url, timeout) { current ->
+        executeDownload(url, connectTimeout) { current ->
             val bytes = current.bodyAsChannel()
                 .readRemaining()
                 .readByteArray()
@@ -317,11 +322,11 @@ internal object ProtocolHttp {
 
     suspend fun getJson(
         url: String,
-        timeout: KotlinDuration = 60.seconds,
+        connectTimeout: KotlinDuration = DOWNLOAD_CONNECT_TIMEOUT,
         offline: Boolean = false,
     ): JsonObject {
         var content: JsonObject? = null
-        getBytes(url, timeout, offline) { bytes ->
+        getBytes(url, connectTimeout, offline) { bytes ->
             content = bytes.decodeJsonObject(url)
         }
         return checkNotNull(content)
@@ -333,7 +338,7 @@ internal object ProtocolHttp {
         expectedSize: Long,
         expectedSha1: String,
         offline: Boolean = false,
-        timeout: KotlinDuration = 60.seconds,
+        connectTimeout: KotlinDuration = DOWNLOAD_CONNECT_TIMEOUT,
     ) = downloadVerified(
         url = url,
         destination = destination,
@@ -341,7 +346,7 @@ internal object ProtocolHttp {
         expectedHash = expectedSha1,
         hashAlgorithm = "SHA-1",
         offline = offline,
-        timeout = timeout,
+        connectTimeout = connectTimeout,
     )
 
     suspend fun downloadVerifiedSha256(
@@ -350,7 +355,7 @@ internal object ProtocolHttp {
         expectedSize: Long,
         expectedSha256: String,
         offline: Boolean = false,
-        timeout: KotlinDuration = 60.seconds,
+        connectTimeout: KotlinDuration = DOWNLOAD_CONNECT_TIMEOUT,
     ) = downloadVerified(
         url = url,
         destination = destination,
@@ -358,7 +363,7 @@ internal object ProtocolHttp {
         expectedHash = expectedSha256,
         hashAlgorithm = "SHA-256",
         offline = offline,
-        timeout = timeout,
+        connectTimeout = connectTimeout,
     )
 
     private suspend fun downloadVerified(
@@ -368,7 +373,7 @@ internal object ProtocolHttp {
         expectedHash: String,
         hashAlgorithm: String,
         offline: Boolean,
-        timeout: KotlinDuration,
+        connectTimeout: KotlinDuration,
     ) {
         requireOnline(url, offline, destination)
         destination.parent.createDirectories()
@@ -378,7 +383,7 @@ internal object ProtocolHttp {
             ".download",
         )
         try {
-            executeDownload(url, timeout) { current ->
+            executeDownload(url, connectTimeout) { current ->
                 SystemFileSystem.sink(IoPath(temporary.toString()))
                     .buffered()
                     .use { sink ->
@@ -416,13 +421,13 @@ internal object ProtocolHttp {
 
     private suspend fun executeDownload(
         url: String,
-        timeout: KotlinDuration,
+        connectTimeout: KotlinDuration,
         consume: suspend (HttpResponse) -> Unit,
     ) {
         val responseBody = RetryableResponseBody(url, consume)
         try {
             val response = client.get(url) {
-                configureTimeout(timeout)
+                configureDownloadTimeouts(connectTimeout)
                 attributes.put(retryableResponseBodyKey, responseBody)
             }
             if (!response.status.isSuccess()) {
@@ -431,7 +436,7 @@ internal object ProtocolHttp {
                     response.status.description,
                 )
             }
-        } catch (failure: kotlinx.coroutines.CancellationException) {
+        } catch (failure: CancellationException) {
             throw failure
         } catch (failure: Throwable) {
             throw GradleException(
@@ -562,17 +567,16 @@ internal object ProtocolHttp {
         val password: String,
     )
 
-    private fun io.ktor.client.request.HttpRequestBuilder.configureTimeout(
-        timeout: KotlinDuration,
+    private fun HttpRequestBuilder.configureDownloadTimeouts(
+        connectTimeout: KotlinDuration,
     ) {
-        require(timeout.isPositive() && timeout.isFinite()) {
-            "HTTP timeout must be positive and finite: $timeout"
+        require(connectTimeout.isPositive() && connectTimeout.isFinite()) {
+            "HTTP connect timeout must be positive and finite: $connectTimeout"
         }
-        val timeoutMillis = timeout.inWholeMilliseconds
         timeout {
-            requestTimeoutMillis = timeoutMillis
-            connectTimeoutMillis = timeoutMillis
-            socketTimeoutMillis = timeoutMillis
+            requestTimeoutMillis = DOWNLOAD_REQUEST_TIMEOUT.inWholeMilliseconds
+            connectTimeoutMillis = connectTimeout.inWholeMilliseconds
+            socketTimeoutMillis = DOWNLOAD_SOCKET_TIMEOUT.inWholeMilliseconds
         }
     }
 }

@@ -108,11 +108,9 @@ internal class HostedOfficialMinecraftServerResource private constructor(
     internal suspend fun cleanup() {
         processMutex.withLock {
             if (process.isAlive) {
-                runCatching { process.sendLine("stop") }
-                if (process.awaitExitWithin(configuration.stopTimeout) == null) {
-                    process.close()
-                    runCatching { process.awaitExit() }
-                }
+                process.terminate(
+                    gracefulTimeout = configuration.stopTimeout,
+                )
             }
         }
     }
@@ -179,6 +177,7 @@ private suspend fun launchOfficialServer(
             ),
             workingDirectory = workDirectory,
             threadName = "official-minecraft-server",
+            shutdownCommand = "stop",
         )
         try {
             awaitStatusResponse(
@@ -193,8 +192,8 @@ private suspend fun launchOfficialServer(
             )
         } catch (failure: Throwable) {
             val diagnostic = process.logText()
-            process.close()
-            runCatching { process.awaitExit() }
+            runCatching { process.terminate() }
+                .onFailure(failure::addSuppressed)
             if (failure is CancellationException) throw failure
             if (
                 attempt + 1 == configuration.maximumBindAttempts ||

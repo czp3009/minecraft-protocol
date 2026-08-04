@@ -14,9 +14,10 @@ class MinecraftTestProcessTest {
     }
 
     @Test
-    fun logMarkersWakeOnlyTheMatchingWaiters() = runTest {
+    fun logWaitersPreserveMatchingBufferingAndCancellationSemantics() = runTest {
         withFixture { process ->
             process.waitForLog(STARTED, TIMEOUT)
+
             val alpha = async(start = CoroutineStart.UNDISPATCHED) {
                 process.waitForLog("alpha", TIMEOUT)
             }
@@ -30,18 +31,19 @@ class MinecraftTestProcessTest {
 
             process.sendLine("beta")
             beta.await()
-        }
-    }
 
-    @Test
-    fun markerAlreadyInTheBoundedLogCompletesImmediately() = runTest {
-        withFixture { process ->
-            process.waitForLog(STARTED, TIMEOUT)
             process.sendLine("buffered")
             process.waitForLog("ack:buffered", TIMEOUT)
-
             process.waitForLog("buffered", TIMEOUT)
             assertTrue("buffered" in process.logText())
+
+            val cancelled = async(start = CoroutineStart.UNDISPATCHED) {
+                process.waitForLog("later", TIMEOUT)
+            }
+            cancelled.cancelAndJoin()
+            process.sendLine("later")
+            process.waitForLog("ack:later", TIMEOUT)
+            process.waitForLog("later", TIMEOUT)
         }
     }
 
@@ -60,8 +62,7 @@ class MinecraftTestProcessTest {
         val resource = HostedMinecraftTestSupport.manageTestResource(
             workingDirectory,
         ) {
-            process.close()
-            runCatching { process.awaitExit() }
+            process.terminate()
         }
         try {
             process.waitForLog(PARENT_READY, TIMEOUT)
@@ -75,7 +76,7 @@ class MinecraftTestProcessTest {
     }
 
     @Test
-    fun processExitBeforeMarkerFailsTheWaiter() = runTest {
+    fun processExitFailsWaitersAndTerminationRemainsIdempotent() = runTest {
         withFixture { process ->
             process.waitForLog(STARTED, TIMEOUT)
             val missing = async(start = CoroutineStart.UNDISPATCHED) {
@@ -88,32 +89,47 @@ class MinecraftTestProcessTest {
             val failure = missing.await()
             assertIs<IllegalStateException>(failure)
             assertTrue(failure.message.orEmpty().contains("before log marker"))
-        }
-    }
-
-    @Test
-    fun cancellingALogWaiterDoesNotConsumeLaterMarkers() = runTest {
-        withFixture { process ->
-            process.waitForLog(STARTED, TIMEOUT)
-            val cancelled = async(start = CoroutineStart.UNDISPATCHED) {
-                process.waitForLog("later", TIMEOUT)
-            }
-            cancelled.cancelAndJoin()
-
-            process.sendLine("later")
-            process.waitForLog("ack:later", TIMEOUT)
-            process.waitForLog("later", TIMEOUT)
-        }
-    }
-
-    @Test
-    fun closeIsIdempotentAfterNaturalExit() = runTest {
-        withFixture { process ->
-            process.waitForLog(STARTED, TIMEOUT)
-            process.sendLine(EXIT)
             assertNotNull(process.awaitExitWithin(TIMEOUT))
-            process.close()
-            process.close()
+            process.terminate()
+            process.terminate()
+        }
+    }
+
+    @Test
+    fun terminateForcesAProcessThatIgnoresItsShutdownCommand() = runTest {
+        val workingDirectory = HostedMinecraftTestSupport.newScratchDirectory()
+        val process = MinecraftTestProcess.start(
+            command = listOf(
+                HostedMinecraftTestSupport.layout.javaExecutable.toString(),
+                processFixtureSource("Fixture.java").toString(),
+            ),
+            workingDirectory = workingDirectory,
+            threadName = "forced-minecraft-test-process-fixture",
+            shutdownCommand = IGNORED_SHUTDOWN_COMMAND,
+        )
+        val resource = HostedMinecraftTestSupport.manageTestResource(
+            workingDirectory,
+        ) {
+            process.terminate()
+        }
+        try {
+            process.waitForLog(STARTED, TIMEOUT)
+            process.sendLine(IGNORED_SHUTDOWN_COMMAND)
+            process.waitForLog(
+                "ack:$IGNORED_SHUTDOWN_COMMAND",
+                TIMEOUT,
+            )
+
+            val exitCode = process.terminate(
+                gracefulTimeout = 500.milliseconds,
+                forcedTimeout = TIMEOUT,
+            )
+
+            assertFalse(process.isAlive)
+            assertEquals(exitCode, process.exitCode)
+        } finally {
+            resource.close()
+            HostedMinecraftTestSupport.awaitCleanup()
         }
     }
 
@@ -139,12 +155,12 @@ class MinecraftTestProcessTest {
             ),
             workingDirectory = workingDirectory,
             threadName = "minecraft-test-process-fixture-log",
+            shutdownCommand = EXIT,
         )
         val resource = HostedMinecraftTestSupport.manageTestResource(
             workingDirectory,
         ) {
-            process.close()
-            runCatching { process.awaitExit() }
+            process.terminate()
         }
         return ProcessFixture(process, resource)
     }
@@ -161,6 +177,7 @@ class MinecraftTestProcessTest {
     private companion object {
         const val STARTED = "fixture-started"
         const val EXIT = "fixture-exit"
+        const val IGNORED_SHUTDOWN_COMMAND = "fixture-ignore-stop"
         const val PARENT_READY = "parent-ready"
         const val SPAWN_CHILD_AND_EXIT = "spawn-child-and-exit"
         val TIMEOUT = 10.seconds

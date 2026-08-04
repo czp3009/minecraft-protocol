@@ -113,7 +113,9 @@ client against the matching official server, a matching headless official client
 official world generate/rewrite/reload cycle. Gradle prepares exact verified fixtures and starts the shared JVM Fixture
 Host only when a test requests them. Gradle outputs and Fixture Host processes, logs, reports, and worlds remain under
 `build/`; a test-local filesystem sandbox uses the system temporary directory and is removed by the test client.
-Unchanged preparation is reused by Gradle.
+Compatible E2E phases reuse one process handle owned by their annotated test scenario and close it with structured
+cleanup. The Host admits at most eight concurrent fixture processes and performs graceful shutdown, followed by forced
+termination and workspace cleanup when the build ends. Unchanged preparation is reused by Gradle.
 
 ## Minecraft release and generated data
 

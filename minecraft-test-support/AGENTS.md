@@ -18,6 +18,8 @@ Fixture entry points and scenarios belong in each consumer's `commonTest`. A sta
 only an unavoidable replaceable implementation. Unsupported devices and runtimes do not receive fake reachability. A
 world snapshot crosses RPC as a map of relative paths to file contents; the `world-io` client materializes it in a
 self-owned system temporary directory that has no relationship to a Fixture Host path. Ordinary protocol tests stay
-filesystem-free.
+filesystem-free. The annotated consumer test creates the remote process required by its scenario and closes it with
+structured cleanup. Reuse one handle across compatible ordered phases, but do not move startup into lifecycle hooks
+merely to exclude it from the test timeout.
 
 Run `:minecraft-test-support:jvmTest` after contract or client changes.

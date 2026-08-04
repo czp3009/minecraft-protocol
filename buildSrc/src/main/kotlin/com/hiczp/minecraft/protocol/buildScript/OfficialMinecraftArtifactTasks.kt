@@ -8,8 +8,16 @@ import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.*
+import java.io.File
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.Locale
+import java.util.zip.ZipFile
+import javax.tools.DiagnosticCollector
+import javax.tools.JavaFileObject
+import javax.tools.StandardLocation
+import javax.tools.ToolProvider
 import kotlin.io.path.createDirectories
 import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
@@ -356,7 +364,7 @@ abstract class ExtractOfficialServerRuntimeTask :
         output.deleteTree()
         output.createDirectories()
 
-        java.util.zip.ZipFile(bundle.toFile()).use { archive ->
+        ZipFile(bundle.toFile()).use { archive ->
             // Read version manifest
             val versionFields = archive.getInputStream(
                 archive.getEntry("META-INF/versions.list"),
@@ -452,22 +460,22 @@ abstract class CompileOfficialCodecOracleTask : DefaultTask() {
         classes.createDirectories()
 
         val compiler = checkNotNull(
-            javax.tools.ToolProvider.getSystemJavaCompiler(),
+            ToolProvider.getSystemJavaCompiler(),
         ) { "Codec oracle compilation requires a full JDK" }
-        val diagnostics = javax.tools.DiagnosticCollector<javax.tools.JavaFileObject>()
+        val diagnostics = DiagnosticCollector<JavaFileObject>()
         compiler.getStandardFileManager(
             diagnostics,
-            java.util.Locale.ROOT,
-            java.nio.charset.StandardCharsets.UTF_8,
+            Locale.ROOT,
+            StandardCharsets.UTF_8,
         ).use { fileManager ->
             fileManager.setLocationFromPaths(
-                javax.tools.StandardLocation.CLASS_OUTPUT,
+                StandardLocation.CLASS_OUTPUT,
                 listOf(classes),
             )
             val classpath = buildList {
                 add(implJar.toFile())
                 addAll(libraries)
-            }.joinToString(java.io.File.pathSeparator)
+            }.joinToString(File.pathSeparator)
             val units = fileManager.getJavaFileObjectsFromPaths(
                 listOf(source),
             )

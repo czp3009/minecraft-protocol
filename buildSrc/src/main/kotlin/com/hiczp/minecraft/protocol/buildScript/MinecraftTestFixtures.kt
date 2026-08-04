@@ -2,6 +2,7 @@
 
 package com.hiczp.minecraft.protocol.buildScript
 
+import org.gradle.api.Task
 import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.ClasspathNormalizer
 import org.gradle.api.tasks.PathSensitivity
@@ -71,7 +72,7 @@ internal fun registerMinecraftTestFixtures(
 }
 
 private fun setTestEnvironment(
-    task: org.gradle.api.Task,
+    task: Task,
     environment: Map<String, String>,
 ) {
     val methods = task.javaClass.methods.filter { method ->

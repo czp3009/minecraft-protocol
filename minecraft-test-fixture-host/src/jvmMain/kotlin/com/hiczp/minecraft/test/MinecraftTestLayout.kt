@@ -11,12 +11,13 @@ internal data class MinecraftTestLayout(
     val serverRuntimeDirectory: Path,
     val codecClassesDirectory: Path,
     val fixtureWorkRoot: Path,
+    val hostWorkRoot: Path,
     val javaExecutable: Path,
 ) {
     fun newRuntimeDirectory(kind: MinecraftRuntimeKind): Path =
         createUniqueDirectory(
             Path(
-                fixtureWorkRoot,
+                hostWorkRoot,
                 "runtimes",
                 kind.directoryName,
                 minecraftVersion,
@@ -25,7 +26,7 @@ internal data class MinecraftTestLayout(
 
     fun newScratchDirectory(): Path = createUniqueDirectory(
         Path(
-            fixtureWorkRoot,
+            hostWorkRoot,
             "tmp",
         ),
     )

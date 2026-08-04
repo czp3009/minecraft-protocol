@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.test
 
 import io.ktor.client.*
+import io.ktor.client.engine.cio.*
 import kotlinx.rpc.krpc.ktor.client.installKrpc
 import kotlinx.rpc.krpc.ktor.client.rpc
 import kotlinx.rpc.krpc.serialization.json.json
@@ -9,7 +10,7 @@ import kotlinx.rpc.withService
 internal actual fun openMinecraftTestFixtureRpcConnection(
     rpcUrl: String,
 ): MinecraftTestFixtureRpcConnection {
-    val client = HttpClient {
+    val client = HttpClient(CIO) {
         installKrpc {
             serialization {
                 json()

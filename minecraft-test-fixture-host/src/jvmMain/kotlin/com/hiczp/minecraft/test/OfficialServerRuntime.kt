@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.test
 
 import kotlinx.io.files.Path
+import kotlinx.io.files.SystemFileSystem
 
 internal data class OfficialServerRuntime(
     val directory: Path,
@@ -45,9 +46,9 @@ internal fun loadServerRuntime(
 }
 
 private fun collectFiles(dir: Path): Sequence<Path> =
-    kotlinx.io.files.SystemFileSystem.list(dir).asSequence().flatMap { child ->
+    SystemFileSystem.list(dir).asSequence().flatMap { child ->
         val full = Path(dir, child.name)
-        if (kotlinx.io.files.SystemFileSystem.metadataOrNull(full)?.isDirectory == true) {
+        if (SystemFileSystem.metadataOrNull(full)?.isDirectory == true) {
             collectFiles(full)
         } else {
             sequenceOf(full)

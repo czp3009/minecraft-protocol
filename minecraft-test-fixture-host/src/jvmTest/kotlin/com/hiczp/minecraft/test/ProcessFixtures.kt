@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.test
 
 import kotlinx.io.files.Path
+import java.nio.file.Path as NioPath
 
 internal fun configureHostedTestSupportForJvmTests() {
     val projectDirectory = Path(System.getProperty("user.dir"))
@@ -15,13 +16,14 @@ internal fun configureHostedTestSupportForJvmTests() {
             serverRuntimeDirectory = Path(fixtureRoot, "server-runtime"),
             codecClassesDirectory = Path(fixtureRoot, "codec-classes"),
             fixtureWorkRoot = Path(fixtureRoot, "work"),
+            hostWorkRoot = Path(fixtureRoot, "work", "hosts", "test"),
             javaExecutable = Path("java"),
         ),
     )
 }
 
 internal fun processFixtureSource(name: String): Path = Path(
-    java.nio.file.Path.of(
+    NioPath.of(
         checkNotNull(
             Thread.currentThread().contextClassLoader.getResource(name),
         ) { "Process fixture resource is missing: $name" }.toURI(),

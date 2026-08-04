@@ -44,6 +44,10 @@ subprojects {
     group = rootProject.group
     version = rootProject.version
 
+    tasks.withType<Test>().configureEach {
+        systemProperty("kotlinx.coroutines.test.default_timeout", "2m")
+    }
+
     pluginManager.withPlugin("org.jetbrains.kotlin.multiplatform") {
         tasks.withType<KotlinJsTest>().configureEach {
             onTestFrameworkSet {

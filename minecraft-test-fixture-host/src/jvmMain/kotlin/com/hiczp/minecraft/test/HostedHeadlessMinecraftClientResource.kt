@@ -2,7 +2,7 @@ package com.hiczp.minecraft.test
 
 import kotlinx.io.files.Path
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Duration.Companion.minutes
 import kotlin.uuid.Uuid
 
 /** A ready official-client process with an isolated game directory. */
@@ -47,8 +47,7 @@ internal class HostedHeadlessMinecraftClientResource private constructor(
     }
 
     internal suspend fun cleanup() {
-        process.close()
-        runCatching { process.awaitExit() }
+        process.terminate()
     }
 
     internal companion object {
@@ -123,8 +122,8 @@ internal class HostedHeadlessMinecraftClientResource private constructor(
                     process = process,
                 )
             } catch (failure: Throwable) {
-                process.close()
-                runCatching { process.awaitExit() }
+                runCatching { process.terminate() }
+                    .onFailure(failure::addSuppressed)
                 throw AssertionError(
                     """
                     |Official client failed to enter its in-memory launcher.
@@ -158,7 +157,7 @@ internal class HostedHeadlessMinecraftClientResource private constructor(
             )
         }
 
-        private val LAUNCH_TIMEOUT = 45.seconds
+        private val LAUNCH_TIMEOUT = 2.minutes
         private const val LAUNCH_READY_MARKER =
             "Launching with simple in-memory launcher"
     }

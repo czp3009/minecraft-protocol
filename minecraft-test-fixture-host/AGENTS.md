@@ -1,7 +1,7 @@
 # minecraft-test-fixture-host
 
 This private JVM module owns everything behind the remote fixture boundary: official artifact paths, external processes,
-the four-slot pool, unique workspaces, bounded logs, readiness probes, reports, codec execution, world transfer, and
+the eight-slot pool, unique workspaces, bounded logs, readiness probes, reports, codec execution, world transfer, and
 final cleanup.
 
 ## Lifecycle
@@ -19,6 +19,13 @@ final cleanup.
   status response and pong while process exit is monitored; bind failures retry before a ready handle is returned.
 - Directly launched processes remain retained until cleanup. A launcher's supported in-process mode is used instead of
   an opaque descendant process where available.
+- A test in one subproject and platform amortizes a compatible process across sequential phases through one remote
+  handle created and closed inside the annotated test scenario. A global or class-scoped handle is reserved for a
+  genuinely suite-scoped stateless or recoverable fixture with explicit after-all cleanup; it is not a way to hide
+  startup from a test timeout. Owner cleanup handles an aborted test task, and Host shutdown remains the final fallback.
+  Fixture tests likewise combine compatible lifecycle assertions around one subprocess. Fresh processes remain mandatory
+  when termination, forced cleanup, inherited pipes, a clean workspace, or a fixed endpoint is under test. The Host does
+  not pool mutable processes across separate platform test-task owners by default.
 
 Logs, reports, codec inputs/results, and world snapshots cross the kRPC WebSocket as JSON data. Host paths and process
 objects never cross the protocol.
