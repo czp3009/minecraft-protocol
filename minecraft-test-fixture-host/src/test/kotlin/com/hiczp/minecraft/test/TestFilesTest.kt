@@ -3,8 +3,6 @@ package com.hiczp.minecraft.test
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import kotlin.test.*
 
 class TestFilesTest {
@@ -30,29 +28,9 @@ class TestFilesTest {
             assertTrue(second.name.startsWith("run-"))
             assertTrue(first.isBelow(layout.hostWorkRoot))
             assertTrue(second.isBelow(layout.hostWorkRoot))
-            assertTrue(first.isBelow(layout.fixtureWorkRoot))
-            assertTrue(second.isBelow(layout.fixtureWorkRoot))
         } finally {
             first.deleteTree()
             second.deleteTree()
-        }
-    }
-
-    @Test
-    fun hostPathsStayInsideFixtureWorkRoot() {
-        val layout = HostedMinecraftTestSupport.layout
-        val firstReport = HostedMinecraftTestSupport.reportFile(
-            "fixtures/report.json",
-        )
-        val secondReport = HostedMinecraftTestSupport.reportFile(
-            "fixtures/report.json",
-        )
-
-        assertNotEquals(firstReport, secondReport)
-        assertTrue(firstReport.isBelow(layout.fixtureWorkRoot))
-        assertTrue(secondReport.isBelow(layout.fixtureWorkRoot))
-        assertFailsWith<IllegalArgumentException> {
-            HostedMinecraftTestSupport.reportFile("../../outside.json")
         }
     }
 
@@ -80,30 +58,6 @@ class TestFilesTest {
         HostedMinecraftTestSupport.awaitCleanup()
         cleanupCompleted.await()
         assertFalse(directory.exists())
-    }
-
-    @Test
-    fun reportWriterProducesParseableStructuredJson() {
-        val scratch = HostedMinecraftTestSupport.newScratchDirectory()
-        try {
-            val report = Path(scratch, "structured.json")
-            report.writeJson(
-                buildJsonObject {
-                    put("text", "quote=\" newline=\n")
-                    put("count", 2)
-                },
-            )
-
-            assertTrue(report.isRegularFile())
-            val document = report.readJsonObject()
-            assertEquals(
-                "quote=\" newline=\n",
-                document.requiredString("text"),
-            )
-            assertEquals(2, document.requiredInt("count"))
-        } finally {
-            scratch.deleteTree()
-        }
     }
 
     private fun Path.isBelow(ancestor: Path): Boolean =

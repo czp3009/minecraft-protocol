@@ -138,9 +138,6 @@ internal object HostedMinecraftTestSupport {
         }
     }
 
-    /** Allocates a collision-safe report path below the host work root. */
-    fun reportFile(name: String): Path = layout.reportFile(name)
-
     internal suspend fun stopAcceptingResourceCreations() {
         registryMutex.withLock {
             acceptingResourceCreations = false

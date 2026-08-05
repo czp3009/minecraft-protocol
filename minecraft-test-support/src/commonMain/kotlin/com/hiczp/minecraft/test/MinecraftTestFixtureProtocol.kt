@@ -41,12 +41,7 @@ interface MinecraftTestFixtureRpc {
 
     suspend fun closeResource(resourceId: String)
 
-    suspend fun submitReport(name: String, content: JsonElement)
-
-    suspend fun verifyCodec(
-        fixtures: JsonElement,
-        reportName: String,
-    ): JsonElement
+    suspend fun verifyCodec(fixtures: JsonElement)
 
     suspend fun readWorldFiles(
         resourceId: String,
@@ -75,8 +70,6 @@ data class CreateOfficialClientRequest(
 @Serializable
 data class FixtureResourceDescriptor(
     val id: String,
-    val minecraftVersion: String,
-    val artifactDigest: String,
     val endpoint: MinecraftTestEndpoint,
 )
 

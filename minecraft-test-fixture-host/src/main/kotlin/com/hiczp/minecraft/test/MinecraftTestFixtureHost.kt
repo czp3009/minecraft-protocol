@@ -25,7 +25,7 @@ import kotlin.uuid.Uuid
 import java.nio.file.Path as NioPath
 
 fun main(arguments: Array<String>) = runBlocking {
-    require(arguments.size == 9) {
+    require(arguments.size == 8) {
         "Expected Minecraft version, fixture inputs, and work root"
     }
     val minecraftVersion = arguments[0]
@@ -38,8 +38,7 @@ fun main(arguments: Array<String>) = runBlocking {
             headlessLauncherFile = Path(arguments[4]),
             serverRuntimeDirectory = Path(arguments[5]),
             codecClassesDirectory = Path(arguments[6]),
-            fixtureWorkRoot = Path(arguments[7]),
-            hostWorkRoot = Path(arguments[8]),
+            hostWorkRoot = Path(arguments[7]),
             javaExecutable = Path("java"),
         ),
     )
@@ -155,17 +154,9 @@ private class HostedMinecraftTestFixtureRpc(
         resources.close(resourceId)
     }
 
-    override suspend fun submitReport(
-        name: String,
-        content: JsonElement,
-    ) {
-        HostedMinecraftTestSupport.reportFile(name).writeJson(content)
+    override suspend fun verifyCodec(fixtures: JsonElement) {
+        runCodecVerification(fixtures)
     }
-
-    override suspend fun verifyCodec(
-        fixtures: JsonElement,
-        reportName: String,
-    ): JsonElement = runCodecVerification(fixtures, reportName)
 
     override suspend fun readWorldFiles(
         resourceId: String,
@@ -410,8 +401,6 @@ private fun HostedOfficialMinecraftServerResource.descriptor(
     id: String,
 ): FixtureResourceDescriptor = FixtureResourceDescriptor(
     id = id,
-    minecraftVersion = minecraftVersion,
-    artifactDigest = officialServerSha256,
     endpoint = endpoint,
 )
 
@@ -419,8 +408,6 @@ private fun HostedHeadlessMinecraftClientResource.descriptor(
     id: String,
 ): FixtureResourceDescriptor = FixtureResourceDescriptor(
     id = id,
-    minecraftVersion = minecraftVersion,
-    artifactDigest = officialClientSha1,
     endpoint = endpoint,
 )
 
@@ -436,21 +423,13 @@ private fun HostedHeadlessMinecraftClientResource.status(): FixtureResourceStatu
         exitCode = if (isAlive) null else exitCode,
     )
 
-private suspend fun runCodecVerification(
-    fixtures: JsonElement,
-    reportName: String,
-): JsonElement {
+private suspend fun runCodecVerification(fixtures: JsonElement) {
     val scratch = HostedMinecraftTestSupport.newScratchDirectory()
-    return try {
-        val fixtureFile = Path(scratch, "fixtures.json")
-        fixtureFile.writeJson(fixtures)
-        val report = HostedMinecraftTestSupport.reportFile(reportName)
+    try {
         OfficialCodecOracle.verify(
-            fixtures = fixtureFile,
-            report = report,
+            fixtures = fixtures,
             loggingConfiguration = Path(scratch, "log4j2.xml"),
         )
-        report.readJsonObject()
     } finally {
         scratch.deleteTree()
     }

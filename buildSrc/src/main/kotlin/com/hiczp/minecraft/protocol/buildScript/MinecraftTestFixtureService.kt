@@ -109,7 +109,6 @@ abstract class MinecraftTestFixtureService :
             parameters.headlessLauncherFile.get().asFile.absolutePath,
             parameters.serverRuntimeDirectory.get().asFile.absolutePath,
             parameters.codecClassesDirectory.get().asFile.absolutePath,
-            fixtureWorkRoot.absolutePath,
             hostWorkRoot.absolutePath,
         )
             .directory(parameters.hostWorkingDirectory.get().asFile)

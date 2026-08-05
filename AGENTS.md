@@ -60,7 +60,8 @@ library's scope.
 - Ordinary logs never write directly to the console. Do not use `print`, `println`, `System.out`, `System.err`,
   `printStackTrace`, or equivalent direct console writes as a logging mechanism. Ordinary Kotlin code uses
   kotlin-logging, Gradle build logic uses Gradle's logger, KSP processors use `KSPLogger`, and code hosted by another
-  framework uses that framework's logging API. Tests use assertions and structured reports instead of success output. A
+  framework uses that framework's logging API. Tests use assertions; a successful execution does not emit a standalone
+  success log or report, while failure details travel through the test framework's exception and reporting path. A
   direct standard-stream write is permitted only when the bytes are an explicit machine or subprocess protocol, or when
   a test fixture specifically exercises standard-stream behavior; isolate that write at the protocol boundary and never
   mix diagnostic logs into the protocol stream. Agent-only infrastructure such as `.codex` hooks follows its host
@@ -130,8 +131,9 @@ properties for resource paths do not belong in this design.
 
 The Build Service starts `minecraft-test-fixture-host` lazily. Test code loads only `minecraft-test-support` and calls
 the generated kotlinx.rpc service over Ktor WebSocket with JSON payloads. Processes, official fixture paths, host
-workspaces, logs, reports, and cleanup remain inside the Fixture Host. Tests never receive a host workspace path or
-process object; `world-io` receives file contents through RPC and uses a test-owned local scratch directory.
+workspaces, logs, and cleanup remain inside the Fixture Host. Tests never receive a host workspace path or process
+object; codec verification returns normally or throws with failure details, and `world-io` receives file contents
+through RPC and uses a test-owned local scratch directory.
 
 Within one subproject's single platform test task, compatible cases reuse one official process instead of creating a
 process per assertion or test method. Express ordered stateful coverage as phases of one `commonTest` entry and runner,
@@ -171,12 +173,13 @@ and no host operating system is a design-time first-class platform. The root pro
 Use `clean` or `--rerun-tasks` when forced verification is necessary, but keep the build cache enabled. Configuration
 cache and unchanged-rerun checks accompany changes to task inputs, outputs, or service wiring.
 
-Production tasks and the Fixture Host keep downloads, generated data and source, runtimes, reports, worlds, and host
-scratch under `build/`. Process logs remain Host-owned and cross the RPC boundary as values. A test client that
-exercises its own filesystem uses a self-owned system temporary directory and removes it after the scenario. Agent-only
-notes, manual decompilation, and third-party reference checkouts belong under `temp/`; Gradle and its helper scripts
-never read or write that directory. A missing decompiler is reported to the user rather than installed silently or added
-as a Gradle task. Preserve `.gitignore`.
+Production task outputs stay under `build/`. Fixture Host runtimes, worlds, and scratch also stay there while in use and
+are deleted when their owning resource or host closes; successful tests do not leave standalone result files. Process
+logs remain Host-owned and cross the RPC boundary as values only when requested. A test client that exercises its own
+filesystem uses a self-owned system temporary directory and removes it after the scenario. Agent-only notes, manual
+decompilation, and third-party reference checkouts belong under `temp/`; Gradle and its helper scripts never read or
+write that directory. A missing decompiler is reported to the user rather than installed silently or added as a Gradle
+task. Preserve `.gitignore`.
 
 ## Optional agent skills
 

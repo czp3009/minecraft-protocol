@@ -1,7 +1,7 @@
 # minecraft-test-fixture-host
 
 This private JVM module owns everything behind the remote fixture boundary: official artifact paths, external processes,
-the eight-slot pool, unique workspaces, bounded logs, readiness probes, reports, codec execution, world transfer, and
+the eight-slot pool, unique workspaces, bounded logs, readiness probes, codec execution, world transfer, and
 final cleanup.
 
 ## Lifecycle
@@ -27,8 +27,9 @@ final cleanup.
   when termination, forced cleanup, inherited pipes, a clean workspace, or a fixed endpoint is under test. The Host does
   not pool mutable processes across separate platform test-task owners by default.
 
-Logs, reports, codec inputs/results, and world snapshots cross the kRPC WebSocket as JSON data. Host paths and process
-objects never cross the protocol.
+Logs and world snapshots cross the kRPC WebSocket as JSON data. Codec inputs cross as JSON values; success has no result
+payload, and verification failures cross as exceptions with bounded diagnostics. Host paths and process objects never
+cross the protocol.
 
 The host process reserves standard input for Build Service control commands and standard output for its single
 `READY_PREFIX` connection announcement. That machine-readable handshake is not a diagnostic log. Host diagnostics use
@@ -37,6 +38,7 @@ behavior.
 
 Consume only artifact and directory providers supplied by Gradle. Gradle owns download integrity; the host reads the
 required metadata and paths but never downloads, repairs, rediscovers, or rehashes immutable fixture downloads. Mutable
-filesystem state stays below the explicit `build/minecraft-test-support/` work root.
+filesystem state stays below the explicit `build/minecraft-test-support/` work root and is deleted after use. Do not
+persist standalone files merely to record successful test execution.
 
 Run `:minecraft-test-fixture-host:test` after host, process, pool, or protocol-handler changes.

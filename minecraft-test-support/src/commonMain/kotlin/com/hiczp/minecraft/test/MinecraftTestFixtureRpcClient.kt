@@ -1,8 +1,6 @@
 package com.hiczp.minecraft.test
 
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
 
 internal class MinecraftTestFixtureRpcClient private constructor(
     private val connection: MinecraftTestFixtureRpcConnection,
@@ -69,14 +67,9 @@ internal class MinecraftTestFixtureRpcClient private constructor(
         service.closeResource(resourceId)
     }
 
-    suspend fun submitReport(name: String, content: JsonElement) {
-        service.submitReport(name, content)
+    suspend fun verifyCodec(fixtures: JsonElement) {
+        service.verifyCodec(fixtures)
     }
-
-    suspend fun verifyCodec(
-        fixtures: JsonElement,
-        reportName: String,
-    ): JsonObject = service.verifyCodec(fixtures, reportName).jsonObject
 
     suspend fun readWorldFiles(
         resourceId: String,

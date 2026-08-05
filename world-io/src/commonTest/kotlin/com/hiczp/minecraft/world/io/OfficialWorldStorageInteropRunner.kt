@@ -7,8 +7,6 @@ import com.hiczp.minecraft.test.OfficialMinecraftServerResource
 import com.hiczp.minecraft.test.useRemote
 import com.hiczp.minecraft.world.format.RegionPosition
 import kotlinx.io.files.Path
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 
 /**
  * Generates a world with the exact official server, rewrites its NBT and
@@ -42,18 +40,6 @@ internal object OfficialWorldStorageInteropRunner {
                 auditAndRewrite(it, rewrite = false)
             }
             check(after.chunks > 0)
-
-            MinecraftTestSupport.submitReport(
-                "official-world-storage.json",
-                buildJsonObject {
-                    put("status", "passed")
-                    put("world", WORLD_NAME)
-                    put("region_files_before", before.regionFiles)
-                    put("chunks_before", before.chunks)
-                    put("region_files_after", after.regionFiles)
-                    put("chunks_after", after.chunks)
-                },
-            )
         }
     }
 

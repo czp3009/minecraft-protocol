@@ -1,22 +1,14 @@
 package com.hiczp.minecraft.test.oracle;
 
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -46,31 +38,17 @@ import net.minecraft.server.Bootstrap;
 /**
  * Executes payloads emitted by the Kotlin implementation through the matching
  * vanilla packet STREAM_CODEC. A passing result proves complete consumption
- * and classifies exact, stable-normalizing, and non-deterministically
- * re-encoding official codecs from their observed behavior.
+ * and successful official re-encoding without persisting a success report.
  */
 public final class OfficialCodecOracle {
-    private static final Gson GSON =
-            new GsonBuilder().setPrettyPrinting().create();
+    private static final int MAX_REPORTED_FAILURES = 20;
+    private static final Gson GSON = new Gson();
 
     private OfficialCodecOracle() {
     }
 
-    public static void run(String[] arguments) throws Exception {
-        if (arguments.length != 3) {
-            throw new IllegalArgumentException(
-                    "usage: <fixtures.json> <server-inner.jar> <report.json>"
-            );
-        }
-
-        Path fixturesPath = Path.of(arguments[0]).toAbsolutePath().normalize();
-        Path serverJarPath = Path.of(arguments[1]).toAbsolutePath().normalize();
-        Path reportPath = Path.of(arguments[2]).toAbsolutePath().normalize();
-
-        List<Fixture> fixtures = readFixtures(fixturesPath);
-        Set<PacketKey> fixtureKeys = fixtures.stream()
-                .map(Fixture::key)
-                .collect(Collectors.toSet());
+    public static void run(String fixturesJson) throws Exception {
+        List<Fixture> fixtures = readFixtures(fixturesJson);
         Set<String> fixtureNames = new HashSet<>();
         for (Fixture fixture : fixtures) {
             String identity = fixture.key().text() + "/" + fixture.sample();
@@ -85,77 +63,45 @@ public final class OfficialCodecOracle {
         Bootstrap.bootStrap();
         RegistryAccess registries = createVanillaRegistryAccess();
 
-        List<Map<String, Object>> results = new ArrayList<>(fixtures.size());
-        int passed = 0;
+        List<String> failures = new ArrayList<>();
         for (Fixture fixture : fixtures) {
-            Map<String, Object> result = new LinkedHashMap<>();
-            result.put("key", fixture.key().text());
-            result.put("sample", fixture.sample());
-            result.put("kotlin_class", fixture.kotlinClass());
-            result.put("payload_sha256", sha256(fixture.payload()));
-            result.put("payload_size", fixture.payload().length);
-
             try {
                 byte[] encoded = passThroughOfficialCodec(
                         fixture.key(),
                         fixture.payload(),
                         registries
                 );
-                boolean exact = Arrays.equals(fixture.payload(), encoded);
-                String validation = "decode-and-byte-identical-reencode";
-                if (!exact) {
-                    byte[] normalized = passThroughOfficialCodec(
+                if (!Arrays.equals(fixture.payload(), encoded)) {
+                    passThroughOfficialCodec(
                             fixture.key(),
                             encoded,
                             registries
                     );
-                    if (Arrays.equals(encoded, normalized)) {
-                        result.put(
-                                "normalized_payload_sha256",
-                                sha256(encoded)
-                        );
-                        result.put("normalized_payload_size", encoded.length);
-                        validation =
-                                "complete-decode-and-stable-official-normalization";
-                    } else {
-                        validation =
-                                "complete-decode-with-nondeterministic-official-reencoding";
-                    }
                 }
-                result.put("validation", validation);
-                result.put("status", "pass");
-                passed++;
             } catch (Throwable error) {
-                result.put("status", "fail");
-                result.put("error", conciseError(error));
+                failures.add(
+                        fixture.key().text()
+                                + "/" + fixture.sample()
+                                + " (" + fixture.kotlinClass() + "): "
+                                + conciseError(error)
+                );
             }
-            results.add(result);
         }
-
-        Map<String, Object> report = new LinkedHashMap<>();
-        report.put("schema_version", 1);
-        report.put("generated_at", Instant.now().toString());
-        report.put("minecraft_version", SharedConstants.getCurrentVersion().name());
-        report.put("protocol_version", SharedConstants.getProtocolVersion());
-        report.put("official_server_inner_sha256", sha256(Files.readAllBytes(serverJarPath)));
-        report.put("fixture_sha256", sha256(Files.readAllBytes(fixturesPath)));
-        report.put("expected_packet_count", fixtureKeys.size());
-        report.put("covered_packet_count", fixtureKeys.size());
-        report.put("fixture_count", fixtures.size());
-        report.put("passed", passed);
-        report.put("failed", fixtures.size() - passed);
-        report.put("results", results);
-
-        Files.createDirectories(reportPath.getParent());
-        Files.writeString(
-                reportPath,
-                GSON.toJson(report) + "\n"
-        );
-        if (passed != fixtures.size()) {
+        if (!failures.isEmpty()) {
+            String details = failures.stream()
+                    .limit(MAX_REPORTED_FAILURES)
+                    .map(failure -> "- " + failure)
+                    .collect(Collectors.joining("\n"));
+            if (failures.size() > MAX_REPORTED_FAILURES) {
+                details += "\n- ... "
+                        + (failures.size() - MAX_REPORTED_FAILURES)
+                        + " additional failure(s) omitted";
+            }
             throw new AssertionError(
                     "Official codec rejected "
-                            + (fixtures.size() - passed)
-                            + " fixture(s); report: " + reportPath
+                            + failures.size()
+                            + " fixture(s):\n"
+                            + details
             );
         }
     }
@@ -275,13 +221,13 @@ public final class OfficialCodecOracle {
         return registry.freeze();
     }
 
-    private static List<Fixture> readFixtures(Path path) throws IOException {
+    private static List<Fixture> readFixtures(String fixturesJson) {
         FixtureInput[] inputs = GSON.fromJson(
-                Files.readString(path),
+                fixturesJson,
                 FixtureInput[].class
         );
         if (inputs == null || inputs.length == 0) {
-            throw new IllegalArgumentException("Fixture file is empty: " + path);
+            throw new IllegalArgumentException("Codec fixtures are empty");
         }
         List<Fixture> fixtures = new ArrayList<>(inputs.length);
         for (FixtureInput input : inputs) {
@@ -320,12 +266,6 @@ public final class OfficialCodecOracle {
         String message = current.getMessage();
         return current.getClass().getName()
                 + (message == null || message.isBlank() ? "" : ": " + message);
-    }
-
-    private static String sha256(byte[] content) throws Exception {
-        return HexFormat.of().formatHex(
-                MessageDigest.getInstance("SHA-256").digest(content)
-        );
     }
 
     private record PacketKey(String state, String direction, String id) {

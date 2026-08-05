@@ -5,10 +5,11 @@ KMP kotlinx.rpc contract, Ktor client, serializable models, remote server/client
 
 ## Remote boundary
 
-- Official fixtures are always remote. Status, logs, commands, event waits, reports, codec verification, and world
-  snapshots cross the API as suspend operations.
-- Host paths, process objects, official-artifact discovery, Gradle types, launchers, report writers, and host-filesystem
-  implementations do not belong in this module.
+- Official fixtures are always remote. Status, logs, commands, event waits, codec verification, and world snapshots
+  cross the API as suspend operations. Successful verification returns without a separate result payload or file;
+  failures cross as exceptions with diagnostic details.
+- Host paths, process objects, official-artifact discovery, Gradle types, launchers, and host-filesystem implementations
+  do not belong in this module.
 - The generated kRPC client uses Ktor WebSocket and JSON. This module has no hand-written request routing, downloader,
   process abstraction, or reconnect protocol.
 - `close()` is idempotent and returns after the host accepts asynchronous cleanup. `useRemote` is the structured-use

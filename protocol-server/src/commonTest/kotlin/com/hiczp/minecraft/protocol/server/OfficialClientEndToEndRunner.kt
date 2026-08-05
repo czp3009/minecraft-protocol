@@ -14,10 +14,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
 import kotlin.uuid.Uuid
 
 /**
@@ -49,40 +45,33 @@ internal object OfficialClientEndToEndRunner {
     suspend fun run() {
         var client: HeadlessMinecraftClientResource? = null
         try {
-            val outcome =
-                SelectorManager(Dispatchers.Default).use { selector ->
-                    MinecraftServer.bind(
-                        selectorManager = selector,
-                        host = "127.0.0.1",
-                        port = 0,
-                        configuration = MinecraftServerConfiguration(
-                            compressionThreshold = 64,
-                            viewDistance = 2,
-                            simulationDistance = 5,
-                            statusDescription =
-                                "minecraft-protocol official client E2E",
-                        ),
-                    ).use { server ->
-                        val launched = MinecraftTestSupport.newOfficialClient(
-                            configuration =
-                                HeadlessMinecraftClientConfiguration(
-                                    playerName = PLAYER_NAME,
-                                    endpoint = MinecraftTestEndpoint(
-                                        host = "127.0.0.1",
-                                        port = server.port,
-                                    ),
+            SelectorManager(Dispatchers.Default).use { selector ->
+                MinecraftServer.bind(
+                    selectorManager = selector,
+                    host = "127.0.0.1",
+                    port = 0,
+                    configuration = MinecraftServerConfiguration(
+                        compressionThreshold = 64,
+                        viewDistance = 2,
+                        simulationDistance = 5,
+                        statusDescription =
+                            "minecraft-protocol official client E2E",
+                    ),
+                ).use { server ->
+                    val launched = MinecraftTestSupport.newOfficialClient(
+                        configuration =
+                            HeadlessMinecraftClientConfiguration(
+                                playerName = PLAYER_NAME,
+                                endpoint = MinecraftTestEndpoint(
+                                    host = "127.0.0.1",
+                                    port = server.port,
                                 ),
-                        )
-                        client = launched
-                        awaitPlayRoundTrip(server, launched)
-                    }
+                            ),
+                    )
+                    client = launched
+                    awaitPlayRoundTrip(server, launched)
                 }
-            val launchedClient = checkNotNull(client)
-            writeReport(
-                minecraftVersion = launchedClient.minecraftVersion,
-                officialClientSha1 = launchedClient.officialClientSha1,
-                outcome = outcome,
-            )
+            }
         } catch (failure: Throwable) {
             val clientLog = client?.logText().orEmpty()
             throw AssertionError(
@@ -101,15 +90,14 @@ internal object OfficialClientEndToEndRunner {
     private suspend fun awaitPlayRoundTrip(
         server: MinecraftServer,
         process: HeadlessMinecraftClientResource,
-    ): EndToEndOutcome = coroutineScope {
+    ) = coroutineScope {
         val processWatcher = launch {
             process.awaitExit()
             server.close()
         }
         try {
-            var statusConnections = 0
-            var outcome: EndToEndOutcome? = null
-            while (outcome == null) {
+            var completed = false
+            while (!completed) {
                 if (!process.isAlive()) {
                     error("Official client exited with ${process.exitCode()}")
                 }
@@ -124,7 +112,6 @@ internal object OfficialClientEndToEndRunner {
                 try {
                     when (val negotiation = connection.negotiate()) {
                         MinecraftServerNegotiationResult.StatusCompleted -> {
-                            statusConnections++
                             connection.close()
                         }
 
@@ -214,7 +201,7 @@ internal object OfficialClientEndToEndRunner {
                                 "Client did not complete initial-world acknowledgements; teleport=$teleportAcknowledged, chunkBatch=$chunkBatchAcknowledged, keepAlive=$keepAliveAcknowledged, clientTick=$clientTickObserved; observed ${observed.joinToString()}"
                             }
 
-                            val playProbes = exercisePlayPackets(
+                            exercisePlayPackets(
                                 connection = connection,
                                 playerEntityId = negotiation.login.playerId,
                                 entity = pig,
@@ -225,94 +212,23 @@ internal object OfficialClientEndToEndRunner {
                                     synchronization.teleportId + 1,
                                 observed = observed,
                             )
-                            val respawn = exerciseRespawn(
+                            exerciseRespawn(
                                 connection = connection,
                                 world = world.copy(
                                     teleportId = world.teleportId + 2,
                                 ),
                                 observed = observed,
                             )
-                            val reconfiguration =
-                                exerciseReconfiguration(
-                                    connection = connection,
-                                    world = world,
-                                    observedPlayPackets = observed,
-                                )
+                            exerciseReconfiguration(
+                                connection = connection,
+                                world = world,
+                                observedPlayPackets = observed,
+                            )
                             check(process.isAlive()) {
                                 "Official client exited after protocol round-trip probes"
                             }
                             connection.close()
-                            outcome = EndToEndOutcome(
-                                statusConnections = statusConnections,
-                                playerName = negotiation.profile.name,
-                                acceptedKnownPacks =
-                                    negotiation.acceptedKnownPacks.size,
-                                synchronizedChunks =
-                                    synchronization.chunkCount,
-                                synchronizedEntities =
-                                    synchronization.entityCount,
-                                entityType = pig.type.toString(),
-                                entityTypeId = pig.typeId,
-                                teleportAcknowledged = true,
-                                chunkBatchAcknowledged = true,
-                                clientTickObserved = true,
-                                clientRemainedConnected = true,
-                                playProbePacketTransmissions =
-                                    playProbes.probePacketTransmissions,
-                                playBarrierPacketTransmissions =
-                                    playProbes.barrierPacketTransmissions,
-                                playClientboundPacketTypes =
-                                    playProbes.clientboundPacketTypes,
-                                playCookieRoundTrip =
-                                    playProbes.cookieRoundTrip,
-                                playPingRoundTrip =
-                                    playProbes.pingRoundTrip,
-                                secondTeleportAcknowledged =
-                                    playProbes.teleportAcknowledged,
-                                respawnSynchronizedChunks =
-                                    respawn.synchronizedChunks,
-                                respawnSynchronizedEntities =
-                                    respawn.synchronizedEntities,
-                                respawnTeleportAcknowledged =
-                                    respawn.teleportAcknowledged,
-                                respawnChunkBatchAcknowledged =
-                                    respawn.chunkBatchAcknowledged,
-                                respawnPlayerLoaded =
-                                    respawn.playerLoaded,
-                                respawnPlayRoundTrip =
-                                    respawn.playRoundTrip,
-                                reconfigurationAcknowledged =
-                                    reconfiguration.acknowledged,
-                                playerLoadedBeforeReconfiguration =
-                                    reconfiguration.playerLoaded,
-                                reconfigurationClientInformationObserved =
-                                    reconfiguration.clientInformation,
-                                reconfigurationKnownPacks =
-                                    reconfiguration.knownPacks,
-                                configurationCookieRoundTrip =
-                                    reconfiguration.cookieRoundTrip,
-                                configurationKeepAliveRoundTrip =
-                                    reconfiguration.keepAliveRoundTrip,
-                                configurationPingRoundTrip =
-                                    reconfiguration.pingRoundTrip,
-                                reconfigurationCompleted =
-                                    reconfiguration.completed,
-                                reconfigurationSynchronizedChunks =
-                                    reconfiguration.synchronizedChunks,
-                                reconfigurationSynchronizedEntities =
-                                    reconfiguration.synchronizedEntities,
-                                reconfigurationTeleportAcknowledged =
-                                    reconfiguration.teleportAcknowledged,
-                                reconfigurationChunkBatchAcknowledged =
-                                    reconfiguration.chunkBatchAcknowledged,
-                                reconfigurationPlayerLoaded =
-                                    reconfiguration.playerLoadedAfterward,
-                                postConfigurationPlayRoundTrip =
-                                    reconfiguration.postPlayRoundTrip,
-                                observedPlayPackets = observed,
-                                observedConfigurationPackets =
-                                    reconfiguration.observedPackets,
-                            )
+                            completed = true
                         }
                     }
                 } catch (failure: Throwable) {
@@ -320,7 +236,7 @@ internal object OfficialClientEndToEndRunner {
                     throw failure
                 }
             }
-            outcome
+            Unit
         } finally {
             processWatcher.cancelAndJoin()
         }
@@ -335,7 +251,7 @@ internal object OfficialClientEndToEndRunner {
         horse: MinecraftEntitySnapshot,
         nextTeleportId: Int,
         observed: MutableList<String>,
-    ): PlayProbeOutcome {
+    ) {
         val bossBarId = Uuid.fromLongs(0, 3)
         val playerListProfileId = Uuid.fromLongs(0, 5)
         val waypointId = WaypointIdentifier.Named("headless-e2e")
@@ -1143,35 +1059,13 @@ internal object OfficialClientEndToEndRunner {
         check(playerEntityId != entity.entityId) {
             "Play probe entity unexpectedly reused the player entity ID"
         }
-        val probePacketTypes = buildList {
-            addAll(
-                packets.map { packet ->
-                    checkNotNull(packet::class.simpleName) {
-                        "A Play probe packet has no runtime class name"
-                    }
-                },
-            )
-            add(PlayStoreCookiePacket::class.simpleName!!)
-            add(PlayCookieRequestPacket::class.simpleName!!)
-            add(SynchronizePlayerPositionPacket::class.simpleName!!)
-            add(ClientboundPingPacket::class.simpleName!!)
-            add(PlayClientboundKeepAlivePacket::class.simpleName!!)
-        }.distinct().sorted()
-        return PlayProbeOutcome(
-            probePacketTransmissions = packets.size + 3,
-            barrierPacketTransmissions = packets.size * 2 + 4,
-            clientboundPacketTypes = probePacketTypes,
-            cookieRoundTrip = true,
-            pingRoundTrip = true,
-            teleportAcknowledged = true,
-        )
     }
 
     private suspend fun exerciseRespawn(
         connection: MinecraftServerConnection,
         world: MinecraftInitialWorld,
         observed: MutableList<String>,
-    ): RespawnOutcome {
+    ) {
         val login = checkNotNull(connection.protocol.negotiatedPlayLogin) {
             "Respawn requires the negotiated Play Login"
         }
@@ -1239,14 +1133,6 @@ internal object OfficialClientEndToEndRunner {
         ) {
             "Official client did not complete Respawn; keepAlive=$keepAlive, ping=$ping, tick=$tick, teleport=$teleport, chunkBatch=$chunkBatch, playerLoaded=$playerLoaded"
         }
-        return RespawnOutcome(
-            synchronizedChunks = synchronization.chunkCount,
-            synchronizedEntities = synchronization.entityCount,
-            teleportAcknowledged = true,
-            chunkBatchAcknowledged = true,
-            playerLoaded = true,
-            playRoundTrip = true,
-        )
     }
 
     private suspend fun awaitPlayBarrier(
@@ -1313,7 +1199,7 @@ internal object OfficialClientEndToEndRunner {
         connection: MinecraftServerConnection,
         world: MinecraftInitialWorld,
         observedPlayPackets: MutableList<String>,
-    ): ReconfigurationOutcome {
+    ) {
         var playerLoaded =
             observedPlayPackets.any { it == "PlayerLoadedPacket" }
         if (!playerLoaded) {
@@ -1349,8 +1235,6 @@ internal object OfficialClientEndToEndRunner {
             "Server session did not enter Configuration after acknowledgement"
         }
 
-        val observed = mutableListOf<String>()
-        var clientInformation = false
         connection.session.send(
             ConfigurationStoreCookiePacket(COOKIE_KEY, COOKIE_PAYLOAD),
         )
@@ -1410,11 +1294,7 @@ internal object OfficialClientEndToEndRunner {
                 connection,
                 "waiting for Configuration cookie/keepalive/ping/Known Packs",
             )
-            observed += packet::class.simpleName ?: "<anonymous>"
             when (packet) {
-                is ConfigurationClientInformationPacket ->
-                    clientInformation = true
-
                 is ConfigurationCookieResponsePacket ->
                     if (packet.key == COOKIE_KEY) {
                         check(packet.payload == COOKIE_PAYLOAD) {
@@ -1464,7 +1344,6 @@ internal object OfficialClientEndToEndRunner {
                 connection,
                 "waiting for Finish Configuration acknowledgement",
             )
-            observed += packet::class.simpleName ?: "<anonymous>"
             completed = packet == AcknowledgeFinishConfigurationPacket
         }
         check(completed) {
@@ -1551,23 +1430,6 @@ internal object OfficialClientEndToEndRunner {
         ) {
             "Official client did not resume Play after reconfiguration; keepAlive=$postKeepAlive, ping=$postPing, tick=$postTick, teleport=$postTeleport, chunkBatch=$postChunkBatch, playerLoaded=$postPlayerLoaded"
         }
-        return ReconfigurationOutcome(
-            acknowledged = true,
-            playerLoaded = true,
-            clientInformation = clientInformation,
-            knownPacks = acceptedKnownPacks.size,
-            cookieRoundTrip = true,
-            keepAliveRoundTrip = true,
-            pingRoundTrip = true,
-            completed = true,
-            synchronizedChunks = synchronization.chunkCount,
-            synchronizedEntities = synchronization.entityCount,
-            teleportAcknowledged = true,
-            chunkBatchAcknowledged = true,
-            playerLoadedAfterward = true,
-            postPlayRoundTrip = true,
-            observedPackets = observed,
-        )
     }
 
     private suspend fun receiveForStage(
@@ -1582,234 +1444,4 @@ internal object OfficialClientEndToEndRunner {
                 failure,
             )
         }
-
-    private suspend fun writeReport(
-        minecraftVersion: String,
-        officialClientSha1: String,
-        outcome: EndToEndOutcome,
-    ) {
-        MinecraftTestSupport.submitReport(
-            "official-client-headless.json",
-            buildJsonObject {
-                put("schema_version", 4)
-                put("minecraft_version", minecraftVersion)
-                put("protocol_version", MinecraftProtocol.PROTOCOL_VERSION)
-                put("official_client_sha1", officialClientSha1)
-                put("client", "official client with HeadlessMC LWJGL stubs")
-                put("headless", true)
-                put(
-                    "server_stack",
-                    "protocol-server -> protocol-session -> protocol-transport",
-                )
-                put("online_mode", false)
-                put("status_connections", outcome.statusConnections)
-                put("player_name", outcome.playerName)
-                put("accepted_known_packs", outcome.acceptedKnownPacks)
-                put("login_completed", true)
-                put("configuration_completed", true)
-                put("play_login_processed", true)
-                put("play_keep_alive_round_trip", true)
-                put("synchronized_chunks", outcome.synchronizedChunks)
-                put("synchronized_entities", outcome.synchronizedEntities)
-                put("entity_type", outcome.entityType)
-                put("entity_type_id", outcome.entityTypeId)
-                put("teleport_acknowledged", outcome.teleportAcknowledged)
-                put(
-                    "chunk_batch_acknowledged",
-                    outcome.chunkBatchAcknowledged,
-                )
-                put("client_tick_observed", outcome.clientTickObserved)
-                put(
-                    "play_probe_packet_transmissions",
-                    outcome.playProbePacketTransmissions,
-                )
-                put(
-                    "play_barrier_packet_transmissions",
-                    outcome.playBarrierPacketTransmissions,
-                )
-                put(
-                    "play_clientbound_total_transmissions",
-                    outcome.playProbePacketTransmissions +
-                            outcome.playBarrierPacketTransmissions,
-                )
-                put(
-                    "play_clientbound_packet_type_count",
-                    outcome.playClientboundPacketTypes.size,
-                )
-                putJsonArray("play_clientbound_packet_types") {
-                    outcome.playClientboundPacketTypes.forEach { add(it) }
-                }
-                put("play_cookie_round_trip", outcome.playCookieRoundTrip)
-                put("play_ping_round_trip", outcome.playPingRoundTrip)
-                put(
-                    "second_teleport_acknowledged",
-                    outcome.secondTeleportAcknowledged,
-                )
-                put(
-                    "respawn_synchronized_chunks",
-                    outcome.respawnSynchronizedChunks,
-                )
-                put(
-                    "respawn_synchronized_entities",
-                    outcome.respawnSynchronizedEntities,
-                )
-                put(
-                    "respawn_teleport_acknowledged",
-                    outcome.respawnTeleportAcknowledged,
-                )
-                put(
-                    "respawn_chunk_batch_acknowledged",
-                    outcome.respawnChunkBatchAcknowledged,
-                )
-                put("respawn_player_loaded", outcome.respawnPlayerLoaded)
-                put("respawn_play_round_trip", outcome.respawnPlayRoundTrip)
-                put(
-                    "player_loaded_before_reconfiguration",
-                    outcome.playerLoadedBeforeReconfiguration,
-                )
-                put(
-                    "reconfiguration_acknowledged",
-                    outcome.reconfigurationAcknowledged,
-                )
-                put(
-                    "reconfiguration_client_information_observed",
-                    outcome.reconfigurationClientInformationObserved,
-                )
-                put(
-                    "reconfiguration_known_packs",
-                    outcome.reconfigurationKnownPacks,
-                )
-                put(
-                    "configuration_cookie_round_trip",
-                    outcome.configurationCookieRoundTrip,
-                )
-                put(
-                    "configuration_keep_alive_round_trip",
-                    outcome.configurationKeepAliveRoundTrip,
-                )
-                put(
-                    "configuration_ping_round_trip",
-                    outcome.configurationPingRoundTrip,
-                )
-                put("configuration_brand_payload_accepted", true)
-                put("configuration_resource_packs_cleared", true)
-                put(
-                    "reconfiguration_completed",
-                    outcome.reconfigurationCompleted,
-                )
-                put(
-                    "reconfiguration_synchronized_chunks",
-                    outcome.reconfigurationSynchronizedChunks,
-                )
-                put(
-                    "reconfiguration_synchronized_entities",
-                    outcome.reconfigurationSynchronizedEntities,
-                )
-                put(
-                    "reconfiguration_teleport_acknowledged",
-                    outcome.reconfigurationTeleportAcknowledged,
-                )
-                put(
-                    "reconfiguration_chunk_batch_acknowledged",
-                    outcome.reconfigurationChunkBatchAcknowledged,
-                )
-                put(
-                    "reconfiguration_player_loaded",
-                    outcome.reconfigurationPlayerLoaded,
-                )
-                put(
-                    "post_configuration_play_round_trip",
-                    outcome.postConfigurationPlayRoundTrip,
-                )
-                put(
-                    "client_remained_connected",
-                    outcome.clientRemainedConnected,
-                )
-                putJsonArray("observed_play_packets") {
-                    outcome.observedPlayPackets.forEach { add(it) }
-                }
-                putJsonArray("observed_reconfiguration_packets") {
-                    outcome.observedConfigurationPackets.forEach { add(it) }
-                }
-            },
-        )
-    }
 }
-
-private data class EndToEndOutcome(
-    val statusConnections: Int,
-    val playerName: String,
-    val acceptedKnownPacks: Int,
-    val synchronizedChunks: Int,
-    val synchronizedEntities: Int,
-    val entityType: String,
-    val entityTypeId: Int,
-    val teleportAcknowledged: Boolean,
-    val chunkBatchAcknowledged: Boolean,
-    val clientTickObserved: Boolean,
-    val clientRemainedConnected: Boolean,
-    val playProbePacketTransmissions: Int,
-    val playBarrierPacketTransmissions: Int,
-    val playClientboundPacketTypes: List<String>,
-    val playCookieRoundTrip: Boolean,
-    val playPingRoundTrip: Boolean,
-    val secondTeleportAcknowledged: Boolean,
-    val respawnSynchronizedChunks: Int,
-    val respawnSynchronizedEntities: Int,
-    val respawnTeleportAcknowledged: Boolean,
-    val respawnChunkBatchAcknowledged: Boolean,
-    val respawnPlayerLoaded: Boolean,
-    val respawnPlayRoundTrip: Boolean,
-    val playerLoadedBeforeReconfiguration: Boolean,
-    val reconfigurationAcknowledged: Boolean,
-    val reconfigurationClientInformationObserved: Boolean,
-    val reconfigurationKnownPacks: Int,
-    val configurationCookieRoundTrip: Boolean,
-    val configurationKeepAliveRoundTrip: Boolean,
-    val configurationPingRoundTrip: Boolean,
-    val reconfigurationCompleted: Boolean,
-    val reconfigurationSynchronizedChunks: Int,
-    val reconfigurationSynchronizedEntities: Int,
-    val reconfigurationTeleportAcknowledged: Boolean,
-    val reconfigurationChunkBatchAcknowledged: Boolean,
-    val reconfigurationPlayerLoaded: Boolean,
-    val postConfigurationPlayRoundTrip: Boolean,
-    val observedPlayPackets: List<String>,
-    val observedConfigurationPackets: List<String>,
-)
-
-private data class PlayProbeOutcome(
-    val probePacketTransmissions: Int,
-    val barrierPacketTransmissions: Int,
-    val clientboundPacketTypes: List<String>,
-    val cookieRoundTrip: Boolean,
-    val pingRoundTrip: Boolean,
-    val teleportAcknowledged: Boolean,
-)
-
-private data class RespawnOutcome(
-    val synchronizedChunks: Int,
-    val synchronizedEntities: Int,
-    val teleportAcknowledged: Boolean,
-    val chunkBatchAcknowledged: Boolean,
-    val playerLoaded: Boolean,
-    val playRoundTrip: Boolean,
-)
-
-private data class ReconfigurationOutcome(
-    val acknowledged: Boolean,
-    val playerLoaded: Boolean,
-    val clientInformation: Boolean,
-    val knownPacks: Int,
-    val cookieRoundTrip: Boolean,
-    val keepAliveRoundTrip: Boolean,
-    val pingRoundTrip: Boolean,
-    val completed: Boolean,
-    val synchronizedChunks: Int,
-    val synchronizedEntities: Int,
-    val teleportAcknowledged: Boolean,
-    val chunkBatchAcknowledged: Boolean,
-    val playerLoadedAfterward: Boolean,
-    val postPlayRoundTrip: Boolean,
-    val observedPackets: List<String>,
-)

@@ -15,7 +15,6 @@ internal fun configureHostedTestSupportForJvmTests() {
             headlessLauncherFile = Path(fixtureRoot, "headlessmc.jar"),
             serverRuntimeDirectory = Path(fixtureRoot, "server-runtime"),
             codecClassesDirectory = Path(fixtureRoot, "codec-classes"),
-            fixtureWorkRoot = Path(fixtureRoot, "work"),
             hostWorkRoot = Path(fixtureRoot, "work", "hosts", "test"),
             javaExecutable = Path("java"),
         ),

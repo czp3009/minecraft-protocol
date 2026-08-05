@@ -9,9 +9,6 @@ import com.hiczp.minecraft.protocol.model.type.ParticleStatus
 import com.hiczp.minecraft.test.MinecraftTestSupport
 import com.hiczp.minecraft.test.OfficialMinecraftServerConfiguration
 import com.hiczp.minecraft.test.useRemote
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonObject
 import kotlin.uuid.Uuid
 
 /**
@@ -34,8 +31,7 @@ internal object OfficialServerInteropRunner {
             val port = server.endpoint.port
             try {
                 verifyStatus(port)
-                val login = verifyOfflineLoginAndConfiguration(port)
-                writeReport(server.officialServerSha256, login)
+                verifyOfflineLoginAndConfiguration(port)
                 check(server.stop() == 0) {
                     "Official server did not stop cleanly"
                 }
@@ -84,8 +80,8 @@ internal object OfficialServerInteropRunner {
 
     private suspend fun verifyOfflineLoginAndConfiguration(
         port: Int,
-    ): LoginInteropResult {
-        return withConnection(port) { connection ->
+    ) {
+        withConnection(port) { connection ->
             connection.send(
                 HandshakePacket(
                     protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
@@ -103,11 +99,6 @@ internal object OfficialServerInteropRunner {
 
             var state = ConnectionState.LOGIN
             var loginSucceeded = false
-            var configurationStarted = false
-            var knownPacksExchanged = false
-            var codeOfConductRequested = false
-            var codeOfConductAccepted = false
-            var configurationFinished = false
             var playLogin: PlayLoginPacket? = null
             val received = mutableListOf<String>()
             var remainingPackets = 512
@@ -128,7 +119,6 @@ internal object OfficialServerInteropRunner {
                         loginSucceeded = true
                         connection.send(LoginAcknowledgedPacket)
                         state = ConnectionState.CONFIGURATION
-                        configurationStarted = true
                         connection.send(
                             ConfigurationClientInformationPacket(
                                 ClientInformation(
@@ -162,19 +152,15 @@ internal object OfficialServerInteropRunner {
                         connection.send(
                             ConfigurationServerboundKnownPacksPacket(packet.knownPacks),
                         )
-                        knownPacksExchanged = true
                     }
 
                     is CodeOfConductPacket -> {
-                        codeOfConductRequested = true
                         connection.send(AcceptCodeOfConductPacket)
-                        codeOfConductAccepted = true
                     }
 
                     is FinishConfigurationPacket -> {
                         connection.send(AcknowledgeFinishConfigurationPacket)
                         state = ConnectionState.PLAY
-                        configurationFinished = true
                     }
 
                     is PlayLoginPacket -> {
@@ -193,65 +179,8 @@ internal object OfficialServerInteropRunner {
             check(connection.compressionThreshold == 64) {
                 "Official server did not negotiate the configured compression threshold; received ${connection.compressionThreshold}"
             }
-            return@withConnection LoginInteropResult(
-                loginSucceeded = true,
-                compressionThreshold = connection.compressionThreshold,
-                configurationStarted = configurationStarted,
-                knownPacksExchanged = knownPacksExchanged,
-                codeOfConductRequested = codeOfConductRequested,
-                codeOfConductAccepted = codeOfConductAccepted,
-                configurationFinished = configurationFinished,
-                playLoginReceived = true,
-            )
         }
     }
-
-    private suspend fun writeReport(
-        serverSha256: String,
-        login: LoginInteropResult,
-    ) {
-        MinecraftTestSupport.submitReport(
-            "official-server.json",
-            buildJsonObject {
-                put("schema_version", 1)
-                put("minecraft_version", MinecraftProtocol.MINECRAFT_VERSION)
-                put("protocol_version", MinecraftProtocol.PROTOCOL_VERSION)
-                put("official_server_sha256", serverSha256)
-                put("online_mode", false)
-                putJsonObject("status") {
-                    put("response_decoded", true)
-                    put("ping_round_trip", true)
-                }
-                putJsonObject("login") {
-                    put("success", login.loginSucceeded)
-                    put("compression_threshold", login.compressionThreshold)
-                    put("configuration_started", login.configurationStarted)
-                    put("known_packs_exchanged", login.knownPacksExchanged)
-                    put(
-                        "code_of_conduct_requested",
-                        login.codeOfConductRequested,
-                    )
-                    put(
-                        "code_of_conduct_accepted",
-                        login.codeOfConductAccepted,
-                    )
-                    put("configuration_finished", login.configurationFinished)
-                    put("play_login_received", login.playLoginReceived)
-                }
-            },
-        )
-    }
-
-    private data class LoginInteropResult(
-        val loginSucceeded: Boolean,
-        val compressionThreshold: Int?,
-        val configurationStarted: Boolean,
-        val knownPacksExchanged: Boolean,
-        val codeOfConductRequested: Boolean,
-        val codeOfConductAccepted: Boolean,
-        val configurationFinished: Boolean,
-        val playLoginReceived: Boolean,
-    )
 
     private suspend fun <T> withConnection(
         port: Int,

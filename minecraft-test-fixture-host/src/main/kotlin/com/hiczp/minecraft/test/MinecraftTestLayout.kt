@@ -10,7 +10,6 @@ internal data class MinecraftTestLayout(
     val headlessLauncherFile: Path,
     val serverRuntimeDirectory: Path,
     val codecClassesDirectory: Path,
-    val fixtureWorkRoot: Path,
     val hostWorkRoot: Path,
     val javaExecutable: Path,
 ) {
@@ -30,22 +29,6 @@ internal data class MinecraftTestLayout(
             "tmp",
         ),
     )
-
-    fun reportFile(name: String): Path = uniqueFile(
-        root = Path(
-            fixtureWorkRoot,
-            "reports",
-        ),
-        name = name,
-    )
-
-    private fun uniqueFile(root: Path, name: String): Path {
-        root.safeResolve(name)
-        val runDirectory = createUniqueDirectory(root)
-        return runDirectory.safeResolve(name).also { path ->
-            requireNotNull(path.parent).ensureDirectory()
-        }
-    }
 }
 
 internal enum class MinecraftRuntimeKind(val directoryName: String) {
@@ -55,7 +38,6 @@ internal enum class MinecraftRuntimeKind(val directoryName: String) {
 
 internal data class OfficialServerArtifact(
     internal val jar: Path,
-    val sha256: String,
 )
 
 internal object OfficialArtifacts {
@@ -72,7 +54,6 @@ internal object OfficialArtifacts {
         }
         return OfficialServerArtifact(
             jar = jar,
-            sha256 = metadata.requiredString("server_sha256"),
         )
     }
 

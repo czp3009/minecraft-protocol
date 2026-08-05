@@ -5,7 +5,6 @@ import kotlinx.io.files.Path
 internal class OfficialClientInstallation(
     internal val directory: Path,
     val version: String,
-    val clientSha1: String,
 )
 
 internal object OfficialClientPreparation {
@@ -34,8 +33,6 @@ internal object OfficialClientPreparation {
         }
 
         val clientJar = Path(clientRoot, "client.jar")
-        val clientSpec = metadata.requiredObject("downloads")
-            .requiredObject("client")
         check(clientJar.isRegularFile()) {
             "Official client JAR is missing: $clientJar"
         }
@@ -51,7 +48,6 @@ internal object OfficialClientPreparation {
         return OfficialClientInstallation(
             directory = clientRoot,
             version = version,
-            clientSha1 = clientSpec.requiredString("sha1"),
         )
     }
 }

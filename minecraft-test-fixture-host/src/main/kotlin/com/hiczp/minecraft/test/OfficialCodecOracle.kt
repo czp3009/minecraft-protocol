@@ -1,7 +1,7 @@
 package com.hiczp.minecraft.test
 
 import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
+import kotlinx.serialization.json.JsonElement
 import java.lang.reflect.InvocationTargetException
 import java.net.URLClassLoader
 
@@ -17,13 +17,9 @@ internal object OfficialCodecOracle {
     private const val JOML_NO_UNSAFE_PROPERTY = "joml.nounsafe"
 
     suspend fun verify(
-        fixtures: Path,
-        report: Path,
+        fixtures: JsonElement,
         loggingConfiguration: Path,
     ) {
-        require(fixtures.isRegularFile()) {
-            "Official codec fixtures are absent: $fixtures"
-        }
         val runtime = officialServerRuntime()
 
         // Pre-compiled bridge classes supplied by the codec-oracle gate.
@@ -39,7 +35,6 @@ internal object OfficialCodecOracle {
             "Official codec bridge class is missing: $classFile"
         }
 
-        prepareReport(report)
         val urls = buildList {
             add(classes.toNioPath().toUri().toURL())
             add(runtime.implementationJar.toNioPath().toUri().toURL())
@@ -68,14 +63,13 @@ internal object OfficialCodecOracle {
                     true,
                     loader,
                 )
-                val method = oracle.getMethod("run", Array<String>::class.java)
+                val method = oracle.getMethod("run", String::class.java)
                 try {
                     method.invoke(
                         null,
-                        arrayOf(
-                            fixtures.toNioPath().toString(),
-                            runtime.implementationJar.toNioPath().toString(),
-                            report.toNioPath().toString(),
+                        testJson.encodeToString(
+                            JsonElement.serializer(),
+                            fixtures,
                         ),
                     )
                 } catch (failure: InvocationTargetException) {
@@ -101,23 +95,5 @@ internal object OfficialCodecOracle {
                 }
             }
         }
-        check(report.isRegularFile()) {
-            "Official codec Oracle did not write its report"
-        }
-        val result = report.readJsonObject()
-        check(result.requiredInt("failed") == 0) {
-            "Official codec Oracle reported failed fixtures: $report"
-        }
-        check(
-            result.requiredString("official_server_inner_sha256") ==
-                    runtime.implementationJar.sha256(),
-        ) {
-            "Official codec report describes a different runtime JAR"
-        }
-    }
-
-    private fun prepareReport(report: Path) {
-        requireNotNull(report.parent).ensureDirectory()
-        SystemFileSystem.delete(report, mustExist = false)
     }
 }

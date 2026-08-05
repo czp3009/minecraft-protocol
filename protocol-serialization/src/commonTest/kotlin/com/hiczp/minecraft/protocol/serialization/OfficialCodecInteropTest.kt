@@ -9,7 +9,6 @@ class OfficialCodecInteropTest {
     fun everyPacketFixturePassesThroughOfficialCodec() = runTest {
         MinecraftTestSupport.verifyOfficialCodec(
             fixtures = OfficialCodecFixtureGenerator.generate(),
-            reportName = "official-codec.json",
         )
     }
 }

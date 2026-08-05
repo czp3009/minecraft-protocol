@@ -33,12 +33,6 @@ internal class HostedOfficialMinecraftServerResource private constructor(
     val endpoint: MinecraftTestEndpoint
         get() = currentEndpoint
 
-    val minecraftVersion: String
-        get() = layout.minecraftVersion
-
-    val officialServerSha256: String
-        get() = serverArtifact.sha256
-
     val isAlive: Boolean
         get() = process.isAlive
 

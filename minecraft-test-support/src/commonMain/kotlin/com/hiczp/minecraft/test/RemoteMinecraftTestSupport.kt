@@ -4,15 +4,14 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.io.files.Path
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 /**
  * Client facade for the Gradle-managed JVM fixture host.
  *
- * Test code owns remote handles only. Official processes, logs, reports, and
- * their work directories remain private to the fixture host.
+ * Test code owns remote handles only. Official processes, logs, and their work
+ * directories remain private to the fixture host.
  */
 object MinecraftTestSupport {
     suspend fun newOfficialServer(
@@ -46,17 +45,10 @@ object MinecraftTestSupport {
         }
     }
 
-    suspend fun submitReport(name: String, content: JsonElement) {
+    suspend fun verifyOfficialCodec(fixtures: JsonElement) {
         withFixtureClient { client ->
-            client.submitReport(name, content)
+            client.verifyCodec(fixtures)
         }
-    }
-
-    suspend fun verifyOfficialCodec(
-        fixtures: JsonElement,
-        reportName: String,
-    ): JsonObject = withFixtureClient { client ->
-        client.verifyCodec(fixtures, reportName)
     }
 }
 
@@ -104,12 +96,6 @@ class OfficialMinecraftServerResource internal constructor(
 
     val endpoint: MinecraftTestEndpoint
         get() = currentDescriptor.endpoint
-
-    val minecraftVersion: String
-        get() = currentDescriptor.minecraftVersion
-
-    val officialServerSha256: String
-        get() = currentDescriptor.artifactDigest
 
     internal suspend fun status(): FixtureResourceStatus =
         client.status(currentDescriptor.id)
@@ -216,12 +202,6 @@ class HeadlessMinecraftClientResource internal constructor(
 
     val endpoint: MinecraftTestEndpoint
         get() = descriptor.endpoint
-
-    val minecraftVersion: String
-        get() = descriptor.minecraftVersion
-
-    val officialClientSha1: String
-        get() = descriptor.artifactDigest
 
     internal suspend fun status(): FixtureResourceStatus =
         client.status(descriptor.id)

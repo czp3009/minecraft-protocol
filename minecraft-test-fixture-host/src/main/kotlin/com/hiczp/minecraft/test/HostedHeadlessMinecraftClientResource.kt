@@ -7,7 +7,6 @@ import kotlin.uuid.Uuid
 
 /** A ready official-client process with an isolated game directory. */
 internal class HostedHeadlessMinecraftClientResource private constructor(
-    private val installation: OfficialClientInstallation,
     val endpoint: MinecraftTestEndpoint,
     private val process: MinecraftTestProcess,
 ) : AutoCloseable {
@@ -15,12 +14,6 @@ internal class HostedHeadlessMinecraftClientResource private constructor(
 
     val isAlive: Boolean
         get() = process.isAlive
-
-    val minecraftVersion: String
-        get() = installation.version
-
-    val officialClientSha1: String
-        get() = installation.clientSha1
 
     val exitCode: Int
         get() = process.exitCode
@@ -117,7 +110,6 @@ internal class HostedHeadlessMinecraftClientResource private constructor(
             try {
                 process.waitForLog(LAUNCH_READY_MARKER, LAUNCH_TIMEOUT)
                 return HostedHeadlessMinecraftClientResource(
-                    installation = installation,
                     endpoint = endpoint,
                     process = process,
                 )
