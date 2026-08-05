@@ -45,8 +45,7 @@ internal fun FileSystem.writeByteArrayAtomically(
     createDirectories(parent)
     val temporary = Path(
         parent,
-        ".${path.name}.minecraft-protocol-" +
-                "${Random.nextLong().toULong()}.tmp",
+        ".${path.name}.minecraft-protocol-${Random.nextLong().toULong()}.tmp",
     )
     try {
         val sink = sink(temporary).buffered()

@@ -49,8 +49,7 @@ sealed class RegionCompressionCodecs(
         )
         if (output.size > maximumOutputBytes) {
             throw RegionFormatException(
-                "Decompressed chunk size ${output.size} exceeds configured " +
-                        "limit $maximumOutputBytes",
+                "Decompressed chunk size ${output.size} exceeds configured limit $maximumOutputBytes",
             )
         }
         return output
@@ -81,8 +80,7 @@ private object NoneCodec : RegionCompressionCodec {
     ): ByteArray {
         if (input.size > maximumOutputBytes) {
             throw RegionFormatException(
-                "Uncompressed chunk size ${input.size} exceeds configured " +
-                        "limit $maximumOutputBytes",
+                "Uncompressed chunk size ${input.size} exceeds configured limit $maximumOutputBytes",
             )
         }
         return input.copyOf()

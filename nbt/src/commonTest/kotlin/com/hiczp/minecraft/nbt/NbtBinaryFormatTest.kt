@@ -341,8 +341,7 @@ class NbtBinaryFormatTest {
             val encoded = NbtBinaryFormat.encodeTagToByteArray(sample)
             for (endIndex in encoded.indices) {
                 assertFailsWith<NbtFormatException>(
-                    "Accepted ${sample::class.simpleName} prefix $endIndex/" +
-                            encoded.size,
+                    "Accepted ${sample::class.simpleName} prefix $endIndex/${encoded.size}",
                 ) {
                     NbtBinaryFormat.decodeTagFromByteArray(
                         encoded.copyOf(endIndex),

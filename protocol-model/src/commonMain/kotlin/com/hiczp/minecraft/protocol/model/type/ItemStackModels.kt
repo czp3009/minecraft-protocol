@@ -151,8 +151,7 @@ enum class DataComponentType(
 internal annotation class DataComponentInfo(val type: DataComponentType)
 
 @RequiresOptIn(
-    message = "Generated data-component serializer dispatch is an internal " +
-            "protocol implementation API.",
+    message = "Generated data-component serializer dispatch is an internal protocol implementation API.",
     level = RequiresOptIn.Level.WARNING,
 )
 @Retention(AnnotationRetention.BINARY)

@@ -654,8 +654,7 @@ class WorldFileStoreTest {
     private fun withTemporaryWorld(block: TemporaryWorld.() -> Unit) {
         val directory = Path(
             SystemTemporaryDirectory,
-            "minecraft-protocol-world-" +
-                    Random.nextLong().toULong().toString(16),
+            "minecraft-protocol-world-${Random.nextLong().toULong().toString(16)}",
         )
         SystemFileSystem.createDirectories(directory, mustCreate = true)
         try {

@@ -36,28 +36,12 @@ class PlayClientboundUpdatePacketTest {
         assertPacketBytes(
             packet,
             UpdateAttributesPacket.serializer(),
-            (
-                    "0101" +
-                            "ac02" +
-                            "3ff0000000000000" +
-                            "01" +
-                            "0b6d696e6563726166743a78" +
-                            "c000000000000000" +
-                            "02"
-                    ),
+            "0101ac023ff0000000000000010b6d696e6563726166743a78c00000000000000002",
         )
 
         val invalidOperation = MinecraftFormat.decodeFromByteArray(
             UpdateAttributesPacket.serializer(),
-            (
-                    "0101" +
-                            "01" +
-                            "0000000000000000" +
-                            "01" +
-                            "0b6d696e6563726166743a78" +
-                            "0000000000000000" +
-                            "8001"
-                    ).hexToByteArray(),
+            "0101010000000000000000010b6d696e6563726166743a7800000000000000008001".hexToByteArray(),
         )
         assertEquals(
             AttributeModifierOperation.ADD_VALUE,
@@ -108,13 +92,7 @@ class PlayClientboundUpdatePacketTest {
         assertPacketBytes(
             packet,
             PlayUpdateTagsPacket.serializer(),
-            (
-                    "01" +
-                            "0f6d696e6563726166743a626c6f636b" +
-                            "01" +
-                            "0e6d696e6563726166743a74657374" +
-                            "0201ac02"
-                    ),
+            "010f6d696e6563726166743a626c6f636b010e6d696e6563726166743a746573740201ac02",
         )
     }
 

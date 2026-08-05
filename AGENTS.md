@@ -56,9 +56,9 @@ library's scope.
 - Every source generator uses a language-aware library such as KotlinPoet or JavaPoet. This applies to build logic,
   processors, tasks, scripts, tools, tests, and every generated target language; generated declarations are never
   assembled with string concatenation or templates.
-- Keep string literals on one line where practical. Do not concatenate strings with `+`; use string templates for
-  ordinary composition and `buildString` for exceptionally complex string assembly. Use a triple-quoted string when a
-  literal genuinely spans lines.
+- In Kotlin and Java, do not concatenate strings with `+`; prefer string-template syntax and keep strings on one line
+  where practical. If a Kotlin string genuinely spans lines, use a triple-quoted string. For complex assembly, use
+  `buildString` in Kotlin and `StringBuilder` in Java.
 - Treat externally consumable declarations as API even without an in-repository caller. Do not suppress `unused` for
   that reason. Omit redundant `public`; keep implementation helpers internal or private.
 - Ordinary logs never write directly to the console. Do not use `print`, `println`, `System.out`, `System.err`,

@@ -40,9 +40,7 @@ data class MinecraftInitialWorld(
                     MinecraftServerConfiguration.MIN_VIEW_DISTANCE..
                     MinecraftServerConfiguration.MAX_VIEW_DISTANCE,
         ) {
-            "View distance must be in " +
-                    "${MinecraftServerConfiguration.MIN_VIEW_DISTANCE}.." +
-                    MinecraftServerConfiguration.MAX_VIEW_DISTANCE
+            "View distance must be in ${MinecraftServerConfiguration.MIN_VIEW_DISTANCE}..${MinecraftServerConfiguration.MAX_VIEW_DISTANCE}"
         }
         require(simulationDistance >= 0)
         require(teleportId >= 0)

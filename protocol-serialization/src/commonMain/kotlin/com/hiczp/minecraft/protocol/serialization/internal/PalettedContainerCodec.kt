@@ -36,8 +36,7 @@ internal object PalettedContainerCodec {
                 val bits = minimumBitsForDistinctValues(registrySize)
                 if (bits <= kind.maximumIndirectBits) {
                     throw MinecraftSerializationException(
-                        "A direct ${kind.displayName} palette requires more than " +
-                                "${kind.maximumIndirectBits} bits for the global registry",
+                        "A direct ${kind.displayName} palette requires more than ${kind.maximumIndirectBits} bits for the global registry",
                     )
                 }
                 validatePackedSize(value.data, bits, kind)
@@ -99,8 +98,7 @@ internal object PalettedContainerCodec {
     private fun validateIndirectBits(bits: Int, kind: PaletteKind) {
         if (bits !in kind.minimumIndirectBits..kind.maximumIndirectBits) {
             throw MinecraftSerializationException(
-                "${kind.displayName} indirect palettes require " +
-                        "${kind.minimumIndirectBits}..${kind.maximumIndirectBits} bits, got $bits",
+                "${kind.displayName} indirect palettes require ${kind.minimumIndirectBits}..${kind.maximumIndirectBits} bits, got $bits",
             )
         }
     }
@@ -140,8 +138,7 @@ internal object PalettedContainerCodec {
         val expected = packedLongCount(kind.entryCount, bits)
         if (data.size != expected) {
             throw MinecraftSerializationException(
-                "${kind.displayName} packed data has ${data.size} Longs; expected $expected " +
-                        "for $bits bits per entry",
+                "${kind.displayName} packed data has ${data.size} Longs; expected $expected for $bits bits per entry",
             )
         }
     }

@@ -70,15 +70,7 @@ class PlayServerboundCommandAndStructurePacketTest {
                 placementPriority = 300,
             ),
             ProgramJigsawBlockPacket.serializer(),
-            (
-                    "0000000000000000" +
-                            "0b6d696e6563726166743a61" +
-                            "0b6d696e6563726166743a62" +
-                            "0b6d696e6563726166743a63" +
-                            "0178" +
-                            "08726f6c6c61626c65" +
-                            "01ac02"
-                    ),
+            "00000000000000000b6d696e6563726166743a610b6d696e6563726166743a620b6d696e6563726166743a63017808726f6c6c61626c6501ac02",
         )
         assertEquals(
             JigsawJoint.ALIGNED,
@@ -121,29 +113,13 @@ class PlayServerboundCommandAndStructurePacketTest {
     fun `structure decode clamps byte vectors integrity and unknown flag bits`() {
         val decoded = MinecraftFormat.decodeFromByteArray(
             ProgramStructureBlockPacket.serializer(),
-            (
-                    "0000000000000000" +
-                            "000000" +
-                            "807f31" +
-                            "ff317f" +
-                            "000000" +
-                            "40000000" +
-                            "00ff"
-                    ).hexToByteArray(),
+            "0000000000000000000000807f31ff317f0000004000000000ff".hexToByteArray(),
         )
         assertEquals(StructureOffset(-48, 48, 48), decoded.offset)
         assertEquals(StructureSize(0, 48, 48), decoded.size)
         assertEquals(StructureIntegrity(1.0f), decoded.integrity)
         assertContentEquals(
-            (
-                    "0000000000000000" +
-                            "000000" +
-                            "d03030" +
-                            "003030" +
-                            "000000" +
-                            "3f800000" +
-                            "000f"
-                    ).hexToByteArray(),
+            "0000000000000000000000d030300030300000003f800000000f".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(ProgramStructureBlockPacket.serializer(), decoded),
         )
     }

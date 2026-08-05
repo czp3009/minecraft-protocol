@@ -20,13 +20,7 @@ class EarlyPacketSerializationTest {
             serverPort = 25_565,
             nextState = HandshakeNextState.LOGIN,
         )
-        val expected = (
-                "8806" +
-                        "09" +
-                        "6c6f63616c686f7374" +
-                        "63dd" +
-                        "02"
-                ).hexToByteArray()
+        val expected = "8806096c6f63616c686f737463dd02".hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(HandshakePacket.serializer(), packet),
@@ -63,7 +57,7 @@ class EarlyPacketSerializationTest {
             payload = null,
         )
         assertContentEquals(
-            ("0e6d696e6563726166743a74657374" + "0100").hexToByteArray(),
+            "0e6d696e6563726166743a746573740100".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(
                 ConfigurationCustomClickActionPacket.serializer(),
                 absent,

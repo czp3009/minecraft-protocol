@@ -24,17 +24,8 @@ class PlayClientboundWorldPacketTest {
             headYaw = Angle(0x7F),
             data = 300,
         )
-        val expected = (
-                "01" +
-                        "00000000000000000000000000000000" +
-                        "02" +
-                        "3ff0000000000000" +
-                        "c000000000000000" +
-                        "0000000000000000" +
-                        "00" +
-                        "01fe7f" +
-                        "ac02"
-                ).hexToByteArray()
+        val expected =
+            "0100000000000000000000000000000000023ff0000000000000c00000000000000000000000000000000001fe7fac02".hexToByteArray()
 
         assertContentEquals(
             expected,

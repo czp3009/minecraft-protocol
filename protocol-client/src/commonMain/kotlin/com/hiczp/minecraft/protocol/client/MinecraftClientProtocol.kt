@@ -167,8 +167,7 @@ class MinecraftClientProtocol(
                         }
                     ) {
                         throw MinecraftClientException(
-                            "Server sent duplicate registry " +
-                                    packet.registryId,
+                            "Server sent duplicate registry ${packet.registryId}",
                         )
                     }
                     registries += packet
@@ -223,9 +222,7 @@ class MinecraftClientProtocol(
     ) {
         if (playLogin.spawnInfo.dimension !in playLogin.levels) {
             throw MinecraftClientException(
-                "Play Login selected dimension " +
-                        "${playLogin.spawnInfo.dimension}, but it is absent " +
-                        "from the advertised levels",
+                "Play Login selected dimension ${playLogin.spawnInfo.dimension}, but it is absent from the advertised levels",
             )
         }
         val dimensionTypeRegistryId = Identifier("dimension_type")
@@ -235,8 +232,7 @@ class MinecraftClientProtocol(
         val dimensionType = dimensionTypeRegistry.entries.getOrNull(
             playLogin.spawnInfo.dimensionTypeId,
         ) ?: throw MinecraftClientException(
-            "Play Login selected absent dimension-type registry ID " +
-                    playLogin.spawnInfo.dimensionTypeId,
+            "Play Login selected absent dimension-type registry ID ${playLogin.spawnInfo.dimensionTypeId}",
         )
         val dimension =
             if (dimensionType.data == null) {

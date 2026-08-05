@@ -22,12 +22,7 @@ class DebugSubscriptionPacketTest {
             type = DebugPathType.BIG_MOBS_CLOSE_TO_DANGER,
             totalCost = 2.0f,
         )
-        val nodeHex = (
-                "00000001ffffffff00000002" +
-                        "3f800000bf00000001" +
-                        "1a" +
-                        "40000000"
-                )
+        val nodeHex = "00000001ffffffff000000023f800000bf000000011a40000000"
         val zeroBox = DebugBoundingBox(ZERO_POSITION, ZERO_POSITION)
         val cases = listOf(
             DebugSubscriptionData.Bee(
@@ -35,13 +30,7 @@ class DebugSubscriptionPacketTest {
                 flowerPosition = ZERO_POSITION,
                 travelTicks = 2,
                 blacklistedHives = listOf(ZERO_POSITION),
-            ) to (
-                    "01" +
-                            "00" +
-                            "01$ZERO_POSITION_HEX" +
-                            "02" +
-                            "01$ZERO_POSITION_HEX"
-                    ),
+            ) to "010001${ZERO_POSITION_HEX}0201${ZERO_POSITION_HEX}",
             DebugSubscriptionData.VillagerBrain(
                 name = "n",
                 profession = "p",
@@ -57,19 +46,7 @@ class DebugSubscriptionPacketTest {
                 gossips = emptyList(),
                 pointsOfInterest = setOf(ZERO_POSITION),
                 potentialPointsOfInterest = emptySet(),
-            ) to (
-                    "02" +
-                            "016e0170" +
-                            "00000001" +
-                            "3f80000040000000" +
-                            "0169" +
-                            "01" +
-                            "ffffffff" +
-                            "010161" +
-                            "000000" +
-                            "01$ZERO_POSITION_HEX" +
-                            "00"
-                    ),
+            ) to "02016e0170000000013f80000040000000016901ffffffff01016100000001${ZERO_POSITION_HEX}00",
             DebugSubscriptionData.Breeze(
                 attackTargetEntityId = 300,
                 jumpTarget = null,
@@ -86,16 +63,7 @@ class DebugSubscriptionPacketTest {
                 openSet = emptyList(),
                 closedSet = emptyList(),
                 maximumNodeDistance = 1.0f,
-            ) to (
-                    "05" +
-                            "01" +
-                            "00000002" +
-                            ZERO_POSITION_HEX +
-                            "01$nodeHex" +
-                            "01$nodeHex" +
-                            "0000" +
-                            "3f800000"
-                    ),
+            ) to "050100000002${ZERO_POSITION_HEX}01${nodeHex}01${nodeHex}00003f800000",
             DebugSubscriptionData.EntityBlockIntersection(
                 DebugEntityBlockIntersection.IN_AIR,
             ) to "0602",
@@ -121,25 +89,22 @@ class DebugSubscriptionPacketTest {
                         pieces = listOf(DebugStructurePiece(zeroBox, start = true)),
                     ),
                 ),
-            ) to (
-                    "0c01" +
-                            ZERO_POSITION_HEX + ZERO_POSITION_HEX +
-                            "01" +
-                            ZERO_POSITION_HEX + ZERO_POSITION_HEX +
-                            "01"
-                    ),
+            ) to buildString {
+                append("0c01")
+                append(ZERO_POSITION_HEX)
+                append(ZERO_POSITION_HEX)
+                append("01")
+                append(ZERO_POSITION_HEX)
+                append(ZERO_POSITION_HEX)
+                append("01")
+            },
             DebugSubscriptionData.GameEventListener(300) to "0dac02",
             DebugSubscriptionData.NeighborUpdate(ZERO_POSITION) to
                     "0e$ZERO_POSITION_HEX",
             DebugSubscriptionData.GameEvent(
                 eventTypeId = 2,
                 position = Vector3d(1.0, -2.0, 3.0),
-            ) to (
-                    "0f02" +
-                            "3ff0000000000000" +
-                            "c000000000000000" +
-                            "4008000000000000"
-                    ),
+            ) to "0f023ff0000000000000c0000000000000004008000000000000",
         )
 
         for ((data, expectedHex) in cases) {
@@ -293,18 +258,7 @@ class DebugSubscriptionPacketTest {
         assertFails {
             MinecraftFormat.decodeFromByteArray(
                 DebugSubscriptionEvent.serializer(),
-                (
-                        "050100000000" +
-                                ZERO_POSITION_HEX +
-                                "00" +
-                                "01" +
-                                "000000000000000000000000" +
-                                "000000000000000000" +
-                                "1b" +
-                                "00000000" +
-                                "0000" +
-                                "00000000"
-                        ).hexToByteArray(),
+                "050100000000${ZERO_POSITION_HEX}000100000000000000000000000000000000000000001b00000000000000000000".hexToByteArray(),
             )
         }
     }

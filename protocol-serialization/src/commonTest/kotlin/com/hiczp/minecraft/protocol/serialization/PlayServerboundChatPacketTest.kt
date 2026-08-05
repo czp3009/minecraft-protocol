@@ -28,10 +28,7 @@ class PlayServerboundChatPacketTest {
                 ),
             ),
             ChatMessagePacket.serializer(),
-            "0178" +
-                    "0000000000000001" +
-                    "0000000000000002" +
-                    "00ac02010203ff",
+            "01780000000000000001000000000000000200ac02010203ff",
         )
     }
 
@@ -50,10 +47,7 @@ class PlayServerboundChatPacketTest {
                 ),
             ),
             SignedChatCommandPacket.serializer(),
-            "0178" +
-                    "0000000000000001" +
-                    "0000000000000002" +
-                    "000000000000",
+            "017800000000000000010000000000000002000000000000",
         )
     }
 
@@ -75,9 +69,7 @@ class PlayServerboundChatPacketTest {
                 ),
             ),
             PlayerSessionPacket.serializer(),
-            "00000000000000010000000000000002" +
-                    "0000000000000003" +
-                    "01aa02bbcc",
+            "00000000000000010000000000000002000000000000000301aa02bbcc",
         )
     }
 

@@ -87,8 +87,7 @@ class RawDeflateJvmDifferentialTest {
         }
         assertTrue(
             fixedHuffmanStreams >= 400,
-            "Expected structured inputs to exercise fixed-Huffman encoding, " +
-                    "but only $fixedHuffmanStreams/500 did",
+            "Expected structured inputs to exercise fixed-Huffman encoding, but only $fixedHuffmanStreams/500 did",
         )
     }
 
@@ -130,8 +129,7 @@ class RawDeflateJvmDifferentialTest {
             if (expected.isSuccess) {
                 assertTrue(
                     actual.isSuccess,
-                    "Portable decoder rejected JVM-accepted mutation $sample: " +
-                            actual.exceptionOrNull(),
+                    "Portable decoder rejected JVM-accepted mutation $sample: ${actual.exceptionOrNull()}",
                 )
                 assertContentEquals(
                     expected.getOrThrow(),

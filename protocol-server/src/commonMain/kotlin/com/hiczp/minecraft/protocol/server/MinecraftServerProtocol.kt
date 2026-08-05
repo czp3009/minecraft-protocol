@@ -187,9 +187,7 @@ class MinecraftServerProtocol(
             MinecraftServerConfiguration.MAX_VIEW_DISTANCE
         ) {
             throw MinecraftServerException(
-                "Play Login chunk radius must be in " +
-                        "${MinecraftServerConfiguration.MIN_VIEW_DISTANCE}.." +
-                        MinecraftServerConfiguration.MAX_VIEW_DISTANCE,
+                "Play Login chunk radius must be in ${MinecraftServerConfiguration.MIN_VIEW_DISTANCE}..${MinecraftServerConfiguration.MAX_VIEW_DISTANCE}",
             )
         }
         if (login.simulationDistance < 0) {
@@ -318,8 +316,7 @@ class MinecraftServerProtocol(
             packet !is ClientboundPacket
         ) {
             throw MinecraftServerException(
-                "Configuration extension ${packet::class.simpleName} must be " +
-                        "a clientbound Configuration packet",
+                "Configuration extension ${packet::class.simpleName} must be a clientbound Configuration packet",
             )
         }
         if (
@@ -330,8 +327,7 @@ class MinecraftServerProtocol(
             packet is FinishConfigurationPacket
         ) {
             throw MinecraftServerException(
-                "Configuration extension ${packet::class.simpleName} is " +
-                        "managed by MinecraftServerProtocol",
+                "Configuration extension ${packet::class.simpleName} is managed by MinecraftServerProtocol",
             )
         }
     }

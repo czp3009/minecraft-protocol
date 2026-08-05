@@ -132,8 +132,7 @@ sealed class NbtBinaryFormat(
     ): T {
         if (bytes.size.toLong() > configuration.maximumEncodedBytes) {
             throw NbtFormatException(
-                "NBT input size ${bytes.size} exceeds configured limit " +
-                        configuration.maximumEncodedBytes,
+                "NBT input size ${bytes.size} exceeds configured limit ${configuration.maximumEncodedBytes}",
             )
         }
         val buffer = Buffer()
@@ -192,8 +191,7 @@ private class NbtInput(
         val byteLength = readUnsignedShort()
         if (byteLength > configuration.maximumStringBytes) {
             throw NbtFormatException(
-                "NBT string byte length $byteLength exceeds configured limit " +
-                        configuration.maximumStringBytes,
+                "NBT string byte length $byteLength exceeds configured limit ${configuration.maximumStringBytes}",
             )
         }
         account(byteLength.toLong())
@@ -245,8 +243,7 @@ private class NbtInput(
                     validateType(elementType)
                     if (count++ >= configuration.maximumCollectionSize) {
                         throw NbtFormatException(
-                            "NBT compound exceeds configured entry limit " +
-                                    configuration.maximumCollectionSize,
+                            "NBT compound exceeds configured entry limit ${configuration.maximumCollectionSize}",
                         )
                     }
                     entries[readModifiedUtf()] =
@@ -295,8 +292,7 @@ private class NbtInput(
     private fun account(count: Long) {
         if (count < 0 || count > configuration.maximumEncodedBytes - bytesRead) {
             throw NbtFormatException(
-                "NBT exceeds configured encoded-byte limit " +
-                        configuration.maximumEncodedBytes,
+                "NBT exceeds configured encoded-byte limit ${configuration.maximumEncodedBytes}",
             )
         }
         bytesRead += count
@@ -338,8 +334,7 @@ private class NbtOutput(
         val bytes = encodeModifiedUtf(value)
         if (bytes.size > configuration.maximumStringBytes) {
             throw NbtFormatException(
-                "NBT string byte length ${bytes.size} exceeds configured limit " +
-                        configuration.maximumStringBytes,
+                "NBT string byte length ${bytes.size} exceeds configured limit ${configuration.maximumStringBytes}",
             )
         }
         writeShort(bytes.size)
@@ -431,8 +426,7 @@ private class NbtOutput(
     private fun account(count: Long) {
         if (count < 0 || count > configuration.maximumEncodedBytes - bytesWritten) {
             throw NbtFormatException(
-                "NBT exceeds configured encoded-byte limit " +
-                        configuration.maximumEncodedBytes,
+                "NBT exceeds configured encoded-byte limit ${configuration.maximumEncodedBytes}",
             )
         }
         bytesWritten += count

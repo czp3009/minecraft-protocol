@@ -21,13 +21,7 @@ class DamageAndSignaturePacketTest {
             sourceDirectEntityId = 4,
             sourcePosition = Vector3d(1.0, 2.0, 3.0),
         )
-        val expected = (
-                "01020005" +
-                        "01" +
-                        "3ff0000000000000" +
-                        "4000000000000000" +
-                        "4008000000000000"
-                ).hexToByteArray()
+        val expected = "01020005013ff000000000000040000000000000004008000000000000".hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(DamageEventPacket.serializer(), packet),
@@ -44,14 +38,7 @@ class DamageAndSignaturePacketTest {
             listOf(1, 2, 3, 4),
             DebugSampleType.TICK_TIME,
         )
-        val expected = (
-                "04" +
-                        "0000000000000001" +
-                        "0000000000000002" +
-                        "0000000000000003" +
-                        "0000000000000004" +
-                        "00"
-                ).hexToByteArray()
+        val expected = "04000000000000000100000000000000020000000000000003000000000000000400".hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftFormat.encodeToByteArray(DebugSamplePacket.serializer(), packet),

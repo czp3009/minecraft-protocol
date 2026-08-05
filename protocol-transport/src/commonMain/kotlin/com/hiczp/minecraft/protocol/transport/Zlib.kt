@@ -64,8 +64,7 @@ internal object Zlib {
         }
         if (output.size != expectedSize) {
             throw MinecraftTransportException(
-                "Compressed packet produced ${output.size} bytes; declared " +
-                        "size is $expectedSize",
+                "Compressed packet produced ${output.size} bytes; declared size is $expectedSize",
             )
         }
 

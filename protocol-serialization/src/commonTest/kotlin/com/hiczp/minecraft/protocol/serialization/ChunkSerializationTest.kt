@@ -35,11 +35,7 @@ class ChunkSerializationTest {
         val format = MinecraftFormat(
             MinecraftFormatConfiguration(chunkSectionCount = 1),
         )
-        val expected = (
-                "0012" +
-                        "00000000000001022703ccffccffccffccff" +
-                        "00"
-                ).hexToByteArray()
+        val expected = "001200000000000001022703ccffccffccffccff00".hexToByteArray()
 
         assertContentEquals(
             expected,

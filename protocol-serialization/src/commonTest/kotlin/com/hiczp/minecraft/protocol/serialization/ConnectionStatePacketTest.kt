@@ -45,9 +45,7 @@ class ConnectionStatePacketTest {
         assertPacketBytes(
             LoginStartPacket("a", Uuid.fromLongs(1, 2)),
             LoginStartPacket.serializer(),
-            "0161" +
-                    "0000000000000001" +
-                    "0000000000000002",
+            "016100000000000000010000000000000002",
         )
         assertPacketBytes(
             LoginSuccessPacket(
@@ -55,12 +53,7 @@ class ConnectionStatePacketTest {
                 Uuid.fromLongs(3, 4),
             ),
             LoginSuccessPacket.serializer(),
-            "0000000000000001" +
-                    "0000000000000002" +
-                    "0161" +
-                    "00" +
-                    "0000000000000003" +
-                    "0000000000000004",
+            "0000000000000001000000000000000201610000000000000000030000000000000004",
         )
         assertPacketBytes(
             LoginAcknowledgedPacket,
@@ -183,10 +176,7 @@ class ConnectionStatePacketTest {
                 listOf(RegistryEntry(Identifier("entry"), null)),
             ),
             RegistryDataPacket.serializer(),
-            "0e6d696e6563726166743a74657374" +
-                    "01" +
-                    "0f6d696e6563726166743a656e747279" +
-                    "00",
+            "0e6d696e6563726166743a74657374010f6d696e6563726166743a656e74727900",
         )
         assertPacketBytes(
             FeatureFlagsPacket(setOf(Identifier("test"))),
@@ -208,11 +198,7 @@ class ConnectionStatePacketTest {
                 ),
             ),
             ConfigurationUpdateTagsPacket.serializer(),
-            "01" +
-                    "0f6d696e6563726166743a626c6f636b" +
-                    "01" +
-                    "0e6d696e6563726166743a74657374" +
-                    "0201ac02",
+            "010f6d696e6563726166743a626c6f636b010e6d696e6563726166743a746573740201ac02",
         )
         val pack = KnownPack("m", "c", "1")
         assertPacketBytes(
@@ -241,12 +227,12 @@ class ConnectionStatePacketTest {
                 ByteString(byteArrayOf(1, 2)),
             ),
             ConfigurationStoreCookiePacket.serializer(),
-            identifierBytes + "020102",
+            "${identifierBytes}020102",
         )
         assertPacketBytes(
             ConfigurationCookieResponsePacket(Identifier("test"), null),
             ConfigurationCookieResponsePacket.serializer(),
-            identifierBytes + "00",
+            "${identifierBytes}00",
         )
         assertPacketBytes(
             ConfigurationCookieResponsePacket(
@@ -254,7 +240,7 @@ class ConnectionStatePacketTest {
                 ByteString(byteArrayOf(1, 2)),
             ),
             ConfigurationCookieResponsePacket.serializer(),
-            identifierBytes + "01020102",
+            "${identifierBytes}01020102",
         )
         assertPacketBytes(
             ConfigurationRemoveResourcePackPacket(null),
@@ -270,11 +256,7 @@ class ConnectionStatePacketTest {
                 promptMessage = null,
             ),
             ConfigurationAddResourcePackPacket.serializer(),
-            "00000000000000000000000000000000" +
-                    "0175" +
-                    "0168" +
-                    "01" +
-                    "00",
+            "00000000000000000000000000000000017501680100",
         )
         assertPacketBytes(
             ConfigurationResourcePackResponsePacket(
@@ -282,7 +264,7 @@ class ConnectionStatePacketTest {
                 ResourcePackResult.ACCEPTED,
             ),
             ConfigurationResourcePackResponsePacket.serializer(),
-            "00000000000000000000000000000000" + "03",
+            "0000000000000000000000000000000003",
         )
     }
 
@@ -303,15 +285,7 @@ class ConnectionStatePacketTest {
                 ),
             ),
             ConfigurationClientInformationPacket.serializer(),
-            "05656e5f7573" +
-                    "08" +
-                    "01" +
-                    "01" +
-                    "ff" +
-                    "01" +
-                    "00" +
-                    "01" +
-                    "02",
+            "05656e5f7573080101ff01000102",
         )
         assertPacketBytes(
             ConfigurationCustomReportDetailsPacket(

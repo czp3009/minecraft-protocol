@@ -66,10 +66,7 @@ class PlayCommonPacketTest {
         val brand = PlayClientboundPluginMessagePacket(
             CustomPayload.Brand("vanilla"),
         )
-        val brandBytes = (
-                "0f6d696e6563726166743a6272616e64" +
-                        "0776616e696c6c61"
-                ).hexToByteArray()
+        val brandBytes = "0f6d696e6563726166743a6272616e640776616e696c6c61".hexToByteArray()
         assertContentEquals(
             brandBytes,
             MinecraftFormat.encodeToByteArray(

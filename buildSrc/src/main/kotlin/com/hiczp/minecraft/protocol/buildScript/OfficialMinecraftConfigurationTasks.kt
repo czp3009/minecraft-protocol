@@ -90,8 +90,7 @@ abstract class GenerateVanillaConfigurationSourceTask : DefaultTask() {
         val output = outputFile.asFile.get().toPath()
         output.atomicWriteText(source)
         logger.lifecycle(
-            "Generated vanilla Configuration source from analysis data: " +
-                    output,
+            "Generated vanilla Configuration source from analysis data: $output",
         )
     }
 

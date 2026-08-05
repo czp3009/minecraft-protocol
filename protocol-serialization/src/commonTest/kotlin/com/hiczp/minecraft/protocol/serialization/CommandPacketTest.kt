@@ -29,15 +29,7 @@ class CommandPacketTest {
             ),
             rootIndex = 0,
         )
-        val expected = (
-                "02" +
-                        "000101" +
-                        "3600" +
-                        "06746172676574" +
-                        "0601" +
-                        "146d696e6563726166743a61736b5f736572766572" +
-                        "00"
-                ).hexToByteArray()
+        val expected = "020001013600067461726765740601146d696e6563726166743a61736b5f73657276657200".hexToByteArray()
 
         assertContentEquals(
             expected,

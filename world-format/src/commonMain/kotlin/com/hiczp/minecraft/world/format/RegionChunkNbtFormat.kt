@@ -44,8 +44,7 @@ class RegionChunkNbtFormat(
         val bytes = nbt.encodeDocumentToByteArray(document)
         if (bytes.size > configuration.maximumDecompressedChunkBytes) {
             throw RegionFormatException(
-                "NBT chunk size ${bytes.size} exceeds configured limit " +
-                        configuration.maximumDecompressedChunkBytes,
+                "NBT chunk size ${bytes.size} exceeds configured limit ${configuration.maximumDecompressedChunkBytes}",
             )
         }
         val compressed = compressionCodecs.compress(compression, bytes)

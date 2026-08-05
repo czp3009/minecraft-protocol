@@ -42,14 +42,12 @@ class MinecraftSession(
         val encoded = MinecraftPacketRegistry.encodePayload(packet, format)
         if (encoded.key.state != state) {
             throw MinecraftSessionException(
-                "${packet::class.simpleName} belongs to ${encoded.key.state}, " +
-                        "but the session is in $state",
+                "${packet::class.simpleName} belongs to ${encoded.key.state}, but the session is in $state",
             )
         }
         if (encoded.key.direction != outboundDirection) {
             throw MinecraftSessionException(
-                "${packet::class.simpleName} is ${encoded.key.direction}, " +
-                        "but $side sends $outboundDirection packets",
+                "${packet::class.simpleName} is ${encoded.key.direction}, but $side sends $outboundDirection packets",
             )
         }
 
@@ -98,15 +96,13 @@ class MinecraftSession(
             direction = inboundDirection,
             id = decodedData.id,
         ) ?: throw MinecraftSessionException(
-            "No packet codec for $state $inboundDirection " +
-                    "0x${decodedData.id.toString(16)}",
+            "No packet codec for $state $inboundDirection 0x${decodedData.id.toString(16)}",
         )
         val expectedFraming =
             if (legacy) PacketFraming.LEGACY_UNFRAMED else PacketFraming.NORMAL
         if (codec.framing != expectedFraming) {
             throw MinecraftSessionException(
-                "Packet 0x${decodedData.id.toString(16)} used $expectedFraming " +
-                        "framing but its codec requires ${codec.framing}",
+                "Packet 0x${decodedData.id.toString(16)} used $expectedFraming framing but its codec requires ${codec.framing}",
             )
         }
         val packet = try {
@@ -119,8 +115,7 @@ class MinecraftSession(
             )
         } catch (failure: Throwable) {
             throw MinecraftSessionException(
-                "Could not decode $state $inboundDirection packet " +
-                        "0x${decodedData.id.toString(16)}",
+                "Could not decode $state $inboundDirection packet 0x${decodedData.id.toString(16)}",
                 failure,
             )
         }

@@ -86,8 +86,7 @@ class PacketRegistryTest {
                     )
                 } catch (cause: Throwable) {
                     add(
-                        "${codec.key} ${codec.packetClass.simpleName}: " +
-                                "${cause::class.simpleName}: ${cause.message}",
+                        "${codec.key} ${codec.packetClass.simpleName}: ${cause::class.simpleName}: ${cause.message}",
                     )
                 }
             }

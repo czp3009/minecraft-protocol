@@ -448,8 +448,7 @@ internal class MinecraftDecoder(
             hints.any { it is ChunkSectionCount } ->
                 configuration.chunkSectionCount
                     ?: throw MinecraftSerializationException(
-                        "Decoding chunk sections requires chunkSectionCount " +
-                                "in MinecraftFormatConfiguration",
+                        "Decoding chunk sections requires chunkSectionCount in MinecraftFormatConfiguration",
                     )
 
             hints.any { it is Unprefixed } ->

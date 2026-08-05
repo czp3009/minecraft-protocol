@@ -129,11 +129,7 @@ class PlayClientboundStatePacketTest {
             )
         }
 
-        val highFlags = (
-                "f3" +
-                        "01" +
-                        "0b6d696e6563726166743a78"
-                ).hexToByteArray()
+        val highFlags = "f3010b6d696e6563726166743a78".hexToByteArray()
         val decoded = MinecraftFormat.decodeFromByteArray(
             StopSoundPacket.serializer(),
             highFlags,
@@ -214,7 +210,7 @@ class PlayClientboundStatePacketTest {
                 onGround = true,
             ),
             SynchronizeVehiclePositionPacket.serializer(),
-            "01" + "00".repeat(56) + "0000000001",
+            "01${"00".repeat(56)}0000000001",
         )
     }
 

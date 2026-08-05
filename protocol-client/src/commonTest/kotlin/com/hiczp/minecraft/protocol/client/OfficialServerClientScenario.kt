@@ -37,8 +37,7 @@ internal object OfficialServerClientScenario {
                         .jsonPrimitive
                         .int == MinecraftProtocol.PROTOCOL_VERSION,
                 ) {
-                    "Official status did not advertise protocol " +
-                            MinecraftProtocol.PROTOCOL_VERSION
+                    "Official status did not advertise protocol ${MinecraftProtocol.PROTOCOL_VERSION}"
                 }
             }
 

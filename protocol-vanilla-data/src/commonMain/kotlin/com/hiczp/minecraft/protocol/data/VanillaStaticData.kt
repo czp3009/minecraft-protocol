@@ -163,17 +163,13 @@ private fun decodeVanillaStaticData(): VanillaStaticDataSnapshot {
         VanillaStaticDataPayloads.minecraftVersion ==
                 MinecraftProtocol.MINECRAFT_VERSION,
     ) {
-        "Vanilla static data targets " +
-                "${VanillaStaticDataPayloads.minecraftVersion}, but models target " +
-                MinecraftProtocol.MINECRAFT_VERSION
+        "Vanilla static data targets ${VanillaStaticDataPayloads.minecraftVersion}, but models target ${MinecraftProtocol.MINECRAFT_VERSION}"
     }
     check(
         VanillaStaticDataPayloads.protocolVersion ==
                 MinecraftProtocol.PROTOCOL_VERSION,
     ) {
-        "Vanilla static data targets protocol " +
-                "${VanillaStaticDataPayloads.protocolVersion}, but models target " +
-                MinecraftProtocol.PROTOCOL_VERSION
+        "Vanilla static data targets protocol ${VanillaStaticDataPayloads.protocolVersion}, but models target ${MinecraftProtocol.PROTOCOL_VERSION}"
     }
 
     val payload = Json.decodeFromString<VanillaStaticDataPayload>(

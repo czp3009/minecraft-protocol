@@ -20,16 +20,14 @@ class MinecraftFrameCodec(
         }
         if (packetData.size > configuration.maximumUncompressedPacketSize) {
             throw MinecraftTransportException(
-                "Packet data has ${packetData.size} bytes; maximum is " +
-                        configuration.maximumUncompressedPacketSize,
+                "Packet data has ${packetData.size} bytes; maximum is ${configuration.maximumUncompressedPacketSize}",
             )
         }
 
         val body = encodeFrameBody(packetData)
         if (body.size > configuration.maximumFrameSize) {
             throw MinecraftTransportException(
-                "Frame body has ${body.size} bytes; maximum is " +
-                        configuration.maximumFrameSize,
+                "Frame body has ${body.size} bytes; maximum is ${configuration.maximumFrameSize}",
             )
         }
         return encodeVarInt(body.size) + body
@@ -67,8 +65,7 @@ class MinecraftFrameCodec(
                 packetData.size >= threshold
             ) {
                 throw MinecraftTransportException(
-                    "Uncompressed packet has ${packetData.size} bytes, meeting " +
-                            "compression threshold $threshold",
+                    "Uncompressed packet has ${packetData.size} bytes, meeting compression threshold $threshold",
                 )
             }
             return packetData
@@ -78,14 +75,12 @@ class MinecraftFrameCodec(
             uncompressedLength < threshold
         ) {
             throw MinecraftTransportException(
-                "Compressed packet declares $uncompressedLength bytes, below " +
-                        "compression threshold $threshold",
+                "Compressed packet declares $uncompressedLength bytes, below compression threshold $threshold",
             )
         }
         if (uncompressedLength > configuration.maximumUncompressedPacketSize) {
             throw MinecraftTransportException(
-                "Compressed packet declares $uncompressedLength bytes; maximum is " +
-                        configuration.maximumUncompressedPacketSize,
+                "Compressed packet declares $uncompressedLength bytes; maximum is ${configuration.maximumUncompressedPacketSize}",
             )
         }
         return Zlib.decompress(cursor.remainingBytes(), uncompressedLength)
@@ -94,8 +89,7 @@ class MinecraftFrameCodec(
     internal fun validateFrameLength(frameLength: Int) {
         if (frameLength !in 1..configuration.maximumFrameSize) {
             throw MinecraftTransportException(
-                "Invalid frame length $frameLength; maximum is " +
-                        configuration.maximumFrameSize,
+                "Invalid frame length $frameLength; maximum is ${configuration.maximumFrameSize}",
             )
         }
     }

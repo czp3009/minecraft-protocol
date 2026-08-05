@@ -71,31 +71,13 @@ class PlayServerboundInteractionPacketTest {
 
         val fallback = MinecraftFormat.decodeFromByteArray(
             TestInstanceBlockActionPacket.serializer(),
-            (
-                    "0000000000000000" +
-                            "7f" +
-                            "00" +
-                            "000000" +
-                            "ff01" +
-                            "00" +
-                            "7f" +
-                            "00"
-                    ).hexToByteArray(),
+            "00000000000000007f00000000ff01007f00".hexToByteArray(),
         )
         assertEquals(TestInstanceAction.INIT, fallback.action)
         assertEquals(StructureRotation.COUNTERCLOCKWISE_90, fallback.data.rotation)
         assertEquals(TestInstanceStatus.CLEARED, fallback.data.status)
         assertContentEquals(
-            (
-                    "0000000000000000" +
-                            "00" +
-                            "00" +
-                            "000000" +
-                            "03" +
-                            "00" +
-                            "00" +
-                            "00"
-                    ).hexToByteArray(),
+            "0000000000000000000000000003000000".hexToByteArray(),
             MinecraftFormat.encodeToByteArray(TestInstanceBlockActionPacket.serializer(), fallback),
         )
     }

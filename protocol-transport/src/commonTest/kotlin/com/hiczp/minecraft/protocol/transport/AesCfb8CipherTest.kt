@@ -10,16 +10,10 @@ class AesCfb8CipherTest {
         val key = hex("2b7e151628aed2a6abf7158809cf4f3c")
         val initializationVector = hex("000102030405060708090a0b0c0d0e0f")
         val plaintext = hex(
-            "6bc1bee22e409f96e93d7e117393172a" +
-                    "ae2d8a571e03ac9c9eb76fac45af8e51" +
-                    "30c81c46a35ce411e5fbc1191a0a52ef" +
-                    "f69f2445df4f9b17ad2b417be66c3710",
+            "6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710",
         )
         val expectedCiphertext = hex(
-            "3b79424c9c0dd436bace9e0ed4586a4f" +
-                    "32b9ded50ae3ba69d472e88267fb5052" +
-                    "70cbad1e257691f7c47c5038297edda3" +
-                    "2ff26d0ed19174096161ecc14086dd62",
+            "3b79424c9c0dd436bace9e0ed4586a4f32b9ded50ae3ba69d472e88267fb505270cbad1e257691f7c47c5038297edda32ff26d0ed19174096161ecc14086dd62",
         )
 
         val ciphertext =

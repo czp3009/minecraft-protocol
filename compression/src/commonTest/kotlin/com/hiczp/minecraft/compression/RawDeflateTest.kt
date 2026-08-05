@@ -141,9 +141,7 @@ class RawDeflateTest {
             "cb48cdc9c95728cf2fca490100",
         )
         private val DYNAMIC_TEXT = hexBytes(
-            "edca470180301045412b5f016a628092d0d910084d3d88e0f8ce33ae" +
-                    "f35a735f8faa929d8b825d1af21c37d9e193f68fa7f2b9d5585bc891" +
-                    "c96432994c2693c96432994c2693ffc82f",
+            "edca470180301045412b5f016a628092d0d910084d3d88e0f8ce33aef35a735f8faa929d8b825d1af21c37d9e193f68fa7f2b9d5585bc891c96432994c2693c96432994c2693ffc82f",
         )
 
         private fun hexBytes(value: String): ByteArray {

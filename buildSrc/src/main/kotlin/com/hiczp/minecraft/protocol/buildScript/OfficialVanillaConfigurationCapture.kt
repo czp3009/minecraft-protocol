@@ -45,15 +45,13 @@ internal class OfficialPacketIds private constructor(
     fun id(state: String, direction: String, name: String): Int =
         byKey[OfficialPacketKey(state, direction, name)]
             ?: error(
-                "Official packets report has no " +
-                        "$state/$direction/$name packet",
+                "Official packets report has no $state/$direction/$name packet",
             )
 
     fun clientboundName(state: String, id: Int): String =
         clientboundNames[state to id]
             ?: error(
-                "Official packets report has no $state/clientbound " +
-                        "packet 0x${id.toString(16)}",
+                "Official packets report has no $state/clientbound packet 0x${id.toString(16)}",
             )
 
     companion object {
@@ -69,8 +67,7 @@ internal class OfficialPacketIds private constructor(
                         val id = packetElement.jsonObject
                             .requiredInt("protocol_id")
                         check(id >= 0) {
-                            "Official packet $state/$direction/$name has " +
-                                    "a negative protocol ID"
+                            "Official packet $state/$direction/$name has a negative protocol ID"
                         }
                         val key = OfficialPacketKey(state, direction, name)
                         check(entries.put(key, id) == null) {
@@ -80,8 +77,7 @@ internal class OfficialPacketIds private constructor(
                             check(
                                 clientbound.put(state to id, name) == null,
                             ) {
-                                "Duplicate official packet ID " +
-                                        "$state/clientbound/$id"
+                                "Duplicate official packet ID $state/clientbound/$id"
                             }
                         }
                     }
@@ -140,8 +136,7 @@ internal object OfficialVanillaConfigurationCapture {
             }
         }
         throw AssertionError(
-            "Official server could not acquire a loopback port after " +
-                    "$MAXIMUM_BIND_ATTEMPTS attempts",
+            "Official server could not acquire a loopback port after $MAXIMUM_BIND_ATTEMPTS attempts",
             lastBindFailure,
         )
     }
@@ -194,8 +189,7 @@ internal object OfficialVanillaConfigurationCapture {
             )
         } catch (failure: Throwable) {
             throw AssertionError(
-                "Official vanilla-data capture failed.\n" +
-                        "--- official server log ---\n${log.content()}",
+                "Official vanilla-data capture failed.\n--- official server log ---\n${log.content()}",
                 failure,
             )
         } finally {
@@ -260,8 +254,7 @@ internal object OfficialVanillaConfigurationCapture {
                 when (state to packet.name) {
                     LOGIN to "login_disconnect" ->
                         error(
-                            "Official server rejected $name: " +
-                                    packet.payload.toHexString(),
+                            "Official server rejected $name: ${packet.payload.toHexString()}",
                         )
 
                     LOGIN to "cookie_request" -> {
@@ -296,9 +289,7 @@ internal object OfficialVanillaConfigurationCapture {
                         val threshold = input.readVarInt()
                         input.requireExhausted()
                         check(threshold == COMPRESSION_THRESHOLD) {
-                            "Official server negotiated compression " +
-                                    "threshold $threshold, expected " +
-                                    COMPRESSION_THRESHOLD
+                            "Official server negotiated compression threshold $threshold, expected $COMPRESSION_THRESHOLD"
                         }
                         connection.compressionThreshold = threshold
                     }
@@ -315,8 +306,7 @@ internal object OfficialVanillaConfigurationCapture {
 
                     CONFIGURATION to "disconnect" ->
                         error(
-                            "Official server rejected $name: " +
-                                    packet.payload.toHexString(),
+                            "Official server rejected $name: ${packet.payload.toHexString()}",
                         )
 
                     CONFIGURATION to "cookie_request" -> {
@@ -426,8 +416,7 @@ internal object OfficialVanillaConfigurationCapture {
                 }
             }
             error(
-                "Official server never entered Play for $name; " +
-                        "received $received",
+                "Official server never entered Play for $name; received $received",
             )
         }
     }
@@ -452,9 +441,7 @@ internal object OfficialVanillaConfigurationCapture {
             "Official server sent no Registry Data packets"
         }
         check(complete.registries.size == clientKnown.registries.size) {
-            "Registry packet count changed between Known Packs branches: " +
-                    "${complete.registries.size} vs " +
-                    clientKnown.registries.size
+            "Registry packet count changed between Known Packs branches: ${complete.registries.size} vs ${clientKnown.registries.size}"
         }
         complete.registries.zip(clientKnown.registries)
             .forEach { (full, compact) ->
@@ -765,8 +752,7 @@ internal data class VanillaConfigurationCaptureResult(
                                     entries = tag.requiredArray("entries")
                                         .mapIndexed { entryIndex, entry ->
                                             entry.requiredIntValue(
-                                                "tags[$index].tags[$tagIndex]" +
-                                                        ".entries[$entryIndex]",
+                                                "tags[$index].tags[$tagIndex].entries[$entryIndex]",
                                             )
                                         },
                                 )
@@ -890,8 +876,7 @@ private fun validateRegistryPair(
     clientKnown: RegistryPayload,
 ) {
     check(complete.registryId == clientKnown.registryId) {
-        "Registry order changed: ${complete.registryId} vs " +
-                clientKnown.registryId
+        "Registry order changed: ${complete.registryId} vs ${clientKnown.registryId}"
     }
     check(
         complete.entries.map(RegistryEntryPayload::id) ==
@@ -1625,8 +1610,7 @@ private object GradlePacketFraming {
                 position += count
             }
             check(position == expectedLength && inflater.finished()) {
-                "Compressed packet produced $position bytes; expected " +
-                        expectedLength
+                "Compressed packet produced $position bytes; expected $expectedLength"
             }
             check(inflater.remaining == 0) {
                 "Compressed packet has trailing bytes"
@@ -1715,13 +1699,11 @@ private class BoundedProcessLog(
         lock.withLock {
             while (text !in content) {
                 check(process.isAlive) {
-                    "Official server exited with ${process.exitValue()}: " +
-                            content
+                    "Official server exited with ${process.exitValue()}: $content"
                 }
                 val remaining = deadline - System.nanoTime()
                 check(remaining > 0) {
-                    "Official server did not report '$text' within $timeout: " +
-                            content
+                    "Official server did not report '$text' within $timeout: $content"
                 }
                 changed.awaitNanos(remaining)
             }

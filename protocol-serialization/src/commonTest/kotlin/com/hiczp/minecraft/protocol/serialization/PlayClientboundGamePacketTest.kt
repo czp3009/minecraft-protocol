@@ -58,18 +58,7 @@ class PlayClientboundGamePacketTest {
                 onGround = true,
             ),
             TeleportEntityPacket.serializer(),
-            (
-                    "ac02" +
-                            "3ff0000000000000" +
-                            "4000000000000000" +
-                            "4008000000000000" +
-                            "bff0000000000000" +
-                            "0000000000000000" +
-                            "3fe0000000000000" +
-                            "42b40000" +
-                            "c2340000" +
-                            "01"
-                    ),
+            "ac023ff000000000000040000000000000004008000000000000bff000000000000000000000000000003fe000000000000042b40000c234000001",
         )
     }
 
@@ -145,14 +134,7 @@ class PlayClientboundGamePacketTest {
                 warningTimeSeconds = 4,
             ),
             InitializeWorldBorderPacket.serializer(),
-            (
-                    "3ff0000000000000" +
-                            "c000000000000000" +
-                            "4008000000000000" +
-                            "4010000000000000" +
-                            "ac02" +
-                            "020304"
-                    ),
+            "3ff0000000000000c00000000000000040080000000000004010000000000000ac02020304",
         )
         assertPacketBytes(
             PlayClientboundKeepAlivePacket(0x0102030405060708),

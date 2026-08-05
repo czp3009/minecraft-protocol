@@ -43,7 +43,7 @@ class PlayClientboundPlayerWorldPacketTest {
         assertPacketBytes(
             positionPacket,
             LookAtPacket.serializer(),
-            "01$VECTOR_123_HEX" + "00",
+            "01${VECTOR_123_HEX}00",
         )
 
         val entityPacket = LookAtPacket(
@@ -53,7 +53,7 @@ class PlayClientboundPlayerWorldPacketTest {
         assertPacketBytes(
             entityPacket,
             LookAtPacket.serializer(),
-            "00$VECTOR_123_HEX" + "01ac0201",
+            "00${VECTOR_123_HEX}01ac0201",
         )
 
     }
@@ -79,7 +79,7 @@ class PlayClientboundPlayerWorldPacketTest {
         assertPacketBytes(
             packet,
             SynchronizePlayerPositionPacket.serializer(),
-            "01" + "00".repeat(56) + "00000181",
+            "01${"00".repeat(56)}00000181",
         )
         assertPacketBytes(
             PlayerRotationPacket(
@@ -92,9 +92,7 @@ class PlayClientboundPlayerWorldPacketTest {
             "3f80000001c000000000",
         )
 
-        val withUnknownBits = (
-                "01" + "00".repeat(56) + "ffffff81"
-                ).hexToByteArray()
+        val withUnknownBits = "01${"00".repeat(56)}ffffff81".hexToByteArray()
         assertEquals(
             packet,
             MinecraftFormat.decodeFromByteArray(
@@ -166,13 +164,7 @@ class PlayClientboundPlayerWorldPacketTest {
                 prompt = TEXT_X,
             ),
             PlayAddResourcePackPacket.serializer(),
-            (
-                    "00000000000000000000000000000000" +
-                            "0175" +
-                            "0168" +
-                            "01" +
-                            "0108000178"
-                    ),
+            "0000000000000000000000000000000001750168010108000178",
         )
     }
 
@@ -282,12 +274,7 @@ class PlayClientboundPlayerWorldPacketTest {
         assertPacketBytes(
             packet,
             SetDefaultSpawnPositionPacket.serializer(),
-            (
-                    "13" +
-                            "6d696e6563726166743a6f766572776f726c64" +
-                            ZERO_POSITION_HEX +
-                            "3f800000c0000000"
-                    ),
+            "136d696e6563726166743a6f766572776f726c64${ZERO_POSITION_HEX}3f800000c0000000",
         )
     }
 

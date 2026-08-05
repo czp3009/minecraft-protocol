@@ -63,8 +63,7 @@ data class MinecraftDimensionLayout(
         ): MinecraftDimensionLayout {
             val entry = registry.entries.getOrNull(registryId)
                 ?: error(
-                    "Dimension-type registry ID $registryId is absent from " +
-                            dimensionTypeRegistry,
+                    "Dimension-type registry ID $registryId is absent from $dimensionTypeRegistry",
                 )
             val value = entry.data as? NbtCompound
                 ?: error(

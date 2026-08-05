@@ -47,14 +47,12 @@ sealed class RegionFileFormat(
         }
         if (bytes.size < REGION_HEADER_BYTES) {
             throw RegionFormatException(
-                "Region file is ${bytes.size} bytes; header requires " +
-                        "$REGION_HEADER_BYTES bytes",
+                "Region file is ${bytes.size} bytes; header requires $REGION_HEADER_BYTES bytes",
             )
         }
         if (bytes.size > configuration.maximumRegionBytes) {
             throw RegionFormatException(
-                "Region file size ${bytes.size} exceeds configured limit " +
-                        configuration.maximumRegionBytes,
+                "Region file size ${bytes.size} exceeds configured limit ${configuration.maximumRegionBytes}",
             )
         }
 
@@ -78,8 +76,7 @@ sealed class RegionFileFormat(
             val position = LocalChunkPosition.fromIndex(index)
             if (sectorOffset < 2 || allocatedSectors == 0) {
                 throw RegionFormatException(
-                    "Chunk $position has invalid sector location " +
-                            "$sectorOffset+$allocatedSectors",
+                    "Chunk $position has invalid sector location $sectorOffset+$allocatedSectors",
                 )
             }
             if (sectorOffset > sectorCount - allocatedSectors) {
@@ -102,8 +99,7 @@ sealed class RegionFileFormat(
                 allocatedSectors * REGION_SECTOR_BYTES - Int.SIZE_BYTES
             if (length !in 1..allocatedPayloadBytes) {
                 throw RegionFormatException(
-                    "Chunk $position declares invalid record length $length " +
-                            "for $allocatedSectors allocated sector(s)",
+                    "Chunk $position declares invalid record length $length for $allocatedSectors allocated sector(s)",
                 )
             }
             if (recordOffset + Int.SIZE_BYTES + length > bytes.size) {
@@ -120,9 +116,7 @@ sealed class RegionFileFormat(
             val compressedLength = length - 1
             if (compressedLength > configuration.maximumCompressedChunkBytes) {
                 throw RegionFormatException(
-                    "Chunk $position compressed size $compressedLength exceeds " +
-                            "configured limit " +
-                            configuration.maximumCompressedChunkBytes,
+                    "Chunk $position compressed size $compressedLength exceeds configured limit ${configuration.maximumCompressedChunkBytes}",
                 )
             }
 
@@ -169,8 +163,7 @@ sealed class RegionFileFormat(
         val totalBytesLong = nextSector.toLong() * REGION_SECTOR_BYTES
         if (totalBytesLong > configuration.maximumRegionBytes) {
             throw RegionFormatException(
-                "Encoded region size $totalBytesLong exceeds configured limit " +
-                        configuration.maximumRegionBytes,
+                "Encoded region size $totalBytesLong exceeds configured limit ${configuration.maximumRegionBytes}",
             )
         }
         if (nextSector > MAX_SECTOR_OFFSET + 1) {
@@ -220,9 +213,7 @@ sealed class RegionFileFormat(
             )
         if (compressedBytes.size > configuration.maximumCompressedChunkBytes) {
             throw RegionFormatException(
-                "Chunk $position compressed size ${compressedBytes.size} exceeds " +
-                        "configured limit " +
-                        configuration.maximumCompressedChunkBytes,
+                "Chunk $position compressed size ${compressedBytes.size} exceeds configured limit ${configuration.maximumCompressedChunkBytes}",
             )
         }
         val inlineBytes = Int.SIZE_BYTES + 1L + compressedBytes.size

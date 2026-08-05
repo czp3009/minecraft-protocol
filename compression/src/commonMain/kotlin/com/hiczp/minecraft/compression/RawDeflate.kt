@@ -196,8 +196,7 @@ object RawDeflate {
         val literalLengthCount = reader.readBits(5) + 257
         if (literalLengthCount > MAXIMUM_LITERAL_LENGTH_CODE_COUNT) {
             throw RawDeflateException(
-                "Reserved DEFLATE literal/length code count " +
-                        literalLengthCount,
+                "Reserved DEFLATE literal/length code count $literalLengthCount",
             )
         }
         val distanceCount = reader.readBits(5) + 1

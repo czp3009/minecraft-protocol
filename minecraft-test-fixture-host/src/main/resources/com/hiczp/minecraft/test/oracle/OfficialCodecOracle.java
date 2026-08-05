@@ -51,10 +51,10 @@ public final class OfficialCodecOracle {
         List<Fixture> fixtures = readFixtures(fixturesJson);
         Set<String> fixtureNames = new HashSet<>();
         for (Fixture fixture : fixtures) {
-            String identity = fixture.key().text() + "/" + fixture.sample();
+            String identity = "%s/%s".formatted(fixture.key().text(), fixture.sample());
             if (!fixtureNames.add(identity)) {
                 throw new IllegalArgumentException(
-                        "Duplicate fixture sample " + identity
+                        "Duplicate fixture sample %s".formatted(identity)
                 );
             }
         }
@@ -80,28 +80,32 @@ public final class OfficialCodecOracle {
                 }
             } catch (Throwable error) {
                 failures.add(
-                        fixture.key().text()
-                                + "/" + fixture.sample()
-                                + " (" + fixture.kotlinClass() + "): "
-                                + conciseError(error)
+                        "%s/%s (%s): %s".formatted(
+                                fixture.key().text(),
+                                fixture.sample(),
+                                fixture.kotlinClass(),
+                                conciseError(error)
+                        )
                 );
             }
         }
         if (!failures.isEmpty()) {
             String details = failures.stream()
                     .limit(MAX_REPORTED_FAILURES)
-                    .map(failure -> "- " + failure)
+                    .map(failure -> "- %s".formatted(failure))
                     .collect(Collectors.joining("\n"));
-            if (failures.size() > MAX_REPORTED_FAILURES) {
-                details += "\n- ... "
-                        + (failures.size() - MAX_REPORTED_FAILURES)
-                        + " additional failure(s) omitted";
-            }
+            String omitted =
+                    failures.size() > MAX_REPORTED_FAILURES
+                            ? "\n- ... %d additional failure(s) omitted".formatted(
+                                    failures.size() - MAX_REPORTED_FAILURES
+                            )
+                            : "";
             throw new AssertionError(
-                    "Official codec rejected "
-                            + failures.size()
-                            + " fixture(s):\n"
-                            + details
+                    "Official codec rejected %d fixture(s):\n%s%s".formatted(
+                            failures.size(),
+                            details,
+                            omitted
+                    )
             );
         }
     }
@@ -120,7 +124,7 @@ public final class OfficialCodecOracle {
         Object packet = codec.decode(input);
         if (input.isReadable()) {
             throw new IllegalStateException(
-                    "Vanilla left " + input.readableBytes() + " unread payload bytes"
+                    "Vanilla left %d unread payload bytes".formatted(input.readableBytes())
             );
         }
 
@@ -130,8 +134,10 @@ public final class OfficialCodecOracle {
         int encodedId = output.readVarInt();
         if (encodedId != parseId(key.id())) {
             throw new IllegalStateException(
-                    "Vanilla re-encoded packet ID " + encodedId
-                            + ", expected " + parseId(key.id())
+                    "Vanilla re-encoded packet ID %d, expected %d".formatted(
+                            encodedId,
+                            parseId(key.id())
+                    )
             );
         }
         byte[] encoded = new byte[output.readableBytes()];
@@ -170,7 +176,7 @@ public final class OfficialCodecOracle {
                     () -> true
             );
             default -> throw new IllegalArgumentException(
-                    "Unknown protocol state " + key.state()
+                    "Unknown protocol state %s".formatted(key.state())
             );
         };
     }
@@ -249,7 +255,7 @@ public final class OfficialCodecOracle {
 
     private static String normalizeId(String value) {
         int parsed = parseId(value);
-        return "0x" + Integer.toHexString(parsed).toUpperCase();
+        return "0x%s".formatted(Integer.toHexString(parsed).toUpperCase());
     }
 
     private static int parseId(String value) {
@@ -264,8 +270,10 @@ public final class OfficialCodecOracle {
             current = current.getCause();
         }
         String message = current.getMessage();
-        return current.getClass().getName()
-                + (message == null || message.isBlank() ? "" : ": " + message);
+        String suffix = message == null || message.isBlank()
+                ? ""
+                : ": %s".formatted(message);
+        return "%s%s".formatted(current.getClass().getName(), suffix);
     }
 
     private record PacketKey(String state, String direction, String id) {
@@ -278,7 +286,7 @@ public final class OfficialCodecOracle {
         }
 
         String text() {
-            return state + "/" + direction + "/" + id;
+            return "%s/%s/%s".formatted(state, direction, id);
         }
     }
 

@@ -63,8 +63,7 @@ class NbtFileStore(
         val bytes = nbt.encodeDocumentToByteArray(document)
         if (bytes.size > configuration.maximumDecompressedBytes) {
             throw WorldIOException(
-                "NBT document size ${bytes.size} exceeds configured limit " +
-                        configuration.maximumDecompressedBytes,
+                "NBT document size ${bytes.size} exceeds configured limit ${configuration.maximumDecompressedBytes}",
             )
         }
         val compressed = compressionCodecs.compress(
@@ -73,8 +72,7 @@ class NbtFileStore(
         )
         if (compressed.size > configuration.maximumCompressedBytes) {
             throw WorldIOException(
-                "Compressed NBT size ${compressed.size} exceeds configured " +
-                        "limit ${configuration.maximumCompressedBytes}",
+                "Compressed NBT size ${compressed.size} exceeds configured limit ${configuration.maximumCompressedBytes}",
             )
         }
         writeMutex.withLock {

@@ -77,16 +77,13 @@ class WorldRegionStore(
         val encoded = regionFormat.encodeToByteArray(region)
         if (encoded.bytes.size > configuration.maximumRegionBytes) {
             throw WorldIOException(
-                "Region size ${encoded.bytes.size} exceeds configured limit " +
-                        configuration.maximumRegionBytes,
+                "Region size ${encoded.bytes.size} exceeds configured limit ${configuration.maximumRegionBytes}",
             )
         }
         encoded.externalChunks.forEach { (local, bytes) ->
             if (bytes.size > configuration.maximumExternalChunkBytes) {
                 throw WorldIOException(
-                    "External chunk $local size ${bytes.size} exceeds " +
-                            "configured limit " +
-                            configuration.maximumExternalChunkBytes,
+                    "External chunk $local size ${bytes.size} exceeds configured limit ${configuration.maximumExternalChunkBytes}",
                 )
             }
         }

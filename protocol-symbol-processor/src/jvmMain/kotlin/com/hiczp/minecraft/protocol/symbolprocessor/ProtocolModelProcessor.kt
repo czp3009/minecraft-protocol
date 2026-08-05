@@ -60,15 +60,13 @@ private class ProtocolModelProcessor(
         if (invalid.isNotEmpty()) return invalid
         if (packetDeclarations.isEmpty()) {
             logger.error(
-                "No @$PACKET_INFO_SIMPLE_NAME declarations were visible " +
-                        "from $PACKET_PACKAGE",
+                "No @$PACKET_INFO_SIMPLE_NAME declarations were visible from $PACKET_PACKAGE",
             )
             return emptyList()
         }
         if (componentDeclarations.isEmpty()) {
             logger.error(
-                "No @$DATA_COMPONENT_INFO_SIMPLE_NAME declarations were " +
-                        "visible from $DATA_COMPONENT_PACKAGE",
+                "No @$DATA_COMPONENT_INFO_SIMPLE_NAME declarations were visible from $DATA_COMPONENT_PACKAGE",
             )
             return emptyList()
         }
@@ -153,8 +151,7 @@ private class ProtocolModelProcessor(
         val officialByKey = official.groupBy(OfficialPacket::key)
         officialByKey.filterValues { it.size > 1 }.forEach { (key) ->
             logger.error(
-                "Official packets report contains duplicate key " +
-                        key.display(),
+                "Official packets report contains duplicate key ${key.display()}",
             )
             valid = false
         }
@@ -168,17 +165,16 @@ private class ProtocolModelProcessor(
         val missing = uniqueOfficial.keys - uniqueLocal.keys
         if (missing.isNotEmpty()) {
             logger.error(
-                "Packet models are missing official keys: " +
-                        missing.sortedBy(PacketKey::sortKey)
-                            .joinToString { it.display() },
+                "Packet models are missing official keys: ${
+                    missing.sortedBy(PacketKey::sortKey).joinToString { it.display() }
+                }",
             )
             valid = false
         }
         val extra = uniqueLocal.keys - uniqueOfficial.keys - LEGACY_PACKET_KEY
         extra.forEach { key ->
             logger.error(
-                "Packet model has no official report entry at " +
-                        key.display(),
+                "Packet model has no official report entry at ${key.display()}",
                 uniqueLocal.getValue(key).declaration,
             )
             valid = false
@@ -187,9 +183,7 @@ private class ProtocolModelProcessor(
             val localPacket = uniqueLocal[key] ?: return@forEach
             if (localPacket.officialName != officialPacket.name) {
                 logger.error(
-                    "${localPacket.className} identifies " +
-                            "'${localPacket.officialName}', but the official " +
-                            "report identifies '${officialPacket.name}'",
+                    "${localPacket.className} identifies '${localPacket.officialName}', but the official report identifies '${officialPacket.name}'",
                     localPacket.declaration,
                 )
                 valid = false
@@ -198,8 +192,7 @@ private class ProtocolModelProcessor(
         val legacy = uniqueLocal[LEGACY_PACKET_KEY]
         if (legacy?.officialName != LEGACY_PACKET_NAME) {
             logger.error(
-                "The sole non-report packet must be annotated as " +
-                        "'$LEGACY_PACKET_NAME'",
+                "The sole non-report packet must be annotated as '$LEGACY_PACKET_NAME'",
                 legacy?.declaration,
             )
             valid = false
@@ -306,8 +299,7 @@ private class ProtocolModelProcessor(
         val missing = declaredTypes - componentTypes
         if (missing.isNotEmpty()) {
             logger.error(
-                "Data-component models are missing types: " +
-                        missing.sorted().joinToString(),
+                "Data-component models are missing types: ${missing.sorted().joinToString()}",
             )
             valid = false
         }
@@ -470,9 +462,7 @@ private class ProtocolModelProcessor(
             is KSType -> argument.declaration.simpleName.asString()
             is KSClassDeclaration -> argument.simpleName.asString()
             else -> error(
-                "Expected an enum annotation argument for " +
-                        "${name?.asString()}; got " +
-                        "${argument?.javaClass?.name}: $argument",
+                "Expected an enum annotation argument for ${name?.asString()}; got ${argument?.javaClass?.name}: $argument",
             )
         }
     }
@@ -488,9 +478,9 @@ private class ProtocolModelProcessor(
             }"
 
         fun sortKey(): String =
-            "${STATE_ORDER.getValue(state).toString().padStart(2, '0')}/" +
-                    "${DIRECTION_ORDER.getValue(direction)}/" +
-                    id.toString().padStart(8, '0')
+            "${
+                STATE_ORDER.getValue(state).toString().padStart(2, '0')
+            }/${DIRECTION_ORDER.getValue(direction)}/${id.toString().padStart(8, '0')}"
     }
 
     private data class LocalPacket(

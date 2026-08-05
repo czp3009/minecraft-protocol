@@ -29,8 +29,7 @@ abstract class GenerateMinecraftProtocolSourceTask :
         ).addType(
             TypeSpec.objectBuilder("MinecraftProtocol")
                 .addKdoc(
-                    "The single protocol revision implemented by this build.\n\n" +
-                            "Generated from version.json in the matching official server JAR.\n",
+                    "The single protocol revision implemented by this build.\n\nGenerated from version.json in the matching official server JAR.\n",
                 )
                 .addProperty(
                     PropertySpec.builder("MINECRAFT_VERSION", String::class, CONST)
@@ -47,8 +46,7 @@ abstract class GenerateMinecraftProtocolSourceTask :
         val output = outputFile.asFile.get().toPath()
         output.atomicWriteText(source)
         logger.lifecycle(
-            "Generated Minecraft ${target.minecraftVersion} protocol " +
-                    "${target.protocolVersion}: $output",
+            "Generated Minecraft ${target.minecraftVersion} protocol ${target.protocolVersion}: $output",
         )
     }
 
