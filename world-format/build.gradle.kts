@@ -74,7 +74,3 @@ kotlin {
         }
     }
 }
-
-tasks.withType<Test>().configureEach {
-    jvmArgs("--enable-native-access=ALL-UNNAMED")
-}
