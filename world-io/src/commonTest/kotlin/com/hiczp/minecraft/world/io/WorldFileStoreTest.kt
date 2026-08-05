@@ -451,6 +451,18 @@ class WorldFileStoreTest {
     }
 
     @Test
+    fun atomicTemporaryFileNamesUseOneCompactFormat() {
+        assertEquals(
+            ".tmp-0000000000000",
+            atomicTemporaryFileName(0uL),
+        )
+        assertEquals(
+            ".tmp-3w5e11264sgsf",
+            atomicTemporaryFileName(ULong.MAX_VALUE),
+        )
+    }
+
+    @Test
     fun failedAtomicWriteRemovesItsTemporaryFile() = withTemporaryWorld {
         runTest {
             val destination = Path(root, "blocked.dat")
@@ -675,10 +687,11 @@ private fun assertNoAtomicTemporaryFiles(
     directory: Path,
     destinationName: String,
 ) {
-    val prefix = ".$destinationName.minecraft-protocol-"
+    val example = atomicTemporaryFileName(0uL)
     assertFalse(
         SystemFileSystem.list(directory).any {
-            it.name.startsWith(prefix) && it.name.endsWith(".tmp")
+            it.name.startsWith(".tmp-") &&
+                    it.name.length == example.length
         },
         "Atomic-write temporary file was left behind for $destinationName",
     )

@@ -121,7 +121,7 @@ the build ends. Unchanged preparation is reused by Gradle.
 ## Minecraft release and generated data
 
 [
-`MinecraftTarget.MINECRAFT_VERSION`](buildSrc/src/main/kotlin/com/hiczp/minecraft/protocol/buildScript/MinecraftTarget.kt)
+`MinecraftTarget.MINECRAFT_VERSION`](buildSrc/src/main/kotlin/com/hiczp/minecraft/buildlogic/MinecraftTarget.kt)
 is the single manually selected Minecraft release. Print it with:
 
 ```shell

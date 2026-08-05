@@ -1,5 +1,5 @@
-import com.hiczp.minecraft.protocol.buildScript.applyMinecraftTestFixtureServiceConvention
-import com.hiczp.minecraft.protocol.buildScript.applyOfficialDownloadsConvention
+import com.hiczp.minecraft.buildlogic.applyMinecraftTestFixtureServiceConvention
+import com.hiczp.minecraft.buildlogic.applyOfficialDownloadsConvention
 import org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootExtension
 import org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest
 import org.jetbrains.kotlin.gradle.targets.js.testing.mocha.KotlinMocha

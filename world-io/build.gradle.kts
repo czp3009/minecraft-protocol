@@ -1,5 +1,5 @@
-import com.hiczp.minecraft.protocol.buildScript.BuildVersions
-import com.hiczp.minecraft.protocol.buildScript.useMinecraftTestFixtures
+import com.hiczp.minecraft.buildlogic.BuildVersions
+import com.hiczp.minecraft.buildlogic.useMinecraftTestFixtures
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {

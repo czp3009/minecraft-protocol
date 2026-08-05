@@ -1,8 +1,8 @@
 import com.google.devtools.ksp.gradle.KspAATask
-import com.hiczp.minecraft.protocol.buildScript.BuildVersions
-import com.hiczp.minecraft.protocol.buildScript.GenerateMinecraftProtocolSourceTask
-import com.hiczp.minecraft.protocol.buildScript.officialMinecraftAnalysisDirectory
-import com.hiczp.minecraft.protocol.buildScript.officialMinecraftAnalysisFile
+import com.hiczp.minecraft.buildlogic.BuildVersions
+import com.hiczp.minecraft.buildlogic.GenerateMinecraftProtocolSourceTask
+import com.hiczp.minecraft.buildlogic.officialMinecraftAnalysisDirectory
+import com.hiczp.minecraft.buildlogic.officialMinecraftAnalysisFile
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget

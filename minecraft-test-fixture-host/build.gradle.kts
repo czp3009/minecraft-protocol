@@ -1,5 +1,5 @@
-import com.hiczp.minecraft.protocol.buildScript.BuildVersions
-import com.hiczp.minecraft.protocol.buildScript.publishCodecOracleSource
+import com.hiczp.minecraft.buildlogic.BuildVersions
+import com.hiczp.minecraft.buildlogic.publishCodecOracleSource
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {

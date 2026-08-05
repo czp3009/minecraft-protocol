@@ -6,6 +6,10 @@ import kotlinx.io.files.Path
 import kotlinx.io.readByteArray
 import kotlin.random.Random
 
+private const val ATOMIC_TEMPORARY_RANDOM_RADIX = 36
+private const val ATOMIC_TEMPORARY_RANDOM_WIDTH = 13
+private const val ATOMIC_TEMPORARY_PREFIX = ".tmp-"
+
 internal fun FileSystem.readFileWithinLimit(
     path: Path,
     maximumBytes: Int,
@@ -45,7 +49,7 @@ internal fun FileSystem.writeByteArrayAtomically(
     createDirectories(parent)
     val temporary = Path(
         parent,
-        ".${path.name}.minecraft-protocol-${Random.nextLong().toULong()}.tmp",
+        atomicTemporaryFileName(Random.nextLong().toULong()),
     )
     try {
         val sink = sink(temporary).buffered()
@@ -62,6 +66,16 @@ internal fun FileSystem.writeByteArrayAtomically(
         }
         throw WorldIOException("Cannot atomically write $path", failure)
     }
+}
+
+/** Returns a short extension-free sibling name shared by every atomic write. */
+internal fun atomicTemporaryFileName(
+    random: ULong,
+): String {
+    val randomToken = random
+        .toString(ATOMIC_TEMPORARY_RANDOM_RADIX)
+        .padStart(ATOMIC_TEMPORARY_RANDOM_WIDTH, '0')
+    return "${ATOMIC_TEMPORARY_PREFIX}${randomToken}"
 }
 
 /**

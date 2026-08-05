@@ -1,4 +1,4 @@
-import com.hiczp.minecraft.protocol.buildScript.*
+import com.hiczp.minecraft.buildlogic.*
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 

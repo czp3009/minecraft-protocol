@@ -1,4 +1,4 @@
-import com.hiczp.minecraft.protocol.buildScript.BuildVersions
+import com.hiczp.minecraft.buildlogic.BuildVersions
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
