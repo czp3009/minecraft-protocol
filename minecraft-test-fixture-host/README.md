@@ -5,7 +5,7 @@ Service starts one loopback kotlinx.rpc JSON host lazily after the consuming sta
 providers have produced their files. The host consumes those exact paths and never downloads fixtures.
 
 The host owns official server and client processes, unique workspaces, bounded in-memory logs, readiness probes, codec
-execution, reports, world snapshot transfer, and cleanup. A fair four-slot pool bounds concurrent Minecraft processes.
+execution, reports, world snapshot transfer, and cleanup. A fair eight-slot pool bounds concurrent Minecraft processes.
 Each slot covers startup, running, process termination, and workspace deletion; a close request returns after cleanup is
 scheduled, and the slot becomes available only after cleanup completes.
 

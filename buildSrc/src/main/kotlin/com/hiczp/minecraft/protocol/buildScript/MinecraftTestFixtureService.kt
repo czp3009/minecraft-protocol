@@ -15,11 +15,11 @@ import org.gradle.tooling.events.OperationCompletionListener
 import org.gradle.tooling.events.task.TaskFinishEvent
 import java.io.BufferedWriter
 import java.io.File
+import java.util.*
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
-import java.util.UUID
 import javax.inject.Inject
 
 data class MinecraftTestFixtureConnection(
@@ -187,7 +187,7 @@ fun Project.applyMinecraftTestFixtureServiceConvention(
         dependencies.project(
             mapOf(
                 "path" to MINECRAFT_TEST_FIXTURE_HOST_PROJECT,
-                "configuration" to "jvmRuntimeElements",
+                "configuration" to "runtimeElements",
             ),
         ),
     )

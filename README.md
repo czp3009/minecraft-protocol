@@ -94,10 +94,10 @@ Use a focused JVM suite during normal development:
 ./gradlew :protocol-serialization:jvmTest
 ```
 
-Run every repository JVM suite with Gradle's standard selector:
+Run the pure JVM Fixture Host suite and every KMP JVM suite together with:
 
 ```shell
-./gradlew jvmTest
+./gradlew :minecraft-test-fixture-host:test jvmTest
 ```
 
 Run every configured Kotlin Multiplatform test aggregate with:

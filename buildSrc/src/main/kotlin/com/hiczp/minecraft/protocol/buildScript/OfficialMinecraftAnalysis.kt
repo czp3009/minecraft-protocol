@@ -84,7 +84,7 @@ fun Project.publishCodecOracleSource() {
     artifacts.add(
         elements.name,
         layout.projectDirectory.file(
-            "src/jvmMain/resources/com/hiczp/minecraft/test/oracle/OfficialCodecOracle.java",
+            "src/main/resources/com/hiczp/minecraft/test/oracle/OfficialCodecOracle.java",
         ),
     )
 }

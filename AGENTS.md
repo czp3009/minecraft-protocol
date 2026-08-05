@@ -162,10 +162,11 @@ Use the platform-native wrapper. On Unix-like systems, start with the affected J
 ./gradlew :affected-module:jvmTest
 ```
 
-Use `./gradlew jvmTest` for a repository-wide JVM pass. After the JVM path is stable, use the applicable standard
-platform task or `./gradlew allTests`. Native compilation is not the first feedback loop, and no host operating system
-is a design-time first-class platform. The root project does not define a replacement `test`, layer-test, or
-interoperability-test task.
+The pure JVM `minecraft-test-fixture-host` module uses `:minecraft-test-fixture-host:test`; KMP modules use `jvmTest`.
+Use `./gradlew :minecraft-test-fixture-host:test jvmTest` for a repository-wide JVM pass. After the JVM path is stable,
+use the applicable standard platform task or `./gradlew allTests`. Native compilation is not the first feedback loop,
+and no host operating system is a design-time first-class platform. The root project does not define a replacement
+`test`, layer-test, or interoperability-test task.
 
 Use `clean` or `--rerun-tasks` when forced verification is necessary, but keep the build cache enabled. Configuration
 cache and unchanged-rerun checks accompany changes to task inputs, outputs, or service wiring.

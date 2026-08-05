@@ -32,11 +32,11 @@ objects never cross the protocol.
 
 The host process reserves standard input for Build Service control commands and standard output for its single
 `READY_PREFIX` connection announcement. That machine-readable handshake is not a diagnostic log. Host diagnostics use
-kotlin-logging, and the raw-standard-stream programs under `src/jvmTest/resources` exist only to verify process-pipe
+kotlin-logging, and the raw-standard-stream programs under `src/test/resources` exist only to verify process-pipe
 behavior.
 
 Consume only artifact and directory providers supplied by Gradle. Gradle owns download integrity; the host reads the
 required metadata and paths but never downloads, repairs, rediscovers, or rehashes immutable fixture downloads. Mutable
 filesystem state stays below the explicit `build/minecraft-test-support/` work root.
 
-Run `:minecraft-test-fixture-host:jvmTest` after host, process, pool, or protocol-handler changes.
+Run `:minecraft-test-fixture-host:test` after host, process, pool, or protocol-handler changes.
