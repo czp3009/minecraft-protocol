@@ -67,7 +67,6 @@ kotlin {
             implementation(project(":protocol-client"))
             implementation(project(":minecraft-test-support"))
             implementation(libs.kotlinx.coroutines.test)
-            implementation(libs.kotlinx.serialization.json)
             implementation(libs.ktor.client.mock)
         }
     }
