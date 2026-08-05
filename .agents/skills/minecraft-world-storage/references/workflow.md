@@ -38,5 +38,7 @@ the first inputs. Manual decompilation is used only when those inputs do not exp
 Run only the affected prefix while iterating and include downstream tasks after a shared binary change.
 
 The `:world-io:jvmTest` interoperability scenario asks the Fixture Host to generate a world with the exact official
-server, stops it, downloads a snapshot into a test-local sandbox, rewrites it through `world-io`, uploads changed files,
-restarts the server, and requires a successful reload. Test code never receives the host workspace path.
+server, synchronously closes the process, opens its Host working directory through the documented same-filesystem
+backdoor, rewrites the world in place through `world-io`, restarts the server, and requires a successful reload. Its
+shared runner remains in `commonTest` with an explicit Host-filesystem warning, while thin annotated entries exist only
+in standard JVM, Android host, and desktop Native test source sets. Device and simulator source sets do not invoke it.

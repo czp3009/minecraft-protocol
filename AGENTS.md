@@ -28,7 +28,8 @@ Private development infrastructure has separate boundaries:
   generators driven by non-source inputs.
 - `protocol-symbol-processor` contains the KSP processor for source-derived packet and data-component dispatch.
 - `minecraft-test-support` contains only the KMP kRPC service, test-process client, serializable remote-resource values,
-  and structured helpers used by official-peer tests.
+  structured helpers, and the explicitly documented Fixture Host working-directory backdoor used by same-host filesystem
+  interoperability tests.
 - `minecraft-test-fixture-host` contains the JVM process and host-filesystem implementation managed by a Gradle Build
   Service. Consuming test runtime classpaths never include this module.
 
@@ -114,11 +115,14 @@ Wiki/third-party source trees, or invoke agent workflows.
 Use source sets according to capability:
 
 - Portable ordinary test entries, scenarios, and assertions belong in `commonTest`.
-- External-official-peer scenarios also enter through `commonTest`. Standard platform test source sets contain only an
-  unavoidable replaceable transport, environment primitive, oracle, or capability-specific test.
-- Do not create a custom test source set when standard KMP source sets express the capability. Unsupported network or
-  filesystem scenarios are excluded at the standard test-task boundary; never add fake passing implementations or
-  runtime guesses.
+- Reusable external-official-peer scenarios also enter through `commonTest`. Their annotated entries normally live there
+  as well. A scenario that dereferences the Fixture Host's absolute path is the exception: keep its shared runner in
+  `commonTest`, but put thin annotated entries only in standard test source sets whose runtime has filesystem access and
+  shares the Host filesystem namespace.
+- Do not create a custom test source set when standard KMP source sets express the capability. Isolate Host-filesystem
+  entry points through those source sets instead of declaring a duplicate Fixture capability in Gradle. Unsupported
+  network scenarios are excluded at the standard test-task boundary; never add fake passing implementations or runtime
+  guesses.
 
 Run portable Web code under Gradle-provisioned Node or D8. Browser execution is not a repository gate. In-memory
 protocol state, NBT, compression, Anvil byte-array/stream loading, and chunk composition remain portable. `world-io` and
@@ -131,23 +135,26 @@ those producer inputs are ready; explicit fixture-launch tasks, helper CLIs, `de
 properties for resource paths do not belong in this design.
 
 The Build Service starts `minecraft-test-fixture-host` lazily. Test code loads only `minecraft-test-support` and calls
-the generated kotlinx.rpc service over Ktor WebSocket with JSON payloads. Processes, official fixture paths, host
-workspaces, logs, and cleanup remain inside the Fixture Host. Tests never receive a host workspace path or process
-object; codec verification returns normally or throws with failure details, and `world-io` receives file contents
-through RPC and uses a test-owned local scratch directory.
+the generated kotlinx.rpc service over Ktor WebSocket with JSON payloads. Processes, official fixture paths, logs, and
+cleanup remain inside the Fixture Host. Ordinary tests never receive a process object or Host path. The `world-io`
+official interoperability scenario is the explicit exception: after synchronously closing the official process, it uses
+the documented `hostWorkingDirectory` backdoor to open the Host-owned world in place. This requires the test process and
+Fixture Host to share a filesystem namespace. Its annotated entries exist only in JVM, Android host, and desktop Native
+test source sets; device, simulator, browser, and Wasm/WASI source sets do not invoke it. Codec verification returns
+normally or throws with failure details.
 
 Within one subproject's single platform test task, compatible cases reuse one official process instead of creating a
-process per assertion or test method. Express ordered stateful coverage as phases of one `commonTest` entry and runner,
-acquire the remote resource once inside the annotated test scenario, and close it after the final phase with structured
-cleanup. Do not move process or socket startup into `BeforeTest`/`BeforeEach` merely to exclude its cost from the test
-timeout; startup remains in the test whose behavior requires that fixture. Class-scoped or global reuse is acceptable
-only when the process is genuinely suite-scoped shared state, cleanup is deterministic, and the cases do not require a
-fresh workspace, a different fixed endpoint, process exit, or another incompatible state transition. Its normal
-after-all/final phase closes the resource explicitly; task-owner cleanup at test-task completion handles aborted tests,
-and Build Service shutdown is only the final fallback. Do not rely on unspecified test-method order. The shared Build
-Service does not by itself justify pooling mutable fixture processes across separate platform test tasks; keep those
-lifetimes isolated unless an explicit cross-platform design proves state isolation without substantial coordination
-complexity.
+process per assertion or test method. Express ordered stateful coverage as phases of one shared runner and one thin
+annotated entry per supported compilation, acquire the remote resource once inside the scenario, and close it after the
+final phase with structured cleanup. Do not move process or socket startup into `BeforeTest`/`BeforeEach` merely to
+exclude its cost from the test timeout; startup remains in the test whose behavior requires that fixture. Class-scoped
+or global reuse is acceptable only when the process is genuinely suite-scoped shared state, cleanup is deterministic,
+and the cases do not require a fresh workspace, a different fixed endpoint, process exit, or another incompatible state
+transition. Its normal after-all/final phase closes the resource explicitly; task-owner cleanup at test-task completion
+handles aborted tests, and Build Service shutdown is only the final fallback. Do not rely on unspecified test-method
+order. The shared Build Service does not by itself justify pooling mutable fixture processes across separate platform
+test tasks; keep those lifetimes isolated unless an explicit cross-platform design proves state isolation without
+substantial coordination complexity.
 
 Coroutine tests use `runTest`, not `runBlocking` or `Dispatchers.IO`. `runTest` uses virtual time, so socket and process
 tests establish ordering with `await`, `join`, channels, `CompletableDeferred`, or observed readiness events rather than

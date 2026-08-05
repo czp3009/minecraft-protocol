@@ -244,19 +244,13 @@ internal object HostedMinecraftTestSupport {
 
     internal fun scheduleCleanup(resource: ManagedMinecraftTestResource) {
         cleanupScope.launch {
-            var cleanupFailure: Throwable? = null
-            try {
+            val cleanupFailure = runCatching {
                 resource.cleanup()
-            } catch (failure: Throwable) {
-                cleanupFailure = failure
-            }
-            try {
                 resource.workDirectory.deleteTree()
-            } catch (failure: Throwable) {
-                cleanupFailure?.addSuppressed(failure)
-                    ?: run { cleanupFailure = failure }
-            } finally {
+            }.exceptionOrNull()
+            try {
                 resource.markClosed(cleanupFailure)
+            } finally {
                 registryMutex.withLock {
                     resources.remove(resource)
                     resourceCount.value = resources.size
@@ -289,6 +283,10 @@ internal class ManagedMinecraftTestResource(
 
     fun invokeOnCleanupCompletion(handler: (Throwable?) -> Unit) {
         closed.invokeOnCompletion(handler)
+    }
+
+    suspend fun awaitCleanup() {
+        closed.await()
     }
 
     fun markClosed(failure: Throwable?) {

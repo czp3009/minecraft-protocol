@@ -34,26 +34,21 @@ interface MinecraftTestSupportService {
         command: String,
     )
 
-    suspend fun stopServer(server: OfficialMinecraftServer): Int?
-
     suspend fun restartServer(
         server: OfficialMinecraftServer,
     ): OfficialMinecraftServer
 
-    suspend fun awaitClientExit(client: HeadlessMinecraftClient): Int
+    suspend fun closeProcess(resource: MinecraftTestResource): Int
+
+    suspend fun awaitExit(resource: MinecraftTestResource): Int
+
+    suspend fun hostWorkingDirectory(resource: MinecraftTestResource): String
+
+    suspend fun deleteWorkingDirectory(resource: MinecraftTestResource)
 
     suspend fun close(resource: MinecraftTestResource)
 
     suspend fun verifyOfficialCodec(fixtures: JsonElement)
-
-    suspend fun readWorldFiles(
-        server: OfficialMinecraftServer,
-    ): Map<String, ByteArray>
-
-    suspend fun writeWorldFiles(
-        server: OfficialMinecraftServer,
-        files: Map<String, ByteArray>,
-    )
 }
 
 internal const val FIXTURE_RPC_URL_ENV = "MINECRAFT_TEST_FIXTURE_RPC_URL"

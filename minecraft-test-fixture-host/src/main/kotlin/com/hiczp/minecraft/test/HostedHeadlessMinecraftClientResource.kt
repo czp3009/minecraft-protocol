@@ -1,5 +1,7 @@
 package com.hiczp.minecraft.test
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.io.files.Path
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -8,8 +10,10 @@ import kotlin.uuid.Uuid
 /** A ready official-client process with an isolated game directory. */
 internal class HostedHeadlessMinecraftClientResource private constructor(
     val endpoint: MinecraftTestEndpoint,
+    val workDirectory: Path,
     private val process: MinecraftTestProcess,
 ) : AutoCloseable {
+    private val processMutex = Mutex()
     private lateinit var managedResource: ManagedMinecraftTestResource
 
     val isAlive: Boolean
@@ -24,6 +28,11 @@ internal class HostedHeadlessMinecraftClientResource private constructor(
         process.waitForLog(marker, timeout)
     }
 
+    suspend fun closeProcess(): Int = processMutex.withLock {
+        check(managedResource.isOpen) { "Headless client is closing" }
+        closeProcessLocked()
+    }
+
     suspend fun awaitExit(): Int = process.awaitExit()
 
     override fun close() {
@@ -34,14 +43,29 @@ internal class HostedHeadlessMinecraftClientResource private constructor(
         managedResource.invokeOnCleanupCompletion(handler)
     }
 
+    suspend fun deleteWorkingDirectory() {
+        processMutex.withLock {
+            check(!process.isAlive) {
+                "Headless client must be stopped before deleting its working directory"
+            }
+            managedResource.close()
+        }
+        managedResource.awaitCleanup()
+    }
+
     internal fun attach(resource: ManagedMinecraftTestResource) {
         check(!::managedResource.isInitialized)
         managedResource = resource
     }
 
     internal suspend fun cleanup() {
-        process.terminate()
+        processMutex.withLock {
+            closeProcessLocked()
+        }
     }
+
+    private suspend fun closeProcessLocked(): Int =
+        if (process.isAlive) process.terminate() else process.exitCode
 
     internal companion object {
         suspend fun start(
@@ -111,6 +135,7 @@ internal class HostedHeadlessMinecraftClientResource private constructor(
                 process.waitForLog(LAUNCH_READY_MARKER, LAUNCH_TIMEOUT)
                 return HostedHeadlessMinecraftClientResource(
                     endpoint = endpoint,
+                    workDirectory = workDirectory,
                     process = process,
                 )
             } catch (failure: Throwable) {

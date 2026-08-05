@@ -60,7 +60,6 @@ kotlin {
         commonMain.dependencies {
             api(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.coroutines.core)
-            implementation(libs.kotlinx.io.core)
             implementation(libs.kotlinx.rpc.core)
             implementation(libs.kotlinx.rpc.krpc.serialization.json)
         }

@@ -22,7 +22,7 @@ internal object OfficialServerClientInteropRunner {
                 ) { currentPhase ->
                     phase = currentPhase
                 }
-                check(MinecraftTestSupport.stopServer(server) == 0) {
+                check(MinecraftTestSupport.closeProcess(server) == 0) {
                     "Official server did not stop cleanly"
                 }
             } catch (failure: Throwable) {

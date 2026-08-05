@@ -1,6 +1,8 @@
 package com.hiczp.minecraft.test
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
 import kotlin.test.*
@@ -50,12 +52,17 @@ class TestFilesTest {
 
         resource.close()
         resource.close()
+        val cleanup = async(start = CoroutineStart.UNDISPATCHED) {
+            resource.awaitCleanup()
+        }
         cleanupStarted.await()
         assertTrue(directory.isDirectory())
         assertFalse(cleanupCompleted.isCompleted)
+        assertFalse(cleanup.isCompleted)
 
         allowCleanup.complete(Unit)
         HostedMinecraftTestSupport.awaitCleanup()
+        cleanup.await()
         cleanupCompleted.await()
         assertFalse(directory.exists())
     }

@@ -13,5 +13,7 @@ task-owner ID from the Gradle-provided environment, and delegates directly to th
 serializable typed resource values that subsequent support methods accept directly. Close requests are idempotent and
 non-blocking; `use` provides structured cleanup and releases the client transport so Node test processes can exit. A
 later operation reconnects lazily. Codec success returns no report, while failures carry diagnostics through the RPC
-exception. Official paths, process objects, and host file paths never cross the protocol. World-I/O tests transfer
-snapshot contents through RPC and work in a local temporary sandbox owned by the test process.
+exception. `closeProcess` and `deleteWorkingDirectory` expose the two synchronous resource-lifecycle stages, while
+`close` asynchronously schedules both. Process objects and official artifact paths never cross the protocol.
+`hostWorkingDirectory` is the explicitly documented backdoor that returns the Host's absolute working-directory path to
+same-filesystem tests; `world-io` uses it only after the official process has exited.

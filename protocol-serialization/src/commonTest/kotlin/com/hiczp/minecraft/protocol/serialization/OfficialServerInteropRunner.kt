@@ -32,7 +32,7 @@ internal object OfficialServerInteropRunner {
             try {
                 verifyStatus(port)
                 verifyOfflineLoginAndConfiguration(port)
-                check(MinecraftTestSupport.stopServer(server) == 0) {
+                check(MinecraftTestSupport.closeProcess(server) == 0) {
                     "Official server did not stop cleanly"
                 }
             } catch (failure: Throwable) {

@@ -94,7 +94,7 @@ internal object OfficialClientEndToEndRunner {
         client: HeadlessMinecraftClient,
     ) = coroutineScope {
         val clientWatcher = launch {
-            MinecraftTestSupport.awaitClientExit(client)
+            MinecraftTestSupport.awaitExit(client)
             server.close()
         }
         try {

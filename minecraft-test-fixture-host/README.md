@@ -8,10 +8,11 @@ providers have produced their files. The host consumes those exact paths and nev
 server/client resource values, and every later operation accepts those values directly.
 
 The host owns official server and client processes, unique workspaces, bounded in-memory logs, readiness probes, codec
-execution, world snapshot transfer, and cleanup. Codec verification returns no success report and propagates bounded
-failure diagnostics. A fair eight-slot pool bounds concurrent Minecraft processes. Each slot covers startup, running,
-process termination, and workspace deletion; a close request returns after cleanup is scheduled, and the slot becomes
-available only after cleanup completes.
+execution, the documented working-directory backdoor, and cleanup. Codec verification returns no success report and
+propagates bounded failure diagnostics. A fair eight-slot pool bounds live or retained fixture resources. Each slot
+covers startup, running, a stopped process with retained files, termination, and workspace deletion. Manual process and
+directory operations wait for their postconditions; a close request returns after the same combined cleanup is
+scheduled, and the slot becomes available only after successful directory cleanup.
 
 Subproject tests depend on `minecraft-test-support`, not this module. Task completion releases that task's resources,
 and Build Service shutdown closes the host and any remaining resources.

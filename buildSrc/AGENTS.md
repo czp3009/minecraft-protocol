@@ -49,7 +49,9 @@ analysis, cacheable generation from non-source inputs, and the Gradle-managed Fi
 Official-peer capability flags map to exact lazy artifact collections on supported standard KMP test tasks. A consuming
 test task obtains `MinecraftTestFixtureService` from its execution action, after its file inputs have produced the
 Fixture Host classpath and requested official fixtures. Browser tasks are not an official-peer gate, and Wasm/WASI has
-no network transport; both exclude official-peer tests before the Fixture Host is attached.
+no network transport; both exclude official-peer tests before the Fixture Host is attached. Host-filesystem access is
+not a Fixture capability flag. Consumers isolate code that dereferences the Host working-directory backdoor behind thin
+test entries in standard source sets whose runtimes share the Host filesystem namespace.
 
 The service passes explicit artifact and work-directory paths to the JVM host, injects connection data into the test
 process environment, associates resources with the consuming task, releases that owner on task completion, and closes

@@ -17,7 +17,7 @@ import kotlin.time.TimeSource
 internal class HostedOfficialMinecraftServerResource private constructor(
     private val serverArtifact: OfficialServerArtifact,
     private val layout: MinecraftTestLayout,
-    private val workDirectory: Path,
+    val workDirectory: Path,
     private val configuration: OfficialMinecraftServerConfiguration,
     launched: LaunchedOfficialServer,
 ) : AutoCloseable {
@@ -39,11 +39,6 @@ internal class HostedOfficialMinecraftServerResource private constructor(
     val exitCode: Int
         get() = process.exitCode
 
-    /** The semantic world path owned by this server resource. */
-    val worldDirectory: Path = workDirectory.safeResolve(
-        configuration.properties["level-name"] ?: DEFAULT_WORLD_NAME,
-    )
-
     fun logText(): String = process.logText()
 
     suspend fun waitForLog(
@@ -60,17 +55,20 @@ internal class HostedOfficialMinecraftServerResource private constructor(
         }
     }
 
-    /** Requests a clean stop while retaining this resource's work directory. */
-    suspend fun stop(): Int? = processMutex.withLock {
-        stopLocked()
+    /** Closes the process while retaining this resource's work directory. */
+    suspend fun closeProcess(): Int = processMutex.withLock {
+        check(managedResource.isOpen) { "Official server is closing" }
+        closeProcessLocked()
     }
+
+    suspend fun awaitExit(): Int = process.awaitExit()
 
     /** Restarts the official server in the same isolated world directory. */
     suspend fun restart() {
         processMutex.withLock {
             check(managedResource.isOpen) { "Official server is closing" }
             if (process.isAlive) {
-                val exitCode = stopLocked()
+                val exitCode = closeProcessLocked()
                 check(exitCode == 0) {
                     "Official server did not stop cleanly before restart: $exitCode"
                 }
@@ -94,6 +92,16 @@ internal class HostedOfficialMinecraftServerResource private constructor(
         managedResource.invokeOnCleanupCompletion(handler)
     }
 
+    suspend fun deleteWorkingDirectory() {
+        processMutex.withLock {
+            check(!process.isAlive) {
+                "Official server must be stopped before deleting its working directory"
+            }
+            managedResource.close()
+        }
+        managedResource.awaitCleanup()
+    }
+
     internal fun attach(resource: ManagedMinecraftTestResource) {
         check(!::managedResource.isInitialized)
         managedResource = resource
@@ -101,18 +109,15 @@ internal class HostedOfficialMinecraftServerResource private constructor(
 
     internal suspend fun cleanup() {
         processMutex.withLock {
-            if (process.isAlive) {
-                process.terminate(
-                    gracefulTimeout = configuration.stopTimeout,
-                )
-            }
+            closeProcessLocked()
         }
     }
 
-    private suspend fun stopLocked(): Int? {
+    private suspend fun closeProcessLocked(): Int {
         if (!process.isAlive) return process.exitCode
-        process.sendLine("stop")
-        return process.awaitExitWithin(configuration.stopTimeout)
+        return process.terminate(
+            gracefulTimeout = configuration.stopTimeout,
+        )
     }
 
     internal companion object {

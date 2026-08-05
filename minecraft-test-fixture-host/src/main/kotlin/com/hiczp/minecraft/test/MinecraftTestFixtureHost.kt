@@ -16,13 +16,9 @@ import kotlinx.rpc.krpc.ktor.server.Krpc
 import kotlinx.rpc.krpc.ktor.server.rpc
 import kotlinx.rpc.krpc.serialization.json.json
 import kotlinx.serialization.json.JsonElement
-import java.nio.file.Files
-import java.nio.file.LinkOption
-import kotlin.io.path.isRegularFile
 import kotlin.io.path.pathString
 import kotlin.time.Duration
 import kotlin.uuid.Uuid
-import java.nio.file.Path as NioPath
 
 fun main(arguments: Array<String>) = runBlocking {
     require(arguments.size == 8) {
@@ -138,16 +134,27 @@ private class MinecraftTestSupportServiceServer(
         resources.hostedServer(server).sendCommand(command)
     }
 
-    override suspend fun stopServer(server: OfficialMinecraftServer): Int? =
-        resources.hostedServer(server).stop()
-
     override suspend fun restartServer(
         server: OfficialMinecraftServer,
     ): OfficialMinecraftServer = resources.restartServer(server)
 
-    override suspend fun awaitClientExit(
-        client: HeadlessMinecraftClient,
-    ): Int = resources.hostedClient(client).awaitExit()
+    override suspend fun closeProcess(
+        resource: MinecraftTestResource,
+    ): Int = resources.closeProcess(resource)
+
+    override suspend fun awaitExit(
+        resource: MinecraftTestResource,
+    ): Int = resources.awaitExit(resource)
+
+    override suspend fun hostWorkingDirectory(
+        resource: MinecraftTestResource,
+    ): String = resources.hostWorkingDirectory(resource)
+
+    override suspend fun deleteWorkingDirectory(
+        resource: MinecraftTestResource,
+    ) {
+        resources.deleteWorkingDirectory(resource)
+    }
 
     override suspend fun close(resource: MinecraftTestResource) {
         resources.close(resource)
@@ -156,22 +163,6 @@ private class MinecraftTestSupportServiceServer(
     override suspend fun verifyOfficialCodec(fixtures: JsonElement) {
         verifyFixturesWithOfficialCodec(fixtures)
     }
-
-    override suspend fun readWorldFiles(
-        server: OfficialMinecraftServer,
-    ): Map<String, ByteArray> = readWorldFiles(
-        resources.hostedServer(server),
-    )
-
-    override suspend fun writeWorldFiles(
-        server: OfficialMinecraftServer,
-        files: Map<String, ByteArray>,
-    ) {
-        writeWorldFiles(
-            resources.hostedServer(server),
-            files,
-        )
-    }
 }
 
 private class HostedFixtureResources {
@@ -179,7 +170,7 @@ private class HostedFixtureResources {
 
     // kotlinx.coroutines Semaphore queues suspended acquirers fairly. A slot
     // is returned by the managed resource's post-directory-cleanup callback.
-    private val processSlots = Semaphore(PROCESS_POOL_SLOTS)
+    private val resourceSlots = Semaphore(FIXTURE_RESOURCE_SLOTS)
     private val resources = linkedMapOf<String, HostedFixtureResource>()
     private var acceptingCreations = true
 
@@ -187,16 +178,18 @@ private class HostedFixtureResources {
         ownerId: String,
         configuration: OfficialMinecraftServerConfiguration,
     ): OfficialMinecraftServer {
-        acquireProcessSlot()
+        acquireResourceSlot()
         val resource = try {
             HostedMinecraftTestSupport.newOfficialServer(configuration)
         } catch (failure: Throwable) {
-            processSlots.release()
+            resourceSlots.release()
             throw failure
         }
         val id = newResourceId()
         val hosted = HostedFixtureResource.Server(ownerId, resource)
-        hosted.invokeOnCleanupCompletion { processSlots.release() }
+        hosted.invokeOnCleanupCompletion { failure ->
+            if (failure == null) resourceSlots.release()
+        }
         return try {
             val server = resource.toOfficialMinecraftServer(id)
             mutex.withLock {
@@ -216,16 +209,18 @@ private class HostedFixtureResources {
         ownerId: String,
         configuration: HeadlessMinecraftClientConfiguration,
     ): HeadlessMinecraftClient {
-        acquireProcessSlot()
+        acquireResourceSlot()
         val resource = try {
             HostedMinecraftTestSupport.newOfficialClient(configuration)
         } catch (failure: Throwable) {
-            processSlots.release()
+            resourceSlots.release()
             throw failure
         }
         val id = newResourceId()
         val hosted = HostedFixtureResource.Client(ownerId, resource)
-        hosted.invokeOnCleanupCompletion { processSlots.release() }
+        hosted.invokeOnCleanupCompletion { failure ->
+            if (failure == null) resourceSlots.release()
+        }
         return try {
             val client = resource.toHeadlessMinecraftClient(id)
             mutex.withLock {
@@ -248,16 +243,6 @@ private class HostedFixtureResources {
             is HostedFixtureResource.Server -> resource.resource
             is HostedFixtureResource.Client -> throw IllegalArgumentException(
                 "Resource ${server.id} is not an official server",
-            )
-        }
-
-    suspend fun hostedClient(
-        client: HeadlessMinecraftClient,
-    ): HostedHeadlessMinecraftClientResource =
-        when (val resource = hostedResource(client.id)) {
-            is HostedFixtureResource.Client -> resource.resource
-            is HostedFixtureResource.Server -> throw IllegalArgumentException(
-                "Resource ${client.id} is not an official client",
             )
         }
 
@@ -301,6 +286,36 @@ private class HostedFixtureResources {
         return hostedServer.toOfficialMinecraftServer(server.id)
     }
 
+    suspend fun closeProcess(resource: MinecraftTestResource): Int =
+        when (val hosted = hostedResource(resource.id)) {
+            is HostedFixtureResource.Server -> hosted.resource.closeProcess()
+            is HostedFixtureResource.Client -> hosted.resource.closeProcess()
+        }
+
+    suspend fun awaitExit(resource: MinecraftTestResource): Int =
+        when (val hosted = hostedResource(resource.id)) {
+            is HostedFixtureResource.Server -> hosted.resource.awaitExit()
+            is HostedFixtureResource.Client -> hosted.resource.awaitExit()
+        }
+
+    suspend fun hostWorkingDirectory(
+        resource: MinecraftTestResource,
+    ): String = hostedResource(resource.id).workDirectory
+        .toNioPath()
+        .toAbsolutePath()
+        .normalize()
+        .pathString
+
+    suspend fun deleteWorkingDirectory(resource: MinecraftTestResource) {
+        val hosted = hostedResource(resource.id)
+        hosted.deleteWorkingDirectory()
+        mutex.withLock {
+            if (resources[resource.id] === hosted) {
+                resources.remove(resource.id)
+            }
+        }
+    }
+
     suspend fun close(resource: MinecraftTestResource) {
         val hosted = mutex.withLock {
             resources.remove(resource.id) ?: return
@@ -333,13 +348,13 @@ private class HostedFixtureResources {
         HostedMinecraftTestSupport.shutdown()
     }
 
-    private suspend fun acquireProcessSlot() {
+    private suspend fun acquireResourceSlot() {
         mutex.withLock {
             check(acceptingCreations) {
                 "Minecraft test fixture host is shutting down"
             }
         }
-        processSlots.acquire()
+        resourceSlots.acquire()
         try {
             mutex.withLock {
                 check(acceptingCreations) {
@@ -347,7 +362,7 @@ private class HostedFixtureResources {
                 }
             }
         } catch (failure: Throwable) {
-            processSlots.release()
+            resourceSlots.release()
             throw failure
         }
     }
@@ -371,6 +386,12 @@ private sealed class HostedFixtureResource(
         val resource: HostedHeadlessMinecraftClientResource,
     ) : HostedFixtureResource(ownerId)
 
+    val workDirectory: Path
+        get() = when (this) {
+            is Server -> resource.workDirectory
+            is Client -> resource.workDirectory
+        }
+
     fun close() {
         when (this) {
             is Server -> resource.close()
@@ -382,6 +403,13 @@ private sealed class HostedFixtureResource(
         when (this) {
             is Server -> resource.invokeOnCleanupCompletion(handler)
             is Client -> resource.invokeOnCleanupCompletion(handler)
+        }
+    }
+
+    suspend fun deleteWorkingDirectory() {
+        when (this) {
+            is Server -> resource.deleteWorkingDirectory()
+            is Client -> resource.deleteWorkingDirectory()
         }
     }
 }
@@ -424,54 +452,6 @@ private suspend fun verifyFixturesWithOfficialCodec(fixtures: JsonElement) {
     }
 }
 
-private fun readWorldFiles(
-    server: HostedOfficialMinecraftServerResource,
-): Map<String, ByteArray> {
-    check(!server.isAlive) {
-        "Official server must be stopped before reading its world"
-    }
-    val root = server.worldDirectory.toNioPath().toAbsolutePath().normalize()
-    check(Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) {
-        "Official server world does not exist"
-    }
-    return Files.walk(root).use { paths ->
-        paths.iterator().asSequence().mapNotNull { path ->
-            if (!path.isRegularFile(LinkOption.NOFOLLOW_LINKS)) {
-                return@mapNotNull null
-            }
-            val relative = root.relativize(path).normalize()
-            val wirePath = relative.joinToString("/") { it.pathString }
-            wirePath to Files.readAllBytes(path)
-        }.sortedBy { it.first }.toMap(linkedMapOf())
-    }
-}
-
-private fun writeWorldFiles(
-    server: HostedOfficialMinecraftServerResource,
-    files: Map<String, ByteArray>,
-) {
-    check(!server.isAlive) {
-        "Official server must be stopped before writing its world"
-    }
-    files.forEach { (relativePath, content) ->
-        val path = resolveExistingWorldFile(server, relativePath)
-        Path(path.toString()).writeBytes(content)
-    }
-}
-
-private fun resolveExistingWorldFile(
-    server: HostedOfficialMinecraftServerResource,
-    relativePath: String,
-): NioPath {
-    val root = server.worldDirectory.toNioPath().toAbsolutePath().normalize()
-    val safe = Path(root.toString()).safeResolve(relativePath)
-        .toNioPath().toAbsolutePath().normalize()
-    require(safe.isRegularFile(LinkOption.NOFOLLOW_LINKS)) {
-        "World file does not exist: $relativePath"
-    }
-    return safe
-}
-
 private fun newResourceId(): String = Uuid.random().toString()
 
 private const val LOOPBACK = "127.0.0.1"
@@ -481,4 +461,4 @@ private const val SHUTDOWN_COMMAND = "shutdown"
 private const val CLOSE_OWNER_COMMAND_PREFIX = "close-owner "
 private const val HOST_STOP_GRACE_MILLIS = 1_000L
 private const val HOST_STOP_TIMEOUT_MILLIS = 10_000L
-private const val PROCESS_POOL_SLOTS = 8
+private const val FIXTURE_RESOURCE_SLOTS = 8

@@ -7,11 +7,17 @@ import com.hiczp.minecraft.test.OfficialMinecraftServerConfiguration
 import com.hiczp.minecraft.test.use
 import com.hiczp.minecraft.world.format.RegionPosition
 import kotlinx.io.files.Path
+import kotlinx.io.files.SystemFileSystem
 
 /**
  * Generates a world with the exact official server, rewrites its NBT and
  * region containers through this library, then requires the official server
  * to load and save the rewritten world.
+ *
+ * This scenario dereferences the Fixture Host's absolute working-directory
+ * path. Invoke it only from a test source set whose runtime has filesystem
+ * access and shares the Host's filesystem namespace. Browser, device, and
+ * simulator test source sets must not invoke it.
  */
 internal object OfficialWorldStorageInteropRunner {
     suspend fun run() {
@@ -25,10 +31,11 @@ internal object OfficialWorldStorageInteropRunner {
         ).use { initialServer ->
             var server = initialServer
             runOfficialServer(server, generateChunk = true)
-            val before = MinecraftTestSupport.withWorldSnapshot(
-                server = server,
-                writeBack = true,
-            ) { auditAndRewrite(it, rewrite = true) }
+            val workingDirectory = Path(
+                MinecraftTestSupport.hostWorkingDirectory(server),
+            )
+            val worldDirectory = Path(workingDirectory, WORLD_NAME)
+            val before = auditAndRewrite(worldDirectory, rewrite = true)
             check(before.regionFiles > 0) {
                 "Official server did not generate a non-empty region file"
             }
@@ -38,11 +45,13 @@ internal object OfficialWorldStorageInteropRunner {
 
             server = MinecraftTestSupport.restartServer(server)
             runOfficialServer(server, generateChunk = false)
-            val after = MinecraftTestSupport.withWorldSnapshot(
-                server = server,
-                writeBack = false,
-            ) { auditAndRewrite(it, rewrite = false) }
+            val after = auditAndRewrite(worldDirectory, rewrite = false)
             check(after.chunks > 0)
+
+            MinecraftTestSupport.deleteWorkingDirectory(server)
+            check(!SystemFileSystem.exists(workingDirectory)) {
+                "Fixture Host working directory remained after synchronous deletion"
+            }
         }
     }
 
@@ -56,10 +65,7 @@ internal object OfficialWorldStorageInteropRunner {
                 MinecraftTestSupport.sendCommand(server, "save-all flush")
                 MinecraftTestSupport.waitForLog(server, "Saved the game")
             }
-            val exitCode = MinecraftTestSupport.stopServer(server)
-            check(exitCode != null) {
-                "Official server did not stop within its configured limit"
-            }
+            val exitCode = MinecraftTestSupport.closeProcess(server)
             check(exitCode == 0) {
                 "Official server exited with $exitCode"
             }

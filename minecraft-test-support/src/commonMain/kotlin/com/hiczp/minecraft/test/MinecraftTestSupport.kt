@@ -4,7 +4,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.io.files.Path
 import kotlinx.serialization.json.JsonElement
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -76,16 +75,47 @@ object MinecraftTestSupport {
         serviceClient().sendCommand(server, command)
     }
 
-    suspend fun stopServer(server: OfficialMinecraftServer): Int? =
-        serviceClient().stopServer(server)
-
     suspend fun restartServer(
         server: OfficialMinecraftServer,
     ): OfficialMinecraftServer = serviceClient().restartServer(server)
 
-    suspend fun awaitClientExit(client: HeadlessMinecraftClient): Int =
-        serviceClient().awaitClientExit(client)
+    /**
+     * Closes the process and waits until it has exited while retaining its
+     * working directory and Fixture Host slot.
+     */
+    suspend fun closeProcess(resource: MinecraftTestResource): Int =
+        serviceClient().closeProcess(resource)
 
+    /** Waits for the current process to exit without requesting shutdown. */
+    suspend fun awaitExit(resource: MinecraftTestResource): Int =
+        serviceClient().awaitExit(resource)
+
+    /**
+     * Returns an absolute path in the Fixture Host's filesystem namespace.
+     *
+     * This is an intentional backdoor for same-host filesystem integration
+     * tests. It is not a portable remote-fixture API: a container, device, or
+     * remote test process might not be able to open the returned path. The
+     * directory is Host-owned and remains valid only until
+     * [deleteWorkingDirectory], [close], task completion, or build shutdown.
+     * Stop the process before inspecting files that require a consistent
+     * on-disk state.
+     */
+    suspend fun hostWorkingDirectory(
+        resource: MinecraftTestResource,
+    ): String = serviceClient().hostWorkingDirectory(resource)
+
+    /**
+     * Deletes a stopped resource's working directory and waits until its slot
+     * has been released. The resource is invalid after this returns.
+     */
+    suspend fun deleteWorkingDirectory(resource: MinecraftTestResource) {
+        withClosingServiceClient { client ->
+            client.deleteWorkingDirectory(resource)
+        }
+    }
+
+    /** Schedules process shutdown and directory cleanup, then returns. */
     suspend fun close(resource: MinecraftTestResource) {
         withClosingServiceClient { client ->
             client.close(resource)
@@ -95,52 +125,6 @@ object MinecraftTestSupport {
     suspend fun verifyOfficialCodec(fixtures: JsonElement) {
         withClosingServiceClient { client ->
             client.verifyOfficialCodec(fixtures)
-        }
-    }
-
-    suspend fun <T> withWorldSnapshot(
-        server: OfficialMinecraftServer,
-        writeBack: Boolean,
-        block: suspend (Path) -> T,
-    ): T {
-        val scratch = createTestTemporaryDirectory()
-        val world = Path(scratch, "world")
-        world.ensureDirectory()
-        var failure: Throwable? = null
-        try {
-            val files = serviceClient().readWorldFiles(server)
-            files.forEach { (relativePath, content) ->
-                world.safeResolve(relativePath).writeBytes(content)
-            }
-
-            val result = block(world)
-            if (writeBack) {
-                val changedFiles = buildMap {
-                    files.forEach { (relativePath, original) ->
-                        val path = world.safeResolve(relativePath)
-                        check(path.isRegularFile()) {
-                            "World rewrite removed $relativePath"
-                        }
-                        val content = path.readBytes()
-                        if (!content.contentEquals(original)) {
-                            put(relativePath, content)
-                        }
-                    }
-                }
-                if (changedFiles.isNotEmpty()) {
-                    serviceClient().writeWorldFiles(server, changedFiles)
-                }
-            }
-            return result
-        } catch (caught: Throwable) {
-            failure = caught
-            throw caught
-        } finally {
-            runCatching { scratch.deleteTree() }
-                .onFailure { cleanupFailure ->
-                    failure?.addSuppressed(cleanupFailure)
-                        ?: throw cleanupFailure
-                }
         }
     }
 
