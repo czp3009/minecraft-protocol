@@ -27,7 +27,8 @@ Private development infrastructure has separate boundaries:
 - `buildSrc` contains shared Gradle configuration, official-analysis tasks, artifact preparation, and cacheable
   generators driven by non-source inputs.
 - `protocol-symbol-processor` contains the KSP processor for source-derived packet and data-component dispatch.
-- `minecraft-test-support` contains only the KMP kRPC contract, client, and remote handles used by official-peer tests.
+- `minecraft-test-support` contains only the KMP kRPC service, test-process client, serializable remote-resource values,
+  and structured helpers used by official-peer tests.
 - `minecraft-test-fixture-host` contains the JVM process and host-filesystem implementation managed by a Gradle Build
   Service. Consuming test runtime classpaths never include this module.
 
@@ -137,12 +138,12 @@ through RPC and uses a test-owned local scratch directory.
 
 Within one subproject's single platform test task, compatible cases reuse one official process instead of creating a
 process per assertion or test method. Express ordered stateful coverage as phases of one `commonTest` entry and runner,
-acquire the remote handle once inside the annotated test scenario, and close it after the final phase with structured
+acquire the remote resource once inside the annotated test scenario, and close it after the final phase with structured
 cleanup. Do not move process or socket startup into `BeforeTest`/`BeforeEach` merely to exclude its cost from the test
 timeout; startup remains in the test whose behavior requires that fixture. Class-scoped or global reuse is acceptable
 only when the process is genuinely suite-scoped shared state, cleanup is deterministic, and the cases do not require a
 fresh workspace, a different fixed endpoint, process exit, or another incompatible state transition. Its normal
-after-all/final phase closes the handle explicitly; task-owner cleanup at test-task completion handles aborted tests,
+after-all/final phase closes the resource explicitly; task-owner cleanup at test-task completion handles aborted tests,
 and Build Service shutdown is only the final fallback. Do not rely on unspecified test-method order. The shared Build
 Service does not by itself justify pooling mutable fixture processes across separate platform test tasks; keep those
 lifetimes isolated unless an explicit cross-platform design proves state isolation without substantial coordination

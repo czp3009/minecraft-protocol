@@ -11,6 +11,7 @@ data class MinecraftTestEndpoint(
     val port: Int,
 )
 
+@Serializable
 data class OfficialMinecraftServerConfiguration(
     val properties: Map<String, String> = emptyMap(),
     val startupTimeout: Duration = 2.minutes,
@@ -30,6 +31,7 @@ data class OfficialMinecraftServerConfiguration(
     }
 }
 
+@Serializable
 data class HeadlessMinecraftClientConfiguration(
     val playerName: String,
     val endpoint: MinecraftTestEndpoint,
@@ -43,5 +45,31 @@ data class HeadlessMinecraftClientConfiguration(
         }
     }
 }
+
+@Serializable
+sealed interface MinecraftTestResource {
+    val id: String
+    val endpoint: MinecraftTestEndpoint
+}
+
+/** Serializable reference to an official server owned by the Fixture Host. */
+@Serializable
+data class OfficialMinecraftServer(
+    override val id: String,
+    override val endpoint: MinecraftTestEndpoint,
+) : MinecraftTestResource
+
+/** Serializable reference to a headless client owned by the Fixture Host. */
+@Serializable
+data class HeadlessMinecraftClient(
+    override val id: String,
+    override val endpoint: MinecraftTestEndpoint,
+) : MinecraftTestResource
+
+@Serializable
+data class MinecraftTestResourceStatus(
+    val alive: Boolean,
+    val exitCode: Int? = null,
+)
 
 private const val LOOPBACK = "127.0.0.1"

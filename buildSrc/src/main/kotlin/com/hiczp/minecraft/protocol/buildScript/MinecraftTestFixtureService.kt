@@ -55,20 +55,20 @@ abstract class MinecraftTestFixtureService :
                 "Minecraft test fixture service is shutting down"
             }
             val runningHost = host ?: startHost().also { host = it }
-            val owner = ownersByTask.getOrPut(taskPath, ::newOwnerId)
+            val ownerId = ownersByTask.getOrPut(taskPath, ::newOwnerId)
             MinecraftTestFixtureConnection(
                 rpcUrl = runningHost.rpcUrl,
-                ownerId = owner,
+                ownerId = ownerId,
             )
         }
 
     override fun onFinish(finishEvent: FinishEvent) {
         val task = finishEvent as? TaskFinishEvent ?: return
-        val ownerAndHost = synchronized(lock) {
-            val owner = ownersByTask.remove(task.descriptor.taskPath) ?: return
-            owner to host
+        val ownerIdAndHost = synchronized(lock) {
+            val ownerId = ownersByTask.remove(task.descriptor.taskPath) ?: return
+            ownerId to host
         }
-        ownerAndHost.second?.closeOwner(ownerAndHost.first)
+        ownerIdAndHost.second?.closeOwner(ownerIdAndHost.first)
     }
 
     override fun close() {
@@ -263,10 +263,10 @@ private class RunningFixtureHost(
     val rpcUrl: String,
     private val hostWorkRoot: File,
 ) : AutoCloseable {
-    fun closeOwner(owner: String) {
+    fun closeOwner(ownerId: String) {
         if (!process.isAlive) return
         runCatching {
-            writeCommand("$CLOSE_OWNER_COMMAND_PREFIX$owner")
+            writeCommand("$CLOSE_OWNER_COMMAND_PREFIX$ownerId")
         }
     }
 
@@ -448,7 +448,7 @@ private fun javaExecutable(): String {
 }
 
 internal const val FIXTURE_RPC_URL_ENV = "MINECRAFT_TEST_FIXTURE_RPC_URL"
-internal const val FIXTURE_OWNER_ENV = "MINECRAFT_TEST_FIXTURE_OWNER"
+internal const val FIXTURE_OWNER_ID_ENV = "MINECRAFT_TEST_FIXTURE_OWNER_ID"
 
 private const val FIXTURE_HOST_MAIN_CLASS = "com.hiczp.minecraft.test.MinecraftTestFixtureHostKt"
 private const val MINECRAFT_TEST_FIXTURE_HOST_PROJECT = ":minecraft-test-fixture-host"

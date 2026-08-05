@@ -2,9 +2,9 @@ package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.protocol.model.type.NbtCompound
 import com.hiczp.minecraft.test.MinecraftTestSupport
+import com.hiczp.minecraft.test.OfficialMinecraftServer
 import com.hiczp.minecraft.test.OfficialMinecraftServerConfiguration
-import com.hiczp.minecraft.test.OfficialMinecraftServerResource
-import com.hiczp.minecraft.test.useRemote
+import com.hiczp.minecraft.test.use
 import com.hiczp.minecraft.world.format.RegionPosition
 import kotlinx.io.files.Path
 
@@ -22,11 +22,13 @@ internal object OfficialWorldStorageInteropRunner {
                     "sync-chunk-writes" to "true",
                 ),
             ),
-        ).useRemote { server ->
+        ).use { initialServer ->
+            var server = initialServer
             runOfficialServer(server, generateChunk = true)
-            val before = server.withWorldSnapshot(writeBack = true) {
-                auditAndRewrite(it, rewrite = true)
-            }
+            val before = MinecraftTestSupport.withWorldSnapshot(
+                server = server,
+                writeBack = true,
+            ) { auditAndRewrite(it, rewrite = true) }
             check(before.regionFiles > 0) {
                 "Official server did not generate a non-empty region file"
             }
@@ -34,26 +36,27 @@ internal object OfficialWorldStorageInteropRunner {
                 "Official server did not generate a readable chunk"
             }
 
-            server.restart()
+            server = MinecraftTestSupport.restartServer(server)
             runOfficialServer(server, generateChunk = false)
-            val after = server.withWorldSnapshot(writeBack = false) {
-                auditAndRewrite(it, rewrite = false)
-            }
+            val after = MinecraftTestSupport.withWorldSnapshot(
+                server = server,
+                writeBack = false,
+            ) { auditAndRewrite(it, rewrite = false) }
             check(after.chunks > 0)
         }
     }
 
     private suspend fun runOfficialServer(
-        server: OfficialMinecraftServerResource,
+        server: OfficialMinecraftServer,
         generateChunk: Boolean,
     ) {
         try {
             if (generateChunk) {
-                server.sendCommand("forceload add 0 0")
-                server.sendCommand("save-all flush")
-                server.waitForLog("Saved the game")
+                MinecraftTestSupport.sendCommand(server, "forceload add 0 0")
+                MinecraftTestSupport.sendCommand(server, "save-all flush")
+                MinecraftTestSupport.waitForLog(server, "Saved the game")
             }
-            val exitCode = server.stop()
+            val exitCode = MinecraftTestSupport.stopServer(server)
             check(exitCode != null) {
                 "Official server did not stop within its configured limit"
             }
@@ -65,7 +68,7 @@ internal object OfficialWorldStorageInteropRunner {
                 """
                 |Official world interoperability failed.
                 |--- official server log ---
-                |${server.logText()}
+                |${MinecraftTestSupport.logText(server)}
                 """.trimMargin(),
                 failure,
             )

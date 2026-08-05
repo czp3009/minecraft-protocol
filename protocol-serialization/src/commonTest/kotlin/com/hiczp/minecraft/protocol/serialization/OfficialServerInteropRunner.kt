@@ -8,7 +8,7 @@ import com.hiczp.minecraft.protocol.model.type.MainHand
 import com.hiczp.minecraft.protocol.model.type.ParticleStatus
 import com.hiczp.minecraft.test.MinecraftTestSupport
 import com.hiczp.minecraft.test.OfficialMinecraftServerConfiguration
-import com.hiczp.minecraft.test.useRemote
+import com.hiczp.minecraft.test.use
 import kotlin.uuid.Uuid
 
 /**
@@ -27,12 +27,12 @@ internal object OfficialServerInteropRunner {
                     "motd" to "minecraft-protocol official interop",
                 ),
             ),
-        ).useRemote { server ->
+        ).use { server ->
             val port = server.endpoint.port
             try {
                 verifyStatus(port)
                 verifyOfflineLoginAndConfiguration(port)
-                check(server.stop() == 0) {
+                check(MinecraftTestSupport.stopServer(server) == 0) {
                     "Official server did not stop cleanly"
                 }
             } catch (failure: Throwable) {
@@ -40,7 +40,7 @@ internal object OfficialServerInteropRunner {
                     """
                     |Official server interop failed.
                     |--- official server log ---
-                    |${server.logText()}
+                    |${MinecraftTestSupport.logText(server)}
                     """.trimMargin(),
                     failure,
                 )

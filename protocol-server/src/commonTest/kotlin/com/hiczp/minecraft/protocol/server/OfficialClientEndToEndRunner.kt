@@ -5,8 +5,8 @@ import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.type.GameMode
+import com.hiczp.minecraft.test.HeadlessMinecraftClient
 import com.hiczp.minecraft.test.HeadlessMinecraftClientConfiguration
-import com.hiczp.minecraft.test.HeadlessMinecraftClientResource
 import com.hiczp.minecraft.test.MinecraftTestEndpoint
 import com.hiczp.minecraft.test.MinecraftTestSupport
 import io.ktor.network.selector.*
@@ -43,7 +43,7 @@ internal object OfficialClientEndToEndRunner {
     )
 
     suspend fun run() {
-        var client: HeadlessMinecraftClientResource? = null
+        var client: HeadlessMinecraftClient? = null
         try {
             SelectorManager(Dispatchers.Default).use { selector ->
                 MinecraftServer.bind(
@@ -73,7 +73,9 @@ internal object OfficialClientEndToEndRunner {
                 }
             }
         } catch (failure: Throwable) {
-            val clientLog = client?.logText().orEmpty()
+            val clientLog = client
+                ?.let { MinecraftTestSupport.logText(it) }
+                .orEmpty()
             throw AssertionError(
                 """
                 |Official client -> production initial-world E2E failed.
@@ -83,29 +85,33 @@ internal object OfficialClientEndToEndRunner {
                 failure,
             )
         } finally {
-            client?.close()
+            client?.let { MinecraftTestSupport.close(it) }
         }
     }
 
     private suspend fun awaitPlayRoundTrip(
         server: MinecraftServer,
-        process: HeadlessMinecraftClientResource,
+        client: HeadlessMinecraftClient,
     ) = coroutineScope {
-        val processWatcher = launch {
-            process.awaitExit()
+        val clientWatcher = launch {
+            MinecraftTestSupport.awaitClientExit(client)
             server.close()
         }
         try {
             var completed = false
             while (!completed) {
-                if (!process.isAlive()) {
-                    error("Official client exited with ${process.exitCode()}")
+                if (!MinecraftTestSupport.isAlive(client)) {
+                    error(
+                        "Official client exited with ${MinecraftTestSupport.exitCode(client)}",
+                    )
                 }
                 val connection = try {
                     server.accept()
                 } catch (failure: Throwable) {
-                    if (!process.isAlive()) {
-                        error("Official client exited with ${process.exitCode()}")
+                    if (!MinecraftTestSupport.isAlive(client)) {
+                        error(
+                            "Official client exited with ${MinecraftTestSupport.exitCode(client)}",
+                        )
                     }
                     throw failure
                 }
@@ -224,7 +230,7 @@ internal object OfficialClientEndToEndRunner {
                                 world = world,
                                 observedPlayPackets = observed,
                             )
-                            check(process.isAlive()) {
+                            check(MinecraftTestSupport.isAlive(client)) {
                                 "Official client exited after protocol round-trip probes"
                             }
                             connection.close()
@@ -238,7 +244,7 @@ internal object OfficialClientEndToEndRunner {
             }
             Unit
         } finally {
-            processWatcher.cancelAndJoin()
+            clientWatcher.cancelAndJoin()
         }
     }
 

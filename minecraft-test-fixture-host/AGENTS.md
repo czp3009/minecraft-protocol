@@ -16,11 +16,13 @@ final cleanup.
   are occupied. Close schedules idempotent cleanup and returns immediately; the slot is released after cleanup
   completes.
 - Every process has a unique workspace and an internally selected endpoint. Official-server readiness requires a full
-  status response and pong while process exit is monitored; bind failures retry before a ready handle is returned.
+  status response and pong while process exit is monitored; bind failures retry before a ready resource value is
+  returned.
 - Directly launched processes remain retained until cleanup. A launcher's supported in-process mode is used instead of
   an opaque descendant process where available.
-- A test in one subproject and platform amortizes a compatible process across sequential phases through one remote
-  handle created and closed inside the annotated test scenario. A global or class-scoped handle is reserved for a
+- A test in one subproject and platform amortizes a compatible process across sequential phases through one serializable
+  resource value created and closed inside the annotated test scenario. A global or class-scoped resource is reserved
+  for a
   genuinely suite-scoped stateless or recoverable fixture with explicit after-all cleanup; it is not a way to hide
   startup from a test timeout. Owner cleanup handles an aborted test task, and Host shutdown remains the final fallback.
   Fixture tests likewise combine compatible lifecycle assertions around one subprocess. Fresh processes remain mandatory

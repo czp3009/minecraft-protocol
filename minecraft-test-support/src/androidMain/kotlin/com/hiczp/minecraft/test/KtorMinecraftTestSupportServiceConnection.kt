@@ -7,9 +7,9 @@ import kotlinx.rpc.krpc.ktor.client.rpc
 import kotlinx.rpc.krpc.serialization.json.json
 import kotlinx.rpc.withService
 
-internal actual fun openMinecraftTestFixtureRpcConnection(
+internal actual fun openMinecraftTestSupportServiceConnection(
     rpcUrl: String,
-): MinecraftTestFixtureRpcConnection {
+): MinecraftTestSupportServiceConnection {
     val client = HttpClient(CIO) {
         installKrpc {
             serialization {
@@ -19,8 +19,8 @@ internal actual fun openMinecraftTestFixtureRpcConnection(
     }
     return try {
         val rpcClient = client.rpc(rpcUrl)
-        object : MinecraftTestFixtureRpcConnection {
-            override val service: MinecraftTestFixtureRpc =
+        object : MinecraftTestSupportServiceConnection {
+            override val service: MinecraftTestSupportService =
                 rpcClient.withService()
 
             override fun close() {

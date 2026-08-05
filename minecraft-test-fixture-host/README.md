@@ -4,6 +4,9 @@ This unpublished JVM module implements the remote fixtures exposed by `minecraft
 Service starts one loopback kotlinx.rpc JSON host lazily after the consuming standard test task's required artifact
 providers have produced their files. The host consumes those exact paths and never downloads fixtures.
 
+`MinecraftTestSupportServiceServer` implements the shared service contract. Its creation methods return serializable
+server/client resource values, and every later operation accepts those values directly.
+
 The host owns official server and client processes, unique workspaces, bounded in-memory logs, readiness probes, codec
 execution, world snapshot transfer, and cleanup. Codec verification returns no success report and propagates bounded
 failure diagnostics. A fair eight-slot pool bounds concurrent Minecraft processes. Each slot covers startup, running,

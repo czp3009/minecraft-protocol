@@ -2,7 +2,7 @@ package com.hiczp.minecraft.protocol.client
 
 import com.hiczp.minecraft.test.MinecraftTestSupport
 import com.hiczp.minecraft.test.OfficialMinecraftServerConfiguration
-import com.hiczp.minecraft.test.useRemote
+import com.hiczp.minecraft.test.use
 
 internal object OfficialServerClientInteropRunner {
     suspend fun run() {
@@ -13,7 +13,7 @@ internal object OfficialServerClientInteropRunner {
                     "motd" to "minecraft-protocol production client interop",
                 ),
             ),
-        ).useRemote { server ->
+        ).use { server ->
             var phase = "status query"
             try {
                 OfficialServerClientScenario.run(
@@ -22,7 +22,7 @@ internal object OfficialServerClientInteropRunner {
                 ) { currentPhase ->
                     phase = currentPhase
                 }
-                check(server.stop() == 0) {
+                check(MinecraftTestSupport.stopServer(server) == 0) {
                     "Official server did not stop cleanly"
                 }
             } catch (failure: Throwable) {
@@ -30,7 +30,7 @@ internal object OfficialServerClientInteropRunner {
                     """
                     |Official production-client interop failed during $phase.
                     |--- official server log ---
-                    |${server.logText()}
+                    |${MinecraftTestSupport.logText(server)}
                     """.trimMargin(),
                     failure,
                 )

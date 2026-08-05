@@ -20,7 +20,7 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.pathString
-import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration
 import kotlin.uuid.Uuid
 import java.nio.file.Path as NioPath
 
@@ -93,83 +93,82 @@ private fun Application.fixtureHostModule(resources: HostedFixtureResources) {
     }
     routing {
         rpc(RPC_PATH) {
-            registerService<MinecraftTestFixtureRpc> {
-                HostedMinecraftTestFixtureRpc(resources)
+            registerService<MinecraftTestSupportService> {
+                MinecraftTestSupportServiceServer(resources)
             }
         }
     }
 }
 
-private class HostedMinecraftTestFixtureRpc(
+private class MinecraftTestSupportServiceServer(
     private val resources: HostedFixtureResources,
-) : MinecraftTestFixtureRpc {
-    override suspend fun createServer(
-        owner: String,
-        request: CreateOfficialServerRequest,
-    ): FixtureResourceDescriptor = resources.createServer(owner, request)
+) : MinecraftTestSupportService {
+    override suspend fun newOfficialServer(
+        ownerId: String,
+        configuration: OfficialMinecraftServerConfiguration,
+    ): OfficialMinecraftServer = resources.newOfficialServer(ownerId, configuration)
 
-    override suspend fun createClient(
-        owner: String,
-        request: CreateOfficialClientRequest,
-    ): FixtureResourceDescriptor = resources.createClient(owner, request)
+    override suspend fun newOfficialClient(
+        ownerId: String,
+        configuration: HeadlessMinecraftClientConfiguration,
+    ): HeadlessMinecraftClient = resources.newOfficialClient(ownerId, configuration)
 
     override suspend fun status(
-        resourceId: String,
-    ): FixtureResourceStatus = resources.status(resourceId)
+        resource: MinecraftTestResource,
+    ): MinecraftTestResourceStatus = resources.status(resource)
 
-    override suspend fun log(
-        resourceId: String,
-    ): String = resources.log(resourceId)
+    override suspend fun logText(
+        resource: MinecraftTestResource,
+    ): String = resources.logText(resource)
 
     override suspend fun waitForLog(
-        resourceId: String,
+        resource: MinecraftTestResource,
         marker: String,
-        timeoutMillis: Long,
+        timeout: Duration,
     ) = resources.waitForLog(
-        resourceId,
+        resource,
         marker,
-        timeoutMillis,
+        timeout,
     )
 
     override suspend fun sendCommand(
-        resourceId: String,
+        server: OfficialMinecraftServer,
         command: String,
     ) {
-        resources.server(resourceId).sendCommand(command)
+        resources.hostedServer(server).sendCommand(command)
     }
 
-    override suspend fun stopServer(resourceId: String): Int? =
-        resources.server(resourceId).stop()
+    override suspend fun stopServer(server: OfficialMinecraftServer): Int? =
+        resources.hostedServer(server).stop()
 
     override suspend fun restartServer(
-        resourceId: String,
-    ): FixtureResourceDescriptor =
-        resources.restartServer(resourceId)
+        server: OfficialMinecraftServer,
+    ): OfficialMinecraftServer = resources.restartServer(server)
 
     override suspend fun awaitClientExit(
-        resourceId: String,
-    ): Int = resources.client(resourceId).awaitExit()
+        client: HeadlessMinecraftClient,
+    ): Int = resources.hostedClient(client).awaitExit()
 
-    override suspend fun closeResource(resourceId: String) {
-        resources.close(resourceId)
+    override suspend fun close(resource: MinecraftTestResource) {
+        resources.close(resource)
     }
 
-    override suspend fun verifyCodec(fixtures: JsonElement) {
-        runCodecVerification(fixtures)
+    override suspend fun verifyOfficialCodec(fixtures: JsonElement) {
+        verifyFixturesWithOfficialCodec(fixtures)
     }
 
     override suspend fun readWorldFiles(
-        resourceId: String,
+        server: OfficialMinecraftServer,
     ): Map<String, ByteArray> = readWorldFiles(
-        resources.server(resourceId),
+        resources.hostedServer(server),
     )
 
     override suspend fun writeWorldFiles(
-        resourceId: String,
+        server: OfficialMinecraftServer,
         files: Map<String, ByteArray>,
     ) {
         writeWorldFiles(
-            resources.server(resourceId),
+            resources.hostedServer(server),
             files,
         )
     }
@@ -184,145 +183,135 @@ private class HostedFixtureResources {
     private val resources = linkedMapOf<String, HostedFixtureResource>()
     private var acceptingCreations = true
 
-    suspend fun createServer(
-        owner: String,
-        request: CreateOfficialServerRequest,
-    ): FixtureResourceDescriptor {
+    suspend fun newOfficialServer(
+        ownerId: String,
+        configuration: OfficialMinecraftServerConfiguration,
+    ): OfficialMinecraftServer {
         acquireProcessSlot()
         val resource = try {
-            HostedMinecraftTestSupport.newOfficialServer(
-                OfficialMinecraftServerConfiguration(
-                    properties = request.properties,
-                    startupTimeout = request.startupTimeoutMillis.milliseconds,
-                    stopTimeout = request.stopTimeoutMillis.milliseconds,
-                    maximumBindAttempts = request.maximumBindAttempts,
-                ),
-            )
+            HostedMinecraftTestSupport.newOfficialServer(configuration)
         } catch (failure: Throwable) {
             processSlots.release()
             throw failure
         }
         val id = newResourceId()
-        val hosted = HostedFixtureResource.Server(owner, resource)
+        val hosted = HostedFixtureResource.Server(ownerId, resource)
         hosted.invokeOnCleanupCompletion { processSlots.release() }
         return try {
-            val descriptor = resource.descriptor(id)
+            val server = resource.toOfficialMinecraftServer(id)
             mutex.withLock {
                 check(acceptingCreations) {
                     "Minecraft test fixture host is shutting down"
                 }
                 resources[id] = hosted
             }
-            descriptor
+            server
         } catch (failure: Throwable) {
             hosted.close()
             throw failure
         }
     }
 
-    suspend fun createClient(
-        owner: String,
-        request: CreateOfficialClientRequest,
-    ): FixtureResourceDescriptor {
+    suspend fun newOfficialClient(
+        ownerId: String,
+        configuration: HeadlessMinecraftClientConfiguration,
+    ): HeadlessMinecraftClient {
         acquireProcessSlot()
         val resource = try {
-            HostedMinecraftTestSupport.newOfficialClient(
-                HeadlessMinecraftClientConfiguration(
-                    playerName = request.playerName,
-                    endpoint = request.endpoint,
-                ),
-            )
+            HostedMinecraftTestSupport.newOfficialClient(configuration)
         } catch (failure: Throwable) {
             processSlots.release()
             throw failure
         }
         val id = newResourceId()
-        val hosted = HostedFixtureResource.Client(owner, resource)
+        val hosted = HostedFixtureResource.Client(ownerId, resource)
         hosted.invokeOnCleanupCompletion { processSlots.release() }
         return try {
-            val descriptor = resource.descriptor(id)
+            val client = resource.toHeadlessMinecraftClient(id)
             mutex.withLock {
                 check(acceptingCreations) {
                     "Minecraft test fixture host is shutting down"
                 }
                 resources[id] = hosted
             }
-            descriptor
+            client
         } catch (failure: Throwable) {
             hosted.close()
             throw failure
         }
     }
 
-    suspend fun server(
-        id: String,
+    suspend fun hostedServer(
+        server: OfficialMinecraftServer,
     ): HostedOfficialMinecraftServerResource =
-        when (val resource = resource(id)) {
+        when (val resource = hostedResource(server.id)) {
             is HostedFixtureResource.Server -> resource.resource
             is HostedFixtureResource.Client -> throw IllegalArgumentException(
-                "Resource $id is not an official server",
+                "Resource ${server.id} is not an official server",
             )
         }
 
-    suspend fun client(
-        id: String,
+    suspend fun hostedClient(
+        client: HeadlessMinecraftClient,
     ): HostedHeadlessMinecraftClientResource =
-        when (val resource = resource(id)) {
+        when (val resource = hostedResource(client.id)) {
             is HostedFixtureResource.Client -> resource.resource
             is HostedFixtureResource.Server -> throw IllegalArgumentException(
-                "Resource $id is not an official client",
+                "Resource ${client.id} is not an official client",
             )
         }
 
-    suspend fun status(id: String): FixtureResourceStatus =
-        when (val resource = resource(id)) {
-            is HostedFixtureResource.Server -> resource.resource.status()
-            is HostedFixtureResource.Client -> resource.resource.status()
+    suspend fun status(
+        resource: MinecraftTestResource,
+    ): MinecraftTestResourceStatus =
+        when (val hosted = hostedResource(resource.id)) {
+            is HostedFixtureResource.Server -> hosted.resource.status()
+            is HostedFixtureResource.Client -> hosted.resource.status()
         }
 
-    suspend fun log(id: String): String =
-        when (val resource = resource(id)) {
-            is HostedFixtureResource.Server -> resource.resource.logText()
-            is HostedFixtureResource.Client -> resource.resource.logText()
+    suspend fun logText(resource: MinecraftTestResource): String =
+        when (val hosted = hostedResource(resource.id)) {
+            is HostedFixtureResource.Server -> hosted.resource.logText()
+            is HostedFixtureResource.Client -> hosted.resource.logText()
         }
 
     suspend fun waitForLog(
-        id: String,
+        resource: MinecraftTestResource,
         marker: String,
-        timeoutMillis: Long,
+        timeout: Duration,
     ) {
-        when (val resource = resource(id)) {
-            is HostedFixtureResource.Server -> resource.resource.waitForLog(
+        when (val hosted = hostedResource(resource.id)) {
+            is HostedFixtureResource.Server -> hosted.resource.waitForLog(
                 marker,
-                timeoutMillis.milliseconds,
+                timeout,
             )
 
-            is HostedFixtureResource.Client -> resource.resource.waitForLog(
+            is HostedFixtureResource.Client -> hosted.resource.waitForLog(
                 marker,
-                timeoutMillis.milliseconds,
+                timeout,
             )
         }
     }
 
     suspend fun restartServer(
-        id: String,
-    ): FixtureResourceDescriptor {
-        val server = server(id)
-        server.restart()
-        return server.descriptor(id)
+        server: OfficialMinecraftServer,
+    ): OfficialMinecraftServer {
+        val hostedServer = hostedServer(server)
+        hostedServer.restart()
+        return hostedServer.toOfficialMinecraftServer(server.id)
     }
 
-    suspend fun close(id: String) {
-        val resource = mutex.withLock {
-            resources.remove(id) ?: return
+    suspend fun close(resource: MinecraftTestResource) {
+        val hosted = mutex.withLock {
+            resources.remove(resource.id) ?: return
         }
-        resource.close()
+        hosted.close()
     }
 
-    suspend fun closeOwner(owner: String) {
+    suspend fun closeOwner(ownerId: String) {
         val owned = mutex.withLock {
-            val selected = resources.values.filter { it.owner == owner }
-            resources.entries.removeAll { it.value.owner == owner }
+            val selected = resources.values.filter { it.ownerId == ownerId }
+            resources.entries.removeAll { it.value.ownerId == ownerId }
             selected
         }
         owned.forEach(HostedFixtureResource::close)
@@ -363,24 +352,24 @@ private class HostedFixtureResources {
         }
     }
 
-    private suspend fun resource(id: String): HostedFixtureResource =
+    private suspend fun hostedResource(id: String): HostedFixtureResource =
         mutex.withLock {
             resources[id] ?: error("Fixture resource does not exist: $id")
         }
 }
 
 private sealed class HostedFixtureResource(
-    val owner: String,
+    val ownerId: String,
 ) {
     class Server(
-        owner: String,
+        ownerId: String,
         val resource: HostedOfficialMinecraftServerResource,
-    ) : HostedFixtureResource(owner)
+    ) : HostedFixtureResource(ownerId)
 
     class Client(
-        owner: String,
+        ownerId: String,
         val resource: HostedHeadlessMinecraftClientResource,
-    ) : HostedFixtureResource(owner)
+    ) : HostedFixtureResource(ownerId)
 
     fun close() {
         when (this) {
@@ -397,33 +386,33 @@ private sealed class HostedFixtureResource(
     }
 }
 
-private fun HostedOfficialMinecraftServerResource.descriptor(
+private fun HostedOfficialMinecraftServerResource.toOfficialMinecraftServer(
     id: String,
-): FixtureResourceDescriptor = FixtureResourceDescriptor(
+): OfficialMinecraftServer = OfficialMinecraftServer(
     id = id,
     endpoint = endpoint,
 )
 
-private fun HostedHeadlessMinecraftClientResource.descriptor(
+private fun HostedHeadlessMinecraftClientResource.toHeadlessMinecraftClient(
     id: String,
-): FixtureResourceDescriptor = FixtureResourceDescriptor(
+): HeadlessMinecraftClient = HeadlessMinecraftClient(
     id = id,
     endpoint = endpoint,
 )
 
-private fun HostedOfficialMinecraftServerResource.status(): FixtureResourceStatus =
-    FixtureResourceStatus(
+private fun HostedOfficialMinecraftServerResource.status(): MinecraftTestResourceStatus =
+    MinecraftTestResourceStatus(
         alive = isAlive,
         exitCode = if (isAlive) null else exitCode,
     )
 
-private fun HostedHeadlessMinecraftClientResource.status(): FixtureResourceStatus =
-    FixtureResourceStatus(
+private fun HostedHeadlessMinecraftClientResource.status(): MinecraftTestResourceStatus =
+    MinecraftTestResourceStatus(
         alive = isAlive,
         exitCode = if (isAlive) null else exitCode,
     )
 
-private suspend fun runCodecVerification(fixtures: JsonElement) {
+private suspend fun verifyFixturesWithOfficialCodec(fixtures: JsonElement) {
     val scratch = HostedMinecraftTestSupport.newScratchDirectory()
     try {
         OfficialCodecOracle.verify(

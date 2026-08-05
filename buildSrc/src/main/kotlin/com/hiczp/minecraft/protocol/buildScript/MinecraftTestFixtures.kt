@@ -65,7 +65,7 @@ internal fun registerMinecraftTestFixtures(
             task = executingTask,
             environment = mapOf(
                 FIXTURE_RPC_URL_ENV to connection.rpcUrl,
-                FIXTURE_OWNER_ENV to connection.ownerId,
+                FIXTURE_OWNER_ID_ENV to connection.ownerId,
             ),
         )
     }
