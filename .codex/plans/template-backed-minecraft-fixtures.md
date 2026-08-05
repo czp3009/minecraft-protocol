@@ -25,11 +25,9 @@ part of this implementation.
 
 ## Audited code baseline
 
-This plan was reconciled with the current worktree on 2026-08-05, including the uncommitted kRPC service/value refactor.
-Implementation must preserve that refactor and layer this work on top of it. In particular, the current source already
-has `MinecraftTestSupport`, `MinecraftTestSupportService`, serializable `MinecraftTestResource` values,
-`OfficialMinecraftServer`, and `HeadlessMinecraftClient`; the older request/client/remote-handle files are being
-removed. Do not restore those deleted files or plan against their former request types.
+This plan was reconciled with the current worktree on 2026-08-05. The current source has
+`MinecraftTestSupport`, `MinecraftTestSupportService`, serializable `MinecraftTestResource` values,
+`OfficialMinecraftServer`, and `HeadlessMinecraftClient`.
 
 The audited selected inputs are Minecraft `26.2` (`./gradlew -q minecraftVersion`), HeadlessMC `2.10.0`, and repository
 Java major `25`. The plan continues to obtain these values from `MinecraftTarget`, `HeadlessMcTarget`, and
@@ -62,13 +60,10 @@ Concrete current-code migration points are:
 | `OfficialDownloadTasks.kt`                                                                   | neutralize client task/type/log names and separate asset download from assembly                                   |
 | `MinecraftTestFixtures.kt`                                                                   | rename output/capability/input properties and replace `*Official*` filtering                                      |
 | `MinecraftTestFixtureService.kt`                                                             | make Host runtime assembly/prepare distinct and consolidate Host input parameters                                 |
-| support models/service/facade                                                                | preserve current kRPC values, move endpoint ownership, rename creation, add connect, add workspace policy         |
+| support models/service/facade                                                                | move endpoint ownership, rename creation, add connect, add workspace policy                                       |
 | `MinecraftTestLayout.kt`, Host main, `OfficialMinecraftClient.kt`, hosted resources/registry | consume the two template roots and one assembled client root; replace log readiness and official-client internals |
 | `OfficialClientEndToEndRunner.kt` and its test                                               | rename, create title-ready, explicitly connect, then accept/service packets                                       |
 | official-server runners                                                                      | keep template default for protocol tests; select fresh only for world-io                                          |
-
-The worktree already contains unrelated/in-progress edits in many of these files. Inspect and preserve them before every
-patch; this plan does not authorize reverting or replacing the active RPC refactor wholesale.
 
 The external research anchors are
 the [HeadlessMC repository and usage documentation](https://github.com/headlesshq/headlessmc),
@@ -579,10 +574,6 @@ The Build Service and Fixture Host receive the server artifact/template provider
 provider. Tests continue to receive only serializable remote resource values through `minecraft-test-support`; no host
 path, template path, Fabric object, HeadlessMC object, process object, or control-mod endpoint crosses kRPC.
 
-There is intentionally no `CreateOfficialClientRequest` rename: that type belongs to the RPC design currently being
-deleted. Update the new service interface, service client, Host server implementation, `HostedFixtureResources`,
-`HostedMinecraftTestSupport`, current model tests, and KDoc/error strings in place.
-
 ### Standard-test capability filtering
 
 Renaming `OfficialHeadlessClientInteropTest` to `HeadlessClientInteropTest` would bypass the current unsupported-target
@@ -598,9 +589,6 @@ Do not use runtime guesses or fake passing implementations. Add a build-logic te
 the renamed headless-client scenario is excluded from unsupported test tasks and remains attached to supported ones.
 
 ## Implementation sequence
-
-Preserve the current uncommitted RPC service/value refactor and integrate with its resulting names rather than restoring
-deleted handle/client files.
 
 1. **Codify vocabulary and ownership**
     - Update the applicable `AGENTS.md` files with the normative text below.
@@ -649,8 +637,7 @@ deleted handle/client files.
     - Keep task-owner cleanup, the bounded process pool, and forced process-tree cleanup as fallbacks.
 
 7. **Migrate RPC/test names and behavior**
-    - Apply the end-to-end headless-client renames to the current kRPC service/value refactor; do not restore deleted
-      RPC request/client/handle types.
+   - Apply the end-to-end headless-client renames.
     - Move endpoint ownership off `MinecraftTestResource` and the client configuration, add explicit
       `connectHeadlessClient`, return from creation at `TITLE_READY`, and return from connect at `CONNECTING`.
     - Default server/client creation to template-backed workspaces and expose typed fresh-workspace selection.
