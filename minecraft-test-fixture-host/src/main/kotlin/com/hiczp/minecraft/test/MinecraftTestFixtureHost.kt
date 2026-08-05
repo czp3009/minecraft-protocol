@@ -21,25 +21,46 @@ import kotlin.time.Duration
 import kotlin.uuid.Uuid
 
 fun main(arguments: Array<String>) = runBlocking {
-    require(arguments.size == 8) {
-        "Expected Minecraft version, fixture inputs, and work root"
+    require(arguments.size == 9) {
+        "Expected Minecraft version, fixture inputs, work root, and maximum parallel usages"
     }
+
+    // 0: The official Minecraft release shared by every prepared fixture input.
     val minecraftVersion = arguments[0]
+    // 1: The Gradle-prepared cache containing the official server artifacts.
+    val serverCacheDirectory = Path(arguments[1])
+    // 2: The Gradle-prepared cache containing the official client artifacts.
+    val clientCacheDirectory = Path(arguments[2])
+    // 3: The selected release's official version metadata.
+    val versionMetadataFile = Path(arguments[3])
+    // 4: The prepared HeadlessMc launcher used to run the official client.
+    val headlessLauncherFile = Path(arguments[4])
+    // 5: The extracted official server implementation and runtime libraries.
+    val serverRuntimeDirectory = Path(arguments[5])
+    // 6: The compiled bridge used to verify values with the official codecs.
+    val codecClassesDirectory = Path(arguments[6])
+    // 7: This Host process's isolated root for runtime directories and scratch files.
+    val hostWorkRoot = Path(arguments[7])
+    // 8: The resource capacity shared with the Gradle Build Service task limit.
+    val maximumParallelUsages = arguments[8].toInt()
+    require(maximumParallelUsages > 0) {
+        "Maximum parallel usages must be positive"
+    }
     HostedMinecraftTestSupport.configure(
         MinecraftTestLayout(
             minecraftVersion = minecraftVersion,
-            serverCacheDirectory = Path(arguments[1]),
-            clientCacheDirectory = Path(arguments[2]),
-            versionMetadataFile = Path(arguments[3]),
-            headlessLauncherFile = Path(arguments[4]),
-            serverRuntimeDirectory = Path(arguments[5]),
-            codecClassesDirectory = Path(arguments[6]),
-            hostWorkRoot = Path(arguments[7]),
+            serverCacheDirectory = serverCacheDirectory,
+            clientCacheDirectory = clientCacheDirectory,
+            versionMetadataFile = versionMetadataFile,
+            headlessLauncherFile = headlessLauncherFile,
+            serverRuntimeDirectory = serverRuntimeDirectory,
+            codecClassesDirectory = codecClassesDirectory,
+            hostWorkRoot = hostWorkRoot,
             javaExecutable = Path("java"),
         ),
     )
 
-    val resources = HostedFixtureResources()
+    val resources = HostedFixtureResources(maximumParallelUsages)
     val shutdown = CompletableDeferred<Unit>()
     val server = embeddedServer(CIO, host = LOOPBACK, port = 0) {
         fixtureHostModule(resources)
@@ -165,12 +186,12 @@ private class MinecraftTestSupportServiceServer(
     }
 }
 
-private class HostedFixtureResources {
+private class HostedFixtureResources(maximumParallelUsages: Int) {
     private val mutex = Mutex()
 
     // kotlinx.coroutines Semaphore queues suspended acquirers fairly. A slot
     // is returned by the managed resource's post-directory-cleanup callback.
-    private val resourceSlots = Semaphore(FIXTURE_RESOURCE_SLOTS)
+    private val resourceSlots = Semaphore(maximumParallelUsages)
     private val resources = linkedMapOf<String, HostedFixtureResource>()
     private var acceptingCreations = true
 
@@ -461,4 +482,3 @@ private const val SHUTDOWN_COMMAND = "shutdown"
 private const val CLOSE_OWNER_COMMAND_PREFIX = "close-owner "
 private const val HOST_STOP_GRACE_MILLIS = 1_000L
 private const val HOST_STOP_TIMEOUT_MILLIS = 10_000L
-private const val FIXTURE_RESOURCE_SLOTS = 8

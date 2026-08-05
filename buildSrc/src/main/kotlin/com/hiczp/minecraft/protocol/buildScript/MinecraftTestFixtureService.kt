@@ -110,6 +110,7 @@ abstract class MinecraftTestFixtureService :
             parameters.serverRuntimeDirectory.get().asFile.absolutePath,
             parameters.codecClassesDirectory.get().asFile.absolutePath,
             hostWorkRoot.absolutePath,
+            MinecraftTestFixtureLimits.MAX_PARALLEL_USAGES.toString(),
         )
             .directory(parameters.hostWorkingDirectory.get().asFile)
             .redirectErrorStream(true)
@@ -236,6 +237,9 @@ fun Project.applyMinecraftTestFixtureServiceConvention(
         )
         registration.parameters.fixtureWorkRoot.set(
             layout.buildDirectory.dir("minecraft-test-support"),
+        )
+        registration.maxParallelUsages.set(
+            MinecraftTestFixtureLimits.MAX_PARALLEL_USAGES,
         )
     }
     objects.newInstance(MinecraftTestFixtureEventRegistrar::class.java)
