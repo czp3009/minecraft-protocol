@@ -41,4 +41,5 @@ The `:world-io:jvmTest` interoperability scenario asks the Fixture Host to gener
 server, synchronously closes the process, opens its Host working directory through the documented same-filesystem
 backdoor, rewrites the world in place through `world-io`, restarts the server, and requires a successful reload. Its
 shared runner remains in `commonTest` with an explicit Host-filesystem warning, while thin annotated entries exist only
-in standard JVM, Android host, and desktop Native test source sets. Device and simulator source sets do not invoke it.
+in standard JVM and desktop Native test source sets. Android host tests inherit portable `commonTest` coverage without
+repeating this JVM-hosted official scenario. Device and simulator source sets do not invoke it.

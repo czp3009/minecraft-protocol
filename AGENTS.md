@@ -141,9 +141,10 @@ the generated kotlinx.rpc service over Ktor WebSocket with JSON payloads. Proces
 cleanup remain inside the Fixture Host. Ordinary tests never receive a process object or Host path. The `world-io`
 official interoperability scenario is the explicit exception: after synchronously closing the official process, it uses
 the documented `hostWorkingDirectory` backdoor to open the Host-owned world in place. This requires the test process and
-Fixture Host to share a filesystem namespace. Its annotated entries exist only in JVM, Android host, and desktop Native
-test source sets; device, simulator, browser, and Wasm/WASI source sets do not invoke it. Codec verification returns
-normally or throws with failure details.
+Fixture Host to share a filesystem namespace. Its annotated entries exist only in JVM and desktop Native test source
+sets. Android host tests inherit portable `commonTest` coverage without repeating this JVM-hosted official scenario;
+device, simulator, browser, and Wasm/WASI source sets do not invoke it. Codec verification returns normally or throws
+with failure details.
 
 Within one subproject's single platform test task, compatible cases reuse one official process instead of creating a
 process per assertion or test method. Express ordered stateful coverage as phases of one shared runner and one thin
