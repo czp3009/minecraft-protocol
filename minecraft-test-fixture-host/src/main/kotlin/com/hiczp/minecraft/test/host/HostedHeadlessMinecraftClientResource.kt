@@ -81,10 +81,9 @@ internal class HostedHeadlessMinecraftClientResource private constructor(
             gameDirectory.ensureDirectory()
             writeClientOptions(gameDirectory)
 
-            val java = layout.javaExecutable.toString()
             val endpoint = configuration.endpoint
             val command = listOf(
-                java,
+                "java",
                 "-Xms256M",
                 "-Xmx1G",
                 "-Djava.awt.headless=true",
@@ -93,7 +92,7 @@ internal class HostedHeadlessMinecraftClientResource private constructor(
                 "--enable-native-access=ALL-UNNAMED",
                 "-Dhmc.mcdir=${installation.directory}",
                 "-Dhmc.gamedir=$gameDirectory",
-                "-Dhmc.java.versions=$java",
+                "-Dhmc.java.versions=java",
                 "-Dhmc.no.auto.config=true",
                 "-Dhmc.java.use.current=false",
                 "-Dhmc.java.require.exact=true",

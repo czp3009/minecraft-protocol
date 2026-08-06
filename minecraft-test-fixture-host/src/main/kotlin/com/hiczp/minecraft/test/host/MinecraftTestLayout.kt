@@ -11,7 +11,6 @@ internal data class MinecraftTestLayout(
     val serverRuntimeDirectory: Path,
     val codecClassesDirectory: Path,
     val hostWorkRoot: Path,
-    val javaExecutable: Path,
 ) {
     fun newRuntimeDirectory(kind: MinecraftRuntimeKind): Path =
         createUniqueDirectory(

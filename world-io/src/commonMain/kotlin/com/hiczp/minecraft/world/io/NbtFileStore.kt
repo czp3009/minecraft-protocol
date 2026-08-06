@@ -5,12 +5,11 @@ import com.hiczp.minecraft.nbt.serialization.NbtDecodingException
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.world.format.RegionCompression
 import com.hiczp.minecraft.world.format.RegionCompressionCodecs
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.io.RawSink
 import kotlinx.io.buffered
-import kotlinx.io.files.FileSystem
-import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
+import okio.FileHandle
+import okio.FileSystem
+import okio.Path
 
 enum class NbtFileCompression(
     internal val regionCompression: RegionCompression,
@@ -30,30 +29,15 @@ data class NbtFileStoreConfiguration(
     }
 }
 
-/**
- * Reads and atomically writes standalone compound-document NBT files.
- *
- * Writes use a sibling temporary file and remove it if serialization,
- * compression, flushing, closing, or replacement fails. Every failure is
- * propagated to the caller; serialization failures are not translated into
- * filesystem failures.
- */
+/** Physical unnamed-root NBT streams over Okio files. */
 class NbtFileStore(
-    val fileSystem: FileSystem = SystemFileSystem,
+    val fileSystem: FileSystem = systemFileSystem,
     val nbt: NbtFormat = NbtFormat,
     val compressionCodecs: RegionCompressionCodecs =
         RegionCompressionCodecs,
     val configuration: NbtFileStoreConfiguration =
         NbtFileStoreConfiguration(),
 ) {
-    private val writeMutex = Mutex()
-
-    /**
-     * Reads and decodes one file.
-     *
-     * Any filesystem, compression, or serialization exception is propagated
-     * to the caller.
-     */
     suspend fun read(
         path: Path,
         compression: NbtFileCompression = NbtFileCompression.GZIP,
@@ -83,44 +67,101 @@ class NbtFileStore(
         }
     }
 
-    /**
-     * Encodes and atomically replaces one file.
-     *
-     * Any exception is propagated to the caller. If writing has created a
-     * temporary file, this store attempts to remove it before rethrowing.
-     */
-    suspend fun write(
+    /** Directly truncates, writes, and durably syncs the final file. */
+    suspend fun writeDirect(
         path: Path,
         document: NbtDocument,
         compression: NbtFileCompression = NbtFileCompression.GZIP,
     ) {
-        writeMutex.withLock {
-            fileSystem.writeAtomically(
-                path,
+        val parent = path.parent
+            ?: throw WorldIOException("File has no parent directory: $path")
+        fileSystem.createDirectories(parent)
+        fileSystem.sink(path).close()
+        val handle = fileSystem.openReadWrite(path, mustExist = true)
+        writeHandle(path, handle, document, compression)
+    }
+
+    internal suspend fun writeSyncedTemporary(
+        directory: Path,
+        document: NbtDocument,
+        compression: NbtFileCompression = NbtFileCompression.GZIP,
+    ): Path {
+        val temporary = fileSystem.openUniqueTemporaryHandle(directory)
+        try {
+            writeHandle(
+                temporary.path,
+                temporary.handle,
+                document,
+                compression,
+            )
+            return temporary.path
+        } catch (failure: Throwable) {
+            fileSystem.deleteIfExistsPreserving(temporary.path, failure)
+            throw failure
+        }
+    }
+
+    private fun writeHandle(
+        path: Path,
+        handle: FileHandle,
+        document: NbtDocument,
+        compression: NbtFileCompression,
+    ) {
+        var failure: Throwable? = null
+        try {
+            val limitedFileSink = LimitedRawSink(
+                KotlinxToOkioRawSink(handle.sink()),
                 configuration.maximumCompressedBytes,
-            ) { sink ->
-                val compressed = compressionCodecs.compressingSink(
-                    compression.regionCompression,
-                    sink,
-                ).buffered()
-                val limited = LimitedRawSink(
-                    compressed,
-                    configuration.maximumDecompressedBytes,
-                ).buffered()
-                var failure: Throwable? = null
-                try {
-                    nbt.encodeDocumentToSink(document, limited)
-                } catch (caught: Throwable) {
-                    failure = caught
-                    throw caught
-                } finally {
-                    closeAllPreserving(
-                        failure,
-                        limited::close,
-                        compressed::close,
-                    )
-                }
+                closeDelegate = true,
+            )
+            val fileSink = limitedFileSink.buffered()
+            var writeFailure: Throwable? = null
+            try {
+                encode(document, compression, fileSink)
+                fileSink.flush()
+            } catch (caught: Throwable) {
+                writeFailure = caught
+                throw caught
+            } finally {
+                closeAllPreserving(writeFailure, fileSink::close)
             }
+            handle.resize(limitedFileSink.bytesWritten)
+            handle.flushDurably(fileSystem, path)
+        } catch (caught: Throwable) {
+            failure = caught
+            throw caught
+        } finally {
+            closeAllPreserving(failure, handle::close)
+        }
+    }
+
+    private fun encode(
+        document: NbtDocument,
+        compression: NbtFileCompression,
+        sink: RawSink,
+    ) {
+        val bufferedSink = sink.buffered()
+        val compressed = compressionCodecs.compressingSink(
+            compression.regionCompression,
+            bufferedSink,
+        ).buffered()
+        val limited = LimitedRawSink(
+            compressed,
+            configuration.maximumDecompressedBytes,
+        ).buffered()
+        var failure: Throwable? = null
+        try {
+            nbt.encodeDocumentToSink(document, limited)
+        } catch (caught: Throwable) {
+            failure = caught
+            throw caught
+        } finally {
+            closeAllPreserving(
+                failure,
+                limited::close,
+                compressed::close,
+                bufferedSink::flush,
+            )
         }
     }
 }

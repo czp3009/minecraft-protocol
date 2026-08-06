@@ -57,7 +57,6 @@ fun main(arguments: Array<String>) = runBlocking {
             serverRuntimeDirectory = serverRuntimeDirectory,
             codecClassesDirectory = codecClassesDirectory,
             hostWorkRoot = hostWorkRoot,
-            javaExecutable = Path("java"),
         ),
     )
 

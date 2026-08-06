@@ -52,7 +52,7 @@ class MinecraftTestProcessTest {
         val workingDirectory = HostedMinecraftTestSupport.newScratchDirectory()
         val process = MinecraftTestProcess.start(
             command = listOf(
-                HostedMinecraftTestSupport.layout.javaExecutable.toString(),
+                "java",
                 processFixtureSource("PipeParent.java").toString(),
                 processFixtureSource("PipeChild.java").toString(),
             ),
@@ -100,7 +100,7 @@ class MinecraftTestProcessTest {
         val workingDirectory = HostedMinecraftTestSupport.newScratchDirectory()
         val process = MinecraftTestProcess.start(
             command = listOf(
-                HostedMinecraftTestSupport.layout.javaExecutable.toString(),
+                "java",
                 processFixtureSource("Fixture.java").toString(),
             ),
             workingDirectory = workingDirectory,
@@ -150,7 +150,7 @@ class MinecraftTestProcessTest {
         val source = processFixtureSource("Fixture.java")
         val process = MinecraftTestProcess.start(
             command = listOf(
-                HostedMinecraftTestSupport.layout.javaExecutable.toString(),
+                "java",
                 source.toString(),
             ),
             workingDirectory = workingDirectory,

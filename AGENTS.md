@@ -21,7 +21,7 @@ Published runtime code is divided by responsibility:
   initial chunk/entity view; it does not implement gameplay.
 - `world-format` owns filesystem-independent Anvil containers, coordinates, compression dispatch, and chunk NBT
   composition.
-- `world-io` owns `kotlinx.io.files` paths and filesystem-backed stores.
+- `world-io` owns Okio paths, filesystems, and filesystem-backed stores.
 
 Private development infrastructure has separate boundaries:
 
@@ -72,10 +72,14 @@ onto the consumer classpath.
   required semantics.
 - Keep shared models free of buffers and I/O. Represent logical variants with Kotlin types, sealed hierarchies, and
   logical serializers; place physical representation in `protocol-serialization`.
-- Use `kotlinx.io.Source` and `Sink`, and use `kotlinx.io.files.FileSystem` only on supported filesystem targets.
+- Use `kotlinx.io.Source` and `Sink` for physical stream formats. Real world-file access in `world-io` uses Okio
+  `Path`, `FileSystem`, and `FileHandle`; other published runtime modules remain filesystem-independent.
 - Use maintained multiplatform APIs before adding `expect`/`actual`. An unavoidable platform boundary exposes the
   smallest reusable primitive, shares identical implementations through standard source sets, and handles optional
   capabilities at the narrowest call site.
+- Kotlin and Java code that starts a JVM always executes the literal `java` command from `PATH`. Do not inspect
+  `java.home`, `JAVA_HOME`, a Gradle Java launcher, or a JDK installation directory to locate the executable. A
+  developer machine is required to provide `java` on `PATH`.
 - Build and serialize JSON with `kotlinx.serialization.json` elements, builders, or serializers. Do not implement JSON
   escaping or construct protocol/report JSON with large string templates.
 - Every source generator uses a language-aware library such as KotlinPoet or JavaPoet. This applies to build logic,

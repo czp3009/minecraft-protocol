@@ -169,7 +169,7 @@ private suspend fun launchOfficialServer(
         )
         val process = MinecraftTestProcess.start(
             command = listOf(
-                layout.javaExecutable.toString(),
+                "java",
                 "-Djava.awt.headless=true",
                 "-Djoml.nounsafe=true",
                 "-jar",

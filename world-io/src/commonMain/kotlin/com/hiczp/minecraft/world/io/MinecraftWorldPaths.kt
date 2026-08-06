@@ -2,7 +2,7 @@ package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.ChunkPosition
 import com.hiczp.minecraft.world.format.RegionPosition
-import kotlinx.io.files.Path
+import okio.Path
 
 enum class RegionStorageDirectory(val directoryName: String) {
     CHUNKS("region"),
@@ -79,94 +79,91 @@ class MinecraftWorldPaths(
     val root: Path,
 ) {
     val levelData: Path
-        get() = Path(root, "level.dat")
+        get() = root / "level.dat"
 
     val previousLevelData: Path
-        get() = Path(root, "level.dat_old")
+        get() = root / "level.dat_old"
 
     val sessionLock: Path
-        get() = Path(root, "session.lock")
+        get() = root / "session.lock"
 
     fun dimension(dimension: DimensionDirectory): Path = when (dimension) {
         DimensionDirectory.Overworld ->
-            Path(root, "dimensions", "minecraft", "overworld")
+            root / "dimensions" / "minecraft" / "overworld"
 
         DimensionDirectory.Nether ->
-            Path(root, "dimensions", "minecraft", "the_nether")
+            root / "dimensions" / "minecraft" / "the_nether"
 
         DimensionDirectory.End ->
-            Path(root, "dimensions", "minecraft", "the_end")
+            root / "dimensions" / "minecraft" / "the_end"
 
         DimensionDirectory.LegacyOverworld -> root
-        DimensionDirectory.LegacyNether -> Path(root, "DIM-1")
-        DimensionDirectory.LegacyEnd -> Path(root, "DIM1")
-        is DimensionDirectory.Custom -> Path(
-            Path(root, "dimensions", dimension.namespace),
-            *dimension.pathSegments.toTypedArray(),
-        )
+        DimensionDirectory.LegacyNether -> root / "DIM-1"
+        DimensionDirectory.LegacyEnd -> root / "DIM1"
+        is DimensionDirectory.Custom -> dimension.pathSegments.fold(
+            root / "dimensions" / dimension.namespace,
+        ) { path, segment -> path / segment }
     }
 
     fun regionDirectory(
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ): Path = Path(dimension(dimension), storage.directoryName)
+    ): Path = dimension(dimension) / storage.directoryName
 
     fun regionFile(
         position: RegionPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ): Path = Path(
-        regionDirectory(storage, dimension),
-        "r.${position.x}.${position.z}.mca",
-    )
+    ): Path = regionDirectory(storage, dimension) /
+            "r.${position.x}.${position.z}.mca"
 
     fun externalChunk(
         position: ChunkPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ): Path = Path(
-        regionDirectory(storage, dimension),
-        "c.${position.x}.${position.z}.mcc",
-    )
+    ): Path = regionDirectory(storage, dimension) /
+            "c.${position.x}.${position.z}.mcc"
 
-    fun playerData(playerUuid: String): Path = Path(
-        root,
-        "players",
-        "data",
-        "${validatePlayerStorageKey(playerUuid)}.dat",
-    )
+    fun playerData(playerUuid: String): Path =
+        root / "players" / "data" /
+                "${validatePlayerStorageKey(playerUuid)}.dat"
 
-    fun advancement(playerUuid: String): Path = Path(
-        root,
-        "players",
-        "advancements",
-        "${validatePlayerStorageKey(playerUuid)}.json",
-    )
+    fun previousPlayerData(playerUuid: String): Path =
+        root / "players" / "data" /
+                "${validatePlayerStorageKey(playerUuid)}.dat_old"
 
-    fun statistics(playerUuid: String): Path = Path(
-        root,
-        "players",
-        "stats",
-        "${validatePlayerStorageKey(playerUuid)}.json",
-    )
+    fun advancement(playerUuid: String): Path =
+        root / "players" / "advancements" /
+                "${validatePlayerStorageKey(playerUuid)}.json"
 
-    fun legacyPlayerData(playerUuid: String): Path = Path(
-        root,
-        "playerdata",
-        "${validatePlayerStorageKey(playerUuid)}.dat",
-    )
+    fun statistics(playerUuid: String): Path =
+        root / "players" / "stats" /
+                "${validatePlayerStorageKey(playerUuid)}.json"
 
-    fun legacyAdvancement(playerUuid: String): Path = Path(
-        root,
-        "advancements",
-        "${validatePlayerStorageKey(playerUuid)}.json",
-    )
+    fun legacyPlayerData(playerUuid: String): Path =
+        root / "playerdata" / "${validatePlayerStorageKey(playerUuid)}.dat"
 
-    fun legacyStatistics(playerUuid: String): Path = Path(
-        root,
-        "stats",
-        "${validatePlayerStorageKey(playerUuid)}.json",
-    )
+    fun legacyAdvancement(playerUuid: String): Path =
+        root / "advancements" /
+                "${validatePlayerStorageKey(playerUuid)}.json"
+
+    fun legacyStatistics(playerUuid: String): Path =
+        root / "stats" / "${validatePlayerStorageKey(playerUuid)}.json"
+
+    fun savedDataDirectory(
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): Path = dimension(dimension) / "data"
+
+    fun savedData(
+        identifier: String,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): Path {
+        val storedIdentifier = parseStoredIdentifier(identifier)
+        val parent = storedIdentifier.pathSegments.dropLast(1).fold(
+            savedDataDirectory(dimension) / storedIdentifier.namespace,
+        ) { path, segment -> path / segment }
+        return parent / "${storedIdentifier.pathSegments.last()}.dat"
+    }
 }
 
 private fun parseDimensionPath(path: String): List<String> {
@@ -184,6 +181,44 @@ private fun validatePlayerStorageKey(value: String): String {
     return value
 }
 
+private fun parseStoredIdentifier(value: String): StoredIdentifier {
+    val separatorIndex = value.indexOf(':')
+    require(separatorIndex == value.lastIndexOf(':')) {
+        "Invalid saved-data identifier: $value"
+    }
+    val namespace = if (separatorIndex < 0) {
+        DEFAULT_NAMESPACE
+    } else {
+        value.substring(0, separatorIndex)
+    }
+    val path = if (separatorIndex < 0) {
+        value
+    } else {
+        value.substring(separatorIndex + 1)
+    }
+    val segments = path.split('/')
+    require(
+        namespace.matches(STORED_IDENTIFIER_NAMESPACE_PATTERN) &&
+                namespace != "." && namespace != ".." &&
+                segments.isNotEmpty() &&
+                segments.all {
+                    it.matches(STORED_IDENTIFIER_SEGMENT_PATTERN) &&
+                            it != "." && it != ".."
+                },
+    ) {
+        "Invalid saved-data identifier: $value"
+    }
+    return StoredIdentifier(namespace, segments)
+}
+
+private data class StoredIdentifier(
+    val namespace: String,
+    val pathSegments: List<String>,
+)
+
 private val DIMENSION_NAMESPACE_PATTERN = Regex("[a-z0-9._-]+")
 private val DIMENSION_PATH_SEGMENT_PATTERN = Regex("[a-z0-9._-]+")
 private val PLAYER_STORAGE_KEY_PATTERN = Regex("[A-Za-z0-9_-]+")
+private val STORED_IDENTIFIER_NAMESPACE_PATTERN = Regex("[a-z0-9._-]+")
+private val STORED_IDENTIFIER_SEGMENT_PATTERN = Regex("[a-z0-9._-]+")
+private const val DEFAULT_NAMESPACE = "minecraft"

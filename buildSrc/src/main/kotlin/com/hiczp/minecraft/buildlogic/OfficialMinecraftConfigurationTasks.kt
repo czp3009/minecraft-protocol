@@ -2,7 +2,6 @@ package com.hiczp.minecraft.buildlogic
 
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.RegularFileProperty
-import org.gradle.api.provider.Property
 import org.gradle.api.tasks.*
 import kotlin.io.path.isRegularFile
 
@@ -14,9 +13,6 @@ import kotlin.io.path.isRegularFile
 @CacheableTask
 abstract class AnalyzeOfficialMinecraftConfigurationTask :
     MinecraftProtocolToolTask() {
-    @get:Internal
-    abstract val javaExecutable: Property<String>
-
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val serverJar: RegularFileProperty
@@ -44,7 +40,6 @@ abstract class AnalyzeOfficialMinecraftConfigurationTask :
         val workDirectory = createIsolatedTemporaryDirectory("configuration")
         val result = try {
             OfficialVanillaConfigurationCapture.capture(
-                javaExecutable = javaExecutable.get(),
                 serverJar = server,
                 workDirectory = workDirectory,
                 target = target,

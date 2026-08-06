@@ -16,7 +16,6 @@ internal fun configureHostedTestSupportForJvmTests() {
             serverRuntimeDirectory = Path(fixtureRoot, "server-runtime"),
             codecClassesDirectory = Path(fixtureRoot, "codec-classes"),
             hostWorkRoot = Path(fixtureRoot, "work", "hosts", "test"),
-            javaExecutable = Path("java"),
         ),
     )
 }

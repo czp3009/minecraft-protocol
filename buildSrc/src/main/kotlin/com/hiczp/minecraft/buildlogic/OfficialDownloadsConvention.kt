@@ -6,8 +6,6 @@ import org.gradle.api.file.FileCollection
 import org.gradle.api.file.RegularFile
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Sync
-import org.gradle.jvm.toolchain.JavaLanguageVersion
-import org.gradle.jvm.toolchain.JavaToolchainService
 
 /** Lazy fixture inputs consumed by standard official-peer test tasks. */
 class OfficialMinecraftFixtureOutputs(
@@ -59,13 +57,6 @@ fun Project.applyOfficialDownloadsConvention(): OfficialMinecraftFixtureOutputs 
     val targetFile = analysisRoot.map { it.file("target/target.json") }
     val reportsDir = analysisRoot.map { it.dir("data-generator-reports") }
     val configFile = analysisRoot.map { it.file("configuration/configuration.json") }
-
-    val toolchains = extensions.getByType(JavaToolchainService::class.java)
-    val projectJava = toolchains.launcherFor { spec ->
-        spec.languageVersion.set(
-            JavaLanguageVersion.of(BuildVersions.JAVA_VERSION),
-        )
-    }
 
     tasks.register("minecraftVersion", PrintMinecraftVersionTask::class.java) { task ->
         task.group = "help"
@@ -288,7 +279,6 @@ fun Project.applyOfficialDownloadsConvention(): OfficialMinecraftFixtureOutputs 
         task.group = "official minecraft analysis"
         task.description = "Capture packets, registries, and blocks reports."
         task.dependsOn(prepareServer)
-        task.javaExecutable.set(projectJava.map { it.executablePath.asFile.absolutePath })
         task.serverJar.set(serverJarFile)
         task.downloadMetadata.set(serverMetadataFile)
         task.outputDirectory.set(reportsDir)
@@ -301,7 +291,6 @@ fun Project.applyOfficialDownloadsConvention(): OfficialMinecraftFixtureOutputs 
         task.group = "official minecraft analysis"
         task.description = "Capture Configuration Known Packs branches."
         task.dependsOn(prepareServer)
-        task.javaExecutable.set(projectJava.map { it.executablePath.asFile.absolutePath })
         task.serverJar.set(serverJarFile)
         task.packetsReport.set(analyzeReports.flatMap {
             it.outputDirectory.file("reports/packets.json")

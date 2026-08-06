@@ -155,9 +155,6 @@ abstract class AnalyzeOfficialMinecraftTargetTask :
 @CacheableTask
 abstract class AnalyzeOfficialMinecraftReportsTask :
     MinecraftProtocolToolTask() {
-    @get:Internal
-    abstract val javaExecutable: Property<String>
-
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val serverJar: RegularFileProperty
@@ -215,7 +212,7 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
             generatorOutput.resolve("reports/packets.json")
 
         val command = listOf(
-            javaExecutable.get(),
+            "java",
             "-DbundlerMainClass=net.minecraft.data.Main",
             "-jar",
             serverJar.toString(),

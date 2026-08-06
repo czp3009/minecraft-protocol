@@ -417,3 +417,38 @@ entities 是三个独立 worker，因此不同目录之间可以并行。
 - 不做 MCA compact、旧扇区擦除、日志式事务、CRC、损坏 header 自动落盘修复或 header 失败回滚。
 - 不把世界删除、ZIP 备份、世界选择 UI、`allowed_symlinks.txt` 发现策略纳入 raw storage；路径必须仍受根目录包含和调用方授权约束。
 - 不迁移 buildSrc、Fixture Host、KSP 或其他模块的开发期文件访问，也不为早期公开 API 保留弃用适配层。
+
+## Node target 能力更正与准入条件
+
+此前仅检查 `com.squareup.okio:okio:3.18.1` 并据此断言 Okio 没有 Node 系统文件系统后端，这是错误的；Node 后端作为独立
+artifact
+`com.squareup.okio:okio-nodefilesystem:3.18.1` 发布，其 JS variant 是 `okio-nodefilesystem-js`。
+
+该 artifact 提供由 Node 同步 `fs` API 实现的 `okio.NodeJsFileSystem`，已经覆盖 `world-io` 的通用主机文件能力：
+
+- 真实磁盘的 canonicalize、metadata、目录列举、创建、删除和 symlink；
+- Source/Sink 顺序读写；
+- `openReadOnly`/`openReadWrite` 以及 `FileHandle` 的位置读写、size 和 resize；
+- 通过 Node `renameSync` 实现的 `atomicMove`。
+
+因此 Node target 不需要本项目自行实现完整 `FileSystem`/`FileHandle`，也不能以“Okio 无法在 Node 读取文件”为由排除。正确接入方式是
+在 JS/Node source set 依赖 `okio-nodefilesystem`，并让系统文件系统平台入口返回 `NodeJsFileSystem`。Okio 的 Node 文件 API
+是同步阻塞 API，会阻塞事件循环；这是公开使用限制，但不影响存档操作的正确性。
+
+仍需补齐的只有两个窄平台能力：
+
+1. **durable sync**：Okio 3.18.1 的 `NodeJsFileHandle.protectedFlush()` 是空实现，`flush()` 不会调用 `fsync`。当
+   `syncWrites=true` 时，需要 Node 平台原语调用 `fsyncSync` 或经验证的等价操作，不能把 Okio flush 当作持久化提交。
+2. **`session.lock`**：Okio 的 `FileSystem` 契约明确不提供文件锁，`okio-nodefilesystem` 也没有增加锁 API。Node 实现必须使用经验证的
+   OS 级跨进程锁方案，能够与 JVM 官方服务端互斥，并保证正常关闭和进程意外退出后释放；不能用可能遗留陈旧文件的存在性标记代替。
+
+据此，Node target 在普通文件 I/O、region 随机访问和独立文件策略方面是合理的。实施时应优先复用全部 `commonMain` raw store，只为
+`systemFileSystem`、durable sync 和世界目录锁提供最小 Node 平台接线。只有在锁与 durable sync 均实现并通过以下验证后，才声明完整
+Node 支持：
+
+- 真实 Node 文件系统的位置读写、resize、同目录替换和独立文件策略测试；
+- Node 与另一个 Node 进程、Node 与 JVM 官方服务端之间的 `session.lock` 互斥及释放测试；
+- Node durable-sync 平台原语测试、公共 fake-filesystem 测试及完整 `allTests`。
+
+如果最终找不到满足官方跨进程语义的 Node 锁后端，可以暂缓 Node target；此时阻塞原因应明确记录为 `session.lock`，而不是 Okio
+缺少 Node 文件读写能力。

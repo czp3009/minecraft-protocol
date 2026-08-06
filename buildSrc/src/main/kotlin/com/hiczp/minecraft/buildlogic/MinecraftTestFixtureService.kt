@@ -98,7 +98,7 @@ abstract class MinecraftTestFixtureService :
             "Minecraft test fixture host work directory already exists: $hostWorkRoot"
         }
         val process = ProcessBuilder(
-            javaExecutable(),
+            "java",
             "-cp",
             classpath,
             FIXTURE_HOST_MAIN_CLASS,
@@ -441,15 +441,6 @@ private class BoundedOutput(
 }
 
 private fun newOwnerId(): String = UUID.randomUUID().toString()
-
-private fun javaExecutable(): String {
-    val executable = if (System.getProperty("os.name").startsWith("Windows")) {
-        "java.exe"
-    } else {
-        "java"
-    }
-    return File(System.getProperty("java.home"), "bin/$executable").absolutePath
-}
 
 internal const val FIXTURE_RPC_URL_ENV = "MINECRAFT_TEST_FIXTURE_RPC_URL"
 internal const val FIXTURE_OWNER_ID_ENV = "MINECRAFT_TEST_FIXTURE_OWNER_ID"

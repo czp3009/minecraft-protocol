@@ -1,13 +1,17 @@
 package com.hiczp.minecraft.world.io
 
 import kotlinx.io.*
-import kotlinx.io.files.FileSystem
-import kotlinx.io.files.Path
+import okio.FileHandle
+import okio.FileSystem
+import okio.IOException
+import okio.Path
 import kotlin.random.Random
+import okio.Sink as OkioSink
 
-private const val ATOMIC_TEMPORARY_RANDOM_RADIX = 36
-private const val ATOMIC_TEMPORARY_RANDOM_WIDTH = 13
-private const val ATOMIC_TEMPORARY_PREFIX = ".tmp-"
+private const val TEMPORARY_RANDOM_RADIX = 36
+private const val TEMPORARY_RANDOM_WIDTH = 13
+private const val TEMPORARY_PREFIX = ".tmp-"
+private const val TEMPORARY_ATTEMPTS = 256
 
 internal fun FileSystem.readFileWithinLimit(
     path: Path,
@@ -30,17 +34,21 @@ internal fun <T> FileSystem.readFile(
     if (!metadata.isRegularFile) {
         throw WorldIOException("Path is not a regular file: $path")
     }
-    if (metadata.size !in 0L..maximumBytes.toLong()) {
+    val size = metadata.size
+        ?: throw WorldIOException("Regular file has no size: $path")
+    if (size !in 0L..maximumBytes.toLong()) {
         throw WorldIOException(
-            "File $path size ${metadata.size} exceeds limit $maximumBytes",
+            "File $path size $size exceeds limit $maximumBytes",
         )
     }
 
-    val fileSource = source(path).buffered()
-    val limitedSource = LimitedRawSource(fileSource, maximumBytes).buffered()
+    val limitedSource = LimitedRawSource(
+        OkioToKotlinxRawSource(source(path)),
+        maximumBytes,
+    ).buffered()
     var failure: Throwable? = null
     try {
-        val value = block(limitedSource, metadata.size)
+        val value = block(limitedSource, size)
         if (!limitedSource.exhausted()) {
             throw WorldIOException("File $path was not fully consumed")
         }
@@ -53,56 +61,6 @@ internal fun <T> FileSystem.readFile(
     }
 }
 
-internal fun FileSystem.writeByteArrayAtomically(
-    path: Path,
-    bytes: ByteArray,
-): Unit = writeAtomically(path, bytes.size) { sink ->
-    sink.write(bytes)
-}
-
-internal fun <T> FileSystem.writeAtomically(
-    path: Path,
-    maximumBytes: Int,
-    block: (Sink) -> T,
-): T {
-    require(maximumBytes >= 0)
-    val parent = path.parent
-        ?: throw WorldIOException("File has no parent directory: $path")
-    createDirectories(parent)
-    val temporary = Path(
-        parent,
-        atomicTemporaryFileName(Random.nextLong().toULong()),
-    )
-    try {
-        val fileSink = sink(temporary).buffered()
-        val limitedSink = LimitedRawSink(fileSink, maximumBytes).buffered()
-        var failure: Throwable? = null
-        val value = try {
-            block(limitedSink).also {
-                limitedSink.flush()
-            }
-        } catch (caught: Throwable) {
-            failure = caught
-            throw caught
-        } finally {
-            closeAllPreserving(
-                failure,
-                limitedSink::close,
-                fileSink::close,
-            )
-        }
-        replaceAtomically(temporary, path)
-        return value
-    } catch (failure: Throwable) {
-        try {
-            if (exists(temporary)) delete(temporary)
-        } catch (cleanupFailure: Throwable) {
-            failure.addSuppressed(cleanupFailure)
-        }
-        throw failure
-    }
-}
-
 internal fun closeAllPreserving(
     failure: Throwable?,
     vararg closes: () -> Unit,
@@ -112,10 +70,11 @@ internal fun closeAllPreserving(
         try {
             close()
         } catch (closeFailure: Throwable) {
-            if (primary == null) {
+            val current = primary
+            if (current == null) {
                 primary = closeFailure
             } else {
-                primary.addSuppressed(closeFailure)
+                current.addSuppressed(closeFailure)
             }
         }
     }
@@ -123,14 +82,15 @@ internal fun closeAllPreserving(
 }
 
 private class LimitedRawSource(
-    private val delegate: Source,
-    private val maximumBytes: Int,
+    private val delegate: RawSource,
+    maximumBytes: Int,
 ) : RawSource {
+    private val maximumBytes = maximumBytes.toLong()
     private var bytesRead = 0L
 
     override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
         if (byteCount == 0L) return 0
-        val remaining = maximumBytes.toLong() - bytesRead
+        val remaining = maximumBytes - bytesRead
         val read = delegate.readAtMostTo(sink, minOf(byteCount, remaining + 1))
         if (read < 0) return -1
         bytesRead += read
@@ -148,16 +108,20 @@ private class LimitedRawSource(
 }
 
 internal class LimitedRawSink(
-    private val delegate: Sink,
-    private val maximumBytes: Int,
+    private val delegate: RawSink,
+    maximumBytes: Int,
+    private val closeDelegate: Boolean = false,
 ) : RawSink {
-    private var bytesWritten = 0L
+    private val maximumBytes = maximumBytes.toLong()
+    internal var bytesWritten = 0L
+        private set
+
+    init {
+        require(maximumBytes >= 0)
+    }
 
     override fun write(source: Buffer, byteCount: Long) {
-        if (
-            byteCount < 0 ||
-            byteCount > maximumBytes.toLong() - bytesWritten
-        ) {
+        if (byteCount < 0 || byteCount > maximumBytes - bytesWritten) {
             throw WorldIOException(
                 "Output exceeds configured limit $maximumBytes",
             )
@@ -170,50 +134,180 @@ internal class LimitedRawSink(
         delegate.flush()
     }
 
-    override fun close() = Unit
+    override fun close() {
+        if (closeDelegate) delegate.close()
+    }
 }
 
-/** Returns a short extension-free sibling name shared by every atomic write. */
-internal fun atomicTemporaryFileName(
+internal fun temporaryFileName(
     random: ULong,
+    prefix: String = TEMPORARY_PREFIX,
+    suffix: String = "",
 ): String {
     val randomToken = random
-        .toString(ATOMIC_TEMPORARY_RANDOM_RADIX)
-        .padStart(ATOMIC_TEMPORARY_RANDOM_WIDTH, '0')
-    return "${ATOMIC_TEMPORARY_PREFIX}${randomToken}"
+        .toString(TEMPORARY_RANDOM_RADIX)
+        .padStart(TEMPORARY_RANDOM_WIDTH, '0')
+    return "$prefix$randomToken$suffix"
 }
 
-/**
- * Concurrent replacements can briefly fail while another atomic rename still
- * owns the destination on some filesystems. The source remains present in that
- * case, so retrying the same atomic operation preserves the contract.
- */
-private fun FileSystem.replaceAtomically(source: Path, destination: Path) {
-    var lastFailure: Throwable? = null
-    repeat(256) { attempt ->
+internal fun FileSystem.openUniqueTemporarySink(
+    directory: Path,
+    prefix: String = TEMPORARY_PREFIX,
+    suffix: String = "",
+): TemporaryFileSink {
+    createDirectories(directory)
+    var lastCollision: Throwable? = null
+    repeat(TEMPORARY_ATTEMPTS) {
+        val path = directory / temporaryFileName(
+            random = Random.nextLong().toULong(),
+            prefix = prefix,
+            suffix = suffix,
+        )
         try {
-            atomicMove(source, destination)
-            return
-        } catch (failure: Throwable) {
-            lastFailure = failure
-            val destinationMetadata = metadataOrNull(destination)
-            if (
-                !exists(source) ||
-                destinationMetadata?.isDirectory == true ||
-                attempt == 255
-            ) {
-                throw failure
-            }
+            return TemporaryFileSink(path, sink(path, mustCreate = true))
+        } catch (failure: IOException) {
+            if (!exists(path)) throw failure
+            lastCollision = failure
         }
     }
-    throw checkNotNull(lastFailure)
+    throw WorldIOException(
+        "Could not create a unique temporary file in $directory",
+        lastCollision,
+    )
+}
+
+internal fun FileSystem.openUniqueTemporaryHandle(
+    directory: Path,
+    prefix: String = TEMPORARY_PREFIX,
+    suffix: String = "",
+): TemporaryFileHandle {
+    createDirectories(directory)
+    var lastCollision: Throwable? = null
+    repeat(TEMPORARY_ATTEMPTS) {
+        val path = directory / temporaryFileName(
+            random = Random.nextLong().toULong(),
+            prefix = prefix,
+            suffix = suffix,
+        )
+        try {
+            return TemporaryFileHandle(
+                path,
+                openReadWrite(path, mustCreate = true),
+            )
+        } catch (failure: IOException) {
+            if (!exists(path)) throw failure
+            lastCollision = failure
+        }
+    }
+    throw WorldIOException(
+        "Could not create a unique temporary file in $directory",
+        lastCollision,
+    )
+}
+
+internal data class TemporaryFileSink(
+    val path: Path,
+    val sink: OkioSink,
+)
+
+internal data class TemporaryFileHandle(
+    val path: Path,
+    val handle: FileHandle,
+)
+
+internal fun FileSystem.replaceWithBackup(
+    temporary: Path,
+    target: Path,
+    backup: Path,
+) {
+    val targetExists = exists(target)
+    var createdBackup = false
+    if (targetExists) {
+        retryFileOperation("back up $target") {
+            deleteIfExists(backup)
+            atomicMove(target, backup)
+            metadataOrNull(backup)?.isRegularFile == true
+        }
+        createdBackup = true
+    }
+    retryFileOperation("remove destination $target") {
+        deleteIfExists(target)
+        !exists(target)
+    }
+    try {
+        retryFileOperation("move replacement to $target") {
+            atomicMove(temporary, target)
+            metadataOrNull(target)?.isRegularFile == true
+        }
+    } catch (failure: IOException) {
+        if (createdBackup) {
+            try {
+                retryFileOperation("restore $target from $backup") {
+                    atomicMove(backup, target)
+                    metadataOrNull(target)?.isRegularFile == true
+                }
+            } catch (rollbackFailure: IOException) {
+                failure.addSuppressed(rollbackFailure)
+            }
+        }
+        throw failure
+    }
+}
+
+internal fun FileSystem.replaceWithoutRollback(
+    replacement: Path,
+    target: Path,
+    displaced: Path,
+) {
+    if (exists(target)) {
+        retryFileOperation("move displaced $target to $displaced") {
+            deleteIfExists(displaced)
+            atomicMove(target, displaced)
+            metadataOrNull(displaced)?.isRegularFile == true
+        }
+    }
+    retryFileOperation("remove destination $target") {
+        deleteIfExists(target)
+        !exists(target)
+    }
+    retryFileOperation("move replacement to $target") {
+        atomicMove(replacement, target)
+        metadataOrNull(target)?.isRegularFile == true
+    }
+}
+
+private fun retryFileOperation(
+    description: String,
+    block: () -> Boolean,
+) {
+    var lastFailure: Throwable? = null
+    repeat(10) {
+        try {
+            if (block()) return
+            lastFailure = WorldIOException("Could not $description")
+        } catch (failure: IOException) {
+            lastFailure = failure
+        }
+    }
+    throw WorldIOException("Could not $description after 10 attempts", lastFailure)
 }
 
 internal fun FileSystem.deleteIfExists(path: Path) {
-    if (exists(path)) delete(path)
+    delete(path, mustExist = false)
 }
 
-/** A filesystem-policy failure reported through the standard I/O hierarchy. */
+internal fun FileSystem.deleteIfExistsPreserving(
+    path: Path,
+    failure: Throwable,
+) {
+    try {
+        deleteIfExists(path)
+    } catch (cleanupFailure: Throwable) {
+        failure.addSuppressed(cleanupFailure)
+    }
+}
+
+/** A filesystem-policy failure reported through Okio's I/O hierarchy. */
 class WorldIOException(
     message: String,
     cause: Throwable? = null,

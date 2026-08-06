@@ -1,6 +1,7 @@
 # world-format
 
-Filesystem-independent Minecraft Anvil region support.
+Filesystem-independent Minecraft Anvil `.mca` region support. The legacy `.mcr` Region format and its conversion to
+Anvil are intentionally out of scope.
 
 The module models absolute, region, and local chunk coordinates; parses and packs region headers and sectors; preserves
 compressed payloads; represents external `.mcc` chunks explicitly; and composes compression with compound-document NBT

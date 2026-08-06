@@ -63,41 +63,29 @@ sealed class RegionFileFormat(
         sink: Sink,
     ): Map<LocalChunkPosition, ByteArray> {
         val plans = plan(region)
-        val header = ByteArray(REGION_HEADER_BYTES)
+        val header = RegionHeader()
         val externalChunks = linkedMapOf<LocalChunkPosition, ByteArray>()
 
         plans.forEach { plan ->
-            val location =
-                (plan.sectorOffset shl 8) or plan.allocatedSectors
-            writeInt(header, plan.position.index * Int.SIZE_BYTES, location)
-            writeInt(
-                header,
-                REGION_SECTOR_BYTES +
-                        plan.position.index * Int.SIZE_BYTES,
-                plan.chunk.timestamp,
+            header.set(
+                position = plan.position,
+                location = RegionLocation(
+                    plan.sectorOffset,
+                    plan.record.allocatedSectors,
+                ),
+                timestamp = plan.chunk.timestamp,
             )
         }
-        sink.write(header)
+        sink.write(header.encode())
 
         plans.forEach { plan ->
-            val recordLength: Int
-            if (plan.external) {
-                recordLength = 1
-                sink.writeInt(recordLength)
-                sink.writeByte(
-                    (plan.chunk.compression.id or EXTERNAL_STREAM_FLAG)
-                        .toByte(),
-                )
-                externalChunks[plan.position] = plan.compressedBytes
-            } else {
-                recordLength = plan.compressedBytes.size + 1
-                sink.writeInt(recordLength)
-                sink.writeByte(plan.chunk.compression.id.toByte())
-                sink.write(plan.compressedBytes)
+            sink.write(plan.record.bytes)
+            plan.record.externalPayload?.let {
+                externalChunks[plan.position] = it
             }
             val padding =
-                plan.allocatedSectors * REGION_SECTOR_BYTES -
-                        Int.SIZE_BYTES - recordLength
+                plan.record.allocatedSectors * REGION_SECTOR_BYTES -
+                        plan.record.bytes.size
             writeZeroes(sink, padding)
         }
         return externalChunks
@@ -114,12 +102,12 @@ sealed class RegionFileFormat(
         region: RegionFile,
     ): Map<LocalChunkPosition, ByteArray> = buildMap {
         plan(region).forEach { chunk ->
-            if (chunk.external) put(chunk.position, chunk.compressedBytes)
+            chunk.record.externalPayload?.let { put(chunk.position, it) }
         }
     }
 
     private fun decodeNonEmpty(source: Source): RegionFile {
-        val header = source.readByteArray(REGION_HEADER_BYTES)
+        val header = RegionHeader.decode(source.readByteArray(REGION_HEADER_BYTES))
         val maximumSectors =
             configuration.maximumRegionBytes / REGION_SECTOR_BYTES
         val usedSectors = BooleanArray(maximumSectors)
@@ -128,11 +116,10 @@ sealed class RegionFileFormat(
         val plans = ArrayList<DecodeChunkPlan>()
 
         for (index in 0 until REGION_CHUNK_COUNT) {
-            val location = readInt(header, index * Int.SIZE_BYTES)
-            if (location == 0) continue
-            val sectorOffset = location ushr 8
-            val allocatedSectors = location and 0xFF
             val position = LocalChunkPosition.fromIndex(index)
+            val location = header.location(position) ?: continue
+            val sectorOffset = location.sectorOffset
+            val allocatedSectors = location.sectorCount
             if (sectorOffset < 2 || allocatedSectors == 0) {
                 throw RegionFormatException(
                     "Chunk $position has invalid sector location $sectorOffset+$allocatedSectors",
@@ -153,10 +140,7 @@ sealed class RegionFileFormat(
             }
             plans += DecodeChunkPlan(
                 position = position,
-                timestamp = readInt(
-                    header,
-                    REGION_SECTOR_BYTES + index * Int.SIZE_BYTES,
-                ),
+                timestamp = header.timestamp(position),
                 sectorOffset = sectorOffset,
                 allocatedSectors = allocatedSectors,
             )
@@ -177,8 +161,9 @@ sealed class RegionFileFormat(
                 )
             }
             val versionByte = source.readByte().toInt() and 0xFF
-            val external = versionByte and EXTERNAL_STREAM_FLAG != 0
-            val compressionId = versionByte and EXTERNAL_STREAM_FLAG.inv()
+            val external = versionByte and REGION_EXTERNAL_STREAM_FLAG != 0
+            val compressionId =
+                versionByte and REGION_EXTERNAL_STREAM_FLAG.inv()
             val compression = RegionCompression.fromId(compressionId)
                 ?: throw RegionFormatException(
                     "Chunk ${plan.position} uses unknown compression ID $compressionId",
@@ -238,7 +223,7 @@ sealed class RegionFileFormat(
         var nextSector = 2
         plans.forEach {
             it.sectorOffset = nextSector
-            nextSector += it.allocatedSectors
+            nextSector += it.record.allocatedSectors
         }
         val totalBytes = nextSector.toLong() * REGION_SECTOR_BYTES
         if (totalBytes > configuration.maximumRegionBytes) {
@@ -246,7 +231,7 @@ sealed class RegionFileFormat(
                 "Encoded region size $totalBytes exceeds configured limit ${configuration.maximumRegionBytes}",
             )
         }
-        if (nextSector > MAX_SECTOR_OFFSET + 1) {
+        if (nextSector > REGION_MAX_SECTOR_OFFSET + 1) {
             throw RegionFormatException(
                 "Encoded region exceeds location-table range",
             )
@@ -267,19 +252,14 @@ sealed class RegionFileFormat(
                 "Chunk $position compressed size ${compressedBytes.size} exceeds configured limit ${configuration.maximumCompressedChunkBytes}",
             )
         }
-        val inlineBytes = Int.SIZE_BYTES + 1L + compressedBytes.size
-        val inlineSectors =
-            ((inlineBytes + REGION_SECTOR_BYTES - 1) / REGION_SECTOR_BYTES)
-                .toInt()
-        val external =
-            chunk.payload.isExternal ||
-                    inlineSectors >= EXTERNAL_CHUNK_THRESHOLD
         return ChunkPlan(
             position = position,
             chunk = chunk,
-            compressedBytes = compressedBytes,
-            external = external,
-            allocatedSectors = if (external) 1 else inlineSectors,
+            record = EncodedRegionChunkRecord.encode(
+                compression = chunk.compression,
+                compressedPayload = compressedBytes,
+                forceExternal = chunk.payload.isExternal,
+            ),
         )
     }
 }
@@ -291,9 +271,7 @@ private class ConfiguredRegionFileFormat(
 private class ChunkPlan(
     val position: LocalChunkPosition,
     val chunk: RegionChunk,
-    val compressedBytes: ByteArray,
-    val external: Boolean,
-    val allocatedSectors: Int,
+    val record: EncodedRegionChunkRecord,
     var sectorOffset: Int = 0,
 )
 
@@ -303,19 +281,6 @@ private data class DecodeChunkPlan(
     val sectorOffset: Int,
     val allocatedSectors: Int,
 )
-
-private fun readInt(bytes: ByteArray, offset: Int): Int =
-    ((bytes[offset].toInt() and 0xFF) shl 24) or
-            ((bytes[offset + 1].toInt() and 0xFF) shl 16) or
-            ((bytes[offset + 2].toInt() and 0xFF) shl 8) or
-            (bytes[offset + 3].toInt() and 0xFF)
-
-private fun writeInt(bytes: ByteArray, offset: Int, value: Int) {
-    bytes[offset] = (value ushr 24).toByte()
-    bytes[offset + 1] = (value ushr 16).toByte()
-    bytes[offset + 2] = (value ushr 8).toByte()
-    bytes[offset + 3] = value.toByte()
-}
 
 private fun writeZeroes(sink: Sink, byteCount: Int) {
     var remaining = byteCount
@@ -327,6 +292,3 @@ private fun writeZeroes(sink: Sink, byteCount: Int) {
 }
 
 private val ZEROES = ByteArray(8_192)
-private const val EXTERNAL_STREAM_FLAG = 0x80
-private const val EXTERNAL_CHUNK_THRESHOLD = 256
-private const val MAX_SECTOR_OFFSET = 0xFF_FFFF

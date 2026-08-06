@@ -94,16 +94,11 @@ internal object OfficialVanillaConfigurationCapture {
     private const val MAXIMUM_BIND_ATTEMPTS = 5
 
     fun capture(
-        javaExecutable: String,
         serverJar: Path,
         workDirectory: Path,
         target: MinecraftProtocolTarget,
         packetIds: OfficialPacketIds,
     ): VanillaConfigurationCaptureResult {
-        val java = Path.of(javaExecutable).toAbsolutePath().normalize()
-        require(java.isRegularFile()) {
-            "Analysis Java does not exist: $java"
-        }
         require(serverJar.isRegularFile()) {
             "Official server does not exist: $serverJar"
         }
@@ -118,7 +113,6 @@ internal object OfficialVanillaConfigurationCapture {
             writeServerConfiguration(attemptDirectory, port)
             try {
                 return captureFromRunningServer(
-                    java = java,
                     serverJar = serverJar,
                     workDirectory = attemptDirectory,
                     port = port,
@@ -142,7 +136,6 @@ internal object OfficialVanillaConfigurationCapture {
     }
 
     private fun captureFromRunningServer(
-        java: Path,
         serverJar: Path,
         workDirectory: Path,
         port: Int,
@@ -150,7 +143,7 @@ internal object OfficialVanillaConfigurationCapture {
         packetIds: OfficialPacketIds,
     ): VanillaConfigurationCaptureResult {
         val process = ProcessBuilder(
-            java.absolutePathString(),
+            "java",
             "-Djava.awt.headless=true",
             "-Djoml.nounsafe=true",
             "-jar",

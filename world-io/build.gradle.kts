@@ -41,21 +41,40 @@ kotlin {
         }
     }
 
-    useMinecraftTestFixtures(requiresOfficialServer = true)
+    applyDefaultHierarchyTemplate()
+    useMinecraftTestFixtures(
+        requiresOfficialServer = true,
+        requiresOfficialClient = true,
+    )
 
     sourceSets {
+        val commonMain = getByName("commonMain")
+        val javaNioMain = create("javaNioMain") {
+            dependsOn(commonMain)
+        }
+        getByName("jvmMain").dependsOn(javaNioMain)
+        getByName("androidMain").dependsOn(javaNioMain)
+        val nativeMain = getByName("nativeMain")
+        val posixMain = create("posixMain") {
+            dependsOn(nativeMain)
+        }
+        getByName("appleMain").dependsOn(posixMain)
+        getByName("linuxMain").dependsOn(posixMain)
+
         commonMain.dependencies {
             api(project(":nbt"))
             api(project(":nbt-serialization"))
             api(project(":world-format"))
-            api(libs.kotlinx.io.core)
+            api(libs.okio)
             implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.kotlinx.io.core)
         }
 
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(project(":minecraft-test-support"))
             implementation(libs.kotlinx.coroutines.test)
+            implementation(libs.okio.fakefilesystem)
         }
     }
 }

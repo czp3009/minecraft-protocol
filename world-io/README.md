@@ -1,27 +1,33 @@
 # world-io
 
-World-file adapters built on `kotlinx.io.files.FileSystem`.
+World-file adapters built on Okio `Path`, `FileSystem`, and positional `FileHandle` APIs.
 
-`NbtFileStore` reads and atomically writes standalone NBT files such as `level.dat` and player data. `WorldRegionStore`
-reads and writes chunk, entity, and point-of-interest regions, resolves external chunk sidecars, and removes obsolete
-sidecars after a region commit. `MinecraftWorldPaths` provides current dimension and player-storage paths together with
-explicit legacy variants.
+`WorldRegionStore` reads and mutates terrain, entity, or point-of-interest regions one chunk at a time. Updates allocate
+new sectors, write them in place, commit the MCA header, and retain the old bytes without replacing or shrinking the
+whole region file. Timestamps and the internal/`.mcc` threshold are automatic.
+
+Only the modern Anvil `.mca` format is supported. Legacy Region `.mcr` files are neither read nor converted; the
+explicit legacy path variants below select directory layouts only.
 
 ```kotlin
 val paths = MinecraftWorldPaths(worldRoot)
-val regions = WorldRegionStore(paths)
+val terrain = WorldRegionStore(paths)
 
-val chunk = regions.readChunkNbt(ChunkPosition(x, z))
-regions.writeChunkNbt(
+val chunk = terrain.readChunkNbt(ChunkPosition(x, z))
+terrain.writeChunkNbt(
     position = ChunkPosition(x, z),
     document = updated,
-    timestamp = timestamp,
 )
+terrain.close()
 ```
 
-The default filesystem is `SystemFileSystem`; callers may supply another supported `FileSystem`. This module targets
-JVM, Android, and Native rather than browser-like JS. Model-only consumers use `nbt`; stream-only consumers combine
-`nbt-serialization` and `world-format` without this filesystem layer.
+`MinecraftWorldPaths` models the current namespaced dimension, player, and saved-data layout, plus explicit legacy
+variants. `LevelDataStore`, `PlayerDataStore`, `SavedDataFileStore`, and `Utf8JsonFileStore` preserve their different
+official backup, fallback, compression-detection, and direct-write policies. `MinecraftWorldAccess.open` adds a
+system-filesystem lease backed by the official `session.lock` protocol.
 
-Writes stream into sibling temporary files and atomically replace their destination. Any serialization, compression,
-filesystem, flush, close, or replacement exception is rethrown unchanged after temporary-file cleanup is attempted.
+The default filesystem is `FileSystem.SYSTEM`; raw stores may receive another Okio `FileSystem`, including the fake
+filesystem in tests. Okio is part of this module's public dependency contract, while `kotlinx-io-core` remains an
+implementation detail used to bridge the existing NBT and Anvil stream formats. The module targets JVM, Android, and
+Native. Okio 3.18.1 does not expose a JS system filesystem, so browser-like consumers use `nbt`, `nbt-serialization`,
+and `world-format` through trees, streams, or byte arrays instead.

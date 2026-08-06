@@ -6,6 +6,7 @@ kotlinx-coroutines = "1.11.0"
 kotlinx-rpc = "0.10.3"
 ktor = "3.5.1"
 kotlinx-io = "0.9.0"
+okio = "3.18.1"
 lz4-java = "1.10.1"
 android-kmp-library-plugin = "9.3.1"
 xmlutil = "1.0.1"
@@ -33,6 +34,8 @@ ktor-client-java = { module = "io.ktor:ktor-client-java", version.ref = "ktor" }
 ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
 ktor-server-cio = { module = "io.ktor:ktor-server-cio", version.ref = "ktor" }
 kotlinx-io-core = { module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinx-io" }
+okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
+okio-fakefilesystem = { module = "com.squareup.okio:okio-fakefilesystem", version.ref = "okio" }
 lz4-java = { module = "at.yawk.lz4:lz4-java", version.ref = "lz4-java" }
 xmlutil-serialization = { module = "io.github.pdvrieze.xmlutil:serialization", version.ref = "xmlutil" }
 kotlincrypto-hash-md = { module = "org.kotlincrypto.hash:md", version.ref = "kotlincrypto-hash" }
