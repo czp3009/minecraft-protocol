@@ -111,20 +111,6 @@ class ProtocolModelContractTest {
     }
 
     @Test
-    fun `NBT lists enforce their homogeneous non-END algebra`() {
-        assertEquals(
-            NbtList(listOf(NbtInt(1), NbtInt(2))),
-            NbtList(listOf(NbtInt(1), NbtInt(2))),
-        )
-        assertFailsWith<IllegalArgumentException> {
-            NbtList(listOf(NbtInt(1), NbtString("two")))
-        }
-        assertFailsWith<IllegalArgumentException> {
-            NbtList(listOf(NbtEnd))
-        }
-    }
-
-    @Test
     fun `packet and item constructors reject impossible wire states`() {
         assertFailsWith<IllegalArgumentException> {
             HandshakePacket(

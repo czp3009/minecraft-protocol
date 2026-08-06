@@ -2,7 +2,7 @@
 
 package com.hiczp.minecraft.protocol.model.wire
 
-import com.hiczp.minecraft.protocol.model.type.NbtTag
+import com.hiczp.minecraft.nbt.NbtTag
 import com.hiczp.minecraft.protocol.model.type.Vector3d
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialInfo
@@ -123,9 +123,9 @@ annotation class NbtEndOptional
 annotation class NullSentinelByte(val value: Int = -1)
 
 /**
- * Encode a concrete [NbtTag] subtype as
- * unnamed network NBT. The marker is only needed when the declared property
- * type is narrower than NbtTag, whose descriptor is recognized directly.
+ * Declares that a protocol field uses no-name any-tag network NBT. The
+ * Minecraft format validates that the annotated serializer represents an
+ * [NbtTag]; NBT tag serializers use the same wire form without this marker.
  */
 @SerialInfo
 @Target(AnnotationTarget.PROPERTY)

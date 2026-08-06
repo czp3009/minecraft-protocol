@@ -18,7 +18,8 @@ transitively where needed.
 | Module                                                       | Purpose                                                                |
 |--------------------------------------------------------------|------------------------------------------------------------------------|
 | [`compression`](compression/README.md)                       | Portable raw DEFLATE shared by network and world formats               |
-| [`nbt`](nbt/README.md)                                       | Named and unnamed binary NBT over `kotlinx.io`                         |
+| [`nbt`](nbt/README.md)                                       | Format-independent NBT values and logical serializers                  |
+| [`nbt-serialization`](nbt-serialization/README.md)           | Binary NBT and NBT tree conversion through `kotlinx.serialization`     |
 | [`protocol-model`](protocol-model/README.md)                 | Format-independent packet payloads and shared protocol values          |
 | [`protocol-serialization`](protocol-serialization/README.md) | Minecraft wire encodings and packet lookup by state, direction, and ID |
 | [`protocol-vanilla-data`](protocol-vanilla-data/README.md)   | Version-matched Known Packs, registries, tags, and vanilla catalogues  |
@@ -78,13 +79,14 @@ count. The module guides contain the corresponding entry points and examples:
 - [`protocol-client`](protocol-client/README.md) connects to Status or Login and returns a live Play session.
 - [`protocol-server`](protocol-server/README.md) binds a Ktor server socket and maps application policy into protocol
   configuration and handler APIs.
-- [`nbt`](nbt/README.md) reads and writes binary NBT streams and byte arrays.
+- [`nbt`](nbt/README.md) provides format-independent NBT values;
+  [`nbt-serialization`](nbt-serialization/README.md) maps serializers to NBT trees and reads or writes binary NBT.
 - [`world-format`](world-format/README.md) handles in-memory Anvil containers; [`world-io`](world-io/README.md) adds
   supported filesystems and world paths.
 
 Most model, serialization, and stream APIs target common Kotlin. Socket APIs run where the configured Ktor engine
-exposes TCP. `world-io` targets JVM, Android, and Native filesystems; browser-like consumers use `nbt` and
-`world-format` through streams or byte arrays.
+exposes TCP. `world-io` targets JVM, Android, and Native filesystems; browser-like consumers use `nbt`,
+`nbt-serialization`, and `world-format` through trees, streams, or byte arrays.
 
 ## Building and testing
 

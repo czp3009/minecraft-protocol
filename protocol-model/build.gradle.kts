@@ -118,6 +118,7 @@ kotlin {
             // KSP task (which reads this source set) depend on itself.
             kotlin.srcDir(generatedPacketDefinitionsDirectory)
             dependencies {
+                api(project(":nbt"))
                 api(libs.kotlinx.serialization.core)
             }
         }

@@ -183,7 +183,11 @@ private class MinecraftTestSupportServiceServer(
     }
 
     override suspend fun verifyOfficialCodec(fixtures: JsonElement) {
-        verifyFixturesWithOfficialCodec(fixtures)
+        verifyFixturesWithOfficialCodec(fixtures, "run")
+    }
+
+    override suspend fun verifyOfficialNbt(fixtures: JsonElement) {
+        verifyFixturesWithOfficialCodec(fixtures, "runNbt")
     }
 }
 
@@ -462,12 +466,16 @@ private fun HostedHeadlessMinecraftClientResource.status(): MinecraftTestResourc
         exitCode = if (isAlive) null else exitCode,
     )
 
-private suspend fun verifyFixturesWithOfficialCodec(fixtures: JsonElement) {
+private suspend fun verifyFixturesWithOfficialCodec(
+    fixtures: JsonElement,
+    methodName: String,
+) {
     val scratch = HostedMinecraftTestSupport.newScratchDirectory()
     try {
         OfficialCodecOracle.verify(
             fixtures = fixtures,
             loggingConfiguration = Path(scratch, "log4j2.xml"),
+            methodName = methodName,
         )
     } finally {
         scratch.deleteTree()

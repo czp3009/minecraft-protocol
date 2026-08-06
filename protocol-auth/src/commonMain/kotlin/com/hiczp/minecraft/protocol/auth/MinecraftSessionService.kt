@@ -18,10 +18,11 @@ data class JoinedMinecraftProfile(
 class MinecraftSessionService(
     val httpClient: HttpClient,
     val baseUrl: String = PRODUCTION_BASE_URL,
-    private val json: Json = Json {
-        ignoreUnknownKeys = true
-    },
 ) {
+    private val json = Json {
+        ignoreUnknownKeys = true
+    }
+
     suspend fun join(
         accessToken: String,
         selectedProfile: Uuid,

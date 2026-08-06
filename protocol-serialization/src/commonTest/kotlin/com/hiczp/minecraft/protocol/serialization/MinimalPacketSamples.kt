@@ -2,8 +2,7 @@
 
 package com.hiczp.minecraft.protocol.serialization
 
-import com.hiczp.minecraft.protocol.model.type.NbtString
-import com.hiczp.minecraft.protocol.model.type.NbtTag
+import com.hiczp.minecraft.nbt.*
 import com.hiczp.minecraft.protocol.model.wire.FixedLength
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.ExperimentalSerializationApi
@@ -11,8 +10,8 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.AbstractDecoder
 import kotlinx.serialization.encoding.CompositeDecoder
+import kotlinx.serialization.modules.EmptySerializersModule
 import kotlinx.serialization.modules.SerializersModule
-import kotlinx.serialization.modules.polymorphic
 import kotlin.uuid.Uuid
 
 /**
@@ -39,7 +38,7 @@ private class MinimalProtocolValueDecoder(
     private val profile: ProtocolSampleProfile,
     private val annotations: List<Annotation> = emptyList(),
     private val structureSerialName: String? = null,
-) : AbstractDecoder() {
+) : AbstractDecoder(), NbtTagDecoder {
     override val serializersModule: SerializersModule = minimalValueSerializersModule
 
     override fun beginStructure(
@@ -86,9 +85,21 @@ private class MinimalProtocolValueDecoder(
 
     override fun decodeString(): String = "minecraft:test"
 
+    override fun decodeNbtTag(): NbtTag = NbtString("minecraft:test")
+
     override fun <T> decodeSerializableValue(
         deserializer: DeserializationStrategy<T>,
     ): T {
+        if (deserializer is NbtTagSerializer<*>) {
+            for (candidate in minimalNbtTags) {
+                val value = runCatching {
+                    deserializer.deserializeTag(candidate)
+                }.getOrNull() ?: continue
+                @Suppress("UNCHECKED_CAST")
+                return value as T
+            }
+            error("No minimal value for ${deserializer.descriptor.serialName}")
+        }
         if (deserializer.descriptor.serialName == UUID_SERIAL_NAME) {
             @Suppress("UNCHECKED_CAST")
             return Uuid.NIL as T
@@ -129,8 +140,21 @@ private class MinimalProtocolValueDecoder(
 
 private const val UUID_SERIAL_NAME: String = "kotlin.uuid.Uuid"
 
-private val minimalValueSerializersModule: SerializersModule = SerializersModule {
-    polymorphic(NbtTag::class) {
-        defaultDeserializer { NbtString.serializer() }
-    }
-}
+private val minimalNbtTags: List<NbtTag> = listOf(
+    NbtString("minecraft:test"),
+    NbtCompound(emptyMap()),
+    NbtList(emptyList()),
+    NbtByte(1),
+    NbtShort(1),
+    NbtInt(1),
+    NbtLong(1),
+    NbtFloat(1.0f),
+    NbtDouble(1.0),
+    NbtByteArray(byteArrayOf(1)),
+    NbtIntArray(intArrayOf(1)),
+    NbtLongArray(longArrayOf(1)),
+    NbtEnd,
+)
+
+private val minimalValueSerializersModule: SerializersModule =
+    EmptySerializersModule()

@@ -45,6 +45,8 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            api(project(":nbt"))
+            api(project(":nbt-serialization"))
             api(project(":world-format"))
             api(libs.kotlinx.io.core)
             implementation(libs.kotlinx.coroutines.core)

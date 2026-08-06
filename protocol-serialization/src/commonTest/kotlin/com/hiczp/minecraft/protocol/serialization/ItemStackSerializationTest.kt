@@ -1,5 +1,8 @@
 package com.hiczp.minecraft.protocol.serialization
 
+import com.hiczp.minecraft.nbt.NbtCompound
+import com.hiczp.minecraft.nbt.NbtInt
+import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.SerializationException
 import kotlin.test.Test

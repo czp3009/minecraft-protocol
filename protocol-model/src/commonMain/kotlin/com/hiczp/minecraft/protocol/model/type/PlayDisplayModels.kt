@@ -2,6 +2,7 @@
 
 package com.hiczp.minecraft.protocol.model.type
 
+import com.hiczp.minecraft.nbt.NbtTag
 import com.hiczp.minecraft.protocol.model.wire.*
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer

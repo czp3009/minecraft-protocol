@@ -2,13 +2,16 @@
 
 package com.hiczp.minecraft.protocol.serialization.internal
 
-import com.hiczp.minecraft.protocol.model.type.NbtCompound
-import com.hiczp.minecraft.protocol.model.type.NbtEnd
+import com.hiczp.minecraft.nbt.NbtEnd
+import com.hiczp.minecraft.nbt.NbtTag
+import com.hiczp.minecraft.nbt.NbtTagDecoder
+import com.hiczp.minecraft.nbt.NbtTagSerializer
 import com.hiczp.minecraft.protocol.model.wire.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftFormatConfiguration
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.encoding.CompositeDecoder
@@ -20,7 +23,7 @@ internal class MinecraftDecoder(
     private val reader: MinecraftReader,
     private val configuration: MinecraftFormatConfiguration,
     override val serializersModule: SerializersModule,
-) : Decoder, CompositeDecoder {
+) : Decoder, CompositeDecoder, NbtTagDecoder {
     private val nbtCodec: NbtBinaryCodec = NbtBinaryCodec(configuration)
     private val frames: MutableList<Frame> = mutableListOf()
     private var pendingHints: List<Annotation> = emptyList()
@@ -176,6 +179,8 @@ internal class MinecraftDecoder(
 
     override fun decodeInline(descriptor: SerialDescriptor): Decoder = this
 
+    override fun decodeNbtTag(): NbtTag = nbtCodec.readAny(reader)
+
     override fun decodeBooleanElement(
         descriptor: SerialDescriptor,
         index: Int,
@@ -246,22 +251,16 @@ internal class MinecraftDecoder(
     ): T {
         return when {
             pendingHints.any { it is NetworkNbt } -> {
-                val value = nbtCodec.readUnnamed(reader)
-                if (deserializer.descriptor.serialName == NBT_COMPOUND_SERIAL_NAME &&
-                    value !is NbtCompound
-                ) {
+                if (deserializer !is NbtTagSerializer<*>) {
                     throw MinecraftSerializationException(
-                        "Expected an NBT compound, got ${value::class.simpleName}",
+                        "@NetworkNbt can only be used with an NbtTag subtype",
                     )
                 }
-                @Suppress("UNCHECKED_CAST")
-                (value as T)
+                decodeWithNbtSerializer(deserializer)
             }
 
-            isNbtDescriptor(deserializer.descriptor) -> {
-                @Suppress("UNCHECKED_CAST")
-                (nbtCodec.readUnnamed(reader) as T)
-            }
+            deserializer is NbtTagSerializer<*> ->
+                decodeWithNbtSerializer(deserializer)
 
             isUuidDescriptor(deserializer.descriptor) -> {
                 @Suppress("UNCHECKED_CAST")
@@ -366,28 +365,24 @@ internal class MinecraftDecoder(
                     ((encoded - 1) as T)
                 }
             } else if (hints.any { it is NbtEndOptional }) {
-                val networkNbt = hints.any { it is NetworkNbt }
-                if (!isNbtDescriptor(deserializer.descriptor) && !networkNbt) {
+                if (deserializer !is NbtTagSerializer<*>) {
                     throw MinecraftSerializationException(
                         "@NbtEndOptional can only be used with NbtTag",
                     )
                 }
-                val value = nbtCodec.readUnnamed(reader)
+                val value = nbtCodec.readAny(reader)
                 if (value === NbtEnd) {
                     null
                 } else {
-                    if (
-                        networkNbt &&
-                        deserializer.descriptor.serialName ==
-                        NBT_COMPOUND_SERIAL_NAME &&
-                        value !is NbtCompound
-                    ) {
+                    @Suppress("UNCHECKED_CAST")
+                    try {
+                        (deserializer.deserializeTag(value) as T)
+                    } catch (exception: SerializationException) {
                         throw MinecraftSerializationException(
-                            "Expected an NBT Compound, got ${value::class.simpleName}",
+                            "Cannot decode packet NBT: ${exception.message}",
+                            exception,
                         )
                     }
-                    @Suppress("UNCHECKED_CAST")
-                    (value as T)
                 }
             } else {
                 decodeNullableSerializableValue(deserializer)
@@ -510,8 +505,19 @@ internal class MinecraftDecoder(
         return result
     }
 
-    private fun isNbtDescriptor(descriptor: SerialDescriptor): Boolean =
-        descriptor.serialName == NBT_SERIAL_NAME
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> decodeWithNbtSerializer(
+        deserializer: DeserializationStrategy<T>,
+    ): T = try {
+        deserializer.deserialize(this)
+    } catch (exception: MinecraftSerializationException) {
+        throw exception
+    } catch (exception: SerializationException) {
+        throw MinecraftSerializationException(
+            "Cannot decode packet NBT: ${exception.message}",
+            exception,
+        )
+    }
 
     private fun isVector3dDescriptor(descriptor: SerialDescriptor): Boolean =
         descriptor.serialName == VECTOR_3D_SERIAL_NAME
@@ -539,9 +545,6 @@ internal class MinecraftDecoder(
 
     private companion object {
         const val DEFAULT_STRING_MAXIMUM: Int = 32_767
-        const val NBT_SERIAL_NAME: String =
-            "com.hiczp.minecraft.protocol.model.type.NbtTag"
-        const val NBT_COMPOUND_SERIAL_NAME: String = "compound"
         const val VECTOR_3D_SERIAL_NAME: String =
             "com.hiczp.minecraft.protocol.model.type.Vector3d"
         const val PALETTED_CONTAINER_SERIAL_NAME: String =

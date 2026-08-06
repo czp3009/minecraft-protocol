@@ -5,7 +5,8 @@ Format-independent Kotlin models for Minecraft Java Edition packet payloads and 
 The module provides:
 
 - packet marker interfaces grouped by connection state and direction;
-- structured values for NBT, items, chunks, chat, commands, entities, registries, recipes, and other packet fields;
+- structured values for items, chunks, chat, commands, entities, registries, recipes, and other packet fields;
+- an API dependency on the standalone `nbt` value algebra for packet fields that carry raw NBT;
 - sealed variants and logical `kotlinx.serialization` serializers for conditional protocol shapes;
 - wire-hint annotations interpreted by `protocol-serialization`.
 

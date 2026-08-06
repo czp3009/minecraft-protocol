@@ -1,7 +1,11 @@
 package com.hiczp.minecraft.protocol.data
 
+import com.hiczp.minecraft.nbt.NbtByte
+import com.hiczp.minecraft.nbt.NbtCompound
+import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
-import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.protocol.model.type.Identifier
+import com.hiczp.minecraft.protocol.model.type.RegistryEntry
 
 /**
  * The vertical layout and lighting context needed to encode/decode chunks in

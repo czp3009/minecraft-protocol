@@ -1,12 +1,12 @@
 package com.hiczp.minecraft.protocol.serialization
 
+import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.ConfigurationCustomClickActionPacket
 import com.hiczp.minecraft.protocol.model.packet.HandshakeNextState
 import com.hiczp.minecraft.protocol.model.packet.HandshakePacket
 import com.hiczp.minecraft.protocol.model.packet.LegacyServerListPingPacket
 import com.hiczp.minecraft.protocol.model.type.Identifier
-import com.hiczp.minecraft.protocol.model.type.NbtString
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals

@@ -2,8 +2,10 @@
 
 package com.hiczp.minecraft.protocol.serialization.internal
 
-import com.hiczp.minecraft.protocol.model.type.NbtEnd
-import com.hiczp.minecraft.protocol.model.type.NbtTag
+import com.hiczp.minecraft.nbt.NbtEnd
+import com.hiczp.minecraft.nbt.NbtTag
+import com.hiczp.minecraft.nbt.NbtTagEncoder
+import com.hiczp.minecraft.nbt.NbtTagSerializer
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer
 import com.hiczp.minecraft.protocol.model.type.Vector3d
 import com.hiczp.minecraft.protocol.model.wire.*
@@ -24,7 +26,7 @@ internal class MinecraftEncoder(
     private val writer: MinecraftWriter,
     private val configuration: MinecraftFormatConfiguration,
     override val serializersModule: SerializersModule,
-) : AbstractEncoder() {
+) : AbstractEncoder(), NbtTagEncoder {
     private val nbtCodec: NbtBinaryCodec = NbtBinaryCodec(configuration)
     private val frames: MutableList<Frame> = mutableListOf()
     private var pendingHints: List<Annotation> = emptyList()
@@ -180,6 +182,10 @@ internal class MinecraftEncoder(
 
     override fun encodeInline(descriptor: SerialDescriptor): Encoder = this
 
+    override fun encodeNbtTag(value: NbtTag) {
+        nbtCodec.writeAny(writer, value)
+    }
+
     override fun <T> encodeSerializableElement(
         descriptor: SerialDescriptor,
         index: Int,
@@ -211,7 +217,7 @@ internal class MinecraftEncoder(
         value: T,
     ) {
         when {
-            value is NbtTag -> nbtCodec.writeUnnamed(writer, value)
+            serializer is NbtTagSerializer<*> -> serializer.serialize(this, value)
             value is Uuid -> writer.write(value.toByteArray())
             pendingHints.any { it is NetworkNbt } -> {
                 throw MinecraftSerializationException(
@@ -303,15 +309,14 @@ internal class MinecraftEncoder(
                 writer.writeVarInt(id?.plus(1) ?: 0)
             } else if (hints.any { it is NbtEndOptional }) {
                 if (
-                    !isNbtDescriptor(serializer.descriptor) &&
-                    hints.none { it is NetworkNbt }
+                    serializer !is NbtTagSerializer<*>
                 ) {
                     throw MinecraftSerializationException(
                         "@NbtEndOptional can only be used with NbtTag",
                     )
                 }
                 if (value == null) {
-                    nbtCodec.writeUnnamed(writer, NbtEnd)
+                    nbtCodec.writeAny(writer, NbtEnd)
                 } else {
                     encodeSerializableValue(serializer, value)
                 }
@@ -373,9 +378,6 @@ internal class MinecraftEncoder(
                 (frames.lastOrNull()?.elementHints ?: emptyList())
     }
 
-    private fun isNbtDescriptor(descriptor: SerialDescriptor): Boolean =
-        descriptor.serialName == NBT_SERIAL_NAME
-
     private fun isByteArrayDescriptor(descriptor: SerialDescriptor): Boolean =
         descriptor.serialName == BYTE_ARRAY_SERIAL_NAME
 
@@ -397,8 +399,6 @@ internal class MinecraftEncoder(
 
     private companion object {
         const val DEFAULT_STRING_MAXIMUM: Int = 32_767
-        const val NBT_SERIAL_NAME: String =
-            "com.hiczp.minecraft.protocol.model.type.NbtTag"
         const val BYTE_ARRAY_SERIAL_NAME: String = "kotlin.ByteArray"
     }
 

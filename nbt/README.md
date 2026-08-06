@@ -1,18 +1,19 @@
 # nbt
 
-Portable binary Named Binary Tag encoding and decoding over
-`kotlinx.io.Source` and `Sink`.
+Portable, format-independent Java Edition Named Binary Tag values.
 
-`NbtBinaryFormat` supports unnamed packet values, named values, compound-root documents, byte-array conveniences, Java
-modified UTF, and configurable depth, allocation, string, and total-byte limits. Byte-array decoders reject trailing
-input; stream decoders consume exactly one value.
+The module provides all 13 NBT tag variants, `NamedNbtTag`, compound-root `NbtDocument`, immutable container snapshots,
+and logical serializers that hand raw trees directly to NBT-aware formats. Minecraft 26.2 mixed logical lists are
+represented directly; their physical compound wrappers are not model state.
 
-The NBT value algebra remains in `protocol-model` because packet models and world files share it.
+`nbt` is independently consumable. Its only production dependency is `kotlinx-serialization-core`; consumers that need
+NBT values or raw-tree serializer handoff do not need `nbt-serialization`, any protocol module, or any world module.
+
+Binary grammar, Java modified UTF, root framing, limits, and `kotlinx.io` APIs live in
+[`nbt-serialization`](../nbt-serialization/README.md).
 
 ```kotlin
 val document = NbtDocument(
-    root = NbtCompound(mapOf("DataVersion" to NbtInt(dataVersion))),
+    NbtCompound(mapOf("DataVersion" to NbtInt(dataVersion))),
 )
-val bytes = NbtBinaryFormat.encodeDocumentToByteArray(document)
-val decoded = NbtBinaryFormat.decodeDocumentFromByteArray(bytes)
 ```

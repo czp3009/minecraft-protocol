@@ -1,5 +1,7 @@
 package com.hiczp.minecraft.protocol.model
 
+import com.hiczp.minecraft.nbt.NbtCompound
+import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.protocol.model.packet.BundleItemSelectedPacket
 import com.hiczp.minecraft.protocol.model.packet.PlayerChatMessagePacket
 import com.hiczp.minecraft.protocol.model.type.*

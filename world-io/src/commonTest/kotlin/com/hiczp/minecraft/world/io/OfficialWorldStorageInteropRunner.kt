@@ -1,6 +1,6 @@
 package com.hiczp.minecraft.world.io
 
-import com.hiczp.minecraft.protocol.model.type.NbtCompound
+import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.test.MinecraftTestSupport
 import com.hiczp.minecraft.test.OfficialMinecraftServer
 import com.hiczp.minecraft.test.OfficialMinecraftServerConfiguration

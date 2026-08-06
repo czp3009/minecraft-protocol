@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.protocol.serialization
 
+import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlin.uuid.Uuid
 

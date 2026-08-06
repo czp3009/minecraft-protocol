@@ -1,5 +1,7 @@
 package com.hiczp.minecraft.protocol.serialization
 
+import com.hiczp.minecraft.nbt.NbtCompound
+import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlin.test.Test
@@ -127,7 +129,7 @@ class PlayClientboundWorldPacketTest {
         assertFailsWith<MinecraftSerializationException> {
             MinecraftFormat.decodeFromByteArray(
                 BlockEntityDataPacket.serializer(),
-                // Position, type ID, then an unnamed NBT Int instead of Compound.
+                // Position, type ID, then a no-name NBT Int instead of Compound.
                 "0000000000000000010300000000".hexToByteArray(),
             )
         }

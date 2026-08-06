@@ -50,7 +50,7 @@ kotlin {
         commonMain.dependencies {
             implementation(project(":compression"))
             api(libs.ktor.network)
-            implementation(libs.ktor.utils)
+            api(libs.ktor.utils)
             implementation(libs.kotlinx.coroutines.core)
         }
 

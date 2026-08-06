@@ -6,7 +6,7 @@ Use this reference to turn an exact release or storage request into a concrete i
 
 Inspect the selected official implementation for the affected behavior:
 
-- binary NBT input, output, named roots, modified UTF, accounting, and compressed-file helpers;
+- the NBT value algebra, binary input/output, root forms, modified UTF, accounting, and compressed-file composition;
 - region headers, sector allocation, compression registration, external sidecars, and storage-cache behavior;
 - chunk, entity, and POI region handling;
 - dimension resource-key to filesystem-path resolution;
@@ -19,8 +19,8 @@ the first inputs. Manual decompilation is used only when those inputs do not exp
 ## Dependency order
 
 1. `compression` raw DEFLATE;
-2. the NBT value algebra in `protocol-model` when a shared value changes;
-3. `nbt` binary streams;
+2. `nbt` value algebra and logical serializer handoff;
+3. `nbt-serialization` tree conversion and binary streams;
 4. `world-format` coordinates, containers, compression dispatch, external chunks, and NBT composition;
 5. `world-io` paths, standalone files, atomic replacement, and region directories;
 6. official world interoperability;
@@ -31,6 +31,7 @@ the first inputs. Manual decompilation is used only when those inputs do not exp
 ```shell
 ./gradlew :compression:jvmTest
 ./gradlew :nbt:jvmTest
+./gradlew :nbt-serialization:jvmTest
 ./gradlew :world-format:jvmTest
 ./gradlew :world-io:jvmTest
 ```

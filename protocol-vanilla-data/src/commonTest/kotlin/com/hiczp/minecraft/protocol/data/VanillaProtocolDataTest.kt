@@ -1,7 +1,13 @@
 package com.hiczp.minecraft.protocol.data
 
+import com.hiczp.minecraft.nbt.NbtByte
+import com.hiczp.minecraft.nbt.NbtCompound
+import com.hiczp.minecraft.nbt.NbtInt
+import com.hiczp.minecraft.nbt.NbtTag
 import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
-import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.protocol.model.type.Identifier
+import com.hiczp.minecraft.protocol.model.type.KnownPack
+import com.hiczp.minecraft.protocol.model.type.RegistryEntry
 import kotlin.test.*
 
 class VanillaProtocolDataTest {

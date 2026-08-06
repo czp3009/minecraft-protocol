@@ -1,11 +1,7 @@
 package com.hiczp.minecraft.world.format
 
-import com.hiczp.minecraft.nbt.NbtBinaryFormat
-import com.hiczp.minecraft.nbt.NbtDocument
-import com.hiczp.minecraft.protocol.model.type.NbtCompound
-import com.hiczp.minecraft.protocol.model.type.NbtInt
-import com.hiczp.minecraft.protocol.model.type.NbtList
-import com.hiczp.minecraft.protocol.model.type.NbtString
+import com.hiczp.minecraft.nbt.*
+import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.Buffer
 import kotlin.random.Random
@@ -378,7 +374,6 @@ class RegionFileFormatTest {
     fun loadsChunkNbtFromRegionBytesAndStreamsWithoutFilesystem() = runTest {
         val position = LocalChunkPosition(7, 11)
         val document = NbtDocument(
-            rootName = "",
             root = NbtCompound(
                 mapOf(
                     "DataVersion" to NbtInt(4_000),
@@ -961,7 +956,7 @@ class RegionFileFormatTest {
     }
 
     private fun nbtBinaryFormatBytes(): ByteArray =
-        NbtBinaryFormat.encodeDocumentToByteArray(
+        NbtFormat.encodeDocumentToByteArray(
             NbtDocument(
                 NbtCompound(mapOf("value" to NbtInt(1))),
             ),

@@ -3,8 +3,8 @@
 Filesystem-independent Minecraft Anvil region support.
 
 The module models absolute, region, and local chunk coordinates; parses and packs region headers and sectors; preserves
-compressed payloads; represents external `.mcc` chunks explicitly; and composes compression with named-root NBT when
-requested.
+compressed payloads; represents external `.mcc` chunks explicitly; and composes compression with compound-document NBT
+when requested. NBT values come from `nbt`, while document bytes are delegated to `nbt-serialization`.
 
 All vanilla region compression registrations are supported. LZ4 uses the legacy lz4-java block stream used by the
 official server, not the standard LZ4 frame format. Custom compression can be supplied through

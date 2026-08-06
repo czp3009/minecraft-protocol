@@ -5,6 +5,8 @@
 
 package com.hiczp.minecraft.protocol.model.type
 
+import com.hiczp.minecraft.nbt.NbtCompound
+import com.hiczp.minecraft.nbt.NbtList
 import com.hiczp.minecraft.protocol.model.wire.*
 import kotlinx.serialization.*
 import kotlinx.serialization.descriptors.SerialDescriptor

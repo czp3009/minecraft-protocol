@@ -1,5 +1,9 @@
 package com.hiczp.minecraft.protocol.serialization
 
+import com.hiczp.minecraft.nbt.NbtCompound
+import com.hiczp.minecraft.nbt.NbtDouble
+import com.hiczp.minecraft.nbt.NbtFloat
+import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.type.GameMode

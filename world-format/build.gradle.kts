@@ -61,6 +61,7 @@ kotlin {
         commonMain.dependencies {
             implementation(project(":compression"))
             api(project(":nbt"))
+            api(project(":nbt-serialization"))
             api(libs.kotlinx.io.core)
         }
 

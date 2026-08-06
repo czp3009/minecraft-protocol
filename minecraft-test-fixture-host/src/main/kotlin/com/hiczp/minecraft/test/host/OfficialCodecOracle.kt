@@ -19,6 +19,7 @@ internal object OfficialCodecOracle {
     suspend fun verify(
         fixtures: JsonElement,
         loggingConfiguration: Path,
+        methodName: String,
     ) {
         val runtime = officialServerRuntime()
 
@@ -63,7 +64,7 @@ internal object OfficialCodecOracle {
                     true,
                     loader,
                 )
-                val method = oracle.getMethod("run", String::class.java)
+                val method = oracle.getMethod(methodName, String::class.java)
                 try {
                     method.invoke(
                         null,

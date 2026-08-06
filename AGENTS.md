@@ -9,7 +9,8 @@ local ownership, invariants, and verification requirements.
 Published runtime code is divided by responsibility:
 
 - `compression` owns portable raw DEFLATE.
-- `nbt` owns binary NBT streams; the shared NBT value algebra remains in `protocol-model`.
+- `nbt` owns the shared NBT value algebra and logical raw-tag serializer handoff.
+- `nbt-serialization` owns physical binary NBT streams and the NBT `kotlinx.serialization` format.
 - `protocol-model` owns format-independent packet payloads, shared values, logical serializers, and wire annotations.
 - `protocol-serialization` owns physical Minecraft encodings and the runtime packet registry.
 - `protocol-vanilla-data` owns generated, version-matched protocol data.
@@ -39,6 +40,30 @@ generators, launchers, process scaffolding, and test entry points stay in their 
 
 Gameplay, authoritative ticking worlds, persistence policy, permissions, and a general Minecraft server are outside the
 library's scope.
+
+### Published-module consumption
+
+Every published runtime module is an independently consumable library entry point. A consumer may select only that
+module and the lower-level modules required by its documented API; using a module must not require the repository's
+complete runtime stack or bring unrelated protocol, world, client/server, generator, fixture, or test infrastructure
+onto the consumer classpath.
+
+- Keep the published project graph acyclic and directed from orchestration toward narrower capabilities. Do not add
+  convenience dependencies that reverse a boundary, create a cycle, or turn a focused module into an implicit bundle.
+- Declare a dependency as `api` only when its types are part of the module's public/protected ABI or its documented
+  public contract requires consumers to interact with that dependency directly. All other runtime dependencies are
+  `implementation`; test and generation dependencies remain on their dedicated configurations.
+- Public declarations must work for an external consumer with the dependency metadata Gradle publishes. They must not
+  rely on an implementation-only type, repository-only generated state, another module's test fixtures, or implicit
+  initialization performed by an in-repository application.
+- A higher-level module may use lower-level types directly in its public API when that is the natural contract; do not
+  invent wrappers merely to conceal a valid downward dependency. It may expose several lower layers when orchestration
+  is its stated responsibility, but lower layers never depend back on it and sibling capabilities are not exposed unless
+  the API actually requires them. Split reusable capabilities at the owning boundary instead of adding an aggregator
+  dependency.
+- Architecture verification includes inspecting public signatures, published dependency scopes, and production runtime
+  classpaths, plus an external-consumer smoke test when metadata inspection alone cannot prove standalone use. Passing
+  the repository's internal test graph is not sufficient evidence of independent consumption.
 
 ## Kotlin Multiplatform implementation
 

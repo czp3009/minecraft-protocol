@@ -4,6 +4,10 @@ import com.google.gson.Gson;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HexFormat;
@@ -32,6 +36,10 @@ import net.minecraft.network.protocol.game.GameProtocols;
 import net.minecraft.network.protocol.handshake.HandshakeProtocols;
 import net.minecraft.network.protocol.login.LoginProtocols;
 import net.minecraft.network.protocol.status.StatusProtocols;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtAccounter;
+import net.minecraft.nbt.NbtIo;
+import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.Bootstrap;
 
@@ -108,6 +116,113 @@ public final class OfficialCodecOracle {
                     )
             );
         }
+    }
+
+    /** Cross-reads NBT bytes with the matching vanilla NbtIo root method. */
+    public static void runNbt(String fixturesJson) throws Exception {
+        List<NbtFixture> fixtures = readNbtFixtures(fixturesJson);
+        Set<String> fixtureNames = new HashSet<>();
+        for (NbtFixture fixture : fixtures) {
+            String identity = "%s/%s".formatted(fixture.mode(), fixture.sample());
+            if (!fixtureNames.add(identity)) {
+                throw new IllegalArgumentException(
+                        "Duplicate NBT fixture sample %s".formatted(identity)
+                );
+            }
+        }
+
+        List<String> failures = new ArrayList<>();
+        for (NbtFixture fixture : fixtures) {
+            try {
+                byte[] encoded = passThroughOfficialNbt(
+                        fixture.mode(),
+                        fixture.payload()
+                );
+                if (fixture.reject()) {
+                    failures.add(
+                            "%s/%s: vanilla accepted a rejected fixture".formatted(
+                                    fixture.mode(),
+                                    fixture.sample()
+                            )
+                    );
+                    continue;
+                }
+                byte[] expected = fixture.exactBytes()
+                        ? fixture.expected()
+                        : passThroughOfficialNbt(
+                                fixture.mode(),
+                                fixture.expected()
+                        );
+                if (!Arrays.equals(expected, encoded)) {
+                    throw new AssertionError(
+                            "Vanilla encoded %s, expected %s".formatted(
+                                    HexFormat.of().formatHex(encoded),
+                                    HexFormat.of().formatHex(expected)
+                            )
+                    );
+                }
+            } catch (Throwable error) {
+                if (!fixture.reject() || !(error instanceof Exception)) {
+                    failures.add(
+                            "%s/%s: %s".formatted(
+                                    fixture.mode(),
+                                    fixture.sample(),
+                                    conciseError(error)
+                            )
+                    );
+                }
+            }
+        }
+        if (!failures.isEmpty()) {
+            String details = failures.stream()
+                    .limit(MAX_REPORTED_FAILURES)
+                    .map(failure -> "- %s".formatted(failure))
+                    .collect(Collectors.joining("\n"));
+            String omitted =
+                    failures.size() > MAX_REPORTED_FAILURES
+                            ? "\n- ... %d additional failure(s) omitted".formatted(
+                                    failures.size() - MAX_REPORTED_FAILURES
+                            )
+                            : "";
+            throw new AssertionError(
+                    "Official NBT codec rejected %d fixture(s):\n%s%s".formatted(
+                            failures.size(),
+                            details,
+                            omitted
+                    )
+            );
+        }
+    }
+
+    private static byte[] passThroughOfficialNbt(
+            NbtRootMode mode,
+            byte[] payload
+    ) throws Exception {
+        ByteArrayInputStream storage = new ByteArrayInputStream(payload);
+        DataInputStream input = new DataInputStream(storage);
+        ByteArrayOutputStream outputStorage = new ByteArrayOutputStream();
+        DataOutputStream output = new DataOutputStream(outputStorage);
+        switch (mode) {
+            case ANY -> {
+                Tag tag = NbtIo.readAnyTag(input, NbtAccounter.unlimitedHeap());
+                NbtIo.writeAnyTag(tag, output);
+            }
+            case UNNAMED -> {
+                Tag tag = NbtIo.readUnnamedTag(input, NbtAccounter.unlimitedHeap());
+                NbtIo.writeUnnamedTag(tag, output);
+            }
+            case DOCUMENT -> {
+                CompoundTag tag = NbtIo.read(input, NbtAccounter.unlimitedHeap());
+                NbtIo.write(tag, output);
+            }
+        }
+        if (storage.available() != 0) {
+            throw new IllegalStateException(
+                    "Vanilla left %d unread NBT bytes".formatted(storage.available())
+            );
+        }
+        output.flush();
+        return outputStorage.toByteArray();
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -253,6 +368,30 @@ public final class OfficialCodecOracle {
         return fixtures;
     }
 
+    private static List<NbtFixture> readNbtFixtures(String fixturesJson) {
+        NbtFixtureInput[] inputs = GSON.fromJson(
+                fixturesJson,
+                NbtFixtureInput[].class
+        );
+        if (inputs == null || inputs.length == 0) {
+            throw new IllegalArgumentException("NBT fixtures are empty");
+        }
+        List<NbtFixture> fixtures = new ArrayList<>(inputs.length);
+        for (NbtFixtureInput input : inputs) {
+            fixtures.add(
+                    new NbtFixture(
+                            NbtRootMode.valueOf(input.mode().toUpperCase()),
+                            input.sample(),
+                            HexFormat.of().parseHex(input.payloadHex()),
+                            HexFormat.of().parseHex(input.expectedHex()),
+                            input.exactBytes(),
+                            input.reject()
+                    )
+            );
+        }
+        return fixtures;
+    }
+
     private static String normalizeId(String value) {
         int parsed = parseId(value);
         return "0x%s".formatted(Integer.toHexString(parsed).toUpperCase());
@@ -305,6 +444,32 @@ public final class OfficialCodecOracle {
             String kotlinClass,
             String sample,
             byte[] payload
+    ) {
+    }
+
+    private enum NbtRootMode {
+        ANY,
+        UNNAMED,
+        DOCUMENT
+    }
+
+    private record NbtFixtureInput(
+            String mode,
+            String sample,
+            String payloadHex,
+            String expectedHex,
+            boolean exactBytes,
+            boolean reject
+    ) {
+    }
+
+    private record NbtFixture(
+            NbtRootMode mode,
+            String sample,
+            byte[] payload,
+            byte[] expected,
+            boolean exactBytes,
+            boolean reject
     ) {
     }
 }

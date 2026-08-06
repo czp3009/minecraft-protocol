@@ -1,7 +1,7 @@
 package com.hiczp.minecraft.world.io
 
-import com.hiczp.minecraft.nbt.NbtBinaryFormat
 import com.hiczp.minecraft.nbt.NbtDocument
+import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.world.format.RegionCompression
 import com.hiczp.minecraft.world.format.RegionCompressionCodecs
 import kotlinx.coroutines.sync.Mutex
@@ -28,10 +28,10 @@ data class NbtFileStoreConfiguration(
     }
 }
 
-/** Reads and atomically writes standalone named-root NBT files. */
+/** Reads and atomically writes standalone compound-document NBT files. */
 class NbtFileStore(
     val fileSystem: FileSystem = SystemFileSystem,
-    val nbt: NbtBinaryFormat = NbtBinaryFormat,
+    val nbt: NbtFormat = NbtFormat,
     val compressionCodecs: RegionCompressionCodecs =
         RegionCompressionCodecs,
     val configuration: NbtFileStoreConfiguration =

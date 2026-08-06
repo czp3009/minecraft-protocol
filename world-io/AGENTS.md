@@ -6,6 +6,8 @@ the stream modules and do not receive a partial filesystem implementation.
 ## Invariants
 
 - Common production code contains no Java or platform filesystem APIs.
+- Standalone NBT stores compose `nbt-serialization` with compression and filesystem policy; byte grammar remains in the
+  serialization module.
 - Current paths derive from official resource constants and migration code; historical paths remain explicit API
   variants.
 - Region updates commit new external payloads before headers and remove obsolete sidecars after the region commit.

@@ -1,7 +1,7 @@
 package com.hiczp.minecraft.world.format
 
-import com.hiczp.minecraft.nbt.NbtBinaryFormat
 import com.hiczp.minecraft.nbt.NbtDocument
+import com.hiczp.minecraft.nbt.serialization.NbtFormat
 
 data class RegionChunkNbtFormatConfiguration(
     val maximumDecompressedChunkBytes: Int = 256 * 1_048_576,
@@ -12,11 +12,11 @@ data class RegionChunkNbtFormatConfiguration(
 }
 
 /**
- * Composes region compression with named-root NBT while keeping both
+ * Composes region compression with compound-document NBT while keeping both
  * independently reusable.
  */
 class RegionChunkNbtFormat(
-    val nbt: NbtBinaryFormat = NbtBinaryFormat,
+    val nbt: NbtFormat = NbtFormat,
     val compressionCodecs: RegionCompressionCodecs =
         RegionCompressionCodecs,
     val configuration: RegionChunkNbtFormatConfiguration =

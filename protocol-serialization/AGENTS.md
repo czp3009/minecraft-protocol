@@ -5,7 +5,9 @@ adapter built from generated packet definitions.
 
 ## Ownership
 
-- `internal` contains physical primitive, NBT, palette, and wire-hint implementations.
+- `internal` contains physical primitive, palette, wire-hint, and packet-NBT adapter implementations.
+- Packet NBT delegates the no-name any-tag grammar to `nbt-serialization`; this module does not duplicate NBT tag IDs,
+  modified UTF, list wrapping, or NBT limits.
 - Packet models, logical variants, and identities remain in `protocol-model`.
 - Production framing, compression, encryption, and sockets enter through `protocol-transport`, not serialization.
 - Configuration capture and data-to-source generation remain in `protocol-vanilla-data` and `buildSrc`; this module has

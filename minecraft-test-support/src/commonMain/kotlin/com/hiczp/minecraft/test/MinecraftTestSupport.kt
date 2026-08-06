@@ -128,6 +128,12 @@ object MinecraftTestSupport {
         }
     }
 
+    suspend fun verifyOfficialNbt(fixtures: JsonElement) {
+        withClosingServiceClient { client ->
+            client.verifyOfficialNbt(fixtures)
+        }
+    }
+
     private suspend fun serviceClient(): MinecraftTestSupportServiceClient =
         serviceClientMutex.withLock {
             currentServiceClient

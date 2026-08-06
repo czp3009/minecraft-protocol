@@ -34,7 +34,8 @@ inline fun KotlinMultiplatformExtension.useMinecraftTestFixtures(
     owningProject.tasks.withType(AbstractTestTask::class.java).configureEach { task ->
         if (
             task.name.startsWith("wasmWasi", ignoreCase = true) ||
-            task.name.endsWith("BrowserTest", ignoreCase = true)
+            task.name.endsWith("BrowserTest", ignoreCase = true) ||
+            task.name.endsWith("D8Test", ignoreCase = true)
         ) {
             task.filter.excludeTestsMatching("*Official*")
         } else {

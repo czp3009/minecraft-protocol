@@ -2,6 +2,9 @@
 
 This module owns format-independent packet payloads and shared protocol values.
 
+Shared NBT values come from the `nbt` API dependency. Protocol-only wrappers such as `TextComponent` and wire hints such
+as `NetworkNbt` remain here; NBT tag declarations and binary grammar do not.
+
 ## Source structure
 
 - `model.packet` contains packet declarations and `@PacketInfo` protocol identities.

@@ -1,9 +1,9 @@
 package com.hiczp.minecraft.world.io
 
+import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtDocument
-import com.hiczp.minecraft.protocol.model.type.NbtCompound
-import com.hiczp.minecraft.protocol.model.type.NbtInt
-import com.hiczp.minecraft.protocol.model.type.NbtString
+import com.hiczp.minecraft.nbt.NbtInt
+import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -497,7 +497,6 @@ class WorldFileStoreTest {
                                 "payload" to NbtString("x".repeat(8_192)),
                             ),
                         ),
-                        rootName = "root",
                     )
                 }
                 val store = NbtFileStore()
@@ -654,7 +653,6 @@ class WorldFileStoreTest {
 
     private fun sampleDocument(): NbtDocument =
         NbtDocument(
-            rootName = "",
             root = NbtCompound(
                 linkedMapOf(
                     "DataVersion" to NbtInt(4_000),

@@ -115,6 +115,7 @@ kotlin {
             )
             dependencies {
                 api(project(":protocol-model"))
+                implementation(project(":nbt"))
                 implementation(project(":protocol-serialization"))
                 implementation(libs.kotlinx.serialization.json)
             }

@@ -1,5 +1,7 @@
 package com.hiczp.minecraft.protocol.server
 
+import com.hiczp.minecraft.nbt.NbtCompound
+import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.protocol.auth.*
 import com.hiczp.minecraft.protocol.client.MinecraftClientProtocol
 import com.hiczp.minecraft.protocol.client.MinecraftOnlineIdentity

@@ -1,6 +1,8 @@
 package com.hiczp.minecraft.protocol.serialization
 
-import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.nbt.*
+import com.hiczp.minecraft.protocol.model.type.ByteString
+import com.hiczp.minecraft.protocol.model.type.Vector3d
 import com.hiczp.minecraft.protocol.model.wire.*
 import kotlinx.serialization.Serializable
 import kotlin.random.Random

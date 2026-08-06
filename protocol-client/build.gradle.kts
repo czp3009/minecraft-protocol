@@ -57,12 +57,14 @@ kotlin {
             api(project(":protocol-transport"))
             api(project(":protocol-auth"))
             api(libs.ktor.network)
+            api(libs.ktor.utils)
             implementation(project(":protocol-vanilla-data"))
             implementation(libs.kotlinx.coroutines.core)
         }
 
         commonTest.dependencies {
             implementation(kotlin("test"))
+            implementation(project(":nbt"))
             implementation(project(":minecraft-test-support"))
             implementation(libs.kotlinx.coroutines.test)
             implementation(libs.kotlinx.serialization.json)

@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.protocol.model.packet
 
+import com.hiczp.minecraft.nbt.NbtTag
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.wire.*
 import kotlinx.serialization.Serializable

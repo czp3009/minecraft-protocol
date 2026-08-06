@@ -2,6 +2,8 @@
 
 package com.hiczp.minecraft.protocol.model.type
 
+import com.hiczp.minecraft.nbt.NbtCompound
+import com.hiczp.minecraft.nbt.NbtTag
 import com.hiczp.minecraft.protocol.model.wire.MaxCollectionSize
 import com.hiczp.minecraft.protocol.model.wire.NetworkNbt
 import com.hiczp.minecraft.protocol.model.wire.VarInt
