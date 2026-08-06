@@ -151,11 +151,11 @@ class PlayClientboundGamePacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
         )
     }
 }

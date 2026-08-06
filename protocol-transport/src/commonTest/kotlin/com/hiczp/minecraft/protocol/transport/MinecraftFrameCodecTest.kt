@@ -1,10 +1,44 @@
 package com.hiczp.minecraft.protocol.transport
 
 import kotlinx.coroutines.test.runTest
+import kotlinx.io.Buffer
+import kotlinx.io.readByteArray
 import kotlin.random.Random
 import kotlin.test.*
 
 class MinecraftFrameCodecTest {
+    @Test
+    fun streamingMethodsRespectCallerProvidedBoundaries() {
+        val packetData = ByteArray(32_768) { index ->
+            (index * 29 + index / 7).toByte()
+        }
+        for (threshold in listOf<Int?>(null, 0, packetData.size + 1)) {
+            val codec = MinecraftFrameCodec()
+            codec.configureCompression(threshold)
+            val packetSource = Buffer().apply {
+                write(packetData)
+                writeByte(0x5A)
+            }
+            val frame = Buffer()
+
+            codec.encodeFrameToSink(
+                packetSource,
+                packetData.size,
+                frame,
+            )
+
+            assertEquals(0x5A, packetSource.readByte().toInt() and 0xFF)
+            val framedSource = Buffer().apply {
+                write(frame, frame.size)
+                writeByte(0x6B)
+            }
+            val decoded = Buffer()
+            codec.decodeFrameToSink(framedSource, decoded)
+            assertContentEquals(packetData, decoded.readByteArray())
+            assertEquals(0x6B, framedSource.readByte().toInt() and 0xFF)
+        }
+    }
+
     @Test
     fun compressiblePacketMayExceedTheCompressedFrameCeiling() = runTest {
         val codec = MinecraftFrameCodec()
@@ -277,3 +311,9 @@ private fun hexBytes(value: String): ByteArray =
     ByteArray(value.length / 2) { index ->
         value.substring(index * 2, index * 2 + 2).toInt(16).toByte()
     }
+
+private fun encodeVarInt(value: Int): ByteArray {
+    val buffer = Buffer()
+    buffer.writeVarInt(value)
+    return buffer.readByteArray()
+}

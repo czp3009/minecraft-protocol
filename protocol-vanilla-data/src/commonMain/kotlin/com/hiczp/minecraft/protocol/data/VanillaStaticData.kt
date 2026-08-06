@@ -1,9 +1,13 @@
+@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+
 package com.hiczp.minecraft.protocol.data
 
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.type.Identifier
+import kotlinx.io.Buffer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.io.decodeFromSource
 import kotlin.io.encoding.Base64
 
 /**
@@ -172,11 +176,14 @@ private fun decodeVanillaStaticData(): VanillaStaticDataSnapshot {
         "Vanilla static data targets protocol ${VanillaStaticDataPayloads.protocolVersion}, but models target ${MinecraftProtocol.PROTOCOL_VERSION}"
     }
 
-    val payload = Json.decodeFromString<VanillaStaticDataPayload>(
-        Base64.Default.decode(
-            VanillaStaticDataPayloads.payload.joinToString(separator = ""),
-        ).decodeToString(),
-    )
+    val source = Buffer().apply {
+        write(
+            Base64.Default.decode(
+                VanillaStaticDataPayloads.payload.joinToString(separator = ""),
+            ),
+        )
+    }
+    val payload = Json.decodeFromSource<VanillaStaticDataPayload>(source)
     check(payload.format == STATIC_DATA_FORMAT) {
         "Unsupported vanilla static-data payload"
     }

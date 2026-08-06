@@ -7,6 +7,10 @@ Packet models, packet IDs, protocol states, authentication policy, and gameplay 
 transforms run in decrypt, split-frame, decompress order; send transforms run in compress, frame, encrypt order. Limits
 and validation defaults match the selected vanilla network pipeline.
 
+Caller-owned `Source` and `Sink` methods are the canonical framing boundary; byte-array methods delegate to them.
+Staging is confined to boundaries that must emit an encoded length first or bridge synchronous sinks to suspending Ktor
+channels. Transport failures inherit `IOException`, and lower-layer I/O failures are not repeatedly rewrapped.
+
 Keep pure frame and cipher algorithms independently testable from sockets. The common real-socket scenario runs on JVM,
 Android host, desktop Native, and Wasm/Node; Ktor capability reporting excludes runtimes without TCP. Platform source
 sets and Gradle filters do not duplicate common public-behavior test entries; they contain only platform oracles or

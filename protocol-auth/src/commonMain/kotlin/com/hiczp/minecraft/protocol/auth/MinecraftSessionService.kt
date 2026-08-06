@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+
 package com.hiczp.minecraft.protocol.auth
 
 import com.hiczp.minecraft.protocol.model.type.GameProfile
@@ -6,8 +8,14 @@ import io.ktor.client.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import io.ktor.http.content.*
+import io.ktor.utils.io.*
+import kotlinx.io.Buffer
+import kotlinx.io.readString
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.io.decodeFromSource
+import kotlinx.serialization.json.io.encodeToSink
 import kotlin.uuid.Uuid
 
 data class JoinedMinecraftProfile(
@@ -31,7 +39,8 @@ class MinecraftSessionService(
         val response = httpClient.post("$baseUrl/session/minecraft/join") {
             contentType(ContentType.Application.Json)
             setBody(
-                json.encodeToString(
+                JsonJoinRequestContent(
+                    json,
                     JoinRequest(
                         accessToken = accessToken,
                         selectedProfile = selectedProfile.toUndashedString(),
@@ -60,9 +69,15 @@ class MinecraftSessionService(
         }
         return when (response.status) {
             HttpStatusCode.OK -> {
-                val body = json.decodeFromString<HasJoinedResponse>(
-                    response.bodyAsText(),
+                val source = response.bodyAsChannel().readBuffer(
+                    MAXIMUM_PROFILE_RESPONSE_BYTES + 1,
                 )
+                if (source.size > MAXIMUM_PROFILE_RESPONSE_BYTES) {
+                    throw MinecraftAuthenticationException(
+                        "Minecraft hasJoined response exceeds $MAXIMUM_PROFILE_RESPONSE_BYTES bytes",
+                    )
+                }
+                val body = json.decodeFromSource<HasJoinedResponse>(source)
                 JoinedMinecraftProfile(
                     profile = GameProfile(
                         id = parseMinecraftUuid(body.id),
@@ -91,7 +106,9 @@ class MinecraftSessionService(
     }
 
     private suspend fun HttpResponse.toAuthenticationException(operation: String): MinecraftAuthenticationException {
-        val responseBody = bodyAsText().take(1_024)
+        val responseBody = bodyAsChannel()
+            .readBuffer(MAXIMUM_ERROR_RESPONSE_BYTES)
+            .readString()
         val message = "Minecraft session $operation failed with HTTP ${status.value}: $responseBody"
         return if (status.value >= 500) {
             MinecraftAuthenticationUnavailableException(message)
@@ -103,6 +120,22 @@ class MinecraftSessionService(
     companion object {
         const val PRODUCTION_BASE_URL: String =
             "https://sessionserver.mojang.com"
+
+        private const val MAXIMUM_PROFILE_RESPONSE_BYTES = 1_048_576
+        private const val MAXIMUM_ERROR_RESPONSE_BYTES = 1_024
+    }
+}
+
+private class JsonJoinRequestContent(
+    private val json: Json,
+    private val request: JoinRequest,
+) : OutgoingContent.ReadChannelContent() {
+    override val contentType: ContentType = ContentType.Application.Json
+
+    override fun readFrom(): ByteReadChannel {
+        val source = Buffer()
+        json.encodeToSink(JoinRequest.serializer(), request, source)
+        return ByteReadChannel(source)
     }
 }
 

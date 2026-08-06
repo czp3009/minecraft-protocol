@@ -20,6 +20,8 @@ data class WorldRegionStoreConfiguration(
  *
  * Region mutations rewrite one complete `.mca` file. For batch updates, read a
  * region once, update its immutable map, then call [writeRegion] once.
+ * Filesystem and format exceptions propagate to the caller. Every atomic file
+ * replacement removes its temporary file on failure before rethrowing.
  */
 class WorldRegionStore(
     val paths: MinecraftWorldPaths,
@@ -29,6 +31,7 @@ class WorldRegionStore(
     val configuration: WorldRegionStoreConfiguration =
         WorldRegionStoreConfiguration(),
 ) {
+    /** Reads a region, propagating filesystem and format exceptions. */
     fun readRegion(
         position: RegionPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
@@ -36,11 +39,10 @@ class WorldRegionStore(
     ): RegionFile? {
         val regionPath = paths.regionFile(position, storage, dimension)
         if (!fileSystem.exists(regionPath)) return null
-        val encoded = fileSystem.readFileWithinLimit(
+        val parsed = fileSystem.readFile(
             regionPath,
             configuration.maximumRegionBytes,
-        )
-        val parsed = regionFormat.decodeFromByteArray(encoded)
+        ) { source, _ -> regionFormat.decodeFromSource(source) }
         if (parsed.chunks.values.none { it.payload.isExternal }) return parsed
 
         return RegionFile(
@@ -61,6 +63,12 @@ class WorldRegionStore(
         )
     }
 
+    /**
+     * Atomically replaces a region and its required external payloads.
+     *
+     * Every exception is propagated. A failed individual replacement cleans
+     * its temporary file before returning control to the caller.
+     */
     fun writeRegion(
         position: RegionPosition,
         region: RegionFile,
@@ -74,34 +82,35 @@ class WorldRegionStore(
             storage = storage,
             dimension = dimension,
         )
-        val encoded = regionFormat.encodeToByteArray(region)
-        if (encoded.bytes.size > configuration.maximumRegionBytes) {
-            throw WorldIOException(
-                "Region size ${encoded.bytes.size} exceeds configured limit ${configuration.maximumRegionBytes}",
-            )
-        }
-        encoded.externalChunks.forEach { (local, bytes) ->
+        val externalPayloads = regionFormat.externalPayloads(region)
+        externalPayloads.forEach { (local, bytes) ->
             if (bytes.size > configuration.maximumExternalChunkBytes) {
                 throw WorldIOException(
                     "External chunk $local size ${bytes.size} exceeds configured limit ${configuration.maximumExternalChunkBytes}",
                 )
             }
         }
-        encoded.externalChunks.forEach { (local, bytes) ->
+        externalPayloads.forEach { (local, bytes) ->
             fileSystem.writeByteArrayAtomically(
                 paths.externalChunk(position.chunk(local), storage, dimension),
                 bytes,
             )
         }
-        fileSystem.writeByteArrayAtomically(regionPath, encoded.bytes)
+        fileSystem.writeAtomically(
+            regionPath,
+            configuration.maximumRegionBytes,
+        ) { sink ->
+            regionFormat.encodeToSink(region, sink)
+        }
 
-        (previousExternal - encoded.externalChunks.keys).forEach { local ->
+        (previousExternal - externalPayloads.keys).forEach { local ->
             fileSystem.deleteIfExists(
                 paths.externalChunk(position.chunk(local), storage, dimension),
             )
         }
     }
 
+    /** Reads one chunk, propagating filesystem and format exceptions. */
     fun readChunk(
         position: ChunkPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
@@ -109,6 +118,7 @@ class WorldRegionStore(
     ): RegionChunk? =
         readRegion(position.region, storage, dimension)?.get(position.local)
 
+    /** Writes one chunk, propagating filesystem and format exceptions. */
     fun writeChunk(
         position: ChunkPosition,
         chunk: RegionChunk?,
@@ -132,6 +142,10 @@ class WorldRegionStore(
         )
     }
 
+    /**
+     * Reads and decodes one chunk, propagating filesystem, compression, and
+     * serialization exceptions.
+     */
     suspend fun readChunkNbt(
         position: ChunkPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
@@ -141,6 +155,10 @@ class WorldRegionStore(
             chunkNbtFormat.decode(it)
         }
 
+    /**
+     * Encodes and writes one chunk, propagating every failure to the caller.
+     * Temporary files created by atomic replacements are cleaned on failure.
+     */
     suspend fun writeChunkNbt(
         position: ChunkPosition,
         document: NbtDocument,
@@ -171,14 +189,15 @@ class WorldRegionStore(
     ): Set<LocalChunkPosition> {
         if (!regionPathExists) return emptySet()
         val path = paths.regionFile(position, storage, dimension)
-        val encoded = fileSystem.readFileWithinLimit(
+        return fileSystem.readFile(
             path,
             configuration.maximumRegionBytes,
-        )
-        return regionFormat
-            .decodeFromByteArray(encoded)
-            .chunks
-            .filterValues { it.payload.isExternal }
-            .keys
+        ) { source, _ ->
+            regionFormat
+                .decodeFromSource(source)
+                .chunks
+                .filterValues { it.payload.isExternal }
+                .keys
+        }
     }
 }

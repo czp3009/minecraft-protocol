@@ -47,21 +47,25 @@ data class NbtFormatConfiguration(
     }
 }
 
+/** Base NBT failure in the standard kotlinx serialization hierarchy. */
 open class NbtSerializationException(
     message: String,
     cause: Throwable? = null,
 ) : SerializationException(message, cause)
 
+/** NBT encoding failure. */
 class NbtEncodingException(
     message: String,
     cause: Throwable? = null,
 ) : NbtSerializationException(message, cause)
 
+/** Malformed or unsupported NBT input. */
 class NbtDecodingException(
     message: String,
     cause: Throwable? = null,
 ) : NbtSerializationException(message, cause)
 
+/** Configured NBT resource limit was exceeded. */
 class NbtLimitException(
     message: String,
     cause: Throwable? = null,

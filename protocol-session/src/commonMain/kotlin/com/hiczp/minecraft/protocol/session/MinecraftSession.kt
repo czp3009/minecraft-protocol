@@ -1,9 +1,10 @@
 package com.hiczp.minecraft.protocol.session
 
 import com.hiczp.minecraft.protocol.model.packet.*
-import com.hiczp.minecraft.protocol.serialization.MinecraftFormat
 import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
+import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
+import kotlinx.io.Buffer
 
 enum class MinecraftSessionSide {
     CLIENT,
@@ -13,7 +14,7 @@ enum class MinecraftSessionSide {
 class MinecraftSession(
     val frames: MinecraftFrameStream,
     val side: MinecraftSessionSide,
-    var format: MinecraftFormat = MinecraftFormat.Default,
+    var format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
 ) {
     var state: ConnectionState = ConnectionState.HANDSHAKE
         private set
@@ -39,28 +40,39 @@ class MinecraftSession(
     }
 
     suspend fun send(packet: Packet) {
-        val encoded = MinecraftPacketRegistry.encodePayload(packet, format)
-        if (encoded.key.state != state) {
+        val codec = MinecraftPacketRegistry.codec(packet)
+            ?: throw MinecraftSessionException(
+                "No packet codec for ${packet::class.simpleName}",
+            )
+        if (codec.key.state != state) {
             throw MinecraftSessionException(
-                "${packet::class.simpleName} belongs to ${encoded.key.state}, but the session is in $state",
+                "${packet::class.simpleName} belongs to ${codec.key.state}, but the session is in $state",
             )
         }
-        if (encoded.key.direction != outboundDirection) {
+        if (codec.key.direction != outboundDirection) {
             throw MinecraftSessionException(
-                "${packet::class.simpleName} is ${encoded.key.direction}, but $side sends $outboundDirection packets",
+                "${packet::class.simpleName} is ${codec.key.direction}, but $side sends $outboundDirection packets",
             )
         }
 
-        when (encoded.framing) {
+        val packetData = Buffer()
+        when (codec.framing) {
+            PacketFraming.NORMAL -> packetData.writeVarInt(codec.key.id)
+            PacketFraming.LEGACY_UNFRAMED ->
+                packetData.writeByte(codec.key.id.toByte())
+        }
+        MinecraftPacketRegistry.encodePayloadToSink(
+            packet,
+            packetData,
+            format,
+        )
+        val packetDataBytes = packetData.size.toInt()
+        when (codec.framing) {
             PacketFraming.NORMAL ->
-                frames.sendPacketData(
-                    encodePacketData(encoded.key.id, encoded.payload),
-                )
+                frames.sendPacketData(packetData, packetDataBytes)
 
             PacketFraming.LEGACY_UNFRAMED ->
-                frames.sendUnframedPacketData(
-                    byteArrayOf(encoded.key.id.toByte()) + encoded.payload,
-                )
+                frames.sendUnframedPacketData(packetData, packetDataBytes)
         }
         applyPostWireEffects(packet)
     }
@@ -69,56 +81,47 @@ class MinecraftSession(
         val legacyAware =
             state == ConnectionState.HANDSHAKE &&
                     inboundDirection == PacketDirection.SERVERBOUND
-        val packetData =
-            if (legacyAware) {
-                frames.receivePacketDataOrLegacy(
-                    legacyPacketId = LEGACY_SERVER_LIST_PING_ID,
-                    legacyPayloadSize = LEGACY_SERVER_LIST_PING_PAYLOAD_SIZE,
-                )
-            } else {
-                frames.receivePacketData()
-            }
+        val packetData = Buffer()
+        if (legacyAware) {
+            frames.receivePacketDataOrLegacyToSink(
+                packetData,
+                legacyPacketId = LEGACY_SERVER_LIST_PING_ID,
+                legacyPayloadSize = LEGACY_SERVER_LIST_PING_PAYLOAD_SIZE,
+            )
+        } else {
+            frames.receivePacketDataToSink(packetData)
+        }
         val legacy =
             legacyAware &&
-                    packetData.firstOrNull()?.toInt()?.and(0xFF) ==
+                    packetData.peek().readByte().toInt().and(0xFF) ==
                     LEGACY_SERVER_LIST_PING_ID
-        val decodedData =
-            if (legacy) {
-                DecodedPacketData(
-                    id = LEGACY_SERVER_LIST_PING_ID,
-                    payload = packetData.copyOfRange(1, packetData.size),
-                )
-            } else {
-                decodePacketData(packetData)
-            }
+        val id = if (legacy) {
+            packetData.readByte().toInt() and 0xFF
+        } else {
+            packetData.readPacketId()
+        }
         val codec = MinecraftPacketRegistry.codec(
             state = state,
             direction = inboundDirection,
-            id = decodedData.id,
+            id = id,
         ) ?: throw MinecraftSessionException(
-            "No packet codec for $state $inboundDirection 0x${decodedData.id.toString(16)}",
+            "No packet codec for $state $inboundDirection 0x${id.toString(16)}",
         )
         val expectedFraming =
             if (legacy) PacketFraming.LEGACY_UNFRAMED else PacketFraming.NORMAL
         if (codec.framing != expectedFraming) {
             throw MinecraftSessionException(
-                "Packet 0x${decodedData.id.toString(16)} used $expectedFraming framing but its codec requires ${codec.framing}",
+                "Packet 0x${id.toString(16)} used $expectedFraming framing but its codec requires ${codec.framing}",
             )
         }
-        val packet = try {
-            MinecraftPacketRegistry.decodePayload(
-                state = state,
-                direction = inboundDirection,
-                id = decodedData.id,
-                payload = decodedData.payload,
-                format = format,
-            )
-        } catch (failure: Throwable) {
-            throw MinecraftSessionException(
-                "Could not decode $state $inboundDirection packet 0x${decodedData.id.toString(16)}",
-                failure,
-            )
-        }
+        val packet = MinecraftPacketRegistry.decodePayloadFromSource(
+            state = state,
+            direction = inboundDirection,
+            id = id,
+            source = packetData,
+            byteCount = packetData.size.toInt(),
+            format = format,
+        )
         applyPostWireEffects(packet)
         return packet
     }
@@ -162,46 +165,35 @@ class MinecraftSession(
     }
 }
 
+/** Invalid packet direction, state, identity, or session transition. */
 class MinecraftSessionException(
     message: String,
     cause: Throwable? = null,
-) : Exception(message, cause)
+) : IllegalStateException(message, cause)
 
-private class DecodedPacketData(
-    val id: Int,
-    val payload: ByteArray,
-)
-
-private fun encodePacketData(id: Int, payload: ByteArray): ByteArray =
-    encodeVarInt(id) + payload
-
-private fun decodePacketData(bytes: ByteArray): DecodedPacketData {
+private fun Buffer.readPacketId(): Int {
     var result = 0
     var shift = 0
-    var position = 0
-    while (position < bytes.size && position < 5) {
-        val current = bytes[position++].toInt() and 0xFF
-        result = result or ((current and 0x7F) shl shift)
-        if (current and 0x80 == 0) {
-            return DecodedPacketData(
-                id = result,
-                payload = bytes.copyOfRange(position, bytes.size),
+    repeat(5) {
+        if (exhausted()) {
+            throw MinecraftSessionException(
+                "Truncated packet ID VarInt",
             )
         }
+        val current = readByte().toInt() and 0xFF
+        result = result or ((current and 0x7F) shl shift)
+        if (current and 0x80 == 0) return result
         shift += 7
     }
-    throw MinecraftSessionException("Truncated or oversized packet ID VarInt")
+    throw MinecraftSessionException("Packet ID VarInt is too wide")
 }
 
-private fun encodeVarInt(value: Int): ByteArray {
+private fun Buffer.writeVarInt(value: Int) {
     var remaining = value
-    val bytes = ByteArray(5)
-    var size = 0
     do {
         var current = remaining and 0x7F
         remaining = remaining ushr 7
         if (remaining != 0) current = current or 0x80
-        bytes[size++] = current.toByte()
+        writeByte(current.toByte())
     } while (remaining != 0)
-    return bytes.copyOf(size)
 }

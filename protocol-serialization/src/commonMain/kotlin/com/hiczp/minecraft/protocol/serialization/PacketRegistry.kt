@@ -5,6 +5,10 @@
 package com.hiczp.minecraft.protocol.serialization
 
 import com.hiczp.minecraft.protocol.model.packet.*
+import kotlinx.io.Buffer
+import kotlinx.io.Sink
+import kotlinx.io.Source
+import kotlinx.io.readByteArray
 import kotlinx.serialization.KSerializer
 import kotlin.reflect.KClass
 
@@ -29,29 +33,36 @@ data class EncodedPacketPayload(
         31 * (31 * key.hashCode() + framing.hashCode()) + payload.contentHashCode()
 }
 
+data class PacketPayloadEncoding(
+    val key: PacketKey,
+    val framing: PacketFraming,
+)
+
 class PacketCodec<T : Packet> internal constructor(
     val key: PacketKey,
     val framing: PacketFraming,
     val packetClass: KClass<T>,
     val serializer: KSerializer<T>,
 ) {
-    internal fun encode(
-        format: MinecraftFormat,
+    internal fun encodeToSink(
+        format: MinecraftProtocolFormat,
         packet: Packet,
-    ): ByteArray {
+        sink: Sink,
+    ) {
         if (packet::class != packetClass) {
             throw MinecraftSerializationException(
                 "Codec for ${packetClass.simpleName} cannot encode ${packet::class.simpleName}",
             )
         }
         @Suppress("UNCHECKED_CAST")
-        return format.encodeToByteArray(serializer, packet as T)
+        format.encodeToSink(serializer, packet as T, sink)
     }
 
-    internal fun decode(
-        format: MinecraftFormat,
-        payload: ByteArray,
-    ): Packet = format.decodeFromByteArray(serializer, payload)
+    internal fun decodeFromSource(
+        format: MinecraftProtocolFormat,
+        source: Source,
+        byteCount: Int,
+    ): Packet = format.decodeFromSource(serializer, source, byteCount)
 }
 
 class PacketRegistry(
@@ -76,17 +87,28 @@ class PacketRegistry(
 
     fun encodePayload(
         packet: Packet,
-        format: MinecraftFormat = MinecraftFormat.Default,
+        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
     ): EncodedPacketPayload {
+        val buffer = Buffer()
+        val encoding = encodePayloadToSink(packet, buffer, format)
+        return EncodedPacketPayload(
+            encoding.key,
+            encoding.framing,
+            buffer.readByteArray(),
+        )
+    }
+
+    fun encodePayloadToSink(
+        packet: Packet,
+        sink: Sink,
+        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+    ): PacketPayloadEncoding {
         val codec = codec(packet)
             ?: throw MinecraftSerializationException(
                 "No packet codec is registered for ${packet::class.simpleName}",
             )
-        return EncodedPacketPayload(
-            codec.key,
-            codec.framing,
-            codec.encode(format, packet),
-        )
+        codec.encodeToSink(format, packet, sink)
+        return PacketPayloadEncoding(codec.key, codec.framing)
     }
 
     fun decodePayload(
@@ -94,14 +116,34 @@ class PacketRegistry(
         direction: PacketDirection,
         id: Int,
         payload: ByteArray,
-        format: MinecraftFormat = MinecraftFormat.Default,
+        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+    ): Packet {
+        val buffer = Buffer()
+        buffer.write(payload)
+        return decodePayloadFromSource(
+            state,
+            direction,
+            id,
+            buffer,
+            payload.size,
+            format,
+        )
+    }
+
+    fun decodePayloadFromSource(
+        state: ConnectionState,
+        direction: PacketDirection,
+        id: Int,
+        source: Source,
+        byteCount: Int,
+        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
     ): Packet {
         val key = PacketKey(state, direction, id)
         val codec = byKey[key]
             ?: throw MinecraftSerializationException(
                 "No packet codec is registered for $key",
             )
-        return codec.decode(format, payload)
+        return codec.decodeFromSource(format, source, byteCount)
     }
 }
 
@@ -123,16 +165,38 @@ object MinecraftPacketRegistry {
 
     fun encodePayload(
         packet: Packet,
-        format: MinecraftFormat = MinecraftFormat.Default,
+        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
     ): EncodedPacketPayload = delegate.encodePayload(packet, format)
+
+    fun encodePayloadToSink(
+        packet: Packet,
+        sink: Sink,
+        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+    ): PacketPayloadEncoding = delegate.encodePayloadToSink(packet, sink, format)
 
     fun decodePayload(
         state: ConnectionState,
         direction: PacketDirection,
         id: Int,
         payload: ByteArray,
-        format: MinecraftFormat = MinecraftFormat.Default,
+        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
     ): Packet = delegate.decodePayload(state, direction, id, payload, format)
+
+    fun decodePayloadFromSource(
+        state: ConnectionState,
+        direction: PacketDirection,
+        id: Int,
+        source: Source,
+        byteCount: Int,
+        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+    ): Packet = delegate.decodePayloadFromSource(
+        state,
+        direction,
+        id,
+        source,
+        byteCount,
+        format,
+    )
 }
 
 private fun generatedPacketCodecs(): List<PacketCodec<out Packet>> =

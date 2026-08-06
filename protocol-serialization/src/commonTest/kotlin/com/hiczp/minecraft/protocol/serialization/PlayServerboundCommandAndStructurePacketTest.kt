@@ -35,13 +35,13 @@ class PlayServerboundCommandAndStructurePacketTest {
             "ac02017801",
         )
 
-        val decoded = MinecraftFormat.decodeFromByteArray(
+        val decoded = MinecraftProtocolFormat.decodeFromByteArray(
             ProgramCommandBlockPacket.serializer(),
             "00000000000000000000ff".hexToByteArray(),
         )
         assertContentEquals(
             "0000000000000000000007".hexToByteArray(),
-            MinecraftFormat.encodeToByteArray(ProgramCommandBlockPacket.serializer(), decoded),
+            MinecraftProtocolFormat.encodeToByteArray(ProgramCommandBlockPacket.serializer(), decoded),
         )
     }
 
@@ -74,7 +74,7 @@ class PlayServerboundCommandAndStructurePacketTest {
         )
         assertEquals(
             JigsawJoint.ALIGNED,
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 JigsawJoint.serializer(),
                 "07756e6b6e6f776e".hexToByteArray(),
             ),
@@ -111,7 +111,7 @@ class PlayServerboundCommandAndStructurePacketTest {
 
     @Test
     fun `structure decode clamps byte vectors integrity and unknown flag bits`() {
-        val decoded = MinecraftFormat.decodeFromByteArray(
+        val decoded = MinecraftProtocolFormat.decodeFromByteArray(
             ProgramStructureBlockPacket.serializer(),
             "0000000000000000000000807f31ff317f0000004000000000ff".hexToByteArray(),
         )
@@ -120,7 +120,7 @@ class PlayServerboundCommandAndStructurePacketTest {
         assertEquals(StructureIntegrity(1.0f), decoded.integrity)
         assertContentEquals(
             "0000000000000000000000d030300030300000003f800000000f".hexToByteArray(),
-            MinecraftFormat.encodeToByteArray(ProgramStructureBlockPacket.serializer(), decoded),
+            MinecraftProtocolFormat.encodeToByteArray(ProgramStructureBlockPacket.serializer(), decoded),
         )
     }
 
@@ -135,7 +135,7 @@ class PlayServerboundCommandAndStructurePacketTest {
             SetTestBlockPacket.serializer(),
             "0000000000000000030178",
         )
-        val fallback = MinecraftFormat.decodeFromByteArray(
+        val fallback = MinecraftProtocolFormat.decodeFromByteArray(
             SetTestBlockPacket.serializer(),
             "00000000000000007f00".hexToByteArray(),
         )
@@ -151,13 +151,13 @@ class PlayServerboundCommandAndStructurePacketTest {
             "0000000000000000010161000262630164",
         )
         assertFails {
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 UpdateSignPacket.serializer(),
                 UpdateSignPacket(BlockPosition(0, 0, 0), true, listOf("only one")),
             )
         }
         assertFails {
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 UpdateSignPacket.serializer(),
                 UpdateSignPacket(
                     BlockPosition(0, 0, 0),
@@ -176,11 +176,11 @@ class PlayServerboundCommandAndStructurePacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
         )
     }
 }

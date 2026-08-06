@@ -23,8 +23,8 @@ import kotlin.uuid.Uuid
  */
 internal object OfficialCodecFixtureGenerator {
     fun generate(): JsonElement {
-        val format = MinecraftFormat(
-            MinecraftFormatConfiguration(chunkSectionCount = 0),
+        val format = MinecraftProtocolFormat(
+            MinecraftProtocolFormatConfiguration(chunkSectionCount = 0),
         )
         val fixtures = buildJsonArray {
             for (codec in MinecraftPacketRegistry.entries) {

@@ -1,26 +1,69 @@
 package com.hiczp.minecraft.protocol.serialization
 
 import com.hiczp.minecraft.nbt.*
+import com.hiczp.minecraft.nbt.serialization.NbtDecodingException
 import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.Vector3d
 import com.hiczp.minecraft.protocol.model.wire.*
+import kotlinx.io.Buffer
+import kotlinx.io.readByteArray
 import kotlinx.serialization.Serializable
 import kotlin.random.Random
 import kotlin.test.*
 
-class MinecraftFormatTest {
+class MinecraftProtocolFormatTest {
+    @Test
+    fun `stream APIs are canonical and honor the caller payload boundary`() {
+        val value = PrimitiveValue(
+            byte = -1,
+            short = 2,
+            int = 3,
+            long = 4,
+            unsignedByte = 5,
+            unsignedShort = 6,
+        )
+        val sink = Buffer()
+        MinecraftProtocolFormat.encodeToSink(
+            PrimitiveValue.serializer(),
+            value,
+            sink,
+        )
+        val streamed = sink.readByteArray()
+
+        assertContentEquals(
+            MinecraftProtocolFormat.encodeToByteArray(
+                PrimitiveValue.serializer(),
+                value,
+            ),
+            streamed,
+        )
+
+        val source = Buffer()
+        source.write(streamed)
+        source.write(byteArrayOf(99, 100))
+        assertEquals(
+            value,
+            MinecraftProtocolFormat.decodeFromSource(
+                PrimitiveValue.serializer(),
+                source,
+                streamed.size,
+            ),
+        )
+        assertContentEquals(byteArrayOf(99, 100), source.readByteArray())
+    }
+
     @Test
     fun `companion is the default format and factory creates configured instances`() {
-        assertSame(MinecraftFormat, MinecraftFormat.Default)
-        assertEquals(MinecraftFormatConfiguration(), MinecraftFormat.configuration)
+        assertSame(MinecraftProtocolFormat, MinecraftProtocolFormat.Default)
+        assertEquals(MinecraftProtocolFormatConfiguration(), MinecraftProtocolFormat.configuration)
 
-        val configuration = MinecraftFormatConfiguration(
+        val configuration = MinecraftProtocolFormatConfiguration(
             strictBooleans = false,
             chunkSectionCount = 24,
         )
-        val configured = MinecraftFormat(configuration)
+        val configured = MinecraftProtocolFormat(configuration)
 
-        assertTrue(configured !== MinecraftFormat.Default)
+        assertTrue(configured !== MinecraftProtocolFormat.Default)
         assertEquals(configuration, configured.configuration)
     }
 
@@ -39,11 +82,11 @@ class MinecraftFormatTest {
         for ((value, hex) in varInts) {
             assertContentEquals(
                 hex.hexToByteArray(),
-                MinecraftFormat.encodeToByteArray(VarIntValue.serializer(), VarIntValue(value)),
+                MinecraftProtocolFormat.encodeToByteArray(VarIntValue.serializer(), VarIntValue(value)),
             )
             assertEquals(
                 VarIntValue(value),
-                MinecraftFormat.decodeFromByteArray(VarIntValue.serializer(), hex.hexToByteArray()),
+                MinecraftProtocolFormat.decodeFromByteArray(VarIntValue.serializer(), hex.hexToByteArray()),
             )
         }
 
@@ -56,11 +99,11 @@ class MinecraftFormatTest {
         for ((value, hex) in varLongs) {
             assertContentEquals(
                 hex.hexToByteArray(),
-                MinecraftFormat.encodeToByteArray(VarLongValue.serializer(), VarLongValue(value)),
+                MinecraftProtocolFormat.encodeToByteArray(VarLongValue.serializer(), VarLongValue(value)),
             )
             assertEquals(
                 VarLongValue(value),
-                MinecraftFormat.decodeFromByteArray(VarLongValue.serializer(), hex.hexToByteArray()),
+                MinecraftProtocolFormat.decodeFromByteArray(VarLongValue.serializer(), hex.hexToByteArray()),
             )
         }
     }
@@ -88,13 +131,13 @@ class MinecraftFormatTest {
             repeat(1_000) { add(random.nextInt()) }
         }
         intValues.forEach { value ->
-            val encoded = MinecraftFormat.encodeToByteArray(
+            val encoded = MinecraftProtocolFormat.encodeToByteArray(
                 VarIntValue.serializer(),
                 VarIntValue(value),
             )
             assertEquals(
                 VarIntValue(value),
-                MinecraftFormat.decodeFromByteArray(
+                MinecraftProtocolFormat.decodeFromByteArray(
                     VarIntValue.serializer(),
                     encoded,
                 ),
@@ -116,13 +159,13 @@ class MinecraftFormatTest {
             repeat(1_000) { add(random.nextLong()) }
         }
         longValues.forEach { value ->
-            val encoded = MinecraftFormat.encodeToByteArray(
+            val encoded = MinecraftProtocolFormat.encodeToByteArray(
                 VarLongValue.serializer(),
                 VarLongValue(value),
             )
             assertEquals(
                 VarLongValue(value),
-                MinecraftFormat.decodeFromByteArray(
+                MinecraftProtocolFormat.decodeFromByteArray(
                     VarLongValue.serializer(),
                     encoded,
                 ),
@@ -143,11 +186,11 @@ class MinecraftFormatTest {
         val expected = "fe1234123456780102030405060708ffffff".hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(PrimitiveValue.serializer(), value),
+            MinecraftProtocolFormat.encodeToByteArray(PrimitiveValue.serializer(), value),
         )
         assertEquals(
             expected = value,
-            actual = MinecraftFormat.decodeFromByteArray(PrimitiveValue.serializer(), expected),
+            actual = MinecraftProtocolFormat.decodeFromByteArray(PrimitiveValue.serializer(), expected),
         )
     }
 
@@ -156,23 +199,23 @@ class MinecraftFormatTest {
         val value = LimitedString("éé")
         assertContentEquals(
             "04c3a9c3a9".hexToByteArray(),
-            MinecraftFormat.encodeToByteArray(LimitedString.serializer(), value),
+            MinecraftProtocolFormat.encodeToByteArray(LimitedString.serializer(), value),
         )
         assertEquals(
             value,
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 LimitedString.serializer(),
                 "04c3a9c3a9".hexToByteArray(),
             ),
         )
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 LimitedString.serializer(),
                 LimitedString("abc"),
             )
         }
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 LimitedString.serializer(),
                 "02c328".hexToByteArray(),
             )
@@ -186,10 +229,10 @@ class MinecraftFormatTest {
             map = linkedMapOf("a" to 1, "b" to 2),
             optional = 7,
         )
-        val encoded = MinecraftFormat.encodeToByteArray(CollectionValue.serializer(), collection)
+        val encoded = MinecraftProtocolFormat.encodeToByteArray(CollectionValue.serializer(), collection)
         assertEquals(
             collection,
-            MinecraftFormat.decodeFromByteArray(CollectionValue.serializer(), encoded),
+            MinecraftProtocolFormat.decodeFromByteArray(CollectionValue.serializer(), encoded),
         )
 
         assertContentEquals(
@@ -205,18 +248,18 @@ class MinecraftFormatTest {
         val byteEncoding = "030102030405060708".hexToByteArray()
         assertContentEquals(
             byteEncoding,
-            MinecraftFormat.encodeToByteArray(ByteShapes.serializer(), bytes),
+            MinecraftProtocolFormat.encodeToByteArray(ByteShapes.serializer(), bytes),
         )
         assertEquals(
             bytes,
-            MinecraftFormat.decodeFromByteArray(ByteShapes.serializer(), byteEncoding),
+            MinecraftProtocolFormat.decodeFromByteArray(ByteShapes.serializer(), byteEncoding),
         )
     }
 
     @Test
     fun `byte array and general collection allocation limits are independent`() {
-        val byteFocused = MinecraftFormat(
-            MinecraftFormatConfiguration(
+        val byteFocused = MinecraftProtocolFormat(
+            MinecraftProtocolFormatConfiguration(
                 maximumCollectionSize = 1,
                 maximumByteArraySize = 3,
             ),
@@ -247,8 +290,8 @@ class MinecraftFormatTest {
             )
         }
 
-        val collectionFocused = MinecraftFormat(
-            MinecraftFormatConfiguration(
+        val collectionFocused = MinecraftProtocolFormat(
+            MinecraftProtocolFormatConfiguration(
                 maximumCollectionSize = 3,
                 maximumByteArraySize = 2,
             ),
@@ -281,32 +324,32 @@ class MinecraftFormatTest {
     @Test
     fun `format configuration and fixed byte widths reject every invalid boundary`() {
         assertFailsWith<IllegalArgumentException> {
-            MinecraftFormatConfiguration(maximumCollectionSize = -1)
+            MinecraftProtocolFormatConfiguration(maximumCollectionSize = -1)
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftFormatConfiguration(maximumByteArraySize = -1)
+            MinecraftProtocolFormatConfiguration(maximumByteArraySize = -1)
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftFormatConfiguration(maximumNbtDepth = -1)
+            MinecraftProtocolFormatConfiguration(maximumNbtDepth = -1)
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftFormatConfiguration(chunkSectionCount = -1)
+            MinecraftProtocolFormatConfiguration(chunkSectionCount = -1)
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftFormatConfiguration(blockStateRegistrySize = 0)
+            MinecraftProtocolFormatConfiguration(blockStateRegistrySize = 0)
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftFormatConfiguration(biomeRegistrySize = 0)
+            MinecraftProtocolFormatConfiguration(biomeRegistrySize = 0)
         }
 
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 FixedBytes.serializer(),
                 FixedBytes(ByteString(byteArrayOf(1))),
             )
         }
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 FixedBytes.serializer(),
                 byteArrayOf(1),
             )
@@ -323,10 +366,10 @@ class MinecraftFormatTest {
                 ),
             ),
         )
-        val encoded = MinecraftFormat.encodeToByteArray(NbtValue.serializer(), value)
+        val encoded = MinecraftProtocolFormat.encodeToByteArray(NbtValue.serializer(), value)
         assertEquals(
             value,
-            MinecraftFormat.decodeFromByteArray(NbtValue.serializer(), encoded),
+            MinecraftProtocolFormat.decodeFromByteArray(NbtValue.serializer(), encoded),
         )
         assertEquals(10, encoded.first().toInt())
         assertEquals(0, encoded.last().toInt())
@@ -340,11 +383,11 @@ class MinecraftFormatTest {
 
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(NbtValue.serializer(), value),
+            MinecraftProtocolFormat.encodeToByteArray(NbtValue.serializer(), value),
         )
         assertEquals(
             expected = value,
-            actual = MinecraftFormat.decodeFromByteArray(
+            actual = MinecraftProtocolFormat.decodeFromByteArray(
                 NbtValue.serializer(),
                 expected,
             ),
@@ -352,18 +395,29 @@ class MinecraftFormatTest {
     }
 
     @Test
+    fun `network NBT failures retain their serialization exception type`() {
+        val failure = assertFailsWith<NbtDecodingException> {
+            MinecraftProtocolFormat.decodeFromByteArray(
+                NbtValue.serializer(),
+                byteArrayOf(99),
+            )
+        }
+        assertNull(failure.cause)
+    }
+
+    @Test
     fun `length-prefixed nullable NBT uses TAG End rather than boolean`() {
         val absent = LengthPrefixedOptionalNbt(null)
         assertContentEquals(
             "0100".hexToByteArray(),
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 LengthPrefixedOptionalNbt.serializer(),
                 absent,
             ),
         )
         assertEquals(
             absent,
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 LengthPrefixedOptionalNbt.serializer(),
                 "0100".hexToByteArray(),
             ),
@@ -373,20 +427,20 @@ class MinecraftFormatTest {
         val expected = "050800026f6b".hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 LengthPrefixedOptionalNbt.serializer(),
                 present,
             ),
         )
         assertEquals(
             expected = present,
-            actual = MinecraftFormat.decodeFromByteArray(
+            actual = MinecraftProtocolFormat.decodeFromByteArray(
                 LengthPrefixedOptionalNbt.serializer(),
                 expected,
             ),
         )
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 LengthPrefixedOptionalNbt.serializer(),
                 "060800026f6b00".hexToByteArray(),
             )
@@ -398,15 +452,15 @@ class MinecraftFormatTest {
         val zero = LowPrecisionVectorValue(Vector3d(0.0, 0.0, 0.0))
         assertContentEquals(
             "00".hexToByteArray(),
-            MinecraftFormat.encodeToByteArray(LowPrecisionVectorValue.serializer(), zero),
+            MinecraftProtocolFormat.encodeToByteArray(LowPrecisionVectorValue.serializer(), zero),
         )
 
         val unitX = LowPrecisionVectorValue(Vector3d(1.0, 0.0, 0.0))
         assertContentEquals(
             "f1ff7ffeffff".hexToByteArray(),
-            MinecraftFormat.encodeToByteArray(LowPrecisionVectorValue.serializer(), unitX),
+            MinecraftProtocolFormat.encodeToByteArray(LowPrecisionVectorValue.serializer(), unitX),
         )
-        val unitDecoded = MinecraftFormat.decodeFromByteArray(
+        val unitDecoded = MinecraftProtocolFormat.decodeFromByteArray(
             LowPrecisionVectorValue.serializer(),
             "f1ff7ffeffff".hexToByteArray(),
         )
@@ -417,14 +471,14 @@ class MinecraftFormatTest {
         val continuation = LowPrecisionVectorValue(Vector3d(4.0, 0.0, 0.0))
         assertContentEquals(
             "f4ff7ffeffff01".hexToByteArray(),
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 LowPrecisionVectorValue.serializer(),
                 continuation,
             ),
         )
         assertEquals(
             continuation,
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 LowPrecisionVectorValue.serializer(),
                 "f4ff7ffeffff01".hexToByteArray(),
             ),
@@ -439,12 +493,12 @@ class MinecraftFormatTest {
         )
         assertContentEquals(
             "f7ff7ffe0003ffffffff0f".hexToByteArray(),
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 LowPrecisionVectorValue.serializer(),
                 clamped,
             ),
         )
-        val decoded = MinecraftFormat.decodeFromByteArray(
+        val decoded = MinecraftProtocolFormat.decodeFromByteArray(
             LowPrecisionVectorValue.serializer(),
             "f7ff7ffe0003ffffffff0f".hexToByteArray(),
         )
@@ -457,13 +511,13 @@ class MinecraftFormatTest {
         )
         assertContentEquals(
             "00".hexToByteArray(),
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 LowPrecisionVectorValue.serializer(),
                 belowThreshold,
             ),
         )
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 LowPrecisionVectorValue.serializer(),
                 "04ffffffffff".hexToByteArray(),
             )
@@ -473,25 +527,25 @@ class MinecraftFormatTest {
     @Test
     fun `malformed lengths varints booleans and trailing bytes are rejected`() {
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 VarIntValue.serializer(),
                 "808080808000".hexToByteArray(),
             )
         }
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 NullableValue.serializer(),
                 "02".hexToByteArray(),
             )
         }
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 VarIntValue.serializer(),
                 "0000".hexToByteArray(),
             )
         }
-        val strict = MinecraftFormat(
-            MinecraftFormatConfiguration(rejectNonMinimalVarNumbers = true),
+        val strict = MinecraftProtocolFormat(
+            MinecraftProtocolFormatConfiguration(rejectNonMinimalVarNumbers = true),
         )
         assertFailsWith<MinecraftSerializationException> {
             strict.decodeFromByteArray(
@@ -500,8 +554,8 @@ class MinecraftFormatTest {
             )
         }
 
-        val permissive = MinecraftFormat(
-            MinecraftFormatConfiguration(strictBooleans = false),
+        val permissive = MinecraftProtocolFormat(
+            MinecraftProtocolFormatConfiguration(strictBooleans = false),
         )
         assertEquals(
             NullableValue(7),

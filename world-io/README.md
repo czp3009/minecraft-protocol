@@ -22,3 +22,6 @@ regions.writeChunkNbt(
 The default filesystem is `SystemFileSystem`; callers may supply another supported `FileSystem`. This module targets
 JVM, Android, and Native rather than browser-like JS. Model-only consumers use `nbt`; stream-only consumers combine
 `nbt-serialization` and `world-format` without this filesystem layer.
+
+Writes stream into sibling temporary files and atomically replace their destination. Any serialization, compression,
+filesystem, flush, close, or replacement exception is rethrown unchanged after temporary-file cleanup is attempted.

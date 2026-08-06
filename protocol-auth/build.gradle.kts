@@ -57,7 +57,9 @@ kotlin {
         commonMain.dependencies {
             api(project(":protocol-model"))
             api(libs.ktor.client.core)
+            implementation(libs.kotlinx.io.core)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.kotlinx.serialization.json.io)
         }
 
         commonTest.dependencies {

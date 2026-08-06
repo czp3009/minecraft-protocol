@@ -59,8 +59,10 @@ kotlin {
             api(project(":protocol-vanilla-data"))
             api(libs.ktor.network)
             api(libs.ktor.utils)
+            api(libs.kotlinx.io.core)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.kotlinx.serialization.json.io)
         }
 
         commonTest.dependencies {

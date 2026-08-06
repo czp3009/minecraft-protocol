@@ -1,6 +1,6 @@
 package com.hiczp.minecraft.protocol.serialization
 
-data class MinecraftFormatConfiguration(
+data class MinecraftProtocolFormatConfiguration(
     /** Reject boolean bytes other than exactly 0 and 1. */
     val strictBooleans: Boolean = true,
     /** Reject non-minimal VarInt and VarLong encodings permitted but discouraged by the Wiki. */

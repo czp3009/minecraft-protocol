@@ -117,7 +117,9 @@ kotlin {
                 api(project(":protocol-model"))
                 implementation(project(":nbt"))
                 implementation(project(":protocol-serialization"))
+                implementation(libs.kotlinx.io.core)
                 implementation(libs.kotlinx.serialization.json)
+                implementation(libs.kotlinx.serialization.json.io)
             }
         }
 

@@ -51,6 +51,7 @@ kotlin {
             implementation(project(":compression"))
             api(libs.ktor.network)
             api(libs.ktor.utils)
+            api(libs.kotlinx.io.core)
             implementation(libs.kotlinx.coroutines.core)
         }
 

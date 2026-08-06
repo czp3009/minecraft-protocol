@@ -199,7 +199,7 @@ class MinecraftSessionTest {
     }
 
     @Test
-    fun wrapsPayloadDecodeFailuresWithStateDirectionAndPacketContext() =
+    fun propagatesPayloadDecodeFailuresWithoutChangingSessionState() =
         runTest {
             val (client, server) = sessionPair()
             val malformedHandshake = encodeVarInt(0) +
@@ -207,11 +207,10 @@ class MinecraftSessionTest {
                     byteArrayOf(1, 'x'.code.toByte(), 0x63, 0xDD.toByte(), 0)
             client.frames.sendPacketData(malformedHandshake)
 
-            val failure = assertFailsWith<MinecraftSessionException> {
+            assertFailsWith<IllegalArgumentException> {
                 server.receive()
             }
 
-            assertNotNull(failure.cause)
             assertEquals(ConnectionState.HANDSHAKE, server.state)
         }
 

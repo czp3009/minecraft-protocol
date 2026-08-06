@@ -17,11 +17,11 @@ class ChunkSerializationTest {
 
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(ChunkSection.serializer(), section),
+            MinecraftProtocolFormat.encodeToByteArray(ChunkSection.serializer(), section),
         )
         assertEquals(
             expected = section,
-            actual = MinecraftFormat.decodeFromByteArray(ChunkSection.serializer(), expected),
+            actual = MinecraftProtocolFormat.decodeFromByteArray(ChunkSection.serializer(), expected),
         )
     }
 
@@ -32,8 +32,8 @@ class ChunkSerializationTest {
             sections = listOf(wikiExampleSection()),
             blockEntities = emptyList(),
         )
-        val format = MinecraftFormat(
-            MinecraftFormatConfiguration(chunkSectionCount = 1),
+        val format = MinecraftProtocolFormat(
+            MinecraftProtocolFormatConfiguration(chunkSectionCount = 1),
         )
         val expected = "001200000000000001022703ccffccffccffccff00".hexToByteArray()
 
@@ -47,11 +47,11 @@ class ChunkSerializationTest {
         )
 
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.decodeFromByteArray(ChunkData.serializer(), expected)
+            MinecraftProtocolFormat.decodeFromByteArray(ChunkData.serializer(), expected)
         }
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat(
-                MinecraftFormatConfiguration(chunkSectionCount = 2),
+            MinecraftProtocolFormat(
+                MinecraftProtocolFormatConfiguration(chunkSectionCount = 2),
             ).encodeToByteArray(ChunkData.serializer(), chunk)
         }
     }
@@ -67,12 +67,12 @@ class ChunkSerializationTest {
             biomes = PalettedContainer.Direct(biomeData),
         )
 
-        val encoded = MinecraftFormat.encodeToByteArray(ChunkSection.serializer(), section)
+        val encoded = MinecraftProtocolFormat.encodeToByteArray(ChunkSection.serializer(), section)
         assertEquals(15, encoded[4].toInt() and 0xFF)
         assertEquals(7, encoded[4 + 1 + 1_024 * Long.SIZE_BYTES].toInt() and 0xFF)
         assertEquals(
             section,
-            MinecraftFormat.decodeFromByteArray(ChunkSection.serializer(), encoded),
+            MinecraftProtocolFormat.decodeFromByteArray(ChunkSection.serializer(), encoded),
         )
     }
 
@@ -87,7 +87,7 @@ class ChunkSerializationTest {
         raw[index++] = 0
         raw[index] = 0
 
-        val decoded = MinecraftFormat.decodeFromByteArray(ChunkSection.serializer(), raw)
+        val decoded = MinecraftProtocolFormat.decodeFromByteArray(ChunkSection.serializer(), raw)
         assertEquals(
             PalettedContainer.Indirect(
                 bitsPerEntry = 4,
@@ -97,7 +97,7 @@ class ChunkSerializationTest {
             decoded.blockStates,
         )
 
-        val canonical = MinecraftFormat.encodeToByteArray(ChunkSection.serializer(), decoded)
+        val canonical = MinecraftProtocolFormat.encodeToByteArray(ChunkSection.serializer(), decoded)
         assertEquals(4, canonical[4].toInt() and 0xFF)
     }
 
@@ -114,19 +114,19 @@ class ChunkSerializationTest {
             biomes = PalettedContainer.Single(0),
         )
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.encodeToByteArray(ChunkSection.serializer(), invalidSize)
+            MinecraftProtocolFormat.encodeToByteArray(ChunkSection.serializer(), invalidSize)
         }
 
         val invalidId = ChunkSection(
             nonAirBlockCount = 0,
             fluidCount = 0,
             blockStates = PalettedContainer.Single(
-                MinecraftFormatConfiguration.DEFAULT_BLOCK_STATE_REGISTRY_SIZE,
+                MinecraftProtocolFormatConfiguration.DEFAULT_BLOCK_STATE_REGISTRY_SIZE,
             ),
             biomes = PalettedContainer.Single(0),
         )
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.encodeToByteArray(ChunkSection.serializer(), invalidId)
+            MinecraftProtocolFormat.encodeToByteArray(ChunkSection.serializer(), invalidId)
         }
     }
 

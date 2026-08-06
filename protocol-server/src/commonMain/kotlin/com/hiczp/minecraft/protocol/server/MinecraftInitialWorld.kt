@@ -3,7 +3,7 @@ package com.hiczp.minecraft.protocol.server
 import com.hiczp.minecraft.protocol.data.*
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
-import com.hiczp.minecraft.protocol.serialization.MinecraftFormat
+import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import kotlin.math.floor
 import com.hiczp.minecraft.protocol.model.type.GameMode as PlayerGameMode
 
@@ -162,7 +162,7 @@ suspend fun MinecraftServerConnection.synchronizeInitialWorld(
         .requireRegistry(Identifier("worldgen/biome"))
         .entries
         .size
-    session.format = MinecraftFormat(
+    session.format = MinecraftProtocolFormat(
         configuration = session.format.configuration.copy(
             chunkSectionCount = world.dimensionType.sectionCount,
             blockStateRegistrySize = VanillaStaticData.blockStates.size,

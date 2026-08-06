@@ -4,10 +4,14 @@ import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.nbt.NbtString
+import com.hiczp.minecraft.nbt.serialization.NbtFormat
+import com.hiczp.minecraft.nbt.serialization.NbtFormatConfiguration
+import com.hiczp.minecraft.nbt.serialization.NbtLimitException
 import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.test.runTest
+import kotlinx.io.IOException
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemPathSeparator
@@ -468,7 +472,7 @@ class WorldFileStoreTest {
             val destination = Path(root, "blocked.dat")
             SystemFileSystem.createDirectories(destination)
 
-            assertFailsWith<WorldIOException> {
+            assertFailsWith<IOException> {
                 NbtFileStore().write(
                     destination,
                     sampleDocument(),
@@ -483,6 +487,31 @@ class WorldFileStoreTest {
             assertNoAtomicTemporaryFiles(root, destination.name)
         }
     }
+
+    @Test
+    fun serializationFailureIsPropagatedAndCleansTemporaryFile() =
+        withTemporaryWorld {
+            runTest {
+                val destination = Path(root, "serialization-failure.dat")
+                val store = NbtFileStore(
+                    nbt = NbtFormat(
+                        NbtFormatConfiguration(maximumStringBytes = 1),
+                    ),
+                )
+
+                val failure = assertFailsWith<NbtLimitException> {
+                    store.write(
+                        destination,
+                        sampleDocument(),
+                        NbtFileCompression.NONE,
+                    )
+                }
+                assertNull(failure.cause)
+
+                assertFalse(SystemFileSystem.exists(destination))
+                assertNoAtomicTemporaryFiles(root, destination.name)
+            }
+        }
 
     @Test
     fun concurrentAtomicWritesUseIndependentTemporaryFiles() =

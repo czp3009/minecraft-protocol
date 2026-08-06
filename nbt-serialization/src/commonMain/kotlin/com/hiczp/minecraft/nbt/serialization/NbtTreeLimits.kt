@@ -34,7 +34,7 @@ private class NbtTreeLimitValidator(
                 -> account(8)
 
             is NbtByteArray -> {
-                val size = tag.value.size
+                val size = tag.size
                 checkByteArraySize(size)
                 account(4)
                 account(size.toLong())
@@ -44,14 +44,14 @@ private class NbtTreeLimitValidator(
             is NbtList -> visitList(tag, depth)
             is NbtCompound -> visitCompound(tag, depth)
             is NbtIntArray -> {
-                val size = tag.value.size
+                val size = tag.size
                 checkCollectionSize(size, "NBT int array")
                 account(4)
                 account(size.toLong() * Int.SIZE_BYTES)
             }
 
             is NbtLongArray -> {
-                val size = tag.value.size
+                val size = tag.size
                 checkCollectionSize(size, "NBT long array")
                 account(4)
                 account(size.toLong() * Long.SIZE_BYTES)
@@ -60,11 +60,10 @@ private class NbtTreeLimitValidator(
     }
 
     private fun visitList(tag: NbtList, depth: Int) {
-        val values = tag.value
-        checkCollectionSize(values.size, "NBT list")
+        checkCollectionSize(tag.size, "NBT list")
         account(1 + Int.SIZE_BYTES.toLong())
-        val rawType = rawListType(values)
-        for (element in values) {
+        val rawType = rawListType(tag)
+        tag.forEach { element ->
             if (
                 rawType == TAG_COMPOUND &&
                 (element !is NbtCompound || element.isListWrapper())
@@ -81,9 +80,8 @@ private class NbtTreeLimitValidator(
     }
 
     private fun visitCompound(tag: NbtCompound, depth: Int) {
-        val values = tag.value
-        checkCollectionSize(values.size, "NBT compound")
-        for ((name, value) in values) {
+        checkCollectionSize(tag.size, "NBT compound")
+        tag.forEachEntry { name, value ->
             account(1)
             accountString(name)
             visitPayload(value, depth + 1)

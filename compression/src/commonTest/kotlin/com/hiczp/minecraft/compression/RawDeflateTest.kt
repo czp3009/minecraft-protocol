@@ -1,5 +1,9 @@
 package com.hiczp.minecraft.compression
 
+import kotlinx.io.Buffer
+import kotlinx.io.RawSink
+import kotlinx.io.buffered
+import kotlinx.io.readByteArray
 import kotlin.random.Random
 import kotlin.test.*
 
@@ -31,7 +35,7 @@ class RawDeflateTest {
     }
 
     @Test
-    fun storedEncoderRoundTripsEveryBlockBoundary() {
+    fun streamingEncoderRoundTripsAcrossFormerStoredBlockBoundaries() {
         val random = Random(0x4445464C)
         val sizes = listOf(
             0,
@@ -50,13 +54,6 @@ class RawDeflateTest {
             val encoded = RawDeflate.encode(input)
 
             assertContentEquals(input, RawDeflate.decode(encoded, size))
-            val expectedBlocks = if (size == 0) {
-                1
-            } else {
-                (size + 65_534) / 65_535
-            }
-            assertEquals(size + expectedBlocks * 5, encoded.size)
-            assertEquals(1, encoded.lastBlockHeader(input.size))
         }
     }
 
@@ -67,8 +64,25 @@ class RawDeflateTest {
                 .encodeToByteArray()
         val encoded = RawDeflate.encode(input)
 
-        assertEquals(0b011, encoded[0].toInt() and 0b111)
+        assertEquals(
+            expected = 1,
+            actual = (encoded[0].toInt() ushr 1) and 0b11,
+        )
         assertTrue(encoded.size < input.size / 20)
+        assertContentEquals(input, RawDeflate.decode(encoded, input.size))
+    }
+
+    @Test
+    fun adaptiveEncoderUsesStoredBlocksForHighEntropyInput() {
+        val input = ByteArray(32_768)
+        Random(0x53544F52).nextBytes(input)
+
+        val encoded = RawDeflate.encode(input)
+
+        assertEquals(
+            expected = 0,
+            actual = (encoded[0].toInt() ushr 1) and 0b11,
+        )
         assertContentEquals(input, RawDeflate.decode(encoded, input.size))
     }
 
@@ -105,10 +119,10 @@ class RawDeflateTest {
         }
         assertFailsWith<RawDeflateException> {
             RawDeflate.decode(
-                RawDeflate.encode(byteArrayOf(1)).also {
+                STORED_HELLO.copyOf().also {
                     it[3] = (it[3].toInt() xor 1).toByte()
                 },
-                1,
+                11,
             )
         }
         for (reservedLiteralLengthCount in listOf(
@@ -121,15 +135,50 @@ class RawDeflateTest {
         }
     }
 
-    private fun ByteArray.lastBlockHeader(inputSize: Int): Int {
-        var offset = 0
-        var remaining = inputSize
-        while (true) {
-            val header = this[offset].toInt() and 0xFF
-            val length = minOf(65_535, remaining)
-            if (header and 1 != 0) return header
-            offset += 5 + length
-            remaining -= length
+    @Test
+    fun streamAdaptersProduceAndConsumeIncrementallyWithoutClosingOwners() {
+        val input = ByteArray(128 * 1_024) { index ->
+            (index * 31 + index / 17).toByte()
+        }
+        val encodedOwner = CloseTrackingRawSink()
+        val encodedSink = encodedOwner.buffered()
+        val compressor = RawDeflate.compressingSink(encodedSink).buffered()
+
+        val firstInput = Buffer().apply {
+            write(input, endIndex = input.size / 2)
+        }
+        compressor.write(firstInput, firstInput.size)
+        compressor.flush()
+        assertTrue(encodedOwner.bytes.size > 0)
+        compressor.close()
+        assertFalse(encodedOwner.closed)
+        encodedSink.flush()
+
+        val encodedBytes = encodedOwner.bytes.readByteArray()
+        val encodedSource = Buffer().apply { write(encodedBytes) }
+        val decompressor = RawDeflate
+            .decompressingSource(encodedSource, input.size)
+            .buffered()
+        val prefix = decompressor.readByteArray(32)
+
+        assertContentEquals(input.copyOf(32), prefix)
+        assertFalse(encodedSource.exhausted())
+        decompressor.close()
+        assertTrue(encodedSource.size > 0)
+    }
+
+    private class CloseTrackingRawSink : RawSink {
+        val bytes = Buffer()
+        var closed = false
+
+        override fun write(source: Buffer, byteCount: Long) {
+            bytes.write(source, byteCount)
+        }
+
+        override fun flush() = Unit
+
+        override fun close() {
+            closed = true
         }
     }
 

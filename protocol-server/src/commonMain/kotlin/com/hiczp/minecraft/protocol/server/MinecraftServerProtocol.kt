@@ -338,7 +338,8 @@ class MinecraftServerProtocol(
         )
 }
 
+/** Invalid server-side protocol orchestration or peer behavior. */
 class MinecraftServerException(
     message: String,
     cause: Throwable? = null,
-) : Exception(message, cause)
+) : IllegalStateException(message, cause)

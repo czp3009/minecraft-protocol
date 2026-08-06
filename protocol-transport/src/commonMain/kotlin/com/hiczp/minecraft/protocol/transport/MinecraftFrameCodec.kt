@@ -1,5 +1,15 @@
 package com.hiczp.minecraft.protocol.transport
 
+import kotlinx.io.*
+
+/**
+ * Minecraft packet framing and compression-envelope codec.
+ *
+ * Streaming methods never close caller-owned sources or sinks. Encoding only
+ * stages a compressed frame body when its compressed length must be known
+ * before the outer frame prefix can be emitted. Byte-array methods are
+ * adapters over the same streaming path.
+ */
 class MinecraftFrameCodec(
     val configuration: MinecraftTransportConfiguration =
         MinecraftTransportConfiguration(),
@@ -14,76 +24,117 @@ class MinecraftFrameCodec(
         compressionThreshold = threshold
     }
 
-    suspend fun encodeFrame(packetData: ByteArray): ByteArray {
-        if (packetData.isEmpty()) {
-            throw MinecraftTransportException("Packet data cannot be empty")
-        }
-        if (packetData.size > configuration.maximumUncompressedPacketSize) {
-            throw MinecraftTransportException(
-                "Packet data has ${packetData.size} bytes; maximum is ${configuration.maximumUncompressedPacketSize}",
-            )
-        }
+    /** Encodes exactly [packetDataByteCount] bytes from [packetData]. */
+    fun encodeFrameToSink(
+        packetData: Source,
+        packetDataByteCount: Int,
+        sink: Sink,
+    ): Long {
+        validatePacketDataLength(packetDataByteCount)
+        val packet = ExactLengthRawSource(
+            packetData,
+            packetDataByteCount,
+            "packet data",
+        ).buffered()
+        return try {
+            val threshold = compressionThreshold
+            when {
+                threshold == null -> {
+                    validateFrameLength(packetDataByteCount)
+                    val prefixBytes = sink.writeVarInt(packetDataByteCount)
+                    packet.transferTo(sink) + prefixBytes
+                }
 
-        val body = encodeFrameBody(packetData)
-        if (body.size > configuration.maximumFrameSize) {
-            throw MinecraftTransportException(
-                "Frame body has ${body.size} bytes; maximum is ${configuration.maximumFrameSize}",
-            )
-        }
-        return encodeVarInt(body.size) + body
-    }
+                packetDataByteCount < threshold -> {
+                    val bodyBytes = 1 + packetDataByteCount
+                    validateFrameLength(bodyBytes)
+                    val prefixBytes = sink.writeVarInt(bodyBytes)
+                    sink.writeByte(0)
+                    packet.transferTo(sink) + prefixBytes + 1
+                }
 
-    suspend fun decodeFrame(frame: ByteArray): ByteArray {
-        val cursor = ByteCursor(frame)
-        val frameLength = cursor.readVarInt(
-            maximumBytes = 3,
-            rejectNonMinimal = configuration.rejectNonMinimalVarInts,
-        )
-        validateFrameLength(frameLength)
-        if (cursor.remaining != frameLength) {
-            throw MinecraftTransportException(
-                "Frame declares $frameLength bytes but contains ${cursor.remaining}",
-            )
-        }
-        return decodeFrameBody(cursor.remainingBytes())
-    }
-
-    suspend fun decodeFrameBody(frameBody: ByteArray): ByteArray {
-        validateFrameLength(frameBody.size)
-        val threshold = compressionThreshold ?: return frameBody
-        val cursor = ByteCursor(frameBody)
-        val uncompressedLength = cursor.readVarInt(
-            rejectNonMinimal = configuration.rejectNonMinimalVarInts,
-        )
-        if (uncompressedLength == 0) {
-            val packetData = cursor.remainingBytes()
-            if (packetData.isEmpty()) {
-                throw MinecraftTransportException("Packet data cannot be empty")
-            }
-            if (
-                configuration.validateCompressionThreshold &&
-                packetData.size >= threshold
-            ) {
-                throw MinecraftTransportException(
-                    "Uncompressed packet has ${packetData.size} bytes, meeting compression threshold $threshold",
+                else -> encodeCompressedFrame(
+                    packet,
+                    packetDataByteCount,
+                    sink,
                 )
             }
-            return packetData
+        } finally {
+            packet.close()
         }
-        if (
-            configuration.validateCompressionThreshold &&
-            uncompressedLength < threshold
-        ) {
+    }
+
+    /** Decodes one length-prefixed frame from [source] into [sink]. */
+    fun decodeFrameToSink(source: Source, sink: Sink): Long {
+        val frameLength = source.readVarInt(
+            maximumBytes = 3,
+            rejectNonMinimal = configuration.rejectNonMinimalVarInts,
+        ).value
+        validateFrameLength(frameLength)
+        return decodeFrameBodyToSink(source, frameLength, sink)
+    }
+
+    /**
+     * Decodes exactly [frameBodyByteCount] bytes from [source] into [sink].
+     */
+    fun decodeFrameBodyToSink(
+        source: Source,
+        frameBodyByteCount: Int,
+        sink: Sink,
+    ): Long {
+        validateFrameLength(frameBodyByteCount)
+        val body = ExactLengthRawSource(
+            source,
+            frameBodyByteCount,
+            "frame body",
+        ).buffered()
+        return try {
+            val threshold = compressionThreshold
+            if (threshold == null) {
+                if (
+                    frameBodyByteCount >
+                    configuration.maximumUncompressedPacketSize
+                ) {
+                    throw MinecraftTransportException(
+                        "Packet data has $frameBodyByteCount bytes; maximum is ${configuration.maximumUncompressedPacketSize}",
+                    )
+                }
+                body.transferTo(sink)
+            } else {
+                decodeCompressedFrameBody(body, threshold, sink)
+            }
+        } finally {
+            body.close()
+        }
+    }
+
+    /** In-memory adapter over [encodeFrameToSink]. */
+    fun encodeFrame(packetData: ByteArray): ByteArray {
+        val source = Buffer().apply { write(packetData) }
+        val sink = Buffer()
+        encodeFrameToSink(source, packetData.size, sink)
+        return sink.readByteArray()
+    }
+
+    /** In-memory adapter over [decodeFrameToSink]. */
+    fun decodeFrame(frame: ByteArray): ByteArray {
+        val source = Buffer().apply { write(frame) }
+        val sink = Buffer()
+        decodeFrameToSink(source, sink)
+        if (!source.exhausted()) {
             throw MinecraftTransportException(
-                "Compressed packet declares $uncompressedLength bytes, below compression threshold $threshold",
+                "Trailing bytes after length-prefixed frame",
             )
         }
-        if (uncompressedLength > configuration.maximumUncompressedPacketSize) {
-            throw MinecraftTransportException(
-                "Compressed packet declares $uncompressedLength bytes; maximum is ${configuration.maximumUncompressedPacketSize}",
-            )
-        }
-        return Zlib.decompress(cursor.remainingBytes(), uncompressedLength)
+        return sink.readByteArray()
+    }
+
+    /** In-memory adapter over [decodeFrameBodyToSink]. */
+    fun decodeFrameBody(frameBody: ByteArray): ByteArray {
+        val source = Buffer().apply { write(frameBody) }
+        val sink = Buffer()
+        decodeFrameBodyToSink(source, frameBody.size, sink)
+        return sink.readByteArray()
     }
 
     internal fun validateFrameLength(frameLength: Int) {
@@ -94,12 +145,161 @@ class MinecraftFrameCodec(
         }
     }
 
-    private suspend fun encodeFrameBody(packetData: ByteArray): ByteArray {
-        val threshold = compressionThreshold ?: return packetData
-        return if (packetData.size < threshold) {
-            byteArrayOf(0) + packetData
-        } else {
-            encodeVarInt(packetData.size) + Zlib.compress(packetData)
+    private fun validatePacketDataLength(packetDataByteCount: Int) {
+        if (packetDataByteCount <= 0) {
+            throw MinecraftTransportException("Packet data cannot be empty")
         }
+        if (
+            packetDataByteCount >
+            configuration.maximumUncompressedPacketSize
+        ) {
+            throw MinecraftTransportException(
+                "Packet data has $packetDataByteCount bytes; maximum is ${configuration.maximumUncompressedPacketSize}",
+            )
+        }
+    }
+
+    private fun encodeCompressedFrame(
+        packetData: Source,
+        packetDataByteCount: Int,
+        sink: Sink,
+    ): Long {
+        val body = Buffer()
+        val limitedBody = MaximumSizeRawSink(
+            body,
+            configuration.maximumFrameSize,
+        ).buffered()
+        var failure: Throwable? = null
+        try {
+            limitedBody.writeVarInt(packetDataByteCount)
+            Zlib.compressToSink(packetData, limitedBody)
+        } catch (caught: Throwable) {
+            failure = caught
+            throw caught
+        } finally {
+            closeFrameBufferPreserving(failure, limitedBody::close)
+        }
+
+        val bodySize = body.size.toInt()
+        validateFrameLength(bodySize)
+        val prefixBytes = sink.writeVarInt(bodySize)
+        body.transferTo(sink)
+        return prefixBytes + bodySize.toLong()
+    }
+
+    private fun decodeCompressedFrameBody(
+        body: Source,
+        threshold: Int,
+        sink: Sink,
+    ): Long {
+        val decodedLength = body.readVarInt(
+            rejectNonMinimal = configuration.rejectNonMinimalVarInts,
+        ).value
+        if (decodedLength == 0) {
+            val packetBytes = body.transferTo(sink)
+            if (packetBytes == 0L) {
+                throw MinecraftTransportException(
+                    "Packet data cannot be empty",
+                )
+            }
+            if (
+                configuration.validateCompressionThreshold &&
+                packetBytes >= threshold
+            ) {
+                throw MinecraftTransportException(
+                    "Uncompressed packet has $packetBytes bytes, meeting compression threshold $threshold",
+                )
+            }
+            return packetBytes
+        }
+        if (decodedLength < 0) {
+            throw MinecraftTransportException(
+                "Negative uncompressed packet length $decodedLength",
+            )
+        }
+        if (
+            configuration.validateCompressionThreshold &&
+            decodedLength < threshold
+        ) {
+            throw MinecraftTransportException(
+                "Compressed packet declares $decodedLength bytes, below compression threshold $threshold",
+            )
+        }
+        if (
+            decodedLength >
+            configuration.maximumUncompressedPacketSize
+        ) {
+            throw MinecraftTransportException(
+                "Compressed packet declares $decodedLength bytes; maximum is ${configuration.maximumUncompressedPacketSize}",
+            )
+        }
+        return Zlib.decompressToSink(body, sink, decodedLength)
+    }
+}
+
+private class ExactLengthRawSource(
+    private val upstream: Source,
+    byteCount: Int,
+    private val kind: String,
+) : RawSource {
+    private var remaining = byteCount.toLong()
+    private var closed = false
+
+    override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
+        check(!closed) { "$kind source is closed" }
+        require(byteCount >= 0)
+        if (byteCount == 0L) return 0
+        if (remaining == 0L) return -1
+        val read = upstream.readAtMostTo(
+            sink,
+            minOf(byteCount, remaining),
+        )
+        if (read < 0) {
+            throw MinecraftTransportException(
+                "Truncated $kind; $remaining byte(s) missing",
+            )
+        }
+        remaining -= read
+        return read
+    }
+
+    override fun close() {
+        closed = true
+    }
+}
+
+private class MaximumSizeRawSink(
+    private val downstream: Sink,
+    maximumBytes: Int,
+) : RawSink {
+    private val maximumBytes = maximumBytes.toLong()
+    private var written = 0L
+
+    override fun write(source: Buffer, byteCount: Long) {
+        if (byteCount < 0 || byteCount > maximumBytes - written) {
+            throw MinecraftTransportException(
+                "Frame body exceeds configured limit $maximumBytes",
+            )
+        }
+        downstream.write(source, byteCount)
+        written += byteCount
+    }
+
+    override fun flush() {
+        downstream.flush()
+    }
+
+    override fun close() = Unit
+}
+
+private fun closeFrameBufferPreserving(
+    failure: Throwable?,
+    close: () -> Unit,
+) {
+    try {
+        close()
+    } catch (closeFailure: Throwable) {
+        if (failure == null) throw closeFailure
+        failure.addSuppressed(closeFailure)
     }
 }

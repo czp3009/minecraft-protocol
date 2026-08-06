@@ -8,7 +8,11 @@ filesystems, and platform compression APIs.
 - Decoding supports stored, fixed-Huffman, and dynamic-Huffman blocks and enforces the output limit before buffer growth
   or match copying.
 - Encoding deterministically selects the smaller of stored blocks and the portable fixed-Huffman LZ77 stream.
+- Caller-owned `Source` and `Sink` APIs are the canonical paths. Byte-array APIs are adapters over them, and transform
+  decorators finalize their own stream without closing the caller's endpoint.
 - Wrapper headers, checksums, and compression dispatch remain in their protocol or world-format owners.
+- Malformed streams and output-limit failures use `RawDeflateException`, which is an `IOException`; higher layers may
+  propagate it directly instead of stacking redundant exception wrappers.
 
 ## Verification
 

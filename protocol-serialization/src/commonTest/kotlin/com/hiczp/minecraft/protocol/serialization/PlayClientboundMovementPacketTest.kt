@@ -148,14 +148,14 @@ class PlayClientboundMovementPacketTest {
         val canonical = "0d3d4ccccd3dcccccd".hexToByteArray()
         assertContentEquals(
             canonical,
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 ClientboundPlayerAbilitiesPacket.serializer(),
                 packet,
             ),
         )
         assertEquals(
             packet,
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 ClientboundPlayerAbilitiesPacket.serializer(),
                 "fd3d4ccccd3dcccccd".hexToByteArray(),
             ),
@@ -171,11 +171,11 @@ class PlayClientboundMovementPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
         )
     }
 

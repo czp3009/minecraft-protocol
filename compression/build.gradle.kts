@@ -58,6 +58,10 @@ kotlin {
     }
 
     sourceSets {
+        commonMain.dependencies {
+            api(libs.kotlinx.io.core)
+        }
+
         commonTest.dependencies {
             implementation(kotlin("test"))
         }

@@ -59,8 +59,8 @@ class PacketRegistryTest {
 
     @Test
     fun `every registered normal packet has an executable binary round trip`() {
-        val format = MinecraftFormat(
-            MinecraftFormatConfiguration(chunkSectionCount = 0),
+        val format = MinecraftProtocolFormat(
+            MinecraftProtocolFormatConfiguration(chunkSectionCount = 0),
         )
         val failures = buildList {
             for (codec in MinecraftPacketRegistry.entries) {
@@ -98,8 +98,8 @@ class PacketRegistryTest {
 
     @Test
     fun `generated branch profiles round trip whenever they form a valid packet`() {
-        val format = MinecraftFormat(
-            MinecraftFormatConfiguration(chunkSectionCount = 0),
+        val format = MinecraftProtocolFormat(
+            MinecraftProtocolFormatConfiguration(chunkSectionCount = 0),
         )
         val coveredProfiles = mutableSetOf<ProtocolSampleProfile>()
         var successfulSamples = 0

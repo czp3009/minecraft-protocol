@@ -3,12 +3,38 @@ package com.hiczp.minecraft.protocol.transport
 import io.ktor.utils.io.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.io.Buffer
+import kotlinx.io.readByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 class MinecraftFrameStreamTest {
+    @Test
+    fun streamingSendAndReceiveLeaveCallerBoundariesIntact() = runTest {
+        val channel = ByteChannel()
+        val sender = MinecraftFrameStream(ByteChannel(), channel)
+        val receiver = MinecraftFrameStream(channel, ByteChannel())
+        sender.configureCompression(0)
+        receiver.configureCompression(0)
+        val packet = ByteArray(32_768) { index -> (index * 17).toByte() }
+        val source = Buffer().apply {
+            write(packet)
+            writeByte(0x44)
+        }
+        val send = launch {
+            sender.sendPacketData(source, packet.size)
+        }
+        val sink = Buffer()
+
+        receiver.receivePacketDataToSink(sink)
+        send.join()
+
+        assertContentEquals(packet, sink.readByteArray())
+        assertEquals(0x44, source.readByte().toInt() and 0xFF)
+    }
+
     @Test
     fun readsAFrameArrivingOneByteAtATime() = runTest {
         val input = ByteChannel()

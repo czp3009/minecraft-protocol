@@ -12,6 +12,9 @@ the stream modules and do not receive a partial filesystem implementation.
   variants.
 - Region updates commit new external payloads before headers and remove obsolete sidecars after the region commit.
 - Timestamp inputs remain explicit, and batch mutations share region work.
+- Production writes serialize directly into an atomic temporary-file sink. Every failure, including serialization,
+  compression, flushing, closing, and replacement, removes that temporary file when possible and then rethrows the
+  original exception; cleanup failures are suppressed on it rather than replacing or wrapping it.
 
 ## Tests
 

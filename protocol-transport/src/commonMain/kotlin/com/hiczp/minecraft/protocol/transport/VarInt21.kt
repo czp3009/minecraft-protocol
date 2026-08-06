@@ -1,16 +1,20 @@
 package com.hiczp.minecraft.protocol.transport
 
-internal fun encodeVarInt(value: Int): ByteArray {
+import kotlinx.io.EOFException
+import kotlinx.io.Sink
+import kotlinx.io.Source
+
+internal fun Sink.writeVarInt(value: Int): Int {
     var remaining = value
-    val output = ByteArray(5)
     var size = 0
     do {
         var current = remaining and 0x7F
         remaining = remaining ushr 7
         if (remaining != 0) current = current or 0x80
-        output[size++] = current.toByte()
+        writeByte(current.toByte())
+        size++
     } while (remaining != 0)
-    return output.copyOf(size)
+    return size
 }
 
 internal fun varIntSize(value: Int): Int {
@@ -23,41 +27,37 @@ internal fun varIntSize(value: Int): Int {
     return size
 }
 
-internal class ByteCursor(
-    private val bytes: ByteArray,
-) {
-    var position: Int = 0
-        private set
+internal data class DecodedVarInt(
+    val value: Int,
+    val byteCount: Int,
+)
 
-    val remaining: Int
-        get() = bytes.size - position
-
-    fun readVarInt(
-        maximumBytes: Int = 5,
-        rejectNonMinimal: Boolean,
-    ): Int {
-        var result = 0
-        var shift = 0
-        var count = 0
-        while (count < maximumBytes) {
-            if (position >= bytes.size) {
-                throw MinecraftTransportException("Truncated VarInt")
-            }
-            val current = bytes[position++].toInt() and 0xFF
-            result = result or ((current and 0x7F) shl shift)
-            count++
-            if (current and 0x80 == 0) {
-                if (rejectNonMinimal && count != varIntSize(result)) {
-                    throw MinecraftTransportException("Non-minimal VarInt encoding")
-                }
-                return result
-            }
-            shift += 7
+internal fun Source.readVarInt(
+    maximumBytes: Int = 5,
+    rejectNonMinimal: Boolean,
+): DecodedVarInt {
+    var result = 0
+    var shift = 0
+    var count = 0
+    while (count < maximumBytes) {
+        val current = try {
+            readByte().toInt() and 0xFF
+        } catch (failure: EOFException) {
+            throw MinecraftTransportException("Truncated VarInt", failure)
         }
-        throw MinecraftTransportException(
-            "VarInt is wider than $maximumBytes byte(s)",
-        )
+        result = result or ((current and 0x7F) shl shift)
+        count++
+        if (current and 0x80 == 0) {
+            if (rejectNonMinimal && count != varIntSize(result)) {
+                throw MinecraftTransportException(
+                    "Non-minimal VarInt encoding",
+                )
+            }
+            return DecodedVarInt(result, count)
+        }
+        shift += 7
     }
-
-    fun remainingBytes(): ByteArray = bytes.copyOfRange(position, bytes.size)
+    throw MinecraftTransportException(
+        "VarInt is wider than $maximumBytes byte(s)",
+    )
 }

@@ -60,7 +60,20 @@ kotlin {
 }
 ```
 
-Packet payloads can be encoded and decoded through the generated registry:
+Packet payloads can be encoded and decoded directly through caller-owned streams:
+
+```kotlin
+val encoding = MinecraftPacketRegistry.encodePayloadToSink(packet, payloadSink)
+val decoded = MinecraftPacketRegistry.decodePayloadFromSource(
+    state = encoding.key.state,
+    direction = encoding.key.direction,
+    id = encoding.key.id,
+    source = payloadSource,
+    byteCount = payloadByteCount,
+)
+```
+
+Byte-array operations are adapters over those paths:
 
 ```kotlin
 val encoded = MinecraftPacketRegistry.encodePayload(packet)
@@ -73,7 +86,8 @@ val decoded = MinecraftPacketRegistry.decodePayload(
 )
 ```
 
-Use a configured `MinecraftFormat` when a physical encoding depends on negotiated context such as the chunk section
+Use a configured `MinecraftProtocolFormat` when a physical encoding depends on negotiated context such as the chunk
+section
 count. The module guides contain the corresponding entry points and examples:
 
 - [`protocol-client`](protocol-client/README.md) connects to Status or Login and returns a live Play session.

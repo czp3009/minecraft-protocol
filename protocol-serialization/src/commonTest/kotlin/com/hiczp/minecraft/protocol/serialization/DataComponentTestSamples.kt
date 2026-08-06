@@ -52,13 +52,13 @@ class DataComponentSerializationTest {
                     added = listOf(sample.value),
                 ),
             )
-            val bytes = MinecraftFormat.encodeToByteArray(
+            val bytes = MinecraftProtocolFormat.encodeToByteArray(
                 ItemStack.serializer(),
                 stack,
             )
             assertEquals(
                 stack,
-                MinecraftFormat.decodeFromByteArray(
+                MinecraftProtocolFormat.decodeFromByteArray(
                     ItemStack.serializer(),
                     bytes,
                 ),

@@ -1,5 +1,7 @@
 package com.hiczp.minecraft.protocol.transport
 
+import kotlinx.io.IOException
+
 data class MinecraftTransportConfiguration(
     /** Vanilla's three-byte VarInt21 frame-body ceiling. */
     val maximumFrameSize: Int = MAXIMUM_FRAME_SIZE,
@@ -24,7 +26,8 @@ data class MinecraftTransportConfiguration(
     }
 }
 
+/** Malformed framing or transport data, exposed as a standard I/O failure. */
 class MinecraftTransportException(
     message: String,
     cause: Throwable? = null,
-) : Exception(message, cause)
+) : IOException(message, cause)

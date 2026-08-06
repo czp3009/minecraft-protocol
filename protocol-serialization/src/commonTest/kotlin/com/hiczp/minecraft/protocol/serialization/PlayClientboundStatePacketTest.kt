@@ -5,6 +5,7 @@ import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerializationException
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -18,7 +19,7 @@ class PlayClientboundStatePacketTest {
             DisplayObjectivePacket.serializer(),
             "120178",
         )
-        val invalidSlot = MinecraftFormat.decodeFromByteArray(
+        val invalidSlot = MinecraftProtocolFormat.decodeFromByteArray(
             DisplayObjectivePacket.serializer(),
             "7f0178".hexToByteArray(),
         )
@@ -132,7 +133,7 @@ class PlayClientboundStatePacketTest {
         }
 
         val highFlags = "f3010b6d696e6563726166743a78".hexToByteArray()
-        val decoded = MinecraftFormat.decodeFromByteArray(
+        val decoded = MinecraftProtocolFormat.decodeFromByteArray(
             StopSoundPacket.serializer(),
             highFlags,
         )
@@ -142,7 +143,7 @@ class PlayClientboundStatePacketTest {
         )
         assertContentEquals(
             "03010b6d696e6563726166743a78".hexToByteArray(),
-            MinecraftFormat.encodeToByteArray(StopSoundPacket.serializer(), decoded),
+            MinecraftProtocolFormat.encodeToByteArray(StopSoundPacket.serializer(), decoded),
         )
 
     }
@@ -184,8 +185,8 @@ class PlayClientboundStatePacketTest {
             TagQueryResponsePacket.serializer(),
             "010a00",
         )
-        assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.decodeFromByteArray(
+        assertFailsWith<SerializationException> {
+            MinecraftProtocolFormat.decodeFromByteArray(
                 TagQueryResponsePacket.serializer(),
                 "0108000178".hexToByteArray(),
             )
@@ -250,11 +251,11 @@ class PlayClientboundStatePacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
         )
     }
 

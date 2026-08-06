@@ -1,9 +1,9 @@
 package com.hiczp.minecraft.protocol.serialization.internal
 
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
-import kotlinx.io.Buffer
+import kotlinx.io.*
 
-internal typealias MinecraftWriter = Buffer
+internal typealias MinecraftWriter = Sink
 
 internal fun MinecraftWriter.writeByte(value: Int) {
     writeByte(value.toByte())
@@ -37,72 +37,111 @@ internal fun MinecraftWriter.writeVarLong(value: Long) {
     }
 }
 
-internal class MinecraftReader(private val bytes: ByteArray) {
-    var position: Int = 0
-        private set
+/** A bounded packet-payload view over a caller-owned source. */
+internal class MinecraftReader(
+    source: Source,
+    byteCount: Int,
+) {
+    private val source: Source = LimitedRawSource(source, byteCount).buffered()
+    private var remainingByteCount: Int = byteCount
 
-    val remaining: Int
-        get() = bytes.size - position
-
-    fun readByte(): Byte {
-        requireRemaining(1)
-        return bytes[position++]
+    init {
+        if (byteCount < 0) {
+            throw MinecraftSerializationException("Negative payload length: $byteCount")
+        }
     }
 
+    val remaining: Int
+        get() = remainingByteCount
+
+    fun readByte(): Byte = consume(Byte.SIZE_BYTES) { source.readByte() }
+
     fun peekByte(): Byte {
-        requireRemaining(1)
-        return bytes[position]
+        requireRemaining(Byte.SIZE_BYTES)
+        return source.peek().readByte()
     }
 
     fun readUnsignedByte(): Int = readByte().toInt() and 0xFF
 
-    fun readBytes(length: Int): ByteArray {
-        if (length < 0) {
-            throw MinecraftSerializationException("Negative byte-array length: $length")
-        }
-        requireRemaining(length)
-        val result = bytes.copyOfRange(position, position + length)
-        position += length
-        return result
-    }
+    fun readBytes(length: Int): ByteArray =
+        consume(length) { source.readByteArray(length) }
 
-    fun remainingBytes(): ByteArray = bytes.copyOfRange(position, bytes.size)
+    fun readUtf8(length: Int): String {
+        requireRemaining(length)
+        var remaining = length
+        return buildString(length) {
+            while (remaining > 0) {
+                val first = readUnsignedByte()
+                remaining--
+                val codePoint = when (first) {
+                    in 0x00..0x7F -> first
+                    in 0xC2..0xDF -> {
+                        val second = readContinuationByte(remaining)
+                        remaining--
+                        ((first and 0x1F) shl 6) or (second and 0x3F)
+                    }
+
+                    in 0xE0..0xEF -> {
+                        if (remaining < 2) invalidUtf8()
+                        val second = readContinuationByte(remaining)
+                        remaining--
+                        val third = readContinuationByte(remaining)
+                        remaining--
+                        if (
+                            first == 0xE0 && second < 0xA0 ||
+                            first == 0xED && second >= 0xA0
+                        ) {
+                            invalidUtf8()
+                        }
+                        ((first and 0x0F) shl 12) or
+                                ((second and 0x3F) shl 6) or
+                                (third and 0x3F)
+                    }
+
+                    in 0xF0..0xF4 -> {
+                        if (remaining < 3) invalidUtf8()
+                        val second = readContinuationByte(remaining)
+                        remaining--
+                        val third = readContinuationByte(remaining)
+                        remaining--
+                        val fourth = readContinuationByte(remaining)
+                        remaining--
+                        if (
+                            first == 0xF0 && second < 0x90 ||
+                            first == 0xF4 && second >= 0x90
+                        ) {
+                            invalidUtf8()
+                        }
+                        ((first and 0x07) shl 18) or
+                                ((second and 0x3F) shl 12) or
+                                ((third and 0x3F) shl 6) or
+                                (fourth and 0x3F)
+                    }
+
+                    else -> invalidUtf8()
+                }
+                if (codePoint <= Char.MAX_VALUE.code) {
+                    append(codePoint.toChar())
+                } else {
+                    val supplementary = codePoint - 0x1_0000
+                    append(((supplementary ushr 10) + 0xD800).toChar())
+                    append(((supplementary and 0x3FF) + 0xDC00).toChar())
+                }
+            }
+        }
+    }
 
     fun skip(length: Int) {
-        if (length < 0) {
-            throw MinecraftSerializationException("Negative skip length: $length")
-        }
-        requireRemaining(length)
-        position += length
+        consume(length) { source.skip(length.toLong()) }
     }
 
-    fun readShort(): Short {
-        requireRemaining(2)
-        val value = (readUnsignedByte() shl 8) or readUnsignedByte()
-        return value.toShort()
-    }
+    fun readShort(): Short = consume(Short.SIZE_BYTES) { source.readShort() }
 
     fun readUnsignedShort(): Int = readShort().toInt() and 0xFFFF
 
-    fun readInt(): Int {
-        requireRemaining(4)
-        return (readUnsignedByte() shl 24) or
-                (readUnsignedByte() shl 16) or
-                (readUnsignedByte() shl 8) or
-                readUnsignedByte()
-    }
+    fun readInt(): Int = consume(Int.SIZE_BYTES) { source.readInt() }
 
-    fun readLong(): Long {
-        requireRemaining(8)
-        return (readUnsignedByte().toLong() shl 56) or
-                (readUnsignedByte().toLong() shl 48) or
-                (readUnsignedByte().toLong() shl 40) or
-                (readUnsignedByte().toLong() shl 32) or
-                (readUnsignedByte().toLong() shl 24) or
-                (readUnsignedByte().toLong() shl 16) or
-                (readUnsignedByte().toLong() shl 8) or
-                readUnsignedByte().toLong()
-    }
+    fun readLong(): Long = consume(Long.SIZE_BYTES) { source.readLong() }
 
     fun readVarInt(rejectNonMinimal: Boolean): Int {
         var value = 0
@@ -146,13 +185,64 @@ internal class MinecraftReader(private val bytes: ByteArray) {
         }
     }
 
+    /**
+     * Reserves exactly [length] bytes from this reader for a nested value.
+     * The child must be exhausted before its parent is read again.
+     */
+    fun readBounded(length: Int): MinecraftReader {
+        requireRemaining(length)
+        remainingByteCount -= length
+        return MinecraftReader(source, length)
+    }
+
+    /** Returns a non-consuming view used to discover a self-delimiting value's size. */
+    fun peekSource(): Source = source.peek()
+
+    private fun readContinuationByte(remaining: Int): Int {
+        if (remaining <= 0) invalidUtf8()
+        val value = readUnsignedByte()
+        if (value !in 0x80..0xBF) invalidUtf8()
+        return value
+    }
+
+    private fun invalidUtf8(): Nothing =
+        throw MinecraftSerializationException("Invalid UTF-8 string")
+
+    private inline fun <T> consume(length: Int, read: () -> T): T {
+        requireRemaining(length)
+        val result = read()
+        remainingByteCount -= length
+        return result
+    }
+
     private fun requireRemaining(length: Int) {
-        if (length > remaining) {
+        if (length < 0) {
+            throw MinecraftSerializationException("Negative byte count: $length")
+        }
+        if (length > remainingByteCount) {
             throw MinecraftSerializationException(
-                "Unexpected end of input at byte $position: need $length, have $remaining",
+                "Unexpected end of payload: need $length byte(s), have $remainingByteCount",
             )
         }
     }
+}
+
+private class LimitedRawSource(
+    private val delegate: Source,
+    private val byteCount: Int,
+) : RawSource {
+    private var supplied: Long = 0
+
+    override fun readAtMostTo(sink: kotlinx.io.Buffer, byteCount: Long): Long {
+        if (supplied == this.byteCount.toLong()) return -1
+        val allowed = minOf(byteCount, this.byteCount.toLong() - supplied)
+        val read = delegate.readAtMostTo(sink, allowed)
+        if (read < 0) return -1
+        supplied += read
+        return read
+    }
+
+    override fun close() = Unit
 }
 
 private fun varIntSize(value: Int): Int {

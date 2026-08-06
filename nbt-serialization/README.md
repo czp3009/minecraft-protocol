@@ -15,10 +15,16 @@ Generic `BinaryFormat` operations use the configured root framing; explicit meth
 being confused:
 
 ```kotlin
+NbtFormat.encodeToSink(MyValue.serializer(), value, sink)
+val decoded = NbtFormat.decodeFromSource(MyValue.serializer(), source)
+
 val tag = NbtFormat.encodeToNbtTag(MyValue.serializer(), value)
-val packetBytes = NbtFormat.encodeAnyTagToByteArray(tag)
+NbtFormat.encodeAnyTagToSink(tag, packetSink)
 
 val document = NbtDocument(tag as NbtCompound)
+NbtFormat.encodeDocumentToSink(document, worldSink)
+
+// Byte-array methods are in-memory adapters over the stream methods.
 val worldBytes = NbtFormat.encodeDocumentToByteArray(document)
 ```
 

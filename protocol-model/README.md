@@ -11,4 +11,4 @@ The module provides:
 - wire-hint annotations interpreted by `protocol-serialization`.
 
 Models contain values and invariants. Binary byte layout is supplied by a `kotlinx.serialization` format such as
-`MinecraftFormat`.
+`MinecraftProtocolFormat`.

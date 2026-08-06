@@ -135,13 +135,13 @@ class PlayAdvancedPacketTest {
                 z = 300,
             ),
         )
-        val encoded = MinecraftFormat.encodeToByteArray(
+        val encoded = MinecraftProtocolFormat.encodeToByteArray(
             WaypointPacket.serializer(),
             packet,
         )
         assertEquals(
             packet,
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 WaypointPacket.serializer(),
                 encoded,
             ),
@@ -204,11 +204,11 @@ class PlayAdvancedPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(serializer, value),
+            MinecraftProtocolFormat.encodeToByteArray(serializer, value),
         )
         assertEquals(
             value,
-            MinecraftFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
         )
     }
 }

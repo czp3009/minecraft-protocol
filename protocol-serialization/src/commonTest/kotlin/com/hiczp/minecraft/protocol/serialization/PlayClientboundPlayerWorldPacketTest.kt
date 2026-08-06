@@ -96,7 +96,7 @@ class PlayClientboundPlayerWorldPacketTest {
         val withUnknownBits = "01${"00".repeat(56)}ffffff81".hexToByteArray()
         assertEquals(
             packet,
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 SynchronizePlayerPositionPacket.serializer(),
                 withUnknownBits,
             ),
@@ -287,11 +287,11 @@ class PlayClientboundPlayerWorldPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
         )
     }
 

@@ -54,7 +54,7 @@ class NetworkTypeSerializationTest {
         val samples = entityDataValueSamples()
         val serializerIds = samples.map { sample ->
             leadingVarInt(
-                MinecraftFormat.encodeToByteArray(
+                MinecraftProtocolFormat.encodeToByteArray(
                     EntityDataValue.serializer(),
                     sample.value,
                 ),
@@ -63,13 +63,13 @@ class NetworkTypeSerializationTest {
         assertEquals((0..42).toSet(), serializerIds)
 
         samples.forEach { sample ->
-            val bytes = MinecraftFormat.encodeToByteArray(
+            val bytes = MinecraftProtocolFormat.encodeToByteArray(
                 EntityDataValue.serializer(),
                 sample.value,
             )
             assertEquals(
                 sample.value,
-                MinecraftFormat.decodeFromByteArray(
+                MinecraftProtocolFormat.decodeFromByteArray(
                     EntityDataValue.serializer(),
                     bytes,
                 ),
@@ -83,10 +83,10 @@ class NetworkTypeSerializationTest {
         samples: List<T>,
     ) {
         samples.forEach { sample ->
-            val bytes = MinecraftFormat.encodeToByteArray(serializer, sample)
+            val bytes = MinecraftProtocolFormat.encodeToByteArray(serializer, sample)
             assertEquals(
                 sample,
-                MinecraftFormat.decodeFromByteArray(serializer, bytes),
+                MinecraftProtocolFormat.decodeFromByteArray(serializer, bytes),
             )
         }
     }

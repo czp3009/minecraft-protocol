@@ -13,28 +13,28 @@ class PlayCommonPacketTest {
     fun `container cookie cooldown and chat packets match official primitive codecs`() {
         assertContentEquals(
             "ac02".hexToByteArray(),
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 ClientboundCloseContainerPacket.serializer(),
                 ClientboundCloseContainerPacket(300),
             ),
         )
         assertContentEquals(
             "010002fffd".hexToByteArray(),
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 SetContainerPropertyPacket.serializer(),
                 SetContainerPropertyPacket(1, 2, -3),
             ),
         )
         assertContentEquals(
             "0e6d696e6563726166743a74657374".hexToByteArray(),
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 PlayCookieRequestPacket.serializer(),
                 PlayCookieRequestPacket(Identifier("minecraft:test")),
             ),
         )
         assertContentEquals(
             "0f6d696e6563726166743a67726f757014".hexToByteArray(),
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 SetCooldownPacket.serializer(),
                 SetCooldownPacket(Identifier("minecraft:group"), 20),
             ),
@@ -47,14 +47,14 @@ class PlayCommonPacketTest {
         val suggestionsBytes = "0202036f6e650374776f".hexToByteArray()
         assertContentEquals(
             suggestionsBytes,
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 ChatSuggestionsPacket.serializer(),
                 suggestions,
             ),
         )
         assertEquals(
             suggestions,
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 ChatSuggestionsPacket.serializer(),
                 suggestionsBytes,
             ),
@@ -69,14 +69,14 @@ class PlayCommonPacketTest {
         val brandBytes = "0f6d696e6563726166743a6272616e640776616e696c6c61".hexToByteArray()
         assertContentEquals(
             brandBytes,
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 PlayClientboundPluginMessagePacket.serializer(),
                 brand,
             ),
         )
         assertEquals(
             brand,
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 PlayClientboundPluginMessagePacket.serializer(),
                 brandBytes,
             ),
@@ -91,14 +91,14 @@ class PlayCommonPacketTest {
         val unknownBytes = "0b6578616d706c653a726177010203".hexToByteArray()
         assertContentEquals(
             unknownBytes,
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 PlayClientboundPluginMessagePacket.serializer(),
                 unknown,
             ),
         )
         assertEquals(
             unknown,
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 PlayClientboundPluginMessagePacket.serializer(),
                 unknownBytes,
             ),

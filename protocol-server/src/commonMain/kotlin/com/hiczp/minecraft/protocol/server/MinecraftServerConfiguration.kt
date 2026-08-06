@@ -6,7 +6,15 @@ import com.hiczp.minecraft.protocol.data.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.PlayLoginPacket
 import com.hiczp.minecraft.protocol.model.type.*
-import kotlinx.serialization.json.*
+import kotlinx.io.Buffer
+import kotlinx.io.Sink
+import kotlinx.io.readString
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.io.encodeToSink
+import kotlinx.serialization.json.put
 import kotlin.random.Random
 import kotlin.uuid.Uuid
 
@@ -54,24 +62,38 @@ data class MinecraftServerConfiguration(
             enforcesSecureChat &&
                     authentication is MinecraftServerAuthentication.Online
 
+    /** In-memory adapter over [statusJsonToSink]. */
     fun statusJson(onlinePlayers: Int = 0): String {
+        val sink = Buffer()
+        statusJsonToSink(onlinePlayers, sink)
+        return sink.readString()
+    }
+
+    /**
+     * Serializes the status response directly into [sink] without closing or
+     * flushing the caller-owned endpoint.
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    fun statusJsonToSink(
+        onlinePlayers: Int = 0,
+        sink: Sink,
+    ) {
         require(onlinePlayers >= 0) { "Online player count cannot be negative" }
-        return serverJson.encodeToString(
-            JsonElement.serializer(),
-            buildJsonObject {
-                putJsonObject("version") {
-                    put("name", protocolData.minecraftVersion)
-                    put("protocol", protocolData.protocolVersion)
-                }
-                putJsonObject("players") {
-                    put("max", maximumPlayers)
-                    put("online", onlinePlayers)
-                }
-                putJsonObject("description") {
-                    put("text", statusDescription)
-                }
-                put("enforcesSecureChat", effectiveSecureChatEnforcement)
-            },
+        serverJson.encodeToSink(
+            ServerStatus.serializer(),
+            ServerStatus(
+                version = ServerStatusVersion(
+                    protocolData.minecraftVersion,
+                    protocolData.protocolVersion,
+                ),
+                players = ServerStatusPlayers(
+                    maximumPlayers,
+                    onlinePlayers,
+                ),
+                description = ServerStatusDescription(statusDescription),
+                enforcesSecureChat = effectiveSecureChatEnforcement,
+            ),
+            sink,
         )
     }
 
@@ -116,5 +138,28 @@ data class MinecraftServerConfiguration(
 
 internal fun textComponentJson(key: String, value: String): String =
     buildJsonObject { put(key, value) }.toString()
+
+@Serializable
+private data class ServerStatus(
+    val version: ServerStatusVersion,
+    val players: ServerStatusPlayers,
+    val description: ServerStatusDescription,
+    val enforcesSecureChat: Boolean,
+)
+
+@Serializable
+private data class ServerStatusVersion(
+    val name: String,
+    val protocol: Int,
+)
+
+@Serializable
+private data class ServerStatusPlayers(
+    val max: Int,
+    val online: Int,
+)
+
+@Serializable
+private data class ServerStatusDescription(val text: String)
 
 private val serverJson = Json { prettyPrint = true }

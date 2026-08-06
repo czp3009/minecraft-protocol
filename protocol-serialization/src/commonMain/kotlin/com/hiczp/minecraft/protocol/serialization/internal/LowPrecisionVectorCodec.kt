@@ -1,7 +1,7 @@
 package com.hiczp.minecraft.protocol.serialization.internal
 
 import com.hiczp.minecraft.protocol.model.type.Vector3d
-import com.hiczp.minecraft.protocol.serialization.MinecraftFormatConfiguration
+import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormatConfiguration
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -54,7 +54,7 @@ internal object LowPrecisionVectorCodec {
 
     fun read(
         reader: MinecraftReader,
-        configuration: MinecraftFormatConfiguration,
+        configuration: MinecraftProtocolFormatConfiguration,
     ): Vector3d {
         val lowest = reader.readUnsignedByte()
         if (lowest == 0) {

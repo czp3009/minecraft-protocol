@@ -45,12 +45,25 @@ internal fun rawListType(elements: List<NbtTag>): Int {
     return type
 }
 
+internal fun rawListType(elements: NbtList): Int {
+    var type = TAG_END
+    for (index in 0 until elements.size) {
+        val element = elements[index]
+        val next = typeOf(element)
+        if (type == TAG_END) {
+            type = next
+        } else if (type != next) {
+            return TAG_COMPOUND
+        }
+    }
+    return type
+}
+
 internal fun NbtCompound.isListWrapper(): Boolean =
-    value.let { it.size == 1 && it.containsKey("") }
+    size == 1 && this[""] != null
 
 internal fun NbtCompound.unwrapListElement(): NbtTag {
-    val values = value
-    return if (values.size == 1) values[""] ?: this else this
+    return if (size == 1) this[""] ?: this else this
 }
 
 internal fun validateType(type: Int) {

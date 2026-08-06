@@ -2,12 +2,12 @@
 
 package com.hiczp.minecraft.nbt.serialization
 
-import com.hiczp.minecraft.nbt.*
+import com.hiczp.minecraft.nbt.NamedNbtTag
+import com.hiczp.minecraft.nbt.NbtCompound
+import com.hiczp.minecraft.nbt.NbtDocument
+import com.hiczp.minecraft.nbt.NbtTag
 import kotlinx.io.*
-import kotlinx.serialization.BinaryFormat
-import kotlinx.serialization.DeserializationStrategy
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.SerializationStrategy
+import kotlinx.serialization.*
 import kotlinx.serialization.modules.SerializersModule
 
 /**
@@ -75,74 +75,110 @@ sealed class NbtFormat(
         serializer: SerializationStrategy<T>,
         value: T,
         sink: Sink,
-    ) {
-        val tag = encodeToNbtTag(serializer, value)
-        when (configuration.rootEncoding) {
-            NbtRootEncoding.ANY -> encodeAnyTag(sink, tag)
-            NbtRootEncoding.UNNAMED -> encodeUnnamedTag(sink, tag)
-            NbtRootEncoding.NAMED -> {
-                if (tag === NbtEnd) {
-                    throw NbtEncodingException(
-                        "A named NBT root cannot be TAG_End",
-                    )
+    ) = encodeOperation("${serializer.descriptor.serialName} binary value") {
+        val writer = NbtBinaryWriter(sink, configuration)
+        val encoder = NbtBinaryEncoder(
+            writer,
+            configuration,
+            "$",
+            depth = 0,
+        ) { type ->
+            when (configuration.rootEncoding) {
+                NbtRootEncoding.ANY -> writer.writeByte(type)
+                NbtRootEncoding.UNNAMED -> {
+                    writer.writeByte(type)
+                    if (type != TAG_END) writer.writeModifiedUtf("")
                 }
-                encodeNamedTag(
-                    sink,
-                    NamedNbtTag(configuration.rootName, tag),
-                )
+
+                NbtRootEncoding.NAMED -> {
+                    if (type == TAG_END) {
+                        throw NbtEncodingException(
+                            "A named NBT root cannot be TAG_End",
+                        )
+                    }
+                    writer.writeByte(type)
+                    writer.writeModifiedUtf(configuration.rootName)
+                }
             }
         }
+        encoder.encodeSerializableValue(serializer, value)
+        encoder.requireValue()
     }
 
     fun <T> decodeFromSource(
         deserializer: DeserializationStrategy<T>,
         source: Source,
-    ): T {
-        val tag = when (configuration.rootEncoding) {
-            NbtRootEncoding.ANY -> decodeAnyTag(source)
-            NbtRootEncoding.UNNAMED -> decodeUnnamedTag(source)
+    ): T = decodeOperation("${deserializer.descriptor.serialName} binary value") {
+        val reader = NbtBinaryReader(source, configuration)
+        val type = reader.readUnsignedByte()
+        when (configuration.rootEncoding) {
+            NbtRootEncoding.ANY -> validateType(type)
+            NbtRootEncoding.UNNAMED -> {
+                if (type != TAG_END) {
+                    validateType(type)
+                    reader.readModifiedUtf()
+                }
+            }
+
             NbtRootEncoding.NAMED -> {
-                val named = decodeNamedTag(source)
-                if (named.name != configuration.rootName) {
+                if (type == TAG_END) {
                     throw NbtDecodingException(
-                        "Expected NBT root name '${configuration.rootName}', got '${named.name}'",
+                        "A named NBT root cannot be TAG_End",
                     )
                 }
-                named.tag
+                validateType(type)
+                val name = reader.readModifiedUtf()
+                if (name != configuration.rootName) {
+                    throw NbtDecodingException(
+                        "Expected NBT root name '${configuration.rootName}', got '$name'",
+                    )
+                }
             }
         }
-        return decodeFromNbtTag(deserializer, tag)
+        NbtBinaryDecoder(
+            reader,
+            configuration,
+            "$",
+            depth = 0,
+            type = type,
+        ).decodeSerializableValue(deserializer)
     }
 
-    fun encodeAnyTag(sink: Sink, tag: NbtTag) =
+    /** Writes one no-name any-tag value without closing or flushing [sink]. */
+    fun encodeAnyTagToSink(tag: NbtTag, sink: Sink) =
         encodeOperation("any NBT tag") {
             validateTree(tag, configuration)
             NbtBinaryWriter(sink, configuration).writeAnyTag(tag)
         }
 
-    fun decodeAnyTag(source: Source): NbtTag =
+    /** Reads one no-name any-tag value without closing [source]. */
+    fun decodeAnyTagFromSource(source: Source): NbtTag =
         decodeOperation("any NBT tag") {
             NbtBinaryReader(source, configuration).readAnyTag()
         }
 
-    fun encodeNamedTag(sink: Sink, value: NamedNbtTag) =
+    /** Writes one named tag without closing or flushing [sink]. */
+    fun encodeNamedTagToSink(value: NamedNbtTag, sink: Sink) =
         encodeOperation("named NBT tag") {
             validateTree(value.tag, configuration)
             NbtBinaryWriter(sink, configuration).writeNamedTag(value)
         }
 
-    fun decodeNamedTag(source: Source): NamedNbtTag =
+    /** Reads one named tag without closing [source]. */
+    fun decodeNamedTagFromSource(source: Source): NamedNbtTag =
         decodeOperation("named NBT tag") {
             NbtBinaryReader(source, configuration).readNamedTag()
         }
 
-    fun encodeUnnamedTag(sink: Sink, tag: NbtTag) =
+    /** Writes one unnamed tag without closing or flushing [sink]. */
+    fun encodeUnnamedTagToSink(tag: NbtTag, sink: Sink) =
         encodeOperation("unnamed NBT tag") {
             validateTree(tag, configuration)
             NbtBinaryWriter(sink, configuration).writeUnnamedTag(tag)
         }
 
-    fun decodeUnnamedTag(source: Source): NbtTag =
+    /** Reads one unnamed tag without closing [source]. */
+    fun decodeUnnamedTagFromSource(source: Source): NbtTag =
         decodeOperation("unnamed NBT tag") {
             NbtBinaryReader(source, configuration).readUnnamedTag()
         }
@@ -152,11 +188,12 @@ sealed class NbtFormat(
      * Unlike vanilla's emergency `writeUnnamedTagWithFallback`, this method
      * never replaces overlong strings with empty strings.
      */
-    fun encodeDocument(sink: Sink, document: NbtDocument) =
-        encodeUnnamedTag(sink, document.root)
+    fun encodeDocumentToSink(document: NbtDocument, sink: Sink) =
+        encodeUnnamedTagToSink(document.root, sink)
 
-    fun decodeDocument(source: Source): NbtDocument {
-        val root = decodeUnnamedTag(source) as? NbtCompound
+    /** Reads one compound document without closing [source]. */
+    fun decodeDocumentFromSource(source: Source): NbtDocument {
+        val root = decodeUnnamedTagFromSource(source) as? NbtCompound
             ?: throw NbtDecodingException(
                 "NBT document root must be TAG_Compound",
             )
@@ -164,28 +201,28 @@ sealed class NbtFormat(
     }
 
     fun encodeAnyTagToByteArray(tag: NbtTag): ByteArray =
-        encodeBytes { encodeAnyTag(it, tag) }
+        encodeBytes { encodeAnyTagToSink(tag, it) }
 
     fun decodeAnyTagFromByteArray(bytes: ByteArray): NbtTag =
-        decodeFully(bytes, ::decodeAnyTag)
+        decodeFully(bytes, ::decodeAnyTagFromSource)
 
     fun encodeNamedTagToByteArray(value: NamedNbtTag): ByteArray =
-        encodeBytes { encodeNamedTag(it, value) }
+        encodeBytes { encodeNamedTagToSink(value, it) }
 
     fun decodeNamedTagFromByteArray(bytes: ByteArray): NamedNbtTag =
-        decodeFully(bytes, ::decodeNamedTag)
+        decodeFully(bytes, ::decodeNamedTagFromSource)
 
     fun encodeUnnamedTagToByteArray(tag: NbtTag): ByteArray =
-        encodeBytes { encodeUnnamedTag(it, tag) }
+        encodeBytes { encodeUnnamedTagToSink(tag, it) }
 
     fun decodeUnnamedTagFromByteArray(bytes: ByteArray): NbtTag =
-        decodeFully(bytes, ::decodeUnnamedTag)
+        decodeFully(bytes, ::decodeUnnamedTagFromSource)
 
     fun encodeDocumentToByteArray(document: NbtDocument): ByteArray =
-        encodeBytes { encodeDocument(it, document) }
+        encodeBytes { encodeDocumentToSink(document, it) }
 
     fun decodeDocumentFromByteArray(bytes: ByteArray): NbtDocument =
-        decodeFully(bytes, ::decodeDocument)
+        decodeFully(bytes, ::decodeDocumentFromSource)
 
     private fun encodeBytes(block: (Sink) -> Unit): ByteArray {
         val buffer = Buffer()
@@ -213,6 +250,13 @@ sealed class NbtFormat(
         return value
     }
 }
+
+inline fun <reified T> NbtFormat.encodeToSink(value: T, sink: Sink) {
+    encodeToSink(serializersModule.serializer(), value, sink)
+}
+
+inline fun <reified T> NbtFormat.decodeFromSource(source: Source): T =
+    decodeFromSource(serializersModule.serializer(), source)
 
 private class ConfiguredNbtFormat(
     configuration: NbtFormatConfiguration,

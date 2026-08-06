@@ -69,7 +69,7 @@ class PlayInventoryPacketTest {
             EquipmentUpdates(emptyList())
         }
         assertFailsWith<SerializationException> {
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 SetEquipmentPacket.serializer(),
                 "017f00".hexToByteArray(),
             )
@@ -127,7 +127,7 @@ class PlayInventoryPacketTest {
             "0001010101000202ac02",
         )
         assertFailsWith<SerializationException> {
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 SetCreativeModeSlotPacket.serializer(),
                 "000164010000".hexToByteArray(),
             )
@@ -142,11 +142,11 @@ class PlayInventoryPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
         )
     }
 }

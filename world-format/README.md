@@ -11,9 +11,14 @@ official server, not the standard LZ4 frame format. Custom compression can be su
 `RegionCompressionCodecs`.
 
 ```kotlin
-val region = RegionFileFormat.decode(source)
+val region = RegionFileFormat.decodeFromSource(source)
 val chunk = region[ChunkPosition(x, z).local]
 val document = chunk?.let { RegionChunkNbtFormat().decode(it) }
+
+RegionFileFormat.encodeToSink(region, sink)
+RegionChunkNbtFormat().encodeToSink(updatedDocument, RegionCompression.ZLIB, chunkSink)
 ```
 
-The module does not open paths or impose a typed, version-specific chunk schema.
+These stream methods never close caller-owned endpoints. Byte-array and `RegionChunk` methods wrap the streaming paths;
+compressed arrays remain in `RegionChunk` because they are the model's preserved value. The module does not open paths
+or impose a typed, version-specific chunk schema.

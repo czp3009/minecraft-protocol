@@ -38,7 +38,7 @@ class PlayServerboundSettingsPacketTest {
             "0178",
         )
         assertFails {
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 RenameItemPacket.serializer(),
                 RenameItemPacket("x".repeat(32_768)),
             )
@@ -107,11 +107,11 @@ class PlayServerboundSettingsPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
         )
     }
 }

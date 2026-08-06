@@ -178,11 +178,17 @@ private fun signedHex(bytes: ByteArray): String {
     return if (negative) "-$hexadecimal" else hexadecimal
 }
 
+/**
+ * Authentication or cryptographic validation failure.
+ *
+ * This is an [IllegalStateException] so multiplatform callers can handle the standard failure family directly.
+ */
 open class MinecraftAuthenticationException(
     message: String,
     cause: Throwable? = null,
-) : Exception(message, cause)
+) : IllegalStateException(message, cause)
 
+/** A transient session-service authentication failure. */
 class MinecraftAuthenticationUnavailableException(
     message: String,
     cause: Throwable? = null,

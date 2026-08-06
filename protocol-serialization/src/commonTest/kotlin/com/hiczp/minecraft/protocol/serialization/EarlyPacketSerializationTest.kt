@@ -23,11 +23,11 @@ class EarlyPacketSerializationTest {
         val expected = "8806096c6f63616c686f737463dd02".hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(HandshakePacket.serializer(), packet),
+            MinecraftProtocolFormat.encodeToByteArray(HandshakePacket.serializer(), packet),
         )
         assertEquals(
             expected = packet,
-            actual = MinecraftFormat.decodeFromByteArray(HandshakePacket.serializer(), expected),
+            actual = MinecraftProtocolFormat.decodeFromByteArray(HandshakePacket.serializer(), expected),
         )
     }
 
@@ -36,14 +36,14 @@ class EarlyPacketSerializationTest {
         val packet = LegacyServerListPingPacket()
         assertContentEquals(
             byteArrayOf(1),
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 LegacyServerListPingPacket.serializer(),
                 packet,
             ),
         )
         assertEquals(
             expected = packet,
-            actual = MinecraftFormat.decodeFromByteArray(
+            actual = MinecraftProtocolFormat.decodeFromByteArray(
                 LegacyServerListPingPacket.serializer(),
                 byteArrayOf(1),
             ),
@@ -58,20 +58,20 @@ class EarlyPacketSerializationTest {
         )
         assertContentEquals(
             "0e6d696e6563726166743a746573740100".hexToByteArray(),
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 ConfigurationCustomClickActionPacket.serializer(),
                 absent,
             ),
         )
 
         val present = absent.copy(payload = NbtString("ok"))
-        val bytes = MinecraftFormat.encodeToByteArray(
+        val bytes = MinecraftProtocolFormat.encodeToByteArray(
             ConfigurationCustomClickActionPacket.serializer(),
             present,
         )
         assertEquals(
             present,
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 ConfigurationCustomClickActionPacket.serializer(),
                 bytes,
             ),

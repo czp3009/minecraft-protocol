@@ -6,7 +6,7 @@ import com.hiczp.minecraft.protocol.data.*
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
-import com.hiczp.minecraft.protocol.serialization.MinecraftFormat
+import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import com.hiczp.minecraft.protocol.session.MinecraftSession
 
 data class MinecraftStatusExchange(
@@ -258,7 +258,7 @@ class MinecraftClientProtocol(
                 "The synchronized biome registry is empty",
             )
         }
-        session.format = MinecraftFormat(
+        session.format = MinecraftProtocolFormat(
             configuration = session.format.configuration.copy(
                 chunkSectionCount = dimension.sectionCount,
                 blockStateRegistrySize = VanillaStaticData.blockStates.size,
@@ -308,7 +308,8 @@ class MinecraftClientProtocol(
     }
 }
 
+/** Invalid client-side protocol orchestration or peer behavior. */
 class MinecraftClientException(
     message: String,
     cause: Throwable? = null,
-) : Exception(message, cause)
+) : IllegalStateException(message, cause)

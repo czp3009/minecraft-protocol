@@ -37,7 +37,7 @@ class PlayServerboundInitialPacketTest {
             "01ffffffff0f",
         )
         assertFails {
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 BundleItemSelectedPacket.serializer(),
                 "01feffffff0f".hexToByteArray(),
             )
@@ -53,7 +53,7 @@ class PlayServerboundInitialPacketTest {
         )
         assertEquals(
             Difficulty.HARD,
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 ServerboundChangeDifficultyPacket.serializer(),
                 "ff01".hexToByteArray(),
             ).difficulty,
@@ -65,7 +65,7 @@ class PlayServerboundInitialPacketTest {
         )
         assertEquals(
             GameMode.SURVIVAL,
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 ChangeGameModePacket.serializer(),
                 "7f".hexToByteArray(),
             ).gameMode,
@@ -135,7 +135,7 @@ class PlayServerboundInitialPacketTest {
             "ac020178",
         )
         assertFails {
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 CommandSuggestionsRequestPacket.serializer(),
                 CommandSuggestionsRequestPacket(1, "x".repeat(32_501)),
             )
@@ -155,11 +155,11 @@ class PlayServerboundInitialPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
         )
     }
 }

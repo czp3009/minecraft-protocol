@@ -7,11 +7,10 @@ import com.hiczp.minecraft.nbt.NbtTag
 import com.hiczp.minecraft.nbt.NbtTagDecoder
 import com.hiczp.minecraft.nbt.NbtTagSerializer
 import com.hiczp.minecraft.protocol.model.wire.*
-import com.hiczp.minecraft.protocol.serialization.MinecraftFormatConfiguration
+import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormatConfiguration
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.ExperimentalSerializationApi
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.encoding.CompositeDecoder
@@ -21,7 +20,7 @@ import kotlin.uuid.Uuid
 
 internal class MinecraftDecoder(
     private val reader: MinecraftReader,
-    private val configuration: MinecraftFormatConfiguration,
+    private val configuration: MinecraftProtocolFormatConfiguration,
     override val serializersModule: SerializersModule,
 ) : Decoder, CompositeDecoder, NbtTagDecoder {
     private val nbtCodec: NbtBinaryCodec = NbtBinaryCodec(configuration)
@@ -129,11 +128,7 @@ internal class MinecraftDecoder(
                 "Invalid string byte length $byteLength for limit $maximum",
             )
         }
-        val value = try {
-            reader.readBytes(byteLength).decodeToString(throwOnInvalidSequence = true)
-        } catch (cause: Throwable) {
-            throw MinecraftSerializationException("Invalid UTF-8 string", cause)
-        }
+        val value = reader.readUtf8(byteLength)
         if (value.length > maximum) {
             throw MinecraftSerializationException(
                 "String exceeds its limit of $maximum UTF-16 code units",
@@ -375,14 +370,7 @@ internal class MinecraftDecoder(
                     null
                 } else {
                     @Suppress("UNCHECKED_CAST")
-                    try {
-                        (deserializer.deserializeTag(value) as T)
-                    } catch (exception: SerializationException) {
-                        throw MinecraftSerializationException(
-                            "Cannot decode packet NBT: ${exception.message}",
-                            exception,
-                        )
-                    }
+                    (deserializer.deserializeTag(value) as T)
                 }
             } else {
                 decodeNullableSerializableValue(deserializer)
@@ -418,7 +406,7 @@ internal class MinecraftDecoder(
             )
         }
         val nested = MinecraftDecoder(
-            MinecraftReader(reader.readBytes(size)),
+            reader.readBounded(size),
             configuration,
             serializersModule,
         )
@@ -443,7 +431,7 @@ internal class MinecraftDecoder(
             hints.any { it is ChunkSectionCount } ->
                 configuration.chunkSectionCount
                     ?: throw MinecraftSerializationException(
-                        "Decoding chunk sections requires chunkSectionCount in MinecraftFormatConfiguration",
+                        "Decoding chunk sections requires chunkSectionCount in MinecraftProtocolFormatConfiguration",
                     )
 
             hints.any { it is Unprefixed } ->
@@ -508,16 +496,7 @@ internal class MinecraftDecoder(
     @Suppress("UNCHECKED_CAST")
     private fun <T> decodeWithNbtSerializer(
         deserializer: DeserializationStrategy<T>,
-    ): T = try {
-        deserializer.deserialize(this)
-    } catch (exception: MinecraftSerializationException) {
-        throw exception
-    } catch (exception: SerializationException) {
-        throw MinecraftSerializationException(
-            "Cannot decode packet NBT: ${exception.message}",
-            exception,
-        )
-    }
+    ): T = deserializer.deserialize(this)
 
     private fun isVector3dDescriptor(descriptor: SerialDescriptor): Boolean =
         descriptor.serialName == VECTOR_3D_SERIAL_NAME

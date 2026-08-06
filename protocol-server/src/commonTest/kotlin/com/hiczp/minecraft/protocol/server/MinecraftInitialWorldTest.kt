@@ -9,7 +9,7 @@ import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
 import com.hiczp.minecraft.protocol.model.packet.SetEntityMetadataPacket
 import com.hiczp.minecraft.protocol.model.packet.SpawnEntityPacket
 import com.hiczp.minecraft.protocol.model.type.*
-import com.hiczp.minecraft.protocol.serialization.MinecraftFormat
+import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import kotlin.test.*
 import kotlin.uuid.Uuid
 
@@ -110,8 +110,8 @@ class MinecraftInitialWorldTest {
         )
         assertTrue(chunk.lightData.blockUpdates.isEmpty())
 
-        val format = MinecraftFormat(
-            MinecraftFormat.configuration.copy(
+        val format = MinecraftProtocolFormat(
+            MinecraftProtocolFormat.configuration.copy(
                 chunkSectionCount = dimension.sectionCount,
                 blockStateRegistrySize = VanillaStaticData.blockStates.size,
                 biomeRegistrySize = VanillaProtocolData.requireRegistry(

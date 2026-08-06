@@ -3,7 +3,7 @@ package com.hiczp.minecraft.world.format
 import com.hiczp.minecraft.nbt.*
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.Buffer
+import kotlinx.io.*
 import kotlin.random.Random
 import kotlin.test.*
 
@@ -111,8 +111,8 @@ class RegionFileFormatTest {
         )
         val buffer = Buffer()
 
-        assertTrue(RegionFileFormat.encode(buffer, region).isEmpty())
-        assertEquals(region, RegionFileFormat.decode(buffer))
+        assertTrue(RegionFileFormat.encodeToSink(region, buffer).isEmpty())
+        assertEquals(region, RegionFileFormat.decodeFromSource(buffer))
         assertTrue(buffer.exhausted())
     }
 
@@ -367,6 +367,14 @@ class RegionFileFormatTest {
         )) {
             val chunk = format.encode(document, compression)
             assertEquals(document, format.decode(chunk))
+
+            val stream = Buffer()
+            format.encodeToSink(document, compression, stream)
+            assertEquals(
+                document,
+                format.decodeFromSource(stream, compression),
+            )
+            assertTrue(stream.exhausted())
         }
     }
 
@@ -412,7 +420,7 @@ class RegionFileFormatTest {
         assertEquals(document, chunkNbt.decode(arrayLoaded[position]!!))
 
         val stream = Buffer().also { it.write(encodedRegion.bytes) }
-        val streamLoaded = RegionFileFormat.decode(stream)
+        val streamLoaded = RegionFileFormat.decodeFromSource(stream)
         assertTrue(stream.exhausted())
         assertEquals(document, chunkNbt.decode(streamLoaded[position]!!))
     }
@@ -478,7 +486,7 @@ class RegionFileFormatTest {
             val encoded = RegionCompressionCodecs.compress(compression, input)
             encoded[encoded.lastIndex / 2] =
                 (encoded[encoded.lastIndex / 2].toInt() xor 1).toByte()
-            assertFailsWith<RegionFormatException> {
+            assertFailsWith<IOException> {
                 RegionCompressionCodecs.decompress(
                     compression,
                     encoded,
@@ -487,7 +495,7 @@ class RegionFileFormatTest {
             }
         }
 
-        assertFailsWith<RegionFormatException> {
+        assertFailsWith<IOException> {
             RegionCompressionCodecs.decompress(
                 RegionCompression.NONE,
                 input,
@@ -542,7 +550,7 @@ class RegionFileFormatTest {
                     "$compression sample $index failed",
                 )
                 if (input.isNotEmpty()) {
-                    assertFailsWith<RegionFormatException>(
+                    assertFailsWith<IOException>(
                         "$compression accepted output above its limit",
                     ) {
                         RegionCompressionCodecs.decompress(
@@ -557,15 +565,88 @@ class RegionFileFormatTest {
     }
 
     @Test
+    fun compressionDecoratorsProduceAndConsumeIncrementally() {
+        val input = ByteArray(192 * 1_024) { index ->
+            (index * 37 + index / 11).toByte()
+        }
+        for (compression in listOf(
+            RegionCompression.NONE,
+            RegionCompression.GZIP,
+            RegionCompression.ZLIB,
+            RegionCompression.LZ4,
+        )) {
+            val encoded = Buffer()
+            val compressor = RegionCompressionCodecs
+                .compressingSink(compression, encoded)
+                .buffered()
+            val first = Buffer().apply {
+                write(input, endIndex = input.size / 2)
+            }
+            compressor.write(first, first.size)
+            compressor.flush()
+            assertTrue(encoded.size > 0, "$compression did not stream output")
+            val second = Buffer().apply {
+                write(input, startIndex = input.size / 2)
+            }
+            compressor.write(second, second.size)
+            compressor.close()
+
+            val encodedBytes = encoded.readByteArray()
+            val encodedSource = Buffer().apply { write(encodedBytes) }
+            val decompressor = RegionCompressionCodecs
+                .decompressingSource(
+                    compression,
+                    encodedSource,
+                    input.size,
+                )
+                .buffered()
+            val prefix = decompressor.readByteArray(32)
+
+            assertContentEquals(input.copyOf(32), prefix)
+            assertFalse(
+                encodedSource.exhausted(),
+                "$compression consumed the full input for a short prefix",
+            )
+            val decoded = Buffer().apply {
+                write(prefix)
+                decompressor.transferTo(this)
+            }
+            assertContentEquals(input, decoded.readByteArray())
+            decompressor.close()
+        }
+    }
+
+    @Test
     fun customCompressionIsInjectable() = runTest {
         val reversingCodec = object : RegionCompressionCodec {
-            override suspend fun compress(input: ByteArray): ByteArray =
-                input.reversedArray()
+            override fun compressingSink(sink: Sink): RawSink =
+                object : RawSink {
+                    private val bytes = Buffer()
 
-            override suspend fun decompress(
-                input: ByteArray,
+                    override fun write(
+                        source: Buffer,
+                        byteCount: Long,
+                    ) {
+                        bytes.write(source, byteCount)
+                    }
+
+                    override fun flush() = Unit
+
+                    override fun close() {
+                        sink.write(bytes.readByteArray().reversedArray())
+                    }
+                }
+
+            override fun decompressingSource(
+                source: Source,
                 maximumOutputBytes: Int,
-            ): ByteArray = input.reversedArray()
+            ): RawSource {
+                val decoded = source.readByteArray().reversedArray()
+                if (decoded.size > maximumOutputBytes) {
+                    throw RegionFormatException("Custom output too large")
+                }
+                return Buffer().apply { write(decoded) }
+            }
         }
         val codecs = RegionCompressionCodecs(
             mapOf(RegionCompression.CUSTOM to reversingCodec),
@@ -633,7 +714,7 @@ class RegionFileFormatTest {
             strictRegion.decodeFromByteArray(oneHeader + byteArrayOf(0))
         }
         assertFailsWith<RegionFormatException> {
-            strictRegion.decode(
+            strictRegion.decodeFromSource(
                 Buffer().also { it.write(oneHeader + byteArrayOf(0)) },
             )
         }
@@ -723,7 +804,7 @@ class RegionFileFormatTest {
             compression: RegionCompression,
             bytes: ByteArray,
         ) {
-            assertFailsWith<RegionFormatException> {
+            assertFailsWith<IOException> {
                 RegionCompressionCodecs.decompress(
                     compression,
                     bytes,
@@ -945,7 +1026,7 @@ class RegionFileFormatTest {
             RegionCompression.ZLIB,
             nbtBinaryFormatBytes(),
         )
-        assertFailsWith<RegionFormatException> {
+        assertFailsWith<IOException> {
             strict.decode(
                 RegionChunk(
                     RegionCompression.ZLIB,

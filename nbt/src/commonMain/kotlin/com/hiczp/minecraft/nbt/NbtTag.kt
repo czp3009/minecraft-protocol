@@ -13,8 +13,8 @@ import kotlinx.serialization.encoding.Encoder
  * algebra.
  *
  * Containers and primitive arrays take immutable snapshots of constructor
- * inputs. Container and array accessors return defensive copies, so a tag
- * cannot change after construction.
+ * inputs. Bulk value accessors return defensive copies; size, indexed access,
+ * and iteration read the immutable snapshot without exposing mutable storage.
  */
 @Serializable(with = NbtTagTreeSerializer::class)
 sealed interface NbtTag
@@ -90,8 +90,19 @@ data class NbtDouble(val value: Double) : NbtTag
 class NbtByteArray(value: ByteArray) : NbtTag {
     private val snapshot = value.copyOf()
 
+    /** Number of bytes in this immutable tag. */
+    val size: Int
+        get() = snapshot.size
+
+    /** Returns a defensive copy of this tag's bytes. */
     val value: ByteArray
         get() = snapshot.copyOf()
+
+    /** Returns the byte at [index] without copying the array. */
+    operator fun get(index: Int): Byte = snapshot[index]
+
+    /** Visits the immutable bytes without creating a defensive array copy. */
+    fun forEach(action: (Byte) -> Unit) = snapshot.forEach(action)
 
     override fun equals(other: Any?): Boolean =
         other is NbtByteArray && snapshot.contentEquals(other.snapshot)
@@ -115,8 +126,19 @@ data class NbtString(val value: String) : NbtTag
 class NbtList(value: List<NbtTag>) : NbtTag {
     private val snapshot: List<NbtTag> = value.toList()
 
+    /** Number of elements in this immutable list. */
+    val size: Int
+        get() = snapshot.size
+
+    /** Returns a defensive copy of this list. */
     val value: List<NbtTag>
         get() = snapshot.toList()
+
+    /** Returns the element at [index] without copying the list. */
+    operator fun get(index: Int): NbtTag = snapshot[index]
+
+    /** Visits the immutable elements without creating a list copy. */
+    fun forEach(action: (NbtTag) -> Unit) = snapshot.forEach(action)
 
     init {
         require(snapshot.none { it === NbtEnd }) {
@@ -136,8 +158,21 @@ class NbtList(value: List<NbtTag>) : NbtTag {
 class NbtCompound(value: Map<String, NbtTag>) : NbtTag {
     private val snapshot: Map<String, NbtTag> = LinkedHashMap(value)
 
+    /** Number of named tags in this immutable compound. */
+    val size: Int
+        get() = snapshot.size
+
+    /** Returns a defensive insertion-ordered copy of this compound. */
     val value: Map<String, NbtTag>
         get() = LinkedHashMap(snapshot)
+
+    /** Returns the tag named [name] without copying the compound. */
+    operator fun get(name: String): NbtTag? = snapshot[name]
+
+    /** Visits entries in insertion order without creating a map copy. */
+    fun forEachEntry(action: (String, NbtTag) -> Unit) {
+        snapshot.forEach { (name, tag) -> action(name, tag) }
+    }
 
     init {
         require(snapshot.values.none { it === NbtEnd }) {
@@ -157,8 +192,19 @@ class NbtCompound(value: Map<String, NbtTag>) : NbtTag {
 class NbtIntArray(value: IntArray) : NbtTag {
     private val snapshot = value.copyOf()
 
+    /** Number of integers in this immutable tag. */
+    val size: Int
+        get() = snapshot.size
+
+    /** Returns a defensive copy of this tag's integers. */
     val value: IntArray
         get() = snapshot.copyOf()
+
+    /** Returns the integer at [index] without copying the array. */
+    operator fun get(index: Int): Int = snapshot[index]
+
+    /** Visits the immutable integers without creating an array copy. */
+    fun forEach(action: (Int) -> Unit) = snapshot.forEach(action)
 
     override fun equals(other: Any?): Boolean =
         other is NbtIntArray && snapshot.contentEquals(other.snapshot)
@@ -172,8 +218,19 @@ class NbtIntArray(value: IntArray) : NbtTag {
 class NbtLongArray(value: LongArray) : NbtTag {
     private val snapshot = value.copyOf()
 
+    /** Number of longs in this immutable tag. */
+    val size: Int
+        get() = snapshot.size
+
+    /** Returns a defensive copy of this tag's longs. */
     val value: LongArray
         get() = snapshot.copyOf()
+
+    /** Returns the long at [index] without copying the array. */
+    operator fun get(index: Int): Long = snapshot[index]
+
+    /** Visits the immutable longs without creating an array copy. */
+    fun forEach(action: (Long) -> Unit) = snapshot.forEach(action)
 
     override fun equals(other: Any?): Boolean =
         other is NbtLongArray && snapshot.contentEquals(other.snapshot)

@@ -40,7 +40,7 @@ class PlayClientboundUpdatePacketTest {
             "0101ac023ff0000000000000010b6d696e6563726166743a78c00000000000000002",
         )
 
-        val invalidOperation = MinecraftFormat.decodeFromByteArray(
+        val invalidOperation = MinecraftProtocolFormat.decodeFromByteArray(
             UpdateAttributesPacket.serializer(),
             "0101010000000000000000010b6d696e6563726166743a7800000000000000008001".hexToByteArray(),
         )
@@ -56,7 +56,7 @@ class PlayClientboundUpdatePacketTest {
             AttributeSnapshot(0, 0.0, emptyList())
         }
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 UpdateAttributesPacket.serializer(),
                 UpdateAttributesPacket(1, attributes),
             )
@@ -150,7 +150,7 @@ class PlayClientboundUpdatePacketTest {
             "0100080001780175",
         )
 
-        val invalidBuiltIn = MinecraftFormat.decodeFromByteArray(
+        val invalidBuiltIn = MinecraftProtocolFormat.decodeFromByteArray(
             PlayServerLinksPacket.serializer(),
             "01017f0175".hexToByteArray(),
         )
@@ -168,11 +168,11 @@ class PlayClientboundUpdatePacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
         )
     }
 }

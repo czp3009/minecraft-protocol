@@ -197,8 +197,8 @@ internal object OfficialServerInteropRunner {
     private class FramedConnection(
         private val transport: OfficialServerTransport,
     ) {
-        private val format = MinecraftFormat(
-            MinecraftFormatConfiguration(chunkSectionCount = 24),
+        private val format = MinecraftProtocolFormat(
+            MinecraftProtocolFormatConfiguration(chunkSectionCount = 24),
         )
         var compressionThreshold: Int? = null
             private set

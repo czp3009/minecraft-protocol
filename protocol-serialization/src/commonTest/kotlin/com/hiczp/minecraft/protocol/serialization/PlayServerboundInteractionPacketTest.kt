@@ -29,7 +29,7 @@ class PlayServerboundInteractionPacketTest {
             "ad02",
         )
         assertFails {
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 SpectatorActionPacket.serializer(),
                 SpectatorActionPacket(-1),
             )
@@ -70,7 +70,7 @@ class PlayServerboundInteractionPacketTest {
             "0000000000000000060001ac02000301020108000178",
         )
 
-        val fallback = MinecraftFormat.decodeFromByteArray(
+        val fallback = MinecraftProtocolFormat.decodeFromByteArray(
             TestInstanceBlockActionPacket.serializer(),
             "00000000000000007f00000000ff01007f00".hexToByteArray(),
         )
@@ -79,7 +79,7 @@ class PlayServerboundInteractionPacketTest {
         assertEquals(TestInstanceStatus.CLEARED, fallback.data.status)
         assertContentEquals(
             "0000000000000000000000000003000000".hexToByteArray(),
-            MinecraftFormat.encodeToByteArray(TestInstanceBlockActionPacket.serializer(), fallback),
+            MinecraftProtocolFormat.encodeToByteArray(TestInstanceBlockActionPacket.serializer(), fallback),
         )
     }
 
@@ -137,11 +137,11 @@ class PlayServerboundInteractionPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
         )
     }
 }

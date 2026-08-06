@@ -2,8 +2,14 @@ package com.hiczp.minecraft.nbt.serialization
 
 import com.hiczp.minecraft.nbt.*
 import kotlinx.io.*
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.buildClassSerialDescriptor
+import kotlinx.serialization.descriptors.element
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlin.random.Random
 import kotlin.test.*
 
@@ -101,6 +107,74 @@ class NbtFormatBinaryTest {
     }
 
     @Test
+    fun genericStreamEncodingEmitsDuringSerializerTraversal() {
+        val sink = Buffer()
+        val value = StreamingProbe(7, "after")
+        val serializer = StreamingProbeSerializer {
+            assertTrue(
+                sink.size > 0,
+                "The first field should reach the sink before the serializer emits the second field",
+            )
+        }
+
+        NbtFormat.encodeToSink(serializer, value, sink)
+        val streamed = sink.readByteArray()
+
+        assertContentEquals(
+            NbtFormat.encodeToByteArray(StreamingProbeSerializer {}, value),
+            streamed,
+        )
+        assertEquals(
+            value,
+            NbtFormat.decodeFromByteArray(serializer, streamed),
+        )
+    }
+
+    @Test
+    fun directBinaryMappingRoundTripsMapsArraysNullsAndMixedRawLists() {
+        val value = DirectBinarySample(
+            mapping = linkedMapOf("first" to 1L, "second\u0000" to -2L),
+            bytes = byteArrayOf(0, 1, -1),
+            requiredNullable = null,
+            raw = NbtList(listOf(NbtInt(1), NbtString("two"))),
+        )
+
+        val encoded = NbtFormat.encodeToByteArray(
+            DirectBinarySample.serializer(),
+            value,
+        )
+        val decoded = NbtFormat.decodeFromByteArray(
+            DirectBinarySample.serializer(),
+            encoded,
+        )
+
+        assertEquals(value.mapping, decoded.mapping)
+        assertContentEquals(value.bytes, decoded.bytes)
+        assertNull(decoded.requiredNullable)
+        assertEquals(value.raw, decoded.raw)
+    }
+
+    @Test
+    fun directBinaryDecoderSkipsUnknownPayloadsWithoutChangingKnownFields() {
+        val encoded = NbtFormat.encodeAnyTagToByteArray(
+            NbtCompound(
+                linkedMapOf(
+                    "unknown" to NbtByteArray(ByteArray(32_768) { it.toByte() }),
+                    "number" to NbtInt(42),
+                ),
+            ),
+        )
+        val format = NbtFormat(
+            NbtFormatConfiguration(ignoreUnknownKeys = true),
+        )
+
+        assertEquals(
+            KnownBinaryValue(42),
+            format.decodeFromByteArray(KnownBinaryValue.serializer(), encoded),
+        )
+    }
+
+    @Test
     fun roundTripsEveryTagKindInDocumentAndNamedRoot() {
         val document = NbtDocument(
             root = NbtCompound(
@@ -175,7 +249,7 @@ class NbtFormatBinaryTest {
         buffer.write(first)
         buffer.write(byteArrayOf(99, 100))
 
-        assertEquals(NbtInt(42), NbtFormat.decodeAnyTag(buffer))
+        assertEquals(NbtInt(42), NbtFormat.decodeAnyTagFromSource(buffer))
         assertContentEquals(byteArrayOf(99, 100), buffer.readByteArray())
     }
 
@@ -184,7 +258,7 @@ class NbtFormatBinaryTest {
         val rawSink = TrackingRawSink()
         val sink = rawSink.buffered()
 
-        NbtFormat.encodeAnyTag(sink, NbtInt(42))
+        NbtFormat.encodeAnyTagToSink(NbtInt(42), sink)
 
         assertFalse(rawSink.closed)
         sink.flush()
@@ -192,7 +266,7 @@ class NbtFormatBinaryTest {
 
         val rawSource = TrackingRawSource(encoded)
         val source = rawSource.buffered()
-        assertEquals(NbtInt(42), NbtFormat.decodeAnyTag(source))
+        assertEquals(NbtInt(42), NbtFormat.decodeAnyTagFromSource(source))
         assertFalse(rawSource.closed)
     }
 
@@ -302,12 +376,12 @@ class NbtFormatBinaryTest {
     @Test
     fun doesNotConsumeFollowingValueWhenReadingFromStream() {
         val buffer = Buffer()
-        NbtFormat.encodeAnyTag(buffer, NbtByte(1))
-        NbtFormat.encodeAnyTag(buffer, NbtByte(2))
+        NbtFormat.encodeAnyTagToSink(NbtByte(1), buffer)
+        NbtFormat.encodeAnyTagToSink(NbtByte(2), buffer)
 
-        assertEquals(NbtByte(1), NbtFormat.decodeAnyTag(buffer))
+        assertEquals(NbtByte(1), NbtFormat.decodeAnyTagFromSource(buffer))
         assertFalse(buffer.exhausted())
-        assertEquals(NbtByte(2), NbtFormat.decodeAnyTag(buffer))
+        assertEquals(NbtByte(2), NbtFormat.decodeAnyTagFromSource(buffer))
     }
 
     @Test
@@ -473,14 +547,14 @@ class NbtFormatBinaryTest {
         }
         assertFailsWith<NbtSerializationException> {
             val source = Buffer().also { it.write(encodedInt) }
-            limited.decodeAnyTag(source)
+            limited.decodeAnyTagFromSource(source)
         }
         assertFailsWith<NbtSerializationException> {
             limited.encodeAnyTagToByteArray(NbtInt(1))
         }
         assertFailsWith<NbtSerializationException> {
             val sink = Buffer()
-            limited.encodeAnyTag(sink, NbtInt(1))
+            limited.encodeAnyTagToSink(NbtInt(1), sink)
         }
     }
 
@@ -688,6 +762,55 @@ private data class BinaryFormatSample(
     val number: Int,
     val names: List<String>,
 )
+
+@Serializable
+private data class DirectBinarySample(
+    val mapping: Map<String, Long>,
+    val bytes: ByteArray,
+    val requiredNullable: String?,
+    val raw: NbtTag,
+)
+
+@Serializable
+private data class KnownBinaryValue(val number: Int)
+
+private data class StreamingProbe(
+    val first: Int,
+    val second: String,
+)
+
+private class StreamingProbeSerializer(
+    private val afterFirst: () -> Unit,
+) : KSerializer<StreamingProbe> {
+    override val descriptor: SerialDescriptor =
+        buildClassSerialDescriptor("StreamingProbe") {
+            element<Int>("first")
+            element<String>("second")
+        }
+
+    override fun serialize(encoder: Encoder, value: StreamingProbe) {
+        val composite = encoder.beginStructure(descriptor)
+        composite.encodeIntElement(descriptor, 0, value.first)
+        afterFirst()
+        composite.encodeStringElement(descriptor, 1, value.second)
+        composite.endStructure(descriptor)
+    }
+
+    override fun deserialize(decoder: Decoder): StreamingProbe {
+        val composite = decoder.beginStructure(descriptor)
+        var first = 0
+        var second = ""
+        while (true) {
+            when (val index = composite.decodeElementIndex(descriptor)) {
+                0 -> first = composite.decodeIntElement(descriptor, index)
+                1 -> second = composite.decodeStringElement(descriptor, index)
+                else -> break
+            }
+        }
+        composite.endStructure(descriptor)
+        return StreamingProbe(first, second)
+    }
+}
 
 private class TrackingRawSource(bytes: ByteArray) : RawSource {
     private val storage = Buffer().also { it.write(bytes) }

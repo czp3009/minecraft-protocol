@@ -46,7 +46,7 @@ class PlayServerboundContainerAndInteractionPacketTest {
             "0b6d696e6563726166743a780102aabb",
         )
         assertFails {
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 PlayCookieResponsePacket.serializer(),
                 PlayCookieResponsePacket(key, ByteString(ByteArray(5_121))),
             )
@@ -75,7 +75,7 @@ class PlayServerboundContainerAndInteractionPacketTest {
             "02000f",
         )
         assertFails {
-            MinecraftFormat.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 DebugSubscriptionRequestPacket.serializer(),
                 "21000000000000000000000000000000000000000000000000000000000000000000"
                     .hexToByteArray(),
@@ -91,19 +91,19 @@ class PlayServerboundContainerAndInteractionPacketTest {
             "01020161026263010178",
         )
         assertFails {
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 EditBookPacket.serializer(),
                 EditBookPacket(0, List(101) { "" }, null),
             )
         }
         assertFails {
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 EditBookPacket.serializer(),
                 EditBookPacket(0, listOf("x".repeat(1_025)), null),
             )
         }
         assertFails {
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 EditBookPacket.serializer(),
                 EditBookPacket(0, emptyList(), "x".repeat(33)),
             )
@@ -160,11 +160,11 @@ class PlayServerboundContainerAndInteractionPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
         )
     }
 }

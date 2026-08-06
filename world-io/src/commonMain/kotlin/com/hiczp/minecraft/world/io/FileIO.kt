@@ -1,9 +1,8 @@
 package com.hiczp.minecraft.world.io
 
-import kotlinx.io.buffered
+import kotlinx.io.*
 import kotlinx.io.files.FileSystem
 import kotlinx.io.files.Path
-import kotlinx.io.readByteArray
 import kotlin.random.Random
 
 private const val ATOMIC_TEMPORARY_RANDOM_RADIX = 36
@@ -14,6 +13,17 @@ internal fun FileSystem.readFileWithinLimit(
     path: Path,
     maximumBytes: Int,
 ): ByteArray {
+    require(maximumBytes >= 0)
+    return readFile(path, maximumBytes) { source, size ->
+        source.readByteArray(size.toInt())
+    }
+}
+
+internal fun <T> FileSystem.readFile(
+    path: Path,
+    maximumBytes: Int,
+    block: (Source, Long) -> T,
+): T {
     require(maximumBytes >= 0)
     val metadata = metadataOrNull(path)
         ?: throw WorldIOException("File does not exist: $path")
@@ -26,24 +36,36 @@ internal fun FileSystem.readFileWithinLimit(
         )
     }
 
-    val source = source(path).buffered()
+    val fileSource = source(path).buffered()
+    val limitedSource = LimitedRawSource(fileSource, maximumBytes).buffered()
+    var failure: Throwable? = null
     try {
-        val bytes = source.readByteArray(metadata.size.toInt())
-        if (!source.exhausted()) {
-            throw WorldIOException(
-                "File $path grew beyond limit $maximumBytes while reading",
-            )
+        val value = block(limitedSource, metadata.size)
+        if (!limitedSource.exhausted()) {
+            throw WorldIOException("File $path was not fully consumed")
         }
-        return bytes
+        return value
+    } catch (caught: Throwable) {
+        failure = caught
+        throw caught
     } finally {
-        source.close()
+        closeAllPreserving(failure, limitedSource::close)
     }
 }
 
 internal fun FileSystem.writeByteArrayAtomically(
     path: Path,
     bytes: ByteArray,
-) {
+): Unit = writeAtomically(path, bytes.size) { sink ->
+    sink.write(bytes)
+}
+
+internal fun <T> FileSystem.writeAtomically(
+    path: Path,
+    maximumBytes: Int,
+    block: (Sink) -> T,
+): T {
+    require(maximumBytes >= 0)
     val parent = path.parent
         ?: throw WorldIOException("File has no parent directory: $path")
     createDirectories(parent)
@@ -52,20 +74,103 @@ internal fun FileSystem.writeByteArrayAtomically(
         atomicTemporaryFileName(Random.nextLong().toULong()),
     )
     try {
-        val sink = sink(temporary).buffered()
-        try {
-            sink.write(bytes)
-            sink.flush()
+        val fileSink = sink(temporary).buffered()
+        val limitedSink = LimitedRawSink(fileSink, maximumBytes).buffered()
+        var failure: Throwable? = null
+        val value = try {
+            block(limitedSink).also {
+                limitedSink.flush()
+            }
+        } catch (caught: Throwable) {
+            failure = caught
+            throw caught
         } finally {
-            sink.close()
+            closeAllPreserving(
+                failure,
+                limitedSink::close,
+                fileSink::close,
+            )
         }
         replaceAtomically(temporary, path)
+        return value
     } catch (failure: Throwable) {
-        runCatching {
+        try {
             if (exists(temporary)) delete(temporary)
+        } catch (cleanupFailure: Throwable) {
+            failure.addSuppressed(cleanupFailure)
         }
-        throw WorldIOException("Cannot atomically write $path", failure)
+        throw failure
     }
+}
+
+internal fun closeAllPreserving(
+    failure: Throwable?,
+    vararg closes: () -> Unit,
+) {
+    var primary = failure
+    closes.forEach { close ->
+        try {
+            close()
+        } catch (closeFailure: Throwable) {
+            if (primary == null) {
+                primary = closeFailure
+            } else {
+                primary.addSuppressed(closeFailure)
+            }
+        }
+    }
+    if (failure == null) throw primary ?: return
+}
+
+private class LimitedRawSource(
+    private val delegate: Source,
+    private val maximumBytes: Int,
+) : RawSource {
+    private var bytesRead = 0L
+
+    override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
+        if (byteCount == 0L) return 0
+        val remaining = maximumBytes.toLong() - bytesRead
+        val read = delegate.readAtMostTo(sink, minOf(byteCount, remaining + 1))
+        if (read < 0) return -1
+        bytesRead += read
+        if (bytesRead > maximumBytes) {
+            throw WorldIOException(
+                "File grew beyond limit $maximumBytes while reading",
+            )
+        }
+        return read
+    }
+
+    override fun close() {
+        delegate.close()
+    }
+}
+
+internal class LimitedRawSink(
+    private val delegate: Sink,
+    private val maximumBytes: Int,
+) : RawSink {
+    private var bytesWritten = 0L
+
+    override fun write(source: Buffer, byteCount: Long) {
+        if (
+            byteCount < 0 ||
+            byteCount > maximumBytes.toLong() - bytesWritten
+        ) {
+            throw WorldIOException(
+                "Output exceeds configured limit $maximumBytes",
+            )
+        }
+        delegate.write(source, byteCount)
+        bytesWritten += byteCount
+    }
+
+    override fun flush() {
+        delegate.flush()
+    }
+
+    override fun close() = Unit
 }
 
 /** Returns a short extension-free sibling name shared by every atomic write. */
@@ -108,7 +213,8 @@ internal fun FileSystem.deleteIfExists(path: Path) {
     if (exists(path)) delete(path)
 }
 
+/** A filesystem-policy failure reported through the standard I/O hierarchy. */
 class WorldIOException(
     message: String,
     cause: Throwable? = null,
-) : RuntimeException(message, cause)
+) : IOException(message, cause)

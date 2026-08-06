@@ -9,9 +9,10 @@ import com.hiczp.minecraft.nbt.NbtTagSerializer
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer
 import com.hiczp.minecraft.protocol.model.type.Vector3d
 import com.hiczp.minecraft.protocol.model.wire.*
-import com.hiczp.minecraft.protocol.serialization.MinecraftFormatConfiguration
+import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormatConfiguration
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
-import kotlinx.io.readByteArray
+import kotlinx.io.Buffer
+import kotlinx.io.writeString
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.descriptors.SerialDescriptor
@@ -24,7 +25,7 @@ import kotlin.uuid.Uuid
 
 internal class MinecraftEncoder(
     private val writer: MinecraftWriter,
-    private val configuration: MinecraftFormatConfiguration,
+    private val configuration: MinecraftProtocolFormatConfiguration,
     override val serializersModule: SerializersModule,
 ) : AbstractEncoder(), NbtTagEncoder {
     private val nbtCodec: NbtBinaryCodec = NbtBinaryCodec(configuration)
@@ -152,14 +153,14 @@ internal class MinecraftEncoder(
     override fun encodeString(value: String) {
         val maximum = takePendingHints().filterIsInstance<MaxLength>()
             .singleOrNull()?.characters ?: DEFAULT_STRING_MAXIMUM
-        val bytes = value.encodeToByteArray()
-        if (value.length > maximum || bytes.size > maximum * 3L) {
+        val byteCount = utf8ByteCount(value)
+        if (value.length > maximum || byteCount > maximum * 3L) {
             throw MinecraftSerializationException(
                 "String exceeds its protocol limit of $maximum UTF-16 code units",
             )
         }
-        writer.writeVarInt(bytes.size)
-        writer.write(bytes)
+        writer.writeVarInt(byteCount.toInt())
+        writer.writeString(value)
     }
 
     override fun encodeEnum(enumDescriptor: SerialDescriptor, index: Int) {
@@ -344,25 +345,24 @@ internal class MinecraftEncoder(
         require(annotation.maxBytes >= 0) {
             "ByteLengthPrefixed maxBytes must be non-negative"
         }
-        val nestedWriter = MinecraftWriter()
+        val nestedWriter = Buffer()
         val nested = MinecraftEncoder(
             nestedWriter,
             configuration,
             serializersModule,
         )
         encode(nested)
-        val bytes = nestedWriter.readByteArray()
         val maximum = minOf(
             annotation.maxBytes,
             configuration.maximumByteArraySize,
         )
-        if (bytes.size > maximum) {
+        if (nestedWriter.size > maximum.toLong()) {
             throw MinecraftSerializationException(
-                "Length-prefixed value has ${bytes.size} bytes; maximum is $maximum",
+                "Length-prefixed value has ${nestedWriter.size} bytes; maximum is $maximum",
             )
         }
-        writer.writeVarInt(bytes.size)
-        writer.write(bytes)
+        writer.writeVarInt(nestedWriter.size.toInt())
+        nestedWriter.transferTo(writer)
     }
 
     private fun elementHints(
@@ -406,4 +406,28 @@ internal class MinecraftEncoder(
         val descriptor: SerialDescriptor,
         val elementHints: List<Annotation> = emptyList(),
     )
+}
+
+/** Matches the UTF-8 replacement behavior used by kotlinx.io.Sink.writeString. */
+private fun utf8ByteCount(value: String): Long {
+    var byteCount = 0L
+    var index = 0
+    while (index < value.length) {
+        val code = value[index].code
+        when {
+            code < 0x80 -> byteCount++
+            code < 0x800 -> byteCount += 2
+            code !in 0xD800..0xDFFF -> byteCount += 3
+            code <= 0xDBFF &&
+                    index + 1 < value.length &&
+                    value[index + 1].code in 0xDC00..0xDFFF -> {
+                byteCount += 4
+                index++
+            }
+
+            else -> byteCount++
+        }
+        index++
+    }
+    return byteCount
 }

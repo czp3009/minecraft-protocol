@@ -333,13 +333,13 @@ class ConnectionStatePacketTest {
     @Test
     fun `configuration and login packet-specific limits reject oversized values`() {
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 LoginStartPacket.serializer(),
                 LoginStartPacket("x".repeat(17), Uuid.fromLongs(0, 0)),
             )
         }
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 ConfigurationStoreCookiePacket.serializer(),
                 ConfigurationStoreCookiePacket(
                     Identifier("test"),
@@ -348,7 +348,7 @@ class ConnectionStatePacketTest {
             )
         }
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 ConfigurationCustomReportDetailsPacket.serializer(),
                 ConfigurationCustomReportDetailsPacket(
                     List(33) { ReportDetail("t", "d") },
@@ -356,7 +356,7 @@ class ConnectionStatePacketTest {
             )
         }
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftFormat.encodeToByteArray(
+            MinecraftProtocolFormat.encodeToByteArray(
                 ConfigurationServerboundKnownPacksPacket.serializer(),
                 ConfigurationServerboundKnownPacksPacket(
                     List(65) { KnownPack("m", "c", "1") },
@@ -373,11 +373,11 @@ class ConnectionStatePacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftFormat.encodeToByteArray(serializer, value),
+            MinecraftProtocolFormat.encodeToByteArray(serializer, value),
         )
         assertEquals(
             value,
-            MinecraftFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
         )
     }
 }

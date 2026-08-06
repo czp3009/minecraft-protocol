@@ -3,7 +3,7 @@ package com.hiczp.minecraft.protocol.serialization.internal
 import com.hiczp.minecraft.protocol.model.type.PackedLongArray
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer
 import com.hiczp.minecraft.protocol.model.wire.PaletteKind
-import com.hiczp.minecraft.protocol.serialization.MinecraftFormatConfiguration
+import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormatConfiguration
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
 
 internal object PalettedContainerCodec {
@@ -11,7 +11,7 @@ internal object PalettedContainerCodec {
         writer: MinecraftWriter,
         value: PalettedContainer,
         kind: PaletteKind,
-        configuration: MinecraftFormatConfiguration,
+        configuration: MinecraftProtocolFormatConfiguration,
     ) {
         val registrySize = kind.registrySize(configuration)
         when (value) {
@@ -50,7 +50,7 @@ internal object PalettedContainerCodec {
     fun read(
         reader: MinecraftReader,
         kind: PaletteKind,
-        configuration: MinecraftFormatConfiguration,
+        configuration: MinecraftProtocolFormatConfiguration,
     ): PalettedContainer {
         val registrySize = kind.registrySize(configuration)
         val wireBits = reader.readUnsignedByte()
@@ -147,7 +147,7 @@ internal object PalettedContainerCodec {
         reader: MinecraftReader,
         bits: Int,
         kind: PaletteKind,
-        configuration: MinecraftFormatConfiguration,
+        configuration: MinecraftProtocolFormatConfiguration,
     ): PackedLongArray {
         val count = packedLongCount(kind.entryCount, bits)
         if (count > configuration.maximumCollectionSize ||
@@ -208,7 +208,7 @@ internal object PalettedContainerCodec {
         }
 
     private fun PaletteKind.registrySize(
-        configuration: MinecraftFormatConfiguration,
+        configuration: MinecraftProtocolFormatConfiguration,
     ): Int = when (this) {
         PaletteKind.BLOCK_STATES -> configuration.blockStateRegistrySize
         PaletteKind.BIOMES -> configuration.biomeRegistrySize
