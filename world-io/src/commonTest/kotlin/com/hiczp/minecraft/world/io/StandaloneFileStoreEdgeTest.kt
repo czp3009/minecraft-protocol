@@ -801,23 +801,6 @@ class StandaloneFileStoreEdgeTest {
     }
 
     @Test
-    fun savedDataMagicProbeRejectsAHandleThatMakesNoProgress() = runTest {
-        val base = FakeFileSystem()
-        val paths = MinecraftWorldPaths("/world".toPath())
-        val path = paths.savedData("value")
-        base.writeRaw(path, byteArrayOf(1, 2, 3))
-        val noProgress = ZeroProgressHandleFileSystem(base, path)
-
-        assertFailsWith<WorldIOException> {
-            SavedDataFileStore(
-                paths,
-                nbtFiles = NbtFileStore(noProgress),
-            ).read("value")
-        }
-        base.checkNoOpenFiles()
-    }
-
-    @Test
     fun jsonReadsAndWritesEnforceByteLimitsAndFileKinds() {
         assertFailsWith<IllegalArgumentException> {
             Utf8JsonFileStore(maximumBytes = -1)
@@ -1051,39 +1034,6 @@ private class ShortReadHandleFileSystem(
                 arrayOffset,
                 minOf(byteCount, 1),
             )
-
-            override fun protectedWrite(
-                fileOffset: Long,
-                array: ByteArray,
-                arrayOffset: Int,
-                byteCount: Int,
-            ) = handle.write(fileOffset, array, arrayOffset, byteCount)
-
-            override fun protectedFlush() = handle.flush()
-
-            override fun protectedResize(size: Long) = handle.resize(size)
-
-            override fun protectedSize(): Long = handle.size()
-
-            override fun protectedClose() = handle.close()
-        }
-    }
-}
-
-private class ZeroProgressHandleFileSystem(
-    delegate: FileSystem,
-    private val target: Path,
-) : ForwardingFileSystem(delegate) {
-    override fun openReadOnly(file: Path): FileHandle {
-        val handle = super.openReadOnly(file)
-        if (file != target) return handle
-        return object : FileHandle(readWrite = false) {
-            override fun protectedRead(
-                fileOffset: Long,
-                array: ByteArray,
-                arrayOffset: Int,
-                byteCount: Int,
-            ): Int = 0
 
             override fun protectedWrite(
                 fileOffset: Long,

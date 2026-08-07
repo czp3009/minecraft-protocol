@@ -4,6 +4,7 @@ import kotlinx.cinterop.*
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
+import okio.use
 import platform.posix.*
 
 @OptIn(ExperimentalForeignApi::class)
@@ -221,13 +222,11 @@ private fun absoluteWorldLockPath(path: Path): String =
     if (path.isAbsolute) {
         path.toString()
     } else {
-        (systemFileSystem.canonicalize(".".toPath()) / path).toString()
+        (FileSystem.SYSTEM.canonicalize(".".toPath()) / path).toString()
     }
 
 private fun writeWorldLockMarker(path: Path) {
-    val handle = systemFileSystem.openReadWrite(path)
-    var failure: Throwable? = null
-    try {
+    FileSystem.SYSTEM.openReadWrite(path).use { handle ->
         handle.write(
             fileOffset = 0L,
             array = WORLD_LOCK_MARKER,
@@ -235,11 +234,6 @@ private fun writeWorldLockMarker(path: Path) {
             byteCount = WORLD_LOCK_MARKER.size,
         )
         handle.flush()
-    } catch (caught: Throwable) {
-        failure = caught
-        throw caught
-    } finally {
-        closeAllPreserving(failure, handle::close)
     }
 }
 

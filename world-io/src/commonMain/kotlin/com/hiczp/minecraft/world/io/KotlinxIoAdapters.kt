@@ -9,7 +9,6 @@ import okio.Source as OkioSource
 
 internal class OkioToKotlinxRawSource(
     private val upstream: OkioSource,
-    private val closeUpstream: Boolean = true,
 ) : KotlinxRawSource {
     private val transfer = OkioBuffer()
     private val scratch = ByteArray(FILE_STREAM_BUFFER_BYTES)
@@ -42,13 +41,12 @@ internal class OkioToKotlinxRawSource(
     override fun close() {
         if (closed) return
         closed = true
-        if (closeUpstream) upstream.close()
+        upstream.close()
     }
 }
 
 internal class KotlinxToOkioRawSink(
     private val downstream: OkioSink,
-    private val closeDownstream: Boolean = true,
 ) : KotlinxRawSink {
     private val transfer = OkioBuffer()
     private val scratch = ByteArray(FILE_STREAM_BUFFER_BYTES)
@@ -76,7 +74,7 @@ internal class KotlinxToOkioRawSink(
     override fun close() {
         if (closed) return
         closed = true
-        if (closeDownstream) downstream.close()
+        downstream.close()
     }
 }
 

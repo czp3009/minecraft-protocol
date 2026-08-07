@@ -232,17 +232,6 @@ Gradle 管理的 Node。
 9. `world-format` 与 `protocol-transport` 分别通过外部消费者 smoke test，确认实现依赖未泄漏到公共 ABI。
 10. 删除 `compression`、WASI variants 和 D8 任务后，发布元数据与所有保留平台的标准测试通过。
 
-## 与现有 world-io 计划的关系
-
-现有 [`world-io-okio-official-storage.md`](world-io-okio-official-storage.md) 仍假设保留 `compression`，并包含不同的 Okio
-桥接判断。实施前以本文决策修订该计划：
-
-- 删除 `compression` 模块；
-- `world-format` 完整读写 LZ4Block；
-- 使用官方 [`kotlinx-io-okio`](https://kotlinlang.org/api/kotlinx-io/kotlinx-io-okio/) 适配；
-- 压缩入口改为挂起式；
-- 平台矩阵删除 WASI 和 D8。
-
 ## 完成状态定义
 
 只有在所有保留平台均通过 LZ4 读写及 vanilla 互操作验证后，现有手写 LZ4/XXHash 实现和 `compression` 模块才能删除。WebAssembly

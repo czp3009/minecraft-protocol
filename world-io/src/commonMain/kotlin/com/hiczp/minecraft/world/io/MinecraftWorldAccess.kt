@@ -1,9 +1,15 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
+import com.hiczp.minecraft.world.format.ChunkPosition
+import com.hiczp.minecraft.world.format.RegionChunk
+import com.hiczp.minecraft.world.format.RegionFile
+import com.hiczp.minecraft.world.format.RegionPosition
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okio.FileSystem
 import okio.Path
+import okio.SYSTEM
 
 /** A system-filesystem world lease backed by the vanilla `session.lock`. */
 class MinecraftWorldAccess private constructor(
@@ -11,10 +17,10 @@ class MinecraftWorldAccess private constructor(
     private val directoryLock: WorldDirectoryLock,
 ) {
     private val mutex = Mutex()
-    private val nbtFiles = NbtFileStore(systemFileSystem)
+    private val nbtFiles = NbtFileStore(FileSystem.SYSTEM)
     private val levelData = LevelDataStore(paths, nbtFiles)
     private val playerData = PlayerDataStore(paths, nbtFiles)
-    private val jsonFiles = Utf8JsonFileStore(systemFileSystem)
+    private val jsonFiles = Utf8JsonFileStore(FileSystem.SYSTEM)
     private val regionStores =
         linkedMapOf<RegionStoreKey, WorldRegionStore>()
     private var closed = false
@@ -85,17 +91,69 @@ class MinecraftWorldAccess private constructor(
             jsonFiles.write(paths.advancement(playerUuid), json)
         }
 
-    suspend fun <T> withRegionStore(
+    suspend fun readRegion(
+        position: RegionPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-        block: suspend (WorldRegionStore) -> T,
-    ): T = mutex.withLock {
+    ): RegionFile = mutex.withLock {
         checkValid()
-        val key = RegionStoreKey(storage, dimension)
-        val store = regionStores.getOrPut(key) {
-            WorldRegionStore(paths, storage, dimension)
-        }
-        block(store)
+        regionStore(storage, dimension).readRegion(position)
+    }
+
+    suspend fun readChunk(
+        position: ChunkPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): RegionChunk? = mutex.withLock {
+        checkValid()
+        regionStore(storage, dimension).readChunk(position)
+    }
+
+    suspend fun doesChunkExist(
+        position: ChunkPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): Boolean = mutex.withLock {
+        checkValid()
+        regionStore(storage, dimension).doesChunkExist(position)
+    }
+
+    suspend fun writeChunk(
+        position: ChunkPosition,
+        chunk: RegionChunk?,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ) = mutex.withLock {
+        checkValid()
+        regionStore(storage, dimension).writeChunk(position, chunk)
+    }
+
+    suspend fun clearChunk(
+        position: ChunkPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ) = mutex.withLock {
+        checkValid()
+        regionStore(storage, dimension).clearChunk(position)
+    }
+
+    suspend fun readChunkNbt(
+        position: ChunkPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): NbtDocument? = mutex.withLock {
+        checkValid()
+        regionStore(storage, dimension).readChunkNbt(position)
+    }
+
+    suspend fun writeChunkNbt(
+        position: ChunkPosition,
+        document: NbtDocument,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ) = mutex.withLock {
+        checkValid()
+        regionStore(storage, dimension).writeChunkNbt(position, document)
     }
 
     suspend fun flush() = mutex.withLock {
@@ -146,9 +204,19 @@ class MinecraftWorldAccess private constructor(
         }
     }
 
+    private fun regionStore(
+        storage: RegionStorageDirectory,
+        dimension: DimensionDirectory,
+    ): WorldRegionStore {
+        val key = RegionStoreKey(storage, dimension)
+        return regionStores.getOrPut(key) {
+            WorldRegionStore(paths, storage, dimension)
+        }
+    }
+
     companion object {
         fun open(root: Path): MinecraftWorldAccess {
-            systemFileSystem.createDirectories(root)
+            FileSystem.SYSTEM.createDirectories(root)
             val paths = MinecraftWorldPaths(root)
             val lock = acquireWorldDirectoryLock(paths.sessionLock)
             return MinecraftWorldAccess(paths, lock)

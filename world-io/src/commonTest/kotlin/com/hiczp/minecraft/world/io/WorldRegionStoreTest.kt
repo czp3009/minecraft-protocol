@@ -6,6 +6,7 @@ import okio.*
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.*
+import kotlin.time.Clock
 
 class WorldRegionStoreTest {
     @Test
@@ -134,53 +135,37 @@ class WorldRegionStoreTest {
     }
 
     @Test
-    fun timestampFailureLeavesDataUncommittedAndPreservesExistingSidecars() = runTest {
-        val base = FakeFileSystem()
+    fun writesAndClearsAssignAutomaticTimestamps() = runTest {
+        val base = FakeFileSystem().apply {
+            allowReadsWhileWriting = true
+        }
         val directory = "/world/timestamp/region".toPath()
         val path = directory / "r.0.0.mca"
-        val sidecar = directory / "c.0.0.mcc"
         val position = ChunkPosition(0, 0)
-        val originalPayload = externalPayload(21)
-        store(base, directory).also {
-            it.writeChunk(position, chunk(originalPayload))
-            it.close()
-        }
-        val originalHeader = header(base, path)
-        val expected = IllegalStateException("synthetic clock failure")
-        val failing = WorldRegionStore(
-            directory = directory,
-            fileSystem = base,
-            configuration = WorldRegionStoreConfiguration(
-                syncWrites = false,
-            ),
-            currentEpochSeconds = { throw expected },
-        )
+        val store = store(base, directory)
+        val beforeWrite = Clock.System.now().epochSeconds.toInt()
 
-        assertSame(
-            expected,
-            assertFailsWith<IllegalStateException> {
-                failing.writeChunk(position, chunk(externalPayload(22)))
-            },
-        )
-        assertSame(
-            expected,
-            assertFailsWith<IllegalStateException> {
-                failing.clearChunk(position)
-            },
-        )
-        failing.close()
+        store.writeChunk(position, chunk(byteArrayOf(1)))
 
-        assertEquals(originalHeader, header(base, path))
-        assertContentEquals(originalPayload, base.readBytes(sidecar))
+        val afterWrite = Clock.System.now().epochSeconds.toInt()
+        val writtenHeader = header(base, path)
+        assertNotNull(writtenHeader.location(position.local))
         assertTrue(
-            base.list(directory).none { it.name.startsWith(".mcc-") },
+            writtenHeader.timestamp(position.local) in
+                    minOf(beforeWrite, afterWrite)..maxOf(beforeWrite, afterWrite),
         )
-        val reopened = store(base, directory)
-        assertContentEquals(
-            originalPayload,
-            reopened.readChunk(position)?.payload?.compressedBytes,
+
+        val beforeClear = Clock.System.now().epochSeconds.toInt()
+        store.clearChunk(position)
+        val afterClear = Clock.System.now().epochSeconds.toInt()
+
+        val clearedHeader = header(base, path)
+        assertNull(clearedHeader.location(position.local))
+        assertTrue(
+            clearedHeader.timestamp(position.local) in
+                    minOf(beforeClear, afterClear)..maxOf(beforeClear, afterClear),
         )
-        reopened.close()
+        store.close()
     }
 
     @Test
@@ -263,7 +248,6 @@ class WorldRegionStoreTest {
                 configuration = WorldRegionStoreConfiguration(
                     syncWrites = true,
                 ),
-                currentEpochSeconds = { 123 },
             )
 
             assertFailsWith<IOException> {
@@ -296,7 +280,6 @@ class WorldRegionStoreTest {
             directory = directory,
             fileSystem = NthFlushFailingFileSystem(base, failureCall = 1),
             configuration = WorldRegionStoreConfiguration(syncWrites = true),
-            currentEpochSeconds = { 123 },
         )
 
         assertFailsWith<IOException> { clearing.clearChunk(position) }
@@ -323,15 +306,20 @@ class WorldRegionStoreTest {
         val oldLocation = header(base, path).location(position.local)
         val failing = SidecarMoveFailingFileSystem(base)
         val store = store(failing, directory)
+        val beforeWrite = Clock.System.now().epochSeconds.toInt()
 
         assertFailsWith<IOException> {
             store.writeChunk(position, chunk(second))
         }
+        val afterWrite = Clock.System.now().epochSeconds.toInt()
         store.close()
 
         val committedHeader = header(base, path)
         assertNotEquals(oldLocation, committedHeader.location(position.local))
-        assertEquals(123, committedHeader.timestamp(position.local))
+        assertTrue(
+            committedHeader.timestamp(position.local) in
+                    minOf(beforeWrite, afterWrite)..maxOf(beforeWrite, afterWrite),
+        )
         assertContentEquals(first, base.readBytes(directory / "c.0.0.mcc"))
         assertTrue(base.allPaths.none { it.name.startsWith(".mcc-") })
         val reopened = store(base, directory)
@@ -539,7 +527,6 @@ class WorldRegionStoreTest {
                 maximumCompressedChunkBytes = 1,
                 syncWrites = false,
             ),
-            currentEpochSeconds = { 123 },
         )
 
         assertFailsWith<com.hiczp.minecraft.world.format.RegionFormatException> {
@@ -595,7 +582,6 @@ class WorldRegionStoreTest {
                 maximumCompressedChunkBytes = payload.size - 1,
                 syncWrites = false,
             ),
-            currentEpochSeconds = { 123 },
         )
         assertTrue(strict.doesChunkExist(position))
         assertFailsWith<WorldIOException> {
@@ -615,7 +601,6 @@ class WorldRegionStoreTest {
                 maximumOpenRegions = 1,
                 syncWrites = false,
             ),
-            currentEpochSeconds = { 123 },
         )
 
         store.readRegion(RegionPosition(0, 0))
@@ -636,7 +621,6 @@ class WorldRegionStoreTest {
         directory = directory,
         fileSystem = fileSystem,
         configuration = WorldRegionStoreConfiguration(syncWrites = false),
-        currentEpochSeconds = { 123 },
     )
 
     private fun chunk(bytes: ByteArray): RegionChunk = RegionChunk(

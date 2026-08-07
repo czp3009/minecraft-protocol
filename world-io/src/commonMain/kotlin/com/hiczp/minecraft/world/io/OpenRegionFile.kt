@@ -1,12 +1,8 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.*
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import okio.Buffer
-import okio.FileHandle
-import okio.FileSystem
-import okio.Path
+import okio.*
+import kotlin.time.Clock
 
 internal class OpenRegionFile private constructor(
     private val fileSystem: FileSystem,
@@ -19,58 +15,51 @@ internal class OpenRegionFile private constructor(
     private val maximumCompressedChunkBytes: Int,
     private val syncWrites: Boolean,
 ) {
-    private val mutex = Mutex()
     private var closed = false
 
-    suspend fun read(position: LocalChunkPosition): RegionChunk? =
-        mutex.withLock {
-            checkOpen()
-            readUnlocked(position)
-        }
+    fun read(position: LocalChunkPosition): RegionChunk? {
+        checkOpen()
+        return readStoredChunk(position)
+    }
 
-    suspend fun readAll(): RegionFile = mutex.withLock {
+    fun readAll(): RegionFile {
         checkOpen()
         val chunks = linkedMapOf<LocalChunkPosition, RegionChunk>()
         for (index in 0 until REGION_CHUNK_COUNT) {
             val position = LocalChunkPosition.fromIndex(index)
-            readUnlocked(position)?.let { chunks[position] = it }
+            readStoredChunk(position)?.let { chunks[position] = it }
         }
-        RegionFile(chunks)
+        return RegionFile(chunks)
     }
 
-    suspend fun exists(position: LocalChunkPosition): Boolean =
-        mutex.withLock {
-            checkOpen()
-            val location = header.location(position) ?: return@withLock false
-            val prefix = handle.readAtMost(
-                location.byteOffset,
-                REGION_CHUNK_RECORD_HEADER_BYTES,
-            )
-            if (prefix.size < REGION_CHUNK_RECORD_HEADER_BYTES) {
-                return@withLock false
-            }
-            val record = try {
-                RegionChunkRecordHeader.decode(prefix)
-            } catch (_: RegionFormatException) {
-                return@withLock false
-            }
-            if (record.external) {
-                return@withLock fileSystem.metadataOrNull(
-                    externalPath(regionPosition.chunk(position)),
-                )?.isRegularFile == true
-            }
-            record.length != 0 &&
-                    record.compressedLength >= 0 &&
-                    record.compressedLength <=
-                    location.allocatedBytes
+    fun exists(position: LocalChunkPosition): Boolean {
+        checkOpen()
+        val location = header.location(position) ?: return false
+        val prefix = handle.readAtMost(
+            location.byteOffset,
+            REGION_CHUNK_RECORD_HEADER_BYTES,
+        )
+        if (prefix.size < REGION_CHUNK_RECORD_HEADER_BYTES) return false
+        val record = try {
+            RegionChunkRecordHeader.decode(prefix)
+        } catch (_: RegionFormatException) {
+            return false
         }
+        if (record.external) {
+            return fileSystem.metadataOrNull(
+                externalPath(regionPosition.chunk(position)),
+            )?.isRegularFile == true
+        }
+        return record.length != 0 &&
+                record.compressedLength >= 0 &&
+                record.compressedLength <= location.allocatedBytes
+    }
 
-    suspend fun write(
+    fun write(
         position: LocalChunkPosition,
         chunkPosition: ChunkPosition,
         chunk: RegionChunk,
-        currentEpochSeconds: () -> Int,
-    ) = mutex.withLock {
+    ) {
         checkOpen()
         val compressedBytes = chunk.payload.compressedBytes
             ?: throw RegionFormatException(
@@ -86,46 +75,35 @@ internal class OpenRegionFile private constructor(
             compressedPayload = compressedBytes,
         )
         if (record.external) {
-            writeExternal(
-                position,
-                chunkPosition,
-                record,
-                currentEpochSeconds,
-            )
+            writeExternal(position, chunkPosition, record)
         } else {
-            writeInternal(
-                position,
-                chunkPosition,
-                record,
-                currentEpochSeconds,
-            )
+            writeInternal(position, chunkPosition, record)
         }
     }
 
-    suspend fun clear(
+    fun clear(
         position: LocalChunkPosition,
         chunkPosition: ChunkPosition,
-        currentEpochSeconds: () -> Int,
-    ) = mutex.withLock {
+    ) {
         checkOpen()
-        val oldLocation = header.location(position) ?: return@withLock
+        val oldLocation = header.location(position) ?: return
         header.set(
             position,
             location = null,
-            timestamp = currentEpochSeconds(),
+            timestamp = systemEpochSeconds(),
         )
         writeHeader()
         fileSystem.deleteIfExists(externalPath(chunkPosition))
         allocator.free(oldLocation)
     }
 
-    suspend fun flush() = mutex.withLock {
+    fun flush() {
         checkOpen()
         handle.flushDurably(fileSystem, path)
     }
 
-    suspend fun close() = mutex.withLock {
-        if (closed) return@withLock
+    fun close() {
+        if (closed) return
         closed = true
         var failure: Throwable? = null
         val size = try {
@@ -157,7 +135,7 @@ internal class OpenRegionFile private constructor(
         failure?.let { throw it }
     }
 
-    private fun readUnlocked(position: LocalChunkPosition): RegionChunk? {
+    private fun readStoredChunk(position: LocalChunkPosition): RegionChunk? {
         val location = header.location(position) ?: return null
         val prefix = handle.readAtMost(
             location.byteOffset,
@@ -216,7 +194,6 @@ internal class OpenRegionFile private constructor(
         position: LocalChunkPosition,
         chunkPosition: ChunkPosition,
         record: EncodedRegionChunkRecord,
-        currentEpochSeconds: () -> Int,
     ) {
         val oldLocation = header.location(position)
         val newLocation = allocator.allocate(record.allocatedSectors)
@@ -227,7 +204,7 @@ internal class OpenRegionFile private constructor(
             record.bytes.size,
         )
         if (syncWrites) handle.flushDurably(fileSystem, path)
-        header.set(position, newLocation, currentEpochSeconds())
+        header.set(position, newLocation, systemEpochSeconds())
         writeHeader()
         fileSystem.deleteIfExists(externalPath(chunkPosition))
         allocator.free(oldLocation)
@@ -237,7 +214,6 @@ internal class OpenRegionFile private constructor(
         position: LocalChunkPosition,
         chunkPosition: ChunkPosition,
         record: EncodedRegionChunkRecord,
-        currentEpochSeconds: () -> Int,
     ) {
         val payload = checkNotNull(record.externalPayload)
         val oldLocation = header.location(position)
@@ -249,14 +225,8 @@ internal class OpenRegionFile private constructor(
         )
         try {
             val buffer = Buffer().apply { write(payload) }
-            var writeFailure: Throwable? = null
-            try {
-                temporary.sink.write(buffer, payload.size.toLong())
-            } catch (caught: Throwable) {
-                writeFailure = caught
-                throw caught
-            } finally {
-                closeAllPreserving(writeFailure, temporary.sink::close)
+            temporary.sink.use { sink ->
+                sink.write(buffer, payload.size.toLong())
             }
 
             handle.write(
@@ -266,9 +236,12 @@ internal class OpenRegionFile private constructor(
                 record.bytes.size,
             )
             if (syncWrites) handle.flushDurably(fileSystem, path)
-            header.set(position, newLocation, currentEpochSeconds())
+            header.set(position, newLocation, systemEpochSeconds())
             writeHeader()
-            fileSystem.atomicMove(temporary.path, externalPath(chunkPosition))
+            fileSystem.moveReplacing(
+                temporary.path,
+                externalPath(chunkPosition),
+            )
             allocator.free(oldLocation)
         } catch (failure: Throwable) {
             fileSystem.deleteIfExistsPreserving(temporary.path, failure)
@@ -338,24 +311,14 @@ internal class OpenRegionFile private constructor(
     }
 }
 
+private fun systemEpochSeconds(): Int =
+    Clock.System.now().epochSeconds.toInt()
+
 private fun FileHandle.readAtMost(offset: Long, byteCount: Int): ByteArray {
     require(offset >= 0)
     require(byteCount >= 0)
     if (byteCount == 0) return ByteArray(0)
-    val result = ByteArray(byteCount)
-    var total = 0
-    while (total < byteCount) {
-        val read = read(
-            fileOffset = offset + total,
-            array = result,
-            arrayOffset = total,
-            byteCount = byteCount - total,
-        )
-        if (read < 0) break
-        if (read == 0) {
-            throw WorldIOException("File handle made no progress while reading")
-        }
-        total += read
-    }
-    return if (total == result.size) result else result.copyOf(total)
+    val buffer = Buffer()
+    val read = read(offset, buffer, byteCount.toLong())
+    return if (read < 0L) ByteArray(0) else buffer.readByteArray()
 }

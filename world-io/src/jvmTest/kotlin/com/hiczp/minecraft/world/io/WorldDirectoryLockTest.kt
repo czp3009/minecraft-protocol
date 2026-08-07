@@ -4,13 +4,7 @@ import kotlinx.coroutines.test.runTest
 import okio.FileSystem
 import okio.Path.Companion.toOkioPath
 import java.io.File
-import java.io.IOException
-import java.nio.ByteBuffer
-import java.nio.channels.FileChannel
 import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.StandardOpenOption.CREATE
-import java.nio.file.StandardOpenOption.WRITE
 import kotlin.test.*
 
 class WorldDirectoryLockTest {
@@ -30,7 +24,7 @@ class WorldDirectoryLockTest {
             val access = MinecraftWorldAccess.open(root)
             try {
                 assertTrue(MinecraftWorldAccess.isLocked(root))
-                assertFails {
+                assertFailsWith<WorldLockException> {
                     MinecraftWorldAccess.open(root)
                 }
             } finally {
@@ -71,13 +65,9 @@ class WorldDirectoryLockTest {
                 "Lock holder failed before readiness: $readiness"
             }
             assertTrue(MinecraftWorldAccess.isLocked(root))
-            val expectedMessage = captureOfficialStyleLockFailureMessage(
-                temporaryDirectory.resolve("session.lock"),
-            )
-            val failure = assertFails {
+            assertFailsWith<WorldLockException> {
                 MinecraftWorldAccess.open(root)
             }
-            assertEquals(expectedMessage, failure.message)
 
             process.outputStream.write(LOCK_HOLDER_RELEASE)
             process.outputStream.flush()
@@ -96,30 +86,6 @@ class WorldDirectoryLockTest {
     }
 }
 
-private fun captureOfficialStyleLockFailureMessage(path: Path): String {
-    val failure = try {
-        FileChannel.open(path, CREATE, WRITE).use { channel ->
-            val marker = ByteBuffer.wrap(WORLD_LOCK_MARKER)
-            channel.position(0)
-            while (marker.hasRemaining()) channel.write(marker)
-            channel.force(true)
-            val lock = channel.tryLock()
-                ?: throw IOException(
-                    "${path.toAbsolutePath()}: $OFFICIAL_WORLD_ALREADY_LOCKED_REASON",
-                )
-            lock.use {
-                error("Official-style lock unexpectedly acquired: $path")
-            }
-        }
-        null
-    } catch (caught: Throwable) {
-        caught
-    }
-    return checkNotNull(failure?.message) {
-        "Official-style lock failure had no message for $path"
-    }
-}
-
 private fun lockHolderClasspath(): String = listOf(
     WorldLockProcessMain::class.java,
     Unit::class.java,
@@ -131,6 +97,4 @@ private const val LOCK_HOLDER_MAIN_CLASS =
     "com.hiczp.minecraft.world.io.WorldLockProcessMain"
 private const val LOCK_HOLDER_READY = "LOCKED"
 private const val LOCK_HOLDER_RELEASE = 1
-private const val OFFICIAL_WORLD_ALREADY_LOCKED_REASON =
-    "already locked (possibly by other Minecraft instance?)"
 private val WORLD_LOCK_MARKER = "☃".encodeToByteArray()

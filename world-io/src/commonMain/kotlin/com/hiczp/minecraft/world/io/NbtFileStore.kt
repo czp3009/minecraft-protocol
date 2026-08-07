@@ -7,9 +7,7 @@ import com.hiczp.minecraft.world.format.RegionCompression
 import com.hiczp.minecraft.world.format.RegionCompressionCodecs
 import kotlinx.io.RawSink
 import kotlinx.io.buffered
-import okio.FileHandle
-import okio.FileSystem
-import okio.Path
+import okio.*
 
 enum class NbtFileCompression(
     internal val regionCompression: RegionCompression,
@@ -31,14 +29,14 @@ data class NbtFileStoreConfiguration(
 
 /** Physical unnamed-root NBT streams over Okio files. */
 class NbtFileStore(
-    val fileSystem: FileSystem = systemFileSystem,
+    val fileSystem: FileSystem = FileSystem.SYSTEM,
     val nbt: NbtFormat = NbtFormat,
     val compressionCodecs: RegionCompressionCodecs =
         RegionCompressionCodecs,
     val configuration: NbtFileStoreConfiguration =
         NbtFileStoreConfiguration(),
 ) {
-    suspend fun read(
+    fun read(
         path: Path,
         compression: NbtFileCompression = NbtFileCompression.GZIP,
     ): NbtDocument = fileSystem.readFile(
@@ -50,25 +48,19 @@ class NbtFileStore(
             source,
             configuration.maximumDecompressedBytes,
         ).buffered()
-        var failure: Throwable? = null
-        try {
-            val document = nbt.decodeDocumentFromSource(decompressed)
-            if (!decompressed.exhausted()) {
+        decompressed.use { opened ->
+            val document = nbt.decodeDocumentFromSource(opened)
+            if (!opened.exhausted()) {
                 throw NbtDecodingException(
                     "Decompressed NBT file has trailing bytes",
                 )
             }
             document
-        } catch (caught: Throwable) {
-            failure = caught
-            throw caught
-        } finally {
-            closeAllPreserving(failure, decompressed::close)
         }
     }
 
     /** Directly truncates, writes, and durably syncs the final file. */
-    suspend fun writeDirect(
+    fun writeDirect(
         path: Path,
         document: NbtDocument,
         compression: NbtFileCompression = NbtFileCompression.GZIP,
@@ -76,24 +68,27 @@ class NbtFileStore(
         val parent = path.parent
             ?: throw WorldIOException("File has no parent directory: $path")
         fileSystem.createDirectories(parent)
-        fileSystem.sink(path).close()
-        val handle = fileSystem.openReadWrite(path, mustExist = true)
-        writeHandle(path, handle, document, compression)
+        fileSystem.openReadWrite(path).use { handle ->
+            handle.resize(0L)
+            writeHandle(path, handle, document, compression)
+        }
     }
 
-    internal suspend fun writeSyncedTemporary(
+    internal fun writeSyncedTemporary(
         directory: Path,
         document: NbtDocument,
         compression: NbtFileCompression = NbtFileCompression.GZIP,
     ): Path {
         val temporary = fileSystem.openUniqueTemporaryHandle(directory)
         try {
-            writeHandle(
-                temporary.path,
-                temporary.handle,
-                document,
-                compression,
-            )
+            temporary.handle.use { handle ->
+                writeHandle(
+                    temporary.path,
+                    handle,
+                    document,
+                    compression,
+                )
+            }
             return temporary.path
         } catch (failure: Throwable) {
             fileSystem.deleteIfExistsPreserving(temporary.path, failure)
@@ -107,32 +102,17 @@ class NbtFileStore(
         document: NbtDocument,
         compression: NbtFileCompression,
     ) {
-        var failure: Throwable? = null
-        try {
-            val limitedFileSink = LimitedRawSink(
-                KotlinxToOkioRawSink(handle.sink()),
-                configuration.maximumCompressedBytes,
-                closeDelegate = true,
-            )
-            val fileSink = limitedFileSink.buffered()
-            var writeFailure: Throwable? = null
-            try {
-                encode(document, compression, fileSink)
-                fileSink.flush()
-            } catch (caught: Throwable) {
-                writeFailure = caught
-                throw caught
-            } finally {
-                closeAllPreserving(writeFailure, fileSink::close)
-            }
-            handle.resize(limitedFileSink.bytesWritten)
-            handle.flushDurably(fileSystem, path)
-        } catch (caught: Throwable) {
-            failure = caught
-            throw caught
-        } finally {
-            closeAllPreserving(failure, handle::close)
+        val limitedFileSink = LimitedRawSink(
+            KotlinxToOkioRawSink(handle.sink()),
+            configuration.maximumCompressedBytes,
+            closeDelegate = true,
+        )
+        limitedFileSink.buffered().use { fileSink ->
+            encode(document, compression, fileSink)
+            fileSink.flush()
         }
+        handle.resize(limitedFileSink.bytesWritten)
+        handle.flushDurably(fileSystem, path)
     }
 
     private fun encode(

@@ -6,7 +6,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okio.FileSystem
 import okio.Path
-import kotlin.time.Clock
+import okio.SYSTEM
 
 data class WorldRegionStoreConfiguration(
     val maximumCompressedChunkBytes: Int = 256 * 1_048_576,
@@ -36,27 +36,24 @@ data class WorldRegionStoreConfiguration(
  */
 class WorldRegionStore(
     val directory: Path,
-    val fileSystem: FileSystem = systemFileSystem,
+    val fileSystem: FileSystem = FileSystem.SYSTEM,
     val chunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
     val configuration: WorldRegionStoreConfiguration =
         WorldRegionStoreConfiguration(),
-    private val currentEpochSeconds: () -> Int = ::systemEpochSeconds,
 ) {
     constructor(
         paths: MinecraftWorldPaths,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-        fileSystem: FileSystem = systemFileSystem,
+        fileSystem: FileSystem = FileSystem.SYSTEM,
         chunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
         configuration: WorldRegionStoreConfiguration =
             WorldRegionStoreConfiguration(),
-        currentEpochSeconds: () -> Int = ::systemEpochSeconds,
     ) : this(
         directory = paths.regionDirectory(storage, dimension),
         fileSystem = fileSystem,
         chunkNbtFormat = chunkNbtFormat,
         configuration = configuration,
-        currentEpochSeconds = currentEpochSeconds,
     )
 
     private val mutex = Mutex()
@@ -93,18 +90,13 @@ class WorldRegionStore(
     ) = mutex.withLock {
         checkOpen()
         if (chunk == null) {
-            region(position.region).clear(
-                position.local,
-                position,
-                currentEpochSeconds,
-            )
+            region(position.region).clear(position.local, position)
         } else {
             validateChunkForWrite(position, chunk)
             region(position.region).write(
                 position.local,
                 position,
                 chunk,
-                currentEpochSeconds,
             )
         }
     }
@@ -167,7 +159,7 @@ class WorldRegionStore(
         failure?.let { throw it }
     }
 
-    private suspend fun region(position: RegionPosition): OpenRegionFile {
+    private fun region(position: RegionPosition): OpenRegionFile {
         regions.remove(position)?.let { existing ->
             regions[position] = existing
             return existing
@@ -222,6 +214,3 @@ class WorldRegionStore(
         }
     }
 }
-
-private fun systemEpochSeconds(): Int =
-    Clock.System.now().epochSeconds.toInt()

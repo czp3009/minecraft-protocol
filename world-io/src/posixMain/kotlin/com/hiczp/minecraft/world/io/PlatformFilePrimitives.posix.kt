@@ -1,16 +1,12 @@
 package com.hiczp.minecraft.world.io
 
 import kotlinx.cinterop.ExperimentalForeignApi
-import okio.FileSystem
 import okio.IOException
 import okio.Path
 import platform.posix.O_WRONLY
 import platform.posix.close
 import platform.posix.fsync
 import platform.posix.open
-
-internal actual val systemFileSystem: FileSystem
-    get() = FileSystem.SYSTEM
 
 @OptIn(ExperimentalForeignApi::class)
 internal actual fun syncSystemFilePath(path: Path) {

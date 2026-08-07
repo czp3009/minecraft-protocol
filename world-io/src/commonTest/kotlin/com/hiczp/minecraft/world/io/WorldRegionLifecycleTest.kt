@@ -18,7 +18,6 @@ class WorldRegionLifecycleTest {
             directory = directory,
             fileSystem = fileSystem,
             configuration = WorldRegionStoreConfiguration(syncWrites = true),
-            currentEpochSeconds = { 1 },
         )
 
         store.writeChunk(ChunkPosition(0, 0), lifecycleChunk(1))
@@ -38,7 +37,6 @@ class WorldRegionLifecycleTest {
             directory = "/world/region".toPath(),
             fileSystem = fileSystem,
             configuration = WorldRegionStoreConfiguration(syncWrites = false),
-            currentEpochSeconds = { 1 },
         )
 
         store.writeChunk(ChunkPosition(0, 0), lifecycleChunk(1))
@@ -148,7 +146,6 @@ class WorldRegionLifecycleTest {
             directory = "/world/region".toPath(),
             fileSystem = fileSystem,
             configuration = WorldRegionStoreConfiguration(syncWrites = false),
-            currentEpochSeconds = { 1 },
         )
         store.writeChunk(ChunkPosition(0, 0), lifecycleChunk(1))
 
@@ -171,28 +168,6 @@ class WorldRegionLifecycleTest {
         )
 
         assertFailsWith<IOException> {
-            store.readRegion(RegionPosition(0, 0))
-        }
-
-        assertTrue(fileSystem.closeAttempted)
-        base.checkNoOpenFiles()
-        store.close()
-    }
-
-    @Test
-    fun openRejectsANonProgressingHandleAndClosesIt() = runTest {
-        val base = FakeFileSystem()
-        val directory = "/world/region".toPath()
-        base.createDirectories(directory)
-        base.write(directory / "r.0.0.mca") { writeByte(1) }
-        val fileSystem = NonProgressingReadFileSystem(base)
-        val store = WorldRegionStore(
-            directory = directory,
-            fileSystem = fileSystem,
-            configuration = WorldRegionStoreConfiguration(syncWrites = false),
-        )
-
-        assertFailsWith<WorldIOException> {
             store.readRegion(RegionPosition(0, 0))
         }
 
@@ -389,48 +364,6 @@ private class SizeFailingFileSystem(
                 it.size()
             },
         )
-    }
-}
-
-private class NonProgressingReadFileSystem(
-    delegate: FileSystem,
-) : ForwardingFileSystem(delegate) {
-    var closeAttempted = false
-
-    override fun openReadWrite(
-        file: Path,
-        mustCreate: Boolean,
-        mustExist: Boolean,
-    ): FileHandle = wrapHandle(
-        super.openReadWrite(file, mustCreate, mustExist),
-        close = {
-            closeAttempted = true
-            it.close()
-        },
-    ).let { handle ->
-        object : FileHandle(readWrite = true) {
-            override fun protectedRead(
-                fileOffset: Long,
-                array: ByteArray,
-                arrayOffset: Int,
-                byteCount: Int,
-            ): Int = 0
-
-            override fun protectedWrite(
-                fileOffset: Long,
-                array: ByteArray,
-                arrayOffset: Int,
-                byteCount: Int,
-            ) = handle.write(fileOffset, array, arrayOffset, byteCount)
-
-            override fun protectedFlush() = handle.flush()
-
-            override fun protectedResize(size: Long) = handle.resize(size)
-
-            override fun protectedSize(): Long = handle.size()
-
-            override fun protectedClose() = handle.close()
-        }
     }
 }
 

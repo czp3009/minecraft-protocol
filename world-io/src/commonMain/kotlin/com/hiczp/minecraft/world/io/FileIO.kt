@@ -46,18 +46,12 @@ internal fun <T> FileSystem.readFile(
         OkioToKotlinxRawSource(source(path)),
         maximumBytes,
     ).buffered()
-    var failure: Throwable? = null
-    try {
-        val value = block(limitedSource, size)
-        if (!limitedSource.exhausted()) {
+    return limitedSource.use { source ->
+        val value = block(source, size)
+        if (!source.exhausted()) {
             throw WorldIOException("File $path was not fully consumed")
         }
-        return value
-    } catch (caught: Throwable) {
-        failure = caught
-        throw caught
-    } finally {
-        closeAllPreserving(failure, limitedSource::close)
+        value
     }
 }
 

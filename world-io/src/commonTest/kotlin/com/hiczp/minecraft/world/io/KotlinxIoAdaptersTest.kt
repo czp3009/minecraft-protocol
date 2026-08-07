@@ -23,12 +23,9 @@ class KotlinxIoAdaptersTest {
     }
 
     @Test
-    fun sourceAdapterValidatesCallsAndCanLeaveUpstreamOpen() {
+    fun sourceAdapterValidatesCallsAndCloseIsIdempotent() {
         val upstream = ShortSource(byteArrayOf(1), maximumRead = 1)
-        val source = OkioToKotlinxRawSource(
-            upstream,
-            closeUpstream = false,
-        )
+        val source = OkioToKotlinxRawSource(upstream)
 
         assertEquals(0L, source.readAtMostTo(KotlinxBuffer(), 0L))
         assertFailsWith<IllegalArgumentException> {
@@ -36,7 +33,7 @@ class KotlinxIoAdaptersTest {
         }
         source.close()
         source.close()
-        assertTrue(!upstream.closed)
+        assertTrue(upstream.closed)
         assertFailsWith<IllegalStateException> {
             source.readAtMostTo(KotlinxBuffer(), 1)
         }
@@ -71,12 +68,9 @@ class KotlinxIoAdaptersTest {
     }
 
     @Test
-    fun sinkAdapterValidatesCountsIsIdempotentAndCanLeaveDownstreamOpen() {
+    fun sinkAdapterValidatesCountsAndCloseIsIdempotent() {
         val downstream = RecordingSink()
-        val sink = KotlinxToOkioRawSink(
-            downstream,
-            closeDownstream = false,
-        )
+        val sink = KotlinxToOkioRawSink(downstream)
         val source = KotlinxBuffer().apply { write(byteArrayOf(1, 2)) }
 
         sink.write(source, 0)
@@ -95,7 +89,7 @@ class KotlinxIoAdaptersTest {
             byteArrayOf(1, 2),
             downstream.buffer.readByteArray(),
         )
-        assertTrue(!downstream.closed)
+        assertTrue(downstream.closed)
         assertFailsWith<IllegalStateException> {
             sink.flush()
         }

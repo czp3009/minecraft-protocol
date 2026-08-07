@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.world.io
 
 import kotlinx.cinterop.*
+import okio.FileSystem
 import okio.Path
 import platform.posix.*
 
@@ -187,7 +188,7 @@ private fun windowsLockFailure(
 
 private fun absoluteWorldLockPath(path: Path): String =
     if (path.isAbsolute) path.toString()
-    else systemFileSystem.canonicalize(path).toString()
+    else FileSystem.SYSTEM.canonicalize(path).toString()
 
 private const val CLOSED_DESCRIPTOR = -1
 private const val WINDOWS_LOCK_UNLOCK = 0

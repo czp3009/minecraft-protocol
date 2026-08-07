@@ -11,6 +11,7 @@ import okio.Path
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.*
+import kotlin.time.Clock
 
 class WorldRegionStoreEdgeTest {
     @Test
@@ -68,12 +69,18 @@ class WorldRegionStoreEdgeTest {
 
     @Test
     fun clearingMissingChunkLeavesOrphanSidecarAndTimestampUntouched() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fileSystem = FakeFileSystem().apply {
+            allowReadsWhileWriting = true
+        }
         val directory = "/world/region".toPath()
         val regionPath = directory / "r.0.0.mca"
         val sidecarPath = directory / "c.0.0.mcc"
         val sidecarBytes = byteArrayOf(7, 8, 9)
-        var timestampCalls = 0
+        val position = LocalChunkPosition(0, 0)
+        val originalHeader = RegionHeader().apply {
+            set(position, location = null, timestamp = 42)
+        }.encode()
+        fileSystem.writeRaw(regionPath, originalHeader)
         fileSystem.writeRaw(sidecarPath, sidecarBytes)
         val store = WorldRegionStore(
             directory = directory,
@@ -81,20 +88,15 @@ class WorldRegionStoreEdgeTest {
             configuration = WorldRegionStoreConfiguration(
                 syncWrites = false,
             ),
-            currentEpochSeconds = {
-                timestampCalls += 1
-                42
-            },
         )
 
         store.clearChunk(ChunkPosition(0, 0))
 
         assertTrue(fileSystem.exists(regionPath))
-        assertEquals(0L, fileSystem.metadata(regionPath).size)
+        assertContentEquals(originalHeader, fileSystem.readRaw(regionPath))
         assertContentEquals(sidecarBytes, fileSystem.readRaw(sidecarPath))
-        assertEquals(0, timestampCalls)
         store.close()
-        assertEquals(0L, fileSystem.metadata(regionPath).size)
+        assertContentEquals(originalHeader, fileSystem.readRaw(regionPath))
         fileSystem.checkNoOpenFiles()
     }
 
@@ -248,13 +250,13 @@ class WorldRegionStoreEdgeTest {
         val fileSystem = FakeFileSystem()
         val directory = "/world/region".toPath()
         val position = ChunkPosition(-33, 65)
+        val beforeWrite = Clock.System.now().epochSeconds.toInt()
         val store = WorldRegionStore(
             directory = directory,
             fileSystem = fileSystem,
             configuration = WorldRegionStoreConfiguration(
                 syncWrites = false,
             ),
-            currentEpochSeconds = { -123 },
         )
 
         store.writeChunk(
@@ -265,10 +267,15 @@ class WorldRegionStoreEdgeTest {
                 timestamp = 999,
             ),
         )
+        val afterWrite = Clock.System.now().epochSeconds.toInt()
 
         val stored = checkNotNull(store.readChunk(position))
         assertFalse(stored.payload.isExternal)
-        assertEquals(-123, stored.timestamp)
+        assertTrue(
+            stored.timestamp in
+                    minOf(beforeWrite, afterWrite)..maxOf(beforeWrite, afterWrite),
+        )
+        assertNotEquals(999, stored.timestamp)
         assertContentEquals(byteArrayOf(4), stored.payload.compressedBytes)
         assertFalse(fileSystem.exists(directory / "c.-33.65.mcc"))
         store.close()
@@ -290,7 +297,6 @@ class WorldRegionStoreEdgeTest {
                     syncWrites = false,
                     writeCompression = compression,
                 ),
-                currentEpochSeconds = { index },
             )
             val position = ChunkPosition(index, -index)
 
@@ -410,7 +416,6 @@ private fun edgeStore(
     directory = directory,
     fileSystem = fileSystem,
     configuration = WorldRegionStoreConfiguration(syncWrites = false),
-    currentEpochSeconds = { 123 },
 )
 
 private fun edgeChunk(bytes: ByteArray): RegionChunk = RegionChunk(
