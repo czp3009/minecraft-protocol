@@ -1,189 +1,190 @@
-# Template-backed Minecraft fixtures and controlled headless client
+# Template-backed Minecraft fixtures using upstream HMC-Specifics
 
-## Status and intent
+## Status and decision
 
-This plan records the decisions already agreed for reducing official server and headless client fixture startup cost
-while keeping the Gradle graph, remote fixture boundary, and lifecycle semantics explicit. Treat the decisions below as
-the implementation baseline; do not reopen the architecture unless implementation evidence shows that a stated invariant
-is unworkable.
+This document is the implementation plan for simplifying the repository's external Minecraft fixtures. It was revised on
+2026-08-07 after HeadlessHQ published HMC-Specifics for Minecraft 26.2. It describes future work only; changing this
+plan does not authorize implementing or executing any step.
 
-The result has two independently prepared fixtures:
+The selected repository inputs remain:
 
-- an official Minecraft server artifact plus a sanitized, normally stopped default-world template;
-- a controlled headless client assembled from Mojang client artifacts, Fabric Loader, a private fixture-control mod,
-  HeadlessMC, libraries, and filtered assets, plus a sanitized, normally stopped client game-directory template.
+- Minecraft 26.2, selected only by MinecraftTarget.MINECRAFT_VERSION;
+- HeadlessMC 2.10.0, selected only by HeadlessMcTarget.HEADLESS_MC_VERSION;
+- Java major 25 from BuildVersions and java from PATH for launched JVMs;
+- the upstream HeadlessHQ HMC-Specifics 26.2 Fabric artifact described below.
 
-Templates are immutable Gradle-produced inputs. Every launched process receives a private copy. The design does not pool
-mutable, already-running ordinary server or client processes across test-task owners.
+The revised decisions are:
 
-The rejected alternative is two always-running “ordinary” processes owned by the Build Service. It avoids JVM startup
-only when tests can safely share all mutable in-memory and persistent state, but creates reset, ownership, concurrency,
-endpoint, crash-recovery, and test-order coupling—especially for a single-stateful GUI client. Keep the existing allowed
-reuse inside one compatible ordered `commonTest` scenario, while using templates for isolation across resources and test
-tasks. Reconsider a resident pool only with measured startup evidence and a proven reset/isolation protocol; it is not
-part of this implementation.
+- Do not create minecraft-test-fixture-client or any repository-owned Minecraft mod.
+- Do not add Loom, Mojang mappings, a remap task, Fabric API, Client GameTest, a private mod socket, a JSON control
+  protocol, or a duplicate client lifecycle state machine.
+- Use the upstream HMC-Specifics command line as the narrow control adapter for title-screen detection, vanilla
+  connection initiation, disconnection, normal shutdown, and optional test actions.
+- Keep protocol truth outside HMC-Specifics. A client command acknowledgement is only process-control evidence; Login,
+  Configuration, Play, reconfiguration, and packet behavior are proven by packets observed through this repository's
+  production client or server.
+- Preserve the previously selected Gradle preparation architecture: precise verified producers, immutable sanitized
+  server and client templates, actionless prepare gates, lazy Build Service startup, private runtime copies, and no
+  mutable process pooling across test-task owners.
+- Keep Gradle preparation and test execution as separate lifecycles. Gradle produces immutable inputs. The Fixture Host
+  alone creates, controls, observes, and removes mutable runtime resources while tests execute.
 
-## Audited code baseline
+The runnable client is a headless Minecraft client assembled from Mojang client artifacts, Fabric Loader, upstream
+HMC-Specifics, HeadlessMC, libraries, and filtered assets. It is not an official or unmodified Minecraft client.
+Official remains reserved for the exact Mojang server and official codec evidence.
 
-This plan was reconciled with the current worktree on 2026-08-05. The current source has
-`MinecraftTestSupport`, `MinecraftTestSupportService`, serializable `MinecraftTestResource` values,
-`OfficialMinecraftServer`, and `HeadlessMinecraftClient`.
+## Goals and non-goals
 
-The audited selected inputs are Minecraft `26.2` (`./gradlew -q minecraftVersion`), HeadlessMC `2.10.0`, and repository
-Java major `25`. The plan continues to obtain these values from `MinecraftTarget`, `HeadlessMcTarget`, and
-`BuildVersions`; it does not duplicate them in module build scripts.
+The fixture needs to provide only enough control for deterministic basic interoperability:
 
-The audit covered the concrete producer and consumer path in:
+- start an official server and know when it accepts complete Status requests;
+- start HeadlessMC with the selected client and know when HMC-Specifics can execute commands at the title screen;
+- ask the vanilla client to connect to a loopback endpoint without Quick Play;
+- let repository protocol code determine when Login, Configuration, and Play are actually complete;
+- send server-console or supported HMC-Specifics commands when a concrete scenario needs an action;
+- stop normally, distinguish a clean exit from forced cleanup, and wait for complete resource removal when required;
+- retain bounded diagnostics on every failure.
 
-- root `build.gradle.kts`, `OfficialDownloadsConvention.kt`, `OfficialDownloadTasks.kt`,
-  `MinecraftTestFixtures.kt`, and `MinecraftTestFixtureService.kt`;
-- the support service/models and the Fixture Host layout, host main, resource registry, and process launchers;
-- the protocol-client, protocol-server, protocol-serialization, and world-io fixture declarations and scenarios;
-- repository, buildSrc, support, Host, and affected-module `AGENTS.md`/README guidance.
+The fixture does not attempt to provide:
 
-The relevant current constraints that this plan deliberately fixes are:
+- a perfect client lifecycle oracle or a typed mirror of every internal Minecraft state;
+- a general GUI automation framework;
+- a public abstraction over all HMC-Specifics commands;
+- live Microsoft account testing;
+- protocol assertions based only on HMC-Specifics text;
+- a gameplay server, authoritative ticking world, or long-lived shared client;
+- repository-owned compatibility code for every future Minecraft release.
 
-- analyzers and the server-runtime extractor currently depend on `prepareOfficialMinecraftServer`;
-- the Host currently receives separate client cache, version metadata, and HeadlessMC launcher paths;
-- `newOfficialClient` currently launches Quick Play and returns after a HeadlessMC log marker;
-- the common resource interface currently requires an endpoint even though only a server owns a listening endpoint;
-- unsupported browser/Wasm test filtering currently depends on the test name containing `Official`;
-- all three current official-server scenarios override `level-name`, while the world-io scenario genuinely needs a
-  first-run world.
+## Upstream HMC-Specifics input
 
-Concrete current-code migration points are:
+Use the release and source evidence at:
 
-| Current location                                                                             | Required change                                                                                                   |
-|----------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|
-| root `build.gradle.kts`                                                                      | rename the aggregate convention/result variable and retain lazy service registration                              |
-| `OfficialDownloadsConvention.kt`                                                             | split raw-server analysis inputs from the server fixture gate; rename/rebuild the client graph                    |
-| `OfficialDownloadTasks.kt`                                                                   | neutralize client task/type/log names and separate asset download from assembly                                   |
-| `MinecraftTestFixtures.kt`                                                                   | rename output/capability/input properties and replace `*Official*` filtering                                      |
-| `MinecraftTestFixtureService.kt`                                                             | make Host runtime assembly/prepare distinct and consolidate Host input parameters                                 |
-| support models/service/facade                                                                | move endpoint ownership, rename creation, add connect, add workspace policy                                       |
-| `MinecraftTestLayout.kt`, Host main, `OfficialMinecraftClient.kt`, hosted resources/registry | consume the two template roots and one assembled client root; replace log readiness and official-client internals |
-| `OfficialClientEndToEndRunner.kt` and its test                                               | rename, create title-ready, explicitly connect, then accept/service packets                                       |
-| official-server runners                                                                      | keep template default for protocol tests; select fresh only for world-io                                          |
+- https://github.com/headlesshq/hmc-specifics/releases/tag/26.2-latest
+- https://github.com/headlesshq/hmc-specifics/pull/60
+- https://github.com/headlesshq/hmc-specifics/blob/26.2-latest/README.md
+- https://github.com/headlesshq/hmc-specifics/blob/26.2-latest/hmc-specifics-api/src/main/java/me/earth/headlessmc/mc/commands/ConnectCommand.java
+- https://github.com/headlesshq/hmc-specifics/blob/26.2-latest/hmc-specifics-api/src/main/java/me/earth/headlessmc/mc/commands/DisconnectCommand.java
+- https://github.com/headlesshq/hmc-specifics/blob/26.2-latest/hmc-specifics-api/src/main/java/me/earth/headlessmc/mc/commands/QuitCommand.java
+- https://github.com/headlesshq/hmc-specifics/blob/26.2-latest/26_2/src/main/java/me/earth/headlessmc/mc/mixins/MixinMinecraft.java
 
-The external research anchors are
-the [HeadlessMC repository and usage documentation](https://github.com/headlesshq/headlessmc),
-the [MC-Runtime-Test reference project](https://github.com/headlesshq/mc-runtime-test), and Fabric's
-[automatic-testing guide](https://docs.fabricmc.net/develop/automatic-testing). HeadlessMC documents headless LWJGL,
-in-memory launch, separate game directories, and dummy assets; Fabric documents Loader-aware tests and client game
-tests. Neither supplies this repository's protocol-specific `TITLE_READY`/`CONNECTING`/normal-stop contract, so the
-small private control mod remains necessary.
+The currently selected Fabric asset is:
 
-## Settled terminology and boundaries
+| Fact                            | Value                                                            |
+|---------------------------------|------------------------------------------------------------------|
+| Release tag                     | 26.2-latest                                                      |
+| Asset                           | hmc-specifics-26.2-fabric-latest.jar                             |
+| Embedded implementation version | 2.4.0                                                            |
+| Source commit at audit time     | bd0373f4751fd977a337943ee31f7a735aa00bbb                         |
+| Size                            | 5,631,766 bytes                                                  |
+| SHA-256                         | eb6993436e535d220d65069f9559c3402444294b2a484d1430c56507fddfc190 |
 
-### Server
+The 26.2-latest tag and asset URL are intentionally mutable prerelease aliases. They are not sufficient identities.
+Build logic must declare the exact expected size and SHA-256 and fail closed if upstream replaces the bytes. It must not
+query for the newest release during a build. An intentional update changes the recorded digest, size, source commit, and
+any affected command markers together.
 
-The server remains an **official Minecraft server** because the exact Mojang server JAR is both an external peer and the
-repository's highest-precedence implementation evidence. Existing `Official` naming remains appropriate for server
-downloads, analysis, codec-oracle work, RPC resources, and tests.
+Keep HeadlessMC automatic version, Java, asset, and specifics downloads disabled. Gradle downloads and verifies all
+inputs before the Host starts. Do not run the HeadlessMC specifics installer command at test execution time.
 
-### Client
+The audited Fabric metadata requires Fabric Loader and Minecraft 26.2 but does not require Fabric API. Resolve and pin a
+compatible Fabric Loader and its launch libraries through Gradle. Do not add Fabric API unless a future audited
+HMC-Specifics artifact explicitly requires it.
 
-The client fixture is a **headless Minecraft client**, not an “official client”. Its Mojang client JAR and metadata
-retain verified Mojang provenance, but the runnable fixture also contains Fabric Loader, the repository-owned control
-mod, HeadlessMC's LWJGL support, and asset replacements. Remove `Official` from every client-facing task, capability,
-RPC, resource, class, test, diagnostic, and documentation name.
+HMC-Specifics supplies a broader command surface than this repository initially needs. That broader implementation is
+upstream-owned and does not justify recreating a smaller mod locally. The Host initially relies on only:
 
-The control mod must not change the protocol under test. It is client-only and may observe or control lifecycle state,
-screens, connection initiation, disconnection, and shutdown. It must not:
+- gui, for title-screen and optional GUI observation;
+- connect, for vanilla connection initiation;
+- disconnect, for an explicit return to a menu when a scenario requires it;
+- quit, for normal client shutdown;
+- selected non-lifecycle commands described under extensible test control.
 
-- register custom payloads or alter packet codecs;
-- add registry content, data packs, resource packs, blocks, items, or entities;
-- mix into packet encoding, decoding, framing, encryption, compression, or protocol-state transitions;
-- replace the vanilla connection/session implementation.
+The selected source schedules connect and disconnect commands on Minecraft's main thread and uses the vanilla
+ConnectScreen path. It does not replace this repository's packet evidence. Each future HMC-Specifics update must recheck
+these source paths and the absence of custom payload, packet codec, transport, and registry changes relevant to the
+interoperability scenario.
 
-The actual server connection continues through the vanilla client path. Client creation stops at a stable title screen;
-an explicit Fixture Host operation then tells the mod to initiate a vanilla connection to a supplied endpoint. The
-production server's observed packets remain the protocol oracle; a mod-reported state is a lifecycle signal, not a
-protocol assertion.
+## Two strictly separated phases
 
-### Private modules
+| Concern           | Gradle preparation phase                                             | Test execution phase                                               |
+|-------------------|----------------------------------------------------------------------|--------------------------------------------------------------------|
+| Owner             | Root/buildSrc producers                                              | MinecraftTestFixtureService and minecraft-test-fixture-host        |
+| Inputs            | Version metadata, verified external bytes, resolved Fabric artifacts | Immutable prepared roots supplied by Gradle                        |
+| Mutable processes | Only declared template-generation candidates                         | Fixture Host plus per-resource server or in-memory HeadlessMC JVM  |
+| Output            | Cacheable immutable artifacts, templates, manifests                  | Temporary private workspaces and bounded logs                      |
+| Readiness         | Producer-specific readiness before publishing a template             | Per-resource readiness before returning an RPC value               |
+| Cleanup           | Synchronous clean stop before a task output is accepted              | Resource cleanup, task-owner fallback, then Host shutdown fallback |
+| Network API       | None exposed to tests                                                | KMP kRPC through minecraft-test-support                            |
 
-Add a private JVM/Fabric module:
+Gradle tasks never become fixture launch APIs. Tests never discover downloads, invoke Gradle tasks, receive Gradle
+objects, or open immutable artifact roots. The Host never downloads, repairs, verifies, or assembles Gradle inputs.
 
-```text
-:minecraft-test-fixture-client
-```
+## Gradle preparation logic
 
-It owns only the version-matched Fabric fixture-control mod. It is not published and is never placed on consuming test
-runtime classpaths. `minecraft-test-fixture-host` remains the only host-filesystem/process implementation, while
-`minecraft-test-support` remains the only KMP dependency visible to consuming tests.
+This section preserves the prior plan's task vocabulary, ownership, template policy, and producer ordering. The only
+client-side substitution is downloadHmcSpecifics plus the upstream JAR in assembleHeadlessClientMods instead of a
+repository-owned remapped mod.
 
-Cacheable Gradle template task types remain in `buildSrc`, but they invoke a private, non-RPC template-worker entry
-point owned by `minecraft-test-fixture-host`. The worker reuses the Host's process, status, control-channel, copy, and
-sanitization primitives. It is not a user-facing helper CLI, it is not launched by consuming test tasks, and it does not
-replace the lazily started RPC Host used at test execution time.
+### Task vocabulary
 
-## Gradle task vocabulary
+- download tasks acquire and verify external bytes. They do not arrange a runnable layout.
+- generate tasks create derived state, including a normally stopped template.
+- assemble tasks arrange existing inputs into a consumer-facing layout.
+- prepare tasks are actionless lifecycle gates. They own no outputs and perform no work.
 
-Use these verbs consistently across the repository:
+Every prepare task:
 
-- `download*`: acquire and verify external bytes. A download task does not arrange a runnable layout.
-- `generate*`: create new derived state from declared inputs, including executing a program to produce a template.
-- `assemble*`: select, copy, combine, remap, or arrange existing inputs into their consumer-facing layout.
-- `prepare*`: an actionless lifecycle gate and stable cross-project capability name.
+- is an ordinary actionless task;
+- declares no output;
+- has no task action, Sync behavior, copy, download, validation, generation, or process execution;
+- depends only on its terminal producers;
+- is consumed through dependsOn or builtBy provider provenance;
+- does not resolve providers during configuration.
 
-Every `prepare*` task has all of these invariants:
-
-- it is an ordinary actionless task;
-- it declares no outputs and owns no files;
-- it has no `doFirst`, `doLast`, `@TaskAction`, `Sync`, copy, download, validation, process execution, or generation
-  logic;
-- it declares only `group`, `description`, and dependencies on terminal producers;
-- consuming modules depend on it through `dependsOn` or a file collection/provider `builtBy` that gate;
-- internal producers remain connected through `TaskProvider.flatMap`, `RegularFileProperty`, `DirectoryProperty`, and
-  other lazy provider provenance rather than redundant ordering edges.
-
-Producer tasks validate the outputs they create. Do not add separate verification tasks or perform validation in a
-`prepare*` gate.
-
-Fresh runtime selection does not create a second public Gradle gate. A module still depends on the complete
-`prepareOfficialMinecraftServer` or `prepareHeadlessClient` capability, then chooses `FRESH` per RPC resource. This may
-prepare the default template even for a fresh-only scenario, but keeps the dependency model singular and explicit; split
-the capability only if later measurements demonstrate that this one-time cost is material.
-
-## Target Gradle task graph
+Producer tasks validate their own outputs. Do not add separate verification or freshness tasks.
 
 ### Shared release metadata
 
 Keep the existing metadata chain:
 
-```text
+~~~text
 downloadVersionManifest
 └── downloadVersionMetadata
-```
+~~~
 
-`MinecraftTarget.MINECRAFT_VERSION` remains the only manually selected Minecraft release.
+MinecraftTarget.MINECRAFT_VERSION remains the only manually selected Minecraft release. No client, Fabric, or
+HMC-Specifics build script duplicates 26.2 as an independent target selection.
 
-### Official server
+### Official server preparation
 
-```text
+Keep this graph and its ownership:
+
+~~~text
 downloadVersionMetadata
 └── downloadOfficialMinecraftServer
     ├── generateOfficialMinecraftServerTemplate
-    │   └── prepareOfficialMinecraftServer       # actionless fixture gate
-    ├── extractOfficialServerRuntime              # direct artifact input
-    ├── analyzeOfficialMinecraftTarget            # direct artifact input
-    └── analyzeOfficialMinecraftReports           # direct artifact input
-```
+    │   └── prepareOfficialMinecraftServer
+    ├── extractOfficialServerRuntime
+    ├── analyzeOfficialMinecraftTarget
+    └── analyzeOfficialMinecraftReports
+         └── analyzeOfficialMinecraftConfiguration
+~~~
 
-The current analyzer and runtime-extractor `dependsOn(prepareOfficialMinecraftServer)` edges must be removed. Otherwise
-every analysis or codec-oracle request would generate an unrelated world template after the gate is expanded. Official
-analysis, runtime extraction, and codec-oracle producers consume the verified server JAR/metadata through their precise
-`TaskProvider.flatMap` inputs and never consume the template. Only the external-server fixture file collection is
-`builtBy(prepareOfficialMinecraftServer)` and includes the immutable server template.
+The verified server JAR is a direct precise input to runtime extraction and every official analyzer. Those tasks must
+not depend on prepareOfficialMinecraftServer because that gate includes a generated world template. Requesting analysis
+or the codec oracle must not start an unrelated server-template process.
 
-### Headless client
+Only the external-server fixture collection is built by prepareOfficialMinecraftServer and contains the immutable server
+template. The codec-oracle collection keeps its separate prepareOfficialMinecraftCodecOracle gate.
 
-Use these producer names as the target vocabulary. It is acceptable to combine adjacent internal producers when doing so
-preserves precise non-overlapping outputs, but do not reintroduce `Official` client names or make a `prepare*` task do
-work.
+generateOfficialMinecraftServerTemplate remains the sole additional root producer allowed to execute, but not inspect or
+decompile, the official server JAR. Its declared worker entry point remains owned by minecraft-test-fixture-host.
 
-```text
+### Headless client preparation
+
+Keep the independently prepared Mojang and HeadlessMC inputs and replace only the custom-mod node:
+
+~~~text
 downloadVersionMetadata
 ├── downloadMinecraftClientJar
 ├── downloadMinecraftClientLibraries
@@ -195,703 +196,695 @@ HeadlessMcTarget.HEADLESS_MC_VERSION
 ├── downloadHeadlessMcAssetReplacements
 └── generateHeadlessMcJsonReplacement
 
-:minecraft-test-fixture-client:remapJar
+HmcSpecificsTarget
+└── downloadHmcSpecifics
 
-downloaded/resolved artifacts
+pinned Fabric Loader configuration
+└── resolved Fabric launch metadata and libraries
+
+downloaded and resolved inputs
 ├── assembleHeadlessClientAssets
 ├── assembleHeadlessClientVersionLayout
 └── assembleHeadlessClientMods
 
 all assembled client components
 └── generateHeadlessClientTemplate
-    └── prepareHeadlessClient                     # actionless gate
-```
+    └── prepareHeadlessClient
+~~~
 
-Fabric Loader and any narrowly required Fabric API modules are ordinary pinned Gradle dependencies resolved from the
-official Fabric Maven repository. Do not create custom HTTP download tasks for Maven dependencies. The remapped
-fixture-control mod, Fabric launch profile, and required runtime mods are inputs to the client assembly.
+The precise producer relationships remain:
 
-The precise client producer edges are:
-
-- client JAR, libraries, asset index, HeadlessMC launcher, and HeadlessMC binary replacements are independent verified
-  downloads after the minimum metadata they actually require;
-- `downloadMinecraftClientAssetObjects` consumes only the asset index and writes the immutable original-object store;
-- `assembleHeadlessClientAssets` consumes the index, original objects, downloaded binary replacements, and generated
-  JSON replacement;
-- `assembleHeadlessClientVersionLayout` consumes the client JAR, version metadata, Fabric Loader launch metadata, and
+- client JAR, client libraries, asset index, HeadlessMC launcher, HeadlessMC binary replacements, and HMC-Specifics are
+  independent verified inputs after the minimum metadata each needs;
+- downloadMinecraftClientAssetObjects consumes only the asset index and owns the immutable original object store;
+- assembleHeadlessClientAssets consumes the index, original objects, verified binary replacements, and generated JSON
+  replacement;
+- assembleHeadlessClientVersionLayout consumes the client JAR, Mojang metadata, pinned Fabric launch metadata, and
   resolved launch libraries;
-- `assembleHeadlessClientMods` consumes the remapped control mod and only the selected Fabric API modules, if any;
-- `generateHeadlessClientTemplate` consumes all client assembly outputs plus the launcher, and
-  `prepareHeadlessClient` depends only on that terminal producer.
+- assembleHeadlessClientMods consumes only the verified HMC-Specifics Fabric JAR and any future dependency proven
+  necessary by its metadata;
+- generateHeadlessClientTemplate consumes all assembled client inputs plus the HeadlessMC launcher;
+- prepareHeadlessClient depends only on the terminal template producer.
 
-The current `DownloadOfficialMinecraftAssetsTask` combines downloading original objects with installing HeadlessMC
-replacement objects. Split that ownership carefully: downloads create an immutable content-addressed object input and
-`assembleHeadlessClientAssets` creates the consumer-facing filtered/replacement layout. Do not create a bulk `Sync` that
-duplicates complete libraries and assets trees merely to claim one monolithic output. Prefer producer-owned,
-non-overlapping subdirectories below one logical root; immutable asset objects may use a verified reflink/hard-link/copy
-fallback, but mutable templates and runtime workspaces must never be hard-linked. Small compatibility layouts,
-manifests, version JSON, and mod directories may use `Sync`.
+There is no minecraft-test-fixture-client project, remapJar input, Loom plugin, mappings dependency, or locally built
+mod artifact.
 
-### Fixture Host runtime
+The HMC-Specifics download is a cacheable verified HTTP producer following the repository's existing Ktor download
+policy. Fabric Loader and Maven libraries use Gradle dependency resolution rather than custom HTTP tasks.
 
-The existing `prepareMinecraftTestFixtureHostRuntime` is currently a `Sync` producer and therefore violates the new
-vocabulary. Rename the producer and add an actionless gate:
+### Fixture Host runtime preparation
 
-```text
+Keep the Host runtime producer and actionless gate separate:
+
+~~~text
 assembleMinecraftTestFixtureHostRuntime
-└── prepareMinecraftTestFixtureHostRuntime        # actionless gate
-```
+└── prepareMinecraftTestFixtureHostRuntime
+~~~
 
-### Removed/replaced public tasks
+The assembled Host classpath is an immutable test input. Starting the Host is never a Gradle task action.
 
-Do not keep deprecated aliases; this is private build infrastructure and a single vocabulary is clearer.
+### Stable task and build-logic naming
 
-| Existing task                                         | Replacement                                                                    |
-|-------------------------------------------------------|--------------------------------------------------------------------------------|
-| `downloadOfficialMinecraftClient`                     | `downloadMinecraftClientJar`                                                   |
-| `downloadOfficialMinecraftClientLibraries`            | `downloadMinecraftClientLibraries`                                             |
-| `downloadOfficialMinecraftAssetIndex`                 | `downloadMinecraftClientAssetIndex`                                            |
-| `downloadOfficialMinecraftAssets`                     | `downloadMinecraftClientAssetObjects` plus `assembleHeadlessClientAssets`      |
-| `downloadHeadlessMc`                                  | `downloadHeadlessMcLauncher`                                                   |
-| `downloadHeadlessMcDummyFiles`                        | `downloadHeadlessMcAssetReplacements` plus `generateHeadlessMcJsonReplacement` |
-| `createHeadlessMcClientLayout`                        | `assembleHeadlessClientVersionLayout`                                          |
-| `prepareHeadlessMc`                                   | removed; subsumed by `prepareHeadlessClient`                                   |
-| `prepareOfficialMinecraftClient`                      | `prepareHeadlessClient`                                                        |
-| current `prepareMinecraftTestFixtureHostRuntime` Sync | `assembleMinecraftTestFixtureHostRuntime`                                      |
+Keep the prior naming migration because the aggregate client is not an official client:
 
-Also rename the general convention and output vocabulary because the aggregate fixture set is no longer wholly official:
+| Existing name                                       | Target name                                                                |
+|-----------------------------------------------------|----------------------------------------------------------------------------|
+| downloadOfficialMinecraftClient                     | downloadMinecraftClientJar                                                 |
+| downloadOfficialMinecraftClientLibraries            | downloadMinecraftClientLibraries                                           |
+| downloadOfficialMinecraftAssetIndex                 | downloadMinecraftClientAssetIndex                                          |
+| downloadOfficialMinecraftAssets                     | downloadMinecraftClientAssetObjects plus assembleHeadlessClientAssets      |
+| downloadHeadlessMc                                  | downloadHeadlessMcLauncher                                                 |
+| downloadHeadlessMcDummyFiles                        | downloadHeadlessMcAssetReplacements plus generateHeadlessMcJsonReplacement |
+| createHeadlessMcClientLayout                        | assembleHeadlessClientVersionLayout                                        |
+| prepareHeadlessMc                                   | removed and subsumed by prepareHeadlessClient                              |
+| prepareOfficialMinecraftClient                      | prepareHeadlessClient                                                      |
+| current prepareMinecraftTestFixtureHostRuntime Sync | assembleMinecraftTestFixtureHostRuntime                                    |
+| applyOfficialDownloadsConvention                    | applyMinecraftFixtureArtifactsConvention                                   |
+| OfficialMinecraftFixtureOutputs                     | MinecraftTestFixtureOutputs                                                |
+| officialMinecraftFixtureOutputs                     | minecraftTestFixtureOutputs                                                |
+| root officialMinecraftFixtures                      | minecraftTestFixtures                                                      |
+| test input officialMinecraftFixtures                | minecraftTestFixtures                                                      |
 
-| Existing build-logic name                       | Target name                                |
-|-------------------------------------------------|--------------------------------------------|
-| `applyOfficialDownloadsConvention`              | `applyMinecraftFixtureArtifactsConvention` |
-| `OfficialMinecraftFixtureOutputs`               | `MinecraftTestFixtureOutputs`              |
-| `officialMinecraftFixtureOutputs` extension     | `minecraftTestFixtureOutputs`              |
-| root `officialMinecraftFixtures` variable       | `minecraftTestFixtures`                    |
-| test input property `officialMinecraftFixtures` | `minecraftTestFixtures`                    |
+Add downloadHmcSpecifics and HmcSpecificsTarget without creating another public prepare gate. prepareHeadlessClient is
+the single complete client capability.
 
-Rename client download task types and their logs as well, for example
-`DownloadOfficialMinecraftClientTask` to `DownloadMinecraftClientJarTask` and `OfficialClientAsset` to
-`MinecraftClientAsset`. Mojang provenance remains explicit in verification metadata. Use the neutral `minecraft
-fixtures` task group for the mixed client/Host pipeline, retaining `official minecraft analysis` for official-server
-analysis.
+Use the neutral minecraft fixtures task group for mixed client and Host preparation. Retain official minecraft analysis
+for official-server evidence.
 
-Descriptions and verification metadata may state that client bytes came from Mojang. That provenance must not leak back
-into the runnable fixture's identity.
+### Prepared artifact roots
 
-## Artifact layout and Gradle ownership
+Expose one immutable logical root for each capability. Producers own non-overlapping children; no producer claims a
+parent also written by another producer.
 
-Expose one logical immutable root for each prepared capability. Exact paths may follow existing root-build conventions,
-but the client must look conceptually like this:
+The headless-client root is conceptually:
 
-```text
-headless-client/<minecraft-version>/
+~~~text
+headless-client/26.2/
 ├── runtime/
 │   ├── headlessmc/
+│   │   └── headlessmc-launcher.jar
 │   ├── minecraft/
 │   │   ├── versions/
 │   │   ├── libraries/
 │   │   └── assets/
 │   └── mods/
-│       └── minecraft-test-fixture-client.jar
+│       └── hmc-specifics-26.2-fabric.jar
 ├── template/
 └── manifest.json
-```
-
-Individual producers own non-overlapping subdirectories. No task claims a broad parent directory also written by another
-task. The parent is a logical provider root, not an overlapping task output.
-
-The terminal client producer owns `manifest.json`. It records the selected Minecraft, HeadlessMC, Fabric Loader, and
-control-mod identities; relative launch/profile paths; template policy revision; and sanitized-template facts needed by
-the Host. It contains no absolute build path. The server template has an equivalent producer-owned manifest containing
-the Minecraft version, fixed world-generation policy revision, clean-stop result, and sanitized default world name.
-These manifests replace Host rediscovery and the current need to pass client version metadata separately.
-
-Generated templates, downloads, assembled runtimes, logs, and scratch data remain below root `build/`; none are
-committed. The final server and client template directories are sanitized before the producing task completes so
-cacheable outputs contain no volatile log, lock, endpoint, identity, or timestamp-only files.
-
-Replace the client-related fields currently passed independently to the Build Service with one immutable
-`headlessClientDirectory`. Add one `officialServerTemplateDirectory`. The resulting Build Service/Host input schema is:
-
-- Host classpath and Host work directory;
-- selected Minecraft version;
-- official server artifact directory and official server template directory;
-- one assembled headless-client directory;
-- official codec runtime/classes directories;
-- Fixture Host scratch root.
-
-Remove the separate `clientCacheDirectory`, `versionMetadataFile`, and `headlessLauncherFile` service parameters and
-Host main arguments. The assembled client manifest contains the exact launch information the Host needs. Update the Host
-main argument count/order, `MinecraftTestLayout`, fixture input `FileCollection`s, and their focused tests together. The
-Fixture Host must not know how Gradle downloaded or assembled the client JAR, Fabric, HeadlessMC, mod, libraries, or
-assets.
-
-## Official server template
-
-### Generation
-
-`generateOfficialMinecraftServerTemplate` is a cacheable producer with declared inputs including at least:
-
-- the verified server artifact and selected Minecraft release;
-- the Java-major policy used to launch the fixture;
-- the fixed default template properties and sanitization policy;
-- the task implementation.
-
-The cacheable task type lives in `buildSrc`; its declared worker classpath points at the private template-worker runtime
-from `minecraft-test-fixture-host`. The worker launches `java` from `PATH` and enforces the repository policy that its
-major version is at least 25. It does not substitute the Gradle toolchain's exact Java executable or infer Java from
-Mojang metadata. Fixed world inputs and sanitization normalize volatile values sufficiently that every cached output is
-a valid equivalent default template for the same declared inputs.
-
-Its action:
-
-1. creates a private candidate work directory below `build/`;
-2. writes `eula=true` and deterministic default server properties;
-3. uses a fixed seed, a flat world, disabled structures, low view/simulation distances, offline mode, and an ephemeral
-   loopback endpoint;
-4. launches the official server and watches process exit while probing a complete status request and pong;
-5. sends the vanilla `stop` command;
-6. requires exit code zero and complete process-output closure;
-7. sanitizes the stopped directory into the task output;
-8. fails without publishing a template if graceful shutdown did not complete.
-
-This is the only deliberate exception to the current rule that the root official-analysis/extraction pipeline is the
-only build-task layer allowed to open or execute the official server JAR. Amend that rule explicitly: those tasks may
-inspect/execute the JAR for evidence and precise runtime extraction, while the declared root server-template producer
-may execute, but not inspect or decompile, it solely to publish its sanitized template. No other Gradle task may open or
-execute the server JAR.
-
-### Sanitization
-
-The template is primarily the generated default world, not a captured server instance configuration. Use an allowlist or
-an equivalently strict policy. At minimum, do not preserve:
-
-- `server.properties`;
-- `eula.txt` (the Host writes it for every private runtime);
-- logs and crash reports;
-- session/lock files;
-- user cache, operator, whitelist, and ban state;
-- a fixed runtime port, address, MOTD, or process-specific setting.
-
-After copying the template, the Fixture Host writes the current resource's `eula.txt` and complete `server.properties`.
-This ensures caller overrides and the selected ephemeral port are never inherited from the template.
-
-### Runtime selection
-
-The default official-server creation path clones the immutable default template. Provide an explicit fresh-workspace
-path for tests that need first-run behavior or different world generation. In template mode, reject world-generation
-overrides that are incompatible with the generated world, including seed, level type, generator settings, structure
-generation, initial data packs, and equivalent worldgen choices, and direct the caller to fresh mode.
-
-`level-name` is not by itself a world-generation override. It selects the runtime destination directory. After cloning,
-the Host safely relocates the template's default world directory to the caller's validated relative `level-name`, then
-writes the complete server properties. This preserves template use for the existing protocol-client and
-protocol-serialization scenarios, both of which choose a custom world name. Endpoint, compression, view distance, MOTD,
-and similar runtime settings remain overridable. The world-io generation/rewrite/reload scenario must explicitly request
-fresh mode because first-run official world creation is part of what that scenario exercises.
-
-Every resource receives a private real copy or copy-on-write clone. Never use mutable hard links for a server world and
-never run a process directly in the template directory. The clone helper rejects symbolic links and path escapes, and
-focused Host tests prove that modifying or deleting a runtime copy cannot mutate the immutable template.
-
-Cloning happens exactly once, during `newOfficialServer`. `stopServer` retains that private workspace, and
-`restartServer` relaunches in the same workspace so command changes and files written through the existing world RPC
-survive restart. Restart never silently re-clones the template or resets a fresh workspace. Final resource cleanup
-deletes the private workspace.
-
-## Headless client control mod
-
-### Complexity and implementation shape
-
-The mod is deliberately small: one client entry point, one lifecycle/state observer, one host-control connection, and a
-small command/event model. Prefer maintained Fabric client lifecycle/tick APIs; use a narrow Mixin only where no
-maintained event exposes the required state. Build it against the repository-selected release and Mojang mappings.
-
-Pin Fabric Loader, Loom, and any narrow Fabric API module versions in the build configuration. The mod must compile and
-remap as part of the ordinary Gradle graph and update together with the selected Minecraft release.
-
-### Control boundary
-
-The Fixture Host creates one loopback-only internal control listener per client process and passes only its ephemeral
-address through launch/JVM properties. The mod connects outward, and the Host accepts exactly the one expected child
-connection. The channel is trusted process plumbing and never crosses the public kRPC boundary; it needs neither
-authentication, TLS, discovery, nor a secret-token subsystem. If implementation uses one shared listener instead, use an
-opaque correlation identifier only to associate the child, not as a claimed security boundary.
-
-Use a small structured, versioned machine protocol rather than ordinary log text. Required events are:
-
-- `CLIENT_STARTED`: the Minecraft instance and client thread exist;
-- `TITLE_READY`: startup overlay/resource loading is complete and the title screen is stable;
-- `CONNECTING`: the vanilla connection path has begun;
-- `PLAY_READY`: player and level exist, no blocking screen is open, the local player chunk is non-empty, and stable
-  client ticks have completed;
-- `DISCONNECTED`: the client has left its level and returned to a stable menu state;
-- `STOPPING`: normal client shutdown has been scheduled on the client thread;
-- `FAILED`: a crash, error screen, connection failure, invalid transition, or timeout occurred.
-
-The first child message identifies the control-protocol revision, Minecraft release, and control-mod build identity; the
-Host rejects a mismatch. Events carry a monotonically increasing sequence number and the current lifecycle state so a
-lost/duplicate or invalid transition fails with bounded process and control diagnostics. The Host owns all time limits
-and watches process exit concurrently with every awaited event.
-
-Required commands are initially limited to:
-
-- `STATUS`;
-- `CONNECT` with one validated loopback `MinecraftTestEndpoint`;
-- `DISCONNECT`;
-- `STOP`.
-
-Do not expose general reflection, arbitrary commands, GUI automation, or packet manipulation. Encode the versioned
-line-delimited messages with `kotlinx.serialization`; do not hand-build or hand-escape protocol JSON. Direct
-standard-stream output is allowed only if it is explicitly isolated as this machine protocol. Ordinary diagnostics use
-the owning logging API.
-
-### Normal shutdown
-
-On `CONNECT`, schedule the maintained vanilla screen/network connection path on the client thread and emit `CONNECTING`
-once that operation has been accepted. On `DISCONNECT`, schedule the vanilla disconnect operation on the client thread
-and report `DISCONNECTED` only after the level is absent. On `STOP`, disconnect first when necessary, then schedule
-`Minecraft.stop()` on the client thread. The Host treats control-channel closure plus process exit code zero as
-successful completion. Forced process-tree termination remains an abort/cleanup fallback and never qualifies a generated
-template as valid.
-
-HeadlessMC and `mc-runtime-test` establish the supported headless CI launch path, while Fabric Client GameTest
-establishes that client-side state can be observed inside a real Minecraft client. The repository-specific conclusion is
-to determine readiness from client state and stop on the client thread, rather than inferring readiness from HeadlessMC
-launcher text or killing the JVM. HMC-Specifics is not selected because its GUI/message/click command surface and
-separate version-matched mod are broader than this fixture contract requires.
-
-Use Fabric Client GameTest, where supported by the selected Fabric toolchain, for focused in-client assertions about the
-mod's event/state adapter and clean stop. It does not replace the repository's `commonTest` protocol scenario or become
-the public test entry point; HeadlessMC plus the Fixture Host remains the actual headless integration path.
-
-## Headless client template
-
-### Generation
-
-`generateHeadlessClientTemplate` consumes the complete assembled runtime and control-mod artifact. Its action:
-
-1. creates a private candidate game directory;
-2. writes deterministic default client options;
-3. starts the Fabric launch profile through HeadlessMC's supported in-process mode without Quick Play;
-4. launches the control mod in template-preparation mode;
-5. waits for structured `TITLE_READY`, including completed startup overlay/resource loading and a short stable-tick
-   condition;
-6. requests or allows the template mode to perform normal `STOP`;
-7. requires process exit code zero and complete output closure;
-8. sanitizes the candidate into the template output;
-9. fails without publishing the template if the client had to be forcibly terminated.
-
-The generic template stops at the title screen and contains no server endpoint or player/session identity. Joining a
-world is runtime state and is not required for the generic template. Add a separate play-warmed template only if
-measured evidence later proves that it materially reduces persistent initialization cost.
-
-### Sanitization
-
-Prefer an allowlist of measured reusable state. Never retain:
-
-- logs, crash reports, screenshots, or thread dumps;
-- worlds/saves;
-- `servers.dat`, Quick Play endpoints, or server resource-pack state;
-- account tokens, session identity, telemetry identifiers, or user-specific data;
-- locks, temporary files, or diagnostic output from Fabric, HeadlessMC, or the control mod.
-
-Keep the control mod and Fabric runtime in the immutable assembled runtime, not as accidental mutable template residue.
-Runtime-specific `options.txt`, player name, endpoint, and control-channel properties are written or passed after the
-template is cloned. An endpoint is supplied only to the explicit connect operation, not persisted in the template or
-client resource value.
-
-HeadlessMC's writable home/configuration and working directory also live in the candidate/runtime workspace. The
-assembled client root is a read-only task input: launch configuration must not let HeadlessMC or Minecraft repair,
-download into, or otherwise mutate it. Producer/Host tests assert that client launch and shutdown leave that input
-unchanged.
-
-### Runtime use
-
-The default `newHeadlessClient` path clones the template into a unique Fixture Host workspace, overlays current options
-and launch parameters, starts the controlled Fabric client through HeadlessMC without Quick Play, and returns after
-`TITLE_READY`. `connectHeadlessClient(client, endpoint)` then sends `CONNECT` and returns after the control mod reports
-`CONNECTING`; it deliberately does not wait for `PLAY_READY`.
-
-This split is required by the current production-server test: the test cannot call `MinecraftServer.accept()` and begin
-servicing Login/Configuration/Play until client creation returns, while the client cannot reach `PLAY_READY` until that
-server work happens. Waiting for Play inside `newHeadlessClient` would deadlock. The test's production server instead
-proves protocol readiness through observed vanilla packets such as Configuration completion, teleport acknowledgement,
-chunk-batch acknowledgement, keepalive response, and client-tick packets. `PLAY_READY` remains available to the Host for
-diagnostics/lifecycle observation but is not the creation or connect-operation completion condition.
-
-Provide an explicit fresh-workspace mode that creates an empty game directory but still uses the same Fabric control mod
-and normal lifecycle. Do not add a mod-free/raw client mode unless a concrete test later requires it; modified clients
-are accepted for these protocol tests.
-
-Client templates remove repeated disk initialization only. They do not remove JVM startup, class loading, or resource
-reload cost. Record before/after startup timing and the retained template manifest so the optimization remains evidence
-based.
-
-Measure both fixture kinds with the same dimensions: template file count/bytes, clone duration, fresh start-to-ready,
-template-backed start-to-ready, and total representative test-task time. Logging these measurements during focused
-benchmark runs is sufficient; do not add a flaky performance threshold to the ordinary test gate.
-
-## Public fixture model and naming migration
-
-Keep one creation API per resource with an explicit serialized
-`MinecraftFixtureWorkspacePolicy { TEMPLATE, FRESH }` rather than parallel method families. Template mode is the
-default; fresh mode is opt-in. Add the policy to both `OfficialMinecraftServerConfiguration` and
-`HeadlessMinecraftClientConfiguration`.
-
-Reconcile the current service/value API as follows:
-
-- `MinecraftTestResource` contains only `id`;
-- `OfficialMinecraftServer` contains `id` and its listening `endpoint`;
-- `HeadlessMinecraftClient` contains only `id`;
-- `HeadlessMinecraftClientConfiguration` contains player identity, workspace policy, and relevant startup/stop limits,
-  but no server endpoint;
-- `newHeadlessClient(configuration)` creates a title-ready client;
-- `connectHeadlessClient(client, endpoint)` begins one vanilla connection and returns at `CONNECTING`;
-- `close(client)` performs normal mod-directed disconnect/stop, while `awaitClientExit` remains an observation API.
-
-Do not add a public disconnect/reconnect family until a real test needs client reuse across multiple connections. The
-Host may retain `DISCONNECT` internally for correct `close` behavior.
-
-Perform the client rename end to end:
-
-| Existing concept                                                       | Target concept                         |
-|------------------------------------------------------------------------|----------------------------------------|
-| `OfficialMinecraftFixtureOutputs`                                      | `MinecraftTestFixtureOutputs`          |
-| `officialClient` fixture files                                         | `headlessClient`                       |
-| `requiresOfficialClient`                                               | `requiresHeadlessClient`               |
-| `MinecraftTestSupportService.newOfficialClient`                        | `newHeadlessClient`                    |
-| `MinecraftTestSupport.newOfficialClient`                               | `newHeadlessClient`                    |
-| Host service/resource-registry `newOfficialClient` methods             | `newHeadlessClient`                    |
-| `OfficialMinecraftClient` / `OfficialClientPreparation` Host internals | `HeadlessMinecraftClientLayout`        |
-| `OfficialClientEndToEndRunner`                                         | `HeadlessClientEndToEndRunner`         |
-| `OfficialHeadlessClientInteropTest`                                    | `HeadlessClientInteropTest`            |
-| `MinecraftRuntimeKind.OFFICIAL_CLIENT`                                 | `MinecraftRuntimeKind.HEADLESS_CLIENT` |
-
-Server and codec-oracle names retain `Official`.
-
-The Build Service and Fixture Host receive the server artifact/template providers and one `headlessClientDirectory`
-provider. Tests continue to receive only serializable remote resource values through `minecraft-test-support`; no host
-path, template path, Fabric object, HeadlessMC object, process object, or control-mod endpoint crosses kRPC.
-
-### Standard-test capability filtering
-
-Renaming `OfficialHeadlessClientInteropTest` to `HeadlessClientInteropTest` would bypass the current unsupported-target
-filter `excludeTestsMatching("*Official*")`. Replace that accidental vocabulary dependency with capability-aware test
-filtering at the standard test-task boundary:
-
-- `requiresHeadlessClient` excludes the stable `*HeadlessClient*` fixture scenario pattern on browser and Wasm/WASI;
-- `requiresOfficialServer` and `requiresCodecOracle` retain explicit patterns for their external fixture scenarios;
-- supported test tasks receive only the requested fixture input collection and Build Service;
-- keep any JS Node transport-specific exclusion explicit where its limitation differs from browser/Wasm capability.
-
-Do not use runtime guesses or fake passing implementations. Add a build-logic test or task-inspection assertion proving
-the renamed headless-client scenario is excluded from unsupported test tasks and remains attached to supported ones.
+~~~
+
+The client manifest records:
+
+- selected Minecraft and HeadlessMC versions;
+- Fabric Loader profile identity and resolved library identities;
+- HMC-Specifics release tag, embedded version, source commit recorded at selection time, size, and SHA-256;
+- relative launcher, Minecraft cache, Fabric profile, mods, template, and game-directory paths;
+- template policy revision and sanitization facts;
+- the exact HMC-Specifics startup and command markers expected by the Host.
+
+It contains no absolute path, runtime endpoint, player identity, account token, log cursor, PID, timestamp-only
+identity, or mutable release lookup result.
+
+The server root equivalently contains the verified server artifact, sanitized default-world template, and manifest with
+the selected Minecraft version, fixed world policy, clean-stop result, and default world name.
+
+Large libraries and assets are not bulk-copied merely to create one broad output. Immutable content-addressed objects
+may use a verified reflink, hard-link, or copy fallback. Templates and mutable runtime workspaces never use hard links.
+Small manifests, profiles, mod directories, and compatibility layouts may use Sync.
+
+### Official server template generation
+
+generateOfficialMinecraftServerTemplate:
+
+1. creates a private candidate below build;
+2. writes eula=true and deterministic default server properties;
+3. uses a fixed seed, flat world, disabled structures, low distances, offline mode, and an ephemeral loopback port;
+4. launches java from PATH and concurrently observes process exit;
+5. waits for a complete Minecraft Status response and matching pong, not a log line;
+6. sends the vanilla stop console command;
+7. waits for process exit, complete output-pipe EOF, and exit code zero;
+8. sanitizes the stopped candidate into the task output;
+9. publishes no output if graceful stop or sanitization fails.
+
+The sanitized template excludes at least server.properties, eula.txt, logs, crash reports, locks, caches, operator and
+ban state, player identity, endpoint, MOTD, and other runtime configuration. It primarily contains the generated world.
+
+At runtime, template mode clones this world into a unique private directory. The Host then writes the current eula and
+complete server.properties. A validated relative level-name may relocate the cloned default world. World-generation
+overrides that conflict with the template require the explicit FRESH workspace policy. The world-io first-generation
+scenario always selects FRESH.
+
+### Headless client template generation
+
+generateHeadlessClientTemplate uses the same HMC-Specifics command path planned for runtime:
+
+1. creates private HeadlessMC home, Minecraft cache view, and game-directory candidates below build;
+2. stages the verified HMC-Specifics JAR into the candidate game mods directory;
+3. writes deterministic client options and offline identity placeholders;
+4. launches the exact Fabric profile through HeadlessMC 2.10.0 with lwjgl and inmemory, without Quick Play;
+5. keeps hmc.jline.enabled=false so the worker controls the plain line-oriented stdin;
+6. waits for new output containing HMC-Specifics initialized!;
+7. sends gui through the command context and requires new output identifying
+   net.minecraft.client.gui.screens.TitleScreen while the process remains alive;
+8. sends quit, waits for new output containing Quitting Minecraft..., process exit, complete output EOF, and exit code
+   zero;
+9. sanitizes the normally stopped candidate and publishes the template and manifest;
+10. fails without publishing an output if forced termination was necessary.
+
+Operational title readiness is deliberately modest: the HMC-Specifics command context exists and gui observes the 26.2
+title screen. The fixture does not invent TITLE_READY, PLAY_READY, or FAILED events. If this signal stops being
+sufficient, first verify an upstream command or marker before considering repository-owned Minecraft code.
+
+The client sanitizer excludes at least:
+
+- logs, crash reports, screenshots, thread dumps, locks, and temporary files;
+- worlds, saves, servers.dat, Quick Play data, resource-pack server state, and endpoint history;
+- account tokens, player identity, telemetry identifiers, and user-specific options;
+- writable HeadlessMC cache/configuration state that contains machine-specific paths;
+- a copied HMC-Specifics JAR when the immutable runtime root is its owner.
+
+The immutable assembled runtime is never launched in place. Template creation and every test launch use a private
+candidate or clone. The producer and Host must prove that launch and shutdown leave the assembled input unchanged.
+
+## Test execution topology
+
+The runtime path is:
+
+~~~text
+standard Gradle test task
+└── declared fixture inputs finish preparation
+    └── task execution obtains MinecraftTestFixtureService
+        └── Build Service lazily starts minecraft-test-fixture-host
+            └── Host prints its one machine-readable RPC-ready announcement
+                └── test receives RPC URL and owner ID through environment
+                    └── minecraft-test-support calls kRPC
+                        └── Host allocates a slot and private workspace
+                            └── Host starts and controls an official server or in-memory HeadlessMC process
+~~~
+
+There is no explicit launch task, helper CLI used by tests, system property containing fixture paths, or process object
+crossing kRPC.
+
+### Build Service and Fixture Host lifecycle
+
+The Build Service starts the Host only when an executing supported test first requests a connection. It waits for the
+Host's existing MINECRAFT_TEST_FIXTURE_READY announcement while concurrently observing Host exit. That announcement
+means only that kRPC is reachable; it says nothing about any server or client resource.
+
+Each test task gets an owner ID. Every created resource belongs to that owner. Normal scenario cleanup closes its own
+resource; task-finish owner cleanup handles aborted tests; Build Service shutdown is the final fallback.
+
+The existing bounded slot pool remains. A slot covers process startup, running, stopped-with-workspace-retained,
+workspace deletion, and final release. Templates do not justify sharing mutable processes or workspaces between owners.
+
+At build shutdown the service:
+
+1. stops accepting new owners and resources;
+2. asks the Host to close every remaining owner;
+3. sends the Host shutdown command;
+4. waits for all resource creations, cleanup jobs, process registrations, and directories to become quiescent;
+5. waits for Host process exit and output EOF;
+6. forcibly terminates remaining process trees only after the bounded graceful path fails.
+
+### Common process-control primitive
+
+MinecraftTestProcess remains the single JVM-process primitive for the Host and template worker. Extend it only as needed
+for reliable HMC command correlation; do not build another transport.
+
+It owns:
+
+- one process handle and its descendant cleanup fallback;
+- serialized line writes to stdin;
+- a bounded merged stdout/stderr log;
+- a monotonically increasing internal output sequence that is not reset when old bounded text is dropped;
+- process exit and output-reader completion;
+- one configured graceful shutdown command;
+- bounded graceful and forced termination.
+
+Every command-and-observe operation:
+
+1. acquires the resource command mutex;
+2. records the current output sequence;
+3. verifies that the process is alive;
+4. writes exactly one validated line and flushes it;
+5. waits only for output newer than the recorded sequence, process exit, or output-reader failure;
+6. releases the mutex after its required acknowledgement or terminal result.
+
+This prevents an old HMC or server log line from satisfying a later command. It is not a new wire protocol and no
+sequence is sent into Minecraft. Public tests need not understand the internal cursor for lifecycle operations.
+
+Process exit is always observed concurrently with readiness and command waits. No startup or shutdown path uses sleep,
+delay, fixed post-command waiting, or unspecified test method order.
+
+Define two completion levels:
+
+- Process stopped: the graceful command was attempted, the OS process exited, the output reader reached EOF, and the
+  exit code is available. Exit code zero is required for a clean stop.
+- Resource fully released: the process is stopped, the private workspace is deleted, the registry entry is removed, and
+  the bounded slot is released.
+
+closeProcess waits for the first level and retains the workspace. deleteWorkingDirectory waits for the second level.
+Asynchronous close schedules both idempotently. A test that must prove complete shutdown uses the two synchronous
+operations or a structured helper that awaits both; it does not infer completion from close returning.
+
+## Official server execution
+
+### Start and ready signal
+
+newOfficialServer:
+
+1. acquires a Host slot and creates a unique workspace;
+2. clones the default template or creates an empty FRESH workspace;
+3. safely relocates the cloned default world for a validated level-name when requested;
+4. writes current eula.txt and the complete sorted server.properties;
+5. selects an ephemeral loopback port;
+6. starts java -jar server.jar nogui with shutdown command stop;
+7. concurrently monitors exit and performs a complete Status handshake plus pong;
+8. retries only diagnosed bind failures within maximumBindAttempts;
+9. returns OfficialMinecraftServer only after the Status probe succeeds.
+
+The official server's ready signal remains network behavior, never Done log text. The returned endpoint belongs to the
+server resource.
+
+### Control during tests
+
+MinecraftTestSupport.sendCommand writes one validated server-console line. Sending the line means only that stdin was
+flushed. A scenario requiring command completion either:
+
+- uses a command-and-await helper with an expected new server log marker;
+- observes the resulting protocol packet or connection state;
+- or, for filesystem behavior, stops the server and inspects the consistent workspace through the documented
+  same-filesystem backdoor.
+
+Typical controlled operations include save-all, stop, whitelist or operator setup for a dedicated scenario, data or
+world commands, and other exact-version official commands. Tests keep command use narrow and deterministic.
+
+restartServer synchronously:
+
+1. sends stop to the current process;
+2. requires exit code zero and output EOF;
+3. retains the same private workspace;
+4. chooses a new valid endpoint if necessary;
+5. starts the server again;
+6. waits for the full Status and pong ready signal before returning the updated endpoint.
+
+Restart never silently reclones a template or resets the world.
+
+### Clean and forced shutdown
+
+Normal server shutdown sends stop and waits for process-stopped completion. Exit code zero is required when shutdown is
+part of the test evidence or template generation.
+
+If the server fails to stop within configuration.stopTimeout, runtime cleanup destroys the process tree, captures the
+abnormal result, and still proceeds to directory and slot cleanup. Forced shutdown is never considered a successful
+template producer or clean lifecycle assertion.
+
+## Headless client execution
+
+HeadlessMC and Minecraft run in the same JVM because the selected launch uses inmemory. Therefore OS process exit plus
+output EOF is the definitive termination signal for both HeadlessMC and the client; the Host does not need to discover
+or track an opaque child JVM.
+
+### Start to title screen
+
+newHeadlessClient:
+
+1. acquires a Host slot and creates a unique workspace;
+2. clones the sanitized client template or creates a FRESH game directory;
+3. copies the immutable HMC-Specifics JAR into the private mods directory;
+4. writes the requested offline player identity and deterministic options only in the private workspace;
+5. gives HeadlessMC private writable home/configuration and game directories while keeping the assembled root read-only;
+6. launches the exact Fabric profile with lwjgl, inmemory, and offline, without Quick Play;
+7. waits for new output containing HMC-Specifics initialized!;
+8. issues gui and waits for a new TitleScreen result through the serialized command path;
+9. verifies that the process remains alive;
+10. returns a HeadlessMinecraftClient containing only its Host-owned resource ID.
+
+The old Launching with simple in-memory launcher marker is retained only as a diagnostic. It cannot make creation
+succeed because it proves neither HMC-Specifics initialization nor title-screen availability.
+
+### Connection initiation and Play evidence
+
+connectHeadlessClient validates a loopback MinecraftTestEndpoint, records the output cursor, and sends:
+
+~~~text
+connect <host> <port>
+~~~
+
+It returns after new output contains the exact HMC-Specifics connection acknowledgement and the process is still alive.
+This means that the main-thread vanilla ConnectScreen path accepted the request. It does not mean Login, Configuration,
+or Play succeeded.
+
+The split between creation and connection prevents a deadlock in the production-server scenario:
+
+1. the production server binds first;
+2. the fixture client reaches the title screen;
+3. connectHeadlessClient initiates connection and returns before Play;
+4. the test calls MinecraftServer.accept and services Login and Configuration;
+5. server-observed packets prove Play.
+
+The existing protocol-server scenario remains the Play oracle. It requires the real client to negotiate successfully and
+observes such evidence as teleport confirmation, chunk-batch acknowledgement, keepalive response, client tick,
+bidirectional Play packets, respawn, and reconfiguration. Do not replace those assertions with gui output or a client
+log marker.
+
+### Disconnect and reconnect
+
+disconnectHeadlessClient sends disconnect through the correlated command path, then issues gui and waits for a stable
+TitleScreen result while monitoring process exit. It returns only after the client has left the current connection and
+is commandable at the menu.
+
+This operation supports explicit connection-failure, disconnect-screen, and reconnect scenarios without restarting the
+JVM. Reuse remains inside one ordered scenario and one test task. Do not pool that mutable client across independent
+tests or task owners.
+
+### Additional HMC-Specifics actions
+
+Expose one narrow pass-through operation for concrete tests rather than modeling the whole upstream command set:
+
+~~~text
+sendHeadlessClientCommand(client, command, expectedNewOutput?, timeout?)
+~~~
+
+The Host validates a single line, captures an internal output cursor, serializes commands for that client, and returns
+only after the optional marker appears in new output. Lifecycle verbs connect, disconnect, quit, stop, exit, and login
+are rejected by this generic operation; their typed lifecycle APIs or the no-live-account policy own them.
+
+Initially allow only audited test-action verbs:
+
+- gui and render for screen or rendered-text observation;
+- click, text, menu, and close for a concrete GUI-flow test;
+- key for deterministic input that should produce observable protocol behavior;
+- msg or . for a chat-message action;
+- / for a server command action after the test server grants the required state.
+
+Keep HMC runtime/reflection commands disabled and do not expose arbitrary JVM, filesystem, account, or launcher
+configuration.
+
+Examples of additional tests enabled without new fixture infrastructure:
+
+| Scenario              | Client action                                                                       | Authoritative assertion                                                               |
+|-----------------------|-------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------|
+| Chat packet           | msg or .                                                                            | Production server receives and validates the serverbound chat packet                  |
+| Command packet        | /                                                                                   | Production server receives the command and exercises command suggestions or responses |
+| Movement/input        | key                                                                                 | Production server observes the expected movement or player-action packets             |
+| Container interaction | gui plus click                                                                      | Production server observes container click/close packets                              |
+| Disconnect prompt     | connect to a controlled rejection then gui                                          | Server proves rejection packet; gui may confirm the visible result                    |
+| Reconnect             | disconnect, then typed connect                                                      | Second server negotiation and packet evidence complete                                |
+| Clientbound UI        | server sends title, resource-pack, or other modeled packets; render or gui observes | Packet send is primary; HMC output is supplemental UI evidence                        |
+
+Do not add all these cases merely because the commands exist. Add a typed helper or scenario only when it closes a
+specific protocol coverage gap. A self-reported HMC string is sufficient for UI-specific observation but never replaces
+wire evidence for protocol behavior.
+
+### Clean and forced shutdown
+
+Normal client shutdown uses the typed close path:
+
+1. prevents new commands for the resource;
+2. records the current output cursor;
+3. sends quit to HMC-Specifics;
+4. waits for new output containing Quitting Minecraft...;
+5. waits for the in-memory HeadlessMC/Minecraft JVM to exit;
+6. waits for output EOF;
+7. requires exit code zero for a clean stop;
+8. deletes the workspace and releases the slot when full cleanup is requested.
+
+The selected upstream implementation schedules normal quit on Minecraft's thread and calls Minecraft.stop. The Host does
+not use System.exit as its normal path.
+
+If HMC-Specifics never initializes, its command reader fails, Minecraft crashes, or quit times out, runtime cleanup
+forcibly terminates the process tree and retains bounded diagnostics. That fallback releases resources but does not turn
+the run into a clean lifecycle result and cannot validate a client template.
+
+## Public fixture model
+
+Keep minecraft-test-support as the only dependency visible to consuming tests. It contains serializable values and the
+kRPC client, not HMC, Fabric, process, Gradle, or filesystem implementations.
+
+Target resource values:
+
+- MinecraftTestResource contains only id.
+- OfficialMinecraftServer contains id and its listening endpoint.
+- HeadlessMinecraftClient contains only id.
+
+Target configurations:
+
+- OfficialMinecraftServerConfiguration retains properties, startup and stop timeouts, bind attempts, and adds the typed
+  TEMPLATE or FRESH workspace policy.
+- HeadlessMinecraftClientConfiguration contains offline player identity, startup and stop limits, and TEMPLATE or FRESH
+  workspace policy. It contains no endpoint, artifact path, launcher flag, HMC command, or mod object.
+
+Target operations and their exact meaning:
+
+| Operation                    | Completion meaning                                                                  |
+|------------------------------|-------------------------------------------------------------------------------------|
+| newOfficialServer            | Complete Status response and pong succeeded                                         |
+| newHeadlessClient            | HMC-Specifics initialized and gui observed TitleScreen                              |
+| connectHeadlessClient        | Vanilla connection initiation command was accepted; not Play                        |
+| disconnectHeadlessClient     | gui observed TitleScreen after disconnect                                           |
+| sendCommand(server, command) | One server-console line was flushed                                                 |
+| sendHeadlessClientCommand    | One allowed action was flushed and optional new output was observed                 |
+| status or isAlive            | Current OS-process observation                                                      |
+| logText                      | Current bounded Host-owned diagnostic text                                          |
+| waitForLog                   | Matching diagnostic output, with command helpers using an internal post-send cursor |
+| closeProcess                 | Process exited and output reached EOF; workspace retained                           |
+| awaitExit                    | Observed exit without requesting it                                                 |
+| restartServer                | Old server stopped cleanly and new server passed Status readiness                   |
+| hostWorkingDirectory         | Same-host absolute-path backdoor, only for documented filesystem scenarios          |
+| deleteWorkingDirectory       | Stopped workspace deleted and slot released                                         |
+| close                        | Idempotent asynchronous process-and-directory cleanup request                       |
+
+Provide a structured close-and-await helper for callers that need resource-fully-released semantics. Ordinary use may
+retain the existing asynchronous close plus task-owner fallback.
+
+No HMC-Specifics object, Fabric object, launch profile, process handle, PID, template path, control cursor, or arbitrary
+JVM argument crosses kRPC.
+
+## Standard test flows
+
+### Production client against official server
+
+The protocol-client commonTest scenario:
+
+1. requests an official server;
+2. receives an endpoint only after Status readiness;
+3. exercises Status, Login, Configuration, compression, and Play through MinecraftClient;
+4. uses official server commands only when required by the scenario;
+5. closes the production connection;
+6. stops and releases the official server through structured cleanup.
+
+This flow does not involve HeadlessMC or HMC-Specifics.
+
+### Headless client against production server
+
+The protocol-server commonTest scenario:
+
+1. binds MinecraftServer on loopback;
+2. creates a title-ready HeadlessMinecraftClient;
+3. explicitly connects it to the production endpoint;
+4. accepts and services the real vanilla connection;
+5. proves Play and further behavior from packets observed by the production server;
+6. optionally uses allowed HMC-Specifics actions for a concrete additional packet path;
+7. disconnects or quits normally;
+8. captures bounded HMC/client logs on failure and fully releases the resource.
+
+HMC-Specifics coordinates actions. It is not the protocol oracle.
+
+### Official codec and serialization
+
+Codec differential fixtures continue to use the exact extracted official runtime and compiled bridge. Their Gradle
+inputs do not depend on either server or client templates. Network serialization scenarios that need an official server
+use the ordinary official-server flow and Status readiness.
+
+### Official world storage
+
+The world-io scenario explicitly selects a FRESH official-server workspace because first-run world generation is part of
+its evidence. It may issue deterministic console commands, save, stop, inspect the Host-owned directory, rewrite data,
+restart the same server workspace, and require Status readiness again.
+
+Before opening world files it calls closeProcess and requires a clean exit. After filesystem assertions it calls
+deleteWorkingDirectory or the full close-and-await helper. Thin annotated entries remain only in standard source sets
+that share the Host filesystem namespace.
+
+## Failure handling and diagnostics
+
+Every readiness or command wait fails on the earliest of:
+
+- expected new output or network evidence;
+- process exit;
+- output-reader failure;
+- caller cancellation;
+- configured timeout.
+
+Failures include:
+
+- resource kind and operation;
+- selected Minecraft, HeadlessMC, Fabric Loader, and HMC-Specifics identities where relevant;
+- whether the process exited and its code;
+- the bounded output observed after the operation cursor when available;
+- the tail of the complete bounded process log;
+- the last Status or bind failure for an official server.
+
+Never include account tokens or unredacted secrets. Offline fixtures must not create them.
+
+Do not write successful standalone report files. Logs remain Host-owned and cross kRPC only when requested or attached
+to an exception.
 
 ## Implementation sequence
 
-1. **Codify vocabulary and ownership**
-    - Update the applicable `AGENTS.md` files with the normative text below.
-    - Add `:minecraft-test-fixture-client` to settings with an owning `AGENTS.md` and README.
-    - Add pinned Fabric/Loom configuration without duplicating the selected Minecraft version.
+1. **Update terminology and target metadata**
+    - Add HmcSpecificsTarget with the exact audited asset identity.
+    - Remove every planned minecraft-test-fixture-client, Loom, mappings, Fabric API, remap, custom control protocol,
+      and Client GameTest requirement.
+    - Apply headless-client and external-fixture naming without weakening official-server evidence terminology.
 
-2. **Normalize existing Gradle task names**
-    - Rename the aggregate convention, output model, extension, root variable, fixture-input property, client download
-      task types, task group, and layout producers listed above.
-    - Remove `prepareHeadlessMc` and `prepareOfficialMinecraftClient`.
-    - Add the empty `prepareHeadlessClient` gate.
-    - Rename the Fixture Host runtime `Sync` producer and place an empty `prepareMinecraftTestFixtureHostRuntime` gate
-      above it.
-    - Rename the client capability flag/field and introduce capability-aware unsupported-target filtering.
-    - Do not retain aliases with the old client vocabulary.
+2. **Normalize the existing Gradle vocabulary**
+    - Perform the previously planned task and build-logic renames.
+    - Make every prepare task actionless.
+    - Keep analysis and codec producers connected directly to the raw verified server.
+    - Add downloadHmcSpecifics as a verified producer and no new public gate.
 
-3. **Generate the server template**
-    - Add the private Fixture Host template-worker entry point and the cacheable buildSrc producer that invokes it using
-      validated Java 25-or-newer from `PATH`.
-    - Implement deterministic default properties, status readiness, clean `stop`, strict sanitizer, manifest,
-      symlink-safe clone/relocation, and immutable output.
-    - Make `prepareOfficialMinecraftServer` depend on the terminal server-template producer while preserving the raw
-      server artifact for analysis.
-    - Remove every analyzer/extractor dependency on that gate and wire raw server inputs directly from the download
-      task.
-    - Add template/fresh workspace policy, allow safe `level-name` relocation, reject incompatible worldgen overrides,
-      and switch the world-io first-run scenario to fresh mode.
+3. **Generate the official server template**
+    - Keep deterministic properties, Status readiness, normal stop, strict sanitization, manifest, clone isolation, and
+      FRESH policy.
+    - Keep world-io on FRESH and other compatible server scenarios on TEMPLATE.
 
-4. **Build the fixture-control mod**
-    - Implement only lifecycle observation and the private `STATUS`/`CONNECT`/`DISCONNECT`/`STOP` protocol.
-    - Verify title readiness, play readiness, disconnect, clean stop, crash/error reporting, and timeout behavior.
-    - Ensure no custom payload or protocol registration appears in the remapped JAR.
+4. **Assemble the upstream-controlled headless client**
+    - Resolve the pinned Fabric profile and libraries.
+    - Assemble Mojang client inputs, filtered assets, HeadlessMC, and the verified HMC-Specifics JAR.
+    - Keep automatic launcher downloads disabled.
+    - Record every identity and relative path in the client manifest.
 
-5. **Assemble and template the headless client**
-    - Assemble the launchable Fabric/HeadlessMC version layout, filtered assets, and mod set from declared providers.
-    - Implement `generateHeadlessClientTemplate`, structured readiness, normal stop, sanitizer, and manifest.
-    - Make `prepareHeadlessClient` the sole public client gate.
+5. **Generate the client template**
+    - Use HMC-Specifics initialized output plus gui TitleScreen as readiness.
+    - Use quit plus exit code zero and output EOF as clean-stop evidence.
+    - Sanitize and prove immutable-input isolation.
 
-6. **Simplify Build Service and Host inputs**
-    - Replace separate client-cache, metadata, and HeadlessMC launcher parameters with `headlessClientDirectory`.
-    - Add the server-template provider.
-    - Update the Build Service parameter type, Host main argument schema, `MinecraftTestLayout`, fixture input
-      collections, runtime kind, and process-layout tests as one change.
-    - Clone templates into unique resource workspaces before writing runtime configuration; reject symlinks and never
-      hard-link mutable files.
-    - Keep task-owner cleanup, the bounded process pool, and forced process-tree cleanup as fallbacks.
+6. **Consolidate Build Service inputs**
+    - Replace separate client-cache, version metadata, and launcher parameters with one immutable headless-client root.
+    - Add the official-server template root.
+    - Update Host argument/layout validation and exact test-task inputs together.
 
-7. **Migrate RPC/test names and behavior**
-   - Apply the end-to-end headless-client renames.
-    - Move endpoint ownership off `MinecraftTestResource` and the client configuration, add explicit
-      `connectHeadlessClient`, return from creation at `TITLE_READY`, and return from connect at `CONNECTING`.
-    - Default server/client creation to template-backed workspaces and expose typed fresh-workspace selection.
-    - Replace launcher-log client readiness with structured control-mod readiness.
-    - Replace normal client `Process.destroy` cleanup with mod-directed disconnect/stop and exit-code validation.
+7. **Implement correlated process commands**
+    - Add the internal monotonically increasing output sequence and post-send matching.
+    - Serialize commands per resource.
+    - Test stale-marker rejection, process-exit races, output EOF, graceful timeout, and forced fallback.
 
-8. **Update documentation and remove stale vocabulary**
-    - Update root/module READMEs (including “headless official client”), KDoc, errors, task descriptions, test names,
-      and property names. Use `external-peer` as the general umbrella and retain `official server` only where factual.
-    - Search for stale `OfficialClient`, `official client`, `requiresOfficialClient`, `prepareHeadlessMc`, and
-      `prepareOfficialMinecraftClient` references, including case and separator variants.
+8. **Migrate server and client runtime APIs**
+    - Add workspace policies.
+    - Move endpoint ownership to OfficialMinecraftServer only.
+    - Rename newOfficialClient to newHeadlessClient.
+    - Add typed connect and disconnect operations.
+    - Add the narrow allowed-action HMC-Specifics pass-through.
+    - Make normal client cleanup use quit and full exit validation.
 
-## Required `AGENTS.md` changes
+9. **Migrate scenarios and documentation**
+    - Keep protocol readiness packet-based.
+    - Rename client tests and capability filters so unsupported targets do not rely on the word Official.
+    - Update root and module guides, READMEs, KDoc, diagnostics, and task descriptions.
+    - Remove all stale custom-mod and structured-lifecycle language.
 
-The implementation should add or adapt the following normative content. Keep the prose in English to match the existing
-guides; merge it into the most relevant existing sections instead of duplicating nearby rules.
+## Required guide changes
 
-### Root `AGENTS.md`
+When this plan is implemented, update the applicable AGENTS.md files in English and merge the rules into existing
+sections rather than duplicating them.
 
-Use `external-peer` for architecture/test rules that cover both fixture kinds; retain `official server` where the peer
-really is the verified Mojang server. This replaces the current blanket `official-peer` wording without weakening the
-official-server evidence rules.
+### Root guide
 
-Add the new private module to repository architecture:
+- Use external fixture or external peer for rules covering both fixture kinds; retain official server only for Mojang
+  server evidence.
+- Describe the headless client as Mojang client artifacts plus Fabric Loader, upstream HMC-Specifics, HeadlessMC, and
+  verified resources.
+- State that HMC-Specifics controls lifecycle and actions but server-observed packets remain protocol evidence.
+- Add immutable template clone and FRESH workspace rules.
+- Preserve the narrow exception allowing only the declared server-template producer to execute the official server JAR
+  outside official analysis.
+- Do not add minecraft-test-fixture-client to repository architecture.
 
-> `minecraft-test-fixture-client` contains the private, version-matched Fabric client mod used only to report headless
-> client lifecycle state and request vanilla connection, disconnection, and shutdown. It is never published and never
-> enters consuming test runtime classpaths.
+### buildSrc guide
 
-Replace client references that claim an unmodified official peer and add:
+- Preserve semantic download, generate, assemble, and actionless prepare verbs.
+- Name prepareOfficialMinecraftServer, prepareHeadlessClient, prepareOfficialMinecraftCodecOracle, and
+  prepareMinecraftTestFixtureHostRuntime as the stable gates.
+- State that prepareHeadlessClient covers the verified upstream HMC-Specifics artifact rather than a local mod.
+- Require immutable HMC-Specifics size and SHA verification because the upstream latest tag is mutable.
+- Preserve lazy external-fixture capability wiring and capability-specific unsupported-target filtering.
 
-> External client protocol tests use a controlled headless client assembled from verified Mojang client artifacts,
-> Fabric Loader, the repository-owned fixture-control mod, HeadlessMC, and version-matched resources. The control mod
-> may
-> observe lifecycle state and request vanilla connection, disconnection, and shutdown, but it never registers protocol
-> payloads, changes codecs or registries, or replaces the vanilla network path. Server-observed packets remain the
-> protocol evidence.
+### Fixture Host guide
 
-Add template isolation rules to test architecture/development output policy:
+- State that the Host consumes immutable server and client roots and never repairs them.
+- Define server ready as complete Status plus pong.
+- Define client command readiness as HMC-Specifics initialization plus gui TitleScreen.
+- Define Play only through production-server packet evidence.
+- Define normal client stop as HMC-Specifics quit plus process exit, output EOF, and code zero.
+- Preserve forced process-tree termination solely as fallback.
+- Document post-send output correlation, process-stopped versus resource-fully-released completion, and private
+  workspace isolation.
 
-> Gradle produces immutable, sanitized default server and headless-client templates below `build/`. The Fixture Host
-> clones a template into a unique workspace for every template-backed resource and writes all endpoint, identity, EULA,
-> and runtime configuration only after cloning. A test that needs first-run behavior or incompatible world generation
-> explicitly requests a fresh workspace. No process runs in a template directory, no mutable runtime uses hard links to
-> a template, and generated templates are never committed.
+### Test-support guide
 
-Replace the exclusive server-JAR execution rule with:
+- Expose HeadlessMinecraftClient rather than an official-client claim.
+- Keep Host paths, Fabric, HMC-Specifics, HeadlessMC, processes, and launch flags behind kRPC.
+- Document title-ready creation, explicit connect, optional disconnect, narrow action commands, and exact close
+  semantics.
+- Keep the Host working-directory backdoor limited to same-filesystem storage tests.
 
-> Root official-analysis/extraction tasks are the only build tasks that inspect the official server JAR. The root
-> `generateOfficialMinecraftServerTemplate` producer is the sole additional build task allowed to execute, but not
-> inspect or decompile, that JAR; it does so only through the private Fixture Host template worker and publishes only a
-> sanitized, normally stopped template. Analysis and codec producers consume the verified server artifact directly and
-> never depend on the fixture template gate.
+### protocol-server guide
 
-### `buildSrc/AGENTS.md`
+- Describe the external headless client and its upstream HMC-Specifics coordination.
+- Require packet-observed Play and behavior rather than HMC text.
+- Keep the scenario in commonTest and apply stable capability filtering on unsupported targets.
 
-Replace the existing lifecycle-task paragraph with:
+### world-io guide
 
-> Gradle task verbs are semantic. `download*` tasks acquire and verify external bytes, `generate*` tasks create derived
-> state or execute a producer, `assemble*` tasks arrange existing inputs into consumer layouts, and every `prepare*`
-> task
-> is an actionless lifecycle gate. A `prepare*` task owns no output and performs no download, validation, generation,
-> copy, `Sync`, or process action; consumers depend on it through `dependsOn` or `builtBy`. Producer relationships use
-> lazy file/provider provenance, and producer tasks validate their own outputs.
+- Require FRESH official-server creation for first-generation storage evidence.
+- Require a synchronously stopped server before filesystem access and complete cleanup afterward.
 
-Add the concrete gates:
+## Verification to perform during implementation
 
-> `prepareOfficialMinecraftServer`, `prepareHeadlessClient`, `prepareOfficialMinecraftCodecOracle`, and
-> `prepareMinecraftTestFixtureHostRuntime` are the stable fixture gates. `prepareHeadlessClient` covers the assembled
-> Mojang client, Fabric runtime, fixture-control mod, HeadlessMC launcher, filtered assets, and sanitized client
-> template;
-> there is no separate public `prepareHeadlessMc` or `prepareOfficialMinecraftClient` gate.
+Do not execute these checks merely while editing this plan. They are future implementation gates.
 
-Add template producer ownership:
-
-> Server and client template generators run their matching process only as cacheable Gradle producers. They require
-> structured readiness, normal exit code zero, and deterministic sanitization before publishing an output. A forced
-> process termination fails template generation. Template tasks never write outside their declared candidate/output
-> directories, and Fixture Host runtime workspaces are not task outputs.
-
-Add the worker boundary and analysis separation:
-
-> Cacheable template task types live in buildSrc and invoke the private non-RPC template-worker entry point provided by
-> `minecraft-test-fixture-host`; process, filesystem, status, control-channel, and sanitization behavior remains owned
-> by
-> the Host module. The server worker launches `java` from `PATH` and requires major version 25 or newer. Consuming test
-> tasks never invoke the worker. Official analysis, server-runtime extraction, and codec-oracle tasks take the raw
-> verified server producer as a precise input and never depend on `prepareOfficialMinecraftServer`.
-
-Add artifact composition guidance:
-
-> Large libraries and asset trees are not recopied merely to create a monolithic assembly task. Independent producers
-> own non-overlapping subdirectories below one logical fixture root; small compatibility layouts may use `Sync`. Fabric
-> Maven artifacts use Gradle dependency resolution rather than custom download tasks. Immutable content-addressed asset
-> objects may use a verified reflink/hard-link/copy fallback; templates and mutable runtime workspaces never use hard
-> links.
-
-Replace the Fixture Host wiring terminology/filter rule with:
-
-> External-fixture capability flags map to exact lazy artifact collections on supported standard KMP test tasks.
-> `requiresOfficialServer`, `requiresHeadlessClient`, and `requiresCodecOracle` use capability-specific stable test-name
-> exclusions on unsupported browser/Wasm/WASI tasks; filtering never relies on the general word `Official`. A consuming
-> task obtains the shared Build Service only in its execution action after its requested immutable fixture inputs and
-> assembled Host runtime are ready.
-
-### `minecraft-test-fixture-host/AGENTS.md`
-
-Add:
-
-> The Host consumes one Gradle-provided immutable headless-client root and the Gradle-provided official-server template.
-> It never downloads, assembles, repairs, or writes either input. Template-backed creation clones the selected template
-> into a unique resource workspace before writing EULA, properties, options, identity, endpoint, or control-channel
-> data. Fresh mode starts from an empty unique workspace.
-
-Add controlled-client lifecycle rules:
-
-> Headless-client readiness comes from the fixture-control mod's structured loopback protocol, never from a HeadlessMC
-> launcher log marker. Normal cleanup requests vanilla disconnect and `Minecraft.stop()` on the client thread and waits
-> for exit code zero. Process-tree termination is an abort fallback and cannot validate or publish a template. The Host
-> keeps the mod control endpoint private; public kRPC clients receive only serializable fixture resource values. Client
-> creation returns at `TITLE_READY`; explicit connection returns at `CONNECTING`, before Play, so the production test
-> server can accept and service the connection. Play is proven by server-observed protocol traffic.
-
-Add template isolation:
-
-> A runtime may mutate only its private clone. The Host never pools mutable server/client processes across task owners
-> merely because their source template is shared, and it never reuses a completed runtime directory as a new template.
-
-Replace the current “only the Build Service launches this Host” wording with the precise exception:
-
-> Only the shared Build Service launches the long-lived kRPC Fixture Host. Declared Gradle template producers may invoke
-> the module's private non-RPC template worker; the worker is not a user CLI or fixture-launch task and cannot serve
-> test
-> RPC requests. Both entry points keep process and host-filesystem behavior inside this module.
-
-### `minecraft-test-support/AGENTS.md`
-
-Add/replace client terminology with:
-
-> The public external-client fixture is named `HeadlessMinecraftClient`; it is not described as an official client.
-> `MinecraftTestSupport.newHeadlessClient` defaults to an isolated copy of the Gradle-prepared client template and
-> accepts
-> a typed fresh-workspace policy for first-run cases. Configuration never exposes a host/template path, Fabric object,
-> HeadlessMC object, process, control endpoint, or arbitrary JVM/mod argument.
-
-Add the resource/connection split:
-
-> `MinecraftTestResource` carries only its Host-owned ID; only `OfficialMinecraftServer` exposes a listening endpoint.
-> `newHeadlessClient` returns a title-ready client and `connectHeadlessClient(client, endpoint)` requests the vanilla
-> connection path, returning after connection initiation rather than Play readiness. The client endpoint is neither a
-> creation parameter nor persistent resource identity.
-
-Add protocol-evidence separation:
-
-> Control-mod lifecycle states determine when the remote client can be used or normally stopped; they are not protocol
-> assertions. Portable test scenarios continue to prove interoperability through packets observed by the production
-> protocol client/server APIs.
-
-### `protocol-server/AGENTS.md`
-
-Replace official-client terminology and add:
-
-> The external client interoperability scenario uses the controlled `HeadlessMinecraftClient`, creates it to
-> `TITLE_READY`, explicitly initiates its vanilla connection, and then services the production server connection. The
-> fixture mod supplies lifecycle coordination only; assertions and readiness for protocol behavior come from packets
-> observed by the production server. Unsupported standard test tasks exclude this scenario with the stable
-> `*HeadlessClient*` capability pattern rather than relying on `Official` in its name.
-
-### `world-io/AGENTS.md`
-
-Add:
-
-> The official world generation, rewrite, restart, and reload scenario explicitly requests a fresh official-server
-> workspace because first-run world creation is part of its evidence. Other official-server scenarios use the sanitized
-> template by default unless they change world-generation inputs.
-
-### New `minecraft-test-fixture-client/AGENTS.md`
-
-Create it with at least:
-
-> # minecraft-test-fixture-client
->
-> This private Fabric module owns the version-matched headless-client lifecycle control mod. It is build/test
-> infrastructure only: never publish it, expose it through `minecraft-test-support`, or place it on consuming test
-> runtime classpaths.
->
-> The mod observes Minecraft client lifecycle, screens, player/level/chunk readiness, connection failure, disconnect,
-> and shutdown. It accepts only `STATUS`, validated loopback `CONNECT`, `DISCONNECT`, and `STOP` over the explicit
-> private
-> Fixture Host machine protocol and schedules Minecraft operations on the client thread. Prefer maintained Fabric
-> lifecycle APIs; use the narrowest Mixin only when no maintained event provides the required state.
->
-> The mod never registers custom payloads, modifies packet codecs or transport, adds registry/content/resource entries,
-> intercepts protocol bytes, or replaces the vanilla network path. Its state reports are lifecycle signals, not protocol
-> evidence. It exposes no arbitrary reflection, command execution, GUI automation, filesystem path, or public network
-> listener.
->
-> Ordinary diagnostics use the framework logging API. Standard streams are reserved only for an explicitly isolated
-> machine/subprocess protocol. A normal stop disconnects as needed and invokes `Minecraft.stop()` on the client thread;
-> direct `System.exit`, process destruction, and shutdown hooks are not normal lifecycle mechanisms.
-
-## Verification
-
-Run verification incrementally, preserving the build cache:
-
-1. Build and test the new control-mod module with the selected Minecraft/Fabric versions.
-2. Run `./gradlew prepareOfficialMinecraftServer prepareHeadlessClient`.
-3. Repeat the same invocation unchanged and confirm task up-to-date/build-cache reuse.
-4. Run the same gates with configuration cache enabled twice and confirm store/reuse.
-5. Inspect sanitized template manifests: no endpoint, identity, control correlation value, log, crash, lock,
-   `server.properties`, save, or process-specific file may remain.
-6. Force template producers with `--rerun-tasks` when validating determinism; compare declared manifests rather than
-   adding a permanent freshness/comparison workflow.
-7. Run `./gradlew :minecraft-test-fixture-client:build` and its applicable Fabric client test task.
-8. Run `./gradlew :minecraft-test-fixture-host:test :minecraft-test-support:jvmTest`.
-9. Run `./gradlew :protocol-server:jvmTest` and verify the controlled headless client completes the existing packet
-   probes through the production server.
-10. Run `./gradlew :minecraft-test-fixture-host:test jvmTest` for the repository JVM gate.
-11. Inspect task dependencies and confirm analysis/runtime extraction/codec requests do not schedule
-    `generateOfficialMinecraftServerTemplate`, while the external-server fixture input does.
-12. Inspect every registered `prepare*` task and confirm it is an actionless lifecycle task with no outputs.
-
-Add focused coverage for:
-
-- server template generation, normal stop, sanitizer, copy isolation, and fresh mode;
-- acceptance and safe relocation of `level-name`, rejection of true template-incompatible world-generation overrides,
-  and explicit fresh mode in the world-io scenario;
-- client title/play readiness state transitions and structured failure diagnostics;
-- creation completing at `TITLE_READY` and connect completing at `CONNECTING` before the server reaches Play, proving
-  there is no create/accept deadlock;
-- clean disconnect/stop with exit code zero and forced-cleanup fallback;
-- client template sanitizer, private-copy isolation, and fresh mode;
-- task-owner abort cleanup and bounded pool-slot release;
-- current kRPC service/value serialization after moving endpoint ownership off the client resource;
-- renamed capability wiring on supported standard KMP test tasks and exclusion of `HeadlessClientInteropTest` from every
-  unsupported browser/Wasm/WASI task;
-- Host main argument/layout validation with one headless-client root and one server-template directory;
-- mod artifact/source inspection showing no custom payload, codec, transport, or registry integration;
-- unchanged rerun and configuration-cache reuse for every changed producer/gate.
+1. Download HMC-Specifics from the declared URL and verify exact size and SHA-256.
+2. Inspect the selected JAR metadata and matching source for Minecraft/Fabric compatibility, vanilla connect,
+   disconnect, quit, and relevant network-boundary changes.
+3. Run prepareOfficialMinecraftServer and prepareHeadlessClient.
+4. Repeat both gates unchanged and confirm up-to-date or build-cache reuse.
+5. Run both gates twice with configuration cache and confirm store then reuse.
+6. Confirm analysis, runtime extraction, and codec-only requests do not schedule server-template generation.
+7. Confirm no task or dependency references minecraft-test-fixture-client, Loom, mappings, Fabric API, or remapJar.
+8. Inspect both template manifests and sanitizers for endpoint, identity, token, log, lock, path, and mutable-release
+   leakage.
+9. Verify client template generation observes HMC-Specifics initialization, gui TitleScreen, quit, output EOF, and code
+   zero.
+10. Verify server template generation observes Status plus pong, stop, output EOF, and code zero.
+11. Run minecraft-test-fixture-host tests for command serialization, stale-output rejection, clean exit, forced
+    fallback, slot release, template isolation, and Host shutdown.
+12. Run minecraft-test-support JVM serialization and lifecycle tests.
+13. Run protocol-server JVM tests and require the existing packet probes through the HMC-Specifics-controlled client.
+14. Run protocol-client, protocol-serialization, and world-io affected JVM tests.
+15. Run the repository JVM gate, then applicable standard platform tasks.
+16. Inspect published runtime classpaths and confirm no fixture, Fabric, HMC-Specifics, HeadlessMC, or Host dependency
+    enters a published module.
 
 ## Completion criteria
 
-The work is complete only when:
+The implementation is complete only when:
 
-- every `prepare*` task in the repository is actionless;
-- `prepareHeadlessClient` is the sole public Gradle gate for the complete controlled client fixture;
-- no runnable client API, task, class, test, or documentation calls the fixture an official client;
-- default server and client creation clone sanitized immutable templates into unique workspaces;
-- explicit fresh-workspace creation remains available for both fixtures;
-- client creation/connect readiness and normal shutdown use the structured control-mod lifecycle rather than launcher
-  log matching or ordinary process destruction, without waiting for Play before the test server can accept;
-- template generation rejects forced shutdown and publishes only normally stopped outputs;
-- official analysis/runtime extraction does not pull the server template into its graph;
-- renamed headless-client tests remain excluded on unsupported standard test tasks;
-- consumers see only the KMP support/RPC boundary and stable prepare gates;
-- all required JVM, cache-reuse, and configuration-cache checks pass; and
-- no generated template, downloaded artifact, runtime directory, or agent research checkout is committed.
+- no repository-owned Minecraft client mod, Loom build, mappings input, remap task, private mod socket, or structured
+  mod lifecycle protocol exists;
+- the exact HMC-Specifics bytes are verified and represented in the client manifest;
+- the existing server and client preparation ownership remains precise and every prepare task is actionless;
+- official analysis and codec preparation remain independent of the server template;
+- every runtime uses a unique private workspace and immutable templates are never launched or mutated in place;
+- official-server creation returns only after Status and pong;
+- headless-client creation returns only after HMC-Specifics initialization and gui TitleScreen;
+- connection initiation returns before Play and Play is proven by production-server packet evidence;
+- normal server and client shutdown require exit, output EOF, and code zero;
+- forced termination is reported as abnormal and used only to guarantee cleanup;
+- callers can distinguish process-stopped from resource-fully-released completion;
+- optional HMC-Specifics actions can drive concrete additional scenarios without exposing launcher, process, filesystem,
+  account, or reflection control;
+- unsupported standard targets exclude external-fixture scenarios through capability-specific stable patterns;
+- all focused JVM, cache-reuse, configuration-cache, and applicable platform checks pass; and
+- no generated template, downloaded artifact, runtime workspace, or research checkout is committed.
