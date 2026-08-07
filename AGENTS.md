@@ -210,6 +210,9 @@ use the applicable standard platform task or `./gradlew allTests`. Native compil
 and no host operating system is a design-time first-class platform. The root project does not define a replacement
 `test`, layer-test, or interoperability-test task.
 
+When the current machine has insufficient available memory, limit every Gradle invocation to an appropriate worker count
+with `--max-workers=<count>`.
+
 Use `clean` or `--rerun-tasks` when forced verification is necessary, but keep the build cache enabled. Configuration
 cache and unchanged-rerun checks accompany changes to task inputs, outputs, or service wiring.
 
