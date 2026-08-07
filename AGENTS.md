@@ -106,9 +106,12 @@ onto the consumer classpath.
 
 ## Evidence, versioning, and generated code
 
-`MinecraftTarget.MINECRAFT_VERSION` in `buildSrc` is the only manually selected Minecraft release.
-`./gradlew -q minecraftVersion` prints it. The official server's `version.json` supplies the protocol number and other
-release facts; module build scripts do not duplicate them.
+`MinecraftTarget.MINECRAFT_VERSION` in `buildSrc` selects the Minecraft release for the entire repository and is the
+only place where that release is set manually. Documentation refers to it as the repository-selected or matching
+official Minecraft release and never copies the constant's literal value. `./gradlew -q minecraftVersion` prints it.
+Release versions selected by separate `buildSrc` targets are independent inputs; compatibility with Minecraft does not
+make those versions aliases of `MINECRAFT_VERSION`. The official server's `version.json` supplies the protocol number
+and other release facts; module build scripts do not duplicate them.
 
 Evidence has this fixed precedence:
 

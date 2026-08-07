@@ -28,9 +28,10 @@ NbtFormat.encodeDocumentToSink(document, worldSink)
 val worldBytes = NbtFormat.encodeDocumentToByteArray(document)
 ```
 
-Classes and `Map<String, T>` values become compounds, lists use the official Minecraft 26.2 logical wrapper behavior,
-and byte, int, and long arrays use their specialized tags. Enums use serial names; `Char`, non-string map keys,
-polymorphism, null roots, and null collection values are rejected. Null compound properties are omitted.
+Classes and `Map<String, T>` values become compounds. Mixed logical lists use the compound-wrapper convention from the
+selected official Minecraft release. Byte, int, and long arrays use their specialized tags. Enums use serial names;
+`Char`, non-string map keys, polymorphism, null roots, and null collection values are rejected. Null compound properties
+are omitted.
 
 All public writers are strict. The library intentionally has no equivalent of vanilla's emergency
 `writeUnnamedTagWithFallback`, which silently replaces a modified-UTF string that is too long with an empty string.

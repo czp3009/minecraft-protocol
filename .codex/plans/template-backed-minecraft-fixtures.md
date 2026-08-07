@@ -2,18 +2,20 @@
 
 ## Status and decision
 
-This document is the implementation plan for simplifying the repository's external Minecraft fixtures. It was revised on
-2026-08-07 after HeadlessHQ published HMC-Specifics for Minecraft 26.2. It describes future work only; changing this
-plan does not authorize implementing or executing any step.
+This document is the implementation plan for simplifying the repository's external Minecraft fixtures. It describes
+future work only; changing this plan does not authorize implementing or executing any step.
 
-The selected repository inputs remain:
+The repository inputs remain:
 
-- Minecraft 26.2, selected only by MinecraftTarget.MINECRAFT_VERSION;
-- HeadlessMC 2.10.0, selected only by HeadlessMcTarget.HEADLESS_MC_VERSION;
+- the official Minecraft release selected exclusively through `MinecraftTarget.MINECRAFT_VERSION`;
+- the HeadlessMC release selected independently through `HeadlessMcTarget.HEADLESS_MC_VERSION`;
 - Java major 25 from BuildVersions and java from PATH for launched JVMs;
-- the upstream HeadlessHQ HMC-Specifics 26.2 Fabric artifact described below.
+- the HMC-Specifics release and verified Fabric artifact selected independently through `HmcSpecificsTarget`.
 
-The revised decisions are:
+Minecraft, HeadlessMC, HMC-Specifics, Fabric Loader, and Java versions are independent inputs. Compatibility checks
+relate their artifacts, but no product's version is reused as another product's version selector.
+
+The decisions are:
 
 - Do not create minecraft-test-fixture-client or any repository-owned Minecraft mod.
 - Do not add Loom, Mojang mappings, a remap task, Fabric API, Client GameTest, a private mod socket, a JSON control
@@ -57,37 +59,31 @@ The fixture does not attempt to provide:
 
 ## Upstream HMC-Specifics input
 
-Use the release and source evidence at:
+`HmcSpecificsTarget` owns the independently selected HMC-Specifics version, release tag, asset URL and name, source
+commit, exact size, and SHA-256. None of these values is derived from `MinecraftTarget.MINECRAFT_VERSION`. An upstream
+tag or asset name may advertise Minecraft compatibility, but that compatibility label is not the HMC-Specifics version.
 
-- https://github.com/headlesshq/hmc-specifics/releases/tag/26.2-latest
-- https://github.com/headlesshq/hmc-specifics/pull/60
-- https://github.com/headlesshq/hmc-specifics/blob/26.2-latest/README.md
-- https://github.com/headlesshq/hmc-specifics/blob/26.2-latest/hmc-specifics-api/src/main/java/me/earth/headlessmc/mc/commands/ConnectCommand.java
-- https://github.com/headlesshq/hmc-specifics/blob/26.2-latest/hmc-specifics-api/src/main/java/me/earth/headlessmc/mc/commands/DisconnectCommand.java
-- https://github.com/headlesshq/hmc-specifics/blob/26.2-latest/hmc-specifics-api/src/main/java/me/earth/headlessmc/mc/commands/QuitCommand.java
-- https://github.com/headlesshq/hmc-specifics/blob/26.2-latest/26_2/src/main/java/me/earth/headlessmc/mc/mixins/MixinMinecraft.java
+Audit the selected artifact on the [upstream releases page](https://github.com/headlesshq/hmc-specifics/releases) and
+against the source commit declared by `HmcSpecificsTarget`. In the paths below, `<hmc-specifics-source-commit>` and
+`<hmc-specifics-source-module>` denote independently audited HMC-Specifics source coordinates. Under the source root
+`https://github.com/headlesshq/hmc-specifics/blob/<hmc-specifics-source-commit>/`, inspect:
 
-The currently selected Fabric asset is:
+- `README.md`;
+- `hmc-specifics-api/src/main/java/me/earth/headlessmc/mc/commands/ConnectCommand.java`;
+- `hmc-specifics-api/src/main/java/me/earth/headlessmc/mc/commands/DisconnectCommand.java`;
+- `hmc-specifics-api/src/main/java/me/earth/headlessmc/mc/commands/QuitCommand.java`;
+- `<hmc-specifics-source-module>/src/main/java/me/earth/headlessmc/mc/mixins/MixinMinecraft.java`.
 
-| Fact                            | Value                                                            |
-|---------------------------------|------------------------------------------------------------------|
-| Release tag                     | 26.2-latest                                                      |
-| Asset                           | hmc-specifics-26.2-fabric-latest.jar                             |
-| Embedded implementation version | 2.4.0                                                            |
-| Source commit at audit time     | bd0373f4751fd977a337943ee31f7a735aa00bbb                         |
-| Size                            | 5,631,766 bytes                                                  |
-| SHA-256                         | eb6993436e535d220d65069f9559c3402444294b2a484d1430c56507fddfc190 |
-
-The 26.2-latest tag and asset URL are intentionally mutable prerelease aliases. They are not sufficient identities.
-Build logic must declare the exact expected size and SHA-256 and fail closed if upstream replaces the bytes. It must not
-query for the newest release during a build. An intentional update changes the recorded digest, size, source commit, and
-any affected command markers together.
+If the selected release URL is a mutable prerelease alias, it is not a sufficient identity. Build logic must declare the
+exact expected size and SHA-256 and fail closed if upstream replaces the bytes. It must not query for the newest release
+during a build. An intentional HMC-Specifics update changes its version and recorded artifact identity together; a
+Minecraft update only triggers a new compatibility audit unless the HMC-Specifics selection also needs to change.
 
 Keep HeadlessMC automatic version, Java, asset, and specifics downloads disabled. Gradle downloads and verifies all
 inputs before the Host starts. Do not run the HeadlessMC specifics installer command at test execution time.
 
-The audited Fabric metadata requires Fabric Loader and Minecraft 26.2 but does not require Fabric API. Resolve and pin a
-compatible Fabric Loader and its launch libraries through Gradle. Do not add Fabric API unless a future audited
+The HMC-Specifics artifact's audited Fabric metadata declares its Fabric Loader and Minecraft compatibility. Resolve and
+pin a compatible Fabric Loader and its launch libraries through Gradle. Do not add Fabric API unless a future audited
 HMC-Specifics artifact explicitly requires it.
 
 HMC-Specifics supplies a broader command surface than this repository initially needs. That broader implementation is
@@ -99,10 +95,10 @@ upstream-owned and does not justify recreating a smaller mod locally. The Host i
 - quit, for normal client shutdown;
 - selected non-lifecycle commands described under extensible test control.
 
-The selected source schedules connect and disconnect commands on Minecraft's main thread and uses the vanilla
-ConnectScreen path. It does not replace this repository's packet evidence. Each future HMC-Specifics update must recheck
-these source paths and the absence of custom payload, packet codec, transport, and registry changes relevant to the
-interoperability scenario.
+The HMC-Specifics source selected by `HmcSpecificsTarget` schedules connect and disconnect commands on Minecraft's main
+thread and uses the vanilla ConnectScreen path. It does not replace this repository's packet evidence. Each future
+HMC-Specifics update must recheck these source paths and the absence of custom payload, packet codec, transport, and
+registry changes relevant to the interoperability scenario.
 
 ## Two strictly separated phases
 
@@ -152,8 +148,9 @@ downloadVersionManifest
 └── downloadVersionMetadata
 ~~~
 
-MinecraftTarget.MINECRAFT_VERSION remains the only manually selected Minecraft release. No client, Fabric, or
-HMC-Specifics build script duplicates 26.2 as an independent target selection.
+`MinecraftTarget.MINECRAFT_VERSION` remains the only manually selected Minecraft release. `HeadlessMcTarget` and
+`HmcSpecificsTarget` own their unrelated releases. No build script may restate one selector or derive another product's
+version from it; cross-product compatibility is verified explicitly.
 
 ### Official server preparation
 
@@ -276,10 +273,12 @@ for official-server evidence.
 Expose one immutable logical root for each capability. Producers own non-overlapping children; no producer claims a
 parent also written by another producer.
 
-The headless-client root is conceptually:
+The headless-client root is conceptually keyed by the selected Minecraft release. Here `<minecraft-version>` denotes
+only `MinecraftTarget.MINECRAFT_VERSION`, while `<hmc-specifics-asset-name>` comes independently from
+`HmcSpecificsTarget`:
 
 ~~~text
-headless-client/26.2/
+headless-client/<minecraft-version>/
 ├── runtime/
 │   ├── headlessmc/
 │   │   └── headlessmc-launcher.jar
@@ -288,16 +287,16 @@ headless-client/26.2/
 │   │   ├── libraries/
 │   │   └── assets/
 │   └── mods/
-│       └── hmc-specifics-26.2-fabric.jar
+│       └── <hmc-specifics-asset-name>
 ├── template/
 └── manifest.json
 ~~~
 
 The client manifest records:
 
-- selected Minecraft and HeadlessMC versions;
+- independently selected Minecraft, HeadlessMC, and HMC-Specifics versions;
 - Fabric Loader profile identity and resolved library identities;
-- HMC-Specifics release tag, embedded version, source commit recorded at selection time, size, and SHA-256;
+- HMC-Specifics release tag, source commit recorded at selection time, size, and SHA-256;
 - relative launcher, Minecraft cache, Fabric profile, mods, template, and game-directory paths;
 - template policy revision and sanitization facts;
 - the exact HMC-Specifics startup and command markers expected by the Host.
@@ -341,7 +340,8 @@ generateHeadlessClientTemplate uses the same HMC-Specifics command path planned 
 1. creates private HeadlessMC home, Minecraft cache view, and game-directory candidates below build;
 2. stages the verified HMC-Specifics JAR into the candidate game mods directory;
 3. writes deterministic client options and offline identity placeholders;
-4. launches the exact Fabric profile through HeadlessMC 2.10.0 with lwjgl and inmemory, without Quick Play;
+4. launches the exact Fabric profile through the selected HeadlessMC release with lwjgl and inmemory, without Quick
+   Play;
 5. keeps hmc.jline.enabled=false so the worker controls the plain line-oriented stdin;
 6. waits for new output containing HMC-Specifics initialized!;
 7. sends gui through the command context and requires new output identifying
@@ -351,9 +351,10 @@ generateHeadlessClientTemplate uses the same HMC-Specifics command path planned 
 9. sanitizes the normally stopped candidate and publishes the template and manifest;
 10. fails without publishing an output if forced termination was necessary.
 
-Operational title readiness is deliberately modest: the HMC-Specifics command context exists and gui observes the 26.2
-title screen. The fixture does not invent TITLE_READY, PLAY_READY, or FAILED events. If this signal stops being
-sufficient, first verify an upstream command or marker before considering repository-owned Minecraft code.
+Operational title readiness is deliberately modest: the HMC-Specifics command context exists, and gui observes
+TitleScreen in the client assembled for the selected Minecraft release. The fixture does not invent TITLE_READY,
+PLAY_READY, or FAILED events. If this signal stops being sufficient, first verify an upstream command or marker before
+considering repository-owned Minecraft code.
 
 The client sanitizer excludes at least:
 
@@ -734,7 +735,7 @@ to an exception.
 ## Implementation sequence
 
 1. **Update terminology and target metadata**
-    - Add HmcSpecificsTarget with the exact audited asset identity.
+    - Add HmcSpecificsTarget with its independently selected HMC-Specifics version and exact audited asset identity.
     - Remove every planned minecraft-test-fixture-client, Loom, mappings, Fabric API, remap, custom control protocol,
       and Client GameTest requirement.
     - Apply headless-client and external-fixture naming without weakening official-server evidence terminology.
@@ -807,6 +808,8 @@ sections rather than duplicating them.
 - Preserve semantic download, generate, assemble, and actionless prepare verbs.
 - Name prepareOfficialMinecraftServer, prepareHeadlessClient, prepareOfficialMinecraftCodecOracle, and
   prepareMinecraftTestFixtureHostRuntime as the stable gates.
+- Keep the Minecraft, HeadlessMC, and HMC-Specifics release selectors independent; verify compatibility without deriving
+  one product's version from another's.
 - State that prepareHeadlessClient covers the verified upstream HMC-Specifics artifact rather than a local mod.
 - Require immutable HMC-Specifics size and SHA verification because the upstream latest tag is mutable.
 - Preserve lazy external-fixture capability wiring and capability-specific unsupported-target filtering.

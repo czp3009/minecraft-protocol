@@ -8,7 +8,8 @@ in their owning modules.
 
 - Containers and primitive arrays are immutable snapshots.
 - `TAG_End` is legal only where the NBT domain permits it.
-- Minecraft 26.2 logical lists permit mixed non-END tags; physical wrapping is delegated to `nbt-serialization`.
+- Logical-list behavior matches the selected official Minecraft release: lists may contain mixed non-END tags, while
+  physical wrapping is delegated to `nbt-serialization`.
 - Serializer bridge contracts expose trees only, never buffers, byte order, compression, or I/O.
 - This module has no dependency on protocol, world, compression, or `kotlinx.io` code.
 - The public model and serializer bridge remain independently consumable with only `kotlinx-serialization-core`.

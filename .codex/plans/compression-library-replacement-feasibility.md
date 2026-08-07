@@ -1,6 +1,6 @@
 # 压缩库替换与模块简化实施方案
 
-状态：方案已确定。Minecraft 行为基线为本仓库当前选定的 Java Edition 26.2。
+状态：方案已确定。Minecraft 行为以 `MinecraftTarget.MINECRAFT_VERSION` 所选的官方 Java Edition 版本为 基线。
 
 ## 最终目标
 
@@ -12,11 +12,11 @@
 6. 删除 `wasmWasi` 发布目标和 D8 测试运行器。保留 JVM、Android、全部现有 Native、Kotlin/JS 和 Kotlin/WasmJS；Web 支持 Node
    与现代浏览器，自动化测试使用 Node。
 
-本方案只面向现代 Minecraft。旧格式转换、损坏文件修复和不再由当前版本产生的历史压缩格式不在范围内。
+本方案只面向与所选官方 Minecraft 版本匹配的现代格式；旧格式转换、损坏文件修复和该版本不再产生的历史压缩格式 不在范围内。
 
 ## 官方 Anvil 压缩契约
 
-Minecraft 26.2 的内建 Anvil compression ID 为：
+所选官方 Minecraft Java Edition 版本内建的 Anvil compression ID 如下：
 
 |  ID | 名称                     | 本项目行为                                 |
 |----:|--------------------------|--------------------------------------------|
@@ -151,7 +151,7 @@ N bytes  raw 或标准 LZ4 compressed payload
 
 ## 验收标准
 
-1. 官方 26.2 服务端分别以 GZIP、默认 ZLIB、NONE 和 LZ4 配置生成区域文件，本项目能够读取其 chunk。
+1. 所选版本对应的官方服务端分别以 GZIP、默认 ZLIB、NONE 和 LZ4 配置生成区域文件，本项目能够读取其 chunk。
 2. JVM、Android、各 Native、JS Node 和 WasmJS Node 都通过 GZIP、ZLIB、raw LZ4、XXHash32 和 LZ4Block 的有效、边界、畸形、限制及
    round-trip 测试。
 3. 测试至少覆盖 LZ4Block 的 raw block、compressed block、多 block、终止 block、64 KiB 边界、不可压缩回退、错误 magic、非法
@@ -160,7 +160,7 @@ N bytes  raw 或标准 LZ4 compressed payload
    允许不同的等价压缩字节，不要求逐字节相同。
 5. 同一 `.mca` 内混合 GZIP、ZLIB、NONE、LZ4 和测试注册的 CUSTOM chunk 时，可逐条正确读取；局部改写不会重压缩或改变其他保留
    chunk。
-6. 官方 26.2 服务端能够加载、保存并重新加载本项目写出的 GZIP、ZLIB、NONE、LZ4 及混合压缩 region 文件。
+6. 所选版本对应的官方服务端能够加载、保存并重新加载本项目写出的 GZIP、ZLIB、NONE、LZ4 及混合压缩 region 文件。
 7. 网络 ZLIB 覆盖压缩阈值、声明长度、上限、截断和跨平台交叉向量。
 8. `protocol-transport` 与 `world-format` 的外部消费者 smoke test 证明第三方实现依赖未泄漏到公共 ABI，删除 `compression`
    后发布依赖图仍保持独立且无环。
