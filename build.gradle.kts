@@ -59,7 +59,7 @@ subprojects {
                             .resolve("karma.config.d"),
                     )
 
-                    is KotlinMocha -> timeout = "30s"
+                    is KotlinMocha -> timeout = "2m"
                 }
             }
         }

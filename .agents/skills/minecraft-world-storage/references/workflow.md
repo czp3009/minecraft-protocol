@@ -38,9 +38,10 @@ the first inputs. Manual decompilation is used only when those inputs do not exp
 
 Run only the affected prefix while iterating and include downstream tasks after a shared binary change.
 
-The `:world-io:jvmTest` interoperability scenario asks the Fixture Host to generate a world with the exact official
-server, synchronously closes the process, opens its Host working directory through the documented same-filesystem
-backdoor, rewrites the world in place through `world-io`, restarts the server, and requires a successful reload. Its
-shared runner remains in `commonTest` with an explicit Host-filesystem warning, while thin annotated entries exist only
-in standard JVM and desktop Native test source sets. Android host tests inherit portable `commonTest` coverage without
-repeating this JVM-hosted official scenario. Device and simulator source sets do not invoke it.
+The `:world-io:jvmTest` and `:world-io:jsNodeTest` interoperability entries ask the Fixture Host to generate a world
+with the exact official server, synchronously close the process, open its Host working directory through the documented
+same-filesystem backdoor, rewrite the world in place through `world-io`, restart the server, and require a successful
+reload. Their shared runner remains in `commonTest` with an explicit Host-filesystem warning, while thin annotated
+entries exist only in standard JVM, Node, and desktop Native test source sets. Android host tests inherit portable
+`commonTest` coverage without repeating this JVM-hosted official scenario. Device, simulator, browser, and Wasm/WASI
+source sets do not invoke it.

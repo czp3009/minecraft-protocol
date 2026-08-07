@@ -1,6 +1,5 @@
 package com.hiczp.minecraft.world.io
 
-import kotlinx.cinterop.ExperimentalForeignApi
 import okio.IOException
 import okio.Path
 import platform.posix.O_WRONLY
@@ -8,7 +7,6 @@ import platform.posix.close
 import platform.posix.fsync
 import platform.posix.open
 
-@OptIn(ExperimentalForeignApi::class)
 internal actual fun syncSystemFilePath(path: Path) {
     val descriptor = open(path.toString(), O_WRONLY)
     if (descriptor == -1) {

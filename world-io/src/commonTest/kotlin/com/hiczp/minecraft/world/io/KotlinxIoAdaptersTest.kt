@@ -108,8 +108,8 @@ class KotlinxIoAdaptersTest {
             }
         }
 
-        assertTrue(thrown === original)
-        assertTrue(thrown.suppressedExceptions.single() === closeFailure)
+        assertSame(original, thrown)
+        assertSame(closeFailure, thrown.suppressedExceptions.single())
     }
 
     @Test
@@ -125,8 +125,8 @@ class KotlinxIoAdaptersTest {
             )
         }
 
-        assertTrue(thrown === first)
-        assertTrue(thrown.suppressedExceptions.single() === second)
+        assertSame(first, thrown)
+        assertSame(second, thrown.suppressedExceptions.single())
     }
 }
 

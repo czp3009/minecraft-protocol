@@ -99,8 +99,8 @@ count. The module guides contain the corresponding entry points and examples:
   Okio filesystem access and world paths.
 
 Most model, serialization, and stream APIs target common Kotlin. Socket APIs run where the configured Ktor engine
-exposes TCP. `world-io` targets Okio system filesystems on JVM, Android, and Native; browser-like consumers use `nbt`,
-`nbt-serialization`, and `world-format` through trees, streams, or byte arrays.
+exposes TCP. `world-io` targets Okio system filesystems on JVM, Android, Native, and Kotlin/JS Node; browser and Wasm
+consumers use `nbt`, `nbt-serialization`, and `world-format` through trees, streams, or byte arrays.
 
 ## Building and testing
 

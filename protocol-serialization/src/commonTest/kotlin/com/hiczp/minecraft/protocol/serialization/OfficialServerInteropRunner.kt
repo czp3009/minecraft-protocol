@@ -19,7 +19,9 @@ import kotlin.uuid.Uuid
  * run on each standard test runtime that can reach the Fixture Host.
  */
 internal object OfficialServerInteropRunner {
-    suspend fun run() {
+    suspend fun run(
+        openTransport: suspend (Int) -> OfficialServerTransport,
+    ) {
         MinecraftTestSupport.newOfficialServer(
             configuration = OfficialMinecraftServerConfiguration(
                 properties = mapOf(
@@ -30,8 +32,8 @@ internal object OfficialServerInteropRunner {
         ).use { server ->
             val port = server.endpoint.port
             try {
-                verifyStatus(port)
-                verifyOfflineLoginAndConfiguration(port)
+                verifyStatus(port, openTransport)
+                verifyOfflineLoginAndConfiguration(port, openTransport)
                 check(MinecraftTestSupport.closeProcess(server) == 0) {
                     "Official server did not stop cleanly"
                 }
@@ -48,8 +50,11 @@ internal object OfficialServerInteropRunner {
         }
     }
 
-    private suspend fun verifyStatus(port: Int) {
-        withConnection(port) { connection ->
+    private suspend fun verifyStatus(
+        port: Int,
+        openTransport: suspend (Int) -> OfficialServerTransport,
+    ) {
+        withConnection(port, openTransport) { connection ->
             connection.send(
                 HandshakePacket(
                     protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
@@ -80,8 +85,9 @@ internal object OfficialServerInteropRunner {
 
     private suspend fun verifyOfflineLoginAndConfiguration(
         port: Int,
+        openTransport: suspend (Int) -> OfficialServerTransport,
     ) {
-        withConnection(port) { connection ->
+        withConnection(port, openTransport) { connection ->
             connection.send(
                 HandshakePacket(
                     protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
@@ -184,9 +190,10 @@ internal object OfficialServerInteropRunner {
 
     private suspend fun <T> withConnection(
         port: Int,
+        openTransport: suspend (Int) -> OfficialServerTransport,
         block: suspend (FramedConnection) -> T,
     ): T {
-        val transport = openOfficialServerTransport(port)
+        val transport = openTransport(port)
         try {
             return block(FramedConnection(transport))
         } finally {
@@ -308,7 +315,3 @@ internal interface OfficialServerTransport {
 
     fun close()
 }
-
-internal expect suspend fun openOfficialServerTransport(
-    port: Int,
-): OfficialServerTransport

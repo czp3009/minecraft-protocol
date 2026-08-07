@@ -1,7 +1,7 @@
 # world-io
 
-This module owns world paths and filesystem adapters built on Okio. Browser-like targets use the stream modules and do
-not receive a partial filesystem implementation.
+This module owns world paths and filesystem adapters built on Okio. Kotlin/JS supports the Node runtime through its real
+filesystem; browser and Wasm targets use the stream modules and do not receive a partial filesystem implementation.
 
 ## Invariants
 
@@ -19,11 +19,14 @@ not receive a partial filesystem implementation.
   dimension saved data uses a synced direct write, and player JSON truncates and writes its final path directly.
 - System-filesystem world access holds `session.lock` until all owned region stores close. Injectable raw stores do not
   pretend a fake filesystem provides a cross-process lock.
+- Node durable writes use the host `fsync` primitive, and its `session.lock` uses the pinned native addon to request the
+  same non-blocking whole-file exclusive OS lock as the official JVM implementation.
 
 ## Tests
 
 Filesystem behavior expressible through Okio or its fake filesystem belongs in `commonTest`. Keep the shared
-official-server runner's Host-filesystem namespace restriction explicit in its KDoc. Other JVM-specific filesystem
-oracles belong in `jvmTest`.
+official-server runner's Host-filesystem namespace restriction explicit in its KDoc. Thin official interoperability
+entries live only in JVM, Node, and desktop Native source sets; other JVM-specific filesystem oracles belong in
+`jvmTest`.
 
-Run `:world-io:jvmTest` after changes.
+Run `:world-io:jvmTest` first, then `:world-io:jsNodeTest` for Node filesystem changes.

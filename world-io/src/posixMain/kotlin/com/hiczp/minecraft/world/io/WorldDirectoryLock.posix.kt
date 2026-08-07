@@ -7,7 +7,6 @@ import okio.Path.Companion.toPath
 import okio.use
 import platform.posix.*
 
-@OptIn(ExperimentalForeignApi::class)
 internal actual fun acquireWorldDirectoryLock(
     path: Path,
 ): WorldDirectoryLock {
@@ -67,7 +66,6 @@ internal actual fun acquireWorldDirectoryLock(
     }
 }
 
-@OptIn(ExperimentalForeignApi::class)
 internal actual fun isWorldDirectoryLocked(path: Path): Boolean {
     val parent = path.parent
         ?: throw WorldLockException("World lock has no parent: $path")
@@ -130,14 +128,11 @@ internal actual fun isWorldDirectoryLocked(path: Path): Boolean {
     }
 }
 
-@OptIn(ExperimentalForeignApi::class)
 private class PosixWorldDirectoryLock(
-    descriptor: Int,
+    private var descriptor: Int,
     private val path: Path,
     private val canonicalPath: String,
 ) : WorldDirectoryLock {
-    private var descriptor = descriptor
-
     override val isValid: Boolean
         get() = descriptor != CLOSED_DESCRIPTOR
 

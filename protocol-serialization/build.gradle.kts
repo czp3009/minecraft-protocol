@@ -57,6 +57,7 @@ kotlin {
         nodejs()
     }
 
+    applyDefaultHierarchyTemplate()
     useMinecraftTestFixtures(
         requiresOfficialServer = true,
         requiresCodecOracle = true,
@@ -80,25 +81,20 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
         }
 
-        jvmTest.dependencies {
-            implementation(project(":protocol-transport"))
-        }
-        named("androidHostTest") {
+        val networkTest = create("networkTest") {
+            dependsOn(commonTest.get())
             dependencies {
                 implementation(project(":protocol-transport"))
             }
         }
-        nativeTest.dependencies {
-            implementation(project(":protocol-transport"))
+        jvmTest {
+            dependsOn(networkTest)
         }
-        wasmJsTest.dependencies {
-            implementation(project(":protocol-transport"))
+        nativeTest {
+            dependsOn(networkTest)
         }
-    }
-}
-
-tasks.withType(AbstractTestTask::class.java).configureEach {
-    if (name == "jsNodeTest") {
-        filter.excludeTestsMatching("*OfficialServerInteropTest*")
+        wasmJsTest {
+            dependsOn(networkTest)
+        }
     }
 }

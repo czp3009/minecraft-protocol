@@ -9,11 +9,11 @@ import okio.Buffer
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
-import okio.SYSTEM
 
 /**
  * Exercises the exact official release and this library against one Host-owned
- * world directory. Only same-host JVM and desktop Native entries invoke it.
+ * world directory. Only same-host JVM, Node, and desktop Native entries invoke
+ * it.
  */
 internal object OfficialWorldStorageInteropRunner {
     suspend fun run(
@@ -61,7 +61,7 @@ internal object OfficialWorldStorageInteropRunner {
             requireCompleteOfficialFixture(final)
 
             MinecraftTestSupport.deleteWorkingDirectory(server)
-            check(!FileSystem.SYSTEM.exists(workingDirectory)) {
+            check(!systemFileSystem.exists(workingDirectory)) {
                 "Fixture Host working directory remained after deletion"
             }
         }
@@ -200,7 +200,7 @@ internal object OfficialWorldStorageInteropRunner {
         MinecraftWorldAccess.open(worldDirectory).close()
     }
 
-    private suspend fun exerciseStandalonePolicies(
+    private fun exerciseStandalonePolicies(
         worldDirectory: Path,
         audit: AuditResult,
     ) {
@@ -274,7 +274,7 @@ internal object OfficialWorldStorageInteropRunner {
         val directory = paths.regionDirectory()
         val regionPosition = firstRegionPosition(directory)
         val regionPath = paths.regionFile(regionPosition)
-        val originalChunk: com.hiczp.minecraft.world.format.RegionChunk
+        val originalChunk: RegionChunk
         val originalDocument: NbtDocument
         val absolutePosition: ChunkPosition
         val readingStore = WorldRegionStore(paths)
@@ -288,7 +288,7 @@ internal object OfficialWorldStorageInteropRunner {
             readingStore.close()
         }
 
-        val oldSize = checkNotNull(FileSystem.SYSTEM.metadata(regionPath).size)
+        val oldSize = checkNotNull(systemFileSystem.metadata(regionPath).size)
         val identityBefore = fileIdentity(regionPath)
         val oldLocation = checkNotNull(
             readRegionHeader(regionPath).location(absolutePosition.local),
@@ -322,7 +322,7 @@ internal object OfficialWorldStorageInteropRunner {
         ) {
             "Region update erased its old allocation"
         }
-        check(checkNotNull(FileSystem.SYSTEM.metadata(regionPath).size) >= oldSize) {
+        check(checkNotNull(systemFileSystem.metadata(regionPath).size) >= oldSize) {
             "Region update shrank the MCA file"
         }
         val identityAfter = fileIdentity(regionPath)
@@ -350,7 +350,7 @@ internal object OfficialWorldStorageInteropRunner {
         } finally {
             externalStore.close()
         }
-        check(FileSystem.SYSTEM.exists(paths.externalChunk(absolutePosition))) {
+        check(systemFileSystem.exists(paths.externalChunk(absolutePosition))) {
             "External chunk sidecar was not committed"
         }
 
@@ -379,7 +379,7 @@ internal object OfficialWorldStorageInteropRunner {
         } finally {
             terrain.close()
         }
-        check(!FileSystem.SYSTEM.exists(paths.externalChunk(terrainMutation.position))) {
+        check(!systemFileSystem.exists(paths.externalChunk(terrainMutation.position))) {
             "Internal rewrite retained the external chunk sidecar"
         }
 
@@ -397,7 +397,7 @@ internal object OfficialWorldStorageInteropRunner {
 
     private suspend fun auditWorld(worldDirectory: Path): AuditResult {
         val paths = MinecraftWorldPaths(worldDirectory)
-        val fileSystem = FileSystem.SYSTEM
+        val fileSystem = systemFileSystem
         val nbtFiles = NbtFileStore()
         val level = LevelDataStore(paths, nbtFiles).read()
         check(level.root.value["Data"] is NbtCompound) {
@@ -485,7 +485,7 @@ internal object OfficialWorldStorageInteropRunner {
         regionPositions(directory).first()
 
     private fun regionPositions(directory: Path): List<RegionPosition> =
-        FileSystem.SYSTEM.list(directory)
+        systemFileSystem.list(directory)
             .mapNotNull { path ->
                 REGION_FILE_NAME.matchEntire(path.name)?.let { match ->
                     RegionPosition(
@@ -496,7 +496,7 @@ internal object OfficialWorldStorageInteropRunner {
             }
 
     private fun regularFiles(directory: Path, suffix: String): List<Path> {
-        val fileSystem = FileSystem.SYSTEM
+        val fileSystem = systemFileSystem
         if (fileSystem.metadataOrNull(directory)?.isDirectory != true) {
             return emptyList()
         }
@@ -507,7 +507,7 @@ internal object OfficialWorldStorageInteropRunner {
     }
 
     private fun savedDataIdentifiers(directory: Path): List<String> {
-        val fileSystem = FileSystem.SYSTEM
+        val fileSystem = systemFileSystem
         if (fileSystem.metadataOrNull(directory)?.isDirectory != true) {
             return emptyList()
         }
@@ -546,7 +546,7 @@ internal object OfficialWorldStorageInteropRunner {
         offset: Long,
         byteCount: Int,
     ): ByteArray {
-        val handle = FileSystem.SYSTEM.openReadOnly(path)
+        val handle = systemFileSystem.openReadOnly(path)
         var failure: Throwable? = null
         try {
             val result = ByteArray(byteCount)

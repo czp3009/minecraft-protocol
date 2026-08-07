@@ -6,7 +6,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okio.FileSystem
 import okio.Path
-import okio.SYSTEM
 
 data class WorldRegionStoreConfiguration(
     val maximumCompressedChunkBytes: Int = 256 * 1_048_576,
@@ -36,7 +35,7 @@ data class WorldRegionStoreConfiguration(
  */
 class WorldRegionStore(
     val directory: Path,
-    val fileSystem: FileSystem = FileSystem.SYSTEM,
+    val fileSystem: FileSystem = systemFileSystem,
     val chunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
     val configuration: WorldRegionStoreConfiguration =
         WorldRegionStoreConfiguration(),
@@ -45,7 +44,7 @@ class WorldRegionStore(
         paths: MinecraftWorldPaths,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-        fileSystem: FileSystem = FileSystem.SYSTEM,
+        fileSystem: FileSystem = systemFileSystem,
         chunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
         configuration: WorldRegionStoreConfiguration =
             WorldRegionStoreConfiguration(),

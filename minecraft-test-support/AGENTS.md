@@ -26,9 +26,9 @@ KMP kotlinx.rpc service, test-process Ktor client, serializable server/client va
 Fixture runners normally belong in each consumer's `commonTest`, and their annotated entries normally do as well.
 Unsupported devices and runtimes do not receive fake reachability. Ordinary protocol tests stay filesystem-free. The
 `world-io` official runner closes the remote process, obtains its Host working directory through the documented
-backdoor, and opens that directory only when invoked by JVM, Android host, or desktop Native test entries. Device,
-simulator, and browser source sets do not contain that entry. The scenario creates the remote process it needs and
-closes its serializable resource value with structured cleanup. Reuse one resource across compatible ordered phases, but
-do not move startup into lifecycle hooks merely to exclude it from the test timeout.
+backdoor, and opens that directory only when invoked by JVM, Node, or desktop Native test entries. Android host, device,
+simulator, browser, and Wasm/WASI source sets do not contain that entry. The scenario creates the remote process it
+needs and closes its serializable resource value with structured cleanup. Reuse one resource across compatible ordered
+phases, but do not move startup into lifecycle hooks merely to exclude it from the test timeout.
 
 Run `:minecraft-test-support:jvmTest` after contract or client changes.

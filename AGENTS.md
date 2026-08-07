@@ -77,6 +77,10 @@ onto the consumer classpath.
 - Use maintained multiplatform APIs before adding `expect`/`actual`. An unavoidable platform boundary exposes the
   smallest reusable primitive, shares identical implementations through standard source sets, and handles optional
   capabilities at the narrowest call site.
+- In Gradle `sourceSets` blocks, use generated accessors such as `commonMain`, `jsMain`, and `jvmTest` for default
+  source sets. Create a custom source set once with `create(name)` only when a shared capability cannot be expressed by
+  the default hierarchy; do not retrieve default source sets through string-based `getByName` or `named` calls. Keep all
+  production source-set declarations and dependencies above test source-set configuration.
 - Kotlin and Java code that starts a JVM always executes the literal `java` command from `PATH`. Do not inspect
   `java.home`, `JAVA_HOME`, a Gradle Java launcher, or a JDK installation directory to locate the executable. A
   developer machine is required to provide `java` on `PATH`.
@@ -153,7 +157,9 @@ Use source sets according to capability:
 - Do not create a custom test source set when standard KMP source sets express the capability. Isolate Host-filesystem
   entry points through those source sets instead of declaring a duplicate Fixture capability in Gradle. Unsupported
   network scenarios are excluded at the standard test-task boundary; never add fake passing implementations or runtime
-  guesses.
+  guesses. When several standard platform source sets share one identical implementation but no default hierarchy node
+  represents exactly that subset, one capability-named intermediate source set is preferable to duplicated platform
+  sources or unsupported placeholders.
 
 Run portable Web code under Gradle-provisioned Node or D8. Browser execution is not a repository gate. In-memory
 protocol state, NBT, compression, Anvil byte-array/stream loading, and chunk composition remain portable. `world-io` and
@@ -170,10 +176,10 @@ the generated kotlinx.rpc service over Ktor WebSocket with JSON payloads. Proces
 cleanup remain inside the Fixture Host. Ordinary tests never receive a process object or Host path. The `world-io`
 official interoperability scenario is the explicit exception: after synchronously closing the official process, it uses
 the documented `hostWorkingDirectory` backdoor to open the Host-owned world in place. This requires the test process and
-Fixture Host to share a filesystem namespace. Its annotated entries exist only in JVM and desktop Native test source
-sets. Android host tests inherit portable `commonTest` coverage without repeating this JVM-hosted official scenario;
-device, simulator, browser, and Wasm/WASI source sets do not invoke it. Codec verification returns normally or throws
-with failure details.
+Fixture Host to share a filesystem namespace. Its annotated entries exist only in JVM, Node, and desktop Native test
+source sets. Android host tests inherit portable `commonTest` coverage without repeating this JVM-hosted official
+scenario; device, simulator, browser, and Wasm/WASI source sets do not invoke it. Codec verification returns normally or
+throws with failure details.
 
 Within one subproject's single platform test task, compatible cases reuse one official process instead of creating a
 process per assertion or test method. Express ordered stateful coverage as phases of one shared runner and one thin

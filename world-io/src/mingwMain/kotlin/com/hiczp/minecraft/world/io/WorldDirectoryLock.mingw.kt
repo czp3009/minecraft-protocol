@@ -5,7 +5,6 @@ import okio.FileSystem
 import okio.Path
 import platform.posix.*
 
-@OptIn(ExperimentalForeignApi::class)
 internal actual fun acquireWorldDirectoryLock(
     path: Path,
 ): WorldDirectoryLock {
@@ -42,7 +41,6 @@ internal actual fun acquireWorldDirectoryLock(
     }
 }
 
-@OptIn(ExperimentalForeignApi::class)
 internal actual fun isWorldDirectoryLocked(path: Path): Boolean {
     val descriptor = openWindowsWorldLock(path, create = false)
     if (descriptor == -1) {
@@ -95,13 +93,10 @@ internal actual fun isWorldDirectoryLocked(path: Path): Boolean {
     }
 }
 
-@OptIn(ExperimentalForeignApi::class)
 private class MingwWorldDirectoryLock(
-    descriptor: Int,
+    private var descriptor: Int,
     private val path: Path,
 ) : WorldDirectoryLock {
-    private var descriptor = descriptor
-
     override val isValid: Boolean
         get() = descriptor != CLOSED_DESCRIPTOR
 
@@ -144,7 +139,6 @@ private fun openWindowsWorldLock(path: Path, create: Boolean): Int =
         )
     }
 
-@OptIn(ExperimentalForeignApi::class)
 private fun setWindowsLock(descriptor: Int, mode: Int): Int {
     if (_lseek(descriptor, 0, SEEK_SET) == -1) return errno
     return if (_locking(descriptor, mode, WINDOWS_LOCK_LENGTH) == 0) {

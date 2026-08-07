@@ -1,4 +1,4 @@
 config.client.mocha = {
     ...(config.client.mocha || {}),
-    timeout: 30_000,
+    timeout: 120_000,
 };

@@ -983,7 +983,7 @@ private class SecondPrimarySourceThrowingFileSystem(
 ) : ForwardingFileSystem(delegate) {
     private var primarySourceCalls = 0
 
-    override fun source(file: Path): okio.Source {
+    override fun source(file: Path): Source {
         if (file == primary) {
             primarySourceCalls++
             if (primarySourceCalls == 2) {
@@ -998,7 +998,7 @@ private class CancellationSourceFileSystem(
     delegate: FileSystem,
     private val primary: Path,
 ) : ForwardingFileSystem(delegate) {
-    override fun source(file: Path): okio.Source {
+    override fun source(file: Path): Source {
         if (file == primary) throw CancellationException("cancelled")
         return super.source(file)
     }
@@ -1009,7 +1009,7 @@ private class SourceThrowingFileSystem(
     private val target: Path,
     private val failure: Throwable,
 ) : ForwardingFileSystem(delegate) {
-    override fun source(file: Path): okio.Source {
+    override fun source(file: Path): Source {
         if (file == target) throw failure
         return super.source(file)
     }

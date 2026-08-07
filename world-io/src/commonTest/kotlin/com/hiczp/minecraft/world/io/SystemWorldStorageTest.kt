@@ -8,14 +8,13 @@ import kotlinx.coroutines.test.runTest
 import okio.FileSystem
 import okio.IOException
 import okio.Path
-import okio.SYSTEM
 import kotlin.random.Random
 import kotlin.test.*
 
 class SystemWorldStorageTest {
     @Test
     fun systemFilesystemMoveReplacingOverwritesItsTarget() {
-        val fileSystem = FileSystem.SYSTEM
+        val fileSystem = systemFileSystem
         val root = createSystemTemporaryDirectory(fileSystem)
         val source = root / "source.tmp"
         val target = root / "target.mcc"
@@ -37,9 +36,14 @@ class SystemWorldStorageTest {
 
     @Test
     fun systemFilesystemSupportsLockingAndPositionalRegionMutation() = runTest {
-        val fileSystem = FileSystem.SYSTEM
+        val fileSystem = systemFileSystem
         val root = createSystemTemporaryDirectory(fileSystem)
+        val lockPath = root / "session.lock"
+        val originalLockBytes = "old-lock-tail".encodeToByteArray()
         try {
+            fileSystem.write(lockPath) {
+                write(originalLockBytes)
+            }
             val access = MinecraftWorldAccess.open(root)
             try {
                 assertTrue(MinecraftWorldAccess.isLocked(root))
@@ -48,6 +52,23 @@ class SystemWorldStorageTest {
                 access.close()
             }
             assertFalse(MinecraftWorldAccess.isLocked(root))
+            val storedLockBytes = fileSystem.read(lockPath) {
+                readByteArray()
+            }
+            assertContentEquals(
+                SYSTEM_WORLD_LOCK_MARKER,
+                storedLockBytes.copyOf(SYSTEM_WORLD_LOCK_MARKER.size),
+            )
+            assertContentEquals(
+                originalLockBytes.copyOfRange(
+                    SYSTEM_WORLD_LOCK_MARKER.size,
+                    originalLockBytes.size,
+                ),
+                storedLockBytes.copyOfRange(
+                    SYSTEM_WORLD_LOCK_MARKER.size,
+                    storedLockBytes.size,
+                ),
+            )
 
             val directory = root / "region"
             val position = ChunkPosition(0, 0)
@@ -72,9 +93,10 @@ class SystemWorldStorageTest {
 
             val regionPath = directory / "r.0.0.mca"
             assertTrue(fileSystem.exists(regionPath))
-            assertTrue(
+            assertEquals(
+                0L,
                 checkNotNull(fileSystem.metadata(regionPath).size) %
-                        REGION_SECTOR_BYTES == 0L,
+                        REGION_SECTOR_BYTES,
             )
         } finally {
             fileSystem.deleteRecursively(root, mustExist = false)
@@ -83,7 +105,7 @@ class SystemWorldStorageTest {
 
     @Test
     fun systemFilesystemReplacesExistingExternalChunkSidecar() = runTest {
-        val fileSystem = FileSystem.SYSTEM
+        val fileSystem = systemFileSystem
         val root = createSystemTemporaryDirectory(fileSystem)
         val directory = root / "region"
         val sidecar = directory / "c.0.0.mcc"
@@ -132,7 +154,7 @@ class SystemWorldStorageTest {
 
     @Test
     fun worldLeaseComposesEveryOwnedStoreAndSurvivesReopen() = runTest {
-        val fileSystem = FileSystem.SYSTEM
+        val fileSystem = systemFileSystem
         val parent = createSystemTemporaryDirectory(fileSystem)
         val root = parent / "world"
         val player = "00000000-0000-0000-0000-000000000000"
@@ -194,7 +216,7 @@ class SystemWorldStorageTest {
 
     @Test
     fun systemPlayerFallbackPreservesCorruptedPrimary() = runTest {
-        val fileSystem = FileSystem.SYSTEM
+        val fileSystem = systemFileSystem
         val parent = createSystemTemporaryDirectory(fileSystem)
         val root = parent /
                 "00000000-0000-0000-0000-000000000000" /
@@ -271,3 +293,4 @@ private fun FileSystem.writeSystemBytes(path: Path, bytes: ByteArray) {
 }
 
 private const val SYSTEM_TEMPORARY_DIRECTORY_ATTEMPTS = 256
+private val SYSTEM_WORLD_LOCK_MARKER = "☃".encodeToByteArray()

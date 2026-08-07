@@ -41,6 +41,10 @@ kotlin {
         }
     }
 
+    js {
+        nodejs()
+    }
+
     applyDefaultHierarchyTemplate()
     useMinecraftTestFixtures(
         requiresOfficialServer = true,
@@ -48,18 +52,24 @@ kotlin {
     )
 
     sourceSets {
-        val commonMain = getByName("commonMain")
         val javaNioMain = create("javaNioMain") {
-            dependsOn(commonMain)
+            dependsOn(commonMain.get())
         }
-        getByName("jvmMain").dependsOn(javaNioMain)
-        getByName("androidMain").dependsOn(javaNioMain)
-        val nativeMain = getByName("nativeMain")
+        jvmMain {
+            dependsOn(javaNioMain)
+        }
+        androidMain {
+            dependsOn(javaNioMain)
+        }
         val posixMain = create("posixMain") {
-            dependsOn(nativeMain)
+            dependsOn(nativeMain.get())
         }
-        getByName("appleMain").dependsOn(posixMain)
-        getByName("linuxMain").dependsOn(posixMain)
+        appleMain {
+            dependsOn(posixMain)
+        }
+        linuxMain {
+            dependsOn(posixMain)
+        }
 
         commonMain.dependencies {
             api(project(":nbt"))
@@ -68,6 +78,10 @@ kotlin {
             api(libs.okio)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.io.core)
+        }
+        jsMain.dependencies {
+            implementation(libs.okio.nodefilesystem)
+            implementation(npm("fs-native-extensions", "1.5.0"))
         }
 
         commonTest.dependencies {

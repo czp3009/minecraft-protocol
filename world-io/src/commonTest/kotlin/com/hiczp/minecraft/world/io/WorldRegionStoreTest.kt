@@ -50,12 +50,12 @@ class WorldRegionStoreTest {
         store.writeChunk(position, chunk(externalBytes))
         val sidecar = directory / "c.-1.-1.mcc"
         assertContentEquals(externalBytes, fileSystem.readBytes(sidecar))
-        assertTrue(store.readChunk(position)?.payload?.isExternal == true)
+        assertTrue(checkNotNull(store.readChunk(position)).payload.isExternal)
         assertTrue(store.doesChunkExist(position))
 
         store.writeChunk(position, chunk(byteArrayOf(9, 8, 7)))
         assertFalse(fileSystem.exists(sidecar))
-        assertFalse(store.readChunk(position)?.payload?.isExternal == true)
+        assertFalse(checkNotNull(store.readChunk(position)).payload.isExternal)
 
         store.clearChunk(position)
         assertNull(store.readChunk(position))
@@ -72,17 +72,17 @@ class WorldRegionStoreTest {
         val path = directory / "r.0.0.mca"
         val header = RegionHeader().apply {
             set(
-                com.hiczp.minecraft.world.format.LocalChunkPosition(0, 0),
+                LocalChunkPosition(0, 0),
                 RegionLocation(1, 1),
                 1,
             )
             set(
-                com.hiczp.minecraft.world.format.LocalChunkPosition(1, 0),
+                LocalChunkPosition(1, 0),
                 RegionLocation(2, 1),
                 2,
             )
             set(
-                com.hiczp.minecraft.world.format.LocalChunkPosition(2, 0),
+                LocalChunkPosition(2, 0),
                 RegionLocation(2, 1),
                 3,
             )
@@ -529,10 +529,10 @@ class WorldRegionStoreTest {
             ),
         )
 
-        assertFailsWith<com.hiczp.minecraft.world.format.RegionFormatException> {
+        assertFailsWith<RegionFormatException> {
             store.writeChunk(position, chunk(byteArrayOf(1, 2)))
         }
-        assertFailsWith<com.hiczp.minecraft.world.format.RegionFormatException> {
+        assertFailsWith<RegionFormatException> {
             store.writeChunk(
                 position,
                 RegionChunk(
@@ -541,7 +541,7 @@ class WorldRegionStoreTest {
                 ),
             )
         }
-        assertFailsWith<com.hiczp.minecraft.world.format.RegionFormatException> {
+        assertFailsWith<RegionFormatException> {
             store.writeChunk(
                 position,
                 RegionChunk(
@@ -796,7 +796,7 @@ private class SidecarSinkFailingFileSystem(
         val sink = super.sink(file, mustCreate)
         if (!file.name.startsWith(".mcc-")) return sink
         return object : Sink by sink {
-            override fun write(source: okio.Buffer, byteCount: Long) {
+            override fun write(source: Buffer, byteCount: Long) {
                 if (failurePoint == SidecarSinkFailure.WRITE) {
                     val partial = minOf(byteCount, 1)
                     if (partial > 0) sink.write(source, partial)

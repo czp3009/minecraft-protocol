@@ -49,7 +49,7 @@ class FileIOTest {
             fileSystem.readFileWithinLimit(path, 3),
         )
         assertFailsWith<WorldIOException> {
-            fileSystem.readFile(path, 3) { _, _ -> Unit }
+            fileSystem.readFile(path, 3) { _, _ -> }
         }
         fileSystem.checkNoOpenFiles()
     }
@@ -70,8 +70,8 @@ class FileIOTest {
             fileSystem.readFile(path, 1) { _, _ -> throw original }
         }
 
-        assertTrue(thrown === original)
-        assertTrue(thrown.suppressedExceptions.single() === closeFailure)
+        assertSame(original, thrown)
+        assertSame(closeFailure, thrown.suppressedExceptions.single())
 
         val closeOnly = assertFailsWith<IllegalArgumentException> {
             fileSystem.readFile(path, 1) { source, _ ->
@@ -176,20 +176,20 @@ class FileIOTest {
         assertEquals(3, handleFileSystem.attempts)
         handle.handle.close()
 
-        val sinkFailure = okio.IOException("synthetic sink open failure")
+        val sinkFailure = IOException("synthetic sink open failure")
         val failingSink = TemporarySinkFileSystem(
             base,
             failureWithoutFile = sinkFailure,
         )
         assertSame(
             sinkFailure,
-            assertFailsWith<okio.IOException> {
+            assertFailsWith<IOException> {
                 failingSink.openUniqueTemporarySink("/failed-sink".toPath())
             },
         )
         assertEquals(1, failingSink.attempts)
 
-        val handleFailure = okio.IOException(
+        val handleFailure = IOException(
             "synthetic handle open failure",
         )
         val failingHandle = TemporaryHandleFileSystem(
@@ -198,7 +198,7 @@ class FileIOTest {
         )
         assertSame(
             handleFailure,
-            assertFailsWith<okio.IOException> {
+            assertFailsWith<IOException> {
                 failingHandle.openUniqueTemporaryHandle(
                     "/failed-handle".toPath(),
                 )
@@ -255,7 +255,7 @@ class FileIOTest {
         val deleteFailure = IllegalArgumentException("delete")
         DeleteFailingFileSystem(fileSystem, target, deleteFailure)
             .deleteIfExistsPreserving(target, original)
-        assertTrue(original.suppressedExceptions.single() === deleteFailure)
+        assertSame(deleteFailure, original.suppressedExceptions.single())
         assertTrue(fileSystem.exists(target))
     }
 
@@ -298,7 +298,7 @@ class FileIOTest {
         val retrying = TargetMoveFailingFileSystem(
             retryBase,
             retryTarget,
-            okio.IOException("synthetic retryable failure"),
+            IOException("synthetic retryable failure"),
             failures = 2,
         )
 
@@ -318,7 +318,7 @@ class FileIOTest {
         val exhaustedBackup = "/exhausted/value.dat_old".toPath()
         exhaustedBase.writeRaw(exhaustedTemporary, byteArrayOf(2))
         exhaustedBase.writeRaw(exhaustedTarget, byteArrayOf(1))
-        val ioFailure = okio.IOException("synthetic permanent failure")
+        val ioFailure = IOException("synthetic permanent failure")
         val exhausted = TargetMoveFailingFileSystem(
             exhaustedBase,
             exhaustedTarget,
@@ -502,7 +502,7 @@ private class DeleteFailingFileSystem(
 private class TemporarySinkFileSystem(
     delegate: FileSystem,
     private var collisions: Int = 0,
-    private val failureWithoutFile: okio.IOException? = null,
+    private val failureWithoutFile: IOException? = null,
 ) : ForwardingFileSystem(delegate) {
     var attempts = 0
 
@@ -515,7 +515,7 @@ private class TemporarySinkFileSystem(
         if (collisions > 0) {
             collisions--
             super.sink(file, mustCreate).close()
-            throw okio.IOException("synthetic temporary sink collision")
+            throw IOException("synthetic temporary sink collision")
         }
         return super.sink(file, mustCreate)
     }
@@ -524,7 +524,7 @@ private class TemporarySinkFileSystem(
 private class TemporaryHandleFileSystem(
     delegate: FileSystem,
     private var collisions: Int = 0,
-    private val failureWithoutFile: okio.IOException? = null,
+    private val failureWithoutFile: IOException? = null,
 ) : ForwardingFileSystem(delegate) {
     var attempts = 0
 
@@ -541,7 +541,7 @@ private class TemporaryHandleFileSystem(
         if (collisions > 0) {
             collisions--
             super.openReadWrite(file, mustCreate, mustExist).close()
-            throw okio.IOException("synthetic temporary handle collision")
+            throw IOException("synthetic temporary handle collision")
         }
         return super.openReadWrite(file, mustCreate, mustExist)
     }
@@ -601,13 +601,13 @@ private class ReplacementAndTransientRollbackFileSystem(
     override fun atomicMove(source: Path, target: Path) {
         if (source == temporary && target == this.target) {
             replacementAttempts++
-            throw okio.IOException("synthetic replacement failure")
+            throw IOException("synthetic replacement failure")
         }
         if (source == backup && target == this.target) {
             rollbackAttempts++
             if (rollbackFailures > 0) {
                 rollbackFailures--
-                throw okio.IOException("synthetic rollback failure")
+                throw IOException("synthetic rollback failure")
             }
         }
         super.atomicMove(source, target)

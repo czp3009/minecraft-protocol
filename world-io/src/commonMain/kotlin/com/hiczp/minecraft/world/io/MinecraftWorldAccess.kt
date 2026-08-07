@@ -7,9 +7,7 @@ import com.hiczp.minecraft.world.format.RegionFile
 import com.hiczp.minecraft.world.format.RegionPosition
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import okio.FileSystem
 import okio.Path
-import okio.SYSTEM
 
 /** A system-filesystem world lease backed by the vanilla `session.lock`. */
 class MinecraftWorldAccess private constructor(
@@ -17,10 +15,10 @@ class MinecraftWorldAccess private constructor(
     private val directoryLock: WorldDirectoryLock,
 ) {
     private val mutex = Mutex()
-    private val nbtFiles = NbtFileStore(FileSystem.SYSTEM)
+    private val nbtFiles = NbtFileStore(systemFileSystem)
     private val levelData = LevelDataStore(paths, nbtFiles)
     private val playerData = PlayerDataStore(paths, nbtFiles)
-    private val jsonFiles = Utf8JsonFileStore(FileSystem.SYSTEM)
+    private val jsonFiles = Utf8JsonFileStore(systemFileSystem)
     private val regionStores =
         linkedMapOf<RegionStoreKey, WorldRegionStore>()
     private var closed = false
@@ -216,7 +214,7 @@ class MinecraftWorldAccess private constructor(
 
     companion object {
         fun open(root: Path): MinecraftWorldAccess {
-            FileSystem.SYSTEM.createDirectories(root)
+            systemFileSystem.createDirectories(root)
             val paths = MinecraftWorldPaths(root)
             val lock = acquireWorldDirectoryLock(paths.sessionLock)
             return MinecraftWorldAccess(paths, lock)

@@ -193,7 +193,7 @@ class SavedDataFileStore(
 }
 
 class Utf8JsonFileStore(
-    val fileSystem: FileSystem = FileSystem.SYSTEM,
+    val fileSystem: FileSystem = systemFileSystem,
     val maximumBytes: Int = 16 * 1_048_576,
 ) {
     init {

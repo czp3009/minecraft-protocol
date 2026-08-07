@@ -7,7 +7,10 @@ import com.hiczp.minecraft.world.format.RegionCompression
 import com.hiczp.minecraft.world.format.RegionCompressionCodecs
 import kotlinx.io.RawSink
 import kotlinx.io.buffered
-import okio.*
+import okio.FileHandle
+import okio.FileSystem
+import okio.Path
+import okio.use
 
 enum class NbtFileCompression(
     internal val regionCompression: RegionCompression,
@@ -29,7 +32,7 @@ data class NbtFileStoreConfiguration(
 
 /** Physical unnamed-root NBT streams over Okio files. */
 class NbtFileStore(
-    val fileSystem: FileSystem = FileSystem.SYSTEM,
+    val fileSystem: FileSystem = systemFileSystem,
     val nbt: NbtFormat = NbtFormat,
     val compressionCodecs: RegionCompressionCodecs =
         RegionCompressionCodecs,
