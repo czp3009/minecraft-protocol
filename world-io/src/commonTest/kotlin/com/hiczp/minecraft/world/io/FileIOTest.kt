@@ -82,6 +82,40 @@ class FileIOTest {
     }
 
     @Test
+    fun closeAggregationPreservesOriginalFailure() {
+        val original = IllegalStateException("write")
+        val closeFailure = IllegalArgumentException("close")
+
+        val thrown = assertFailsWith<IllegalStateException> {
+            try {
+                throw original
+            } finally {
+                closeAllPreserving(original, { throw closeFailure })
+            }
+        }
+
+        assertSame(original, thrown)
+        assertSame(closeFailure, thrown.suppressedExceptions.single())
+    }
+
+    @Test
+    fun closeAggregationUsesFirstCloseFailureAsPrimary() {
+        val first = IllegalStateException("first")
+        val second = IllegalArgumentException("second")
+
+        val thrown = assertFailsWith<IllegalStateException> {
+            closeAllPreserving(
+                failure = null,
+                { throw first },
+                { throw second },
+            )
+        }
+
+        assertSame(first, thrown)
+        assertSame(second, thrown.suppressedExceptions.single())
+    }
+
+    @Test
     fun boundedReadsRejectUnknownSizeGrowthAndShrinkage() {
         val base = FakeFileSystem()
         val path = "/world/value.dat".toPath()

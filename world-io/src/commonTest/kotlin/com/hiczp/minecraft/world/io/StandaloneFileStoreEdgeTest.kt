@@ -10,6 +10,7 @@ import okio.*
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.*
+import kotlinx.io.IOException as KotlinxIOException
 
 class StandaloneFileStoreEdgeTest {
     @Test
@@ -110,9 +111,18 @@ class StandaloneFileStoreEdgeTest {
                 failurePoint,
             )
 
-            assertFailsWith<IOException> {
+            val failure = assertFails {
                 LevelDataStore(paths, NbtFileStore(failing))
                     .write(edgeDocument(2))
+            }
+            when (failurePoint) {
+                TemporaryNbtFailure.RESIZE,
+                TemporaryNbtFailure.CLOSE,
+                    -> assertIs<IOException>(failure)
+
+                TemporaryNbtFailure.WRITE,
+                TemporaryNbtFailure.FLUSH,
+                    -> assertIs<KotlinxIOException>(failure)
             }
 
             assertEquals(first, NbtFileStore(base).read(paths.levelData))

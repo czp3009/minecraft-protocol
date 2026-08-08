@@ -7,6 +7,7 @@ import com.hiczp.minecraft.world.format.RegionCompression
 import com.hiczp.minecraft.world.format.RegionCompressionCodecs
 import kotlinx.io.RawSink
 import kotlinx.io.buffered
+import kotlinx.io.okio.asKotlinxIoRawSink
 import okio.FileHandle
 import okio.FileSystem
 import okio.Path
@@ -105,7 +106,7 @@ class NbtFileStore(
         compression: NbtFileCompression,
     ) {
         val limitedFileSink = LimitedRawSink(
-            KotlinxToOkioRawSink(handle.sink()),
+            handle.sink().asKotlinxIoRawSink(),
             configuration.maximumCompressedBytes,
             closeDelegate = true,
         )

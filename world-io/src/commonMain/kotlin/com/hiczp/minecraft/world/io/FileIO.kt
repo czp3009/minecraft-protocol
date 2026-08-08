@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.world.io
 
 import kotlinx.io.*
+import kotlinx.io.okio.asKotlinxIoRawSource
 import okio.FileHandle
 import okio.FileSystem
 import okio.IOException
@@ -43,7 +44,7 @@ internal fun <T> FileSystem.readFile(
     }
 
     val limitedSource = LimitedRawSource(
-        OkioToKotlinxRawSource(source(path)),
+        source(path).asKotlinxIoRawSource(),
         maximumBytes,
     ).buffered()
     return limitedSource.use { source ->

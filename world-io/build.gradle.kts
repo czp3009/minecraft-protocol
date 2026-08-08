@@ -78,6 +78,7 @@ kotlin {
             api(libs.okio)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.io.core)
+            implementation(libs.kotlinx.io.okio)
         }
         jsMain.dependencies {
             implementation(libs.okio.nodefilesystem)

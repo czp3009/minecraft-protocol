@@ -28,8 +28,9 @@ system-filesystem lease backed by the official `session.lock` protocol.
 
 The default filesystem is Okio `FileSystem.SYSTEM` on JVM, Android, and Native, and `NodeJsFileSystem` on Kotlin/JS
 Node. Raw stores may receive another Okio `FileSystem`, including the fake filesystem in tests. Okio is part of this
-module's public dependency contract, while `kotlinx-io-core` remains an implementation detail used to bridge the
-existing NBT and Anvil stream formats.
+module's public dependency contract, while `kotlinx-io-core` and the maintained `kotlinx-io-okio` adapters remain
+implementation details used by the existing NBT and Anvil stream formats. The adapters also preserve the active stream
+API's I/O exception hierarchy across that boundary.
 
 The JS target is Node-only and uses synchronous host filesystem calls. Durable system-file writes issue `fsync`, while
 `MinecraftWorldAccess` uses `fs-native-extensions` 1.5.0 for the official non-blocking exclusive `session.lock`
