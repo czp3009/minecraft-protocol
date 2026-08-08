@@ -190,9 +190,11 @@ Fixture callers do not select a workspace policy. An exact default server config
 template; any non-default server property or lifecycle option starts from the prepared runtime without the template
 world. A headless client's required offline player name does not make it non-default: default optional lifecycle values
 clone the stopped client template, while any non-default optional value starts from the assembled client runtime. Every
-clone is private, templates are never launched in place, and immutable runtime files may use hard links with copy
-fallback. The client template's sole mod and processed-mod cache are immutable inputs too, so workspace creation hard
-links them with the same fallback while copying generated options and every other mutable template file normally.
+workspace owns its root and mutable state, and templates are never launched in place. The complete read-only client
+Minecraft runtime and official-server library directory use one directory symbolic link when supported, falling back to
+private directory trees with per-file hard links or copies. Other immutable runtime files, the HeadlessMC launcher, the
+client template's sole mod, and its processed-mod cache use hard links with copy fallback. Generated options and every
+other mutable template file use real copies. Cleanup unlinks directory symbolic links without traversing their targets.
 
 The Build Service starts `minecraft-test-fixture-host` lazily. Test code loads only `minecraft-test-support` and calls
 the generated kotlinx.rpc service over Ktor WebSocket with JSON payloads. Processes, official fixture paths, logs, and

@@ -24,9 +24,12 @@ and final cleanup.
   configuration clones the stopped server template; any non-default server option starts from the extracted immutable
   runtime without template state. A headless client's required player name is independent of template selection:
   default optional lifecycle values clone the stopped client template, while non-default optional values use the
-  assembled runtime and a fresh game directory. Immutable runtime files, the HeadlessMC launcher, the sole client mod,
-  and Fabric's processed-mod cache use hard links with copy fallback. Generated options and all other mutable template
-  files always use real copies; directory entries are always private because directories cannot be hard linked.
+  assembled runtime and a fresh game directory. The complete read-only client Minecraft runtime and official-server
+  library directory use one directory symbolic link when supported. If symbolic links are unavailable, they use private
+  directory trees with per-file hard links or copies. Other immutable runtime files, the HeadlessMC launcher, the sole
+  client mod, and Fabric's processed-mod cache use hard links with copy fallback. Generated options and all other
+  mutable template files always use real copies. Deletion unlinks directory symbolic links without traversing their
+  targets.
 - Server templates retain the generated world, stable empty access-control files, EULA, and empty directory skeleton;
   extracted server libraries and versions are immutable runtime. Client templates retain generated options, the sole
   HMC-Specifics mod, Fabric's processed-mod cache, and every reusable empty directory. Sanitization removes file content

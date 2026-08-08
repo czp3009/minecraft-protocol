@@ -16,13 +16,17 @@ cacheable generation from non-source inputs, immutable fixture templates, and th
   `build/`.
 - `generateOfficialMinecraftServerTemplate` starts the assembled server, requires a complete Status response and pong,
   stops it normally, separates its extracted immutable runtime, and publishes all reusable files and empty directories.
-  It excludes only the fixed per-process log content and dynamic `server.properties` recorded by its manifest.
+  It excludes only the fixed per-process log content and dynamic `server.properties` recorded by its manifest. Later
+  workspaces expose the read-only server library directory through one directory symbolic link when supported, with a
+  private per-file hard-link-or-copy tree as fallback.
 - `generateHeadlessClientTemplate` starts the assembled HeadlessMC/Fabric/HMC-Specifics client, observes HMC-Specifics
   initialization and `TitleScreen`, quits normally, and publishes the complete reusable game directory. The Fabric
   processed-mod cache, sole HMC-Specifics mod, generated options, and empty directory skeleton are retained; only
-  crash/log contents and the resource-pack download event log are excluded by fixed manifest rules. The mod and
-  processed-mod cache are fixed immutable subtrees: template publication and later workspaces use hard links with copy
-  fallback for their files, while generated options and other mutable state use real copies.
+  crash/log contents and the resource-pack download event log are excluded by fixed manifest rules. Later workspaces
+  expose the complete read-only client Minecraft runtime through one directory symbolic link when supported, with a
+  private per-file hard-link-or-copy tree as fallback. The mod and processed-mod cache are fixed immutable subtrees:
+  template publication and later workspaces use hard links with copy fallback for their files, while generated options
+  and other mutable state use real copies.
 - Root official-analysis tasks own separate target, report, and Configuration output directories and publish precise
   consumable artifacts. Lifecycle tasks aggregate producers but declare no duplicate output.
 - Cacheable source-generation task types live here, while the runtime module owning the generated source registers the

@@ -95,6 +95,42 @@ class TestFilesTest {
     }
 
     @Test
+    fun immutableDirectoriesUseSymbolicLinksWithSafeTreeFallback() {
+        val root = Path(
+            Files.createTempDirectory("fixture-directory-link-").toString(),
+        )
+        try {
+            val source = Path(root, "source")
+            val destination = Path(root, "destination")
+            val sourceFile = Path(source, "nested", "fixture.jar")
+            sourceFile.writeText("immutable")
+
+            val usedSymbolicLink = source.linkDirectoryTo(destination)
+
+            assertEquals(
+                usedSymbolicLink,
+                Files.isSymbolicLink(destination.toNioPath()),
+            )
+            assertEquals(
+                "immutable",
+                Path(destination, "nested", "fixture.jar").readText(),
+            )
+
+            destination.deleteTree()
+
+            assertFalse(
+                Files.exists(
+                    destination.toNioPath(),
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS,
+                ),
+            )
+            assertEquals("immutable", sourceFile.readText())
+        } finally {
+            root.deleteTree()
+        }
+    }
+
+    @Test
     fun resourceCloseIsIdempotentAndCleanupIsAsynchronous() = runTest {
         val directory = HostedMinecraftTestSupport.newScratchDirectory()
         val cleanupStarted = CompletableDeferred<Unit>()

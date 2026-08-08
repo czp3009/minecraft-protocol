@@ -17,8 +17,10 @@ assembled runtime without seeded mutable state. The required offline client name
 Templates preserve generated configuration, Fabric's processed-mod cache, the sole HMC-Specifics mod, server world and
 access-control state, and all reusable empty directories. Only the fixed per-process files listed in each manifest are
 removed. Runtime inputs and templates are never launched in place. Immutable runtime trees, the HeadlessMC launcher,
-HMC-Specifics, and the processed-mod cache use per-file hard links with copy fallback; generated options, server state,
-and all other mutable files are copied, and every workspace owns its directory entries.
+HMC-Specifics, and the processed-mod cache are shared only through read-only links: where supported, the complete client
+Minecraft runtime and official-server library directory each use one directory symbolic link. The fallback and all other
+immutable inputs use per-file hard links or copies. Generated options, server state, and all other mutable files are
+copied into the workspace. Cleanup unlinks directory symbolic links without traversing their targets.
 
 Official-server creation requires a complete Status response and pong. Headless-client creation requires HMC-Specifics
 initialization plus a correlated `gui` observation of `TitleScreen`; connection is a separate operation, and only packet

@@ -153,13 +153,20 @@ internal class HostedOfficialMinecraftServerResource private constructor(
     }
 }
 
-private fun prepareOfficialServerWorkspace(
+internal fun prepareOfficialServerWorkspace(
     preparedArtifact: OfficialServerArtifact,
     workDirectory: Path,
     configuration: OfficialMinecraftServerConfiguration,
 ): OfficialServerArtifact {
     workDirectory.ensureDirectory()
-    preparedArtifact.runtimeDirectory.linkTreeTo(workDirectory)
+    preparedArtifact.runtimeDirectory.linkTreeTo(
+        destination = workDirectory,
+        excludedRelativePaths = SERVER_SYMBOLIC_RUNTIME_DIRECTORIES,
+    )
+    SERVER_SYMBOLIC_RUNTIME_DIRECTORIES.forEach { relativePath ->
+        preparedArtifact.runtimeDirectory.safeResolve(relativePath)
+            .linkDirectoryTo(workDirectory.safeResolve(relativePath))
+    }
     val runtimeJar = Path(workDirectory, "server.jar")
     if (!configuration.usesDefaultTemplate()) {
         return preparedArtifact.copy(
@@ -498,6 +505,9 @@ private val SERVER_RUNTIME_ENTRIES = listOf(
     "libraries",
     "server.jar",
     "versions",
+)
+private val SERVER_SYMBOLIC_RUNTIME_DIRECTORIES = setOf(
+    "libraries",
 )
 private val SERVER_TEMPLATE_CLEARED_DIRECTORIES = listOf(
     "logs",

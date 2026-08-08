@@ -10,7 +10,9 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.kotlincrypto.hash.md.MD5
+import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.StandardCopyOption
 
 internal val testJson = Json {
@@ -79,20 +81,23 @@ internal fun Path.safeResolve(relative: String): Path {
 }
 
 internal fun Path.deleteTree() {
-    val metadata = SystemFileSystem.metadataOrNull(this) ?: return
-    if (metadata.isDirectory) {
+    val path = toNioPath()
+    if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return
+    if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
         SystemFileSystem.list(this).forEach(Path::deleteTree)
     }
-    SystemFileSystem.delete(this)
+    Files.delete(path)
 }
 
 internal fun Path.deleteFilesRecursively() {
-    check(isDirectory()) { "Directory does not exist: $this" }
+    check(Files.isDirectory(toNioPath(), LinkOption.NOFOLLOW_LINKS)) {
+        "Directory does not exist: $this"
+    }
     SystemFileSystem.list(this).forEach { child ->
-        if (child.isDirectory()) {
+        if (Files.isDirectory(child.toNioPath(), LinkOption.NOFOLLOW_LINKS)) {
             child.deleteFilesRecursively()
         } else {
-            SystemFileSystem.delete(child)
+            Files.delete(child.toNioPath())
         }
     }
 }
@@ -128,12 +133,20 @@ internal fun Path.copyTreeTo(
     }
 }
 
-internal fun Path.linkTreeTo(destination: Path) {
+internal fun Path.linkTreeTo(
+    destination: Path,
+    excludedRelativePaths: Set<String> = emptySet(),
+) {
     check(isDirectory()) { "Source directory does not exist: $this" }
     val source = toNioPath()
     val target = destination.toNioPath()
+    val excludedPaths = excludedRelativePaths
+        .map { relativePath -> safeResolve(relativePath).toNioPath() }
     Files.walk(source).use { paths ->
         paths.forEach { current ->
+            if (excludedPaths.any(current::startsWith)) {
+                return@forEach
+            }
             val relative = source.relativize(current)
             val output = target.resolve(relative)
             if (Files.isDirectory(current)) {
@@ -144,6 +157,36 @@ internal fun Path.linkTreeTo(destination: Path) {
             }
         }
     }
+}
+
+/**
+ * Materializes this immutable directory with one symbolic link. If the host
+ * cannot create directory symbolic links, files use the normal hard-link or
+ * copy fallback inside private directory entries.
+ */
+internal fun Path.linkDirectoryTo(destination: Path): Boolean {
+    check(isDirectory()) { "Source directory does not exist: $this" }
+    destination.parent?.ensureDirectory()
+    val failure = try {
+        Files.createSymbolicLink(
+            destination.toNioPath(),
+            toNioPath().toAbsolutePath().normalize(),
+        )
+        return true
+    } catch (failure: IOException) {
+        failure
+    } catch (failure: UnsupportedOperationException) {
+        failure
+    } catch (failure: SecurityException) {
+        failure
+    }
+    try {
+        linkTreeTo(destination)
+    } catch (fallbackFailure: Throwable) {
+        fallbackFailure.addSuppressed(failure)
+        throw fallbackFailure
+    }
+    return false
 }
 
 internal fun Path.linkFileTo(destination: Path): Boolean {

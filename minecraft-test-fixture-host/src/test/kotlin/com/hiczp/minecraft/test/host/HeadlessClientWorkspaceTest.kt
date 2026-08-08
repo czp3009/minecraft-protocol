@@ -37,6 +37,15 @@ class HeadlessClientWorkspaceTest {
             val probeDestination = Path(root, "probe-destination")
             probeSource.writeText("probe")
             val hardLinksSupported = probeSource.linkFileTo(probeDestination)
+            val directoryProbeSource = Path(root, "directory-probe-source")
+            val directoryProbeDestination = Path(
+                root,
+                "directory-probe-destination",
+            )
+            directoryProbeSource.ensureDirectory()
+            val symbolicLinksSupported = directoryProbeSource.linkDirectoryTo(
+                directoryProbeDestination,
+            )
 
             val installation = HeadlessClientInstallation(
                 minecraftVersion = "test",
@@ -72,6 +81,12 @@ class HeadlessClientWorkspaceTest {
                 "mixinextras.jar",
             )
             val privateOptions = Path(gameDirectory, "options.txt")
+            assertEquals(
+                symbolicLinksSupported,
+                Files.isSymbolicLink(
+                    privateInstallation.minecraftDirectory.toNioPath(),
+                ),
+            )
             assertEquals("library", privateLibrary.readText())
             assertEquals("launcher", privateInstallation.launcher.readText())
             assertEquals("mod", privateMod.readText())
@@ -139,6 +154,13 @@ class HeadlessClientWorkspaceTest {
                     "processedMods",
                     "mixinextras.jar",
                 ).readText(),
+            )
+
+            workDirectory.deleteTree()
+            assertEquals(
+                "library",
+                Path(minecraftDirectory, "libraries", "library.jar")
+                    .readText(),
             )
         } finally {
             root.deleteTree()

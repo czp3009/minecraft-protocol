@@ -130,9 +130,11 @@ server, and an official world generate/rewrite/reload cycle. Gradle prepares all
 starts each assembled server and HeadlessMC/Fabric/HMC-Specifics client once to publish a clean stopped template, and
 starts the shared JVM Fixture Host only when a test requests it. Default configurations clone those templates
 automatically; non-default configurations start from the prepared runtime without seeded world or client state.
-Immutable fixture inputs are never launched in place. Workspace assembly uses hard links with copy fallback for
-immutable runtimes, the HeadlessMC launcher, HMC-Specifics, and Fabric's processed-mod cache; mutable template state
-remains a private copy. Runtime HeadlessMC launches do not download resources.
+Immutable fixture inputs are never launched in place. Where supported, workspace assembly uses one directory symbolic
+link for the complete read-only client Minecraft runtime and one for the official-server libraries. It falls back to
+per-file hard links or copies, and uses that same per-file strategy for other immutable runtime files, the HeadlessMC
+launcher, HMC-Specifics, and Fabric's processed-mod cache. Mutable template state remains a private copy, and cleanup
+never follows workspace directory links. Runtime HeadlessMC launches do not download resources.
 
 Gradle outputs remain under `build/`; Fixture Host processes, worlds, and scratch workspaces are removed after use, and
 successful tests do not create standalone report files. A test-local filesystem sandbox uses the system temporary

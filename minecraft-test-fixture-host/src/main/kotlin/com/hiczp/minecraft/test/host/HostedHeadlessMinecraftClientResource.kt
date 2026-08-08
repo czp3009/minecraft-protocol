@@ -236,7 +236,7 @@ internal fun prepareHeadlessClientRuntime(
     val runtime = Path(workDirectory, "runtime")
     val minecraft = Path(runtime, "minecraft")
     val launcher = Path(runtime, "headlessmc", "headlessmc-launcher.jar")
-    installation.minecraftDirectory.linkTreeTo(minecraft)
+    installation.minecraftDirectory.linkDirectoryTo(minecraft)
     installation.launcher.linkFileTo(launcher)
     return installation.copy(
         minecraftDirectory = minecraft,

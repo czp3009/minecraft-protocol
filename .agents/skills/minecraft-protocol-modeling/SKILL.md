@@ -37,8 +37,10 @@ External-peer tests use `minecraft-test-support` through standard test tasks. Th
 for all-default optional configuration and prepared-runtime fresh state for any non-default optional field; a required
 headless-client player name does not disable template reuse. Do not add a public workspace policy, custom fixture task,
 or direct launcher invocation. Preserve workspace isolation when touching Fixture Host materialization: immutable
-runtime, launcher, mod, and processed-cache files may be hard linked with copy fallback, while mutable template files
-must be copied. Packet observations, not HeadlessMC text, establish protocol states such as Play.
+client-runtime and server-library directories may use one directory symbolic link with a per-file hard-link-or-copy tree
+as fallback; other immutable runtime, launcher, mod, and processed-cache files may use hard links with copy fallback.
+Copy mutable template files, and unlink directory symbolic links during cleanup without following their targets. Packet
+observations, not HeadlessMC text, establish protocol states such as Play.
 
 Apply the repository capability matrix when changing targets: pure model/serialization code keeps all supported KMP
 targets, while Minecraft TCP modules exclude browser, D8, and Wasm/WASI runtimes. Fixture annotated entries use the
