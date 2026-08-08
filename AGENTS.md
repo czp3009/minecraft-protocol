@@ -230,8 +230,7 @@ are deleted when their owning resource or host closes; successful tests do not l
 logs remain Host-owned and cross the RPC boundary as values only when requested. A test client that exercises its own
 filesystem uses a self-owned system temporary directory and removes it after the scenario. Agent-only notes, manual
 decompilation, and third-party reference checkouts belong under `temp/`; Gradle and its helper scripts never read or
-write that directory. A missing decompiler is reported to the user rather than installed silently or added as a Gradle
-task. Preserve `.gitignore`.
+write that directory. Agents may use IDEA MCP to view decompiled code. Preserve `.gitignore`.
 
 ## Optional agent skills
 
