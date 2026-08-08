@@ -7,6 +7,7 @@ import com.hiczp.minecraft.test.*
 import com.hiczp.minecraft.world.format.*
 import okio.Buffer
 import okio.FileSystem
+import okio.IOException
 import okio.Path
 import okio.Path.Companion.toPath
 
@@ -167,13 +168,17 @@ internal object OfficialWorldStorageInteropRunner {
             "Official server did not hold session.lock"
         }
         val failure = captureLockAcquisitionFailure(worldDirectory)
-        check(failure is WorldLockException) {
-            "Expected WorldLockException, got ${failure::class.simpleName}"
+        check(failure is IOException) {
+            "Expected IOException, got ${failure::class.simpleName}"
         }
-        check(
-            failure.message?.endsWith(WORLD_LOCK_ALREADY_LOCKED_REASON) == true,
-        ) {
-            "Unexpected lock failure message: ${failure.message}"
+        if (failure is WorldLockException) {
+            check(
+                failure.message?.endsWith(
+                    WORLD_LOCK_ALREADY_LOCKED_REASON,
+                ) == true,
+            ) {
+                "Unexpected lock failure message: ${failure.message}"
+            }
         }
     }
 

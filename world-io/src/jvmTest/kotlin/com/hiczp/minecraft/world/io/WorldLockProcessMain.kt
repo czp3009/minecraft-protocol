@@ -17,8 +17,7 @@ object WorldLockProcessMain {
                 val marker = ByteBuffer.wrap(
                     "☃".encodeToByteArray(),
                 )
-                channel.position(0)
-                while (marker.hasRemaining()) channel.write(marker)
+                channel.write(marker)
                 channel.force(true)
                 channel.lock().use {
                     System.out.write("LOCKED\n".encodeToByteArray())

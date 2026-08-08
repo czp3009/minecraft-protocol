@@ -71,8 +71,7 @@ class NbtFileStore(
         val parent = path.parent
             ?: throw WorldIOException("File has no parent directory: $path")
         fileSystem.createDirectories(parent)
-        fileSystem.openReadWrite(path).use { handle ->
-            handle.resize(0L)
+        fileSystem.openTruncatedReadWrite(path).use { handle ->
             writeHandle(path, handle, document, compression)
         }
     }

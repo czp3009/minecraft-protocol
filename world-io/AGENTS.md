@@ -19,6 +19,10 @@ filesystem; browser and Wasm targets use the stream modules and do not receive a
   dimension saved data uses a synced direct write, and player JSON truncates and writes its final path directly.
 - System-filesystem world access holds `session.lock` until all owned region stores close. Injectable raw stores do not
   pretend a fake filesystem provides a cross-process lock.
+- Establish `session.lock` behavior from the matching official server's `DirectoryLock` first and the repository Java
+  major's OpenJDK `FileChannel` implementation second. The JVM path mirrors the official control flow and exception
+  boundaries; Native and Node reproduce the same observable open, marker-write, force, non-blocking whole-file lock, and
+  cleanup semantics. Do not add permission-based read probes or relabel unrelated I/O failures as lock contention.
 - Node durable writes use the host `fsync` primitive, and its `session.lock` uses the pinned native addon to request the
   same non-blocking whole-file exclusive OS lock as the official JVM implementation.
 

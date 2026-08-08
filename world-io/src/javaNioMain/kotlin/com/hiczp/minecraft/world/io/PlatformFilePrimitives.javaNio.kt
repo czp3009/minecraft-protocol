@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.world.io
 
+import okio.FileHandle
 import okio.FileSystem
 import okio.Path
 import java.nio.file.Files
@@ -22,5 +23,9 @@ internal actual fun FileSystem.moveReplacing(
         REPLACE_EXISTING,
     )
 }
+
+internal actual fun FileSystem.openTruncatedReadWrite(
+    path: Path,
+): FileHandle = openTruncatedReadWriteUsingResize(path)
 
 internal actual fun syncSystemFilePath(path: Path) = Unit

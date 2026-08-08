@@ -1,193 +1,306 @@
+@file:OptIn(ExperimentalForeignApi::class)
+
 package com.hiczp.minecraft.world.io
 
 import kotlinx.cinterop.*
 import okio.FileSystem
+import okio.IOException
 import okio.Path
-import platform.posix.*
+import platform.windows.*
 
 internal actual fun acquireWorldDirectoryLock(
     path: Path,
 ): WorldDirectoryLock {
-    val descriptor = openWindowsWorldLock(path, create = true)
-    if (descriptor == -1) {
-        throw windowsLockFailure("open", path, errno)
-    }
+    val opened = openWindowsWorldLock(path, create = true)
+    val handle = opened.handle
+        ?: throw windowsLockIoFailure("open", path, opened.error)
 
-    var failure: Throwable? = null
     try {
-        writeWorldLockMarker(descriptor, path)
-        if (_commit(descriptor) != 0) {
-            throw windowsLockFailure("durably sync", path, errno)
-        }
-        val lockError = setWindowsLock(descriptor, WINDOWS_LOCK_EXCLUSIVE)
-        if (lockError != 0) {
-            if (lockError == EACCES) {
-                throw worldAlreadyLockedException(
-                    absoluteWorldLockPath(path),
-                )
-            }
-            throw windowsLockFailure("lock", path, lockError)
-        }
-        return MingwWorldDirectoryLock(descriptor, path)
-    } catch (caught: Throwable) {
-        failure = caught
-        throw caught
-    } finally {
-        if (failure != null && _close(descriptor) != 0) {
-            failure.addSuppressed(
-                windowsLockFailure("close lock file", path, errno),
+        /*
+         * OpenJDK deliberately gives CreateFileW read/write/delete sharing,
+         * so a competing writer handle normally opens successfully. The
+         * existing LockFileEx range is mandatory, however: WriteFile can fail
+         * here before the non-blocking lock attempt. Preserve that I/O failure
+         * instead of converting it to the official tryLock-null exception.
+         */
+        writeWorldLockMarker(handle, path)
+        forceWorldLock(handle, path)
+        val key = tryAcquireWindowsFileLock(handle, path)
+            ?: throw worldAlreadyLockedException(
+                absoluteWorldLockPath(path),
             )
-        }
+        return MingwWorldDirectoryLock(handle, path, key)
+    } catch (failure: IOException) {
+        closeAllPreserving(
+            failure,
+            { closeWindowsFile(handle, path) },
+        )
+        throw failure
     }
 }
 
 internal actual fun isWorldDirectoryLocked(path: Path): Boolean {
-    val descriptor = openWindowsWorldLock(path, create = false)
-    if (descriptor == -1) {
-        return when (val openError = errno) {
-            ENOENT -> false
-            EACCES -> true
-            else -> throw windowsLockFailure("open", path, openError)
-        }
+    val opened = openWindowsWorldLock(path, create = false)
+    val handle = opened.handle ?: return when (opened.error) {
+        ERROR_ACCESS_DENIED.toUInt() -> true
+        ERROR_FILE_NOT_FOUND.toUInt(),
+        ERROR_PATH_NOT_FOUND.toUInt(),
+            -> false
+
+        else -> throw windowsLockIoFailure("open", path, opened.error)
     }
 
+    var acquiredKey: WindowsFileKey? = null
     var failure: Throwable? = null
     try {
-        return when (
-            val lockError = setWindowsLock(
-                descriptor,
-                WINDOWS_LOCK_EXCLUSIVE,
-            )
-        ) {
-            0 -> {
-                val unlockError = setWindowsLock(
-                    descriptor,
-                    WINDOWS_LOCK_UNLOCK,
-                )
-                if (unlockError != 0) {
-                    throw windowsLockFailure("unlock", path, unlockError)
-                }
-                false
-            }
-
-            EACCES -> true
-            else -> throw windowsLockFailure(
-                "inspect lock for",
-                path,
-                lockError,
-            )
-        }
+        acquiredKey = tryAcquireWindowsFileLock(handle, path)
+        return acquiredKey == null
     } catch (caught: Throwable) {
         failure = caught
         throw caught
     } finally {
-        if (_close(descriptor) != 0) {
-            val closeFailure = windowsLockFailure(
-                "close lock file",
-                path,
-                errno,
-            )
-            if (failure == null) throw closeFailure
-            failure.addSuppressed(closeFailure)
-        }
+        closeAllPreserving(
+            failure,
+            {
+                if (acquiredKey != null) {
+                    unlockWindowsFile(handle, path)
+                }
+            },
+            { closeWindowsFile(handle, path) },
+            { acquiredKey?.let(::removeInProcessLock) },
+        )
     }
 }
 
 private class MingwWorldDirectoryLock(
-    private var descriptor: Int,
+    handle: COpaquePointer,
     private val path: Path,
+    private val key: WindowsFileKey,
 ) : WorldDirectoryLock {
+    private var handle: COpaquePointer? = handle
+
     override val isValid: Boolean
-        get() = descriptor != CLOSED_DESCRIPTOR
+        get() = handle != null
 
     override fun close() {
-        val openDescriptor = descriptor
-        if (openDescriptor == CLOSED_DESCRIPTOR) return
-        descriptor = CLOSED_DESCRIPTOR
+        val openHandle = handle ?: return
+        handle = null
 
-        var failure: Throwable? = null
-        val unlockError = setWindowsLock(
-            openDescriptor,
-            WINDOWS_LOCK_UNLOCK,
-        )
-        if (unlockError != 0) {
-            failure = windowsLockFailure("unlock", path, unlockError)
-        }
-        if (_close(openDescriptor) != 0) {
-            val closeFailure = windowsLockFailure(
-                "close lock file",
-                path,
-                errno,
-            )
-            val current = failure
-            if (current == null) failure = closeFailure
-            else current.addSuppressed(closeFailure)
-        }
-        failure?.let { throw it }
-    }
-}
-
-@OptIn(ExperimentalForeignApi::class)
-private fun openWindowsWorldLock(path: Path, create: Boolean): Int =
-    memScoped {
-        val flags = _O_WRONLY or _O_BINARY or
-                if (create) _O_CREAT else 0
-        _wopen(
-            path.toString().wcstr.ptr,
-            flags,
-            _S_IREAD or _S_IWRITE,
-        )
-    }
-
-private fun setWindowsLock(descriptor: Int, mode: Int): Int {
-    if (_lseek(descriptor, 0, SEEK_SET) == -1) return errno
-    return if (_locking(descriptor, mode, WINDOWS_LOCK_LENGTH) == 0) {
-        0
-    } else {
-        errno
-    }
-}
-
-@OptIn(ExperimentalForeignApi::class)
-private fun writeWorldLockMarker(descriptor: Int, path: Path) {
-    if (_lseek(descriptor, 0, SEEK_SET) == -1) {
-        throw windowsLockFailure("seek", path, errno)
-    }
-    WORLD_LOCK_MARKER.usePinned { marker ->
-        var written = 0
-        while (written < WORLD_LOCK_MARKER.size) {
-            val result = _write(
-                descriptor,
-                marker.addressOf(written),
-                (WORLD_LOCK_MARKER.size - written).convert(),
-            )
-            if (result <= 0) {
-                if (errno == EACCES) {
-                    throw WorldLockException(WINDOWS_LOCK_VIOLATION_MESSAGE)
-                }
-                throw windowsLockFailure("write marker to", path, errno)
+        try {
+            unlockWindowsFile(openHandle, path)
+        } finally {
+            try {
+                closeWindowsFile(openHandle, path)
+            } finally {
+                removeInProcessLock(key)
             }
-            written += result
         }
     }
 }
 
-private fun windowsLockFailure(
-    operation: String,
+private fun openWindowsWorldLock(
     path: Path,
-    error: Int,
-): WorldLockException = WorldLockException(
-    "Could not $operation world lock $path (errno $error)",
-)
+    create: Boolean,
+): WindowsOpenResult {
+    val handle = CreateFileW(
+        lpFileName = path.toString(),
+        dwDesiredAccess = GENERIC_WRITE.toUInt(),
+        dwShareMode = (FILE_SHARE_READ or
+                FILE_SHARE_WRITE or
+                FILE_SHARE_DELETE).toUInt(),
+        lpSecurityAttributes = null,
+        dwCreationDisposition = (if (create) OPEN_ALWAYS else OPEN_EXISTING).toUInt(),
+        dwFlagsAndAttributes = FILE_ATTRIBUTE_NORMAL.toUInt(),
+        hTemplateFile = null,
+    )
+    return if (handle == null || handle == INVALID_HANDLE_VALUE) {
+        WindowsOpenResult(error = GetLastError())
+    } else {
+        WindowsOpenResult(handle = handle)
+    }
+}
+
+private fun writeWorldLockMarker(handle: COpaquePointer, path: Path) {
+    WORLD_LOCK_MARKER.usePinned { marker ->
+        memScoped {
+            val written = alloc<DWORDVar>()
+            if (
+                WriteFile(
+                    hFile = handle,
+                    lpBuffer = marker.addressOf(0),
+                    nNumberOfBytesToWrite = WORLD_LOCK_MARKER.size.toUInt(),
+                    lpNumberOfBytesWritten = written.ptr,
+                    lpOverlapped = null,
+                ) == 0
+            ) {
+                throw windowsLockIoFailure(
+                    "write marker to",
+                    path,
+                    GetLastError(),
+                )
+            }
+        }
+    }
+}
+
+private fun forceWorldLock(handle: COpaquePointer, path: Path) {
+    if (FlushFileBuffers(handle) != 0) return
+    val error = GetLastError()
+    // OpenJDK's FileDispatcherImpl.force0 ignores this Win32 result.
+    if (error != ERROR_ACCESS_DENIED.toUInt()) {
+        throw windowsLockIoFailure("durably sync", path, error)
+    }
+}
+
+private fun tryAcquireWindowsFileLock(
+    handle: COpaquePointer,
+    path: Path,
+): WindowsFileKey? {
+    val key = windowsFileKey(handle, path)
+    return withInProcessLockRegistry {
+        if (!IN_PROCESS_LOCK_KEYS.add(key)) {
+            throw worldOverlappingLockException()
+        }
+        when (val lockError = setWindowsFileLock(handle, lock = true)) {
+            null -> key
+            ERROR_LOCK_VIOLATION.toUInt() -> {
+                IN_PROCESS_LOCK_KEYS.remove(key)
+                null
+            }
+
+            else -> {
+                IN_PROCESS_LOCK_KEYS.remove(key)
+                throw windowsLockIoFailure("lock", path, lockError)
+            }
+        }
+    }
+}
+
+private fun unlockWindowsFile(
+    handle: COpaquePointer,
+    path: Path,
+) {
+    val unlockError = setWindowsFileLock(handle, lock = false)
+    if (
+        unlockError != null &&
+        unlockError != ERROR_NOT_LOCKED.toUInt()
+    ) {
+        throw windowsLockIoFailure("unlock", path, unlockError)
+    }
+}
+
+private fun setWindowsFileLock(
+    handle: COpaquePointer,
+    lock: Boolean,
+): UInt? = memScoped {
+    val overlapped = alloc<OVERLAPPED>()
+    overlapped.Internal = 0u
+    overlapped.InternalHigh = 0u
+    overlapped.Offset = 0u
+    overlapped.OffsetHigh = 0u
+    overlapped.hEvent = null
+
+    val result = if (lock) {
+        LockFileEx(
+            hFile = handle,
+            dwFlags = (LOCKFILE_FAIL_IMMEDIATELY or
+                    LOCKFILE_EXCLUSIVE_LOCK).toUInt(),
+            dwReserved = 0u,
+            nNumberOfBytesToLockLow = UInt.MAX_VALUE,
+            nNumberOfBytesToLockHigh = Int.MAX_VALUE.toUInt(),
+            lpOverlapped = overlapped.ptr,
+        )
+    } else {
+        UnlockFileEx(
+            hFile = handle,
+            dwReserved = 0u,
+            nNumberOfBytesToUnlockLow = UInt.MAX_VALUE,
+            nNumberOfBytesToUnlockHigh = Int.MAX_VALUE.toUInt(),
+            lpOverlapped = overlapped.ptr,
+        )
+    }
+    if (result != 0) return@memScoped null
+    var error = GetLastError()
+    if (error == ERROR_IO_PENDING.toUInt()) {
+        val transferred = alloc<DWORDVar>()
+        if (
+            GetOverlappedResult(
+                handle,
+                overlapped.ptr,
+                transferred.ptr,
+                TRUE,
+            ) != 0
+        ) {
+            return@memScoped null
+        }
+        error = GetLastError()
+    }
+    error
+}
+
+private fun windowsFileKey(
+    handle: COpaquePointer,
+    path: Path,
+): WindowsFileKey = memScoped {
+    val information = alloc<BY_HANDLE_FILE_INFORMATION>()
+    if (GetFileInformationByHandle(handle, information.ptr) == 0) {
+        throw windowsLockIoFailure("inspect", path, GetLastError())
+    }
+    WindowsFileKey(
+        volumeSerialNumber = information.dwVolumeSerialNumber,
+        fileIndexHigh = information.nFileIndexHigh,
+        fileIndexLow = information.nFileIndexLow,
+    )
+}
+
+private fun closeWindowsFile(handle: COpaquePointer, path: Path) {
+    if (CloseHandle(handle) == 0) {
+        throw windowsLockIoFailure("close lock file", path, GetLastError())
+    }
+}
+
+private inline fun <T> withInProcessLockRegistry(block: () -> T): T {
+    EnterCriticalSection(IN_PROCESS_LOCK_CRITICAL_SECTION.ptr)
+    try {
+        return block()
+    } finally {
+        LeaveCriticalSection(IN_PROCESS_LOCK_CRITICAL_SECTION.ptr)
+    }
+}
+
+private fun removeInProcessLock(key: WindowsFileKey) {
+    withInProcessLockRegistry {
+        IN_PROCESS_LOCK_KEYS.remove(key)
+    }
+}
 
 private fun absoluteWorldLockPath(path: Path): String =
     if (path.isAbsolute) path.toString()
     else FileSystem.SYSTEM.canonicalize(path).toString()
 
-private const val CLOSED_DESCRIPTOR = -1
-private const val WINDOWS_LOCK_UNLOCK = 0
-private const val WINDOWS_LOCK_EXCLUSIVE = 2
-private const val WINDOWS_LOCK_LENGTH = 1
-private const val WINDOWS_LOCK_VIOLATION_MESSAGE =
-    "The process cannot access the file because another process has locked a portion of the file"
+private fun windowsLockIoFailure(
+    operation: String,
+    path: Path,
+    error: UInt,
+): WorldIOException = WorldIOException(
+    "Could not $operation world lock $path (Win32 error $error)",
+)
+
+private data class WindowsOpenResult(
+    val handle: COpaquePointer? = null,
+    val error: UInt = ERROR_SUCCESS.toUInt(),
+)
+
+private data class WindowsFileKey(
+    val volumeSerialNumber: UInt,
+    val fileIndexHigh: UInt,
+    val fileIndexLow: UInt,
+)
+
 private val WORLD_LOCK_MARKER = "☃".encodeToByteArray()
+private val IN_PROCESS_LOCK_KEYS = mutableSetOf<WindowsFileKey>()
+
+private val IN_PROCESS_LOCK_CRITICAL_SECTION =
+    nativeHeap.alloc<CRITICAL_SECTION>().also { criticalSection ->
+        InitializeCriticalSection(criticalSection.ptr)
+    }

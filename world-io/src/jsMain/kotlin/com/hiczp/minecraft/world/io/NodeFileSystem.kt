@@ -13,6 +13,20 @@ internal external interface NodeFileSystemConstants {
 
 internal external fun openSync(path: String, flags: Number): Double
 
+internal external fun fstatSync(
+    fd: Number,
+    options: NodeFileStatisticsOptions,
+): NodeFileStatistics
+
+internal external interface NodeFileStatisticsOptions {
+    var bigint: Boolean
+}
+
+internal external interface NodeFileStatistics {
+    val dev: Any
+    val ino: Any
+}
+
 internal external fun writeSync(
     fd: Number,
     buffer: ByteArray,

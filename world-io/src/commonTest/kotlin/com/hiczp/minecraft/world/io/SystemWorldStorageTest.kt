@@ -46,8 +46,14 @@ class SystemWorldStorageTest {
             }
             val access = MinecraftWorldAccess.open(root)
             try {
-                assertTrue(MinecraftWorldAccess.isLocked(root))
-                assertFails { MinecraftWorldAccess.open(root) }
+                assertFailsWith<IllegalStateException> {
+                    MinecraftWorldAccess.isLocked(root)
+                }
+                val failure = assertFails { MinecraftWorldAccess.open(root) }
+                assertTrue(
+                    failure is IOException ||
+                            failure is IllegalStateException,
+                )
             } finally {
                 access.close()
             }
@@ -153,6 +159,28 @@ class SystemWorldStorageTest {
     }
 
     @Test
+    fun systemDirectNbtRewriteTruncatesExistingFile() {
+        val fileSystem = systemFileSystem
+        val root = createSystemTemporaryDirectory(fileSystem)
+        val path = root / "value.dat"
+        val document = systemDocument(7)
+        try {
+            fileSystem.writeSystemBytes(path, ByteArray(4_096) { 1 })
+
+            val store = NbtFileStore(fileSystem)
+            store.writeDirect(path, document, NbtFileCompression.NONE)
+
+            assertEquals(
+                document,
+                store.read(path, NbtFileCompression.NONE),
+            )
+            assertTrue(checkNotNull(fileSystem.metadata(path).size) < 4_096L)
+        } finally {
+            fileSystem.deleteRecursively(root, mustExist = false)
+        }
+    }
+
+    @Test
     fun worldLeaseComposesEveryOwnedStoreAndSurvivesReopen() = runTest {
         val fileSystem = systemFileSystem
         val parent = createSystemTemporaryDirectory(fileSystem)
@@ -163,20 +191,23 @@ class SystemWorldStorageTest {
         try {
             assertFalse(MinecraftWorldAccess.isLocked(root))
             val access = MinecraftWorldAccess.open(root)
-            access.writeLevelData(document)
-            access.writePlayerData(player, document)
-            access.writeSavedData("example:state/value", document)
-            access.writeStatistics(player, "{}")
-            access.writeAdvancements(player, "{\"done\":true}")
-            RegionStorageDirectory.entries.forEach { storage ->
-                access.writeChunk(
-                    position,
-                    inlineChunk(byteArrayOf(storage.ordinal.toByte())),
-                    storage,
-                )
+            try {
+                access.writeLevelData(document)
+                access.writePlayerData(player, document)
+                access.writeSavedData("example:state/value", document)
+                access.writeStatistics(player, "{}")
+                access.writeAdvancements(player, "{\"done\":true}")
+                RegionStorageDirectory.entries.forEach { storage ->
+                    access.writeChunk(
+                        position,
+                        inlineChunk(byteArrayOf(storage.ordinal.toByte())),
+                        storage,
+                    )
+                }
+                access.flush()
+            } finally {
+                access.close()
             }
-            access.flush()
-            access.close()
             access.close()
 
             assertFalse(MinecraftWorldAccess.isLocked(root))

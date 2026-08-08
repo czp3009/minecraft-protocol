@@ -17,11 +17,13 @@ internal const val WORLD_LOCK_ALREADY_LOCKED_REASON =
 
 internal fun worldAlreadyLockedException(
     absolutePath: String,
-    cause: Throwable? = null,
 ): WorldLockException = WorldLockException(
     "$absolutePath: $WORLD_LOCK_ALREADY_LOCKED_REASON",
-    cause,
 )
+
+/** Native/Node counterpart of FileChannel's overlapping-lock runtime error. */
+internal fun worldOverlappingLockException(): IllegalStateException =
+    IllegalStateException()
 
 class WorldLockException(
     message: String,

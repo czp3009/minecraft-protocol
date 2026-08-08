@@ -19,4 +19,21 @@ internal expect fun FileSystem.moveReplacing(
     target: Path,
 )
 
+internal expect fun FileSystem.openTruncatedReadWrite(
+    path: Path,
+): FileHandle
+
+internal fun FileSystem.openTruncatedReadWriteUsingResize(
+    path: Path,
+): FileHandle {
+    val handle = openReadWrite(path)
+    try {
+        handle.resize(0L)
+        return handle
+    } catch (failure: Throwable) {
+        closeAllPreserving(failure, handle::close)
+        throw failure
+    }
+}
+
 internal expect fun syncSystemFilePath(path: Path)

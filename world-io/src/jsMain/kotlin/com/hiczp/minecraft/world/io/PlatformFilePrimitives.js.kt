@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.world.io
 
+import okio.FileHandle
 import okio.FileSystem
 import okio.NodeJsFileSystem
 import okio.Path
@@ -13,6 +14,10 @@ internal actual fun FileSystem.moveReplacing(
 ) {
     atomicMove(source, target)
 }
+
+internal actual fun FileSystem.openTruncatedReadWrite(
+    path: Path,
+): FileHandle = openTruncatedReadWriteUsingResize(path)
 
 internal actual fun syncSystemFilePath(path: Path) {
     val descriptor = try {
@@ -41,9 +46,7 @@ internal actual fun syncSystemFilePath(path: Path) {
                 "Could not close durable-sync descriptor for $path",
                 caught,
             )
-            val current = failure
-            if (current == null) throw closeFailure
-            current.addSuppressed(closeFailure)
+            failure?.addSuppressed(closeFailure) ?: throw closeFailure
         }
     }
 }
