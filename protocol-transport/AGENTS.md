@@ -12,9 +12,9 @@ Staging is confined to boundaries that must emit an encoded length first or brid
 channels. Transport failures inherit `IOException`, and lower-layer I/O failures are not repeatedly rewrapped.
 
 Keep pure frame and cipher algorithms independently testable from sockets. The common real-socket scenario runs on JVM,
-Android host, desktop Native, and Wasm/Node; Ktor capability reporting excludes runtimes without TCP. Platform source
-sets and Gradle filters do not duplicate common public-behavior test entries; they contain only platform oracles or
-`actual` support.
+Android host, desktop Native, JS Node, and WasmJS Node; Ktor capability reporting excludes runtimes without TCP.
+Platform source sets and Gradle filters do not duplicate common public-behavior test entries; they contain only platform
+oracles or `actual` support.
 
 Run `:protocol-transport:jvmTest` after changes. Framed-connection changes also require
 `:protocol-session:jvmTest`.

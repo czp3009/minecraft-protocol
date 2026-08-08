@@ -18,6 +18,8 @@ This module owns the physical Java Edition binary NBT grammar and the
 - Compression, filesystems, packets, Anvil containers, and sockets remain in their owning modules.
 - The production API remains independently consumable with only `nbt`,
   `kotlinx-serialization-core`, and `kotlinx-io-core`; Fixture Host integration is test-only evidence.
+- The official NBT differential entry lives in `commonTest` under the `fixturetest` package; unsupported fixture tasks
+  filter that entry while retaining ordinary binary-format coverage.
 
 ## Verification
 

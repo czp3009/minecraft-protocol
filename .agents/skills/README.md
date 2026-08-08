@@ -13,4 +13,6 @@ Use the narrowest matching skill:
 | `minecraft-library-update`    | One release-wide update or completeness audit spanning both domains                                                        |
 
 Each skill reads the repository and applicable module `AGENTS.md` files before acting. Release facts, generated data,
-task dependencies, and passing state come from source and Gradle outputs rather than skill prose.
+task dependencies, platform capabilities, fixture-template selection, and passing state come from source and Gradle
+outputs rather than skill prose. Skills use standard test tasks and never add a fixture launcher or manual workspace
+policy.

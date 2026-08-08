@@ -22,13 +22,25 @@ KMP kotlinx.rpc service, test-process Ktor client, serializable server/client va
   directory is deleted and the slot released. `close()` remains idempotent and returns after the Host accepts the same
   combined process-and-directory cleanup asynchronously. `use` is the structured-use helper; task-owner and Build
   Service cleanup invoke that combined Host implementation as fallbacks.
+- Callers never select template versus fresh workspaces. The Host derives that choice from the complete configuration:
+  all-default server fields use the server template, while any non-default server field uses the prepared runtime; a
+  headless client's required player name is ignored for this decision, and only non-default optional lifecycle fields
+  bypass its template.
+- `newHeadlessClient` returns a title-ready process without an endpoint. `connectHeadlessClient` initiates a loopback
+  connection, `disconnectHeadlessClient` waits for a newly observed title screen, and the narrow action-command method
+  exposes only audited HMC-Specifics verbs. None of these operations claims Play without packet evidence in the
+  consuming protocol test.
 
-Fixture runners normally belong in each consumer's `commonTest`, and their annotated entries normally do as well.
-Unsupported devices and runtimes do not receive fake reachability. Ordinary protocol tests stay filesystem-free. The
-`world-io` official runner closes the remote process, obtains its Host working directory through the documented
-backdoor, and opens that directory only when invoked by JVM, Node, or desktop Native test entries. Android host, device,
-simulator, browser, and Wasm/WASI source sets do not contain that entry. The scenario creates the remote process it
-needs and closes its serializable resource value with structured cleanup. Reuse one resource across compatible ordered
-phases, but do not move startup into lifecycle hooks merely to exclude it from the test timeout.
+Fixture runners normally belong in each consumer's `commonTest`, and their annotated entries normally do as well. Their
+packages contain `fixturetest`. Runtime Fixture Host support covers every configured environment with TCP: JVM, Android
+Host, Native, JS Node, and WasmJS Node. Browser and D8 are not configured Fixture Host environments. The private
+WasmWASI target is only a compile-time scaffold for filtered `commonTest` entries; its fail-fast actual is not runtime
+support. Unsupported devices and runtimes do not receive fake reachability. Ordinary protocol tests stay
+filesystem-free. The `world-io` official runner and its annotated entry live in `hostFilesystemTest`, close the remote
+process, and obtain its Host working directory through the documented backdoor. JVM, Node, and desktop Native standard
+test source sets inherit that source set directly without platform entry files. Android host, device, simulator,
+browser, D8, and Wasm/WASI source sets do not contain that runner. The scenario creates the remote process it needs and
+closes its serializable resource value with structured cleanup. Reuse one resource across compatible ordered phases, but
+do not move startup into lifecycle hooks merely to exclude it from the test timeout.
 
 Run `:minecraft-test-support:jvmTest` after contract or client changes.

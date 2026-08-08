@@ -92,6 +92,7 @@ onto the consumer classpath.
 - In Kotlin and Java, do not concatenate strings with `+`; prefer string-template syntax and keep strings on one line
   where practical. If a Kotlin string genuinely spans lines, use a triple-quoted string. For complex assembly, use
   `buildString` in Kotlin and `StringBuilder` in Java.
+- Keep simple assignments such as `val a = "1"` on one line whenever practical.
 - Treat externally consumable declarations as API even without an in-repository caller. Do not suppress `unused` for
   that reason. Omit redundant `public`; keep implementation helpers internal or private.
 - Ordinary logs never write directly to the console. Do not use `print`, `println`, `System.out`, `System.err`,
@@ -130,10 +131,13 @@ minor and patch versions are not pinned or inferred from Mojang metadata.
 
 The deterministic build pipeline follows these ownership rules:
 
-- Gradle downloads and verifies official artifacts under `build/`, keyed by the selected Minecraft release.
-- Root official-analysis tasks are the only build tasks that inspect or execute the official server JAR. Each analyzer
-  owns a non-overlapping directory below `build/generated/official-minecraft/<version>/` and exposes a precise
-  consumable artifact for target, report, or Configuration data.
+- Gradle downloads official artifacts under `build/`, keyed by their exact selected versions or release coordinates.
+  Download completion and HTTP failures are handled by the HTTP client; build tasks do not add content-digest or
+  expected-size validation. A Mojang asset hash remains only when it is the upstream content-addressed path component.
+- Root official-analysis tasks are the only build tasks that inspect the official server JAR. Each analyzer owns a
+  non-overlapping directory below `build/generated/official-minecraft/<version>/` and exposes a precise consumable
+  artifact for target, report, or Configuration data. `generateOfficialMinecraftServerTemplate` may execute, but never
+  inspect, that JAR solely to produce the stopped default fixture template.
 - KSP handles source-derived generation. Cacheable `buildSrc` task types handle generation from non-source files, and
   only the module owning an output registers its generator.
 - Data-driven generators consume declared analysis artifacts, never the official JAR.
@@ -153,16 +157,17 @@ Wiki/third-party source trees, or invoke agent workflows.
 Use source sets according to capability:
 
 - Portable ordinary test entries, scenarios, and assertions belong in `commonTest`.
-- Reusable external-official-peer scenarios also enter through `commonTest`. Their annotated entries normally live there
-  as well. A scenario that dereferences the Fixture Host's absolute path is the exception: keep its shared runner in
-  `commonTest`, but put thin annotated entries only in standard test source sets whose runtime has filesystem access and
-  shares the Host filesystem namespace.
-- Do not create a custom test source set when standard KMP source sets express the capability. Isolate Host-filesystem
-  entry points through those source sets instead of declaring a duplicate Fixture capability in Gradle. Unsupported
-  network scenarios are excluded at the standard test-task boundary; never add fake passing implementations or runtime
-  guesses. When several standard platform source sets share one identical implementation but no default hierarchy node
-  represents exactly that subset, one capability-named intermediate source set is preferable to duplicated platform
-  sources or unsupported placeholders.
+- Reusable external-official-peer scenarios and their annotated entries also enter through `commonTest`. Every annotated
+  Fixture Host entry has a `fixturetest` package segment so unsupported standard test tasks can exclude it without
+  relying on class names. The four unsupported leaf tasks are exactly `jsBrowserTest`, `wasmJsBrowserTest`,
+  `wasmJsD8Test`, and `wasmWasiNodeTest`; they do not receive Fixture Host inputs or service wiring.
+- A scenario that dereferences the Fixture Host's absolute path is the exception. `world-io` uses the repository's one
+  `hostFilesystemTest` capability source set for the runner and its annotated entry. The JVM, Node, and desktop Native
+  standard test source sets depend on it directly; they do not repeat platform-specific entry files. Android host,
+  device, simulator, browser, D8, and Wasm/WASI source sets do not depend on it.
+- Do not create another custom test source set when standard KMP source sets and package filtering express the
+  capability. Never add fake passing implementations or runtime guesses. When a future capability genuinely needs an
+  intermediate source set, use one repository-wide capability name rather than module-specific duplicates.
 
 Run portable Web code under Gradle-provisioned Node or D8. Browser execution is not a repository gate. In-memory
 protocol state, NBT, compression, Anvil byte-array/stream loading, and chunk composition remain portable. `world-io` and
@@ -174,15 +179,30 @@ outputs as lazy file providers. The consuming test task's execution action obtai
 those producer inputs are ready; explicit fixture-launch tasks, helper CLIs, `dependsOn` lifecycle wiring, and system
 properties for resource paths do not belong in this design.
 
+`prepareOfficialMinecraftServer` and `prepareHeadlessClient` are actionless gates over actual cacheable template
+producers. Those producers assemble every required version-pinned resource before launch, start the assembled fixture
+once, observe real readiness, stop it normally, preserve reusable files and empty directories, remove only the fixed
+per-process files recorded in the manifest, and publish an immutable runtime plus template. HeadlessMC launches must not
+download resources. The normal build never discovers a latest HMC-Specifics, Fabric Loader, or HeadlessMC release and
+does not validate downloaded bytes with hashes or expected sizes.
+
+Fixture callers do not select a workspace policy. An exact default server configuration clones the stopped server
+template; any non-default server property or lifecycle option starts from the prepared runtime without the template
+world. A headless client's required offline player name does not make it non-default: default optional lifecycle values
+clone the stopped client template, while any non-default optional value starts from the assembled client runtime. Every
+clone is private, templates are never launched in place, and immutable runtime files may use hard links with copy
+fallback. The client template's sole mod and processed-mod cache are immutable inputs too, so workspace creation hard
+links them with the same fallback while copying generated options and every other mutable template file normally.
+
 The Build Service starts `minecraft-test-fixture-host` lazily. Test code loads only `minecraft-test-support` and calls
 the generated kotlinx.rpc service over Ktor WebSocket with JSON payloads. Processes, official fixture paths, logs, and
 cleanup remain inside the Fixture Host. Ordinary tests never receive a process object or Host path. The `world-io`
 official interoperability scenario is the explicit exception: after synchronously closing the official process, it uses
 the documented `hostWorkingDirectory` backdoor to open the Host-owned world in place. This requires the test process and
-Fixture Host to share a filesystem namespace. Its annotated entries exist only in JVM, Node, and desktop Native test
-source sets. Android host tests inherit portable `commonTest` coverage without repeating this JVM-hosted official
-scenario; device, simulator, browser, and Wasm/WASI source sets do not invoke it. Codec verification returns normally or
-throws with failure details.
+Fixture Host to share a filesystem namespace. Its single annotated entry lives in `hostFilesystemTest`, which JVM, Node,
+and desktop Native test source sets inherit directly. Android host tests inherit portable `commonTest` coverage without
+repeating this JVM-hosted official scenario; device, simulator, browser, and Wasm/WASI source sets do not invoke it.
+Codec verification returns normally or throws with failure details.
 
 Within one subproject's single platform test task, compatible cases reuse one official process instead of creating a
 process per assertion or test method. Express ordered stateful coverage as phases of one shared runner and one thin
@@ -206,6 +226,9 @@ because Native selectors perform blocking OS waits and cannot run on the virtual
 
 Inspect existing source, build wiring, generated state, and tests before editing. Preserve unrelated changes and modify
 the owning layer only.
+
+Never run Gradle wrapper command lines concurrently. Concurrent Gradle invocations can write the same files and race;
+finish one invocation before starting the next.
 
 Use the platform-native wrapper. On Unix-like systems, start with the affected JVM suite:
 

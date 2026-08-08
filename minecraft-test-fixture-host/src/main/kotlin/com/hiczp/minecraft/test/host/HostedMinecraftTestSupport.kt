@@ -101,14 +101,14 @@ internal object HostedMinecraftTestSupport {
         }
     }
 
-    /** Starts a ready HeadlessMC-backed official client resource. */
-    suspend fun newOfficialClient(
+    /** Starts a title-ready HeadlessMC-backed client resource. */
+    suspend fun newHeadlessClient(
         configuration: HeadlessMinecraftClientConfiguration,
     ): HostedHeadlessMinecraftClientResource {
         beginResourceCreation()
         try {
             val workDirectory = layout.newRuntimeDirectory(
-                MinecraftRuntimeKind.OFFICIAL_CLIENT,
+                MinecraftRuntimeKind.HEADLESS_CLIENT,
             )
             var startedResource: HostedHeadlessMinecraftClientResource? = null
             return try {

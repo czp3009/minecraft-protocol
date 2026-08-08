@@ -9,10 +9,8 @@ internal fun configureHostedTestSupportForJvmTests() {
     HostedMinecraftTestSupport.configure(
         MinecraftTestLayout(
             minecraftVersion = "fixture-host-test",
-            serverCacheDirectory = Path(fixtureRoot, "server"),
-            clientCacheDirectory = Path(fixtureRoot, "client"),
-            versionMetadataFile = Path(fixtureRoot, "version.json"),
-            headlessLauncherFile = Path(fixtureRoot, "headlessmc.jar"),
+            officialServerRootDirectory = Path(fixtureRoot, "server"),
+            headlessClientRootDirectory = Path(fixtureRoot, "client"),
             serverRuntimeDirectory = Path(fixtureRoot, "server-runtime"),
             codecClassesDirectory = Path(fixtureRoot, "codec-classes"),
             hostWorkRoot = Path(fixtureRoot, "work", "hosts", "test"),

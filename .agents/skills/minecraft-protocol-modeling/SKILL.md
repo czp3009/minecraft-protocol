@@ -33,6 +33,17 @@ release change is followed by `./gradlew officialMinecraftAnalysis` before targe
 6. Repeat the inventory after implementation so newly exposed gaps enter the same queue.
 7. After the JVM path is stable, run the applicable standard platform tasks or `./gradlew allTests`.
 
+External-peer tests use `minecraft-test-support` through standard test tasks. The Fixture Host chooses stopped templates
+for all-default optional configuration and prepared-runtime fresh state for any non-default optional field; a required
+headless-client player name does not disable template reuse. Do not add a public workspace policy, custom fixture task,
+or direct launcher invocation. Preserve workspace isolation when touching Fixture Host materialization: immutable
+runtime, launcher, mod, and processed-cache files may be hard linked with copy fallback, while mutable template files
+must be copied. Packet observations, not HeadlessMC text, establish protocol states such as Play.
+
+Apply the repository capability matrix when changing targets: pure model/serialization code keeps all supported KMP
+targets, while Minecraft TCP modules exclude browser, D8, and Wasm/WASI runtimes. Fixture annotated entries use the
+`fixturetest` package and rely on the exact unsupported leaf-task routing in root `AGENTS.md`.
+
 Use only the existing Gradle producers and standard test tasks. Optional manual evidence stays within the `temp/`
 boundary defined by root `AGENTS.md`.
 

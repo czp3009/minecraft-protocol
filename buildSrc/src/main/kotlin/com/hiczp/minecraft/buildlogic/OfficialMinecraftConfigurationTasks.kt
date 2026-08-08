@@ -50,7 +50,7 @@ abstract class AnalyzeOfficialMinecraftConfigurationTask :
         }
         val output = outputFile.asFile.get().toPath()
         output.writeJson(
-            result.toAnalysisJson(target, server.sha256()),
+            result.toAnalysisJson(target),
             sortKeys = true,
         )
         logger.lifecycle(

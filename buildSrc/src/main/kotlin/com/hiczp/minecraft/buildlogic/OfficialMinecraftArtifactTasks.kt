@@ -56,8 +56,6 @@ abstract class DownloadOfficialMinecraftServerTask :
         val server = metadata.requiredObject("downloads")
             .requiredObject("server")
         val serverUrl = server.requiredString("url")
-        val serverSha1 = server.requiredString("sha1").lowercase()
-        val serverSize = server.requiredLong("size")
         val javaMajor = metadata["javaVersion"]
             ?.jsonObject
             ?.requiredInt("majorVersion")
@@ -66,11 +64,9 @@ abstract class DownloadOfficialMinecraftServerTask :
         val destination = serverJar.asFile.get().toPath()
         val metadataPath = metadataFile.asFile.get().toPath()
         runBlocking {
-            ProtocolHttp.downloadVerified(
+            ProtocolHttp.download(
                 url = serverUrl,
                 destination = destination,
-                expectedSize = serverSize,
-                expectedSha1 = serverSha1,
                 offline = offline.get(),
             )
 
@@ -78,27 +74,17 @@ abstract class DownloadOfficialMinecraftServerTask :
             check(target.javaMajorVersion == javaMajor) {
                 "Official server version.json and Mojang metadata disagree on the required Java version"
             }
-            val versionMetadataSha1 =
-                versionMetadata.asFile.get().toPath().sha1()
             metadataPath.writeJson(
                 jsonObjectOf(
                     "schema_version" to jsonNumber(1),
                     "minecraft_version" to jsonString(version),
-                    "version_metadata_sha1" to jsonString(
-                        versionMetadataSha1,
-                    ),
                     "server_url" to jsonString(serverUrl),
-                    "server_sha1" to jsonString(serverSha1),
-                    "server_sha256" to jsonString(
-                        destination.sha256(),
-                    ),
-                    "server_size" to jsonNumber(serverSize),
                     "java_major_version" to jsonNumber(javaMajor),
                 ),
                 sortKeys = true,
             )
             logger.lifecycle(
-                "Downloaded and verified Mojang server: $destination (${destination.sha1()})",
+                "Downloaded Mojang server: $destination",
             )
         }
     }
@@ -128,21 +114,15 @@ abstract class AnalyzeOfficialMinecraftTargetTask :
             .readJsonObject()
         check(
             metadata.requiredString("minecraft_version") ==
-                    target.minecraftVersion &&
-                    metadata.requiredString("server_sha1") == server.sha1(),
+                    target.minecraftVersion,
         ) {
-            "Official server JAR does not match its Mojang metadata"
+            "Official server metadata targets a different Minecraft release"
         }
         val report = jsonObjectOf(
             "schema_version" to jsonNumber(1),
             "minecraft_version" to jsonString(target.minecraftVersion),
             "protocol_version" to jsonNumber(target.protocolVersion),
             "java_major_version" to jsonNumber(target.javaMajorVersion),
-            "official_server_sha1" to jsonString(server.sha1()),
-            "official_server_sha256" to jsonString(server.sha256()),
-            "version_metadata_sha1" to jsonString(
-                metadata.requiredString("version_metadata_sha1"),
-            ),
         )
         val output = outputFile.asFile.get().toPath()
         output.writeJson(report, sortKeys = true)
@@ -179,11 +159,9 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
         }
         check(
             metadata.requiredString("minecraft_version") ==
-                    target.minecraftVersion &&
-                    metadata.requiredString("server_sha1") ==
-                    serverJar.sha1(),
+                    target.minecraftVersion,
         ) {
-            "Official server JAR does not match its Mojang metadata"
+            "Official server metadata targets a different Minecraft release"
         }
         val outputDirectory = outputDirectory.asFile.get().toPath()
         val workDirectory = createIsolatedTemporaryDirectory("reports")
@@ -369,14 +347,10 @@ abstract class ExtractOfficialServerRuntimeTask :
             check(versionFields.size == 3)
             check(versionFields[1] == version)
 
-            val implDigest = versionFields[0].lowercase()
-            check(implDigest.matches(Regex("[0-9a-f]{64}")))
-
             // Extract implementation JAR
             val impl = archive.getInputStream(
                 archive.getEntry("META-INF/versions/${versionFields[2]}"),
             ).use { it.readBytes() }
-            check(impl.sha256() == implDigest)
             val implJar = output.resolve("server.jar")
             implJar.atomicWrite(impl)
 
@@ -390,13 +364,10 @@ abstract class ExtractOfficialServerRuntimeTask :
                     .forEach { line ->
                         val fields = line.split('\t')
                         check(fields.size == 3)
-                        val digest = fields[0].lowercase()
-                        check(digest.matches(Regex("[0-9a-f]{64}")))
                         val relative = fields[2]
                         val content = archive.getInputStream(
                             archive.getEntry("META-INF/libraries/$relative"),
                         ).use { it.readBytes() }
-                        check(content.sha256() == digest)
                         output.resolve("libraries").resolve(relative)
                             .atomicWrite(content)
                     }

@@ -20,9 +20,14 @@ secure-chat claims.
 ## Tests
 
 Portable in-process client/server behavior belongs in `commonTest`. The matching external official-client scenario also
-belongs in `commonTest` and uses dummy offline credentials through `minecraft-test-support`; the Fixture Host owns the
-verified HeadlessMC adapter, process, files, and logs. The scenario verifies initial world acceptance, client
-acknowledgements and ticks, and bidirectional Play traffic. GUI client and account-backed tests are outside the
-repository gate.
+belongs in `commonTest` under the `fixturetest` package and uses dummy offline credentials through
+`minecraft-test-support`; the Fixture Host owns the exact prepared HeadlessMC wrapper, Fabric profile, upstream
+HMC-Specifics mod, Mojang client, process, files, and logs. Default optional client settings automatically clone the
+title-ready template. The scenario verifies initial world acceptance, client acknowledgements and ticks, and
+bidirectional Play traffic from packets observed by this server; HMC text is control/readiness evidence, not a Play
+oracle. GUI client and account-backed tests are outside the repository gate.
+
+The published TCP server targets JVM, Android, supported Native platforms, JS Node, and WasmJS Node. Browser, D8, and
+Wasm/WASI are not TCP targets.
 
 Run `:protocol-server:jvmTest` after changes.

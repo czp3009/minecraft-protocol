@@ -39,8 +39,8 @@ infrastructure and are not application dependencies.
 - A JDK with Java major version 25 or newer and `java` on `PATH`.
 - An Android SDK configured through the standard Gradle mechanisms when running Android or the complete multiplatform
   test suite.
-- Network access for the first build or exhaustive test run so Gradle can download dependencies and verified official
-  Minecraft fixtures.
+- Network access for the first build or exhaustive test run so Gradle can download dependencies and exact-version
+  official Minecraft fixtures.
 
 Use the checked-in Gradle wrapper; a separate Gradle installation is unnecessary. Gradle provisions Node, D8, Yarn, and
 Kotlin Native tooling for configured non-JVM targets. Browser drivers, an installed Minecraft launcher, an account, and
@@ -125,14 +125,21 @@ Run every configured Kotlin Multiplatform test aggregate with:
 On Windows, replace `./gradlew` with `.\gradlew.bat`. The root project does not define a replacement `test` task.
 
 Applicable standard test tasks cover portable unit tests, real Ktor sockets, official-codec differentials, a production
-client against the matching official server, a matching headless official client against the production server, and an
-official world generate/rewrite/reload cycle. Gradle prepares exact verified fixtures and starts the shared JVM Fixture
-Host only when a test requests them. Gradle outputs remain under `build/`; Fixture Host processes, worlds, and scratch
-workspaces are removed after use, and successful tests do not create standalone report files. A test-local filesystem
-sandbox uses the system temporary directory and is removed by the test client. Compatible E2E phases reuse one process
-handle owned by their annotated test scenario and close it with structured cleanup. The Host admits at most eight
-concurrent fixture processes and performs graceful shutdown, followed by forced termination and workspace cleanup when
-the build ends. Unchanged preparation is reused by Gradle.
+client against the matching official server, a matching Mojang client controlled by HMC-Specifics against the production
+server, and an official world generate/rewrite/reload cycle. Gradle prepares all exact-version resources before launch,
+starts each assembled server and HeadlessMC/Fabric/HMC-Specifics client once to publish a clean stopped template, and
+starts the shared JVM Fixture Host only when a test requests it. Default configurations clone those templates
+automatically; non-default configurations start from the prepared runtime without seeded world or client state.
+Immutable fixture inputs are never launched in place. Workspace assembly uses hard links with copy fallback for
+immutable runtimes, the HeadlessMC launcher, HMC-Specifics, and Fabric's processed-mod cache; mutable template state
+remains a private copy. Runtime HeadlessMC launches do not download resources.
+
+Gradle outputs remain under `build/`; Fixture Host processes, worlds, and scratch workspaces are removed after use, and
+successful tests do not create standalone report files. A test-local filesystem sandbox uses the system temporary
+directory and is removed by the test client. Compatible E2E phases reuse one process handle owned by their annotated
+test scenario and close it with structured cleanup. The Host admits at most eight concurrent fixture processes and
+performs graceful shutdown, followed by forced termination and workspace cleanup when the build ends. Unchanged
+preparation is reused by Gradle.
 
 ## Minecraft release and generated data
 
@@ -151,9 +158,10 @@ analysis layer is also available directly:
 ./gradlew officialMinecraftAnalysis
 ```
 
-Gradle downloads and verifies the matching official server, writes deterministic analysis below
+Gradle downloads the matching official server, writes deterministic analysis below
 `build/generated/official-minecraft/<version>/`, and generates version-dependent Kotlin in the owning modules' build
-directories. Generated Kotlin and target evidence are not checked into the source tree.
+directories. Downloads rely on HTTP completion rather than a second content-hash or expected-size pass. Generated Kotlin
+and target evidence are not checked into the source tree.
 
 The matching official server JAR is the primary behavioral authority. The revision-matched Minecraft Wiki is secondary,
 followed by exact-version MCProtocolLib and Minestom. See [AGENTS.md](AGENTS.md) for repository development rules and

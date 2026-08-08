@@ -48,7 +48,7 @@ kotlin {
     applyDefaultHierarchyTemplate()
     useMinecraftTestFixtures(
         requiresOfficialServer = true,
-        requiresOfficialClient = true,
+        requiresHeadlessClient = true,
     )
 
     sourceSets {
@@ -89,6 +89,25 @@ kotlin {
             implementation(project(":minecraft-test-support"))
             implementation(libs.kotlinx.coroutines.test)
             implementation(libs.okio.fakefilesystem)
+        }
+
+        val hostFilesystemTest = create("hostFilesystemTest") {
+            dependsOn(commonTest.get())
+        }
+        jvmTest {
+            dependsOn(hostFilesystemTest)
+        }
+        jsTest {
+            dependsOn(hostFilesystemTest)
+        }
+        mingwTest {
+            dependsOn(hostFilesystemTest)
+        }
+        linuxTest {
+            dependsOn(hostFilesystemTest)
+        }
+        macosTest {
+            dependsOn(hostFilesystemTest)
         }
     }
 }

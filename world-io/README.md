@@ -36,3 +36,8 @@ The JS target is Node-only and uses synchronous host filesystem calls. Durable s
 protocol; closing the lease or terminating the process releases the OS lock while retaining the lock file. That addon
 publishes prebuilds for Linux, macOS, and Windows on x64 and arm64. Browser and Wasm consumers use `nbt`,
 `nbt-serialization`, and `world-format` through trees, streams, or byte arrays instead.
+
+The official generate/rewrite/reload test, including its annotated entry, is isolated in `hostFilesystemTest`. JVM, JS
+Node, and desktop Native test source sets that can open the Fixture Host's absolute path inherit it directly, without
+platform-specific entry files. Its non-default server properties automatically select a fresh world rather than the
+stopped default server template.

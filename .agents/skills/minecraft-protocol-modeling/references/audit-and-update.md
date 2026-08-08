@@ -28,13 +28,17 @@ affected items and their downstream verification.
 - Status, Login, Configuration, compression, Play, and implemented reconfiguration transitions have deterministic tests.
 - The production client reaches Play against the official server, and the matching headless official client accepts the
   production server's initial world and required acknowledgements.
-- OGG, PNG, and JSON are the complete fixed HeadlessMC placeholder formats. `DownloadHeadlessMcDummyFilesTask` downloads
-  and verifies the upstream OGG and PNG files and creates the JSON `{}` replacement;
-  `DownloadOfficialMinecraftAssetsTask`
-  substitutes those formats and retains verified official objects for every other format. Before changing
-  `HeadlessMcTarget.HEADLESS_MC_VERSION`, inspect the matching upstream `DummyAssets` implementation and update the
-  placeholder set, source paths, expected sizes, digests, or generated JSON bytes when its behavior differs, then rerun
-  official headless-client interoperability.
+- OGG, PNG, and JSON are the complete fixed HeadlessMC replacement formats.
+  `DownloadHeadlessMcAssetReplacementsTask` downloads the upstream OGG and PNG files,
+  `GenerateHeadlessMcJsonReplacementTask` creates `{}`, and `DownloadMinecraftClientAssetObjectsTask` plus
+  `AssembleHeadlessClientAssetsTask` retain Mojang content-addressed objects for every other format. Before changing
+  `HeadlessMcTarget.HEADLESS_MC_VERSION`, inspect matching upstream `DummyAssets` behavior and update formats, source
+  paths, or generated JSON bytes when needed. Do not add content-hash or expected-size validation.
+- Exact HeadlessMC wrapper, Fabric Loader, and HMC-Specifics coordinates come from their independent `buildSrc` targets;
+  normal builds never discover latest releases. Every required resource is prepared before launch.
+- Server template generation requires Status plus pong and a clean stop. Headless-client template generation requires
+  HMC-Specifics initialization, a correlated `gui` TitleScreen response, `quit`, EOF, and code zero. All-default
+  optional settings clone templates automatically; non-default optional settings start from prepared runtime state.
 - Official codec fixtures pass through the real official runtime rather than a copied implementation.
 - Generated source is absent from Git source directories and present in the owning publication output.
 - Runtime modules contain no generator entry point, process launcher, or fixture implementation.

@@ -42,6 +42,10 @@ kotlin {
         }
     }
 
+    js {
+        nodejs()
+    }
+
     wasmJs {
         nodejs()
     }

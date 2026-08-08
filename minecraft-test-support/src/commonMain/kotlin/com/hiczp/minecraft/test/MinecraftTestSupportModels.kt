@@ -34,14 +34,18 @@ data class OfficialMinecraftServerConfiguration(
 @Serializable
 data class HeadlessMinecraftClientConfiguration(
     val playerName: String,
-    val endpoint: MinecraftTestEndpoint,
+    val startupTimeout: Duration = 2.minutes,
+    val stopTimeout: Duration = 30.seconds,
 ) {
     init {
         require(playerName.matches(Regex("[A-Za-z0-9_]{1,16}"))) {
             "Invalid offline player name: $playerName"
         }
-        require(endpoint.host == LOOPBACK && endpoint.port in 1..0xFFFF) {
-            "Headless client tests require a valid loopback endpoint"
+        require(startupTimeout.isPositive() && startupTimeout.isFinite()) {
+            "startupTimeout must be positive and finite"
+        }
+        require(stopTimeout.isPositive() && stopTimeout.isFinite()) {
+            "stopTimeout must be positive and finite"
         }
     }
 }
@@ -49,21 +53,19 @@ data class HeadlessMinecraftClientConfiguration(
 @Serializable
 sealed interface MinecraftTestResource {
     val id: String
-    val endpoint: MinecraftTestEndpoint
 }
 
 /** Serializable reference to an official server owned by the Fixture Host. */
 @Serializable
 data class OfficialMinecraftServer(
     override val id: String,
-    override val endpoint: MinecraftTestEndpoint,
+    val endpoint: MinecraftTestEndpoint,
 ) : MinecraftTestResource
 
 /** Serializable reference to a headless client owned by the Fixture Host. */
 @Serializable
 data class HeadlessMinecraftClient(
     override val id: String,
-    override val endpoint: MinecraftTestEndpoint,
 ) : MinecraftTestResource
 
 @Serializable
@@ -71,5 +73,3 @@ data class MinecraftTestResourceStatus(
     val alive: Boolean,
     val exitCode: Int? = null,
 )
-
-private const val LOOPBACK = "127.0.0.1"

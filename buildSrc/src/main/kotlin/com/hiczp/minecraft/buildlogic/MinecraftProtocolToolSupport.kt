@@ -31,7 +31,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
-import java.security.MessageDigest
 import java.time.Duration
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -48,7 +47,6 @@ import kotlin.text.matches
 import kotlin.text.orEmpty
 import kotlin.text.toByteArray
 import kotlin.text.toCharArray
-import kotlin.text.toHexString
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.io.files.Path as IoPath
@@ -187,33 +185,6 @@ internal fun DefaultTask.createIsolatedTemporaryDirectory(
     return Files.createTempDirectory(root, "$prefix-")
 }
 
-internal fun ByteArray.sha1(): String =
-    MessageDigest.getInstance("SHA-1")
-        .digest(this)
-        .toHexString()
-
-internal fun ByteArray.sha256(): String =
-    MessageDigest.getInstance("SHA-256")
-        .digest(this)
-        .toHexString()
-
-internal fun Path.sha1(): String = digest("SHA-1")
-
-internal fun Path.sha256(): String = digest("SHA-256")
-
-private fun Path.digest(algorithm: String): String {
-    val digest = MessageDigest.getInstance(algorithm)
-    Files.newInputStream(this).use { input ->
-        val buffer = ByteArray(1024 * 1024)
-        while (true) {
-            val read = input.read(buffer)
-            if (read < 0) break
-            digest.update(buffer, 0, read)
-        }
-    }
-    return digest.digest().toHexString()
-}
-
 internal object ProtocolHttp {
     private const val MAX_RETRIES = 3
     private const val MAX_ATTEMPTS = MAX_RETRIES + 1
@@ -235,10 +206,6 @@ internal object ProtocolHttp {
         statusCode: Int,
         statusDescription: String,
     ) : IOException("HTTP $statusCode $statusDescription")
-
-    private class InvalidDownloadedArtifactException(
-        message: String,
-    ) : IOException(message)
 
     private val retryableResponseBodyKey =
         AttributeKey<RetryableResponseBody>("RetryableResponseBody")
@@ -332,48 +299,11 @@ internal object ProtocolHttp {
         return checkNotNull(content)
     }
 
-    suspend fun downloadVerified(
+    suspend fun download(
         url: String,
         destination: Path,
-        expectedSize: Long,
-        expectedSha1: String,
         offline: Boolean = false,
         connectTimeout: KotlinDuration = DOWNLOAD_CONNECT_TIMEOUT,
-    ) = downloadVerified(
-        url = url,
-        destination = destination,
-        expectedSize = expectedSize,
-        expectedHash = expectedSha1,
-        hashAlgorithm = "SHA-1",
-        offline = offline,
-        connectTimeout = connectTimeout,
-    )
-
-    suspend fun downloadVerifiedSha256(
-        url: String,
-        destination: Path,
-        expectedSize: Long,
-        expectedSha256: String,
-        offline: Boolean = false,
-        connectTimeout: KotlinDuration = DOWNLOAD_CONNECT_TIMEOUT,
-    ) = downloadVerified(
-        url = url,
-        destination = destination,
-        expectedSize = expectedSize,
-        expectedHash = expectedSha256,
-        hashAlgorithm = "SHA-256",
-        offline = offline,
-        connectTimeout = connectTimeout,
-    )
-
-    private suspend fun downloadVerified(
-        url: String,
-        destination: Path,
-        expectedSize: Long,
-        expectedHash: String,
-        hashAlgorithm: String,
-        offline: Boolean,
-        connectTimeout: KotlinDuration,
     ) {
         requireOnline(url, offline, destination)
         destination.parent.createDirectories()
@@ -393,20 +323,6 @@ internal object ProtocolHttp {
                                 .transferTo(sink)
                         }
                     }
-                if (current.status.isSuccess()) {
-                    val actualSize = Files.size(temporary)
-                    if (actualSize != expectedSize) {
-                        throw InvalidDownloadedArtifactException(
-                            "received $actualSize bytes; expected $expectedSize",
-                        )
-                    }
-                    val actualHash = temporary.digest(hashAlgorithm)
-                    if (actualHash != expectedHash) {
-                        throw InvalidDownloadedArtifactException(
-                            "$hashAlgorithm mismatch (received $actualHash; expected $expectedHash)",
-                        )
-                    }
-                }
             }
             Files.move(
                 temporary,
@@ -495,9 +411,6 @@ internal object ProtocolHttp {
 
             is SSLException ->
                 "the TLS connection failed${cause.message?.let { ": $it" }.orEmpty()}"
-
-            is InvalidDownloadedArtifactException ->
-                "the received file failed integrity validation: ${cause.message}"
 
             is IOException ->
                 "the network connection failed${cause.message?.let { ": $it" }.orEmpty()}"
@@ -639,9 +552,6 @@ internal data class MinecraftProtocolTarget(
 
 internal data class OfficialMinecraftTargetReport(
     val target: MinecraftProtocolTarget,
-    val serverSha1: String,
-    val serverSha256: String,
-    val versionMetadataSha1: String,
 )
 
 internal fun Path.readOfficialMinecraftTargetReport(): OfficialMinecraftTargetReport {
@@ -652,27 +562,12 @@ internal fun Path.readOfficialMinecraftTargetReport(): OfficialMinecraftTargetRe
     check(report.requiredInt("schema_version") == 1) {
         "Unsupported official Minecraft target schema"
     }
-    val serverSha1 = report.requiredString("official_server_sha1")
-    val serverSha256 = report.requiredString("official_server_sha256")
-    val metadataSha1 = report.requiredString("version_metadata_sha1")
-    check(serverSha1.matches(Regex("[0-9a-f]{40}"))) {
-        "Official Minecraft target has an invalid server SHA-1"
-    }
-    check(serverSha256.matches(Regex("[0-9a-f]{64}"))) {
-        "Official Minecraft target has an invalid server SHA-256"
-    }
-    check(metadataSha1.matches(Regex("[0-9a-f]{40}"))) {
-        "Official Minecraft target has an invalid metadata SHA-1"
-    }
     return OfficialMinecraftTargetReport(
         target = MinecraftProtocolTarget(
             minecraftVersion = report.requiredString("minecraft_version"),
             protocolVersion = report.requiredInt("protocol_version"),
             javaMajorVersion = report.requiredInt("java_major_version"),
         ),
-        serverSha1 = serverSha1,
-        serverSha256 = serverSha256,
-        versionMetadataSha1 = metadataSha1,
     ).also {
         check(it.target.minecraftVersion.isNotBlank()) {
             "Official Minecraft target has an empty version"

@@ -11,6 +11,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.kotlincrypto.hash.md.MD5
 import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 internal val testJson = Json {
     ignoreUnknownKeys = false
@@ -83,6 +84,99 @@ internal fun Path.deleteTree() {
         SystemFileSystem.list(this).forEach(Path::deleteTree)
     }
     SystemFileSystem.delete(this)
+}
+
+internal fun Path.deleteFilesRecursively() {
+    check(isDirectory()) { "Directory does not exist: $this" }
+    SystemFileSystem.list(this).forEach { child ->
+        if (child.isDirectory()) {
+            child.deleteFilesRecursively()
+        } else {
+            SystemFileSystem.delete(child)
+        }
+    }
+}
+
+internal fun Path.copyTreeTo(
+    destination: Path,
+    excludedRelativePaths: Set<String> = emptySet(),
+) {
+    check(isDirectory()) { "Source directory does not exist: $this" }
+    val source = toNioPath()
+    val target = destination.toNioPath()
+    val excludedPaths = excludedRelativePaths
+        .map { relativePath -> safeResolve(relativePath).toNioPath() }
+    Files.walk(source).use { paths ->
+        paths.forEach { current ->
+            if (excludedPaths.any(current::startsWith)) {
+                return@forEach
+            }
+            val relative = source.relativize(current)
+            val output = target.resolve(relative)
+            if (Files.isDirectory(current)) {
+                Files.createDirectories(output)
+            } else {
+                Files.createDirectories(checkNotNull(output.parent))
+                Files.copy(
+                    current,
+                    output,
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.COPY_ATTRIBUTES,
+                )
+            }
+        }
+    }
+}
+
+internal fun Path.linkTreeTo(destination: Path) {
+    check(isDirectory()) { "Source directory does not exist: $this" }
+    val source = toNioPath()
+    val target = destination.toNioPath()
+    Files.walk(source).use { paths ->
+        paths.forEach { current ->
+            val relative = source.relativize(current)
+            val output = target.resolve(relative)
+            if (Files.isDirectory(current)) {
+                Files.createDirectories(output)
+            } else {
+                Files.createDirectories(checkNotNull(output.parent))
+                linkFileOrCopy(current, output)
+            }
+        }
+    }
+}
+
+internal fun Path.linkFileTo(destination: Path): Boolean {
+    check(isRegularFile()) { "Source file does not exist: $this" }
+    destination.parent?.ensureDirectory()
+    return linkFileOrCopy(toNioPath(), destination.toNioPath())
+}
+
+internal fun Path.copyFileTo(destination: Path) {
+    check(isRegularFile()) { "Source file does not exist: $this" }
+    destination.parent?.ensureDirectory()
+    Files.copy(
+        toNioPath(),
+        destination.toNioPath(),
+        StandardCopyOption.REPLACE_EXISTING,
+        StandardCopyOption.COPY_ATTRIBUTES,
+    )
+}
+
+private fun linkFileOrCopy(
+    source: java.nio.file.Path,
+    destination: java.nio.file.Path,
+): Boolean = runCatching {
+    Files.createLink(destination, source)
+    true
+}.getOrElse {
+    Files.copy(
+        source,
+        destination,
+        StandardCopyOption.REPLACE_EXISTING,
+        StandardCopyOption.COPY_ATTRIBUTES,
+    )
+    false
 }
 
 internal fun createUniqueDirectory(parent: Path): Path {

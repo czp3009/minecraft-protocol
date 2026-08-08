@@ -34,6 +34,12 @@ Storage work never changes the selected release from a protocol number alone. Af
 Use the existing Gradle producers and standard tests. Any optional manual investigation follows the `temp/` boundary in
 root `AGENTS.md`.
 
+The world interoperability runner supplies non-default official-server properties, so the Fixture Host automatically
+uses prepared runtime state without the default world template. It must synchronously stop the server before opening the
+Host path. The runner and its annotated entry live in `hostFilesystemTest`; same-filesystem JVM, JS Node, and desktop
+Native standard test source sets inherit it directly without platform entry files. Do not expose or select a
+template/fresh policy in test code.
+
 Only an explicit read-only audit stops after reporting concrete gaps. Other invocations implement and verify gaps within
 the requested scope.
 

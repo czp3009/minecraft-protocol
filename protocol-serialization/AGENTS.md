@@ -22,9 +22,10 @@ adapter built from generated packet definitions.
 ## Tests
 
 Golden payloads, conditional branches, limits, malformed input, and registry-wide round trips belong in `commonTest`.
-The shared official-server scenario and codec-differential coverage also enter through `commonTest` and call
-`minecraft-test-support`. The `networkTest` capability source set supplies the one Ktor TCP entry shared by `jvmTest`,
-`nativeTest`, and `wasmJsTest`; Android host, JS, and Wasm/WASI tests need no platform placeholders. Browser tasks and
-Wasm/WASI exclude official-peer tests. Official runtime loading remains inside the Fixture Host.
+Codec-differential coverage also enters through `commonTest`, places its annotated entry under `fixturetest`, and calls
+`minecraft-test-support`. This module has no official-server TCP scenario, `protocol-transport` test dependency, or
+custom `networkTest` source set: real transport plus serialization interoperability belongs to the higher-level client
+and server fixtures. Browser, D8, and WasmWASI tasks exclude the codec fixture by package while continuing to run
+portable serialization tests. Official runtime loading remains inside the Fixture Host.
 
 Run `:protocol-serialization:jvmTest` after changes.

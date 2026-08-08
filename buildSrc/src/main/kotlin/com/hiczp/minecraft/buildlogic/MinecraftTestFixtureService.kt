@@ -3,7 +3,6 @@ package com.hiczp.minecraft.buildlogic
 import org.gradle.api.Project
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileCollection
-import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.provider.Provider
 import org.gradle.api.services.BuildService
@@ -35,10 +34,8 @@ abstract class MinecraftTestFixtureService :
         val hostClasspathDirectory: DirectoryProperty
         val hostWorkingDirectory: DirectoryProperty
         val minecraftVersion: Property<String>
-        val serverCacheDirectory: DirectoryProperty
-        val clientCacheDirectory: DirectoryProperty
-        val versionMetadataFile: RegularFileProperty
-        val headlessLauncherFile: RegularFileProperty
+        val officialServerRootDirectory: DirectoryProperty
+        val headlessClientRootDirectory: DirectoryProperty
         val serverRuntimeDirectory: DirectoryProperty
         val codecClassesDirectory: DirectoryProperty
         val fixtureWorkRoot: DirectoryProperty
@@ -103,10 +100,8 @@ abstract class MinecraftTestFixtureService :
             classpath,
             FIXTURE_HOST_MAIN_CLASS,
             parameters.minecraftVersion.get(),
-            parameters.serverCacheDirectory.get().asFile.absolutePath,
-            parameters.clientCacheDirectory.get().asFile.absolutePath,
-            parameters.versionMetadataFile.get().asFile.absolutePath,
-            parameters.headlessLauncherFile.get().asFile.absolutePath,
+            parameters.officialServerRootDirectory.get().asFile.absolutePath,
+            parameters.headlessClientRootDirectory.get().asFile.absolutePath,
             parameters.serverRuntimeDirectory.get().asFile.absolutePath,
             parameters.codecClassesDirectory.get().asFile.absolutePath,
             hostWorkRoot.absolutePath,
@@ -171,7 +166,7 @@ class MinecraftTestFixtureInfrastructure(
 )
 
 fun Project.applyMinecraftTestFixtureServiceConvention(
-    fixtureOutputs: OfficialMinecraftFixtureOutputs,
+    fixtureOutputs: MinecraftTestFixtureOutputs,
 ): MinecraftTestFixtureInfrastructure {
     check(this == rootProject) {
         "Minecraft test fixture service must be registered on the root project"
@@ -192,14 +187,21 @@ fun Project.applyMinecraftTestFixtureServiceConvention(
         ),
     )
     val hostRuntimeDirectory = layout.buildDirectory.dir("minecraft-test-support/fixture-host-runtime")
-    val prepareHostRuntime = tasks.register(
-        "prepareMinecraftTestFixtureHostRuntime",
+    val assembleHostRuntime = tasks.register(
+        "assembleMinecraftTestFixtureHostRuntime",
         Sync::class.java,
     ) { task ->
-        task.group = "verification"
-        task.description = "Prepare the JVM Minecraft test fixture host runtime."
+        task.group = "minecraft fixtures"
+        task.description = "Assemble the JVM Minecraft test fixture host runtime."
         task.from(hostRuntime)
         task.into(hostRuntimeDirectory)
+    }
+    val prepareHostRuntime = tasks.register(
+        "prepareMinecraftTestFixtureHostRuntime",
+    ) { task ->
+        task.group = "minecraft fixtures"
+        task.description = "Prepare the JVM Minecraft test fixture host runtime."
+        task.dependsOn(assembleHostRuntime)
     }
     val preparedHostRuntime = files(hostRuntimeDirectory).apply {
         builtBy(prepareHostRuntime)
@@ -217,17 +219,11 @@ fun Project.applyMinecraftTestFixtureServiceConvention(
         registration.parameters.minecraftVersion.set(
             MinecraftTarget.MINECRAFT_VERSION,
         )
-        registration.parameters.serverCacheDirectory.set(
-            fixtureOutputs.serverCacheDirectory,
+        registration.parameters.officialServerRootDirectory.set(
+            fixtureOutputs.officialServerRootDirectory,
         )
-        registration.parameters.clientCacheDirectory.set(
-            fixtureOutputs.clientCacheDirectory,
-        )
-        registration.parameters.versionMetadataFile.set(
-            fixtureOutputs.versionMetadataFile,
-        )
-        registration.parameters.headlessLauncherFile.set(
-            fixtureOutputs.headlessLauncherFile,
+        registration.parameters.headlessClientRootDirectory.set(
+            fixtureOutputs.headlessClientRootDirectory,
         )
         registration.parameters.serverRuntimeDirectory.set(
             fixtureOutputs.serverRuntimeDirectory,
@@ -446,7 +442,7 @@ internal const val FIXTURE_RPC_URL_ENV = "MINECRAFT_TEST_FIXTURE_RPC_URL"
 internal const val FIXTURE_OWNER_ID_ENV = "MINECRAFT_TEST_FIXTURE_OWNER_ID"
 
 private const val FIXTURE_HOST_MAIN_CLASS = "com.hiczp.minecraft.test.host.MinecraftTestFixtureHostKt"
-private const val MINECRAFT_TEST_FIXTURE_HOST_PROJECT = ":minecraft-test-fixture-host"
+internal const val MINECRAFT_TEST_FIXTURE_HOST_PROJECT = ":minecraft-test-fixture-host"
 private const val READY_PREFIX = "MINECRAFT_TEST_FIXTURE_READY "
 private const val HOST_LOG_LIMIT = 200_000
 private const val HOST_START_TIMEOUT_SECONDS = 30L

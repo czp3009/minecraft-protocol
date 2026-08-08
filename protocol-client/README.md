@@ -2,6 +2,9 @@
 
 A Kotlin Multiplatform Minecraft Java Edition protocol client.
 
+The TCP API targets JVM, Android, supported Native platforms, Kotlin/JS Node, and Kotlin/WasmJS Node. Browser, D8, and
+Wasm/WASI variants are not published for this socket-owning module.
+
 `MinecraftClientConnection` connects through Ktor TCP and retains the underlying `Socket`, transport, and typed session.
 Each connection performs one Status or Login handshake.
 

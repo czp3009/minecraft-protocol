@@ -27,20 +27,19 @@ class TestResourceConfigurationTest {
 
     @Test
     fun headlessClientConfigurationRejectsUnsafeProcessInputs() {
-        val endpoint = MinecraftTestEndpoint("127.0.0.1", 25_565)
         assertFailsWith<IllegalArgumentException> {
-            HeadlessMinecraftClientConfiguration("bad name", endpoint)
+            HeadlessMinecraftClientConfiguration("bad name")
         }
         assertFailsWith<IllegalArgumentException> {
             HeadlessMinecraftClientConfiguration(
-                "Player",
-                MinecraftTestEndpoint("localhost", 25_565),
+                playerName = "Player",
+                startupTimeout = Duration.ZERO,
             )
         }
         assertFailsWith<IllegalArgumentException> {
             HeadlessMinecraftClientConfiguration(
-                "Player",
-                MinecraftTestEndpoint("127.0.0.1", 0),
+                playerName = "Player",
+                stopTimeout = Duration.ZERO,
             )
         }
     }

@@ -29,12 +29,12 @@ object MinecraftTestSupport {
         }
     }
 
-    suspend fun newOfficialClient(
+    suspend fun newHeadlessClient(
         configuration: HeadlessMinecraftClientConfiguration,
     ): HeadlessMinecraftClient {
         val client = serviceClient()
         return try {
-            client.newOfficialClient(
+            client.newHeadlessClient(
                 ownerId = client.ownerId,
                 configuration = configuration,
             )
@@ -42,6 +42,37 @@ object MinecraftTestSupport {
             closeServiceClient(client, failure)
             throw failure
         }
+    }
+
+    suspend fun connectHeadlessClient(
+        client: HeadlessMinecraftClient,
+        endpoint: MinecraftTestEndpoint,
+    ) {
+        require(endpoint.host == LOOPBACK && endpoint.port in 1..0xFFFF) {
+            "Headless client tests require a valid loopback endpoint"
+        }
+        serviceClient().connectHeadlessClient(client, endpoint)
+    }
+
+    suspend fun disconnectHeadlessClient(client: HeadlessMinecraftClient) {
+        serviceClient().disconnectHeadlessClient(client)
+    }
+
+    suspend fun sendHeadlessClientCommand(
+        client: HeadlessMinecraftClient,
+        command: String,
+        expectedNewOutput: String? = null,
+        timeout: Duration = EVENT_TIMEOUT,
+    ) {
+        require(timeout.isPositive() && timeout.isFinite()) {
+            "Command timeout must be positive and finite"
+        }
+        serviceClient().sendHeadlessClientCommand(
+            client = client,
+            command = command,
+            expectedNewOutput = expectedNewOutput,
+            timeout = timeout,
+        )
     }
 
     suspend fun status(
@@ -122,6 +153,13 @@ object MinecraftTestSupport {
         }
     }
 
+    /** Stops a resource, deletes its workspace, and releases its Host slot. */
+    suspend fun closeAndAwait(resource: MinecraftTestResource): Int {
+        val exitCode = closeProcess(resource)
+        deleteWorkingDirectory(resource)
+        return exitCode
+    }
+
     suspend fun verifyOfficialCodec(fixtures: JsonElement) {
         withClosingServiceClient { client ->
             client.verifyOfficialCodec(fixtures)
@@ -198,3 +236,4 @@ suspend inline fun <T : MinecraftTestResource, R> T.use(
 }
 
 private val EVENT_TIMEOUT = 30.seconds
+private const val LOOPBACK = "127.0.0.1"

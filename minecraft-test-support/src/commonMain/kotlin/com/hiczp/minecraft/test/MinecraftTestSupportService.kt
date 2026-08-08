@@ -12,10 +12,24 @@ interface MinecraftTestSupportService {
         configuration: OfficialMinecraftServerConfiguration,
     ): OfficialMinecraftServer
 
-    suspend fun newOfficialClient(
+    suspend fun newHeadlessClient(
         ownerId: String,
         configuration: HeadlessMinecraftClientConfiguration,
     ): HeadlessMinecraftClient
+
+    suspend fun connectHeadlessClient(
+        client: HeadlessMinecraftClient,
+        endpoint: MinecraftTestEndpoint,
+    )
+
+    suspend fun disconnectHeadlessClient(client: HeadlessMinecraftClient)
+
+    suspend fun sendHeadlessClientCommand(
+        client: HeadlessMinecraftClient,
+        command: String,
+        expectedNewOutput: String?,
+        timeout: Duration,
+    )
 
     suspend fun status(
         resource: MinecraftTestResource,

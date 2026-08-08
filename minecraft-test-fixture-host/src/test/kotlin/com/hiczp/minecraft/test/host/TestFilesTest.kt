@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
+import java.nio.file.Files
 import kotlin.test.*
 
 class TestFilesTest {
@@ -33,6 +34,63 @@ class TestFilesTest {
         } finally {
             first.deleteTree()
             second.deleteTree()
+        }
+    }
+
+    @Test
+    fun treeCopiesCanExcludeImmutableSubtrees() {
+        val root = Path(Files.createTempDirectory("fixture-tree-copy-").toString())
+        try {
+            val source = Path(root, "source")
+            val destination = Path(root, "destination")
+            Path(source, "options.txt").writeText("original")
+            Path(source, "mods", "fixture.jar").writeText("mod")
+            Path(source, ".fabric", "processedMods", "nested.jar")
+                .writeText("cache")
+            Path(source, "logs").ensureDirectory()
+
+            source.copyTreeTo(
+                destination = destination,
+                excludedRelativePaths = setOf(
+                    ".fabric/processedMods",
+                    "mods",
+                ),
+            )
+
+            assertEquals("original", Path(destination, "options.txt").readText())
+            assertTrue(Path(destination, "logs").isDirectory())
+            assertFalse(Path(destination, "mods").exists())
+            assertFalse(Path(destination, ".fabric", "processedMods").exists())
+            Path(destination, "options.txt").writeText("private")
+            assertEquals("original", Path(source, "options.txt").readText())
+        } finally {
+            root.deleteTree()
+        }
+    }
+
+    @Test
+    fun singleFilesUseHardLinksWithCopyFallback() {
+        val root = Path(Files.createTempDirectory("fixture-file-link-").toString())
+        try {
+            val source = Path(root, "source.jar")
+            val linked = Path(root, "linked.jar")
+            val occupied = Path(root, "occupied.jar")
+            source.writeText("immutable")
+            occupied.writeText("old")
+
+            val usedHardLink = source.linkFileTo(linked)
+            val usedFallback = source.linkFileTo(occupied)
+
+            assertEquals(
+                usedHardLink,
+                Files.isSameFile(source.toNioPath(), linked.toNioPath()),
+            )
+            assertFalse(usedFallback)
+            assertFalse(Files.isSameFile(source.toNioPath(), occupied.toNioPath()))
+            assertEquals("immutable", linked.readText())
+            assertEquals("immutable", occupied.readText())
+        } finally {
+            root.deleteTree()
         }
     }
 

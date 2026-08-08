@@ -9,35 +9,42 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.testing.AbstractTestTask
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 
+private const val KOTLIN_NATIVE_SIMULATOR_TEST_CLASS =
+    "org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest"
+
+@PublishedApi
+internal val unsupportedMinecraftFixtureTestTasks = setOf(
+    "jsBrowserTest",
+    "wasmJsBrowserTest",
+    "wasmJsD8Test",
+    "wasmWasiNodeTest",
+)
+
 /** Supplies the Gradle-managed Fixture Host to this module's standard tests. */
 inline fun KotlinMultiplatformExtension.useMinecraftTestFixtures(
     requiresOfficialServer: Boolean = false,
-    requiresOfficialClient: Boolean = false,
+    requiresHeadlessClient: Boolean = false,
     requiresCodecOracle: Boolean = false,
 ) {
-    require(requiresOfficialServer || requiresOfficialClient || requiresCodecOracle) {
+    require(requiresOfficialServer || requiresHeadlessClient || requiresCodecOracle) {
         "At least one Minecraft fixture capability must be requested"
     }
     val owningProject = project
     val fixtureOutputs = owningProject.rootProject.extensions.getByType(
-        OfficialMinecraftFixtureOutputs::class.java,
+        MinecraftTestFixtureOutputs::class.java,
     )
     val fixtureInfrastructure = owningProject.rootProject.extensions.getByType(
         MinecraftTestFixtureInfrastructure::class.java,
     )
     val fixtureInputs = owningProject.files().apply {
         if (requiresOfficialServer) from(fixtureOutputs.officialServer)
-        if (requiresOfficialClient) from(fixtureOutputs.officialClient)
+        if (requiresHeadlessClient) from(fixtureOutputs.headlessClient)
         if (requiresCodecOracle) from(fixtureOutputs.codecOracle)
     }
 
     owningProject.tasks.withType(AbstractTestTask::class.java).configureEach { task ->
-        if (
-            task.name.startsWith("wasmWasi", ignoreCase = true) ||
-            task.name.endsWith("BrowserTest", ignoreCase = true) ||
-            task.name.endsWith("D8Test", ignoreCase = true)
-        ) {
-            task.filter.excludeTestsMatching("*Official*")
+        if (task.name in unsupportedMinecraftFixtureTestTasks) {
+            task.filter.excludeTestsMatching("*.fixturetest.*")
         } else {
             registerMinecraftTestFixtures(task, fixtureInputs, fixtureInfrastructure)
         }
@@ -53,7 +60,7 @@ internal fun registerMinecraftTestFixtures(
     // Provider provenance makes Gradle prepare these inputs before the host is
     // first requested by the executing test task.
     task.inputs.files(fixtureInputs)
-        .withPropertyName("officialMinecraftFixtures")
+        .withPropertyName("minecraftTestFixtures")
         .withPathSensitivity(PathSensitivity.RELATIVE)
     task.inputs.files(fixtureInfrastructure.hostClasspath)
         .withPropertyName("minecraftTestFixtureHostClasspath")
@@ -62,14 +69,29 @@ internal fun registerMinecraftTestFixtures(
     val taskPath = task.path
     task.doFirst { executingTask ->
         val connection = fixtureInfrastructure.service.get().connectionFor(taskPath)
+        val environmentPrefix =
+            if (executingTask.isKotlinNativeSimulatorTest()) {
+                "SIMCTL_CHILD_"
+            } else {
+                ""
+            }
         setTestEnvironment(
             task = executingTask,
             environment = mapOf(
-                FIXTURE_RPC_URL_ENV to connection.rpcUrl,
-                FIXTURE_OWNER_ID_ENV to connection.ownerId,
+                "$environmentPrefix$FIXTURE_RPC_URL_ENV" to connection.rpcUrl,
+                "$environmentPrefix$FIXTURE_OWNER_ID_ENV" to connection.ownerId,
             ),
         )
     }
+}
+
+private fun Task.isKotlinNativeSimulatorTest(): Boolean {
+    var taskClass: Class<*>? = javaClass
+    while (taskClass != null) {
+        if (taskClass.name == KOTLIN_NATIVE_SIMULATOR_TEST_CLASS) return true
+        taskClass = taskClass.superclass
+    }
+    return false
 }
 
 private fun setTestEnvironment(

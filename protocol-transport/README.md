@@ -2,6 +2,9 @@
 
 Kotlin Multiplatform transport primitives for Minecraft Java Edition.
 
+Real TCP targets are JVM, Android, supported Native platforms, Kotlin/JS Node, and Kotlin/WasmJS Node. Browser, D8, and
+Wasm/WASI variants are excluded because HTTP-only reachability is insufficient for the Minecraft protocol.
+
 The module provides:
 
 - VarInt21 packet framing;

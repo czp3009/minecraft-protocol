@@ -9,6 +9,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.io.files.Path
+import kotlinx.io.files.SystemFileSystem
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import kotlin.concurrent.Volatile
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -18,7 +24,6 @@ import kotlin.time.TimeSource
 /** A ready official-server process and its isolated loopback endpoint. */
 internal class HostedOfficialMinecraftServerResource private constructor(
     private val serverArtifact: OfficialServerArtifact,
-    private val layout: MinecraftTestLayout,
     val workDirectory: Path,
     private val configuration: OfficialMinecraftServerConfiguration,
     launched: LaunchedOfficialServer,
@@ -76,7 +81,6 @@ internal class HostedOfficialMinecraftServerResource private constructor(
                 }
             }
             val relaunched = launchOfficialServer(
-                layout = layout,
                 artifact = serverArtifact,
                 workDirectory = workDirectory,
                 configuration = configuration,
@@ -128,18 +132,19 @@ internal class HostedOfficialMinecraftServerResource private constructor(
             workDirectory: Path,
             configuration: OfficialMinecraftServerConfiguration,
         ): HostedOfficialMinecraftServerResource {
-            val artifact = OfficialArtifacts.server(layout)
-            workDirectory.ensureDirectory()
+            val artifact = prepareOfficialServerWorkspace(
+                preparedArtifact = OfficialArtifacts.server(layout),
+                workDirectory = workDirectory,
+                configuration = configuration,
+            )
             Path(workDirectory, "eula.txt").writeText("eula=true\n")
             val launched = launchOfficialServer(
-                layout = layout,
                 artifact = artifact,
                 workDirectory = workDirectory,
                 configuration = configuration,
             )
             return HostedOfficialMinecraftServerResource(
                 serverArtifact = artifact,
-                layout = layout,
                 workDirectory = workDirectory,
                 configuration = configuration,
                 launched = launched,
@@ -148,13 +153,51 @@ internal class HostedOfficialMinecraftServerResource private constructor(
     }
 }
 
+private fun prepareOfficialServerWorkspace(
+    preparedArtifact: OfficialServerArtifact,
+    workDirectory: Path,
+    configuration: OfficialMinecraftServerConfiguration,
+): OfficialServerArtifact {
+    workDirectory.ensureDirectory()
+    preparedArtifact.runtimeDirectory.linkTreeTo(workDirectory)
+    val runtimeJar = Path(workDirectory, "server.jar")
+    if (!configuration.usesDefaultTemplate()) {
+        return preparedArtifact.copy(
+            runtimeDirectory = workDirectory,
+            jar = runtimeJar,
+        )
+    }
+    preparedArtifact.templateDirectory.copyTreeTo(workDirectory)
+    val levelName = configuration.properties["level-name"]
+        ?: DEFAULT_WORLD_NAME
+    val targetWorld = workDirectory.safeResolve(levelName)
+    val defaultWorld = Path(workDirectory, DEFAULT_WORLD_NAME)
+    if (targetWorld != defaultWorld && defaultWorld.isDirectory()) {
+        check(!targetWorld.exists()) {
+            "Template target world already exists: $targetWorld"
+        }
+        targetWorld.parent?.ensureDirectory()
+        Files.move(
+            defaultWorld.toNioPath(),
+            targetWorld.toNioPath(),
+            StandardCopyOption.ATOMIC_MOVE,
+        )
+    }
+    return preparedArtifact.copy(
+        runtimeDirectory = workDirectory,
+        jar = runtimeJar,
+    )
+}
+
+internal fun OfficialMinecraftServerConfiguration.usesDefaultTemplate(): Boolean =
+    this == OfficialMinecraftServerConfiguration()
+
 private data class LaunchedOfficialServer(
     val endpoint: MinecraftTestEndpoint,
     val process: MinecraftTestProcess,
 )
 
 private suspend fun launchOfficialServer(
-    layout: MinecraftTestLayout,
     artifact: OfficialServerArtifact,
     workDirectory: Path,
     configuration: OfficialMinecraftServerConfiguration,
@@ -277,6 +320,7 @@ private fun writeProperties(
         "enforce-secure-profile" to "false",
         "generate-structures" to "false",
         "level-name" to DEFAULT_WORLD_NAME,
+        "level-seed" to "8675309",
         "level-type" to "minecraft:flat",
         "management-server-enabled" to "false",
         "max-players" to "1",
@@ -323,6 +367,116 @@ private fun String.isPortBindFailure(): Boolean =
         "bindexception",
     ).any { marker -> contains(marker, ignoreCase = true) }
 
+internal suspend fun generateOfficialMinecraftServerTemplate(
+    minecraftVersion: String,
+    serverJar: Path,
+    outputRoot: Path,
+    workRoot: Path,
+) {
+    outputRoot.deleteTree()
+    val candidate = createUniqueDirectory(workRoot)
+    var published = false
+    try {
+        Path(candidate, "eula.txt").writeText("eula=true\n")
+        val configuration = OfficialMinecraftServerConfiguration(
+        )
+        val launched = launchOfficialServer(
+            artifact = OfficialServerArtifact(
+                runtimeDirectory = candidate,
+                jar = serverJar,
+                templateDirectory = Path(candidate, "unused-template"),
+            ),
+            workDirectory = candidate,
+            configuration = configuration,
+        )
+        val exitCode = try {
+            launched.process.terminate(
+                gracefulTimeout = configuration.stopTimeout,
+            )
+        } catch (failure: Throwable) {
+            runCatching { launched.process.terminate() }
+                .onFailure(failure::addSuppressed)
+            throw failure
+        }
+        check(exitCode == 0) {
+            "Official server template process exited with $exitCode:\n${launched.process.logText()}"
+        }
+        check(Path(candidate, DEFAULT_WORLD_NAME).isDirectory()) {
+            "Official server template did not generate the default world"
+        }
+        val runtimeDirectory = Path(outputRoot, "runtime")
+        serverJar.copyFileTo(Path(runtimeDirectory, "server.jar"))
+        SERVER_EXTRACTED_RUNTIME_DIRECTORIES.forEach { name ->
+            candidate.safeResolve(name).copyTreeTo(
+                runtimeDirectory.safeResolve(name),
+            )
+        }
+        val templateDirectory = Path(outputRoot, "template")
+        candidate.copyTreeTo(templateDirectory)
+        SERVER_EXTRACTED_RUNTIME_DIRECTORIES.forEach { name ->
+            templateDirectory.safeResolve(name).deleteTree()
+        }
+        SERVER_TEMPLATE_CLEARED_DIRECTORIES.forEach { relativePath ->
+            templateDirectory.safeResolve(relativePath).deleteFilesRecursively()
+        }
+        SERVER_TEMPLATE_IGNORED_FILES.forEach { relativePath ->
+            templateDirectory.safeResolve(relativePath).deleteTree()
+        }
+        SERVER_TEMPLATE_CLEARED_DIRECTORIES.forEach { relativePath ->
+            check(templateDirectory.safeResolve(relativePath).isDirectory()) {
+                "Official server template lost reusable directory $relativePath"
+            }
+        }
+        SERVER_TEMPLATE_IGNORED_FILES.forEach { relativePath ->
+            check(!templateDirectory.safeResolve(relativePath).exists()) {
+                "Official server template retained mutable file $relativePath"
+            }
+        }
+        val runtimeEntries = SystemFileSystem.list(runtimeDirectory)
+            .map { path -> path.name }
+            .sorted()
+        check(runtimeEntries == SERVER_RUNTIME_ENTRIES) {
+            "Official server runtime contains unexpected entries: $runtimeEntries"
+        }
+        val templateEntries = SystemFileSystem.list(templateDirectory)
+            .map { path -> path.name }
+            .sorted()
+        val manifest = JsonObject(
+            linkedMapOf(
+                "schema_version" to JsonPrimitive(1),
+                "minecraft_version" to JsonPrimitive(minecraftVersion),
+                "relative_server_runtime_directory" to
+                        JsonPrimitive("runtime"),
+                "relative_server_jar" to
+                        JsonPrimitive("runtime/server.jar"),
+                "relative_template_directory" to
+                        JsonPrimitive("template"),
+                "default_world_name" to
+                        JsonPrimitive(DEFAULT_WORLD_NAME),
+                "runtime_entries" to JsonArray(
+                    runtimeEntries.map(::JsonPrimitive),
+                ),
+                "template_entries" to JsonArray(
+                    templateEntries.map(::JsonPrimitive),
+                ),
+                "excluded_mutable_entries" to JsonArray(
+                    serverTemplateIgnoredEntries().map(::JsonPrimitive),
+                ),
+                "template_policy_revision" to JsonPrimitive(2),
+                "ready_signal" to JsonPrimitive("status-and-pong"),
+                "clean_stop" to JsonPrimitive(true),
+            ),
+        )
+        Path(outputRoot, "manifest.json").writeText(
+            "${testJson.encodeToString(JsonObject.serializer(), manifest)}\n",
+        )
+        published = true
+    } finally {
+        candidate.deleteTree()
+        if (!published) outputRoot.deleteTree()
+    }
+}
+
 internal suspend fun selectAvailableLoopbackPort(): Int =
     SelectorManager(Dispatchers.Default).use { selector ->
         val socket = aSocket(selector).tcp().bind(LOOPBACK, 0) {
@@ -336,6 +490,28 @@ internal suspend fun selectAvailableLoopbackPort(): Int =
 
 private const val LOOPBACK = "127.0.0.1"
 private const val DEFAULT_WORLD_NAME = "world"
+private val SERVER_EXTRACTED_RUNTIME_DIRECTORIES = listOf(
+    "libraries",
+    "versions",
+)
+private val SERVER_RUNTIME_ENTRIES = listOf(
+    "libraries",
+    "server.jar",
+    "versions",
+)
+private val SERVER_TEMPLATE_CLEARED_DIRECTORIES = listOf(
+    "logs",
+)
+private val SERVER_TEMPLATE_IGNORED_FILES = listOf(
+    "server.properties",
+)
+
+private fun serverTemplateIgnoredEntries(): List<String> = buildList {
+    SERVER_TEMPLATE_CLEARED_DIRECTORIES.forEach { directory ->
+        add("$directory/**")
+    }
+    addAll(SERVER_TEMPLATE_IGNORED_FILES)
+}
 private val STATUS_POLL_INTERVAL = 25.milliseconds
 private val STATUS_SOCKET_TIMEOUT = 2.seconds
 private val SERVER_EVENT_TIMEOUT = 30.seconds

@@ -2,6 +2,10 @@
 
 Minecraft Java Edition packet-payload serialization built on `kotlinx.serialization`.
 
+Serialization has no network or filesystem requirement and therefore keeps the repository's complete supported KMP
+matrix, including JS Browser and WasmJS Node, Browser, and D8 plus the private Wasm/WASI scaffold. Deprecated Kotlin
+targets and Android Native remain intentionally absent repository-wide.
+
 `MinecraftProtocolFormat` implements `BinaryFormat` and interprets the structural serializers and wire annotations
 supplied by
 `protocol-model`. Raw packet NBT is recognized through the `nbt` logical serializer bridge and its no-name binary form

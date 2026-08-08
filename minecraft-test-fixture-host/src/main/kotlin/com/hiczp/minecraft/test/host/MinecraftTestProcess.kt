@@ -17,6 +17,7 @@ internal class MinecraftTestProcess private constructor(
     private val exit: CompletableDeferred<Int>,
     private val shutdownCommand: String?,
 ) {
+    private val commandMutex = Mutex()
     private val shutdownMutex = Mutex()
     private var shutdownRequested = false
 
@@ -28,6 +29,12 @@ internal class MinecraftTestProcess private constructor(
             ?: error("Test process has not exited")
 
     fun logText(): String = log.snapshot.value.text
+
+    val outputSequence: Long
+        get() = log.snapshot.value.outputSequence
+
+    fun containsLogAfter(marker: String, afterSequence: Long): Boolean =
+        log.snapshot.value.containsAfter(afterSequence, marker)
 
     fun requireAlive(context: String = "Test process") {
         val current = log.snapshot.value
@@ -46,14 +53,25 @@ internal class MinecraftTestProcess private constructor(
         marker: String,
         timeout: Duration,
     ) {
+        waitForLogAfter(marker, 0L, timeout)
+    }
+
+    suspend fun waitForLogAfter(
+        marker: String,
+        afterSequence: Long,
+        timeout: Duration,
+    ) {
         require(marker.isNotEmpty()) { "Log marker is empty" }
+        require(afterSequence >= 0L) {
+            "Output sequence must not be negative"
+        }
         require(timeout.isPositive() && timeout.isFinite()) {
             "Log timeout must be positive and finite"
         }
         val observed = withContext(Dispatchers.Default) {
             withTimeoutOrNull(timeout) {
                 log.snapshot.first { snapshot ->
-                    marker in snapshot.text ||
+                    snapshot.containsAfter(afterSequence, marker) ||
                             snapshot.exitCode != null ||
                             snapshot.failure != null
                 }
@@ -73,7 +91,7 @@ internal class MinecraftTestProcess private constructor(
                 failure,
             )
         }
-        check(marker in observed.text) {
+        check(observed.containsAfter(afterSequence, marker)) {
             """
             |Test process exited with ${observed.exitCode} before log marker '$marker':
             |${observed.text}
@@ -85,8 +103,27 @@ internal class MinecraftTestProcess private constructor(
         require('\n' !in line && '\r' !in line) {
             "sendLine accepts exactly one line"
         }
-        requireAlive()
-        process.sendLine(line)
+        commandMutex.withLock {
+            requireAlive()
+            process.sendLine(line)
+        }
+    }
+
+    suspend fun sendLineAndWait(
+        line: String,
+        marker: String,
+        timeout: Duration,
+    ): Long {
+        require('\n' !in line && '\r' !in line) {
+            "sendLineAndWait accepts exactly one line"
+        }
+        commandMutex.withLock {
+            requireAlive()
+            val sequence = outputSequence
+            process.sendLine(line)
+            waitForLogAfter(marker, sequence, timeout)
+            return sequence
+        }
     }
 
     suspend fun awaitExit(): Int = exit.await()
@@ -120,7 +157,11 @@ internal class MinecraftTestProcess private constructor(
             if (command == null) {
                 process.destroy()
             } else {
-                runCatching { process.sendLine(command) }
+                runCatching {
+                    commandMutex.withLock {
+                        process.sendLine(command)
+                    }
+                }
                     .onFailure { process.destroy() }
             }
         }
@@ -297,13 +338,23 @@ private class ProcessLog {
 
     fun append(line: String) {
         snapshot.update { current ->
-            val combined = "${current.text}$line\n"
+            val nextLine = SequencedOutputLine(
+                sequence = current.outputSequence + 1L,
+                text = "$line\n",
+            )
+            val retained = current.lines.toMutableList().apply {
+                add(nextLine)
+                var characters = sumOf { it.text.length }
+                while (
+                    size > 1 &&
+                    characters > MAXIMUM_LOG_CHARACTERS
+                ) {
+                    characters -= removeFirst().text.length
+                }
+            }
             current.copy(
-                text = if (combined.length <= MAXIMUM_LOG_CHARACTERS) {
-                    combined
-                } else {
-                    combined.takeLast(MAXIMUM_LOG_CHARACTERS)
-                },
+                lines = retained,
+                outputSequence = nextLine.sequence,
             )
         }
     }
@@ -318,9 +369,23 @@ private class ProcessLog {
 }
 
 private data class ProcessSnapshot(
-    val text: String = "",
+    val lines: List<SequencedOutputLine> = emptyList(),
+    val outputSequence: Long = 0L,
     val exitCode: Int? = null,
     val failure: Throwable? = null,
+) {
+    val text: String
+        get() = buildString {
+            lines.forEach { append(it.text) }
+        }
+
+    fun containsAfter(sequence: Long, marker: String): Boolean =
+        lines.any { it.sequence > sequence && marker in it.text }
+}
+
+private data class SequencedOutputLine(
+    val sequence: Long,
+    val text: String,
 )
 
 private const val MAXIMUM_LOG_CHARACTERS = 200_000

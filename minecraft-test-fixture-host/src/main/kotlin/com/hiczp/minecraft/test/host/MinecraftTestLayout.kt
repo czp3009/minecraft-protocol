@@ -4,10 +4,8 @@ import kotlinx.io.files.Path
 
 internal data class MinecraftTestLayout(
     val minecraftVersion: String,
-    val serverCacheDirectory: Path,
-    val clientCacheDirectory: Path,
-    val versionMetadataFile: Path,
-    val headlessLauncherFile: Path,
+    val officialServerRootDirectory: Path,
+    val headlessClientRootDirectory: Path,
     val serverRuntimeDirectory: Path,
     val codecClassesDirectory: Path,
     val hostWorkRoot: Path,
@@ -32,35 +30,46 @@ internal data class MinecraftTestLayout(
 
 internal enum class MinecraftRuntimeKind(val directoryName: String) {
     OFFICIAL_SERVER("official-server"),
-    OFFICIAL_CLIENT("official-client"),
+    HEADLESS_CLIENT("headless-client"),
 }
 
 internal data class OfficialServerArtifact(
+    internal val runtimeDirectory: Path,
     internal val jar: Path,
+    internal val templateDirectory: Path,
 )
 
 internal object OfficialArtifacts {
     fun server(layout: MinecraftTestLayout): OfficialServerArtifact {
-        val directory = layout.serverCacheDirectory
-        val jar = Path(directory, "server.jar")
-        val metadataFile = Path(directory, "download-metadata.json")
-        check(jar.isRegularFile() && metadataFile.isRegularFile()) {
+        val directory = layout.officialServerRootDirectory
+        val manifestFile = Path(directory, "manifest.json")
+        check(directory.isDirectory() && manifestFile.isRegularFile()) {
             "The official server fixture is missing; run this test through its standard Gradle test task"
         }
-        val metadata = metadataFile.readJsonObject()
-        check(metadata.requiredString("minecraft_version") == layout.minecraftVersion) {
+        val manifest = manifestFile.readJsonObject()
+        check(manifest.requiredString("minecraft_version") == layout.minecraftVersion) {
             "The official server fixture belongs to a different Minecraft version"
         }
-        return OfficialServerArtifact(
-            jar = jar,
+        val runtimeDirectory = directory.safeResolve(
+            manifest.requiredString("relative_server_runtime_directory"),
         )
-    }
-
-    fun headlessLauncher(layout: MinecraftTestLayout): Path {
-        val launcher = layout.headlessLauncherFile
-        check(launcher.isRegularFile()) {
-            "The verified HeadlessMC fixture is missing: $launcher. Run this test through its standard Gradle test task."
+        val jar = directory.safeResolve(
+            manifest.requiredString("relative_server_jar"),
+        )
+        val template = directory.safeResolve(
+            manifest.requiredString("relative_template_directory"),
+        )
+        check(
+            runtimeDirectory.isDirectory() &&
+                    jar.isRegularFile() &&
+                    template.isDirectory(),
+        ) {
+            "The official server fixture manifest describes missing prepared inputs"
         }
-        return launcher
+        return OfficialServerArtifact(
+            runtimeDirectory = runtimeDirectory,
+            jar = jar,
+            templateDirectory = template,
+        )
     }
 }

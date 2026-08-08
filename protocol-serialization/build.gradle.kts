@@ -51,6 +51,8 @@ kotlin {
 
     wasmJs {
         nodejs()
+        browser()
+        d8()
     }
 
     wasmWasi {
@@ -58,10 +60,7 @@ kotlin {
     }
 
     applyDefaultHierarchyTemplate()
-    useMinecraftTestFixtures(
-        requiresOfficialServer = true,
-        requiresCodecOracle = true,
-    )
+    useMinecraftTestFixtures(requiresCodecOracle = true)
 
     sourceSets {
         commonMain {
@@ -81,20 +80,5 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
         }
 
-        val networkTest = create("networkTest") {
-            dependsOn(commonTest.get())
-            dependencies {
-                implementation(project(":protocol-transport"))
-            }
-        }
-        jvmTest {
-            dependsOn(networkTest)
-        }
-        nativeTest {
-            dependsOn(networkTest)
-        }
-        wasmJsTest {
-            dependsOn(networkTest)
-        }
     }
 }

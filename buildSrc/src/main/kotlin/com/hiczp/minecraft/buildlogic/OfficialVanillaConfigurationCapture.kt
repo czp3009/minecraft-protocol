@@ -543,11 +543,7 @@ internal data class VanillaConfigurationCaptureResult(
 
     fun toAnalysisJson(
         target: MinecraftProtocolTarget,
-        serverSha256: String,
     ): JsonObject {
-        check(serverSha256.matches(Regex("[0-9a-f]{64}"))) {
-            "Official server SHA-256 is invalid"
-        }
         val registries = completeRegistries.zip(clientKnownRegistries)
             .map { (full, compact) ->
                 validateRegistryPair(full, compact)
@@ -585,7 +581,6 @@ internal data class VanillaConfigurationCaptureResult(
             "schema_version" to jsonNumber(1),
             "minecraft_version" to jsonString(target.minecraftVersion),
             "protocol_version" to jsonNumber(target.protocolVersion),
-            "official_server_sha256" to jsonString(serverSha256),
             "known_packs" to JsonArray(
                 knownPacks.values.map { pack ->
                     jsonObjectOf(
@@ -640,13 +635,6 @@ internal data class VanillaConfigurationCaptureResult(
             ) {
                 "Vanilla Configuration analysis targets a different release"
             }
-            check(
-                document.requiredString("official_server_sha256") ==
-                        expectedTarget.serverSha256,
-            ) {
-                "Vanilla Configuration analysis describes a different server JAR"
-            }
-
             val describedKnownPacks = document.requiredArray("known_packs")
                 .map { element ->
                     val pack = element.jsonObject

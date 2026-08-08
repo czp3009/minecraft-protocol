@@ -1,5 +1,5 @@
+import com.hiczp.minecraft.buildlogic.applyMinecraftFixtureArtifactsConvention
 import com.hiczp.minecraft.buildlogic.applyMinecraftTestFixtureServiceConvention
-import com.hiczp.minecraft.buildlogic.applyOfficialDownloadsConvention
 import org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootExtension
 import org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest
 import org.jetbrains.kotlin.gradle.targets.js.testing.karma.KotlinKarma
@@ -39,8 +39,8 @@ plugins.withType<WasmYarnPlugin> {
     }
 }
 
-val officialMinecraftFixtures = applyOfficialDownloadsConvention()
-applyMinecraftTestFixtureServiceConvention(officialMinecraftFixtures)
+val minecraftTestFixtures = applyMinecraftFixtureArtifactsConvention()
+applyMinecraftTestFixtureServiceConvention(minecraftTestFixtures)
 
 subprojects {
     group = rootProject.group

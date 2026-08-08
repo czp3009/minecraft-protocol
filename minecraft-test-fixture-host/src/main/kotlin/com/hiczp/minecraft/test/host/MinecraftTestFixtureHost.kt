@@ -22,38 +22,32 @@ import kotlin.time.Duration
 import kotlin.uuid.Uuid
 
 fun main(arguments: Array<String>) = runBlocking {
-    require(arguments.size == 9) {
+    require(arguments.size == 7) {
         "Expected Minecraft version, fixture inputs, work root, and maximum parallel usages"
     }
 
     // 0: The official Minecraft release shared by every prepared fixture input.
     val minecraftVersion = arguments[0]
-    // 1: The Gradle-prepared cache containing the official server artifacts.
-    val serverCacheDirectory = Path(arguments[1])
-    // 2: The Gradle-prepared cache containing the official client artifacts.
-    val clientCacheDirectory = Path(arguments[2])
-    // 3: The selected release's official version metadata.
-    val versionMetadataFile = Path(arguments[3])
-    // 4: The prepared HeadlessMc launcher used to run the official client.
-    val headlessLauncherFile = Path(arguments[4])
-    // 5: The extracted official server implementation and runtime libraries.
-    val serverRuntimeDirectory = Path(arguments[5])
-    // 6: The compiled bridge used to verify values with the official codecs.
-    val codecClassesDirectory = Path(arguments[6])
-    // 7: This Host process's isolated root for runtime directories and scratch files.
-    val hostWorkRoot = Path(arguments[7])
-    // 8: The resource capacity shared with the Gradle Build Service task limit.
-    val maximumParallelUsages = arguments[8].toInt()
+    // 1: The Gradle-prepared, stopped official-server template and runtime.
+    val officialServerRootDirectory = Path(arguments[1])
+    // 2: The Gradle-prepared, stopped HeadlessMC template and runtime.
+    val headlessClientRootDirectory = Path(arguments[2])
+    // 3: The extracted official server implementation and runtime libraries.
+    val serverRuntimeDirectory = Path(arguments[3])
+    // 4: The compiled bridge used to verify values with the official codecs.
+    val codecClassesDirectory = Path(arguments[4])
+    // 5: This Host process's isolated root for runtime directories and scratch files.
+    val hostWorkRoot = Path(arguments[5])
+    // 6: The resource capacity shared with the Gradle Build Service task limit.
+    val maximumParallelUsages = arguments[6].toInt()
     require(maximumParallelUsages > 0) {
         "Maximum parallel usages must be positive"
     }
     HostedMinecraftTestSupport.configure(
         MinecraftTestLayout(
             minecraftVersion = minecraftVersion,
-            serverCacheDirectory = serverCacheDirectory,
-            clientCacheDirectory = clientCacheDirectory,
-            versionMetadataFile = versionMetadataFile,
-            headlessLauncherFile = headlessLauncherFile,
+            officialServerRootDirectory = officialServerRootDirectory,
+            headlessClientRootDirectory = headlessClientRootDirectory,
             serverRuntimeDirectory = serverRuntimeDirectory,
             codecClassesDirectory = codecClassesDirectory,
             hostWorkRoot = hostWorkRoot,
@@ -125,10 +119,36 @@ private class MinecraftTestSupportServiceServer(
         configuration: OfficialMinecraftServerConfiguration,
     ): OfficialMinecraftServer = resources.newOfficialServer(ownerId, configuration)
 
-    override suspend fun newOfficialClient(
+    override suspend fun newHeadlessClient(
         ownerId: String,
         configuration: HeadlessMinecraftClientConfiguration,
-    ): HeadlessMinecraftClient = resources.newOfficialClient(ownerId, configuration)
+    ): HeadlessMinecraftClient = resources.newHeadlessClient(ownerId, configuration)
+
+    override suspend fun connectHeadlessClient(
+        client: HeadlessMinecraftClient,
+        endpoint: MinecraftTestEndpoint,
+    ) {
+        resources.hostedClient(client).connect(endpoint)
+    }
+
+    override suspend fun disconnectHeadlessClient(
+        client: HeadlessMinecraftClient,
+    ) {
+        resources.hostedClient(client).disconnect()
+    }
+
+    override suspend fun sendHeadlessClientCommand(
+        client: HeadlessMinecraftClient,
+        command: String,
+        expectedNewOutput: String?,
+        timeout: Duration,
+    ) {
+        resources.hostedClient(client).sendCommand(
+            command = command,
+            expectedNewOutput = expectedNewOutput,
+            timeout = timeout,
+        )
+    }
 
     override suspend fun status(
         resource: MinecraftTestResource,
@@ -212,9 +232,7 @@ private class HostedFixtureResources(maximumParallelUsages: Int) {
         }
         val id = newResourceId()
         val hosted = HostedFixtureResource.Server(ownerId, resource)
-        hosted.invokeOnCleanupCompletion { failure ->
-            if (failure == null) resourceSlots.release()
-        }
+        hosted.invokeOnCleanupCompletion { resourceSlots.release() }
         return try {
             val server = resource.toOfficialMinecraftServer(id)
             mutex.withLock {
@@ -230,22 +248,20 @@ private class HostedFixtureResources(maximumParallelUsages: Int) {
         }
     }
 
-    suspend fun newOfficialClient(
+    suspend fun newHeadlessClient(
         ownerId: String,
         configuration: HeadlessMinecraftClientConfiguration,
     ): HeadlessMinecraftClient {
         acquireResourceSlot()
         val resource = try {
-            HostedMinecraftTestSupport.newOfficialClient(configuration)
+            HostedMinecraftTestSupport.newHeadlessClient(configuration)
         } catch (failure: Throwable) {
             resourceSlots.release()
             throw failure
         }
         val id = newResourceId()
         val hosted = HostedFixtureResource.Client(ownerId, resource)
-        hosted.invokeOnCleanupCompletion { failure ->
-            if (failure == null) resourceSlots.release()
-        }
+        hosted.invokeOnCleanupCompletion { resourceSlots.release() }
         return try {
             val client = resource.toHeadlessMinecraftClient(id)
             mutex.withLock {
@@ -268,6 +284,16 @@ private class HostedFixtureResources(maximumParallelUsages: Int) {
             is HostedFixtureResource.Server -> resource.resource
             is HostedFixtureResource.Client -> throw IllegalArgumentException(
                 "Resource ${server.id} is not an official server",
+            )
+        }
+
+    suspend fun hostedClient(
+        client: HeadlessMinecraftClient,
+    ): HostedHeadlessMinecraftClientResource =
+        when (val resource = hostedResource(client.id)) {
+            is HostedFixtureResource.Client -> resource.resource
+            is HostedFixtureResource.Server -> throw IllegalArgumentException(
+                "Resource ${client.id} is not a HeadlessMC client",
             )
         }
 
@@ -450,7 +476,6 @@ private fun HostedHeadlessMinecraftClientResource.toHeadlessMinecraftClient(
     id: String,
 ): HeadlessMinecraftClient = HeadlessMinecraftClient(
     id = id,
-    endpoint = endpoint,
 )
 
 private fun HostedOfficialMinecraftServerResource.status(): MinecraftTestResourceStatus =

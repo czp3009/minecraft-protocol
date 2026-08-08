@@ -20,8 +20,23 @@ and final cleanup.
 - Every process has a unique workspace and an internally selected endpoint. Official-server readiness requires a full
   status response and pong while process exit is monitored; bind failures retry before a ready resource value is
   returned.
-- Directly launched processes remain retained until cleanup. A launcher's supported in-process mode is used instead of
-  an opaque descendant process where available.
+- The immutable official-server and headless-client roots are never launched in place. An exact default server
+  configuration clones the stopped server template; any non-default server option starts from the extracted immutable
+  runtime without template state. A headless client's required player name is independent of template selection:
+  default optional lifecycle values clone the stopped client template, while non-default optional values use the
+  assembled runtime and a fresh game directory. Immutable runtime files, the HeadlessMC launcher, the sole client mod,
+  and Fabric's processed-mod cache use hard links with copy fallback. Generated options and all other mutable template
+  files always use real copies; directory entries are always private because directories cannot be hard linked.
+- Server templates retain the generated world, stable empty access-control files, EULA, and empty directory skeleton;
+  extracted server libraries and versions are immutable runtime. Client templates retain generated options, the sole
+  HMC-Specifics mod, Fabric's processed-mod cache, and every reusable empty directory. Sanitization removes file content
+  under the fixed manifest paths without deleting reusable empty directories.
+- A new headless client is ready only after HMC-Specifics initializes and a post-command `gui` response reports the
+  vanilla title screen. Connecting is explicit and does not claim Play; production-server packet observations establish
+  Play. Normal close sends HMC-Specifics `quit`, waits for correlated new output, output EOF, process exit, and code
+  zero. Forced process-tree termination is cleanup fallback, not a successful lifecycle result.
+- Directly launched processes remain retained until cleanup. HeadlessMC uses its wrapper and supported in-memory launch
+  mode instead of an opaque descendant process.
 - A test in one subproject and platform amortizes a compatible process across sequential phases through one serializable
   resource value created and closed inside the annotated test scenario. A global or class-scoped resource is reserved
   for a
@@ -36,14 +51,18 @@ verification failures cross as exceptions with bounded diagnostics. Process obje
 `hostWorkingDirectory` is the one documented path backdoor: it returns an absolute Host path to same-filesystem tests
 without transferring or wrapping the directory contents.
 
+Process output has a monotonically increasing internal sequence. Every command that waits for a marker records its
+pre-send sequence and accepts only later output; commands for one resource are serialized. A marker left by startup or a
+previous command cannot satisfy a later operation.
+
 The host process reserves standard input for Build Service control commands and standard output for its single
 `READY_PREFIX` connection announcement. That machine-readable handshake is not a diagnostic log. Host diagnostics use
 kotlin-logging, and the raw-standard-stream programs under `src/test/resources` exist only to verify process-pipe
 behavior.
 
-Consume only artifact and directory providers supplied by Gradle. Gradle owns download integrity; the host reads the
-required metadata and paths but never downloads, repairs, rediscovers, or rehashes immutable fixture downloads. Mutable
-filesystem state stays below the explicit `build/minecraft-test-support/` work root and is deleted after use. Do not
-persist standalone files merely to record successful test execution.
+Consume only artifact and directory providers supplied by Gradle. The host reads their manifests and paths but never
+downloads, repairs, rediscovers, hashes, or size-checks prepared fixture resources. Mutable filesystem state stays below
+the explicit `build/minecraft-test-support/` work root and is deleted after use. Do not persist standalone files merely
+to record successful test execution.
 
 Run `:minecraft-test-fixture-host:test` after host, process, pool, or protocol-handler changes.

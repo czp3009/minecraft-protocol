@@ -44,11 +44,15 @@ kotlin {
         }
     }
 
+    js {
+        nodejs()
+    }
+
     wasmJs {
         nodejs()
     }
 
-    useMinecraftTestFixtures(requiresOfficialClient = true)
+    useMinecraftTestFixtures(requiresHeadlessClient = true)
 
     sourceSets {
         commonMain.dependencies {

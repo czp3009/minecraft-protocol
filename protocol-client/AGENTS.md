@@ -9,7 +9,11 @@ Packs, Configuration keepalives, and active chunk/biome decode context. Extensio
 without changing the core state machine.
 
 Scripted peers exercise local branches in `commonTest`. The production-client scenario against the exact official
-offline server also lives in `commonTest`; it requests a remote server and reads status and logs only through
-`minecraft-test-support`. Live account authentication is not a deterministic test dependency.
+offline server also lives in `commonTest` under the `fixturetest` package; it requests a remote server and reads status
+and logs only through `minecraft-test-support`. Its all-default configuration automatically clones the stopped server
+template. Live account authentication is not a deterministic test dependency.
+
+The published TCP client targets JVM, Android, supported Native platforms, JS Node, and WasmJS Node. Browser, D8, and
+Wasm/WASI are not TCP targets.
 
 Run `:protocol-client:jvmTest` after changes.

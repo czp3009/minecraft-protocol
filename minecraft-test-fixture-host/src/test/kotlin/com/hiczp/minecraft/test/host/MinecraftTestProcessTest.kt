@@ -48,6 +48,24 @@ class MinecraftTestProcessTest {
     }
 
     @Test
+    fun commandWaitersRejectMarkersEmittedBeforeTheirCommand() = runTest {
+        withFixture { process ->
+            process.waitForLog(STARTED, TIMEOUT)
+            process.sendLineAndWait("old", "ack:old", TIMEOUT)
+
+            val failure = assertFailsWith<IllegalStateException> {
+                process.sendLineAndWait(
+                    line = "new",
+                    marker = "ack:old",
+                    timeout = 100.milliseconds,
+                )
+            }
+
+            assertTrue(failure.message.orEmpty().contains("did not emit"))
+        }
+    }
+
+    @Test
     fun parentExitDoesNotWaitForAChildThatInheritedItsOutputPipe() = runTest {
         val workingDirectory = HostedMinecraftTestSupport.newScratchDirectory()
         val process = MinecraftTestProcess.start(

@@ -29,8 +29,11 @@ filesystem; browser and Wasm targets use the stream modules and do not receive a
 ## Tests
 
 Filesystem behavior expressible through Okio or its fake filesystem belongs in `commonTest`. Keep the shared
-official-server runner's Host-filesystem namespace restriction explicit in its KDoc. Thin official interoperability
-entries live only in JVM, Node, and desktop Native source sets; other JVM-specific filesystem oracles belong in
-`jvmTest`.
+official-server test's Host-filesystem namespace restriction explicit in its KDoc. The runner and its annotated entry
+live in the unique `hostFilesystemTest` capability source set. JVM, JS Node, and desktop Native test source sets depend
+on it directly and do not need platform-specific source files; Android Host and every isolated/device/Wasm runtime
+inherit portable `commonTest` coverage only. Its non-default official-server properties automatically select prepared
+runtime without the stopped default world template; no workspace policy crosses the test API. Other JVM-specific
+filesystem oracles belong in `jvmTest`.
 
 Run `:world-io:jvmTest` first, then `:world-io:jsNodeTest` for Node filesystem changes.
