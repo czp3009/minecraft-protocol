@@ -16,5 +16,9 @@ Android host, desktop Native, JS Node, and WasmJS Node; Ktor capability reportin
 Platform source sets and Gradle filters do not duplicate common public-behavior test entries; they contain only platform
 oracles or `actual` support.
 
+Raw compression and AES primitives always come from maintained platform libraries. Shared code owns only Minecraft's
+compression envelope, limits, framing, and stream ownership; it does not implement DEFLATE, checksums, AES key
+scheduling, S-boxes, or cipher rounds.
+
 Run `:protocol-transport:jvmTest` after changes. Framed-connection changes also require
 `:protocol-session:jvmTest`.

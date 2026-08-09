@@ -2,6 +2,21 @@
 # yarn lockfile v1
 
 
+"@js-joda/core@3.2.0":
+  version "3.2.0"
+  resolved "https://registry.yarnpkg.com/@js-joda/core/-/core-3.2.0.tgz#3e61e21b7b2b8a6be746df1335cf91d70db2a273"
+  integrity sha512-PMqgJ0sw5B7FKb2d5bWYIoxjri+QlW/Pys7+Rw82jSH0QN3rB05jZ/VrrsUdh1w4+i2kw9JOejXGq/KhDOX7Kg==
+
+js-xxhash@5.0.1:
+  version "5.0.1"
+  resolved "https://registry.yarnpkg.com/js-xxhash/-/js-xxhash-5.0.1.tgz#35135863425169a42a2defe4741a60aeec3008e6"
+  integrity sha512-OGuTCR9wqYqF2FrhjtGb6fx8Rm1jzhdpUEsY2sLkXbNYLzOS+XWcYT4KTUL7vnaRTmBuGuVpW1AK2zzxjgZXGg==
+
+lz4-lite@1.1.2:
+  version "1.1.2"
+  resolved "https://registry.yarnpkg.com/lz4-lite/-/lz4-lite-1.1.2.tgz#68f1195fb0de1facf24190e62883eef4d6686a0a"
+  integrity sha512-B04n18eKpt4tH8WGVxwVrBW3eUL7Fj7J1EVbg/FPENTh7wF/95WGOFcbdQunSoidD3QdL59ZCRMGnu6cD8Xf/w==
+
 ws@8.20.1:
   version "8.20.1"
   resolved "https://registry.yarnpkg.com/ws/-/ws-8.20.1.tgz#91a9ae2b312ccf98e0a85ec499b48cef45ab0ddb"

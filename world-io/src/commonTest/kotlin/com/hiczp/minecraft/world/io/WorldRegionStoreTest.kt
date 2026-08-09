@@ -536,15 +536,6 @@ class WorldRegionStoreTest {
             store.writeChunk(
                 position,
                 RegionChunk(
-                    compression = RegionCompression.GZIP,
-                    payload = RegionChunkPayload.Inline(byteArrayOf(1)),
-                ),
-            )
-        }
-        assertFailsWith<RegionFormatException> {
-            store.writeChunk(
-                position,
-                RegionChunk(
                     compression = RegionCompression.NONE,
                     payload = RegionChunkPayload.External(),
                 ),

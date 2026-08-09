@@ -4,13 +4,13 @@ import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.nbt.NbtString
+import com.hiczp.minecraft.nbt.serialization.NbtDecodingException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import okio.*
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.*
-import kotlinx.io.IOException as KotlinxIOException
 
 class StandaloneFileStoreEdgeTest {
     @Test
@@ -31,7 +31,7 @@ class StandaloneFileStoreEdgeTest {
             path,
             original.copyOf(original.size + 1).also { it[it.lastIndex] = 1 },
         )
-        assertFails {
+        assertFailsWith<NbtDecodingException> {
             normal.read(path, NbtFileCompression.NONE)
         }
 
@@ -44,7 +44,7 @@ class StandaloneFileStoreEdgeTest {
                 ),
             ).read(path, NbtFileCompression.NONE)
         }
-        assertFails {
+        assertFailsWith<WorldIOException> {
             NbtFileStore(
                 fileSystem,
                 configuration = NbtFileStoreConfiguration(
@@ -115,15 +115,7 @@ class StandaloneFileStoreEdgeTest {
                 LevelDataStore(paths, NbtFileStore(failing))
                     .write(edgeDocument(2))
             }
-            when (failurePoint) {
-                TemporaryNbtFailure.RESIZE,
-                TemporaryNbtFailure.CLOSE,
-                    -> assertIs<IOException>(failure)
-
-                TemporaryNbtFailure.WRITE,
-                TemporaryNbtFailure.FLUSH,
-                    -> assertIs<KotlinxIOException>(failure)
-            }
+            assertIs<IOException>(failure)
 
             assertEquals(first, NbtFileStore(base).read(paths.levelData))
             assertFalse(base.exists(paths.previousLevelData))

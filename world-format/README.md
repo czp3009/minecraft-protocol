@@ -7,9 +7,15 @@ The module models absolute, region, and local chunk coordinates; parses and pack
 compressed payloads; represents external `.mcc` chunks explicitly; and composes compression with compound-document NBT
 when requested. NBT values come from `nbt`, while document bytes are delegated to `nbt-serialization`.
 
-All vanilla region compression registrations are supported. LZ4 uses the legacy lz4-java block stream used by the
-official server, not the standard LZ4 frame format. Custom compression can be supplied through
-`RegionCompressionCodecs`.
+All vanilla region compression registrations are supported. GZIP and ZLIB use Okio on JVM, Android, and Native and
+Kompress's official `kotlinx.io` decorators on JS and WasmJS. LZ4 uses the official server's legacy lz4-java block
+stream, not the standard LZ4 frame format; raw blocks and XXHash32 are delegated to lz4-java, NativeBuilds liblz4 plus
+Appmattus cryptohash, or the `lz4-lite` plus `js-xxhash` npm packages. The shared code implements only the LZ4Block
+container and validation. Custom compression can be supplied through `RegionCompressionCodecs`.
+
+The module targets JVM, Android, the configured Native platforms, JS Node/browser, and WasmJS Node/browser. It does not
+publish Wasm/WASI or a WasmJS D8 runtime because its Web LZ4 backend is an npm module and no extra bundling layer is
+maintained solely for D8.
 
 ```kotlin
 val region = RegionFileFormat.decodeFromSource(source)
@@ -20,6 +26,9 @@ RegionFileFormat.encodeToSink(region, sink)
 RegionChunkNbtFormat().encodeToSink(updatedDocument, RegionCompression.ZLIB, chunkSink)
 ```
 
-These stream methods never close caller-owned endpoints. Byte-array and `RegionChunk` methods wrap the streaming paths;
-compressed arrays remain in `RegionChunk` because they are the model's preserved value. The module does not open paths
-or impose a typed, version-specific chunk schema.
+`RegionCompressionCodec` and `RegionCompressionCodecs` expose Okio `Source` and `Sink`; the existing physical Anvil and
+NBT format entry points continue to expose `kotlinx.io` streams. These methods never close caller-owned endpoints.
+Byte-array and `RegionChunk` methods wrap the streaming paths; compressed arrays remain in `RegionChunk` because they
+are the model's preserved value. `RegionFormatException` is an Okio `IOException`; an existing lower-level
+`kotlinx.io.IOException` from the physical NBT boundary may propagate unchanged. The module does not open paths or
+impose a typed, version-specific chunk schema.

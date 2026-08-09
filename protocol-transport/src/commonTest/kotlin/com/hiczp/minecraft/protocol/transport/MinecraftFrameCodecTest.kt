@@ -107,6 +107,24 @@ class MinecraftFrameCodecTest {
         }
 
     @Test
+    fun roundTripsPayloadsAcrossCompressionBufferBoundaries() = runTest {
+        val codec = MinecraftFrameCodec()
+        codec.configureCompression(0)
+        val random = Random(0x3520_4001)
+
+        listOf(32_767, 32_768, 32_769, 35_204, 65_535, 65_536, 65_537)
+            .forEach { size ->
+                val packetData = ByteArray(size)
+                random.nextBytes(packetData)
+                assertContentEquals(
+                    packetData,
+                    codec.decodeFrame(codec.encodeFrame(packetData)),
+                    "size=$size",
+                )
+            }
+    }
+
+    @Test
     fun decodesStandardStoredFixedAndDynamicZlibStreams() = runTest {
         val codec = MinecraftFrameCodec()
         codec.configureCompression(1)

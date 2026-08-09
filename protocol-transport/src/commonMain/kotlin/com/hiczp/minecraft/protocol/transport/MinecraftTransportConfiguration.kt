@@ -1,6 +1,6 @@
 package com.hiczp.minecraft.protocol.transport
 
-import kotlinx.io.IOException
+import okio.IOException
 
 data class MinecraftTransportConfiguration(
     /** Vanilla's three-byte VarInt21 frame-body ceiling. */

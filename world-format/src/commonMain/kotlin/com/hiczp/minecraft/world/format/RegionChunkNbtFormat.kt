@@ -4,6 +4,10 @@ import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.serialization.NbtDecodingException
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import kotlinx.io.*
+import kotlinx.io.okio.asKotlinxIoRawSink
+import kotlinx.io.okio.asKotlinxIoRawSource
+import kotlinx.io.okio.asOkioSink
+import kotlinx.io.okio.asOkioSource
 
 data class RegionChunkNbtFormatConfiguration(
     val maximumDecompressedChunkBytes: Int = 256 * 1_048_576,
@@ -18,6 +22,10 @@ data class RegionChunkNbtFormatConfiguration(
  * independently reusable.
  *
  * [encodeToSink] and [decodeFromSource] are the canonical streaming paths.
+ * Compression deliberately keeps its public Okio boundary, while the NBT
+ * serializer keeps its kotlinx-io boundary. Their official conversion
+ * functions bridge the two and perform the corresponding I/O exception
+ * conversion; no project-specific stream adapter is used.
  * Methods returning a [RegionChunk] necessarily retain its compressed payload
  * because those bytes are the value represented by that model.
  */
@@ -35,14 +43,12 @@ class RegionChunkNbtFormat(
     fun decodeFromSource(
         source: Source,
         compression: RegionCompression,
-    ): NbtDocument {
-        val decompressed = compressionCodecs.decompressingSource(
+    ): NbtDocument =
+        compressionCodecs.decompressingSource(
             compression,
-            source,
+            source.asOkioSource(),
             configuration.maximumDecompressedChunkBytes,
-        ).buffered()
-        var failure: Throwable? = null
-        return try {
+        ).asKotlinxIoRawSource().buffered().use { decompressed ->
             val document = nbt.decodeDocumentFromSource(decompressed)
             if (!decompressed.exhausted()) {
                 throw NbtDecodingException(
@@ -50,13 +56,7 @@ class RegionChunkNbtFormat(
                 )
             }
             document
-        } catch (caught: Throwable) {
-            failure = caught
-            throw caught
-        } finally {
-            closeAllPreserving(failure, decompressed::close)
         }
-    }
 
     /**
      * Encodes one complete compressed NBT stream without closing [sink].
@@ -67,24 +67,16 @@ class RegionChunkNbtFormat(
         compression: RegionCompression,
         sink: Sink,
     ) {
-        val compressed =
-            compressionCodecs.compressingSink(compression, sink).buffered()
-        val limited = DecompressedLimitRawSink(
-            compressed,
-            configuration.maximumDecompressedChunkBytes,
-        ).buffered()
-        var failure: Throwable? = null
-        try {
-            nbt.encodeDocumentToSink(document, limited)
-        } catch (caught: Throwable) {
-            failure = caught
-            throw caught
-        } finally {
-            closeAllPreserving(
-                failure,
-                limited::close,
-                compressed::close,
-            )
+        compressionCodecs.compressingSink(
+            compression,
+            sink.asOkioSink(),
+        ).asKotlinxIoRawSink().buffered().use { compressed ->
+            DecompressedLimitRawSink(
+                compressed,
+                configuration.maximumDecompressedChunkBytes,
+            ).buffered().use { limited ->
+                nbt.encodeDocumentToSink(document, limited)
+            }
         }
     }
 
@@ -124,6 +116,9 @@ class RegionChunkNbtFormat(
     }
 }
 
+// NBT serialization writes into the compressor, so enforce the decompressed
+// limit before bytes enter the library codec. Closing remains owned by the
+// surrounding converted compression sink.
 private class DecompressedLimitRawSink(
     private val downstream: Sink,
     maximumBytes: Int,
@@ -149,24 +144,4 @@ private class DecompressedLimitRawSink(
     }
 
     override fun close() = Unit
-}
-
-private fun closeAllPreserving(
-    failure: Throwable?,
-    vararg closes: () -> Unit,
-) {
-    var primary = failure
-    closes.forEach { close ->
-        try {
-            close()
-        } catch (closeFailure: Throwable) {
-            val current = primary
-            if (current == null) {
-                primary = closeFailure
-            } else {
-                current.addSuppressed(closeFailure)
-            }
-        }
-    }
-    if (failure == null) throw primary ?: return
 }

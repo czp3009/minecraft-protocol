@@ -5,13 +5,7 @@ import okio.FileSystem
 import okio.Path.Companion.toOkioPath
 import java.io.File
 import java.io.IOException
-import java.nio.ByteBuffer
-import java.nio.channels.FileChannel
-import java.nio.channels.OverlappingFileLockException
 import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.StandardOpenOption.CREATE
-import java.nio.file.StandardOpenOption.WRITE
 import kotlin.test.*
 
 class WorldDirectoryLockTest {
@@ -30,12 +24,10 @@ class WorldDirectoryLockTest {
 
             val access = MinecraftWorldAccess.open(root)
             try {
-                assertFailsWith<OverlappingFileLockException> {
-                    MinecraftWorldAccess.isLocked(root)
+                assertTrue(MinecraftWorldAccess.isLocked(root))
+                assertFailsWith<WorldLockException> {
+                    MinecraftWorldAccess.open(root)
                 }
-                val actual = assertFails { MinecraftWorldAccess.open(root) }
-                val expected = officialStyleOverlappingAcquisitionFailure()
-                assertEquals(expected::class, actual::class)
             } finally {
                 access.close()
             }
@@ -92,7 +84,7 @@ class WorldDirectoryLockTest {
                 "Lock holder failed before readiness: $readiness"
             }
             assertTrue(MinecraftWorldAccess.isLocked(root))
-            assertFailsWith<IOException> {
+            assertFailsWith<WorldLockException> {
                 MinecraftWorldAccess.open(root)
             }
 
@@ -112,47 +104,6 @@ class WorldDirectoryLockTest {
         }
     }
 }
-
-private fun officialStyleOverlappingAcquisitionFailure(): Throwable {
-    val directory = Files.createTempDirectory(
-        "world-io-official-lock-oracle-",
-    )
-    val lockPath = directory.resolve("session.lock")
-    try {
-        return FileChannel.open(lockPath, CREATE, WRITE).use { firstChannel ->
-            firstChannel.tryLock().use {
-                assertFails { acquireOfficialStyleLock(lockPath) }
-            }
-        }
-    } finally {
-        directory.toFile().deleteRecursively()
-    }
-}
-
-private fun acquireOfficialStyleLock(path: Path) {
-    val channel = FileChannel.open(path, CREATE, WRITE)
-    try {
-        channel.write(officialMarkerBuffer())
-        channel.force(true)
-        channel.tryLock()?.use { return }
-        throw WorldLockException(
-            "${path.toAbsolutePath()}: $WORLD_LOCK_ALREADY_LOCKED_REASON",
-        )
-    } catch (failure: IOException) {
-        try {
-            channel.close()
-        } catch (closeFailure: IOException) {
-            failure.addSuppressed(closeFailure)
-        }
-        throw failure
-    }
-}
-
-private fun officialMarkerBuffer(): ByteBuffer =
-    ByteBuffer.allocateDirect(WORLD_LOCK_MARKER.size).apply {
-        put(WORLD_LOCK_MARKER)
-        flip()
-    }
 
 private fun lockHolderClasspath(): String = listOf(
     WorldLockProcessMain::class.java,

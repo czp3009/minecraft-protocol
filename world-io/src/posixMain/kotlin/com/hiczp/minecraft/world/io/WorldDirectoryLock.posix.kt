@@ -128,10 +128,13 @@ private fun tryAcquirePosixFileLock(
     descriptor: Int,
     path: Path,
 ): PosixFileKey? {
+    // fcntl locks are process-scoped rather than descriptor-scoped. The
+    // synchronized device/inode registry reproduces FileChannel's refusal of
+    // an overlapping lock held elsewhere in this process.
     val key = posixFileKey(descriptor, path)
     return withInProcessLockRegistry(path) {
         if (!IN_PROCESS_LOCK_KEYS.add(key)) {
-            throw worldOverlappingLockException()
+            return@withInProcessLockRegistry null
         }
         when (val lockError = setPosixLock(descriptor, F_WRLCK)) {
             0 -> key

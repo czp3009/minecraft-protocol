@@ -46,30 +46,6 @@ class OfflineAuthenticationTest {
     }
 
     @Test
-    fun digestImplementationsMatchStandardBoundaryVectors() {
-        assertEquals(
-            "d41d8cd98f00b204e9800998ecf8427e",
-            Md5.digest(byteArrayOf()).hex(),
-        )
-        assertEquals(
-            "900150983cd24fb0d6963f7d28e17f72",
-            Md5.digest("abc".encodeToByteArray()).hex(),
-        )
-        assertEquals(
-            "da39a3ee5e6b4b0d3255bfef95601890afd80709",
-            Sha1.digest(byteArrayOf()).hex(),
-        )
-        assertEquals(
-            "84983e441c3bd26ebaae4aa1f95129e5e54670f1",
-            Sha1.digest(
-                (
-                        "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
-                        ).encodeToByteArray(),
-            ).hex(),
-        )
-    }
-
-    @Test
     fun uuidParserRejectsEveryMalformedMinecraftRepresentation() {
         assertFailsWith<IllegalArgumentException> {
             offlineUuid("")

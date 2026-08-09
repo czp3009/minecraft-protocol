@@ -17,7 +17,6 @@ transitively where needed.
 
 | Module                                                       | Purpose                                                                |
 |--------------------------------------------------------------|------------------------------------------------------------------------|
-| [`compression`](compression/README.md)                       | Portable raw DEFLATE shared by network and world formats               |
 | [`nbt`](nbt/README.md)                                       | Format-independent NBT values and logical serializers                  |
 | [`nbt-serialization`](nbt-serialization/README.md)           | Binary NBT and NBT tree conversion through `kotlinx.serialization`     |
 | [`protocol-model`](protocol-model/README.md)                 | Format-independent packet payloads and shared protocol values          |

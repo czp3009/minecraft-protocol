@@ -20,8 +20,9 @@ internal actual fun acquireWorldDirectoryLock(
          * OpenJDK deliberately gives CreateFileW read/write/delete sharing,
          * so a competing writer handle normally opens successfully. The
          * existing LockFileEx range is mandatory, however: WriteFile can fail
-         * here before the non-blocking lock attempt. Preserve that I/O failure
-         * instead of converting it to the official tryLock-null exception.
+         * here before the non-blocking lock attempt. ERROR_LOCK_VIOLATION is
+         * therefore exposed as the same public contention type as a failed
+         * non-blocking lock attempt.
          */
         writeWorldLockMarker(handle, path)
         forceWorldLock(handle, path)
@@ -133,10 +134,16 @@ private fun writeWorldLockMarker(handle: COpaquePointer, path: Path) {
                     lpOverlapped = null,
                 ) == 0
             ) {
+                val error = GetLastError()
+                if (error == ERROR_LOCK_VIOLATION.toUInt()) {
+                    throw worldAlreadyLockedException(
+                        absoluteWorldLockPath(path),
+                    )
+                }
                 throw windowsLockIoFailure(
                     "write marker to",
                     path,
-                    GetLastError(),
+                    error,
                 )
             }
         }
@@ -156,10 +163,12 @@ private fun tryAcquireWindowsFileLock(
     handle: COpaquePointer,
     path: Path,
 ): WindowsFileKey? {
+    // Keep the same in-process overlap contract as Java even if Win32's
+    // response varies with handle sharing and filesystem implementation.
     val key = windowsFileKey(handle, path)
     return withInProcessLockRegistry {
         if (!IN_PROCESS_LOCK_KEYS.add(key)) {
-            throw worldOverlappingLockException()
+            return@withInProcessLockRegistry null
         }
         when (val lockError = setWindowsFileLock(handle, lock = true)) {
             null -> key
@@ -201,6 +210,8 @@ private fun setWindowsFileLock(
     overlapped.hEvent = null
 
     val result = if (lock) {
+        // OpenJDK maps FileChannel.tryLock(0, Long.MAX_VALUE, false) to this
+        // two-word Win32 range and requests an immediate exclusive result.
         LockFileEx(
             hFile = handle,
             dwFlags = (LOCKFILE_FAIL_IMMEDIATELY or
@@ -221,6 +232,8 @@ private fun setWindowsFileLock(
     }
     if (result != 0) return@memScoped null
     var error = GetLastError()
+    // Network filesystems may complete LockFileEx asynchronously even though
+    // the public operation is synchronous; wait for that one OS result here.
     if (error == ERROR_IO_PENDING.toUInt()) {
         val transferred = alloc<DWORDVar>()
         if (

@@ -1,14 +1,10 @@
 package com.hiczp.minecraft.world.io
 
 import kotlinx.coroutines.CancellationException
-import kotlinx.io.RawSink
-import kotlinx.io.readByteArray
 import okio.*
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.*
-import kotlinx.io.Buffer as KotlinxBuffer
-import okio.Buffer as OkioBuffer
 
 class FileIOTest {
     @Test
@@ -125,7 +121,7 @@ class FileIOTest {
             MetadataSizeFileSystem(base, path, reportedSize = null)
                 .readFileWithinLimit(path, 3)
         }
-        assertFailsWith<WorldIOException> {
+        assertFailsWith<IOException> {
             MetadataSizeFileSystem(base, path, reportedSize = 2)
                 .readFileWithinLimit(path, 2)
         }
@@ -138,16 +134,16 @@ class FileIOTest {
 
     @Test
     fun limitedSinkEnforcesCountsFlushAndCloseOwnership() {
-        val delegate = RecordingRawSink()
-        val sink = LimitedRawSink(
+        val delegate = RecordingSink()
+        val sink = LimitedSink(
             delegate = delegate,
             maximumBytes = 2,
             closeDelegate = true,
         )
-        val source = KotlinxBuffer().apply { write(byteArrayOf(1, 2, 3)) }
+        val source = Buffer().apply { write(byteArrayOf(1, 2, 3)) }
 
         assertFailsWith<IllegalArgumentException> {
-            LimitedRawSink(delegate, -1)
+            LimitedSink(delegate, -1)
         }
         assertFailsWith<WorldIOException> {
             sink.write(source, -1)
@@ -166,8 +162,8 @@ class FileIOTest {
         assertEquals(1, delegate.flushes)
         assertTrue(delegate.closed)
 
-        val unowned = RecordingRawSink()
-        LimitedRawSink(unowned, maximumBytes = 0).close()
+        val unowned = RecordingSink()
+        LimitedSink(unowned, maximumBytes = 0).close()
         assertFalse(unowned.closed)
     }
 
@@ -475,18 +471,20 @@ class FileIOTest {
     }
 }
 
-private class RecordingRawSink : RawSink {
-    val buffer = KotlinxBuffer()
+private class RecordingSink : Sink {
+    val buffer = Buffer()
     var flushes = 0
     var closed = false
 
-    override fun write(source: KotlinxBuffer, byteCount: Long) {
+    override fun write(source: Buffer, byteCount: Long) {
         buffer.write(source, byteCount)
     }
 
     override fun flush() {
         flushes++
     }
+
+    override fun timeout(): Timeout = buffer.timeout()
 
     override fun close() {
         closed = true
@@ -651,7 +649,7 @@ private class ReplacementAndTransientRollbackFileSystem(
 private fun FileSystem.writeRaw(path: Path, bytes: ByteArray) {
     path.parent?.let(::createDirectories)
     val sink = sink(path)
-    val buffer = OkioBuffer().apply { write(bytes) }
+    val buffer = Buffer().apply { write(bytes) }
     try {
         sink.write(buffer, bytes.size.toLong())
     } finally {

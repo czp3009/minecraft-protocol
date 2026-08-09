@@ -1,14 +1,7 @@
 package com.hiczp.minecraft.world.io
 
-import kotlinx.io.*
-import kotlinx.io.okio.asKotlinxIoRawSource
-import okio.FileHandle
-import okio.FileSystem
-import okio.IOException
-import okio.Path
+import okio.*
 import kotlin.random.Random
-import okio.Sink as OkioSink
-import okio.Source as OkioSource
 
 private const val TEMPORARY_RANDOM_RADIX = 36
 private const val TEMPORARY_RANDOM_WIDTH = 13
@@ -21,7 +14,7 @@ internal fun FileSystem.readFileWithinLimit(
 ): ByteArray {
     require(maximumBytes >= 0)
     return readFile(path, maximumBytes) { source, size ->
-        source.readByteArray(size.toInt())
+        source.readByteArray(size)
     }
 }
 
@@ -31,14 +24,14 @@ internal fun WorldFileAccess.readFileWithinLimit(
 ): ByteArray {
     require(maximumBytes >= 0)
     return readFile(path, maximumBytes) { source, size ->
-        source.readByteArray(size.toInt())
+        source.readByteArray(size)
     }
 }
 
 internal fun <T> FileSystem.readFile(
     path: Path,
     maximumBytes: Int,
-    block: (Source, Long) -> T,
+    block: (BufferedSource, Long) -> T,
 ): T = readFile(
     path = path,
     maximumBytes = maximumBytes,
@@ -49,7 +42,7 @@ internal fun <T> FileSystem.readFile(
 internal fun <T> WorldFileAccess.readFile(
     path: Path,
     maximumBytes: Int,
-    block: (Source, Long) -> T,
+    block: (BufferedSource, Long) -> T,
 ): T = fileSystem.readFile(
     path = path,
     maximumBytes = maximumBytes,
@@ -60,8 +53,8 @@ internal fun <T> WorldFileAccess.readFile(
 private fun <T> FileSystem.readFile(
     path: Path,
     maximumBytes: Int,
-    openSource: () -> OkioSource,
-    block: (Source, Long) -> T,
+    openSource: () -> Source,
+    block: (BufferedSource, Long) -> T,
 ): T {
     require(maximumBytes >= 0)
     val metadata = metadataOrNull(path)
@@ -77,10 +70,9 @@ private fun <T> FileSystem.readFile(
         )
     }
 
-    val limitedSource = LimitedRawSource(
-        openSource().asKotlinxIoRawSource(),
-        maximumBytes,
-    ).buffered()
+    val limitedSource = openSource()
+        .limit(size, throwIfSourceIsLonger = true)
+        .buffer()
     return limitedSource.use { source ->
         val value = block(source, size)
         if (!source.exhausted()) {
@@ -110,37 +102,14 @@ internal fun closeAllPreserving(
     if (failure == null) throw primary ?: return
 }
 
-private class LimitedRawSource(
-    private val delegate: RawSource,
-    maximumBytes: Int,
-) : RawSource {
-    private val maximumBytes = maximumBytes.toLong()
-    private var bytesRead = 0L
-
-    override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
-        if (byteCount == 0L) return 0
-        val remaining = maximumBytes - bytesRead
-        val read = delegate.readAtMostTo(sink, minOf(byteCount, remaining + 1))
-        if (read < 0) return -1
-        bytesRead += read
-        if (bytesRead > maximumBytes) {
-            throw WorldIOException(
-                "File grew beyond limit $maximumBytes while reading",
-            )
-        }
-        return read
-    }
-
-    override fun close() {
-        delegate.close()
-    }
-}
-
-internal class LimitedRawSink(
-    private val delegate: RawSink,
+// Keep byte-limit policy on the Okio side of world-io. closeDelegate is
+// explicit because a file-handle sink is owned here, while other callers may
+// lend a sink whose lifetime must outlive the limiter.
+internal class LimitedSink(
+    private val delegate: Sink,
     maximumBytes: Int,
     private val closeDelegate: Boolean = false,
-) : RawSink {
+) : Sink {
     private val maximumBytes = maximumBytes.toLong()
     internal var bytesWritten = 0L
         private set
@@ -162,6 +131,8 @@ internal class LimitedRawSink(
     override fun flush() {
         delegate.flush()
     }
+
+    override fun timeout(): Timeout = delegate.timeout()
 
     override fun close() {
         if (closeDelegate) delegate.close()
@@ -236,7 +207,7 @@ internal fun FileSystem.openUniqueTemporaryHandle(
 
 internal data class TemporaryFileSink(
     val path: Path,
-    val sink: OkioSink,
+    val sink: Sink,
 )
 
 internal data class TemporaryFileHandle(

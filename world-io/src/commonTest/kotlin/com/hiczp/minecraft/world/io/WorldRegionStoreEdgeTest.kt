@@ -5,9 +5,7 @@ import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.test.runTest
-import okio.Buffer
-import okio.FileSystem
-import okio.Path
+import okio.*
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.*
@@ -15,29 +13,14 @@ import kotlin.time.Clock
 
 class WorldRegionStoreEdgeTest {
     @Test
-    fun configurationRejectsInvalidLimitsAndWriteCompression() {
+    fun configurationRejectsInvalidLimits() {
         assertFailsWith<IllegalArgumentException> {
             WorldRegionStoreConfiguration(maximumCompressedChunkBytes = -1)
         }
         assertFailsWith<IllegalArgumentException> {
             WorldRegionStoreConfiguration(maximumOpenRegions = 0)
         }
-        assertFailsWith<IllegalArgumentException> {
-            WorldRegionStoreConfiguration(
-                writeCompression = RegionCompression.GZIP,
-            )
-        }
-        assertFailsWith<IllegalArgumentException> {
-            WorldRegionStoreConfiguration(
-                writeCompression = RegionCompression.CUSTOM,
-            )
-        }
         RegionCompression.entries
-            .filter {
-                it == RegionCompression.ZLIB ||
-                        it == RegionCompression.NONE ||
-                        it == RegionCompression.LZ4
-            }
             .forEach {
                 WorldRegionStoreConfiguration(writeCompression = it)
             }
@@ -285,14 +268,31 @@ class WorldRegionStoreEdgeTest {
     fun configuredNbtWriteModesRoundTrip() = runTest {
         val document = edgeRegionDocument()
         listOf(
+            RegionCompression.GZIP,
             RegionCompression.ZLIB,
             RegionCompression.NONE,
             RegionCompression.LZ4,
+            RegionCompression.CUSTOM,
         ).forEachIndexed { index, compression ->
             val fileSystem = FakeFileSystem()
+            val compressionCodecs = if (
+                compression == RegionCompression.CUSTOM
+            ) {
+                RegionCompressionCodecs(
+                    mapOf(
+                        RegionCompression.CUSTOM to
+                                identityCustomCompressionCodec,
+                    ),
+                )
+            } else {
+                RegionCompressionCodecs
+            }
             val store = WorldRegionStore(
                 directory = "/world-$index/region".toPath(),
                 fileSystem = fileSystem,
+                chunkNbtFormat = RegionChunkNbtFormat(
+                    compressionCodecs = compressionCodecs,
+                ),
                 configuration = WorldRegionStoreConfiguration(
                     syncWrites = false,
                     writeCompression = compression,
@@ -426,6 +426,26 @@ private fun edgeChunk(bytes: ByteArray): RegionChunk = RegionChunk(
 private fun edgeRegionDocument(): NbtDocument = NbtDocument(
     NbtCompound(mapOf("value" to NbtInt(42))),
 )
+
+// A CUSTOM codec owns only its transformation, so this identity test codec keeps the public registry's caller-owned
+// stream contract while proving world-io does not impose a vanilla-only compression whitelist.
+private val identityCustomCompressionCodec =
+    object : RegionCompressionCodec {
+        override fun compressingSink(sink: Sink): Sink =
+            object : Sink by sink {
+                override fun close() = sink.flush()
+            }
+
+        override fun decompressingSource(
+            source: Source,
+            maximumOutputBytes: Int,
+        ): Source {
+            require(maximumOutputBytes >= 0)
+            return object : Source by source {
+                override fun close() = Unit
+            }
+        }
+    }
 
 private fun FileSystem.writeRaw(path: Path, bytes: ByteArray) {
     path.parent?.let(::createDirectories)

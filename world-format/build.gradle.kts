@@ -1,9 +1,33 @@
 import com.hiczp.minecraft.buildlogic.BuildVersions
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
+import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
+import org.jetbrains.kotlin.gradle.tasks.CInteropProcess
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
+}
+
+// NativeBuilds' published Gradle plugin still calls a Gradle Kotlin DSL internal removed in Gradle 9.6.1. Consume
+// its official binary/header artifacts directly and use public Gradle/Kotlin APIs until the plugin is compatible.
+val lz4Headers = configurations.create("lz4Headers") {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
+val lz4HeadersDependency = dependencies.create(libs.nativebuilds.lz4.headers.get()) as ExternalModuleDependency
+lz4HeadersDependency.artifact {
+    type = "zip"
+    extension = "zip"
+}
+lz4Headers.dependencies.add(lz4HeadersDependency)
+
+val lz4HeadersDirectory = layout.buildDirectory.dir("nativebuilds/lz4-headers")
+val extractLz4Headers = tasks.register("extractLz4Headers", Sync::class) {
+    from(lz4Headers.incoming.files.elements.map { archives ->
+        archives.map { archive -> zipTree(archive) }
+    })
+    into(lz4HeadersDirectory)
 }
 
 @OptIn(ExperimentalWasmDsl::class)
@@ -45,19 +69,62 @@ kotlin {
     wasmJs {
         nodejs()
         browser()
-        d8()
     }
 
-    wasmWasi {
-        nodejs()
+    targets.withType<KotlinNativeTarget>().configureEach {
+        compilations.getByName("main").cinterops.create("lz4") {
+            definitionFile.set(file("src/nativeMain/cinterop/lz4.def"))
+            includeDirs(lz4HeadersDirectory.map { it.dir("common") })
+        }
     }
 
+    // The default hierarchy has no JVM + Android + Native intersection for Okio compression, nor a JVM + Android
+    // intersection for lz4-java. Keep the two additional capability source sets linear:
+    // commonMain <- okioCompressionMain <- javaLz4Main <- {jvmMain, androidMain}, while nativeMain depends directly
+    // on okioCompressionMain. Web targets remain entirely on the default webMain/jsMain/wasmJsMain hierarchy.
     sourceSets {
+        val okioCompressionMain = create("okioCompressionMain") {
+            dependsOn(commonMain.get())
+        }
+        val javaLz4Main = create("javaLz4Main") {
+            dependsOn(okioCompressionMain)
+            dependencies {
+                implementation(libs.lz4.java)
+            }
+        }
+        jvmMain {
+            dependsOn(javaLz4Main)
+        }
+        androidMain {
+            dependsOn(javaLz4Main)
+        }
+        nativeMain {
+            dependsOn(okioCompressionMain)
+            dependencies {
+                implementation(libs.appmattus.cryptohash)
+                implementation(libs.nativebuilds.lz4)
+            }
+        }
+
         commonMain.dependencies {
-            implementation(project(":compression"))
             api(project(":nbt"))
             api(project(":nbt-serialization"))
             api(libs.kotlinx.io.core)
+            api(libs.okio)
+            implementation(libs.kotlinx.io.okio)
+        }
+        webMain.dependencies {
+            implementation(libs.kompress.core)
+            implementation(libs.kompress.zlib)
+            implementation(libs.kotlinx.browser)
+        }
+        jsMain.dependencies {
+            implementation(npm("lz4-lite", libs.versions.lz4.lite.get()))
+            implementation(npm("js-xxhash", libs.versions.js.xxhash.get()))
+        }
+        wasmJsMain.dependencies {
+            implementation(npm("lz4-lite", libs.versions.lz4.lite.get()))
+            implementation(npm("js-xxhash", libs.versions.js.xxhash.get()))
         }
 
         commonTest.dependencies {
@@ -69,4 +136,8 @@ kotlin {
             implementation(libs.lz4.java)
         }
     }
+}
+
+tasks.withType<CInteropProcess>().configureEach {
+    dependsOn(extractLz4Headers)
 }

@@ -5,10 +5,11 @@ import com.hiczp.minecraft.nbt.serialization.NbtDecodingException
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.world.format.RegionCompression
 import com.hiczp.minecraft.world.format.RegionCompressionCodecs
-import kotlinx.io.RawSink
 import kotlinx.io.buffered
 import kotlinx.io.okio.asKotlinxIoRawSink
+import kotlinx.io.okio.asKotlinxIoRawSource
 import okio.*
+import kotlinx.io.IOException as KotlinxIOException
 
 enum class NbtFileCompression(
     internal val regionCompression: RegionCompression,
@@ -68,15 +69,17 @@ class NbtFileStore internal constructor(
             compression.regionCompression,
             source,
             configuration.maximumDecompressedBytes,
-        ).buffered()
-        decompressed.use { opened ->
-            val document = nbt.decodeDocumentFromSource(opened)
-            if (!opened.exhausted()) {
-                throw NbtDecodingException(
-                    "Decompressed NBT file has trailing bytes",
-                )
+        ).asKotlinxIoRawSource().buffered()
+        withOkioIoExceptions {
+            decompressed.use { opened ->
+                val document = nbt.decodeDocumentFromSource(opened)
+                if (!opened.exhausted()) {
+                    throw NbtDecodingException(
+                        "Decompressed NBT file has trailing bytes",
+                    )
+                }
+                document
             }
-            document
         }
     }
 
@@ -126,12 +129,12 @@ class NbtFileStore internal constructor(
         document: NbtDocument,
         compression: NbtFileCompression,
     ) {
-        val limitedFileSink = LimitedRawSink(
-            handle.sink().asKotlinxIoRawSink(),
+        val limitedFileSink = LimitedSink(
+            handle.sink(),
             configuration.maximumCompressedBytes,
             closeDelegate = true,
         )
-        limitedFileSink.buffered().use { fileSink ->
+        limitedFileSink.buffer().use { fileSink ->
             encode(document, compression, fileSink)
             fileSink.flush()
         }
@@ -142,30 +145,33 @@ class NbtFileStore internal constructor(
     private fun encode(
         document: NbtDocument,
         compression: NbtFileCompression,
-        sink: RawSink,
+        sink: Sink,
     ) {
-        val bufferedSink = sink.buffered()
         val compressed = compressionCodecs.compressingSink(
             compression.regionCompression,
-            bufferedSink,
-        ).buffered()
-        val limited = LimitedRawSink(
+            sink,
+        )
+        val limited = LimitedSink(
             compressed,
             configuration.maximumDecompressedBytes,
-        ).buffered()
-        var failure: Throwable? = null
-        try {
-            nbt.encodeDocumentToSink(document, limited)
-        } catch (caught: Throwable) {
-            failure = caught
-            throw caught
-        } finally {
-            closeAllPreserving(
-                failure,
-                limited::close,
-                compressed::close,
-                bufferedSink::flush,
-            )
+            closeDelegate = true,
+        ).asKotlinxIoRawSink().buffered()
+        withOkioIoExceptions {
+            limited.use { nbtSink ->
+                nbt.encodeDocumentToSink(document, nbtSink)
+            }
         }
     }
+}
+
+/*
+ * kotlinx-io-okio already converts failures raised while crossing each stream
+ * adapter. NbtFormat itself nevertheless has a kotlinx-io API and can let that
+ * converted type escape after the stream call returns. Normalize only that
+ * outer API boundary so world-io callers always receive Okio IOException.
+ */
+private inline fun <T> withOkioIoExceptions(block: () -> T): T = try {
+    block()
+} catch (failure: KotlinxIOException) {
+    throw WorldIOException(failure.message ?: "I/O operation failed", failure)
 }

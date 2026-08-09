@@ -8,7 +8,6 @@ local ownership, invariants, and verification requirements.
 
 Published runtime code is divided by responsibility:
 
-- `compression` owns portable raw DEFLATE.
 - `nbt` owns the shared NBT value algebra and logical raw-tag serializer handoff.
 - `nbt-serialization` owns physical binary NBT streams and the NBT `kotlinx.serialization` format.
 - `protocol-model` owns format-independent packet payloads, shared values, logical serializers, and wire annotations.
@@ -77,10 +76,16 @@ onto the consumer classpath.
 - Use maintained multiplatform APIs before adding `expect`/`actual`. An unavoidable platform boundary exposes the
   smallest reusable primitive, shares identical implementations through standard source sets, and handles optional
   capabilities at the narrowest call site.
+- When a maintained library cannot be called directly and integration needs preprocessing, framing, ownership
+  protection, failure normalization, or a compatibility workaround, document that reason beside the special logic and
+  identify which library still owns the underlying algorithm. Platform internals may differ, but equivalent public calls
+  retain the same result semantics and public exception type across targets; messages, causes, and stacks may differ.
 - In Gradle `sourceSets` blocks, use generated accessors such as `commonMain`, `jsMain`, and `jvmTest` for default
   source sets. Create a custom source set once with `create(name)` only when a shared capability cannot be expressed by
   the default hierarchy; do not retrieve default source sets through string-based `getByName` or `named` calls. Keep all
   production source-set declarations and dependencies above test source-set configuration.
+- Declare every Gradle plugin used by a subproject in the root `build.gradle.kts` plugins block with `apply false`;
+  subprojects reference that shared declaration and do not introduce an undeclared plugin version independently.
 - Kotlin and Java code that starts a JVM always executes the literal `java` command from `PATH`. Do not inspect
   `java.home`, `JAVA_HOME`, a Gradle Java launcher, or a JDK installation directory to locate the executable. A
   developer machine is required to provide `java` on `PATH`.

@@ -1,13 +1,18 @@
 package com.hiczp.minecraft.world.io
 
-import okio.Closeable
 import okio.IOException
 import okio.Path
 
-internal interface WorldDirectoryLock : Closeable {
+internal interface WorldDirectoryLock : AutoCloseable {
     val isValid: Boolean
 }
 
+/*
+ * Actual implementations mirror the official marker-write, durable flush,
+ * and non-blocking whole-file lock sequence with each host's lock API. Known
+ * contention paths are normalized to WorldLockException; unrelated failures
+ * remain in Okio's IOException hierarchy on every public world-io target.
+ */
 internal expect fun acquireWorldDirectoryLock(path: Path): WorldDirectoryLock
 
 internal expect fun isWorldDirectoryLocked(path: Path): Boolean
@@ -17,14 +22,13 @@ internal const val WORLD_LOCK_ALREADY_LOCKED_REASON =
 
 internal fun worldAlreadyLockedException(
     absolutePath: String,
+    cause: Throwable? = null,
 ): WorldLockException = WorldLockException(
     "$absolutePath: $WORLD_LOCK_ALREADY_LOCKED_REASON",
+    cause,
 )
 
-/** Native/Node counterpart of FileChannel's overlapping-lock runtime error. */
-internal fun worldOverlappingLockException(): IllegalStateException =
-    IllegalStateException()
-
+/** The official `session.lock` is already held by this process or another world owner. */
 class WorldLockException(
     message: String,
     cause: Throwable? = null,

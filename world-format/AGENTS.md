@@ -15,9 +15,14 @@ chunk representation, and NBT composition.
 - Parsing rejects overlaps, truncation, overflow, invalid versions, checksum failures, and decompression-limit
   violations.
 - Custom compression stays injectable through the public registry; built-in machinery remains private.
-- Format and compression I/O failures are `IOException` subtypes or propagate an existing lower-layer `IOException`; do
-  not build redundant wrapper chains.
+- Raw compression and checksums always come from maintained libraries. Shared code may own the vanilla LZ4Block
+  container and framing validation, but never a raw codec or checksum algorithm.
+- Compression APIs expose Okio streams and stable Okio `IOException` subtypes. Existing Anvil/NBT physical-format APIs
+  retain `kotlinx.io` streams and may propagate their lower-layer `IOException`; do not build redundant wrapper chains.
+- Published targets are JVM, Android, the configured Native platforms, JS Node/browser, and WasmJS Node/browser.
+  Wasm/WASI and the WasmJS D8 runtime are intentionally absent; do not remove any other target.
 
 ## Verification
 
-Run `:world-format:jvmTest`. A region-wire change also requires `:world-io:jvmTest`.
+Run `:world-format:jvmTest` first. Compression changes also require `:world-format:jsNodeTest`,
+`:world-format:wasmJsNodeTest`, and the host Native test; a region-wire change also requires `:world-io:jvmTest`.

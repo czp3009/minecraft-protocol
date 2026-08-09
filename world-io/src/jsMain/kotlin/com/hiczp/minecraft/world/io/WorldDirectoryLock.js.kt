@@ -100,7 +100,8 @@ private fun writeWorldLockMarker(descriptor: Number, path: Path) {
          * Match the official single FileChannel.write call. Node permits a
          * second writer handle on Windows, but LockFileEx makes the byte range
          * mandatory, so writeSync can fail before tryLock. That host I/O error
-         * must remain distinct from tryLock returning "not acquired".
+         * is the same public contention case when Node reports a known lock
+         * violation code.
          */
         writeSync(
             fd = descriptor,
@@ -110,6 +111,9 @@ private fun writeWorldLockMarker(descriptor: Number, path: Path) {
             position = 0.0,
         )
     } catch (failure: Throwable) {
+        if (failure.nodeErrorCode in NODE_LOCK_CONTENTION_ERRORS) {
+            throw worldAlreadyLockedException(path.toString(), failure)
+        }
         throw failure.toWorldLockIoFailure("write marker to", path)
     }
 }
@@ -126,9 +130,12 @@ private fun tryAcquireWorldLock(
     descriptor: Number,
     path: Path,
 ): NodeFileKey? {
+    // POSIX record locks are process-scoped, so a second descriptor in this
+    // Node process may otherwise appear to acquire the same file. Track the
+    // stable device/inode key to match Java's overlapping-lock behavior.
     val key = nodeFileKey(descriptor, path)
     if (!IN_PROCESS_LOCK_KEYS.add(key)) {
-        throw worldOverlappingLockException()
+        return null
     }
 
     val acquired = try {
@@ -190,6 +197,9 @@ private fun absoluteWorldLockPath(path: Path): String {
     return (systemFileSystem.canonicalize(parent) / path.name).toString()
 }
 
+// Node reports filesystem failures as dynamic Error objects. Inspect only the
+// stable code needed for classification, then expose an Okio exception rather
+// than leaking a JavaScript-specific value through world-io.
 private val Throwable.nodeErrorCode: String?
     get() = asDynamic().code as? String
 
@@ -214,9 +224,19 @@ private const val NODE_ACCESS_DENIED = "EACCES"
 private const val NODE_LOCK_UNAVAILABLE = "EAGAIN"
 private const val NODE_NO_SUCH_FILE = "ENOENT"
 private const val NODE_OPERATION_NOT_PERMITTED = "EPERM"
+private const val NODE_RESOURCE_BUSY = "EBUSY"
 private const val NODE_WOULD_BLOCK = "EWOULDBLOCK"
+private val NODE_LOCK_CONTENTION_ERRORS = setOf(
+    NODE_ACCESS_DENIED,
+    NODE_LOCK_UNAVAILABLE,
+    NODE_RESOURCE_BUSY,
+    NODE_WOULD_BLOCK,
+)
 private val WORLD_LOCK_MARKER = "☃".encodeToByteArray()
 private val IN_PROCESS_LOCK_KEYS = mutableSetOf<NodeFileKey>()
+
+// BigInt fstat values avoid losing device/inode precision through JavaScript
+// Number, which is required for a reliable in-process lock identity.
 private val NODE_BIGINT_STATISTICS_OPTIONS: NodeFileStatisticsOptions =
     emptyNodeFileStatisticsOptions().apply {
         bigint = true

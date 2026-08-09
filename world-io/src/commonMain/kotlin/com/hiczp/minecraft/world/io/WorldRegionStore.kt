@@ -16,13 +16,6 @@ data class WorldRegionStoreConfiguration(
     init {
         require(maximumCompressedChunkBytes >= 0)
         require(maximumOpenRegions > 0)
-        require(
-            writeCompression == RegionCompression.ZLIB ||
-                    writeCompression == RegionCompression.NONE ||
-                    writeCompression == RegionCompression.LZ4,
-        ) {
-            "Vanilla region writes support ZLIB, NONE, or LZ4 compression"
-        }
     }
 }
 
@@ -229,15 +222,6 @@ class WorldRegionStore internal constructor(
         position: ChunkPosition,
         chunk: RegionChunk,
     ) {
-        if (
-            chunk.compression != RegionCompression.ZLIB &&
-            chunk.compression != RegionCompression.NONE &&
-            chunk.compression != RegionCompression.LZ4
-        ) {
-            throw RegionFormatException(
-                "Vanilla region writes do not support ${chunk.compression} compression",
-            )
-        }
         val compressedBytes = chunk.payload.compressedBytes
             ?: throw RegionFormatException(
                 "External chunk $position has not been resolved",

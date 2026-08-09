@@ -5,9 +5,16 @@ kotlinx-serialization = "1.11.0"
 kotlinx-coroutines = "1.11.0"
 kotlinx-rpc = "0.10.3"
 ktor = "3.5.1"
-kotlinx-io = "0.9.0"
+kotlinx-io = "0.9.1"
 okio = "3.18.1"
 lz4-java = "1.10.1"
+kompress = "2.3.1"
+nativebuilds-lz4 = "1.10.0.9"
+appmattus-cryptohash = "1.0.2"
+cryptography-kotlin = "0.6.0"
+kotlinx-browser = "0.5.0"
+lz4-lite = "1.1.2"
+js-xxhash = "5.0.1"
 android-kmp-library-plugin = "9.3.1"
 xmlutil = "1.0.1"
 kotlincrypto-hash = "0.8.0"
@@ -39,6 +46,14 @@ okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
 okio-fakefilesystem = { module = "com.squareup.okio:okio-fakefilesystem", version.ref = "okio" }
 okio-nodefilesystem = { module = "com.squareup.okio:okio-nodefilesystem", version.ref = "okio" }
 lz4-java = { module = "at.yawk.lz4:lz4-java", version.ref = "lz4-java" }
+kompress-core = { module = "dev.karmakrafts.kompress:kompress-core", version.ref = "kompress" }
+kompress-zlib = { module = "dev.karmakrafts.kompress:kompress-zlib", version.ref = "kompress" }
+nativebuilds-lz4 = { module = "com.ensody.nativebuilds:lz4-liblz4", version.ref = "nativebuilds-lz4" }
+nativebuilds-lz4-headers = { module = "com.ensody.nativebuilds:lz4-headers", version.ref = "nativebuilds-lz4" }
+appmattus-cryptohash = { module = "com.appmattus.crypto:cryptohash", version.ref = "appmattus-cryptohash" }
+cryptography-bigint = { module = "dev.whyoleg.cryptography:cryptography-bigint", version.ref = "cryptography-kotlin" }
+cryptography-provider-optimal = { module = "dev.whyoleg.cryptography:cryptography-provider-optimal", version.ref = "cryptography-kotlin" }
+kotlinx-browser = { module = "org.jetbrains.kotlinx:kotlinx-browser", version.ref = "kotlinx-browser" }
 xmlutil-serialization = { module = "io.github.pdvrieze.xmlutil:serialization", version.ref = "xmlutil" }
 kotlincrypto-hash-md = { module = "org.kotlincrypto.hash:md", version.ref = "kotlincrypto-hash" }
 kotlincrypto-hash-sha2 = { module = "org.kotlincrypto.hash:sha2", version.ref = "kotlincrypto-hash" }

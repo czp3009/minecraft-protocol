@@ -5,6 +5,7 @@ import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
+import java.nio.channels.OverlappingFileLockException
 import java.nio.file.AccessDeniedException
 import java.nio.file.NoSuchFileException
 import java.nio.file.StandardOpenOption.CREATE
@@ -20,23 +21,45 @@ internal actual fun acquireWorldDirectoryLock(path: Path): WorldDirectoryLock {
          * OpenJDK allows shared writer handles on Windows, so a competing
          * FileChannel.open normally succeeds there. LockFileEx byte locks are
          * mandatory, however, and WriteFile can reject this marker write
-         * before tryLock is reached. POSIX locks are advisory, so contention
-         * normally reaches tryLock and its null result instead. Do not convert
-         * the earlier Windows marker-write IOException into that lock result.
+         * before tryLock is reached. A successful lock probe identifies that
+         * platform-specific write failure as the same public contention case.
+         * POSIX locks are advisory, so contention normally reaches tryLock and
+         * its null result instead.
          */
         channel.write(WORLD_LOCK_MARKER.duplicate())
         channel.force(true)
-        val lock = channel.tryLock() ?: throw worldAlreadyLockedException(
+        val lock = try {
+            channel.tryLock()
+        } catch (failure: OverlappingFileLockException) {
+            throw worldAlreadyLockedException(
+                nioPath.toAbsolutePath().toString(),
+                failure,
+            )
+        } ?: throw worldAlreadyLockedException(
             nioPath.toAbsolutePath().toString(),
         )
         return JavaNioWorldDirectoryLock(channel, lock)
     } catch (failure: IOException) {
+        // A mandatory Windows byte lock can reject the marker write before
+        // tryLock. Re-probe before classifying that otherwise ordinary I/O
+        // error, so unrelated failures retain their public Okio I/O type.
+        val mapped = if (
+            failure is WorldLockException ||
+            !worldLockAppearsHeld(path)
+        ) {
+            failure
+        } else {
+            worldAlreadyLockedException(
+                nioPath.toAbsolutePath().toString(),
+                failure,
+            )
+        }
         try {
             channel.close()
         } catch (closeFailure: IOException) {
-            failure.addSuppressed(closeFailure)
+            mapped.addSuppressed(closeFailure)
         }
-        throw failure
+        throw mapped
     }
 }
 
@@ -49,6 +72,14 @@ internal actual fun isWorldDirectoryLocked(path: Path): Boolean = try {
 } catch (_: AccessDeniedException) {
     true
 } catch (_: NoSuchFileException) {
+    false
+} catch (_: OverlappingFileLockException) {
+    true
+}
+
+private fun worldLockAppearsHeld(path: Path): Boolean = try {
+    isWorldDirectoryLocked(path)
+} catch (_: IOException) {
     false
 }
 

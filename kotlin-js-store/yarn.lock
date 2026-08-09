@@ -1201,6 +1201,11 @@ jest-worker@^27.4.5:
     merge-stream "^2.0.0"
     supports-color "^8.0.0"
 
+js-xxhash@5.0.1:
+  version "5.0.1"
+  resolved "https://registry.yarnpkg.com/js-xxhash/-/js-xxhash-5.0.1.tgz#35135863425169a42a2defe4741a60aeec3008e6"
+  integrity sha512-OGuTCR9wqYqF2FrhjtGb6fx8Rm1jzhdpUEsY2sLkXbNYLzOS+XWcYT4KTUL7vnaRTmBuGuVpW1AK2zzxjgZXGg==
+
 js-yaml@^4.1.0:
   version "4.3.1"
   resolved "https://registry.yarnpkg.com/js-yaml/-/js-yaml-4.3.1.tgz#01216c001d67f48e2cd560d708c7af21090a3848"
@@ -1343,6 +1348,11 @@ lru-cache@^10.2.0:
   version "10.4.3"
   resolved "https://registry.yarnpkg.com/lru-cache/-/lru-cache-10.4.3.tgz#410fc8a17b70e598013df257c2446b7f3383f119"
   integrity sha512-JNAzZcXrCt42VGLuYz0zfAzDfAvJWW6AfYlDBQyDV5DClI2m5sAmK+OIO7s59XfsRsWHp02jAJrRadPRGTt6SQ==
+
+lz4-lite@1.1.2:
+  version "1.1.2"
+  resolved "https://registry.yarnpkg.com/lz4-lite/-/lz4-lite-1.1.2.tgz#68f1195fb0de1facf24190e62883eef4d6686a0a"
+  integrity sha512-B04n18eKpt4tH8WGVxwVrBW3eUL7Fj7J1EVbg/FPENTh7wF/95WGOFcbdQunSoidD3QdL59ZCRMGnu6cD8Xf/w==
 
 math-intrinsics@^1.1.0:
   version "1.1.0"

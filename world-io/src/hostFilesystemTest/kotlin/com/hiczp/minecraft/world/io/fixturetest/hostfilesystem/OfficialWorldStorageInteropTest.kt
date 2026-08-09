@@ -17,13 +17,15 @@ import kotlin.time.Duration.Companion.minutes
 
 /**
  * Exercises the exact official release and this library against one Host-owned
- * world directory. Same-host JVM, Node, and desktop Native test compilations
- * inherit this entry directly from `hostFilesystemTest`.
+ * world directory. Each platform writes every supported official chunk
+ * compression into one mixed region before the server loads, saves, and
+ * reloads it. Same-host JVM, Node, and desktop Native test compilations inherit
+ * this entry directly from `hostFilesystemTest`.
  */
 class OfficialWorldStorageInteropTest {
     @Test
     fun officialServerLoadsLibraryRewrittenWorld() = runTest(
-        timeout = 2.minutes,
+        timeout = 4.minutes,
     ) {
         MinecraftTestSupport.newOfficialServer(
             OfficialMinecraftServerConfiguration(
@@ -43,10 +45,11 @@ class OfficialWorldStorageInteropTest {
             val initial = auditWorld(worldDirectory)
             requireCompleteOfficialFixture(initial)
             exerciseStandalonePolicies(worldDirectory, initial)
+            exerciseCompressionMatrix(worldDirectory)
             val terrainMutation = exerciseTerrainMutation(worldDirectory)
 
             server = MinecraftTestSupport.restartServer(server)
-            mutateAndStopOfficialServer(server)
+            mutateAndStopOfficialServer(server, "platform_write")
             val afterExternal = auditWorld(worldDirectory)
             requireCompleteOfficialFixture(afterExternal)
 
@@ -59,7 +62,7 @@ class OfficialWorldStorageInteropTest {
             )
 
             server = MinecraftTestSupport.restartServer(server)
-            mutateAndStopOfficialServer(server)
+            mutateAndStopOfficialServer(server, "official_resave")
             val final = auditWorld(worldDirectory)
             requireCompleteOfficialFixture(final)
 
@@ -124,8 +127,10 @@ class OfficialWorldStorageInteropTest {
 
     private suspend fun mutateAndStopOfficialServer(
         server: OfficialMinecraftServer,
+        verificationPhase: String,
     ) {
         try {
+            verifyOfficialCompressionMatrix(server, verificationPhase)
             generateWorldStorage(server)
             saveAndStop(server)
         } catch (failure: Throwable) {
@@ -134,7 +139,10 @@ class OfficialWorldStorageInteropTest {
     }
 
     private suspend fun generateWorldStorage(server: OfficialMinecraftServer) {
-        MinecraftTestSupport.sendCommand(server, "forceload add 0 0")
+        MinecraftTestSupport.sendCommand(
+            server,
+            "forceload add 0 0 $TERRAIN_MUTATION_BLOCK_X 0",
+        )
         MinecraftTestSupport.sendCommand(
             server,
             "scoreboard objectives add storage_audit dummy",
@@ -143,9 +151,15 @@ class OfficialWorldStorageInteropTest {
             server,
             "data modify storage minecraft:storage_audit value set value 1",
         )
+        COMPRESSION_PROBES.forEach { probe ->
+            MinecraftTestSupport.sendCommand(
+                server,
+                "setblock ${probe.blockX} 100 0 minecraft:lectern",
+            )
+        }
         MinecraftTestSupport.sendCommand(
             server,
-            "setblock 0 100 0 minecraft:lectern",
+            "setblock $TERRAIN_MUTATION_BLOCK_X 100 0 minecraft:lectern",
         )
         MinecraftTestSupport.sendCommand(
             server,
@@ -159,6 +173,25 @@ class OfficialWorldStorageInteropTest {
             server,
             "Summoned new Pig",
         )
+    }
+
+    private suspend fun verifyOfficialCompressionMatrix(
+        server: OfficialMinecraftServer,
+        verificationPhase: String,
+    ) {
+        MinecraftTestSupport.sendCommand(
+            server,
+            "forceload add 0 0 ${COMPRESSION_PROBES.last().blockX} 0",
+        )
+        COMPRESSION_PROBES.forEach { probe ->
+            val logToken =
+                "minecraft_protocol_${verificationPhase}_${probe.name}"
+            MinecraftTestSupport.sendCommand(
+                server,
+                "execute if block ${probe.blockX} 100 0 minecraft:lectern run say $logToken",
+            )
+            MinecraftTestSupport.waitForLog(server, logToken)
+        }
     }
 
     private suspend fun saveAndStop(server: OfficialMinecraftServer) {
@@ -280,23 +313,84 @@ class OfficialWorldStorageInteropTest {
         }
     }
 
+    private suspend fun exerciseCompressionMatrix(worldDirectory: Path) {
+        val paths = MinecraftWorldPaths(worldDirectory)
+        val documents = linkedMapOf<ChunkPosition, NbtDocument>()
+        val readingStore = WorldRegionStore(paths)
+        try {
+            COMPRESSION_PROBES.forEach { probe ->
+                documents[probe.position] = checkNotNull(
+                    readingStore.readChunkNbt(probe.position),
+                ) {
+                    "Official fixture generated no chunk ${probe.position}"
+                }
+            }
+        } finally {
+            readingStore.close()
+        }
+
+        // One mixed region makes the official server exercise every platform codec in one restart. The marker block in
+        // each original NBT document proves that the server loaded our bytes instead of accepting only the MCA header or
+        // silently regenerating a missing chunk.
+        COMPRESSION_PROBES.forEach { probe ->
+            val writingStore = WorldRegionStore(
+                paths = paths,
+                configuration = WorldRegionStoreConfiguration(
+                    syncWrites = true,
+                    writeCompression = probe.compression,
+                ),
+            )
+            try {
+                writingStore.writeChunkNbt(
+                    probe.position,
+                    documents.getValue(probe.position),
+                )
+            } finally {
+                writingStore.close()
+            }
+        }
+
+        val verifyingStore = WorldRegionStore(paths)
+        try {
+            COMPRESSION_PROBES.forEach { probe ->
+                val stored = checkNotNull(
+                    verifyingStore.readChunk(probe.position),
+                )
+                check(stored.compression == probe.compression) {
+                    "Chunk ${probe.position} stored ${stored.compression}, expected ${probe.compression}"
+                }
+                check(
+                    verifyingStore.chunkNbtFormat.decode(stored) ==
+                            documents.getValue(probe.position),
+                ) {
+                    "Chunk ${probe.position} changed while writing ${probe.compression}"
+                }
+            }
+        } finally {
+            verifyingStore.close()
+        }
+    }
+
     private suspend fun exerciseTerrainMutation(
         worldDirectory: Path,
     ): TerrainMutation {
         val paths = MinecraftWorldPaths(worldDirectory)
         val directory = paths.regionDirectory()
-        val regionPosition = firstRegionPosition(directory)
+        val absolutePosition = TERRAIN_MUTATION_POSITION
+        val regionPosition = absolutePosition.region
         val regionPath = paths.regionFile(regionPosition)
         val originalChunk: RegionChunk
         val originalDocument: NbtDocument
-        val absolutePosition: ChunkPosition
         val readingStore = WorldRegionStore(paths)
         try {
-            val entry = readingStore.readRegion(regionPosition)
-                .chunks.entries.first()
-            absolutePosition = regionPosition.chunk(entry.key)
-            originalChunk = entry.value
-            originalDocument = readingStore.chunkNbtFormat.decode(entry.value)
+            originalChunk = checkNotNull(
+                readingStore.readChunk(absolutePosition),
+            ) {
+                "Official fixture generated no terrain mutation chunk $absolutePosition"
+            }
+            originalDocument = readingStore.chunkNbtFormat.decode(
+                originalChunk,
+            )
         } finally {
             readingStore.close()
         }
@@ -498,9 +592,6 @@ class OfficialWorldStorageInteropTest {
         }
     }
 
-    private fun firstRegionPosition(directory: Path): RegionPosition =
-        regionPositions(directory).first()
-
     private fun regionPositions(directory: Path): List<RegionPosition> =
         systemFileSystem.list(directory)
             .mapNotNull { path ->
@@ -625,6 +716,13 @@ class OfficialWorldStorageInteropTest {
         val originalDocument: NbtDocument,
     )
 
+    private data class CompressionProbe(
+        val name: String,
+        val compression: RegionCompression,
+        val position: ChunkPosition,
+        val blockX: Int,
+    )
+
     private data class AuditResult(
         val regionFiles: Map<RegionStorageDirectory, Int>,
         val chunks: Map<RegionStorageDirectory, Int>,
@@ -640,6 +738,34 @@ class OfficialWorldStorageInteropTest {
         const val EXTERNAL_FIXTURE_TAG =
             "minecraft_protocol_external_fixture"
         const val EXTERNAL_FIXTURE_BYTES = 1_100_000
+        const val TERRAIN_MUTATION_BLOCK_X = 64
+        val TERRAIN_MUTATION_POSITION = ChunkPosition(4, 0)
+        val COMPRESSION_PROBES = listOf(
+            CompressionProbe(
+                name = "gzip",
+                compression = RegionCompression.GZIP,
+                position = ChunkPosition(0, 0),
+                blockX = 0,
+            ),
+            CompressionProbe(
+                name = "zlib",
+                compression = RegionCompression.ZLIB,
+                position = ChunkPosition(1, 0),
+                blockX = 16,
+            ),
+            CompressionProbe(
+                name = "none",
+                compression = RegionCompression.NONE,
+                position = ChunkPosition(2, 0),
+                blockX = 32,
+            ),
+            CompressionProbe(
+                name = "lz4",
+                compression = RegionCompression.LZ4,
+                position = ChunkPosition(3, 0),
+                blockX = 48,
+            ),
+        )
         val CORRUPTED_BYTES = byteArrayOf(1, 2, 3)
         val REGION_FILE_NAME = Regex("""r\.(-?\d+)\.(-?\d+)\.mca""")
     }

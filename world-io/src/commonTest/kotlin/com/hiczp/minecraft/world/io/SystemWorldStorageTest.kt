@@ -46,14 +46,10 @@ class SystemWorldStorageTest {
             }
             val access = MinecraftWorldAccess.open(root)
             try {
-                assertFailsWith<IllegalStateException> {
-                    MinecraftWorldAccess.isLocked(root)
+                assertTrue(MinecraftWorldAccess.isLocked(root))
+                assertFailsWith<WorldLockException> {
+                    MinecraftWorldAccess.open(root)
                 }
-                val failure = assertFails { MinecraftWorldAccess.open(root) }
-                assertTrue(
-                    failure is IOException ||
-                            failure is IllegalStateException,
-                )
             } finally {
                 access.close()
             }

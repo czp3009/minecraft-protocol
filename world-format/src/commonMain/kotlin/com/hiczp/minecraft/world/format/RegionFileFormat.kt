@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.world.format
 
 import kotlinx.io.*
+import okio.IOException
 
 data class RegionFileFormatConfiguration(
     val maximumRegionBytes: Int = 512 * 1_048_576,

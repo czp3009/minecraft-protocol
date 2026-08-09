@@ -165,19 +165,12 @@ class MinecraftFrameCodec(
         sink: Sink,
     ): Long {
         val body = Buffer()
-        val limitedBody = MaximumSizeRawSink(
+        MaximumSizeRawSink(
             body,
             configuration.maximumFrameSize,
-        ).buffered()
-        var failure: Throwable? = null
-        try {
+        ).buffered().use { limitedBody ->
             limitedBody.writeVarInt(packetDataByteCount)
             Zlib.compressToSink(packetData, limitedBody)
-        } catch (caught: Throwable) {
-            failure = caught
-            throw caught
-        } finally {
-            closeFrameBufferPreserving(failure, limitedBody::close)
         }
 
         val bodySize = body.size.toInt()
@@ -237,6 +230,8 @@ class MinecraftFrameCodec(
     }
 }
 
+// Bound each frame view without closing the shared connection source, and
+// report truncation at the transport boundary instead of leaking EOF details.
 private class ExactLengthRawSource(
     private val upstream: Source,
     byteCount: Int,
@@ -268,6 +263,8 @@ private class ExactLengthRawSource(
     }
 }
 
+// Compression must stage a body before its VarInt length can be written. Apply
+// the configured ceiling during staging so hostile input cannot overgrow it.
 private class MaximumSizeRawSink(
     private val downstream: Sink,
     maximumBytes: Int,
@@ -290,16 +287,4 @@ private class MaximumSizeRawSink(
     }
 
     override fun close() = Unit
-}
-
-private fun closeFrameBufferPreserving(
-    failure: Throwable?,
-    close: () -> Unit,
-) {
-    try {
-        close()
-    } catch (closeFailure: Throwable) {
-        if (failure == null) throw closeFailure
-        failure.addSuppressed(closeFailure)
-    }
 }

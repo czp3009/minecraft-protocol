@@ -45,13 +45,45 @@ kotlin {
         nodejs()
     }
 
+    // Okio compression is shared by JVM, Android, and Native, while JCA AES/CFB8 is shared only by JVM and Android.
+    // Keep the additional hierarchy linear: commonMain <- okioCompressionMain <- javaCryptoMain <-
+    // {jvmMain, androidMain}; nativeMain depends directly on okioCompressionMain and uses cryptography-kotlin.
+    // JS and WasmJS stay on the default web hierarchy and use the Node crypto module.
     sourceSets {
+        val okioCompressionMain = create("okioCompressionMain") {
+            dependsOn(commonMain.get())
+            dependencies {
+                implementation(libs.kotlinx.io.okio)
+                implementation(libs.okio)
+            }
+        }
+        val javaCryptoMain = create("javaCryptoMain") {
+            dependsOn(okioCompressionMain)
+        }
+        jvmMain {
+            dependsOn(javaCryptoMain)
+        }
+        androidMain {
+            dependsOn(javaCryptoMain)
+        }
+        nativeMain {
+            dependsOn(okioCompressionMain)
+            dependencies {
+                implementation(libs.cryptography.provider.optimal)
+            }
+        }
+
         commonMain.dependencies {
-            implementation(project(":compression"))
             api(libs.ktor.network)
             api(libs.ktor.utils)
             api(libs.kotlinx.io.core)
+            api(libs.okio)
             implementation(libs.kotlinx.coroutines.core)
+        }
+        webMain.dependencies {
+            implementation(libs.kompress.core)
+            implementation(libs.kompress.zlib)
+            implementation(libs.kotlinx.browser)
         }
 
         commonTest.dependencies {

@@ -1,0 +1,4 @@
+package = com.hiczp.minecraft.world.format.internal.lz4
+headerFilter = lz4.h
+headers = lz4.h
+noStringConversion = LZ4_compress_default LZ4_decompress_safe
