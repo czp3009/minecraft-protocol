@@ -1,6 +1,5 @@
 import com.hiczp.minecraft.buildlogic.BuildVersions
 import com.hiczp.minecraft.buildlogic.publishCodecOracleSource
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.kotlinJvm)
@@ -10,12 +9,6 @@ plugins {
 
 kotlin {
     jvmToolchain(BuildVersions.JAVA_VERSION)
-
-    compilerOptions {
-        jvmTarget.set(
-            JvmTarget.fromTarget(BuildVersions.JAVA_VERSION.toString()),
-        )
-    }
 }
 
 dependencies {

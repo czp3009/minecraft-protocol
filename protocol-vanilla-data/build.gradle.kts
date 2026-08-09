@@ -1,6 +1,5 @@
 import com.hiczp.minecraft.buildlogic.*
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -8,12 +7,9 @@ plugins {
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
 }
 
-val officialTargetFile =
-    officialMinecraftAnalysisFile("officialMinecraftTarget")
-val officialReportsDirectory =
-    officialMinecraftAnalysisDirectory("officialMinecraftReports")
-val officialConfigurationFile =
-    officialMinecraftAnalysisFile("officialMinecraftConfiguration")
+val officialTargetFile = officialMinecraftAnalysisFile("officialMinecraftTarget")
+val officialReportsDirectory = officialMinecraftAnalysisDirectory("officialMinecraftReports")
+val officialConfigurationFile = officialMinecraftAnalysisFile("officialMinecraftConfiguration")
 
 val generatedStaticDataDirectory = layout.buildDirectory.dir(
     "generated/sources/vanillaStaticData/commonMain/kotlin",
@@ -56,6 +52,7 @@ val generateVanillaConfigurationSource =
 @OptIn(ExperimentalWasmDsl::class)
 kotlin {
     jvmToolchain(BuildVersions.JAVA_VERSION)
+    applyDefaultHierarchyTemplate()
 
     jvm()
 
@@ -81,11 +78,6 @@ kotlin {
         compileSdk = BuildVersions.ANDROID_COMPILE_SDK
         minSdk = BuildVersions.ANDROID_MIN_SDK
         withHostTest {}
-        compilerOptions {
-            jvmTarget.set(
-                JvmTarget.fromTarget(BuildVersions.JAVA_VERSION.toString()),
-            )
-        }
     }
 
     js {

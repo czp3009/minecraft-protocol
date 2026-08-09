@@ -6,12 +6,6 @@ kotlin {
     jvmToolchain(25)
 }
 
-repositories {
-    mavenCentral()
-    google()
-    gradlePluginPortal()
-}
-
 dependencies {
     compileOnly(gradleKotlinDsl())
     compileOnly(libs.kotlin.gradle.plugin)

@@ -46,10 +46,8 @@ internal object OfficialCodecOracle {
             )
         }.toTypedArray()
         loggingConfiguration.writeText(log4jNullConfigurationXml())
-        val previousLoggingConfiguration =
-            System.getProperty(LOG4J_CONFIGURATION_PROPERTY)
-        val previousJomlNoUnsafe =
-            System.getProperty(JOML_NO_UNSAFE_PROPERTY)
+        val previousLoggingConfiguration = System.getProperty(LOG4J_CONFIGURATION_PROPERTY)
+        val previousJomlNoUnsafe = System.getProperty(JOML_NO_UNSAFE_PROPERTY)
         System.setProperty(
             LOG4J_CONFIGURATION_PROPERTY,
             loggingConfiguration.toNioPath().toUri().toString(),

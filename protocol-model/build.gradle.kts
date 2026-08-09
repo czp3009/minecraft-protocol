@@ -5,7 +5,6 @@ import com.hiczp.minecraft.buildlogic.officialMinecraftAnalysisDirectory
 import com.hiczp.minecraft.buildlogic.officialMinecraftAnalysisFile
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -14,10 +13,8 @@ plugins {
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
 }
 
-val officialTargetFile =
-    officialMinecraftAnalysisFile("officialMinecraftTarget")
-val officialReportsDirectory =
-    officialMinecraftAnalysisDirectory("officialMinecraftReports")
+val officialTargetFile = officialMinecraftAnalysisFile("officialMinecraftTarget")
+val officialReportsDirectory = officialMinecraftAnalysisDirectory("officialMinecraftReports")
 
 val generatedProtocolSourceDirectory = layout.buildDirectory.dir(
     "generated/sources/minecraftProtocol/commonMain/kotlin",
@@ -59,6 +56,7 @@ dependencies {
 @OptIn(ExperimentalWasmDsl::class)
 kotlin {
     jvmToolchain(BuildVersions.JAVA_VERSION)
+    applyDefaultHierarchyTemplate()
 
     jvm()
 
@@ -84,11 +82,6 @@ kotlin {
         compileSdk = BuildVersions.ANDROID_COMPILE_SDK
         minSdk = BuildVersions.ANDROID_MIN_SDK
         withHostTest {}
-        compilerOptions {
-            jvmTarget.set(
-                JvmTarget.fromTarget(BuildVersions.JAVA_VERSION.toString()),
-            )
-        }
     }
 
     js {
@@ -144,6 +137,5 @@ tasks.withType<Jar>().configureEach {
 // The KSP option alone is a plain string; track the report's content so the
 // processor reruns when the official analysis data changes.
 generatePacketDefinitions.configureEach {
-    inputs.file(packetsReport)
-        .withPathSensitivity(PathSensitivity.NONE)
+    inputs.file(packetsReport).withPathSensitivity(PathSensitivity.NONE)
 }

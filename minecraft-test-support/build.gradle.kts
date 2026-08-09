@@ -1,6 +1,5 @@
 import com.hiczp.minecraft.buildlogic.BuildVersions
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -12,6 +11,7 @@ plugins {
 @OptIn(ExperimentalWasmDsl::class)
 kotlin {
     jvmToolchain(BuildVersions.JAVA_VERSION)
+    applyDefaultHierarchyTemplate()
 
     jvm()
 
@@ -49,11 +49,6 @@ kotlin {
         compileSdk = BuildVersions.ANDROID_COMPILE_SDK
         minSdk = BuildVersions.ANDROID_MIN_SDK
         withHostTest {}
-        compilerOptions {
-            jvmTarget.set(
-                JvmTarget.fromTarget(BuildVersions.JAVA_VERSION.toString()),
-            )
-        }
     }
 
     sourceSets {

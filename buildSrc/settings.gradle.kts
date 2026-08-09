@@ -10,8 +10,6 @@ dependencyResolutionManagement {
     @Suppress("UnstableApiUsage")
     repositories {
         mavenCentral()
-        google()
-        gradlePluginPortal()
     }
     versionCatalogs {
         create("libs") {
@@ -19,5 +17,3 @@ dependencyResolutionManagement {
         }
     }
 }
-
-rootProject.name = "buildSrc"
