@@ -1,7 +1,6 @@
 package com.hiczp.minecraft.world.format
 
 import kotlinx.io.*
-import okio.IOException
 
 data class RegionFileFormatConfiguration(
     val maximumRegionBytes: Int = 512 * 1_048_576,
@@ -13,11 +12,11 @@ data class RegionFileFormatConfiguration(
     }
 }
 
-/** Malformed region/container data or a world-format resource-limit failure. */
+/** A structural Anvil or compression-container error, independent of I/O. */
 class RegionFormatException(
     message: String,
     cause: Throwable? = null,
-) : IOException(message, cause)
+) : Exception(message, cause)
 
 /**
  * Structural codec for the Anvil `.mca` container.

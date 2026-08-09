@@ -17,8 +17,9 @@ chunk representation, and NBT composition.
 - Custom compression stays injectable through the public registry; built-in machinery remains private.
 - Raw compression and checksums always come from maintained libraries. Shared code may own the vanilla LZ4Block
   container and framing validation, but never a raw codec or checksum algorithm.
-- Compression APIs expose Okio streams and stable Okio `IOException` subtypes. Existing Anvil/NBT physical-format APIs
-  retain `kotlinx.io` streams and may propagate their lower-layer `IOException`; do not build redundant wrapper chains.
+- Compression and Anvil/NBT physical-format APIs expose only `kotlinx.io` streams. Structural container failures use the
+  I/O-independent `RegionFormatException`; backend/stream I/O remains `kotlinx.io.IOException`, while NBT, cancellation,
+  and registered CUSTOM-codec failures propagate according to their owning layer.
 - Published targets are JVM, Android, the configured Native platforms, JS Node/browser, and WasmJS Node/browser.
   Wasm/WASI and the WasmJS D8 runtime are intentionally absent; do not remove any other target.
 

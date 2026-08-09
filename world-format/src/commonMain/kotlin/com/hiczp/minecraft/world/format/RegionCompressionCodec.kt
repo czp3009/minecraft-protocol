@@ -1,6 +1,6 @@
 package com.hiczp.minecraft.world.format
 
-import okio.*
+import kotlinx.io.*
 
 /**
  * One independently usable region-compression stream codec.
@@ -9,19 +9,23 @@ import okio.*
  * Closing a compressing decorator is nevertheless required because it emits
  * the stream terminator and checksum. A decompressing decorator validates the
  * complete stream when it is read through end-of-stream.
+ *
+ * Malformed container structure is reported as [RegionFormatException]. I/O
+ * and backend failures retain their kotlinx-io exception type so callers can
+ * distinguish invalid region data from stream access failures.
  */
 interface RegionCompressionCodec {
-    fun compressingSink(sink: Sink): Sink
+    fun compressingSink(sink: Sink): RawSink
 
     fun decompressingSource(
         source: Source,
         maximumOutputBytes: Int,
-    ): Source
+    ): RawSource
 
     /** Compresses all remaining [source] bytes into [sink]. */
     fun compressToSink(source: Source, sink: Sink): Long =
-        compressingSink(sink).buffer().use { compressed ->
-            compressed.writeAll(source)
+        compressingSink(sink).buffered().use { compressed ->
+            source.transferTo(compressed)
         }
 
     /** Decompresses one complete stream into [sink]. */
@@ -32,15 +36,13 @@ interface RegionCompressionCodec {
     ): Long {
         require(maximumOutputBytes >= 0)
         return decompressingSource(source, maximumOutputBytes)
-            .buffer()
-            .use { decompressed ->
-                decompressed.readAll(sink)
-            }
+            .buffered()
+            .use { decompressed -> decompressed.transferTo(sink) }
     }
 
     /** In-memory adapter over [compressToSink]. */
     fun compress(input: ByteArray): ByteArray {
-        val source = Buffer().write(input)
+        val source = Buffer().apply { write(input) }
         val sink = Buffer()
         compressToSink(source, sink)
         return sink.readByteArray()
@@ -51,7 +53,7 @@ interface RegionCompressionCodec {
         input: ByteArray,
         maximumOutputBytes: Int,
     ): ByteArray {
-        val source = Buffer().write(input)
+        val source = Buffer().apply { write(input) }
         val sink = Buffer()
         decompressToSink(source, sink, maximumOutputBytes)
         return sink.readByteArray()
@@ -64,8 +66,6 @@ interface RegionCompressionCodec {
  * Built-in vanilla codecs are available automatically. Overrides primarily
  * exist for ID 127 custom compression, but may replace any implementation.
  * Stream methods are canonical; byte-array methods are in-memory adapters.
- * Regardless of the selected platform backend, codec failures crossing this
- * registry are exposed as [RegionFormatException].
  */
 sealed class RegionCompressionCodecs(
     private val overrides: Map<RegionCompression, RegionCompressionCodec>,
@@ -81,40 +81,29 @@ sealed class RegionCompressionCodecs(
     fun compressingSink(
         compression: RegionCompression,
         sink: Sink,
-    ): Sink = mapCompressionFailure(
-        "Cannot create ${compression.name} compression stream",
-    ) {
-        codec(compression)
-            .compressingSink(sink)
-            .withRegionFormatExceptions(
-                "Cannot compress ${compression.name} stream",
-            )
-    }
+    ): RawSink = codec(compression).compressingSink(sink)
 
     fun decompressingSource(
         compression: RegionCompression,
         source: Source,
         maximumOutputBytes: Int,
-    ): Source {
+    ): RawSource {
         require(maximumOutputBytes >= 0)
-        val decoded = mapCompressionFailure(
-            "Cannot create ${compression.name} decompression stream",
-        ) {
-            codec(compression)
-                .decompressingSource(source, maximumOutputBytes)
-                .withRegionFormatExceptions(
-                    "Invalid ${compression.name} stream",
-                )
-        }
-        return OutputLimitingSource(decoded, maximumOutputBytes)
+        return OutputLimitingRawSource(
+            codec(compression).decompressingSource(
+                source,
+                maximumOutputBytes,
+            ),
+            maximumOutputBytes,
+        )
     }
 
     fun compressToSink(
         compression: RegionCompression,
         source: Source,
         sink: Sink,
-    ): Long = compressingSink(compression, sink).buffer().use { compressed ->
-        compressed.writeAll(source)
+    ): Long = compressingSink(compression, sink).buffered().use { compressed ->
+        source.transferTo(compressed)
     }
 
     fun decompressToSink(
@@ -128,16 +117,14 @@ sealed class RegionCompressionCodecs(
             compression,
             source,
             maximumOutputBytes,
-        ).buffer().use { limited ->
-            limited.readAll(sink)
-        }
+        ).buffered().use { limited -> limited.transferTo(sink) }
     }
 
     fun compress(
         compression: RegionCompression,
         input: ByteArray,
     ): ByteArray {
-        val source = Buffer().write(input)
+        val source = Buffer().apply { write(input) }
         val sink = Buffer()
         compressToSink(compression, source, sink)
         return sink.readByteArray()
@@ -148,7 +135,7 @@ sealed class RegionCompressionCodecs(
         input: ByteArray,
         maximumOutputBytes: Int,
     ): ByteArray {
-        val source = Buffer().write(input)
+        val source = Buffer().apply { write(input) }
         val sink = Buffer()
         decompressToSink(
             compression,
@@ -176,63 +163,60 @@ private class ConfiguredRegionCompressionCodecs(
 ) : RegionCompressionCodecs(overrides)
 
 private object NoneCodec : RegionCompressionCodec {
-    override fun compressingSink(sink: Sink): Sink = sink.callerOwned()
+    override fun compressingSink(sink: Sink): RawSink = sink.callerOwned()
 
     override fun decompressingSource(
         source: Source,
         maximumOutputBytes: Int,
-    ): Source {
+    ): RawSource {
         require(maximumOutputBytes >= 0)
         return source.callerOwned()
     }
 }
 
 private object ZlibCodec : RegionCompressionCodec {
-    override fun compressingSink(sink: Sink): Sink =
+    override fun compressingSink(sink: Sink): RawSink =
         platformZlibCompressingSink(sink)
 
     override fun decompressingSource(
         source: Source,
         maximumOutputBytes: Int,
-    ): Source {
+    ): RawSource {
         require(maximumOutputBytes >= 0)
         return platformZlibDecompressingSource(source)
     }
 }
 
 private object GzipCodec : RegionCompressionCodec {
-    override fun compressingSink(sink: Sink): Sink =
+    override fun compressingSink(sink: Sink): RawSink =
         platformGzipCompressingSink(sink)
 
     override fun decompressingSource(
         source: Source,
         maximumOutputBytes: Int,
-    ): Source {
+    ): RawSource {
         require(maximumOutputBytes >= 0)
-        val buffered = source.buffer()
         // Platform GZIP libraries disagree on malformed-prologue failures.
-        // Validate only vanilla's invariant header fields here for one public
-        // RegionFormatException contract; the library still owns DEFLATE,
-        // optional-header parsing, trailer checks, and decompression.
-        validateGzipHeader(buffered.peek())
-        return platformGzipDecompressingSource(buffered)
+        // Validate only vanilla's invariant header fields here; the library
+        // still owns DEFLATE, optional headers, trailer checks, and decoding.
+        validateGzipHeader(source.peek())
+        return platformGzipDecompressingSource(source)
     }
 }
 
 private fun validateGzipHeader(source: Source) {
-    val header = source.buffer()
     try {
-        header.require(4)
+        source.require(4)
         if (
-            header.readByte().toInt() and 0xFF != 0x1F ||
-            header.readByte().toInt() and 0xFF != 0x8B
+            source.readByte().toInt() and 0xFF != 0x1F ||
+            source.readByte().toInt() and 0xFF != 0x8B
         ) {
             throw RegionFormatException("Invalid GZIP magic")
         }
-        if (header.readByte().toInt() and 0xFF != 8) {
+        if (source.readByte().toInt() and 0xFF != 8) {
             throw RegionFormatException("Unsupported GZIP compression method")
         }
-        if (header.readByte().toInt() and 0xE0 != 0) {
+        if (source.readByte().toInt() and 0xE0 != 0) {
             throw RegionFormatException("Invalid reserved GZIP flags")
         }
     } catch (failure: EOFException) {
@@ -246,25 +230,25 @@ private fun validateGzipHeader(source: Source) {
  * to each platform's maintained library.
  */
 private object Lz4BlockCodec : RegionCompressionCodec {
-    override fun compressingSink(sink: Sink): Sink =
-        Lz4BlockCompressingSink(sink)
+    override fun compressingSink(sink: Sink): RawSink =
+        Lz4BlockCompressingRawSink(sink)
 
     override fun decompressingSource(
         source: Source,
         maximumOutputBytes: Int,
-    ): Source {
+    ): RawSource {
         require(maximumOutputBytes >= 0)
-        return Lz4BlockDecompressingSource(source, maximumOutputBytes)
+        return Lz4BlockDecompressingRawSource(source, maximumOutputBytes)
     }
 }
 
-internal expect fun platformZlibCompressingSink(sink: Sink): Sink
+internal expect fun platformZlibCompressingSink(sink: Sink): RawSink
 
-internal expect fun platformZlibDecompressingSource(source: Source): Source
+internal expect fun platformZlibDecompressingSource(source: Source): RawSource
 
-internal expect fun platformGzipCompressingSink(sink: Sink): Sink
+internal expect fun platformGzipCompressingSink(sink: Sink): RawSink
 
-internal expect fun platformGzipDecompressingSource(source: Source): Source
+internal expect fun platformGzipDecompressingSource(source: Source): RawSource
 
 internal expect fun platformRawLz4Compress(input: ByteArray): ByteArray
 
@@ -275,16 +259,16 @@ internal expect fun platformRawLz4Decompress(
 
 internal expect fun platformXxHash32(input: ByteArray, seed: Int): Int
 
-// Codec decorators must close to emit or validate framing, while this public
+// Codec decorators must close to emit or validate framing, while the public
 // API promises not to close caller-owned resources. These guards separate the
-// decorator lifetime from the underlying Okio lifetime.
-internal fun Sink.callerOwned(): Sink = CallerOwnedSink(this)
+// decorator lifecycle from the underlying kotlinx-io lifecycle.
+internal fun Sink.callerOwned(): RawSink = CallerOwnedRawSink(this)
 
-internal fun Source.callerOwned(): Source = CallerOwnedSource(this)
+internal fun Source.callerOwned(): RawSource = CallerOwnedRawSource(this)
 
-private class CallerOwnedSink(
+private class CallerOwnedRawSink(
     private val delegate: Sink,
-) : Sink {
+) : RawSink {
     private var closed = false
 
     override fun write(source: Buffer, byteCount: Long) {
@@ -297,21 +281,19 @@ private class CallerOwnedSink(
         delegate.flush()
     }
 
-    override fun timeout(): Timeout = delegate.timeout()
-
     override fun close() {
         closed = true
     }
 }
 
-private class CallerOwnedSource(
-    delegate: Source,
-) : ForwardingSource(delegate) {
+private class CallerOwnedRawSource(
+    private val delegate: Source,
+) : RawSource {
     private var closed = false
 
-    override fun read(sink: Buffer, byteCount: Long): Long {
+    override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
         check(!closed) { "Compression source is closed" }
-        return super.read(sink, byteCount)
+        return delegate.readAtMostTo(sink, byteCount)
     }
 
     override fun close() {
@@ -321,18 +303,21 @@ private class CallerOwnedSource(
 
 // Probe one byte beyond the configured limit so an oversized stream cannot be
 // accepted merely because its consumer stops at exactly the limit.
-private class OutputLimitingSource(
-    private val upstream: Source,
+private class OutputLimitingRawSource(
+    private val upstream: RawSource,
     maximumOutputBytes: Int,
-) : Source {
+) : RawSource {
     private val maximumOutputBytes = maximumOutputBytes.toLong()
     private var outputBytes = 0L
 
-    override fun read(sink: Buffer, byteCount: Long): Long {
+    override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
         require(byteCount >= 0)
         if (byteCount == 0L) return 0
         val remaining = maximumOutputBytes - outputBytes
-        val read = upstream.read(sink, minOf(byteCount, remaining + 1))
+        val read = upstream.readAtMostTo(
+            sink,
+            minOf(byteCount, remaining + 1),
+        )
         if (read < 0) return -1
         outputBytes += read
         if (outputBytes > maximumOutputBytes) {
@@ -343,55 +328,14 @@ private class OutputLimitingSource(
         return read
     }
 
-    override fun timeout(): Timeout = upstream.timeout()
-
     override fun close() {
         upstream.close()
     }
 }
 
-// Okio/kotlinx-io converters already translate their own I/O failures. This
-// layer only normalizes backend and custom-codec failures to world-format's
-// stable public exception type.
-private fun Sink.withRegionFormatExceptions(message: String): Sink =
-    RegionFormatExceptionMappingSink(this, message)
-
-private fun Source.withRegionFormatExceptions(message: String): Source =
-    RegionFormatExceptionMappingSource(this, message)
-
-private class RegionFormatExceptionMappingSink(
-    private val delegate: Sink,
-    private val message: String,
-) : Sink {
-    override fun write(source: Buffer, byteCount: Long) =
-        mapCompressionFailure(message) {
-            delegate.write(source, byteCount)
-        }
-
-    override fun flush() = mapCompressionFailure(message, delegate::flush)
-
-    override fun timeout(): Timeout = delegate.timeout()
-
-    override fun close() = mapCompressionFailure(message, delegate::close)
-}
-
-private class RegionFormatExceptionMappingSource(
-    private val delegate: Source,
-    private val message: String,
-) : Source {
-    override fun read(sink: Buffer, byteCount: Long): Long =
-        mapCompressionFailure(message) {
-            delegate.read(sink, byteCount)
-        }
-
-    override fun timeout(): Timeout = delegate.timeout()
-
-    override fun close() = mapCompressionFailure(message, delegate::close)
-}
-
-private class Lz4BlockCompressingSink(
+private class Lz4BlockCompressingRawSink(
     private val downstream: Sink,
-) : Sink {
+) : RawSink {
     private val block = ByteArray(LZ4_BLOCK_SIZE)
     private val encoded = Buffer()
     private var blockSize = 0
@@ -406,7 +350,11 @@ private class Lz4BlockCompressingSink(
                 remaining,
                 (block.size - blockSize).toLong(),
             ).toInt()
-            val read = source.read(block, blockSize, count)
+            val read = source.readAtMostTo(
+                block,
+                startIndex = blockSize,
+                endIndex = blockSize + count,
+            )
             check(read > 0)
             blockSize += read
             remaining -= read
@@ -419,8 +367,6 @@ private class Lz4BlockCompressingSink(
         if (blockSize > 0) writeBlock()
         downstream.flush()
     }
-
-    override fun timeout(): Timeout = downstream.timeout()
 
     override fun close() {
         if (closed) return
@@ -441,20 +387,17 @@ private class Lz4BlockCompressingSink(
 
     private fun writeBlock() {
         val original = block.copyOf(blockSize)
-        val compressed = mapCompressionFailure("Cannot compress LZ4 block") {
-            platformRawLz4Compress(original)
-        }
+        val compressed = platformRawLz4Compress(original)
         // lz4-java's legacy LZ4Block format stores raw bytes whenever the raw
-        // LZ4 result is not smaller; reproducing that container decision keeps
-        // every platform byte-compatible while the library owns raw LZ4.
+        // result is not smaller. This shared choice preserves byte compatibility
+        // while each platform library owns raw LZ4.
         val useCompressed = compressed.size < original.size
         val payload = if (useCompressed) compressed else original
         val method = if (useCompressed) LZ4_METHOD else LZ4_RAW_METHOD
         // The legacy lz4-java container deliberately stores 28 checksum bits.
         // The platform library still computes the full XXHash32.
-        val checksum = mapCompressionFailure("Cannot hash LZ4 block") {
-            platformXxHash32(original, LZ4_XXHASH_SEED)
-        } and LZ4_CHECKSUM_MASK
+        val checksum = platformXxHash32(original, LZ4_XXHASH_SEED) and
+                LZ4_CHECKSUM_MASK
         writeLz4Header(
             encoded,
             method = method,
@@ -468,18 +411,18 @@ private class Lz4BlockCompressingSink(
     }
 }
 
-private class Lz4BlockDecompressingSource(
+private class Lz4BlockDecompressingRawSource(
     upstream: Source,
     private val maximumOutputBytes: Int,
-) : Source {
-    private val upstream = upstream.buffer()
+) : RawSource {
+    private val upstream = upstream.callerOwned().buffered()
     private var block = ByteArray(0)
     private var blockOffset = 0
     private var outputBytes = 0L
     private var finished = false
     private var closed = false
 
-    override fun read(sink: Buffer, byteCount: Long): Long {
+    override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
         check(!closed) { "Compression source is closed" }
         require(byteCount >= 0)
         if (byteCount == 0L) return 0
@@ -490,17 +433,15 @@ private class Lz4BlockDecompressingSource(
             byteCount,
             (block.size - blockOffset).toLong(),
         ).toInt()
-        sink.write(block, blockOffset, count)
+        sink.write(block, blockOffset, blockOffset + count)
         blockOffset += count
         return count.toLong()
     }
 
-    override fun timeout(): Timeout = upstream.timeout()
-
     override fun close() {
         if (closed) return
         closed = true
-        upstream.buffer.clear()
+        upstream.close()
     }
 
     private fun readBlock(): Boolean {
@@ -552,22 +493,23 @@ private class Lz4BlockDecompressingSource(
                 )
             }
 
-            val encoded = upstream.readByteArray(compressedLength.toLong())
+            val encoded = upstream.readByteArray(compressedLength)
             val decoded = if (method == LZ4_RAW_METHOD) {
                 encoded
             } else {
-                mapCompressionFailure("Invalid raw LZ4 block") {
+                try {
                     platformRawLz4Decompress(encoded, originalLength)
+                } catch (failure: IOException) {
+                    throw RegionFormatException("Invalid raw LZ4 block", failure)
                 }
             }
             if (decoded.size != originalLength) {
                 throw RegionFormatException("LZ4 block length mismatch")
             }
-            val actualChecksum = mapCompressionFailure(
-                "Cannot hash LZ4 block",
-            ) {
-                platformXxHash32(decoded, LZ4_XXHASH_SEED)
-            } and LZ4_CHECKSUM_MASK
+            val actualChecksum = platformXxHash32(
+                decoded,
+                LZ4_XXHASH_SEED,
+            ) and LZ4_CHECKSUM_MASK
             if (actualChecksum != expectedChecksum) {
                 throw RegionFormatException("Invalid LZ4Block XXHash-32")
             }
@@ -583,17 +525,6 @@ private class Lz4BlockDecompressingSource(
     }
 }
 
-private inline fun <T> mapCompressionFailure(
-    message: String,
-    operation: () -> T,
-): T = try {
-    operation()
-} catch (failure: RegionFormatException) {
-    throw failure
-} catch (failure: Exception) {
-    throw RegionFormatException(message, failure)
-}
-
 private fun writeLz4Header(
     sink: Buffer,
     method: Int,
@@ -602,7 +533,7 @@ private fun writeLz4Header(
     checksum: Int,
 ) {
     sink.write(LZ4_MAGIC)
-    sink.writeByte(method or LZ4_COMPRESSION_LEVEL)
+    sink.writeByte((method or LZ4_COMPRESSION_LEVEL).toByte())
     sink.writeIntLe(compressedLength)
     sink.writeIntLe(originalLength)
     sink.writeIntLe(checksum)

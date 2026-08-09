@@ -18,21 +18,20 @@ internal object Zlib {
     }
 
     fun compressToSink(source: Source, sink: Sink): Long =
-        mapCompressionFailure("Cannot deflate packet") {
-            compressingSink(sink).buffered().use { compressed ->
-                source.transferTo(compressed)
-            }
+        compressingSink(sink).buffered().use { compressed ->
+            source.transferTo(compressed)
         }
 
     fun decompressToSink(
         source: Source,
         sink: Sink,
         expectedSize: Int,
-    ): Long = mapCompressionFailure(
-        "Invalid zlib-compressed packet of declared size $expectedSize",
-    ) {
+    ): Long {
         require(expectedSize >= 0)
-        decompressingSource(source, expectedSize).buffered().use { decompressed ->
+        return decompressingSource(
+            source,
+            expectedSize,
+        ).buffered().use { decompressed ->
             val count = decompressed.transferTo(sink)
             if (count != expectedSize.toLong()) {
                 throw MinecraftTransportException(
@@ -65,10 +64,12 @@ internal expect fun platformZlibCompressingSink(sink: Sink): RawSink
 
 internal expect fun platformZlibDecompressingSource(source: Source): RawSource
 
-// Compression decorators must be closed to emit their trailer, but the
-// transport streaming API promises not to close its caller-owned sink. This
-// ownership guard lets the library decorator finalize without closing it.
+// Compression decorators must close to emit or validate their framing, but
+// the transport streaming API promises not to close caller-owned endpoints.
+// These guards separate the decorator lifecycle from the caller's lifecycle.
 internal fun RawSink.callerOwned(): RawSink = CallerOwnedRawSink(this)
+
+internal fun RawSource.callerOwned(): RawSource = CallerOwnedRawSource(this)
 
 private class CallerOwnedRawSink(
     private val delegate: RawSink,
@@ -83,6 +84,21 @@ private class CallerOwnedRawSink(
     override fun flush() {
         check(!closed) { "Compression sink is closed" }
         delegate.flush()
+    }
+
+    override fun close() {
+        closed = true
+    }
+}
+
+private class CallerOwnedRawSource(
+    private val delegate: RawSource,
+) : RawSource {
+    private var closed = false
+
+    override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
+        check(!closed) { "Compression source is closed" }
+        return delegate.readAtMostTo(sink, byteCount)
     }
 
     override fun close() {
@@ -120,17 +136,4 @@ private class MaximumOutputRawSource(
     override fun close() {
         delegate.close()
     }
-}
-
-// Library and platform codecs expose different internal failure classes. The
-// public transport boundary consistently reports MinecraftTransportException.
-private inline fun <T> mapCompressionFailure(
-    message: String,
-    operation: () -> T,
-): T = try {
-    operation()
-} catch (failure: MinecraftTransportException) {
-    throw failure
-} catch (failure: Exception) {
-    throw MinecraftTransportException(message, failure)
 }

@@ -2,14 +2,11 @@ package com.hiczp.minecraft.world.format
 
 import com.hiczp.minecraft.nbt.*
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.Buffer
-import okio.buffer
+import kotlinx.io.*
 import kotlin.random.Random
 import kotlin.test.*
-import okio.Buffer as OkioBuffer
-import okio.Sink as OkioSink
-import okio.Source as OkioSource
 
 class RegionFileFormatTest {
     @Test
@@ -490,7 +487,12 @@ class RegionFileFormatTest {
             val encoded = RegionCompressionCodecs.compress(compression, input)
             encoded[encoded.lastIndex / 2] =
                 (encoded[encoded.lastIndex / 2].toInt() xor 1).toByte()
-            assertFailsWith<RegionFormatException> {
+            val expectedFailure = if (compression == RegionCompression.LZ4) {
+                RegionFormatException::class
+            } else {
+                IOException::class
+            }
+            assertFailsWith(expectedFailure) {
                 RegionCompressionCodecs.decompress(
                     compression,
                     encoded,
@@ -618,37 +620,37 @@ class RegionFileFormatTest {
             RegionCompression.ZLIB,
             RegionCompression.LZ4,
         )) {
-            val encoded = OkioBuffer()
+            val encoded = Buffer()
             val compressor = RegionCompressionCodecs
                 .compressingSink(compression, encoded)
-                .buffer()
-            val first = OkioBuffer().apply {
+                .buffered()
+            val first = Buffer().apply {
                 write(input, 0, input.size / 2)
             }
             compressor.write(first, first.size)
             compressor.flush()
             assertTrue(encoded.size > 0, "$compression did not stream output")
-            val second = OkioBuffer().apply {
-                write(input, input.size / 2, input.size - input.size / 2)
+            val second = Buffer().apply {
+                write(input, input.size / 2, input.size)
             }
             compressor.write(second, second.size)
             compressor.close()
 
             val encodedBytes = encoded.readByteArray()
-            val encodedSource = OkioBuffer().apply { write(encodedBytes) }
+            val encodedSource = Buffer().apply { write(encodedBytes) }
             val decompressor = RegionCompressionCodecs
                 .decompressingSource(
                     compression,
                     encodedSource,
                     input.size,
                 )
-                .buffer()
+                .buffered()
             val prefix = decompressor.readByteArray(32)
 
             assertContentEquals(input.copyOf(32), prefix)
-            val decoded = OkioBuffer().apply {
+            val decoded = Buffer().apply {
                 write(prefix)
-                decompressor.readAll(this)
+                decompressor.transferTo(this)
             }
             assertContentEquals(input, decoded.readByteArray())
             decompressor.close()
@@ -658,12 +660,12 @@ class RegionFileFormatTest {
     @Test
     fun customCompressionIsInjectable() = runTest {
         val reversingCodec = object : RegionCompressionCodec {
-            override fun compressingSink(sink: OkioSink): OkioSink =
-                object : OkioSink {
-                    private val bytes = OkioBuffer()
+            override fun compressingSink(sink: Sink): RawSink =
+                object : RawSink {
+                    private val bytes = Buffer()
 
                     override fun write(
-                        source: OkioBuffer,
+                        source: Buffer,
                         byteCount: Long,
                     ) {
                         bytes.write(source, byteCount)
@@ -671,25 +673,23 @@ class RegionFileFormatTest {
 
                     override fun flush() = Unit
 
-                    override fun timeout() = sink.timeout()
-
                     override fun close() {
-                        val reversed = OkioBuffer().write(
-                            bytes.readByteArray().reversedArray(),
-                        )
+                        val reversed = Buffer().apply {
+                            write(bytes.readByteArray().reversedArray())
+                        }
                         sink.write(reversed, reversed.size)
                     }
                 }
 
             override fun decompressingSource(
-                source: OkioSource,
+                source: Source,
                 maximumOutputBytes: Int,
-            ): OkioSource {
-                val decoded = source.buffer().readByteArray().reversedArray()
+            ): RawSource {
+                val decoded = source.readByteArray().reversedArray()
                 if (decoded.size > maximumOutputBytes) {
                     throw RegionFormatException("Custom output too large")
                 }
-                return OkioBuffer().apply { write(decoded) }
+                return Buffer().apply { write(decoded) }
             }
         }
         val codecs = RegionCompressionCodecs(
@@ -707,6 +707,58 @@ class RegionFileFormatTest {
         assertFailsWith<RegionFormatException> {
             codecs.decompress(RegionCompression.CUSTOM, encoded, 2)
         }
+    }
+
+    @Test
+    fun customCompressionDoesNotInterceptCoroutineCancellation() {
+        val compressionCancellation =
+            CancellationException("compression cancelled")
+        val decompressionCancellation =
+            CancellationException("decompression cancelled")
+        val cancellingCodec = object : RegionCompressionCodec {
+            override fun compressingSink(sink: Sink): RawSink =
+                object : RawSink {
+                    override fun write(source: Buffer, byteCount: Long) {
+                        throw compressionCancellation
+                    }
+
+                    override fun flush() = Unit
+
+                    override fun close() = Unit
+                }
+
+            override fun decompressingSource(
+                source: Source,
+                maximumOutputBytes: Int,
+            ): RawSource = object : RawSource {
+                override fun readAtMostTo(
+                    sink: Buffer,
+                    byteCount: Long,
+                ): Long = throw decompressionCancellation
+
+                override fun close() = Unit
+            }
+        }
+        val codecs = RegionCompressionCodecs(
+            mapOf(RegionCompression.CUSTOM to cancellingCodec),
+        )
+
+        assertSame(
+            compressionCancellation,
+            assertFailsWith<CancellationException> {
+                codecs.compress(RegionCompression.CUSTOM, byteArrayOf(1))
+            },
+        )
+        assertSame(
+            decompressionCancellation,
+            assertFailsWith<CancellationException> {
+                codecs.decompress(
+                    RegionCompression.CUSTOM,
+                    byteArrayOf(1),
+                    1,
+                )
+            },
+        )
     }
 
     @Test
@@ -844,7 +896,7 @@ class RegionFileFormatTest {
             input,
         )
 
-        suspend fun rejects(
+        fun rejectsFormat(
             compression: RegionCompression,
             bytes: ByteArray,
         ) {
@@ -857,47 +909,60 @@ class RegionFileFormatTest {
             }
         }
 
-        rejects(RegionCompression.ZLIB, ByteArray(5))
-        rejects(
+        fun rejectsIo(
+            compression: RegionCompression,
+            bytes: ByteArray,
+        ) {
+            assertFailsWith<IOException> {
+                RegionCompressionCodecs.decompress(
+                    compression,
+                    bytes,
+                    1_024,
+                )
+            }
+        }
+
+        rejectsIo(RegionCompression.ZLIB, ByteArray(5))
+        rejectsIo(
             RegionCompression.ZLIB,
             zlib.copyOf().also { it[0] = 0x70 },
         )
-        rejects(
+        rejectsIo(
             RegionCompression.ZLIB,
             zlib.copyOf().also { it[0] = 0x88.toByte() },
         )
-        rejects(
+        rejectsIo(
             RegionCompression.ZLIB,
             zlib.copyOf().also { it[1] = 0 },
         )
         val dictionaryFlag = (0..255).first {
             it and 0x20 != 0 && ((0x78 shl 8) or it) % 31 == 0
         }
-        rejects(
+        rejectsIo(
             RegionCompression.ZLIB,
             zlib.copyOf().also { it[1] = dictionaryFlag.toByte() },
         )
-        rejects(
+        rejectsIo(
             RegionCompression.ZLIB,
             zlib.copyOf().also {
                 it[it.lastIndex] = (it.last().toInt() xor 1).toByte()
             },
         )
 
-        rejects(RegionCompression.GZIP, ByteArray(17))
-        rejects(
+        rejectsFormat(RegionCompression.GZIP, ByteArray(17))
+        rejectsFormat(
             RegionCompression.GZIP,
             gzip.copyOf().also { it[0] = 0 },
         )
-        rejects(
+        rejectsFormat(
             RegionCompression.GZIP,
             gzip.copyOf().also { it[2] = 0 },
         )
-        rejects(
+        rejectsFormat(
             RegionCompression.GZIP,
             gzip.copyOf().also { it[3] = 0xE0.toByte() },
         )
-        rejects(
+        rejectsIo(
             RegionCompression.GZIP,
             ByteArray(18).also {
                 it[0] = 0x1F
@@ -907,31 +972,31 @@ class RegionFileFormatTest {
                 it[10] = 100
             },
         )
-        rejects(
+        rejectsIo(
             RegionCompression.GZIP,
             gzip.copyOf().also { it[3] = 2 },
         )
-        rejects(
+        rejectsIo(
             RegionCompression.GZIP,
             gzip.copyOf().also {
                 it[it.lastIndex - 7] =
                     (it[it.lastIndex - 7].toInt() xor 1).toByte()
             },
         )
-        rejects(
+        rejectsIo(
             RegionCompression.GZIP,
             gzip.copyOf().also {
                 it[it.lastIndex] = (it.last().toInt() xor 1).toByte()
             },
         )
-        rejects(
+        rejectsIo(
             RegionCompression.GZIP,
             ByteArray(19) { 1 }.also {
                 gzip.copyInto(it, endIndex = 10)
                 it[3] = 0x08
             },
         )
-        rejects(
+        rejectsIo(
             RegionCompression.GZIP,
             ByteArray(19) { 1 }.also {
                 gzip.copyInto(it, endIndex = 10)
@@ -939,25 +1004,25 @@ class RegionFileFormatTest {
             },
         )
 
-        rejects(
+        rejectsFormat(
             RegionCompression.LZ4,
             lz4.copyOf().also { it[0] = 0 },
         )
-        rejects(
+        rejectsFormat(
             RegionCompression.LZ4,
             lz4.copyOf().also { it[8] = 0 },
         )
-        rejects(
+        rejectsFormat(
             RegionCompression.LZ4,
             lz4.copyOf().also {
                 it[17] = (it[17].toInt() xor 1).toByte()
             },
         )
-        rejects(
+        rejectsFormat(
             RegionCompression.LZ4,
             lz4 + byteArrayOf(0),
         )
-        rejects(
+        rejectsFormat(
             RegionCompression.LZ4,
             lz4.copyOf(lz4.size - 1),
         )
@@ -970,15 +1035,15 @@ class RegionFileFormatTest {
             writeIntLittleEndian(it, 13, originalLength)
         }
 
-        rejects(RegionCompression.LZ4, malformedLz4(-1, input.size))
-        rejects(RegionCompression.LZ4, malformedLz4(input.size, -1))
-        rejects(RegionCompression.LZ4, malformedLz4(input.size, 65_537))
-        rejects(RegionCompression.LZ4, malformedLz4(0, input.size))
-        rejects(
+        rejectsFormat(RegionCompression.LZ4, malformedLz4(-1, input.size))
+        rejectsFormat(RegionCompression.LZ4, malformedLz4(input.size, -1))
+        rejectsFormat(RegionCompression.LZ4, malformedLz4(input.size, 65_537))
+        rejectsFormat(RegionCompression.LZ4, malformedLz4(0, input.size))
+        rejectsFormat(
             RegionCompression.LZ4,
             malformedLz4(input.size - 1, input.size),
         )
-        rejects(
+        rejectsFormat(
             RegionCompression.LZ4,
             RegionCompressionCodecs
                 .compress(RegionCompression.LZ4, byteArrayOf())
@@ -1079,7 +1144,7 @@ class RegionFileFormatTest {
             RegionCompression.ZLIB,
             nbtBinaryFormatBytes(),
         )
-        assertFailsWith<kotlinx.io.IOException> {
+        assertFailsWith<RegionFormatException> {
             strict.decode(
                 RegionChunk(
                     RegionCompression.ZLIB,
@@ -1131,7 +1196,7 @@ class RegionFileFormatTest {
     }
 
     private fun lz4BlockMethods(bytes: ByteArray): List<Int> {
-        val source = OkioBuffer().write(bytes)
+        val source = Buffer().apply { write(bytes) }
         val methods = mutableListOf<Int>()
         while (true) {
             assertContentEquals(

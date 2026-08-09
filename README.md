@@ -94,8 +94,9 @@ count. The module guides contain the corresponding entry points and examples:
   configuration and handler APIs.
 - [`nbt`](nbt/README.md) provides format-independent NBT values;
   [`nbt-serialization`](nbt-serialization/README.md) maps serializers to NBT trees and reads or writes binary NBT.
-- [`world-format`](world-format/README.md) handles in-memory Anvil containers; [`world-io`](world-io/README.md) adds
-  Okio filesystem access and world paths.
+- [`world-format`](world-format/README.md) handles in-memory Anvil containers through `kotlinx.io` streams;
+  [`world-io`](world-io/README.md) adds Okio-only filesystem access and world paths. Their READMEs define the public
+  exception boundary for each layer.
 
 Most model, serialization, and stream APIs target common Kotlin. Socket APIs run where the configured Ktor engine
 exposes TCP. `world-io` targets Okio system filesystems on JVM, Android, Native, and Kotlin/JS Node; browser and Wasm

@@ -8,6 +8,33 @@ import kotlin.test.*
 
 class FileIOTest {
     @Test
+    fun kotlinxIoBoundaryFailuresUseOkioWithoutInterceptingCancellation() {
+        val kotlinxFailure = kotlinx.io.IOException("synthetic kotlinx I/O")
+
+        val exposed = assertFailsWith<IOException> {
+            withOkioIoExceptions("world-io boundary") {
+                throw kotlinxFailure
+            }
+        }
+        val exposedFailure: Throwable = exposed
+
+        assertTrue(
+            exposedFailure === kotlinxFailure ||
+                    exposed.cause === kotlinxFailure,
+        )
+
+        val cancellation = CancellationException("boundary cancelled")
+        assertSame(
+            cancellation,
+            assertFailsWith<CancellationException> {
+                withOkioIoExceptions("world-io boundary") {
+                    throw cancellation
+                }
+            },
+        )
+    }
+
+    @Test
     fun temporaryNamesUseFixedWidthBase36AndOptionalAffixes() {
         assertEquals(".tmp-0000000000000", temporaryFileName(0uL))
         assertEquals(

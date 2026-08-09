@@ -1,6 +1,5 @@
 package com.hiczp.minecraft.world.io
 
-import okio.IOException
 import okio.Path
 
 internal actual fun acquireWorldDirectoryLock(
@@ -20,7 +19,9 @@ internal actual fun acquireWorldDirectoryLock(
                 absoluteWorldLockPath(path),
             )
         return NodeWorldDirectoryLock(descriptor, path, key)
-    } catch (failure: IOException) {
+    } catch (failure: Throwable) {
+        // Cleanup is required for every failed acquisition; the original
+        // failure, including cancellation, is then rethrown unchanged.
         closeAllPreserving(
             failure,
             { closeWorldLock(descriptor, path) },
@@ -33,6 +34,7 @@ internal actual fun isWorldDirectoryLocked(path: Path): Boolean {
     val descriptor = try {
         openWorldLock(path, create = false)
     } catch (failure: Throwable) {
+        failure.rethrowIfCancellation()
         return when (failure.nodeErrorCode) {
             NODE_ACCESS_DENIED, NODE_OPERATION_NOT_PERMITTED -> true
             NODE_NO_SUCH_FILE -> false
@@ -111,6 +113,7 @@ private fun writeWorldLockMarker(descriptor: Number, path: Path) {
             position = 0.0,
         )
     } catch (failure: Throwable) {
+        failure.rethrowIfCancellation()
         if (failure.nodeErrorCode in NODE_LOCK_CONTENTION_ERRORS) {
             throw worldAlreadyLockedException(path.toString(), failure)
         }
@@ -141,6 +144,7 @@ private fun tryAcquireWorldLock(
     val acquired = try {
         tryLock(descriptor)
     } catch (failure: Throwable) {
+        failure.rethrowIfCancellation()
         when (failure.nodeErrorCode) {
             NODE_ACCESS_DENIED,
             NODE_LOCK_UNAVAILABLE,
@@ -207,6 +211,7 @@ private fun Throwable.toWorldLockIoFailure(
     operation: String,
     path: Path,
 ): WorldIOException {
+    rethrowIfCancellation()
     val code = nodeErrorCode
     val codeSuffix = if (code == null) "" else " ($code)"
     return WorldIOException(

@@ -1,7 +1,9 @@
 package com.hiczp.minecraft.world.io
 
 import okio.*
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.random.Random
+import kotlinx.io.IOException as KotlinxIOException
 
 private const val TEMPORARY_RANDOM_RADIX = 36
 private const val TEMPORARY_RANDOM_WIDTH = 13
@@ -305,6 +307,36 @@ internal fun FileSystem.deleteIfExistsPreserving(
     } catch (cleanupFailure: Throwable) {
         failure.addSuppressed(cleanupFailure)
     }
+}
+
+internal fun Throwable.rethrowIfCancellation() {
+    if (this is CancellationException) throw this
+}
+
+/*
+ * kotlinx-io-okio translates failures raised while crossing an adapter. A
+ * world-format operation can still originate a kotlinx-io failure after that
+ * crossing, so public world-io entrypoints normalize exactly that I/O type to
+ * Okio. Semantic format/NBT errors and coroutine cancellation are untouched.
+ */
+internal inline fun <T> withOkioIoExceptions(
+    message: String,
+    block: () -> T,
+): T = try {
+    block()
+} catch (failure: IOException) {
+    // The two libraries use the same java.io.IOException on JVM. Avoid
+    // wrapping an exception that already satisfies world-io's Okio contract.
+    throw failure
+} catch (failure: KotlinxIOException) {
+    // They are distinct classes on JS and Native. This branch covers only a
+    // downstream kotlinx-io failure that did not cross back through an
+    // official adapter. If an Okio failure crossed into kotlinx-io earlier,
+    // restore the adapter's preserved cause instead of erasing a more precise
+    // public subtype such as WorldIOException.
+    val okioCause = failure.cause as? IOException
+    if (okioCause != null) throw okioCause
+    throw IOException(message, failure)
 }
 
 /** A filesystem-policy failure reported through Okio's I/O hierarchy. */

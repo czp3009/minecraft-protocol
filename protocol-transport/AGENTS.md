@@ -9,7 +9,8 @@ and validation defaults match the selected vanilla network pipeline.
 
 Caller-owned `Source` and `Sink` methods are the canonical framing boundary; byte-array methods delegate to them.
 Staging is confined to boundaries that must emit an encoded length first or bridge synchronous sinks to suspending Ktor
-channels. Transport failures inherit `IOException`, and lower-layer I/O failures are not repeatedly rewrapped.
+channels. Transport failures inherit `kotlinx.io.IOException`, and lower-layer I/O failures are not repeatedly
+rewrapped.
 
 Keep pure frame and cipher algorithms independently testable from sockets. The common real-socket scenario runs on JVM,
 Android host, desktop Native, JS Node, and WasmJS Node; Ktor capability reporting excludes runtimes without TCP.

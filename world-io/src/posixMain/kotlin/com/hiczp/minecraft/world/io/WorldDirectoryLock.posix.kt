@@ -2,7 +2,6 @@ package com.hiczp.minecraft.world.io
 
 import kotlinx.cinterop.*
 import okio.FileSystem
-import okio.IOException
 import okio.Path
 import okio.Path.Companion.toPath
 import platform.posix.*
@@ -29,7 +28,9 @@ internal actual fun acquireWorldDirectoryLock(
                 absoluteWorldLockPath(path),
             )
         return PosixWorldDirectoryLock(descriptor, path, key)
-    } catch (failure: IOException) {
+    } catch (failure: Throwable) {
+        // Cleanup is required for every failed acquisition; rethrow the
+        // original failure unchanged after closing the descriptor.
         closeAllPreserving(
             failure,
             { closePosixFile(descriptor, path) },

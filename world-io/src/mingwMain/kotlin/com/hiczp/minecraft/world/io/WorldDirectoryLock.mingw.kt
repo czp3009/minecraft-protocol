@@ -4,7 +4,6 @@ package com.hiczp.minecraft.world.io
 
 import kotlinx.cinterop.*
 import okio.FileSystem
-import okio.IOException
 import okio.Path
 import platform.windows.*
 
@@ -31,7 +30,9 @@ internal actual fun acquireWorldDirectoryLock(
                 absoluteWorldLockPath(path),
             )
         return MingwWorldDirectoryLock(handle, path, key)
-    } catch (failure: IOException) {
+    } catch (failure: Throwable) {
+        // Cleanup is required for every failed acquisition; rethrow the
+        // original failure unchanged after closing the native handle.
         closeAllPreserving(
             failure,
             { closeWindowsFile(handle, path) },

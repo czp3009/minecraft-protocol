@@ -5,11 +5,18 @@ import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.test.runTest
-import okio.*
+import okio.Buffer
+import okio.FileSystem
+import okio.Path
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.*
 import kotlin.time.Clock
+import kotlinx.io.Buffer as KotlinxBuffer
+import kotlinx.io.RawSink as KotlinxRawSink
+import kotlinx.io.RawSource as KotlinxRawSource
+import kotlinx.io.Sink as KotlinxSink
+import kotlinx.io.Source as KotlinxSource
 
 class WorldRegionStoreEdgeTest {
     @Test
@@ -431,17 +438,29 @@ private fun edgeRegionDocument(): NbtDocument = NbtDocument(
 // stream contract while proving world-io does not impose a vanilla-only compression whitelist.
 private val identityCustomCompressionCodec =
     object : RegionCompressionCodec {
-        override fun compressingSink(sink: Sink): Sink =
-            object : Sink by sink {
+        override fun compressingSink(sink: KotlinxSink): KotlinxRawSink =
+            object : KotlinxRawSink {
+                override fun write(
+                    source: KotlinxBuffer,
+                    byteCount: Long,
+                ) = sink.write(source, byteCount)
+
+                override fun flush() = sink.flush()
+
                 override fun close() = sink.flush()
             }
 
         override fun decompressingSource(
-            source: Source,
+            source: KotlinxSource,
             maximumOutputBytes: Int,
-        ): Source {
+        ): KotlinxRawSource {
             require(maximumOutputBytes >= 0)
-            return object : Source by source {
+            return object : KotlinxRawSource {
+                override fun readAtMostTo(
+                    sink: KotlinxBuffer,
+                    byteCount: Long,
+                ): Long = source.readAtMostTo(sink, byteCount)
+
                 override fun close() = Unit
             }
         }

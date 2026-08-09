@@ -26,6 +26,7 @@ internal actual fun syncSystemFilePath(path: Path) {
     val descriptor = try {
         openSync(path.toString(), constants.O_WRONLY)
     } catch (caught: Throwable) {
+        caught.rethrowIfCancellation()
         throw WorldIOException(
             "Could not open $path for durable sync",
             caught,
@@ -35,6 +36,7 @@ internal actual fun syncSystemFilePath(path: Path) {
     try {
         fsyncSync(descriptor)
     } catch (caught: Throwable) {
+        caught.rethrowIfCancellation()
         val syncFailure = WorldIOException(
             "Could not durably sync $path",
             caught,
@@ -45,6 +47,7 @@ internal actual fun syncSystemFilePath(path: Path) {
         try {
             closeSync(descriptor)
         } catch (caught: Throwable) {
+            caught.rethrowIfCancellation()
             val closeFailure = WorldIOException(
                 "Could not close durable-sync descriptor for $path",
                 caught,

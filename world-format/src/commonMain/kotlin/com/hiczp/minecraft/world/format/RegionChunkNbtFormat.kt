@@ -4,10 +4,6 @@ import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.serialization.NbtDecodingException
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import kotlinx.io.*
-import kotlinx.io.okio.asKotlinxIoRawSink
-import kotlinx.io.okio.asKotlinxIoRawSource
-import kotlinx.io.okio.asOkioSink
-import kotlinx.io.okio.asOkioSource
 
 data class RegionChunkNbtFormatConfiguration(
     val maximumDecompressedChunkBytes: Int = 256 * 1_048_576,
@@ -22,10 +18,8 @@ data class RegionChunkNbtFormatConfiguration(
  * independently reusable.
  *
  * [encodeToSink] and [decodeFromSource] are the canonical streaming paths.
- * Compression deliberately keeps its public Okio boundary, while the NBT
- * serializer keeps its kotlinx-io boundary. Their official conversion
- * functions bridge the two and perform the corresponding I/O exception
- * conversion; no project-specific stream adapter is used.
+ * Compression and NBT serialization share the same kotlinx-io boundary, so
+ * callers can compose them without platform adapters or wrapper streams.
  * Methods returning a [RegionChunk] necessarily retain its compressed payload
  * because those bytes are the value represented by that model.
  */
@@ -46,9 +40,9 @@ class RegionChunkNbtFormat(
     ): NbtDocument =
         compressionCodecs.decompressingSource(
             compression,
-            source.asOkioSource(),
+            source,
             configuration.maximumDecompressedChunkBytes,
-        ).asKotlinxIoRawSource().buffered().use { decompressed ->
+        ).buffered().use { decompressed ->
             val document = nbt.decodeDocumentFromSource(decompressed)
             if (!decompressed.exhausted()) {
                 throw NbtDecodingException(
@@ -69,8 +63,8 @@ class RegionChunkNbtFormat(
     ) {
         compressionCodecs.compressingSink(
             compression,
-            sink.asOkioSink(),
-        ).asKotlinxIoRawSink().buffered().use { compressed ->
+            sink,
+        ).buffered().use { compressed ->
             DecompressedLimitRawSink(
                 compressed,
                 configuration.maximumDecompressedChunkBytes,

@@ -9,6 +9,9 @@ filesystem; browser and Wasm targets use the stream modules and do not receive a
 - Convert between Okio sources or sinks and `kotlinx.io` only through `kotlinx-io-okio`; keep size limits, byte counts,
   durable flushes, and ownership policy in this module instead of duplicating the library's transport adapters. At the
   stream boundary, retain the adapters' documented mapping into the wrapping library's I/O exception hierarchy.
+- Public filesystem/store entry points expose Okio I/O exceptions. Normalize only a downstream `kotlinx.io.IOException`
+  left after an official adapter crossing, restore a preserved Okio cause when present, and leave format/NBT,
+  argument/state, cancellation, and cleanup-rethrow failures in their owning semantic category.
 - Standalone NBT stores compose `nbt-serialization` with compression and filesystem policy; byte grammar remains in the
   serialization module.
 - Current paths derive from official resource constants and migration code; historical paths remain explicit API

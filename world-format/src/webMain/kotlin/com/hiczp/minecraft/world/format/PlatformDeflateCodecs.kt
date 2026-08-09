@@ -4,68 +4,70 @@ import dev.karmakrafts.kompress.*
 import dev.karmakrafts.kompress.crc.CRC32
 import dev.karmakrafts.kompress.deflate.Deflater
 import dev.karmakrafts.kompress.deflate.Inflater
+import dev.karmakrafts.kompress.exception.KompressException
 import dev.karmakrafts.kompress.zlib.ZlibDecompressor
 import dev.karmakrafts.kompress.zlib.zlibSink
 import kotlinx.io.*
-import kotlinx.io.okio.asKotlinxIoRawSink
-import kotlinx.io.okio.asKotlinxIoRawSource
-import kotlinx.io.okio.asOkioSink
-import kotlinx.io.okio.asOkioSource
-import okio.Sink as OkioSink
-import okio.Source as OkioSource
 
-internal actual fun platformZlibCompressingSink(sink: OkioSink): OkioSink =
-    sink.callerOwned()
-        .asKotlinxIoRawSink()
-        .zlibSink(level = KOMPRESS_SAFE_LEVEL)
-        .asOkioSink()
+internal actual fun platformZlibCompressingSink(sink: Sink): RawSink =
+    mapKompressFailure("Cannot create zlib compression stream") {
+        sink.callerOwned()
+            .zlibSink(level = KOMPRESS_SAFE_LEVEL)
+            .withKotlinxIoExceptions("Cannot compress zlib stream")
+    }
 
 internal actual fun platformZlibDecompressingSource(
-    source: OkioSource,
-): OkioSource {
-    val compressed = source.asKotlinxIoRawSource().buffered()
+    source: Source,
+): RawSource {
     val decompressor = ZlibDecompressor()
-    val decoded = compressed.decompressingSource(
-        decompressor = decompressor,
-        isSourceOwned = false,
-    )
-    return ExactKompressFramedRawSource(
-        compressed = compressed,
-        decoded = decoded,
-        decompressor = decompressor,
-        formatName = "zlib",
-    ).asOkioSource()
+    return mapKompressFailure("Cannot create zlib decompression stream") {
+        val decoded = source.decompressingSource(
+            decompressor = decompressor,
+            isSourceOwned = false,
+        )
+        ExactKompressFramedRawSource(
+            compressed = source,
+            decoded = decoded,
+            decompressor = decompressor,
+            formatName = "zlib",
+        ).withKotlinxIoExceptions("Invalid zlib stream")
+    }
 }
 
-internal actual fun platformGzipCompressingSink(sink: OkioSink): OkioSink =
-// Kompress's public GZIP convenience API is archive/callback-oriented and
-// cannot implement world-format's incremental synchronous Sink contract.
-// This uses Kompress's official framing base, Deflater, and CRC32; only the
-    // RFC 1952 stream header/trailer adaptation below is project-owned.
-    sink.asKotlinxIoRawSink()
-        .compressingSink(
-            compressor = GzipCompressor(),
-            isSinkOwned = false,
-        )
-        .asOkioSink()
+internal actual fun platformGzipCompressingSink(sink: Sink): RawSink =
+// kompress-gzip exposes only an archive callback that must synchronously
+// finish an entry. It cannot back caller-driven RawSink/RawSource APIs
+// without staging the complete payload, which would defeat streaming and
+// decompression limits. Use Kompress's official framing base, Deflater,
+    // Inflater, and CRC32; only the RFC 1952 adaptation below is project-owned.
+    mapKompressFailure("Cannot create gzip compression stream") {
+        sink.callerOwned()
+            .compressingSink(
+                compressor = GzipCompressor(),
+                isSinkOwned = true,
+            )
+            .withKotlinxIoExceptions("Cannot compress gzip stream")
+    }
 
 internal actual fun platformGzipDecompressingSource(
-    source: OkioSource,
-): OkioSource {
+    source: Source,
+): RawSource {
     val compressed = GzipTrailerRetainingRawSource(
-        source.asKotlinxIoRawSource(),
+        source.callerOwned(),
     ).buffered()
     val decompressor = GzipDecompressor()
-    val decoded = compressed.decompressingSource(
-        decompressor = decompressor,
-        isSourceOwned = false,
-    )
-    return ExactKompressFramedRawSource(
-        compressed = compressed,
-        decoded = decoded,
-        decompressor = decompressor,
-        formatName = "gzip",
-    ).asOkioSource()
+    return mapKompressFailure("Cannot create gzip decompression stream") {
+        val decoded = compressed.decompressingSource(
+            decompressor = decompressor,
+            isSourceOwned = true,
+        )
+        ExactKompressFramedRawSource(
+            compressed = compressed,
+            decoded = decoded,
+            decompressor = decompressor,
+            formatName = "gzip",
+        ).withKotlinxIoExceptions("Invalid gzip stream")
+    }
 }
 
 // Kompress's generic framing source can give raw Inflater a chunk containing
@@ -138,11 +140,55 @@ private class ExactKompressFramedRawSource(
     }
 }
 
+// Kompress exposes its own runtime exception for codec failures. Translate
+// only that documented backend type at the web implementation boundary; input
+// validation, cancellation, and unrelated programming errors stay untouched.
+private fun RawSink.withKotlinxIoExceptions(message: String): RawSink =
+    KotlinxIoExceptionMappingRawSink(this, message)
+
+private fun RawSource.withKotlinxIoExceptions(message: String): RawSource =
+    KotlinxIoExceptionMappingRawSource(this, message)
+
+private class KotlinxIoExceptionMappingRawSink(
+    private val delegate: RawSink,
+    private val message: String,
+) : RawSink {
+    override fun write(source: Buffer, byteCount: Long) =
+        mapKompressFailure(message) {
+            delegate.write(source, byteCount)
+        }
+
+    override fun flush() = mapKompressFailure(message, delegate::flush)
+
+    override fun close() = mapKompressFailure(message, delegate::close)
+}
+
+private class KotlinxIoExceptionMappingRawSource(
+    private val delegate: RawSource,
+    private val message: String,
+) : RawSource {
+    override fun readAtMostTo(sink: Buffer, byteCount: Long): Long =
+        mapKompressFailure(message) {
+            delegate.readAtMostTo(sink, byteCount)
+        }
+
+    override fun close() = mapKompressFailure(message, delegate::close)
+}
+
+private inline fun <T> mapKompressFailure(
+    message: String,
+    operation: () -> T,
+): T = try {
+    operation()
+} catch (failure: KompressException) {
+    throw IOException(message, failure)
+}
+
 /*
  * Kompress supplies the streaming framing lifecycle, raw Deflater/Inflater,
  * and CRC32 implementation. These paired classes only describe RFC 1952's
  * header fields, optional-field traversal, trailer layout, and size check
- * because the library has no direct synchronous streaming GZIP decorator.
+ * because kompress-gzip has no caller-driven streaming GZIP decorator.
  */
 private class GzipCompressor : FramingCompressor(
     Deflater(level = KOMPRESS_SAFE_LEVEL),

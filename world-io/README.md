@@ -50,14 +50,24 @@ rather than updating in place.
 
 The default filesystem is Okio `FileSystem.SYSTEM` on JVM, Android, and Native, and `NodeJsFileSystem` on Kotlin/JS
 Node. Raw stores may receive another Okio `FileSystem`, including the fake filesystem in tests. Okio is part of this
-module's public dependency contract, while `kotlinx-io-core` and the maintained `kotlinx-io-okio` adapters remain
-implementation details used by the existing NBT and Anvil stream formats. The adapters also preserve the active stream
-API's I/O exception hierarchy across that boundary.
+module's public dependency contract. No `world-io` filesystem or store signature introduces a `kotlinx.io` stream type;
+`kotlinx-io-core` and the maintained `kotlinx-io-okio` adapters remain implementation details used to compose the NBT
+and Anvil stream formats.
 
-Public filesystem failures remain catchable as Okio `IOException`. Confirmed `session.lock` contention—including the
-platform-specific marker-write violation that can occur before a non-blocking lock attempt—is reported as
-`WorldLockException` on every supported filesystem platform; message, cause, and stack details are not a cross-platform
-contract.
+## Exception contract
+
+Public filesystem and store entry points expose I/O failures through Okio `IOException`. `WorldIOException` identifies
+this module's own filesystem-policy failures. Confirmed `session.lock` contention—including a platform-specific
+marker-write violation before the non-blocking lock attempt—is the more specific `WorldLockException` on every supported
+filesystem target. When a world-format operation originates a `kotlinx.io.IOException` after an official stream
+conversion, the enclosing `NbtFileStore` or `WorldRegionStore` entry point converts it to Okio; if the official adapter
+had converted an existing Okio failure in the other direction, its preserved Okio cause is restored so a specific
+subtype such as `WorldIOException` is not erased.
+
+`RegionFormatException` and NBT grammar/serialization exceptions are data-format failures rather than filesystem I/O and
+therefore propagate unchanged. Standard argument/state exceptions and coroutine cancellation also propagate unchanged.
+Calling an exposed lower-level `world-format` object directly follows that module's kotlinx.io exception contract.
+Public exception categories are stable across targets; messages, causes, and stack traces are not.
 
 The JS target is Node-only and uses synchronous host filesystem calls. Durable system-file writes issue `fsync`, while
 `MinecraftWorldAccess` uses `fs-native-extensions` 1.5.0 for the official non-blocking exclusive `session.lock`

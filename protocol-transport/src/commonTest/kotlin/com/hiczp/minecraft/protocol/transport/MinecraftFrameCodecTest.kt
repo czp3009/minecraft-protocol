@@ -2,6 +2,7 @@ package com.hiczp.minecraft.protocol.transport
 
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.Buffer
+import kotlinx.io.IOException
 import kotlinx.io.readByteArray
 import kotlin.random.Random
 import kotlin.test.*
@@ -167,7 +168,7 @@ class MinecraftFrameCodecTest {
         assertFailsWith<MinecraftTransportException> {
             codec.decodeFrameBody(byteArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8))
         }
-        assertFailsWith<MinecraftTransportException> {
+        assertFailsWith<IOException> {
             codec.decodeFrameBody(
                 byteArrayOf(11) +
                         hexBytes("789ccb48cdc9c95728cf2fca4901001a0b045c"),
@@ -181,7 +182,7 @@ class MinecraftFrameCodecTest {
         codec.configureCompression(1)
 
         suspend fun reject(zlib: ByteArray, declaredSize: Int = 1) {
-            assertFailsWith<MinecraftTransportException> {
+            assertFailsWith<IOException> {
                 codec.decodeFrameBody(encodeVarInt(declaredSize) + zlib)
             }
         }

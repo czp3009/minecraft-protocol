@@ -2,9 +2,9 @@ package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.serialization.NbtSerializationException
+import com.hiczp.minecraft.world.format.RegionFormatException
 import okio.*
 import kotlin.random.Random
-import kotlinx.io.IOException as KotlinxIOException
 
 class LevelDataStore(
     val paths: MinecraftWorldPaths,
@@ -235,8 +235,8 @@ class Utf8JsonFileStore internal constructor(
 
 private fun Throwable.isRecoverableNbtReadFailure(): Boolean {
     return this is IOException ||
-            this is KotlinxIOException ||
-            this is NbtSerializationException
+            this is NbtSerializationException ||
+            this is RegionFormatException
 }
 
 private fun throwPromotionFailure(

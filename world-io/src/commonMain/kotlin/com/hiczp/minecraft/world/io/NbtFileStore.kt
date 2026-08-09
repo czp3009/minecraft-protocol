@@ -9,7 +9,9 @@ import kotlinx.io.buffered
 import kotlinx.io.okio.asKotlinxIoRawSink
 import kotlinx.io.okio.asKotlinxIoRawSource
 import okio.*
-import kotlinx.io.IOException as KotlinxIOException
+import kotlinx.io.Buffer as KotlinxBuffer
+import kotlinx.io.RawSink as KotlinxRawSink
+import kotlinx.io.RawSource as KotlinxRawSource
 
 enum class NbtFileCompression(
     internal val regionCompression: RegionCompression,
@@ -65,13 +67,17 @@ class NbtFileStore internal constructor(
         path,
         configuration.maximumCompressedBytes,
     ) { source, _ ->
-        val decompressed = compressionCodecs.decompressingSource(
-            compression.regionCompression,
-            source,
-            configuration.maximumDecompressedBytes,
-        ).asKotlinxIoRawSource().buffered()
-        withOkioIoExceptions {
-            decompressed.use { opened ->
+        withOkioIoExceptions("Cannot read NBT file $path") {
+            val converted = source.asKotlinxIoRawSource().buffered()
+            val decompressed = compressionCodecs.decompressingSource(
+                compression.regionCompression,
+                converted,
+                Int.MAX_VALUE,
+            )
+            MaximumBytesRawSource(
+                decompressed,
+                configuration.maximumDecompressedBytes,
+            ).buffered().use { opened ->
                 val document = nbt.decodeDocumentFromSource(opened)
                 if (!opened.exhausted()) {
                     throw NbtDecodingException(
@@ -147,31 +153,84 @@ class NbtFileStore internal constructor(
         compression: NbtFileCompression,
         sink: Sink,
     ) {
-        val compressed = compressionCodecs.compressingSink(
-            compression.regionCompression,
-            sink,
-        )
-        val limited = LimitedSink(
-            compressed,
-            configuration.maximumDecompressedBytes,
-            closeDelegate = true,
-        ).asKotlinxIoRawSink().buffered()
-        withOkioIoExceptions {
-            limited.use { nbtSink ->
-                nbt.encodeDocumentToSink(document, nbtSink)
+        withOkioIoExceptions("Cannot write NBT stream") {
+            val converted = sink.asKotlinxIoRawSink().buffered()
+            val compressed = compressionCodecs.compressingSink(
+                compression.regionCompression,
+                converted,
+            )
+            MaximumBytesRawSink(
+                compressed,
+                configuration.maximumDecompressedBytes,
+            ).buffered().use { limited ->
+                nbt.encodeDocumentToSink(document, limited)
             }
+            converted.flush()
         }
     }
 }
 
 /*
- * kotlinx-io-okio already converts failures raised while crossing each stream
- * adapter. NbtFormat itself nevertheless has a kotlinx-io API and can let that
- * converted type escape after the stream call returns. Normalize only that
- * outer API boundary so world-io callers always receive Okio IOException.
+ * NbtFileStore's decompressed limit is a world-io file policy, not an Anvil
+ * format limit. Keep this common wrapper here so exceeding it remains an Okio
+ * WorldIOException instead of being mislabeled as RegionFormatException.
+ * kotlinx.io currently has no equivalent source/sink byte-limit decorator.
  */
-private inline fun <T> withOkioIoExceptions(block: () -> T): T = try {
-    block()
-} catch (failure: KotlinxIOException) {
-    throw WorldIOException(failure.message ?: "I/O operation failed", failure)
+private class MaximumBytesRawSink(
+    private val delegate: KotlinxRawSink,
+    maximumBytes: Int,
+) : KotlinxRawSink {
+    private val maximumBytes = maximumBytes.toLong()
+    private var bytesWritten = 0L
+
+    override fun write(source: KotlinxBuffer, byteCount: Long) {
+        if (byteCount < 0 || byteCount > maximumBytes - bytesWritten) {
+            throw WorldIOException(
+                "Decompressed NBT output exceeds configured limit $maximumBytes",
+            )
+        }
+        delegate.write(source, byteCount)
+        bytesWritten += byteCount
+    }
+
+    override fun flush() {
+        delegate.flush()
+    }
+
+    override fun close() {
+        delegate.close()
+    }
+}
+
+private class MaximumBytesRawSource(
+    private val delegate: KotlinxRawSource,
+    maximumBytes: Int,
+) : KotlinxRawSource {
+    private val maximumBytes = maximumBytes.toLong()
+    private var bytesRead = 0L
+
+    override fun readAtMostTo(
+        sink: KotlinxBuffer,
+        byteCount: Long,
+    ): Long {
+        require(byteCount >= 0)
+        if (byteCount == 0L) return 0L
+        val remaining = maximumBytes - bytesRead
+        val read = delegate.readAtMostTo(
+            sink,
+            minOf(byteCount, remaining + 1),
+        )
+        if (read < 0) return -1L
+        bytesRead += read
+        if (bytesRead > maximumBytes) {
+            throw WorldIOException(
+                "Decompressed NBT input exceeds configured limit $maximumBytes",
+            )
+        }
+        return read
+    }
+
+    override fun close() {
+        delegate.close()
+    }
 }

@@ -130,19 +130,23 @@ class WorldRegionStore internal constructor(
     }
 
     suspend fun readChunkNbt(position: ChunkPosition): NbtDocument? =
-        readChunk(position)?.let { chunkNbtFormat.decode(it) }
+        readChunk(position)?.let { chunk ->
+            withOkioIoExceptions("Cannot decode chunk $position") {
+                chunkNbtFormat.decode(chunk)
+            }
+        }
 
     suspend fun writeChunkNbt(
         position: ChunkPosition,
         document: NbtDocument,
     ) {
-        writeChunk(
-            position = position,
-            chunk = chunkNbtFormat.encode(
+        val chunk = withOkioIoExceptions("Cannot encode chunk $position") {
+            chunkNbtFormat.encode(
                 document = document,
                 compression = configuration.writeCompression,
-            ),
-        )
+            )
+        }
+        writeChunk(position = position, chunk = chunk)
     }
 
     suspend fun flush() = mutex.withLock {

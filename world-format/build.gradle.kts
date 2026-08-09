@@ -78,13 +78,18 @@ kotlin {
         }
     }
 
-    // The default hierarchy has no JVM + Android + Native intersection for Okio compression, nor a JVM + Android
-    // intersection for lz4-java. Keep the two additional capability source sets linear:
-    // commonMain <- okioCompressionMain <- javaLz4Main <- {jvmMain, androidMain}, while nativeMain depends directly
-    // on okioCompressionMain. Web targets remain entirely on the default webMain/jsMain/wasmJsMain hierarchy.
+    // commonMain owns the public kotlinx-io contract and shared LZ4Block framing. The default hierarchy has no
+    // JVM + Android + Native intersection for the implementation-only Okio codecs, nor a JVM + Android intersection
+    // for lz4-java. Keep the two capability source sets linear:
+    // commonMain <- okioCompressionMain <- javaLz4Main <- {jvmMain, androidMain}; nativeMain depends directly on
+    // okioCompressionMain. Web targets stay entirely on the default webMain/jsMain/wasmJsMain hierarchy.
     sourceSets {
         val okioCompressionMain = create("okioCompressionMain") {
             dependsOn(commonMain.get())
+            dependencies {
+                implementation(libs.kotlinx.io.okio)
+                implementation(libs.okio)
+            }
         }
         val javaLz4Main = create("javaLz4Main") {
             dependsOn(okioCompressionMain)
@@ -110,8 +115,6 @@ kotlin {
             api(project(":nbt"))
             api(project(":nbt-serialization"))
             api(libs.kotlinx.io.core)
-            api(libs.okio)
-            implementation(libs.kotlinx.io.okio)
         }
         webMain.dependencies {
             implementation(libs.kompress.core)

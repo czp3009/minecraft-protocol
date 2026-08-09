@@ -5,8 +5,10 @@ package com.hiczp.minecraft.world.format
 import com.hiczp.minecraft.world.format.internal.jsxxhash.xxHash32
 import com.hiczp.minecraft.world.format.internal.lz4lite.compressBlock
 import com.hiczp.minecraft.world.format.internal.lz4lite.decompressBlock
+import kotlinx.io.IOException
 import org.khronos.webgl.toUByteArray
 import org.khronos.webgl.toUint8Array
+import kotlin.coroutines.cancellation.CancellationException
 
 // npm's lz4-lite and js-xxhash ABIs use Uint8Array. These conversions only
 // bridge Kotlin arrays; the npm packages own raw LZ4 and XXHash32.
@@ -27,7 +29,7 @@ internal actual fun platformRawLz4Decompress(
         outputLength,
     ).toUByteArray().asByteArray()
     if (output.size != outputLength) {
-        throw okio.IOException(
+        throw IOException(
             "Raw LZ4 output length ${output.size} does not match $outputLength",
         )
     }
@@ -41,16 +43,19 @@ internal actual fun platformXxHash32(input: ByteArray, seed: Int): Int =
         xxHash32(input.asUByteArray().toUint8Array(), seed).toLong().toInt()
     }
 
-// External JavaScript can throw values outside Kotlin's Exception hierarchy.
-// Normalize them to Okio here so the common registry can expose the same
-// RegionFormatException contract as JVM, Android, and Native.
+// External JavaScript can throw values outside Kotlin's Exception hierarchy,
+// so this platform boundary cannot use a narrower catch. Cancellation is flow
+// control and must propagate unchanged; all other JS failures become the same
+// kotlinx-io type exposed by the JVM, Android, and Native backends.
 private inline fun <T> mapWebCompressionFailure(
     message: String,
     operation: () -> T,
 ): T = try {
     operation()
-} catch (failure: okio.IOException) {
+} catch (failure: CancellationException) {
+    throw failure
+} catch (failure: IOException) {
     throw failure
 } catch (failure: Throwable) {
-    throw okio.IOException(message, failure)
+    throw IOException(message, failure)
 }

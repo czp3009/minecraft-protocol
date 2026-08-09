@@ -8,12 +8,13 @@ import com.hiczp.minecraft.world.format.internal.lz4.LZ4_compress_default
 import com.hiczp.minecraft.world.format.internal.lz4.LZ4_decompress_safe
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
-import okio.Buffer
+import kotlinx.io.Buffer
+import kotlinx.io.IOException
 
 internal actual fun platformRawLz4Compress(input: ByteArray): ByteArray {
     val capacity = LZ4_compressBound(input.size)
     if (capacity <= 0) {
-        throw okio.IOException("liblz4 rejected input length ${input.size}")
+        throw IOException("liblz4 rejected input length ${input.size}")
     }
     // Kotlin/Native cannot take addressOf(0) on an empty array, while liblz4
     // still requires a non-null pointer for the zero-length C call. The dummy
@@ -31,7 +32,7 @@ internal actual fun platformRawLz4Compress(input: ByteArray): ByteArray {
         }
     }
     if (size <= 0) {
-        throw okio.IOException("liblz4 could not compress raw block")
+        throw IOException("liblz4 could not compress raw block")
     }
     return output.copyOf(size)
 }
@@ -56,7 +57,7 @@ internal actual fun platformRawLz4Decompress(
         }
     }
     if (size != outputLength) {
-        throw okio.IOException(
+        throw IOException(
             "Raw LZ4 output length $size does not match $outputLength",
         )
     }
@@ -64,7 +65,9 @@ internal actual fun platformRawLz4Decompress(
 }
 
 // Appmattus exposes digest bytes, while LZ4Block stores the numeric XXHash32.
-// Okio Buffer's big-endian read converts the library result without
+// Buffer's big-endian read converts the library result without
 // reimplementing any hash round.
 internal actual fun platformXxHash32(input: ByteArray, seed: Int): Int =
-    Buffer().write(Algorithm.XXHash32(seed).hash(input)).readInt()
+    Buffer().apply {
+        write(Algorithm.XXHash32(seed).hash(input))
+    }.readInt()
