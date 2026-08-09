@@ -8,6 +8,7 @@ import okio.IOException
 import okio.Path
 import kotlin.random.Random
 import okio.Sink as OkioSink
+import okio.Source as OkioSource
 
 private const val TEMPORARY_RANDOM_RADIX = 36
 private const val TEMPORARY_RANDOM_WIDTH = 13
@@ -24,9 +25,42 @@ internal fun FileSystem.readFileWithinLimit(
     }
 }
 
+internal fun WorldFileAccess.readFileWithinLimit(
+    path: Path,
+    maximumBytes: Int,
+): ByteArray {
+    require(maximumBytes >= 0)
+    return readFile(path, maximumBytes) { source, size ->
+        source.readByteArray(size.toInt())
+    }
+}
+
 internal fun <T> FileSystem.readFile(
     path: Path,
     maximumBytes: Int,
+    block: (Source, Long) -> T,
+): T = readFile(
+    path = path,
+    maximumBytes = maximumBytes,
+    openSource = { source(path) },
+    block = block,
+)
+
+internal fun <T> WorldFileAccess.readFile(
+    path: Path,
+    maximumBytes: Int,
+    block: (Source, Long) -> T,
+): T = fileSystem.readFile(
+    path = path,
+    maximumBytes = maximumBytes,
+    openSource = { openSource(path) },
+    block = block,
+)
+
+private fun <T> FileSystem.readFile(
+    path: Path,
+    maximumBytes: Int,
+    openSource: () -> OkioSource,
     block: (Source, Long) -> T,
 ): T {
     require(maximumBytes >= 0)
@@ -44,7 +78,7 @@ internal fun <T> FileSystem.readFile(
     }
 
     val limitedSource = LimitedRawSource(
-        source(path).asKotlinxIoRawSource(),
+        openSource().asKotlinxIoRawSource(),
         maximumBytes,
     ).buffered()
     return limitedSource.use { source ->

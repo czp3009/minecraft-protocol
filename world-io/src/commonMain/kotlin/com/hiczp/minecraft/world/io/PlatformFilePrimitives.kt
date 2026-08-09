@@ -23,6 +23,9 @@ internal expect fun FileSystem.openTruncatedReadWrite(
     path: Path,
 ): FileHandle
 
+/** Opens a read-only handle that does not deny concurrent file mutations. */
+internal expect fun FileSystem.openLiveReadOnly(path: Path): FileHandle
+
 internal fun FileSystem.openTruncatedReadWriteUsingResize(
     path: Path,
 ): FileHandle {

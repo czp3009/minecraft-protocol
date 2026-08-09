@@ -5,48 +5,36 @@ import com.hiczp.minecraft.world.format.ChunkPosition
 import com.hiczp.minecraft.world.format.RegionChunk
 import com.hiczp.minecraft.world.format.RegionFile
 import com.hiczp.minecraft.world.format.RegionPosition
+import okio.FileSystem
 import okio.Path
 
-/** A system-filesystem world lease backed by the vanilla `session.lock`. */
-class MinecraftWorldAccess private constructor(
+/**
+ * A non-locking reader for a world that may be modified concurrently.
+ *
+ * Reads may observe stale or torn state and propagate the resulting I/O,
+ * format, or decompression failure. On the system filesystem, every opened
+ * handle permits the read, write, delete, and replacement operations used by
+ * the matching official server. The reader never repairs or mutates files.
+ */
+class LiveMinecraftWorldReader private constructor(
     val paths: MinecraftWorldPaths,
     private val world: OpenMinecraftWorld,
 ) {
     suspend fun readLevelData(): NbtDocument = world.readLevelData()
 
-    suspend fun writeLevelData(document: NbtDocument) =
-        world.writeLevelData(document)
-
     suspend fun readPlayerData(playerUuid: String): NbtDocument? =
         world.readPlayerData(playerUuid)
-
-    suspend fun writePlayerData(
-        playerUuid: String,
-        document: NbtDocument,
-    ) = world.writePlayerData(playerUuid, document)
 
     suspend fun readSavedData(
         identifier: String,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
     ): NbtDocument? = world.readSavedData(identifier, dimension)
 
-    suspend fun writeSavedData(
-        identifier: String,
-        document: NbtDocument,
-        dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ) = world.writeSavedData(identifier, document, dimension)
-
     suspend fun readStatistics(playerUuid: String): String =
         world.readStatistics(playerUuid)
 
-    suspend fun writeStatistics(playerUuid: String, json: String) =
-        world.writeStatistics(playerUuid, json)
-
     suspend fun readAdvancements(playerUuid: String): String =
         world.readAdvancements(playerUuid)
-
-    suspend fun writeAdvancements(playerUuid: String, json: String) =
-        world.writeAdvancements(playerUuid, json)
 
     suspend fun readRegion(
         position: RegionPosition,
@@ -66,50 +54,35 @@ class MinecraftWorldAccess private constructor(
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
     ): Boolean = world.doesChunkExist(position, storage, dimension)
 
-    suspend fun writeChunk(
-        position: ChunkPosition,
-        chunk: RegionChunk?,
-        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
-        dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ) = world.writeChunk(position, chunk, storage, dimension)
-
-    suspend fun clearChunk(
-        position: ChunkPosition,
-        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
-        dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ) = world.clearChunk(position, storage, dimension)
-
     suspend fun readChunkNbt(
         position: ChunkPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
     ): NbtDocument? = world.readChunkNbt(position, storage, dimension)
 
-    suspend fun writeChunkNbt(
-        position: ChunkPosition,
-        document: NbtDocument,
-        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
-        dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ) = world.writeChunkNbt(position, document, storage, dimension)
-
-    suspend fun flush() = world.flush()
-
     suspend fun close() = world.close()
 
     companion object {
-        fun open(root: Path): MinecraftWorldAccess {
-            systemFileSystem.createDirectories(root)
+        fun open(root: Path): LiveMinecraftWorldReader =
+            open(root, systemFileSystem)
+
+        internal fun open(
+            root: Path,
+            fileSystem: FileSystem,
+        ): LiveMinecraftWorldReader {
+            val metadata = fileSystem.metadataOrNull(root)
+                ?: throw WorldIOException(
+                    "World directory does not exist: $root",
+                )
+            if (!metadata.isDirectory) {
+                throw WorldIOException("World path is not a directory: $root")
+            }
             val paths = MinecraftWorldPaths(root)
-            val lock = acquireWorldDirectoryLock(paths.sessionLock)
             val world = OpenMinecraftWorld(
                 paths = paths,
-                files = WorldFileAccess.mutable(systemFileSystem),
-                directoryLock = lock,
+                files = WorldFileAccess.liveReadOnly(fileSystem),
             )
-            return MinecraftWorldAccess(paths, world)
+            return LiveMinecraftWorldReader(paths, world)
         }
-
-        fun isLocked(root: Path): Boolean =
-            isWorldDirectoryLocked(MinecraftWorldPaths(root).sessionLock)
     }
 }

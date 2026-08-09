@@ -8,10 +8,7 @@ import com.hiczp.minecraft.world.format.RegionCompressionCodecs
 import kotlinx.io.RawSink
 import kotlinx.io.buffered
 import kotlinx.io.okio.asKotlinxIoRawSink
-import okio.FileHandle
-import okio.FileSystem
-import okio.Path
-import okio.use
+import okio.*
 
 enum class NbtFileCompression(
     internal val regionCompression: RegionCompression,
@@ -32,18 +29,38 @@ data class NbtFileStoreConfiguration(
 }
 
 /** Physical unnamed-root NBT streams over Okio files. */
-class NbtFileStore(
-    val fileSystem: FileSystem = systemFileSystem,
+class NbtFileStore internal constructor(
+    internal val files: WorldFileAccess,
     val nbt: NbtFormat = NbtFormat,
     val compressionCodecs: RegionCompressionCodecs =
         RegionCompressionCodecs,
     val configuration: NbtFileStoreConfiguration =
         NbtFileStoreConfiguration(),
 ) {
+    constructor(
+        fileSystem: FileSystem = systemFileSystem,
+        nbt: NbtFormat = NbtFormat,
+        compressionCodecs: RegionCompressionCodecs =
+            RegionCompressionCodecs,
+        configuration: NbtFileStoreConfiguration =
+            NbtFileStoreConfiguration(),
+    ) : this(
+        files = WorldFileAccess.mutable(fileSystem),
+        nbt = nbt,
+        compressionCodecs = compressionCodecs,
+        configuration = configuration,
+    )
+
+    val fileSystem: FileSystem
+        get() = files.fileSystem
+
+    internal val liveReadOnly: Boolean
+        get() = files.liveReadOnly
+
     fun read(
         path: Path,
         compression: NbtFileCompression = NbtFileCompression.GZIP,
-    ): NbtDocument = fileSystem.readFile(
+    ): NbtDocument = files.readFile(
         path,
         configuration.maximumCompressedBytes,
     ) { source, _ ->
@@ -69,6 +86,7 @@ class NbtFileStore(
         document: NbtDocument,
         compression: NbtFileCompression = NbtFileCompression.GZIP,
     ) {
+        files.requireWritable()
         val parent = path.parent
             ?: throw WorldIOException("File has no parent directory: $path")
         fileSystem.createDirectories(parent)
@@ -82,6 +100,7 @@ class NbtFileStore(
         document: NbtDocument,
         compression: NbtFileCompression = NbtFileCompression.GZIP,
     ): Path {
+        files.requireWritable()
         val temporary = fileSystem.openUniqueTemporaryHandle(directory)
         try {
             temporary.handle.use { handle ->
@@ -98,6 +117,8 @@ class NbtFileStore(
             throw failure
         }
     }
+
+    internal fun openSource(path: Path): Source = files.openSource(path)
 
     private fun writeHandle(
         path: Path,

@@ -1,39 +1,44 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.*
-import okio.*
+import okio.Buffer
+import okio.FileHandle
+import okio.Path
+import okio.use
 import kotlin.time.Clock
 
 internal class OpenRegionFile private constructor(
-    private val fileSystem: FileSystem,
+    private val files: WorldFileAccess,
     private val directory: Path,
     private val regionPosition: RegionPosition,
     private val path: Path,
     private val handle: FileHandle,
-    private val header: RegionHeader,
-    private val allocator: RegionSectorAllocator,
+    private val writer: RegionWriterState?,
     private val maximumCompressedChunkBytes: Int,
-    private val syncWrites: Boolean,
 ) {
     private var closed = false
 
     fun read(position: LocalChunkPosition): RegionChunk? {
         checkOpen()
-        return readStoredChunk(position)
+        return readStoredChunk(position, headerForRead())
     }
 
     fun readAll(): RegionFile {
         checkOpen()
+        val header = headerForRead()
         val chunks = linkedMapOf<LocalChunkPosition, RegionChunk>()
         for (index in 0 until REGION_CHUNK_COUNT) {
             val position = LocalChunkPosition.fromIndex(index)
-            readStoredChunk(position)?.let { chunks[position] = it }
+            readStoredChunk(position, header)?.let {
+                chunks[position] = it
+            }
         }
         return RegionFile(chunks)
     }
 
     fun exists(position: LocalChunkPosition): Boolean {
         checkOpen()
+        val header = headerForRead()
         val location = header.location(position) ?: return false
         val prefix = handle.readAtMost(
             location.byteOffset,
@@ -46,7 +51,7 @@ internal class OpenRegionFile private constructor(
             return false
         }
         if (record.external) {
-            return fileSystem.metadataOrNull(
+            return files.fileSystem.metadataOrNull(
                 externalPath(regionPosition.chunk(position)),
             )?.isRegularFile == true
         }
@@ -61,6 +66,7 @@ internal class OpenRegionFile private constructor(
         chunk: RegionChunk,
     ) {
         checkOpen()
+        val writer = requireWriter()
         val compressedBytes = chunk.payload.compressedBytes
             ?: throw RegionFormatException(
                 "External chunk $chunkPosition has not been resolved",
@@ -75,9 +81,9 @@ internal class OpenRegionFile private constructor(
             compressedPayload = compressedBytes,
         )
         if (record.external) {
-            writeExternal(position, chunkPosition, record)
+            writeExternal(position, chunkPosition, record, writer)
         } else {
-            writeInternal(position, chunkPosition, record)
+            writeInternal(position, chunkPosition, record, writer)
         }
     }
 
@@ -86,25 +92,32 @@ internal class OpenRegionFile private constructor(
         chunkPosition: ChunkPosition,
     ) {
         checkOpen()
-        val oldLocation = header.location(position) ?: return
-        header.set(
+        val writer = requireWriter()
+        val oldLocation = writer.header.location(position) ?: return
+        writer.header.set(
             position,
             location = null,
             timestamp = systemEpochSeconds(),
         )
-        writeHeader()
-        fileSystem.deleteIfExists(externalPath(chunkPosition))
-        allocator.free(oldLocation)
+        writeHeader(writer)
+        files.fileSystem.deleteIfExists(externalPath(chunkPosition))
+        writer.allocator.free(oldLocation)
     }
 
     fun flush() {
         checkOpen()
-        handle.flushDurably(fileSystem, path)
+        if (writer != null) {
+            handle.flushDurably(files.fileSystem, path)
+        }
     }
 
     fun close() {
         if (closed) return
         closed = true
+        if (writer == null) {
+            handle.close()
+            return
+        }
         var failure: Throwable? = null
         val size = try {
             handle.size()
@@ -129,13 +142,16 @@ internal class OpenRegionFile private constructor(
         }
         closeAllPreserving(
             failure,
-            { handle.flushDurably(fileSystem, path) },
+            { handle.flushDurably(files.fileSystem, path) },
             handle::close,
         )
         failure?.let { throw it }
     }
 
-    private fun readStoredChunk(position: LocalChunkPosition): RegionChunk? {
+    private fun readStoredChunk(
+        position: LocalChunkPosition,
+        header: RegionHeader,
+    ): RegionChunk? {
         val location = header.location(position) ?: return null
         val prefix = handle.readAtMost(
             location.byteOffset,
@@ -154,7 +170,7 @@ internal class OpenRegionFile private constructor(
         }
         val payload = if (record.external) {
             val absolute = regionPosition.chunk(position)
-            val bytes = fileSystem.readFileWithinLimit(
+            val bytes = files.readFileWithinLimit(
                 externalPath(absolute),
                 maximumCompressedChunkBytes,
             )
@@ -194,31 +210,35 @@ internal class OpenRegionFile private constructor(
         position: LocalChunkPosition,
         chunkPosition: ChunkPosition,
         record: EncodedRegionChunkRecord,
+        writer: RegionWriterState,
     ) {
-        val oldLocation = header.location(position)
-        val newLocation = allocator.allocate(record.allocatedSectors)
+        val oldLocation = writer.header.location(position)
+        val newLocation = writer.allocator.allocate(record.allocatedSectors)
         handle.write(
             newLocation.byteOffset,
             record.bytes,
             0,
             record.bytes.size,
         )
-        if (syncWrites) handle.flushDurably(fileSystem, path)
-        header.set(position, newLocation, systemEpochSeconds())
-        writeHeader()
-        fileSystem.deleteIfExists(externalPath(chunkPosition))
-        allocator.free(oldLocation)
+        if (writer.syncWrites) {
+            handle.flushDurably(files.fileSystem, path)
+        }
+        writer.header.set(position, newLocation, systemEpochSeconds())
+        writeHeader(writer)
+        files.fileSystem.deleteIfExists(externalPath(chunkPosition))
+        writer.allocator.free(oldLocation)
     }
 
     private fun writeExternal(
         position: LocalChunkPosition,
         chunkPosition: ChunkPosition,
         record: EncodedRegionChunkRecord,
+        writer: RegionWriterState,
     ) {
         val payload = checkNotNull(record.externalPayload)
-        val oldLocation = header.location(position)
-        val newLocation = allocator.allocate(1)
-        val temporary = fileSystem.openUniqueTemporarySink(
+        val oldLocation = writer.header.location(position)
+        val newLocation = writer.allocator.allocate(1)
+        val temporary = files.fileSystem.openUniqueTemporarySink(
             directory = directory,
             prefix = ".mcc-",
             suffix = ".tmp",
@@ -235,25 +255,38 @@ internal class OpenRegionFile private constructor(
                 0,
                 record.bytes.size,
             )
-            if (syncWrites) handle.flushDurably(fileSystem, path)
-            header.set(position, newLocation, systemEpochSeconds())
-            writeHeader()
-            fileSystem.moveReplacing(
+            if (writer.syncWrites) {
+                handle.flushDurably(files.fileSystem, path)
+            }
+            writer.header.set(position, newLocation, systemEpochSeconds())
+            writeHeader(writer)
+            files.fileSystem.moveReplacing(
                 temporary.path,
                 externalPath(chunkPosition),
             )
-            allocator.free(oldLocation)
+            writer.allocator.free(oldLocation)
         } catch (failure: Throwable) {
-            fileSystem.deleteIfExistsPreserving(temporary.path, failure)
+            files.fileSystem.deleteIfExistsPreserving(
+                temporary.path,
+                failure,
+            )
             throw failure
         }
     }
 
-    private fun writeHeader() {
-        val bytes = header.encode()
+    private fun writeHeader(writer: RegionWriterState) {
+        val bytes = writer.header.encode()
         handle.write(0L, bytes, 0, bytes.size)
-        if (syncWrites) handle.flushDurably(fileSystem, path)
+        if (writer.syncWrites) {
+            handle.flushDurably(files.fileSystem, path)
+        }
     }
+
+    private fun headerForRead(): RegionHeader =
+        writer?.header ?: readUsableHeader(handle)
+
+    private fun requireWriter(): RegionWriterState = writer
+        ?: throw IllegalStateException("Region file is live read-only: $path")
 
     private fun externalPath(position: ChunkPosition): Path =
         directory / "c.${position.x}.${position.z}.mcc"
@@ -264,40 +297,38 @@ internal class OpenRegionFile private constructor(
 
     companion object {
         fun open(
-            fileSystem: FileSystem,
+            files: WorldFileAccess,
             directory: Path,
             position: RegionPosition,
             maximumCompressedChunkBytes: Int,
             syncWrites: Boolean,
         ): OpenRegionFile {
-            fileSystem.createDirectories(directory)
+            if (!files.liveReadOnly) {
+                files.fileSystem.createDirectories(directory)
+            }
             val path = directory / "r.${position.x}.${position.z}.mca"
-            val handle = fileSystem.openReadWrite(path)
+            val handle = files.openRegionHandle(path)
             var failure: Throwable? = null
             try {
-                val headerBytes = handle.readAtMost(0L, REGION_HEADER_BYTES)
-                val header = RegionHeader.decode(headerBytes)
-                val allocator = RegionSectorAllocator()
-                val fileSize = handle.size()
-                for (index in 0 until REGION_CHUNK_COUNT) {
-                    val local = LocalChunkPosition.fromIndex(index)
-                    val location = header.location(local) ?: continue
-                    if (location.isUsableAtOpen(fileSize)) {
-                        allocator.mark(location)
-                    } else {
-                        header.clearLocation(local)
-                    }
+                val header = readUsableHeader(handle)
+                val writer = if (files.liveReadOnly) {
+                    null
+                } else {
+                    RegionWriterState(
+                        header = header,
+                        allocator = allocatorFor(header),
+                        syncWrites = syncWrites,
+                    )
                 }
                 return OpenRegionFile(
-                    fileSystem = fileSystem,
+                    files = files,
                     directory = directory,
                     regionPosition = position,
                     path = path,
                     handle = handle,
-                    header = header,
-                    allocator = allocator,
-                    maximumCompressedChunkBytes = maximumCompressedChunkBytes,
-                    syncWrites = syncWrites,
+                    writer = writer,
+                    maximumCompressedChunkBytes =
+                        maximumCompressedChunkBytes,
                 )
             } catch (caught: Throwable) {
                 failure = caught
@@ -309,6 +340,35 @@ internal class OpenRegionFile private constructor(
             }
         }
     }
+}
+
+private data class RegionWriterState(
+    val header: RegionHeader,
+    val allocator: RegionSectorAllocator,
+    val syncWrites: Boolean,
+)
+
+private fun readUsableHeader(handle: FileHandle): RegionHeader {
+    val headerBytes = handle.readAtMost(0L, REGION_HEADER_BYTES)
+    val header = RegionHeader.decode(headerBytes)
+    val fileSize = handle.size()
+    for (index in 0 until REGION_CHUNK_COUNT) {
+        val local = LocalChunkPosition.fromIndex(index)
+        val location = header.location(local) ?: continue
+        if (!location.isUsableAtOpen(fileSize)) {
+            header.clearLocation(local)
+        }
+    }
+    return header
+}
+
+private fun allocatorFor(header: RegionHeader): RegionSectorAllocator {
+    val allocator = RegionSectorAllocator()
+    for (index in 0 until REGION_CHUNK_COUNT) {
+        val local = LocalChunkPosition.fromIndex(index)
+        header.location(local)?.let(allocator::mark)
+    }
+    return allocator
 }
 
 private fun systemEpochSeconds(): Int =

@@ -33,13 +33,25 @@ data class WorldRegionStoreConfiguration(
  * new sectors in place, commit the complete header, then retire the old
  * allocation. They never replace an entire `.mca` file.
  */
-class WorldRegionStore(
+class WorldRegionStore internal constructor(
     val directory: Path,
-    val fileSystem: FileSystem = systemFileSystem,
-    val chunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
-    val configuration: WorldRegionStoreConfiguration =
-        WorldRegionStoreConfiguration(),
+    internal val files: WorldFileAccess,
+    val chunkNbtFormat: RegionChunkNbtFormat,
+    val configuration: WorldRegionStoreConfiguration,
 ) {
+    constructor(
+        directory: Path,
+        fileSystem: FileSystem = systemFileSystem,
+        chunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
+        configuration: WorldRegionStoreConfiguration =
+            WorldRegionStoreConfiguration(),
+    ) : this(
+        directory = directory,
+        files = WorldFileAccess.mutable(fileSystem),
+        chunkNbtFormat = chunkNbtFormat,
+        configuration = configuration,
+    )
+
     constructor(
         paths: MinecraftWorldPaths,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
@@ -50,10 +62,28 @@ class WorldRegionStore(
             WorldRegionStoreConfiguration(),
     ) : this(
         directory = paths.regionDirectory(storage, dimension),
-        fileSystem = fileSystem,
+        files = WorldFileAccess.mutable(fileSystem),
         chunkNbtFormat = chunkNbtFormat,
         configuration = configuration,
     )
+
+    internal constructor(
+        paths: MinecraftWorldPaths,
+        storage: RegionStorageDirectory,
+        dimension: DimensionDirectory,
+        files: WorldFileAccess,
+        chunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
+        configuration: WorldRegionStoreConfiguration =
+            WorldRegionStoreConfiguration(),
+    ) : this(
+        directory = paths.regionDirectory(storage, dimension),
+        files = files,
+        chunkNbtFormat = chunkNbtFormat,
+        configuration = configuration,
+    )
+
+    val fileSystem: FileSystem
+        get() = files.fileSystem
 
     private val mutex = Mutex()
     private val regions = linkedMapOf<RegionPosition, OpenRegionFile>()
@@ -63,19 +93,19 @@ class WorldRegionStore(
     suspend fun readRegion(position: RegionPosition): RegionFile =
         mutex.withLock {
             checkOpen()
-            region(position).readAll()
+            region(position)?.readAll() ?: RegionFile()
         }
 
     suspend fun readChunk(position: ChunkPosition): RegionChunk? =
         mutex.withLock {
             checkOpen()
-            region(position.region).read(position.local)
+            region(position.region)?.read(position.local)
         }
 
     suspend fun doesChunkExist(position: ChunkPosition): Boolean =
         mutex.withLock {
             checkOpen()
-            region(position.region).exists(position.local)
+            region(position.region)?.exists(position.local) == true
         }
 
     /**
@@ -88,11 +118,13 @@ class WorldRegionStore(
         chunk: RegionChunk?,
     ) = mutex.withLock {
         checkOpen()
+        files.requireWritable()
         if (chunk == null) {
-            region(position.region).clear(position.local, position)
+            checkNotNull(region(position.region))
+                .clear(position.local, position)
         } else {
             validateChunkForWrite(position, chunk)
-            region(position.region).write(
+            checkNotNull(region(position.region)).write(
                 position.local,
                 position,
                 chunk,
@@ -158,10 +190,17 @@ class WorldRegionStore(
         failure?.let { throw it }
     }
 
-    private fun region(position: RegionPosition): OpenRegionFile {
+    private fun region(position: RegionPosition): OpenRegionFile? {
         regions.remove(position)?.let { existing ->
             regions[position] = existing
             return existing
+        }
+        if (files.liveReadOnly) {
+            val path = directory / "r.${position.x}.${position.z}.mca"
+            val metadata = fileSystem.metadataOrNull(path) ?: return null
+            if (!metadata.isRegularFile) {
+                throw WorldIOException("Path is not a regular file: $path")
+            }
         }
         if (regions.size >= configuration.maximumOpenRegions) {
             val leastRecentlyUsed = regions.entries.first()
@@ -171,7 +210,7 @@ class WorldRegionStore(
             evictedRegion.close()
         }
         val opened = OpenRegionFile.open(
-            fileSystem = fileSystem,
+            files = files,
             directory = directory,
             position = position,
             maximumCompressedChunkBytes =

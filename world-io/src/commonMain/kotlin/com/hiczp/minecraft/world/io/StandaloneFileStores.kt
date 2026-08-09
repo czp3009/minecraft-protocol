@@ -30,7 +30,7 @@ class LevelDataStore(
             primaryFailure.addSuppressed(fallbackFailure)
             throw primaryFailure
         }
-        promotePrevious(primaryFailure)
+        if (!nbtFiles.liveReadOnly) promotePrevious(primaryFailure)
         return fallback
     }
 
@@ -82,11 +82,13 @@ class PlayerDataStore(
                 if (!failure.isRecoverableNbtReadFailure()) throw failure
                 failure
             }
-            try {
-                copyCorrupted(primary)
-            } catch (copyFailure: Throwable) {
-                if (copyFailure !is IOException) throw copyFailure
-                primaryFailure.addSuppressed(copyFailure)
+            if (!nbtFiles.liveReadOnly) {
+                try {
+                    copyCorrupted(primary)
+                } catch (copyFailure: Throwable) {
+                    if (copyFailure !is IOException) throw copyFailure
+                    primaryFailure.addSuppressed(copyFailure)
+                }
             }
             return try {
                 if (
@@ -178,7 +180,7 @@ class SavedDataFileStore(
     }
 
     private fun detectSavedDataCompression(path: Path): NbtFileCompression {
-        return nbtFiles.fileSystem.source(path).buffer().use { source ->
+        return nbtFiles.openSource(path).buffer().use { source ->
             if (
                 source.request(2L) &&
                 source.buffer[0L] == GZIP_MAGIC_FIRST &&
@@ -192,18 +194,30 @@ class SavedDataFileStore(
     }
 }
 
-class Utf8JsonFileStore(
-    val fileSystem: FileSystem = systemFileSystem,
+class Utf8JsonFileStore internal constructor(
+    internal val files: WorldFileAccess,
     val maximumBytes: Int = 16 * 1_048_576,
 ) {
+    constructor(
+        fileSystem: FileSystem = systemFileSystem,
+        maximumBytes: Int = 16 * 1_048_576,
+    ) : this(
+        files = WorldFileAccess.mutable(fileSystem),
+        maximumBytes = maximumBytes,
+    )
+
+    val fileSystem: FileSystem
+        get() = files.fileSystem
+
     init {
         require(maximumBytes >= 0)
     }
 
     fun read(path: Path): String =
-        fileSystem.readFileWithinLimit(path, maximumBytes).decodeToString()
+        files.readFileWithinLimit(path, maximumBytes).decodeToString()
 
     fun write(path: Path, json: String) {
+        files.requireWritable()
         val bytes = json.encodeToByteArray()
         if (bytes.size > maximumBytes) {
             throw WorldIOException(

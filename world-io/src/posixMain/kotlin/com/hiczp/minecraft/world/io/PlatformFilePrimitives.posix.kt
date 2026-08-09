@@ -10,6 +10,9 @@ internal actual fun FileSystem.openTruncatedReadWrite(
     path: Path,
 ): FileHandle = openTruncatedReadWriteUsingResize(path)
 
+internal actual fun FileSystem.openLiveReadOnly(path: Path): FileHandle =
+    openReadOnly(path)
+
 internal actual fun syncSystemFilePath(path: Path) {
     var descriptor: Int
     do {

@@ -26,6 +26,26 @@ variants. `LevelDataStore`, `PlayerDataStore`, `SavedDataFileStore`, and `Utf8Js
 official backup, fallback, compression-detection, and direct-write policies. `MinecraftWorldAccess.open` adds a
 system-filesystem lease backed by the official `session.lock` protocol.
 
+Use `LiveMinecraftWorldReader` when another process, such as the official server, owns and mutates the world. It does
+not acquire `session.lock` and never creates, repairs, or rewrites world files. Standalone NBT, JSON, and external
+`.mcc` files use short-lived read handles; `.mca` handles are cached for targeted positional reads and released by
+`close`. Each region operation reloads the current MCA header. A concurrent save can still produce stale or torn input,
+so callers should treat I/O, format, and decompression failures as an expected retry condition.
+
+```kotlin
+val reader = LiveMinecraftWorldReader.open(worldRoot)
+try {
+    val chunk = reader.readChunkNbt(ChunkPosition(x, z))
+    // Render this chunk without loading unrelated regions or world files.
+} finally {
+    reader.close()
+}
+```
+
+On Windows, live-read handles opened through the system filesystem share read, write, delete, and replacement access
+with the matching official server. This is particularly important for external `.mcc` chunks, which the server replaces
+rather than updating in place.
+
 The default filesystem is Okio `FileSystem.SYSTEM` on JVM, Android, and Native, and `NodeJsFileSystem` on Kotlin/JS
 Node. Raw stores may receive another Okio `FileSystem`, including the fake filesystem in tests. Okio is part of this
 module's public dependency contract, while `kotlinx-io-core` and the maintained `kotlinx-io-okio` adapters remain
