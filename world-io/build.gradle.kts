@@ -1,4 +1,5 @@
 import com.hiczp.minecraft.buildlogic.BuildVersions
+import com.hiczp.minecraft.buildlogic.JvmProcessArguments
 import com.hiczp.minecraft.buildlogic.useMinecraftTestFixtures
 
 plugins {
@@ -105,4 +106,8 @@ kotlin {
             dependsOn(hostFilesystemTest)
         }
     }
+}
+
+tasks.withType<Test>().configureEach {
+    jvmArgs(JvmProcessArguments.ENABLE_NATIVE_ACCESS_ALL_UNNAMED)
 }

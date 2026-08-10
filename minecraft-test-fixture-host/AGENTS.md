@@ -40,6 +40,9 @@ and final cleanup.
   zero. Forced process-tree termination is cleanup fallback, not a successful lifecycle result.
 - Directly launched processes remain retained until cleanup. HeadlessMC uses its wrapper and supported in-memory launch
   mode instead of an opaque descendant process.
+- Every official-server and HeadlessMC child command uses `fixtureJavaCommand`, which executes literal `java` from
+  `PATH` and inserts `--enable-native-access=ALL-UNNAMED` before application arguments. Build logic supplies the same
+  flag to this host JVM because the codec oracle runs in-process through its isolated class loader.
 - A test in one subproject and platform amortizes a compatible process across sequential phases through one serializable
   resource value created and closed inside the annotated test scenario. A global or class-scoped resource is reserved
   for a

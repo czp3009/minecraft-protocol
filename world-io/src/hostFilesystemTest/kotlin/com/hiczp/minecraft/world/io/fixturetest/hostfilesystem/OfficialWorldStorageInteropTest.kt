@@ -332,22 +332,17 @@ class OfficialWorldStorageInteropTest {
         // One mixed region makes the official server exercise every platform codec in one restart. The marker block in
         // each original NBT document proves that the server loaded our bytes instead of accepting only the MCA header or
         // silently regenerating a missing chunk.
-        COMPRESSION_PROBES.forEach { probe ->
-            val writingStore = WorldRegionStore(
-                paths = paths,
-                configuration = WorldRegionStoreConfiguration(
-                    syncWrites = true,
-                    writeCompression = probe.compression,
-                ),
-            )
-            try {
+        val writingStore = WorldRegionStore(paths)
+        try {
+            COMPRESSION_PROBES.forEach { probe ->
                 writingStore.writeChunkNbt(
                     probe.position,
                     documents.getValue(probe.position),
+                    probe.compression,
                 )
-            } finally {
-                writingStore.close()
             }
+        } finally {
+            writingStore.close()
         }
 
         val verifyingStore = WorldRegionStore(paths)

@@ -218,8 +218,7 @@ private suspend fun launchOfficialServer(
             overrides = configuration.properties,
         )
         val process = MinecraftTestProcess.start(
-            command = listOf(
-                "java",
+            command = fixtureJavaCommand(
                 "-Djava.awt.headless=true",
                 "-Djoml.nounsafe=true",
                 "-jar",

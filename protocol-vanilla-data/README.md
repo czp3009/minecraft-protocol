@@ -8,3 +8,15 @@ implement block behavior, entity AI, world generation, or a general Datapack loa
 
 `VanillaProtocolData.Default` selects compact registry entries when a client accepts the offered Known Packs and
 complete network NBT otherwise.
+
+Static registries map names to protocol IDs, while Configuration data selects the appropriate Known Packs branch:
+
+```kotlin
+val blocks = VanillaStaticData.requireRegistry(Identifier("block"))
+val stoneProtocolId = blocks.requireProtocolId(Identifier("stone"))
+
+val compactRegistries = VanillaProtocolData.registryPackets(
+    VanillaProtocolData.knownPacks,
+)
+val completeRegistries = VanillaProtocolData.completeRegistryPackets()
+```

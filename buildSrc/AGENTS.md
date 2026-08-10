@@ -59,6 +59,9 @@ cacheable generation from non-source inputs, immutable fixture templates, and th
   build directory.
 - Gradle task code logs through Gradle's logger and reports actionable validation errors. It does not use
   kotlin-logging, success `println`, or ad hoc process output as a result format.
+- `JvmProcessArguments` owns JVM flags shared by affected module test conventions and build logic. JVM tests in modules
+  that load native-backed libraries, template workers, official processes started by build tasks, and the Fixture Host
+  JVM pass `--enable-native-access=ALL-UNNAMED` before their application entry points.
 
 ## Fixture Host wiring
 
@@ -76,7 +79,8 @@ The service passes explicit artifact and work-directory paths to the JVM host, i
 process environment, associates resources with the consuming task, releases that owner on task completion, and closes
 the host at build shutdown. A `KotlinNativeSimulatorTest` receives the same two values through `SIMCTL_CHILD_`-prefixed
 variables so `simctl spawn` forwards their ordinary names to the child; other tasks receive the ordinary names directly.
-It does not add a fixture-launch task, runtime path property, or eager service startup.
+The host JVM receives the shared native-access argument because the official codec oracle runs inside that process. The
+service does not add a fixture-launch task, runtime path property, or eager service startup.
 
 ## Verification
 

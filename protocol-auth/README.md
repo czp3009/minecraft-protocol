@@ -11,3 +11,13 @@ Authentication support for Minecraft Java Edition.
 MD5, SHA-1, and constant-time token comparison delegate to Okio `ByteString`, while signed server-hash formatting
 delegates two's-complement arithmetic to cryptography-kotlin `BigInt`; this module contains no digest, comparison, or
 big-integer algorithm implementation. The session service accepts an application-owned Ktor `HttpClient`.
+
+Offline profiles use the same name-based UUID derivation as the vanilla server:
+
+```kotlin
+val profile = offlineProfile("Player")
+val dashedUuid = profile.id.toDashedString()
+
+check(parseMinecraftUuid(dashedUuid) == profile.id)
+check(profile.id == offlineUuid(profile.name))
+```

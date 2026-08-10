@@ -12,7 +12,7 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.Locale
+import java.util.*
 import java.util.zip.ZipFile
 import javax.tools.DiagnosticCollector
 import javax.tools.JavaFileObject
@@ -191,6 +191,7 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
 
         val command = listOf(
             "java",
+            JvmProcessArguments.ENABLE_NATIVE_ACCESS_ALL_UNNAMED,
             "-DbundlerMainClass=net.minecraft.data.Main",
             "-jar",
             serverJar.toString(),

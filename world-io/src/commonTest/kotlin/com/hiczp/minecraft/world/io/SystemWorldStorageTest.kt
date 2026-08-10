@@ -177,28 +177,56 @@ class SystemWorldStorageTest {
     }
 
     @Test
-    fun worldLeaseComposesEveryOwnedStoreAndSurvivesReopen() = runTest {
+    fun worldLeaseSharesRegionCompressionAcrossStoresAndSurvivesReopen() = runTest {
         val fileSystem = systemFileSystem
         val parent = createSystemTemporaryDirectory(fileSystem)
         val root = parent / "world"
         val player = "00000000-0000-0000-0000-000000000000"
         val document = systemDocument(9)
         val position = ChunkPosition(-1, 32)
+        val preservedPosition = ChunkPosition(0, 0)
+        val preservedDocument = systemDocument(-1)
+        val dimensions = listOf(
+            DimensionDirectory.Overworld,
+            DimensionDirectory.Nether,
+        )
         try {
+            val initialStore = WorldRegionStore(MinecraftWorldPaths(root))
+            try {
+                initialStore.writeChunkNbt(
+                    preservedPosition,
+                    preservedDocument,
+                    RegionCompression.GZIP,
+                )
+            } finally {
+                initialStore.close()
+            }
             assertFalse(MinecraftWorldAccess.isLocked(root))
-            val access = MinecraftWorldAccess.open(root)
+            val access = MinecraftWorldAccess.open(
+                root = root,
+                configuration = MinecraftWorldAccessConfiguration(
+                    regionStoreConfiguration =
+                        WorldRegionStoreConfiguration(
+                            writeCompression = RegionCompression.LZ4,
+                        ),
+                ),
+            )
             try {
                 access.writeLevelData(document)
                 access.writePlayerData(player, document)
                 access.writeSavedData("example:state/value", document)
                 access.writeStatistics(player, "{}")
                 access.writeAdvancements(player, "{\"done\":true}")
-                RegionStorageDirectory.entries.forEach { storage ->
-                    access.writeChunk(
-                        position,
-                        inlineChunk(byteArrayOf(storage.ordinal.toByte())),
-                        storage,
-                    )
+                dimensions.forEachIndexed { dimensionIndex, dimension ->
+                    RegionStorageDirectory.entries.forEach { storage ->
+                        val value = dimensionIndex * RegionStorageDirectory.entries.size + storage.ordinal
+                        access.writeChunkNbt(
+                            position = position,
+                            document = systemDocument(value),
+                            storage = storage,
+                            dimension = dimension,
+                        )
+                    }
                 }
                 access.flush()
             } finally {
@@ -224,14 +252,34 @@ class SystemWorldStorageTest {
                     "{\"done\":true}",
                     reopened.readAdvancements(player),
                 )
-                RegionStorageDirectory.entries.forEach { storage ->
-                    assertContentEquals(
-                        byteArrayOf(storage.ordinal.toByte()),
-                        reopened.readChunk(
-                            position,
-                            storage,
-                        )?.payload?.compressedBytes,
-                    )
+                assertEquals(
+                    RegionCompression.GZIP,
+                    reopened.readChunk(preservedPosition)?.compression,
+                )
+                assertEquals(
+                    preservedDocument,
+                    reopened.readChunkNbt(preservedPosition),
+                )
+                dimensions.forEachIndexed { dimensionIndex, dimension ->
+                    RegionStorageDirectory.entries.forEach { storage ->
+                        val value = dimensionIndex * RegionStorageDirectory.entries.size + storage.ordinal
+                        assertEquals(
+                            RegionCompression.LZ4,
+                            reopened.readChunk(
+                                position,
+                                storage,
+                                dimension,
+                            )?.compression,
+                        )
+                        assertEquals(
+                            systemDocument(value),
+                            reopened.readChunkNbt(
+                                position,
+                                storage,
+                                dimension,
+                            ),
+                        )
+                    }
                 }
             } finally {
                 reopened.close()

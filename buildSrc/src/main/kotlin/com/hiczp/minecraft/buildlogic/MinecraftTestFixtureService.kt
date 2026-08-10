@@ -96,6 +96,7 @@ abstract class MinecraftTestFixtureService :
         }
         val process = ProcessBuilder(
             "java",
+            JvmProcessArguments.ENABLE_NATIVE_ACCESS_ALL_UNNAMED,
             "-cp",
             classpath,
             FIXTURE_HOST_MAIN_CLASS,

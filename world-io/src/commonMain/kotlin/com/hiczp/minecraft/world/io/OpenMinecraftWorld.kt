@@ -1,10 +1,7 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
-import com.hiczp.minecraft.world.format.ChunkPosition
-import com.hiczp.minecraft.world.format.RegionChunk
-import com.hiczp.minecraft.world.format.RegionFile
-import com.hiczp.minecraft.world.format.RegionPosition
+import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -12,6 +9,8 @@ import kotlinx.coroutines.sync.withLock
 internal class OpenMinecraftWorld(
     val paths: MinecraftWorldPaths,
     private val files: WorldFileAccess,
+    private val regionChunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
+    private val regionStoreConfiguration: WorldRegionStoreConfiguration = WorldRegionStoreConfiguration(),
     private val directoryLock: WorldDirectoryLock? = null,
 ) {
     private val mutex = Mutex()
@@ -219,6 +218,8 @@ internal class OpenMinecraftWorld(
                 storage = storage,
                 dimension = dimension,
                 files = files,
+                chunkNbtFormat = regionChunkNbtFormat,
+                configuration = regionStoreConfiguration,
             )
         }
     }

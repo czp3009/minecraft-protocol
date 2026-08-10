@@ -12,3 +12,16 @@ The module provides:
 
 Models contain values and invariants. Binary byte layout is supplied by a `kotlinx.serialization` format such as
 `MinecraftProtocolFormat`.
+
+For example, a Status handshake and request are ordinary format-independent model values; this module does not encode or
+send them:
+
+```kotlin
+val handshake: ServerboundPacket = HandshakePacket(
+    protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
+    serverAddress = "localhost",
+    serverPort = 25_565,
+    nextState = HandshakeNextState.STATUS,
+)
+val request: ServerboundPacket = StatusRequestPacket
+```

@@ -9,7 +9,9 @@ official-server or headless-client resource values, and every later operation ac
 
 The host owns official-server and HeadlessMC/Fabric/HMC-Specifics client processes, unique workspaces, bounded in-memory
 logs, readiness probes, codec execution, the documented working-directory backdoor, and cleanup. Prepared resources are
-complete before launch; the host never downloads or repairs them.
+complete before launch; the host never downloads or repairs them. Gradle starts the host with
+`--enable-native-access=ALL-UNNAMED` for its in-process codec oracle, and the host places the same argument on every
+official-server and HeadlessMC JVM command.
 
 Gradle publishes an immutable runtime and normally stopped template for each process kind. Exact default optional
 configuration clones the corresponding template automatically, while non-default optional configuration starts from the

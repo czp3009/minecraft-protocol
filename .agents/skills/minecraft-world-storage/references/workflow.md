@@ -38,11 +38,12 @@ Run only the affected prefix while iterating and include downstream tasks after 
 
 The `:world-io:jvmTest` and `:world-io:jsNodeTest` interoperability entries ask the Fixture Host to generate a world
 with the exact official server, synchronously close the process, open its Host working directory through the documented
-same-filesystem backdoor, and rewrite four marked chunks in one `.mca` through the platform's public `WorldRegionStore`
-API using GZIP, ZLIB, NONE, and LZ4. The matching official server must then load every marker, save, restart, and load
-them again. Non-default server properties automatically bypass the stopped default world template. The shared runner and
-its annotated entry live in the unique `hostFilesystemTest` capability source set with an explicit Host-filesystem
-warning. Standard JVM, Node, and desktop Native test source sets depend on it directly and need no platform entry files.
+same-filesystem backdoor, and use one public `WorldRegionStore` to rewrite four marked chunks in one `.mca` with
+per-write GZIP, ZLIB, NONE, and LZ4 selections. The matching official server must then load every marker, save, restart,
+and load them again. Non-default server properties automatically bypass the stopped default world template. The shared
+runner and its annotated entry live in the unique `hostFilesystemTest` capability source set with an explicit
+Host-filesystem warning. Standard JVM, Node, and desktop Native test source sets depend on it directly and need no
+platform entry files.
 Android host tests inherit portable `commonTest` coverage without repeating this JVM-hosted official scenario. Device,
 simulator, browser, D8, and Wasm/WASI source sets do not invoke it. This real process path may use a longer `runTest`
 timeout than portable tests; do not replace its observed readiness and log evidence with delays.

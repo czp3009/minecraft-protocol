@@ -267,15 +267,13 @@ private fun headlessClientCommand(
     gameDirectory: Path,
     headlessMcHome: Path,
     playerName: String,
-): List<String> = listOf(
-    "java",
+): List<String> = fixtureJavaCommand(
     "-Xms256M",
     "-Xmx1G",
     "-Duser.home=$headlessMcHome",
     "-Djava.awt.headless=true",
     "-Djoml.nounsafe=true",
     "--sun-misc-unsafe-memory-access=allow",
-    "--enable-native-access=ALL-UNNAMED",
     "-Dhmc.mcdir=${installation.minecraftDirectory}",
     "-Dhmc.gamedir=$gameDirectory",
     "-Dhmc.java.versions=java",

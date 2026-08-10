@@ -11,6 +11,7 @@ data class WorldRegionStoreConfiguration(
     val maximumCompressedChunkBytes: Int = 256 * 1_048_576,
     val maximumOpenRegions: Int = 256,
     val syncWrites: Boolean = true,
+    /** Default used by NBT writes that do not select compression per chunk. */
     val writeCompression: RegionCompression = RegionCompression.ZLIB,
 ) {
     init {
@@ -139,11 +140,22 @@ class WorldRegionStore internal constructor(
     suspend fun writeChunkNbt(
         position: ChunkPosition,
         document: NbtDocument,
+    ) = writeChunkNbt(
+        position = position,
+        document = document,
+        compression = configuration.writeCompression,
+    )
+
+    /** Encodes and writes one chunk with a per-write compression selection. */
+    suspend fun writeChunkNbt(
+        position: ChunkPosition,
+        document: NbtDocument,
+        compression: RegionCompression,
     ) {
         val chunk = withOkioIoExceptions("Cannot encode chunk $position") {
             chunkNbtFormat.encode(
                 document = document,
-                compression = configuration.writeCompression,
+                compression = compression,
             )
         }
         writeChunk(position = position, chunk = chunk)

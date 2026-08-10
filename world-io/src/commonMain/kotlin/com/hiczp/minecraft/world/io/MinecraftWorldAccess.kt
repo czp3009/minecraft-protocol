@@ -1,15 +1,24 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
-import com.hiczp.minecraft.world.format.ChunkPosition
-import com.hiczp.minecraft.world.format.RegionChunk
-import com.hiczp.minecraft.world.format.RegionFile
-import com.hiczp.minecraft.world.format.RegionPosition
+import com.hiczp.minecraft.world.format.*
 import okio.Path
+
+/**
+ * Region-storage policy shared by every dimension opened under one world
+ * lease. It affects chunks newly encoded through NBT convenience writes;
+ * existing and caller-supplied compressed chunks remain unchanged.
+ * Standalone world files retain their own official storage policies.
+ */
+data class MinecraftWorldAccessConfiguration(
+    val regionStoreConfiguration: WorldRegionStoreConfiguration = WorldRegionStoreConfiguration(),
+    val regionChunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
+)
 
 /** A system-filesystem world lease backed by the vanilla `session.lock`. */
 class MinecraftWorldAccess private constructor(
     val paths: MinecraftWorldPaths,
+    val configuration: MinecraftWorldAccessConfiguration,
     private val world: OpenMinecraftWorld,
 ) {
     suspend fun readLevelData(): NbtDocument = world.readLevelData()
@@ -97,16 +106,24 @@ class MinecraftWorldAccess private constructor(
     suspend fun close() = world.close()
 
     companion object {
-        fun open(root: Path): MinecraftWorldAccess {
+        fun open(root: Path): MinecraftWorldAccess =
+            open(root, MinecraftWorldAccessConfiguration())
+
+        fun open(
+            root: Path,
+            configuration: MinecraftWorldAccessConfiguration,
+        ): MinecraftWorldAccess {
             systemFileSystem.createDirectories(root)
             val paths = MinecraftWorldPaths(root)
             val lock = acquireWorldDirectoryLock(paths.sessionLock)
             val world = OpenMinecraftWorld(
                 paths = paths,
                 files = WorldFileAccess.mutable(systemFileSystem),
+                regionChunkNbtFormat = configuration.regionChunkNbtFormat,
+                regionStoreConfiguration = configuration.regionStoreConfiguration,
                 directoryLock = lock,
             )
-            return MinecraftWorldAccess(paths, world)
+            return MinecraftWorldAccess(paths, configuration, world)
         }
 
         fun isLocked(root: Path): Boolean =

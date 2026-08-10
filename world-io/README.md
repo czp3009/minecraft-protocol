@@ -4,21 +4,39 @@ World-file adapters built on Okio `Path`, `FileSystem`, and positional `FileHand
 
 `WorldRegionStore` reads and mutates terrain, entity, or point-of-interest regions one chunk at a time. Updates allocate
 new sectors, write them in place, commit the MCA header, and retain the old bytes without replacing or shrinking the
-whole region file. Timestamps and the internal/`.mcc` threshold are automatic. `WorldRegionStoreConfiguration` can
-select any official region compression ID supported by modern Anvil files—GZIP, ZLIB, NONE, or LZ4—or CUSTOM when the
-store's `RegionChunkNbtFormat` has a matching registered codec. Raw CUSTOM chunks can be stored without decoding them.
+whole region file. Timestamps and the internal/`.mcc` threshold are automatic.
+`WorldRegionStoreConfiguration.writeCompression` defaults to `RegionCompression.ZLIB`, matching the repository-selected
+official server, whose `region-file-compression` property defaults to `deflate`. The official server can instead select
+LZ4 with `region-file-compression=lz4`; this library selects the equivalent format with `RegionCompression.LZ4`. The
+`writeChunkNbt` overload can select compression for one chunk. Both APIs accept any official modern Anvil
+registration—GZIP, ZLIB, NONE, or LZ4—or CUSTOM when the store's `RegionChunkNbtFormat` has a matching registered codec.
+Raw CUSTOM chunks can be stored without decoding them.
+
+Compression selection affects only NBT content encoded after it is selected. Opening a store never scans, migrates, or
+recompresses existing chunks, and raw `writeChunk` calls preserve the compression and payload already carried by their
+`RegionChunk`. Consequently one `.mca` may contain chunks using different registrations.
 
 Only the modern Anvil `.mca` format is supported. Legacy Region `.mcr` files are neither read nor converted; the
 explicit legacy path variants below select directory layouts only.
 
 ```kotlin
 val paths = MinecraftWorldPaths(worldRoot)
-val terrain = WorldRegionStore(paths)
+val terrain = WorldRegionStore(
+    paths = paths,
+    configuration = WorldRegionStoreConfiguration(
+        writeCompression = RegionCompression.LZ4,
+    ),
+)
 
 val chunk = terrain.readChunkNbt(ChunkPosition(x, z))
 terrain.writeChunkNbt(
     position = ChunkPosition(x, z),
     document = updated,
+)
+terrain.writeChunkNbt(
+    position = ChunkPosition(otherX, otherZ),
+    document = otherUpdated,
+    compression = RegionCompression.ZLIB,
 )
 terrain.close()
 ```
@@ -26,7 +44,25 @@ terrain.close()
 `MinecraftWorldPaths` models the current namespaced dimension, player, and saved-data layout, plus explicit legacy
 variants. `LevelDataStore`, `PlayerDataStore`, `SavedDataFileStore`, and `Utf8JsonFileStore` preserve their different
 official backup, fallback, compression-detection, and direct-write policies. `MinecraftWorldAccess.open` adds a
-system-filesystem lease backed by the official `session.lock` protocol.
+system-filesystem lease backed by the official `session.lock` protocol. Its `MinecraftWorldAccessConfiguration` shares
+one region-store configuration and chunk-NBT format across terrain, entity, and point-of-interest stores in every
+dimension. That region configuration does not alter the distinct standalone-file policies.
+
+```kotlin
+val world = MinecraftWorldAccess.open(
+    root = worldRoot,
+    configuration = MinecraftWorldAccessConfiguration(
+        regionStoreConfiguration = WorldRegionStoreConfiguration(
+            writeCompression = RegionCompression.LZ4,
+        ),
+    ),
+)
+try {
+    world.writeChunkNbt(ChunkPosition(x, z), updated)
+} finally {
+    world.close()
+}
+```
 
 Use `LiveMinecraftWorldReader` when another process, such as the official server, owns and mutates the world. It does
 not acquire `session.lock` and never creates, repairs, or rewrites world files. Standalone NBT, JSON, and external
@@ -76,8 +112,8 @@ publishes prebuilds for Linux, macOS, and Windows on x64 and arm64. Browser and 
 `nbt-serialization`, and `world-format` through trees, streams, or byte arrays instead.
 
 The official generate/rewrite/reload test, including its annotated entry, is isolated in `hostFilesystemTest`. Every
-execution rewrites four marked chunks in one region through the platform's public store API using GZIP, ZLIB, NONE, and
-LZ4, then requires the matching official server to load each marker, save the world, restart, and load them again. JVM,
-JS Node, and desktop Native test source sets that can open the Fixture Host's absolute path inherit it directly, without
-platform-specific entry files. Its non-default server properties automatically select a fresh world rather than the
-stopped default server template.
+execution uses one public `WorldRegionStore` to rewrite four marked chunks in one region with per-write GZIP, ZLIB,
+NONE, and LZ4 selections, then requires the matching official server to load each marker, save the world, restart, and
+load them again. JVM, JS Node, and desktop Native test source sets that can open the Fixture Host's absolute path
+inherit it directly, without platform-specific entry files. Its non-default server properties automatically select a
+fresh world rather than the stopped default server template.

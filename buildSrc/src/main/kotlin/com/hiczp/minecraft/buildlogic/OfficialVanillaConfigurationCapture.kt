@@ -1,15 +1,9 @@
 package com.hiczp.minecraft.buildlogic
 
-import com.squareup.kotlinpoet.CodeBlock
-import com.squareup.kotlinpoet.FileSpec
+import com.squareup.kotlinpoet.*
 import com.squareup.kotlinpoet.KModifier.CONST
 import com.squareup.kotlinpoet.KModifier.INTERNAL
-import com.squareup.kotlinpoet.LIST
-import com.squareup.kotlinpoet.MemberName
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
-import com.squareup.kotlinpoet.PropertySpec
-import com.squareup.kotlinpoet.STRING
-import com.squareup.kotlinpoet.TypeSpec
 import kotlinx.serialization.json.*
 import java.io.*
 import java.net.ServerSocket
@@ -27,10 +21,10 @@ import java.util.concurrent.locks.ReentrantLock
 import java.util.zip.DataFormatException
 import java.util.zip.Deflater
 import java.util.zip.Inflater
+import kotlin.concurrent.withLock
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.createDirectories
 import kotlin.io.path.isRegularFile
-import kotlin.concurrent.withLock
 
 internal data class OfficialPacketKey(
     val state: String,
@@ -144,6 +138,7 @@ internal object OfficialVanillaConfigurationCapture {
     ): VanillaConfigurationCaptureResult {
         val process = ProcessBuilder(
             "java",
+            JvmProcessArguments.ENABLE_NATIVE_ACCESS_ALL_UNNAMED,
             "-Djava.awt.headless=true",
             "-Djoml.nounsafe=true",
             "-jar",

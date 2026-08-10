@@ -23,3 +23,16 @@ Its public boundary ends at packet-data bytes. Protocol states and typed packet 
 canonical paths, with byte-array overloads as adapters. Memory staging is limited to framing boundaries whose total
 encoded length must be known before the body is emitted and to the synchronous-sink/suspending-channel bridge. Malformed
 framing, compression, and transport data is exposed through the `kotlinx.io.IOException` hierarchy.
+
+Packet-data bytes already include their encoded packet ID. The in-memory adapter can frame, compress, and decode them
+without opening a socket:
+
+```kotlin
+val packetData = byteArrayOf(0x01, 0x02, 0x03)
+val codec = MinecraftFrameCodec().apply {
+    configureCompression(threshold = 256)
+}
+
+val frame = codec.encodeFrame(packetData)
+check(codec.decodeFrame(frame).contentEquals(packetData))
+```

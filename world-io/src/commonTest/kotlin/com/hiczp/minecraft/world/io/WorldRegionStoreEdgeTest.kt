@@ -272,48 +272,42 @@ class WorldRegionStoreEdgeTest {
     }
 
     @Test
-    fun configuredNbtWriteModesRoundTrip() = runTest {
+    fun configuredDefaultAndExplicitNbtWriteModesRoundTrip() = runTest {
+        val fileSystem = FakeFileSystem()
         val document = edgeRegionDocument()
-        listOf(
-            RegionCompression.GZIP,
-            RegionCompression.ZLIB,
-            RegionCompression.NONE,
-            RegionCompression.LZ4,
-            RegionCompression.CUSTOM,
-        ).forEachIndexed { index, compression ->
-            val fileSystem = FakeFileSystem()
-            val compressionCodecs = if (
-                compression == RegionCompression.CUSTOM
-            ) {
-                RegionCompressionCodecs(
+        val store = WorldRegionStore(
+            directory = "/world/region".toPath(),
+            fileSystem = fileSystem,
+            chunkNbtFormat = RegionChunkNbtFormat(
+                compressionCodecs = RegionCompressionCodecs(
                     mapOf(
-                        RegionCompression.CUSTOM to
-                                identityCustomCompressionCodec,
+                        RegionCompression.CUSTOM to identityCustomCompressionCodec,
                     ),
-                )
-            } else {
-                RegionCompressionCodecs
+                ),
+            ),
+            configuration = WorldRegionStoreConfiguration(
+                syncWrites = false,
+                writeCompression = RegionCompression.LZ4,
+            ),
+        )
+
+        try {
+            RegionCompression.entries.forEachIndexed { index, compression ->
+                val position = ChunkPosition(index, -index)
+
+                if (compression == store.configuration.writeCompression) {
+                    store.writeChunkNbt(position, document)
+                } else {
+                    store.writeChunkNbt(position, document, compression)
+                }
+
+                assertEquals(document, store.readChunkNbt(position))
+                assertEquals(compression, store.readChunk(position)?.compression)
             }
-            val store = WorldRegionStore(
-                directory = "/world-$index/region".toPath(),
-                fileSystem = fileSystem,
-                chunkNbtFormat = RegionChunkNbtFormat(
-                    compressionCodecs = compressionCodecs,
-                ),
-                configuration = WorldRegionStoreConfiguration(
-                    syncWrites = false,
-                    writeCompression = compression,
-                ),
-            )
-            val position = ChunkPosition(index, -index)
-
-            store.writeChunkNbt(position, document)
-
-            assertEquals(document, store.readChunkNbt(position))
-            assertEquals(compression, store.readChunk(position)?.compression)
+        } finally {
             store.close()
-            fileSystem.checkNoOpenFiles()
         }
+        fileSystem.checkNoOpenFiles()
     }
 
     @Test

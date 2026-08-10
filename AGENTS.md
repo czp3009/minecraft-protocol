@@ -132,7 +132,8 @@ and public documentation.
 
 Java policy is independent of Minecraft. `BuildVersions` fixes the Gradle JVM toolchain and JVM/Android bytecode target
 at Java 25. The Fixture Host launches official processes with `java` from `PATH`, whose major version is 25 or newer;
-minor and patch versions are not pinned or inferred from Mojang metadata.
+minor and patch versions are not pinned or inferred from Mojang metadata. `JvmProcessArguments` owns the shared
+build-logic native-access argument; the Fixture Host owns the equivalent child-process command helper.
 
 The deterministic build pipeline follows these ownership rules:
 

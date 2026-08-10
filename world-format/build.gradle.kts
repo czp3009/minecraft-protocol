@@ -1,4 +1,5 @@
 import com.hiczp.minecraft.buildlogic.BuildVersions
+import com.hiczp.minecraft.buildlogic.JvmProcessArguments
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
 import org.jetbrains.kotlin.gradle.tasks.CInteropProcess
@@ -143,4 +144,8 @@ kotlin {
 
 tasks.withType<CInteropProcess>().configureEach {
     dependsOn(extractLz4Headers)
+}
+
+tasks.withType<Test>().configureEach {
+    jvmArgs(JvmProcessArguments.ENABLE_NATIVE_ACCESS_ALL_UNNAMED)
 }

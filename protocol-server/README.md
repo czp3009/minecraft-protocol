@@ -15,7 +15,9 @@ SelectorManager(Dispatchers.Default).use { selector ->
             when (val result = connection.negotiate()) {
                 MinecraftServerNegotiationResult.StatusCompleted -> Unit
                 is MinecraftServerNegotiationResult.PlayReady -> {
-                    // The application now owns the live Play session.
+                  val playerProfile = result.profile
+                  val playSession = connection.session
+                  // Use playerProfile while processing Play packets through playSession.
                 }
             }
         }

@@ -10,6 +10,8 @@ chunk representation, and NBT composition.
   methods wrap those paths; compressed byte arrays remain only where they are the value owned by `RegionChunk`.
 - Region chunk composition delegates compound-document bytes to `nbt-serialization` and exposes NBT model values from
   `nbt`; it does not duplicate their grammar.
+- Chunk-NBT encoders select compression per operation. `RegionFileFormat` receives already-compressed `RegionChunk`
+  values, records each chunk's own registration, and never chooses or changes their compression.
 - Callers can inspect or repack a region without inflating preserved compressed payloads.
 - Sector, version, compression, checksum, and external-chunk behavior match the selected official server.
 - Parsing rejects overlaps, truncation, overflow, invalid versions, checksum failures, and decompression-limit
