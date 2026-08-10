@@ -649,7 +649,7 @@ class OfficialWorldStorageInteropTest {
         offset: Long,
         byteCount: Int,
     ): ByteArray {
-        val handle = systemFileSystem.openReadOnly(path)
+        val handle = systemFileSystem.openLiveReadOnly(path)
         var failure: Throwable? = null
         try {
             val result = ByteArray(byteCount)

@@ -194,7 +194,7 @@ internal fun FileSystem.openUniqueTemporaryHandle(
         try {
             return TemporaryFileHandle(
                 path,
-                openReadWrite(path, mustCreate = true),
+                createRandomAccessReadWrite(path),
             )
         } catch (failure: IOException) {
             if (!exists(path)) throw failure

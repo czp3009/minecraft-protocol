@@ -27,6 +27,14 @@ internal actual fun FileSystem.moveReplacing(
     )
 }
 
+internal actual fun FileSystem.openRandomAccessReadWrite(
+    path: Path,
+): FileHandle = openReadWrite(path)
+
+internal actual fun FileSystem.createRandomAccessReadWrite(
+    path: Path,
+): FileHandle = openReadWrite(path, mustCreate = true)
+
 internal actual fun FileSystem.openTruncatedReadWrite(
     path: Path,
 ): FileHandle = openTruncatedReadWriteUsingResize(path)

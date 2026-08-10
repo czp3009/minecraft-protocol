@@ -12,7 +12,7 @@ internal class WorldFileAccess private constructor(
 ) {
     fun openRegionHandle(path: Path): FileHandle =
         if (liveReadOnly) fileSystem.openLiveReadOnly(path)
-        else fileSystem.openReadWrite(path)
+        else fileSystem.openRandomAccessReadWrite(path)
 
     fun openSource(path: Path): Source {
         if (!liveReadOnly) return fileSystem.source(path)
