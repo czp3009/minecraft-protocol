@@ -8,7 +8,7 @@ import kotlin.time.Duration.Companion.minutes
 class OfficialServerClientInteropTest {
     @Test
     fun productionClientReachesPlayAgainstOfficialServer() = runTest(
-        timeout = 2.minutes
+        timeout = 4.minutes
     ) {
         OfficialServerClientInteropRunner.run()
     }

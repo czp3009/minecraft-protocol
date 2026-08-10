@@ -43,7 +43,7 @@ class WorldDirectoryLockTest {
                 stored.copyOfRange(3, stored.size),
             )
         } finally {
-            temporaryDirectory.toFile().deleteRecursively()
+            FileSystem.SYSTEM.deleteRecursively(root, mustExist = false)
         }
     }
 
@@ -61,7 +61,7 @@ class WorldDirectoryLockTest {
             }
             assertFalse(failure is WorldLockException)
         } finally {
-            temporaryDirectory.toFile().deleteRecursively()
+            FileSystem.SYSTEM.deleteRecursively(root, mustExist = false)
         }
     }
 
@@ -100,7 +100,7 @@ class WorldDirectoryLockTest {
             assertFalse(MinecraftWorldAccess.isLocked(root))
         } finally {
             if (process.isAlive) process.destroyForcibly().waitFor()
-            temporaryDirectory.toFile().deleteRecursively()
+            FileSystem.SYSTEM.deleteRecursively(root, mustExist = false)
         }
     }
 }

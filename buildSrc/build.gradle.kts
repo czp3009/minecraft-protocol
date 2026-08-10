@@ -15,4 +15,5 @@ dependencies {
     implementation(libs.kotlinpoet)
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.java)
+    testImplementation(kotlin("test"))
 }

@@ -461,34 +461,45 @@ abstract class DownloadMinecraftClientLibrariesTask : DefaultTask() {
                 }
             }
         }
-        val output = librariesDirectory.asFile.get().toPath()
+        val staging = createIsolatedTemporaryDirectory("client-libraries")
         logger.lifecycle(
             "Downloading ${libraries.size} official client library artifacts (concurrency=$LIBRARY_CONCURRENCY)",
         )
         val sorted = libraries.entries.sortedBy { it.key }
-        runBlocking {
-            coroutineScope {
-                val semaphore = Semaphore(LIBRARY_CONCURRENCY)
-                sorted.map { (relative, artifact) ->
-                    async {
-                        semaphore.acquire()
-                        try {
-                            ProtocolHttp.download(
-                                url = artifact.url,
-                                destination = output.resolve(relative),
-                                offline = offline.get(),
-                            )
-                        } finally {
-                            semaphore.release()
+        try {
+            runBlocking {
+                coroutineScope {
+                    val semaphore = Semaphore(LIBRARY_CONCURRENCY)
+                    sorted.map { (relative, artifact) ->
+                        async {
+                            semaphore.acquire()
+                            try {
+                                ProtocolHttp.download(
+                                    url = artifact.url,
+                                    destination = staging.resolve(relative),
+                                    offline = offline.get(),
+                                )
+                            } finally {
+                                semaphore.release()
+                            }
                         }
-                    }
-                }.awaitAll()
+                    }.awaitAll()
+                }
             }
+            fileSystemOperations.sync { sync ->
+                sync.from(staging)
+                sync.into(librariesDirectory)
+            }
+        } finally {
+            staging.deleteTree()
         }
         logger.lifecycle(
             "Downloaded ${libraries.size} official client library artifacts",
         )
     }
+
+    @get:Inject
+    abstract val fileSystemOperations: FileSystemOperations
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -522,19 +533,31 @@ abstract class DownloadMinecraftClientAssetIndexTask : DefaultTask() {
         check(metadata.requiredString("id") == version)
         val assetIndex = metadata.requiredObject("assetIndex")
         val assetIndexId = assetIndex.requiredString("id")
-        val destination = assetIndexesDirectory.asFile.get().toPath()
-            .resolve("$assetIndexId.json")
-        runBlocking {
-            ProtocolHttp.download(
-                url = assetIndex.requiredString("url"),
-                destination = destination,
-                offline = offline.get(),
-            )
+        val output = assetIndexesDirectory.asFile.get().toPath()
+        val staging = createIsolatedTemporaryDirectory("asset-index")
+        val destination = output.resolve("$assetIndexId.json")
+        try {
+            runBlocking {
+                ProtocolHttp.download(
+                    url = assetIndex.requiredString("url"),
+                    destination = staging.resolve("$assetIndexId.json"),
+                    offline = offline.get(),
+                )
+            }
+            fileSystemOperations.sync { sync ->
+                sync.from(staging)
+                sync.into(assetIndexesDirectory)
+            }
+        } finally {
+            staging.deleteTree()
         }
         logger.lifecycle(
             "Downloaded official asset index: $destination",
         )
     }
+
+    @get:Inject
+    abstract val fileSystemOperations: FileSystemOperations
 }
 
 private fun collectClientLibraryArtifacts(
@@ -619,33 +642,36 @@ abstract class DownloadMinecraftClientAssetObjectsTask : DefaultTask() {
         )
         val root = outputDirectory.asFile.get().toPath()
         val officialAssets = assets.filter { it.dummyFormat == null }
+        val staging = createIsolatedTemporaryDirectory("asset-objects")
         logger.lifecycle(
             "Downloading ${officialAssets.size} official client asset objects without HeadlessMC replacements (concurrency=$ASSET_CONCURRENCY)",
         )
-        runBlocking {
-            val semaphore = Semaphore(ASSET_CONCURRENCY)
-            coroutineScope {
-                officialAssets.map { asset ->
-                    async {
-                        semaphore.acquire()
-                        try {
-                            ProtocolHttp.download(
-                                url = "https://resources.download.minecraft.net/${asset.relativePath}",
-                                destination = root.resolve(asset.relativePath),
-                                offline = offline.get(),
-                            )
-                        } finally {
-                            semaphore.release()
+        try {
+            runBlocking {
+                val semaphore = Semaphore(ASSET_CONCURRENCY)
+                coroutineScope {
+                    officialAssets.map { asset ->
+                        async {
+                            semaphore.acquire()
+                            try {
+                                ProtocolHttp.download(
+                                    url = "https://resources.download.minecraft.net/${asset.relativePath}",
+                                    destination = staging.resolve(asset.relativePath),
+                                    offline = offline.get(),
+                                )
+                            } finally {
+                                semaphore.release()
+                            }
                         }
-                    }
-                }.awaitAll()
+                    }.awaitAll()
+                }
             }
-        }
-        fileSystemOperations.sync { sync ->
-            sync.preserve { preserved ->
-                preserved.include(officialAssets.map { it.relativePath })
+            fileSystemOperations.sync { sync ->
+                sync.from(staging)
+                sync.into(outputDirectory)
             }
-            sync.into(outputDirectory)
+        } finally {
+            staging.deleteTree()
         }
         val expectedPaths = officialAssets.mapTo(mutableSetOf()) {
             it.relativePath

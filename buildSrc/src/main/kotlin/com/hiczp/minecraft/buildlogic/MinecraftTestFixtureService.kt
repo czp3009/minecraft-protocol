@@ -317,11 +317,7 @@ private class RunningFixtureHost(
             }
         }
         try {
-            if (hostWorkRoot.exists()) {
-                check(hostWorkRoot.deleteRecursively()) {
-                    "Could not delete Minecraft test fixture host work directory: $hostWorkRoot"
-                }
-            }
+            hostWorkRoot.toPath().deleteTree()
         } catch (failure: Throwable) {
             closeFailure?.addSuppressed(failure)
                 ?: run { closeFailure = failure }
@@ -362,11 +358,7 @@ private fun failFixtureHostStart(
         }
     }.onFailure(failure::addSuppressed)
     runCatching {
-        if (hostWorkRoot.exists()) {
-            check(hostWorkRoot.deleteRecursively()) {
-                "Could not delete Minecraft test fixture host work directory: $hostWorkRoot"
-            }
-        }
+        hostWorkRoot.toPath().deleteTree()
     }.onFailure(failure::addSuppressed)
     throw failure
 }

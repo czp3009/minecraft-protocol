@@ -28,6 +28,7 @@ import java.net.PasswordAuthentication
 import java.net.UnknownHostException
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
@@ -601,7 +602,7 @@ internal fun Path.readMinecraftProtocolTarget(
 }
 
 internal fun Path.deleteTree() {
-    if (!exists()) return
+    if (!Files.exists(this, LinkOption.NOFOLLOW_LINKS)) return
     Files.walk(this).use { paths ->
         paths.sorted(Comparator.reverseOrder())
             .forEach(Files::delete)

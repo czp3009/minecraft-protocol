@@ -48,7 +48,7 @@ class LiveFileSharingTest {
             }
             assertFalse(MinecraftWorldAccess.isLocked(root))
         } finally {
-            temporaryDirectory.toFile().deleteRecursively()
+            FileSystem.SYSTEM.deleteRecursively(root, mustExist = false)
         }
     }
 
@@ -96,7 +96,7 @@ class LiveFileSharingTest {
                 reader.close()
             }
         } finally {
-            temporaryDirectory.toFile().deleteRecursively()
+            FileSystem.SYSTEM.deleteRecursively(root, mustExist = false)
         }
     }
 
@@ -137,7 +137,10 @@ class LiveFileSharingTest {
                     }
                 }
         } finally {
-            temporaryDirectory.toFile().deleteRecursively()
+            FileSystem.SYSTEM.deleteRecursively(
+                temporaryDirectory.toOkioPath(),
+                mustExist = false,
+            )
         }
     }
 
@@ -172,7 +175,10 @@ class LiveFileSharingTest {
                 }
             assertContentEquals(byteArrayOf(7), Files.readAllBytes(target))
         } finally {
-            temporaryDirectory.toFile().deleteRecursively()
+            FileSystem.SYSTEM.deleteRecursively(
+                temporaryDirectory.toOkioPath(),
+                mustExist = false,
+            )
         }
     }
 }

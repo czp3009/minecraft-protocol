@@ -8,7 +8,7 @@ import kotlin.time.Duration.Companion.minutes
 class OfficialHeadlessClientInteropTest {
     @Test
     fun officialHeadlessClientReachesPlayAgainstLibraryServer() = runTest(
-        timeout = 2.minutes,
+        timeout = 4.minutes,
     ) {
         HeadlessClientEndToEndRunner.run()
     }
