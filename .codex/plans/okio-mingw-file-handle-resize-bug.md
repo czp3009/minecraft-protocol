@@ -1,5 +1,7 @@
 # Okio 3.18.1 MinGW `FileHandle.resize(0)` 误报失败
 
+本项目的提交 7fe8a80f 暂时修复了此问题, 若以后 Okio 修复了此问题可以考虑把代码改回去
+
 ## 摘要
 
 Okio 3.18.1 的 Kotlin/Native `mingwX64` 实现中，`FileSystem.SYSTEM.openReadWrite(...).resize(0L)` 会把一次成功的 Win32
