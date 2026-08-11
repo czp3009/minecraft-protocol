@@ -16,6 +16,10 @@ import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import io.ktor.utils.io.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -31,7 +35,18 @@ class MinecraftClientProtocolTest {
             assertEquals(StatusRequestPacket, serverSession.receive())
             serverSession.send(
                 StatusResponsePacket(
-                    """{"version":{"name":"${MinecraftProtocol.MINECRAFT_VERSION}","protocol":${MinecraftProtocol.PROTOCOL_VERSION}}}""",
+                    Json.encodeToString(
+                        JsonObject.serializer(),
+                        buildJsonObject {
+                            put(
+                                "version",
+                                buildJsonObject {
+                                    put("name", MinecraftProtocol.MINECRAFT_VERSION)
+                                    put("protocol", MinecraftProtocol.PROTOCOL_VERSION)
+                                },
+                            )
+                        },
+                    ),
                 ),
             )
             val ping = assertIs<StatusPingRequestPacket>(serverSession.receive())

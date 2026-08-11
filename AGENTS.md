@@ -89,8 +89,10 @@ onto the consumer classpath.
 - Kotlin and Java code that starts a JVM always executes the literal `java` command from `PATH`. Do not inspect
   `java.home`, `JAVA_HOME`, a Gradle Java launcher, or a JDK installation directory to locate the executable. A
   developer machine is required to provide `java` on `PATH`.
-- Build and serialize JSON with `kotlinx.serialization.json` elements, builders, or serializers. Do not implement JSON
-  escaping or construct protocol/report JSON with large string templates.
+- Build and serialize all structured data, including formats such as JSON and XML, with the corresponding maintained
+  format-aware library and its elements, builders, or serializers. Do not implement format escaping or construct
+  structured data with string literals, concatenation, interpolation, or templates. For JSON, use
+  `kotlinx.serialization.json`.
 - Every source generator uses a language-aware library such as KotlinPoet or JavaPoet. This applies to build logic,
   processors, tasks, scripts, tools, tests, and every generated target language; generated declarations are never
   assembled with string concatenation or templates.

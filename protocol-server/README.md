@@ -45,3 +45,32 @@ A negative `network-compression-threshold` maps to `compressionThreshold = null`
 
 Operational settings such as whitelist and operator data, rate and idle limits, permissions, world generation, ticking,
 watchdogs, spawn protection, Query, RCON, JMX, and management services remain outside this library.
+
+## Authentication mode
+
+Offline mode is the default and performs no RSA generation, session-service request, or encryption:
+
+```kotlin
+val configuration = MinecraftServerConfiguration(
+  authentication = MinecraftServerAuthentication.Offline,
+)
+```
+
+Online mode uses a caller-owned HTTP client and the platform cryptography selected by `protocol-auth`:
+
+```kotlin
+val httpClient = applicationHttpClient
+val sessionService = MinecraftSessionService(httpClient)
+val authentication = MinecraftServerAuthentication.online(sessionService)
+
+val configuration = MinecraftServerConfiguration(
+  authentication = authentication,
+  preventProxyConnections = true,
+)
+```
+
+The suspend factory generates one RSA-1024 key pair for the online configuration; each connection gets a fresh verify
+token. The server validates Encryption Response, enables the existing transport stream cipher, and then calls
+`hasJoined`. `preventProxyConnections` includes the observed client IP in that verification. Authentication failure is
+terminal and never downgrades the player to offline mode. The application creates and closes the `HttpClient` and owns
+every engine and client configuration choice.

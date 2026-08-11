@@ -1,6 +1,9 @@
 package com.hiczp.minecraft.protocol.client
 
-import com.hiczp.minecraft.protocol.auth.*
+import com.hiczp.minecraft.protocol.auth.MinecraftEncryption
+import com.hiczp.minecraft.protocol.auth.MinecraftOnlineAccount
+import com.hiczp.minecraft.protocol.auth.MinecraftSessionService
+import com.hiczp.minecraft.protocol.auth.offlineUuid
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.type.GameMode
@@ -14,6 +17,10 @@ import io.ktor.utils.io.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlin.test.*
 import kotlin.uuid.Uuid
 
@@ -27,15 +34,17 @@ class MinecraftClientProtocolFailureTest {
         val offline = MinecraftOfflineIdentity("ClientProbe")
         assertEquals(offlineUuid("ClientProbe"), offline.id)
 
-        val service = MinecraftSessionService(
-            HttpClient(MockEngine { respond("", HttpStatusCode.NoContent) }),
-        )
-        val online = MinecraftOnlineIdentity(
+        val httpClient = HttpClient(
+            MockEngine { respond("", HttpStatusCode.NoContent) },
+        ) {
+            followRedirects = false
+        }
+        val service = MinecraftSessionService(httpClient)
+        val online = onlineIdentity(
             name = "ClientProbe",
             id = Uuid.fromLongs(1, 2),
             accessToken = "secret-token",
             sessionService = service,
-            cryptography = IdentityCryptography,
         )
         assertFalse(online.toString().contains("secret-token"))
         assertTrue(online.toString().contains("<redacted>"))
@@ -58,7 +67,7 @@ class MinecraftClientProtocolFailureTest {
                 CodeOfConductPacket("rules"),
             ),
         )
-        service.httpClient.close()
+        httpClient.close()
     }
 
     @Test
@@ -86,7 +95,14 @@ class MinecraftClientProtocolFailureTest {
             val server = async {
                 serverSession.receive()
                 serverSession.receive()
-                serverSession.send(StatusResponsePacket("{}"))
+                serverSession.send(
+                    StatusResponsePacket(
+                        Json.encodeToString(
+                            JsonObject.serializer(),
+                            buildJsonObject {},
+                        ),
+                    ),
+                )
                 serverSession.receive()
                 serverSession.send(StatusPongResponsePacket(2))
             }
@@ -111,7 +127,16 @@ class MinecraftClientProtocolFailureTest {
                     serverSession.receive()
                     serverSession.receive()
                     serverSession.send(
-                        LoginDisconnectPacket(JsonTextComponent("""{"text":"no"}""")),
+                        LoginDisconnectPacket(
+                            JsonTextComponent(
+                                Json.encodeToString(
+                                    JsonObject.serializer(),
+                                    buildJsonObject {
+                                        put("text", "no")
+                                    },
+                                ),
+                            ),
+                        ),
                     )
                 }
                 val failure = assertFailsWith<MinecraftClientException> {
@@ -147,22 +172,23 @@ class MinecraftClientProtocolFailureTest {
     @Test
     fun completesOnlineEncryptionJoinAndEncryptedPlayEntry() = runTest {
         var joinRequests = 0
-        val service = MinecraftSessionService(
-            HttpClient(
-                MockEngine { request ->
-                    assertEquals("/session/minecraft/join", request.url.encodedPath)
-                    joinRequests++
-                    respond("", HttpStatusCode.NoContent)
-                },
-            ),
-        )
-        val identity = MinecraftOnlineIdentity(
+        val httpClient = HttpClient(
+            MockEngine { request ->
+                assertEquals("/session/minecraft/join", request.url.encodedPath)
+                joinRequests++
+                respond("", HttpStatusCode.NoContent)
+            },
+        ) {
+            followRedirects = false
+        }
+        val service = MinecraftSessionService(httpClient)
+        val identity = onlineIdentity(
             name = "OnlineProbe",
             id = Uuid.fromLongs(1, 2),
             accessToken = "token",
             sessionService = service,
-            cryptography = IdentityCryptography,
         )
+        val encryptionContext = MinecraftEncryption.createServerContext()
         val (clientSession, serverSession) = sessionPair()
         val success = LoginSuccessPacket(
             GameProfile(identity.id, identity.name, emptyList()),
@@ -175,16 +201,17 @@ class MinecraftClientProtocolFailureTest {
                 LoginStartPacket(identity.name, identity.id),
                 serverSession.receive(),
             )
-            val request = encryptionRequest()
-            serverSession.send(request)
+            val challenge = MinecraftEncryption.createServerChallenge(
+                encryptionContext,
+            )
+            serverSession.send(challenge.request)
             val response = assertIs<EncryptionResponsePacket>(
                 serverSession.receive(),
             )
-            assertContentEquals(
-                request.verifyToken.toByteArray(),
-                response.verifyToken.toByteArray(),
+            val secret = MinecraftEncryption.acceptClientResponse(
+                challenge,
+                response,
             )
-            val secret = response.sharedSecret.toByteArray()
             assertEquals(16, secret.size)
             serverSession.enableEncryption(secret)
             serverSession.send(success)
@@ -210,40 +237,46 @@ class MinecraftClientProtocolFailureTest {
         assertEquals(play, result.playLogin)
         assertEquals(1, joinRequests)
         server.await()
-        service.httpClient.close()
+        httpClient.close()
     }
 
     @Test
     fun encryptedLoginSkipsSessionJoinWhenAuthenticationIsNotRequested() =
         runTest {
             var joinRequests = 0
-            val service = MinecraftSessionService(
-                HttpClient(
-                    MockEngine {
-                        joinRequests++
-                        respond("", HttpStatusCode.NoContent)
-                    },
-                ),
-            )
-            val identity = MinecraftOnlineIdentity(
+            val httpClient = HttpClient(
+                MockEngine {
+                    joinRequests++
+                    respond("", HttpStatusCode.NoContent)
+                },
+            ) {
+                followRedirects = false
+            }
+            val service = MinecraftSessionService(httpClient)
+            val identity = onlineIdentity(
                 name = "NoAuthProbe",
                 id = Uuid.fromLongs(1, 2),
                 accessToken = "token",
                 sessionService = service,
-                cryptography = IdentityCryptography,
             )
+            val encryptionContext = MinecraftEncryption.createServerContext()
             val (clientSession, serverSession) = sessionPair()
             val server = async {
                 serverSession.receive()
                 serverSession.receive()
-                serverSession.send(
-                    encryptionRequest(shouldAuthenticate = false),
+                val challenge = MinecraftEncryption.createServerChallenge(
+                    context = encryptionContext,
+                    shouldAuthenticate = false,
                 )
+                serverSession.send(challenge.request)
                 val response = assertIs<EncryptionResponsePacket>(
                     serverSession.receive(),
                 )
                 serverSession.enableEncryption(
-                    response.sharedSecret.toByteArray(),
+                    MinecraftEncryption.acceptClientResponse(
+                        challenge,
+                        response,
+                    ),
                 )
                 serverSession.send(
                     LoginSuccessPacket(
@@ -266,7 +299,7 @@ class MinecraftClientProtocolFailureTest {
 
             assertEquals(0, joinRequests)
             server.await()
-            service.httpClient.close()
+            httpClient.close()
         }
 
     @Test
@@ -618,23 +651,17 @@ class MinecraftClientProtocolFailureTest {
         )
     }
 
-    private object TestPrivateKey : MinecraftRsaPrivateKey
-
-    private object IdentityCryptography : MinecraftCryptography {
-        override fun secureRandomBytes(size: Int): ByteArray =
-            ByteArray(size) { it.toByte() }
-
-        override fun generateRsaKeyPair(keySizeBits: Int): MinecraftRsaKeyPair =
-            MinecraftRsaKeyPair(byteArrayOf(1, 2, 3), TestPrivateKey)
-
-        override fun rsaEncrypt(
-            encodedPublicKey: ByteArray,
-            plaintext: ByteArray,
-        ): ByteArray = plaintext.copyOf()
-
-        override fun rsaDecrypt(
-            privateKey: MinecraftRsaPrivateKey,
-            ciphertext: ByteArray,
-        ): ByteArray = ciphertext.copyOf()
-    }
+    private fun onlineIdentity(
+        name: String,
+        id: Uuid,
+        accessToken: String,
+        sessionService: MinecraftSessionService,
+    ): MinecraftOnlineIdentity = MinecraftOnlineIdentity(
+        account = MinecraftOnlineAccount.fromExistingCredentials(
+            name = name,
+            id = id,
+            accessToken = accessToken,
+        ),
+        sessionService = sessionService,
+    )
 }

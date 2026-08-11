@@ -24,7 +24,7 @@ transitively where needed.
 | [`protocol-vanilla-data`](protocol-vanilla-data/README.md)   | Version-matched Known Packs, registries, tags, and vanilla catalogues  |
 | [`protocol-transport`](protocol-transport/README.md)         | Ktor sockets, framing, compression, and encryption                     |
 | [`protocol-session`](protocol-session/README.md)             | Typed dispatch and connection-state transitions                        |
-| [`protocol-auth`](protocol-auth/README.md)                   | Offline identities, session services, hashes, and cryptography         |
+| [`protocol-auth`](protocol-auth/README.md)                   | Offline/online accounts, session services, hashes, and Login crypto    |
 | [`protocol-client`](protocol-client/README.md)               | Status, Login, Configuration, and a Play-ready client connection       |
 | [`protocol-server`](protocol-server/README.md)               | Connection admission and finite initial chunk/entity projection        |
 | [`world-format`](world-format/README.md)                     | Filesystem-independent Anvil containers and chunk NBT composition      |

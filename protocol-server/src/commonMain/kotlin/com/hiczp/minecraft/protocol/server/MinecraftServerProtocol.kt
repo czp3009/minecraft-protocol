@@ -225,8 +225,7 @@ class MinecraftServerProtocol(
 
             is MinecraftServerAuthentication.Online -> {
                 val challenge = MinecraftEncryption.createServerChallenge(
-                    cryptography = authentication.cryptography,
-                    keyPair = authentication.keyPair,
+                    context = authentication.encryptionContext,
                     shouldAuthenticate = true,
                 )
                 session.send(challenge.request)
@@ -236,28 +235,32 @@ class MinecraftServerProtocol(
                 val sharedSecret = MinecraftEncryption.acceptClientResponse(
                     challenge,
                     response,
-                    authentication.cryptography,
                 )
-                session.enableEncryption(sharedSecret)
-                val joined = authentication.sessionService.hasJoined(
-                    username = start.name,
-                    serverHash = minecraftServerHash(
-                        serverId = challenge.request.serverId,
-                        sharedSecret = sharedSecret,
-                        encodedPublicKey = challenge.request.publicKey.toByteArray(),
-                    ),
-                    ipAddress =
-                        if (configuration.preventProxyConnections) {
-                            clientIpAddress ?: throw MinecraftServerException(
-                                "Proxy prevention requires the client IP address",
-                            )
-                        } else {
-                            null
-                        },
-                ) ?: throw MinecraftServerException(
-                    "Session server did not verify ${start.name}",
-                )
-                joined.profile
+                try {
+                    session.enableEncryption(sharedSecret)
+                    val joined = authentication.sessionService.hasJoined(
+                        username = start.name,
+                        serverHash = minecraftServerHash(
+                            serverId = challenge.request.serverId,
+                            sharedSecret = sharedSecret,
+                            encodedPublicKey = challenge.request.publicKey.toByteArray(),
+                        ),
+                        ipAddress =
+                            if (configuration.preventProxyConnections) {
+                                clientIpAddress ?: throw MinecraftServerException(
+                                    "Proxy prevention requires the client IP address",
+                                )
+                            } else {
+                                null
+                            },
+                    ) ?: throw MinecraftServerException(
+                        "Session server did not verify ${start.name}",
+                    )
+                    joined.profile
+                } finally {
+                    // MinecraftFrameStream copies the key and IV when encryption is enabled.
+                    sharedSecret.fill(0)
+                }
             }
         }
 

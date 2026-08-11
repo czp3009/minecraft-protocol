@@ -10,6 +10,9 @@ plugins {
 @OptIn(ExperimentalWasmDsl::class)
 kotlin {
     jvmToolchain(BuildVersions.JAVA_VERSION)
+    compilerOptions {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
+    }
     applyDefaultHierarchyTemplate()
 
     jvm()
@@ -49,14 +52,38 @@ kotlin {
     }
 
     sourceSets {
+        val javaCryptoMain = create("javaCryptoMain") {
+            dependsOn(commonMain.get())
+        }
+        jvmMain {
+            dependsOn(javaCryptoMain)
+        }
+        androidMain {
+            dependsOn(javaCryptoMain)
+        }
+        nativeMain.dependencies {
+            implementation(libs.cryptography.provider.optimal)
+        }
+        webMain.dependencies {
+            implementation(libs.kotlinx.browser)
+        }
+        jsMain.dependencies {
+            implementation(npm("node-forge", libs.versions.node.forge.get()))
+        }
+        wasmJsMain.dependencies {
+            implementation(npm("node-forge", libs.versions.node.forge.get()))
+        }
+
         commonMain.dependencies {
             api(project(":protocol-model"))
             api(libs.ktor.client.core)
+            implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.io.core)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.serialization.json.io)
             implementation(libs.okio)
             implementation(libs.cryptography.bigint)
+            implementation(libs.cryptography.random)
         }
 
         commonTest.dependencies {

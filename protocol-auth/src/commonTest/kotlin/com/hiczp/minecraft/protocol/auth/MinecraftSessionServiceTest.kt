@@ -5,6 +5,7 @@ import io.ktor.client.engine.mock.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.*
 import kotlin.test.*
 
 class MinecraftSessionServiceTest {
@@ -14,42 +15,51 @@ class MinecraftSessionServiceTest {
         val engine = MockEngine { request ->
             requests += request
             when (request.url.encodedPath) {
-                "/session/minecraft/join" ->
-                    respond("", HttpStatusCode.NoContent)
-
-                "/session/minecraft/hasJoined" ->
-                    respond(
-                        content =
-                            """
-                            {
-                              "id": "b50ad385829d3141a2167e7d7539ba7f",
-                              "properties": [
-                                {
-                                  "name": "textures",
-                                  "value": "texture-value",
-                                  "signature": "texture-signature"
-                                }
-                              ],
-                              "profileActions": [
-                                {"type": "USING_BANNED_SKIN"}
-                              ]
-                            }
-                            """.trimIndent(),
-                        status = HttpStatusCode.OK,
-                        headers = headersOf(
-                            HttpHeaders.ContentType,
-                            "application/json",
-                        ),
-                    )
+                "/session/minecraft/join" -> respond("", HttpStatusCode.NoContent)
+                "/session/minecraft/hasJoined" -> respondSessionJson(
+                    buildJsonObject {
+                        put("id", "b50ad385829d3141a2167e7d7539ba7f")
+                        put("name", "CanonicalName")
+                        put(
+                            "properties",
+                            buildJsonArray {
+                                add(
+                                    buildJsonObject {
+                                        put("name", "textures")
+                                        put("value", "texture-value")
+                                        put("signature", "texture-signature")
+                                    },
+                                )
+                            },
+                        )
+                        put(
+                            "profileActions",
+                            buildJsonArray {
+                                add(
+                                    buildJsonObject {
+                                        put("type", "USING_BANNED_SKIN")
+                                    },
+                                )
+                            },
+                        )
+                    },
+                )
 
                 else -> error("Unexpected request ${request.url}")
             }
         }
-        HttpClient(engine).use { client ->
+        HttpClient(engine) {
+            followRedirects = false
+        }.use { client ->
             val service = MinecraftSessionService(client)
             val profileId = offlineUuid("Notch")
+            val account = MinecraftOnlineAccount.fromExistingCredentials(
+                name = "Notch",
+                id = profileId,
+                accessToken = "access-token",
+            )
 
-            service.join("access-token", profileId, "-server-hash")
+            service.join(account, "-server-hash")
             val joined = assertNotNull(
                 service.hasJoined("Notch", "-server-hash", "127.0.0.1"),
             )
@@ -69,60 +79,62 @@ class MinecraftSessionServiceTest {
 
     @Test
     fun distinguishesAnUnverifiedProfileFromAnUnavailableService() = runTest {
-        val noProfile = MinecraftSessionService(
-            HttpClient(MockEngine { respond("", HttpStatusCode.NoContent) }),
-        )
-        assertNull(noProfile.hasJoined("Nobody", "hash"))
-        noProfile.httpClient.close()
-
-        val unavailable = MinecraftSessionService(
-            HttpClient(
-                MockEngine {
-                    respond("maintenance", HttpStatusCode.ServiceUnavailable)
-                },
-            ),
-        )
-        assertFailsWith<MinecraftAuthenticationUnavailableException> {
-            unavailable.hasJoined("Nobody", "hash")
+        HttpClient(MockEngine { respond("", HttpStatusCode.NoContent) }) {
+            followRedirects = false
+        }.use { client ->
+            assertNull(MinecraftSessionService(client).hasJoined("Nobody", "hash"))
         }
-        unavailable.httpClient.close()
+
+        HttpClient(
+            MockEngine {
+                respond("maintenance-secret", HttpStatusCode.ServiceUnavailable)
+            },
+        ) {
+            followRedirects = false
+        }.use { client ->
+            val failure = assertFailsWith<MinecraftAuthenticationUnavailableException> {
+                MinecraftSessionService(client).hasJoined("Nobody", "hash")
+            }
+            assertFalse(failure.message.orEmpty().contains("maintenance-secret"))
+        }
     }
 
     @Test
-    fun joinAcceptsBothSuccessStatusesAndClassifiesClientAndServerErrors() =
-        runTest {
-            for (status in listOf(HttpStatusCode.NoContent, HttpStatusCode.OK)) {
-                val service = serviceResponding(status)
-                service.join("token", offlineUuid("Player"), "hash")
-                service.httpClient.close()
+    fun joinAcceptsOfficialSuccessStatusesAndSanitizesFailures() = runTest {
+        for (status in listOf(HttpStatusCode.NoContent, HttpStatusCode.OK)) {
+            HttpClient(MockEngine { respond("", status) }) {
+                followRedirects = false
+            }.use { client ->
+                MinecraftSessionService(client).joinWithExistingCredentials(
+                    accessToken = "token",
+                    selectedProfile = offlineUuid("Player"),
+                    serverHash = "hash",
+                )
             }
-
-            val rejected = serviceResponding(
-                HttpStatusCode.BadRequest,
-                "invalid token",
-            )
-            val rejectedFailure =
-                assertFailsWith<MinecraftAuthenticationException> {
-                    rejected.join("token", offlineUuid("Player"), "hash")
-                }
-            assertFalse(
-                rejectedFailure is MinecraftAuthenticationUnavailableException,
-            )
-            assertTrue(rejectedFailure.message.orEmpty().contains("invalid token"))
-            rejected.httpClient.close()
-
-            val unavailable = serviceResponding(
-                HttpStatusCode.InternalServerError,
-                "unavailable",
-            )
-            assertFailsWith<MinecraftAuthenticationUnavailableException> {
-                unavailable.join("token", offlineUuid("Player"), "hash")
-            }
-            unavailable.httpClient.close()
         }
 
+        HttpClient(
+            MockEngine {
+                respond("sensitive-upstream-body", HttpStatusCode.BadRequest)
+            },
+        ) {
+            followRedirects = false
+        }.use { client ->
+            val failure = assertFailsWith<MinecraftAuthenticationRejectedException> {
+                MinecraftSessionService(client).joinWithExistingCredentials(
+                    accessToken = "token",
+                    selectedProfile = offlineUuid("Player"),
+                    serverHash = "hash",
+                )
+            }
+            assertEquals(MinecraftAuthenticationStage.SESSION_JOIN, failure.stage)
+            assertEquals(400, failure.statusCode)
+            assertFalse(failure.message.orEmpty().contains("sensitive-upstream-body"))
+        }
+    }
+
     @Test
-    fun hasJoinedTreatsAllOfficialNegativeStatusesAsNoProfile() = runTest {
+    fun hasJoinedHandlesNegativeStatusesAndOptionalFields() = runTest {
         for (
         status in listOf(
             HttpStatusCode.NoContent,
@@ -130,72 +142,75 @@ class MinecraftSessionServiceTest {
             HttpStatusCode.Forbidden,
         )
         ) {
-            val service = serviceResponding(status)
-            assertNull(service.hasJoined("Nobody", "hash"))
-            service.httpClient.close()
+            HttpClient(MockEngine { respond("", status) }) {
+                followRedirects = false
+            }.use { client ->
+                assertNull(MinecraftSessionService(client).hasJoined("Nobody", "hash"))
+            }
+        }
+
+        var request: HttpRequestData? = null
+        HttpClient(
+            MockEngine {
+                request = it
+                respondSessionJson(
+                    buildJsonObject {
+                        put("id", "b50ad385829d3141a2167e7d7539ba7f")
+                        put(
+                            "properties",
+                            buildJsonArray {
+                                add(
+                                    buildJsonObject {
+                                        put("name", "textures")
+                                        put("value", "value")
+                                    },
+                                )
+                            },
+                        )
+                    },
+                )
+            },
+        ) {
+            followRedirects = false
+        }.use { client ->
+            val joined = assertNotNull(
+                MinecraftSessionService(client).hasJoined("RequestedName", "hash"),
+            )
+
+            assertNull(request?.url?.parameters?.get("ip"))
+            assertNull(joined.profile.properties.single().signature)
+            assertTrue(joined.profileActions.isEmpty())
+            assertEquals("RequestedName", joined.profile.name)
         }
     }
 
     @Test
-    fun hasJoinedOmitsOptionalIpAndDefaultsMissingProfileFields() = runTest {
-        var request: HttpRequestData? = null
-        val service = MinecraftSessionService(
-            HttpClient(
-                MockEngine {
-                    request = it
-                    respond(
-                        """
-                        {
-                          "id": "b50ad385829d3141a2167e7d7539ba7f",
-                          "properties": [{"name":"textures","value":"value"}]
-                        }
-                        """.trimIndent(),
-                        HttpStatusCode.OK,
-                        headersOf(HttpHeaders.ContentType, "application/json"),
-                    )
-                },
-            ),
-        )
-
-        val joined = assertNotNull(service.hasJoined("Notch", "hash"))
-
-        assertNull(request?.url?.parameters?.get("ip"))
-        assertNull(joined.profile.properties.single().signature)
-        assertTrue(joined.profileActions.isEmpty())
-        service.httpClient.close()
+    fun rejectsMalformedSuccessfulProfileAndRetainsItsSerializationCause() = runTest {
+        HttpClient(
+            MockEngine {
+                respond(
+                    "credential-shaped-invalid-json",
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            },
+        ) {
+            followRedirects = false
+        }.use { client ->
+            val failure = assertFailsWith<MinecraftAuthenticationException> {
+                MinecraftSessionService(client).hasJoined("Player", "hash")
+            }
+            assertIs<MinecraftAuthenticationException>(failure)
+            assertFalse(failure.message.orEmpty().contains("credential-shaped-invalid-json"))
+            assertNotNull(failure.cause)
+        }
     }
-
-    @Test
-    fun hasJoinedUsesTheVerifiedCanonicalProfileNameWhenPresent() = runTest {
-        val service = MinecraftSessionService(
-            HttpClient(
-                MockEngine {
-                    respond(
-                        """
-                        {
-                          "id": "b50ad385829d3141a2167e7d7539ba7f",
-                          "name": "CanonicalName",
-                          "properties": []
-                        }
-                        """.trimIndent(),
-                        HttpStatusCode.OK,
-                        headersOf(HttpHeaders.ContentType, "application/json"),
-                    )
-                },
-            ),
-        )
-
-        val joined = assertNotNull(
-            service.hasJoined("canonicalname", "hash"),
-        )
-
-        assertEquals("CanonicalName", joined.profile.name)
-        service.httpClient.close()
-    }
-
-    private fun serviceResponding(
-        status: HttpStatusCode,
-        body: String = "",
-    ): MinecraftSessionService =
-        MinecraftSessionService(HttpClient(MockEngine { respond(body, status) }))
 }
+
+private fun MockRequestHandleScope.respondSessionJson(
+    body: JsonObject,
+) = respond(
+    content = Json.encodeToString(JsonObject.serializer(), body),
+    status = HttpStatusCode.OK,
+    headers = headersOf(HttpHeaders.ContentType, "application/json"),
+)

@@ -2,7 +2,7 @@
 
 ## 计划定位
 
-- 状态：待实施。
+- 状态：已实施。
 - 目标版本：只实现仓库通过 `MinecraftTarget.MINECRAFT_VERSION` 选定的官方 Minecraft Java Edition 发布版，不兼容旧版登录协议、旧
   Mojang 账号或旧 Yggdrasil 登录入口。
 - `protocol-auth` 的“全平台”是硬性完成条件：该模块当前发布的 JVM、Android、全部 Native、JS Node、JS browser、WasmJS Node 和
@@ -15,8 +15,8 @@
 - 本计划同时覆盖账号登录和游戏连接认证，但二者是两条相接而不相同的链路：Microsoft OAuth 最终取得 Minecraft access
   token；Login socket 再用该 token 向 Mojang session server 证明玩家正在加入某个加密连接。
 - 浏览器的密码算法不是剩余阻塞，但 Web 安全模型不允许脚本绕过上游 CORS。为使账号交换和 session service 真正可运行，
-  `protocol-auth` 同时提供 direct 与受限 relay 两种认证 HTTP transport，以及可嵌入应用后端的 relay
-  handler；后端部署仍是下游应用的基础设施责任，不新拆模块，也不与 WebSocket/TCP 字节中继混为一谈。
+  `protocol-auth` 的 service 直接使用调用方提供的 `HttpClient`，并可通过额外的 relay endpoint 参数改走受限 relay；模块还提供
+  可嵌入应用后端的 relay handler。后端部署仍是下游应用的基础设施责任，不新拆模块，也不与 WebSocket/TCP 字节中继混为一谈。
 
 ## 当前实现基线与算法可行性
 
@@ -53,19 +53,19 @@ target；它不新增 browser socket 范围：
 
 完成后，只有真正发起 Microsoft OAuth 的对象需要应用提供自己的获批 client ID；负责 Xbox/Minecraft Services 交换的对象不隐式拥有某个
 app registration。多种入口最终都汇合成同一个 `MinecraftAccountLoginResult`，库不替应用选择
-UI，也不要求应用选择平台加密实现。JVM、Android、Native、Node 等不受 browser CORS 限制的运行时选择 direct transport：
+UI，也不要求应用选择平台加密实现。JVM、Android、Native、Node 等不受 browser CORS 限制的运行时把调用方的 client 直接交给
+service：
 
 ```kotlin
-val authenticationHttp = MinecraftAuthenticationHttpTransport.direct(httpClient)
-val sessionServiceHttp = authenticationHttp
 val oauthService = MicrosoftOAuthService(
-    http = authenticationHttp,
+    httpClient = httpClient,
     application = MicrosoftOAuthApplication(
         clientId = approvedClientId,
         scopes = applicationApprovedMinecraftScopes,
     ),
 )
-val accountService = MinecraftAccountService(authenticationHttp)
+val accountService = MinecraftAccountService(httpClient)
+val sessionService = MinecraftSessionService(httpClient)
 ```
 
 浏览器使用完全相同的 service/API，但 Authorization Code + PKCE 的 Microsoft token exchange 与 Minecraft back-channel
@@ -73,20 +73,21 @@ val accountService = MinecraftAccountService(authenticationHttp)
 Services/sessionserver 则必须走应用的同源 relay。这是网络拓扑，不是 crypto provider 选择：
 
 ```kotlin
-val browserMicrosoftHttp = MinecraftAuthenticationHttpTransport.direct(browserHttpClient)
-val browserRelayHttp = MinecraftAuthenticationHttpTransport.relay(
-    httpClient = browserHttpClient,
-    endpoint = applicationSameOriginAuthenticationRelay,
-)
-val sessionServiceHttp = browserRelayHttp
 val oauthService = MicrosoftOAuthService(
-    http = browserMicrosoftHttp,
+    httpClient = browserHttpClient,
     application = MicrosoftOAuthApplication(
         clientId = approvedClientId,
         scopes = applicationApprovedMinecraftScopes,
     ),
 )
-val accountService = MinecraftAccountService(browserRelayHttp)
+val accountService = MinecraftAccountService(
+    browserHttpClient,
+    applicationSameOriginAuthenticationRelay,
+)
+val sessionService = MinecraftSessionService(
+    browserHttpClient,
+    applicationSameOriginAuthenticationRelay,
+)
 ```
 
 Authorization Code + PKCE 可以由应用自己的系统浏览器或 WebView 承载：
@@ -117,8 +118,9 @@ val microsoftTokens = oauthService.awaitDeviceCodeLogin(deviceAuthorization)
 val login = accountService.loginWithMicrosoftTokens(microsoftTokens)
 ```
 
-在 browser 中选择 Device Code 时，`MicrosoftOAuthService` 也应使用 `browserRelayHttp`，因为 device authorization endpoint
-没有 SPA token endpoint 的 CORS contract；选择 PKCE 时则使用上例的 `browserMicrosoftHttp`。应用是在选择 OAuth flow 和网络
+在 browser 中选择 Device Code 时，应使用带 relay endpoint 的
+`MicrosoftOAuthService(browserHttpClient, application, relayEndpoint)`， 因为 device authorization endpoint 没有 SPA
+token endpoint 的 CORS contract；选择 PKCE 时则使用不带 endpoint 的构造器。应用是在 选择 OAuth flow 和网络
 route，不是在选择平台实现。
 
 使用 MSAL/WAM/系统 broker 的应用可以交入已有 Microsoft token；已有 refresh token 的应用可以无 UI 刷新：
@@ -132,10 +134,7 @@ val refreshed = accountService.loginWithMicrosoftTokens(refreshedMicrosoftTokens
 上述任一入口成功后都使用相同连接代码：
 
 ```kotlin
-val identity = MinecraftOnlineIdentity(
-    account = login.account,
-    sessionService = MinecraftSessionService(sessionServiceHttp),
-)
+val identity = MinecraftOnlineIdentity(account = login.account, sessionService = sessionService)
 clientProtocol.login(identity)
 ```
 
@@ -149,7 +148,7 @@ clientProtocol.login(MinecraftOfflineIdentity(name = playerName))
 
 ```kotlin
 val online = MinecraftServerAuthentication.online(
-    sessionService = MinecraftSessionService(sessionServiceHttp),
+    sessionService = sessionService,
 )
 val offline = MinecraftServerAuthentication.Offline
 ```
@@ -204,7 +203,7 @@ handler、账号选择界面和平台安全存储。本仓库是可复用协议�
 | 系统浏览器、WebView、deep link、loopback callback | 返回 authorization URI，解析应用交回的完整 redirect URI                                                                                                    | 选择 UI host、打开页面、接收 navigation/deep-link/HTTP callback，并处理窗口生命周期                                                                                            |
 | Device Code 展示                                  | 返回 display-only user code/URI 和持有 private device code 的 opaque pending state，按规范轮询                                                             | 展示、复制或生成二维码；决定取消和用户提示，不从 UI 返回 authorization code                                                                                                    |
 | MSAL/WAM/平台 broker                              | 接受外部取得的正确 Microsoft token 并继续 Xbox/Minecraft 交换                                                                                              | 选择和配置平台 SDK、完成其 UI/SSO 生命周期                                                                                                                                     |
-| 认证 HTTP 调用                                    | 构造 endpoint-specific form/JSON、限制响应、解析状态并脱敏错误；提供 direct/relay transport                                                                | 创建并关闭 Ktor `HttpClient`，选择 engine、代理、TLS、timeout、网络权限和 app 生命周期；为运行环境选择 direct 或 relay                                                         |
+| 认证 HTTP 调用                                    | service 直接使用调用方 client 构造 endpoint-specific form/JSON、限制响应、解析状态并保留序列化失败 cause；可用额外 endpoint 选择 relay                     | 创建并关闭 Ktor `HttpClient`，选择 engine、代理、TLS、timeout、网络权限和 app 生命周期；为运行环境选择 direct 或 relay                                                         |
 | 浏览器认证 relay                                  | 在 `protocol-auth` 内提供固定 operation 的 client、versioned wire format 和 framework-neutral handler；复用同一 endpoint codec，拒绝任意 URL/method/header | 部署可信的同源 HTTPS endpoint，把所属 Web framework 的 raw bounded body/response 接到 handler；负责访问控制、CSRF、限流、TLS、监控和运维，并接受 relay 能看见 token 的信任边界 |
 | Xbox/XSTS/Minecraft Services 交换                 | 完整实现并隐藏中间 token，返回 typed account/profile/entitlements                                                                                          | 决定何时发起、如何向用户呈现账号/权益错误                                                                                                                                      |
 | refresh                                           | 校验并执行 token refresh，返回 replacement token 和新的账号结果                                                                                            | 安排刷新时机；仅在完整成功后把 replacement 原子写入安全存储                                                                                                                    |
@@ -254,21 +253,19 @@ header；`api.minecraftservices.com` 的 `login_with_xbox`、entitlements、prof
 endpoint 当前碰巧可跨域”当作全链路保证。
 
 因此 browser target 的完整基线路径固定为：Authorization 页面仍由应用直接导航到 Microsoft；SPA Authorization Code + PKCE 的
-code/refresh token exchange 使用 direct transport，让 browser 按 Microsoft 官方 contract 携带 `Origin`，且 redirect URI
+code/refresh token exchange 直接使用调用方的 browser client，让 browser 按 Microsoft 官方 contract 携带 `Origin`，且
+redirect URI
 必须以 `spa` 类型登记；Device Code 的 device authorization/polling，以及 XBL、XSTS、Minecraft Services 和 session-service
-操作使用应用配置的同源 HTTPS relay。非浏览器 target 通常全程 direct；应用也可以在任意 target 主动选择 relay。两种 transport
-进入相同 common service，不产生 `BrowserMinecraftAccountService`、平台 enum 或公共 crypto provider。
+操作使用应用配置的同源 HTTPS relay。非浏览器 target 通常全程 direct；应用也可以在任意 target 主动选择 relay。两条路径 进入相同
+common service，不产生 `BrowserMinecraftAccountService`、平台 enum、公共 transport 包装对象或公共 crypto provider。
 
 ```kotlin
 // 普通应用进程。
-val direct = MinecraftAuthenticationHttpTransport.direct(httpClient)
+val direct = MinecraftAccountService(httpClient)
 
 // Browser 的 Device Code 与 Xbox/Minecraft/session back-channel；
 // endpoint 是应用自己的受信后端，不是本库的公共服务。
-val relayed = MinecraftAuthenticationHttpTransport.relay(
-    httpClient = browserHttpClient,
-    endpoint = applicationSameOriginAuthenticationRelay,
-)
+val relayed = MinecraftAccountService(browserHttpClient, applicationSameOriginAuthenticationRelay)
 ```
 
 `protocol-auth` 内的 relay contract 必须满足以下约束：
@@ -679,18 +676,18 @@ RSA actual 的固定选择如下：
 
 - 新增 `MicrosoftOAuthApplication`：caller-owned、非空且无默认值的 client ID 与 scopes，以及 tenant 配置；永不包含
   `clientSecret`。scope value type 校验空白/重复/非法字符，但不替 registration 猜授权。
-- 新增 `MinecraftAuthenticationHttpTransport.direct(httpClient)` 与 `.relay(httpClient, endpoint)`。它是
-  common、无平台命名的网络路由对象；前者直接执行 allowlisted upstream operation，后者使用 versioned typed wire contract
-  调用应用 relay。它不暴露任意 request/URL proxy API。
-- 新增 `MicrosoftOAuthService(http, application)`：只拥有 Authorization Code + PKCE、Device Code 和 refresh，明确以 app
+- `MicrosoftOAuthService`、`MinecraftAccountService` 与 `MinecraftSessionService` 直接接收调用方的 `HttpClient`；带一个额外
+  `Url` 参数的构造器使用 versioned typed wire contract 调用应用 relay。内部固定 operation 路由不进入公共 API，也不暴露任意
+  request/URL proxy API。库不安装、检查、修改或关闭调用方的 client。
+- 新增 `MicrosoftOAuthService(httpClient, application)`：只拥有 Authorization Code + PKCE、Device Code 和 refresh，明确以
+  app
   registration 为作用域。
-- 新增 `MinecraftAccountService(http)`：只拥有 Microsoft token → XBL → XSTS → Minecraft Services →
+- 新增 `MinecraftAccountService(httpClient)`：只拥有 Microsoft token → XBL → XSTS → Minecraft Services →
   profile/entitlements；external Microsoft token 可以直接进入，existing Minecraft account 可以绕过整条 OAuth 交换。
-- `MinecraftSessionService` 同样消费 `MinecraftAuthenticationHttpTransport`，使 browser 的 `/join` 与 `/hasJoined` 不绕开同一
-  CORS/relay 策略。需要保留 `HttpClient` convenience constructor 时，它只能明确委托 `direct(...)`，不能在 browser 静默猜
-  relay URL。
-- 三个 service 可共享同一 transport。底层 Ktor `HttpClient` 始终由调用方创建和关闭；库不安装 engine、不关闭
-  client，也不假定调用方已安装 ContentNegotiation。
+- `MinecraftSessionService` 使用相同构造方式，使 browser 的 `/join` 与 `/hasJoined` 不绕开同一 CORS/relay 策略；它不会在
+  browser 静默猜 relay URL。
+- 三个 service 可共享同一 `HttpClient`。底层 client 始终由调用方创建、配置和关闭；库不安装 engine、不检查或修改配置，
+  也不假定调用方已安装 ContentNegotiation。
 - 新增 common `MinecraftAuthenticationRelayHandler`、public redacted handler request/response boundary 和 internal
   versioned typed wire models。应用只把 bounded raw body 交给 handler，再把 status/fixed headers/body 写回所属 Web
   framework；它不需要直接构造会把 token 暴露在 `toString` 的 wire data class。handler 不依赖 Ktor server、Servlet、Node
@@ -788,7 +785,7 @@ RSA actual 的固定选择如下：
 | `protocol-auth/src/javaCryptoMain/...`                                     | 新增 JVM+Android JCA actual                                                                                                                                                          |
 | `protocol-auth/src/nativeMain/...`                                         | 新增 cryptography-kotlin optimal provider actual                                                                                                                                     |
 | `protocol-auth/src/webMain/...`                                            | 新增单一 node-forge RSA actual 与薄 external declarations，供 JS/WasmJS 的 Node/browser execution 共用；不依赖 Node built-ins                                                        |
-| `protocol-auth/src/commonMain/.../MinecraftAuthenticationHttpTransport.kt` | 新增 direct/relay factories、固定 operation dispatch 与公共网络拓扑 API；无平台类型、无任意 URL proxy                                                                                |
+| `protocol-auth/src/commonMain/.../MinecraftAuthenticationHttpTransport.kt` | 新增 internal direct/relay route、固定 operation dispatch 与 service 使用的网络实现；无公共 transport 包装对象、无平台类型、无任意 URL proxy                                         |
 | `protocol-auth/src/commonMain/.../MinecraftAuthenticationRelay*.kt`        | 新增 internal versioned typed wire models、public redacted raw-body boundary 与 framework-neutral relay handler；固定上游 allowlist、response limits、redirect/header/cache 安全约束 |
 | `protocol-auth/src/commonMain/.../MinecraftSessionService.kt`              | `join` 消费 `MinecraftOnlineAccount`，保留 `hasJoined`，统一走 authentication HTTP transport、错误和响应限制                                                                         |
 | `protocol-auth/src/commonMain/.../MicrosoftOAuth*.kt`                      | 新增 caller-owned app 配置、`MicrosoftOAuthService`、device code、PKCE、external-token、refresh、token models 与 OAuth errors；实际按职责拆成小文件而不是单个巨型文件                |
@@ -835,8 +832,9 @@ RSA actual 的固定选择如下：
 
 1. 建立必填 caller-owned client ID、固定 endpoint/operation、请求/响应 serializer、body 上限、redacted token wrappers
    和异常层次；公共 model 中不存在 client secret。
-2. 实现 common `MinecraftAuthenticationHttpTransport.direct/relay`。direct 使用调用方 `HttpClient`；relay 只序列化 typed
-   operation，不接受 URL/method/header。两者共享 endpoint codec 和错误语义。
+2. 让三个 common service 直接接收调用方 `HttpClient`，并用额外 relay endpoint 构造器显式选择 relay。internal direct route
+   直接 使用该 client；internal relay route 只序列化 typed operation，不接受 URL/method/header。两者共享 endpoint codec
+   和错误语义。
 3. 实现 common、framework-neutral `MinecraftAuthenticationRelayHandler`：version negotiation、operation allowlist、固定
    HTTPS upstream、禁 redirect/cookie/header forwarding、request/response limit、`no-store` 与脱敏错误；不引入 server
    engine。

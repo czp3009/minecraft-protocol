@@ -2,7 +2,11 @@ package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtInt
-import com.hiczp.minecraft.protocol.auth.*
+import com.hiczp.minecraft.protocol.auth.MinecraftEncryption
+import com.hiczp.minecraft.protocol.auth.MinecraftOnlineAccount
+import com.hiczp.minecraft.protocol.auth.MinecraftSessionService
+import com.hiczp.minecraft.protocol.auth.toUndashedString
+import com.hiczp.minecraft.protocol.client.MinecraftClientLoginResult
 import com.hiczp.minecraft.protocol.client.MinecraftClientProtocol
 import com.hiczp.minecraft.protocol.client.MinecraftOnlineIdentity
 import com.hiczp.minecraft.protocol.data.ProtocolDataSet
@@ -20,11 +24,9 @@ import io.ktor.http.*
 import io.ktor.utils.io.*
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.*
 import kotlin.test.*
 import kotlin.uuid.Uuid
 
@@ -227,10 +229,16 @@ class MinecraftServerProtocolTest {
     @Test
     fun servesStatusThroughTheConfiguredHandler() = runTest {
         val (client, server) = sessionPair()
+        val customStatus = Json.encodeToString(
+            JsonObject.serializer(),
+            buildJsonObject {
+                put("custom", true)
+            },
+        )
         val handler = object : MinecraftServerHandler {
             override suspend fun statusJson(
                 configuration: MinecraftServerConfiguration,
-            ): String = """{"custom":true}"""
+            ): String = customStatus
         }
         val negotiation = async {
             MinecraftServerProtocol(
@@ -248,7 +256,7 @@ class MinecraftServerProtocolTest {
         )
         client.send(StatusRequestPacket)
         assertEquals(
-            StatusResponsePacket("""{"custom":true}"""),
+            StatusResponsePacket(customStatus),
             client.receive(),
         )
         client.send(StatusPingRequestPacket(42))
@@ -451,7 +459,14 @@ class MinecraftServerProtocolTest {
 
         run {
             val customReason =
-                JsonTextComponent("""{"translate":"test.custom_rejection"}""")
+                JsonTextComponent(
+                    Json.encodeToString(
+                        JsonObject.serializer(),
+                        buildJsonObject {
+                            put("translate", "test.custom_rejection")
+                        },
+                    ),
+                )
             val (client, server) = sessionPair()
             val negotiation = async {
                 assertFailsWith<MinecraftServerException> {
@@ -486,40 +501,41 @@ class MinecraftServerProtocolTest {
     fun onlineAuthenticationNegotiatesEncryptedPlayThroughSessionServices() =
         runTest {
             val identityId = Uuid.fromLongs(0x1020, 0x3040)
-            val clientService = MinecraftSessionService(
-                HttpClient(
-                    MockEngine {
-                        respond("", HttpStatusCode.NoContent)
-                    },
-                ),
-            )
+            val clientHttpClient = HttpClient(
+                MockEngine {
+                    respond("", HttpStatusCode.NoContent)
+                },
+            ) {
+                followRedirects = false
+            }
+            val clientService = MinecraftSessionService(clientHttpClient)
             var hasJoinedRequests = 0
-            var hasJoinedIpAddress: String? = null
-            val serverService = MinecraftSessionService(
-                HttpClient(
-                    MockEngine { request ->
-                        hasJoinedRequests++
-                        hasJoinedIpAddress = request.url.parameters["ip"]
-                        respond(
-                            """
-                            {
-                              "id": "${identityId.toUndashedString()}",
-                              "properties": []
-                            }
-                            """.trimIndent(),
-                            HttpStatusCode.OK,
-                            headersOf(
-                                HttpHeaders.ContentType,
-                                "application/json",
-                            ),
-                        )
-                    },
-                ),
-            )
-            val authentication = MinecraftServerAuthentication.Online(
-                sessionService = serverService,
-                cryptography = IdentityCryptography,
-                keyPair = IdentityCryptography.generateRsaKeyPair(),
+            val hasJoinedIpAddresses = mutableListOf<String?>()
+            val serverHttpClient = HttpClient(
+                MockEngine { request ->
+                    hasJoinedRequests++
+                    hasJoinedIpAddresses += request.url.parameters["ip"]
+                    respond(
+                        Json.encodeToString(
+                            JsonObject.serializer(),
+                            buildJsonObject {
+                                put("id", identityId.toUndashedString())
+                                put("properties", buildJsonArray {})
+                            },
+                        ),
+                        HttpStatusCode.OK,
+                        headersOf(
+                            HttpHeaders.ContentType,
+                            "application/json",
+                        ),
+                    )
+                },
+            ) {
+                followRedirects = false
+            }
+            val serverService = MinecraftSessionService(serverHttpClient)
+            val authentication = MinecraftServerAuthentication.online(
+                serverService,
             )
             val configuration = MinecraftServerConfiguration(
                 authentication = authentication,
@@ -528,36 +544,54 @@ class MinecraftServerProtocolTest {
                 enforcesSecureChat = true,
             )
             val identity = MinecraftOnlineIdentity(
-                name = "OnlineProbe",
-                id = identityId,
-                accessToken = "token",
+                account = MinecraftOnlineAccount.fromExistingCredentials(
+                    name = "OnlineProbe",
+                    id = identityId,
+                    accessToken = "token",
+                ),
                 sessionService = clientService,
-                cryptography = IdentityCryptography,
             )
-            val (client, server) = sessionPair()
-            val serverResult = async {
-                MinecraftServerProtocol(
-                    server,
-                    configuration,
-                    clientIpAddress = "203.0.113.42",
-                ).negotiate()
-            }
 
-            val clientResult = MinecraftClientProtocol(
-                client,
-                "localhost",
-                25_565,
-            ).login(identity)
-            val negotiation = assertIs<
-                    MinecraftServerNegotiationResult.PlayReady
-                    >(serverResult.await())
+            suspend fun completeOnlineLogin(
+                serverConfiguration: MinecraftServerConfiguration,
+                clientIpAddress: String?,
+            ): Pair<MinecraftClientLoginResult, MinecraftServerNegotiationResult.PlayReady> =
+                coroutineScope {
+                    val (client, server) = sessionPair()
+                    val serverResult = async {
+                        MinecraftServerProtocol(
+                            server,
+                            serverConfiguration,
+                            clientIpAddress = clientIpAddress,
+                        ).negotiate()
+                    }
+                    val clientResult = MinecraftClientProtocol(
+                        client,
+                        "localhost",
+                        25_565,
+                    ).login(identity)
+                    clientResult to assertIs(serverResult.await())
+                }
+
+            val (clientResult, negotiation) = completeOnlineLogin(
+                configuration,
+                "203.0.113.42",
+            )
 
             assertEquals(identityId, negotiation.profile.id)
             assertEquals(identityId, clientResult.login.profile.id)
             assertTrue(negotiation.login.onlineMode)
             assertTrue(negotiation.login.enforcesSecureChat)
-            assertEquals(1, hasJoinedRequests)
-            assertEquals("203.0.113.42", hasJoinedIpAddress)
+            completeOnlineLogin(configuration, "2001:db8::42")
+            completeOnlineLogin(
+                configuration.copy(preventProxyConnections = false),
+                "198.51.100.7",
+            )
+            assertEquals(3, hasJoinedRequests)
+            assertEquals(
+                listOf("203.0.113.42", "2001:db8::42", null),
+                hasJoinedIpAddresses,
+            )
 
             val (missingIpClient, missingIpServer) = sessionPair()
             val missingIpResult = async {
@@ -577,7 +611,6 @@ class MinecraftServerProtocolTest {
             )
             val encryption = MinecraftEncryption.answerServerChallenge(
                 request,
-                IdentityCryptography,
             )
             missingIpClient.send(encryption.response)
             missingIpClient.enableEncryption(encryption.sharedSecret)
@@ -586,9 +619,9 @@ class MinecraftServerProtocolTest {
                 missingIpResult.await().message.orEmpty()
                     .contains("requires the client IP address"),
             )
-            assertEquals(1, hasJoinedRequests)
-            clientService.httpClient.close()
-            serverService.httpClient.close()
+            assertEquals(3, hasJoinedRequests)
+            clientHttpClient.close()
+            serverHttpClient.close()
         }
 
     @Test
@@ -711,7 +744,12 @@ class MinecraftServerProtocolTest {
     fun configurationExtensionsRejectWrongStateDirectionAndManagedPackets() =
         runTest {
             val invalidPackets = listOf(
-                StatusResponsePacket("{}"),
+                StatusResponsePacket(
+                    Json.encodeToString(
+                        JsonObject.serializer(),
+                        buildJsonObject {},
+                    ),
+                ),
                 ConfigurationServerboundPluginMessagePacket(
                     CustomPayload.Unknown(
                         Identifier("test:serverbound"),
@@ -909,23 +947,4 @@ class MinecraftServerProtocolTest {
         )
     }
 
-    private object TestPrivateKey : MinecraftRsaPrivateKey
-
-    private object IdentityCryptography : MinecraftCryptography {
-        override fun secureRandomBytes(size: Int): ByteArray =
-            ByteArray(size) { (it + 1).toByte() }
-
-        override fun generateRsaKeyPair(keySizeBits: Int): MinecraftRsaKeyPair =
-            MinecraftRsaKeyPair(byteArrayOf(1, 2, 3), TestPrivateKey)
-
-        override fun rsaEncrypt(
-            encodedPublicKey: ByteArray,
-            plaintext: ByteArray,
-        ): ByteArray = plaintext.copyOf()
-
-        override fun rsaDecrypt(
-            privateKey: MinecraftRsaPrivateKey,
-            ciphertext: ByteArray,
-        ): ByteArray = ciphertext.copyOf()
-    }
 }

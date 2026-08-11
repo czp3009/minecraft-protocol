@@ -4,56 +4,60 @@ import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.PrivateKey
 import java.security.SecureRandom
+import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
 
-object JvmMinecraftCryptography : MinecraftCryptography {
+internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
     private val secureRandom = SecureRandom()
 
-    override fun secureRandomBytes(size: Int): ByteArray {
-        require(size >= 0)
-        return ByteArray(size).also(secureRandom::nextBytes)
-    }
-
-    override fun generateRsaKeyPair(keySizeBits: Int): MinecraftRsaKeyPair {
+    actual override suspend fun generateRsaKeyPair(keySizeBits: Int): MinecraftRsaKeyPair {
         require(keySizeBits >= 1_024)
         val generator = KeyPairGenerator.getInstance("RSA")
         generator.initialize(keySizeBits, secureRandom)
         val pair = generator.generateKeyPair()
         return MinecraftRsaKeyPair(
             publicKey = pair.public.encoded,
-            privateKey = JvmRsaPrivateKey(pair.private),
+            privateKey = JavaRsaPrivateKey(pair.private),
         )
     }
 
-    override fun rsaEncrypt(
+    actual override fun rsaEncrypt(
         encodedPublicKey: ByteArray,
         plaintext: ByteArray,
     ): ByteArray {
         val publicKey = KeyFactory.getInstance("RSA")
-            .generatePublic(X509EncodedKeySpec(encodedPublicKey))
+            .generatePublic(X509EncodedKeySpec(encodedPublicKey.copyOf()))
         return Cipher.getInstance(RSA_TRANSFORMATION).run {
             init(Cipher.ENCRYPT_MODE, publicKey, secureRandom)
-            doFinal(plaintext)
+            doFinal(plaintext.copyOf())
         }
     }
 
-    override fun rsaDecrypt(
+    actual override fun rsaDecrypt(
         privateKey: MinecraftRsaPrivateKey,
         ciphertext: ByteArray,
     ): ByteArray {
-        require(privateKey is JvmRsaPrivateKey) {
-            "JvmMinecraftCryptography requires its own private-key handle"
+        require(privateKey is JavaRsaPrivateKey) {
+            "The RSA private key was not created by this platform backend"
         }
         return Cipher.getInstance(RSA_TRANSFORMATION).run {
             init(Cipher.DECRYPT_MODE, privateKey.key)
-            doFinal(ciphertext)
+            doFinal(ciphertext.copyOf())
         }
     }
+
+    actual override fun decodePrivateKey(
+        encodedPrivateKey: ByteArray,
+    ): MinecraftRsaPrivateKey = JavaRsaPrivateKey(
+        KeyFactory.getInstance("RSA").generatePrivate(
+            PKCS8EncodedKeySpec(encodedPrivateKey.copyOf()),
+        ),
+    )
 
     private const val RSA_TRANSFORMATION = "RSA/ECB/PKCS1Padding"
 }
 
-private class JvmRsaPrivateKey(
+private class JavaRsaPrivateKey(
     val key: PrivateKey,
 ) : MinecraftRsaPrivateKey

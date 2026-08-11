@@ -277,23 +277,25 @@ class MinecraftClientProtocol(
                 "Server requested encrypted online Login for an offline identity",
             )
         }
-        val encryption = MinecraftEncryption.answerServerChallenge(
-            request,
-            identity.cryptography,
-        )
-        if (request.shouldAuthenticate) {
-            identity.sessionService.join(
-                accessToken = identity.accessToken,
-                selectedProfile = identity.id,
-                serverHash = minecraftServerHash(
-                    serverId = request.serverId,
-                    sharedSecret = encryption.sharedSecret,
-                    encodedPublicKey = request.publicKey.toByteArray(),
-                ),
-            )
+        val encryption = MinecraftEncryption.answerServerChallenge(request)
+        val sharedSecret = encryption.sharedSecret
+        try {
+            if (request.shouldAuthenticate) {
+                identity.sessionService.join(
+                    account = identity.account,
+                    serverHash = minecraftServerHash(
+                        serverId = request.serverId,
+                        sharedSecret = sharedSecret,
+                        encodedPublicKey = request.publicKey.toByteArray(),
+                    ),
+                )
+            }
+            session.send(encryption.response)
+            session.enableEncryption(sharedSecret)
+        } finally {
+            // MinecraftFrameStream copies the key and IV when encryption is enabled.
+            sharedSecret.fill(0)
         }
-        session.send(encryption.response)
-        session.enableEncryption(encryption.sharedSecret)
     }
 
     private suspend fun sendHandshake(nextState: HandshakeNextState) {

@@ -17,6 +17,11 @@ lz4-lite@1.1.2:
   resolved "https://registry.yarnpkg.com/lz4-lite/-/lz4-lite-1.1.2.tgz#68f1195fb0de1facf24190e62883eef4d6686a0a"
   integrity sha512-B04n18eKpt4tH8WGVxwVrBW3eUL7Fj7J1EVbg/FPENTh7wF/95WGOFcbdQunSoidD3QdL59ZCRMGnu6cD8Xf/w==
 
+node-forge@1.4.0:
+  version "1.4.0"
+  resolved "https://registry.yarnpkg.com/node-forge/-/node-forge-1.4.0.tgz#1c7b7d8bdc2d078739f58287d589d903a11b2fc2"
+  integrity sha512-LarFH0+6VfriEhqMMcLX2F7SwSXeWwnEAJEsYm5QKWchiVYVvJyV9v7UDvUv+w5HO23ZpQTXDv/GxdDdMyOuoQ==
+
 ws@8.20.1:
   version "8.20.1"
   resolved "https://registry.yarnpkg.com/ws/-/ws-8.20.1.tgz#91a9ae2b312ccf98e0a85ec499b48cef45ab0ddb"

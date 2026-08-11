@@ -6,6 +6,10 @@ import com.hiczp.minecraft.protocol.model.type.ClientInformation
 import com.hiczp.minecraft.protocol.model.type.GameProfile
 import com.hiczp.minecraft.protocol.model.type.JsonTextComponent
 import com.hiczp.minecraft.protocol.model.type.KnownPack
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 interface MinecraftServerHandler {
     suspend fun statusJson(
@@ -35,7 +39,14 @@ interface MinecraftServerHandler {
         if (acceptProfile(profile, transferred)) {
             null
         } else {
-            JsonTextComponent("""{"text":"Login rejected by server policy"}""")
+            JsonTextComponent(
+                Json.encodeToString(
+                    JsonObject.serializer(),
+                    buildJsonObject {
+                        put("text", "Login rejected by server policy")
+                    },
+                ),
+            )
         }
 
     suspend fun playLogin(

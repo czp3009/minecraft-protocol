@@ -1,21 +1,12 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-
 package com.hiczp.minecraft.protocol.auth
 
 import com.hiczp.minecraft.protocol.model.type.GameProfile
 import com.hiczp.minecraft.protocol.model.type.ProfileProperty
 import io.ktor.client.*
-import io.ktor.client.request.*
-import io.ktor.client.statement.*
 import io.ktor.http.*
-import io.ktor.http.content.*
-import io.ktor.utils.io.*
-import kotlinx.io.Buffer
-import kotlinx.io.readString
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.io.decodeFromSource
-import kotlinx.serialization.json.io.encodeToSink
+import kotlinx.serialization.SerializationException
 import kotlin.uuid.Uuid
 
 data class JoinedMinecraftProfile(
@@ -23,37 +14,49 @@ data class JoinedMinecraftProfile(
     val profileActions: Set<String>,
 )
 
-class MinecraftSessionService(
-    val httpClient: HttpClient,
-    val baseUrl: String = PRODUCTION_BASE_URL,
+class MinecraftSessionService internal constructor(
+    private val http: MinecraftAuthenticationHttpRoute,
 ) {
-    private val json = Json {
-        ignoreUnknownKeys = true
-    }
+    constructor(httpClient: HttpClient) : this(
+        directAuthenticationRoute(httpClient),
+    )
+
+    constructor(
+        httpClient: HttpClient,
+        relayEndpoint: Url,
+    ) : this(
+        relayAuthenticationRoute(httpClient, relayEndpoint),
+    )
 
     suspend fun join(
+        account: MinecraftOnlineAccount,
+        serverHash: String,
+    ) {
+        joinWithExistingCredentials(
+            accessToken = account.accessToken(),
+            selectedProfile = account.id,
+            serverHash = serverHash,
+        )
+    }
+
+    /** Advanced migration entry for callers that cannot yet construct [MinecraftOnlineAccount]. */
+    suspend fun joinWithExistingCredentials(
         accessToken: String,
         selectedProfile: Uuid,
         serverHash: String,
     ) {
-        val response = httpClient.post("$baseUrl/session/minecraft/join") {
-            contentType(ContentType.Application.Json)
-            setBody(
-                JsonJoinRequestContent(
-                    json,
-                    JoinRequest(
-                        accessToken = accessToken,
-                        selectedProfile = selectedProfile.toUndashedString(),
-                        serverId = serverHash,
-                    ),
-                ),
-            )
-        }
+        val response = http.execute(
+            MinecraftSessionJoinOperation(
+                accessToken = accessToken.validateOpaqueToken("Minecraft access token"),
+                selectedProfile = selectedProfile.toUndashedString(),
+                serverHash = serverHash,
+            ),
+        )
         if (
             response.status != HttpStatusCode.NoContent &&
             response.status != HttpStatusCode.OK
         ) {
-            throw response.toAuthenticationException("join")
+            throw sessionFailure(response, MinecraftAuthenticationStage.SESSION_JOIN)
         }
     }
 
@@ -62,94 +65,86 @@ class MinecraftSessionService(
         serverHash: String,
         ipAddress: String? = null,
     ): JoinedMinecraftProfile? {
-        val response = httpClient.get("$baseUrl/session/minecraft/hasJoined") {
-            parameter("username", username)
-            parameter("serverId", serverHash)
-            if (ipAddress != null) parameter("ip", ipAddress)
-        }
+        require(username.isNotBlank()) { "Minecraft username cannot be blank" }
+        val response = http.execute(
+            MinecraftSessionHasJoinedOperation(
+                username = username,
+                serverHash = serverHash,
+                ipAddress = ipAddress,
+            ),
+        )
         return when (response.status) {
-            HttpStatusCode.OK -> {
-                val source = response.bodyAsChannel().readBuffer(
-                    MAXIMUM_PROFILE_RESPONSE_BYTES + 1,
-                )
-                if (source.size > MAXIMUM_PROFILE_RESPONSE_BYTES) {
-                    throw MinecraftAuthenticationException(
-                        "Minecraft hasJoined response exceeds $MAXIMUM_PROFILE_RESPONSE_BYTES bytes",
-                    )
-                }
-                val body = json.decodeFromSource<HasJoinedResponse>(source)
-                JoinedMinecraftProfile(
-                    profile = GameProfile(
-                        id = parseMinecraftUuid(body.id),
-                        name = body.name ?: username,
-                        properties = body.properties.map { property ->
-                            ProfileProperty(
-                                name = property.name,
-                                value = property.value,
-                                signature = property.signature,
-                            )
-                        },
-                    ),
-                    profileActions = body.profileActions
-                        .orEmpty()
-                        .mapTo(linkedSetOf(), ProfileActionResponse::type),
-                )
-            }
-
+            HttpStatusCode.OK -> decodeJoinedProfile(response, username)
             HttpStatusCode.NoContent,
             HttpStatusCode.NotFound,
             HttpStatusCode.Forbidden,
                 -> null
 
-            else -> throw response.toAuthenticationException("hasJoined")
+            else -> throw sessionFailure(
+                response,
+                MinecraftAuthenticationStage.SESSION_HAS_JOINED,
+            )
         }
-    }
-
-    private suspend fun HttpResponse.toAuthenticationException(operation: String): MinecraftAuthenticationException {
-        val responseBody = bodyAsChannel()
-            .readBuffer(MAXIMUM_ERROR_RESPONSE_BYTES)
-            .readString()
-        val message = "Minecraft session $operation failed with HTTP ${status.value}: $responseBody"
-        return if (status.value >= 500) {
-            MinecraftAuthenticationUnavailableException(message)
-        } else {
-            MinecraftAuthenticationException(message)
-        }
-    }
-
-    companion object {
-        const val PRODUCTION_BASE_URL: String =
-            "https://sessionserver.mojang.com"
-
-        private const val MAXIMUM_PROFILE_RESPONSE_BYTES = 1_048_576
-        private const val MAXIMUM_ERROR_RESPONSE_BYTES = 1_024
     }
 }
 
-private class JsonJoinRequestContent(
-    private val json: Json,
-    private val request: JoinRequest,
-) : OutgoingContent.ReadChannelContent() {
-    override val contentType: ContentType = ContentType.Application.Json
-
-    override fun readFrom(): ByteReadChannel {
-        val source = Buffer()
-        json.encodeToSink(JoinRequest.serializer(), request, source)
-        return ByteReadChannel(source)
+private fun decodeJoinedProfile(
+    response: MinecraftAuthenticationHttpResponse,
+    requestedUsername: String,
+): JoinedMinecraftProfile {
+    val body = try {
+        SESSION_JSON.decodeFromString<HasJoinedResponse>(
+            response.body.decodeToString(throwOnInvalidSequence = true),
+        )
+    } catch (failure: IllegalArgumentException) {
+        throw MinecraftAuthenticationException(
+            "Minecraft hasJoined returned an invalid profile",
+            failure,
+        )
+    } catch (failure: SerializationException) {
+        throw MinecraftAuthenticationException(
+            "Minecraft hasJoined returned an invalid profile",
+            failure,
+        )
     }
+    return JoinedMinecraftProfile(
+        profile = GameProfile(
+            id = parseMinecraftUuid(body.id),
+            // Matching authlib constructs the authenticated profile with the requested username.
+            name = requestedUsername,
+            properties = body.properties.map { property ->
+                ProfileProperty(
+                    name = property.name,
+                    value = property.value,
+                    signature = property.signature,
+                )
+            },
+        ),
+        profileActions = body.profileActions
+            .orEmpty()
+            .mapTo(linkedSetOf(), ProfileActionResponse::type),
+    )
 }
 
-@Serializable
-private data class JoinRequest(
-    val accessToken: String,
-    val selectedProfile: String,
-    val serverId: String,
-)
+private fun sessionFailure(
+    response: MinecraftAuthenticationHttpResponse,
+    stage: MinecraftAuthenticationStage,
+): MinecraftAuthenticationException =
+    if (response.status.value == 429 || response.status.value >= 500) {
+        MinecraftAuthenticationUnavailableException(
+            "Minecraft session service is temporarily unavailable at stage $stage",
+        )
+    } else {
+        MinecraftAuthenticationRejectedException(
+            stage = stage,
+            statusCode = response.status.value,
+            message = "Minecraft session service rejected the request at stage $stage",
+        )
+    }
 
 @Serializable
 private data class HasJoinedResponse(
     val id: String,
-    val name: String? = null,
     val properties: List<ProfilePropertyResponse> = emptyList(),
     val profileActions: List<ProfileActionResponse>? = null,
 )
@@ -163,5 +158,10 @@ private data class ProfilePropertyResponse(
 
 @Serializable
 private data class ProfileActionResponse(
+    @SerialName("type")
     val type: String,
 )
+
+private val SESSION_JSON = kotlinx.serialization.json.Json {
+    ignoreUnknownKeys = true
+}
