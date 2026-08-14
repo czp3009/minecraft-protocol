@@ -368,15 +368,37 @@ Content-Type: application/json
 
 {
   "Identity": "0",
-  "XErr": 2148916238,
+  "XErr": {xerr},
   "Message": "{message}",
   "Redirect": "{policy_uri}"
 }
 ```
 
-`XErr` is an open numeric error space and requires at least signed 64-bit range. `Redirect` is diagnostic or policy
-metadata and is not followed automatically. The status code does not by itself identify which credential was rejected.
-Section 7.2 defines credential recovery for both Xbox stages.
+Xbox defines `XErr` as an unsigned 32-bit integer. JSON numbers do not carry signedness, so a client must preserve the
+full range from `0` through `4294967295`; a signed storage type therefore requires at least 64 bits. Unknown values are
+retained unchanged. `Redirect` is nullable; a non-null value is diagnostic or policy metadata and is not followed
+automatically. The status code does not by itself identify which credential was rejected. Section 7.2 defines credential
+recovery for both Xbox stages.
+
+### 2.1. Common XSTS account-policy errors
+
+The following are selected common examples from Microsoft's
+[full XSTS
+`XErr` table](https://learn.microsoft.com/en-us/gaming/gdk/docs/services/fundamentals/s2s-auth-calls/s2s-calls/live-title-service-calls-xbox-live#delegated-auth-error-handling),
+not an exhaustive enumeration. The account-condition labels below reproduce the official terminology. Xbox serializes
+`XErr` as a decimal JSON number; the hexadecimal equivalents are included because the official table uses that form:
+
+| Decimal `XErr` | Hexadecimal  | Official account condition    |
+|----------------|--------------|-------------------------------|
+| `2148916233`   | `0x8015DC09` | Account Creation Required     |
+| `2148916235`   | `0x8015DC0B` | Country/region not Authorized |
+| `2148916236`   | `0x8015DC0C` | Age Verification Required     |
+| `2148916237`   | `0x8015DC0D` | Account Curfew                |
+| `2148916238`   | `0x8015DC0E` | Child not in Family           |
+
+For these account conditions, Microsoft advises the user to resolve the issue on an Xbox console or by signing in to
+`https://xbox.com`. After the issue is resolved, begin a new authentication operation. Preserve unknown `XErr` values
+and the other structured diagnostics unchanged.
 
 ## 3. XSTS authorization for Minecraft Services
 
@@ -635,6 +657,10 @@ Accept: application/json
 client_id={urlencoded_client_id}&grant_type=refresh_token&refresh_token={urlencoded_microsoft_refresh_token}&scope=xboxlive.signin%20xboxlive.offline_access
 ```
 
+Do not remove `xboxlive.offline_access` merely because a refresh token is already available. Microsoft returns a new
+`refresh_token` only when the offline-access scope is requested; retaining it here keeps refresh-token rotation
+available for later silent renewals.
+
 The token endpoint returns the same successful and error HTTP response forms defined in section 1A.4. After a complete
 successful response has been validated, its `access_token` and `expires_in` replace the Microsoft access-token state. A
 returned `refresh_token` atomically replaces the previous refresh token; if it is omitted, the previous refresh token is
@@ -740,4 +766,6 @@ Expired or rejected credentials enter section 7 as a conditional recovery path.
 - [RFC 8628: OAuth 2.0 Device Authorization Grant](https://datatracker.ietf.org/doc/html/rfc8628)
 - [Xbox services sign-in for title websites](https://learn.microsoft.com/en-us/gaming/gdk/docs/services/fundamentals/s2s-auth-calls/service-authentication/live-website-authentication)
 - [Xbox services security tokens](https://learn.microsoft.com/en-us/gaming/gdk/docs/services/fundamentals/s2s-auth-calls/service-authentication/security-tokens/live-security-tokens)
+- [Xbox XSTS delegated-auth error handling and full
+  `XErr` table](https://learn.microsoft.com/en-us/gaming/gdk/docs/services/fundamentals/s2s-auth-calls/s2s-calls/live-title-service-calls-xbox-live#delegated-auth-error-handling)
 - [Minecraft Wiki: Microsoft authentication](https://minecraft.wiki/w/Microsoft_authentication)
