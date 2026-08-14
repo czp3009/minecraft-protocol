@@ -2,257 +2,141 @@
 
 ## Scope
 
-This document defines the HTTP flow that a third-party native public client implements to obtain a Microsoft access
-token, exchange it for Xbox security tokens, obtain a Minecraft access token, read Minecraft entitlements, and retrieve
-the Minecraft: Java Edition profile.
-
-Exactly one of the following Microsoft OAuth grants starts the flow:
-
-- Authorization Code Grant with PKCE and a loopback redirect.
-- Device Authorization Grant.
-
-Both grants produce the same `microsoft_access_token` and `microsoft_refresh_token`. Every request after Microsoft OAuth
-is identical for both grants. Other Microsoft identity-platform grants are outside this protocol profile. Their catalog
-is available
-in [Microsoft authentication flow support](https://learn.microsoft.com/en-us/entra/msal/msal-authentication-flows).
-
-The client is a public client. It never creates, embeds, sends, or stores a client secret.
+This document defines the HTTP flow from Microsoft authorization through Xbox and Minecraft authentication to the
+Minecraft: Java Edition entitlements and profile. It describes a public client. “Client” means the generic protocol
+participant rather than a particular product or version. Other Microsoft authorization flows are outside this profile;
+see
+[Microsoft authentication flow support](https://learn.microsoft.com/en-us/entra/msal/msal-authentication-flows).
 
 ## Registration prerequisites
 
-The client operator completes these one-time registration steps before issuing runtime requests:
+First satisfy the Azure account, active subscription, **Application Developer** role, and tenant prerequisites in
+Microsoft's
+[application-registration guide](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app).
+Then create the registration as follows:
 
-1. Open the [Microsoft Entra admin center](https://entra.microsoft.com/) and
-   [register an application](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app).
-2. Set **Supported account types** to **Personal Microsoft accounts only**.
-3. Record the assigned **Application (client) ID** as `client_id`.
-4. Configure the registration as a public native client. Under **Authentication**, add the **Mobile and desktop
-   applications** platform and enable **Allow public client flows**. The Microsoft configuration procedure is defined in
-   [Enable public-client flow](https://learn.microsoft.com/en-us/entra/identity-platform/scenario-mobile-app-configuration#enable-public-client-flow).
-5. When Authorization Code Grant support is enabled, register the loopback `redirect_uri` defined in this document.
-   Microsoft Entra requires a registered redirect URI with the same scheme, loopback host, and path; native-loopback
-   ports are selected at runtime. The applicable configuration and restrictions are defined in
-   [Add a redirect URI](https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-redirect-uri) and
-   [Redirect URI restrictions](https://learn.microsoft.com/en-us/entra/identity-platform/reply-url#localhost-exceptions).
-   An HTTP redirect URI using the `127.0.0.1` literal is added through the application manifest, as specified by those
-   restrictions.
-6. Do not add a client secret. A distributed native client cannot keep one confidential, and none of the token requests
-   in this flow accepts or sends one.
-7. Submit `client_id` through the
-   [Minecraft Services application review form](https://aka.ms/mce-reviewappid). Minecraft Services access begins only
-   after that application ID is approved.
+1. In the Microsoft Entra admin center, open **Entra ID** > **App registrations** and select **New registration**.
+2. Enter an application name and set **Supported account types** to **Personal Microsoft accounts only**.
+3. To make the [Authorization Code Grant with PKCE](#1a-authorization-code-grant-with-pkce) available, under **Redirect
+   URI (optional)** select **Public client/native (mobile & desktop)** and enter, for example,
+   `http://127.0.0.1/oauth/callback`. A registration used only with
+   the [Device Authorization Grant](#1b-device-authorization-grant) can leave the redirect URI unset.
+4. Select **Register**. On **Overview**, record **Application (client) ID** as `client_id` and also record **Directory (
+   tenant) ID** for the Minecraft Services review described below.
+5. To make the [Device Authorization Grant](#1b-device-authorization-grant) available, open the registered application's
+   details page, select **Authentication** under **Manage**, open **Settings**, enable **Allow public client flows**,
+   and select **Save**. The Authorization Code Grant does not require this setting. A registration intended to make both
+   grants available completes both steps 3 and 5.
 
-## Fixed protocol values
+Do not create a client secret or certificate credential. No additional Entra API permission is required by the requests
+in this document.
 
-| Name                                  | Value                                                                |
-|---------------------------------------|----------------------------------------------------------------------|
-| Microsoft tenant                      | `consumers`                                                          |
-| Authorization endpoint                | `https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize`  |
-| Token endpoint                        | `https://login.microsoftonline.com/consumers/oauth2/v2.0/token`      |
-| Device authorization endpoint         | `https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode` |
-| OAuth scope                           | `XboxLive.signin XboxLive.offline_access`                            |
-| Xbox user-authentication endpoint     | `https://user.auth.xboxlive.com/user/authenticate`                   |
-| Xbox user relying party               | `http://auth.xboxlive.com`                                           |
-| XSTS endpoint                         | `https://xsts.auth.xboxlive.com/xsts/authorize`                      |
-| XSTS sandbox                          | `RETAIL`                                                             |
-| Minecraft relying party               | `rp://api.minecraftservices.com/`                                    |
-| Minecraft authentication endpoint     | `https://api.minecraftservices.com/authentication/login_with_xbox`   |
-| Minecraft store-entitlements endpoint | `https://api.minecraftservices.com/entitlements/mcstore`             |
-| Minecraft license endpoint            | `https://api.minecraftservices.com/entitlements/license`             |
-| Minecraft profile endpoint            | `https://api.minecraftservices.com/minecraft/profile`                |
-| Xbox contract version                 | `1`                                                                  |
+The Entra registration is complete at this point. Separately, Mojang's
+[Java Edition Game Service API Review or Application Process](https://help.minecraft.net/hc/en-us/articles/16254801392141)
+states that new applications must be added to the Java Edition game-service API allow list and directs applicants to the
+[AppID review form](https://aka.ms/mce-reviewappid). This review is not an Entra setting and does not appear in its
+registration checklist. It does not gate Microsoft OAuth or Xbox authentication; until the application is allow-listed,
+the Minecraft authentication request in section 4 is rejected with HTTP `403 Forbidden`.
 
-`client_id` is the application identifier assigned to the public-client registration. The registration accepts personal
-Microsoft accounts, enables public-client flows, is permitted to request the Xbox scopes above, and is authorized to
-call Minecraft Services.
+## 1. Microsoft OAuth
 
-## Runtime values
+This stage obtains `microsoft_access_token` and its expiry. It also obtains `microsoft_refresh_token` when offline
+access is granted. For each interactive authorization operation, the client chooses exactly one path:
 
-| Value                               | Creation or source                                              | Consumer                                              |
-|-------------------------------------|-----------------------------------------------------------------|-------------------------------------------------------|
-| `client_id`                         | Public-client registration                                      | Every Microsoft OAuth request                         |
-| `redirect_port`                     | Operating-system-assigned free TCP port                         | Authorization Code Grant                              |
-| `redirect_uri`                      | `http://127.0.0.1:{redirect_port}/oauth/callback`               | Authorization request and code exchange               |
-| `oauth_state`                       | 32 cryptographically random bytes encoded as unpadded base64url | Authorization request and callback validation         |
-| `code_verifier`                     | 32 cryptographically random bytes encoded as unpadded base64url | PKCE authorization request and code exchange          |
-| `code_challenge`                    | Unpadded base64url encoding of `SHA-256(ASCII(code_verifier))`  | Authorization request                                 |
-| `authorization_code`                | Successful loopback callback query                              | Authorization-code token request                      |
-| `device_code`                       | Device authorization response                                   | Device token polling                                  |
-| `user_code`                         | Device authorization response                                   | Microsoft verification page                           |
-| `verification_uri`                  | Device authorization response                                   | External user-agent navigation                        |
-| `device_poll_interval`              | Device authorization response `interval`                        | Device token polling schedule                         |
-| `device_code_expires_at`            | Receipt time plus device authorization response `expires_in`    | Device token polling deadline                         |
-| `microsoft_access_token`            | Successful Microsoft token response                             | Xbox user authentication                              |
-| `microsoft_refresh_token`           | Successful Microsoft token response                             | Microsoft token refresh                               |
-| `microsoft_access_token_expires_at` | Receipt time plus Microsoft `expires_in`                        | Token freshness check                                 |
-| `xbox_user_token`                   | Xbox user-authentication response `Token`                       | XSTS request                                          |
-| `xbox_user_hash`                    | Xbox user-authentication response `DisplayClaims.xui[0].uhs`    | XSTS identity consistency check                       |
-| `xbox_user_token_expires_at`        | Xbox user-authentication response `NotAfter`                    | Token freshness check                                 |
-| `xsts_token`                        | XSTS response `Token`                                           | Minecraft authentication                              |
-| `xsts_user_hash`                    | XSTS response `DisplayClaims.xui[0].uhs`                        | Minecraft `identityToken`                             |
-| `xsts_token_expires_at`             | XSTS response `NotAfter`                                        | Token freshness check                                 |
-| `minecraft_access_token`            | Minecraft authentication response `access_token`                | Entitlements, profile, and authenticated game session |
-| `minecraft_token_type`              | Minecraft authentication response `token_type`                  | Bearer authorization scheme                           |
-| `minecraft_access_token_expires_at` | Receipt time plus Minecraft `expires_in`                        | Token freshness check                                 |
-| `minecraft_entitlements`            | Minecraft entitlements response `items`                         | Java entitlement classification                       |
-| `java_entitled`                     | Classification of `minecraft_entitlements`                      | Completed authentication result                       |
-| `minecraft_profile_id`              | Minecraft profile response `id`                                 | Java profile UUID                                     |
-| `minecraft_profile_name`            | Minecraft profile response `name`                               | Java profile name                                     |
+- [Authorization Code Grant with PKCE](#1a-authorization-code-grant-with-pkce), using a loopback redirect.
+- [Device Authorization Grant](#1b-device-authorization-grant).
 
-All tokens and authorization codes are opaque, case-sensitive strings. No request parses a token to derive identity,
-expiry, or authorization. Expiry comes only from `expires_in` or `NotAfter` fields returned by the issuing service.
-Names beginning with `urlencoded_` denote the form-URL-encoded serialization of the corresponding unprefixed value in
-the same request or response.
-`verification_uri_host` and `verification_uri_path_and_query` are parsed directly from `verification_uri`.
-
-The following placeholders occur only in response examples. They name response data rather than values created by the
-client:
-
-| Placeholder                         | Response member or meaning                                                  |
-|-------------------------------------|-----------------------------------------------------------------------------|
-| `description`                       | Microsoft `error_description`                                               |
-| `error`                             | The surrounding response's `error` member                                   |
-| `timestamp`                         | Microsoft OAuth diagnostic `timestamp`                                      |
-| `trace_id`                          | Microsoft OAuth diagnostic `trace_id`                                       |
-| `correlation_id`                    | Microsoft OAuth diagnostic `correlation_id`                                 |
-| `localized_instructions`            | Device authorization response `message`                                     |
-| `issue_instant`                     | Xbox response `IssueInstant`                                                |
-| `not_after`                         | Xbox response `NotAfter`                                                    |
-| `message`                           | The surrounding response's `Message` or `errorMessage` member               |
-| `policy_uri`                        | Xbox error response `Redirect` member; it is metadata, not an HTTP redirect |
-| `minecraft_service_user_identifier` | Minecraft authentication response `username`                                |
-| `developer_message`                 | Minecraft service response `developerMessage`                               |
-| `entitlement_name`                  | Entitlement item `name`                                                     |
-| `entitlement_signature`             | Entitlement item `signature`                                                |
-| `aggregate_signature`               | Top-level entitlement response `signature`                                  |
-| `key_id`                            | Top-level entitlement response `keyId`                                      |
-| `license_source`                    | License item `source`, such as a purchase or subscription source            |
-| `skin_id`                           | Profile skin `id`                                                           |
-| `skin_texture_url`                  | Profile skin `url`                                                          |
-| `skin_alias`                        | Profile skin `alias`                                                        |
-| `cape_id`                           | Profile cape `id`                                                           |
-| `cape_texture_url`                  | Profile cape `url`                                                          |
-| `cape_alias`                        | Profile cape `alias`                                                        |
-
-A response value not listed as a runtime value is retained as response metadata and is not consumed by a later request.
-
-## HTTP invariants
-
-- Every remote connection uses HTTPS with normal hostname and certificate validation.
-- Form bodies use UTF-8 `application/x-www-form-urlencoded` encoding.
-- JSON request bodies use UTF-8 and contain no comments or trailing commas.
-- Microsoft OAuth token responses and the loopback response use `Cache-Control: no-store`. Every remote token response
-  is handled as non-cacheable sensitive data even when the service omits an explicit cache header.
-- Tokens never appear in URLs, query parameters, error messages, or logs. The authorization code and `oauth_state` are
-  the only credentials received through the loopback query.
-- `Authorization` header values use the exact scheme and spacing shown below.
-- Unknown JSON members are retained or ignored without rejecting an otherwise valid response. Required members are
-  validated before their values are consumed.
-
-## 1. Microsoft OAuth entry
+The paths are alternatives, not consecutive steps. Both produce the Microsoft credentials consumed by section 2.
 
 ### 1A. Authorization Code Grant with PKCE
 
 #### 1A.1. Loopback endpoint and PKCE values
 
-The client binds an HTTP listener only to `127.0.0.1` on an operating-system-assigned free port. The listener accepts
-only `/oauth/callback`. It then creates `redirect_uri`, `oauth_state`, `code_verifier`, and `code_challenge` as defined
-in the runtime-value table.
+Before opening the browser, the client binds an HTTP listener only to `127.0.0.1` on an operating-system-assigned free
+port; it does not bind a wildcard interface. The accepted URI path is `/oauth/callback`. The client then creates:
+
+- `redirect_uri` as `http://127.0.0.1:{redirect_port}/oauth/callback`.
+- `oauth_state` from 32 cryptographically random bytes encoded as unpadded base64url.
+- `code_verifier` from another 32 cryptographically random bytes encoded as unpadded base64url.
+- `code_challenge` as the unpadded base64url encoding of `SHA-256(ASCII(code_verifier))`.
+
+When matching a loopback redirect URI against the registered URI, Microsoft Entra does not compare the port; the scheme,
+loopback host, and path still have to match. The authorization request therefore supplies the listener's actual port
+even though the registered URI omits it. The service redirects to that complete request URI, which is also reused
+unchanged in the token request. See
+[Microsoft's loopback redirect rules](https://learn.microsoft.com/en-us/entra/identity-platform/reply-url#localhost-exceptions).
+
+The pending operation has a bounded client-selected deadline. For an accepted callback, the listener remains open
+through the token exchange and closes after the client has responded to the browser. A matching OAuth error, explicit
+cancellation, or the deadline also closes it.
 
 #### 1A.2. Authorization request
 
-The system browser navigates to the authorization endpoint with these query parameters:
-
-| Parameter               | Value                                     |
-|-------------------------|-------------------------------------------|
-| `client_id`             | `client_id`                               |
-| `response_type`         | `code`                                    |
-| `redirect_uri`          | `redirect_uri`                            |
-| `response_mode`         | `query`                                   |
-| `scope`                 | `XboxLive.signin XboxLive.offline_access` |
-| `state`                 | `oauth_state`                             |
-| `code_challenge`        | `code_challenge`                          |
-| `code_challenge_method` | `S256`                                    |
-| `prompt`                | `select_account`                          |
-
-The resulting request has this form:
+The client opens the following authorization request in the external system browser:
 
 ```http
-GET /consumers/oauth2/v2.0/authorize?client_id={urlencoded_client_id}&response_type=code&redirect_uri={urlencoded_redirect_uri}&response_mode=query&scope=XboxLive.signin%20XboxLive.offline_access&state={urlencoded_oauth_state}&code_challenge={urlencoded_code_challenge}&code_challenge_method=S256&prompt=select_account HTTP/1.1
+GET /consumers/oauth2/v2.0/authorize?client_id={urlencoded_client_id}&response_type=code&redirect_uri={urlencoded_redirect_uri}&response_mode=query&scope=xboxlive.signin%20xboxlive.offline_access&state={urlencoded_oauth_state}&code_challenge={urlencoded_code_challenge}&code_challenge_method=S256 HTTP/1.1
 Host: login.microsoftonline.com
 ```
 
-Request body: no body.
-
-The authorization endpoint returns Microsoft-hosted HTML pages and HTTP redirects while authentication and consent are
-in progress. A successful interaction ends with this redirect:
+The authorization service presents interactive HTML and can issue intermediate redirects while authentication and
+consent are in progress. A successful interaction ends with an HTTP redirect to the exact loopback URI:
 
 ```http
 HTTP/1.1 302 Found
 Location: {redirect_uri}?code={urlencoded_authorization_code}&state={urlencoded_oauth_state}
-Cache-Control: no-store
 ```
 
-Response body: no body is required for the final redirect.
-
-An unsuccessful interaction ends with this redirect:
+An unsuccessful interaction ends with an HTTP redirect to the same loopback URI carrying an OAuth error:
 
 ```http
 HTTP/1.1 302 Found
 Location: {redirect_uri}?error={urlencoded_error}&error_description={urlencoded_description}&state={urlencoded_oauth_state}
-Cache-Control: no-store
 ```
 
-Response body: no body is required for the final redirect.
+The service can add optional OAuth diagnostic query parameters. They do not weaken the requirement to validate
+`state`.
 
-#### 1A.3. Loopback callback
+#### 1A.3. Loopback callback request
 
-The successful redirect causes the browser to send:
+The successful redirect causes the browser to send the following request to the client-owned loopback listener:
 
 ```http
 GET /oauth/callback?code={urlencoded_authorization_code}&state={urlencoded_oauth_state} HTTP/1.1
 Host: 127.0.0.1:{redirect_port}
 ```
 
-Request body: no body.
-
-The callback is accepted only when all of these conditions hold:
+The callback request is accepted only when all of these conditions hold:
 
 - The listener has one pending authorization operation.
-- The request target is `/oauth/callback`.
-- The `Host` port equals `redirect_port`.
-- `state` exactly equals the pending `oauth_state`.
+- The method is `GET`.
+- The parsed URI path is exactly `/oauth/callback`.
+- Exactly one non-empty `state` parameter exists and exactly equals the pending `oauth_state`.
 - Exactly one non-empty `code` parameter exists.
 - No `error` parameter exists.
 
-The accepted callback assigns `authorization_code` from `code`, consumes the pending operation, and returns:
+After accepting this request, the client assigns `authorization_code` and atomically moves the pending operation into
+token exchange so that no later callback can reuse it. The browser continues waiting for the local HTTP response while
+the client performs section 1A.4; receiving the authorization code alone does not complete the OAuth operation.
 
-```http
-HTTP/1.1 200 OK
-Content-Type: text/plain; charset=utf-8
-Cache-Control: no-store
-Connection: close
-
-Authentication completed. Return to the application.
-```
-
-An invalid callback does not assign `authorization_code` and returns:
+An invalid or unsolicited callback does not assign `authorization_code` and does not consume the pending operation:
 
 ```http
 HTTP/1.1 400 Bad Request
 Content-Type: text/plain; charset=utf-8
-Cache-Control: no-store
-Connection: close
 
-Invalid authentication callback.
+Authorization could not be completed. Return to the application.
 ```
 
-An OAuth error callback terminates the pending operation with the returned `error` and `error_description`. The local
-HTTP response is the same 400 response shown above and does not reproduce either value.
+An OAuth error callback consumes the pending operation only when exactly one non-empty `state` matches the pending
+`oauth_state`, exactly one non-empty `error` exists, and no `code` exists. The operation terminates with the returned
+`error` and optional `error_description`. The local HTTP response is the same generic 400 response and does not
+reproduce either value.
 
-#### 1A.4. Authorization-code token request
+#### 1A.4. Authorization-code exchange and browser response
 
-The client immediately exchanges the accepted authorization code:
+While holding the accepted loopback request open, the client immediately submits the authorization code for a single
+token exchange:
 
 ```http
 POST /consumers/oauth2/v2.0/token HTTP/1.1
@@ -260,22 +144,18 @@ Host: login.microsoftonline.com
 Content-Type: application/x-www-form-urlencoded
 Accept: application/json
 
-client_id={urlencoded_client_id}&scope=XboxLive.signin%20XboxLive.offline_access&code={urlencoded_authorization_code}&redirect_uri={urlencoded_redirect_uri}&grant_type=authorization_code&code_verifier={urlencoded_code_verifier}
+client_id={urlencoded_client_id}&scope=xboxlive.signin%20xboxlive.offline_access&code={urlencoded_authorization_code}&redirect_uri={urlencoded_redirect_uri}&grant_type=authorization_code&code_verifier={urlencoded_code_verifier}
 ```
 
-The request contains no `client_secret`.
-
-A successful response is:
+The Microsoft token endpoint returns the following successful response:
 
 ```http
 HTTP/1.1 200 OK
-Content-Type: application/json; charset=utf-8
-Cache-Control: no-store
-Pragma: no-cache
+Content-Type: application/json
 
 {
   "token_type": "Bearer",
-  "scope": "XboxLive.signin XboxLive.offline_access",
+  "scope": "{granted_scope}",
   "expires_in": 3600,
   "ext_expires_in": 3600,
   "access_token": "{microsoft_access_token}",
@@ -283,18 +163,33 @@ Pragma: no-cache
 }
 ```
 
-The numeric values above illustrate the response shape. The client uses the returned `expires_in` value and never
-assumes a fixed lifetime. `ext_expires_in` is retained when present but does not replace `expires_in` for normal expiry.
-`access_token`, `refresh_token`, and `token_type` assign `microsoft_access_token`, `microsoft_refresh_token`, and the
-Microsoft bearer scheme. The receipt time plus `expires_in` assigns `microsoft_access_token_expires_at`.
+`access_token`, `token_type`, and `expires_in` are required, and `token_type` must be `Bearer`. `expires_in` is the
+access-token lifetime in seconds; adding it to the receipt time assigns `microsoft_access_token_expires_at`.
 
-A failed exchange returns an OAuth error object:
+`refresh_token` is present when offline access is granted. If it is absent, the current authentication can continue, but
+silent renewal through section 7.1 is unavailable. `scope` records the actual granted scope set when present; its order
+is not significant. `ext_expires_in` is optional metadata and does not replace `expires_in` for the normal freshness
+check.
+
+After validating the successful token response, the client returns a user-friendly confirmation page through the held
+loopback request. This is a client-generated response to the browser rather than a Microsoft response; its presentation
+is implementation-defined, and it contains no credential:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: text/plain; charset=utf-8
+
+Authorization completed. Return to the application.
+```
+
+After sending this response, the client consumes the pending operation, closes the loopback listener, and completes the
+Microsoft OAuth stage with `microsoft_access_token`, its expiry, and `microsoft_refresh_token` when one was returned.
+
+When the exchange is rejected, the Microsoft token endpoint returns an OAuth error response:
 
 ```http
 HTTP/1.1 400 Bad Request
-Content-Type: application/json; charset=utf-8
-Cache-Control: no-store
-Pragma: no-cache
+Content-Type: application/json
 
 {
   "error": "invalid_grant",
@@ -306,8 +201,11 @@ Pragma: no-cache
 }
 ```
 
-`error_codes`, `timestamp`, `trace_id`, and `correlation_id` are optional diagnostic members. An unsuccessful exchange
-does not continue to Xbox authentication.
+`error_codes`, `timestamp`, `trace_id`, and `correlation_id` are optional diagnostic members. If delivery of the token
+request is ambiguous, the same one-time authorization code is not submitted again; start a new Authorization Code Grant
+operation. After a failed or ambiguous exchange, the client returns a generic failure page to the held loopback request
+using the 400 response defined in section 1A.3, then consumes the pending operation, closes the listener, and terminates
+the OAuth operation. The client-generated page does not reproduce OAuth diagnostics or credentials.
 
 ### 1B. Device Authorization Grant
 
@@ -319,16 +217,14 @@ Host: login.microsoftonline.com
 Content-Type: application/x-www-form-urlencoded
 Accept: application/json
 
-client_id={urlencoded_client_id}&scope=XboxLive.signin%20XboxLive.offline_access
+client_id={urlencoded_client_id}&scope=xboxlive.signin%20xboxlive.offline_access
 ```
 
 A successful response is:
 
 ```http
 HTTP/1.1 200 OK
-Content-Type: application/json; charset=utf-8
-Cache-Control: no-store
-Pragma: no-cache
+Content-Type: application/json
 
 {
   "user_code": "{user_code}",
@@ -340,17 +236,15 @@ Pragma: no-cache
 }
 ```
 
-The numeric values above illustrate the response shape. The receipt time plus the returned `expires_in` assigns
-`device_code_expires_at`; the returned `interval` assigns `device_poll_interval`. `message` is display text and is not
-parsed as protocol data.
+`user_code`, `device_code`, `verification_uri`, and `expires_in` are required. `interval` is optional; when absent, the
+active polling interval starts at five seconds. `message` is optional display text and is not parsed as protocol data.
+Adding `expires_in` seconds to the receipt time assigns `device_code_expires_at`.
 
-A failed request returns:
+A failed request returns an OAuth error response:
 
 ```http
 HTTP/1.1 400 Bad Request
-Content-Type: application/json; charset=utf-8
-Cache-Control: no-store
-Pragma: no-cache
+Content-Type: application/json
 
 {
   "error": "{error}",
@@ -358,30 +252,24 @@ Pragma: no-cache
 }
 ```
 
-No device polling starts after an unsuccessful response.
+#### 1B.2. User verification
 
-#### 1B.2. User verification navigation
+Before or while opening the browser, the client displays `user_code` and `verification_uri` to the user. It can also
+display `message` when present. The user must be able to copy the code and URI when automatic browser navigation is
+unavailable. `device_code` is never displayed. After validating that `verification_uri` is an absolute HTTPS URI, the
+client opens it in an external system browser.
 
-The system browser navigates to `verification_uri`:
+The user enters `user_code`, authenticates, and grants or denies consent in the service-controlled browser flow. Any
+HTML responses and intermediate redirects belong to that browser flow and are not parsed by the client. No credential is
+returned directly through the browser; completion instead changes the token-polling result.
 
-```http
-GET {verification_uri_path_and_query} HTTP/1.1
-Host: {verification_uri_host}
-```
-
-Request body: no body.
-
-Microsoft returns interactive HTML and redirects that collect `user_code`, account authentication, and consent. This
-browser exchange does not return credentials to the local client. Completion changes the result returned by the token
-polling endpoint.
-
-Response headers: Microsoft-controlled browser headers, including the content type or redirect location for each page.
-
-Response body: Microsoft-hosted HTML on interactive responses; no body is required on redirects.
+The Microsoft response does not include or support the standard's optional `verification_uri_complete` optimization, so
+this path uses `verification_uri` together with `user_code`.
 
 #### 1B.3. Device token polling
 
-The first poll occurs after `device_poll_interval` seconds. Every later poll observes the active interval.
+The first poll occurs no earlier than the active polling interval after the device authorization response. Every later
+poll observes the current active interval.
 
 ```http
 POST /consumers/oauth2/v2.0/token HTTP/1.1
@@ -392,57 +280,42 @@ Accept: application/json
 grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code&client_id={urlencoded_client_id}&device_code={urlencoded_device_code}
 ```
 
-While user interaction is incomplete, the response is:
+Before a token is issued, the token endpoint can return an OAuth error response:
 
 ```http
 HTTP/1.1 400 Bad Request
-Content-Type: application/json; charset=utf-8
-Cache-Control: no-store
-Pragma: no-cache
+Content-Type: application/json
 
 {
-  "error": "authorization_pending",
+  "error": "{error}",
   "error_description": "{description}"
 }
 ```
 
-`authorization_pending` schedules another poll after the active interval. `slow_down` increases the active interval by
-five seconds before another poll. `authorization_declined`, `bad_verification_code`, `expired_token`, and every other
-OAuth error terminate the device operation. Polling also terminates at `device_code_expires_at`.
+`error` determines whether polling continues:
 
-After authorization, the token endpoint returns the same successful JSON token response defined in section 1A.4. Its
-`access_token`, `refresh_token`, and `expires_in` values assign `microsoft_access_token`, `microsoft_refresh_token`, and
-`microsoft_access_token_expires_at`.
+| `error` value            | Meaning and client action                                                                                                                                                                                                          |
+|--------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `authorization_pending`  | The user has not completed authorization. Wait for the active interval, then poll again.                                                                                                                                           |
+| `slow_down`              | Authorization is still pending, but polling must slow down. Add five seconds to the active interval before the next poll and retain the increased interval for every later poll. Each later `slow_down` adds another five seconds. |
+| `authorization_declined` | Microsoft reports that the user declined authorization. Stop polling.                                                                                                                                                              |
+| `access_denied`          | The RFC 8628 denial error. Stop polling.                                                                                                                                                                                           |
+| `bad_verification_code`  | Microsoft does not recognize the submitted `device_code`. Stop polling.                                                                                                                                                            |
+| `expired_token`          | The `device_code` has expired. Stop polling; a new operation requires a new device authorization request.                                                                                                                          |
+| Any other OAuth error    | The operation cannot continue under this profile. Stop polling and preserve the available diagnostics.                                                                                                                             |
 
-## 2. Microsoft access-token refresh
+`error_description` is optional diagnostic text and does not control polling. A transport timeout is not an OAuth error;
+wait at least the active interval and apply backoff before polling again. Polling also stops at
+`device_code_expires_at` or on explicit cancellation.
 
-When the current time reaches five minutes before `microsoft_access_token_expires_at`, a stored Microsoft session
-obtains a replacement access token with the most recent refresh token:
+After authorization, the token endpoint returns the successful HTTP token response defined in section 1A.4. The shared
+flow continues with its `access_token`; its optional `refresh_token`, `scope`, and `expires_in` have the same meanings
+as in that section.
 
-```http
-POST /consumers/oauth2/v2.0/token HTTP/1.1
-Host: login.microsoftonline.com
-Content-Type: application/x-www-form-urlencoded
-Accept: application/json
+## 2. Xbox user authentication
 
-client_id={urlencoded_client_id}&grant_type=refresh_token&refresh_token={urlencoded_microsoft_refresh_token}&scope=XboxLive.signin%20XboxLive.offline_access
-```
-
-Request body fields contain no `client_secret`.
-
-The successful response has the same headers and JSON shape as section 1A.4. The returned `access_token` replaces
-`microsoft_access_token`. The returned `refresh_token` atomically replaces the previously stored refresh token. The
-returned `expires_in` establishes the new `microsoft_access_token_expires_at`.
-
-An `invalid_grant`, `interaction_required`, or equivalent terminal OAuth error invalidates the stored Microsoft session
-and requires a new section 1 OAuth operation.
-
-Every successful Microsoft refresh invalidates cached `xbox_user_token`, `xsts_token`, and `minecraft_access_token`.
-Sections 3 through 7 then run again to produce a coherent downstream token set.
-
-## 3. Xbox user authentication
-
-The Microsoft access token is exchanged for an Xbox User Token:
+The Microsoft access token is exchanged for an Xbox User Token. `http://auth.xboxlive.com` is the relying-party
+identifier carried in the JSON body, not the address to which this request is sent:
 
 ```http
 POST /user/authenticate HTTP/1.1
@@ -466,7 +339,7 @@ A successful response is:
 
 ```http
 HTTP/1.1 200 OK
-Content-Type: application/json; charset=utf-8
+Content-Type: application/json
 
 {
   "IssueInstant": "{issue_instant}",
@@ -482,14 +355,16 @@ Content-Type: application/json; charset=utf-8
 }
 ```
 
-`Token`, `NotAfter`, and `DisplayClaims.xui[0].uhs` are required and non-empty. `xbox_user_hash` is an ephemeral token
-claim and is never used as a persistent account identifier. `NotAfter` assigns `xbox_user_token_expires_at`.
+`Token`, `NotAfter`, and `DisplayClaims.xui[0].uhs` are required and non-empty. `NotAfter` assigns
+`xbox_user_token_expires_at`. `xbox_user_hash` is an ephemeral token-instance claim and is never used as a persistent
+account identifier.
 
-A rejected request returns a non-2xx status and a JSON error body. Xbox policy failures use this shape:
+A rejected Xbox user-authentication or XSTS request returns a non-2xx response. When Xbox policy error data is
+available, both endpoints use this form:
 
 ```http
 HTTP/1.1 401 Unauthorized
-Content-Type: application/json; charset=utf-8
+Content-Type: application/json
 
 {
   "Identity": "0",
@@ -499,12 +374,15 @@ Content-Type: application/json; charset=utf-8
 }
 ```
 
-`XErr` is an open numeric error space. `Redirect` is error metadata, not an HTTP redirect, and is not followed
-automatically. A 401 caused by an expired Microsoft token starts section 2 when a refresh token is available.
+`XErr` is an open numeric error space and requires at least signed 64-bit range. `Redirect` is diagnostic or policy
+metadata and is not followed automatically. The status code does not by itself identify which credential was rejected.
+Section 7.2 defines credential recovery for both Xbox stages.
 
-## 4. XSTS authorization for Minecraft Services
+## 3. XSTS authorization for Minecraft Services
 
-The Xbox User Token is exchanged for an XSTS token scoped to Minecraft Services:
+The Xbox User Token is exchanged for an XSTS token scoped to Minecraft Services.
+`rp://api.minecraftservices.com/` is the relying-party identifier carried in the JSON body, not the address to which
+this request is sent:
 
 ```http
 POST /xsts/authorize HTTP/1.1
@@ -529,7 +407,7 @@ A successful response is:
 
 ```http
 HTTP/1.1 200 OK
-Content-Type: application/json; charset=utf-8
+Content-Type: application/json
 
 {
   "IssueInstant": "{issue_instant}",
@@ -545,34 +423,14 @@ Content-Type: application/json; charset=utf-8
 }
 ```
 
-`Token`, `NotAfter`, and `DisplayClaims.xui[0].uhs` are required and non-empty. `xsts_user_hash` must exactly equal
-`xbox_user_hash`. `NotAfter` assigns `xsts_token_expires_at`. A user-hash mismatch invalidates the entire token set.
+`Token`, `NotAfter`, and `DisplayClaims.xui[0].uhs` are required and non-empty. `NotAfter` assigns
+`xsts_token_expires_at`. `xsts_user_hash` must exactly equal `xbox_user_hash`; a mismatch rejects the token chain. A
+rejected request follows the shared Xbox error format and recovery rule in section 2.
 
-A rejected request returns a non-2xx status and a JSON body containing `Identity`, `XErr`, `Message`, and `Redirect`
-when an Xbox policy error is available. A 401 caused by an expired Xbox User Token restarts section 3 with a valid
-Microsoft access token.
+## 4. Minecraft authentication
 
-```http
-HTTP/1.1 401 Unauthorized
-Content-Type: application/json; charset=utf-8
-
-{
-  "Identity": "0",
-  "XErr": 2148916238,
-  "Message": "{message}",
-  "Redirect": "{policy_uri}"
-}
-```
-
-## 5. Minecraft authentication
-
-The XSTS token and its user hash are combined into the Minecraft identity token:
-
-```text
-XBL3.0 x={xsts_user_hash};{xsts_token}
-```
-
-That value is exchanged for a Minecraft access token:
+The XSTS token and its matching user hash form the Minecraft identity token
+`XBL3.0 x={xsts_user_hash};{xsts_token}`:
 
 ```http
 POST /authentication/login_with_xbox HTTP/1.1
@@ -589,7 +447,7 @@ A successful response is:
 
 ```http
 HTTP/1.1 200 OK
-Content-Type: application/json; charset=utf-8
+Content-Type: application/json
 
 {
   "username": "{minecraft_service_user_identifier}",
@@ -600,16 +458,29 @@ Content-Type: application/json; charset=utf-8
 }
 ```
 
-The numeric lifetime above illustrates the response shape. The returned `expires_in` establishes
-`minecraft_access_token_expires_at`. `username` is a Minecraft Services identifier and is not the Java profile UUID or
-profile name. `roles` and `username` are retained but are not inputs to later requests.
+`access_token`, `token_type`, and `expires_in` are required, and `token_type` must be `Bearer`. Adding `expires_in`
+seconds to the receipt time assigns `minecraft_access_token_expires_at`.
 
-A rejected request returns a non-2xx status. A JSON error response uses the service error fields available for that
-failure:
+`username` is a Minecraft Services identifier rather than the Java profile UUID or profile name. `roles` and `username`
+are metadata and are not inputs to later requests.
+
+An application ID that has not passed the registration review is rejected before a Minecraft access token is issued:
+
+```http
+HTTP/1.1 403 Forbidden
+Content-Type: application/json
+
+{
+  "path": "/authentication/login_with_xbox",
+  "errorMessage": "Invalid app registration, see https://aka.ms/AppRegInfo for more information"
+}
+```
+
+Other rejected requests return a non-2xx response. A JSON error response uses the fields available for that failure:
 
 ```http
 HTTP/1.1 401 Unauthorized
-Content-Type: application/json; charset=utf-8
+Content-Type: application/json
 
 {
   "path": "/authentication/login_with_xbox",
@@ -619,10 +490,9 @@ Content-Type: application/json; charset=utf-8
 }
 ```
 
-The response can omit fields that are unavailable for the specific failure. A failure caused by expired Xbox credentials
-restarts section 3.
+The response can omit diagnostic fields that are unavailable for the specific failure.
 
-## 6. Minecraft entitlements
+## 5. Minecraft entitlements
 
 The Minecraft access token retrieves the account's current product and subscription entitlements:
 
@@ -633,13 +503,11 @@ Authorization: Bearer {minecraft_access_token}
 Accept: application/json
 ```
 
-Request body: no body.
-
 A successful response is:
 
 ```http
 HTTP/1.1 200 OK
-Content-Type: application/json; charset=utf-8
+Content-Type: application/json
 
 {
   "items": [
@@ -653,26 +521,24 @@ Content-Type: application/json; charset=utf-8
 }
 ```
 
-`items` is required and can be empty. Every item name is retained. Unknown item names do not invalidate the response.
-The known Java entitlement classification is:
+`items` is required and can be empty. Every item name is retained, and unknown names do not invalidate the response.
+`game_minecraft` is the Java play-access grant; this profile classifies the Java entitlement as present exactly when
+that item occurs. Items such as `product_minecraft`, `product_game_pass_pc`, and `product_game_pass_ultimate` describe
+product or subscription sources but do not replace the required play-access grant.
 
-- `game_minecraft` is the entitlement that grants Java play access. `java_entitled` is true exactly when this item is
-  present.
-- `product_minecraft` identifies the Minecraft product attached to a perpetual purchase.
-- `product_game_pass_pc` and `product_game_pass_ultimate` identify the subscription source when access is supplied by
-  Xbox Game Pass. These source items do not replace the required `game_minecraft` play entitlement.
+Entitlement names and grant policy are service-controlled and can evolve. The classification describes service semantics
+rather than a permanent ownership proof.
 
-The returned `items` array assigns `minecraft_entitlements`; the classification above assigns `java_entitled`.
+The signature members are entitlement-attestation data. This profile classifies the HTTPS response by item name and does
+not define signing-key discovery or rotation. Signature verification, when required, therefore needs a separately
+defined validation policy.
 
-The item signatures, aggregate signature, and key identifier are entitlement-attestation data. No later HTTP request
-uses them as request inputs.
+When `game_minecraft` is absent, the terminal result is **Java entitlement missing** and the profile request is not
+performed.
 
-A missing or invalid Minecraft access token returns `401 Unauthorized`. The response has no body or a JSON service-error
-body according to the failure. A 401 restarts section 2 when a Microsoft refresh token is available.
+## 6. Minecraft: Java Edition profile
 
-## 7. Minecraft: Java Edition profile
-
-The same Minecraft access token retrieves the Java profile:
+When `game_minecraft` is present, the same Minecraft access token retrieves the Java profile:
 
 ```http
 GET /minecraft/profile HTTP/1.1
@@ -681,13 +547,11 @@ Authorization: Bearer {minecraft_access_token}
 Accept: application/json
 ```
 
-Request body: no body.
-
 A successful response is:
 
 ```http
 HTTP/1.1 200 OK
-Content-Type: application/json; charset=utf-8
+Content-Type: application/json
 
 {
   "id": "{minecraft_profile_id}",
@@ -713,13 +577,13 @@ Content-Type: application/json; charset=utf-8
 ```
 
 `id` is the Java profile UUID encoded as 32 hexadecimal digits without hyphens. `name` is the current Java profile name.
-`skins` and `capes` are required arrays and can be empty. Unknown skin and cape members are retained or ignored.
+`skins` and `capes` are required arrays and can be empty. Unknown skin and cape members are ignored.
 
 An account without an available Java profile returns:
 
 ```http
 HTTP/1.1 404 Not Found
-Content-Type: application/json; charset=utf-8
+Content-Type: application/json
 
 {
   "path": "/minecraft/profile",
@@ -728,9 +592,14 @@ Content-Type: application/json; charset=utf-8
 }
 ```
 
-### 7.1. License classification after a missing profile
+A profile 404 does not by itself prove that the account lacks a Java entitlement. An entitled account can still lack a
+provisioned Java profile. The normal classification therefore preserves the positive `mcstore` entitlement result and
+reports **Java profile missing**.
 
-A profile 404 triggers one license-classification request:
+### 6.1. Optional license diagnostic
+
+This request is not part of the normal path and is never required to establish a successful result. After a profile 404,
+it can be made once to diagnose the already observed combination of a positive `mcstore` result and a missing profile:
 
 ```http
 GET /entitlements/license HTTP/1.1
@@ -739,105 +608,136 @@ Authorization: Bearer {minecraft_access_token}
 Accept: application/json
 ```
 
-Request body: no body.
+A successful response has the same HTTP response form as section 5, although the two endpoints need not return the same
+items. `items` and every consumed item `name` are the only members used by this diagnostic. Unknown members do not
+invalidate the response. The diagnostic result is interpreted as follows:
 
-A successful response is:
+- If `items` contains `game_minecraft`, it agrees with the earlier positive `mcstore` result. Because the profile
+  request still returned 404, the outcome remains **Java profile missing**.
+- If `items` does not contain `game_minecraft`, it contradicts the earlier positive `mcstore` result. The result is
+  **entitlement information inconsistent**, while retaining the observed profile 404.
+- A non-2xx or malformed response does not erase either earlier fact. The result remains **Java profile missing**, with
+  the license diagnostic failure preserved separately.
+
+## 7. Credential renewal and recovery
+
+### 7.1. Microsoft access-token refresh
+
+When `microsoft_access_token` is no longer fresh and `microsoft_refresh_token` is available, the client obtains a
+replacement Microsoft access token:
 
 ```http
-HTTP/1.1 200 OK
-Content-Type: application/json; charset=utf-8
+POST /consumers/oauth2/v2.0/token HTTP/1.1
+Host: login.microsoftonline.com
+Content-Type: application/x-www-form-urlencoded
+Accept: application/json
 
-{
-  "items": [
-    {
-      "name": "{entitlement_name}",
-      "source": "{license_source}"
-    }
-  ],
-  "signature": "{aggregate_signature}",
-  "keyId": "{key_id}",
-  "errors": []
-}
+client_id={urlencoded_client_id}&grant_type=refresh_token&refresh_token={urlencoded_microsoft_refresh_token}&scope=xboxlive.signin%20xboxlive.offline_access
 ```
 
-`errors` is optional and contains service-defined diagnostic objects when non-empty. The license response is classified
-by the presence of `game_minecraft` in its `items` array.
+The token endpoint returns the same successful and error HTTP response forms defined in section 1A.4. After a complete
+successful response has been validated, its `access_token` and `expires_in` replace the Microsoft access-token state. A
+returned `refresh_token` atomically replaces the previous refresh token; if it is omitted, the previous refresh token is
+retained unless a terminal error has established that it is unusable.
 
-- A `game_minecraft` item with a profile 404 produces `JAVA_PROFILE_MISSING`.
-- No `game_minecraft` item with a profile 404 produces `JAVA_ENTITLEMENT_MISSING`.
+`invalid_grant`, `interaction_required`, and equivalent terminal errors make silent renewal unavailable for the current
+credential state and require a new section 1 operation.
 
-A 401 response restarts section 2 when a Microsoft refresh token is available. Other non-2xx responses preserve the
-profile result as `JAVA_PROFILE_MISSING_OR_UNCLASSIFIED` and expose the HTTP failure separately.
+### 7.2. Rebuilding downstream credentials
 
-## 8. Completed authentication result
+Microsoft, Xbox User, XSTS, and Minecraft access tokens have independent expirations. Refreshing a Microsoft access
+token does not itself assert that an already-issued downstream token has expired. When a credential must be rebuilt, the
+flow starts with the nearest still-fresh input:
 
-The completed result contains:
+| Fresh input available             | Resume at                                 |
+|-----------------------------------|-------------------------------------------|
+| `xsts_token`                      | Section 4, Minecraft authentication       |
+| `xbox_user_token`                 | Section 3, XSTS authorization             |
+| `microsoft_access_token`          | Section 2, Xbox user authentication       |
+| `microsoft_refresh_token` only    | Section 7.1, then section 2               |
+| No renewable Microsoft credential | Section 1, selecting one interactive path |
 
-- `minecraft_access_token` and `minecraft_access_token_expires_at`.
-- `minecraft_token_type`, equal to `Bearer`.
-- The complete entitlement item list and `java_entitled` classification.
-- `minecraft_profile_id` and `minecraft_profile_name` after a profile 200 response.
-- The returned skin and cape arrays.
-- The most recent `microsoft_refresh_token` for future renewal.
+A service rejection does not prove expiry solely from its status code. The client can rebuild the rejected credential
+chain once from the nearest fresh parent. If the same request is rejected again, the structured service error is
+terminal for that operation rather than starting an unbounded recovery loop.
 
-The result is ready for an authenticated Java session only when all of these conditions hold:
+## 8. Authentication outcome
 
-- `minecraft_access_token` is unexpired.
-- `java_entitled` is true.
-- The profile request returned 200.
-- `minecraft_profile_id` and `minecraft_profile_name` are valid and non-empty.
+The flow terminates with one of these protocol-level results:
 
-The Minecraft access token has no refresh grant. Its renewal starts with section 3 when `microsoft_access_token` remains
-outside its five-minute expiry window. It starts with section 2 when the Microsoft token has entered that window. Both
-paths repeat every downstream section through section 7. If the Microsoft refresh grant fails terminally, renewal starts
-with section 1.
+- **Authentication succeeded**: the Minecraft access token is fresh, `mcstore` contains `game_minecraft`, and the
+  profile request returned 200 with a valid non-empty profile ID and name. The result contains the access token and its
+  expiry, the complete entitlement list, the profile ID and name, and the returned skin and cape arrays.
+- **Java entitlement missing**: `mcstore` did not contain `game_minecraft`; no profile request was required.
+- **Java profile missing**: `mcstore` contained `game_minecraft`, but the profile request returned 404. A failed
+  optional license diagnostic does not replace this result.
+- **Entitlement information inconsistent**: the optional license diagnostic contradicted the earlier positive
+  `mcstore` result.
+- **Protocol or service failure**: another terminal failure occurred. Its stage, HTTP status, and available structured
+  diagnostics are preserved.
 
-## 9. HTTP failure handling
+The Minecraft access token is consumed by the Minecraft session service, including the later join operation. It is not
+sent to a Minecraft game server in a Login packet. Game-session joining is outside this HTTP flow.
 
-| Condition                                                                                   | Action                                                                                              |
-|---------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
-| OAuth callback `state` mismatch                                                             | Reject the callback and terminate the pending operation without exchanging the code.                |
-| OAuth `authorization_pending`                                                               | Poll again after the active device interval.                                                        |
-| OAuth `slow_down`                                                                           | Increase the active device interval by five seconds and poll again.                                 |
-| OAuth `invalid_grant`, `interaction_required`, `authorization_declined`, or `expired_token` | End the current OAuth operation and require a new interactive entry when refresh cannot recover it. |
-| HTTP 400, 401, or 403 with a service error                                                  | Parse and preserve the structured error; do not retry unchanged credentials.                        |
-| HTTP 408, 425, 429, 500, 502, 503, or 504                                                   | Apply a bounded retry policy and honor `Retry-After` when present.                                  |
-| Other non-2xx status                                                                        | Preserve the status, relevant response headers, and body as a terminal failure for that step.       |
-| Invalid JSON or a missing required response member                                          | Reject the response as malformed and do not consume partial credentials.                            |
-
-Retries never extend a token beyond its returned expiry. A retry that reaches an expired input token restarts at the
-nearest step capable of issuing a fresh input token.
-
-## 10. Request sequence
+## 9. Request sequence
 
 ```text
-Authorization Code + PKCE --+
-                            +--> Microsoft access token + refresh token
-Device Authorization ------+
-                                      |
-                                      v
-                     POST user.auth.xboxlive.com/user/authenticate
-                                      |
-                                      v
-                         Xbox User Token + user hash
-                                      |
-                                      v
-                       POST xsts.auth.xboxlive.com/xsts/authorize
-                                      |
-                                      v
-                    Minecraft-scoped XSTS token + matching user hash
-                                      |
-                                      v
-             POST api.minecraftservices.com/authentication/login_with_xbox
-                                      |
-                                      v
-                            Minecraft access token
-                                      |
-                                      v
-                         GET /entitlements/mcstore
-                                      |
-                                      v
-                          GET /minecraft/profile
-                                      |
-                                      +-- 404 --> GET /entitlements/license
+Microsoft OAuth — select exactly one path for this operation
+
+  Authorization Code + PKCE ----+
+                                 +----> Microsoft access token
+  Device Authorization ---------+      and optional refresh token
+                                              |
+                                              v
+                             POST /user/authenticate
+                                              |
+                                              v
+                                  Xbox User Token
+                                              |
+                                              v
+                              POST /xsts/authorize
+                                              |
+                                              v
+                          Minecraft-scoped XSTS token
+                                              |
+                                              v
+                    POST /authentication/login_with_xbox
+                                              |
+                                              v
+                                Minecraft access token
+                                              |
+                                              v
+                              GET /entitlements/mcstore
+                                   |                    |
+                      no game_minecraft                 | game_minecraft
+                                   |                    v
+                                   |         GET /minecraft/profile
+                                   |              |             |
+                                   |              | 200         | 404
+                                   |              v             v
+                                   |       Authentication   Java profile
+                                   |         succeeded       missing
+                                   |                            |
+                                   |                            +-- optional diagnostic -->
+                                   |                                  GET /entitlements/license
+                                   |                                    |-- contains grant --> remains profile missing
+                                   |                                    |-- omits grant ----> entitlement information inconsistent
+                                   |                                    +-- request fails --> remains profile missing; preserve failure
+                                   v
+                         Java entitlement missing
+
+Expired or rejected credentials enter section 7 as a conditional recovery path.
 ```
+
+## Protocol references
+
+- [Microsoft identity platform authorization-code flow](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow)
+- [Microsoft identity platform device-authorization flow](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code)
+- [Microsoft redirect URI restrictions](https://learn.microsoft.com/en-us/entra/identity-platform/reply-url)
+- [RFC 6749: OAuth 2.0](https://datatracker.ietf.org/doc/html/rfc6749)
+- [RFC 7636: PKCE](https://datatracker.ietf.org/doc/html/rfc7636)
+- [RFC 8252: OAuth 2.0 for Native Apps](https://datatracker.ietf.org/doc/html/rfc8252)
+- [RFC 8628: OAuth 2.0 Device Authorization Grant](https://datatracker.ietf.org/doc/html/rfc8628)
+- [Xbox services sign-in for title websites](https://learn.microsoft.com/en-us/gaming/gdk/docs/services/fundamentals/s2s-auth-calls/service-authentication/live-website-authentication)
+- [Xbox services security tokens](https://learn.microsoft.com/en-us/gaming/gdk/docs/services/fundamentals/s2s-auth-calls/service-authentication/security-tokens/live-security-tokens)
+- [Minecraft Wiki: Microsoft authentication](https://minecraft.wiki/w/Microsoft_authentication)
