@@ -70,15 +70,15 @@ Microsoft refresh token (optional)    │
 The arrows are token exchanges, not conversions that preserve the same credential. Each token has a different issuer,
 audience, lifetime, and permitted destination.
 
-| Value | Issuer or origin | Used for | Must not be sent to |
-|---|---|---|---|
-| Microsoft authorization code | Microsoft identity platform | One token-endpoint redemption | Xbox, Minecraft Services, or a game server |
-| Microsoft access token | Microsoft identity platform | Xbox User Token request | Minecraft Services or a game server |
-| Microsoft refresh token | Microsoft identity platform | A later Microsoft access-token refresh | Xbox, Minecraft Services, session server, or game server |
-| Xbox User Token | Xbox authentication service | XSTS authorization | Minecraft Services or a game server |
-| XSTS token for `rp://api.minecraftservices.com/` | Xbox Security Token Service | Minecraft Services login | A game server |
-| Minecraft access token | Minecraft Services | Entitlements, profile APIs, and session-server `/join` | The selected game server |
-| Java profile name and UUID | Minecraft Services profile API | Launching and identifying the Java client | Microsoft OAuth token endpoints |
+| Value                                            | Issuer or origin               | Used for                                               | Must not be sent to                                      |
+|--------------------------------------------------|--------------------------------|--------------------------------------------------------|----------------------------------------------------------|
+| Microsoft authorization code                     | Microsoft identity platform    | One token-endpoint redemption                          | Xbox, Minecraft Services, or a game server               |
+| Microsoft access token                           | Microsoft identity platform    | Xbox User Token request                                | Minecraft Services or a game server                      |
+| Microsoft refresh token                          | Microsoft identity platform    | A later Microsoft access-token refresh                 | Xbox, Minecraft Services, session server, or game server |
+| Xbox User Token                                  | Xbox authentication service    | XSTS authorization                                     | Minecraft Services or a game server                      |
+| XSTS token for `rp://api.minecraftservices.com/` | Xbox Security Token Service    | Minecraft Services login                               | A game server                                            |
+| Minecraft access token                           | Minecraft Services             | Entitlements, profile APIs, and session-server `/join` | The selected game server                                 |
+| Java profile name and UUID                       | Minecraft Services profile API | Launching and identifying the Java client              | Microsoft OAuth token endpoints                          |
 
 All tokens in this module are treated as opaque strings. Do not assume that a token is a JWT, decode it for application
 logic, or infer its audience from its syntax.
@@ -87,13 +87,13 @@ logic, or infer its audience from its syntax.
 
 Several unrelated identifiers are routinely called a client ID in launcher code and logs. They are not interchangeable.
 
-| Identifier | Value | Meaning |
-|---|---:|---|
-| Official Minecraft Launcher Microsoft/XAL application client ID | `00000000402b5328` | Public application identifier used by the official Launcher's Microsoft/Xbox authentication registration |
-| Official Launcher XAL `titleId` observed in Launcher telemetry | `1794566092` | Numeric Xbox title identity in the Launcher's XAL context; this is not an OAuth `client_id` and is not sent by the supported route |
-| Java game argument `--clientId ${clientid}` | No universal fixed value | A Base64-encoded launcher-installation UUID stored in `clientId.txt`; it is a telemetry/game-process value, not the Microsoft OAuth application ID |
-| Xbox user ID, or XUID | No; one per Xbox user | User identity, not an application identity and not an OAuth client ID |
-| Legacy Mojang `clientToken` | No; launcher-generated | A retired Yggdrasil-era launcher token, outside Microsoft authentication and unsupported here |
+| Identifier                                                      |                    Value | Meaning                                                                                                                                            |
+|-----------------------------------------------------------------|-------------------------:|----------------------------------------------------------------------------------------------------------------------------------------------------|
+| Official Minecraft Launcher Microsoft/XAL application client ID |       `00000000402b5328` | Public application identifier used by the official Launcher's Microsoft/Xbox authentication registration                                           |
+| Official Launcher XAL `titleId` observed in Launcher telemetry  |             `1794566092` | Numeric Xbox title identity in the Launcher's XAL context; this is not an OAuth `client_id` and is not sent by the supported route                 |
+| Java game argument `--clientId ${clientid}`                     | No universal fixed value | A Base64-encoded launcher-installation UUID stored in `clientId.txt`; it is a telemetry/game-process value, not the Microsoft OAuth application ID |
+| Xbox user ID, or XUID                                           |    No; one per Xbox user | User identity, not an application identity and not an OAuth client ID                                                                              |
+| Legacy Mojang `clientToken`                                     |   No; launcher-generated | A retired Yggdrasil-era launcher token, outside Microsoft authentication and unsupported here                                                      |
 
 For the Java Edition account flow, `00000000402b5328` is the one fixed Microsoft/XAL application ID belonging to the
 official Minecraft Launcher that is relevant to this document. Other Minecraft editions and platform clients have
@@ -136,24 +136,24 @@ does not launch the official game process.
 
 ## Supported and alternative routes
 
-Authentication has choices at two different layers: how the application obtains Microsoft or Xbox authorization, and
-how it exchanges the final Minecraft-relying-party XSTS token with Minecraft Services.
+Authentication has choices at two different layers: how the application obtains Microsoft or Xbox authorization, and how
+it exchanges the final Minecraft-relying-party XSTS token with Minecraft Services.
 
-| Route | Protocol status | This project |
-|---|---|---|
-| Microsoft public-client Authorization Code + PKCE | Current Microsoft OAuth route | Supported |
-| Microsoft Device Authorization Grant | Current Microsoft OAuth route | Supported |
-| Microsoft refresh-token grant | Current Microsoft OAuth route | Supported |
-| Access token from MSAL, WAM, or another application broker | Current integration route | Supported from the Microsoft access-token boundary |
-| Confidential web authorization code with client secret or certificate | Valid server-side OAuth route | Not implemented; complete it in the confidential backend and pass in the resulting access token |
-| Legacy Microsoft Account `login.live.com/oauth20_*` title-client route | Registration-specific legacy route with `t=` RPS tickets | Not implemented |
-| Xbox Authentication Library (XAL), device/title identity, and SISU | Route used by the current official Launcher | Not implemented |
-| Direct Xbox User Token followed by XSTS | Microsoft-documented title-website route | Supported |
-| Minecraft `/authentication/login_with_xbox` | Minecraft Services login route | Supported |
-| Minecraft `/launcher/login` with `platform=PC_LAUNCHER` | Launcher-flavoured Minecraft Services login route used by the official Launcher | Not implemented |
-| Minecraft `/entitlements/mcstore` | Traditional entitlement route | Supported |
-| Launcher signed-license entitlement route | Launcher-specific alternative | Not implemented |
-| Existing Minecraft access token and verified Java profile | Broker or launcher handoff | Supported |
+| Route                                                                  | Protocol status                                                                 | This project                                                                                    |
+|------------------------------------------------------------------------|---------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------|
+| Microsoft public-client Authorization Code + PKCE                      | Current Microsoft OAuth route                                                   | Supported                                                                                       |
+| Microsoft Device Authorization Grant                                   | Current Microsoft OAuth route                                                   | Supported                                                                                       |
+| Microsoft refresh-token grant                                          | Current Microsoft OAuth route                                                   | Supported                                                                                       |
+| Access token from MSAL, WAM, or another application broker             | Current integration route                                                       | Supported from the Microsoft access-token boundary                                              |
+| Confidential web authorization code with client secret or certificate  | Valid server-side OAuth route                                                   | Not implemented; complete it in the confidential backend and pass in the resulting access token |
+| Legacy Microsoft Account `login.live.com/oauth20_*` title-client route | Registration-specific legacy route with `t=` RPS tickets                        | Not implemented                                                                                 |
+| Xbox Authentication Library (XAL), device/title identity, and SISU     | Route used by the current official Launcher                                     | Not implemented                                                                                 |
+| Direct Xbox User Token followed by XSTS                                | Microsoft-documented title-website route                                        | Supported                                                                                       |
+| Minecraft `/authentication/login_with_xbox`                            | Minecraft Services login route                                                  | Supported                                                                                       |
+| Minecraft `/launcher/login` with `platform=PC_LAUNCHER`                | Launcher-flavoured Minecraft Services login route used by the official Launcher | Not implemented                                                                                 |
+| Minecraft `/entitlements/mcstore`                                      | Traditional entitlement route                                                   | Supported                                                                                       |
+| Launcher signed-license entitlement route                              | Launcher-specific alternative                                                   | Not implemented                                                                                 |
+| Existing Minecraft access token and verified Java profile              | Broker or launcher handoff                                                      | Supported                                                                                       |
 
 “Not implemented” means the path is described here so that the protocol is not mistaken for having only one route. It
 does not mean that callers should reproduce registration-specific or undocumented requests by copying another client's
@@ -170,8 +170,8 @@ POST https://login.microsoftonline.com/{tenant}/oauth2/v2.0/devicecode
 POST https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token
 ```
 
-`MicrosoftOAuthService` owns the protocol mechanics. The application still owns app registration, UI, callback
-handling, secure storage, and the Ktor client.
+`MicrosoftOAuthService` owns the protocol mechanics. The application still owns app registration, UI, callback handling,
+secure storage, and the Ktor client.
 
 ### Route A1: Authorization Code + PKCE
 
@@ -368,8 +368,8 @@ secureStore.replace(
 ```
 
 The exported envelope records the client ID, tenant, scopes, originating flow, and direct/relay channel. Import rejects
-a credential restored into a differently configured `MicrosoftOAuthService`; this prevents an application from
-silently replaying a refresh credential through the wrong registration or trust boundary.
+a credential restored into a differently configured `MicrosoftOAuthService`; this prevents an application from silently
+replaying a refresh credential through the wrong registration or trust boundary.
 
 ### Route A4: application broker, MSAL, or WAM
 
@@ -383,10 +383,10 @@ val microsoftAccessToken = MicrosoftAccessToken.fromExternalProvider(
 val login = accounts.loginWithMicrosoftAccessToken(microsoftAccessToken)
 ```
 
-The broker must have acquired an access token intended for the supported caller-owned Entra-to-Xbox exchange, whose
-Xbox RPS-ticket representation is `d=<token>`. A legacy/title-client token requiring `t=`, Microsoft Graph token, ID
-token, Minecraft access token, or XSTS token is not a substitute. This entry point does not invent a refresh token;
-refresh remains the broker's responsibility.
+The broker must have acquired an access token intended for the supported caller-owned Entra-to-Xbox exchange, whose Xbox
+RPS-ticket representation is `d=<token>`. A legacy/title-client token requiring `t=`, Microsoft Graph token, ID token,
+Minecraft access token, or XSTS token is not a substitute. This entry point does not invent a refresh token; refresh
+remains the broker's responsibility.
 
 This is an interoperability boundary for a token that the host application already owns, not a recommendation that
 `protocol-auth` delegate its own A1–A3 implementation to another authentication library. The module itself implements
@@ -405,8 +405,8 @@ models a public client and has no client-secret or certificate API. A confidenti
 this module and then call `MinecraftAccountService.loginWithMicrosoftAccessToken(...)` with the resulting user access
 token.
 
-The OAuth client-credentials grant is not an alternative here: it authenticates an application without a Minecraft
-user and therefore cannot produce a player's Minecraft account.
+The OAuth client-credentials grant is not an alternative here: it authenticates an application without a Minecraft user
+and therefore cannot produce a player's Minecraft account.
 
 ### Route A6: legacy Microsoft Account endpoints
 
@@ -436,8 +436,8 @@ same `redirect_uri` and resource `scope`, and the original `code_verifier` to `o
 `client_id`, `grant_type=refresh_token`, `refresh_token`, and the same scope to that token endpoint. The successful
 access/refresh-token response has the same essential fields described in A1 and A3.
 
-The same legacy endpoint family also has a registration-specific Device Code variant. It posts `client_id`, `scope`,
-and `response_type=device_code` to `oauth20_connect.srf`, then polls `oauth20_token.srf` with `client_id`, `device_code`,
+The same legacy endpoint family also has a registration-specific Device Code variant. It posts `client_id`, `scope`, and
+`response_type=device_code` to `oauth20_connect.srf`, then polls `oauth20_token.srf` with `client_id`, `device_code`,
 and a device-code grant. Implementations in the wild use both the short legacy `device_code` grant value and the RFC
 URN; this is not a portable substitute for the documented Entra v2 Device Authorization Grant in A2.
 
@@ -682,8 +682,8 @@ Accept: application/json
 Its response has the same essential Minecraft access-token fields, including `access_token`, `token_type`, and
 `expires_in`, plus `username`/role metadata, and can include launcher-specific data. This route and B3a currently
 coexist; the difference must not be described as merely renaming one JSON field. Current Java third-party
-implementations provide a useful cross-check of that coexistence: Prismarine's Java token manager still emits B3a,
-while the Java authentication library used by MCProtocolLib emits B3b.
+implementations provide a useful cross-check of that coexistence: Prismarine's Java token manager still emits B3a, while
+the Java authentication library used by MCProtocolLib emits B3b.
 
 This project does not expose B3b and does not consume launcher-specific response metadata. A caller that completes this
 route elsewhere can hand the resulting Minecraft token and verified profile to `fromExistingCredentials`, described
@@ -715,8 +715,8 @@ Relevant response shape:
 
 Entitlements describe products or access grants attached to the account. Their exact names and grant policy are
 service-controlled; applications should not infer permanent ownership from one hard-coded item name. This project
-returns the response as `MinecraftEntitlements`. It does not independently validate the returned signatures or reject
-an otherwise valid response merely because `items` is empty.
+returns the response as `MinecraftEntitlements`. It does not independently validate the returned signatures or reject an
+otherwise valid response merely because `items` is empty.
 
 The Launcher-oriented alternative is:
 
@@ -852,14 +852,14 @@ validates basic values; it cannot remotely re-verify a token without making the 
 
 Cryptographic support does not bypass browser CORS. The browser deployment normally splits the routes:
 
-| Operation | Browser route |
-|---|---|
-| Authorization page | Top-level Microsoft navigation |
-| Authorization Code + PKCE redemption for an SPA redirect | Direct Microsoft token request from the browser |
-| Device authorization and polling | Application's trusted same-origin HTTPS relay |
-| Xbox User Token and XSTS | Application's relay |
-| Minecraft login, entitlement, and profile | Application's relay |
-| Session `/join` and `/hasJoined` | Application's relay when invoked by browser code |
+| Operation                                                | Browser route                                    |
+|----------------------------------------------------------|--------------------------------------------------|
+| Authorization page                                       | Top-level Microsoft navigation                   |
+| Authorization Code + PKCE redemption for an SPA redirect | Direct Microsoft token request from the browser  |
+| Device authorization and polling                         | Application's trusted same-origin HTTPS relay    |
+| Xbox User Token and XSTS                                 | Application's relay                              |
+| Minecraft login, entitlement, and profile                | Application's relay                              |
+| Session `/join` and `/hasJoined`                         | Application's relay when invoked by browser code |
 
 Create a direct OAuth service for SPA PKCE and relay-routed services for the back-channel operations:
 
@@ -978,10 +978,11 @@ val joined = sessions.hasJoined(
 )
 ```
 
-Only the session server sees the Minecraft access token. The selected game server never receives Microsoft, Xbox,
-XSTS, refresh, or Minecraft access tokens. Socket packet ordering, RSA challenge handling, and AES stream activation are
-intentionally outside this account-login walkthrough; their primitives remain available through `MinecraftEncryption`
-and `minecraftServerHash` pending the separate transport/session API work.
+Only the session server sees the Minecraft access token. The selected game server never receives Microsoft, Xbox, XSTS,
+refresh, or Minecraft access tokens. `protocol-auth` supplies `MinecraftEncryption`, `minecraftServerHash`, and
+`MinecraftSessionService`; `protocol-client` and `protocol-server` own Login packet ordering and invoke those
+capabilities, `protocol-session` owns protocol-state effects, and `protocol-transport` owns sockets and AES stream
+encryption.
 
 ## Offline profiles
 
@@ -1004,31 +1005,31 @@ choices remain application responsibilities.
 
 Important public failure boundaries include:
 
-| Failure | Meaning |
-|---|---|
-| `MicrosoftOAuthException` | OAuth rejection, malformed response, invalid state, expiry, or terminal device-flow error |
-| `MicrosoftOAuthUnavailableException` | Temporary Microsoft OAuth availability failure |
-| `XboxAuthenticationException` | Xbox User Token or XSTS rejection, with stage and optional `XErr` |
-| `MinecraftApplicationRegistrationException` | Minecraft Services rejected the application during XSTS-to-Minecraft login |
-| `MinecraftJavaProfileNotFoundException` | Microsoft/Xbox account has no retrievable Java profile |
-| `MinecraftAuthenticationRejectedException` | Non-temporary service rejection, with stage and status code |
-| `MinecraftAuthenticationUnavailableException` | Rate limit or temporary upstream service failure |
+| Failure                                       | Meaning                                                                                   |
+|-----------------------------------------------|-------------------------------------------------------------------------------------------|
+| `MicrosoftOAuthException`                     | OAuth rejection, malformed response, invalid state, expiry, or terminal device-flow error |
+| `MicrosoftOAuthUnavailableException`          | Temporary Microsoft OAuth availability failure                                            |
+| `XboxAuthenticationException`                 | Xbox User Token or XSTS rejection, with stage and optional `XErr`                         |
+| `MinecraftApplicationRegistrationException`   | Minecraft Services rejected the application during XSTS-to-Minecraft login                |
+| `MinecraftJavaProfileNotFoundException`       | Microsoft/Xbox account has no retrievable Java profile                                    |
+| `MinecraftAuthenticationRejectedException`    | Non-temporary service rejection, with stage and status code                               |
+| `MinecraftAuthenticationUnavailableException` | Rate limit or temporary upstream service failure                                          |
 
 Authentication failures are terminal for that attempt. The library does not downgrade online login, switch client IDs,
 change scopes, retry through a different credential, or fall back to offline identity.
 
 ## Protocol-to-source map
 
-| Protocol responsibility | Project source |
-|---|---|
-| Authorization Code + PKCE, Device Code, refresh, binding, and OAuth errors | [`MicrosoftOAuthService.kt`](src/commonMain/kotlin/com/hiczp/minecraft/protocol/auth/MicrosoftOAuthService.kt) |
-| Secret-bearing account and token models | [`MinecraftAccountModels.kt`](src/commonMain/kotlin/com/hiczp/minecraft/protocol/auth/MinecraftAccountModels.kt) |
-| Xbox User Token, XSTS, Minecraft login, entitlement, and profile orchestration | [`MinecraftAccountService.kt`](src/commonMain/kotlin/com/hiczp/minecraft/protocol/auth/MinecraftAccountService.kt) |
+| Protocol responsibility                                                         | Project source                                                                                                                               |
+|---------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| Authorization Code + PKCE, Device Code, refresh, binding, and OAuth errors      | [`MicrosoftOAuthService.kt`](src/commonMain/kotlin/com/hiczp/minecraft/protocol/auth/MicrosoftOAuthService.kt)                               |
+| Secret-bearing account and token models                                         | [`MinecraftAccountModels.kt`](src/commonMain/kotlin/com/hiczp/minecraft/protocol/auth/MinecraftAccountModels.kt)                             |
+| Xbox User Token, XSTS, Minecraft login, entitlement, and profile orchestration  | [`MinecraftAccountService.kt`](src/commonMain/kotlin/com/hiczp/minecraft/protocol/auth/MinecraftAccountService.kt)                           |
 | Exact direct endpoints, HTTP methods, headers, forms, JSON, and bearer requests | [`MinecraftAuthenticationHttpTransport.kt`](src/commonMain/kotlin/com/hiczp/minecraft/protocol/auth/MinecraftAuthenticationHttpTransport.kt) |
-| Typed browser relay operations and fail-closed policy | [`MinecraftAuthenticationRelay.kt`](src/commonMain/kotlin/com/hiczp/minecraft/protocol/auth/MinecraftAuthenticationRelay.kt) |
-| Session-server `/join` and `/hasJoined` | [`MinecraftSessionService.kt`](src/commonMain/kotlin/com/hiczp/minecraft/protocol/auth/MinecraftSessionService.kt) |
-| Server hash and Login challenge primitives | [`MinecraftEncryption.kt`](src/commonMain/kotlin/com/hiczp/minecraft/protocol/auth/MinecraftEncryption.kt) |
-| Deterministic protocol tests with mocked HTTP responses | [`commonTest`](src/commonTest/kotlin/com/hiczp/minecraft/protocol/auth) |
+| Typed browser relay operations and fail-closed policy                           | [`MinecraftAuthenticationRelay.kt`](src/commonMain/kotlin/com/hiczp/minecraft/protocol/auth/MinecraftAuthenticationRelay.kt)                 |
+| Session-server `/join` and `/hasJoined`                                         | [`MinecraftSessionService.kt`](src/commonMain/kotlin/com/hiczp/minecraft/protocol/auth/MinecraftSessionService.kt)                           |
+| Server hash and Login challenge primitives                                      | [`MinecraftEncryption.kt`](src/commonMain/kotlin/com/hiczp/minecraft/protocol/auth/MinecraftEncryption.kt)                                   |
+| Deterministic protocol tests with mocked HTTP responses                         | [`commonTest`](src/commonTest/kotlin/com/hiczp/minecraft/protocol/auth)                                                                      |
 
 The endpoint operation classes are internal because callers should use the typed services, but their source is the
 authoritative mapping from the raw HTTP examples in this document to the requests currently emitted by the module.
@@ -1045,16 +1046,22 @@ authoritative mapping from the raw HTTP examples in this document to the request
 - [Official Minecraft Java version manifest](https://piston-meta.mojang.com/mc/game/version_manifest_v2.json)
 - [Official Launcher XAL/OAuth log captured in Mojang issue MCL-24681](https://bugs-legacy.mojang.com/browse/MCL-24681)
 - [Minecraft Wiki: Microsoft authentication](https://minecraft.wiki/w/Microsoft_authentication)
-- [Minecraft Wiki: Java game-launch arguments and `clientId.txt`](https://minecraft.wiki/w/Minecraft_Wiki:Projects/wiki.vg_merge/Launching_the_game)
-- [Prism Launcher Java `launcher/login` request](https://github.com/PrismLauncher/PrismLauncher/blob/d909e0205d940cb2846fdab665aa3c69015303af/launcher/minecraft/auth/steps/LauncherLoginStep.cpp)
-- [Prism Launcher Java `entitlements/license` request](https://github.com/PrismLauncher/PrismLauncher/blob/d909e0205d940cb2846fdab665aa3c69015303af/launcher/minecraft/auth/steps/EntitlementsStep.cpp)
+- [Minecraft Wiki: Java game-launch arguments and
+  `clientId.txt`](https://minecraft.wiki/w/Minecraft_Wiki:Projects/wiki.vg_merge/Launching_the_game)
+- [Prism Launcher Java
+  `launcher/login` request](https://github.com/PrismLauncher/PrismLauncher/blob/d909e0205d940cb2846fdab665aa3c69015303af/launcher/minecraft/auth/steps/LauncherLoginStep.cpp)
+- [Prism Launcher Java
+  `entitlements/license` request](https://github.com/PrismLauncher/PrismLauncher/blob/d909e0205d940cb2846fdab665aa3c69015303af/launcher/minecraft/auth/steps/EntitlementsStep.cpp)
 - [node-minecraft-protocol Java Microsoft-authentication integration](https://github.com/PrismarineJS/node-minecraft-protocol/blob/aa23a03964bf84e2f7fe813818a4ec5b7b2a1270/src/client/microsoftAuth.js)
-- [Prismarine Java token exchange using `authentication/login_with_xbox`](https://github.com/PrismarineJS/prismarine-auth/blob/b795199dc5fa26059655bb1bc91c7f7f2733b232/src/TokenManagers/MinecraftJavaTokenManager.js)
+- [Prismarine Java token exchange using
+  `authentication/login_with_xbox`](https://github.com/PrismarineJS/prismarine-auth/blob/b795199dc5fa26059655bb1bc91c7f7f2733b232/src/TokenManagers/MinecraftJavaTokenManager.js)
 - [MCProtocolLib Java session-service implementation](https://github.com/GeyserMC/MCProtocolLib/blob/19783c29ece24bc3f07f8ff08628549527e3de20/protocol/src/main/java/org/geysermc/mcprotocollib/auth/SessionService.java)
 - [MinecraftAuth Java client ID and Microsoft scope constants](https://github.com/RaphiMC/MinecraftAuth/blob/e78c8b735b7cfc142b4a6f547d39ce1d71a170f4/src/main/java/net/raphimc/minecraftauth/msa/data/MsaConstants.java)
-- [MinecraftAuth `t=`/`d=` Xbox RPS-ticket selection](https://github.com/RaphiMC/MinecraftAuth/blob/e78c8b735b7cfc142b4a6f547d39ce1d71a170f4/src/main/java/net/raphimc/minecraftauth/xbl/request/XblUserAuthenticateRequest.java)
+- [MinecraftAuth `t=`/
+  `d=` Xbox RPS-ticket selection](https://github.com/RaphiMC/MinecraftAuth/blob/e78c8b735b7cfc142b4a6f547d39ce1d71a170f4/src/main/java/net/raphimc/minecraftauth/xbl/request/XblUserAuthenticateRequest.java)
 - [MinecraftAuth XAL/SISU Java authorization request](https://github.com/RaphiMC/MinecraftAuth/blob/e78c8b735b7cfc142b4a6f547d39ce1d71a170f4/src/main/java/net/raphimc/minecraftauth/xbl/request/XblSisuAuthorizeRequest.java)
-- [MinecraftAuth Java token exchange using `launcher/login`](https://github.com/RaphiMC/MinecraftAuth/blob/e78c8b735b7cfc142b4a6f547d39ce1d71a170f4/src/main/java/net/raphimc/minecraftauth/java/request/MinecraftLauncherLoginRequest.java)
+- [MinecraftAuth Java token exchange using
+  `launcher/login`](https://github.com/RaphiMC/MinecraftAuth/blob/e78c8b735b7cfc142b4a6f547d39ce1d71a170f4/src/main/java/net/raphimc/minecraftauth/java/request/MinecraftLauncherLoginRequest.java)
 
 The third-party sources above are protocol cross-checks where the official Launcher does not publish a complete wire
 contract. They are not runtime dependencies of this module and are not a recommendation to move authentication out of
