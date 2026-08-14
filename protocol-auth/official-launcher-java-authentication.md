@@ -6,6 +6,8 @@ before it starts a Minecraft: Java Edition client.
 The flow ends after the Java command line has been materialized. It does not include the protocol used by the running
 game to join a multiplayer server.
 
+This document is based on Launcher version `3.37.2`.
+
 ## Fixed identifiers and endpoints
 
 | Purpose                                      | Value                                                    |
@@ -36,7 +38,12 @@ game to join a multiplayer server.
 `00000000402B5328` is the fixed Microsoft OAuth `client_id`. The `--clientId` value later passed to Java is a different
 identifier: it is an installation-scoped UUID obtained from Windows and persisted by the launcher.
 
-Every HTTP exchange below shows the successful response used by the launcher. Response headers are shown when the
+The `ONESTORE` platform value applies only to the Microsoft Store/GameCore Launcher distribution described here. This
+document makes no claim about platform values used by other Launcher distributions. Statements about launcher-specific
+behavior apply to the Store/GameCore build covered by this document rather than to every past or future Launcher build.
+
+Every HTTP exchange below shows a successful response used by that launcher build. Response examples list the fields
+relevant to this flow; service-controlled responses may contain additional members. Response headers are shown when the
 launcher consumes them or when they identify the body representation. Token-producing steps show the network path taken
 on a cache miss or required refresh; a still-valid cached token satisfies the same step without an HTTP exchange and has
 the same downstream consumers. An angle-bracket value in a request is either labeled with its producing step or defined
@@ -52,10 +59,11 @@ The launcher obtains and uses these distinct credentials:
 3. An Xbox user token and title token.
 4. An XSTS token whose audience is `rp://api.minecraftservices.com/`.
 5. A Minecraft Services access token.
-6. A Microsoft Store User Collections ID JWT and license JWT.
+6. On the normal Store-backed entitlement branch, a Microsoft Store User Collections ID JWT and license JWT.
 
-Only the Minecraft Services access token is passed to Java as `--accessToken`. The preceding credentials are inputs to
-the token exchanges that produce it. The Store JWTs are used to prove product ownership.
+Only the Minecraft Services access token is passed to Java as `--accessToken`. The Microsoft and Xbox credentials are
+inputs to the token exchanges that produce it. On the normal Store-backed entitlement branch, the Store JWTs prove
+product ownership; the compatibility branch in step 7 proceeds without them.
 
 The successful flow is:
 
@@ -104,7 +112,7 @@ MS-CV: <server correlation vector>
 ```
 
 The response body is JSON. The arrays below are abbreviated because the service returns a catalog covering many Xbox
-hosts; this shows the complete top-level shape and the entries that govern the requests in this flow:
+hosts; this shows the observed top-level members and the entries that govern the requests in this flow:
 
 ```json
 {
@@ -150,14 +158,14 @@ selects endpoints and request-signing rules from `EndPoints` and `SignaturePolic
 service-generated policy data; none is supplied by a preceding authentication step.
 
 The launcher generates a correlation vector for a new operation and advances it from `MS-CV` response headers. It
-applies the matching signature policy to protected Xbox requests and sends the resulting `Signature` and `MS-CV`
-headers. Versioned Xbox JSON endpoints also receive:
+applies the matching signature policy to protected Xbox requests, signs the policy-selected request data with the
+persistent device private key, and sends the resulting `Signature` and `MS-CV` headers. Versioned Xbox JSON endpoints
+also receive:
 
 ```http
 x-xbl-contract-version: 1
 ```
 
-The signature binds the HTTP method, request path, timestamp, proof key, and body to the persistent device private key.
 Every request described below as signed uses this identity. `MS-CV` is operation-correlation data generated and advanced
 by the launcher; it is not an authentication token.
 
@@ -209,7 +217,7 @@ Content-Type: application/json; charset=utf-8
 MS-CV: <updated correlation vector>
 ```
 
-The response body has this structure:
+The observed response body contains the following fields relevant to this flow:
 
 ```json
 {
@@ -266,9 +274,9 @@ The response body contains:
 ```json
 {
   "token_type": "<token type>",
-  "expires_in": <lifetime
-  in
-  seconds>,
+   "expires_in": <lifetime
+   in
+   seconds>,
   "scope": "service::user.auth.xboxlive.com::MBI_SSL",
   "access_token": "<new Microsoft OAuth access token>",
   "refresh_token": "<new Microsoft OAuth refresh token>"
@@ -428,9 +436,9 @@ The response body contains:
 ```json
 {
   "token_type": "<token type>",
-  "expires_in": <lifetime
-  in
-  seconds>,
+   "expires_in": <lifetime
+   in
+   seconds>,
   "scope": "service::user.auth.xboxlive.com::MBI_SSL",
   "access_token": "<Microsoft OAuth access token>",
   "refresh_token": "<Microsoft OAuth refresh token>"
@@ -651,7 +659,7 @@ HTTP/1.1 200 OK
 Content-Type: application/json
 ```
 
-The response body has these top-level fields:
+The observed response body contains these relevant top-level fields:
 
 ```json
 {
@@ -661,9 +669,9 @@ The response body has these top-level fields:
   ],
   "access_token": "<Minecraft Services access token>",
   "token_type": "Bearer",
-  "expires_in": <lifetime
-  in
-  seconds>,
+   "expires_in": <lifetime
+   in
+   seconds>,
   "launcher_data": {
     "azure_access_token": "<Microsoft Store collections service ticket>",
     "license_data": {
@@ -783,7 +791,7 @@ HTTP/1.1 200 OK
 Content-Type: application/json
 ```
 
-The response body has this structure:
+The observed response body contains the following fields relevant to this flow:
 
 ```json
 {
@@ -810,16 +818,16 @@ The response body has this structure:
 }
 ```
 
-The launcher uses `id` and `name` for the Java command line. Every field inside `skins` and `capes`, and each value in
-`profileActions`, is server-generated profile metadata used for profile display and account-state handling; none is an
-input to a later authentication request.
+The launcher uses `id` and `name` for the Java command line. `skins`, `capes`, and `profileActions` carry
+server-generated profile metadata used for profile display and account-state handling. Additional response fields may be
+present; none of this profile metadata is an input to a later authentication request.
 
 ## 9. Materialize the Java command line
 
-Before each launch, the launcher ensures that the Minecraft Services access token is current. If the stored token is no
-longer valid for the launch, it resumes at step 3, uses a cached Microsoft token or refresh token as available, and
-repeats the downstream token exchanges. It never passes the Microsoft refresh token, Xbox tokens, XSTS token, or Store
-JWTs to Java.
+For the Launcher build covered by this document, the launcher ensures before each launch that the Minecraft Services
+access token is current. If the stored token is no longer valid for the launch, it resumes at step 3, uses a cached
+Microsoft token or refresh token as available, and repeats the downstream token exchanges. The materialized Java command
+line does not include the Microsoft refresh token, Xbox tokens, XSTS token, or Store JWTs.
 
 The selected Minecraft: Java Edition version metadata defines these authentication-related arguments:
 
@@ -845,10 +853,10 @@ The install-scoped client ID is stored in `clientId_v2.txt` as a standard 36-cha
 obtain the value from Windows, it generates and persists a random UUID instead. This value is not the OAuth application
 ID `00000000402B5328`.
 
-The Java command line carries neither the Minecraft Services token's expiry nor any refresh credential. It carries only
-the current bearer token value.
+This materialized Java command line carries neither the Minecraft Services token's expiry nor any refresh credential. It
+carries only the current bearer token value.
 
-The complete set of ordinary game arguments also contains the selected version and local installation paths:
+The ordinary game arguments relevant to this flow also contain the selected version and local installation paths:
 
 ```text
 --username ${auth_player_name}
