@@ -1,0 +1,4 @@
+interface:
+  display_name: "Minecraft NBT"
+  short_description: "Implement and verify Minecraft NBT models and binary formats"
+  default_prompt: "Use $minecraft-nbt to implement or audit Minecraft NBT behavior."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Minecraft Protocol Serialization"
+  short_description: "Implement and verify physical Minecraft packet encodings"
+  default_prompt: "Use $minecraft-protocol-serialization to implement or audit physical packet serialization."

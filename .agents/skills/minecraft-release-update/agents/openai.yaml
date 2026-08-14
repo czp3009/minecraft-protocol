@@ -1,0 +1,4 @@
+interface:
+  display_name: "Minecraft Release Update"
+  short_description: "Coordinate a repository-wide Minecraft release alignment"
+  default_prompt: "Use $minecraft-release-update to align this repository with its selected Minecraft release."

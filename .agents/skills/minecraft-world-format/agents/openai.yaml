@@ -1,0 +1,4 @@
+interface:
+  display_name: "Minecraft World Format"
+  short_description: "Implement and verify filesystem-independent Anvil formats"
+  default_prompt: "Use $minecraft-world-format to implement or audit Anvil region and chunk formats."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Minecraft Protocol Model"
+  short_description: "Model official Minecraft packets and shared protocol values"
+  default_prompt: "Use $minecraft-protocol-model to implement or audit official packet and shared-value models."

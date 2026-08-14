@@ -123,7 +123,9 @@ and other release facts; module build scripts do not duplicate them.
 
 Evidence has this fixed precedence:
 
-1. the matching official server JAR, its codecs, constructors, access paths, annotations, optionals, and sentinels;
+1. the matching official server and client JARs: inspect the direction-specific producer and consumer plus shared
+   codecs, constructors, access paths, annotations, optionals, and sentinels; when the two sides expose conflicting
+   behavior, inspect both and report the conflict;
 2. the revision-matched Minecraft Wiki for facts or descriptions the official implementation does not expose;
 3. exact-version MCProtocolLib;
 4. exact-version Minestom.
@@ -267,7 +269,13 @@ write that directory. Agents may use IDEA MCP to view decompiled code. Preserve 
 
 ## Optional agent skills
 
-`.agents/skills` contains optional playbooks for release-wide protocol and storage work. A skill coordinates the same
-source, Gradle tasks, and verification path available to a human; it is never a project input or an alternative build
-pipeline. Removing `.agents/skills` does not affect compilation, tests, publication, or runtime behavior. Use the
-narrowest applicable skill for an update or exhaustive audit.
+Everything below `.agents` is optional, agent-only guidance for reproducing development work a human can perform from
+the repository's source, module guides, existing Gradle tasks, and tests. It is never a project input, source of release
+facts, required tool, verification gate, or alternative build pipeline. Current source and build wiring are
+authoritative: when a skill disagrees with them, correct or remove the skill; never change the project merely to satisfy
+agent guidance. Removing `.agents` does not affect compilation, tests, publication, runtime behavior, or a human's
+ability to maintain the project.
+
+`.agents/skills` contains narrowly triggered playbooks for handwritten Minecraft-dependent protocol and world-storage
+work plus one release-update coordinator. No project skill body is unconditionally loaded for every task. The release
+coordinator routes only the affected domain skills, while ordinary work uses the narrowest matching skill.

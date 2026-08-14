@@ -1,0 +1,63 @@
+---
+name: minecraft-release-update
+description: Coordinate an incremental or complete alignment of this repository's handwritten Minecraft-dependent code with the repository-selected official release. Use when changing MinecraftTarget.MINECRAFT_VERSION, updating from one Minecraft release to another, auditing release completeness across protocol and world storage, or triaging version-change failures produced by official analysis, KSP, generated vanilla data, or official-peer tests.
+---
+
+# Minecraft release update
+
+Coordinate the existing Gradle pipeline and the narrow domain skills. Do not create a second update pipeline or edit
+generated evidence or source.
+
+This skill is optional guidance for the same work a human performs. Treat current source, Gradle wiring, and tests as
+authoritative. If this playbook is stale, correct the playbook; never add project machinery merely to make the skill
+executable.
+
+## Establish the target
+
+1. Inspect the worktree before changing anything.
+2. Run `./gradlew -q minecraftVersion` to resolve the current target.
+3. Change `MinecraftTarget.MINECRAFT_VERSION` only when the user explicitly requests another release, then run
+   `./gradlew officialMinecraftAnalysis` before target-specific implementation.
+
+`officialMinecraftAnalysis` analyzes the official server JAR. Run `./gradlew downloadMinecraftClientJar` only when an
+affected workflow needs matching client bytecode; use that declared Gradle producer instead of downloading an artifact
+manually.
+
+Do not infer a release change from a protocol number or from a secondary project. Keep other `buildSrc` version targets
+independent.
+
+## Build the incremental queue
+
+Read [references/routing.md](references/routing.md). Inspect the new official analysis, current handwritten source,
+generated-task failures, KSP diagnostics, and official client/server implementation before deciding which domains
+changed. Compilation alone does not prove an unchanged wire or storage contract.
+
+Read only the affected leaf skills completely:
+
+- packet payloads and shared protocol values: `../minecraft-protocol-model/SKILL.md`;
+- physical packet encodings: `../minecraft-protocol-serialization/SKILL.md`;
+- official registries and Configuration data: `../minecraft-protocol-vanilla-data/SKILL.md`;
+- session, client, and server lifecycle: `../minecraft-protocol-flow/SKILL.md`;
+- NBT value or binary semantics: `../minecraft-nbt/SKILL.md`;
+- filesystem-independent Anvil formats: `../minecraft-world-format/SKILL.md`;
+- world paths and disk behavior: `../minecraft-world-io/SKILL.md`.
+
+For a repository-wide completeness request, account for every leaf domain: either apply its workflow or record concrete
+official evidence that its contract did not change. Do not create or load a transport skill merely because the release
+changed. Audit `protocol-transport` only if official framing, compression-envelope, or stream-encryption behavior
+actually changed.
+
+Use the cross-cutting routing in the reference for handwritten KSP, authentication, transport, official-oracle, and
+fixture infrastructure. These are not generated outputs and do not acquire separate release skills.
+
+## Execute and verify
+
+Implement lower-layer changes before their consumers. Let standard compile and test tasks invoke their declared
+analyzers, generators, KSP processors, and fixtures. Never edit or commit files below `build/generated`, copy generated
+Kotlin into source directories, or add refresh/freshness tasks.
+
+Start with affected JVM suites, then run downstream official-peer suites and applicable standard platform tests. Never
+run Gradle wrapper invocations concurrently.
+
+Report the selected release, leaf workflows used, handwritten changes, official evidence behind non-obvious decisions,
+standard tasks run, unresolved evidence including `@UnknownNullability`, and any external prerequisite.

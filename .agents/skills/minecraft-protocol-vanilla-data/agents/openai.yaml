@@ -1,0 +1,4 @@
+interface:
+  display_name: "Minecraft Vanilla Protocol Data"
+  short_description: "Maintain official vanilla protocol-data extraction and loading"
+  default_prompt: "Use $minecraft-protocol-vanilla-data to update or audit vanilla protocol-data extraction and loading."

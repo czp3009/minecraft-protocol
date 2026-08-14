@@ -1,0 +1,4 @@
+interface:
+  display_name: "Minecraft Protocol Flow"
+  short_description: "Align session, client, and server protocol lifecycles"
+  default_prompt: "Use $minecraft-protocol-flow to implement or audit Minecraft connection-state orchestration."

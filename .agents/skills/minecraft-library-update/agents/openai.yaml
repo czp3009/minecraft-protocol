@@ -1,4 +1,0 @@
-interface:
-  display_name: "Minecraft Library Update"
-  short_description: "Orchestrate a complete Minecraft library update"
-  default_prompt: "Use $minecraft-library-update to update and verify the complete Minecraft library for the requested release."
