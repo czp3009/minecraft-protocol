@@ -15,7 +15,9 @@ Published runtime code is divided by responsibility:
 - `protocol-vanilla-data` owns generated, version-matched protocol data.
 - `protocol-transport` owns Ktor sockets, framing, the compression envelope, and encryption.
 - `protocol-session` owns typed dispatch, packet direction, and protocol-state transitions.
-- `protocol-auth` owns offline identities, session-service calls, hashes, and cryptographic abstractions.
+- `account-auth` owns caller-driven Microsoft OAuth, Xbox authentication, Minecraft Services access-token, entitlement,
+  and Java-profile HTTP calls.
+- `protocol-auth` owns offline/online identities, Session Server HTTP calls, hashes, and Login key exchange.
 - `protocol-client` and `protocol-server` own connection orchestration through Play. The server can project a finite
   initial chunk/entity view; it does not implement gameplay.
 - `world-format` owns filesystem-independent Anvil containers, coordinates, compression dispatch, and chunk NBT
@@ -51,10 +53,13 @@ onto the consumer classpath.
   convenience dependencies that reverse a boundary, create a cycle, or turn a focused module into an implicit bundle.
 - Declare a dependency as `api` only when its types are part of the module's public/protected ABI or its documented
   public contract requires consumers to interact with that dependency directly. All other runtime dependencies are
-  `implementation`; test and generation dependencies remain on their dedicated configurations.
+  `implementation`; test and generation dependencies remain on their dedicated configurations. An explicitly optional
+  extension adapter may instead use `compileOnly` when the module's direct API and execution paths are independent of
+  that dependency and callers add it only when using the adapter.
 - Public declarations must work for an external consumer with the dependency metadata Gradle publishes. They must not
   rely on an implementation-only type, repository-only generated state, another module's test fixtures, or implicit
-  initialization performed by an in-repository application.
+  initialization performed by an in-repository application. Optional `compileOnly` extensions are the sole exception:
+  keep them inert unless called, document their caller-supplied dependency, and never invoke them from the direct API.
 - A higher-level module may use lower-level types directly in its public API when that is the natural contract; do not
   invent wrappers merely to conceal a valid downward dependency. It may expose several lower layers when orchestration
   is its stated responsibility, but lower layers never depend back on it and sibling capabilities are not exposed unless
@@ -62,7 +67,9 @@ onto the consumer classpath.
   dependency.
 - Architecture verification includes inspecting public signatures, published dependency scopes, and production runtime
   classpaths, plus an external-consumer smoke test when metadata inspection alone cannot prove standalone use. Passing
-  the repository's internal test graph is not sufficient evidence of independent consumption.
+  the repository's internal test graph is not sufficient evidence of independent consumption. The established optional
+  extension pattern does not by itself require an external-consumer test; verify its direct and adapter paths in the
+  owning and downstream module suites.
 
 ## Kotlin Multiplatform implementation
 
@@ -99,7 +106,7 @@ onto the consumer classpath.
 - In Kotlin and Java, do not concatenate strings with `+`; prefer string-template syntax and keep strings on one line
   where practical. If a Kotlin string genuinely spans lines, use a triple-quoted string. For complex assembly, use
   `buildString` in Kotlin and `StringBuilder` in Java.
-- Keep simple assignments such as `val a = "1"` on one line whenever practical.
+- Keep simple assignments such as `val a = "1"` on one line.
 - Treat externally consumable declarations as API even without an in-repository caller. Do not suppress `unused` for
   that reason. Omit redundant `public`; keep implementation helpers internal or private.
 - Ordinary logs never write directly to the console. Do not use `print`, `println`, `System.out`, `System.err`,

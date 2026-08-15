@@ -45,7 +45,7 @@ IV；8,193 字节连续数据在收发两侧采用不同 chunk 边界时仍与 O
 
 - `protocol-transport` 拥有 Minecraft VarInt framing、zlib envelope、连续 AES-128/CFB8 加解密和 Ktor byte channel I/O。
 - `protocol-session` 拥有 packet direction、connection state、packet ID、compression 激活时机和加密激活调用。
-- `protocol-auth` 拥有 RSA 登录密码学抽象、shared secret、verify token、SHA-1 server hash 和 session service。
+- `protocol-auth` 拥有 Login key exchange、shared secret、verify token、SHA-1 server hash 和 Session Server API。
 - `protocol-client` 拥有从 Status、Login、Configuration 到 Play 的客户端编排。
 - 外部转换代理不应依赖上述任何业务模块。
 
@@ -61,7 +61,8 @@ client orchestration 与 TCP-specific connection factory 分开配置。
 - `protocol-transport`、`protocol-session` 和 `protocol-client` 当前只发布 JS Node 和 WasmJS Node 变体，没有 browser 变体。
 - `protocol-transport` 的 `webMain` AES 实现实际调用 Node `crypto.createCipheriv("aes-128-cfb8")`，不能直接用于 浏览器。
 - `protocol-transport` 的 Web zlib 由 Kompress 提供，理论上可复用到浏览器，但尚未经过本方案的浏览器目标验证。
-- `protocol-auth` 已配置 JS/WasmJS browser target，但还没有仓库内置的浏览器 `MinecraftCryptography` 实现。
+- `protocol-auth` 已配置 JS/WasmJS browser target，并通过 internal node-forge backend 实现浏览器 Login RSA；这不提供
+  browser socket carrier 或 AES-CFB8。
 - `protocol-session` 的核心公共 API 实际依赖 `MinecraftFrameStream`，但其当前构建和文档仍将它视为 TCP-only。
 
 ### 2.3 正确的 wire transform 顺序
@@ -389,9 +390,9 @@ protocol-client
 
 - 浏览器 RSA 实现属于 `protocol-auth`，不属于 WebSocket transport 或代理。
 - 优先使用浏览器原生 `crypto.getRandomValues` 生成 secret；RSA primitive 交给 node-forge。
-- 需要决定现有 `MinecraftCryptography` 同时包含 client RSA encrypt 和 server key generation/decrypt 是否会让 浏览器
-  client 实现承担不必要能力。不得为方便而在 common 代码伪造未支持能力。
-- 现有 common `minecraftServerHash` 应通过 browser target 测试验证，而不是重新实现 SHA-1 或 signed bigint。
+- 当前公共 API 已拆成 `MinecraftClientKeyExchange`、`MinecraftServerKeyPair` 和 opaque challenge；平台 backend 保持
+  internal。浏览器 carrier 工作不得重新合并或复制这些能力。
+- 现有 `MinecraftServerHash.compute` 应通过 browser target 测试验证，而不是重新实现 SHA-1 或 signed bigint。
 
 ## 9. 分阶段实施与验证计划
 
@@ -433,7 +434,7 @@ protocol-client
 
 ### 阶段 4：浏览器 online-mode 密码学
 
-- 在 `protocol-auth` 增加 node-forge browser adapter。
+- 复用并验证 `protocol-auth` 已有的 node-forge browser backend。
 - 在 `protocol-transport` 增加 aes-js browser AES-CFB8 adapter。
 - 把当前 temp 互操作场景转化为 owning module 的确定性测试。
 - 覆盖任意二进制 RSA 输入、独立收发 cipher state、不同 carrier chunk 边界和 encryption transition。
@@ -472,7 +473,7 @@ protocol-client
 - browser WebSocket 的实际背压策略与合理的 queue/chunk 大小。
 - aes-js 在真实浏览器和大量 chunk/registry 流量下的吞吐是否足够。
 - Kompress 的 browser compression/decompression 性能和边界行为。
-- `MinecraftCryptography` 是否需要拆分 client/server capability，或 node-forge browser actual 是否完整实现现有接口。
+- `protocol-auth` 的现有 client/server key-exchange API 在 Kotlin/WasmJS browser bundle 中是否保持与 Kotlin/JS 等价。
 - TCP-only convenience API 如何移动 source set 而不造成不必要的发布兼容破坏。
 - dynamic upstream control plane 的具体协议。
 - WebSocket proxy URL、TCP upstream 地址与 Minecraft Handshake 地址之间的配置和一致性规则。

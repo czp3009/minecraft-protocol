@@ -3,69 +3,69 @@ package com.hiczp.minecraft.protocol.auth
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 
 class OfflineAuthenticationTest {
     @Test
     fun matchesVanillaNameBasedOfflineUuids() {
         assertEquals(
             "b50ad385-829d-3141-a216-7e7d7539ba7f",
-            offlineUuid("Notch").toDashedString(),
+            MinecraftOfflineIdentity.minecraftOfflineUuid("Notch").toHexDashString(),
         )
         assertEquals(
             "5627dd98-e6be-3c21-b8a8-e92344183641",
-            offlineUuid("Steve").toDashedString(),
+            MinecraftOfflineIdentity.minecraftOfflineUuid("Steve").toHexDashString(),
         )
         assertEquals(
             "36532b5e-c442-3dbb-a24c-c7e55d0f979a",
-            offlineUuid("Alex").toDashedString(),
+            MinecraftOfflineIdentity.minecraftOfflineUuid("Alex").toHexDashString(),
         )
     }
 
     @Test
-    fun uuidTextRoundTripsBothMinecraftRepresentations() {
-        val uuid = offlineUuid("ProtocolProbe")
+    fun identityDerivesItsUuidAndProfile() {
+        val identity = MinecraftOfflineIdentity("ProtocolProbe")
 
-        assertEquals(uuid, parseMinecraftUuid(uuid.toUndashedString()))
-        assertEquals(uuid, parseMinecraftUuid(uuid.toDashedString()))
+        assertEquals(
+            MinecraftOfflineIdentity.minecraftOfflineUuid("ProtocolProbe"),
+            identity.id,
+        )
+        assertEquals(identity.id, identity.toGameProfile().id)
     }
 
     @Test
-    fun formatsSha1AsJavasSignedBigInteger() {
-        assertEquals(
-            "4ed1f46bbe04bc756bcb17c0c7ce3e4632f06a48",
-            minecraftServerHash("Notch", byteArrayOf(), byteArrayOf()),
-        )
-        assertEquals(
-            "-7c9d5b0044c130109a5d7b5fb5c317c02b4e28c1",
-            minecraftServerHash("jeb_", byteArrayOf(), byteArrayOf()),
-        )
-        assertEquals(
-            "88e16a1019277b15d58faf0541e11910eb756f6",
-            minecraftServerHash("simon", byteArrayOf(), byteArrayOf()),
-        )
-    }
-
-    @Test
-    fun uuidParserRejectsEveryMalformedMinecraftRepresentation() {
+    fun rejectsAnEmptyOfflineName() {
         assertFailsWith<IllegalArgumentException> {
-            offlineUuid("")
-        }
-        for (
-        value in listOf(
-            "",
-            "0".repeat(31),
-            "0".repeat(33),
-            "g".repeat(32),
-            "00000000-0000-0000-0000-00000000000g",
-            "000000000000-0000-0000-000000000000",
-        )
-        ) {
-            assertFailsWith<IllegalArgumentException>(value) {
-                parseMinecraftUuid(value)
-            }
+            MinecraftOfflineIdentity("")
         }
     }
 
-    private fun ByteArray.hex(): String =
-        joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
+    @Test
+    fun onlineAndOfflineIdentitiesRemainExhaustivePlainData() {
+        val offline: MinecraftIdentity = MinecraftOfflineIdentity("Player")
+        val online: MinecraftIdentity = MinecraftOnlineIdentity(
+            id = MinecraftOfflineIdentity.minecraftOfflineUuid("Player"),
+            name = "Player",
+            accessToken = "access-token",
+        )
+
+        assertIs<MinecraftOfflineIdentity>(offline)
+        val typedOnline = assertIs<MinecraftOnlineIdentity>(online)
+        assertEquals("access-token", typedOnline.copy().accessToken)
+        assertEquals("Player", typedOnline.name)
+    }
+
+    @Test
+    fun rejectsInvalidOnlineCredentials() {
+        val id = MinecraftOfflineIdentity.minecraftOfflineUuid("Player")
+        assertFailsWith<IllegalArgumentException> {
+            MinecraftOnlineIdentity(id, "", "token")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            MinecraftOnlineIdentity(id, "Player", "   ")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            MinecraftOfflineIdentity.minecraftOfflineUuid("")
+        }
+    }
 }

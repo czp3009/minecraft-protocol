@@ -15,20 +15,21 @@ persistence policy, permissions, and operations remain application responsibilit
 Depend on the narrowest module that provides the required API. Higher layers expose their lower-layer API dependencies
 transitively where needed.
 
-| Module                                                       | Purpose                                                                |
-|--------------------------------------------------------------|------------------------------------------------------------------------|
-| [`nbt`](nbt/README.md)                                       | Format-independent NBT values and logical serializers                  |
-| [`nbt-serialization`](nbt-serialization/README.md)           | Binary NBT and NBT tree conversion through `kotlinx.serialization`     |
-| [`protocol-model`](protocol-model/README.md)                 | Format-independent packet payloads and shared protocol values          |
-| [`protocol-serialization`](protocol-serialization/README.md) | Minecraft wire encodings and packet lookup by state, direction, and ID |
-| [`protocol-vanilla-data`](protocol-vanilla-data/README.md)   | Version-matched Known Packs, registries, tags, and vanilla catalogues  |
-| [`protocol-transport`](protocol-transport/README.md)         | Ktor sockets, framing, compression, and encryption                     |
-| [`protocol-session`](protocol-session/README.md)             | Typed dispatch and connection-state transitions                        |
-| [`protocol-auth`](protocol-auth/README.md)                   | Offline/online accounts, session services, hashes, and Login crypto    |
-| [`protocol-client`](protocol-client/README.md)               | Status, Login, Configuration, and a Play-ready client connection       |
-| [`protocol-server`](protocol-server/README.md)               | Connection admission and finite initial chunk/entity projection        |
-| [`world-format`](world-format/README.md)                     | Filesystem-independent Anvil containers and chunk NBT composition      |
-| [`world-io`](world-io/README.md)                             | World paths and filesystem-backed NBT and region stores                |
+| Module                                                       | Purpose                                                                           |
+|--------------------------------------------------------------|-----------------------------------------------------------------------------------|
+| [`nbt`](nbt/README.md)                                       | Format-independent NBT values and logical serializers                             |
+| [`nbt-serialization`](nbt-serialization/README.md)           | Binary NBT and NBT tree conversion through `kotlinx.serialization`                |
+| [`protocol-model`](protocol-model/README.md)                 | Format-independent packet payloads and shared protocol values                     |
+| [`protocol-serialization`](protocol-serialization/README.md) | Minecraft wire encodings and packet lookup by state, direction, and ID            |
+| [`protocol-vanilla-data`](protocol-vanilla-data/README.md)   | Version-matched Known Packs, registries, tags, and vanilla catalogues             |
+| [`protocol-transport`](protocol-transport/README.md)         | Ktor sockets, framing, compression, and encryption                                |
+| [`protocol-session`](protocol-session/README.md)             | Typed dispatch and connection-state transitions                                   |
+| [`account-auth`](account-auth/README.md)                     | Microsoft OAuth, Xbox, and Minecraft Services token/entitlement/profile HTTP APIs |
+| [`protocol-auth`](protocol-auth/README.md)                   | Game identities, Session Server HTTP, hashes, and Login key exchange              |
+| [`protocol-client`](protocol-client/README.md)               | Status, Login, Configuration, and a Play-ready client connection                  |
+| [`protocol-server`](protocol-server/README.md)               | Connection admission and finite initial chunk/entity projection                   |
+| [`world-format`](world-format/README.md)                     | Filesystem-independent Anvil containers and chunk NBT composition                 |
+| [`world-io`](world-io/README.md)                             | World paths and filesystem-backed NBT and region stores                           |
 
 `protocol-symbol-processor`, `minecraft-test-support`, and `minecraft-test-fixture-host` are private build or test
 infrastructure and are not application dependencies.

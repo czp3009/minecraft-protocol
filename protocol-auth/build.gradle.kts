@@ -75,12 +75,11 @@ kotlin {
         }
 
         commonMain.dependencies {
-            api(project(":protocol-model"))
+            compileOnly(project(":protocol-model"))
             api(libs.ktor.client.core)
-            implementation(libs.kotlinx.coroutines.core)
-            implementation(libs.kotlinx.io.core)
+            api(libs.kotlinx.serialization.core)
             implementation(libs.kotlinx.serialization.json)
-            implementation(libs.kotlinx.serialization.json.io)
+            implementation(libs.kotlinx.serialization.properties)
             implementation(libs.okio)
             implementation(libs.cryptography.bigint)
             implementation(libs.cryptography.random)
@@ -88,6 +87,7 @@ kotlin {
 
         commonTest.dependencies {
             implementation(kotlin("test"))
+            implementation(project(":protocol-model"))
             implementation(libs.kotlinx.coroutines.test)
             implementation(libs.ktor.client.mock)
         }

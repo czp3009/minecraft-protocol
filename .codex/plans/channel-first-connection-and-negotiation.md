@@ -10,8 +10,8 @@
 - 本计划覆盖 `protocol-model`、`protocol-serialization`、`protocol-transport`、`protocol-session`、`protocol-client`、
   `protocol-server`、`protocol-vanilla-data`、新的模组协议集成模块、测试、发布元数据和全部相关 README/迁移文档。
 - 本计划不实现 gameplay handler、事件总线、packet listener、actor/mailbox DSL 或另一套自定义流类型。
-- 登录过程及最终凭证定义全部由 [cross-platform-online-authentication.md](cross-platform-online-authentication.md)
-  负责。本计划只把该计划产出的最终登录凭证当作已完成输入，不重新设计或复述登录过程。
+- 玩家身份、Session Server 调用和 Login key exchange 由当前 `protocol-auth` 公共 API 负责；启动器侧的 Microsoft、Xbox 和
+  Minecraft Services HTTP 流程独立属于 `account-auth`。本计划只消费这些既有边界，不重新设计或复述认证过程。
 - 本计划中的 `Login` 只表示官方协议 state 或 loader custom-query 所在 phase；它不是账号登录流程的第二份设计。
 - 浏览器 carrier 的独立限制继续由 [browser-websocket-transport.md](browser-websocket-transport.md) 负责；Channel API 不因
   TCP 或 WebSocket carrier 不同而改变。
@@ -60,16 +60,17 @@ interface MinecraftServerConnection : Closeable {
 因此：
 
 - `negotiate` 不成为 connection 成员，不在内部绕过 Channel 直接调用 `MinecraftSession.send/receive`。
-- `negotiate` 只读取 `connection.incoming`、写入 `connection.outgoing`，直接消费关联计划产出的最终登录凭证，并调用公开的连接状态原语，例如协商后
+- `negotiate` 只读取 `connection.incoming`、写入 `connection.outgoing`，直接消费 `MinecraftIdentity` 和按需提供的 调用方自有
+  `HttpClient`，内部构造 `MinecraftSessionApi`，并调用公开的连接状态原语，例如协商后
   registry context 安装和已声明 extension codec 激活。
 - 不存在 `internalNegotiate`、私有 packet lane、专供预制 Profile 使用的 session handle 或只有库代码能触发的状态迁移。
 - 用户可以完全不调用任何 `negotiate`，自行写一个普通扩展函数：
 
 ```kotlin
 suspend fun MinecraftClientConnection.negotiateWithMyServer(
-    credential: MinecraftClientIdentity,
+    identity: MinecraftIdentity,
 ): MyNegotiationResult {
-    // credential 由认证计划产出；这里只使用公开连接 API 编排 packet。
+    // 身份数据由调用方提供；这里只使用公开连接 API 编排 packet。
 }
 ```
 
@@ -87,22 +88,23 @@ suspend fun MinecraftClientConnection.negotiateWithMyServer(
 | packet ID、方向与 phase                 | 选择 packet 类型                               | 依据当前 state 和 per-connection registry 编解码并校验                        |
 | Handshake/Login/Configuration/Play 转换 | 发送或收到官方转换 packet                      | 在准确的 post-wire 边界原子更新 state                                         |
 | compression                             | 发送/收到 `SetCompressionPacket`               | 只在该 packet 自身完成后启用后续 frame compression                            |
-| 最终登录凭证                            | 把关联计划产出的 credential 作为协商输入       | 按关联计划定义的公共交接契约消费；本计划不展开内部步骤                        |
+| 登录身份与 Session API                  | 把当前 `protocol-auth` 类型作为协商输入        | 调用公开身份、key-exchange 和 Session Server API；本计划不重新定义这些类型    |
 | 模组静态 registry                       | 提供本地 schema，处理或委托 loader sync        | 安装已解析的 per-connection context，并更新依赖 registry size 的 codec format |
 | 自定义 packet                           | 启动连接前声明 codec，协商中决定激活哪些 route | 编码、解码、未知回退和 route snapshot 的原子切换                              |
 
-“完全自定义”指用户能从 Handshake 开始自行编写全部协商控制流，并直接使用已经取得的最终登录凭证；不表示用户可以绕开
-framing、compression 或 protocol state。凭证如何产生和消费完全服从关联认证计划。
+“完全自定义”指用户能从 Handshake 开始自行编写全部协商控制流，并直接使用已经取得的 `MinecraftIdentity`；不表示用户可以绕开
+framing、compression 或 protocol state。预制高层入口接收调用方自有 `HttpClient` 并在内部使用
+`MinecraftSessionApi` 完成 `/join`；手写协商仍可直接构造并使用该低层 API。
 
 ## 目标用户代码
 
 ### 直接手写客户端协商
 
-下面的示例故意不调用库提供的 `negotiate`，并从关联认证计划已经交付最终登录凭证的位置开始。凭证相关分支按关联计划最终提供的公开
-API 编写，这里只展示本计划拥有的 Channel、registry 和 extension 部分：
+下面的示例故意不调用库提供的 `negotiate`，并从调用方已经构造 `MinecraftIdentity` 的位置开始。认证相关分支使用当前
+`protocol-auth` 公共 API，这里只展示本计划拥有的 Channel、registry 和 extension 部分：
 
 ```kotlin
-val credential: MinecraftClientIdentity = finalLoginCredential
+val identity: MinecraftIdentity = selectedIdentity
 val connection = MinecraftClientConnection.connect(
     selectorManager = selectorManager,
     host = host,
@@ -113,7 +115,7 @@ val connection = MinecraftClientConnection.connect(
 val configuration = MyConfigurationAccumulator()
 while (connection.state != ConnectionState.PLAY) {
     when (val packet = connection.incoming.receive()) {
-        // 使用 credential 的协议分支以认证计划最终 API 为准，此处不重复展开。
+        // 使用 identity 的协议分支以当前 protocol-auth API 为准，此处不重复展开。
         is SetCompressionPacket -> Unit
         is RegistryDataPacket -> configuration.add(packet)
         is MyLoaderRegistryPacket -> configuration.add(packet)
@@ -136,7 +138,7 @@ for (packet in connection.incoming) {
 
 关键点：
 
-- 本计划只要求 `credential` 是认证计划最终产出的公开类型，并能由 preset 与用户代码通过同一个公共交接入口消费；不规定其内部结构或处理过程。
+- 本计划直接使用 `MinecraftIdentity`，并保证 preset 与用户代码通过同一个公共交接入口消费。
 - `SetCompressionPacket` 仍然作为普通 packet 交给用户；它的 post-read compression effect 在交付前已由 connection 完成，用户不调用
   `enableCompression`。
 - registry 与 extension route 的安装也是公开、窄型、显式的基础 API；预制 loader Profile 调用同一方法。
@@ -160,8 +162,8 @@ while (server.isOpen) {
 }
 ```
 
-服务端所需的最终认证配置或验证凭证同样直接来自关联认证计划。手写服务端协商与预制 server `negotiate`
-使用其同一个公共交接契约；本计划不描述验证步骤。
+服务端直接接收当前 `MinecraftServerAuthentication` 配置。手写服务端协商与预制 server `negotiate` 使用相同的
+`protocol-auth` 公共 API；本计划不重新定义验证模型。
 
 ### 使用库的预制协商
 
@@ -192,7 +194,7 @@ val result = connection.negotiate(
 
 ```kotlin
 suspend fun MinecraftClientConnection.negotiate(
-    credential: MinecraftClientIdentity,
+    identity: MinecraftIdentity,
     profile: ClientNegotiationProfile = Vanilla,
 ): MinecraftClientNegotiationResult
 
@@ -201,7 +203,7 @@ suspend fun MinecraftServerConnection.negotiate(
 ): MinecraftServerNegotiationResult
 ```
 
-- `MinecraftClientIdentity` 在这里代表认证计划最终交付的连接凭证契约；若关联计划冻结了不同名称，以关联计划为准，本计划只同步签名，不重新定义类型。
+- `MinecraftIdentity` 直接使用 `protocol-auth` 的 sealed interface，不在 connection 层复制身份类型。
 - `Vanilla` 提供 repository-selected official release 的默认流程。
 - `FabricApi(...)`、`NeoForge(...)` 和 `Forge(...)` 来自可选集成模块，不让 `protocol-client` 或 `protocol-server` 默认依赖所有
   loader。
@@ -227,7 +229,7 @@ suspend fun MinecraftServerConnection.negotiate(
 
 ### 公开而窄型的状态原语
 
-除 Channel、只读 state、只读 registry context、close，以及关联认证计划已经定义的最终凭证交接契约外，本计划只新增下列无法由普通
+除 Channel、只读 state、只读 registry context、close，以及 `protocol-auth` 已经定义的认证契约外，本计划只新增下列无法由普通
 packet 值独立表达的基础 API：
 
 1. `installRegistryContext(...)`
@@ -243,15 +245,15 @@ packet 值独立表达的基础 API：
     - 预制 `negotiate` 也必须通过这一公开能力确认返回时已经处于最终 state。
 
 不公开以下通用危险入口：`configureCompression(threshold)`、`setState(...)`、可变 `format`、raw frame source/sink 或可替换运行中
-registry。认证计划对其内部 transport 状态另有约束，本计划不重复定义。其余合法状态切换由 packet 和上述窄型原语驱动。
+registry。Login key exchange 与 stream encryption 的既有边界不在本计划中重复定义。其余合法状态切换由 packet 和上述窄型原语驱动。
 
-### 最终登录凭证的交接边界
+### 认证 API 的交接边界
 
-- 本计划的输入是关联认证计划已经产出的最终客户端登录凭证，以及服务端已经完成配置的验证能力。
-- 凭证的具体类型、语义和处理过程全部以关联认证计划为准。
-- 本计划不得复制任何认证模型、helper 或实现。
-- Channel-first `negotiate` 只直接接收最终凭证并调用认证计划提供的公共交接契约；用户手写协商可以调用完全相同的契约。
-- 两份计划的集成测试只验证“同一个最终凭证能分别驱动手写协商和 preset 协商到达相同后续状态”，认证流程本身的正确性和边界测试只属于认证计划。
+- 客户端输入直接使用 `MinecraftIdentity`，在线模式另按需接收调用方自有 `HttpClient`，并在内部构造
+  `MinecraftSessionApi`。
+- 服务端输入直接使用 `MinecraftServerAuthentication`；本计划不得复制认证模型、helper 或实现。
+- Channel-first `negotiate` 与用户手写协商调用相同的身份、key-exchange 和 Session Server 公共 API。
+- 集成测试验证同一个身份能分别驱动手写协商和 preset 协商到达相同后续状态；认证原语本身由 `protocol-auth` 测试。
 
 ## Packet 扩展与 UnknownPacket
 
@@ -389,7 +391,7 @@ world projection 必须从该 context 取值，不得回退到全局 vanilla 数
 
 Profile 只用于组合库提供的 `negotiate`：
 
-- 原版协议协商仍由普通扩展函数实现；涉及登录凭证的部分只调用关联认证计划的公共交接契约。
+- 原版协议协商仍由普通扩展函数实现；涉及认证的部分只调用当前 `protocol-auth` 公共 API。
 - Profile 提供 loader 在 Login、Configuration 和进入 Play 前增加的步骤、内建 payload codecs、channel metadata、registry
   resolver 和少量 policy。
 - Profile 执行时得到的能力不超过公共 connection base API。
@@ -422,7 +424,7 @@ onUnhandledQuery: suspend (UnknownPacket) -> NegotiationQueryResult
 `Vanilla` 是默认值，覆盖：
 
 - Status（服务端返回 `StatusCompleted`）与 Login/Transfer intent 分流。
-- 直接消费最终登录凭证；凭证验证和 Login 内部步骤完全委托给关联认证计划，本计划不枚举 packet 或状态细节。
+- 直接消费 `MinecraftIdentity`；Login key exchange 和 Session Server 调用委托给 `protocol-auth`，本计划不重复定义其模型。
 - compression 和进入 Configuration 后的标准协议协商。
 - cookie、known packs、feature flags、dynamic registry data、tags、resource packs、code of conduct、Configuration finish。
 - server admission/status/resource-pack 等确需应用决策的事项移入 negotiation-scoped policy；有简单固定值时优先用 data
@@ -491,7 +493,8 @@ Quilt 官方已经停止为新 Minecraft 版本维护 QSL/QFAPI。repository-sel
 
 ### `protocol-transport`
 
-- 继续只负责 Ktor socket/carrier、frame 和 compression envelope；认证计划已有的 transport 行为不在本计划重复修改。
+- 继续只负责 Ktor socket/carrier、frame、compression envelope 和 stream encryption；`protocol-auth` 的 key-exchange
+  行为不在本计划重复修改。
 - 若当前 `sendPacketData` 返回点不能证明完整 frame 已写入，则增加内部的 frame-commit primitive；它不认识 packet、profile
   或身份。
 - 保证 writer 能在一个 frame 完成与下一个 frame 开始之间原子提交本计划负责的 compression/state effect。
@@ -509,15 +512,16 @@ Quilt 官方已经停止为新 Minecraft 版本维护 QSL/QFAPI。repository-sel
 
 ### 与 `protocol-auth` 的交接
 
-- 本计划不修改 `protocol-auth` 的登录流程、最终凭证或测试矩阵。
-- `protocol-client`/`protocol-server` 只依赖关联认证计划最终发布的 credential/verification contract。
-- 如果关联计划调整最终类型名称，本计划只同步 connection 扩展签名和示例，不在本模块群中增加 adapter credential 或复制字段。
-- 手写协商和 preset 协商必须能消费同一个最终凭证实例。
+- 本计划不修改 `protocol-auth` 的身份、key-exchange、Session Server API 或测试矩阵。
+- `protocol-client`/`protocol-server` 直接依赖其现有公共 contract，不增加 adapter identity 或复制字段。
+- `account-auth` 是独立的启动器侧 HTTP 模块，不参与 connection 依赖图。
+- 手写协商和 preset 协商必须能消费同一个 `MinecraftIdentity` 实例。
 
 ### `protocol-client`
 
 - `connect()` 返回 raw Channel-first connection，不自动运行预制协商。
-- `negotiate` 扩展直接接受关联认证计划的最终登录凭证；connection 基础 API 实现 registry/context 安装、route activation 和
+- `negotiate` 扩展直接接受 `MinecraftIdentity` 和可选的调用方自有 `HttpClient`，并在内部构造
+  `MinecraftSessionApi`；connection 基础 API 实现 registry/context 安装、route activation 和
   state observation。
 - 原版 `queryStatus` 与 `negotiate` 成为只使用公开基础 API 的扩展函数。
 - 移除 `MinecraftClientHandler.onPacket` 及长生命周期 handler 主入口；cookie/resource-pack/query policy 只存在于
@@ -527,7 +531,7 @@ Quilt 官方已经停止为新 Minecraft 版本维护 QSL/QFAPI。repository-sel
 ### `protocol-server`
 
 - `bind()` 只建立 listener；`accept()` 每次主动返回 raw Channel-first connection。
-- 关联认证计划产出的服务端验证能力作为已配置依赖交给 connection；profile admission/status/configuration policy 是
+- `MinecraftServerAuthentication` 作为已配置依赖交给 connection；profile admission/status/configuration policy 是
   `negotiate` 参数，不挂在 listener callback 上。
 - 原版 server `negotiate` 只调用公开基础 API，并返回 `StatusCompleted` 或 `PlayReady` 等显式结果。
 - 移除 `MinecraftServerHandler.onPacket` 风格入口和隐藏 gameplay dispatch。
@@ -592,8 +596,9 @@ application
 ### 配置对象重新分层
 
 - Transport 配置：frame limits、compression bounds、Channel capacity、carrier。
-- Connection 声明配置：extension codec definitions、static registry schema；认证能力只引用关联计划的最终 contract。
-- Negotiation 配置/Profile：final credential、status/admission policy、known packs、resource packs、loader tasks、unhandled
+- Connection 声明配置：extension codec definitions、static registry schema；认证能力只引用 `protocol-auth` 的现有 contract。
+- Negotiation 配置/Profile：identity、session API、status/admission policy、known packs、resource packs、loader
+  tasks、unhandled
   query。
 - Play 数据：只通过 Channel 和最终 `ProtocolRegistryContext`，不继续引用 negotiation handler。
 
@@ -602,18 +607,19 @@ application
 ### 阶段 0：冻结协议事实和基础 API 契约
 
 1. 用 `./gradlew -q minecraftVersion` 记录当前选择，仅用于本地审计，不把字面版本复制进公共文档。
-2. 重新分析 matching official server 的 state transition、packet codec 和 compression；登录相关事实直接采用认证计划的结果。
+2. 重新分析 matching official server 的 state transition、packet codec 和 compression；认证调用使用当前 `protocol-auth`
+   API。
 3. 锁定 Fabric API、NeoForge、Forge 与目标发布匹配的具体 commit/coordinate；每个 loader 建立 payload
    ID、方向、phase、version、optional/mandatory 和 configuration task 顺序表。
 4. 对 Fabric Loader 本体做负向审计，确认哪些行为确实属于 Loader、哪些属于 Fabric API/具体 mod，避免虚构统一 Fabric
    handshake。
-5. 与认证计划冻结最终 credential/verification contract 的唯一交接点，证明 preset 与外部手写代码都能调用，且本计划没有复制
-   credential 类型。
+5. 冻结 `MinecraftIdentity`、调用方自有 `HttpClient`、低层 `MinecraftSessionApi` 和
+   `MinecraftServerAuthentication` 的交接点，证明 preset 与外部手写代码都能调用，且本计划没有复制类型。
 6. 完成 Login query transaction correlation、unknown custom payload raw-byte boundary和 custom top-level ID collision
    policy spike。
 7. 完成 static schema + remote snapshot → block-state global ID 的三套 loader 算法说明，再冻结公共 registry types。
 
-退出条件：API review 能用一段完全位于外部 consumer source set 的代码消费关联计划的最终登录凭证，并继续只靠公开
+退出条件：API review 能用一段完全位于外部 consumer source set 的代码消费 `MinecraftIdentity`，并继续只靠公开
 Channel/连接原语完成自定义协商；任何需要 internal 方法的步骤都视为设计未完成。
 
 ### 阶段 1：逻辑模型与 vanilla registry provider
@@ -645,19 +651,19 @@ Channel/连接原语完成自定义协商；任何需要 internal 方法的步�
 
 1. 重写 client `connect` 和 server `accept`，构造 pump 后立即把 raw connection 交给用户。
 2. 收起 raw socket、transport、protocol/session handles。
-3. 直接接入认证计划最终提供的 credential/verification contract，不在 client/server 新增中间凭证模型。
-4. 写两个完全不调用 `negotiate` 的 scripted-peer 测试：一个客户端、一个服务端；它们从最终登录凭证交接点开始，后续全部由测试代码主动收发。
-5. 增加交接 smoke：同一最终凭证可供手写流程与 preset 使用；登录过程仍只由认证计划测试。
+3. 直接接入当前 `protocol-auth` contract，不在 client/server 新增中间身份模型。
+4. 写两个完全不调用 `negotiate` 的 scripted-peer 测试：一个客户端、一个服务端；它们从身份/API 交接点开始，后续全部由测试代码主动收发。
+5. 增加交接 smoke：同一身份可供手写流程与 preset 使用；认证原语仍只由 `protocol-auth` 测试。
 
 ### 阶段 5：只靠基础 API 重写 Vanilla negotiate
 
-1. 把 status、最终登录凭证交接后的标准协商、compression、Configuration 和 Play 入口写成 connection 扩展函数；不在这里重写登录实现。
-2. 扩展函数源码只能引用公开 connection contract、认证计划最终 credential contract、public packet/model types 和 standard
+1. 把 status、身份/API 交接后的标准协商、compression、Configuration 和 Play 入口写成 connection 扩展函数；不在这里重写认证原语。
+2. 扩展函数源码只能引用公开 connection contract、`protocol-auth` contract、public packet/model types 和 standard
    Channel API；禁止导入 internal engine。
 3. 将现有 handler 决策收敛为简单 options、negotiation policy 和一个 unknown-query fallback。
 4. 对同一 scripted peer 分别运行“完全手写”和“Vanilla preset”，断言 wire transcript、state、result、registry context 完全一致。
-5. 使用 official server 和 headless official client 验证 status、transfer、Configuration 及最终凭证交接后的连接路径；认证模式自身的
-   interoperability 仍由认证计划验收。
+5. 使用 official server 和 headless official client 验证 status、transfer、Configuration 及认证 API 交接后的连接路径；认证原语由
+   `protocol-auth` 验收。
 
 ### 阶段 6：Fabric API Profile
 
@@ -687,7 +693,7 @@ Channel/连接原语完成自定义协商；任何需要 internal 方法的步�
 ### 阶段 9：迁移所有高层使用点和文档
 
 1. 更新 root README、client/server/session/serialization/vanilla-data README 和示例。
-2. 只按认证计划最终产物更新跨计划链接和 connection 调用示例；不修改或复制认证计划的实现与验收范围。
+2. 按当前 `protocol-auth` 公共 API 更新 connection 调用示例；不修改或复制认证实现与验收范围。
 3. 更新 server initial world/chunk/entity API，显式接受或继承 connection registry context。
 4. 删除或按发布策略 deprecate handler/protocol primary API，增加迁移表。
 5. 搜索所有 `VanillaStaticData.blockStates.size`、固定 biome/block 数量和全局 packet registry 使用点，逐一证明保留或迁移。
@@ -726,9 +732,9 @@ Channel/连接原语完成自定义协商；任何需要 internal 方法的步�
 
 ### 官方与 loader interoperability
 
-- official server：status、最终凭证交接后的 Configuration、进入 Play、未知 Play payload。
+- official server：status、身份/API 交接后的 Configuration、进入 Play、未知 Play payload。
 - official headless client：server status、最终验证能力交接后的 Configuration、Play Login 与初始 view。
-- 登录 interoperability 不在本矩阵重复列出，直接采用认证计划的完成证据。
+- 登录 interoperability 不在本矩阵重复列出，直接采用 `protocol-auth` 和 client/server flow 的完成证据。
 - Fabric API、NeoForge、Forge：各自固定 revision 的 client 和 server 两侧；至少覆盖无额外 mod 与一个含自定义 registry/custom
   payload 的固定 mod set。
 - mod fixture 的版本是独立 build input，不从 Minecraft 版本字符串推导，不在正常构建中查询 latest。
@@ -769,9 +775,9 @@ Channel/连接原语完成自定义协商；任何需要 internal 方法的步�
 以下全部成立才算完成：
 
 1. client/server 用户可以直接对标准 typed Channel 做 `for` 和 `send`，没有 handler/listener/intent 前置要求。
-2. 一个外部消费者可以完全不调用本库 `negotiate`，直接消费认证计划产出的最终登录凭证，并从 Handshake 开始手写协商直至进入
+2. 一个外部消费者可以完全不调用本库 `negotiate`，直接消费 `MinecraftIdentity`，并从 Handshake 开始手写协商直至进入
    Play。
-3. 本计划没有重新定义最终登录凭证或登录过程；这些内容只有关联认证计划一个 owner。
+3. 本计划没有重新定义身份、key exchange 或 Session Server API；这些内容只有 `protocol-auth` 一个 owner。
 4. 库的 Vanilla/FabricApi/NeoForge/Forge `negotiate` 只调用相同公开基础 API，并通过手写/preset transcript 等价测试。
 5. `negotiate` 返回前的独占借用规则和用户并发责任写入 KDoc/README；库没有为此引入 actor、callback 或 intent 层。
 6. 未注册顶层 packet、Login query 和 custom payload 都以方向正确、raw bytes 完整的 UnknownPacket 到达 incoming，并可原样发回。
@@ -785,7 +791,7 @@ Channel/连接原语完成自定义协商；任何需要 internal 方法的步�
 
 ## 风险与实施时禁止的捷径
 
-- 不要在本计划新增 credential wrapper 或登录 helper；直接使用关联认证计划的最终公共 contract。
+- 不要在本计划新增 identity wrapper 或认证 helper；直接使用 `protocol-auth` 的现有公共 contract。
 - 不要为了“手写协商”公开通用 `setState`；协议 state 仍由合法 packet transition 驱动。
 - 不要让预制 `negotiate` 继续直接操作 `MinecraftSession`，再声称用户可以“近似”复刻。
 - 不要把 CustomPayload 的 outer packet 继续暴露给普通用户并要求二次 parse；注册 codec 后必须在 Channel 边界提升成自定义

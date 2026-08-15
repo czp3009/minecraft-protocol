@@ -47,6 +47,8 @@ not the correctness of handwritten loaders and consumers.
   report validation, and generated handoff shape through the model workflow; never edit its generated outputs.
 - `protocol-auth` and `protocol-transport` remain ordinary handwritten runtime modules. Route them through the flow
   workflow only when selected-release evidence changes authentication invocation or physical transport behavior.
+  `account-auth` describes external account-service HTTP APIs rather than selected-release packet behavior and is not a
+  release-update domain.
 - Official analyzers, captures, and non-source generators in `buildSrc` are handwritten parts of the existing Gradle
   pipeline and route through vanilla data. Fixture preparation in `buildSrc`, `minecraft-test-support`, and
   `minecraft-test-fixture-host` is test evidence infrastructure; change it only after distinguishing a preparation,

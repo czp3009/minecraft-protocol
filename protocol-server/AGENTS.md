@@ -1,13 +1,16 @@
 # protocol-server
 
 This module owns server-side socket acceptance and protocol orchestration. It negotiates Status or Login, supports
-offline and injected online authentication, synchronizes `ProtocolDataSet`, enters Play, and returns control to the
-application. Initial-world APIs project finite chunks and entity snapshots; gameplay remains outside the module.
+offline and caller-configured online authentication, synchronizes `ProtocolDataSet`, enters Play, and returns control to
+the application. Initial-world APIs project finite chunks and entity snapshots; gameplay remains outside the module.
 
 ## Application boundary
 
 Per-connection state belongs to `MinecraftServerConnection` and `MinecraftServerProtocol`. Application concurrency,
 players, worlds, persistence, and gameplay remain caller-owned.
+
+Online authentication receives a caller-owned `HttpClient` and constructs the stateless `MinecraftSessionApi`
+internally. The caller configures and closes the client; this module owns when `/hasJoined` occurs.
 
 The module does not read `server.properties`. Protocol-visible choices belong in `MinecraftServerConfiguration`, and
 application decisions belong in `MinecraftServerHandler`. Fire-and-forget Configuration traffic uses

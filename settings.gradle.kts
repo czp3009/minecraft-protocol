@@ -24,6 +24,7 @@ include(
     ":protocol-vanilla-data",
     ":protocol-transport",
     ":protocol-session",
+    ":account-auth",
     ":protocol-auth",
     ":protocol-client",
     ":protocol-server",

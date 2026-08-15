@@ -147,6 +147,10 @@ Accept: application/json
 client_id={urlencoded_client_id}&scope=xboxlive.signin%20xboxlive.offline_access&code={urlencoded_authorization_code}&redirect_uri={urlencoded_redirect_uri}&grant_type=authorization_code&code_verifier={urlencoded_code_verifier}
 ```
 
+At the Microsoft token endpoint, `scope` can be omitted and `code_verifier` is required only when the authorization
+request used PKCE. This profile always uses PKCE and sends the Minecraft scopes explicitly, so both fields occur in the
+request above.
+
 The Microsoft token endpoint returns the following successful response:
 
 ```http
@@ -236,9 +240,9 @@ Content-Type: application/json
 }
 ```
 
-`user_code`, `device_code`, `verification_uri`, and `expires_in` are required. `interval` is optional; when absent, the
-active polling interval starts at five seconds. `message` is optional display text and is not parsed as protocol data.
-Adding `expires_in` seconds to the receipt time assigns `device_code_expires_at`.
+`user_code`, `device_code`, `verification_uri`, `expires_in`, `interval`, and `message` are required in the Microsoft
+response. `interval` is the initial polling interval in seconds. `message` is display text and is not parsed as protocol
+data. Adding `expires_in` seconds to the receipt time assigns `device_code_expires_at`.
 
 A failed request returns an OAuth error response:
 
@@ -254,10 +258,10 @@ Content-Type: application/json
 
 #### 1B.2. User verification
 
-Before or while opening the browser, the client displays `user_code` and `verification_uri` to the user. It can also
-display `message` when present. The user must be able to copy the code and URI when automatic browser navigation is
-unavailable. `device_code` is never displayed. After validating that `verification_uri` is an absolute HTTPS URI, the
-client opens it in an external system browser.
+Before or while opening the browser, the client displays `user_code`, `verification_uri`, and `message` to the user. The
+user must be able to copy the code and URI when automatic browser navigation is unavailable. `device_code` is never
+displayed. After validating that `verification_uri` is an absolute HTTPS URI, the client opens it in an external system
+browser.
 
 The user enters `user_code`, authenticates, and grants or denies consent in the service-controlled browser flow. Any
 HTML responses and intermediate redirects belong to that browser flow and are not parsed by the client. No credential is
@@ -309,8 +313,8 @@ wait at least the active interval and apply backoff before polling again. Pollin
 `device_code_expires_at` or on explicit cancellation.
 
 After authorization, the token endpoint returns the successful HTTP token response defined in section 1A.4. The shared
-flow continues with its `access_token`; its optional `refresh_token`, `scope`, and `expires_in` have the same meanings
-as in that section.
+flow continues with its `access_token`; its optional `refresh_token` and `scope`, and its required `expires_in`, have
+the same meanings as in that section.
 
 ## 2. Xbox user authentication
 
@@ -599,7 +603,8 @@ Content-Type: application/json
 ```
 
 `id` is the Java profile UUID encoded as 32 hexadecimal digits without hyphens. `name` is the current Java profile name.
-`skins` and `capes` are required arrays and can be empty. Unknown skin and cape members are ignored.
+`skins` and `capes` are required arrays and can be empty. Every cape `alias` is a required, non-null string. Unknown
+skin and cape members are ignored.
 
 An account without an available Java profile returns:
 
@@ -657,9 +662,10 @@ Accept: application/json
 client_id={urlencoded_client_id}&grant_type=refresh_token&refresh_token={urlencoded_microsoft_refresh_token}&scope=xboxlive.signin%20xboxlive.offline_access
 ```
 
-Do not remove `xboxlive.offline_access` merely because a refresh token is already available. Microsoft returns a new
-`refresh_token` only when the offline-access scope is requested; retaining it here keeps refresh-token rotation
-available for later silent renewals.
+The Microsoft token endpoint permits `scope` to be omitted from a refresh request. This profile sends the Minecraft
+scopes explicitly. Do not remove `xboxlive.offline_access` merely because a refresh token is already available.
+Microsoft returns a new `refresh_token` only when the offline-access scope is requested; retaining it here keeps
+refresh-token rotation available for later silent renewals.
 
 The token endpoint returns the same successful and error HTTP response forms defined in section 1A.4. After a complete
 successful response has been validated, its `access_token` and `expires_in` replace the Microsoft access-token state. A

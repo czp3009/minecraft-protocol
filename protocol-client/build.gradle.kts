@@ -54,6 +54,7 @@ kotlin {
             api(project(":protocol-session"))
             api(project(":protocol-transport"))
             api(project(":protocol-auth"))
+            api(libs.ktor.client.core)
             api(libs.ktor.network)
             api(libs.ktor.utils)
             implementation(project(":protocol-vanilla-data"))

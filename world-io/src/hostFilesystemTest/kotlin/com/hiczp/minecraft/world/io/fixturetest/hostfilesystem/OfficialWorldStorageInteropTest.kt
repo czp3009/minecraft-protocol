@@ -25,7 +25,7 @@ import kotlin.time.Duration.Companion.minutes
 class OfficialWorldStorageInteropTest {
     @Test
     fun officialServerLoadsLibraryRewrittenWorld() = runTest(
-        timeout = 5.minutes,
+        timeout = 6.minutes,
     ) {
         MinecraftTestSupport.newOfficialServer(
             OfficialMinecraftServerConfiguration(

@@ -1,7 +1,7 @@
 package com.hiczp.minecraft.protocol.server
 
+import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.client.MinecraftClientConnection
-import com.hiczp.minecraft.protocol.client.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.Difficulty

@@ -1,9 +1,6 @@
 package com.hiczp.minecraft.protocol.client
 
-import com.hiczp.minecraft.protocol.auth.MinecraftEncryption
-import com.hiczp.minecraft.protocol.auth.MinecraftOnlineAccount
-import com.hiczp.minecraft.protocol.auth.MinecraftSessionService
-import com.hiczp.minecraft.protocol.auth.offlineUuid
+import com.hiczp.minecraft.protocol.auth.*
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.type.GameMode
@@ -32,22 +29,17 @@ class MinecraftClientProtocolFailureTest {
         }
 
         val offline = MinecraftOfflineIdentity("ClientProbe")
-        assertEquals(offlineUuid("ClientProbe"), offline.id)
+        assertEquals(
+            MinecraftOfflineIdentity.minecraftOfflineUuid("ClientProbe"),
+            offline.id,
+        )
 
-        val httpClient = HttpClient(
-            MockEngine { respond("", HttpStatusCode.NoContent) },
-        ) {
-            followRedirects = false
-        }
-        val service = MinecraftSessionService(httpClient)
         val online = onlineIdentity(
             name = "ClientProbe",
             id = Uuid.fromLongs(1, 2),
             accessToken = "secret-token",
-            sessionService = service,
         )
-        assertFalse(online.toString().contains("secret-token"))
-        assertTrue(online.toString().contains("<redacted>"))
+        assertTrue(online.toString().contains("secret-token"))
 
         val cookie = LoginCookieRequestPacket(Identifier("test:cookie"))
         val plugin = LoginPluginRequestPacket(
@@ -67,7 +59,6 @@ class MinecraftClientProtocolFailureTest {
                 CodeOfConductPacket("rules"),
             ),
         )
-        httpClient.close()
     }
 
     @Test
@@ -167,6 +158,32 @@ class MinecraftClientProtocolFailureTest {
                 assertTrue(failure.message.orEmpty().contains("offline identity"))
                 server.await()
             }
+
+            run {
+                val (clientSession, serverSession) = sessionPair()
+                val identity = onlineIdentity(
+                    name = "OnlineProbe",
+                    id = Uuid.fromLongs(1, 2),
+                    accessToken = "token",
+                )
+                val server = async {
+                    serverSession.receive()
+                    serverSession.receive()
+                    serverSession.send(encryptionRequest())
+                }
+                val failure = assertFailsWith<MinecraftClientException> {
+                    MinecraftClientProtocol(
+                        clientSession,
+                        "localhost",
+                        25_565,
+                    ).login(identity)
+                }
+                assertTrue(
+                    failure.message.orEmpty()
+                        .contains("no Session Server HttpClient"),
+                )
+                server.await()
+            }
         }
 
     @Test
@@ -181,14 +198,12 @@ class MinecraftClientProtocolFailureTest {
         ) {
             followRedirects = false
         }
-        val service = MinecraftSessionService(httpClient)
         val identity = onlineIdentity(
             name = "OnlineProbe",
             id = Uuid.fromLongs(1, 2),
             accessToken = "token",
-            sessionService = service,
         )
-        val encryptionContext = MinecraftEncryption.createServerContext()
+        val keyPair = MinecraftServerKeyPair.generate()
         val (clientSession, serverSession) = sessionPair()
         val success = LoginSuccessPacket(
             GameProfile(identity.id, identity.name, emptyList()),
@@ -201,19 +216,15 @@ class MinecraftClientProtocolFailureTest {
                 LoginStartPacket(identity.name, identity.id),
                 serverSession.receive(),
             )
-            val challenge = MinecraftEncryption.createServerChallenge(
-                encryptionContext,
-            )
-            serverSession.send(challenge.request)
+            val challenge = keyPair.createChallenge()
+            serverSession.send(challenge.toEncryptionRequestPacket())
             val response = assertIs<EncryptionResponsePacket>(
                 serverSession.receive(),
             )
-            val secret = MinecraftEncryption.acceptClientResponse(
-                challenge,
-                response,
-            )
+            val secret = challenge.accept(response).sharedSecret
             assertEquals(16, secret.size)
             serverSession.enableEncryption(secret)
+            secret.fill(0)
             serverSession.send(success)
             assertEquals(LoginAcknowledgedPacket, serverSession.receive())
             assertIs<ConfigurationClientInformationPacket>(
@@ -231,7 +242,7 @@ class MinecraftClientProtocolFailureTest {
             clientSession,
             "localhost",
             25_565,
-        ).login(identity)
+        ).login(identity, httpClient)
 
         assertEquals(success, result.login)
         assertEquals(play, result.playLogin)
@@ -252,53 +263,57 @@ class MinecraftClientProtocolFailureTest {
             ) {
                 followRedirects = false
             }
-            val service = MinecraftSessionService(httpClient)
-            val identity = onlineIdentity(
+            val onlineIdentity = onlineIdentity(
                 name = "NoAuthProbe",
                 id = Uuid.fromLongs(1, 2),
                 accessToken = "token",
-                sessionService = service,
             )
-            val encryptionContext = MinecraftEncryption.createServerContext()
-            val (clientSession, serverSession) = sessionPair()
-            val server = async {
-                serverSession.receive()
-                serverSession.receive()
-                val challenge = MinecraftEncryption.createServerChallenge(
-                    context = encryptionContext,
-                    shouldAuthenticate = false,
-                )
-                serverSession.send(challenge.request)
-                val response = assertIs<EncryptionResponsePacket>(
-                    serverSession.receive(),
-                )
-                serverSession.enableEncryption(
-                    MinecraftEncryption.acceptClientResponse(
-                        challenge,
-                        response,
-                    ),
-                )
-                serverSession.send(
-                    LoginSuccessPacket(
-                        GameProfile(identity.id, identity.name, emptyList()),
-                        Uuid.fromLongs(3, 4),
-                    ),
-                )
-                serverSession.receive()
-                serverSession.receive()
-                serverSession.send(FinishConfigurationPacket)
-                serverSession.receive()
-                serverSession.send(playLogin())
+            val offlineIdentity = MinecraftOfflineIdentity("EncryptedProbe")
+
+            suspend fun complete(
+                identity: MinecraftIdentity,
+                sessionHttpClient: HttpClient?,
+            ) {
+                val keyPair = MinecraftServerKeyPair.generate()
+                val (clientSession, serverSession) = sessionPair()
+                val server = async {
+                    serverSession.receive()
+                    serverSession.receive()
+                    val challenge = keyPair.createChallenge(
+                        shouldAuthenticate = false,
+                    )
+                    serverSession.send(challenge.toEncryptionRequestPacket())
+                    val response = assertIs<EncryptionResponsePacket>(
+                        serverSession.receive(),
+                    )
+                    val secret = challenge.accept(response).sharedSecret
+                    serverSession.enableEncryption(secret)
+                    secret.fill(0)
+                    serverSession.send(
+                        LoginSuccessPacket(
+                            GameProfile(identity.id, identity.name, emptyList()),
+                            Uuid.fromLongs(3, 4),
+                        ),
+                    )
+                    serverSession.receive()
+                    serverSession.receive()
+                    serverSession.send(FinishConfigurationPacket)
+                    serverSession.receive()
+                    serverSession.send(playLogin())
+                }
+
+                MinecraftClientProtocol(
+                    clientSession,
+                    "localhost",
+                    25_565,
+                ).login(identity, sessionHttpClient)
+                server.await()
             }
 
-            MinecraftClientProtocol(
-                clientSession,
-                "localhost",
-                25_565,
-            ).login(identity)
+            complete(onlineIdentity, httpClient)
+            complete(offlineIdentity, null)
 
             assertEquals(0, joinRequests)
-            server.await()
             httpClient.close()
         }
 
@@ -655,13 +670,9 @@ class MinecraftClientProtocolFailureTest {
         name: String,
         id: Uuid,
         accessToken: String,
-        sessionService: MinecraftSessionService,
     ): MinecraftOnlineIdentity = MinecraftOnlineIdentity(
-        account = MinecraftOnlineAccount.fromExistingCredentials(
-            name = name,
-            id = id,
-            accessToken = accessToken,
-        ),
-        sessionService = sessionService,
+        name = name,
+        id = id,
+        accessToken = accessToken,
     )
 }

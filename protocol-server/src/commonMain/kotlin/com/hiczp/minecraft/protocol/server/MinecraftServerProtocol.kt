@@ -1,8 +1,6 @@
 package com.hiczp.minecraft.protocol.server
 
-import com.hiczp.minecraft.protocol.auth.MinecraftEncryption
-import com.hiczp.minecraft.protocol.auth.minecraftServerHash
-import com.hiczp.minecraft.protocol.auth.offlineProfile
+import com.hiczp.minecraft.protocol.auth.*
 import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.data.completeRegistryPackets
 import com.hiczp.minecraft.protocol.model.packet.*
@@ -221,31 +219,27 @@ class MinecraftServerProtocol(
     private suspend fun authenticate(start: LoginStartPacket): GameProfile =
         when (val authentication = configuration.authentication) {
             MinecraftServerAuthentication.Offline ->
-                offlineProfile(start.name)
+                MinecraftOfflineIdentity(start.name).toGameProfile()
 
             is MinecraftServerAuthentication.Online -> {
-                val challenge = MinecraftEncryption.createServerChallenge(
-                    context = authentication.encryptionContext,
+                val challenge = authentication.keyPair.createChallenge(
                     shouldAuthenticate = true,
                 )
-                session.send(challenge.request)
+                session.send(challenge.toEncryptionRequestPacket())
                 val response = requirePacket<EncryptionResponsePacket>(
                     session.receive(),
                 )
-                val sharedSecret = MinecraftEncryption.acceptClientResponse(
-                    challenge,
-                    response,
-                )
+                val exchange = challenge.accept(response)
+                val sharedSecret = exchange.sharedSecret
                 try {
                     session.enableEncryption(sharedSecret)
-                    val joined = authentication.sessionService.hasJoined(
-                        username = start.name,
-                        serverHash = minecraftServerHash(
-                            serverId = challenge.request.serverId,
-                            sharedSecret = sharedSecret,
-                            encodedPublicKey = challenge.request.publicKey.toByteArray(),
-                        ),
-                        ipAddress =
+                    val joined = MinecraftSessionApi(
+                        authentication.sessionHttpClient,
+                    ).hasJoined(
+                        MinecraftSessionHasJoinedRequest(
+                            username = start.name,
+                            serverId = exchange.serverHash.value,
+                            ip =
                             if (configuration.preventProxyConnections) {
                                 clientIpAddress ?: throw MinecraftServerException(
                                     "Proxy prevention requires the client IP address",
@@ -253,10 +247,11 @@ class MinecraftServerProtocol(
                             } else {
                                 null
                             },
+                        ),
                     ) ?: throw MinecraftServerException(
                         "Session server did not verify ${start.name}",
                     )
-                    joined.profile
+                    joined.toGameProfile(start.name)
                 } finally {
                     // MinecraftFrameStream copies the key and IV when encryption is enabled.
                     sharedSecret.fill(0)

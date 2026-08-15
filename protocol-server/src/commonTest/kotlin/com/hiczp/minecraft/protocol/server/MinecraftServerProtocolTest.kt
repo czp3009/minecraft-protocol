@@ -2,13 +2,12 @@ package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtInt
-import com.hiczp.minecraft.protocol.auth.MinecraftEncryption
-import com.hiczp.minecraft.protocol.auth.MinecraftOnlineAccount
-import com.hiczp.minecraft.protocol.auth.MinecraftSessionService
-import com.hiczp.minecraft.protocol.auth.toUndashedString
+import com.hiczp.minecraft.protocol.auth.MinecraftClientKeyExchange
+import com.hiczp.minecraft.protocol.auth.MinecraftOnlineIdentity
+import com.hiczp.minecraft.protocol.auth.respond
+import com.hiczp.minecraft.protocol.auth.toEncryptionResponsePacket
 import com.hiczp.minecraft.protocol.client.MinecraftClientLoginResult
 import com.hiczp.minecraft.protocol.client.MinecraftClientProtocol
-import com.hiczp.minecraft.protocol.client.MinecraftOnlineIdentity
 import com.hiczp.minecraft.protocol.data.ProtocolDataSet
 import com.hiczp.minecraft.protocol.data.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
@@ -508,7 +507,6 @@ class MinecraftServerProtocolTest {
             ) {
                 followRedirects = false
             }
-            val clientService = MinecraftSessionService(clientHttpClient)
             var hasJoinedRequests = 0
             val hasJoinedIpAddresses = mutableListOf<String?>()
             val serverHttpClient = HttpClient(
@@ -519,7 +517,7 @@ class MinecraftServerProtocolTest {
                         Json.encodeToString(
                             JsonObject.serializer(),
                             buildJsonObject {
-                                put("id", identityId.toUndashedString())
+                                put("id", identityId.toHexString())
                                 put("properties", buildJsonArray {})
                             },
                         ),
@@ -533,9 +531,8 @@ class MinecraftServerProtocolTest {
             ) {
                 followRedirects = false
             }
-            val serverService = MinecraftSessionService(serverHttpClient)
             val authentication = MinecraftServerAuthentication.online(
-                serverService,
+                serverHttpClient,
             )
             val configuration = MinecraftServerConfiguration(
                 authentication = authentication,
@@ -544,12 +541,9 @@ class MinecraftServerProtocolTest {
                 enforcesSecureChat = true,
             )
             val identity = MinecraftOnlineIdentity(
-                account = MinecraftOnlineAccount.fromExistingCredentials(
-                    name = "OnlineProbe",
-                    id = identityId,
-                    accessToken = "token",
-                ),
-                sessionService = clientService,
+                name = "OnlineProbe",
+                id = identityId,
+                accessToken = "token",
             )
 
             suspend fun completeOnlineLogin(
@@ -569,7 +563,7 @@ class MinecraftServerProtocolTest {
                         client,
                         "localhost",
                         25_565,
-                    ).login(identity)
+                    ).login(identity, clientHttpClient)
                     clientResult to assertIs(serverResult.await())
                 }
 
@@ -609,11 +603,11 @@ class MinecraftServerProtocolTest {
             val request = assertIs<EncryptionRequestPacket>(
                 missingIpClient.receive(),
             )
-            val encryption = MinecraftEncryption.answerServerChallenge(
-                request,
-            )
-            missingIpClient.send(encryption.response)
-            missingIpClient.enableEncryption(encryption.sharedSecret)
+            val encryption = MinecraftClientKeyExchange.respond(request)
+            missingIpClient.send(encryption.toEncryptionResponsePacket())
+            val sharedSecret = encryption.sharedSecret
+            missingIpClient.enableEncryption(sharedSecret)
+            sharedSecret.fill(0)
 
             assertTrue(
                 missingIpResult.await().message.orEmpty()

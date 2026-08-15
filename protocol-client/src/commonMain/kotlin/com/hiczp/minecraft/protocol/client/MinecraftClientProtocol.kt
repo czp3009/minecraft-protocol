@@ -1,13 +1,13 @@
 package com.hiczp.minecraft.protocol.client
 
-import com.hiczp.minecraft.protocol.auth.MinecraftEncryption
-import com.hiczp.minecraft.protocol.auth.minecraftServerHash
+import com.hiczp.minecraft.protocol.auth.*
 import com.hiczp.minecraft.protocol.data.*
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import com.hiczp.minecraft.protocol.session.MinecraftSession
+import io.ktor.client.*
 
 data class MinecraftStatusExchange(
     val response: StatusResponsePacket,
@@ -73,7 +73,8 @@ class MinecraftClientProtocol(
     }
 
     suspend fun login(
-        identity: MinecraftClientIdentity,
+        identity: MinecraftIdentity,
+        sessionHttpClient: HttpClient? = null,
         options: MinecraftClientOptions = MinecraftClientOptions(),
         handler: MinecraftClientHandler = DefaultMinecraftClientHandler,
     ): MinecraftClientLoginResult {
@@ -93,7 +94,11 @@ class MinecraftClientProtocol(
                     )
 
                 is EncryptionRequestPacket ->
-                    answerEncryptionRequest(packet, identity)
+                    answerEncryptionRequest(
+                        packet,
+                        identity,
+                        sessionHttpClient,
+                    )
 
                 is LoginCookieRequestPacket ->
                     session.send(
@@ -270,30 +275,37 @@ class MinecraftClientProtocol(
 
     private suspend fun answerEncryptionRequest(
         request: EncryptionRequestPacket,
-        identity: MinecraftClientIdentity,
+        identity: MinecraftIdentity,
+        sessionHttpClient: HttpClient?,
     ) {
-        if (identity !is MinecraftOnlineIdentity) {
-            throw MinecraftClientException(
-                "Server requested encrypted online Login for an offline identity",
-            )
-        }
-        val encryption = MinecraftEncryption.answerServerChallenge(request)
-        val sharedSecret = encryption.sharedSecret
-        try {
+        val onlineIdentity =
             if (request.shouldAuthenticate) {
-                identity.sessionService.join(
-                    account = identity.account,
-                    serverHash = minecraftServerHash(
-                        serverId = request.serverId,
-                        sharedSecret = sharedSecret,
-                        encodedPublicKey = request.publicKey.toByteArray(),
+                identity as? MinecraftOnlineIdentity
+                    ?: throw MinecraftClientException(
+                        "Server requested online authentication for an offline identity",
+                    )
+            } else {
+                null
+            }
+        val api =
+            if (request.shouldAuthenticate) {
+                MinecraftSessionApi(
+                    sessionHttpClient ?: throw MinecraftClientException(
+                        "Server requested online authentication, but no Session Server HttpClient was supplied",
                     ),
                 )
+            } else {
+                null
             }
-            session.send(encryption.response)
+        val exchange = MinecraftClientKeyExchange.respond(request)
+        if (onlineIdentity != null && api != null) {
+            api.join(onlineIdentity, exchange.serverHash)
+        }
+        session.send(exchange.toEncryptionResponsePacket())
+        val sharedSecret = exchange.sharedSecret
+        try {
             session.enableEncryption(sharedSecret)
         } finally {
-            // MinecraftFrameStream copies the key and IV when encryption is enabled.
             sharedSecret.fill(0)
         }
     }

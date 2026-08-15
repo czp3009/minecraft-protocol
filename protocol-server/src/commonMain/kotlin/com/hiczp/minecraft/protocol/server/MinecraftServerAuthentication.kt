@@ -1,23 +1,22 @@
 package com.hiczp.minecraft.protocol.server
 
-import com.hiczp.minecraft.protocol.auth.MinecraftEncryption
-import com.hiczp.minecraft.protocol.auth.MinecraftServerEncryptionContext
-import com.hiczp.minecraft.protocol.auth.MinecraftSessionService
+import com.hiczp.minecraft.protocol.auth.MinecraftServerKeyPair
+import io.ktor.client.*
 
 sealed interface MinecraftServerAuthentication {
     data object Offline : MinecraftServerAuthentication
 
-    class Online internal constructor(
-        val sessionService: MinecraftSessionService,
-        internal val encryptionContext: MinecraftServerEncryptionContext,
+    data class Online(
+        val sessionHttpClient: HttpClient,
+        val keyPair: MinecraftServerKeyPair,
     ) : MinecraftServerAuthentication
 
     companion object {
         suspend fun online(
-            sessionService: MinecraftSessionService,
+            sessionHttpClient: HttpClient,
         ): Online = Online(
-            sessionService = sessionService,
-            encryptionContext = MinecraftEncryption.createServerContext(),
+            sessionHttpClient = sessionHttpClient,
+            keyPair = MinecraftServerKeyPair.generate(),
         )
     }
 }

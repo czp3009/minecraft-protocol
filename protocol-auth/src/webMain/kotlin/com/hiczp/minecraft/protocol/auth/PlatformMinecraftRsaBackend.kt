@@ -1,10 +1,11 @@
 @file:OptIn(
     ExperimentalUnsignedTypes::class,
-    kotlin.js.ExperimentalWasmJsInterop::class,
+    ExperimentalWasmJsInterop::class,
 )
 
 package com.hiczp.minecraft.protocol.auth
 
+import dev.whyoleg.cryptography.random.CryptographyRandom
 import kotlinx.coroutines.yield
 import org.khronos.webgl.Uint8Array
 import org.khronos.webgl.toUByteArray
@@ -81,7 +82,7 @@ private suspend fun generateForgeRsaKeyPair(
 
 private fun requireStrongWebRandom() {
     // cryptography-random fails instead of falling back when globalThis.crypto.getRandomValues is unavailable.
-    secureRandomBytes(1).fill(0)
+    CryptographyRandom.nextBytes(1).fill(0)
     forgeOptions.usePureJavaScript = true
 }
 

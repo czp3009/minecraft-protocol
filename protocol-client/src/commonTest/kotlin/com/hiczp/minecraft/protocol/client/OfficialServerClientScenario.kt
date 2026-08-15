@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.protocol.client
 
+import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.data.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.ConfigurationUpdateTagsPacket
