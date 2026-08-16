@@ -3,183 +3,144 @@
 > This is an early-stage experimental project. It is not ready for production use.
 
 `minecraft-protocol` is a Kotlin Multiplatform library for the Minecraft Java Edition network protocol and world-storage
-formats. It provides typed packet models, `kotlinx.serialization` codecs, Ktor transport and connection orchestration,
-authentication helpers, version-matched vanilla Configuration data, binary NBT, and Anvil world I/O.
+formats. It provides typed packet models, `kotlinx.serialization` wire codecs, Ktor transport and connection
+orchestration, authentication helpers, version-matched vanilla data, binary NBT, and Anvil world I/O.
 
-The selected Minecraft release and protocol number are exposed by `MinecraftProtocol`. This repository contains
-infrastructure for Minecraft applications, not a complete game server: gameplay, authoritative worlds, ticking,
+The library is infrastructure for Minecraft applications, not a complete game: gameplay, authoritative worlds, ticking,
 persistence policy, permissions, and operations remain application responsibilities.
 
 ## Modules
-
-Depend on the narrowest module that provides the required API. Higher layers expose their lower-layer API dependencies
-transitively where needed.
 
 | Module                                                       | Purpose                                                                           |
 |--------------------------------------------------------------|-----------------------------------------------------------------------------------|
 | [`nbt`](nbt/README.md)                                       | Format-independent NBT values and logical serializers                             |
 | [`nbt-serialization`](nbt-serialization/README.md)           | Binary NBT and NBT tree conversion through `kotlinx.serialization`                |
 | [`protocol-model`](protocol-model/README.md)                 | Format-independent packet payloads and shared protocol values                     |
-| [`protocol-serialization`](protocol-serialization/README.md) | Minecraft wire encodings and immutable composable packet registries               |
+| [`protocol-serialization`](protocol-serialization/README.md) | Minecraft wire encodings and composable packet registries                         |
 | [`protocol-vanilla-data`](protocol-vanilla-data/README.md)   | Version-matched Known Packs, registries, tags, and vanilla catalogues             |
 | [`protocol-transport`](protocol-transport/README.md)         | Ktor sockets, framing, compression, and encryption                                |
-| [`protocol-session`](protocol-session/README.md)             | Channel-first connections, state transitions, and optional loader profiles        |
+| [`protocol-session`](protocol-session/README.md)             | Typed connections, state transitions, and loader profiles                         |
 | [`account-auth`](account-auth/README.md)                     | Microsoft OAuth, Xbox, and Minecraft Services token/entitlement/profile HTTP APIs |
-| [`protocol-auth`](protocol-auth/README.md)                   | Game identities, Session Server HTTP, hashes, and Login key exchange              |
+| [`protocol-auth`](protocol-auth/README.md)                   | Game identities, Session Server HTTP, and Login key exchange                      |
 | [`protocol-client`](protocol-client/README.md)               | Status, Login, Configuration, and a Play-ready client connection                  |
 | [`protocol-server`](protocol-server/README.md)               | Connection admission and finite initial chunk/entity projection                   |
 | [`world-format`](world-format/README.md)                     | Filesystem-independent Anvil containers and chunk NBT composition                 |
 | [`world-io`](world-io/README.md)                             | World paths and filesystem-backed NBT and region stores                           |
 
-`protocol-symbol-processor`, `minecraft-test-support`, and `minecraft-test-fixture-host` are private build or test
-infrastructure and are not application dependencies.
+The project is fully modular: depend on exactly the modules you need. Higher layers reuse the lower layers their APIs
+require, so a focused consumer never pulls in unrelated capabilities.
 
-## Requirements
+## Highlights
 
-- A JDK with Java major version 25 or newer and `java` on `PATH`.
-- An Android SDK configured through the standard Gradle mechanisms when running Android or the complete multiplatform
-  test suite.
-- Network access for the first build or exhaustive test run so Gradle can download dependencies and exact-version
-  official Minecraft fixtures.
+- Channel-first typed packet connections over standard coroutine channels.
+- Immutable, composable packet registries for vanilla and modded protocols, with preset Fabric, NeoForge, and Forge
+  negotiation profiles.
+- Offline and online Login with Session Server calls and Login key exchange; Microsoft OAuth and Xbox account HTTP APIs
+  are available separately.
+- Binary NBT and filesystem-independent Anvil containers, plus Okio-based world I/O that reads, mutates, and live-reads
+  real worlds—including worlds owned by the official server.
 
-Use the checked-in Gradle wrapper; a separate Gradle installation is unnecessary. Gradle provisions Node, D8, Yarn, and
-Kotlin Native tooling for configured non-JVM targets. Browser drivers, an installed Minecraft launcher, an account, and
-a display server are not test prerequisites.
+Together these blocks cover applications such as:
 
-## Using the library from this checkout
+- map editors that read, render, and rewrite Anvil worlds directly, including worlds owned by a running official server;
+- Minecraft launchers, combining Microsoft/Xbox account authentication with server sessions;
+- clients and servers built entirely on this library's protocol implementation, without depending on official Minecraft
+  code.
 
-The project does not publish a stable binary release. Source integrations use Gradle project dependencies, for example:
+Unknown top-level packet IDs, Login queries, and custom-payload routes stay lossless as direction-correct
+`UnknownPacket` values; malformed wire data and invalid packet order propagate instead of being swallowed.
+
+## Client example
+
+Query a server's Status response:
 
 ```kotlin
-kotlin {
-    sourceSets {
-        commonMain.dependencies {
-            implementation(project(":protocol-client"))
-        }
+SelectorManager(Dispatchers.Default).use { selector ->
+  MinecraftClientConnection.connect(
+    selectorManager = selector,
+    host = "127.0.0.1",
+  ).use { connection ->
+    val status = connection.queryStatus()
     }
 }
 ```
 
-Packet payloads can be encoded and decoded directly through caller-owned streams. `MinecraftPacketRegistry` is the
-version-matched vanilla base; compose a connection-specific immutable registry when an application or mod adds packet
-routes:
+Or log in and enter Play, then take over the packet loop:
 
 ```kotlin
-val packetRegistry = MinecraftPacketRegistry.compose(myExtensionCodecs)
-val encoding = packetRegistry.encodePayloadToSink(packet, payloadSink)
-val decoded = packetRegistry.decodePayloadFromSource(
-    state = encoding.key.state,
-    direction = encoding.key.direction,
-    id = encoding.key.id,
-    source = payloadSource,
-    byteCount = payloadByteCount,
-)
+val result = connection.negotiate(MinecraftOfflineIdentity("Player"))
+for (packet in connection.incoming) {
+  handlePlayPacket(packet)
+}
 ```
 
-Byte-array operations are adapters over those paths:
+## Server example
 
 ```kotlin
-val encoded = packetRegistry.encodePayload(packet)
-
-val decoded = packetRegistry.decodePayload(
-    state = encoded.key.state,
-    direction = encoded.key.direction,
-    id = encoded.key.id,
-    payload = encoded.payload,
-)
+MinecraftServer.bind(selectorManager = selector).use { server ->
+  while (server.isOpen) {
+    val connection = server.accept()
+    launch {
+      connection.use {
+        when (val result = connection.negotiate()) {
+          MinecraftServerNegotiationResult.StatusCompleted -> Unit
+          is MinecraftServerNegotiationResult.PlayReady -> {
+            for (packet in connection.incoming) {
+              handlePlayPacket(connection, packet)
+            }
+          }
+        }
+      }
+    }
+  }
+}
 ```
-
-Use a configured `MinecraftProtocolFormat` when physical encoding depends on a negotiated `ProtocolRegistryContext`,
-including dynamic block-state/biome palette sizes and the active dimension's chunk-section count.
-
-Client and server connections expose direction-limited standard coroutine channels. Preset negotiation is an ordinary
-extension function that temporarily borrows those channels; applications can instead implement every packet exchange
-themselves. Fabric API, NeoForge, and Forge packet codecs and profile examples live in `protocol-session` under separate
-packages rather than separate artifacts. The caller may construct immutable packet/registry/profile definitions once and
-share those references across server connections.
-
-Unknown top-level IDs, Login queries, and custom-payload routes remain lossless direction-correct `UnknownPacket`
-values. Malformed framing, known-codec failures, and invalid packet order propagate; the library neither swallows them
-nor sends an error response automatically.
-
-The module guides contain the corresponding entry points and examples:
-
-- [`protocol-client`](protocol-client/README.md) connects to Status or Login and returns a live Play session.
-- [`protocol-server`](protocol-server/README.md) binds a Ktor server socket and maps application policy into options,
-  negotiation policy, and packet channels.
-- [`nbt`](nbt/README.md) provides format-independent NBT values;
-  [`nbt-serialization`](nbt-serialization/README.md) maps serializers to NBT trees and reads or writes binary NBT.
-- [`world-format`](world-format/README.md) handles in-memory Anvil containers through `kotlinx.io` streams;
-  [`world-io`](world-io/README.md) adds Okio-only filesystem access and world paths. Their READMEs define the public
-  exception boundary for each layer.
-
-Most model, serialization, and stream APIs target common Kotlin. Socket APIs run where the configured Ktor engine
-exposes TCP. `world-io` targets Okio system filesystems on JVM, Android, Native, and Kotlin/JS Node; browser and Wasm
-consumers use `nbt`, `nbt-serialization`, and `world-format` through trees, streams, or byte arrays.
 
 ## Building and testing
 
-Use a focused JVM suite during normal development:
+Requirements:
+
+- A JDK with `java` on `PATH`; the required Java major version is fixed by the Gradle toolchain.
+- An Android SDK configured through the standard Gradle mechanisms, only when building or testing Android targets.
+- Network access for the first build so Gradle can download dependencies; tests that verify against official Minecraft
+  peers additionally download exact-version fixtures.
+
+Use the checked-in Gradle wrapper; a separate Gradle installation is unnecessary. Gradle provisions Node and the other
+non-JVM toolchains automatically.
 
 ```shell
+# Assemble everything
+./gradlew build
+
+# Focused feedback loop during development
 ./gradlew :protocol-serialization:jvmTest
-```
 
-Run the pure JVM Fixture Host suite and every KMP JVM suite together with:
+# Every module's JVM suite
+./gradlew jvmTest
 
-```shell
-./gradlew :minecraft-test-fixture-host:test jvmTest
-```
-
-Run every configured Kotlin Multiplatform test aggregate with:
-
-```shell
+# All configured multiplatform tests
 ./gradlew allTests
 ```
 
-On Windows, replace `./gradlew` with `.\gradlew.bat`. The root project does not define a replacement `test` task.
+On Windows, replace `./gradlew` with `.\gradlew.bat`.
 
-Applicable standard test tasks cover portable unit tests, real Ktor sockets, official-codec differentials, a production
-client against the matching official server, a matching Mojang client controlled by HMC-Specifics against the production
-server, and an official world generate/rewrite/reload cycle. Gradle prepares all exact-version resources before launch,
-starts each assembled server and HeadlessMC/Fabric/HMC-Specifics client once to publish a clean stopped template, and
-starts the shared JVM Fixture Host only when a test requests it. Default configurations clone those templates
-automatically; non-default configurations start from the prepared runtime without seeded world or client state.
-Immutable fixture inputs are never launched in place. Where supported, workspace assembly uses one directory symbolic
-link for the complete read-only client Minecraft runtime and one for the official-server libraries. It falls back to
-per-file hard links or copies, and uses that same per-file strategy for other immutable runtime files, the HeadlessMC
-launcher, HMC-Specifics, and Fabric's processed-mod cache. Mutable template state remains a private copy, and cleanup
-never follows workspace directory links. Runtime HeadlessMC launches do not download resources.
+## Minecraft release
 
-Gradle outputs remain under `build/`; Fixture Host processes, worlds, and scratch workspaces are removed after use, and
-successful tests do not create standalone report files. A test-local filesystem sandbox uses the system temporary
-directory and is removed by the test client. Compatible E2E phases reuse one process handle owned by their annotated
-test scenario and close it with structured cleanup. The Host admits at most eight concurrent fixture processes and
-performs graceful shutdown, followed by forced termination and workspace cleanup when the build ends. Unchanged
-preparation is reused by Gradle.
+The repository aligns to one Minecraft release at a time. In code, the matching release and protocol number are exposed
+by `MinecraftProtocol`:
 
-## Minecraft release and generated data
+```kotlin
+val release = MinecraftProtocol.MINECRAFT_VERSION
+val protocolVersion = MinecraftProtocol.PROTOCOL_VERSION
+```
 
-[
-`MinecraftTarget.MINECRAFT_VERSION`](buildSrc/src/main/kotlin/com/hiczp/minecraft/buildlogic/MinecraftTarget.kt)
-is the single manually selected Minecraft release. Print it with:
+Print the currently selected release from the command line:
 
 ```shell
 ./gradlew -q minecraftVersion
 ```
 
-To change the target, update that constant and run the affected standard build or test tasks. The complete official
-analysis layer is also available directly:
+Changing the target is a single-constant change in the build configuration, followed by the affected build or test
+tasks.
 
-```shell
-./gradlew officialMinecraftAnalysis
-```
-
-Gradle downloads the matching official server, writes deterministic analysis below
-`build/generated/official-minecraft/<version>/`, and generates version-dependent Kotlin in the owning modules' build
-directories. Downloads rely on HTTP completion rather than a second content-hash or expected-size pass. Generated Kotlin
-and target evidence are not checked into the source tree.
-
-The matching official server JAR is the primary behavioral authority. The revision-matched Minecraft Wiki is secondary,
-followed by exact-version MCProtocolLib and Minestom. See [AGENTS.md](AGENTS.md) for repository development rules and
-module ownership.
+See each module's README for its API and examples.

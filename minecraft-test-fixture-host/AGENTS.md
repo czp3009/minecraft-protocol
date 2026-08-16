@@ -1,7 +1,7 @@
 # minecraft-test-fixture-host
 
 This private JVM module owns everything behind the remote fixture boundary: official artifact paths, external processes,
-the eight-slot pool, unique workspaces, bounded logs, readiness probes, codec execution, the working-directory backdoor,
+the four-slot pool, unique workspaces, bounded logs, readiness probes, codec execution, the working-directory backdoor,
 and final cleanup.
 
 ## Lifecycle

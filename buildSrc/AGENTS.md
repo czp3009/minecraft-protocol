@@ -55,8 +55,8 @@ cacheable generation from non-source inputs, immutable fixture templates, and th
   directories use Gradle Sync so stale destination files are removed automatically.
 - Root analysis is the only build-task layer that inspects the official server JAR. The declared server-template
   producer may execute it without inspection; data-to-source tasks consume analysis JSON rather than the JAR.
-- Kotlin generation uses KotlinPoet and Java generation uses JavaPoet. Generated output stays in the owning module's
-  build directory.
+- Kotlin generation uses KotlinPoet; any Java generation would use JavaPoet. Generated output stays in the owning
+  module's build directory.
 - Gradle task code logs through Gradle's logger and reports actionable validation errors. It does not use
   kotlin-logging, success `println`, or ad hoc process output as a result format.
 - `JvmProcessArguments` owns JVM flags shared by affected module test conventions and build logic. JVM tests in modules

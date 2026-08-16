@@ -27,8 +27,9 @@ invokes them. Launcher-side Microsoft/Xbox/Minecraft Services calls belong to in
 the connection lifecycle.
 
 Keep `protocol-auth` direct APIs on Kotlin standard types and module-owned serializable request/response models. Its
-`protocol-model` profile and Login packet adapters are optional `compileOnly` extensions; client/server orchestration
-may use them because those modules already supply `protocol-model`, but direct authentication paths never invoke them.
+`protocol-model` profile and Login packet adapters are optional extensions, `compileOnly` on JVM and Android and `api`
+on Native and web where Kotlin multiplatform cannot express `compileOnly`. Client/server orchestration may use them
+because those modules already supply `protocol-model`, but direct authentication paths never invoke them.
 
 Apply state transitions and compression/encryption activation only at the official wire boundary and only after the
 triggering read or write completes successfully. Reject unexpected direction, state, duplicate data, invalid peer

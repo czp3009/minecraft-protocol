@@ -6,17 +6,14 @@ The module provides:
 
 - packet marker interfaces grouped by connection state and direction;
 - structured values for items, chunks, chat, commands, entities, registries, recipes, and other packet fields;
-- an API dependency on the standalone `nbt` value algebra for packet fields that carry raw NBT;
 - sealed variants and logical `kotlinx.serialization` serializers for conditional protocol shapes;
 - open direction-specific packet extension branches plus lossless `PacketRoute`/`UnknownPacket` values;
 - immutable static, remote, and resolved registry models for dynamic block-state and registry IDs;
-- wire-hint annotations interpreted by `protocol-serialization`.
+- wire-hint annotations interpreted by [`protocol-serialization`](../protocol-serialization/README.md).
 
-Models contain values and invariants. Binary byte layout is supplied by a `kotlinx.serialization` format such as
-`MinecraftProtocolFormat`.
-
-For example, a Status handshake and request are ordinary format-independent model values; this module does not encode or
-send them:
+Models contain values and invariants; binary byte layout is supplied by a `kotlinx.serialization` format such as
+`MinecraftProtocolFormat`. For example, a Status handshake and request are ordinary model values—this module does not
+encode or send them:
 
 ```kotlin
 val handshake: ServerboundPacket = HandshakePacket(

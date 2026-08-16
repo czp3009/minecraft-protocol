@@ -1,22 +1,17 @@
 # protocol-auth
 
-`protocol-auth` contains the authentication capabilities used by a Minecraft game client or server during connection
-setup:
+Authentication capabilities used by a Minecraft game client or server during connection setup:
 
 - sealed online and offline identities;
 - Minecraft Session Server `/join` and `/hasJoined` calls;
 - the signed SHA-1 server hash;
 - Minecraft Login RSA challenge/response and shared-secret generation.
 
-It does not perform Microsoft OAuth, Xbox authentication, or Minecraft Services account login; those independent HTTP
-APIs live in [`account-auth`](../account-auth/README.md). Neither module depends on the other.
-
-The shared secret produced here is only key material. `protocol-transport` performs continuous AES-128/CFB8 stream
-encryption, while `protocol-session`, `protocol-client`, and `protocol-server` apply it at the correct wire boundary.
-
-The direct API uses Kotlin standard types and models owned by `protocol-auth`; it does not require `protocol-model`.
-When callers also supply `protocol-model`, optional extensions adapt identities and Session profiles to `GameProfile`
-and adapt Login encryption packets to the byte-oriented key-exchange API. `protocol-model` is not added transitively.
+Microsoft OAuth, Xbox authentication, and Minecraft Services account login are independent HTTP APIs in
+[`account-auth`](../account-auth/README.md); neither module depends on the other. The shared secret produced here is
+only key material—[`protocol-transport`](../protocol-transport/README.md) performs the continuous stream encryption and
+the connection modules apply it at the correct wire boundary. Optional extensions adapt identities and Session profiles
+to `protocol-model` types when that module is also on the classpath.
 
 ## Identities
 
@@ -45,9 +40,7 @@ Identity types are ordinary data classes. Credential logging and storage are cal
 ## Minecraft Session Server
 
 `MinecraftSessionApi` is stateless apart from its reference to a caller-owned `HttpClient`. It does not install an
-engine, alter client configuration, close the client, retry, or refresh credentials.
-
-The low-level methods accept the serializable endpoint models directly:
+engine, alter client configuration, close the client, retry, or refresh credentials:
 
 ```kotlin
 val sessions = MinecraftSessionApi(applicationHttpClient)
@@ -69,20 +62,15 @@ val joined = sessions.hasJoined(
 )
 ```
 
-An extension connects the online identity model to the low-level client endpoint:
+An extension connects the online identity model to the low-level endpoint:
 
 ```kotlin
 sessions.join(onlineIdentity, serverHash)
 ```
 
-`hasJoined` returns `null` for the documented `204 No Content` unverified-player response and otherwise decodes
-`MinecraftSessionHasJoinedResponse` directly. Other HTTP failures throw `MinecraftSessionResponseException`, a Ktor
-`ResponseException`; `responseBody` contains the raw body and `parsedErrorBody` contains the decoded
-`MinecraftSessionErrorResponse`. Successful and error response decoding failures, transport failures, timeouts,
-cancellation, and caller-plugin failures propagate unchanged.
-
-The wire response preserves nullable `properties` and `profileActions`. The optional `toGameProfile(username)` extension
-converts it to `protocol-model`, treating absent properties as an empty profile property list.
+`hasJoined` returns `null` for the documented `204 No Content` unverified-player response and otherwise decodes the
+profile response directly. Other HTTP failures throw `MinecraftSessionResponseException`, which exposes the raw body and
+the decoded service error.
 
 ## Login key exchange
 
@@ -126,16 +114,6 @@ try {
 }
 ```
 
-Instead of generating a key pair, callers may construct `MinecraftServerKeyPair` from a DER-encoded X.509
-SubjectPublicKeyInfo public key and PKCS#8 private key.
-
-The server key-pair object is intentionally opaque rather than a data class because it owns non-public private-key
-material. Response/result models are data classes. Without `protocol-model`, call
-`MinecraftClientKeyExchange.respond(serverId, encodedPublicKey, verifyToken)` and
-`challenge.accept(encryptedSharedSecret, encryptedVerifyToken)` directly.
-
-## Platforms
-
-Identity, hash, Session Server, and Login key-exchange APIs are available on JVM, Android, supported Native, Kotlin/JS
-Node/browser, and Kotlin/WasmJS Node/browser targets. Actual RSA providers remain internal to the module. Socket-owning
-client and server modules publish only their networking-capable target subsets.
+Instead of generating a key pair, callers may construct `MinecraftServerKeyPair` from DER-encoded public and private
+keys. The server key-pair object is intentionally opaque because it owns private-key material; response and result
+models are data classes.

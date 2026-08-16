@@ -17,9 +17,10 @@ account credentials. Run `:protocol-auth:jvmTest` after changes.
 
 Direct identity, Session Server, hash, and key-exchange APIs use Kotlin standard types or models owned by this module.
 Convenience extensions may adapt `protocol-model` profiles and Login packets in the same source files; that dependency
-is deliberately `compileOnly`, is never invoked by a direct API path, and must be supplied by callers that use those
-extensions. Exercise both the direct byte/wire-model path and the adapters in module and downstream tests; this
-established optional-linkage pattern does not require a separate external-consumer project.
+is deliberately `compileOnly` in common and JVM/Android source sets (Native and web re-declare it as `api` because
+Kotlin multiplatform does not support `compileOnly` there), is never invoked by a direct API path, and must be supplied
+by callers that use those extensions. Exercise both the direct byte/wire-model path and the adapters in module and
+downstream tests; this established optional-linkage pattern does not require a separate external-consumer project.
 
 Session Server request, success-response, and error-response wire models are public `@Serializable` data classes named
 `*Request` and `*Response`; nested JSON objects are nested classes of their owning response. Serialize and deserialize
