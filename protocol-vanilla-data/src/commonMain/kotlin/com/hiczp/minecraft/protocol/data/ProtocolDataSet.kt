@@ -4,6 +4,8 @@ import com.hiczp.minecraft.protocol.model.packet.ConfigurationUpdateTagsPacket
 import com.hiczp.minecraft.protocol.model.packet.FeatureFlagsPacket
 import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
 import com.hiczp.minecraft.protocol.model.type.KnownPack
+import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
+import com.hiczp.minecraft.protocol.model.type.StaticRegistrySchema
 
 /**
  * Version-bound protocol data needed to configure a vanilla client.
@@ -18,6 +20,10 @@ interface ProtocolDataSet {
     val knownPacks: List<KnownPack>
     val featureFlags: FeatureFlagsPacket
     val tags: ConfigurationUpdateTagsPacket
+    val staticRegistries: StaticRegistrySchema
+
+    /** Complete default ID context, including Configuration-synchronized registries. */
+    val registryContext: ProtocolRegistryContext
 
     /**
      * Returns the synchronized registry packets for a client's Known Packs

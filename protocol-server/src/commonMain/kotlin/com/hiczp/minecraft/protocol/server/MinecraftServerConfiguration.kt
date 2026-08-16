@@ -18,9 +18,7 @@ import kotlinx.serialization.json.put
 import kotlin.random.Random
 import kotlin.uuid.Uuid
 
-data class MinecraftServerConfiguration(
-    val authentication: MinecraftServerAuthentication =
-        MinecraftServerAuthentication.Offline,
+data class MinecraftServerNegotiationOptions(
     val protocolData: ProtocolDataSet = VanillaProtocolData,
     val compressionThreshold: Int? = 256,
     val sessionId: Uuid = Uuid.fromLongs(
@@ -57,15 +55,16 @@ data class MinecraftServerConfiguration(
         require(protocolData.protocolVersion == MinecraftProtocol.PROTOCOL_VERSION)
     }
 
-    val effectiveSecureChatEnforcement: Boolean
-        get() =
-            enforcesSecureChat &&
-                    authentication is MinecraftServerAuthentication.Online
+    fun effectiveSecureChatEnforcement(onlineMode: Boolean): Boolean =
+        onlineMode && enforcesSecureChat
 
     /** In-memory adapter over [statusJsonToSink]. */
-    fun statusJson(onlinePlayers: Int = 0): String {
+    fun statusJson(
+        onlinePlayers: Int = 0,
+        onlineMode: Boolean = false,
+    ): String {
         val sink = Buffer()
-        statusJsonToSink(onlinePlayers, sink)
+        statusJsonToSink(sink, onlinePlayers, onlineMode)
         return sink.readString()
     }
 
@@ -75,8 +74,9 @@ data class MinecraftServerConfiguration(
      */
     @OptIn(ExperimentalSerializationApi::class)
     fun statusJsonToSink(
-        onlinePlayers: Int = 0,
         sink: Sink,
+        onlinePlayers: Int = 0,
+        onlineMode: Boolean = false,
     ) {
         require(onlinePlayers >= 0) { "Online player count cannot be negative" }
         serverJson.encodeToSink(
@@ -91,13 +91,17 @@ data class MinecraftServerConfiguration(
                     onlinePlayers,
                 ),
                 description = ServerStatusDescription(statusDescription),
-                enforcesSecureChat = effectiveSecureChatEnforcement,
+                enforcesSecureChat =
+                    effectiveSecureChatEnforcement(onlineMode),
             ),
             sink,
         )
     }
 
-    fun playLogin(profile: GameProfile): PlayLoginPacket {
+    fun playLogin(
+        profile: GameProfile,
+        onlineMode: Boolean,
+    ): PlayLoginPacket {
         val dimension = Identifier("overworld")
         val dimensionLayout = MinecraftDimensionLayout.from(
             protocolData,
@@ -125,8 +129,8 @@ data class MinecraftServerConfiguration(
                 portalCooldown = 0,
                 seaLevel = 63,
             ),
-            onlineMode = authentication is MinecraftServerAuthentication.Online,
-            enforcesSecureChat = effectiveSecureChatEnforcement,
+            onlineMode = onlineMode,
+            enforcesSecureChat = effectiveSecureChatEnforcement(onlineMode),
         )
     }
 

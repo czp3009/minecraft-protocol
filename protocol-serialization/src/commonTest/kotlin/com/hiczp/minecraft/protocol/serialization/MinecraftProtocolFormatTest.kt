@@ -3,6 +3,7 @@ package com.hiczp.minecraft.protocol.serialization
 import com.hiczp.minecraft.nbt.*
 import com.hiczp.minecraft.nbt.serialization.NbtDecodingException
 import com.hiczp.minecraft.protocol.model.type.ByteString
+import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
 import com.hiczp.minecraft.protocol.model.type.Vector3d
 import com.hiczp.minecraft.protocol.model.wire.*
 import kotlinx.io.Buffer
@@ -59,7 +60,7 @@ class MinecraftProtocolFormatTest {
 
         val configuration = MinecraftProtocolFormatConfiguration(
             strictBooleans = false,
-            chunkSectionCount = 24,
+            registries = testRegistryContext(chunkSectionCount = 24),
         )
         val configured = MinecraftProtocolFormat(configuration)
 
@@ -333,13 +334,20 @@ class MinecraftProtocolFormatTest {
             MinecraftProtocolFormatConfiguration(maximumNbtDepth = -1)
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftProtocolFormatConfiguration(chunkSectionCount = -1)
+            ProtocolRegistryContext(
+                registries = emptyList(),
+                blockStates = emptyList(),
+                chunkSectionCount = -1,
+            )
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftProtocolFormatConfiguration(blockStateRegistrySize = 0)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            MinecraftProtocolFormatConfiguration(biomeRegistrySize = 0)
+            ProtocolRegistryContext(
+                registries = emptyList(),
+                blockStates = emptyList(),
+                registrySizeOverrides = mapOf(
+                    ProtocolRegistryContext.BIOME_REGISTRY to 0,
+                ),
+            )
         }
 
         assertFailsWith<MinecraftSerializationException> {

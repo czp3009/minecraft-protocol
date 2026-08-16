@@ -11,6 +11,10 @@ as `NetworkNbt` remain here; NBT tag declarations and binary grammar do not.
 - `model.type` contains reusable values and sealed logical variants.
 - `model.wire` contains declarative hints interpreted by physical formats.
 
+Application packet types implement the open direction-specific extension branches. `PacketRoute` and `UnknownPacket`
+remain format-independent and lossless. Static, remote, and resolved registry models are immutable snapshots; derived
+contexts retain their large registry and block-state collections by reference.
+
 Models remain valid in common Kotlin source sets, contain no buffers or I/O, and enforce intrinsic value invariants in
 constructors. Presence and discriminator rules stay with the corresponding model through Kotlin types, annotations, or
 logical serializers.

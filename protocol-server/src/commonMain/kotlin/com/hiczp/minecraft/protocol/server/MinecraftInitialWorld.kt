@@ -1,9 +1,8 @@
 package com.hiczp.minecraft.protocol.server
 
-import com.hiczp.minecraft.protocol.data.*
+import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
-import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import kotlin.math.floor
 import com.hiczp.minecraft.protocol.model.type.GameMode as PlayerGameMode
 
@@ -37,10 +36,10 @@ data class MinecraftInitialWorld(
         }
         require(
             viewDistance in
-                    MinecraftServerConfiguration.MIN_VIEW_DISTANCE..
-                    MinecraftServerConfiguration.MAX_VIEW_DISTANCE,
+                    MinecraftServerNegotiationOptions.MIN_VIEW_DISTANCE..
+                    MinecraftServerNegotiationOptions.MAX_VIEW_DISTANCE,
         ) {
-            "View distance must be in ${MinecraftServerConfiguration.MIN_VIEW_DISTANCE}..${MinecraftServerConfiguration.MAX_VIEW_DISTANCE}"
+            "View distance must be in ${MinecraftServerNegotiationOptions.MIN_VIEW_DISTANCE}..${MinecraftServerNegotiationOptions.MAX_VIEW_DISTANCE}"
         }
         require(simulationDistance >= 0)
         require(teleportId >= 0)
@@ -73,28 +72,22 @@ data class MinecraftInitialWorld(
          * chunk. The radius is measured in chunks.
          */
         fun flatVanilla(
-            configuration: MinecraftServerConfiguration,
+            options: MinecraftServerNegotiationOptions,
             dimension: Identifier = Identifier("overworld"),
             groundY: Int = 64,
             spawnPosition: Vector3d =
                 Vector3d(0.5, groundY + 1.0, 0.5),
-            chunkRadius: Int = configuration.viewDistance,
+            chunkRadius: Int = options.viewDistance,
             surfaceBlock: Identifier = Identifier("grass_block"),
             biome: Identifier = Identifier("plains"),
             entities: List<MinecraftEntitySnapshot> = emptyList(),
         ): MinecraftInitialWorld {
             require(chunkRadius >= 0)
             val dimensionType = MinecraftDimensionLayout.from(
-                configuration.protocolData,
+                options.protocolData,
                 dimension,
             )
-            val surfaceBlockStateId = VanillaStaticData.blockStates
-                .default(surfaceBlock)
-                .id
-            val biomeId = configuration.protocolData.registryId(
-                BIOME_REGISTRY,
-                biome,
-            ) ?: error("$biome is absent from $BIOME_REGISTRY")
+            val registries = options.protocolData.registryContext
             val centerX = floor(spawnPosition.x / CHUNK_SIZE).toInt()
             val centerZ = floor(spawnPosition.z / CHUNK_SIZE).toInt()
             val chunks = buildList {
@@ -105,12 +98,13 @@ data class MinecraftInitialWorld(
                     ) {
                         add(
                             MinecraftChunkSnapshot.flat(
+                                registries = registries,
                                 dimension = dimensionType,
                                 chunkX = chunkX,
                                 chunkZ = chunkZ,
                                 groundY = groundY,
-                                surfaceBlockStateId = surfaceBlockStateId,
-                                biomeId = biomeId,
+                                surfaceBlock = surfaceBlock,
+                                biome = biome,
                             ),
                         )
                     }
@@ -120,17 +114,15 @@ data class MinecraftInitialWorld(
                 dimension = dimension,
                 dimensionType = dimensionType,
                 spawnPosition = spawnPosition,
-                viewDistance = configuration.viewDistance,
-                simulationDistance = configuration.simulationDistance,
-                difficulty = configuration.difficulty,
-                difficultyLocked = configuration.difficultyLocked,
-                playerAbilities = vanillaPlayerAbilities(configuration.gameMode),
+                viewDistance = options.viewDistance,
+                simulationDistance = options.simulationDistance,
+                difficulty = options.difficulty,
+                difficultyLocked = options.difficultyLocked,
+                playerAbilities = vanillaPlayerAbilities(options.gameMode),
                 chunks = chunks,
                 entities = entities,
             )
         }
-
-        private val BIOME_REGISTRY = Identifier("worldgen/biome")
         private const val CHUNK_SIZE: Double = 16.0
     }
 }
@@ -148,36 +140,24 @@ data class MinecraftInitialWorldSynchronization(
 suspend fun MinecraftServerConnection.synchronizeInitialWorld(
     world: MinecraftInitialWorld,
 ): MinecraftInitialWorldSynchronization {
-    require(session.state == ConnectionState.PLAY) {
+    require(state == ConnectionState.PLAY) {
         "Initial world synchronization requires a Play session"
     }
     validateInitialWorld(
         world = world,
-        login = checkNotNull(protocol.negotiatedPlayLogin) {
+        login = checkNotNull(playLogin) {
             "Initial world synchronization requires a completed Play login"
         },
-        configuration = protocol.configuration,
-    )
-    val biomeRegistrySize = protocol.configuration.protocolData
-        .requireRegistry(Identifier("worldgen/biome"))
-        .entries
-        .size
-    session.format = MinecraftProtocolFormat(
-        configuration = session.format.configuration.copy(
-            chunkSectionCount = world.dimensionType.sectionCount,
-            blockStateRegistrySize = VanillaStaticData.blockStates.size,
-            biomeRegistrySize = biomeRegistrySize,
-        ),
-        serializersModule = session.format.serializersModule,
+        registries = registries,
     )
 
-    session.send(
+    outgoing.send(
         ClientboundChangeDifficultyPacket(
             difficulty = world.difficulty,
             locked = world.difficultyLocked,
         ),
     )
-    session.send(
+    outgoing.send(
         SetDefaultSpawnPositionPacket(
             RespawnData(
                 globalPosition = GlobalPosition(
@@ -189,14 +169,14 @@ suspend fun MinecraftServerConnection.synchronizeInitialWorld(
             ),
         ),
     )
-    session.send(
+    outgoing.send(
         ClientboundPlayerAbilitiesPacket(
             world.playerAbilities,
         ),
     )
-    session.send(SetRenderDistancePacket(world.viewDistance))
-    session.send(SetSimulationDistancePacket(world.simulationDistance))
-    session.send(
+    outgoing.send(SetRenderDistancePacket(world.viewDistance))
+    outgoing.send(SetSimulationDistancePacket(world.simulationDistance))
+    outgoing.send(
         SynchronizePlayerPositionPacket(
             teleportId = world.teleportId,
             change = PositionMoveRotation(
@@ -208,23 +188,23 @@ suspend fun MinecraftServerConnection.synchronizeInitialWorld(
             relatives = RelativeMovements(emptySet()),
         ),
     )
-    session.send(
+    outgoing.send(
         GameEventPacket(
             event = GameEventType.LEVEL_CHUNKS_LOAD_START,
             value = 0.0f,
         ),
     )
-    session.send(
+    outgoing.send(
         SetCenterChunkPacket(
             chunkX = floor(world.spawnPosition.x / CHUNK_SIZE).toInt(),
             chunkZ = floor(world.spawnPosition.z / CHUNK_SIZE).toInt(),
         ),
     )
-    session.send(ChunkBatchStartPacket)
-    world.chunks.forEach { session.send(it.packet()) }
-    session.send(ChunkBatchFinishedPacket(world.chunks.size))
+    outgoing.send(ChunkBatchStartPacket)
+    world.chunks.forEach { outgoing.send(it.packet()) }
+    outgoing.send(ChunkBatchFinishedPacket(world.chunks.size))
     world.entities.forEach { entity ->
-        entity.packets().forEach { session.send(it) }
+        entity.packets(registries).forEach { outgoing.send(it) }
     }
 
     return MinecraftInitialWorldSynchronization(
@@ -237,7 +217,7 @@ suspend fun MinecraftServerConnection.synchronizeInitialWorld(
 internal fun validateInitialWorld(
     world: MinecraftInitialWorld,
     login: PlayLoginPacket,
-    configuration: MinecraftServerConfiguration,
+    registries: ProtocolRegistryContext,
 ) {
     require(world.dimension == login.spawnInfo.dimension) {
         "Initial world dimension does not match the Play login dimension"
@@ -250,12 +230,8 @@ internal fun validateInitialWorld(
     ) {
         "Initial dimension-type registry ID does not match Play login"
     }
-    val expectedDimension = MinecraftDimensionLayout.from(
-        configuration.protocolData.completeRegistryPackets(),
-        login.spawnInfo.dimensionTypeId,
-    )
-    require(world.dimensionType == expectedDimension) {
-        "Initial dimension type does not match synchronized registry data"
+    require(registries.chunkSectionCount == world.dimensionType.sectionCount) {
+        "Initial dimension height does not match the installed registry context"
     }
     require(world.entities.none { it.entityId == login.playerId }) {
         "Initial entities must not reuse the player entity ID"

@@ -1,6 +1,5 @@
 package com.hiczp.minecraft.protocol.transport
 
-import dev.karmakrafts.kompress.decompressingSource
 import dev.karmakrafts.kompress.deflate.Deflater
 import dev.karmakrafts.kompress.exception.KompressException
 import dev.karmakrafts.kompress.zlib.ZlibDecompressor
@@ -17,40 +16,60 @@ internal actual fun platformZlibCompressingSink(sink: Sink): RawSink =
 internal actual fun platformZlibDecompressingSource(
     source: Source,
 ): RawSource {
+    // Kompress 2.3.1's generic chunked decompressingSource can finish a
+    // DEFLATE input chunk before all of a split ZLIB epilogue reaches its
+    // FramingDecompressor. Minecraft has already bounded and staged the exact
+    // compressed frame body, so provide that complete member in one input;
+    // Kompress still owns ZLIB validation and the DEFLATE implementation.
+    val member = source.readByteArray()
     val decompressor = ZlibDecompressor()
-    return mapKompressFailure("Cannot create zlib decompression stream") {
-        val decoded = source.decompressingSource(
-            decompressor = decompressor,
-            isSourceOwned = false,
-        )
-        ExactKompressZlibRawSource(source, decoded, decompressor)
-            .withKotlinxIoExceptions("Invalid zlib stream")
+    return try {
+        mapKompressFailure("Cannot create zlib decompression stream") {
+            decompressor.setInput(member)
+            decompressor.finish()
+            ExactKompressZlibRawSource(decompressor)
+                .withKotlinxIoExceptions("Invalid zlib stream")
+        }
+    } catch (failure: Throwable) {
+        decompressor.close()
+        throw failure
     }
 }
 
-// Kompress reports how many bytes remain in its last input block but does not
-// itself reject bytes after a completed member. Minecraft's envelope permits
-// exactly one ZLIB stream, so combine that signal with source exhaustion.
 private class ExactKompressZlibRawSource(
-    private val compressed: Source,
-    private val decoded: RawSource,
     private val decompressor: ZlibDecompressor,
 ) : RawSource {
+    private var closed = false
     private var finished = false
 
     override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
-        val read = decoded.readAtMostTo(sink, byteCount)
-        if (read < 0 && !finished) {
+        check(!closed) { "Zlib source is closed" }
+        require(byteCount >= 0)
+        if (byteCount == 0L) return 0
+        if (finished) return -1
+
+        val output = ByteArray(
+            minOf(byteCount, DECOMPRESSION_BUFFER_BYTES.toLong()).toInt(),
+        )
+        val read = decompressor.decompress(output)
+        if (read > 0) {
+            sink.write(output, endIndex = read)
+            return read.toLong()
+        }
+        if (decompressor.finished) {
             finished = true
-            if (decompressor.remaining != 0 || !compressed.exhausted()) {
+            if (decompressor.remaining != 0) {
                 throw kotlinx.io.IOException("Trailing bytes after zlib stream")
             }
+            return -1
         }
-        return read
+        throw kotlinx.io.IOException("Zlib decompressor made no progress")
     }
 
     override fun close() {
-        decoded.close()
+        if (closed) return
+        decompressor.close()
+        closed = true
     }
 }
 
@@ -103,3 +122,4 @@ private inline fun <T> mapKompressFailure(
 // skewed registry payloads. Its documented minimum level selects fixed
 // Huffman blocks while preserving the same streaming ZLIB API.
 private const val KOMPRESS_SAFE_LEVEL = Deflater.MIN_LEVEL
+private const val DECOMPRESSION_BUFFER_BYTES = 4_096

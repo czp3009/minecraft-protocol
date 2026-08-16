@@ -84,6 +84,13 @@ kotlin {
             implementation(libs.cryptography.bigint)
             implementation(libs.cryptography.random)
         }
+        //Using compileOnly dependencies in these targets is not currently supported, because compileOnly dependencies must be present during the compilation of projects that depend on this project
+        nativeMain.dependencies {
+            api(project(":protocol-model"))
+        }
+        webMain.dependencies {
+            api(project(":protocol-model"))
+        }
 
         commonTest.dependencies {
             implementation(kotlin("test"))

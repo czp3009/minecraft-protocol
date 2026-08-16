@@ -21,6 +21,16 @@ class VanillaProtocolDataTest {
         assertTrue(complete.isNotEmpty())
         assertTrue(complete.all { packet -> packet.entries.all { it.data != null } })
         assertTrue(data.tags.registries.isNotEmpty())
+        val biomePacket = complete.single {
+            it.registryId == Identifier("worldgen/biome")
+        }
+        assertEquals(
+            biomePacket.entries.map { it.id },
+            data.registryContext.requireRegistry(biomePacket.registryId)
+                .entries
+                .sortedBy { it.rawId }
+                .map { it.id },
+        )
     }
 
     @Test

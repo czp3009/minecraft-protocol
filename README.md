@@ -20,10 +20,10 @@ transitively where needed.
 | [`nbt`](nbt/README.md)                                       | Format-independent NBT values and logical serializers                             |
 | [`nbt-serialization`](nbt-serialization/README.md)           | Binary NBT and NBT tree conversion through `kotlinx.serialization`                |
 | [`protocol-model`](protocol-model/README.md)                 | Format-independent packet payloads and shared protocol values                     |
-| [`protocol-serialization`](protocol-serialization/README.md) | Minecraft wire encodings and packet lookup by state, direction, and ID            |
+| [`protocol-serialization`](protocol-serialization/README.md) | Minecraft wire encodings and immutable composable packet registries               |
 | [`protocol-vanilla-data`](protocol-vanilla-data/README.md)   | Version-matched Known Packs, registries, tags, and vanilla catalogues             |
 | [`protocol-transport`](protocol-transport/README.md)         | Ktor sockets, framing, compression, and encryption                                |
-| [`protocol-session`](protocol-session/README.md)             | Typed dispatch and connection-state transitions                                   |
+| [`protocol-session`](protocol-session/README.md)             | Channel-first connections, state transitions, and optional loader profiles        |
 | [`account-auth`](account-auth/README.md)                     | Microsoft OAuth, Xbox, and Minecraft Services token/entitlement/profile HTTP APIs |
 | [`protocol-auth`](protocol-auth/README.md)                   | Game identities, Session Server HTTP, hashes, and Login key exchange              |
 | [`protocol-client`](protocol-client/README.md)               | Status, Login, Configuration, and a Play-ready client connection                  |
@@ -60,11 +60,14 @@ kotlin {
 }
 ```
 
-Packet payloads can be encoded and decoded directly through caller-owned streams:
+Packet payloads can be encoded and decoded directly through caller-owned streams. `MinecraftPacketRegistry` is the
+version-matched vanilla base; compose a connection-specific immutable registry when an application or mod adds packet
+routes:
 
 ```kotlin
-val encoding = MinecraftPacketRegistry.encodePayloadToSink(packet, payloadSink)
-val decoded = MinecraftPacketRegistry.decodePayloadFromSource(
+val packetRegistry = MinecraftPacketRegistry.compose(myExtensionCodecs)
+val encoding = packetRegistry.encodePayloadToSink(packet, payloadSink)
+val decoded = packetRegistry.decodePayloadFromSource(
     state = encoding.key.state,
     direction = encoding.key.direction,
     id = encoding.key.id,
@@ -76,9 +79,9 @@ val decoded = MinecraftPacketRegistry.decodePayloadFromSource(
 Byte-array operations are adapters over those paths:
 
 ```kotlin
-val encoded = MinecraftPacketRegistry.encodePayload(packet)
+val encoded = packetRegistry.encodePayload(packet)
 
-val decoded = MinecraftPacketRegistry.decodePayload(
+val decoded = packetRegistry.decodePayload(
     state = encoded.key.state,
     direction = encoded.key.direction,
     id = encoded.key.id,
@@ -86,13 +89,24 @@ val decoded = MinecraftPacketRegistry.decodePayload(
 )
 ```
 
-Use a configured `MinecraftProtocolFormat` when a physical encoding depends on negotiated context such as the chunk
-section
-count. The module guides contain the corresponding entry points and examples:
+Use a configured `MinecraftProtocolFormat` when physical encoding depends on a negotiated `ProtocolRegistryContext`,
+including dynamic block-state/biome palette sizes and the active dimension's chunk-section count.
+
+Client and server connections expose direction-limited standard coroutine channels. Preset negotiation is an ordinary
+extension function that temporarily borrows those channels; applications can instead implement every packet exchange
+themselves. Fabric API, NeoForge, and Forge packet codecs and profile examples live in `protocol-session` under separate
+packages rather than separate artifacts. The caller may construct immutable packet/registry/profile definitions once and
+share those references across server connections.
+
+Unknown top-level IDs, Login queries, and custom-payload routes remain lossless direction-correct `UnknownPacket`
+values. Malformed framing, known-codec failures, and invalid packet order propagate; the library neither swallows them
+nor sends an error response automatically.
+
+The module guides contain the corresponding entry points and examples:
 
 - [`protocol-client`](protocol-client/README.md) connects to Status or Login and returns a live Play session.
-- [`protocol-server`](protocol-server/README.md) binds a Ktor server socket and maps application policy into protocol
-  configuration and handler APIs.
+- [`protocol-server`](protocol-server/README.md) binds a Ktor server socket and maps application policy into options,
+  negotiation policy, and packet channels.
 - [`nbt`](nbt/README.md) provides format-independent NBT values;
   [`nbt-serialization`](nbt-serialization/README.md) maps serializers to NBT trees and reads or writes binary NBT.
 - [`world-format`](world-format/README.md) handles in-memory Anvil containers through `kotlinx.io` streams;

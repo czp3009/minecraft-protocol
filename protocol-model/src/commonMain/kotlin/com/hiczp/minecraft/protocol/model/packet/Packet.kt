@@ -6,8 +6,21 @@ package com.hiczp.minecraft.protocol.model.packet
  */
 sealed interface Packet
 
-sealed interface ClientboundPacket : Packet
-sealed interface ServerboundPacket : Packet
+sealed interface ClientboundPacket : Packet {
+    /**
+     * Explicitly extensible branch for clientbound packets declared by an
+     * application or an optional protocol integration.
+     */
+    interface Extension : ClientboundPacket
+}
+
+sealed interface ServerboundPacket : Packet {
+    /**
+     * Explicitly extensible branch for serverbound packets declared by an
+     * application or an optional protocol integration.
+     */
+    interface Extension : ServerboundPacket
+}
 
 sealed interface HandshakeStatePacket : Packet
 sealed interface StatusStatePacket : Packet

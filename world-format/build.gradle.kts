@@ -25,6 +25,7 @@ lz4Headers.dependencies.add(lz4HeadersDependency)
 
 val lz4HeadersDirectory = layout.buildDirectory.dir("nativebuilds/lz4-headers")
 val extractLz4Headers = tasks.register("extractLz4Headers", Sync::class) {
+    description = "extractLz4Headers"
     from(lz4Headers.incoming.files.elements.map { archives ->
         archives.map { archive -> zipTree(archive) }
     })

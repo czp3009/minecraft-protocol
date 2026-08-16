@@ -4,7 +4,7 @@ import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.ConfigurationUpdateTagsPacket
 import com.hiczp.minecraft.protocol.model.packet.FeatureFlagsPacket
 import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
-import com.hiczp.minecraft.protocol.model.type.KnownPack
+import com.hiczp.minecraft.protocol.model.type.*
 
 /**
  * The official vanilla protocol-data snapshot for [MinecraftProtocol].
@@ -36,6 +36,12 @@ sealed class VanillaProtocolData private constructor() : ProtocolDataSet {
         override val tags: ConfigurationUpdateTagsPacket
             get() = snapshot.tags
 
+        override val staticRegistries: StaticRegistrySchema
+            get() = VanillaStaticData.registrySchema
+
+        override val registryContext: ProtocolRegistryContext
+            get() = context
+
         override fun registryPackets(
             clientKnownPacks: List<KnownPack>,
         ): List<RegistryDataPacket> =
@@ -44,5 +50,24 @@ sealed class VanillaProtocolData private constructor() : ProtocolDataSet {
             } else {
                 snapshot.completeRegistries
             }
+
+        private val context: ProtocolRegistryContext by lazy(
+            LazyThreadSafetyMode.PUBLICATION,
+        ) {
+            val static = VanillaStaticData.registryContext
+            val registries = static.registries.toMutableMap()
+            snapshot.completeRegistries.forEach { packet ->
+                registries[packet.registryId] = ProtocolRegistry(
+                    packet.registryId,
+                    packet.entries.mapIndexed { rawId, entry ->
+                        ProtocolRegistryEntry(entry.id, rawId)
+                    },
+                )
+            }
+            ProtocolRegistryContext(
+                registries = registries.values.toList(),
+                blockStates = static.blockStates,
+            )
+        }
     }
 }

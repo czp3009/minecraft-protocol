@@ -1,5 +1,7 @@
 package com.hiczp.minecraft.protocol.serialization
 
+import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
+
 data class MinecraftProtocolFormatConfiguration(
     /** Reject boolean bytes other than exactly 0 and 1. */
     val strictBooleans: Boolean = true,
@@ -11,30 +13,31 @@ data class MinecraftProtocolFormatConfiguration(
     val maximumByteArraySize: Int = 16 * 1_048_576,
     /** Recursion guard for untrusted NBT. */
     val maximumNbtDepth: Int = 512,
-    /**
-     * Number of vertical sections in the active dimension. The chunk packet
-     * does not carry this count, so decoding chunk data requires this context.
-     */
-    val chunkSectionCount: Int? = null,
-    /** Size of the global block-state ID map used by paletted containers. */
-    val blockStateRegistrySize: Int = DEFAULT_BLOCK_STATE_REGISTRY_SIZE,
-    /** Size of the synchronized biome registry used by paletted containers. */
-    val biomeRegistrySize: Int = DEFAULT_BIOME_REGISTRY_SIZE,
+    /** Immutable, connection-specific registry and active-dimension context. */
+    val registries: ProtocolRegistryContext = ProtocolRegistryContext.Empty,
 ) {
     init {
         require(maximumCollectionSize >= 0)
         require(maximumByteArraySize >= 0)
         require(maximumNbtDepth >= 0)
-        require(chunkSectionCount == null || chunkSectionCount >= 0)
-        require(blockStateRegistrySize > 0)
-        require(biomeRegistrySize > 0)
     }
 
-    companion object {
-        /** Largest block-state registry ID accepted by the selected target. */
-        const val DEFAULT_BLOCK_STATE_REGISTRY_SIZE: Int = 32_366
+    val chunkSectionCount: Int?
+        get() = registries.chunkSectionCount
 
-        /** Synchronized biome registry size for the selected target. */
-        const val DEFAULT_BIOME_REGISTRY_SIZE: Int = 66
-    }
+    val blockStateRegistrySize: Int?
+        get() = registries.blockStateRegistrySize.takeIf { it > 0 }
+
+    val biomeRegistrySize: Int?
+        get() = registries.biomeRegistrySize
+
+    fun requireBlockStateRegistrySize(): Int =
+        blockStateRegistrySize ?: throw MinecraftSerializationException(
+            "Block-state palette encoding requires a ProtocolRegistryContext with block states",
+        )
+
+    fun requireBiomeRegistrySize(): Int =
+        biomeRegistrySize ?: throw MinecraftSerializationException(
+            "Biome palette encoding requires a ProtocolRegistryContext with the biome registry",
+        )
 }

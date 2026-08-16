@@ -2,6 +2,9 @@ package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.client.MinecraftClientConnection
+import com.hiczp.minecraft.protocol.client.negotiate
+import com.hiczp.minecraft.protocol.client.queryStatus
+import com.hiczp.minecraft.protocol.data.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.Difficulty
@@ -24,20 +27,20 @@ class ClientToServerEndToEndTest {
     @Test
     fun productionClientReceivesInitialBlocksAndEntity() = runTest {
         SelectorManager(Dispatchers.Default).use { selector ->
+            val options = MinecraftServerNegotiationOptions(
+                compressionThreshold = 64,
+                gameMode = PlayerGameMode.CREATIVE,
+                difficulty = Difficulty.HARD,
+                difficultyLocked = true,
+            )
             MinecraftServer.bind(
                 selectorManager = selector,
                 host = "127.0.0.1",
                 port = 0,
-                configuration = MinecraftServerConfiguration(
-                    compressionThreshold = 64,
-                    gameMode = PlayerGameMode.CREATIVE,
-                    difficulty = Difficulty.HARD,
-                    difficultyLocked = true,
-                ),
             ).use { server ->
                 val statusServer = async {
                     server.accept().use { connection ->
-                        connection.negotiate()
+                        connection.negotiate(options = options)
                     }
                 }
                 MinecraftClientConnection.connect(
@@ -45,7 +48,7 @@ class ClientToServerEndToEndTest {
                     host = "127.0.0.1",
                     port = server.port,
                 ).use { client ->
-                    val status = client.protocol.queryStatus(42)
+                    val status = client.queryStatus(42)
                     assertEquals(42, status.pong.timestamp)
                     val statusDocument = Json
                         .parseToJsonElement(status.response.jsonResponse)
@@ -66,19 +69,21 @@ class ClientToServerEndToEndTest {
 
                 val playServer = async {
                     server.accept().use { connection ->
-                        val negotiationResult = connection.negotiate()
+                        val negotiationResult = connection.negotiate(
+                            options = options,
+                        )
                         val negotiation =
                             assertIs<MinecraftServerNegotiationResult.PlayReady>(
                                 negotiationResult,
                             )
                         val world = MinecraftInitialWorld.flatVanilla(
-                            configuration = server.configuration,
+                            options = options,
                             chunkRadius = 0,
                             entities = listOf(testPig()),
                         )
                         val synchronization =
                             connection.synchronizeInitialWorld(world)
-                        connection.session.send(
+                        connection.outgoing.send(
                             PlayClientboundKeepAlivePacket(KEEP_ALIVE_ID),
                         )
 
@@ -86,7 +91,7 @@ class ClientToServerEndToEndTest {
                         var chunkBatchConfirmed = false
                         var keepAliveConfirmed = false
                         var remainingPackets =
-                            server.configuration.maximumPacketsPerPhase
+                            options.maximumPacketsPerPhase
                         while (
                             remainingPackets-- > 0 &&
                             !(
@@ -95,7 +100,7 @@ class ClientToServerEndToEndTest {
                                             keepAliveConfirmed
                                     )
                         ) {
-                            when (val packet = connection.session.receive()) {
+                            when (val packet = connection.incoming.receive()) {
                                 is ConfirmTeleportationPacket ->
                                     teleportConfirmed =
                                         packet.teleportId ==
@@ -126,16 +131,16 @@ class ClientToServerEndToEndTest {
                     host = "127.0.0.1",
                     port = server.port,
                 ).use { client ->
-                    val clientResult = client.protocol.login(identity)
+                    val clientResult = client.negotiate(identity)
                     var chunkReceived = false
                     var entityReceived = false
                     var keepAliveReceived = false
                     var difficultyReceived = false
                     var abilities: PlayerAbilities? = null
                     while (!keepAliveReceived) {
-                        when (val packet = client.session.receive()) {
+                        when (val packet = client.incoming.receive()) {
                             is SynchronizePlayerPositionPacket ->
-                                client.session.send(
+                                client.outgoing.send(
                                     ConfirmTeleportationPacket(
                                         packet.teleportId,
                                     ),
@@ -145,7 +150,7 @@ class ClientToServerEndToEndTest {
                                 chunkReceived = true
 
                             is ChunkBatchFinishedPacket ->
-                                client.session.send(
+                                client.outgoing.send(
                                     ChunkBatchReceivedPacket(
                                         desiredChunksPerTick = 10.0f,
                                     ),
@@ -153,7 +158,9 @@ class ClientToServerEndToEndTest {
 
                             is SpawnEntityPacket ->
                                 entityReceived =
-                                    packet.typeId == testPig().typeId
+                                    packet.typeId == testPig().typeId(
+                                        VanillaProtocolData.registryContext,
+                                    )
 
                             is ClientboundChangeDifficultyPacket ->
                                 difficultyReceived =
@@ -165,7 +172,7 @@ class ClientToServerEndToEndTest {
 
                             is PlayClientboundKeepAlivePacket -> {
                                 assertEquals(KEEP_ALIVE_ID, packet.id)
-                                client.session.send(
+                                client.outgoing.send(
                                     PlayServerboundKeepAlivePacket(
                                         packet.id,
                                     ),
@@ -209,7 +216,7 @@ class ClientToServerEndToEndTest {
                         clientResult.playLogin.spawnInfo.gameMode,
                     )
                     assertEquals(
-                        server.configuration.protocolData
+                        options.protocolData
                             .registryPackets(
                                 serverResult.negotiation.acceptedKnownPacks,
                             )
@@ -217,7 +224,7 @@ class ClientToServerEndToEndTest {
                         clientResult.configuration.registries.size,
                     )
                     assertEquals(
-                        server.configuration.protocolData.knownPacks,
+                        options.protocolData.knownPacks,
                         serverResult.negotiation.acceptedKnownPacks,
                     )
                 }

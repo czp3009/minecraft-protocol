@@ -1,43 +1,54 @@
+@file:OptIn(com.hiczp.minecraft.protocol.session.InternalMinecraftConnectionApi::class)
+
 package com.hiczp.minecraft.protocol.server
 
-import com.hiczp.minecraft.protocol.session.MinecraftSession
+import com.hiczp.minecraft.protocol.model.packet.ClientboundPacket
+import com.hiczp.minecraft.protocol.model.packet.PlayLoginPacket
+import com.hiczp.minecraft.protocol.model.packet.ServerboundPacket
+import com.hiczp.minecraft.protocol.session.MinecraftConnectionDefinition
+import com.hiczp.minecraft.protocol.session.MinecraftConnectionEngine
+import com.hiczp.minecraft.protocol.session.MinecraftPacketConnection
 import com.hiczp.minecraft.protocol.session.MinecraftSessionSide
 import com.hiczp.minecraft.protocol.transport.MinecraftTransport
 import com.hiczp.minecraft.protocol.transport.MinecraftTransportConfiguration
 import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
 import io.ktor.utils.io.core.*
+import kotlinx.coroutines.flow.MutableStateFlow
 
 class MinecraftServer private constructor(
-    val socket: ServerSocket,
-    val configuration: MinecraftServerConfiguration,
-    val handler: MinecraftServerHandler,
+    private val socket: ServerSocket,
+    private val definition: MinecraftConnectionDefinition,
+    private val authentication: MinecraftServerAuthentication,
     private val transportConfiguration: MinecraftTransportConfiguration,
 ) : Closeable {
+    private val open = MutableStateFlow(true)
+
     val port: Int
         get() = socket.port
 
+    val isOpen: Boolean
+        get() = open.value
+
     suspend fun accept(): MinecraftServerConnection {
+        check(isOpen) { "Minecraft server listener is closed" }
         val clientSocket = socket.accept()
         val transport = MinecraftTransport(clientSocket, transportConfiguration)
-        val session = MinecraftSession(
-            frames = transport.frames,
-            side = MinecraftSessionSide.SERVER,
-        )
         return MinecraftServerConnection(
-            socket = clientSocket,
-            transport = transport,
-            protocol = MinecraftServerProtocol(
-                session = session,
-                configuration = configuration,
-                handler = handler,
-                clientIpAddress = (clientSocket.remoteAddress as? InetSocketAddress)
-                    ?.numericHostAddress(),
+            connection = MinecraftConnectionEngine(
+                frames = transport.frames,
+                closeTransport = transport::close,
+                side = MinecraftSessionSide.SERVER,
+                definition = definition,
             ),
+            authentication = authentication,
+            clientIpAddress = (clientSocket.remoteAddress as? InetSocketAddress)
+                ?.numericHostAddress(),
         )
     }
 
     override fun close() {
+        if (!open.compareAndSet(true, false)) return
         socket.close()
     }
 
@@ -46,18 +57,17 @@ class MinecraftServer private constructor(
             selectorManager: SelectorManager,
             host: String = "0.0.0.0",
             port: Int = MinecraftServerConnection.DEFAULT_PORT,
-            configuration: MinecraftServerConfiguration =
-                MinecraftServerConfiguration(),
-            handler: MinecraftServerHandler = DefaultMinecraftServerHandler,
+            definition: MinecraftConnectionDefinition = MinecraftConnectionDefinition(),
+            authentication: MinecraftServerAuthentication =
+                MinecraftServerAuthentication.Offline,
             transportConfiguration: MinecraftTransportConfiguration =
                 MinecraftTransportConfiguration(),
-        ): MinecraftServer =
-            MinecraftServer(
-                socket = aSocket(selectorManager).tcp().bind(host, port),
-                configuration = configuration,
-                handler = handler,
-                transportConfiguration = transportConfiguration,
-            )
+        ): MinecraftServer = MinecraftServer(
+            socket = aSocket(selectorManager).tcp().bind(host, port),
+            definition = definition,
+            authentication = authentication,
+            transportConfiguration = transportConfiguration,
+        )
     }
 }
 
@@ -83,21 +93,14 @@ internal fun ByteArray.toNumericIpAddress(): String =
     }
 
 class MinecraftServerConnection internal constructor(
-    val socket: Socket,
-    val transport: MinecraftTransport,
-    val protocol: MinecraftServerProtocol,
-) : Closeable {
-    val session: MinecraftSession
-        get() = protocol.session
-
-    suspend fun negotiate(): MinecraftServerNegotiationResult =
-        protocol.negotiate()
-
-    override fun close() {
-        transport.close()
-    }
+    private val connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+    val authentication: MinecraftServerAuthentication,
+    val clientIpAddress: String?,
+) : MinecraftPacketConnection<ServerboundPacket, ClientboundPacket> by connection {
+    var playLogin: PlayLoginPacket? = null
+        internal set
 
     companion object {
-        const val DEFAULT_PORT: Int = 25_565
+        const val DEFAULT_PORT: Int = 25565
     }
 }

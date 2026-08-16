@@ -42,6 +42,12 @@ internal object HeadlessClientEndToEndRunner {
     private val COOKIE_PAYLOAD = ByteString(
         "official-client-cookie".encodeToByteArray(),
     )
+    private val OPTIONS = MinecraftServerNegotiationOptions(
+        compressionThreshold = 64,
+        viewDistance = 2,
+        simulationDistance = 5,
+        statusDescription = "minecraft-protocol official client E2E",
+    )
 
     suspend fun run() {
         var client: HeadlessMinecraftClient? = null
@@ -51,13 +57,6 @@ internal object HeadlessClientEndToEndRunner {
                     selectorManager = selector,
                     host = "127.0.0.1",
                     port = 0,
-                    configuration = MinecraftServerConfiguration(
-                        compressionThreshold = 64,
-                        viewDistance = 2,
-                        simulationDistance = 5,
-                        statusDescription =
-                            "minecraft-protocol official client E2E",
-                    ),
                 ).use { server ->
                     val launched = MinecraftTestSupport.newHeadlessClient(
                         configuration =
@@ -120,7 +119,11 @@ internal object HeadlessClientEndToEndRunner {
                     throw failure
                 }
                 try {
-                    when (val negotiation = connection.negotiate()) {
+                    when (
+                        val negotiation = connection.negotiate(
+                            options = OPTIONS,
+                        )
+                    ) {
                         MinecraftServerNegotiationResult.StatusCompleted -> {
                             connection.close()
                         }
@@ -152,13 +155,13 @@ internal object HeadlessClientEndToEndRunner {
                                 position = Vector3d(5.5, 65.0, 5.5),
                             )
                             val world = MinecraftInitialWorld.flatVanilla(
-                                configuration = server.configuration,
+                                options = OPTIONS,
                                 entities =
                                     listOf(pig, arrow, minecart, horse),
                             )
                             val synchronization =
                                 connection.synchronizeInitialWorld(world)
-                            connection.session.send(
+                            connection.outgoing.send(
                                 PlayClientboundKeepAlivePacket(
                                     INITIAL_KEEP_ALIVE_ID,
                                 ),
@@ -169,7 +172,7 @@ internal object HeadlessClientEndToEndRunner {
                             var keepAliveAcknowledged = false
                             var clientTickObserved = false
                             var initialPacketBudget =
-                                server.configuration.maximumPacketsPerPhase
+                                OPTIONS.maximumPacketsPerPhase
                             while (
                                 initialPacketBudget-- > 0 &&
                                 !(
@@ -179,7 +182,7 @@ internal object HeadlessClientEndToEndRunner {
                                                 clientTickObserved
                                         )
                             ) {
-                                val packet = connection.session.receive()
+                                val packet = connection.incoming.receive()
                                 observed +=
                                     packet::class.simpleName ?: "<anonymous>"
                                 when (packet) {
@@ -885,7 +888,7 @@ internal object HeadlessClientEndToEndRunner {
                 effectTypeId = 0,
             ),
             PlayUpdateTagsPacket(
-                connection.protocol.configuration.protocolData.tags.registries
+                OPTIONS.protocolData.tags.registries
                     .associate { it.registry to it.tags },
             ),
             SetObjectivePacket(
@@ -1002,7 +1005,7 @@ internal object HeadlessClientEndToEndRunner {
             ),
         )
         packets.forEachIndexed { index, packet ->
-            connection.session.send(packet)
+            connection.outgoing.send(packet)
             awaitPlayBarrier(
                 connection = connection,
                 label = packet::class.simpleName ?: "clientbound packet $index",
@@ -1012,10 +1015,10 @@ internal object HeadlessClientEndToEndRunner {
             )
         }
 
-        connection.session.send(
+        connection.outgoing.send(
             PlayStoreCookiePacket(COOKIE_KEY, COOKIE_PAYLOAD),
         )
-        connection.session.send(PlayCookieRequestPacket(COOKIE_KEY))
+        connection.outgoing.send(PlayCookieRequestPacket(COOKIE_KEY))
         var cookieRoundTrip = false
         awaitPlayBarrier(
             connection = connection,
@@ -1037,7 +1040,7 @@ internal object HeadlessClientEndToEndRunner {
             },
         )
 
-        connection.session.send(
+        connection.outgoing.send(
             SynchronizePlayerPositionPacket(
                 teleportId = nextTeleportId,
                 change = PositionMoveRotation(
@@ -1076,20 +1079,20 @@ internal object HeadlessClientEndToEndRunner {
         world: MinecraftInitialWorld,
         observed: MutableList<String>,
     ) {
-        val login = checkNotNull(connection.protocol.negotiatedPlayLogin) {
+        val login = checkNotNull(connection.playLogin) {
             "Respawn requires the negotiated Play Login"
         }
-        connection.session.send(
+        connection.outgoing.send(
             RespawnPacket(
                 spawnInfo = login.spawnInfo,
                 dataToKeep = RespawnPacket.KEEP_ALL_DATA.toByte(),
             ),
         )
         val synchronization = connection.synchronizeInitialWorld(world)
-        connection.session.send(
+        connection.outgoing.send(
             PlayClientboundKeepAlivePacket(RESPAWN_KEEP_ALIVE_ID),
         )
-        connection.session.send(ClientboundPingPacket(RESPAWN_PING_ID))
+        connection.outgoing.send(ClientboundPingPacket(RESPAWN_PING_ID))
 
         var keepAlive = false
         var ping = false
@@ -1098,7 +1101,7 @@ internal object HeadlessClientEndToEndRunner {
         var chunkBatch = false
         var playerLoaded = false
         var packetBudget =
-            connection.protocol.configuration.maximumPacketsPerPhase
+            OPTIONS.maximumPacketsPerPhase
         while (
             packetBudget-- > 0 &&
             !(
@@ -1154,15 +1157,15 @@ internal object HeadlessClientEndToEndRunner {
         additionalComplete: () -> Boolean = { true },
         onPacket: (Packet) -> Unit = {},
     ) {
-        connection.session.send(ClientboundPingPacket(pingId))
-        connection.session.send(
+        connection.outgoing.send(ClientboundPingPacket(pingId))
+        connection.outgoing.send(
             PlayClientboundKeepAlivePacket(keepAliveId),
         )
         var pingRoundTrip = false
         var keepAliveRoundTrip = false
         var tickObserved = false
         var packetBudget =
-            connection.protocol.configuration.maximumPacketsPerPhase
+            OPTIONS.maximumPacketsPerPhase
         try {
             while (
                 packetBudget-- > 0 &&
@@ -1173,7 +1176,7 @@ internal object HeadlessClientEndToEndRunner {
                                 additionalComplete()
                         )
             ) {
-                val packet = connection.session.receive()
+                val packet = connection.incoming.receive()
                 observed += packet::class.simpleName ?: "<anonymous>"
                 when (packet) {
                     is PlayPongPacket ->
@@ -1225,10 +1228,10 @@ internal object HeadlessClientEndToEndRunner {
                 },
             )
         }
-        connection.session.send(StartConfigurationPacket)
+        connection.outgoing.send(StartConfigurationPacket)
         var acknowledged = false
         var packetBudget =
-            connection.protocol.configuration.maximumPacketsPerPhase
+            OPTIONS.maximumPacketsPerPhase
         while (packetBudget-- > 0 && !acknowledged) {
             val packet = receiveForStage(
                 connection,
@@ -1241,30 +1244,30 @@ internal object HeadlessClientEndToEndRunner {
         check(acknowledged) {
             "Official client did not acknowledge reconfiguration"
         }
-        check(connection.session.state == ConnectionState.CONFIGURATION) {
+        check(connection.state == ConnectionState.CONFIGURATION) {
             "Server session did not enter Configuration after acknowledgement"
         }
 
-        connection.session.send(
+        connection.outgoing.send(
             ConfigurationStoreCookiePacket(COOKIE_KEY, COOKIE_PAYLOAD),
         )
-        connection.session.send(ConfigurationCookieRequestPacket(COOKIE_KEY))
-        connection.session.send(
+        connection.outgoing.send(ConfigurationCookieRequestPacket(COOKIE_KEY))
+        connection.outgoing.send(
             ConfigurationClientboundKeepAlivePacket(
                 CONFIGURATION_KEEP_ALIVE_ID,
             ),
         )
-        connection.session.send(
+        connection.outgoing.send(
             ConfigurationPingPacket(CONFIGURATION_PING_ID),
         )
-        connection.session.send(
+        connection.outgoing.send(
             ConfigurationClientboundPluginMessagePacket(
                 CustomPayload.Brand("minecraft-protocol"),
             ),
         )
-        connection.session.send(ConfigurationRemoveResourcePackPacket(null))
-        connection.session.send(ResetChatPacket)
-        connection.session.send(
+        connection.outgoing.send(ConfigurationRemoveResourcePackPacket(null))
+        connection.outgoing.send(ResetChatPacket)
+        connection.outgoing.send(
             ConfigurationCustomReportDetailsPacket(
                 listOf(
                     ReportDetail(
@@ -1274,14 +1277,14 @@ internal object HeadlessClientEndToEndRunner {
                 ),
             ),
         )
-        connection.session.send(ConfigurationServerLinksPacket(emptyList()))
-        connection.session.send(ConfigurationClearDialogPacket)
-        connection.session.send(
-            connection.protocol.configuration.protocolData.featureFlags,
+        connection.outgoing.send(ConfigurationServerLinksPacket(emptyList()))
+        connection.outgoing.send(ConfigurationClearDialogPacket)
+        connection.outgoing.send(
+            OPTIONS.protocolData.featureFlags,
         )
-        connection.session.send(
+        connection.outgoing.send(
             ConfigurationClientboundKnownPacksPacket(
-                connection.protocol.configuration.protocolData.knownPacks,
+                OPTIONS.protocolData.knownPacks,
             ),
         )
 
@@ -1290,7 +1293,7 @@ internal object HeadlessClientEndToEndRunner {
         var pingRoundTrip = false
         var knownPacks: ConfigurationServerboundKnownPacksPacket? = null
         packetBudget =
-            connection.protocol.configuration.maximumPacketsPerPhase
+            OPTIONS.maximumPacketsPerPhase
         while (
             packetBudget-- > 0 &&
             !(
@@ -1338,17 +1341,17 @@ internal object HeadlessClientEndToEndRunner {
             "Official client did not complete Configuration probes; cookie=$cookieRoundTrip, keepAlive=$keepAliveRoundTrip, ping=$pingRoundTrip, knownPacks=${knownPacks != null}"
         }
         val acceptedKnownPacks = knownPacks.knownPacks
-        connection.protocol.configuration.protocolData
+        OPTIONS.protocolData
             .registryPackets(acceptedKnownPacks)
-            .forEach { connection.session.send(it) }
-        connection.session.send(
-            connection.protocol.configuration.protocolData.tags,
+            .forEach { connection.outgoing.send(it) }
+        connection.outgoing.send(
+            OPTIONS.protocolData.tags,
         )
-        connection.session.send(FinishConfigurationPacket)
+        connection.outgoing.send(FinishConfigurationPacket)
 
         var completed = false
         packetBudget =
-            connection.protocol.configuration.maximumPacketsPerPhase
+            OPTIONS.maximumPacketsPerPhase
         while (packetBudget-- > 0 && !completed) {
             val packet = receiveForStage(
                 connection,
@@ -1359,12 +1362,12 @@ internal object HeadlessClientEndToEndRunner {
         check(completed) {
             "Official client did not finish reconfiguration"
         }
-        check(connection.session.state == ConnectionState.PLAY) {
+        check(connection.state == ConnectionState.PLAY) {
             "Server session did not return to Play after reconfiguration"
         }
 
-        connection.session.send(
-            checkNotNull(connection.protocol.negotiatedPlayLogin) {
+        connection.outgoing.send(
+            checkNotNull(connection.playLogin) {
                 "Reconfiguration requires the negotiated Play Login"
             },
         )
@@ -1373,12 +1376,12 @@ internal object HeadlessClientEndToEndRunner {
         )
         val synchronization =
             connection.synchronizeInitialWorld(reconfiguredWorld)
-        connection.session.send(
+        connection.outgoing.send(
             PlayClientboundKeepAlivePacket(
                 POST_CONFIGURATION_KEEP_ALIVE_ID,
             ),
         )
-        connection.session.send(
+        connection.outgoing.send(
             ClientboundPingPacket(POST_CONFIGURATION_PING_ID),
         )
         var postKeepAlive = false
@@ -1388,7 +1391,7 @@ internal object HeadlessClientEndToEndRunner {
         var postChunkBatch = false
         var postPlayerLoaded = false
         packetBudget =
-            connection.protocol.configuration.maximumPacketsPerPhase
+            OPTIONS.maximumPacketsPerPhase
         while (
             packetBudget-- > 0 &&
             !(
@@ -1447,10 +1450,10 @@ internal object HeadlessClientEndToEndRunner {
         stage: String,
     ): Packet =
         try {
-            connection.session.receive()
+            connection.incoming.receive()
         } catch (failure: Throwable) {
             throw IllegalStateException(
-                "Official client disconnected while $stage (server state ${connection.session.state})",
+                "Official client disconnected while $stage (server state ${connection.state})",
                 failure,
             )
         }

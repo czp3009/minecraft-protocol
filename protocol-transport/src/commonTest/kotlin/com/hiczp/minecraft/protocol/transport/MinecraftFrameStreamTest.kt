@@ -1,14 +1,13 @@
 package com.hiczp.minecraft.protocol.transport
 
 import io.ktor.utils.io.*
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import kotlin.test.*
 
 class MinecraftFrameStreamTest {
     @Test
@@ -152,6 +151,37 @@ class MinecraftFrameStreamTest {
             setOf(0x11.toByte(), 0x22.toByte()),
             received.map { it.singleDistinctByte() }.toSet(),
         )
+    }
+
+    @Test
+    fun immediateResponsesWaitForTheSendingSideWireCommit() = runTest {
+        val clientToServer = ByteChannel()
+        val serverToClient = ByteChannel()
+        val client = MinecraftFrameStream(serverToClient, clientToServer)
+        val server = MinecraftFrameStream(clientToServer, serverToClient)
+        val responseSent = CompletableDeferred<Unit>()
+        var committed = false
+        val response = async {
+            client.receivePacketData().also {
+                assertTrue(committed)
+            }
+        }
+        val peer = launch {
+            assertContentEquals(
+                byteArrayOf(1),
+                server.receivePacketData(),
+            )
+            server.sendPacketData(byteArrayOf(2))
+            responseSent.complete(Unit)
+        }
+
+        client.sendPacketDataAndCommit(byteArrayOf(1)) {
+            responseSent.await()
+            committed = true
+        }
+
+        assertContentEquals(byteArrayOf(2), response.await())
+        peer.join()
     }
 
     private fun ByteArray.singleDistinctByte(): Byte {

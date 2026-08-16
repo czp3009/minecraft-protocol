@@ -36,6 +36,7 @@ class MinecraftInitialWorldTest {
             groundY = groundY,
             surfaceBlockStateId = surface.id,
             biomeId = biomeId,
+            airBlockStateId = air.id,
         )
 
         assertEquals(dimension.sectionCount, chunk.chunkData.sections.size)
@@ -112,11 +113,14 @@ class MinecraftInitialWorldTest {
 
         val format = MinecraftProtocolFormat(
             MinecraftProtocolFormat.configuration.copy(
-                chunkSectionCount = dimension.sectionCount,
-                blockStateRegistrySize = VanillaStaticData.blockStates.size,
-                biomeRegistrySize = VanillaProtocolData.requireRegistry(
-                    Identifier("worldgen/biome"),
-                ).entries.size,
+                registries = VanillaStaticData.registryContext
+                    .withRegistrySize(
+                        ProtocolRegistryContext.BIOME_REGISTRY,
+                        VanillaProtocolData.requireRegistry(
+                            ProtocolRegistryContext.BIOME_REGISTRY,
+                        ).entries.size,
+                    )
+                    .withChunkSectionCount(dimension.sectionCount),
             ),
         )
         val packet = chunk.packet()
@@ -145,6 +149,71 @@ class MinecraftInitialWorldTest {
     }
 
     @Test
+    fun resolvesFlatChunkPalettesFromAModdedRegistryContext() {
+        val air = Identifier("air")
+        val surface = Identifier("example:surface")
+        val biome = Identifier("example:biome")
+        val schema = StaticRegistrySchema(
+            registries = mapOf(
+                StaticRegistrySchema.BLOCK_REGISTRY to listOf(air, surface),
+                ProtocolRegistryContext.BIOME_REGISTRY to listOf(biome),
+            ),
+            blocks = listOf(
+                StaticBlockSchema(
+                    air,
+                    listOf(StaticBlockState(emptyMap(), true)),
+                ),
+                StaticBlockSchema(
+                    surface,
+                    listOf(StaticBlockState(emptyMap(), true)),
+                ),
+            ),
+        )
+        val context = schema.resolve(
+            RemoteRegistrySnapshot(
+                listOf(
+                    RemoteRegistry(
+                        StaticRegistrySchema.BLOCK_REGISTRY,
+                        listOf(
+                            RemoteRegistryEntry(surface, rawId = 0),
+                            RemoteRegistryEntry(air, rawId = 1),
+                        ),
+                    ),
+                    RemoteRegistry(
+                        ProtocolRegistryContext.BIOME_REGISTRY,
+                        listOf(RemoteRegistryEntry(biome, rawId = 7)),
+                    ),
+                ),
+            ),
+        )
+        val dimension = MinecraftDimensionLayout.from(
+            VanillaProtocolData,
+            Identifier("overworld"),
+        )
+
+        val chunk = MinecraftChunkSnapshot.flat(
+            registries = context,
+            dimension = dimension,
+            chunkX = 0,
+            chunkZ = 0,
+            groundY = 64,
+            surfaceBlock = surface,
+            biome = biome,
+            airBlock = air,
+        )
+        val groundSection = (64 - dimension.minY) / 16
+        val palette = assertIs<PalettedContainer.Indirect>(
+            chunk.chunkData.sections[groundSection].blockStates,
+        )
+
+        assertEquals(listOf(1, 0), palette.palette)
+        assertEquals(
+            PalettedContainer.Single(7),
+            chunk.chunkData.sections[groundSection].biomes,
+        )
+    }
+
+    @Test
     fun entitySnapshotResolvesVanillaTypeAndBundlesMetadata() {
         val entity = MinecraftEntitySnapshot(
             entityId = 17,
@@ -154,13 +223,31 @@ class MinecraftInitialWorldTest {
             metadata = EntityMetadata(emptyList()),
         )
 
-        val packets = entity.packets()
+        val packets = entity.packets(VanillaProtocolData.registryContext)
 
         assertEquals(4, packets.size)
         val spawn = assertIs<SpawnEntityPacket>(packets[1])
         assertEquals(entity.entityId, spawn.entityId)
-        assertEquals(entity.typeId, spawn.typeId)
+        assertEquals(
+            entity.typeId(VanillaProtocolData.registryContext),
+            spawn.typeId,
+        )
         assertIs<SetEntityMetadataPacket>(packets[2])
+
+        val remapped = ProtocolRegistryContext(
+            registries = listOf(
+                ProtocolRegistry(
+                    MinecraftEntitySnapshot.ENTITY_TYPE_REGISTRY,
+                    listOf(ProtocolRegistryEntry(Identifier("pig"), 42)),
+                ),
+            ),
+            blockStates = emptyList(),
+        )
+        assertEquals(42, entity.typeId(remapped))
+        assertEquals(
+            42,
+            assertIs<SpawnEntityPacket>(entity.packets(remapped)[1]).typeId,
+        )
     }
 
     @Test
@@ -206,13 +293,17 @@ class MinecraftInitialWorldTest {
             create(groundY = overworld.minY + overworld.height)
         }
         assertFailsWith<IllegalArgumentException> { create(airId = -1) }
-        assertFailsWith<IllegalArgumentException> {
+        assertEquals(
+            overworld.sectionCount,
             create(airId = VanillaStaticData.blockStates.size)
-        }
+                .chunkData.sections.size,
+        )
         assertFailsWith<IllegalArgumentException> { create(surfaceId = -1) }
-        assertFailsWith<IllegalArgumentException> {
+        assertEquals(
+            overworld.sectionCount,
             create(surfaceId = VanillaStaticData.blockStates.size)
-        }
+                .chunkData.sections.size,
+        )
         assertFailsWith<IllegalArgumentException> {
             create(surfaceId = air)
         }
@@ -267,11 +358,12 @@ class MinecraftInitialWorldTest {
         assertFailsWith<IllegalArgumentException> {
             entity(headYaw = Float.NEGATIVE_INFINITY)
         }
-        assertFailsWith<IllegalStateException> {
-            entity(type = Identifier("test:absent")).typeId
+        assertFailsWith<IllegalArgumentException> {
+            entity(type = Identifier("test:absent"))
+                .typeId(VanillaProtocolData.registryContext)
         }
 
-        val packets = entity().packets()
+        val packets = entity().packets(VanillaProtocolData.registryContext)
         assertEquals(3, packets.size)
         assertIs<BundleDelimiterPacket>(packets.first())
         assertIs<SpawnEntityPacket>(packets[1])
@@ -297,6 +389,9 @@ class MinecraftInitialWorldTest {
             groundY = 64,
             surfaceBlockStateId = surface,
             biomeId = biome,
+            airBlockStateId = VanillaStaticData.blockStates
+                .default(Identifier("air"))
+                .id,
         )
         val entity = MinecraftEntitySnapshot(
             entityId = 1,
@@ -385,7 +480,7 @@ class MinecraftInitialWorldTest {
         }
         assertFailsWith<IllegalArgumentException> {
             MinecraftInitialWorld.flatVanilla(
-                MinecraftServerConfiguration(compressionThreshold = null),
+                MinecraftServerNegotiationOptions(compressionThreshold = null),
                 chunkRadius = -1,
             )
         }
@@ -393,7 +488,7 @@ class MinecraftInitialWorldTest {
 
     @Test
     fun initialWorldMustMatchTheNegotiatedPlayContext() {
-        val configuration = MinecraftServerConfiguration(
+        val options = MinecraftServerNegotiationOptions(
             compressionThreshold = null,
         )
         val overworld = MinecraftDimensionLayout.from(
@@ -405,7 +500,9 @@ class MinecraftInitialWorldTest {
             Identifier("the_nether"),
         )
         val profile = GameProfile(Uuid.fromLongs(1, 2), "Probe", emptyList())
-        val login = configuration.playLogin(profile)
+        val login = options.playLogin(profile, onlineMode = false)
+        val registries = options.protocolData.registryContext
+            .withChunkSectionCount(overworld.sectionCount)
 
         fun world(
             dimension: Identifier = login.spawnInfo.dimension,
@@ -421,27 +518,27 @@ class MinecraftInitialWorldTest {
             entities = entities,
         )
 
-        validateInitialWorld(world(), login, configuration)
+        validateInitialWorld(world(), login, registries)
 
         assertFailsWith<IllegalArgumentException> {
             validateInitialWorld(
                 world(dimension = Identifier("the_nether")),
                 login,
-                configuration,
+                registries,
             )
         }
         assertFailsWith<IllegalArgumentException> {
             validateInitialWorld(
                 world(dimensionType = nether),
                 login,
-                configuration,
+                registries,
             )
         }
         assertFailsWith<IllegalArgumentException> {
             validateInitialWorld(
                 world(dimensionType = overworld.copy(height = 16)),
                 login,
-                configuration,
+                registries,
             )
         }
         assertFailsWith<IllegalArgumentException> {
@@ -457,7 +554,7 @@ class MinecraftInitialWorldTest {
                     ),
                 ),
                 login,
-                configuration,
+                registries,
             )
         }
 
@@ -469,7 +566,7 @@ class MinecraftInitialWorldTest {
         validateInitialWorld(
             world(dimension = customDimension),
             customLogin,
-            configuration,
+            registries,
         )
     }
 
@@ -501,14 +598,14 @@ class MinecraftInitialWorldTest {
             assertEquals(abilities, vanillaPlayerAbilities(gameMode))
         }
 
-        val configuration = MinecraftServerConfiguration(
+        val options = MinecraftServerNegotiationOptions(
             compressionThreshold = null,
             gameMode = GameMode.SPECTATOR,
             difficulty = Difficulty.HARD,
             difficultyLocked = true,
         )
         val world = MinecraftInitialWorld.flatVanilla(
-            configuration,
+            options,
             chunkRadius = 0,
         )
 

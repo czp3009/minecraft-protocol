@@ -5,14 +5,14 @@ import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
+import com.hiczp.minecraft.protocol.data.ProtocolDataSet
 import com.hiczp.minecraft.protocol.data.VanillaProtocolData
 import com.hiczp.minecraft.protocol.data.requireRegistry
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.type.GameMode
-import com.hiczp.minecraft.protocol.session.MinecraftSession
-import com.hiczp.minecraft.protocol.session.MinecraftSessionSide
+import com.hiczp.minecraft.protocol.session.*
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import io.ktor.utils.io.*
 import kotlinx.coroutines.async
@@ -26,11 +26,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.uuid.Uuid
 
+@OptIn(InternalMinecraftConnectionApi::class)
 class MinecraftClientProtocolTest {
     @Test
     fun completesStatusAndPingAgainstAScriptedPeer() = runTest {
-        val (clientSession, serverSession) = sessionPair()
-        val client = MinecraftClientProtocol(clientSession, "localhost", 25_565)
+        val (client, serverSession) = connectionPair()
         val server = async {
             assertIs<HandshakePacket>(serverSession.receive())
             assertEquals(StatusRequestPacket, serverSession.receive())
@@ -58,12 +58,12 @@ class MinecraftClientProtocolTest {
 
         assertEquals(0x0102_0304_0506_0708, result.pong.timestamp)
         server.await()
+        client.close()
     }
 
     @Test
     fun completesOfflineLoginConfigurationAndPlayEntry() = runTest {
-        val (clientSession, serverSession) = sessionPair()
-        val client = MinecraftClientProtocol(clientSession, "localhost", 25_565)
+        val (client, serverSession) = connectionPair()
         val identity = MinecraftOfflineIdentity("ClientProbe")
         val loginSuccess = LoginSuccessPacket(
             profile = GameProfile(identity.id, identity.name, emptyList()),
@@ -90,10 +90,19 @@ class MinecraftClientProtocolTest {
                     data = ByteString(byteArrayOf(1, 2, 3)),
                 ),
             )
-            assertEquals(
-                LoginPluginResponsePacket(7, null),
+            val queryResponse = assertIs<UnknownPacket.Serverbound>(
                 serverSession.receive(),
             )
+            assertEquals(
+                PacketRoute.LoginQuery(
+                    direction = PacketDirection.SERVERBOUND,
+                    transactionId = 7,
+                    channel = Identifier("test:query"),
+                    hasPayload = false,
+                ),
+                queryResponse.route,
+            )
+            assertEquals(ByteString(byteArrayOf()), queryResponse.data)
             serverSession.send(SetCompressionPacket(32))
             serverSession.send(loginSuccess)
             assertEquals(LoginAcknowledgedPacket, serverSession.receive())
@@ -116,6 +125,9 @@ class MinecraftClientProtocolTest {
             serverSession.send(CodeOfConductPacket("Be kind."))
             assertEquals(AcceptCodeOfConductPacket, serverSession.receive())
             serverSession.send(ConfigurationUpdateTagsPacket(emptyList()))
+            VanillaProtocolData.registryPackets(listOf(corePack)).forEach {
+                serverSession.send(it)
+            }
             serverSession.send(FinishConfigurationPacket)
             assertEquals(
                 AcknowledgeFinishConfigurationPacket,
@@ -124,36 +136,31 @@ class MinecraftClientProtocolTest {
             serverSession.send(playLogin)
         }
 
-        val result = client.login(identity)
+        val result = client.negotiate(identity)
 
         assertEquals(loginSuccess, result.login)
         assertEquals(playLogin, result.playLogin)
         assertEquals(listOf(corePack), result.configuration.knownPacks?.knownPacks)
-        assertEquals(32, clientSession.frames.codec.compressionThreshold)
         assertEquals(
             MinecraftDimensionLayout.from(
                 VanillaProtocolData,
                 Identifier("overworld"),
             ).sectionCount,
-            clientSession.format.configuration.chunkSectionCount,
+            client.registries.chunkSectionCount,
         )
         assertEquals(
             VanillaProtocolData.requireRegistry(
                 Identifier("worldgen/biome"),
             ).entries.size,
-            clientSession.format.configuration.biomeRegistrySize,
+            client.registries.biomeRegistrySize,
         )
         server.await()
+        client.close()
     }
 
     @Test
     fun derivesPlayFormatFromTheSynchronizedCustomRegistries() = runTest {
-        val (clientSession, serverSession) = sessionPair()
-        val client = MinecraftClientProtocol(
-            clientSession,
-            "localhost",
-            25_565,
-        )
+        val (client, serverSession) = connectionPair()
         val identity = MinecraftOfflineIdentity("RegistryProbe")
         val dimension = Identifier("test:world")
         val dimensionTypeRegistry = RegistryDataPacket(
@@ -178,6 +185,20 @@ class MinecraftClientProtocolTest {
                 RegistryEntry(Identifier("test:second"), null),
             ),
         )
+        val compactDimensionTypeRegistry = RegistryDataPacket(
+            dimensionTypeRegistry.registryId,
+            dimensionTypeRegistry.entries.map { entry ->
+                RegistryEntry(entry.id, null)
+            },
+        )
+        val protocolData = object : ProtocolDataSet by VanillaProtocolData {
+            override fun registryPackets(
+                clientKnownPacks: List<KnownPack>,
+            ): List<RegistryDataPacket> = listOf(
+                dimensionTypeRegistry,
+                biomeRegistry,
+            )
+        }
         val playLogin = playLogin(
             dimensionTypeId = 0,
             dimension = dimension,
@@ -195,7 +216,7 @@ class MinecraftClientProtocolTest {
             assertIs<ConfigurationClientInformationPacket>(
                 serverSession.receive(),
             )
-            serverSession.send(dimensionTypeRegistry)
+            serverSession.send(compactDimensionTypeRegistry)
             serverSession.send(biomeRegistry)
             serverSession.send(FinishConfigurationPacket)
             assertEquals(
@@ -205,30 +226,52 @@ class MinecraftClientProtocolTest {
             serverSession.send(playLogin)
         }
 
-        val result = client.login(identity)
+        val result = client.negotiate(
+            identity,
+            options = MinecraftClientNegotiationOptions(
+                protocolData = protocolData,
+            ),
+        )
 
         assertEquals(playLogin, result.playLogin)
         assertEquals(
             2,
-            clientSession.format.configuration.chunkSectionCount,
+            client.registries.chunkSectionCount,
         )
         assertEquals(
             2,
-            clientSession.format.configuration.biomeRegistrySize,
+            client.registries.biomeRegistrySize,
+        )
+        assertEquals(
+            1,
+            client.registries.requireRegistryEntry(
+                ProtocolRegistryContext.BIOME_REGISTRY,
+                Identifier("test:second"),
+            ).rawId,
         )
         server.await()
+        client.close()
     }
 
-    private fun sessionPair(): Pair<MinecraftSession, MinecraftSession> {
+    private fun connectionPair(): Pair<MinecraftClientConnection, MinecraftSession> {
         val clientToServer = ByteChannel()
         val serverToClient = ByteChannel()
-        return MinecraftSession(
-            MinecraftFrameStream(serverToClient, clientToServer),
-            MinecraftSessionSide.CLIENT,
-        ) to MinecraftSession(
+        val clientFrames = MinecraftFrameStream(serverToClient, clientToServer)
+        val client = MinecraftClientConnection(
+            connection = MinecraftConnectionEngine(
+                frames = clientFrames,
+                closeTransport = { clientFrames.cancel() },
+                side = MinecraftSessionSide.CLIENT,
+                definition = MinecraftConnectionDefinition(),
+            ),
+            serverAddress = "localhost",
+            serverPort = 25_565,
+        )
+        val server = MinecraftSession(
             MinecraftFrameStream(clientToServer, serverToClient),
             MinecraftSessionSide.SERVER,
         )
+        return client to server
     }
 
     private fun playLogin(

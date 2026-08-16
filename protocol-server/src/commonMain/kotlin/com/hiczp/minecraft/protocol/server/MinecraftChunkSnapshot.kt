@@ -1,7 +1,6 @@
 package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
-import com.hiczp.minecraft.protocol.data.VanillaStaticData
 import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
 import com.hiczp.minecraft.protocol.model.type.*
 
@@ -35,24 +34,21 @@ data class MinecraftChunkSnapshot(
             groundY: Int,
             surfaceBlockStateId: Int,
             biomeId: Int,
-            airBlockStateId: Int = VanillaStaticData.blockStates
-                .default(Identifier("air"))
-                .id,
+            airBlockStateId: Int,
             fullBrightSky: Boolean = dimension.hasSkyLight,
         ): MinecraftChunkSnapshot {
             require(groundY in dimension.minY until dimension.minY + dimension.height) {
                 "Ground Y $groundY is outside ${dimension.id}"
             }
             require(
-                airBlockStateId in 0 until VanillaStaticData.blockStates.size,
+                airBlockStateId >= 0,
             ) {
-                "Air block-state ID $airBlockStateId is outside vanilla data"
+                "Air block-state ID must be non-negative"
             }
             require(
-                surfaceBlockStateId in
-                        0 until VanillaStaticData.blockStates.size,
+                surfaceBlockStateId >= 0,
             ) {
-                "Surface block-state ID $surfaceBlockStateId is outside vanilla data"
+                "Surface block-state ID must be non-negative"
             }
             require(surfaceBlockStateId != airBlockStateId) {
                 "The surface block state must differ from air"
@@ -136,6 +132,35 @@ data class MinecraftChunkSnapshot(
                 ),
             )
         }
+
+        /** Resolves all palette IDs from the caller's active registry context. */
+        fun flat(
+            registries: ProtocolRegistryContext,
+            dimension: MinecraftDimensionLayout,
+            chunkX: Int,
+            chunkZ: Int,
+            groundY: Int,
+            surfaceBlock: Identifier,
+            biome: Identifier,
+            airBlock: Identifier = Identifier("air"),
+            fullBrightSky: Boolean = dimension.hasSkyLight,
+        ): MinecraftChunkSnapshot = flat(
+            dimension = dimension,
+            chunkX = chunkX,
+            chunkZ = chunkZ,
+            groundY = groundY,
+            surfaceBlockStateId = registries
+                .requireDefaultBlockState(surfaceBlock)
+                .id,
+            biomeId = registries.requireRegistryEntry(
+                ProtocolRegistryContext.BIOME_REGISTRY,
+                biome,
+            ).rawId,
+            airBlockStateId = registries
+                .requireDefaultBlockState(airBlock)
+                .id,
+            fullBrightSky = fullBrightSky,
+        )
 
         private fun surfacePalette(
             airBlockStateId: Int,

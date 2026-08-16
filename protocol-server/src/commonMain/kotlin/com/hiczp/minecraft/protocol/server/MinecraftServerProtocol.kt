@@ -4,11 +4,10 @@ import com.hiczp.minecraft.protocol.auth.*
 import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.data.completeRegistryPackets
 import com.hiczp.minecraft.protocol.model.packet.*
-import com.hiczp.minecraft.protocol.model.type.ClientInformation
-import com.hiczp.minecraft.protocol.model.type.GameProfile
-import com.hiczp.minecraft.protocol.model.type.JsonTextComponent
-import com.hiczp.minecraft.protocol.model.type.KnownPack
-import com.hiczp.minecraft.protocol.session.MinecraftSession
+import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.protocol.session.NegotiationProfileResult
+import com.hiczp.minecraft.protocol.session.ServerNegotiationProfile
+import com.hiczp.minecraft.protocol.session.VanillaServer
 
 sealed interface MinecraftServerNegotiationResult {
     data object StatusCompleted : MinecraftServerNegotiationResult
@@ -18,326 +17,417 @@ sealed interface MinecraftServerNegotiationResult {
         val clientInformation: ClientInformation,
         val acceptedKnownPacks: List<KnownPack>,
         val login: PlayLoginPacket,
+        val registries: ProtocolRegistryContext,
+        val negotiationProfile: NegotiationProfileResult,
         val transferred: Boolean = false,
     ) : MinecraftServerNegotiationResult
 }
 
-class MinecraftServerProtocol(
-    val session: MinecraftSession,
-    val configuration: MinecraftServerConfiguration =
-        MinecraftServerConfiguration(),
-    val handler: MinecraftServerHandler = DefaultMinecraftServerHandler,
-    val clientIpAddress: String? = null,
-) {
-    internal var negotiatedPlayLogin: PlayLoginPacket? = null
-        private set
-
-    suspend fun negotiate(): MinecraftServerNegotiationResult {
-        val handshake = requirePacket<HandshakePacket>(session.receive())
-        return when (session.state) {
-            ConnectionState.STATUS ->
-                if (configuration.statusEnabled) {
-                    handleStatus()
-                } else {
-                    throw MinecraftServerException(
-                        "Status requests are disabled by configuration",
-                    )
-                }
-
-            ConnectionState.LOGIN -> {
-                val transferred =
-                    handshake.nextState == HandshakeNextState.TRANSFER
-                if (transferred && !configuration.acceptsTransfers) {
-                    session.send(
-                        LoginDisconnectPacket(
-                            JsonTextComponent(
-                                textComponentJson(
-                                    "translate",
-                                    "multiplayer.disconnect.transfers_disabled",
-                                ),
-                            ),
-                        ),
-                    )
-                    throw MinecraftServerException(
-                        "Transfer connections are disabled by configuration",
-                    )
-                }
-                val actualVersion = handshake.protocolVersion
-                val expectedVersion = configuration.protocolData.protocolVersion
-                if (actualVersion != expectedVersion) {
-                    val message = "Unsupported protocol version $actualVersion; expected $expectedVersion"
-                    session.send(
-                        LoginDisconnectPacket(
-                            JsonTextComponent(
-                                textComponentJson("text", message),
-                            ),
-                        ),
-                    )
-                    throw MinecraftServerException(
-                        message,
-                    )
-                }
-                handleLogin(transferred)
-            }
-
-            else -> throw MinecraftServerException(
-                "Handshake ${handshake.nextState} entered unsupported state ${session.state}",
-            )
-        }
-    }
-
-    private suspend fun handleStatus(): MinecraftServerNegotiationResult {
-        requirePacket<StatusRequestPacket>(session.receive())
-        session.send(StatusResponsePacket(handler.statusJson(configuration)))
-        val ping = requirePacket<StatusPingRequestPacket>(session.receive())
-        session.send(StatusPongResponsePacket(ping.timestamp))
-        return MinecraftServerNegotiationResult.StatusCompleted
-    }
-
-    private suspend fun handleLogin(
-        transferred: Boolean,
-    ): MinecraftServerNegotiationResult.PlayReady {
-        val start = requirePacket<LoginStartPacket>(session.receive())
-        val profile = authenticate(start)
-        val rejection = handler.profileRejection(
-            profile = profile,
-            transferred = transferred,
-            configuration = configuration,
-        )
-        if (rejection != null) {
-            session.send(LoginDisconnectPacket(rejection))
-            throw MinecraftServerException(
-                "Profile ${profile.name} was rejected: ${rejection.json}",
-            )
-        }
-        configuration.compressionThreshold?.let { threshold ->
-            session.send(SetCompressionPacket(threshold))
-        }
-        session.send(LoginSuccessPacket(profile, configuration.sessionId))
-        requirePacket<LoginAcknowledgedPacket>(session.receive())
-
-        val clientInformation = awaitClientInformation()
-        session.send(configuration.protocolData.featureFlags)
-        session.send(
-            ConfigurationClientboundKnownPacksPacket(
-                configuration.protocolData.knownPacks,
-            ),
-        )
-        val acceptedKnownPacks = awaitKnownPacks()
-        configuration.protocolData.registryPackets(acceptedKnownPacks)
-            .forEach { session.send(it) }
-        session.send(configuration.protocolData.tags)
-        val extensionPackets = handler.configurationPackets(
-            profile = profile,
-            clientInformation = clientInformation,
-            acceptedKnownPacks = acceptedKnownPacks,
-            transferred = transferred,
-            configuration = configuration,
-        )
-        val extensionTasks = handler.configurationTasks(
-            profile = profile,
-            clientInformation = clientInformation,
-            acceptedKnownPacks = acceptedKnownPacks,
-            transferred = transferred,
-            configuration = configuration,
-        )
-        (
-                extensionPackets +
-                        extensionTasks.flatMap(
-                            MinecraftServerConfigurationTask::packets,
-                        )
-                ).forEach(::validateConfigurationExtensionPacket)
-        extensionPackets.forEach { session.send(it) }
-        extensionTasks.forEach { task ->
-            task.packets.forEach { session.send(it) }
-            awaitConfigurationTask(task)
-        }
-        session.send(FinishConfigurationPacket)
-        awaitFinishConfigurationAcknowledgement()
-
-        val playLogin = handler.playLogin(
-            profile,
-            clientInformation,
-            transferred,
-            configuration,
-        )
-        validatePlayLogin(playLogin)
-        session.send(playLogin)
-        negotiatedPlayLogin = playLogin
-        return MinecraftServerNegotiationResult.PlayReady(
-            profile = profile,
-            clientInformation = clientInformation,
-            acceptedKnownPacks = acceptedKnownPacks,
-            login = playLogin,
-            transferred = transferred,
-        )
-    }
-
-    internal fun validatePlayLogin(login: PlayLoginPacket) {
-        if (login.maxPlayers < 0) {
-            throw MinecraftServerException(
-                "Play Login maximum players must be non-negative",
-            )
-        }
-        if (
-            login.chunkRadius !in
-            MinecraftServerConfiguration.MIN_VIEW_DISTANCE..
-            MinecraftServerConfiguration.MAX_VIEW_DISTANCE
-        ) {
-            throw MinecraftServerException(
-                "Play Login chunk radius must be in ${MinecraftServerConfiguration.MIN_VIEW_DISTANCE}..${MinecraftServerConfiguration.MAX_VIEW_DISTANCE}",
-            )
-        }
-        if (login.simulationDistance < 0) {
-            throw MinecraftServerException(
-                "Play Login simulation distance must be non-negative",
-            )
-        }
-        if (login.spawnInfo.dimension !in login.levels) {
-            throw MinecraftServerException(
-                "Play Login dimension is absent from its advertised levels",
-            )
-        }
-        try {
-            MinecraftDimensionLayout.from(
-                configuration.protocolData.completeRegistryPackets(),
-                login.spawnInfo.dimensionTypeId,
-            )
-        } catch (cause: IllegalStateException) {
-            throw MinecraftServerException(
-                "Play Login references an absent dimension-type registry ID",
-                cause,
-            )
-        } catch (cause: IllegalArgumentException) {
-            throw MinecraftServerException(
-                "Play Login references invalid dimension-type registry data",
-                cause,
-            )
-        }
-    }
-
-    private suspend fun authenticate(start: LoginStartPacket): GameProfile =
-        when (val authentication = configuration.authentication) {
-            MinecraftServerAuthentication.Offline ->
-                MinecraftOfflineIdentity(start.name).toGameProfile()
-
-            is MinecraftServerAuthentication.Online -> {
-                val challenge = authentication.keyPair.createChallenge(
-                    shouldAuthenticate = true,
-                )
-                session.send(challenge.toEncryptionRequestPacket())
-                val response = requirePacket<EncryptionResponsePacket>(
-                    session.receive(),
-                )
-                val exchange = challenge.accept(response)
-                val sharedSecret = exchange.sharedSecret
-                try {
-                    session.enableEncryption(sharedSecret)
-                    val joined = MinecraftSessionApi(
-                        authentication.sessionHttpClient,
-                    ).hasJoined(
-                        MinecraftSessionHasJoinedRequest(
-                            username = start.name,
-                            serverId = exchange.serverHash.value,
-                            ip =
-                            if (configuration.preventProxyConnections) {
-                                clientIpAddress ?: throw MinecraftServerException(
-                                    "Proxy prevention requires the client IP address",
-                                )
-                            } else {
-                                null
-                            },
-                        ),
-                    ) ?: throw MinecraftServerException(
-                        "Session server did not verify ${start.name}",
-                    )
-                    joined.toGameProfile(start.name)
-                } finally {
-                    // MinecraftFrameStream copies the key and IV when encryption is enabled.
-                    sharedSecret.fill(0)
-                }
-            }
-        }
-
-    private suspend fun awaitClientInformation(): ClientInformation {
-        repeat(configuration.maximumPacketsPerPhase) {
-            when (val packet = session.receive()) {
-                is ConfigurationClientInformationPacket ->
-                    return packet.information
-
-                else -> handler.onPacket(packet)
-            }
-        }
-        throw MinecraftServerException("Client Information packet limit exceeded")
-    }
-
-    private suspend fun awaitKnownPacks(): List<KnownPack> {
-        repeat(configuration.maximumPacketsPerPhase) {
-            when (val packet = session.receive()) {
-                is ConfigurationServerboundKnownPacksPacket ->
-                    return packet.knownPacks
-
-                else -> handler.onPacket(packet)
-            }
-        }
-        throw MinecraftServerException("Known Packs packet limit exceeded")
-    }
-
-    private suspend fun awaitFinishConfigurationAcknowledgement() {
-        repeat(configuration.maximumPacketsPerPhase) {
-            when (val packet = session.receive()) {
-                AcknowledgeFinishConfigurationPacket -> return
-                else -> handler.onPacket(packet)
-            }
-        }
-        throw MinecraftServerException(
-            "Finish Configuration acknowledgement packet limit exceeded",
-        )
-    }
-
-    private suspend fun awaitConfigurationTask(
-        task: MinecraftServerConfigurationTask,
+/**
+ * Runs the preset negotiation while exclusively borrowing [MinecraftServerConnection.incoming]
+ * and [MinecraftServerConnection.outgoing]. Callers must not concurrently
+ * receive or send until this method returns.
+ */
+suspend fun MinecraftServerConnection.negotiate(
+    profile: ServerNegotiationProfile = VanillaServer,
+    options: MinecraftServerNegotiationOptions =
+        MinecraftServerNegotiationOptions(),
+    policy: MinecraftServerNegotiationPolicy =
+        DefaultMinecraftServerNegotiationPolicy,
+): MinecraftServerNegotiationResult {
+    require(
+        state == ConnectionState.HANDSHAKE ||
+                state == ConnectionState.STATUS ||
+                state == ConnectionState.LOGIN,
     ) {
-        repeat(configuration.maximumPacketsPerPhase) {
-            val packet = session.receive()
-            handler.onPacket(packet)
-            if (task.isComplete(packet)) return
+        "Negotiation must begin before Configuration"
+    }
+    profile.begin(this)
+    val handshake = requirePacket<HandshakePacket>(incoming.receive())
+    profile.acceptHandshake(handshake)
+    return when (state) {
+        ConnectionState.STATUS -> {
+            if (!options.statusEnabled) {
+                throw MinecraftServerException(
+                    "Status requests are disabled by configuration",
+                )
+            }
+            handleStatus(options, policy)
         }
-        throw MinecraftServerException(
-            "Configuration task '${task.name}' packet limit exceeded",
+
+        ConnectionState.LOGIN -> {
+            val transferred = handshake.nextState == HandshakeNextState.TRANSFER
+            if (transferred && !options.acceptsTransfers) {
+                throw MinecraftLoginRejectedException(
+                    reason = JsonTextComponent(
+                        textComponentJson(
+                            "translate",
+                            "multiplayer.disconnect.transfers_disabled",
+                        ),
+                    ),
+                    message = "Transfer connections are disabled by configuration",
+                )
+            }
+            val actualVersion = handshake.protocolVersion
+            val expectedVersion = options.protocolData.protocolVersion
+            if (actualVersion != expectedVersion) {
+                val message =
+                    "Unsupported protocol version $actualVersion; expected $expectedVersion"
+                throw MinecraftLoginRejectedException(
+                    reason = JsonTextComponent(
+                        textComponentJson("text", message),
+                    ),
+                    message = message,
+                )
+            }
+            handleLogin(transferred, profile, options, policy)
+        }
+
+        else -> throw MinecraftServerException(
+            "Handshake ${handshake.nextState} entered unsupported state $state",
         )
     }
-
-    private fun validateConfigurationExtensionPacket(packet: Packet) {
-        if (
-            packet !is ConfigurationStatePacket ||
-            packet !is ClientboundPacket
-        ) {
-            throw MinecraftServerException(
-                "Configuration extension ${packet::class.simpleName} must be a clientbound Configuration packet",
-            )
-        }
-        if (
-            packet is FeatureFlagsPacket ||
-            packet is ConfigurationClientboundKnownPacksPacket ||
-            packet is RegistryDataPacket ||
-            packet is ConfigurationUpdateTagsPacket ||
-            packet is FinishConfigurationPacket
-        ) {
-            throw MinecraftServerException(
-                "Configuration extension ${packet::class.simpleName} is managed by MinecraftServerProtocol",
-            )
-        }
-    }
-
-    private inline fun <reified T : Packet> requirePacket(packet: Packet): T =
-        packet as? T ?: throw MinecraftServerException(
-            "Expected ${T::class.simpleName}, received ${packet::class.simpleName}",
-        )
 }
 
+private suspend fun MinecraftServerConnection.handleStatus(
+    options: MinecraftServerNegotiationOptions,
+    policy: MinecraftServerNegotiationPolicy,
+): MinecraftServerNegotiationResult {
+    requirePacket<StatusRequestPacket>(incoming.receive())
+    outgoing.send(
+        StatusResponsePacket(
+            policy.statusJson(
+                options,
+                authentication is MinecraftServerAuthentication.Online,
+            ),
+        ),
+    )
+    val ping = requirePacket<StatusPingRequestPacket>(incoming.receive())
+    outgoing.send(StatusPongResponsePacket(ping.timestamp))
+    outgoing.close()
+    awaitClosed()
+    return MinecraftServerNegotiationResult.StatusCompleted
+}
+
+private suspend fun MinecraftServerConnection.handleLogin(
+    transferred: Boolean,
+    profile: ServerNegotiationProfile,
+    options: MinecraftServerNegotiationOptions,
+    policy: MinecraftServerNegotiationPolicy,
+): MinecraftServerNegotiationResult.PlayReady {
+    val start = awaitLoginPacket<LoginStartPacket>(profile, options, policy)
+    val gameProfile = authenticate(start, profile, options, policy)
+    val rejection = policy.profileRejection(
+        gameProfile,
+        transferred,
+        options,
+    )
+    if (rejection != null) {
+        throw MinecraftLoginRejectedException(
+            reason = rejection,
+            message = "Profile ${gameProfile.name} was rejected: ${rejection.json}",
+        )
+    }
+
+    profile.negotiateLogin(this)
+    options.compressionThreshold?.let { threshold ->
+        outgoing.send(SetCompressionPacket(threshold))
+    }
+    outgoing.send(LoginSuccessPacket(gameProfile, options.sessionId))
+    awaitLoginPacket<LoginAcknowledgedPacket>(profile, options, policy)
+    awaitState(ConnectionState.CONFIGURATION)
+
+    val clientInformation =
+        awaitConfigurationPacket<ConfigurationClientInformationPacket>(
+            profile,
+            options,
+            policy,
+            "Client Information",
+        ).information
+    profile.negotiateConfigurationStart(this)
+    outgoing.send(options.protocolData.featureFlags)
+    profile.negotiateEarlyConfiguration(this)
+    outgoing.send(
+        ConfigurationClientboundKnownPacksPacket(
+            options.protocolData.knownPacks,
+        ),
+    )
+    val acceptedKnownPacks =
+        awaitConfigurationPacket<ConfigurationServerboundKnownPacksPacket>(
+            profile,
+            options,
+            policy,
+            "Known Packs",
+        ).knownPacks
+    options.protocolData.registryPackets(acceptedKnownPacks)
+        .forEach { outgoing.send(it) }
+    outgoing.send(options.protocolData.tags)
+
+    profile.negotiateConfiguration(this)
+    val extensionPackets = policy.configurationPackets(
+        gameProfile,
+        clientInformation,
+        acceptedKnownPacks,
+        transferred,
+        options,
+    )
+    val extensionTasks = policy.configurationTasks(
+        gameProfile,
+        clientInformation,
+        acceptedKnownPacks,
+        transferred,
+        options,
+    )
+    extensionPackets.forEach(::validateConfigurationExtensionPacket)
+    extensionTasks.flatMap(MinecraftServerNegotiationTask::packets)
+        .forEach(::validateConfigurationExtensionPacket)
+    extensionPackets.forEach { outgoing.send(it) }
+    extensionTasks.forEach { task ->
+        task.packets.forEach { outgoing.send(it) }
+        awaitConfigurationTask(task, profile, options, policy)
+    }
+
+    val onlineMode = authentication is MinecraftServerAuthentication.Online
+    val login = policy.playLogin(
+        gameProfile,
+        clientInformation,
+        transferred,
+        onlineMode,
+        options,
+    )
+    validatePlayLogin(login, options)
+    val registryContext = profile.resolveRegistryContext(
+        activeRegistryContext(options, login),
+    )
+    installRegistryContext(registryContext)
+
+    outgoing.send(FinishConfigurationPacket)
+    awaitConfigurationPacket<AcknowledgeFinishConfigurationPacket>(
+        profile,
+        options,
+        policy,
+        "Finish Configuration acknowledgement",
+    )
+    awaitState(ConnectionState.PLAY)
+    profile.preparePlay(this)
+    outgoing.send(login)
+    playLogin = login
+    val profileResult = profile.complete(this)
+    return MinecraftServerNegotiationResult.PlayReady(
+        profile = gameProfile,
+        clientInformation = clientInformation,
+        acceptedKnownPacks = acceptedKnownPacks,
+        login = login,
+        registries = registryContext,
+        negotiationProfile = profileResult,
+        transferred = transferred,
+    )
+}
+
+private suspend fun MinecraftServerConnection.authenticate(
+    start: LoginStartPacket,
+    profile: ServerNegotiationProfile,
+    options: MinecraftServerNegotiationOptions,
+    policy: MinecraftServerNegotiationPolicy,
+): GameProfile = when (val configured = authentication) {
+    MinecraftServerAuthentication.Offline ->
+        MinecraftOfflineIdentity(start.name).toGameProfile()
+
+    is MinecraftServerAuthentication.Online -> {
+        val challenge = configured.keyPair.createChallenge(
+            shouldAuthenticate = true,
+        )
+        outgoing.send(challenge.toEncryptionRequestPacket())
+        val response = awaitLoginPacket<EncryptionResponsePacket>(
+            profile,
+            options,
+            policy,
+        )
+        val exchange = challenge.accept(response)
+        val sharedSecret = exchange.sharedSecret
+        try {
+            enableEncryption(sharedSecret)
+            val joined = MinecraftSessionApi(
+                configured.sessionHttpClient,
+            ).hasJoined(
+                MinecraftSessionHasJoinedRequest(
+                    username = start.name,
+                    serverId = exchange.serverHash.value,
+                    ip =
+                        if (options.preventProxyConnections) {
+                            clientIpAddress ?: throw MinecraftServerException(
+                                "Proxy prevention requires the client IP address",
+                            )
+                        } else {
+                            null
+                        },
+                ),
+            ) ?: throw MinecraftServerException(
+                "Session server did not verify ${start.name}",
+            )
+            joined.toGameProfile(start.name)
+        } finally {
+            sharedSecret.fill(0)
+        }
+    }
+}
+
+private suspend inline fun <reified T : ServerboundPacket>
+        MinecraftServerConnection.awaitLoginPacket(
+    profile: ServerNegotiationProfile,
+    options: MinecraftServerNegotiationOptions,
+    policy: MinecraftServerNegotiationPolicy,
+): T {
+    repeat(options.maximumPacketsPerPhase) {
+        val packet = incoming.receive()
+        if (packet is T) return packet
+        if (profile.handleLoginPacket(this, packet)) return@repeat
+        handleUnexpected(packet, policy)
+    }
+    throw MinecraftServerException(
+        "${T::class.simpleName} Login packet limit exceeded",
+    )
+}
+
+private suspend inline fun <reified T : ServerboundPacket>
+        MinecraftServerConnection.awaitConfigurationPacket(
+    profile: ServerNegotiationProfile,
+    options: MinecraftServerNegotiationOptions,
+    policy: MinecraftServerNegotiationPolicy,
+    description: String,
+): T {
+    repeat(options.maximumPacketsPerPhase) {
+        val packet = incoming.receive()
+        if (packet is T) return packet
+        if (profile.handleConfigurationPacket(this, packet)) return@repeat
+        handleUnexpected(packet, policy)
+    }
+    throw MinecraftServerException("$description packet limit exceeded")
+}
+
+private suspend fun MinecraftServerConnection.awaitConfigurationTask(
+    task: MinecraftServerNegotiationTask,
+    profile: ServerNegotiationProfile,
+    options: MinecraftServerNegotiationOptions,
+    policy: MinecraftServerNegotiationPolicy,
+) {
+    repeat(options.maximumPacketsPerPhase) {
+        val packet = incoming.receive()
+        if (task.isComplete(packet)) return
+        if (profile.handleConfigurationPacket(this, packet)) return@repeat
+        handleUnexpected(packet, policy)
+    }
+    throw MinecraftServerException(
+        "Configuration task '${task.name}' packet limit exceeded",
+    )
+}
+
+private suspend fun MinecraftServerConnection.handleUnexpected(
+    packet: ServerboundPacket,
+    policy: MinecraftServerNegotiationPolicy,
+) {
+    if (
+        packet is ConfigurationServerboundPluginMessagePacket &&
+        packet.payload is CustomPayload.Brand
+    ) {
+        return
+    }
+    if (packet !is UnknownPacket.Serverbound) {
+        throw MinecraftServerException(
+            "Unexpected negotiation packet ${packet::class.simpleName}",
+        )
+    }
+    when (val result = policy.onUnhandledQuery(packet)) {
+        ServerNegotiationQueryResult.Pass -> Unit
+        is ServerNegotiationQueryResult.Reject ->
+            throw MinecraftServerException(result.reason)
+
+        is ServerNegotiationQueryResult.Respond ->
+            result.packets.forEach { outgoing.send(it) }
+    }
+}
+
+private fun validateConfigurationExtensionPacket(packet: ClientboundPacket) {
+    if (
+        packet is FeatureFlagsPacket ||
+        packet is ConfigurationClientboundKnownPacksPacket ||
+        packet is RegistryDataPacket ||
+        packet is ConfigurationUpdateTagsPacket ||
+        packet is FinishConfigurationPacket
+    ) {
+        throw MinecraftServerException(
+            "Configuration extension ${packet::class.simpleName} is managed by the Vanilla negotiator",
+        )
+    }
+}
+
+private fun validatePlayLogin(
+    login: PlayLoginPacket,
+    options: MinecraftServerNegotiationOptions,
+) {
+    if (login.maxPlayers < 0) {
+        throw MinecraftServerException(
+            "Play Login maximum players must be non-negative",
+        )
+    }
+    if (
+        login.chunkRadius !in
+        MinecraftServerNegotiationOptions.MIN_VIEW_DISTANCE..
+        MinecraftServerNegotiationOptions.MAX_VIEW_DISTANCE
+    ) {
+        throw MinecraftServerException(
+            "Play Login chunk radius must be in ${MinecraftServerNegotiationOptions.MIN_VIEW_DISTANCE}..${MinecraftServerNegotiationOptions.MAX_VIEW_DISTANCE}",
+        )
+    }
+    if (login.simulationDistance < 0) {
+        throw MinecraftServerException(
+            "Play Login simulation distance must be non-negative",
+        )
+    }
+    if (login.spawnInfo.dimension !in login.levels) {
+        throw MinecraftServerException(
+            "Play Login dimension is absent from its advertised levels",
+        )
+    }
+    MinecraftDimensionLayout.from(
+        options.protocolData.completeRegistryPackets(),
+        login.spawnInfo.dimensionTypeId,
+    )
+}
+
+private fun activeRegistryContext(
+    options: MinecraftServerNegotiationOptions,
+    login: PlayLoginPacket,
+): ProtocolRegistryContext {
+    val dimension = MinecraftDimensionLayout.from(
+        options.protocolData.completeRegistryPackets(),
+        login.spawnInfo.dimensionTypeId,
+    )
+    return options.protocolData.registryContext.withChunkSectionCount(
+        dimension.sectionCount,
+    )
+}
+
+private inline fun <reified T : ServerboundPacket> requirePacket(
+    packet: ServerboundPacket,
+): T = packet as? T ?: throw MinecraftServerException(
+    "Expected ${T::class.simpleName}, received ${packet::class.simpleName}",
+)
+
 /** Invalid server-side protocol orchestration or peer behavior. */
-class MinecraftServerException(
+open class MinecraftServerException(
     message: String,
     cause: Throwable? = null,
 ) : IllegalStateException(message, cause)
+
+/**
+ * A preset Login policy rejection. The connection stays open and this class
+ * never sends [LoginDisconnectPacket]; callers may send it explicitly.
+ */
+class MinecraftLoginRejectedException(
+    val reason: JsonTextComponent,
+    message: String,
+) : MinecraftServerException(message) {
+    /** Ready-to-send default reply; the library never sends it automatically. */
+    val failurePacket: LoginDisconnectPacket = LoginDisconnectPacket(reason)
+}

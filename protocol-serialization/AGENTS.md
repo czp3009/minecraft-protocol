@@ -1,8 +1,7 @@
 # protocol-serialization
 
-This module owns Minecraft packet-payload encoding and decoding through `MinecraftProtocolFormat` and the physical
-registry
-adapter built from generated packet definitions.
+This module owns Minecraft packet-payload encoding and decoding through `MinecraftProtocolFormat`, the immutable vanilla
+packet registry, and connection-specific composed extension registries.
 
 ## Ownership
 
@@ -11,6 +10,11 @@ adapter built from generated packet definitions.
   modified UTF, list wrapping, or NBT limits.
 - Packet models, logical variants, and identities remain in `protocol-model`.
 - Production framing, compression, encryption, and sockets enter through `protocol-transport`, not serialization.
+- Extension registration covers bounded Login-query, Configuration/Play custom-payload, and top-level numeric routes.
+  Known malformed bodies and trailing bytes propagate. Only the explicit nested-unknown signal may become a lossless
+  direction-correct `UnknownPacket`.
+- Palette widths come from `MinecraftProtocolFormatConfiguration.registries`; never consult a global vanilla block or
+  biome count for a connection codec.
 - `MinecraftProtocolFormat.encodeToSink` and bounded `decodeFromSource` are the canonical payload paths. Registry and
   byte-array APIs delegate to them. Buffering is permitted only for a wire construct whose length must precede its
   encoded body, such as `@ByteLengthPrefixed`.

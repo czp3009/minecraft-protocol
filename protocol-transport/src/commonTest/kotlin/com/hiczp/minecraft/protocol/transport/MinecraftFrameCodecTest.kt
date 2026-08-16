@@ -126,6 +126,29 @@ class MinecraftFrameCodecTest {
     }
 
     @Test
+    fun decodesZlibMembersWhoseEpilogueCrossesAnInputBoundary() = runTest {
+        val bytes = ByteArray(4_201)
+        Random(0x5A4C_4942).nextBytes(bytes)
+        var candidate: Pair<ByteArray, ByteArray>? = null
+        for (size in 3_600..4_200) {
+            val packetData = bytes.copyOf(size)
+            val member = Zlib.compress(packetData)
+            if (member.size % 4_096 in 1..3) {
+                candidate = packetData to member
+                break
+            }
+        }
+        val (packetData, member) = assertNotNull(candidate)
+        val codec = MinecraftFrameCodec()
+        codec.configureCompression(1)
+
+        assertContentEquals(
+            packetData,
+            codec.decodeFrameBody(encodeVarInt(packetData.size) + member),
+        )
+    }
+
+    @Test
     fun decodesStandardStoredFixedAndDynamicZlibStreams() = runTest {
         val codec = MinecraftFrameCodec()
         codec.configureCompression(1)

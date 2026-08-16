@@ -1,14 +1,10 @@
 package com.hiczp.minecraft.protocol.server
 
-import com.hiczp.minecraft.protocol.data.VanillaStaticData
 import com.hiczp.minecraft.protocol.model.packet.BundleDelimiterPacket
 import com.hiczp.minecraft.protocol.model.packet.ClientboundPacket
 import com.hiczp.minecraft.protocol.model.packet.SetEntityMetadataPacket
 import com.hiczp.minecraft.protocol.model.packet.SpawnEntityPacket
-import com.hiczp.minecraft.protocol.model.type.Angle
-import com.hiczp.minecraft.protocol.model.type.EntityMetadata
-import com.hiczp.minecraft.protocol.model.type.Identifier
-import com.hiczp.minecraft.protocol.model.type.Vector3d
+import com.hiczp.minecraft.protocol.model.type.*
 import kotlin.uuid.Uuid
 
 /**
@@ -26,11 +22,6 @@ data class MinecraftEntitySnapshot(
     val data: Int = 0,
     val metadata: EntityMetadata? = null,
 ) {
-    val typeId: Int
-        get() = VanillaStaticData
-            .requireRegistry(ENTITY_TYPE_REGISTRY)
-            .requireProtocolId(type)
-
     init {
         require(entityId > 0) {
             "An entity ID must be positive"
@@ -46,7 +37,14 @@ data class MinecraftEntitySnapshot(
         }
     }
 
-    fun packets(): List<ClientboundPacket> = buildList {
+    fun typeId(registries: ProtocolRegistryContext): Int =
+        registries.requireRegistryEntry(ENTITY_TYPE_REGISTRY, type).rawId
+
+    fun packets(registries: ProtocolRegistryContext): List<ClientboundPacket> =
+        packets(typeId(registries))
+
+    fun packets(typeId: Int): List<ClientboundPacket> = buildList {
+        require(typeId >= 0) { "An entity type ID must be non-negative" }
         add(BundleDelimiterPacket)
         add(
             SpawnEntityPacket(
@@ -70,7 +68,7 @@ data class MinecraftEntitySnapshot(
     }
 
     companion object {
-        private val ENTITY_TYPE_REGISTRY = Identifier("entity_type")
+        val ENTITY_TYPE_REGISTRY: Identifier = Identifier("entity_type")
     }
 }
 

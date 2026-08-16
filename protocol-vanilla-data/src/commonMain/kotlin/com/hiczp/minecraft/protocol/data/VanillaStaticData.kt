@@ -3,7 +3,7 @@
 package com.hiczp.minecraft.protocol.data
 
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
-import com.hiczp.minecraft.protocol.model.type.Identifier
+import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.io.Buffer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -129,10 +129,46 @@ sealed class VanillaStaticData private constructor() {
         val blockStates: VanillaBlockStateRegistry
             get() = snapshot.blockStates
 
+        /** Vanilla implementation of the loader-neutral local registry schema. */
+        val registrySchema: StaticRegistrySchema
+            get() = schema
+
+        /** Default resolved context before an active dimension is selected. */
+        val registryContext: ProtocolRegistryContext
+            get() = context
+
         fun registry(id: Identifier): VanillaRegistry? = registries[id]
 
         fun requireRegistry(id: Identifier): VanillaRegistry =
             registry(id) ?: error("Vanilla registry $id does not exist")
+
+        private val schema: StaticRegistrySchema by lazy(
+            LazyThreadSafetyMode.PUBLICATION,
+        ) {
+            StaticRegistrySchema(
+                registries = registries.mapValues { (_, registry) ->
+                    registry.entries
+                },
+                blocks = requireRegistry(StaticRegistrySchema.BLOCK_REGISTRY)
+                    .entries
+                    .map { block ->
+                        StaticBlockSchema(
+                            block,
+                            blockStates.states(block).map { state ->
+                                StaticBlockState(
+                                    state.properties,
+                                    state.isDefault,
+                                )
+                            },
+                        )
+                    },
+            )
+        }
+
+        private val context: ProtocolRegistryContext by lazy(
+            LazyThreadSafetyMode.PUBLICATION,
+            schema::resolve,
+        )
     }
 }
 

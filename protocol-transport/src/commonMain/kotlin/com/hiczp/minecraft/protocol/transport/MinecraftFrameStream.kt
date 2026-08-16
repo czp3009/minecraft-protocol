@@ -17,6 +17,7 @@ class MinecraftFrameStream(
 ) {
     private val receiveMutex = Mutex()
     private val sendMutex = Mutex()
+    private val wireEffectMutex = Mutex()
     private var decryptor: MinecraftStreamCipher? = null
     private var encryptor: MinecraftStreamCipher? = null
 
@@ -104,6 +105,39 @@ class MinecraftFrameStream(
         output.flush()
     }
 
+    /**
+     * Sends one frame and invokes [commit] after its bytes are flushed while
+     * receive-side decrypt/decompress work is paused at a frame boundary.
+     * The callback owns protocol state; this transport only makes its commit
+     * indivisible from decoding an immediate peer response.
+     */
+    suspend fun sendPacketDataAndCommit(
+        packetData: Source,
+        packetDataByteCount: Int,
+        commit: suspend () -> Unit,
+    ) = sendMutex.withLock {
+        wireEffectMutex.withLock {
+            val frame = Buffer()
+            codec.encodeFrameToSink(
+                packetData,
+                packetDataByteCount,
+                frame,
+            )
+            writeEncrypted(frame, frame.size)
+            output.flush()
+            commit()
+        }
+    }
+
+    /** In-memory adapter over [sendPacketDataAndCommit]. */
+    suspend fun sendPacketDataAndCommit(
+        packetData: ByteArray,
+        commit: suspend () -> Unit,
+    ) {
+        val source = Buffer().apply { write(packetData) }
+        sendPacketDataAndCommit(source, packetData.size, commit)
+    }
+
     /** In-memory adapter over the streaming [sendPacketData] overload. */
     suspend fun sendPacketData(packetData: ByteArray) {
         val source = Buffer().apply { write(packetData) }
@@ -137,19 +171,22 @@ class MinecraftFrameStream(
         sink: Sink,
         legacyPacketId: Int?,
         legacyPayloadSize: Int,
-    ): Long = receiveMutex.withLock {
-        val first = readDecryptedByte()
-        if (legacyPacketId != null && first == legacyPacketId) {
-            sink.writeByte(first.toByte())
-            readDecryptedToSink(legacyPayloadSize, sink)
-            return@withLock legacyPayloadSize + 1L
-        }
+    ): Long = receiveMutex.withLock receive@{
+        val firstEncrypted = input.readByte()
+        wireEffectMutex.withLock effect@{
+            val first = decryptByte(firstEncrypted)
+            if (legacyPacketId != null && first == legacyPacketId) {
+                sink.writeByte(first.toByte())
+                readDecryptedToSink(legacyPayloadSize, sink)
+                return@effect legacyPayloadSize + 1L
+            }
 
-        val frameLength = readEncryptedFrameLength(first)
-        codec.validateFrameLength(frameLength)
-        val frameBody = Buffer()
-        readDecryptedToSink(frameLength, frameBody)
-        codec.decodeFrameBodyToSink(frameBody, frameLength, sink)
+            val frameLength = readEncryptedFrameLength(first)
+            codec.validateFrameLength(frameLength)
+            val frameBody = Buffer()
+            readDecryptedToSink(frameLength, frameBody)
+            codec.decodeFrameBodyToSink(frameBody, frameLength, sink)
+        }
     }
 
     private suspend fun readDecryptedToSink(
@@ -236,15 +273,15 @@ class MinecraftFrameStream(
                 return result
             }
             shift += 7
-            current = readDecryptedByte()
+            current = decryptByte(input.readByte())
         }
         throw MinecraftTransportException(
             "Frame length is wider than 21 bits",
         )
     }
 
-    private suspend fun readDecryptedByte(): Int {
-        val encrypted = byteArrayOf(input.readByte())
+    private fun decryptByte(value: Byte): Int {
+        val encrypted = byteArrayOf(value)
         return (decryptor?.process(encrypted)?.single() ?: encrypted.single())
             .toInt() and 0xFF
     }

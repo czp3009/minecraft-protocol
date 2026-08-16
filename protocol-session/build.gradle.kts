@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
+    alias(libs.plugins.kotlinSerialization)
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
 }
 
@@ -50,6 +51,8 @@ kotlin {
             api(project(":protocol-model"))
             api(project(":protocol-serialization"))
             api(project(":protocol-transport"))
+            api(libs.kotlinx.coroutines.core)
+            api(libs.kotlinx.serialization.json)
         }
 
         commonTest.dependencies {

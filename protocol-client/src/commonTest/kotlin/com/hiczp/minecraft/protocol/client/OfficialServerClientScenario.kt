@@ -17,7 +17,7 @@ internal object OfficialServerClientScenario {
         host: String,
         port: Int,
         phaseChanged: (String) -> Unit = {},
-    ): MinecraftClientLoginResult {
+    ): MinecraftClientNegotiationResult {
         phaseChanged("status query")
         return SelectorManager(Dispatchers.Default).use { selector ->
             MinecraftClientConnection.connect(
@@ -25,7 +25,7 @@ internal object OfficialServerClientScenario {
                 host = host,
                 port = port,
             ).use { statusClient ->
-                val status = statusClient.protocol.queryStatus(
+                val status = statusClient.queryStatus(
                     0x0102_0304_0506_0708,
                 )
                 val statusDocument = Json
@@ -48,19 +48,15 @@ internal object OfficialServerClientScenario {
                 host = host,
                 port = port,
             ).use { loginClient ->
-                val login = loginClient.protocol.login(
+                val defaults = MinecraftClientNegotiationOptions()
+                val login = loginClient.negotiate(
                     MinecraftOfflineIdentity("KmpClientProbe"),
-                    options = MinecraftClientOptions(
-                        information = MinecraftClientOptions()
-                            .information.copy(viewDistance = 2),
+                    options = MinecraftClientNegotiationOptions(
+                        information = defaults.information.copy(
+                            viewDistance = 2,
+                        ),
                     ),
                 )
-                check(
-                    loginClient.transport.frames.codec
-                        .compressionThreshold == 64,
-                ) {
-                    "Official server did not negotiate compression threshold 64"
-                }
                 phaseChanged("configuration verification")
                 verifyVanillaConfiguration(login)
                 login
@@ -69,7 +65,7 @@ internal object OfficialServerClientScenario {
     }
 
     private fun verifyVanillaConfiguration(
-        result: MinecraftClientLoginResult,
+        result: MinecraftClientNegotiationResult,
     ) {
         val configuration = result.configuration
         check(

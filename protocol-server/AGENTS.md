@@ -6,16 +6,22 @@ the application. Initial-world APIs project finite chunks and entity snapshots; 
 
 ## Application boundary
 
-Per-connection state belongs to `MinecraftServerConnection` and `MinecraftServerProtocol`. Application concurrency,
-players, worlds, persistence, and gameplay remain caller-owned.
+Per-connection state belongs to `MinecraftServerConnection` and the negotiation extension. Application concurrency,
+players, worlds, persistence, and gameplay remain caller-owned. `accept` returns a raw channel-first connection and does
+not install callbacks or automatically begin negotiation.
 
 Online authentication receives a caller-owned `HttpClient` and constructs the stateless `MinecraftSessionApi`
 internally. The caller configures and closes the client; this module owns when `/hasJoined` occurs.
 
-The module does not read `server.properties`. Protocol-visible choices belong in `MinecraftServerConfiguration`, and
-application decisions belong in `MinecraftServerHandler`. Fire-and-forget Configuration traffic uses
-`configurationPackets`; response-gated exchanges use ordered `configurationTasks`. Each task validates packet state and
-direction and continues dispatching client responses until the task and Finish Configuration are acknowledged.
+The module does not read `server.properties`. Protocol-visible choices belong in
+`MinecraftServerNegotiationOptions`, and application decisions belong in `MinecraftServerNegotiationPolicy`.
+Fire-and-forget Configuration traffic uses `configurationPackets`; response-gated exchanges use ordered
+`configurationTasks`. Each task validates packet state and direction and continues dispatching client responses until
+the task and Finish Configuration are acknowledged.
+
+The caller may share one immutable `MinecraftConnectionDefinition`, loader profile definition, static registry schema,
+and resolved registry context across all connections. The library does not clone large immutable registries per client.
+Negotiation, codec, and state failures propagate; never add automatic disconnect or loader-failure replies.
 
 Do not hardcode difficulty, game mode, abilities, Status behavior, transfer admission, resource-pack policy, or
 secure-chat claims.

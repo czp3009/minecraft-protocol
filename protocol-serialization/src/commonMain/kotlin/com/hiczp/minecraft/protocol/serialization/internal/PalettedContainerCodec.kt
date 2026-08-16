@@ -210,7 +210,7 @@ internal object PalettedContainerCodec {
     private fun PaletteKind.registrySize(
         configuration: MinecraftProtocolFormatConfiguration,
     ): Int = when (this) {
-        PaletteKind.BLOCK_STATES -> configuration.blockStateRegistrySize
-        PaletteKind.BIOMES -> configuration.biomeRegistrySize
+        PaletteKind.BLOCK_STATES -> configuration.requireBlockStateRegistrySize()
+        PaletteKind.BIOMES -> configuration.requireBiomeRegistrySize()
     }
 }

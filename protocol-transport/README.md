@@ -24,6 +24,10 @@ canonical paths, with byte-array overloads as adapters. Memory staging is limite
 encoded length must be known before the body is emitted and to the synchronous-sink/suspending-channel bridge. Malformed
 framing, compression, and transport data is exposed through the `kotlinx.io.IOException` hierarchy.
 
+`MinecraftFrameStream.sendPacketDataAndCommit` is the narrow duplex boundary used when a flushed frame changes how an
+immediate response must be decrypted or decompressed. Its callback supplies the state change; transport itself remains
+unaware of packets, protocol states, or negotiation policy.
+
 Packet-data bytes already include their encoded packet ID. The in-memory adapter can frame, compress, and decode them
 without opening a socket:
 

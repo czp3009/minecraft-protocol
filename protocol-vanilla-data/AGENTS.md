@@ -4,6 +4,10 @@ This module owns immutable typed protocol data for the repository-selected Minec
 Configuration registries, feature flags, Known Packs, and tags. Gameplay behavior, world simulation, and general
 Datapack interpretation remain outside this module.
 
+The generated vanilla catalogue also exposes the loader-neutral static schema and resolved default registry context.
+Dynamic loader mappings and per-connection negotiation stay in `protocol-session`; physical palette consumption stays in
+`protocol-serialization`.
+
 ## Generation
 
 Root official-analysis tasks provide static reports and complete captures of both Configuration Known Packs branches.

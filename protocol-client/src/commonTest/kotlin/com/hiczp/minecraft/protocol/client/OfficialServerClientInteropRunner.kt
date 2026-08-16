@@ -29,6 +29,9 @@ internal object OfficialServerClientInteropRunner {
                 throw AssertionError(
                     """
                     |Official production-client interop failed during $phase.
+                    |--- client failure ---
+                    |$failure
+                    |cause: ${failure.cause}
                     |--- official server log ---
                     |${MinecraftTestSupport.logText(server)}
                     """.trimMargin(),

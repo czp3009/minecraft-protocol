@@ -8,6 +8,8 @@ The module provides:
 - structured values for items, chunks, chat, commands, entities, registries, recipes, and other packet fields;
 - an API dependency on the standalone `nbt` value algebra for packet fields that carry raw NBT;
 - sealed variants and logical `kotlinx.serialization` serializers for conditional protocol shapes;
+- open direction-specific packet extension branches plus lossless `PacketRoute`/`UnknownPacket` values;
+- immutable static, remote, and resolved registry models for dynamic block-state and registry IDs;
 - wire-hint annotations interpreted by `protocol-serialization`.
 
 Models contain values and invariants. Binary byte layout is supplied by a `kotlinx.serialization` format such as
