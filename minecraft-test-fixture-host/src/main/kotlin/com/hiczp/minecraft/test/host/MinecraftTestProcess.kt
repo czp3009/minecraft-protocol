@@ -392,7 +392,5 @@ private const val MAXIMUM_LOG_CHARACTERS = 200_000
 private const val PROCESS_RUNNING = 0
 private const val PROCESS_SHUTDOWN_REQUESTED = 1
 private const val PROCESS_FORCE_REQUESTED = 2
-internal val PROCESS_GRACEFUL_SHUTDOWN_TIMEOUT =
-    10.seconds
-internal val PROCESS_FORCED_SHUTDOWN_TIMEOUT =
-    5.seconds
+internal val PROCESS_GRACEFUL_SHUTDOWN_TIMEOUT = 10.seconds
+internal val PROCESS_FORCED_SHUTDOWN_TIMEOUT = 5.seconds

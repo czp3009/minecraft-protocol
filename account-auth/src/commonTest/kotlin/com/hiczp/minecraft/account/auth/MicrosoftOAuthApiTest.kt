@@ -311,9 +311,6 @@ private fun MockRequestHandleScope.respondJson(
     headers = headersOf(HttpHeaders.ContentType, "application/json"),
 )
 
-private const val MICROSOFT_TEST_SCOPE =
-    "xboxlive.signin xboxlive.offline_access"
-private const val RFC_7636_CODE_VERIFIER =
-    "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
-private const val RFC_7636_CODE_CHALLENGE =
-    "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+private const val MICROSOFT_TEST_SCOPE = "xboxlive.signin xboxlive.offline_access"
+private const val RFC_7636_CODE_VERIFIER = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+private const val RFC_7636_CODE_CHALLENGE = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"

@@ -164,11 +164,11 @@ class SystemWorldStorageTest {
             fileSystem.writeSystemBytes(path, ByteArray(4_096) { 1 })
 
             val store = NbtFileStore(fileSystem)
-            store.writeDirect(path, document, NbtFileCompression.NONE)
+            store.writeDirect(path, document, Compression.NONE)
 
             assertEquals(
                 document,
-                store.read(path, NbtFileCompression.NONE),
+                store.read(path, Compression.NONE),
             )
             assertTrue(checkNotNull(fileSystem.metadata(path).size) < 4_096L)
         } finally {
@@ -177,7 +177,7 @@ class SystemWorldStorageTest {
     }
 
     @Test
-    fun worldLeaseSharesRegionCompressionAcrossStoresAndSurvivesReopen() = runTest {
+    fun worldLeaseSharesCompressionAcrossStoresAndSurvivesReopen() = runTest {
         val fileSystem = systemFileSystem
         val parent = createSystemTemporaryDirectory(fileSystem)
         val root = parent / "world"
@@ -196,7 +196,7 @@ class SystemWorldStorageTest {
                 initialStore.writeChunkNbt(
                     preservedPosition,
                     preservedDocument,
-                    RegionCompression.GZIP,
+                    Compression.GZIP,
                 )
             } finally {
                 initialStore.close()
@@ -207,7 +207,7 @@ class SystemWorldStorageTest {
                 configuration = MinecraftWorldAccessConfiguration(
                     regionStoreConfiguration =
                         WorldRegionStoreConfiguration(
-                            writeCompression = RegionCompression.LZ4,
+                            writeCompression = Compression.LZ4,
                         ),
                 ),
             )
@@ -253,7 +253,7 @@ class SystemWorldStorageTest {
                     reopened.readAdvancements(player),
                 )
                 assertEquals(
-                    RegionCompression.GZIP,
+                    Compression.GZIP,
                     reopened.readChunk(preservedPosition)?.compression,
                 )
                 assertEquals(
@@ -264,7 +264,7 @@ class SystemWorldStorageTest {
                     RegionStorageDirectory.entries.forEach { storage ->
                         val value = dimensionIndex * RegionStorageDirectory.entries.size + storage.ordinal
                         assertEquals(
-                            RegionCompression.LZ4,
+                            Compression.LZ4,
                             reopened.readChunk(
                                 position,
                                 storage,
@@ -326,12 +326,12 @@ class SystemWorldStorageTest {
 }
 
 private fun inlineChunk(bytes: ByteArray): RegionChunk = RegionChunk(
-    compression = RegionCompression.NONE,
+    compression = Compression.NONE,
     payload = RegionChunkPayload.Inline(bytes),
 )
 
 private fun zlibChunk(bytes: ByteArray): RegionChunk = RegionChunk(
-    compression = RegionCompression.ZLIB,
+    compression = Compression.ZLIB,
     payload = RegionChunkPayload.Inline(bytes),
 )
 

@@ -222,8 +222,7 @@ class MinecraftFrameCodecTest {
         reject(compressed, declaredSize = hello.size + 1)
 
         val wrongChecksum = compressed.copyOf()
-        wrongChecksum[wrongChecksum.lastIndex] =
-            (wrongChecksum.last().toInt() xor 1).toByte()
+        wrongChecksum[wrongChecksum.lastIndex] = (wrongChecksum.last().toInt() xor 1).toByte()
         reject(wrongChecksum, declaredSize = hello.size)
     }
 
@@ -231,8 +230,7 @@ class MinecraftFrameCodecTest {
     fun rejectsOversizedDeclaredPacketsBeforeInflation() = runTest {
         val codec = MinecraftFrameCodec()
         codec.configureCompression(1)
-        val oversizedLength =
-            MinecraftTransportConfiguration.MAXIMUM_UNCOMPRESSED_PACKET_SIZE + 1
+        val oversizedLength = MinecraftTransportConfiguration.MAXIMUM_UNCOMPRESSED_PACKET_SIZE + 1
 
         assertFailsWith<MinecraftTransportException> {
             codec.decodeFrameBody(
@@ -249,8 +247,7 @@ class MinecraftFrameCodecTest {
         }
         assertFailsWith<IllegalArgumentException> {
             MinecraftTransportConfiguration(
-                maximumFrameSize =
-                    MinecraftTransportConfiguration.MAXIMUM_FRAME_SIZE + 1,
+                maximumFrameSize = MinecraftTransportConfiguration.MAXIMUM_FRAME_SIZE + 1,
             )
         }
         assertFailsWith<IllegalArgumentException> {

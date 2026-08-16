@@ -454,8 +454,7 @@ private data class PolymorphicHolder(val value: PolymorphicValue)
 private data class ContextValue(val value: String)
 
 private object ContextValueSerializer : KSerializer<ContextValue> {
-    override val descriptor: SerialDescriptor =
-        PrimitiveSerialDescriptor("ContextValue", PrimitiveKind.STRING)
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("ContextValue", PrimitiveKind.STRING)
 
     override fun serialize(encoder: Encoder, value: ContextValue) {
         encoder.encodeString(value.value)
@@ -466,8 +465,7 @@ private object ContextValueSerializer : KSerializer<ContextValue> {
 }
 
 private object ByteArrayAsStringSerializer : KSerializer<ByteArray> {
-    override val descriptor: SerialDescriptor =
-        PrimitiveSerialDescriptor("ByteArrayAsString", PrimitiveKind.STRING)
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("ByteArrayAsString", PrimitiveKind.STRING)
 
     override fun serialize(encoder: Encoder, value: ByteArray) {
         encoder.encodeString(value.toHexString())

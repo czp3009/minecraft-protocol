@@ -5,6 +5,7 @@ import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.nbt.serialization.NbtDecodingException
+import com.hiczp.minecraft.world.format.Compression
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import okio.*
@@ -25,14 +26,14 @@ class StandaloneFileStoreEdgeTest {
         val fileSystem = FakeFileSystem()
         val path = "/world/value.dat".toPath()
         val normal = NbtFileStore(fileSystem)
-        normal.writeDirect(path, edgeDocument(1), NbtFileCompression.NONE)
+        normal.writeDirect(path, edgeDocument(1), Compression.NONE)
         val original = fileSystem.readRaw(path)
         fileSystem.writeRaw(
             path,
             original.copyOf(original.size + 1).also { it[it.lastIndex] = 1 },
         )
         assertFailsWith<NbtDecodingException> {
-            normal.read(path, NbtFileCompression.NONE)
+            normal.read(path, Compression.NONE)
         }
 
         fileSystem.writeRaw(path, original)
@@ -42,7 +43,7 @@ class StandaloneFileStoreEdgeTest {
                 configuration = NbtFileStoreConfiguration(
                     maximumCompressedBytes = original.size - 1,
                 ),
-            ).read(path, NbtFileCompression.NONE)
+            ).read(path, Compression.NONE)
         }
         assertFailsWith<WorldIOException> {
             NbtFileStore(
@@ -50,7 +51,7 @@ class StandaloneFileStoreEdgeTest {
                 configuration = NbtFileStoreConfiguration(
                     maximumDecompressedBytes = 1,
                 ),
-            ).read(path, NbtFileCompression.NONE)
+            ).read(path, Compression.NONE)
         }
         fileSystem.checkNoOpenFiles()
     }
@@ -786,7 +787,7 @@ class StandaloneFileStoreEdgeTest {
         NbtFileStore(base).writeDirect(
             path,
             edgeDocument(3),
-            NbtFileCompression.NONE,
+            Compression.NONE,
         )
         val shortReads = ShortReadHandleFileSystem(base, path)
         assertEquals(

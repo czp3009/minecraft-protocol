@@ -205,8 +205,7 @@ enum class RegistryCommandParser(val protocolId: Int) {
 }
 
 internal object CommandNodeSerializer : KSerializer<CommandNode> {
-    private val childrenSerializer: KSerializer<List<Int>> =
-        ListSerializer(Int.serializer())
+    private val childrenSerializer: KSerializer<List<Int>> = ListSerializer(Int.serializer())
 
     override val descriptor: SerialDescriptor = buildClassSerialDescriptor(
         "minecraft.CommandNode",

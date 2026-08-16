@@ -108,8 +108,7 @@ class PacketRegistry(
     baseEntries: List<PacketCodec<out Packet>>,
     registrations: List<PacketCodecRegistration<out Packet>> = emptyList(),
 ) {
-    val registrations: List<PacketCodecRegistration<out Packet>> =
-        registrations.toList()
+    val registrations: List<PacketCodecRegistration<out Packet>> = registrations.toList()
 
     private val registrationsByRoute = uniqueIndex(
         this.registrations,
@@ -125,8 +124,7 @@ class PacketRegistry(
     private val extensionTopLevelCodecs: List<PacketCodec<out Packet>> =
         this.registrations.mapNotNull(PacketCodecRegistration<out Packet>::toTopLevelCodec)
 
-    val entries: List<PacketCodec<out Packet>> =
-        baseEntries.toList() + extensionTopLevelCodecs
+    val entries: List<PacketCodec<out Packet>> = baseEntries.toList() + extensionTopLevelCodecs
 
     private val byKey = uniqueIndex(this.entries, PacketCodec<out Packet>::key, "packet key")
     private val byClass: Map<KClass<out Packet>, List<PacketCodec<out Packet>>> =
@@ -157,8 +155,7 @@ class PacketRegistry(
         }
     }
 
-    val declaredExtensionRoutes: Set<PacketRouteKey> =
-        registrationsByRoute.keys.toSet()
+    val declaredExtensionRoutes: Set<PacketRouteKey> = registrationsByRoute.keys.toSet()
 
     fun codec(
         state: ConnectionState,

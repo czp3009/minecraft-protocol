@@ -156,5 +156,4 @@ private val minimalNbtTags: List<NbtTag> = listOf(
     NbtEnd,
 )
 
-private val minimalValueSerializersModule: SerializersModule =
-    EmptySerializersModule()
+private val minimalValueSerializersModule: SerializersModule = EmptySerializersModule()

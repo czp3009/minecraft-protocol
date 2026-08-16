@@ -310,8 +310,7 @@ data class RespawnPacket(
     companion object {
         const val KEEP_ATTRIBUTE_MODIFIERS: Int = 0x01
         const val KEEP_ENTITY_DATA: Int = 0x02
-        const val KEEP_ALL_DATA: Int =
-            KEEP_ATTRIBUTE_MODIFIERS or KEEP_ENTITY_DATA
+        const val KEEP_ALL_DATA: Int = KEEP_ATTRIBUTE_MODIFIERS or KEEP_ENTITY_DATA
     }
 }
 

@@ -38,8 +38,7 @@ class NeoForgeNetworkConfiguration(
             NeoForgeConnectionProtocol.PLAY to playComponents.values.toSet(),
         )
 
-    val queryPacket: NeoForgeModdedNetworkQueryPacket =
-        NeoForgeModdedNetworkQueryPacket(components)
+    val queryPacket: NeoForgeModdedNetworkQueryPacket = NeoForgeModdedNetworkQueryPacket(components)
 
     fun components(
         protocol: NeoForgeConnectionProtocol,

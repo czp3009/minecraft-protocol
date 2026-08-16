@@ -52,8 +52,7 @@ sealed interface HashedStack {
         val itemRegistryId: Int,
         @VarInt
         val count: Int,
-        val components: HashedComponentPatch =
-            HashedComponentPatch(),
+        val components: HashedComponentPatch = HashedComponentPatch(),
     ) : HashedStack
 
     companion object {

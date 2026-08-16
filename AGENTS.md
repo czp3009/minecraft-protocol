@@ -106,7 +106,10 @@ onto the consumer classpath.
 - In Kotlin and Java, do not concatenate strings with `+`; prefer string-template syntax and keep strings on one line
   where practical. If a Kotlin string genuinely spans lines, use a triple-quoted string. For complex assembly, use
   `buildString` in Kotlin and `StringBuilder` in Java.
-- Keep simple assignments such as `val a = "1"` on one line.
+- In Kotlin and Java, keep an assignment on one line whenever its right-hand side is a complete expression and the
+  joined line stays within the 120-column margin; this covers `val`/`var` declarations, named arguments, and property or
+  indexed assignments (for example `val a = "1"`). Break after `=` only when the expression itself spans lines or the
+  joined line would exceed the margin.
 - Treat externally consumable declarations as API even without an in-repository caller. Do not suppress `unused` for
   that reason. Omit redundant `public`; keep implementation helpers internal or private.
 - Ordinary logs never write directly to the console. Do not use `print`, `println`, `System.out`, `System.err`,

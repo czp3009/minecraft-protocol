@@ -61,7 +61,8 @@ SelectorManager(Dispatchers.Default).use { selector ->
     host = "127.0.0.1",
   ).use { connection ->
     val status = connection.queryStatus()
-    }
+    val description = status.response.jsonResponse
+  }
 }
 ```
 

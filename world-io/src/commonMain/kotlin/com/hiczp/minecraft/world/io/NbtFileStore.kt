@@ -3,8 +3,8 @@ package com.hiczp.minecraft.world.io
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.serialization.NbtDecodingException
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
-import com.hiczp.minecraft.world.format.RegionCompression
-import com.hiczp.minecraft.world.format.RegionCompressionCodecs
+import com.hiczp.minecraft.world.format.Compression
+import com.hiczp.minecraft.world.format.CompressionCodecs
 import kotlinx.io.buffered
 import kotlinx.io.okio.asKotlinxIoRawSink
 import kotlinx.io.okio.asKotlinxIoRawSource
@@ -12,14 +12,6 @@ import okio.*
 import kotlinx.io.Buffer as KotlinxBuffer
 import kotlinx.io.RawSink as KotlinxRawSink
 import kotlinx.io.RawSource as KotlinxRawSource
-
-enum class NbtFileCompression(
-    internal val regionCompression: RegionCompression,
-) {
-    NONE(RegionCompression.NONE),
-    GZIP(RegionCompression.GZIP),
-    ZLIB(RegionCompression.ZLIB),
-}
 
 data class NbtFileStoreConfiguration(
     val maximumCompressedBytes: Int = 256 * 1_048_576,
@@ -31,22 +23,24 @@ data class NbtFileStoreConfiguration(
     }
 }
 
-/** Physical unnamed-root NBT streams over Okio files. */
+/**
+ * Physical unnamed-root NBT streams over Okio files.
+ *
+ * Official files use the GZIP and NONE wrappers (`level.dat`, player data, and
+ * saved data); ZLIB stays selectable, and any other registered compression is
+ * a caller-owned choice rather than an official file policy.
+ */
 class NbtFileStore internal constructor(
     internal val files: WorldFileAccess,
     val nbt: NbtFormat = NbtFormat,
-    val compressionCodecs: RegionCompressionCodecs =
-        RegionCompressionCodecs,
-    val configuration: NbtFileStoreConfiguration =
-        NbtFileStoreConfiguration(),
+    val compressionCodecs: CompressionCodecs = CompressionCodecs,
+    val configuration: NbtFileStoreConfiguration = NbtFileStoreConfiguration(),
 ) {
     constructor(
         fileSystem: FileSystem = systemFileSystem,
         nbt: NbtFormat = NbtFormat,
-        compressionCodecs: RegionCompressionCodecs =
-            RegionCompressionCodecs,
-        configuration: NbtFileStoreConfiguration =
-            NbtFileStoreConfiguration(),
+        compressionCodecs: CompressionCodecs = CompressionCodecs,
+        configuration: NbtFileStoreConfiguration = NbtFileStoreConfiguration(),
     ) : this(
         files = WorldFileAccess.mutable(fileSystem),
         nbt = nbt,
@@ -62,7 +56,7 @@ class NbtFileStore internal constructor(
 
     fun read(
         path: Path,
-        compression: NbtFileCompression = NbtFileCompression.GZIP,
+        compression: Compression = Compression.GZIP,
     ): NbtDocument = files.readFile(
         path,
         configuration.maximumCompressedBytes,
@@ -70,7 +64,7 @@ class NbtFileStore internal constructor(
         withOkioIoExceptions("Cannot read NBT file $path") {
             val converted = source.asKotlinxIoRawSource().buffered()
             val decompressed = compressionCodecs.decompressingSource(
-                compression.regionCompression,
+                compression,
                 converted,
                 Int.MAX_VALUE,
             )
@@ -93,7 +87,7 @@ class NbtFileStore internal constructor(
     fun writeDirect(
         path: Path,
         document: NbtDocument,
-        compression: NbtFileCompression = NbtFileCompression.GZIP,
+        compression: Compression = Compression.GZIP,
     ) {
         files.requireWritable()
         val parent = path.parent
@@ -107,7 +101,7 @@ class NbtFileStore internal constructor(
     internal fun writeSyncedTemporary(
         directory: Path,
         document: NbtDocument,
-        compression: NbtFileCompression = NbtFileCompression.GZIP,
+        compression: Compression = Compression.GZIP,
     ): Path {
         files.requireWritable()
         val temporary = fileSystem.openUniqueTemporaryHandle(directory)
@@ -133,7 +127,7 @@ class NbtFileStore internal constructor(
         path: Path,
         handle: FileHandle,
         document: NbtDocument,
-        compression: NbtFileCompression,
+        compression: Compression,
     ) {
         val limitedFileSink = LimitedSink(
             handle.sink(),
@@ -150,13 +144,13 @@ class NbtFileStore internal constructor(
 
     private fun encode(
         document: NbtDocument,
-        compression: NbtFileCompression,
+        compression: Compression,
         sink: Sink,
     ) {
         withOkioIoExceptions("Cannot write NBT stream") {
             val converted = sink.asKotlinxIoRawSink().buffered()
             val compressed = compressionCodecs.compressingSink(
-                compression.regionCompression,
+                compression,
                 converted,
             )
             MaximumBytesRawSink(

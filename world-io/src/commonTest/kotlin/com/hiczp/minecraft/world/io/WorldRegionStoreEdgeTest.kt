@@ -27,7 +27,7 @@ class WorldRegionStoreEdgeTest {
         assertFailsWith<IllegalArgumentException> {
             WorldRegionStoreConfiguration(maximumOpenRegions = 0)
         }
-        RegionCompression.entries
+        Compression.entries
             .forEach {
                 WorldRegionStoreConfiguration(writeCompression = it)
             }
@@ -123,20 +123,20 @@ class WorldRegionStoreEdgeTest {
             existsForRecord(
                 record(
                     length = 1,
-                    version = RegionCompression.CUSTOM.id,
+                    version = RegionChunkRecordHeader.compressionId(Compression.CUSTOM),
                 ),
             ),
         )
         assertFalse(
             existsForRecord(
-                record(length = 0, version = RegionCompression.NONE.id),
+                record(length = 0, version = RegionChunkRecordHeader.compressionId(Compression.NONE)),
             ),
         )
         assertTrue(
             existsForRecord(
                 record(
                     length = REGION_SECTOR_BYTES,
-                    version = RegionCompression.NONE.id,
+                    version = RegionChunkRecordHeader.compressionId(Compression.NONE),
                 ),
             ),
         )
@@ -144,7 +144,7 @@ class WorldRegionStoreEdgeTest {
             existsForRecord(
                 record(
                     length = REGION_SECTOR_BYTES + 1,
-                    version = RegionCompression.NONE.id,
+                    version = RegionChunkRecordHeader.compressionId(Compression.NONE),
                 ),
             ),
         )
@@ -152,20 +152,20 @@ class WorldRegionStoreEdgeTest {
             existsForRecord(
                 record(
                     length = REGION_SECTOR_BYTES + 2,
-                    version = RegionCompression.NONE.id,
+                    version = RegionChunkRecordHeader.compressionId(Compression.NONE),
                 ),
             ),
         )
         assertTrue(
             existsForRecord(
-                record(length = 1, version = RegionCompression.NONE.id),
+                record(length = 1, version = RegionChunkRecordHeader.compressionId(Compression.NONE)),
             ),
         )
         assertFalse(
             existsForRecord(
                 record(
                     length = 99,
-                    version = RegionCompression.NONE.id or
+                    version = RegionChunkRecordHeader.compressionId(Compression.NONE) or
                             REGION_EXTERNAL_STREAM_FLAG,
                 ),
                 external = ExternalFileKind.MISSING,
@@ -175,7 +175,7 @@ class WorldRegionStoreEdgeTest {
             existsForRecord(
                 record(
                     length = 99,
-                    version = RegionCompression.NONE.id or
+                    version = RegionChunkRecordHeader.compressionId(Compression.NONE) or
                             REGION_EXTERNAL_STREAM_FLAG,
                 ),
                 external = ExternalFileKind.DIRECTORY,
@@ -185,7 +185,7 @@ class WorldRegionStoreEdgeTest {
             existsForRecord(
                 record(
                     length = 99,
-                    version = RegionCompression.NONE.id or
+                    version = RegionChunkRecordHeader.compressionId(Compression.NONE) or
                             REGION_EXTERNAL_STREAM_FLAG,
                 ),
                 external = ExternalFileKind.REGULAR,
@@ -195,13 +195,18 @@ class WorldRegionStoreEdgeTest {
 
     @Test
     fun internalReadsRejectMalformedLengthCompressionAndTruncation() = runTest {
-        assertReadFails(record(length = 0, version = RegionCompression.NONE.id))
-        assertReadFails(record(length = REGION_SECTOR_BYTES, version = RegionCompression.NONE.id))
+        assertReadFails(record(length = 0, version = RegionChunkRecordHeader.compressionId(Compression.NONE)))
+        assertReadFails(
+            record(
+                length = REGION_SECTOR_BYTES,
+                version = RegionChunkRecordHeader.compressionId(Compression.NONE)
+            )
+        )
         assertReadFails(record(length = 1, version = 5))
         assertReadFails(ByteArray(4))
 
         val empty = readRecord(
-            record(length = 1, version = RegionCompression.NONE.id),
+            record(length = 1, version = RegionChunkRecordHeader.compressionId(Compression.NONE)),
         )
         assertContentEquals(ByteArray(0), empty.payload.compressedBytes)
         assertEquals(37, empty.timestamp)
@@ -214,7 +219,7 @@ class WorldRegionStoreEdgeTest {
             readRecord(
                 bytes = record(
                     length = 0,
-                    version = RegionCompression.LZ4.id or
+                    version = RegionChunkRecordHeader.compressionId(Compression.LZ4) or
                             REGION_EXTERNAL_STREAM_FLAG,
                 ),
                 externalPayload = externalPayload,
@@ -223,14 +228,14 @@ class WorldRegionStoreEdgeTest {
         val chunk = readRecord(
             bytes = record(
                 length = Int.MIN_VALUE,
-                version = RegionCompression.LZ4.id or
+                version = RegionChunkRecordHeader.compressionId(Compression.LZ4) or
                         REGION_EXTERNAL_STREAM_FLAG,
                 suffix = byteArrayOf(1, 2, 3),
             ),
             externalPayload = externalPayload,
         )
 
-        assertEquals(RegionCompression.LZ4, chunk.compression)
+        assertEquals(Compression.LZ4, chunk.compression)
         assertTrue(chunk.payload.isExternal)
         assertContentEquals(externalPayload, chunk.payload.compressedBytes)
     }
@@ -252,7 +257,7 @@ class WorldRegionStoreEdgeTest {
         store.writeChunk(
             position,
             RegionChunk(
-                compression = RegionCompression.NONE,
+                compression = Compression.NONE,
                 payload = RegionChunkPayload.External(byteArrayOf(4)),
                 timestamp = 999,
             ),
@@ -279,20 +284,20 @@ class WorldRegionStoreEdgeTest {
             directory = "/world/region".toPath(),
             fileSystem = fileSystem,
             chunkNbtFormat = RegionChunkNbtFormat(
-                compressionCodecs = RegionCompressionCodecs(
+                compressionCodecs = CompressionCodecs(
                     mapOf(
-                        RegionCompression.CUSTOM to identityCustomCompressionCodec,
+                        Compression.CUSTOM to identityCustomCompressionCodec,
                     ),
                 ),
             ),
             configuration = WorldRegionStoreConfiguration(
                 syncWrites = false,
-                writeCompression = RegionCompression.LZ4,
+                writeCompression = Compression.LZ4,
             ),
         )
 
         try {
-            RegionCompression.entries.forEachIndexed { index, compression ->
+            Compression.entries.forEachIndexed { index, compression ->
                 val position = ChunkPosition(index, -index)
 
                 if (compression == store.configuration.writeCompression) {
@@ -420,7 +425,7 @@ private fun edgeStore(
 )
 
 private fun edgeChunk(bytes: ByteArray): RegionChunk = RegionChunk(
-    compression = RegionCompression.NONE,
+    compression = Compression.NONE,
     payload = RegionChunkPayload.Inline(bytes),
 )
 
@@ -431,7 +436,7 @@ private fun edgeRegionDocument(): NbtDocument = NbtDocument(
 // A CUSTOM codec owns only its transformation, so this identity test codec keeps the public registry's caller-owned
 // stream contract while proving world-io does not impose a vanilla-only compression whitelist.
 private val identityCustomCompressionCodec =
-    object : RegionCompressionCodec {
+    object : CompressionCodec {
         override fun compressingSink(sink: KotlinxSink): KotlinxRawSink =
             object : KotlinxRawSink {
                 override fun write(

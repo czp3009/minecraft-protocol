@@ -297,8 +297,7 @@ class PlayClientboundPlayerWorldPacketTest {
 
     private companion object {
         const val ZERO_POSITION_HEX: String = "0000000000000000"
-        const val VECTOR_123_HEX: String =
-            "3ff000000000000040000000000000004008000000000000"
+        const val VECTOR_123_HEX: String = "3ff000000000000040000000000000004008000000000000"
         val ZERO_UUID: Uuid = Uuid.fromLongs(0, 0)
         val TEXT_X: TextComponent = TextComponent(NbtString("x"))
     }

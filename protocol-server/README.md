@@ -92,6 +92,18 @@ ticking, and management services remain application responsibilities. The librar
 because negotiation, encoding, or decoding failed; rejection exceptions expose a ready-to-send failure packet that the
 caller chooses to send.
 
+## Initial world projection
+
 `MinecraftInitialWorld` projects a finite initial chunk/entity view; it is not an authoritative world or game loop. Use
 its registry-aware snapshot overloads so block-state, biome, and entity-type IDs come from the installed
-`ProtocolRegistryContext`.
+`ProtocolRegistryContext`. Once preset negotiation reaches Play, one call sends the stateless bootstrap a client needs
+to place the player and accept chunks and entities:
+
+```kotlin
+val world = MinecraftInitialWorld.flatVanilla(
+    options = options,
+    chunkRadius = 0,
+)
+
+val synchronization = connection.synchronizeInitialWorld(world)
+```

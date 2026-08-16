@@ -44,10 +44,8 @@ fun interface ForgeVersionAcceptance {
 class ForgeChannelDefinition(
     val id: Identifier,
     val version: Int,
-    val acceptsClient: ForgeVersionAcceptance =
-        ForgeVersionAcceptance.exact(version),
-    val acceptsServer: ForgeVersionAcceptance =
-        ForgeVersionAcceptance.exact(version),
+    val acceptsClient: ForgeVersionAcceptance = ForgeVersionAcceptance.exact(version),
+    val acceptsServer: ForgeVersionAcceptance = ForgeVersionAcceptance.exact(version),
 ) {
     init {
         require(version >= 0) { "Forge channel version must be non-negative" }
@@ -60,11 +58,9 @@ class ForgeNetworkConfiguration(
         definition.id
     },
 ) {
-    private val channelsById: Map<Identifier, ForgeChannelDefinition> =
-        channels.associateBy(ForgeChannelDefinition::id)
+    private val channelsById: Map<Identifier, ForgeChannelDefinition> = channels.associateBy(ForgeChannelDefinition::id)
 
-    val channels: Collection<ForgeChannelDefinition> =
-        channelsById.values.toList()
+    val channels: Collection<ForgeChannelDefinition> = channelsById.values.toList()
 
     val payloadChannels: Set<Identifier> = buildSet {
         add(ForgeChannels.Handshake)

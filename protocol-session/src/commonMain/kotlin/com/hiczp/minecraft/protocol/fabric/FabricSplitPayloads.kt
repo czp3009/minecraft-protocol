@@ -98,8 +98,7 @@ object FabricSplitPayloads {
 class FabricSplitAssembler(
     maximumPacketSizes: Map<Identifier, Int>,
 ) {
-    private val maximumPacketSizes: Map<Identifier, Int> =
-        maximumPacketSizes.toMap()
+    private val maximumPacketSizes: Map<Identifier, Int> = maximumPacketSizes.toMap()
     private var targetSize: Int? = null
     private var targetChannel: Identifier? = null
     private var bytes: ByteArray = byteArrayOf()

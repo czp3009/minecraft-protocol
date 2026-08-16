@@ -1067,8 +1067,7 @@ internal abstract class DataComponentSerializerBase(
 
     final override fun serialize(encoder: Encoder, value: DataComponent) {
         val type = GeneratedDataComponentSerializers.type(value)
-        val valueSerializer =
-            GeneratedDataComponentSerializers.serializer(type)
+        val valueSerializer = GeneratedDataComponentSerializers.serializer(type)
         val output = encoder.beginStructure(descriptor)
         output.encodeIntElement(descriptor, TYPE, type.protocolId)
         @Suppress("UNCHECKED_CAST")
@@ -1087,8 +1086,7 @@ internal abstract class DataComponentSerializerBase(
         var value: DataComponent? = null
         if (input.decodeSequentially()) {
             type = decodeType(input.decodeIntElement(descriptor, TYPE))
-            val valueSerializer =
-                GeneratedDataComponentSerializers.serializer(type)
+            val valueSerializer = GeneratedDataComponentSerializers.serializer(type)
             @Suppress("UNCHECKED_CAST")
             value = input.decodeSerializableElement(
                 descriptor,

@@ -124,8 +124,7 @@ object MinecraftServicesTools {
     fun xboxLoginRequest(
         xstsToken: XboxTokenResponse,
     ): MinecraftXboxLoginRequest = MinecraftXboxLoginRequest(
-        identityToken =
-            "XBL3.0 x=${xstsToken.displayClaims.xui[0].userHash};${xstsToken.token}",
+        identityToken = "XBL3.0 x=${xstsToken.displayClaims.xui[0].userHash};${xstsToken.token}",
     )
 
     fun hasJavaEditionEntitlement(

@@ -47,7 +47,7 @@ class LiveMinecraftWorldReaderTest {
                     store.writeChunk(
                         externalPosition,
                         RegionChunk(
-                            compression = RegionCompression.NONE,
+                            compression = Compression.NONE,
                             payload = RegionChunkPayload.Inline(
                                 externalPayload,
                             ),
@@ -247,6 +247,6 @@ private fun liveDocument(value: Int): NbtDocument = NbtDocument(
 )
 
 private fun liveChunk(value: Int): RegionChunk = RegionChunk(
-    compression = RegionCompression.NONE,
+    compression = Compression.NONE,
     payload = RegionChunkPayload.Inline(byteArrayOf(value.toByte())),
 )

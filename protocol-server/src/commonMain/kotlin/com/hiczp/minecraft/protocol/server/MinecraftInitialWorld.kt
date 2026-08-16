@@ -20,8 +20,7 @@ data class MinecraftInitialWorld(
     val simulationDistance: Int,
     val difficulty: Difficulty = Difficulty.EASY,
     val difficultyLocked: Boolean = false,
-    val playerAbilities: PlayerAbilities =
-        vanillaPlayerAbilities(PlayerGameMode.SURVIVAL),
+    val playerAbilities: PlayerAbilities = vanillaPlayerAbilities(PlayerGameMode.SURVIVAL),
     val teleportId: Int = 1,
     val chunks: List<MinecraftChunkSnapshot>,
     val entities: List<MinecraftEntitySnapshot> = emptyList(),

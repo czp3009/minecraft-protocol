@@ -186,8 +186,7 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
         workDirectory: Path,
     ): Map<String, JsonObject> {
         val generatorOutput = workDirectory.resolve("generated")
-        val packetsReport =
-            generatorOutput.resolve("reports/packets.json")
+        val packetsReport = generatorOutput.resolve("reports/packets.json")
 
         val command = listOf(
             "java",

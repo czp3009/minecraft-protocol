@@ -379,8 +379,7 @@ internal suspend fun generateHeadlessClientTemplate(
     try {
         val installation = HeadlessClientInstallation(
             minecraftVersion = minecraftVersion,
-            fabricProfileId =
-                "fabric-loader-$fabricLoaderVersion-$minecraftVersion",
+            fabricProfileId = "fabric-loader-$fabricLoaderVersion-$minecraftVersion",
             minecraftDirectory = Path(runtimeDirectory, "minecraft"),
             launcher = Path(
                 runtimeDirectory,
@@ -557,8 +556,7 @@ private val ALLOWED_ACTION_VERBS = setOf(
 private const val LOOPBACK = "127.0.0.1"
 private const val TEMPLATE_PLAYER_NAME = "FixtureTemplate"
 private const val HMC_SPECIFICS_READY_MARKER = "HMC-Specifics initialized!"
-private const val TITLE_SCREEN_MARKER =
-    "net.minecraft.client.gui.screens.TitleScreen"
+private const val TITLE_SCREEN_MARKER = "net.minecraft.client.gui.screens.TitleScreen"
 private const val SCREEN_MARKER = "Screen:"
 private const val DISCONNECT_MARKER = "Disconnecting..."
 private const val QUIT_MARKER = "Quitting Minecraft..."

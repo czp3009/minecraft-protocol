@@ -1,9 +1,9 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.ChunkPosition
+import com.hiczp.minecraft.world.format.Compression
 import com.hiczp.minecraft.world.format.RegionChunk
 import com.hiczp.minecraft.world.format.RegionChunkPayload
-import com.hiczp.minecraft.world.format.RegionCompression
 import kotlinx.coroutines.test.runTest
 import okio.Buffer
 import okio.FileHandle
@@ -251,9 +251,8 @@ private fun liveSharingClasspath(): String = listOf(
 }.distinct().joinToString(File.pathSeparator)
 
 private fun sharingChunk(value: Int): RegionChunk = RegionChunk(
-    compression = RegionCompression.NONE,
+    compression = Compression.NONE,
     payload = RegionChunkPayload.Inline(byteArrayOf(value.toByte())),
 )
 
-private const val LIVE_SHARING_MAIN_CLASS =
-    "com.hiczp.minecraft.world.io.LiveFileSharingProcessMain"
+private const val LIVE_SHARING_MAIN_CLASS = "com.hiczp.minecraft.world.io.LiveFileSharingProcessMain"

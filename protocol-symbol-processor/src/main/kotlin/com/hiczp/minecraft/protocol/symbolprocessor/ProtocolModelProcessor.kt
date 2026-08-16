@@ -503,22 +503,17 @@ private class ProtocolModelProcessor(
     )
 
     private companion object {
-        const val PACKET_PACKAGE =
-            "com.hiczp.minecraft.protocol.model.packet"
+        const val PACKET_PACKAGE = "com.hiczp.minecraft.protocol.model.packet"
         const val PACKET_INFO = "$PACKET_PACKAGE.PacketInfo"
         const val PACKET_INFO_SIMPLE_NAME = "PacketInfo"
         const val REGISTRY_FILE = "GeneratedPacketDefinitions"
         const val PACKETS_REPORT_OPTION = "minecraft.packetsReport"
         const val LEGACY_PACKET_NAME = "legacy_server_list_ping"
-        const val DATA_COMPONENT_PACKAGE =
-            "com.hiczp.minecraft.protocol.model.type"
-        const val DATA_COMPONENT_INFO =
-            "$DATA_COMPONENT_PACKAGE.DataComponentInfo"
+        const val DATA_COMPONENT_PACKAGE = "com.hiczp.minecraft.protocol.model.type"
+        const val DATA_COMPONENT_INFO = "$DATA_COMPONENT_PACKAGE.DataComponentInfo"
         const val DATA_COMPONENT_INFO_SIMPLE_NAME = "DataComponentInfo"
-        const val DATA_COMPONENT_TYPE =
-            "$DATA_COMPONENT_PACKAGE.DataComponentType"
-        const val DATA_COMPONENT_REGISTRY_FILE =
-            "GeneratedDataComponentSerializers"
+        const val DATA_COMPONENT_TYPE = "$DATA_COMPONENT_PACKAGE.DataComponentType"
+        const val DATA_COMPONENT_REGISTRY_FILE = "GeneratedDataComponentSerializers"
 
         val STATE_ORDER = mapOf(
             "HANDSHAKE" to 0,

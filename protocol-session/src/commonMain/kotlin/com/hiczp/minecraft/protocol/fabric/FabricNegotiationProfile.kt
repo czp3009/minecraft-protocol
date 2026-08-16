@@ -19,8 +19,7 @@ class FabricClientProfile(
     val staticRegistries: StaticRegistrySchema,
     supportedCommonVersions: Set<Int> =
         setOf(FabricProtocol.COMMON_PACKET_VERSION),
-    val maximumRegistrySyncPayloadSize: Int =
-        FabricProtocol.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE,
+    val maximumRegistrySyncPayloadSize: Int = FabricProtocol.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE,
 ) : ClientNegotiationProfile {
     private val supportedCommonVersions = supportedVersions(
         supportedCommonVersions,
@@ -276,8 +275,7 @@ class FabricServerProfile(
     val resolvedRegistryContext: ProtocolRegistryContext? = null,
     supportedCommonVersions: Set<Int> =
         setOf(FabricProtocol.COMMON_PACKET_VERSION),
-    val maximumRegistrySyncPayloadSize: Int =
-        FabricProtocol.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE,
+    val maximumRegistrySyncPayloadSize: Int = FabricProtocol.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE,
 ) : ServerNegotiationProfile {
     private val supportedCommonVersions = supportedVersions(
         supportedCommonVersions,

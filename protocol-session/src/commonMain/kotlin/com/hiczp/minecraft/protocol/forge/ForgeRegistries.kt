@@ -13,8 +13,7 @@ class ForgeRegistrySync(
     val snapshots: Map<Identifier, ForgeRegistrySnapshot> = snapshots.toMap()
     val dataPackRegistries: Set<Identifier> = dataPackRegistries.toSet()
     val registryNames: List<Identifier> = this.snapshots.keys.toList()
-    val remoteSnapshot: RemoteRegistrySnapshot =
-        forgeRemoteRegistrySnapshot(this.snapshots)
+    val remoteSnapshot: RemoteRegistrySnapshot = forgeRemoteRegistrySnapshot(this.snapshots)
 
     init {
         require(this.dataPackRegistries.none(this.snapshots::containsKey)) {

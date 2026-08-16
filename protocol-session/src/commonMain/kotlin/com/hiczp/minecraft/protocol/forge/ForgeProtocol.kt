@@ -126,8 +126,7 @@ private data class ForgeRegistrySnapshotWire(
 
 internal object ForgeRegistrySnapshotSerializer :
     KSerializer<ForgeRegistrySnapshot> {
-    override val descriptor: SerialDescriptor =
-        ForgeRegistrySnapshotWire.serializer().descriptor
+    override val descriptor: SerialDescriptor = ForgeRegistrySnapshotWire.serializer().descriptor
 
     override fun serialize(encoder: Encoder, value: ForgeRegistrySnapshot) {
         encoder.encodeSerializableValue(

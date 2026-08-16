@@ -10,8 +10,7 @@ class NeoForgeFrozenRegistrySync(
     registries: List<NeoForgeFrozenRegistryPacket>,
 ) {
     val registries: List<NeoForgeFrozenRegistryPacket> = registries.toList()
-    private val byIdentifier =
-        this.registries.associateBy(NeoForgeFrozenRegistryPacket::registry)
+    private val byIdentifier = this.registries.associateBy(NeoForgeFrozenRegistryPacket::registry)
 
     init {
         require(byIdentifier.size == this.registries.size) {
@@ -24,8 +23,7 @@ class NeoForgeFrozenRegistrySync(
             this.registries.map(NeoForgeFrozenRegistryPacket::registry),
         )
 
-    val remoteSnapshot: RemoteRegistrySnapshot =
-        remoteRegistrySnapshot(this.registries)
+    val remoteSnapshot: RemoteRegistrySnapshot = remoteRegistrySnapshot(this.registries)
 
     operator fun get(id: Identifier): NeoForgeFrozenRegistryPacket? =
         byIdentifier[id]

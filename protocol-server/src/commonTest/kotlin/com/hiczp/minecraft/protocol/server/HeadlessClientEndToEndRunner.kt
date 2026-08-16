@@ -25,19 +25,15 @@ internal object HeadlessClientEndToEndRunner {
     private const val PLAYER_NAME = "KmpE2EClient"
     private const val INITIAL_KEEP_ALIVE_ID = 0x1020_3040_5060_7080L
     private const val PLAY_PROBE_KEEP_ALIVE_ID = 0x1122_3344_5566_7788L
-    private const val CONFIGURATION_KEEP_ALIVE_ID =
-        0x1234_5678_1020_3040L
-    private const val POST_CONFIGURATION_KEEP_ALIVE_ID =
-        0x2233_4455_6677_0102L
+    private const val CONFIGURATION_KEEP_ALIVE_ID = 0x1234_5678_1020_3040L
+    private const val POST_CONFIGURATION_KEEP_ALIVE_ID = 0x2233_4455_6677_0102L
     private const val PLAY_PING_ID = 0x1020_3040
     private const val CONFIGURATION_PING_ID = 0x5060_7080
     private const val PRE_CONFIGURATION_PING_ID = 0x5566_7788
-    private const val PRE_CONFIGURATION_KEEP_ALIVE_ID =
-        0x3344_5566_7788_0102L
+    private const val PRE_CONFIGURATION_KEEP_ALIVE_ID = 0x3344_5566_7788_0102L
     private const val POST_CONFIGURATION_PING_ID = 0x1122_3344
     private const val RESPAWN_PING_ID = 0x2435_4657
-    private const val RESPAWN_KEEP_ALIVE_ID =
-        0x3141_5926_5358_9793L
+    private const val RESPAWN_KEEP_ALIVE_ID = 0x3141_5926_5358_9793L
     private val COOKIE_KEY = Identifier("minecraft-protocol:e2e")
     private val COOKIE_PAYLOAD = ByteString(
         "official-client-cookie".encodeToByteArray(),
@@ -156,11 +152,9 @@ internal object HeadlessClientEndToEndRunner {
                             )
                             val world = MinecraftInitialWorld.flatVanilla(
                                 options = OPTIONS,
-                                entities =
-                                    listOf(pig, arrow, minecart, horse),
+                                entities = listOf(pig, arrow, minecart, horse),
                             )
-                            val synchronization =
-                                connection.synchronizeInitialWorld(world)
+                            val synchronization = connection.synchronizeInitialWorld(world)
                             connection.outgoing.send(
                                 PlayClientboundKeepAlivePacket(
                                     INITIAL_KEEP_ALIVE_ID,
@@ -171,8 +165,7 @@ internal object HeadlessClientEndToEndRunner {
                             var chunkBatchAcknowledged = false
                             var keepAliveAcknowledged = false
                             var clientTickObserved = false
-                            var initialPacketBudget =
-                                OPTIONS.maximumPacketsPerPhase
+                            var initialPacketBudget = OPTIONS.maximumPacketsPerPhase
                             while (
                                 initialPacketBudget-- > 0 &&
                                 !(
@@ -221,8 +214,7 @@ internal object HeadlessClientEndToEndRunner {
                                 projectile = arrow,
                                 vehicle = minecart,
                                 horse = horse,
-                                nextTeleportId =
-                                    synchronization.teleportId + 1,
+                                nextTeleportId = synchronization.teleportId + 1,
                                 observed = observed,
                             )
                             exerciseRespawn(
@@ -272,13 +264,11 @@ internal object HeadlessClientEndToEndRunner {
             style = Identifier("default"),
             color = 0x33AAFF,
         )
-        val closedRecipeBook =
-            RecipeBookTypeSettings(open = false, filtering = false)
+        val closedRecipeBook = RecipeBookTypeSettings(open = false, filtering = false)
         val sound = SoundEventHolder.Direct(
             Identifier("entity.experience_orb.pickup"),
         )
-        val simpleParticle =
-            ParticleOptions.Simple(ParticleType.FLAME)
+        val simpleParticle = ParticleOptions.Simple(ParticleType.FLAME)
         val blockTypeId = VanillaStaticData
             .requireRegistry(Identifier("block"))
             .requireProtocolId(Identifier("grass_block"))
@@ -533,8 +523,7 @@ internal object HeadlessClientEndToEndRunner {
                 radius = 0.0f,
                 blockCount = 0,
                 playerKnockback = null,
-                explosionParticle =
-                    ParticleOptions.Simple(ParticleType.EXPLOSION),
+                explosionParticle = ParticleOptions.Simple(ParticleType.EXPLOSION),
                 explosionSound = SoundEventHolder.Direct(
                     Identifier("entity.generic.explode"),
                 ),
@@ -644,8 +633,7 @@ internal object HeadlessClientEndToEndRunner {
                             gameMode = GameMode.CREATIVE,
                             listed = true,
                             latency = 1,
-                            displayName =
-                                TextComponent.literal("Headless E2E"),
+                            displayName = TextComponent.literal("Headless E2E"),
                             listOrder = 1,
                             showHat = true,
                         ),
@@ -1100,8 +1088,7 @@ internal object HeadlessClientEndToEndRunner {
         var teleport = false
         var chunkBatch = false
         var playerLoaded = false
-        var packetBudget =
-            OPTIONS.maximumPacketsPerPhase
+        var packetBudget = OPTIONS.maximumPacketsPerPhase
         while (
             packetBudget-- > 0 &&
             !(
@@ -1164,8 +1151,7 @@ internal object HeadlessClientEndToEndRunner {
         var pingRoundTrip = false
         var keepAliveRoundTrip = false
         var tickObserved = false
-        var packetBudget =
-            OPTIONS.maximumPacketsPerPhase
+        var packetBudget = OPTIONS.maximumPacketsPerPhase
         try {
             while (
                 packetBudget-- > 0 &&
@@ -1213,8 +1199,7 @@ internal object HeadlessClientEndToEndRunner {
         world: MinecraftInitialWorld,
         observedPlayPackets: MutableList<String>,
     ) {
-        var playerLoaded =
-            observedPlayPackets.any { it == "PlayerLoadedPacket" }
+        var playerLoaded = observedPlayPackets.any { it == "PlayerLoadedPacket" }
         if (!playerLoaded) {
             awaitPlayBarrier(
                 connection = connection,
@@ -1230,8 +1215,7 @@ internal object HeadlessClientEndToEndRunner {
         }
         connection.outgoing.send(StartConfigurationPacket)
         var acknowledged = false
-        var packetBudget =
-            OPTIONS.maximumPacketsPerPhase
+        var packetBudget = OPTIONS.maximumPacketsPerPhase
         while (packetBudget-- > 0 && !acknowledged) {
             val packet = receiveForStage(
                 connection,
@@ -1292,8 +1276,7 @@ internal object HeadlessClientEndToEndRunner {
         var keepAliveRoundTrip = false
         var pingRoundTrip = false
         var knownPacks: ConfigurationServerboundKnownPacksPacket? = null
-        packetBudget =
-            OPTIONS.maximumPacketsPerPhase
+        packetBudget = OPTIONS.maximumPacketsPerPhase
         while (
             packetBudget-- > 0 &&
             !(
@@ -1350,8 +1333,7 @@ internal object HeadlessClientEndToEndRunner {
         connection.outgoing.send(FinishConfigurationPacket)
 
         var completed = false
-        packetBudget =
-            OPTIONS.maximumPacketsPerPhase
+        packetBudget = OPTIONS.maximumPacketsPerPhase
         while (packetBudget-- > 0 && !completed) {
             val packet = receiveForStage(
                 connection,
@@ -1374,8 +1356,7 @@ internal object HeadlessClientEndToEndRunner {
         val reconfiguredWorld = world.copy(
             teleportId = world.teleportId + 3,
         )
-        val synchronization =
-            connection.synchronizeInitialWorld(reconfiguredWorld)
+        val synchronization = connection.synchronizeInitialWorld(reconfiguredWorld)
         connection.outgoing.send(
             PlayClientboundKeepAlivePacket(
                 POST_CONFIGURATION_KEEP_ALIVE_ID,
@@ -1390,8 +1371,7 @@ internal object HeadlessClientEndToEndRunner {
         var postTeleport = false
         var postChunkBatch = false
         var postPlayerLoaded = false
-        packetBudget =
-            OPTIONS.maximumPacketsPerPhase
+        packetBudget = OPTIONS.maximumPacketsPerPhase
         while (
             packetBudget-- > 0 &&
             !(

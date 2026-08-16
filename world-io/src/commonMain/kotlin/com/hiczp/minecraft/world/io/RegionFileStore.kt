@@ -1,26 +1,46 @@
 package com.hiczp.minecraft.world.io
 
+import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.world.format.*
-import okio.Buffer
-import okio.FileHandle
-import okio.Path
-import okio.use
+import okio.*
 import kotlin.time.Clock
 
-internal class OpenRegionFile private constructor(
+data class RegionFileStoreConfiguration(
+    val maximumCompressedChunkBytes: Int = 256 * 1_048_576,
+    val syncWrites: Boolean = true,
+) {
+    init {
+        require(maximumCompressedChunkBytes >= 0)
+    }
+}
+
+/**
+ * One open `.mca` region file together with its external `.mcc` sidecars.
+ *
+ * Writes allocate new sectors, write them in place, commit the complete
+ * header, and then retire old allocations; the whole file is never replaced
+ * or shrunk. Timestamps and the internal/sidecar threshold are automatic.
+ *
+ * Instances are not thread-safe, and at most one writable instance may cover
+ * one file at a time; world-level coordination belongs to
+ * [MinecraftWorldAccess]. Chunk coordinates must belong to the opened
+ * region; other regions are rejected instead of routed.
+ */
+class RegionFileStore private constructor(
     private val files: WorldFileAccess,
+    val regionPosition: RegionPosition,
     private val directory: Path,
-    private val regionPosition: RegionPosition,
-    private val path: Path,
+    val path: Path,
     private val handle: FileHandle,
     private val writer: RegionWriterState?,
+    private val chunkNbtFormat: RegionChunkNbtFormat,
     private val maximumCompressedChunkBytes: Int,
 ) {
     private var closed = false
 
-    fun read(position: LocalChunkPosition): RegionChunk? {
+    fun read(position: ChunkPosition): RegionChunk? {
         checkOpen()
-        return readStoredChunk(position, headerForRead())
+        return readStoredChunk(local(position), headerForRead())
     }
 
     fun readAll(): RegionFile {
@@ -36,10 +56,11 @@ internal class OpenRegionFile private constructor(
         return RegionFile(chunks)
     }
 
-    fun exists(position: LocalChunkPosition): Boolean {
+    fun exists(position: ChunkPosition): Boolean {
         checkOpen()
+        val local = local(position)
         val header = headerForRead()
-        val location = header.location(position) ?: return false
+        val location = header.location(local) ?: return false
         val prefix = handle.readAtMost(
             location.byteOffset,
             REGION_CHUNK_RECORD_HEADER_BYTES,
@@ -52,7 +73,7 @@ internal class OpenRegionFile private constructor(
         }
         if (record.external) {
             return files.fileSystem.metadataOrNull(
-                externalPath(regionPosition.chunk(position)),
+                externalPath(position),
             )?.isRegularFile == true
         }
         return record.length != 0 &&
@@ -60,48 +81,60 @@ internal class OpenRegionFile private constructor(
                 record.compressedLength <= location.allocatedBytes
     }
 
+    /** Writes one chunk; `null` clears the position. */
     fun write(
-        position: LocalChunkPosition,
-        chunkPosition: ChunkPosition,
-        chunk: RegionChunk,
+        position: ChunkPosition,
+        chunk: RegionChunk?,
     ) {
+        if (chunk == null) {
+            clear(position)
+            return
+        }
         checkOpen()
         val writer = requireWriter()
-        val compressedBytes = chunk.payload.compressedBytes
-            ?: throw RegionFormatException(
-                "External chunk $chunkPosition has not been resolved",
-            )
-        if (compressedBytes.size > maximumCompressedChunkBytes) {
-            throw RegionFormatException(
-                "Chunk $chunkPosition compressed size ${compressedBytes.size} exceeds configured limit $maximumCompressedChunkBytes",
-            )
-        }
+        val compressedBytes = validatedCompressedPayload(position, chunk, maximumCompressedChunkBytes)
         val record = EncodedRegionChunkRecord.encode(
             compression = chunk.compression,
             compressedPayload = compressedBytes,
         )
         if (record.external) {
-            writeExternal(position, chunkPosition, record, writer)
+            writeExternal(local(position), position, record, writer)
         } else {
-            writeInternal(position, chunkPosition, record, writer)
+            writeInternal(local(position), position, record, writer)
         }
     }
 
-    fun clear(
-        position: LocalChunkPosition,
-        chunkPosition: ChunkPosition,
-    ) {
+    fun clear(position: ChunkPosition) {
         checkOpen()
+        val local = local(position)
         val writer = requireWriter()
-        val oldLocation = writer.header.location(position) ?: return
+        val oldLocation = writer.header.location(local) ?: return
         writer.header.set(
-            position,
+            local,
             location = null,
             timestamp = systemEpochSeconds(),
         )
         writeHeader(writer)
-        files.fileSystem.deleteIfExists(externalPath(chunkPosition))
+        files.fileSystem.deleteIfExists(externalPath(position))
         writer.allocator.free(oldLocation)
+    }
+
+    fun readChunkNbt(position: ChunkPosition): NbtDocument? {
+        val chunk = read(position) ?: return null
+        return withOkioIoExceptions("Cannot decode chunk $position") {
+            chunkNbtFormat.decode(chunk)
+        }
+    }
+
+    fun writeChunkNbt(
+        position: ChunkPosition,
+        document: NbtDocument,
+        compression: Compression = Compression.ZLIB,
+    ) {
+        val chunk = withOkioIoExceptions("Cannot encode chunk $position") {
+            chunkNbtFormat.encode(document, compression)
+        }
+        write(position, chunk)
     }
 
     fun flush() {
@@ -148,6 +181,17 @@ internal class OpenRegionFile private constructor(
         failure?.let { throw it }
     }
 
+    private fun checkOpen() {
+        check(!closed) { "Region file store is closed: $path" }
+    }
+
+    private fun local(position: ChunkPosition): LocalChunkPosition {
+        require(position.region == regionPosition) {
+            "Chunk $position belongs to region ${position.region}, not $regionPosition"
+        }
+        return position.local
+    }
+
     private fun readStoredChunk(
         position: LocalChunkPosition,
         header: RegionHeader,
@@ -176,8 +220,7 @@ internal class OpenRegionFile private constructor(
             )
             RegionChunkPayload.External(bytes)
         } else {
-            val maximumPayload =
-                location.allocatedBytes - REGION_CHUNK_RECORD_HEADER_BYTES
+            val maximumPayload = location.allocatedBytes - REGION_CHUNK_RECORD_HEADER_BYTES
             if (record.compressedLength !in 0..maximumPayload) {
                 throw RegionFormatException(
                     "Chunk $position declares invalid record length ${record.length} for ${location.sectorCount} allocated sector(s)",
@@ -286,23 +329,47 @@ internal class OpenRegionFile private constructor(
         writer?.header ?: readUsableHeader(handle)
 
     private fun requireWriter(): RegionWriterState = writer
-        ?: throw IllegalStateException("Region file is live read-only: $path")
+        ?: throw IllegalStateException("Region file store is live read-only: $path")
 
     private fun externalPath(position: ChunkPosition): Path =
         directory / "c.${position.x}.${position.z}.mcc"
 
-    private fun checkOpen() {
-        check(!closed) { "Region file is closed: $path" }
-    }
-
     companion object {
+        /**
+         * Opens one exact `.mca` file; its region coordinates come from the
+         * canonical `r.<x>.<z>.mca` name, and sidecars are resolved next to
+         * it. The file is created when missing.
+         */
         fun open(
+            regionFile: Path,
+            fileSystem: FileSystem = systemFileSystem,
+            chunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
+            configuration: RegionFileStoreConfiguration = RegionFileStoreConfiguration(),
+        ): RegionFileStore {
+            val directory = regionFile.parent
+                ?: throw WorldIOException(
+                    "Region file has no parent directory: $regionFile",
+                )
+            val position = parseRegionFileName(regionFile.name)
+                ?: throw WorldIOException("Not a region file: $regionFile")
+            return open(
+                files = WorldFileAccess.mutable(fileSystem),
+                directory = directory,
+                position = position,
+                chunkNbtFormat = chunkNbtFormat,
+                maximumCompressedChunkBytes = configuration.maximumCompressedChunkBytes,
+                syncWrites = configuration.syncWrites,
+            )
+        }
+
+        internal fun open(
             files: WorldFileAccess,
             directory: Path,
             position: RegionPosition,
+            chunkNbtFormat: RegionChunkNbtFormat,
             maximumCompressedChunkBytes: Int,
             syncWrites: Boolean,
-        ): OpenRegionFile {
+        ): RegionFileStore {
             if (!files.liveReadOnly) {
                 files.fileSystem.createDirectories(directory)
             }
@@ -320,15 +387,15 @@ internal class OpenRegionFile private constructor(
                         syncWrites = syncWrites,
                     )
                 }
-                return OpenRegionFile(
+                return RegionFileStore(
                     files = files,
-                    directory = directory,
                     regionPosition = position,
+                    directory = directory,
                     path = path,
                     handle = handle,
                     writer = writer,
-                    maximumCompressedChunkBytes =
-                        maximumCompressedChunkBytes,
+                    chunkNbtFormat = chunkNbtFormat,
+                    maximumCompressedChunkBytes = maximumCompressedChunkBytes,
                 )
             } catch (caught: Throwable) {
                 failure = caught
@@ -340,6 +407,23 @@ internal class OpenRegionFile private constructor(
             }
         }
     }
+}
+
+internal fun validatedCompressedPayload(
+    position: ChunkPosition,
+    chunk: RegionChunk,
+    maximumCompressedChunkBytes: Int,
+): ByteArray {
+    val compressedBytes = chunk.payload.compressedBytes
+        ?: throw RegionFormatException(
+            "External chunk $position has not been resolved",
+        )
+    if (compressedBytes.size > maximumCompressedChunkBytes) {
+        throw RegionFormatException(
+            "Chunk $position compressed size ${compressedBytes.size} exceeds configured limit $maximumCompressedChunkBytes",
+        )
+    }
+    return compressedBytes
 }
 
 private data class RegionWriterState(
@@ -369,6 +453,20 @@ private fun allocatorFor(header: RegionHeader): RegionSectorAllocator {
         header.location(local)?.let(allocator::mark)
     }
     return allocator
+}
+
+private fun parseRegionFileName(name: String): RegionPosition? {
+    val parts = name.split('.')
+    if (parts.size != 4 || parts[0] != "r" || parts[3] != "mca") {
+        return null
+    }
+    val x = parts[1].toIntOrNull() ?: return null
+    val z = parts[2].toIntOrNull() ?: return null
+    val position = RegionPosition(x, z)
+    if (name != "r.${position.x}.${position.z}.mca") {
+        return null
+    }
+    return position
 }
 
 private fun systemEpochSeconds(): Int =

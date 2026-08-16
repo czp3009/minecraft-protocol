@@ -108,8 +108,7 @@ sealed class RegionFileFormat(
 
     private fun decodeNonEmpty(source: Source): RegionFile {
         val header = RegionHeader.decode(source.readByteArray(REGION_HEADER_BYTES))
-        val maximumSectors =
-            configuration.maximumRegionBytes / REGION_SECTOR_BYTES
+        val maximumSectors = configuration.maximumRegionBytes / REGION_SECTOR_BYTES
         val usedSectors = BooleanArray(maximumSectors)
         usedSectors[0] = true
         usedSectors[1] = true
@@ -153,8 +152,7 @@ sealed class RegionFileFormat(
             source.skip(gapSectors.toLong() * REGION_SECTOR_BYTES)
 
             val length = source.readInt()
-            val allocatedPayloadBytes =
-                plan.allocatedSectors * REGION_SECTOR_BYTES - Int.SIZE_BYTES
+            val allocatedPayloadBytes = plan.allocatedSectors * REGION_SECTOR_BYTES - Int.SIZE_BYTES
             if (length !in 1..allocatedPayloadBytes) {
                 throw RegionFormatException(
                     "Chunk ${plan.position} declares invalid record length $length for ${plan.allocatedSectors} allocated sector(s)",
@@ -162,9 +160,9 @@ sealed class RegionFileFormat(
             }
             val versionByte = source.readByte().toInt() and 0xFF
             val external = versionByte and REGION_EXTERNAL_STREAM_FLAG != 0
-            val compressionId =
-                versionByte and REGION_EXTERNAL_STREAM_FLAG.inv()
-            val compression = RegionCompression.fromId(compressionId)
+            val compressionId = versionByte and REGION_EXTERNAL_STREAM_FLAG.inv()
+            val compression =
+                RegionChunkRecordHeader.compressionFromId(compressionId)
                 ?: throw RegionFormatException(
                     "Chunk ${plan.position} uses unknown compression ID $compressionId",
                 )

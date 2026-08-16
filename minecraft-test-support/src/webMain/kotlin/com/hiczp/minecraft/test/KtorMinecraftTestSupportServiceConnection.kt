@@ -20,8 +20,7 @@ internal actual fun openMinecraftTestSupportServiceConnection(
     return try {
         val rpcClient = client.rpc(rpcUrl)
         object : MinecraftTestSupportServiceConnection {
-            override val service: MinecraftTestSupportService =
-                rpcClient.withService()
+            override val service: MinecraftTestSupportService = rpcClient.withService()
 
             override fun close() {
                 rpcClient.close()

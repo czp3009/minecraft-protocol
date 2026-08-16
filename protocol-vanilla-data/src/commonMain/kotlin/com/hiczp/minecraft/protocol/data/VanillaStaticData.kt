@@ -25,8 +25,7 @@ class VanillaRegistry internal constructor(
         }
     }
 
-    private val ids: Map<Identifier, Int> =
-        this.entries.withIndex().associate { (index, entry) -> entry to index }
+    private val ids: Map<Identifier, Int> = this.entries.withIndex().associate { (index, entry) -> entry to index }
 
     val size: Int
         get() = entries.size
@@ -76,8 +75,7 @@ class VanillaBlockStateRegistry internal constructor(
         }
     }
 
-    private val byBlock: Map<Identifier, List<VanillaBlockState>> =
-        this.states.groupBy(VanillaBlockState::block)
+    private val byBlock: Map<Identifier, List<VanillaBlockState>> = this.states.groupBy(VanillaBlockState::block)
     private val defaults: Map<Identifier, VanillaBlockState> =
         byBlock.mapValues { (block, blockStates) ->
             blockStates.singleOrNull(VanillaBlockState::isDefault)

@@ -48,21 +48,6 @@ data class LocalChunkPosition(
     }
 }
 
-/** Compression IDs recognized by the vanilla region-file implementation. */
-enum class RegionCompression(val id: Int) {
-    GZIP(1),
-    ZLIB(2),
-    NONE(3),
-    LZ4(4),
-    CUSTOM(127),
-    ;
-
-    companion object {
-        fun fromId(id: Int): RegionCompression? =
-            entries.firstOrNull { it.id == id }
-    }
-}
-
 sealed interface RegionChunkPayload {
     val compressedBytes: ByteArray?
     val isExternal: Boolean
@@ -104,7 +89,7 @@ sealed interface RegionChunkPayload {
 }
 
 data class RegionChunk(
-    val compression: RegionCompression,
+    val compression: Compression,
     val payload: RegionChunkPayload,
     /** Raw signed 32-bit seconds-since-epoch value stored in the header. */
     val timestamp: Int = 0,

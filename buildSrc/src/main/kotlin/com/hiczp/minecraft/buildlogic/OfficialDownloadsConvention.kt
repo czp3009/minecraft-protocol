@@ -511,7 +511,5 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
 }
 
 private const val FIXTURE_TASK_GROUP = "minecraft fixtures"
-private const val OFFICIAL_ANALYSIS_TASK_GROUP =
-    "official minecraft analysis"
-private const val VERSION_MANIFEST_URL =
-    "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+private const val OFFICIAL_ANALYSIS_TASK_GROUP = "official minecraft analysis"
+private const val VERSION_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"

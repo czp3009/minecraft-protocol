@@ -13,5 +13,4 @@ internal fun fixtureJavaCommand(vararg arguments: String): List<String> =
 internal fun Path.toNioPath(): NioPath =
     NioPath.of(toString()).toAbsolutePath().normalize()
 
-internal const val ENABLE_NATIVE_ACCESS_ALL_UNNAMED: String =
-    "--enable-native-access=ALL-UNNAMED"
+internal const val ENABLE_NATIVE_ACCESS_ALL_UNNAMED: String = "--enable-native-access=ALL-UNNAMED"

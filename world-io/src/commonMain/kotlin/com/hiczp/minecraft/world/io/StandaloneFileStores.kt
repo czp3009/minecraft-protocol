@@ -2,6 +2,7 @@ package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.serialization.NbtSerializationException
+import com.hiczp.minecraft.world.format.Compression
 import com.hiczp.minecraft.world.format.RegionFormatException
 import okio.*
 import kotlin.random.Random
@@ -73,8 +74,7 @@ class PlayerDataStore(
     fun read(playerUuid: String): NbtDocument? {
         val primary = paths.playerData(playerUuid)
         val previous = paths.previousPlayerData(playerUuid)
-        val primaryExists =
-            nbtFiles.fileSystem.metadataOrNull(primary)?.isRegularFile == true
+        val primaryExists = nbtFiles.fileSystem.metadataOrNull(primary)?.isRegularFile == true
         if (primaryExists) {
             val primaryFailure = try {
                 return nbtFiles.read(primary)
@@ -175,20 +175,20 @@ class SavedDataFileStore(
         nbtFiles.writeDirect(
             path = paths.savedData(identifier, dimension),
             document = document,
-            compression = NbtFileCompression.GZIP,
+            compression = Compression.GZIP,
         )
     }
 
-    private fun detectSavedDataCompression(path: Path): NbtFileCompression {
+    private fun detectSavedDataCompression(path: Path): Compression {
         return nbtFiles.openSource(path).buffer().use { source ->
             if (
                 source.request(2L) &&
                 source.buffer[0L] == GZIP_MAGIC_FIRST &&
                 source.buffer[1L] == GZIP_MAGIC_SECOND
             ) {
-                NbtFileCompression.GZIP
+                Compression.GZIP
             } else {
-                NbtFileCompression.NONE
+                Compression.NONE
             }
         }
     }

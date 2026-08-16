@@ -524,10 +524,8 @@ internal class MinecraftDecoder(
 
     private companion object {
         const val DEFAULT_STRING_MAXIMUM: Int = 32_767
-        const val VECTOR_3D_SERIAL_NAME: String =
-            "com.hiczp.minecraft.protocol.model.type.Vector3d"
-        const val PALETTED_CONTAINER_SERIAL_NAME: String =
-            "com.hiczp.minecraft.protocol.model.type.PalettedContainer"
+        const val VECTOR_3D_SERIAL_NAME: String = "com.hiczp.minecraft.protocol.model.type.Vector3d"
+        const val PALETTED_CONTAINER_SERIAL_NAME: String = "com.hiczp.minecraft.protocol.model.type.PalettedContainer"
         const val BYTE_ARRAY_SERIAL_NAME: String = "kotlin.ByteArray"
         const val UUID_SERIAL_NAME: String = "kotlin.uuid.Uuid"
     }

@@ -25,13 +25,10 @@ import kotlinx.serialization.modules.SerializersModule
 object FabricProtocol {
     const val COMMON_PACKET_VERSION: Int = 1
     const val MAX_COMMON_VERSIONS: Int = FabricProtocolLimits.MAX_COMMON_VERSIONS
-    const val MAX_PROTOCOL_NAME_LENGTH: Int =
-        FabricProtocolLimits.MAX_PROTOCOL_NAME_LENGTH
+    const val MAX_PROTOCOL_NAME_LENGTH: Int = FabricProtocolLimits.MAX_PROTOCOL_NAME_LENGTH
     const val MAX_CHANNELS: Int = FabricProtocolLimits.MAX_CHANNELS
-    const val MAX_CHANNEL_NAME_LENGTH: Int =
-        FabricProtocolLimits.MAX_CHANNEL_NAME_LENGTH
-    const val DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE: Int =
-        FabricProtocolLimits.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE
+    const val MAX_CHANNEL_NAME_LENGTH: Int = FabricProtocolLimits.MAX_CHANNEL_NAME_LENGTH
+    const val DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE: Int = FabricProtocolLimits.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE
 
     val packetCodecs: List<PacketCodecRegistration<out Packet>> = buildList {
         addBidirectional(
@@ -259,8 +256,7 @@ private class FabricRegistrySyncSerializer(
                 output.encodeByte(
                     if (registry.id in value.optionalRegistries) 1 else 0,
                 )
-                val entriesByNamespace =
-                    linkedMapOf<String, MutableList<RemoteRegistryEntry>>()
+                val entriesByNamespace = linkedMapOf<String, MutableList<RemoteRegistryEntry>>()
                 registry.entries.forEach { entry ->
                     entriesByNamespace.getOrPut(
                         entry.id.namespace,
@@ -295,14 +291,12 @@ private class FabricRegistrySyncSerializer(
 
     override fun deserialize(decoder: Decoder): FabricRegistrySyncPacket {
         val input = decoder.beginStructure(descriptor)
-        val registryNamespaceGroups =
-            input.decodeCount("registry namespace groups")
+        val registryNamespaceGroups = input.decodeCount("registry namespace groups")
         val registries = mutableListOf<RemoteRegistry>()
         val optionalRegistries = linkedSetOf<Identifier>()
         repeat(registryNamespaceGroups) {
             val registryNamespace = unoptimizeNamespace(input.decodeString())
-            val registriesInNamespace =
-                input.decodeCount("registries in namespace $registryNamespace")
+            val registriesInNamespace = input.decodeCount("registries in namespace $registryNamespace")
             repeat(registriesInNamespace) {
                 val registryId = identifier(
                     registryNamespace,
@@ -317,8 +311,7 @@ private class FabricRegistrySyncSerializer(
                 val entries = mutableListOf<RemoteRegistryEntry>()
                 var lastBulkLastRawId = 0
                 repeat(entryNamespaceGroups) {
-                    val entryNamespace =
-                        unoptimizeNamespace(input.decodeString())
+                    val entryNamespace = unoptimizeNamespace(input.decodeString())
                     val rawIdBulks = input.decodeCount(
                         "raw-ID bulks in $registryId",
                     )
@@ -328,8 +321,7 @@ private class FabricRegistrySyncSerializer(
                             "entries in a raw-ID bulk",
                             allowZero = false,
                         )
-                        var currentRawId =
-                            lastBulkLastRawId.toLong() + startDifference - 1
+                        var currentRawId = lastBulkLastRawId.toLong() + startDifference - 1
                         repeat(bulkSize) {
                             currentRawId++
                             if (currentRawId !in 0..Int.MAX_VALUE.toLong()) {

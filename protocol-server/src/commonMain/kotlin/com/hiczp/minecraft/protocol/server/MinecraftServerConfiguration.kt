@@ -91,8 +91,7 @@ data class MinecraftServerNegotiationOptions(
                     onlinePlayers,
                 ),
                 description = ServerStatusDescription(statusDescription),
-                enforcesSecureChat =
-                    effectiveSecureChatEnforcement(onlineMode),
+                enforcesSecureChat = effectiveSecureChatEnforcement(onlineMode),
             ),
             sink,
         )

@@ -36,8 +36,7 @@ interface NbtTagDecoder {
 abstract class NbtTagSerializer<T : NbtTag>(
     serialName: String,
 ) : KSerializer<T> {
-    final override val descriptor: SerialDescriptor =
-        buildClassSerialDescriptor(serialName)
+    final override val descriptor: SerialDescriptor = buildClassSerialDescriptor(serialName)
 
     final override fun serialize(encoder: Encoder, value: T) {
         val tagEncoder = encoder as? NbtTagEncoder

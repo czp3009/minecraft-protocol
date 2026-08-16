@@ -197,20 +197,41 @@ class RegionSectorAllocator {
 /** The five-byte record prefix stored at the beginning of a chunk allocation. */
 data class RegionChunkRecordHeader(
     val length: Int,
-    val compression: RegionCompression,
+    val compression: Compression,
     val external: Boolean,
 ) {
     val compressedLength: Int
         get() = length - 1
 
     companion object {
+        /** Compression ID stored in one record header's version byte. */
+        fun compressionId(compression: Compression): Int =
+            when (compression) {
+                Compression.GZIP -> 1
+                Compression.ZLIB -> 2
+                Compression.NONE -> 3
+                Compression.LZ4 -> 4
+                Compression.CUSTOM -> 127
+            }
+
+        /** Compression for one record-header ID, or null when it is unknown. */
+        fun compressionFromId(compressionId: Int): Compression? =
+            when (compressionId) {
+                1 -> Compression.GZIP
+                2 -> Compression.ZLIB
+                3 -> Compression.NONE
+                4 -> Compression.LZ4
+                127 -> Compression.CUSTOM
+                else -> null
+            }
+
         fun decode(bytes: ByteArray): RegionChunkRecordHeader {
             if (bytes.size < REGION_CHUNK_RECORD_HEADER_BYTES) {
                 throw RegionFormatException("Truncated region chunk record header")
             }
             val version = bytes[Int.SIZE_BYTES].toInt() and 0xFF
             val compressionId = version and REGION_EXTERNAL_STREAM_FLAG.inv()
-            val compression = RegionCompression.fromId(compressionId)
+            val compression = compressionFromId(compressionId)
                 ?: throw RegionFormatException(
                     "Unknown region compression ID $compressionId",
                 )
@@ -234,7 +255,7 @@ class EncodedRegionChunkRecord private constructor(
 
     companion object {
         fun encode(
-            compression: RegionCompression,
+            compression: Compression,
             compressedPayload: ByteArray,
             forceExternal: Boolean = false,
         ): EncodedRegionChunkRecord {
@@ -248,7 +269,8 @@ class EncodedRegionChunkRecord private constructor(
                 val stub = ByteArray(REGION_CHUNK_RECORD_HEADER_BYTES)
                 writeRegionInt(stub, 0, 1)
                 stub[Int.SIZE_BYTES] = (
-                        compression.id or REGION_EXTERNAL_STREAM_FLAG
+                        RegionChunkRecordHeader.compressionId(compression) or
+                                REGION_EXTERNAL_STREAM_FLAG
                         ).toByte()
                 return EncodedRegionChunkRecord(
                     bytes = stub,
@@ -259,7 +281,7 @@ class EncodedRegionChunkRecord private constructor(
 
             val record = ByteArray(inlineBytes.toInt())
             writeRegionInt(record, 0, compressedPayload.size + 1)
-            record[Int.SIZE_BYTES] = compression.id.toByte()
+            record[Int.SIZE_BYTES] = RegionChunkRecordHeader.compressionId(compression).toByte()
             compressedPayload.copyInto(
                 destination = record,
                 destinationOffset = REGION_CHUNK_RECORD_HEADER_BYTES,

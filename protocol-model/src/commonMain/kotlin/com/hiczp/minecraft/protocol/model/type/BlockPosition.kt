@@ -49,8 +49,7 @@ data class BlockPosition(
 }
 
 internal object BlockPositionSerializer : KSerializer<BlockPosition> {
-    override val descriptor: SerialDescriptor =
-        PrimitiveSerialDescriptor("minecraft.BlockPosition", PrimitiveKind.LONG)
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("minecraft.BlockPosition", PrimitiveKind.LONG)
 
     override fun serialize(encoder: Encoder, value: BlockPosition): Unit =
         encoder.encodeLong(value.packed())

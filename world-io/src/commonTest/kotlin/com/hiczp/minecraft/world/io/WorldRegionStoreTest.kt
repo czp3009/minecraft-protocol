@@ -90,7 +90,7 @@ class WorldRegionStoreTest {
         val bytes = ByteArray(3 * REGION_SECTOR_BYTES)
         header.encode().copyInto(bytes)
         writeInt(bytes, 2 * REGION_SECTOR_BYTES, 2)
-        bytes[2 * REGION_SECTOR_BYTES + 4] = RegionCompression.NONE.id.toByte()
+        bytes[2 * REGION_SECTOR_BYTES + 4] = RegionChunkRecordHeader.compressionId(Compression.NONE).toByte()
         bytes[2 * REGION_SECTOR_BYTES + 5] = 42
         fileSystem.writeBytes(path, bytes)
 
@@ -536,7 +536,7 @@ class WorldRegionStoreTest {
             store.writeChunk(
                 position,
                 RegionChunk(
-                    compression = RegionCompression.NONE,
+                    compression = Compression.NONE,
                     payload = RegionChunkPayload.External(),
                 ),
             )
@@ -615,7 +615,7 @@ class WorldRegionStoreTest {
     )
 
     private fun chunk(bytes: ByteArray): RegionChunk = RegionChunk(
-        compression = RegionCompression.NONE,
+        compression = Compression.NONE,
         payload = RegionChunkPayload.Inline(bytes),
     )
 }

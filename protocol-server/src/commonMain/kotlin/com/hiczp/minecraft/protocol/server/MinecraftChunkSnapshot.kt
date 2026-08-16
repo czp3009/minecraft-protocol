@@ -228,8 +228,7 @@ data class MinecraftChunkSnapshot(
 
         private const val SECTION_SIZE: Int = 16
         private const val SURFACE_BLOCK_COUNT: Int = SECTION_SIZE * SECTION_SIZE
-        private const val HEIGHTMAP_ENTRY_COUNT: Int =
-            SECTION_SIZE * SECTION_SIZE
+        private const val HEIGHTMAP_ENTRY_COUNT: Int = SECTION_SIZE * SECTION_SIZE
         private const val BLOCK_INDIRECT_BITS: Int = 4
         private const val LIGHT_BOUNDARY_SECTION_COUNT: Int = 2
         private const val FULL_LIGHT_BYTE: Byte = -1

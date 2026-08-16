@@ -12,8 +12,7 @@ import java.net.URLClassLoader
  * time.
  */
 internal object OfficialCodecOracle {
-    private const val LOG4J_CONFIGURATION_PROPERTY =
-        "log4j2.configurationFile"
+    private const val LOG4J_CONFIGURATION_PROPERTY = "log4j2.configurationFile"
     private const val JOML_NO_UNSAFE_PROPERTY = "joml.nounsafe"
 
     suspend fun verify(

@@ -398,7 +398,7 @@ private fun wrapHandle(
 }
 
 private fun lifecycleChunk(value: Byte): RegionChunk = RegionChunk(
-    compression = RegionCompression.NONE,
+    compression = Compression.NONE,
     payload = RegionChunkPayload.Inline(byteArrayOf(value)),
 )
 

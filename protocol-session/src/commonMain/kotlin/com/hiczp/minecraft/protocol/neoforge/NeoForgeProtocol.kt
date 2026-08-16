@@ -183,8 +183,7 @@ object NeoForgeProtocol {
 
 internal object NeoForgeRegistrySnapshotSerializer :
     KSerializer<NeoForgeRegistrySnapshot> {
-    override val descriptor: SerialDescriptor =
-        NeoForgeRegistrySnapshotWire.serializer().descriptor
+    override val descriptor: SerialDescriptor = NeoForgeRegistrySnapshotWire.serializer().descriptor
 
     override fun serialize(encoder: Encoder, value: NeoForgeRegistrySnapshot) {
         encoder.encodeSerializableValue(
@@ -218,8 +217,7 @@ private data class NeoForgeRegistrySnapshotWire(
 internal object NeoForgeRegistryDataMapSyncSerializer :
     KSerializer<NeoForgeRegistryDataMapSyncPacket> {
     private val json = Json
-    override val descriptor: SerialDescriptor =
-        NeoForgeRegistryDataMapSyncWire.serializer().descriptor
+    override val descriptor: SerialDescriptor = NeoForgeRegistryDataMapSyncWire.serializer().descriptor
 
     override fun serialize(
         encoder: Encoder,

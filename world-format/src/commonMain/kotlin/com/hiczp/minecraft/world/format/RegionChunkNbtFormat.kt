@@ -17,6 +17,10 @@ data class RegionChunkNbtFormatConfiguration(
  * Composes region compression with compound-document NBT while keeping both
  * independently reusable.
  *
+ * This format serves region-chunk payloads selected by [RegionChunk].
+ * Standalone compressed NBT files such as `level.dat` are file-level policy
+ * owned by world-io, or compose `NbtFormat` with `CompressionCodecs` directly.
+ *
  * [encodeToSink] and [decodeFromSource] are the canonical streaming paths.
  * Compression and NBT serialization share the same kotlinx-io boundary, so
  * callers can compose them without platform adapters or wrapper streams.
@@ -25,10 +29,8 @@ data class RegionChunkNbtFormatConfiguration(
  */
 class RegionChunkNbtFormat(
     val nbt: NbtFormat = NbtFormat,
-    val compressionCodecs: RegionCompressionCodecs =
-        RegionCompressionCodecs,
-    val configuration: RegionChunkNbtFormatConfiguration =
-        RegionChunkNbtFormatConfiguration(),
+    val compressionCodecs: CompressionCodecs = CompressionCodecs,
+    val configuration: RegionChunkNbtFormatConfiguration = RegionChunkNbtFormatConfiguration(),
 ) {
     /**
      * Decodes one complete compressed NBT stream without closing [source].
@@ -36,7 +38,7 @@ class RegionChunkNbtFormat(
      */
     fun decodeFromSource(
         source: Source,
-        compression: RegionCompression,
+        compression: Compression,
     ): NbtDocument =
         compressionCodecs.decompressingSource(
             compression,
@@ -58,7 +60,7 @@ class RegionChunkNbtFormat(
      */
     fun encodeToSink(
         document: NbtDocument,
-        compression: RegionCompression,
+        compression: Compression,
         sink: Sink,
     ) {
         compressionCodecs.compressingSink(
@@ -90,7 +92,7 @@ class RegionChunkNbtFormat(
      */
     fun encode(
         document: NbtDocument,
-        compression: RegionCompression = RegionCompression.ZLIB,
+        compression: Compression = Compression.ZLIB,
         timestamp: Int = 0,
         external: Boolean = false,
     ): RegionChunk {

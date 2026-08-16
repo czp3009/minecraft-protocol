@@ -386,8 +386,7 @@ class MinecraftProtocolFormatTest {
     @Test
     fun `network NBT strings use Java modified UTF`() {
         val value = NbtValue(NbtString("\u0000Aé😀"))
-        val expected =
-            "08000bc08041c3a9eda0bdedb880".hexToByteArray()
+        val expected = "08000bc08041c3a9eda0bdedb880".hexToByteArray()
 
         assertContentEquals(
             expected,

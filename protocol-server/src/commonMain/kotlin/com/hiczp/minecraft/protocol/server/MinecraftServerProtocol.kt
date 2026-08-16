@@ -71,8 +71,7 @@ suspend fun MinecraftServerConnection.negotiate(
             val actualVersion = handshake.protocolVersion
             val expectedVersion = options.protocolData.protocolVersion
             if (actualVersion != expectedVersion) {
-                val message =
-                    "Unsupported protocol version $actualVersion; expected $expectedVersion"
+                val message = "Unsupported protocol version $actualVersion; expected $expectedVersion"
                 throw MinecraftLoginRejectedException(
                     reason = JsonTextComponent(
                         textComponentJson("text", message),

@@ -66,8 +66,7 @@ class MinecraftClientNegotiationOptions(
     val onUnhandledQuery: (suspend (UnknownPacket.Clientbound) -> NegotiationQueryResult)? = null,
 ) {
     val loginCookies: Map<Identifier, ByteString> = loginCookies.toMap()
-    val configurationCookies: Map<Identifier, ByteString> =
-        configurationCookies.toMap()
+    val configurationCookies: Map<Identifier, ByteString> = configurationCookies.toMap()
     val acceptedKnownPacks: Set<KnownPack> = acceptedKnownPacks.toSet()
 
     init {

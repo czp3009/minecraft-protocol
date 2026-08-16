@@ -24,8 +24,7 @@ data class ItemAttributeModifier(
     val operation: AttributeModifierOperation,
     @ZeroFallbackEnum
     val slot: EquipmentSlotGroup,
-    val display: AttributeModifierDisplay =
-        AttributeModifierDisplay.Default,
+    val display: AttributeModifierDisplay = AttributeModifierDisplay.Default,
 )
 
 @Serializable

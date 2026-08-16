@@ -89,8 +89,7 @@ private data class MobEffectDetailsWire(
 )
 
 internal object MobEffectDetailsSerializer : KSerializer<MobEffectDetails> {
-    override val descriptor: SerialDescriptor =
-        MobEffectDetailsWire.serializer().descriptor
+    override val descriptor: SerialDescriptor = MobEffectDetailsWire.serializer().descriptor
 
     override fun serialize(encoder: Encoder, value: MobEffectDetails) {
         MobEffectDetailsWire.serializer().serialize(

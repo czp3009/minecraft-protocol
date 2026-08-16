@@ -184,8 +184,7 @@ class OfficialWorldStorageInteropTest {
             "forceload add 0 0 ${COMPRESSION_PROBES.last().blockX} 0",
         )
         COMPRESSION_PROBES.forEach { probe ->
-            val logToken =
-                "minecraft_protocol_${verificationPhase}_${probe.name}"
+            val logToken = "minecraft_protocol_${verificationPhase}_${probe.name}"
             MinecraftTestSupport.sendCommand(
                 server,
                 "execute if block ${probe.blockX} 100 0 minecraft:lectern run say $logToken",
@@ -431,7 +430,7 @@ class OfficialWorldStorageInteropTest {
             paths = paths,
             configuration = WorldRegionStoreConfiguration(
                 syncWrites = true,
-                writeCompression = RegionCompression.NONE,
+                writeCompression = Compression.NONE,
             ),
         )
         try {
@@ -713,7 +712,7 @@ class OfficialWorldStorageInteropTest {
 
     private data class CompressionProbe(
         val name: String,
-        val compression: RegionCompression,
+        val compression: Compression,
         val position: ChunkPosition,
         val blockX: Int,
     )
@@ -730,33 +729,32 @@ class OfficialWorldStorageInteropTest {
     private companion object {
         const val WORLD_NAME = "wio"
         const val PLAYER_NAME = "StorageAudit"
-        const val EXTERNAL_FIXTURE_TAG =
-            "minecraft_protocol_external_fixture"
+        const val EXTERNAL_FIXTURE_TAG = "minecraft_protocol_external_fixture"
         const val EXTERNAL_FIXTURE_BYTES = 1_100_000
         const val TERRAIN_MUTATION_BLOCK_X = 64
         val TERRAIN_MUTATION_POSITION = ChunkPosition(4, 0)
         val COMPRESSION_PROBES = listOf(
             CompressionProbe(
                 name = "gzip",
-                compression = RegionCompression.GZIP,
+                compression = Compression.GZIP,
                 position = ChunkPosition(0, 0),
                 blockX = 0,
             ),
             CompressionProbe(
                 name = "zlib",
-                compression = RegionCompression.ZLIB,
+                compression = Compression.ZLIB,
                 position = ChunkPosition(1, 0),
                 blockX = 16,
             ),
             CompressionProbe(
                 name = "none",
-                compression = RegionCompression.NONE,
+                compression = Compression.NONE,
                 position = ChunkPosition(2, 0),
                 blockX = 32,
             ),
             CompressionProbe(
                 name = "lz4",
-                compression = RegionCompression.LZ4,
+                compression = Compression.LZ4,
                 position = ChunkPosition(3, 0),
                 blockX = 48,
             ),

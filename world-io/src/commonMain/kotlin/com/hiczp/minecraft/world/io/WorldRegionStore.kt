@@ -12,7 +12,7 @@ data class WorldRegionStoreConfiguration(
     val maximumOpenRegions: Int = 256,
     val syncWrites: Boolean = true,
     /** Default used by NBT writes that do not select compression per chunk. */
-    val writeCompression: RegionCompression = RegionCompression.ZLIB,
+    val writeCompression: Compression = Compression.ZLIB,
 ) {
     init {
         require(maximumCompressedChunkBytes >= 0)
@@ -37,8 +37,7 @@ class WorldRegionStore internal constructor(
         directory: Path,
         fileSystem: FileSystem = systemFileSystem,
         chunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
-        configuration: WorldRegionStoreConfiguration =
-            WorldRegionStoreConfiguration(),
+        configuration: WorldRegionStoreConfiguration = WorldRegionStoreConfiguration(),
     ) : this(
         directory = directory,
         files = WorldFileAccess.mutable(fileSystem),
@@ -52,8 +51,7 @@ class WorldRegionStore internal constructor(
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
         fileSystem: FileSystem = systemFileSystem,
         chunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
-        configuration: WorldRegionStoreConfiguration =
-            WorldRegionStoreConfiguration(),
+        configuration: WorldRegionStoreConfiguration = WorldRegionStoreConfiguration(),
     ) : this(
         directory = paths.regionDirectory(storage, dimension),
         files = WorldFileAccess.mutable(fileSystem),
@@ -67,8 +65,7 @@ class WorldRegionStore internal constructor(
         dimension: DimensionDirectory,
         files: WorldFileAccess,
         chunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
-        configuration: WorldRegionStoreConfiguration =
-            WorldRegionStoreConfiguration(),
+        configuration: WorldRegionStoreConfiguration = WorldRegionStoreConfiguration(),
     ) : this(
         directory = paths.regionDirectory(storage, dimension),
         files = files,
@@ -80,7 +77,7 @@ class WorldRegionStore internal constructor(
         get() = files.fileSystem
 
     private val mutex = Mutex()
-    private val regions = linkedMapOf<RegionPosition, OpenRegionFile>()
+    private val regions = linkedMapOf<RegionPosition, RegionFileStore>()
     private var closed = false
 
     /** Reads one complete in-memory snapshot without reading unrelated files. */
@@ -93,13 +90,13 @@ class WorldRegionStore internal constructor(
     suspend fun readChunk(position: ChunkPosition): RegionChunk? =
         mutex.withLock {
             checkOpen()
-            region(position.region)?.read(position.local)
+            region(position.region)?.read(position)
         }
 
     suspend fun doesChunkExist(position: ChunkPosition): Boolean =
         mutex.withLock {
             checkOpen()
-            region(position.region)?.exists(position.local) == true
+            region(position.region)?.exists(position) == true
         }
 
     /**
@@ -113,17 +110,14 @@ class WorldRegionStore internal constructor(
     ) = mutex.withLock {
         checkOpen()
         files.requireWritable()
-        if (chunk == null) {
-            checkNotNull(region(position.region))
-                .clear(position.local, position)
-        } else {
-            validateChunkForWrite(position, chunk)
-            checkNotNull(region(position.region)).write(
-                position.local,
-                position,
-                chunk,
+        if (chunk != null) {
+            validatedCompressedPayload(
+                position = position,
+                chunk = chunk,
+                maximumCompressedChunkBytes = configuration.maximumCompressedChunkBytes,
             )
         }
+        checkNotNull(region(position.region)).write(position, chunk)
     }
 
     suspend fun clearChunk(position: ChunkPosition) {
@@ -131,10 +125,9 @@ class WorldRegionStore internal constructor(
     }
 
     suspend fun readChunkNbt(position: ChunkPosition): NbtDocument? =
-        readChunk(position)?.let { chunk ->
-            withOkioIoExceptions("Cannot decode chunk $position") {
-                chunkNbtFormat.decode(chunk)
-            }
+        mutex.withLock {
+            checkOpen()
+            region(position.region)?.readChunkNbt(position)
         }
 
     suspend fun writeChunkNbt(
@@ -150,15 +143,15 @@ class WorldRegionStore internal constructor(
     suspend fun writeChunkNbt(
         position: ChunkPosition,
         document: NbtDocument,
-        compression: RegionCompression,
-    ) {
-        val chunk = withOkioIoExceptions("Cannot encode chunk $position") {
-            chunkNbtFormat.encode(
-                document = document,
-                compression = compression,
-            )
-        }
-        writeChunk(position = position, chunk = chunk)
+        compression: Compression,
+    ) = mutex.withLock {
+        checkOpen()
+        files.requireWritable()
+        checkNotNull(region(position.region)).writeChunkNbt(
+            position = position,
+            document = document,
+            compression = compression,
+        )
     }
 
     suspend fun flush() = mutex.withLock {
@@ -199,7 +192,7 @@ class WorldRegionStore internal constructor(
         failure?.let { throw it }
     }
 
-    private fun region(position: RegionPosition): OpenRegionFile? {
+    private fun region(position: RegionPosition): RegionFileStore? {
         regions.remove(position)?.let { existing ->
             regions[position] = existing
             return existing
@@ -218,12 +211,12 @@ class WorldRegionStore internal constructor(
             regions.remove(evictedPosition)
             evictedRegion.close()
         }
-        val opened = OpenRegionFile.open(
+        val opened = RegionFileStore.open(
             files = files,
             directory = directory,
             position = position,
-            maximumCompressedChunkBytes =
-                configuration.maximumCompressedChunkBytes,
+            chunkNbtFormat = chunkNbtFormat,
+            maximumCompressedChunkBytes = configuration.maximumCompressedChunkBytes,
             syncWrites = configuration.syncWrites,
         )
         regions[position] = opened
@@ -232,23 +225,5 @@ class WorldRegionStore internal constructor(
 
     private fun checkOpen() {
         check(!closed) { "Region store is closed: $directory" }
-    }
-
-    private fun validateChunkForWrite(
-        position: ChunkPosition,
-        chunk: RegionChunk,
-    ) {
-        val compressedBytes = chunk.payload.compressedBytes
-            ?: throw RegionFormatException(
-                "External chunk $position has not been resolved",
-            )
-        if (
-            compressedBytes.size >
-            configuration.maximumCompressedChunkBytes
-        ) {
-            throw RegionFormatException(
-                "Chunk $position compressed size ${compressedBytes.size} exceeds configured limit ${configuration.maximumCompressedChunkBytes}",
-            )
-        }
     }
 }

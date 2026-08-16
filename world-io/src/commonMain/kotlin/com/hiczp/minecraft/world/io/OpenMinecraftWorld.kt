@@ -18,8 +18,7 @@ internal class OpenMinecraftWorld(
     private val levelData = LevelDataStore(paths, nbtFiles)
     private val playerData = PlayerDataStore(paths, nbtFiles)
     private val jsonFiles = Utf8JsonFileStore(files)
-    private val regionStores =
-        linkedMapOf<RegionStoreKey, WorldRegionStore>()
+    private val regionStores = linkedMapOf<RegionStoreKey, WorldRegionStore>()
     private var closed = false
 
     suspend fun readLevelData(): NbtDocument = mutex.withLock {

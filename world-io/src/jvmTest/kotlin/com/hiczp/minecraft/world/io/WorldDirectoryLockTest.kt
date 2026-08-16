@@ -112,8 +112,7 @@ private fun lockHolderClasspath(): String = listOf(
     File(type.protectionDomain.codeSource.location.toURI()).absolutePath
 }.distinct().joinToString(File.pathSeparator)
 
-private const val LOCK_HOLDER_MAIN_CLASS =
-    "com.hiczp.minecraft.world.io.WorldLockProcessMain"
+private const val LOCK_HOLDER_MAIN_CLASS = "com.hiczp.minecraft.world.io.WorldLockProcessMain"
 private const val LOCK_HOLDER_READY = "LOCKED"
 private const val LOCK_HOLDER_RELEASE = 1
 private val WORLD_LOCK_MARKER = "☃".encodeToByteArray()

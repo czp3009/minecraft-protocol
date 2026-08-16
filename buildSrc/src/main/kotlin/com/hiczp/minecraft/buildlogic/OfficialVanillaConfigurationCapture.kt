@@ -359,8 +359,7 @@ internal object OfficialVanillaConfigurationCapture {
                         check(featureFlags == null) {
                             "Official server sent Feature Flags more than once"
                         }
-                        featureFlags =
-                            FeatureFlagsPayload.decode(packet.payload)
+                        featureFlags = FeatureFlagsPayload.decode(packet.payload)
                     }
 
                     CONFIGURATION to "registry_data" ->

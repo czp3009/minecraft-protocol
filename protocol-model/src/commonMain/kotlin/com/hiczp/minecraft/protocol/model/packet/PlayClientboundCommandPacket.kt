@@ -33,8 +33,7 @@ data class CommandsPacket(
  * the vanilla packet constructor after all nodes have been decoded.
  */
 internal object CommandsPacketSerializer : KSerializer<CommandsPacket> {
-    private val nodesSerializer: KSerializer<List<CommandNode>> =
-        ListSerializer(CommandNodeSerializer)
+    private val nodesSerializer: KSerializer<List<CommandNode>> = ListSerializer(CommandNodeSerializer)
 
     override val descriptor: SerialDescriptor = buildClassSerialDescriptor(
         "minecraft.CommandsPacket",

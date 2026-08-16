@@ -186,8 +186,7 @@ class MinecraftSession(
             direction = inboundDirection,
             id = id,
         )
-        val expectedFraming =
-            if (legacy) PacketFraming.LEGACY_UNFRAMED else PacketFraming.NORMAL
+        val expectedFraming = if (legacy) PacketFraming.LEGACY_UNFRAMED else PacketFraming.NORMAL
         if (codec != null && codec.framing != expectedFraming) {
             throw MinecraftSessionException(
                 "Packet 0x${id.toString(16)} used $expectedFraming framing but its codec requires ${codec.framing}",

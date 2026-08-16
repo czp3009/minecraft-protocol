@@ -16,8 +16,7 @@ class AesCfb8CipherTest {
             "3b79424c9c0dd436bace9e0ed4586a4f32b9ded50ae3ba69d472e88267fb505270cbad1e257691f7c47c5038297edda32ff26d0ed19174096161ecc14086dd62",
         )
 
-        val ciphertext =
-            AesCfb8Cipher.encryptor(key, initializationVector).process(plaintext)
+        val ciphertext = AesCfb8Cipher.encryptor(key, initializationVector).process(plaintext)
 
         assertContentEquals(expectedCiphertext, ciphertext)
         assertContentEquals(

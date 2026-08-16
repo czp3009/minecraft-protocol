@@ -133,7 +133,7 @@ class RegionPrimitivesTest {
                     REGION_CHUNK_RECORD_HEADER_BYTES,
         )
 
-        RegionCompression.entries.forEach { compression ->
+        Compression.entries.forEach { compression ->
             val inline = EncodedRegionChunkRecord.encode(
                 compression,
                 lastInlinePayload,
@@ -170,7 +170,7 @@ class RegionPrimitivesTest {
     @Test
     fun recordHelpersCoverEmptyForcedAndMalformedRecords() {
         val empty = EncodedRegionChunkRecord.encode(
-            RegionCompression.NONE,
+            Compression.NONE,
             ByteArray(0),
         )
         assertFalse(empty.external)
@@ -178,7 +178,7 @@ class RegionPrimitivesTest {
         assertEquals(1, RegionChunkRecordHeader.decode(empty.bytes).length)
 
         val forced = EncodedRegionChunkRecord.encode(
-            RegionCompression.LZ4,
+            Compression.LZ4,
             byteArrayOf(1, 2, 3),
             forceExternal = true,
         )
@@ -203,8 +203,7 @@ class RegionPrimitivesTest {
             2,
             sectorsForBytes(REGION_SECTOR_BYTES.toLong() + 1L),
         )
-        val largestRepresentableBytes =
-            Int.MAX_VALUE.toLong() * REGION_SECTOR_BYTES
+        val largestRepresentableBytes = Int.MAX_VALUE.toLong() * REGION_SECTOR_BYTES
         assertEquals(
             Int.MAX_VALUE,
             sectorsForBytes(largestRepresentableBytes),

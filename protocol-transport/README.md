@@ -28,3 +28,23 @@ val codec = MinecraftFrameCodec().apply {
 val frame = codec.encodeFrame(packetData)
 check(codec.decodeFrame(frame).contentEquals(packetData))
 ```
+
+`MinecraftTransport` attaches the same codec to one Ktor `Socket`. Compression and encryption are activated exactly when
+the corresponding protocol packet has crossed the wire:
+
+```kotlin
+val transport = MinecraftTransport(socket)
+
+// Immediately after Set Compression has been flushed
+transport.configureCompression(threshold = 256)
+
+// Immediately after the Login Encryption Response has been flushed
+transport.enableEncryption(sharedSecret)
+
+val packetData = transport.receivePacketData()
+transport.sendPacketData(packetData)
+transport.close()
+```
+
+`transport.frames` is the underlying `MinecraftFrameStream`; construct it directly over any caller-owned
+`ByteReadChannel`/`ByteWriteChannel` pair when the connection is not a plain `Socket`.

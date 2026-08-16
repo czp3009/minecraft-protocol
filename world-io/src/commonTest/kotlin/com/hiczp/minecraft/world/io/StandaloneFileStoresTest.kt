@@ -4,6 +4,7 @@ import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.nbt.NbtString
+import com.hiczp.minecraft.world.format.Compression
 import kotlinx.coroutines.test.runTest
 import okio.*
 import okio.Path.Companion.toPath
@@ -17,7 +18,7 @@ class StandaloneFileStoresTest {
         val store = NbtFileStore(fileSystem)
         val document = sampleDocument(1)
 
-        NbtFileCompression.entries.forEach { compression ->
+        standaloneFileCompressions.forEach { compression ->
             val path = "/world/${compression.name}.dat".toPath()
             store.writeDirect(path, document, compression)
             assertEquals(document, store.read(path, compression))
@@ -88,7 +89,7 @@ class StandaloneFileStoresTest {
         val legacy = sampleDocument(1)
         val current = sampleDocument(2)
 
-        nbt.writeDirect(path, legacy, NbtFileCompression.NONE)
+        nbt.writeDirect(path, legacy, Compression.NONE)
         assertEquals(legacy, saved.read("maps/map_1"))
         saved.write("maps/map_1", current)
         assertEquals(current, saved.read("maps/map_1"))
@@ -223,6 +224,9 @@ class StandaloneFileStoresTest {
         )
     }
 }
+
+// Standalone NBT files officially use the GZIP and NONE wrappers; ZLIB remains selectable for callers that need it.
+private val standaloneFileCompressions = listOf(Compression.NONE, Compression.GZIP, Compression.ZLIB)
 
 private class ReplacementFailingFileSystem(
     delegate: FileSystem,

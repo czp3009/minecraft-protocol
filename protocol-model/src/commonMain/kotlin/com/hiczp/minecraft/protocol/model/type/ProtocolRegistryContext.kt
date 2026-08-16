@@ -58,8 +58,7 @@ class StaticRegistrySchema(
         registries.entries.associate { (id, entries) -> id to entries.toList() }
     val blocks: List<StaticBlockSchema> = blocks.toList()
 
-    private val blocksById: Map<Identifier, StaticBlockSchema> =
-        this.blocks.associateBy(StaticBlockSchema::id)
+    private val blocksById: Map<Identifier, StaticBlockSchema> = this.blocks.associateBy(StaticBlockSchema::id)
 
     init {
         this.registries.forEach { (id, entries) ->
@@ -210,8 +209,7 @@ class RemoteRegistry(
 class RemoteRegistrySnapshot(
     registries: List<RemoteRegistry>,
 ) {
-    val registries: Map<Identifier, RemoteRegistry> =
-        registries.associateBy(RemoteRegistry::id)
+    val registries: Map<Identifier, RemoteRegistry> = registries.associateBy(RemoteRegistry::id)
 
     init {
         require(this.registries.size == registries.size) {
@@ -263,8 +261,7 @@ class ProtocolRegistry(
 ) {
     val entries: List<ProtocolRegistryEntry> = entries.toList()
 
-    private val byRawId: Map<Int, ProtocolRegistryEntry> =
-        this.entries.associateBy(ProtocolRegistryEntry::rawId)
+    private val byRawId: Map<Int, ProtocolRegistryEntry> = this.entries.associateBy(ProtocolRegistryEntry::rawId)
     private val byIdentifier: Map<Identifier, ProtocolRegistryEntry> =
         buildMap {
             this@ProtocolRegistry.entries.forEach { entry ->
@@ -436,10 +433,8 @@ class ProtocolRegistryContext private constructor(
     ): ProtocolRegistryContext = ProtocolRegistryContext(
         registries = registries + resolution.registries,
         blockStates = resolution.blockStates,
-        registrySizeOverrides =
-            registrySizeOverrides + resolution.registrySizeOverrides,
-        chunkSectionCount =
-            resolution.chunkSectionCount ?: chunkSectionCount,
+        registrySizeOverrides = registrySizeOverrides + resolution.registrySizeOverrides,
+        chunkSectionCount = resolution.chunkSectionCount ?: chunkSectionCount,
     )
 
     fun withRegistrySize(id: Identifier, size: Int): ProtocolRegistryContext {

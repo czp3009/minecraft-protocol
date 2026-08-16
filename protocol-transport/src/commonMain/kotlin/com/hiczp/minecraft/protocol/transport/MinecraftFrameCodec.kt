@@ -11,8 +11,7 @@ import kotlinx.io.*
  * adapters over the same streaming path.
  */
 class MinecraftFrameCodec(
-    val configuration: MinecraftTransportConfiguration =
-        MinecraftTransportConfiguration(),
+    val configuration: MinecraftTransportConfiguration = MinecraftTransportConfiguration(),
 ) {
     var compressionThreshold: Int? = null
         private set

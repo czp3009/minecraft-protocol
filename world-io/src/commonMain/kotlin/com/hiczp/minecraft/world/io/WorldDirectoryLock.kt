@@ -17,8 +17,7 @@ internal expect fun acquireWorldDirectoryLock(path: Path): WorldDirectoryLock
 
 internal expect fun isWorldDirectoryLocked(path: Path): Boolean
 
-internal const val WORLD_LOCK_ALREADY_LOCKED_REASON =
-    "already locked (possibly by other Minecraft instance?)"
+internal const val WORLD_LOCK_ALREADY_LOCKED_REASON = "already locked (possibly by other Minecraft instance?)"
 
 internal fun worldAlreadyLockedException(
     absolutePath: String,

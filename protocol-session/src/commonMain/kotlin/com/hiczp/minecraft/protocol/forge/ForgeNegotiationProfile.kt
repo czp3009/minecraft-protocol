@@ -283,8 +283,7 @@ class ForgeClientProfile(
                         "Forge registry list arrived out of order",
                     )
                 }
-                val missingDataPacks =
-                    message.dataPacks.toSet() - definition.dataPackRegistries
+                val missingDataPacks = message.dataPacks.toSet() - definition.dataPackRegistries
                 if (missingDataPacks.isNotEmpty()) {
                     throw ForgeMissingDataPackRegistriesException(
                         missingDataPacks,
@@ -399,8 +398,7 @@ class ForgeServerProfile(
                 "Forge profile did not observe the Handshake packet",
             )
         if (!intent.forgePeer) {
-            val hasDataPackRegistries =
-                definition.registrySync?.dataPackRegistries?.isNotEmpty() == true
+            val hasDataPackRegistries = definition.registrySync?.dataPackRegistries?.isNotEmpty() == true
             if (!definition.network.acceptsVanillaClient() || hasDataPackRegistries) {
                 throw ForgeVanillaPeerRejectedException(
                     "Server Forge channels or data-pack registries require a Forge client",

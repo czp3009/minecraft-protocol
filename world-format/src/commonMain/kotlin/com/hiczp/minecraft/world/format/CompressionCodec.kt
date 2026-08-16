@@ -3,18 +3,20 @@ package com.hiczp.minecraft.world.format
 import kotlinx.io.*
 
 /**
- * One independently usable region-compression stream codec.
+ * One independently usable world-storage compression stream codec.
  *
  * The returned decorators never close their caller-owned [Source] or [Sink].
  * Closing a compressing decorator is nevertheless required because it emits
  * the stream terminator and checksum. A decompressing decorator validates the
  * complete stream when it is read through end-of-stream.
  *
- * Malformed container structure is reported as [RegionFormatException]. I/O
- * and backend failures retain their kotlinx-io exception type so callers can
- * distinguish invalid region data from stream access failures.
+ * Malformed GZIP or LZ4Block framing is reported as [RegionFormatException]
+ * because this module owns those vanilla storage framings; raw GZIP and ZLIB
+ * libraries still own their algorithms. I/O and backend failures retain their
+ * kotlinx-io exception type so callers can distinguish invalid data from
+ * stream access failures.
  */
-interface RegionCompressionCodec {
+interface CompressionCodec {
     fun compressingSink(sink: Sink): RawSink
 
     fun decompressingSource(
@@ -61,30 +63,30 @@ interface RegionCompressionCodec {
 }
 
 /**
- * Compression registry for region chunks.
+ * Compression registry shared by region chunks and standalone NBT files.
  *
  * Built-in vanilla codecs are available automatically. Overrides primarily
  * exist for ID 127 custom compression, but may replace any implementation.
  * Stream methods are canonical; byte-array methods are in-memory adapters.
  */
-sealed class RegionCompressionCodecs(
-    private val overrides: Map<RegionCompression, RegionCompressionCodec>,
+sealed class CompressionCodecs(
+    private val overrides: Map<Compression, CompressionCodec>,
 ) {
-    companion object Default : RegionCompressionCodecs(emptyMap()) {
+    companion object Default : CompressionCodecs(emptyMap()) {
         operator fun invoke(
-            overrides: Map<RegionCompression, RegionCompressionCodec> =
+            overrides: Map<Compression, CompressionCodec> =
                 emptyMap(),
-        ): RegionCompressionCodecs =
-            ConfiguredRegionCompressionCodecs(overrides.toMap())
+        ): CompressionCodecs =
+            ConfiguredCompressionCodecs(overrides.toMap())
     }
 
     fun compressingSink(
-        compression: RegionCompression,
+        compression: Compression,
         sink: Sink,
     ): RawSink = codec(compression).compressingSink(sink)
 
     fun decompressingSource(
-        compression: RegionCompression,
+        compression: Compression,
         source: Source,
         maximumOutputBytes: Int,
     ): RawSource {
@@ -99,7 +101,7 @@ sealed class RegionCompressionCodecs(
     }
 
     fun compressToSink(
-        compression: RegionCompression,
+        compression: Compression,
         source: Source,
         sink: Sink,
     ): Long = compressingSink(compression, sink).buffered().use { compressed ->
@@ -107,7 +109,7 @@ sealed class RegionCompressionCodecs(
     }
 
     fun decompressToSink(
-        compression: RegionCompression,
+        compression: Compression,
         source: Source,
         sink: Sink,
         maximumOutputBytes: Int,
@@ -121,7 +123,7 @@ sealed class RegionCompressionCodecs(
     }
 
     fun compress(
-        compression: RegionCompression,
+        compression: Compression,
         input: ByteArray,
     ): ByteArray {
         val source = Buffer().apply { write(input) }
@@ -131,7 +133,7 @@ sealed class RegionCompressionCodecs(
     }
 
     fun decompress(
-        compression: RegionCompression,
+        compression: Compression,
         input: ByteArray,
         maximumOutputBytes: Int,
     ): ByteArray {
@@ -146,23 +148,23 @@ sealed class RegionCompressionCodecs(
         return sink.readByteArray()
     }
 
-    private fun codec(compression: RegionCompression): RegionCompressionCodec =
+    private fun codec(compression: Compression): CompressionCodec =
         overrides[compression] ?: when (compression) {
-            RegionCompression.GZIP -> GzipCodec
-            RegionCompression.ZLIB -> ZlibCodec
-            RegionCompression.NONE -> NoneCodec
-            RegionCompression.LZ4 -> Lz4BlockCodec
-            RegionCompression.CUSTOM -> throw RegionFormatException(
-                "Custom region compression requires a registered codec",
+            Compression.GZIP -> GzipCodec
+            Compression.ZLIB -> ZlibCodec
+            Compression.NONE -> NoneCodec
+            Compression.LZ4 -> Lz4BlockCodec
+            Compression.CUSTOM -> throw RegionFormatException(
+                "Custom compression requires a registered codec",
             )
         }
 }
 
-private class ConfiguredRegionCompressionCodecs(
-    overrides: Map<RegionCompression, RegionCompressionCodec>,
-) : RegionCompressionCodecs(overrides)
+private class ConfiguredCompressionCodecs(
+    overrides: Map<Compression, CompressionCodec>,
+) : CompressionCodecs(overrides)
 
-private object NoneCodec : RegionCompressionCodec {
+private object NoneCodec : CompressionCodec {
     override fun compressingSink(sink: Sink): RawSink = sink.callerOwned()
 
     override fun decompressingSource(
@@ -174,7 +176,7 @@ private object NoneCodec : RegionCompressionCodec {
     }
 }
 
-private object ZlibCodec : RegionCompressionCodec {
+private object ZlibCodec : CompressionCodec {
     override fun compressingSink(sink: Sink): RawSink =
         platformZlibCompressingSink(sink)
 
@@ -187,7 +189,7 @@ private object ZlibCodec : RegionCompressionCodec {
     }
 }
 
-private object GzipCodec : RegionCompressionCodec {
+private object GzipCodec : CompressionCodec {
     override fun compressingSink(sink: Sink): RawSink =
         platformGzipCompressingSink(sink)
 
@@ -229,7 +231,7 @@ private fun validateGzipHeader(source: Source) {
  * format. The container stays shared while raw LZ4 and XXHash32 are delegated
  * to each platform's maintained library.
  */
-private object Lz4BlockCodec : RegionCompressionCodec {
+private object Lz4BlockCodec : CompressionCodec {
     override fun compressingSink(sink: Sink): RawSink =
         Lz4BlockCompressingRawSink(sink)
 

@@ -222,11 +222,9 @@ private class MingwSystemFileHandle(
                 if (
                     SetFileInformationByHandle(
                         hFile = handle,
-                        FileInformationClass =
-                            _FILE_INFO_BY_HANDLE_CLASS.FileEndOfFileInfo,
+                        FileInformationClass = _FILE_INFO_BY_HANDLE_CLASS.FileEndOfFileInfo,
                         lpFileInformation = end.ptr,
-                        dwBufferSize =
-                            sizeOf<FILE_END_OF_FILE_INFO>().toUInt(),
+                        dwBufferSize = sizeOf<FILE_END_OF_FILE_INFO>().toUInt(),
                     ) == 0
                 ) {
                     throw windowsFileFailure(

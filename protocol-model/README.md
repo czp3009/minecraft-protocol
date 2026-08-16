@@ -24,3 +24,48 @@ val handshake: ServerboundPacket = HandshakePacket(
 )
 val request: ServerboundPacket = StatusRequestPacket
 ```
+
+## Structured values and sealed variants
+
+Conditional protocol shapes are ordinary Kotlin types, so application logic stays exhaustive. Item stacks and their data
+components are typical examples:
+
+```kotlin
+val stack: ItemStack = ItemStack.Present(
+    count = 32,
+    itemId = stoneId,
+    components = DataComponentPatch(
+        added = listOf(DataComponent.MaxStackSize(value = 64)),
+    ),
+)
+
+fun stackCount(stack: ItemStack): Int = when (stack) {
+    ItemStack.Empty -> 0
+    is ItemStack.Present -> stack.count
+}
+```
+
+Immutable registry models resolve locally known block-state schemas against a loader-provided remote snapshot:
+
+```kotlin
+val context: ProtocolRegistryContext = staticSchema.resolve(remoteSnapshot)
+
+val biomes = context.registry(ProtocolRegistryContext.BIOME_REGISTRY)
+    ?.entries
+    ?.map { entry -> entry.id }
+```
+
+Routes without an active codec stay lossless as direction-correct `UnknownPacket` values that preserve the complete
+route and body bytes:
+
+```kotlin
+val unknown = UnknownPacket.Clientbound(
+    route = PacketRoute.CustomPayload(
+        state = ConnectionState.PLAY,
+        direction = PacketDirection.CLIENTBOUND,
+        packetId = 0x3B,
+        channel = Identifier("example:counter"),
+    ),
+    data = ByteString(bodyBytes),
+)
+```

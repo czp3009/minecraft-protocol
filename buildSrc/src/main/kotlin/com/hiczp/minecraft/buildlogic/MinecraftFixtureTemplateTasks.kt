@@ -139,6 +139,5 @@ private fun DefaultTask.runTemplateWorker(
     }
 }
 
-private const val TEMPLATE_WORKER_MAIN_CLASS =
-    "com.hiczp.minecraft.test.host.MinecraftFixtureTemplateWorkerKt"
+private const val TEMPLATE_WORKER_MAIN_CLASS = "com.hiczp.minecraft.test.host.MinecraftFixtureTemplateWorkerKt"
 private val TEMPLATE_WORKER_TIMEOUT = Duration.ofMinutes(10)

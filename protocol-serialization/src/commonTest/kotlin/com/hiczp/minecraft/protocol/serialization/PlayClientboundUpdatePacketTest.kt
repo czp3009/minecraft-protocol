@@ -27,8 +27,7 @@ class PlayClientboundUpdatePacketTest {
                         AttributeModifier(
                             Identifier("minecraft:x"),
                             amount = -2.0,
-                            operation =
-                                AttributeModifierOperation.ADD_MULTIPLIED_TOTAL,
+                            operation = AttributeModifierOperation.ADD_MULTIPLIED_TOTAL,
                         ),
                     ),
                 ),

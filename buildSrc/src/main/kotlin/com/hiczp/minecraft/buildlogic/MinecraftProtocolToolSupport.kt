@@ -208,15 +208,13 @@ internal object ProtocolHttp {
         statusDescription: String,
     ) : IOException("HTTP $statusCode $statusDescription")
 
-    private val retryableResponseBodyKey =
-        AttributeKey<RetryableResponseBody>("RetryableResponseBody")
+    private val retryableResponseBodyKey = AttributeKey<RetryableResponseBody>("RetryableResponseBody")
 
     private val retryableResponseBodyPlugin = createClientPlugin(
         "RetryableResponseBody",
     ) {
         on(Send) { request ->
-            val responseBody =
-                request.attributes.getOrNull(retryableResponseBodyKey)
+            val responseBody = request.attributes.getOrNull(retryableResponseBodyKey)
             responseBody?.attempts?.incrementAndGet()
             val call: HttpClientCall = proceed(request)
             responseBody?.consume?.invoke(call.response)
@@ -224,8 +222,7 @@ internal object ProtocolHttp {
         }
     }
 
-    private val systemPropertyProxyAuthenticator =
-        createSystemPropertyProxyAuthenticator()
+    private val systemPropertyProxyAuthenticator = createSystemPropertyProxyAuthenticator()
 
     private val client = HttpClient(Java) {
         // Keep engine.proxy unset so JDK HttpClient uses the default

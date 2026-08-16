@@ -81,8 +81,7 @@ class ClientToServerEndToEndTest {
                             chunkRadius = 0,
                             entities = listOf(testPig()),
                         )
-                        val synchronization =
-                            connection.synchronizeInitialWorld(world)
+                        val synchronization = connection.synchronizeInitialWorld(world)
                         connection.outgoing.send(
                             PlayClientboundKeepAlivePacket(KEEP_ALIVE_ID),
                         )
@@ -90,8 +89,7 @@ class ClientToServerEndToEndTest {
                         var teleportConfirmed = false
                         var chunkBatchConfirmed = false
                         var keepAliveConfirmed = false
-                        var remainingPackets =
-                            options.maximumPacketsPerPhase
+                        var remainingPackets = options.maximumPacketsPerPhase
                         while (
                             remainingPackets-- > 0 &&
                             !(
@@ -110,8 +108,7 @@ class ClientToServerEndToEndTest {
                                     chunkBatchConfirmed = true
 
                                 is PlayServerboundKeepAlivePacket ->
-                                    keepAliveConfirmed =
-                                        packet.id == KEEP_ALIVE_ID
+                                    keepAliveConfirmed = packet.id == KEEP_ALIVE_ID
 
                                 else -> Unit
                             }

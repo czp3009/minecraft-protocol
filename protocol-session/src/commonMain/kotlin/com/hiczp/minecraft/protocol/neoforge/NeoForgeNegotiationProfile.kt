@@ -18,8 +18,7 @@ class NeoForgeClientProfileDefinition(
     featureFlags: Set<Identifier> = emptySet(),
     supportedCommonVersions: Set<Int> =
         setOf(NeoForgeProtocol.COMMON_PACKET_VERSION),
-    val maximumSplitPacketSize: Int =
-        NeoForgeProtocol.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE,
+    val maximumSplitPacketSize: Int = NeoForgeProtocol.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE,
 ) {
     val knownDataMaps: Map<Identifier, List<NeoForgeKnownDataMap>> =
         knownDataMaps.entries.associate { (registry, maps) ->
@@ -27,8 +26,7 @@ class NeoForgeClientProfileDefinition(
         }
     val extensibleEnums: List<NeoForgeEnumEntry> = extensibleEnums.toList()
     val featureFlags: Set<Identifier> = featureFlags.toSet()
-    val supportedCommonVersions: Set<Int> =
-        validateCommonVersions(supportedCommonVersions)
+    val supportedCommonVersions: Set<Int> = validateCommonVersions(supportedCommonVersions)
 
     init {
         require(
@@ -52,8 +50,7 @@ class NeoForgeServerProfileDefinition(
     featureFlags: Set<Identifier> = emptySet(),
     supportedCommonVersions: Set<Int> =
         setOf(NeoForgeProtocol.COMMON_PACKET_VERSION),
-    val maximumSplitPacketSize: Int =
-        NeoForgeProtocol.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE,
+    val maximumSplitPacketSize: Int = NeoForgeProtocol.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE,
 ) {
     val configFiles: List<NeoForgeConfigFilePacket> = configFiles.toList()
     val knownDataMaps: Map<Identifier, List<NeoForgeKnownDataMap>> =
@@ -62,8 +59,7 @@ class NeoForgeServerProfileDefinition(
         }
     val extensibleEnums: List<NeoForgeEnumEntry> = extensibleEnums.toList()
     val featureFlags: Set<Identifier> = featureFlags.toSet()
-    val supportedCommonVersions: Set<Int> =
-        validateCommonVersions(supportedCommonVersions)
+    val supportedCommonVersions: Set<Int> = validateCommonVersions(supportedCommonVersions)
 
     init {
         require(
