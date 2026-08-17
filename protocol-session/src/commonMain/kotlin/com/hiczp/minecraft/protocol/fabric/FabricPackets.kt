@@ -102,5 +102,4 @@ object FabricProtocolLimits {
     const val MAX_PROTOCOL_NAME_LENGTH: Int = 32
     const val MAX_CHANNELS: Int = 8_192
     const val MAX_CHANNEL_NAME_LENGTH: Int = 128
-    const val DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE: Int = 128 * 1_048_576
 }

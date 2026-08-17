@@ -26,9 +26,9 @@ LZ4 frame format when the official implementation does.
 Keep the registry extensible only to the degree exposed by the public API. Require an explicit codec for a custom
 identifier and report what official interoperability cannot validate for that extension.
 
-Limit decompressed output during streaming. Do not stage attacker-controlled unbounded input merely to discover a size.
-Do not close caller-owned endpoints when closing a compression decorator is required to finish or validate its own
-stream.
+Do not impose a policy-sized decompressed-output ceiling. Transfer incrementally when the format does not require a
+known length, and do not stage a whole stream merely to discover a size. Do not close caller-owned endpoints when
+closing a compression decorator is required to finish or validate its own stream.
 
 ## Compose NBT payloads
 

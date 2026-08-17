@@ -195,24 +195,24 @@ class RegionPrimitivesTest {
             )
         }
 
-        assertFailsWith<IllegalArgumentException> { sectorsForBytes(-1) }
-        assertEquals(0, sectorsForBytes(0))
-        assertEquals(1, sectorsForBytes(1))
-        assertEquals(1, sectorsForBytes(REGION_SECTOR_BYTES.toLong()))
+        assertFailsWith<IllegalArgumentException> { regionSectorsForBytes(-1) }
+        assertEquals(0, regionSectorsForBytes(0))
+        assertEquals(1, regionSectorsForBytes(1))
+        assertEquals(1, regionSectorsForBytes(REGION_SECTOR_BYTES.toLong()))
         assertEquals(
             2,
-            sectorsForBytes(REGION_SECTOR_BYTES.toLong() + 1L),
+            regionSectorsForBytes(REGION_SECTOR_BYTES.toLong() + 1L),
         )
         val largestRepresentableBytes = Int.MAX_VALUE.toLong() * REGION_SECTOR_BYTES
         assertEquals(
             Int.MAX_VALUE,
-            sectorsForBytes(largestRepresentableBytes),
+            regionSectorsForBytes(largestRepresentableBytes),
         )
         assertFailsWith<RegionFormatException> {
-            sectorsForBytes(largestRepresentableBytes + 1L)
+            regionSectorsForBytes(largestRepresentableBytes + 1L)
         }
         assertFailsWith<RegionFormatException> {
-            sectorsForBytes(Long.MAX_VALUE)
+            regionSectorsForBytes(Long.MAX_VALUE)
         }
     }
 }

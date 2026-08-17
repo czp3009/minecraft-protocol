@@ -19,28 +19,17 @@ class FabricClientProfile(
     val staticRegistries: StaticRegistrySchema,
     supportedCommonVersions: Set<Int> =
         setOf(FabricProtocol.COMMON_PACKET_VERSION),
-    val maximumRegistrySyncPayloadSize: Int = FabricProtocol.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE,
 ) : ClientNegotiationProfile {
     private val supportedCommonVersions = supportedVersions(
         supportedCommonVersions,
     )
     private val remoteConfigurationChannels = linkedSetOf<Identifier>()
     private val remotePlayChannels = linkedSetOf<Identifier>()
-    private val splitAssembler = FabricSplitAssembler(
-        mapOf(
-            FabricChannels.RegistrySync to paddedRegistrySyncSize(
-                maximumRegistrySyncPayloadSize,
-            ),
-        ),
-    )
+    private val splitAssembler = FabricSplitAssembler(setOf(FabricChannels.RegistrySync))
     private var commonVersion: Int? = null
     private var registrySync: FabricRegistrySyncPacket? = null
     private var sentInitialRegistration = false
     private var begun = false
-
-    init {
-        require(maximumRegistrySyncPayloadSize > 0)
-    }
 
     override suspend fun begin(
         connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
@@ -275,7 +264,6 @@ class FabricServerProfile(
     val resolvedRegistryContext: ProtocolRegistryContext? = null,
     supportedCommonVersions: Set<Int> =
         setOf(FabricProtocol.COMMON_PACKET_VERSION),
-    val maximumRegistrySyncPayloadSize: Int = FabricProtocol.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE,
 ) : ServerNegotiationProfile {
     private val supportedCommonVersions = supportedVersions(
         supportedCommonVersions,
@@ -287,10 +275,6 @@ class FabricServerProfile(
     private var receivedInitialRegistration = false
     private var receivedProbePong = false
     private var begun = false
-
-    init {
-        require(maximumRegistrySyncPayloadSize > 0)
-    }
 
     override suspend fun begin(
         connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
@@ -367,15 +351,11 @@ class FabricServerProfile(
             return
         }
         val routed = connection.encodeCustomPayload(sync)
-        val maximumPacketSize = paddedRegistrySyncSize(
-            maximumRegistrySyncPayloadSize,
-        )
         val encodedSize = FabricSplitPayloads.encodedPacketSize(routed)
         if (encodedSize >= FabricSplitPayloads.CLIENTBOUND_CHUNK_SIZE) {
             FabricSplitPayloads.split(
                 routed,
                 FabricSplitPayloads.CLIENTBOUND_CHUNK_SIZE,
-                maximumPacketSize,
             ).forEach { connection.outgoing.send(it) }
         } else {
             connection.outgoing.send(sync)
@@ -629,15 +609,9 @@ private fun highestCommonVersion(
         "No mutually supported Fabric common packet version",
     )
 
-private fun paddedRegistrySyncSize(payloadSize: Int): Int =
-    (payloadSize.toLong() + REGISTRY_SYNC_PACKET_PADDING)
-        .coerceAtMost(Int.MAX_VALUE.toLong())
-        .toInt()
-
 private const val CONFIGURATION_PROTOCOL = "configuration"
 private const val PLAY_PROTOCOL = "play"
 private const val FABRIC_PROBE_ID = 0xFAB71C
-private const val REGISTRY_SYNC_PACKET_PADDING = 71
 
 private val INFRASTRUCTURE_CHANNELS = setOf(
     FabricChannels.Register,

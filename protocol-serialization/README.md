@@ -58,5 +58,6 @@ val format = MinecraftProtocolFormat(
 )
 ```
 
-Malformed known bodies, invalid identifiers, limits, and unread trailing bytes throw; they are never treated as unknown
-packets.
+Malformed known bodies, invalid identifiers, violated wire-field bounds, and unread trailing bytes throw; they are never
+treated as unknown packets. The format does not add a shared policy-sized collection, byte-array, NBT-depth, or
+total-allocation ceiling beyond the bounds declared by the packet field itself.

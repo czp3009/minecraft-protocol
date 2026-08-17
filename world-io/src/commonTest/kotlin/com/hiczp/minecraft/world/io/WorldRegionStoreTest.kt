@@ -516,22 +516,11 @@ class WorldRegionStoreTest {
     }
 
     @Test
-    fun invalidWritesAreRejectedBeforeCreatingARegionFile() = runTest {
+    fun unresolvedExternalWritesAreRejectedBeforeCreatingARegionFile() = runTest {
         val fileSystem = FakeFileSystem()
         val directory = "/world/region".toPath()
         val position = ChunkPosition(0, 0)
-        val store = WorldRegionStore(
-            directory = directory,
-            fileSystem = fileSystem,
-            configuration = WorldRegionStoreConfiguration(
-                maximumCompressedChunkBytes = 1,
-                syncWrites = false,
-            ),
-        )
-
-        assertFailsWith<RegionFormatException> {
-            store.writeChunk(position, chunk(byteArrayOf(1, 2)))
-        }
+        val store = store(fileSystem, directory)
         assertFailsWith<RegionFormatException> {
             store.writeChunk(
                 position,
@@ -547,7 +536,7 @@ class WorldRegionStoreTest {
     }
 
     @Test
-    fun externalReadsEnforceMissingAndOversizedFileBoundaries() = runTest {
+    fun externalReadsRejectMissingSidecarsWithoutImposingASizePolicy() = runTest {
         val fileSystem = FakeFileSystem()
         val directory = "/world/region".toPath()
         val position = ChunkPosition(0, 0)
@@ -566,19 +555,10 @@ class WorldRegionStoreTest {
         missing.close()
 
         fileSystem.writeBytes(sidecar, payload)
-        val strict = WorldRegionStore(
-            directory = directory,
-            fileSystem = fileSystem,
-            configuration = WorldRegionStoreConfiguration(
-                maximumCompressedChunkBytes = payload.size - 1,
-                syncWrites = false,
-            ),
-        )
-        assertTrue(strict.doesChunkExist(position))
-        assertFailsWith<WorldIOException> {
-            strict.readChunk(position)
-        }
-        strict.close()
+        val reopened = store(fileSystem, directory)
+        assertTrue(reopened.doesChunkExist(position))
+        assertContentEquals(payload, checkNotNull(reopened.readChunk(position)).payload.compressedBytes)
+        reopened.close()
     }
 
     @Test
@@ -909,7 +889,7 @@ private fun header(fileSystem: FileSystem, path: Path): RegionHeader =
     )
 
 private fun FileSystem.readBytes(path: Path): ByteArray =
-    readFileWithinLimit(path, Int.MAX_VALUE)
+    readFileBytes(path)
 
 private fun FileSystem.writeBytes(path: Path, bytes: ByteArray) {
     path.parent?.let(::createDirectories)

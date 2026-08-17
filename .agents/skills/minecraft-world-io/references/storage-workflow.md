@@ -23,7 +23,7 @@ For each official file family, establish:
 - binary NBT, JSON, or another structured format;
 - compression wrapper and detection behavior;
 - absent-file result;
-- maximum compressed and decompressed sizes;
+- format-intrinsic length fields and confirmation that no policy-sized read or decompression ceiling is added;
 - direct write versus temporary-and-replace behavior;
 - backup creation, corrupt-primary fallback, and promotion semantics;
 - required durable flushes and cleanup after failure.

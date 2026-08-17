@@ -8,12 +8,12 @@ internal object Zlib {
 
     fun decompressingSource(
         source: Source,
-        maximumOutputBytes: Int,
+        expectedOutputBytes: Int,
     ): RawSource {
-        require(maximumOutputBytes >= 0)
-        return MaximumOutputRawSource(
+        require(expectedOutputBytes >= 0)
+        return ExactOutputRawSource(
             platformZlibDecompressingSource(source),
-            maximumOutputBytes,
+            expectedOutputBytes,
         )
     }
 
@@ -108,26 +108,26 @@ private class CallerOwnedRawSource(
 
 // Read one byte beyond the declared size so an oversized peer payload is
 // rejected even when the caller asks for exactly the advertised byte count.
-private class MaximumOutputRawSource(
+private class ExactOutputRawSource(
     private val delegate: RawSource,
-    maximumOutputBytes: Int,
+    expectedOutputBytes: Int,
 ) : RawSource {
-    private val maximumOutputBytes = maximumOutputBytes.toLong()
+    private val expectedOutputBytes = expectedOutputBytes.toLong()
     private var outputBytes = 0L
 
     override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
         require(byteCount >= 0)
         if (byteCount == 0L) return 0
-        val remaining = maximumOutputBytes - outputBytes
+        val remaining = expectedOutputBytes - outputBytes
         val read = delegate.readAtMostTo(
             sink,
             minOf(byteCount, remaining + 1),
         )
         if (read < 0) return -1
         outputBytes += read
-        if (outputBytes > maximumOutputBytes) {
+        if (outputBytes > expectedOutputBytes) {
             throw MinecraftTransportException(
-                "Compressed packet exceeds declared size $maximumOutputBytes",
+                "Compressed packet exceeds declared size $expectedOutputBytes",
             )
         }
         return read

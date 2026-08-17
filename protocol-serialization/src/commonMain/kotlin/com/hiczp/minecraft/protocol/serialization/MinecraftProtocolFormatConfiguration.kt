@@ -7,21 +7,9 @@ data class MinecraftProtocolFormatConfiguration(
     val strictBooleans: Boolean = true,
     /** Reject non-minimal VarInt and VarLong encodings permitted but discouraged by the Wiki. */
     val rejectNonMinimalVarNumbers: Boolean = false,
-    /** General allocation guard for protocol-controlled collection lengths. */
-    val maximumCollectionSize: Int = 1_048_576,
-    /** General allocation guard for protocol-controlled byte arrays. */
-    val maximumByteArraySize: Int = 16 * 1_048_576,
-    /** Recursion guard for untrusted NBT. */
-    val maximumNbtDepth: Int = 512,
     /** Immutable, connection-specific registry and active-dimension context. */
     val registries: ProtocolRegistryContext = ProtocolRegistryContext.Empty,
 ) {
-    init {
-        require(maximumCollectionSize >= 0)
-        require(maximumByteArraySize >= 0)
-        require(maximumNbtDepth >= 0)
-    }
-
     val chunkSectionCount: Int?
         get() = registries.chunkSectionCount
 

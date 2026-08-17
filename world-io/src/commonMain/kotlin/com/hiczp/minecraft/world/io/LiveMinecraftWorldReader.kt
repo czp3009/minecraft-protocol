@@ -2,8 +2,12 @@ package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.world.format.*
+import kotlinx.io.buffered
+import kotlinx.io.okio.asKotlinxIoRawSource
+import okio.BufferedSource
 import okio.FileSystem
 import okio.Path
+import kotlinx.io.Source as KotlinxSource
 
 /**
  * A non-locking reader for a world that may be modified concurrently.
@@ -24,7 +28,6 @@ class LiveMinecraftWorldReader private constructor(
     val paths: MinecraftWorldPaths,
     private val files: WorldFileAccess,
     private val regionChunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
-    private val regionFileConfiguration: RegionFileStoreConfiguration = RegionFileStoreConfiguration(),
 ) {
     private val nbtFiles = NbtFileStore(files)
     private val levelData = LevelDataStore(paths, nbtFiles)
@@ -33,17 +36,34 @@ class LiveMinecraftWorldReader private constructor(
 
     fun readLevelData(): NbtDocument = levelData.read()
 
+    fun <T> readLevelData(block: (KotlinxSource) -> T): T = levelData.read(block)
+
     fun readPlayerData(playerUuid: String): NbtDocument? =
         playerData.read(playerUuid)
+
+    fun <T> readPlayerData(playerUuid: String, block: (KotlinxSource) -> T): T? =
+        playerData.read(playerUuid, block)
 
     fun readSavedData(
         identifier: String,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
     ): NbtDocument? = SavedDataFileStore(paths, dimension, nbtFiles).read(identifier)
 
+    fun <T> readSavedData(
+        identifier: String,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+        block: (KotlinxSource) -> T,
+    ): T? = SavedDataFileStore(paths, dimension, nbtFiles).read(identifier, block)
+
     fun readStatistics(playerUuid: String): String = jsonFiles.read(paths.statistics(playerUuid))
 
+    fun <T> readStatistics(playerUuid: String, block: BufferedSource.() -> T): T =
+        jsonFiles.read(paths.statistics(playerUuid), block)
+
     fun readAdvancements(playerUuid: String): String = jsonFiles.read(paths.advancement(playerUuid))
+
+    fun <T> readAdvancements(playerUuid: String, block: BufferedSource.() -> T): T =
+        jsonFiles.read(paths.advancement(playerUuid), block)
 
     fun readRegion(
         position: RegionPosition,
@@ -61,6 +81,15 @@ class LiveMinecraftWorldReader private constructor(
         store?.read(position)
     }
 
+    fun <T> readChunk(
+        position: ChunkPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+        block: (RegionChunkStreamInfo, BufferedSource) -> T,
+    ): T? = withRegionFile(position.region, storage, dimension) { store ->
+        store?.read(position, block)
+    }
+
     fun doesChunkExist(
         position: ChunkPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
@@ -74,9 +103,11 @@ class LiveMinecraftWorldReader private constructor(
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
     ): NbtDocument? = withRegionFile(position.region, storage, dimension) { store ->
-        val chunk = store?.read(position) ?: return@withRegionFile null
-        withOkioIoExceptions("Cannot decode chunk $position") {
-            regionChunkNbtFormat.decode(chunk)
+        store?.read(position) { info, source ->
+            withOkioIoExceptions("Cannot decode chunk $position") {
+                val converted = source.asKotlinxIoRawSource().buffered()
+                regionChunkNbtFormat.decodeFromSource(converted, info.compression)
+            }
         }
     }
 
@@ -97,8 +128,6 @@ class LiveMinecraftWorldReader private constructor(
             files = files,
             directory = directory,
             position = position,
-            maximumCompressedChunkBytes = regionFileConfiguration.maximumCompressedChunkBytes,
-            syncWrites = regionFileConfiguration.syncWrites,
         )
         return useResource(store, { it.close() }, block)
     }

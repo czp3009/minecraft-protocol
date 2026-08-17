@@ -203,6 +203,17 @@ data class RegionChunkRecordHeader(
     val compressedLength: Int
         get() = length - 1
 
+    fun encode(): ByteArray {
+        require(length >= 1)
+        val bytes = ByteArray(REGION_CHUNK_RECORD_HEADER_BYTES)
+        writeRegionInt(bytes, 0, length)
+        bytes[Int.SIZE_BYTES] = (
+                compressionId(compression) or
+                        if (external) REGION_EXTERNAL_STREAM_FLAG else 0
+                ).toByte()
+        return bytes
+    }
+
     companion object {
         /** Compression ID stored in one record header's version byte. */
         fun compressionId(compression: Compression): Int =
@@ -262,7 +273,7 @@ class EncodedRegionChunkRecord private constructor(
             val inlineBytes =
                 REGION_CHUNK_RECORD_HEADER_BYTES.toLong() +
                         compressedPayload.size
-            val inlineSectors = sectorsForBytes(inlineBytes)
+            val inlineSectors = regionSectorsForBytes(inlineBytes)
             val external = forceExternal ||
                     inlineSectors >= REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD
             if (external) {
@@ -308,7 +319,7 @@ internal fun writeRegionInt(bytes: ByteArray, offset: Int, value: Int) {
     bytes[offset + 3] = value.toByte()
 }
 
-internal fun sectorsForBytes(byteCount: Long): Int {
+fun regionSectorsForBytes(byteCount: Long): Int {
     require(byteCount >= 0)
     val sectors = if (byteCount == 0L) {
         0L

@@ -58,7 +58,6 @@ sealed class NbtFormat(
         val tag = result ?: throw NbtEncodingException(
             "Serializer ${serializer.descriptor.serialName} emitted no root value",
         )
-        validateTree(tag, configuration)
         tag
     }
 
@@ -66,7 +65,6 @@ sealed class NbtFormat(
         deserializer: DeserializationStrategy<T>,
         tag: NbtTag,
     ): T = decodeOperation("${deserializer.descriptor.serialName} tree") {
-        validateTree(tag, configuration)
         NbtTreeDecoder(tag, configuration, "$")
             .decodeSerializableValue(deserializer)
     }
@@ -76,12 +74,11 @@ sealed class NbtFormat(
         value: T,
         sink: Sink,
     ) = encodeOperation("${serializer.descriptor.serialName} binary value") {
-        val writer = NbtBinaryWriter(sink, configuration)
+        val writer = NbtBinaryWriter(sink)
         val encoder = NbtBinaryEncoder(
             writer,
             configuration,
             "$",
-            depth = 0,
         ) { type ->
             when (configuration.rootEncoding) {
                 NbtRootEncoding.ANY -> writer.writeByte(type)
@@ -109,7 +106,7 @@ sealed class NbtFormat(
         deserializer: DeserializationStrategy<T>,
         source: Source,
     ): T = decodeOperation("${deserializer.descriptor.serialName} binary value") {
-        val reader = NbtBinaryReader(source, configuration)
+        val reader = NbtBinaryReader(source)
         val type = reader.readUnsignedByte()
         when (configuration.rootEncoding) {
             NbtRootEncoding.ANY -> validateType(type)
@@ -139,7 +136,6 @@ sealed class NbtFormat(
             reader,
             configuration,
             "$",
-            depth = 0,
             type = type,
         ).decodeSerializableValue(deserializer)
     }
@@ -147,40 +143,37 @@ sealed class NbtFormat(
     /** Writes one no-name any-tag value without closing or flushing [sink]. */
     fun encodeAnyTagToSink(tag: NbtTag, sink: Sink) =
         encodeOperation("any NBT tag") {
-            validateTree(tag, configuration)
-            NbtBinaryWriter(sink, configuration).writeAnyTag(tag)
+            NbtBinaryWriter(sink).writeAnyTag(tag)
         }
 
     /** Reads one no-name any-tag value without closing [source]. */
     fun decodeAnyTagFromSource(source: Source): NbtTag =
         decodeOperation("any NBT tag") {
-            NbtBinaryReader(source, configuration).readAnyTag()
+            NbtBinaryReader(source).readAnyTag()
         }
 
     /** Writes one named tag without closing or flushing [sink]. */
     fun encodeNamedTagToSink(value: NamedNbtTag, sink: Sink) =
         encodeOperation("named NBT tag") {
-            validateTree(value.tag, configuration)
-            NbtBinaryWriter(sink, configuration).writeNamedTag(value)
+            NbtBinaryWriter(sink).writeNamedTag(value)
         }
 
     /** Reads one named tag without closing [source]. */
     fun decodeNamedTagFromSource(source: Source): NamedNbtTag =
         decodeOperation("named NBT tag") {
-            NbtBinaryReader(source, configuration).readNamedTag()
+            NbtBinaryReader(source).readNamedTag()
         }
 
     /** Writes one unnamed tag without closing or flushing [sink]. */
     fun encodeUnnamedTagToSink(tag: NbtTag, sink: Sink) =
         encodeOperation("unnamed NBT tag") {
-            validateTree(tag, configuration)
-            NbtBinaryWriter(sink, configuration).writeUnnamedTag(tag)
+            NbtBinaryWriter(sink).writeUnnamedTag(tag)
         }
 
     /** Reads one unnamed tag without closing [source]. */
     fun decodeUnnamedTagFromSource(source: Source): NbtTag =
         decodeOperation("unnamed NBT tag") {
-            NbtBinaryReader(source, configuration).readUnnamedTag()
+            NbtBinaryReader(source).readUnnamedTag()
         }
 
     /**
@@ -234,11 +227,6 @@ sealed class NbtFormat(
         bytes: ByteArray,
         block: (Source) -> T,
     ): T {
-        if (bytes.size.toLong() > configuration.maximumEncodedBytes) {
-            throw NbtLimitException(
-                "NBT input size ${bytes.size} exceeds configured limit ${configuration.maximumEncodedBytes}",
-            )
-        }
         val buffer = Buffer()
         buffer.write(bytes)
         val value = block(buffer)

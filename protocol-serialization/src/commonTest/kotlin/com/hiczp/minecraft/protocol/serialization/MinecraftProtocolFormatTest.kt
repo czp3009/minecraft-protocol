@@ -258,81 +258,28 @@ class MinecraftProtocolFormatTest {
     }
 
     @Test
-    fun `byte array and general collection allocation limits are independent`() {
-        val byteFocused = MinecraftProtocolFormat(
-            MinecraftProtocolFormatConfiguration(
-                maximumCollectionSize = 1,
-                maximumByteArraySize = 3,
-            ),
-        )
-        val bytes = BytesValue(ByteString(byteArrayOf(1, 2, 3)))
-        val encodedBytes = byteArrayOf(3, 1, 2, 3)
-        assertContentEquals(
-            encodedBytes,
-            byteFocused.encodeToByteArray(BytesValue.serializer(), bytes),
-        )
+    fun `byte arrays and general collections have no shared policy budget`() {
+        val bytes = BytesValue(ByteString(ByteArray(257) { it.toByte() }))
+        val values = IntListValue(List(257) { it })
+
         assertEquals(
             bytes,
-            byteFocused.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 BytesValue.serializer(),
-                encodedBytes,
+                MinecraftProtocolFormat.encodeToByteArray(BytesValue.serializer(), bytes),
             ),
         )
-        assertFailsWith<MinecraftSerializationException> {
-            byteFocused.encodeToByteArray(
-                IntListValue.serializer(),
-                IntListValue(listOf(1, 2)),
-            )
-        }
-        assertFailsWith<MinecraftSerializationException> {
-            byteFocused.decodeFromByteArray(
-                IntListValue.serializer(),
-                "020000000100000002".hexToByteArray(),
-            )
-        }
-
-        val collectionFocused = MinecraftProtocolFormat(
-            MinecraftProtocolFormatConfiguration(
-                maximumCollectionSize = 3,
-                maximumByteArraySize = 2,
-            ),
-        )
-        assertFailsWith<MinecraftSerializationException> {
-            collectionFocused.encodeToByteArray(
-                BytesValue.serializer(),
-                bytes,
-            )
-        }
-        assertFailsWith<MinecraftSerializationException> {
-            collectionFocused.decodeFromByteArray(
-                BytesValue.serializer(),
-                encodedBytes,
-            )
-        }
-        val values = IntListValue(listOf(1, 2, 3))
         assertEquals(
             values,
-            collectionFocused.decodeFromByteArray(
+            MinecraftProtocolFormat.decodeFromByteArray(
                 IntListValue.serializer(),
-                collectionFocused.encodeToByteArray(
-                    IntListValue.serializer(),
-                    values,
-                ),
+                MinecraftProtocolFormat.encodeToByteArray(IntListValue.serializer(), values),
             ),
         )
     }
 
     @Test
-    fun `format configuration and fixed byte widths reject every invalid boundary`() {
-        assertFailsWith<IllegalArgumentException> {
-            MinecraftProtocolFormatConfiguration(maximumCollectionSize = -1)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            MinecraftProtocolFormatConfiguration(maximumByteArraySize = -1)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            MinecraftProtocolFormatConfiguration(maximumNbtDepth = -1)
-        }
+    fun `registry context and fixed byte widths reject every invalid boundary`() {
         assertFailsWith<IllegalArgumentException> {
             ProtocolRegistryContext(
                 registries = emptyList(),

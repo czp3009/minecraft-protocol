@@ -28,7 +28,6 @@ object FabricProtocol {
     const val MAX_PROTOCOL_NAME_LENGTH: Int = FabricProtocolLimits.MAX_PROTOCOL_NAME_LENGTH
     const val MAX_CHANNELS: Int = FabricProtocolLimits.MAX_CHANNELS
     const val MAX_CHANNEL_NAME_LENGTH: Int = FabricProtocolLimits.MAX_CHANNEL_NAME_LENGTH
-    const val DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE: Int = FabricProtocolLimits.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE
 
     val packetCodecs: List<PacketCodecRegistration<out Packet>> = buildList {
         addBidirectional(
@@ -204,7 +203,7 @@ private object FabricRegistrySyncBodyCodec : PacketBodyCodec<FabricRegistrySyncP
         packet: FabricRegistrySyncPacket,
         sink: Sink,
     ) = format.encodeToSink(
-        FabricRegistrySyncSerializer(format.configuration.maximumCollectionSize),
+        FabricRegistrySyncSerializer,
         packet,
         sink,
     )
@@ -215,15 +214,13 @@ private object FabricRegistrySyncBodyCodec : PacketBodyCodec<FabricRegistrySyncP
         source: Source,
         byteCount: Int,
     ): FabricRegistrySyncPacket = format.decodeFromSource(
-        FabricRegistrySyncSerializer(format.configuration.maximumCollectionSize),
+        FabricRegistrySyncSerializer,
         source,
         byteCount,
     )
 }
 
-private class FabricRegistrySyncSerializer(
-    private val maximumCollectionSize: Int,
-) : KSerializer<FabricRegistrySyncPacket> {
+private object FabricRegistrySyncSerializer : KSerializer<FabricRegistrySyncPacket> {
     override val descriptor = buildClassSerialDescriptor(
         "com.hiczp.minecraft.protocol.fabric.FabricRegistrySyncPacket",
     ) {
@@ -241,12 +238,10 @@ private class FabricRegistrySyncSerializer(
             registriesByNamespace.getOrPut(registry.id.namespace, ::mutableListOf)
                 .add(registry)
         }
-        requireCount(registriesByNamespace.size, "registry namespace groups")
         val output = encoder.beginStructure(descriptor)
         output.encodeVarInt(registriesByNamespace.size)
         registriesByNamespace.forEach { (namespace, registries) ->
             output.encodeString(optimizeNamespace(namespace))
-            requireCount(registries.size, "registries in namespace $namespace")
             output.encodeVarInt(registries.size)
             registries.forEach { registry ->
                 require(registry.entries.isNotEmpty()) {
@@ -263,20 +258,14 @@ private class FabricRegistrySyncSerializer(
                         ::mutableListOf,
                     ).add(entry)
                 }
-                requireCount(
-                    entriesByNamespace.size,
-                    "entry namespace groups in ${registry.id}",
-                )
                 output.encodeVarInt(entriesByNamespace.size)
                 var lastBulkLastRawId = 0
                 entriesByNamespace.forEach { (entryNamespace, entries) ->
                     output.encodeString(optimizeNamespace(entryNamespace))
                     val bulks = consecutiveBulks(entries.sortedBy(RemoteRegistryEntry::rawId))
-                    requireCount(bulks.size, "raw-ID bulks in ${registry.id}")
                     output.encodeVarInt(bulks.size)
                     bulks.forEach { bulk ->
                         output.encodeVarInt(bulk.first().rawId - lastBulkLastRawId)
-                        requireCount(bulk.size, "entries in a raw-ID bulk")
                         output.encodeVarInt(bulk.size)
                         bulk.forEach { entry ->
                             output.encodeString(entry.id.path)
@@ -349,7 +338,6 @@ private class FabricRegistrySyncSerializer(
                         cause,
                     )
                 }
-                requireCount(registries.size, "synchronized registries")
             }
         }
         input.endStructure(descriptor)
@@ -364,18 +352,12 @@ private class FabricRegistrySyncSerializer(
         return FabricRegistrySyncPacket(snapshot, optionalRegistries)
     }
 
-    private fun requireCount(count: Int, description: String) {
-        require(count in 0..maximumCollectionSize) {
-            "Fabric $description count $count exceeds $maximumCollectionSize"
-        }
-    }
-
     private fun kotlinx.serialization.encoding.CompositeDecoder.decodeCount(
         description: String,
         allowZero: Boolean = true,
     ): Int {
         val count = decodeVarInt()
-        if (count !in (if (allowZero) 0 else 1)..maximumCollectionSize) {
+        if (count < if (allowZero) 0 else 1) {
             throw MinecraftSerializationException(
                 "Invalid Fabric $description count: $count",
             )
@@ -401,11 +383,9 @@ private class FabricRegistrySyncSerializer(
     private fun kotlinx.serialization.encoding.CompositeDecoder.decodeByte(): Byte =
         decodeByteElement(descriptor, BYTE_INDEX)
 
-    private companion object {
-        const val VAR_INT_INDEX = 0
-        const val STRING_INDEX = 1
-        const val BYTE_INDEX = 2
-    }
+    private const val VAR_INT_INDEX = 0
+    private const val STRING_INDEX = 1
+    private const val BYTE_INDEX = 2
 }
 
 private fun consecutiveBulks(

@@ -15,14 +15,7 @@ import kotlin.test.*
 
 class StandaloneFileStoreEdgeTest {
     @Test
-    fun nbtConfigurationAndReadLimitsRejectEveryInvalidBoundary() = runTest {
-        assertFailsWith<IllegalArgumentException> {
-            NbtFileStoreConfiguration(maximumCompressedBytes = -1)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            NbtFileStoreConfiguration(maximumDecompressedBytes = -1)
-        }
-
+    fun nbtReadsRejectTrailingBytesWithoutPolicyLimits() = runTest {
         val fileSystem = FakeFileSystem()
         val path = "/world/value.dat".toPath()
         val normal = NbtFileStore(fileSystem)
@@ -37,64 +30,24 @@ class StandaloneFileStoreEdgeTest {
         }
 
         fileSystem.writeRaw(path, original)
-        assertFailsWith<WorldIOException> {
-            NbtFileStore(
-                fileSystem,
-                configuration = NbtFileStoreConfiguration(
-                    maximumCompressedBytes = original.size - 1,
-                ),
-            ).read(path, Compression.NONE)
-        }
-        assertFailsWith<WorldIOException> {
-            NbtFileStore(
-                fileSystem,
-                configuration = NbtFileStoreConfiguration(
-                    maximumDecompressedBytes = 1,
-                ),
-            ).read(path, Compression.NONE)
-        }
+        assertEquals(edgeDocument(1), normal.read(path, Compression.NONE))
         fileSystem.checkNoOpenFiles()
     }
 
     @Test
-    fun directNbtLimitsLeaveTheOfficialTruncatedBoundary() = runTest {
+    fun directNbtStreamingFailureLeavesTheOfficialTruncatedBoundary() = runTest {
         val fileSystem = FakeFileSystem()
         val path = "/world/data/value.dat".toPath()
         val normal = NbtFileStore(fileSystem)
         normal.writeDirect(path, edgeDocument(1))
         val oldBytes = fileSystem.readRaw(path)
-        val limited = NbtFileStore(
-            fileSystem,
-            configuration = NbtFileStoreConfiguration(
-                maximumCompressedBytes = 1_048_576,
-                maximumDecompressedBytes = 1,
-            ),
-        )
+        val failure = WorldIOException("synthetic streaming failure")
 
-        assertFailsWith<WorldIOException> {
-            limited.writeDirect(path, edgeDocument(2))
-        }
+        assertSame(failure, assertFails { normal.writeDirect(path) { throw failure } })
 
         val failedBytes = fileSystem.readRaw(path)
         assertFalse(oldBytes.contentEquals(failedBytes))
         assertFails { normal.read(path) }
-
-        val compressedPath = "/world/data/compressed.dat".toPath()
-        normal.writeDirect(compressedPath, edgeDocument(3))
-        val compressedLimited = NbtFileStore(
-            fileSystem,
-            configuration = NbtFileStoreConfiguration(
-                maximumCompressedBytes = 1,
-                maximumDecompressedBytes = 1_048_576,
-            ),
-        )
-        assertFailsWith<WorldIOException> {
-            compressedLimited.writeDirect(
-                compressedPath,
-                edgeDocument(4),
-            )
-        }
-        assertFails { normal.read(compressedPath) }
         fileSystem.checkNoOpenFiles()
     }
 
@@ -804,12 +757,9 @@ class StandaloneFileStoreEdgeTest {
     }
 
     @Test
-    fun jsonReadsAndWritesEnforceByteLimitsAndFileKinds() {
-        assertFailsWith<IllegalArgumentException> {
-            Utf8JsonFileStore(maximumBytes = -1)
-        }
+    fun jsonReadsAndWritesHaveNoPolicyLimitAndRejectNonFiles() {
         val fileSystem = FakeFileSystem()
-        val store = Utf8JsonFileStore(fileSystem, maximumBytes = 2)
+        val store = Utf8JsonFileStore(fileSystem)
         val path = "/world/value.json".toPath()
 
         assertFailsWith<WorldIOException> { store.read(path) }
@@ -818,8 +768,8 @@ class StandaloneFileStoreEdgeTest {
         fileSystem.delete(path)
         store.write(path, "{}")
         assertEquals("{}", store.read(path))
-        assertFailsWith<WorldIOException> { store.write(path, "\u00E9x") }
-        assertEquals("{}", store.read(path))
+        store.write(path, "\u00E9x")
+        assertEquals("\u00E9x", store.read(path))
     }
 
     @Test
@@ -1143,4 +1093,4 @@ private fun FileSystem.writeRaw(path: Path, bytes: ByteArray) {
 }
 
 private fun FileSystem.readRaw(path: Path): ByteArray =
-    readFileWithinLimit(path, Int.MAX_VALUE)
+    readFileBytes(path)

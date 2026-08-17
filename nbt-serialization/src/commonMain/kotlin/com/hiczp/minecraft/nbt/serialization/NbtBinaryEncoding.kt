@@ -17,7 +17,6 @@ internal class NbtBinaryEncoder(
     private val writer: NbtBinaryWriter,
     private val configuration: NbtFormatConfiguration,
     private val path: String,
-    private val depth: Int,
     private val writeHeader: (Int) -> Unit,
 ) : Encoder, NbtTagEncoder {
     private var emitted = false
@@ -34,7 +33,7 @@ internal class NbtBinaryEncoder(
 
     override fun encodeNbtTag(value: NbtTag) {
         beginValue(typeOf(value))
-        writer.writePayload(value, depth)
+        writer.writePayload(value)
     }
 
     override fun encodeNull(): Nothing =
@@ -103,7 +102,6 @@ internal class NbtBinaryEncoder(
                     configuration,
                     descriptor,
                     path,
-                    depth,
                 )
             }
 
@@ -118,11 +116,6 @@ internal class NbtBinaryEncoder(
         collectionSize: Int,
     ): CompositeEncoder {
         rejectPolymorphism(descriptor)
-        if (collectionSize !in 0..configuration.maximumCollectionSize) {
-            throw NbtLimitException(
-                "Collection size $collectionSize at $path exceeds configured limit ${configuration.maximumCollectionSize}",
-            )
-        }
         return when (descriptor.kind) {
             StructureKind.LIST -> {
                 val elementType = preparedRawListType
@@ -140,7 +133,6 @@ internal class NbtBinaryEncoder(
                     configuration,
                     descriptor,
                     path,
-                    depth,
                     collectionSize,
                     elementType,
                 )
@@ -158,7 +150,6 @@ internal class NbtBinaryEncoder(
                     configuration,
                     descriptor,
                     path,
-                    depth,
                     collectionSize,
                 )
             }
@@ -178,7 +169,6 @@ internal class NbtBinaryEncoder(
         when {
             value is ByteArray &&
                     serializer.descriptor.serialName == BYTE_ARRAY_SERIAL_NAME -> {
-                writer.checkByteArrayLength(value.size)
                 beginValue(TAG_BYTE_ARRAY)
                 writer.writeInt(value.size)
                 writer.writeBytes(value)
@@ -186,7 +176,6 @@ internal class NbtBinaryEncoder(
 
             value is IntArray &&
                     serializer.descriptor.serialName == INT_ARRAY_SERIAL_NAME -> {
-                writer.checkCollectionLength(value.size, "NBT int array")
                 beginValue(TAG_INT_ARRAY)
                 writer.writeInt(value.size)
                 value.forEach(writer::writeInt)
@@ -194,7 +183,6 @@ internal class NbtBinaryEncoder(
 
             value is LongArray &&
                     serializer.descriptor.serialName == LONG_ARRAY_SERIAL_NAME -> {
-                writer.checkCollectionLength(value.size, "NBT long array")
                 beginValue(TAG_LONG_ARRAY)
                 writer.writeInt(value.size)
                 value.forEach(writer::writeLong)
@@ -218,7 +206,6 @@ internal class NbtBinaryEncoder(
                 "Serializer emitted more than one NBT value at $path",
             )
         }
-        writer.checkDepth(depth)
         writeHeader(type)
         emitted = true
     }
@@ -343,29 +330,19 @@ private class NbtBinaryClassEncoder(
     configuration: NbtFormatConfiguration,
     descriptor: SerialDescriptor,
     path: String,
-    private val depth: Int,
 ) : NbtBinaryCompositeEncoder(writer, configuration, descriptor, path) {
-    private var entryCount = 0
-
     override fun elementEncoder(index: Int): Encoder {
         val name = descriptor.getElementName(index)
         return NbtBinaryEncoder(
             writer,
             configuration,
             "$path.$name",
-            depth + 1,
         ) { type ->
             if (type == TAG_END) {
                 throw NbtEncodingException(
                     "NBT compound property '$name' cannot be TAG_End at $path",
                 )
             }
-            if (entryCount >= configuration.maximumCollectionSize) {
-                throw NbtLimitException(
-                    "NBT compound exceeds configured entry limit ${configuration.maximumCollectionSize}",
-                )
-            }
-            entryCount++
             writer.writeByte(type)
             writer.writeModifiedUtf(name)
         }
@@ -387,7 +364,6 @@ private class NbtBinaryListEncoder(
     configuration: NbtFormatConfiguration,
     descriptor: SerialDescriptor,
     path: String,
-    private val depth: Int,
     private val expectedSize: Int,
     private val elementType: Int,
 ) : NbtBinaryCompositeEncoder(writer, configuration, descriptor, path) {
@@ -399,7 +375,6 @@ private class NbtBinaryListEncoder(
             writer,
             configuration,
             "$path[$index]",
-            depth + 1,
         ) { actualType ->
             if (actualType != elementType) {
                 throw NbtEncodingException(
@@ -455,14 +430,14 @@ private class NbtBinaryListEncoder(
             elementType == TAG_COMPOUND &&
             (value !is NbtCompound || value.isListWrapper())
         ) {
-            writer.writeListWrapper(value, depth + 1)
+            writer.writeListWrapper(value)
         } else {
             if (actualType != elementType) {
                 throw NbtEncodingException(
                     "NBT list element at $path[$nextIndex] has tag type $actualType; expected $elementType",
                 )
             }
-            writer.writePayload(value, depth + 1)
+            writer.writePayload(value)
         }
     }
 }
@@ -472,7 +447,6 @@ private class NbtBinaryMapEncoder(
     configuration: NbtFormatConfiguration,
     descriptor: SerialDescriptor,
     path: String,
-    private val depth: Int,
     private val expectedSize: Int,
 ) : NbtBinaryCompositeEncoder(writer, configuration, descriptor, path) {
     private var nextIndex = 0
@@ -490,7 +464,6 @@ private class NbtBinaryMapEncoder(
                 writer,
                 configuration,
                 "$path.$key",
-                depth + 1,
             ) { type ->
                 if (type == TAG_END) {
                     throw NbtEncodingException(

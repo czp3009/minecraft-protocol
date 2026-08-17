@@ -49,31 +49,25 @@ class FileIOTest {
     }
 
     @Test
-    fun boundedReadsRejectMissingDirectoriesOversizeAndUnderConsumption() {
+    fun snapshotReadsRejectMissingDirectoriesAndUnderConsumption() {
         val fileSystem = FakeFileSystem()
         val path = "/world/value.dat".toPath()
 
-        assertFailsWith<IllegalArgumentException> {
-            fileSystem.readFileWithinLimit(path, -1)
-        }
         assertFailsWith<WorldIOException> {
-            fileSystem.readFileWithinLimit(path, 10)
+            fileSystem.readFileBytes(path)
         }
         fileSystem.createDirectories(path)
         assertFailsWith<WorldIOException> {
-            fileSystem.readFileWithinLimit(path, 10)
+            fileSystem.readFileBytes(path)
         }
         fileSystem.delete(path)
         fileSystem.writeRaw(path, byteArrayOf(1, 2, 3))
-        assertFailsWith<WorldIOException> {
-            fileSystem.readFileWithinLimit(path, 2)
-        }
         assertContentEquals(
             byteArrayOf(1, 2, 3),
-            fileSystem.readFileWithinLimit(path, 3),
+            fileSystem.readFileBytes(path),
         )
         assertFailsWith<WorldIOException> {
-            fileSystem.readFile(path, 3) { _, _ -> }
+            fileSystem.readFile(path) { _, _ -> }
         }
         fileSystem.checkNoOpenFiles()
     }
@@ -91,14 +85,14 @@ class FileIOTest {
         val original = IllegalStateException("block")
 
         val thrown = assertFailsWith<IllegalStateException> {
-            fileSystem.readFile(path, 1) { _, _ -> throw original }
+            fileSystem.readFile(path) { _, _ -> throw original }
         }
 
         assertSame(original, thrown)
         assertSame(closeFailure, thrown.suppressedExceptions.single())
 
         val closeOnly = assertFailsWith<IllegalArgumentException> {
-            fileSystem.readFile(path, 1) { source, _ ->
+            fileSystem.readFile(path) { source, _ ->
                 source.readByteArray(1)
             }
         }
@@ -191,58 +185,52 @@ class FileIOTest {
     }
 
     @Test
-    fun boundedReadsRejectUnknownSizeGrowthAndShrinkage() {
+    fun snapshotReadsRejectUnknownSizeGrowthAndShrinkage() {
         val base = FakeFileSystem()
         val path = "/world/value.dat".toPath()
         base.writeRaw(path, byteArrayOf(1, 2, 3))
 
         assertFailsWith<WorldIOException> {
             MetadataSizeFileSystem(base, path, reportedSize = null)
-                .readFileWithinLimit(path, 3)
+                .readFileBytes(path)
         }
         assertFailsWith<IOException> {
             MetadataSizeFileSystem(base, path, reportedSize = 2)
-                .readFileWithinLimit(path, 2)
+                .readFileBytes(path)
         }
         assertFails {
             MetadataSizeFileSystem(base, path, reportedSize = 4)
-                .readFileWithinLimit(path, 4)
+                .readFileBytes(path)
         }
         base.checkNoOpenFiles()
     }
 
     @Test
-    fun limitedSinkEnforcesCountsFlushAndCloseOwnership() {
+    fun countingSinkTracksCountsFlushAndCloseOwnership() {
         val delegate = RecordingSink()
-        val sink = LimitedSink(
+        val sink = CountingSink(
             delegate = delegate,
-            maximumBytes = 2,
             closeDelegate = true,
         )
         val source = Buffer().apply { write(byteArrayOf(1, 2, 3)) }
 
         assertFailsWith<IllegalArgumentException> {
-            LimitedSink(delegate, -1)
-        }
-        assertFailsWith<WorldIOException> {
             sink.write(source, -1)
         }
-        sink.write(source, 2)
-        assertFailsWith<WorldIOException> {
-            sink.write(source, 1)
-        }
+        sink.write(source, 3)
         sink.flush()
         sink.close()
 
         assertContentEquals(
-            byteArrayOf(1, 2),
+            byteArrayOf(1, 2, 3),
             delegate.buffer.readByteArray(),
         )
+        assertEquals(3, sink.bytesWritten)
         assertEquals(1, delegate.flushes)
         assertTrue(delegate.closed)
 
         val unowned = RecordingSink()
-        LimitedSink(unowned, maximumBytes = 0).close()
+        CountingSink(unowned).close()
         assertFalse(unowned.closed)
     }
 
@@ -356,7 +344,7 @@ class FileIOTest {
         assertFalse(fileSystem.exists(backup))
         assertContentEquals(
             byteArrayOf(4, 5),
-            fileSystem.readFileWithinLimit(target, 2),
+            fileSystem.readFileBytes(target),
         )
         fileSystem.deleteIfExists("/world/missing".toPath())
 
@@ -755,4 +743,4 @@ private fun FileSystem.writeRaw(path: Path, bytes: ByteArray) {
 }
 
 private fun FileSystem.readRaw(path: Path): ByteArray =
-    readFileWithinLimit(path, Int.MAX_VALUE)
+    readFileBytes(path)

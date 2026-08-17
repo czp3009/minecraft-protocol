@@ -1,20 +1,15 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.*
-import okio.Buffer
-import okio.FileHandle
-import okio.FileSystem
-import okio.Path
+import okio.*
 import kotlin.time.Clock
 
-data class RegionFileStoreConfiguration(
-    val maximumCompressedChunkBytes: Int = 256 * 1_048_576,
-    val syncWrites: Boolean = true,
-) {
-    init {
-        require(maximumCompressedChunkBytes >= 0)
-    }
-}
+data class RegionChunkStreamInfo(
+    val compression: Compression,
+    val compressedLength: Long,
+    val external: Boolean,
+    val timestamp: Int,
+)
 
 /**
  * One open `.mca` region file together with its external `.mcc` sidecars.
@@ -36,13 +31,28 @@ class RegionFileStore private constructor(
     val path: Path,
     private val handle: FileHandle,
     private val writer: RegionWriterState?,
-    private val maximumCompressedChunkBytes: Int,
 ) {
     private var closed = false
 
     fun read(position: ChunkPosition): RegionChunk? {
+        return read(position) { info, source ->
+            val bytes = source.readByteArray()
+            val payload = if (info.external) {
+                RegionChunkPayload.External(bytes)
+            } else {
+                RegionChunkPayload.Inline(bytes)
+            }
+            RegionChunk(info.compression, payload, info.timestamp)
+        }
+    }
+
+    /** Lends one compressed chunk stream without retaining its payload. */
+    fun <T> read(
+        position: ChunkPosition,
+        block: (RegionChunkStreamInfo, BufferedSource) -> T,
+    ): T? {
         checkOpen()
-        return readStoredChunk(local(position), headerForRead())
+        return readStoredChunk(local(position), headerForRead(), block)
     }
 
     fun readAll(): RegionFile {
@@ -51,7 +61,15 @@ class RegionFileStore private constructor(
         val chunks = linkedMapOf<LocalChunkPosition, RegionChunk>()
         for (index in 0 until REGION_CHUNK_COUNT) {
             val position = LocalChunkPosition.fromIndex(index)
-            readStoredChunk(position, header)?.let {
+            readStoredChunk(position, header) { info, source ->
+                val bytes = source.readByteArray()
+                val payload = if (info.external) {
+                    RegionChunkPayload.External(bytes)
+                } else {
+                    RegionChunkPayload.Inline(bytes)
+                }
+                RegionChunk(info.compression, payload, info.timestamp)
+            }?.let {
                 chunks[position] = it
             }
         }
@@ -80,7 +98,8 @@ class RegionFileStore private constructor(
         }
         return record.length != 0 &&
                 record.compressedLength >= 0 &&
-                record.compressedLength <= location.allocatedBytes
+                record.compressedLength <=
+                location.allocatedBytes - REGION_CHUNK_RECORD_HEADER_BYTES
     }
 
     /** Writes one chunk; `null` clears the position. */
@@ -93,16 +112,31 @@ class RegionFileStore private constructor(
             return
         }
         checkOpen()
+        val compressedBytes = validatedCompressedPayload(position, chunk)
+        write(position, chunk.compression, compressedBytes.size.toLong()) {
+            write(compressedBytes)
+        }
+    }
+
+    /** Writes one already-compressed payload directly from [block]. */
+    fun write(
+        position: ChunkPosition,
+        compression: Compression,
+        compressedLength: Long,
+        block: BufferedSink.() -> Unit,
+    ) {
+        checkOpen()
+        require(compressedLength >= 0L) { "Compressed length must be non-negative" }
+        val local = local(position)
         val writer = requireWriter()
-        val compressedBytes = validatedCompressedPayload(position, chunk, maximumCompressedChunkBytes)
-        val record = EncodedRegionChunkRecord.encode(
-            compression = chunk.compression,
-            compressedPayload = compressedBytes,
-        )
-        if (record.external) {
-            writeExternal(local(position), position, record, writer)
+        val maximumInlineBytes = (REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD - 1L) * REGION_SECTOR_BYTES
+        if (compressedLength > maximumInlineBytes - REGION_CHUNK_RECORD_HEADER_BYTES) {
+            writeExternal(local, position, compression, compressedLength, writer, block)
         } else {
-            writeInternal(local(position), position, record, writer)
+            val inlineSectors = regionSectorsForBytes(
+                REGION_CHUNK_RECORD_HEADER_BYTES.toLong() + compressedLength,
+            )
+            writeInternal(local, position, compression, compressedLength, inlineSectors, writer, block)
         }
     }
 
@@ -171,10 +205,11 @@ class RegionFileStore private constructor(
         return position.local
     }
 
-    private fun readStoredChunk(
+    private fun <T> readStoredChunk(
         position: LocalChunkPosition,
         header: RegionHeader,
-    ): RegionChunk? {
+        block: (RegionChunkStreamInfo, BufferedSource) -> T,
+    ): T? {
         val location = header.location(position) ?: return null
         val prefix = handle.readAtMost(
             location.byteOffset,
@@ -191,13 +226,16 @@ class RegionFileStore private constructor(
                 "Chunk $position has an allocated but missing stream",
             )
         }
-        val payload = if (record.external) {
+        val timestamp = header.timestamp(position)
+        return if (record.external) {
             val absolute = regionPosition.chunk(position)
-            val bytes = files.readFileWithinLimit(
-                externalPath(absolute),
-                maximumCompressedChunkBytes,
-            )
-            RegionChunkPayload.External(bytes)
+            val externalPath = externalPath(absolute)
+            files.readFile(externalPath) { source, size ->
+                block(
+                    RegionChunkStreamInfo(record.compression, size, external = true, timestamp),
+                    source,
+                )
+            }
         } else {
             val maximumPayload = location.allocatedBytes - REGION_CHUNK_RECORD_HEADER_BYTES
             if (record.compressedLength !in 0..maximumPayload) {
@@ -205,82 +243,99 @@ class RegionFileStore private constructor(
                     "Chunk $position has invalid length ${record.length} in ${location.sectorCount} allocated sectors",
                 )
             }
-            if (record.compressedLength > maximumCompressedChunkBytes) {
-                val compressedLength = record.compressedLength
-                throw RegionFormatException(
-                    "Chunk $position compressed size $compressedLength exceeds limit $maximumCompressedChunkBytes",
-                )
-            }
-            val bytes = handle.readAtMost(
+            val source = handle.source(
                 location.byteOffset + REGION_CHUNK_RECORD_HEADER_BYTES,
-                record.compressedLength,
-            )
-            if (bytes.size != record.compressedLength) {
-                throw RegionFormatException(
-                    "Chunk $position payload is truncated",
+            ).limit(record.compressedLength.toLong()).buffer()
+            useResource(source, { it.close() }) {
+                val value = block(
+                    RegionChunkStreamInfo(
+                        record.compression,
+                        record.compressedLength.toLong(),
+                        external = false,
+                        timestamp,
+                    ),
+                    source,
                 )
+                if (!source.exhausted()) {
+                    throw WorldIOException("Chunk $position payload was not fully consumed")
+                }
+                value
             }
-            RegionChunkPayload.Inline(bytes)
         }
-        return RegionChunk(
-            compression = record.compression,
-            payload = payload,
-            timestamp = header.timestamp(position),
-        )
     }
 
     private fun writeInternal(
         position: LocalChunkPosition,
         chunkPosition: ChunkPosition,
-        record: EncodedRegionChunkRecord,
+        compression: Compression,
+        compressedLength: Long,
+        allocatedSectors: Int,
         writer: RegionWriterState,
+        block: BufferedSink.() -> Unit,
     ) {
         val oldLocation = writer.header.location(position)
-        val newLocation = writer.allocator.allocate(record.allocatedSectors)
-        handle.write(
-            newLocation.byteOffset,
-            record.bytes,
-            0,
-            record.bytes.size,
-        )
-        if (writer.syncWrites) {
-            handle.flushDurably(files.fileSystem, path)
+        val newLocation = writer.allocator.allocate(allocatedSectors)
+        var committed = false
+        try {
+            val header = RegionChunkRecordHeader(
+                length = compressedLength.toInt() + 1,
+                compression = compression,
+                external = false,
+            ).encode()
+            handle.write(newLocation.byteOffset, header, 0, header.size)
+            writePayload(
+                handle.sink(newLocation.byteOffset + REGION_CHUNK_RECORD_HEADER_BYTES),
+                compressedLength,
+                block,
+            )
+            if (writer.syncWrites) {
+                handle.flushDurably(files.fileSystem, path)
+            }
+            committed = true
+            writer.header.set(position, newLocation, systemEpochSeconds())
+            writeHeader(writer)
+            files.fileSystem.deleteIfExists(externalPath(chunkPosition))
+            writer.allocator.free(oldLocation)
+        } catch (failure: Throwable) {
+            if (!committed) writer.allocator.free(newLocation)
+            throw failure
         }
-        writer.header.set(position, newLocation, systemEpochSeconds())
-        writeHeader(writer)
-        files.fileSystem.deleteIfExists(externalPath(chunkPosition))
-        writer.allocator.free(oldLocation)
     }
 
     private fun writeExternal(
         position: LocalChunkPosition,
         chunkPosition: ChunkPosition,
-        record: EncodedRegionChunkRecord,
+        compression: Compression,
+        compressedLength: Long,
         writer: RegionWriterState,
+        block: BufferedSink.() -> Unit,
     ) {
-        val payload = checkNotNull(record.externalPayload)
         val oldLocation = writer.header.location(position)
         val newLocation = writer.allocator.allocate(1)
+        var committed = false
         val temporary = files.fileSystem.openUniqueTemporarySink(
             directory = directory,
             prefix = ".mcc-",
             suffix = ".tmp",
         )
         try {
-            val buffer = Buffer().apply { write(payload) }
-            useResource(temporary.sink, { it.close() }) { sink ->
-                sink.write(buffer, payload.size.toLong())
-            }
+            writePayload(temporary.sink, compressedLength, block)
 
+            val stub = RegionChunkRecordHeader(
+                length = 1,
+                compression = compression,
+                external = true,
+            ).encode()
             handle.write(
                 newLocation.byteOffset,
-                record.bytes,
+                stub,
                 0,
-                record.bytes.size,
+                stub.size,
             )
             if (writer.syncWrites) {
                 handle.flushDurably(files.fileSystem, path)
             }
+            committed = true
             writer.header.set(position, newLocation, systemEpochSeconds())
             writeHeader(writer)
             files.fileSystem.moveReplacing(
@@ -289,12 +344,26 @@ class RegionFileStore private constructor(
             )
             writer.allocator.free(oldLocation)
         } catch (failure: Throwable) {
+            if (!committed) writer.allocator.free(newLocation)
             files.fileSystem.deleteIfExistsPreserving(
                 temporary.path,
                 failure,
             )
             throw failure
         }
+    }
+
+    private fun writePayload(
+        sink: Sink,
+        compressedLength: Long,
+        block: BufferedSink.() -> Unit,
+    ) {
+        val fixedLength = FixedLengthSink(sink, compressedLength)
+        val buffered = fixedLength.buffer()
+        useResource(buffered, { it.close() }) {
+            it.block()
+        }
+        fixedLength.requireComplete()
     }
 
     private fun writeHeader(writer: RegionWriterState) {
@@ -323,7 +392,7 @@ class RegionFileStore private constructor(
         fun open(
             regionFile: Path,
             fileSystem: FileSystem = systemFileSystem,
-            configuration: RegionFileStoreConfiguration = RegionFileStoreConfiguration(),
+            syncWrites: Boolean = true,
         ): RegionFileStore {
             val directory = regionFile.parent
                 ?: throw WorldIOException(
@@ -335,8 +404,7 @@ class RegionFileStore private constructor(
                 files = WorldFileAccess.mutable(fileSystem),
                 directory = directory,
                 position = position,
-                maximumCompressedChunkBytes = configuration.maximumCompressedChunkBytes,
-                syncWrites = configuration.syncWrites,
+                syncWrites = syncWrites,
             )
         }
 
@@ -344,8 +412,7 @@ class RegionFileStore private constructor(
             files: WorldFileAccess,
             directory: Path,
             position: RegionPosition,
-            maximumCompressedChunkBytes: Int,
-            syncWrites: Boolean,
+            syncWrites: Boolean = true,
         ): RegionFileStore {
             if (!files.liveReadOnly) {
                 files.fileSystem.createDirectories(directory)
@@ -371,7 +438,6 @@ class RegionFileStore private constructor(
                     path = path,
                     handle = handle,
                     writer = writer,
-                    maximumCompressedChunkBytes = maximumCompressedChunkBytes,
                 )
             } catch (caught: Throwable) {
                 failure = caught
@@ -385,21 +451,44 @@ class RegionFileStore private constructor(
     }
 }
 
+private class FixedLengthSink(
+    private val delegate: Sink,
+    private val expectedBytes: Long,
+) : Sink {
+    private var bytesWritten = 0L
+
+    override fun write(source: Buffer, byteCount: Long) {
+        require(byteCount >= 0L)
+        if (byteCount > expectedBytes - bytesWritten) {
+            throw WorldIOException("Compressed payload exceeds declared length $expectedBytes")
+        }
+        delegate.write(source, byteCount)
+        bytesWritten += byteCount
+    }
+
+    override fun flush() = delegate.flush()
+
+    override fun timeout(): Timeout = delegate.timeout()
+
+    override fun close() = delegate.close()
+
+    fun requireComplete() {
+        if (bytesWritten != expectedBytes) {
+            throw WorldIOException(
+                "Compressed payload wrote $bytesWritten byte(s), expected $expectedBytes",
+            )
+        }
+    }
+}
+
 internal fun validatedCompressedPayload(
     position: ChunkPosition,
     chunk: RegionChunk,
-    maximumCompressedChunkBytes: Int,
 ): ByteArray {
-    val compressedBytes = chunk.payload.compressedBytes
+    return chunk.payload.compressedBytes
         ?: throw RegionFormatException(
             "External chunk $position has not been resolved",
         )
-    if (compressedBytes.size > maximumCompressedChunkBytes) {
-        throw RegionFormatException(
-            "Chunk $position compressed size ${compressedBytes.size} exceeds limit $maximumCompressedChunkBytes",
-        )
-    }
-    return compressedBytes
 }
 
 private data class RegionWriterState(

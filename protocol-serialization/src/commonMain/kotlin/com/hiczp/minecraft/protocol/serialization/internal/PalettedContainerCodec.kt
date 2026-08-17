@@ -35,8 +35,10 @@ internal object PalettedContainerCodec {
             is PalettedContainer.Direct -> {
                 val bits = minimumBitsForDistinctValues(registrySize)
                 if (bits <= kind.maximumIndirectBits) {
+                    val maximumBits = kind.maximumIndirectBits
+                    val displayName = kind.displayName
                     throw MinecraftSerializationException(
-                        "A direct ${kind.displayName} palette requires more than ${kind.maximumIndirectBits} bits for the global registry",
+                        "A direct $displayName palette requires more than $maximumBits bits for the global registry",
                     )
                 }
                 validatePackedSize(value.data, bits, kind)
@@ -64,10 +66,9 @@ internal object PalettedContainerCodec {
         if (indirectBits != null) {
             val capacity = 1 shl indirectBits
             val paletteSize = reader.readVarInt(configuration.rejectNonMinimalVarNumbers)
-            val maximum = minOf(capacity, configuration.maximumCollectionSize)
-            if (paletteSize !in 0..maximum) {
+            if (paletteSize !in 0..capacity) {
                 throw MinecraftSerializationException(
-                    "Invalid ${kind.displayName} palette size $paletteSize; maximum is $maximum",
+                    "Invalid ${kind.displayName} palette size $paletteSize; maximum is $capacity",
                 )
             }
             val palette = List(paletteSize) {
@@ -97,8 +98,9 @@ internal object PalettedContainerCodec {
 
     private fun validateIndirectBits(bits: Int, kind: PaletteKind) {
         if (bits !in kind.minimumIndirectBits..kind.maximumIndirectBits) {
+            val allowedBits = "${kind.minimumIndirectBits}..${kind.maximumIndirectBits}"
             throw MinecraftSerializationException(
-                "${kind.displayName} indirect palettes require ${kind.minimumIndirectBits}..${kind.maximumIndirectBits} bits, got $bits",
+                "${kind.displayName} indirect palettes require $allowedBits bits, got $bits",
             )
         }
     }
@@ -150,13 +152,6 @@ internal object PalettedContainerCodec {
         configuration: MinecraftProtocolFormatConfiguration,
     ): PackedLongArray {
         val count = packedLongCount(kind.entryCount, bits)
-        if (count > configuration.maximumCollectionSize ||
-            count.toLong() * Long.SIZE_BYTES > configuration.maximumByteArraySize
-        ) {
-            throw MinecraftSerializationException(
-                "${kind.displayName} packed data exceeds configured allocation limits",
-            )
-        }
         return PackedLongArray(LongArray(count) { reader.readLong() })
     }
 

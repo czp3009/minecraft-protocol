@@ -28,7 +28,7 @@ internal class MinecraftEncoder(
     private val configuration: MinecraftProtocolFormatConfiguration,
     override val serializersModule: SerializersModule,
 ) : AbstractEncoder(), NbtTagEncoder {
-    private val nbtCodec: NbtBinaryCodec = NbtBinaryCodec(configuration)
+    private val nbtCodec: NbtBinaryCodec = NbtBinaryCodec
     private val frames: MutableList<Frame> = mutableListOf()
     private var pendingHints: List<Annotation> = emptyList()
 
@@ -53,13 +53,7 @@ internal class MinecraftEncoder(
         descriptor: SerialDescriptor,
         collectionSize: Int,
     ): CompositeEncoder {
-        val configuredMaximum =
-            if (isByteArrayDescriptor(descriptor)) {
-                configuration.maximumByteArraySize
-            } else {
-                configuration.maximumCollectionSize
-            }
-        if (collectionSize !in 0..configuredMaximum) {
+        if (collectionSize < 0) {
             throw MinecraftSerializationException("Invalid collection size: $collectionSize")
         }
         val hints = takePendingHints()
@@ -352,13 +346,9 @@ internal class MinecraftEncoder(
             serializersModule,
         )
         encode(nested)
-        val maximum = minOf(
-            annotation.maxBytes,
-            configuration.maximumByteArraySize,
-        )
-        if (nestedWriter.size > maximum.toLong()) {
+        if (nestedWriter.size > annotation.maxBytes.toLong()) {
             throw MinecraftSerializationException(
-                "Length-prefixed value has ${nestedWriter.size} bytes; maximum is $maximum",
+                "Length-prefixed value has ${nestedWriter.size} bytes; maximum is ${annotation.maxBytes}",
             )
         }
         writer.writeVarInt(nestedWriter.size.toInt())
@@ -378,9 +368,6 @@ internal class MinecraftEncoder(
                 (frames.lastOrNull()?.elementHints ?: emptyList())
     }
 
-    private fun isByteArrayDescriptor(descriptor: SerialDescriptor): Boolean =
-        descriptor.serialName == BYTE_ARRAY_SERIAL_NAME
-
     private inline fun <T> withHints(hints: List<Annotation>, block: () -> T): T {
         val previous = pendingHints
         pendingHints = hints
@@ -399,7 +386,6 @@ internal class MinecraftEncoder(
 
     private companion object {
         const val DEFAULT_STRING_MAXIMUM: Int = 32_767
-        const val BYTE_ARRAY_SERIAL_NAME: String = "kotlin.ByteArray"
     }
 
     private data class Frame(

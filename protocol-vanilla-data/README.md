@@ -12,6 +12,7 @@ complete network NBT otherwise:
 ```kotlin
 val blocks = VanillaStaticData.requireRegistry(Identifier("block"))
 val stoneProtocolId = blocks.requireProtocolId(Identifier("stone"))
+val defaultStoneState = VanillaStaticData.blockStates.default(Identifier("stone"))
 
 val compactRegistries = VanillaProtocolData.registryPackets(
     VanillaProtocolData.knownPacks,
@@ -28,3 +29,12 @@ val connectionContext = moddedStaticSchema.resolve(remoteRegistrySnapshot)
 
 Resolution follows remote registry order when assigning global block-state IDs. The resulting immutable context supplies
 block-state/biome palette sizes and lookup helpers to serialization and the server's initial-world APIs.
+
+`ProtocolDataSet` is the common boundary consumed by server negotiation. Dimension layout helpers derive the vertical
+section count and install it into the connection-specific serialization context:
+
+```kotlin
+val data: ProtocolDataSet = VanillaProtocolData
+val overworld = MinecraftDimensionLayout.from(data, Identifier("overworld"))
+val connectionContext = data.registryContext.withChunkSectionCount(overworld.sectionCount)
+```

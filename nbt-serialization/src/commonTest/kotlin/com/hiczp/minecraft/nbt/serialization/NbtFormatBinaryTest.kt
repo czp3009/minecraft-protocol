@@ -324,39 +324,21 @@ class NbtFormatBinaryTest {
     }
 
     @Test
-    fun appliesDepthCollectionStringAndByteLimits() {
-        val limited = NbtFormat(
-            NbtFormatConfiguration(
-                maximumDepth = 1,
-                maximumCollectionSize = 1,
-                maximumByteArraySize = 1,
-                maximumStringBytes = 2,
-                maximumEncodedBytes = 32,
-            ),
-        )
-
-        assertFailsWith<NbtSerializationException> {
-            limited.encodeAnyTagToByteArray(
-                NbtCompound(
+    fun doesNotImposePolicyLimitsOnNestedValuesCollectionsStringsOrBytes() {
+        val value = NbtCompound(
+            mapOf(
+                "nested" to NbtCompound(
                     mapOf(
-                        "a" to NbtCompound(
-                            mapOf("b" to NbtInt(1)),
-                        ),
+                        "list" to NbtList(List(128) { NbtInt(it) }),
+                        "bytes" to NbtByteArray(ByteArray(4_096) { it.toByte() }),
                     ),
                 ),
-            )
-        }
-        assertFailsWith<NbtSerializationException> {
-            limited.encodeAnyTagToByteArray(
-                NbtCompound(mapOf("a" to NbtInt(1), "b" to NbtInt(2))),
-            )
-        }
-        assertFailsWith<NbtSerializationException> {
-            limited.encodeAnyTagToByteArray(NbtByteArray(byteArrayOf(1, 2)))
-        }
-        assertFailsWith<NbtSerializationException> {
-            limited.encodeAnyTagToByteArray(NbtString("abc"))
-        }
+                "string" to NbtString("value".repeat(1_024)),
+            ),
+        )
+        val encoded = NbtFormat.encodeAnyTagToByteArray(value)
+
+        assertEquals(value, NbtFormat.decodeAnyTagFromByteArray(encoded))
     }
 
     @Test
@@ -382,28 +364,6 @@ class NbtFormatBinaryTest {
         assertEquals(NbtByte(1), NbtFormat.decodeAnyTagFromSource(buffer))
         assertFalse(buffer.exhausted())
         assertEquals(NbtByte(2), NbtFormat.decodeAnyTagFromSource(buffer))
-    }
-
-    @Test
-    fun validatesEveryConfiguredResourceLimit() {
-        assertFailsWith<IllegalArgumentException> {
-            NbtFormatConfiguration(maximumDepth = -1)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            NbtFormatConfiguration(maximumCollectionSize = -1)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            NbtFormatConfiguration(maximumByteArraySize = -1)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            NbtFormatConfiguration(maximumStringBytes = -1)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            NbtFormatConfiguration(maximumStringBytes = 65_536)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            NbtFormatConfiguration(maximumEncodedBytes = -1)
-        }
     }
 
     @Test
@@ -534,75 +494,7 @@ class NbtFormatBinaryTest {
     }
 
     @Test
-    fun encodedByteLimitAppliesToStreamAndArrayReadsAndWrites() {
-        val limited = NbtFormat(
-            NbtFormatConfiguration(
-                maximumEncodedBytes = 4,
-            ),
-        )
-        val encodedInt = NbtFormat.encodeAnyTagToByteArray(NbtInt(1))
-
-        assertFailsWith<NbtSerializationException> {
-            limited.decodeAnyTagFromByteArray(encodedInt)
-        }
-        assertFailsWith<NbtSerializationException> {
-            val source = Buffer().also { it.write(encodedInt) }
-            limited.decodeAnyTagFromSource(source)
-        }
-        assertFailsWith<NbtSerializationException> {
-            limited.encodeAnyTagToByteArray(NbtInt(1))
-        }
-        assertFailsWith<NbtSerializationException> {
-            val sink = Buffer()
-            limited.encodeAnyTagToSink(NbtInt(1), sink)
-        }
-    }
-
-    @Test
-    fun depthAndAllocationLimitsAlsoApplyWhileDecoding() {
-        val nested = NbtFormat.encodeAnyTagToByteArray(
-            NbtCompound(
-                mapOf(
-                    "nested" to NbtCompound(
-                        mapOf("value" to NbtInt(1)),
-                    ),
-                ),
-            ),
-        )
-        val depthLimited = NbtFormat(
-            NbtFormatConfiguration(maximumDepth = 0),
-        )
-        assertFailsWith<NbtSerializationException> {
-            depthLimited.decodeAnyTagFromByteArray(nested)
-        }
-
-        val declaredIntArray = byteArrayOf(
-            11,
-            0,
-            0,
-            0,
-            2,
-        )
-        val allocationLimited = NbtFormat(
-            NbtFormatConfiguration(
-                maximumCollectionSize = 2,
-                maximumEncodedBytes = declaredIntArray.size.toLong(),
-            ),
-        )
-        assertFailsWith<NbtSerializationException> {
-            allocationLimited.decodeAnyTagFromByteArray(declaredIntArray)
-        }
-    }
-
-    @Test
-    fun declaredSizesAreRejectedBeforeMissingPayloadsAreRead() {
-        val limited = NbtFormat(
-            NbtFormatConfiguration(
-                maximumCollectionSize = 1,
-                maximumByteArraySize = 1,
-                maximumStringBytes = 1,
-            ),
-        )
+    fun declaredSizesStillRequireTheirPayloads() {
         val oversizedDeclarations = listOf(
             byteArrayOf(7, 0, 0, 0, 2),
             byteArrayOf(8, 0, 2),
@@ -617,8 +509,8 @@ class NbtFormatBinaryTest {
         )
 
         oversizedDeclarations.forEach { encoded ->
-            assertFailsWith<NbtLimitException> {
-                limited.decodeAnyTagFromByteArray(encoded)
+            assertFailsWith<NbtSerializationException> {
+                NbtFormat.decodeAnyTagFromByteArray(encoded)
             }
         }
     }
@@ -671,53 +563,19 @@ class NbtFormatBinaryTest {
     }
 
     @Test
-    fun byteArrayCollectionAndExactEncodedLimitsAreIndependent() {
-        val byteFriendly = NbtFormat(
-            NbtFormatConfiguration(
-                maximumCollectionSize = 1,
-                maximumByteArraySize = 3,
-            ),
+    fun specializedArraysRoundTripWithoutSharedAllocationBudgets() {
+        val values = listOf(
+            NbtByteArray(ByteArray(257) { it.toByte() }),
+            NbtIntArray(IntArray(257) { it }),
+            NbtLongArray(LongArray(257) { it.toLong() }),
         )
-        val bytes = NbtByteArray(byteArrayOf(1, 2, 3))
-        assertEquals(
-            bytes,
-            byteFriendly.decodeAnyTagFromByteArray(
-                byteFriendly.encodeAnyTagToByteArray(bytes),
-            ),
-        )
-        assertFailsWith<NbtSerializationException> {
-            byteFriendly.encodeAnyTagToByteArray(
-                NbtIntArray(intArrayOf(1, 2)),
+
+        values.forEach { value ->
+            assertEquals(
+                value,
+                NbtFormat.decodeAnyTagFromByteArray(NbtFormat.encodeAnyTagToByteArray(value)),
             )
         }
-
-        val collectionFriendly = NbtFormat(
-            NbtFormatConfiguration(
-                maximumCollectionSize = 3,
-                maximumByteArraySize = 1,
-            ),
-        )
-        val list = NbtList(listOf(NbtInt(1), NbtInt(2), NbtInt(3)))
-        assertEquals(
-            list,
-            collectionFriendly.decodeAnyTagFromByteArray(
-                collectionFriendly.encodeAnyTagToByteArray(list),
-            ),
-        )
-        assertFailsWith<NbtSerializationException> {
-            collectionFriendly.encodeAnyTagToByteArray(
-                NbtByteArray(byteArrayOf(1, 2)),
-            )
-        }
-
-        val encoded = NbtFormat.encodeAnyTagToByteArray(NbtInt(1))
-        val exact = NbtFormat(
-            NbtFormatConfiguration(
-                maximumEncodedBytes = encoded.size.toLong(),
-            ),
-        )
-        assertEquals(NbtInt(1), exact.decodeAnyTagFromByteArray(encoded))
-        assertContentEquals(encoded, exact.encodeAnyTagToByteArray(NbtInt(1)))
     }
 
     @Test

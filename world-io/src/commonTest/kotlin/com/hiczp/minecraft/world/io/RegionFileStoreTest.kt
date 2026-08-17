@@ -121,10 +121,96 @@ class RegionFileStoreTest {
     }
 
     @Test
-    fun configurationRejectsInvalidLimits() {
-        assertFailsWith<IllegalArgumentException> {
-            RegionFileStoreConfiguration(maximumCompressedChunkBytes = -1)
+    fun knownLengthWritesStreamInlineAndExternalPayloads() {
+        val fileSystem = FakeFileSystem()
+        val directory = "/world/region".toPath()
+        val store = RegionFileStore.open(directory / "r.0.0.mca", fileSystem)
+        val inlinePosition = ChunkPosition(0, 0)
+        val externalPosition = ChunkPosition(1, 0)
+        val inline = ByteArray(32 * 1_024) { it.toByte() }
+        val external = ByteArray(
+            (REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD - 1) * REGION_SECTOR_BYTES -
+                    REGION_CHUNK_RECORD_HEADER_BYTES + 1,
+        ) { (it * 3).toByte() }
+
+        try {
+            store.write(inlinePosition, Compression.NONE, inline.size.toLong()) { write(inline) }
+            store.write(externalPosition, Compression.ZLIB, external.size.toLong()) { write(external) }
+
+            store.read(inlinePosition) { info, source ->
+                assertFalse(info.external)
+                assertEquals(inline.size.toLong(), info.compressedLength)
+                assertContentEquals(inline, source.readByteArray())
+            }
+            store.read(externalPosition) { info, source ->
+                assertTrue(info.external)
+                assertEquals(external.size.toLong(), info.compressedLength)
+                assertContentEquals(external, source.readByteArray())
+            }
+            assertTrue(fileSystem.exists(directory / "c.1.0.mcc"))
+        } finally {
+            store.close()
         }
-        RegionFileStoreConfiguration()
+        fileSystem.checkNoOpenFiles()
+    }
+
+    @Test
+    fun declaredLengthFailuresLeaveTheCommittedChunkAndCleanupExternalTemporaries() {
+        val fileSystem = FakeFileSystem()
+        val directory = "/world/region".toPath()
+        val store = RegionFileStore.open(directory / "r.0.0.mca", fileSystem, syncWrites = false)
+        val position = ChunkPosition(0, 0)
+        val original = byteArrayOf(1, 2, 3)
+        store.write(position, RegionChunk(Compression.NONE, RegionChunkPayload.Inline(original)))
+
+        try {
+            assertFailsWith<WorldIOException> {
+                store.write(position, Compression.NONE, compressedLength = 2) { writeByte(9) }
+            }
+            assertContentEquals(original, checkNotNull(store.read(position)).payload.compressedBytes)
+
+            assertFailsWith<WorldIOException> {
+                store.write(position, Compression.NONE, compressedLength = 1) {
+                    write(byteArrayOf(8, 9))
+                }
+            }
+            assertContentEquals(original, checkNotNull(store.read(position)).payload.compressedBytes)
+
+            val firstExternalLength =
+                (REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD - 1L) * REGION_SECTOR_BYTES -
+                        REGION_CHUNK_RECORD_HEADER_BYTES + 1L
+            assertFailsWith<WorldIOException> {
+                store.write(position, Compression.NONE, firstExternalLength) { }
+            }
+            assertContentEquals(original, checkNotNull(store.read(position)).payload.compressedBytes)
+            assertTrue(fileSystem.list(directory).none { it.name.startsWith(".mcc-") })
+        } finally {
+            store.close()
+        }
+        fileSystem.checkNoOpenFiles()
+    }
+
+    @Test
+    fun streamingReadsMustConsumeTheLentPayload() {
+        val fileSystem = FakeFileSystem()
+        val store = RegionFileStore.open("/world/region/r.0.0.mca".toPath(), fileSystem)
+        val position = ChunkPosition(0, 0)
+        store.write(
+            position,
+            RegionChunk(Compression.NONE, RegionChunkPayload.Inline(byteArrayOf(1, 2, 3))),
+        )
+
+        try {
+            assertFailsWith<WorldIOException> {
+                store.read(position) { _, source -> source.readByte() }
+            }
+            assertContentEquals(
+                byteArrayOf(1, 2, 3),
+                checkNotNull(store.read(position)).payload.compressedBytes,
+            )
+        } finally {
+            store.close()
+        }
+        fileSystem.checkNoOpenFiles()
     }
 }

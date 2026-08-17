@@ -306,7 +306,6 @@ object NeoForgeProtocolLimits {
     const val MAX_COMMON_VERSIONS: Int = 64
     const val MAX_CHANNELS: Int = 8_192
     const val MAX_CHANNEL_NAME_LENGTH: Int = 128
-    const val DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE: Int = 128 * 1_048_576
     const val SPLIT_PART_SIZE: Int = 2_097_126
 }
 

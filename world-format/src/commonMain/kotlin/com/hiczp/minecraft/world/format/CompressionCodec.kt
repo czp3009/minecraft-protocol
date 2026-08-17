@@ -19,10 +19,7 @@ import kotlinx.io.*
 interface CompressionCodec {
     fun compressingSink(sink: Sink): RawSink
 
-    fun decompressingSource(
-        source: Source,
-        maximumOutputBytes: Int,
-    ): RawSource
+    fun decompressingSource(source: Source): RawSource
 
     /** Compresses all remaining [source] bytes into [sink]. */
     fun compressToSink(source: Source, sink: Sink): Long =
@@ -31,13 +28,8 @@ interface CompressionCodec {
         }
 
     /** Decompresses one complete stream into [sink]. */
-    fun decompressToSink(
-        source: Source,
-        sink: Sink,
-        maximumOutputBytes: Int,
-    ): Long {
-        require(maximumOutputBytes >= 0)
-        return decompressingSource(source, maximumOutputBytes)
+    fun decompressToSink(source: Source, sink: Sink): Long {
+        return decompressingSource(source)
             .buffered()
             .use { decompressed -> decompressed.transferTo(sink) }
     }
@@ -51,13 +43,10 @@ interface CompressionCodec {
     }
 
     /** In-memory adapter over [decompressToSink]. */
-    fun decompress(
-        input: ByteArray,
-        maximumOutputBytes: Int,
-    ): ByteArray {
+    fun decompress(input: ByteArray): ByteArray {
         val source = Buffer().apply { write(input) }
         val sink = Buffer()
-        decompressToSink(source, sink, maximumOutputBytes)
+        decompressToSink(source, sink)
         return sink.readByteArray()
     }
 }
@@ -85,20 +74,8 @@ sealed class CompressionCodecs(
         sink: Sink,
     ): RawSink = codec(compression).compressingSink(sink)
 
-    fun decompressingSource(
-        compression: Compression,
-        source: Source,
-        maximumOutputBytes: Int,
-    ): RawSource {
-        require(maximumOutputBytes >= 0)
-        return OutputLimitingRawSource(
-            codec(compression).decompressingSource(
-                source,
-                maximumOutputBytes,
-            ),
-            maximumOutputBytes,
-        )
-    }
+    fun decompressingSource(compression: Compression, source: Source): RawSource =
+        codec(compression).decompressingSource(source)
 
     fun compressToSink(
         compression: Compression,
@@ -108,19 +85,10 @@ sealed class CompressionCodecs(
         source.transferTo(compressed)
     }
 
-    fun decompressToSink(
-        compression: Compression,
-        source: Source,
-        sink: Sink,
-        maximumOutputBytes: Int,
-    ): Long {
-        require(maximumOutputBytes >= 0)
-        return decompressingSource(
-            compression,
-            source,
-            maximumOutputBytes,
-        ).buffered().use { limited -> limited.transferTo(sink) }
-    }
+    fun decompressToSink(compression: Compression, source: Source, sink: Sink): Long =
+        decompressingSource(compression, source).buffered().use { decompressed ->
+            decompressed.transferTo(sink)
+        }
 
     fun compress(
         compression: Compression,
@@ -132,19 +100,10 @@ sealed class CompressionCodecs(
         return sink.readByteArray()
     }
 
-    fun decompress(
-        compression: Compression,
-        input: ByteArray,
-        maximumOutputBytes: Int,
-    ): ByteArray {
+    fun decompress(compression: Compression, input: ByteArray): ByteArray {
         val source = Buffer().apply { write(input) }
         val sink = Buffer()
-        decompressToSink(
-            compression,
-            source,
-            sink,
-            maximumOutputBytes,
-        )
+        decompressToSink(compression, source, sink)
         return sink.readByteArray()
     }
 
@@ -167,37 +126,21 @@ private class ConfiguredCompressionCodecs(
 private object NoneCodec : CompressionCodec {
     override fun compressingSink(sink: Sink): RawSink = sink.callerOwned()
 
-    override fun decompressingSource(
-        source: Source,
-        maximumOutputBytes: Int,
-    ): RawSource {
-        require(maximumOutputBytes >= 0)
-        return source.callerOwned()
-    }
+    override fun decompressingSource(source: Source): RawSource = source.callerOwned()
 }
 
 private object ZlibCodec : CompressionCodec {
     override fun compressingSink(sink: Sink): RawSink =
         platformZlibCompressingSink(sink)
 
-    override fun decompressingSource(
-        source: Source,
-        maximumOutputBytes: Int,
-    ): RawSource {
-        require(maximumOutputBytes >= 0)
-        return platformZlibDecompressingSource(source)
-    }
+    override fun decompressingSource(source: Source): RawSource = platformZlibDecompressingSource(source)
 }
 
 private object GzipCodec : CompressionCodec {
     override fun compressingSink(sink: Sink): RawSink =
         platformGzipCompressingSink(sink)
 
-    override fun decompressingSource(
-        source: Source,
-        maximumOutputBytes: Int,
-    ): RawSource {
-        require(maximumOutputBytes >= 0)
+    override fun decompressingSource(source: Source): RawSource {
         // Platform GZIP libraries disagree on malformed-prologue failures.
         // Validate only vanilla's invariant header fields here; the library
         // still owns DEFLATE, optional headers, trailer checks, and decoding.
@@ -235,13 +178,7 @@ private object Lz4BlockCodec : CompressionCodec {
     override fun compressingSink(sink: Sink): RawSink =
         Lz4BlockCompressingRawSink(sink)
 
-    override fun decompressingSource(
-        source: Source,
-        maximumOutputBytes: Int,
-    ): RawSource {
-        require(maximumOutputBytes >= 0)
-        return Lz4BlockDecompressingRawSource(source, maximumOutputBytes)
-    }
+    override fun decompressingSource(source: Source): RawSource = Lz4BlockDecompressingRawSource(source)
 }
 
 internal expect fun platformZlibCompressingSink(sink: Sink): RawSink
@@ -300,38 +237,6 @@ private class CallerOwnedRawSource(
 
     override fun close() {
         closed = true
-    }
-}
-
-// Probe one byte beyond the configured limit so an oversized stream cannot be
-// accepted merely because its consumer stops at exactly the limit.
-private class OutputLimitingRawSource(
-    private val upstream: RawSource,
-    maximumOutputBytes: Int,
-) : RawSource {
-    private val maximumOutputBytes = maximumOutputBytes.toLong()
-    private var outputBytes = 0L
-
-    override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
-        require(byteCount >= 0)
-        if (byteCount == 0L) return 0
-        val remaining = maximumOutputBytes - outputBytes
-        val read = upstream.readAtMostTo(
-            sink,
-            minOf(byteCount, remaining + 1),
-        )
-        if (read < 0) return -1
-        outputBytes += read
-        if (outputBytes > maximumOutputBytes) {
-            throw RegionFormatException(
-                "Decompressed output exceeds configured limit $maximumOutputBytes",
-            )
-        }
-        return read
-    }
-
-    override fun close() {
-        upstream.close()
     }
 }
 
@@ -413,14 +318,10 @@ private class Lz4BlockCompressingRawSink(
     }
 }
 
-private class Lz4BlockDecompressingRawSource(
-    upstream: Source,
-    private val maximumOutputBytes: Int,
-) : RawSource {
+private class Lz4BlockDecompressingRawSource(upstream: Source) : RawSource {
     private val upstream = upstream.callerOwned().buffered()
     private var block = ByteArray(0)
     private var blockOffset = 0
-    private var outputBytes = 0L
     private var finished = false
     private var closed = false
 
@@ -486,15 +387,6 @@ private class Lz4BlockDecompressingRawSource(
                 finished = true
                 return false
             }
-            if (
-                outputBytes >
-                maximumOutputBytes.toLong() - originalLength
-            ) {
-                throw RegionFormatException(
-                    "LZ4 output exceeds configured limit $maximumOutputBytes",
-                )
-            }
-
             val encoded = upstream.readByteArray(compressedLength)
             val decoded = if (method == LZ4_RAW_METHOD) {
                 encoded
@@ -517,7 +409,6 @@ private class Lz4BlockDecompressingRawSource(
             }
             block = decoded
             blockOffset = 0
-            outputBytes += originalLength
             return true
         } catch (failure: RegionFormatException) {
             throw failure

@@ -34,7 +34,6 @@ class Lz4JavaCompatibilityTest {
         val decoded = CompressionCodecs.decompress(
             Compression.LZ4,
             output.toByteArray(),
-            input.size,
         )
 
         assertContentEquals(input, decoded)

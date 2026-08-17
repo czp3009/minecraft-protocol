@@ -22,33 +22,23 @@ object FabricSplitPayloads {
         connection: MinecraftPacketConnection<Incoming, Outgoing>,
         packet: Outgoing,
         maximumChunkSize: Int,
-        maximumPacketSize: Int = FabricProtocol.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE,
     ): List<FabricSplitPacket> = split(
         connection.encodeCustomPayload(packet),
         maximumChunkSize,
-        maximumPacketSize,
     )
 
     fun split(
         payload: RoutedCustomPayload,
         maximumChunkSize: Int,
-        maximumPacketSize: Int = FabricProtocol.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE,
     ): List<FabricSplitPacket> {
         require(maximumChunkSize > 0) {
             "Fabric split chunk size must be positive"
         }
-        require(maximumPacketSize > 0) {
-            "Fabric split packet size must be positive"
-        }
         val target = encodeTarget(payload)
-        if (target.size > maximumPacketSize) {
-            throw MinecraftSerializationException(
-                "Fabric split target has ${target.size} bytes; maximum is $maximumPacketSize",
-            )
-        }
         if (target.size < maximumChunkSize) {
+            val targetSize = target.size
             throw MinecraftSerializationException(
-                "Fabric split target has ${target.size} bytes and does not require splitting at $maximumChunkSize bytes",
+                "Fabric split target has $targetSize bytes and does not require splitting at $maximumChunkSize bytes",
             )
         }
         val lengthPrefix = MinecraftProtocolFormat.Default.encodeToByteArray(
@@ -96,19 +86,13 @@ object FabricSplitPayloads {
 
 /** Stateful merger for one ordered Fabric split stream. */
 class FabricSplitAssembler(
-    maximumPacketSizes: Map<Identifier, Int>,
+    splittableChannels: Set<Identifier>,
 ) {
-    private val maximumPacketSizes: Map<Identifier, Int> = maximumPacketSizes.toMap()
+    private val splittableChannels = splittableChannels.toSet()
     private var targetSize: Int? = null
     private var targetChannel: Identifier? = null
     private var bytes: ByteArray = byteArrayOf()
     private var byteCount: Int = 0
-
-    init {
-        require(this.maximumPacketSizes.values.all { it > 0 }) {
-            "Fabric split maximum packet sizes must be positive"
-        }
-    }
 
     val isCollecting: Boolean
         get() = targetSize != null
@@ -166,13 +150,9 @@ class FabricSplitAssembler(
             FabricSplitTarget.serializer(),
             first.data.toByteArray(),
         )
-        val maximum = maximumPacketSizes[partial.channel]
-            ?: throw MinecraftSerializationException(
-                "Fabric payload ${partial.channel} is not declared splittable",
-            )
-        if (first.packetSize > maximum) {
+        if (partial.channel !in splittableChannels) {
             throw MinecraftSerializationException(
-                "Fabric payload ${partial.channel} has ${first.packetSize} bytes; maximum is $maximum",
+                "Fabric payload ${partial.channel} is not declared splittable",
             )
         }
         if (first.data.size >= first.packetSize) {

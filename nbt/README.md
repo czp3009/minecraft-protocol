@@ -48,5 +48,5 @@ data class LevelMetadata(
 )
 ```
 
-Binary grammar, Java modified UTF, root framing, limits, and `kotlinx.io` APIs live in
+Binary grammar, Java modified UTF, root framing, format-intrinsic lengths, and `kotlinx.io` APIs live in
 [`nbt-serialization`](../nbt-serialization/README.md).

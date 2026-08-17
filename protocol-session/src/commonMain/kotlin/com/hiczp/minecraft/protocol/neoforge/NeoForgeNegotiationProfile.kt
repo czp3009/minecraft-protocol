@@ -18,7 +18,6 @@ class NeoForgeClientProfileDefinition(
     featureFlags: Set<Identifier> = emptySet(),
     supportedCommonVersions: Set<Int> =
         setOf(NeoForgeProtocol.COMMON_PACKET_VERSION),
-    val maximumSplitPacketSize: Int = NeoForgeProtocol.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE,
 ) {
     val knownDataMaps: Map<Identifier, List<NeoForgeKnownDataMap>> =
         knownDataMaps.entries.associate { (registry, maps) ->
@@ -35,7 +34,6 @@ class NeoForgeClientProfileDefinition(
         ) {
             "NeoForge client extensible enums contain duplicate class names"
         }
-        require(maximumSplitPacketSize > 0)
     }
 }
 
@@ -50,7 +48,6 @@ class NeoForgeServerProfileDefinition(
     featureFlags: Set<Identifier> = emptySet(),
     supportedCommonVersions: Set<Int> =
         setOf(NeoForgeProtocol.COMMON_PACKET_VERSION),
-    val maximumSplitPacketSize: Int = NeoForgeProtocol.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE,
 ) {
     val configFiles: List<NeoForgeConfigFilePacket> = configFiles.toList()
     val knownDataMaps: Map<Identifier, List<NeoForgeKnownDataMap>> =
@@ -68,7 +65,6 @@ class NeoForgeServerProfileDefinition(
         ) {
             "NeoForge server extensible enums contain duplicate class names"
         }
-        require(maximumSplitPacketSize > 0)
     }
 }
 
@@ -90,9 +86,7 @@ class NeoForgeClientProfile(
     private val remotePlayChannels = linkedSetOf<Identifier>()
     private val configFiles = mutableListOf<NeoForgeConfigFilePacket>()
     private val frozenPackets = linkedMapOf<Identifier, NeoForgeFrozenRegistryPacket>()
-    private val splitAssembler = NeoForgeSplitAssembler(
-        definition.maximumSplitPacketSize,
-    )
+    private val splitAssembler = NeoForgeSplitAssembler()
     private var expectedFrozenRegistries: Set<Identifier>? = null
     private var frozenSnapshot: RemoteRegistrySnapshot? = null
     private var networkSetup: NeoForgeNetworkSetup? = null
@@ -413,9 +407,7 @@ class NeoForgeServerProfile(
 ) : ServerNegotiationProfile {
     private val remoteConfigurationChannels = linkedSetOf<Identifier>()
     private val remotePlayChannels = linkedSetOf<Identifier>()
-    private val splitAssembler = NeoForgeSplitAssembler(
-        definition.maximumSplitPacketSize,
-    )
+    private val splitAssembler = NeoForgeSplitAssembler()
     private var setup: NeoForgeNetworkSetup? = null
     private var neoForgePeer = false
     private var receivedProbePong = false
@@ -783,8 +775,9 @@ class NeoForgeServerProfile(
                         entry.networkCheck != NeoForgeNetworkCheck.SERVERBOUND
             }
             if (required.isNotEmpty()) {
+                val classNames = required.map(NeoForgeEnumEntry::className)
                 throw NeoForgeNegotiationException(
-                    "Client cannot validate clientbound NeoForge extensible enums ${required.map(NeoForgeEnumEntry::className)}",
+                    "Client cannot validate clientbound NeoForge extensible enums $classNames",
                 )
             }
             return
@@ -851,7 +844,6 @@ class NeoForgeServerProfile(
         }
         NeoForgeSplitPayloads.split(
             routed,
-            maximumPacketSize = definition.maximumSplitPacketSize,
         ).forEach { fragment -> connection.outgoing.send(fragment) }
     }
 

@@ -10,7 +10,7 @@ internal fun modifiedUtfLength(value: String): Int {
             else -> 3
         }
         if (byteLength > 65_535) {
-            throw NbtLimitException(
+            throw NbtEncodingException(
                 "NBT string exceeds the modified-UTF unsigned-short limit",
             )
         }

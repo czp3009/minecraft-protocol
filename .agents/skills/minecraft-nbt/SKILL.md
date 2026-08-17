@@ -21,14 +21,14 @@ root, or UTF behavior merely because older NBT documentation describes it.
 ## Implement at the owning boundary
 
 Keep tag values, documents, and the logical raw-tag serializer handoff in `nbt`. Keep binary tag IDs, root forms,
-modified UTF, physical limits, and the `kotlinx.serialization` format in `nbt-serialization`. Use `kotlinx.io.Source`
-and `Sink`; preserve caller ownership.
+modified UTF, format-intrinsic lengths, and the `kotlinx.serialization` format in `nbt-serialization`. Use
+`kotlinx.io.Source` and `Sink`; preserve caller ownership.
 
 Do not put GZIP/ZLIB file policy, region compression identifiers, paths, or file handles in either module. Load the
 world-format or world-io skill when those wrappers change.
 
-Reject malformed types, sizes, nesting, and truncated input before they become unbounded allocations or ambiguous
-logical values. Preserve equivalent public result and exception semantics across supported targets.
+Reject malformed types, negative lengths, and truncated input, but do not add policy-sized byte, collection, array, or
+nesting ceilings. Preserve equivalent public result and exception semantics across supported targets.
 
 ## Verify and report
 

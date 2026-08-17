@@ -438,12 +438,8 @@ private class GatedIdentityCompressionCodec(
         override fun close() = sink.flush()
     }
 
-    override fun decompressingSource(
-        source: KotlinxSource,
-        maximumOutputBytes: Int,
-    ): KotlinxRawSource {
-        require(maximumOutputBytes >= 0)
-        return object : KotlinxRawSource {
+    override fun decompressingSource(source: KotlinxSource): KotlinxRawSource =
+        object : KotlinxRawSource {
             override fun readAtMostTo(
                 sink: KotlinxBuffer,
                 byteCount: Long,
@@ -454,5 +450,4 @@ private class GatedIdentityCompressionCodec(
 
             override fun close() = Unit
         }
-    }
 }

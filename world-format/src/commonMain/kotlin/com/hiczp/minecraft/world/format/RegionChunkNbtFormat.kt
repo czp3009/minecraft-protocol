@@ -5,14 +5,6 @@ import com.hiczp.minecraft.nbt.serialization.NbtDecodingException
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import kotlinx.io.*
 
-data class RegionChunkNbtFormatConfiguration(
-    val maximumDecompressedChunkBytes: Int = 256 * 1_048_576,
-) {
-    init {
-        require(maximumDecompressedChunkBytes >= 0)
-    }
-}
-
 /**
  * Composes region compression with compound-document NBT while keeping both
  * independently reusable.
@@ -30,7 +22,6 @@ data class RegionChunkNbtFormatConfiguration(
 class RegionChunkNbtFormat(
     val nbt: NbtFormat = NbtFormat,
     val compressionCodecs: CompressionCodecs = CompressionCodecs,
-    val configuration: RegionChunkNbtFormatConfiguration = RegionChunkNbtFormatConfiguration(),
 ) {
     /**
      * Decodes one complete compressed NBT stream without closing [source].
@@ -40,11 +31,7 @@ class RegionChunkNbtFormat(
         source: Source,
         compression: Compression,
     ): NbtDocument =
-        compressionCodecs.decompressingSource(
-            compression,
-            source,
-            configuration.maximumDecompressedChunkBytes,
-        ).buffered().use { decompressed ->
+        compressionCodecs.decompressingSource(compression, source).buffered().use { decompressed ->
             val document = nbt.decodeDocumentFromSource(decompressed)
             if (!decompressed.exhausted()) {
                 throw NbtDecodingException(
@@ -67,12 +54,7 @@ class RegionChunkNbtFormat(
             compression,
             sink,
         ).buffered().use { compressed ->
-            DecompressedLimitRawSink(
-                compressed,
-                configuration.maximumDecompressedChunkBytes,
-            ).buffered().use { limited ->
-                nbt.encodeDocumentToSink(document, limited)
-            }
+            nbt.encodeDocumentToSink(document, compressed)
         }
     }
 
@@ -110,34 +92,4 @@ class RegionChunkNbtFormat(
             timestamp = timestamp,
         )
     }
-}
-
-// NBT serialization writes into the compressor, so enforce the decompressed
-// limit before bytes enter the library codec. Closing remains owned by the
-// surrounding converted compression sink.
-private class DecompressedLimitRawSink(
-    private val downstream: Sink,
-    maximumBytes: Int,
-) : RawSink {
-    private val maximumBytes = maximumBytes.toLong()
-    private var bytesWritten = 0L
-
-    override fun write(source: Buffer, byteCount: Long) {
-        if (
-            byteCount < 0 ||
-            byteCount > maximumBytes - bytesWritten
-        ) {
-            throw RegionFormatException(
-                "NBT chunk exceeds configured limit $maximumBytes",
-            )
-        }
-        downstream.write(source, byteCount)
-        bytesWritten += byteCount
-    }
-
-    override fun flush() {
-        downstream.flush()
-    }
-
-    override fun close() = Unit
 }

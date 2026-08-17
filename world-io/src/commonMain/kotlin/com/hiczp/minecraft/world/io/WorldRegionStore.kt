@@ -8,6 +8,10 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.io.buffered
+import kotlinx.io.okio.asKotlinxIoRawSource
+import okio.BufferedSink
+import okio.BufferedSource
 import okio.FileSystem
 import okio.Path
 import kotlin.coroutines.cancellation.CancellationException
@@ -17,24 +21,20 @@ import kotlin.coroutines.cancellation.CancellationException
  * are accessed concurrently.
  */
 data class WorldRegionStoreConfiguration(
-    val maximumCompressedChunkBytes: Int = 256 * 1_048_576,
     val syncWrites: Boolean = true,
     /** Default used by NBT writes that do not select compression per chunk. */
     val writeCompression: Compression = Compression.ZLIB,
-) {
-    init {
-        require(maximumCompressedChunkBytes >= 0)
-    }
-}
+)
 
 /**
  * One mutable vanilla-style region storage directory for one dimension.
  *
  * Reads of the same `.mca` file may run concurrently. A write has exclusive access to that file and
  * waits for its admitted readers, while different files may progress independently. Admission is
- * writer-preferring but not fair or FIFO among same-kind waiters. NBT encoding and decoding happens
- * outside exclusive file access. Region entries and handles exist only while operations are in
- * flight; the last operation for a file closes that file. These suspend functions wait only for
+ * writer-preferring but not fair or FIFO among same-kind waiters. NBT encoding happens before
+ * exclusive file access; streaming reads and NBT decoding retain shared file access so a writer
+ * cannot replace their sectors mid-read. Region entries and handles exist only while operations are
+ * in flight; the last operation for a file closes that file. These suspend functions wait only for
  * coordination; blocking filesystem I/O and compression run on the calling coroutine's dispatcher
  * and are not automatically main-safe.
  */
@@ -113,6 +113,15 @@ class WorldRegionStore internal constructor(
             }
         }
 
+    suspend fun <T> readChunk(
+        position: ChunkPosition,
+        block: (RegionChunkStreamInfo, BufferedSource) -> T,
+    ): T? = withRegionEntry(position.region) { entry ->
+        withReadAccess(entry) {
+            openedStore(entry).read(position, block)
+        }
+    }
+
     suspend fun doesChunkExist(position: ChunkPosition): Boolean =
         withRegionEntry(position.region) { entry ->
             withReadAccess(entry) {
@@ -131,14 +140,22 @@ class WorldRegionStore internal constructor(
     ) = withRegionEntry(position.region) { entry ->
         files.requireWritable()
         if (chunk != null) {
-            validatedCompressedPayload(
-                position = position,
-                chunk = chunk,
-                maximumCompressedChunkBytes = configuration.maximumCompressedChunkBytes,
-            )
+            validatedCompressedPayload(position, chunk)
         }
         entry.fileAccess.write {
             openedStore(entry).write(position, chunk)
+        }
+    }
+
+    suspend fun writeChunk(
+        position: ChunkPosition,
+        compression: Compression,
+        compressedLength: Long,
+        block: BufferedSink.() -> Unit,
+    ) = withRegionEntry(position.region) { entry ->
+        files.requireWritable()
+        entry.fileAccess.write {
+            openedStore(entry).write(position, compression, compressedLength, block)
         }
     }
 
@@ -148,12 +165,13 @@ class WorldRegionStore internal constructor(
 
     suspend fun readChunkNbt(position: ChunkPosition): NbtDocument? =
         withRegionEntry(position.region) { entry ->
-            val chunk = withReadAccess(entry) {
-                openedStore(entry).read(position)
-            }
-            if (chunk == null) return@withRegionEntry null
-            withOkioIoExceptions("Cannot decode chunk $position") {
-                chunkNbtFormat.decode(chunk)
+            withReadAccess(entry) {
+                openedStore(entry).read(position) { info, source ->
+                    withOkioIoExceptions("Cannot decode chunk $position") {
+                        val converted = source.asKotlinxIoRawSource().buffered()
+                        chunkNbtFormat.decodeFromSource(converted, info.compression)
+                    }
+                }
             }
         }
 
@@ -176,11 +194,6 @@ class WorldRegionStore internal constructor(
         val chunk = withOkioIoExceptions("Cannot encode chunk $position") {
             chunkNbtFormat.encode(document, compression)
         }
-        validatedCompressedPayload(
-            position = position,
-            chunk = chunk,
-            maximumCompressedChunkBytes = configuration.maximumCompressedChunkBytes,
-        )
         entry.fileAccess.write {
             openedStore(entry).write(position, chunk)
         }
@@ -347,7 +360,6 @@ class WorldRegionStore internal constructor(
             files = files,
             directory = directory,
             position = entry.position,
-            maximumCompressedChunkBytes = configuration.maximumCompressedChunkBytes,
             syncWrites = configuration.syncWrites,
         )
         entry.store = opened

@@ -17,7 +17,7 @@ enum class NbtRootEncoding {
 }
 
 /**
- * Kotlin mapping policy and resource limits for [NbtFormat].
+ * Kotlin mapping policy for [NbtFormat].
  *
  * NBT has no null tag. Null compound properties are omitted; a missing
  * required nullable property decodes as null, while optional properties keep
@@ -32,20 +32,7 @@ data class NbtFormatConfiguration(
     val encodeDefaults: Boolean = false,
     val ignoreUnknownKeys: Boolean = false,
     val strictBooleans: Boolean = true,
-    val maximumDepth: Int = 512,
-    val maximumCollectionSize: Int = 1_048_576,
-    val maximumByteArraySize: Int = 16 * 1_048_576,
-    val maximumStringBytes: Int = 65_535,
-    val maximumEncodedBytes: Long = 64L * 1_048_576,
-) {
-    init {
-        require(maximumDepth >= 0)
-        require(maximumCollectionSize >= 0)
-        require(maximumByteArraySize >= 0)
-        require(maximumStringBytes in 0..65_535)
-        require(maximumEncodedBytes >= 0)
-    }
-}
+)
 
 /** Base NBT failure in the standard kotlinx serialization hierarchy. */
 open class NbtSerializationException(
@@ -61,12 +48,6 @@ class NbtEncodingException(
 
 /** Malformed or unsupported NBT input. */
 class NbtDecodingException(
-    message: String,
-    cause: Throwable? = null,
-) : NbtSerializationException(message, cause)
-
-/** Configured NBT resource limit was exceeded. */
-class NbtLimitException(
     message: String,
     cause: Throwable? = null,
 ) : NbtSerializationException(message, cause)

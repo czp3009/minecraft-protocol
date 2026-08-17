@@ -7,13 +7,10 @@ import kotlinx.io.readByteArray
 
 internal class NbtBinaryReader(
     private val source: Source,
-    private val configuration: NbtFormatConfiguration,
 ) {
-    private var bytesRead = 0L
-
     fun readAnyTag(): NbtTag {
         val type = readUnsignedByte()
-        return readPayload(type, depth = 0)
+        return readPayload(type)
     }
 
     fun readNamedTag(): NamedNbtTag {
@@ -24,7 +21,7 @@ internal class NbtBinaryReader(
         validateType(type)
         return NamedNbtTag(
             name = readModifiedUtf(),
-            tag = readPayload(type, depth = 0),
+            tag = readPayload(type),
         )
     }
 
@@ -33,11 +30,10 @@ internal class NbtBinaryReader(
         if (type == TAG_END) return NbtEnd
         validateType(type)
         readModifiedUtf()
-        return readPayload(type, depth = 0)
+        return readPayload(type)
     }
 
-    internal fun readPayload(type: Int, depth: Int): NbtTag {
-        checkDepth(depth)
+    internal fun readPayload(type: Int): NbtTag {
         return when (type) {
             TAG_END -> NbtEnd
             TAG_BYTE -> NbtByte(readByte())
@@ -48,8 +44,8 @@ internal class NbtBinaryReader(
             TAG_DOUBLE -> NbtDouble(Double.fromBits(readLong()))
             TAG_BYTE_ARRAY -> readByteArrayTag()
             TAG_STRING -> NbtString(readModifiedUtf())
-            TAG_LIST -> readList(depth)
-            TAG_COMPOUND -> readCompound(depth)
+            TAG_LIST -> readList()
+            TAG_COMPOUND -> readCompound()
             TAG_INT_ARRAY -> readIntArray()
             TAG_LONG_ARRAY -> readLongArray()
             else -> throw NbtDecodingException("Unknown NBT tag type: $type")
@@ -59,17 +55,15 @@ internal class NbtBinaryReader(
     private fun readByteArrayTag(): NbtByteArray {
         val length = checkedLength(
             readInt(),
-            configuration.maximumByteArraySize,
             "NBT byte array",
         )
         return NbtByteArray(readBytes(length))
     }
 
-    private fun readList(depth: Int): NbtList {
+    private fun readList(): NbtList {
         val elementType = readUnsignedByte()
         val length = checkedLength(
             readInt(),
-            configuration.maximumCollectionSize,
             "NBT list",
         )
         if (length == 0) {
@@ -82,10 +76,9 @@ internal class NbtBinaryReader(
                 "Non-empty NBT list has TAG_End element type",
             )
         }
-        requireMinimumPayload(length, minimumPayloadBytes(elementType), "NBT list")
         return NbtList(
             List(length) {
-                val element = readPayload(elementType, depth + 1)
+                val element = readPayload(elementType)
                 if (elementType == TAG_COMPOUND) {
                     (element as NbtCompound).unwrapListElement()
                 } else {
@@ -95,20 +88,14 @@ internal class NbtBinaryReader(
         )
     }
 
-    private fun readCompound(depth: Int): NbtCompound {
+    private fun readCompound(): NbtCompound {
         val entries = LinkedHashMap<String, NbtTag>()
-        var count = 0
         while (true) {
             val elementType = readUnsignedByte()
             if (elementType == TAG_END) break
             validateType(elementType)
-            if (count++ >= configuration.maximumCollectionSize) {
-                throw NbtLimitException(
-                    "NBT compound exceeds configured entry limit ${configuration.maximumCollectionSize}",
-                )
-            }
             val name = readModifiedUtf()
-            entries[name] = readPayload(elementType, depth + 1)
+            entries[name] = readPayload(elementType)
         }
         return NbtCompound(entries)
     }
@@ -116,30 +103,21 @@ internal class NbtBinaryReader(
     private fun readIntArray(): NbtIntArray {
         val length = checkedLength(
             readInt(),
-            configuration.maximumCollectionSize,
             "NBT int array",
         )
-        requireMinimumPayload(length, Int.SIZE_BYTES, "NBT int array")
         return NbtIntArray(IntArray(length) { readInt() })
     }
 
     private fun readLongArray(): NbtLongArray {
         val length = checkedLength(
             readInt(),
-            configuration.maximumCollectionSize,
             "NBT long array",
         )
-        requireMinimumPayload(length, Long.SIZE_BYTES, "NBT long array")
         return NbtLongArray(LongArray(length) { readLong() })
     }
 
     internal fun readModifiedUtf(): String {
         val byteLength = readUnsignedShort()
-        if (byteLength > configuration.maximumStringBytes) {
-            throw NbtLimitException(
-                "NBT string byte length $byteLength exceeds configured limit ${configuration.maximumStringBytes}",
-            )
-        }
         val characters = CharArray(byteLength)
         var byteIndex = 0
         var characterIndex = 0
@@ -192,34 +170,28 @@ internal class NbtBinaryReader(
     internal fun readUnsignedByte(): Int = readByte().toInt() and 0xFF
 
     internal fun readByte(): Byte {
-        account(1)
         return source.readByte()
     }
 
     internal fun readShort(): Short {
-        account(Short.SIZE_BYTES.toLong())
         return source.readShort()
     }
 
     internal fun readUnsignedShort(): Int = readShort().toInt() and 0xFFFF
 
     internal fun readInt(): Int {
-        account(Int.SIZE_BYTES.toLong())
         return source.readInt()
     }
 
     internal fun readLong(): Long {
-        account(Long.SIZE_BYTES.toLong())
         return source.readLong()
     }
 
     internal fun readBytes(length: Int): ByteArray {
-        account(length.toLong())
         return source.readByteArray(length)
     }
 
-    internal fun skipPayload(type: Int, depth: Int) {
-        checkDepth(depth)
+    internal fun skipPayload(type: Int) {
         when (type) {
             TAG_END -> Unit
             TAG_BYTE -> readByte()
@@ -235,10 +207,8 @@ internal class NbtBinaryReader(
             TAG_BYTE_ARRAY -> {
                 val length = checkedLength(
                     readInt(),
-                    configuration.maximumByteArraySize,
                     "NBT byte array",
                 )
-                account(length.toLong())
                 source.skip(length.toLong())
             }
 
@@ -247,7 +217,6 @@ internal class NbtBinaryReader(
                 val elementType = readUnsignedByte()
                 val length = checkedLength(
                     readInt(),
-                    configuration.maximumCollectionSize,
                     "NBT list",
                 )
                 if (length > 0) {
@@ -257,30 +226,23 @@ internal class NbtBinaryReader(
                             "Non-empty NBT list has TAG_End element type",
                         )
                     }
-                    repeat(length) { skipPayload(elementType, depth + 1) }
+                    repeat(length) { skipPayload(elementType) }
                 }
             }
 
             TAG_COMPOUND -> {
-                var count = 0
                 while (true) {
                     val elementType = readUnsignedByte()
                     if (elementType == TAG_END) break
                     validateType(elementType)
-                    if (count++ >= configuration.maximumCollectionSize) {
-                        throw NbtLimitException(
-                            "NBT compound exceeds configured entry limit ${configuration.maximumCollectionSize}",
-                        )
-                    }
                     readModifiedUtf()
-                    skipPayload(elementType, depth + 1)
+                    skipPayload(elementType)
                 }
             }
 
             TAG_INT_ARRAY -> {
                 val length = checkedLength(
                     readInt(),
-                    configuration.maximumCollectionSize,
                     "NBT int array",
                 )
                 repeat(length) { readInt() }
@@ -289,7 +251,6 @@ internal class NbtBinaryReader(
             TAG_LONG_ARRAY -> {
                 val length = checkedLength(
                     readInt(),
-                    configuration.maximumCollectionSize,
                     "NBT long array",
                 )
                 repeat(length) { readLong() }
@@ -299,69 +260,32 @@ internal class NbtBinaryReader(
         }
     }
 
-    internal fun checkedLength(length: Int, maximum: Int, kind: String): Int =
-        com.hiczp.minecraft.nbt.serialization.checkedLength(length, maximum, kind)
-
-    internal fun requireMinimumPayload(
-        length: Int,
-        bytesPerElement: Int,
-        kind: String,
-    ) {
-        val bytes = length.toLong() * bytesPerElement
-        if (bytes > configuration.maximumEncodedBytes - bytesRead) {
-            throw NbtLimitException(
-                "$kind payload exceeds configured encoded-byte limit",
-            )
-        }
-    }
-
-    internal fun checkDepth(depth: Int) {
-        if (depth > configuration.maximumDepth) {
-            throw NbtLimitException(
-                "NBT exceeds configured depth limit ${configuration.maximumDepth}",
-            )
-        }
-    }
-
-    private fun account(count: Long) {
-        if (
-            count < 0 ||
-            count > configuration.maximumEncodedBytes - bytesRead
-        ) {
-            throw NbtLimitException(
-                "NBT exceeds configured encoded-byte limit ${configuration.maximumEncodedBytes}",
-            )
-        }
-        bytesRead += count
-    }
+    internal fun checkedLength(length: Int, kind: String): Int =
+        com.hiczp.minecraft.nbt.serialization.checkedLength(length, kind)
 }
 
 internal class NbtBinaryWriter(
     private val sink: Sink,
-    private val configuration: NbtFormatConfiguration,
 ) {
-    private var bytesWritten = 0L
-
     fun writeAnyTag(tag: NbtTag) {
         writeByte(typeOf(tag))
-        writePayload(tag, depth = 0)
+        writePayload(tag)
     }
 
     fun writeNamedTag(value: NamedNbtTag) {
         writeByte(typeOf(value.tag))
         writeModifiedUtf(value.name)
-        writePayload(value.tag, depth = 0)
+        writePayload(value.tag)
     }
 
     fun writeUnnamedTag(tag: NbtTag) {
         writeByte(typeOf(tag))
         if (tag === NbtEnd) return
         writeModifiedUtf("")
-        writePayload(tag, depth = 0)
+        writePayload(tag)
     }
 
-    internal fun writePayload(tag: NbtTag, depth: Int) {
-        checkDepth(depth)
+    internal fun writePayload(tag: NbtTag) {
         when (tag) {
             NbtEnd -> Unit
             is NbtByte -> writeByte(tag.value.toInt())
@@ -371,30 +295,26 @@ internal class NbtBinaryWriter(
             is NbtFloat -> writeInt(tag.value.toBits())
             is NbtDouble -> writeLong(tag.value.toBits())
             is NbtByteArray -> {
-                checkByteArrayLength(tag.size)
                 writeInt(tag.size)
                 tag.forEach { writeByte(it.toInt()) }
             }
 
             is NbtString -> writeModifiedUtf(tag.value)
-            is NbtList -> writeList(tag, depth)
-            is NbtCompound -> writeCompound(tag, depth)
+            is NbtList -> writeList(tag)
+            is NbtCompound -> writeCompound(tag)
             is NbtIntArray -> {
-                checkCollectionLength(tag.size, "NBT int array")
                 writeInt(tag.size)
                 tag.forEach(::writeInt)
             }
 
             is NbtLongArray -> {
-                checkCollectionLength(tag.size, "NBT long array")
                 writeInt(tag.size)
                 tag.forEach(::writeLong)
             }
         }
     }
 
-    private fun writeList(tag: NbtList, depth: Int) {
-        checkCollectionLength(tag.size, "NBT list")
+    private fun writeList(tag: NbtList) {
         val rawType = rawListType(tag)
         writeByte(rawType)
         writeInt(tag.size)
@@ -403,38 +323,31 @@ internal class NbtBinaryWriter(
                 rawType == TAG_COMPOUND &&
                 (element !is NbtCompound || element.isListWrapper())
             ) {
-                writeListWrapper(element, depth + 1)
+                writeListWrapper(element)
             } else {
-                writePayload(element, depth + 1)
+                writePayload(element)
             }
         }
     }
 
-    internal fun writeListWrapper(element: NbtTag, depth: Int) {
-        checkDepth(depth)
+    internal fun writeListWrapper(element: NbtTag) {
         writeByte(typeOf(element))
         writeModifiedUtf("")
-        writePayload(element, depth + 1)
+        writePayload(element)
         writeByte(TAG_END)
     }
 
-    private fun writeCompound(tag: NbtCompound, depth: Int) {
-        checkCollectionLength(tag.size, "NBT compound")
+    private fun writeCompound(tag: NbtCompound) {
         tag.forEachEntry { name, value ->
             writeByte(typeOf(value))
             writeModifiedUtf(name)
-            writePayload(value, depth + 1)
+            writePayload(value)
         }
         writeByte(TAG_END)
     }
 
     internal fun writeModifiedUtf(value: String) {
         val byteLength = modifiedUtfLength(value)
-        if (byteLength > configuration.maximumStringBytes) {
-            throw NbtLimitException(
-                "NBT string byte length $byteLength exceeds configured limit ${configuration.maximumStringBytes}",
-            )
-        }
         writeShort(byteLength)
         for (character in value) {
             val code = character.code
@@ -455,97 +368,32 @@ internal class NbtBinaryWriter(
     }
 
     internal fun writeByte(value: Int) {
-        account(1)
         sink.writeByte(value.toByte())
     }
 
     internal fun writeShort(value: Int) {
-        account(Short.SIZE_BYTES.toLong())
         sink.writeShort(value.toShort())
     }
 
     internal fun writeInt(value: Int) {
-        account(Int.SIZE_BYTES.toLong())
         sink.writeInt(value)
     }
 
     internal fun writeLong(value: Long) {
-        account(Long.SIZE_BYTES.toLong())
         sink.writeLong(value)
     }
 
     internal fun writeBytes(value: ByteArray) {
-        account(value.size.toLong())
         sink.write(value)
-    }
-
-    internal fun checkDepth(depth: Int) {
-        if (depth > configuration.maximumDepth) {
-            throw NbtLimitException(
-                "NBT exceeds configured depth limit ${configuration.maximumDepth}",
-            )
-        }
-    }
-
-    internal fun checkCollectionLength(length: Int, kind: String) {
-        if (length > configuration.maximumCollectionSize) {
-            throw NbtLimitException(
-                "$kind length $length exceeds configured limit ${configuration.maximumCollectionSize}",
-            )
-        }
-    }
-
-    internal fun checkByteArrayLength(length: Int) {
-        if (length > configuration.maximumByteArraySize) {
-            throw NbtLimitException(
-                "NBT byte array length $length exceeds configured limit ${configuration.maximumByteArraySize}",
-            )
-        }
-    }
-
-    private fun account(count: Long) {
-        if (
-            count < 0 ||
-            count > configuration.maximumEncodedBytes - bytesWritten
-        ) {
-            throw NbtLimitException(
-                "NBT exceeds configured encoded-byte limit ${configuration.maximumEncodedBytes}",
-            )
-        }
-        bytesWritten += count
     }
 }
 
-internal fun checkedLength(length: Int, maximum: Int, kind: String): Int {
-    if (length !in 0..maximum) {
-        throw NbtLimitException(
-            "$kind length $length is outside configured range 0..$maximum",
-        )
+internal fun checkedLength(length: Int, kind: String): Int {
+    if (length < 0) {
+        throw NbtDecodingException("$kind has negative length $length")
     }
     return length
 }
 
 private fun malformedModifiedUtf(index: Int): Nothing =
     throw NbtDecodingException("Malformed modified UTF-8 at byte $index")
-
-private fun minimumPayloadBytes(type: Int): Int = when (type) {
-    TAG_BYTE -> 1
-    TAG_SHORT -> 2
-    TAG_INT,
-    TAG_FLOAT,
-        -> 4
-
-    TAG_LONG,
-    TAG_DOUBLE,
-        -> 8
-
-    TAG_BYTE_ARRAY,
-    TAG_INT_ARRAY,
-    TAG_LONG_ARRAY,
-        -> 4
-
-    TAG_STRING -> 2
-    TAG_LIST -> 5
-    TAG_COMPOUND -> 1
-    else -> 0
-}

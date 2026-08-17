@@ -23,7 +23,7 @@ internal class MinecraftDecoder(
     private val configuration: MinecraftProtocolFormatConfiguration,
     override val serializersModule: SerializersModule,
 ) : Decoder, CompositeDecoder, NbtTagDecoder {
-    private val nbtCodec: NbtBinaryCodec = NbtBinaryCodec(configuration)
+    private val nbtCodec: NbtBinaryCodec = NbtBinaryCodec
     private val frames: MutableList<Frame> = mutableListOf()
     private var pendingHints: List<Annotation> = emptyList()
     private var injectNotNullMark: Boolean = false
@@ -396,13 +396,9 @@ internal class MinecraftDecoder(
             )
         }
         val size = reader.readVarInt(configuration.rejectNonMinimalVarNumbers)
-        val maximum = minOf(
-            annotation.maxBytes,
-            configuration.maximumByteArraySize,
-        )
-        if (size !in 0..maximum) {
+        if (size !in 0..annotation.maxBytes) {
             throw MinecraftSerializationException(
-                "Invalid length-prefixed value size $size; maximum is $maximum",
+                "Invalid length-prefixed value size $size; maximum is ${annotation.maxBytes}",
             )
         }
         val nested = MinecraftDecoder(
@@ -441,13 +437,7 @@ internal class MinecraftDecoder(
 
             else -> reader.readVarInt(configuration.rejectNonMinimalVarNumbers)
         }
-        val configuredMaximum =
-            if (isByteArrayDescriptor(descriptor)) {
-                configuration.maximumByteArraySize
-            } else {
-                configuration.maximumCollectionSize
-            }
-        if (size !in 0..configuredMaximum) {
+        if (size < 0) {
             throw MinecraftSerializationException("Invalid collection size: $size")
         }
         validateCollectionHints(size, hints)
@@ -504,9 +494,6 @@ internal class MinecraftDecoder(
     private fun isPalettedContainerDescriptor(descriptor: SerialDescriptor): Boolean =
         descriptor.serialName == PALETTED_CONTAINER_SERIAL_NAME
 
-    private fun isByteArrayDescriptor(descriptor: SerialDescriptor): Boolean =
-        descriptor.serialName == BYTE_ARRAY_SERIAL_NAME
-
     private fun isUuidDescriptor(descriptor: SerialDescriptor): Boolean =
         descriptor.serialName == UUID_SERIAL_NAME
 
@@ -526,7 +513,6 @@ internal class MinecraftDecoder(
         const val DEFAULT_STRING_MAXIMUM: Int = 32_767
         const val VECTOR_3D_SERIAL_NAME: String = "com.hiczp.minecraft.protocol.model.type.Vector3d"
         const val PALETTED_CONTAINER_SERIAL_NAME: String = "com.hiczp.minecraft.protocol.model.type.PalettedContainer"
-        const val BYTE_ARRAY_SERIAL_NAME: String = "kotlin.ByteArray"
         const val UUID_SERIAL_NAME: String = "kotlin.uuid.Uuid"
     }
 }

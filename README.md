@@ -37,8 +37,14 @@ require, so a focused consumer never pulls in unrelated capabilities.
   negotiation profiles.
 - Offline and online Login with Session Server calls and Login key exchange; Microsoft OAuth and Xbox account HTTP APIs
   are available separately.
-- Binary NBT and filesystem-independent Anvil containers, plus Okio-based world I/O that reads, mutates, and live-reads
-  real worlds—including worlds owned by the official server.
+- Streaming binary NBT and filesystem-independent Anvil containers, plus Okio-based world I/O with full-value and
+  streaming APIs that read, mutate, and live-read real worlds—including worlds owned by the official server.
+
+Usage examples are documented at each owning layer: binary NBT in
+[`nbt-serialization`](nbt-serialization/README.md), compression and Anvil containers in
+[`world-format`](world-format/README.md), and filesystem-backed JSON, NBT, MCA, and MCC access in
+[`world-io`](world-io/README.md#streaming-large-files). Every published module in the table above documents its own key
+entry points rather than requiring consumers to infer them from a higher layer.
 
 Together these blocks cover applications such as:
 

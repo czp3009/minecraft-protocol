@@ -560,24 +560,45 @@ class OpenMinecraftWorldConcurrencyTest {
             delegate = threadSafeFakeFileSystem(base),
             failures = listOf(earlierFailure, cancellation),
         )
-        val decodeGate = BlockingGate(expectedEntrants = storageDirectories.size)
+        val readGate = BlockingGate(expectedEntrants = storageDirectories.size)
+        val encodeGate = BlockingGate(expectedEntrants = storageDirectories.size)
         val lock = RecordingWorldDirectoryLock()
         val world = OpenMinecraftWorld(
             paths = paths,
             files = WorldFileAccess.mutable(fileSystem),
-            regionChunkNbtFormat = gatedNbtFormat(decodeGate),
-            regionStoreConfiguration = WorldRegionStoreConfiguration(syncWrites = false),
+            regionChunkNbtFormat = gatedNbtFormat(encodeGate),
+            regionStoreConfiguration = WorldRegionStoreConfiguration(
+                syncWrites = false,
+                writeCompression = Compression.NONE,
+            ),
             directoryLock = lock,
         )
         val jobs = mutableListOf<Deferred<*>>()
         try {
-            val decoding = storageDirectories.map { storage ->
+            val reading = storageDirectories.map { storage ->
                 async(Dispatchers.Default) {
-                    world.readChunkNbt(position, storage, DimensionDirectory.Overworld)
+                    world.readChunk(position, storage, DimensionDirectory.Overworld) { _, source ->
+                        readGate.awaitRelease()
+                        source.readByteArray()
+                    }
                 }
             }
-            jobs += decoding
-            decodeGate.awaitEntered()
+            jobs += reading
+            readGate.awaitEntered()
+            val encoding = storageDirectories.mapIndexed { index, storage ->
+                async(Dispatchers.Default) {
+                    world.writeChunkNbt(
+                        position,
+                        concurrencyDocument(index + 10),
+                        storage,
+                        DimensionDirectory.Overworld,
+                    )
+                }
+            }
+            jobs += encoding
+            encodeGate.awaitEntered()
+            readGate.open()
+            reading.awaitAll()
 
             val failure = assertFailsWith<CancellationException> { world.flush() }
 
@@ -586,17 +607,16 @@ class OpenMinecraftWorldConcurrencyTest {
             assertEquals(2, fileSystem.flushAttempts.get())
             assertEquals(storageDirectories.size, world.activeRegionStoreCount())
 
-            decodeGate.open()
-            decoding.forEachIndexed { index, result ->
-                assertEquals(concurrencyDocument(index), result.await())
-            }
+            encodeGate.open()
+            encoding.awaitAll()
             assertEquals(0, world.activeRegionStoreCount())
             world.close()
             assertFalse(lock.isValid)
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
-                decodeGate.open()
+                readGate.open()
+                encodeGate.open()
                 jobs.joinAll()
                 world.close()
                 base.checkNoOpenFiles()

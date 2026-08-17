@@ -21,16 +21,19 @@ compression wrapper — GZIP for `level.dat`, GZIP or NONE for saved data. This 
 with `NbtFormat` to read and write the data itself, independently of any filesystem:
 
 ```kotlin
-// Read one complete stream, for example the bytes of a level.dat
+// Transfer arbitrary bytes without constructing an intermediate ByteArray.
+CompressionCodecs.decompressToSink(Compression.GZIP, compressedSource, plainSink)
+CompressionCodecs.compressToSink(Compression.GZIP, plainSource, compressedSink)
+
+// Decode one compressed NBT stream, for example the contents of level.dat.
 val document = CompressionCodecs.decompressingSource(
     compression = Compression.GZIP,
     source = source,
-    maximumOutputBytes = 256 * 1_048_576,
 ).buffered().use {
     NbtFormat.decodeDocumentFromSource(it)
 }
 
-// Write one complete stream back
+// Encode directly through the compression stream.
 CompressionCodecs.compressingSink(Compression.GZIP, sink).buffered().use {
     NbtFormat.encodeDocumentToSink(document, it)
 }
@@ -39,6 +42,15 @@ CompressionCodecs.compressingSink(Compression.GZIP, sink).buffered().use {
 The decorators never close the caller-owned `source` or `sink`; closing a compressing decorator is still required
 because it emits the stream terminator. For region-chunk payloads specifically, `RegionChunkNbtFormat` composes the same
 registry into `RegionChunk` values with per-chunk compression and timestamps.
+
+Use its stream methods when the compressed payload itself does not need to become a `RegionChunk` byte array:
+
+```kotlin
+val chunkNbt = RegionChunkNbtFormat()
+val document = chunkNbt.decodeFromSource(compressedChunkSource, Compression.ZLIB)
+chunkNbt.encodeToSink(document, Compression.ZLIB, compressedChunkSink)
+compressedChunkSink.flush()
+```
 
 ## Anvil region containers
 
@@ -57,13 +69,26 @@ val updated = chunkNbt.encode(
   compression = Compression.ZLIB,
   timestamp = epochSeconds,
 )
-val encoded = RegionFileFormat.encodeToByteArray(
-  region.copy(chunks = region.chunks + (local to updated)),
+val updatedRegion = region.copy(
+  chunks = region.chunks + (local to updated),
 )
 
-// encoded.bytes is the complete .mca image
-// encoded.externalChunks values are the c.<x>.<z>.mcc payloads for external chunks
+// Stream the complete .mca image. The returned values are payloads that belong
+// in c.<x>.<z>.mcc sidecars; world-format deliberately does not open paths.
+val externalChunks = RegionFileFormat.encodeToSink(updatedRegion, encodedRegionSink)
+encodedRegionSink.flush()
 ```
+
+For a large `.mca`, process compressed inline payloads one at a time without constructing a `RegionFile` tree:
+
+```kotlin
+RegionFileFormat.readChunksFromSource(source) { info, compressedPayload ->
+  consumeChunk(info.position, info.compression, compressedPayload)
+}
+```
+
+The callback must consume each lent payload before returning. An external marker has an empty inline payload; filesystem
+code resolves its `.mcc` sidecar separately.
 
 Each `RegionChunk` carries its own compression registration, so one `RegionFile` may preserve mixed registrations
 without inflating any payload. For in-place updates that never rewrite the whole file, the same container is also
@@ -76,7 +101,9 @@ values used by standalone files.
 
 Entry points expose only `kotlinx.io` sources and sinks and never close caller-owned endpoints; byte-array and
 `RegionChunk` methods wrap the streaming paths. The module does not open paths or impose a typed, version-specific chunk
-schema; filesystem-level defaults belong to [`world-io`](../world-io/README.md).
+schema or policy-sized resource ceilings; filesystem-level defaults belong to [`world-io`](../world-io/README.md).
+Intrinsic Anvil location fields, sector counts, record lengths, and the modified-UTF field used by NBT remain bounded by
+their binary representations.
 
 Structural Anvil or compression-container errors throw `RegionFormatException`, while stream access and
 compression-backend failures surface as `kotlinx.io.IOException`. NBT grammar and serialization failures retain their

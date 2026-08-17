@@ -226,6 +226,9 @@ class MinecraftConnectionEngine<
                     session.awaitInitialPlayContext()
                 }
             }
+        } catch (cause: CancellationException) {
+            handlePumpFailure(cause)
+            throw cause
         } catch (cause: Throwable) {
             handlePumpFailure(cause)
         }
@@ -238,6 +241,9 @@ class MinecraftConnectionEngine<
                 session.send(packet)
             }
             terminate(ConnectionTermination.Normal)
+        } catch (cause: CancellationException) {
+            handlePumpFailure(cause)
+            throw cause
         } catch (cause: Throwable) {
             handlePumpFailure(cause)
         }

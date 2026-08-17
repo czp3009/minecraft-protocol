@@ -6,6 +6,10 @@ import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.world.format.Compression
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import okio.*
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
@@ -22,6 +26,27 @@ class StandaloneFileStoresTest {
             val path = "/world/${compression.name}.dat".toPath()
             store.writeDirect(path, document, compression)
             assertEquals(document, store.read(path, compression))
+        }
+        fileSystem.checkNoOpenFiles()
+    }
+
+    @Test
+    fun physicalNbtFilesStreamBothDirectionsForEverySupportedWrapper() {
+        val fileSystem = FakeFileSystem()
+        val store = NbtFileStore(fileSystem)
+        val document = sampleDocument(7)
+
+        standaloneFileCompressions.forEach { compression ->
+            val path = "/world/stream-${compression.name}.dat".toPath()
+            store.writeDirect(path, compression) { sink ->
+                store.nbt.encodeDocumentToSink(document, sink)
+            }
+            assertEquals(
+                document,
+                store.read(path, compression) { source ->
+                    store.nbt.decodeDocumentFromSource(source)
+                },
+            )
         }
         fileSystem.checkNoOpenFiles()
     }
@@ -113,6 +138,37 @@ class StandaloneFileStoresTest {
     }
 
     @Test
+    fun jsonSupportsStructuredAndRawStreamingWithoutPolicyLimits() {
+        val fileSystem = FakeFileSystem()
+        val store = Utf8JsonFileStore(fileSystem)
+        val path = "/world/advancements/player.json".toPath()
+        val element = buildJsonObject {
+            put("values", buildJsonArray { repeat(2_048) { add(JsonPrimitive(it)) } })
+        }
+
+        store.writeJson(path, element)
+        assertEquals(element, store.readJson(path))
+
+        val encoded = Json.encodeToString(element)
+        store.write(path) {
+            encoded.chunked(257).forEach(::writeUtf8)
+        }
+        val copied = Buffer()
+        val reads = mutableListOf<Long>()
+        store.read(path) {
+            while (true) {
+                val read = read(copied, 257L)
+                if (read < 0L) break
+                reads += read
+            }
+        }
+
+        assertTrue(reads.size > 1)
+        assertTrue(reads.all { it in 1L..257L })
+        assertEquals(encoded, copied.readUtf8())
+    }
+
+    @Test
     fun failedFinalReplacementRestoresTheBackedUpLevelData() = runTest {
         val base = FakeFileSystem()
         val paths = MinecraftWorldPaths("/world".toPath())
@@ -186,38 +242,29 @@ class StandaloneFileStoresTest {
     }
 
     @Test
-    fun temporaryNbtFailureDoesNotReplaceThePrimaryFile() = runTest {
+    fun streamingNbtFailureDoesNotReplaceThePrimaryFile() = runTest {
         val base = FakeFileSystem()
         val paths = MinecraftWorldPaths("/world".toPath())
         val first = sampleDocument(1)
         LevelDataStore(paths, NbtFileStore(base)).write(first)
-        val limited = NbtFileStore(
-            fileSystem = base,
-            configuration = NbtFileStoreConfiguration(
-                maximumCompressedBytes = 1_048_576,
-                maximumDecompressedBytes = 1,
-            ),
-        )
+        val failure = WorldIOException("synthetic streaming failure")
 
-        assertFailsWith<WorldIOException> {
-            LevelDataStore(paths, limited).write(sampleDocument(2))
-        }
+        assertSame(failure, assertFails { LevelDataStore(paths, NbtFileStore(base)).write { throw failure } })
 
         assertEquals(first, NbtFileStore(base).read(paths.levelData))
         assertTrue(base.allPaths.none { it.name.startsWith(".tmp-") })
     }
 
     @Test
-    fun limitsAndInvalidSavedDataIdentifiersAreRejected() = runTest {
+    fun jsonHasNoPolicyLimitAndInvalidSavedDataIdentifiersAreRejected() = runTest {
         val fileSystem = FakeFileSystem()
         val paths = MinecraftWorldPaths("/world".toPath())
         assertFailsWith<IllegalArgumentException> {
             paths.savedData("a/../b")
         }
-        assertFailsWith<WorldIOException> {
-            Utf8JsonFileStore(fileSystem, maximumBytes = 1)
-                .write("/world/value.json".toPath(), "\u00E9")
-        }
+        val jsonPath = "/world/value.json".toPath()
+        Utf8JsonFileStore(fileSystem).write(jsonPath, "\u00E9")
+        assertEquals("\u00E9", Utf8JsonFileStore(fileSystem).read(jsonPath))
         assertNotEquals(
             sampleDocument(1),
             sampleDocument(2),
@@ -306,6 +353,6 @@ private fun FileSystem.writeRaw(path: Path, bytes: ByteArray) {
 }
 
 private fun FileSystem.readRaw(path: Path): ByteArray =
-    readFileWithinLimit(path, Int.MAX_VALUE)
+    readFileBytes(path)
 
 private fun FakeFileSystem.allPaths(): Set<Path> = allPaths

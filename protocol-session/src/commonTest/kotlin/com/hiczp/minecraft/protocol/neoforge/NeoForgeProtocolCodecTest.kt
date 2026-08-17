@@ -208,10 +208,9 @@ class NeoForgeProtocolCodecTest {
         val fragments = NeoForgeSplitPayloads.split(
             routed,
             maximumPartSize = 32,
-            maximumPacketSize = 256,
         )
         assertTrue(fragments.size > 1)
-        val assembler = NeoForgeSplitAssembler(256)
+        val assembler = NeoForgeSplitAssembler()
         var result: RoutedCustomPayload? = null
         fragments.forEach { fragment ->
             result = assembler.accept(

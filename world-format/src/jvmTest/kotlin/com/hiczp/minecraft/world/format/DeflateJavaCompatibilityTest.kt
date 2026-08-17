@@ -50,7 +50,6 @@ class DeflateJavaCompatibilityTest {
                 CompressionCodecs.decompress(
                     Compression.ZLIB,
                     zlib,
-                    input.size,
                 ),
                 "zlib sample=$index",
             )
@@ -63,7 +62,6 @@ class DeflateJavaCompatibilityTest {
                 CompressionCodecs.decompress(
                     Compression.GZIP,
                     gzip,
-                    input.size,
                 ),
                 "gzip sample=$index",
             )

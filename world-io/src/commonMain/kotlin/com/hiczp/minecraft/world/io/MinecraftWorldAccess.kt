@@ -2,7 +2,11 @@ package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.world.format.*
+import okio.BufferedSink
+import okio.BufferedSource
 import okio.Path
+import kotlinx.io.Sink as KotlinxSink
+import kotlinx.io.Source as KotlinxSource
 
 /**
  * Region-storage policy shared by every dimension opened under one world
@@ -33,21 +37,43 @@ class MinecraftWorldAccess private constructor(
 ) {
     suspend fun readLevelData(): NbtDocument = world.readLevelData()
 
+    suspend fun <T> readLevelData(block: (KotlinxSource) -> T): T =
+        world.readLevelData(block)
+
     suspend fun writeLevelData(document: NbtDocument) =
         world.writeLevelData(document)
 
+    suspend fun writeLevelData(block: (KotlinxSink) -> Unit) =
+        world.writeLevelData(block)
+
     suspend fun readPlayerData(playerUuid: String): NbtDocument? =
         world.readPlayerData(playerUuid)
+
+    suspend fun <T> readPlayerData(
+        playerUuid: String,
+        block: (KotlinxSource) -> T,
+    ): T? = world.readPlayerData(playerUuid, block)
 
     suspend fun writePlayerData(
         playerUuid: String,
         document: NbtDocument,
     ) = world.writePlayerData(playerUuid, document)
 
+    suspend fun writePlayerData(
+        playerUuid: String,
+        block: (KotlinxSink) -> Unit,
+    ) = world.writePlayerData(playerUuid, block)
+
     suspend fun readSavedData(
         identifier: String,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
     ): NbtDocument? = world.readSavedData(identifier, dimension)
+
+    suspend fun <T> readSavedData(
+        identifier: String,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+        block: (KotlinxSource) -> T,
+    ): T? = world.readSavedData(identifier, dimension, block)
 
     suspend fun writeSavedData(
         identifier: String,
@@ -55,17 +81,43 @@ class MinecraftWorldAccess private constructor(
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
     ) = world.writeSavedData(identifier, document, dimension)
 
+    suspend fun writeSavedData(
+        identifier: String,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+        block: (KotlinxSink) -> Unit,
+    ) = world.writeSavedData(identifier, dimension, block)
+
     suspend fun readStatistics(playerUuid: String): String =
         world.readStatistics(playerUuid)
+
+    suspend fun <T> readStatistics(
+        playerUuid: String,
+        block: BufferedSource.() -> T,
+    ): T = world.readStatistics(playerUuid, block)
 
     suspend fun writeStatistics(playerUuid: String, json: String) =
         world.writeStatistics(playerUuid, json)
 
+    suspend fun writeStatistics(
+        playerUuid: String,
+        block: BufferedSink.() -> Unit,
+    ) = world.writeStatistics(playerUuid, block)
+
     suspend fun readAdvancements(playerUuid: String): String =
         world.readAdvancements(playerUuid)
 
+    suspend fun <T> readAdvancements(
+        playerUuid: String,
+        block: BufferedSource.() -> T,
+    ): T = world.readAdvancements(playerUuid, block)
+
     suspend fun writeAdvancements(playerUuid: String, json: String) =
         world.writeAdvancements(playerUuid, json)
+
+    suspend fun writeAdvancements(
+        playerUuid: String,
+        block: BufferedSink.() -> Unit,
+    ) = world.writeAdvancements(playerUuid, block)
 
     suspend fun readRegion(
         position: RegionPosition,
@@ -79,6 +131,13 @@ class MinecraftWorldAccess private constructor(
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
     ): RegionChunk? = world.readChunk(position, storage, dimension)
 
+    suspend fun <T> readChunk(
+        position: ChunkPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+        block: (RegionChunkStreamInfo, BufferedSource) -> T,
+    ): T? = world.readChunk(position, storage, dimension, block)
+
     suspend fun doesChunkExist(
         position: ChunkPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
@@ -91,6 +150,15 @@ class MinecraftWorldAccess private constructor(
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
     ) = world.writeChunk(position, chunk, storage, dimension)
+
+    suspend fun writeChunk(
+        position: ChunkPosition,
+        compression: Compression,
+        compressedLength: Long,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+        block: BufferedSink.() -> Unit,
+    ) = world.writeChunk(position, compression, compressedLength, storage, dimension, block)
 
     suspend fun clearChunk(
         position: ChunkPosition,

@@ -8,8 +8,12 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import okio.BufferedSink
+import okio.BufferedSource
 import okio.Path
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.io.Sink as KotlinxSink
+import kotlinx.io.Source as KotlinxSource
 
 /**
  * Shared resource-owning implementation behind mutable world access.
@@ -50,9 +54,23 @@ internal class OpenMinecraftWorld(
         }
     }
 
+    suspend fun <T> readLevelData(block: (KotlinxSource) -> T): T =
+        withMetadataEntry({ MetadataKey.LevelData }) { entry ->
+            val fileAccess = entry.fileAccess
+            when (val read = fileAccess.read { levelData.readForSharedAccess(block) }) {
+                is CoordinatedRead.Complete -> read.value
+                CoordinatedRead.RequiresExclusive -> fileAccess.write { levelData.read(block) }
+            }
+        }
+
     suspend fun writeLevelData(document: NbtDocument) =
         withMetadata({ MetadataKey.LevelData }, MetadataAccess.WRITE) {
             levelData.write(document)
+        }
+
+    suspend fun writeLevelData(block: (KotlinxSink) -> Unit) =
+        withMetadata({ MetadataKey.LevelData }, MetadataAccess.WRITE) {
+            levelData.write(block)
         }
 
     suspend fun readPlayerData(playerUuid: String): NbtDocument? =
@@ -64,11 +82,29 @@ internal class OpenMinecraftWorld(
             }
         }
 
+    suspend fun <T> readPlayerData(
+        playerUuid: String,
+        block: (KotlinxSource) -> T,
+    ): T? = withMetadataEntry({ MetadataKey.PlayerData(playerUuid) }) { entry ->
+        val fileAccess = entry.fileAccess
+        when (val read = fileAccess.read { playerData.readForSharedAccess(playerUuid, block) }) {
+            is CoordinatedRead.Complete -> read.value
+            CoordinatedRead.RequiresExclusive -> fileAccess.write { playerData.read(playerUuid, block) }
+        }
+    }
+
     suspend fun writePlayerData(
         playerUuid: String,
         document: NbtDocument,
     ) = withMetadata({ MetadataKey.PlayerData(playerUuid) }, MetadataAccess.WRITE) {
         playerData.write(playerUuid, document)
+    }
+
+    suspend fun writePlayerData(
+        playerUuid: String,
+        block: (KotlinxSink) -> Unit,
+    ) = withMetadata({ MetadataKey.PlayerData(playerUuid) }, MetadataAccess.WRITE) {
+        playerData.write(playerUuid, block)
     }
 
     suspend fun readSavedData(
@@ -79,6 +115,17 @@ internal class OpenMinecraftWorld(
         access = MetadataAccess.READ,
     ) {
         SavedDataFileStore(paths, dimension, nbtFiles).read(identifier)
+    }
+
+    suspend fun <T> readSavedData(
+        identifier: String,
+        dimension: DimensionDirectory,
+        block: (KotlinxSource) -> T,
+    ): T? = withMetadata(
+        key = { MetadataKey.SavedData(paths.savedData(identifier, dimension)) },
+        access = MetadataAccess.READ,
+    ) {
+        SavedDataFileStore(paths, dimension, nbtFiles).read(identifier, block)
     }
 
     suspend fun writeSavedData(
@@ -92,25 +139,64 @@ internal class OpenMinecraftWorld(
         SavedDataFileStore(paths, dimension, nbtFiles).write(identifier, document)
     }
 
+    suspend fun writeSavedData(
+        identifier: String,
+        dimension: DimensionDirectory,
+        block: (KotlinxSink) -> Unit,
+    ) = withMetadata(
+        key = { MetadataKey.SavedData(paths.savedData(identifier, dimension)) },
+        access = MetadataAccess.WRITE,
+    ) {
+        SavedDataFileStore(paths, dimension, nbtFiles).write(identifier, block)
+    }
+
     suspend fun readStatistics(playerUuid: String): String =
         withMetadata({ MetadataKey.Statistics(playerUuid) }, MetadataAccess.READ) {
             jsonFiles.read(paths.statistics(playerUuid))
         }
+
+    suspend fun <T> readStatistics(
+        playerUuid: String,
+        block: BufferedSource.() -> T,
+    ): T = withMetadata({ MetadataKey.Statistics(playerUuid) }, MetadataAccess.READ) {
+        jsonFiles.read(paths.statistics(playerUuid), block)
+    }
 
     suspend fun writeStatistics(playerUuid: String, json: String) =
         withMetadata({ MetadataKey.Statistics(playerUuid) }, MetadataAccess.WRITE) {
             jsonFiles.write(paths.statistics(playerUuid), json)
         }
 
+    suspend fun writeStatistics(
+        playerUuid: String,
+        block: BufferedSink.() -> Unit,
+    ) = withMetadata({ MetadataKey.Statistics(playerUuid) }, MetadataAccess.WRITE) {
+        jsonFiles.write(paths.statistics(playerUuid), block)
+    }
+
     suspend fun readAdvancements(playerUuid: String): String =
         withMetadata({ MetadataKey.Advancements(playerUuid) }, MetadataAccess.READ) {
             jsonFiles.read(paths.advancement(playerUuid))
         }
 
+    suspend fun <T> readAdvancements(
+        playerUuid: String,
+        block: BufferedSource.() -> T,
+    ): T = withMetadata({ MetadataKey.Advancements(playerUuid) }, MetadataAccess.READ) {
+        jsonFiles.read(paths.advancement(playerUuid), block)
+    }
+
     suspend fun writeAdvancements(playerUuid: String, json: String) =
         withMetadata({ MetadataKey.Advancements(playerUuid) }, MetadataAccess.WRITE) {
             jsonFiles.write(paths.advancement(playerUuid), json)
         }
+
+    suspend fun writeAdvancements(
+        playerUuid: String,
+        block: BufferedSink.() -> Unit,
+    ) = withMetadata({ MetadataKey.Advancements(playerUuid) }, MetadataAccess.WRITE) {
+        jsonFiles.write(paths.advancement(playerUuid), block)
+    }
 
     suspend fun readRegion(
         position: RegionPosition,
@@ -128,6 +214,15 @@ internal class OpenMinecraftWorld(
         readChunk(position)
     }
 
+    suspend fun <T> readChunk(
+        position: ChunkPosition,
+        storage: RegionStorageDirectory,
+        dimension: DimensionDirectory,
+        block: (RegionChunkStreamInfo, BufferedSource) -> T,
+    ): T? = withRegionStore(storage, dimension) {
+        readChunk(position, block)
+    }
+
     suspend fun doesChunkExist(
         position: ChunkPosition,
         storage: RegionStorageDirectory,
@@ -143,6 +238,17 @@ internal class OpenMinecraftWorld(
         dimension: DimensionDirectory,
     ) = withRegionStore(storage, dimension) {
         writeChunk(position, chunk)
+    }
+
+    suspend fun writeChunk(
+        position: ChunkPosition,
+        compression: Compression,
+        compressedLength: Long,
+        storage: RegionStorageDirectory,
+        dimension: DimensionDirectory,
+        block: BufferedSink.() -> Unit,
+    ) = withRegionStore(storage, dimension) {
+        writeChunk(position, compression, compressedLength, block)
     }
 
     suspend fun clearChunk(

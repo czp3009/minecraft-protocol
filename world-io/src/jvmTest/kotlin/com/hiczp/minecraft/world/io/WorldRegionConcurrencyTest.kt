@@ -344,20 +344,35 @@ class WorldRegionConcurrencyTest {
             delegate = threadSafeFakeFileSystem(base),
             failures = listOf(earlierFailure, cancellation),
         )
-        val decodeGate = BlockingGate(expectedEntrants = positions.size)
+        val readGate = BlockingGate(expectedEntrants = positions.size)
+        val encodeGate = BlockingGate(expectedEntrants = positions.size)
         val store = WorldRegionStore(
             directory = directory,
             fileSystem = fileSystem,
-            chunkNbtFormat = gatedNbtFormat(decodeGate),
+            chunkNbtFormat = gatedNbtFormat(encodeGate),
             configuration = concurrencyConfiguration(),
         )
         val jobs = mutableListOf<Deferred<*>>()
         try {
-            val decoding = positions.map { position ->
-                async(Dispatchers.Default) { store.readChunkNbt(position) }
+            val reading = positions.map { position ->
+                async(Dispatchers.Default) {
+                    store.readChunk(position) { _, source ->
+                        readGate.awaitRelease()
+                        source.readByteArray()
+                    }
+                }
             }
-            jobs += decoding
-            decodeGate.awaitEntered()
+            jobs += reading
+            readGate.awaitEntered()
+            val encoding = positions.mapIndexed { index, position ->
+                async(Dispatchers.Default) {
+                    store.writeChunkNbt(position, concurrencyDocument(index + 10), Compression.NONE)
+                }
+            }
+            jobs += encoding
+            encodeGate.awaitEntered()
+            readGate.open()
+            reading.awaitAll()
 
             val failure = assertFailsWith<CancellationException> { store.flush() }
 
@@ -368,15 +383,14 @@ class WorldRegionConcurrencyTest {
                 assertEquals(1, store.activeRegionUsers(position.region))
             }
 
-            decodeGate.open()
-            decoding.forEachIndexed { index, result ->
-                assertEquals(concurrencyDocument(index), result.await())
-            }
+            encodeGate.open()
+            encoding.awaitAll()
             assertEquals(0, store.activeRegionCount())
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
-                decodeGate.open()
+                readGate.open()
+                encodeGate.open()
                 jobs.joinAll()
                 store.close()
                 base.checkNoOpenFiles()
@@ -395,7 +409,8 @@ class WorldRegionConcurrencyTest {
         setup.close()
         val bytesBeforeCancellation = base.read(target) { readByteArray() }
 
-        val decodeGate = BlockingGate()
+        val readGate = BlockingGate()
+        val encodeGate = BlockingGate()
         val flushGate = BlockingGate()
         val fileSystem = GatedFileSystem(
             base = base,
@@ -405,14 +420,26 @@ class WorldRegionConcurrencyTest {
         val store = WorldRegionStore(
             directory = directory,
             fileSystem = fileSystem,
-            chunkNbtFormat = gatedNbtFormat(decodeGate),
+            chunkNbtFormat = gatedNbtFormat(encodeGate),
             configuration = concurrencyConfiguration(),
         )
         val jobs = mutableListOf<Deferred<*>>()
         try {
-            val decoding = async(Dispatchers.Default) { store.readChunkNbt(position) }
-            jobs += decoding
-            decodeGate.awaitEntered()
+            val reading = async(Dispatchers.Default) {
+                store.readChunk(position) { _, source ->
+                    readGate.awaitRelease()
+                    source.readByteArray()
+                }
+            }
+            jobs += reading
+            readGate.awaitEntered()
+            val encoding = async(Dispatchers.Default) {
+                store.writeChunkNbt(position, concurrencyDocument(8), Compression.NONE)
+            }
+            jobs += encoding
+            encodeGate.awaitEntered()
+            readGate.open()
+            assertNotNull(reading.await())
 
             val returned = CompletableDeferred<Unit>()
             val flushing = async(Dispatchers.Default) {
@@ -431,15 +458,19 @@ class WorldRegionConcurrencyTest {
             assertFalse(returned.isCompleted)
             assertEquals(1, store.activeRegionUsers(position.region))
 
-            decodeGate.open()
-            assertEquals(concurrencyDocument(7), decoding.await())
+            val holderCancellation = CancellationException("cancelled flush pin holder")
+            encoding.cancel(holderCancellation)
+            encodeGate.open()
+            val holderFailure = assertFailsWith<CancellationException> { encoding.await() }
+            assertEquals(holderCancellation.message, holderFailure.message)
             assertEquals(0, store.activeRegionCount())
             assertContentEquals(bytesBeforeCancellation, base.read(target) { readByteArray() })
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
                 flushGate.open()
-                decodeGate.open()
+                readGate.open()
+                encodeGate.open()
                 jobs.joinAll()
                 store.close()
                 base.checkNoOpenFiles()
@@ -1255,7 +1286,7 @@ class WorldRegionConcurrencyTest {
     }
 
     @Test
-    fun nbtDecodingDoesNotHoldTheRegionFileMutex() = runTest {
+    fun streamingNbtDecodingHoldsSharedFileAccessAgainstWriters() = runTest {
         val directory = "/world/region".toPath()
         val base = concurrencyFakeFileSystem()
         val setup = concurrencyStore(base)
@@ -1281,7 +1312,7 @@ class WorldRegionConcurrencyTest {
                 store.writeChunk(ChunkPosition(1, 0), concurrencyChunk(8))
             }
             jobs += sameFile
-            sameFile.await()
+            assertFalse(sameFile.isCompleted)
             assertFalse(decoding.isCompleted)
             assertEquals(0, fileSystem.flushes.get())
             assertEquals(0, fileSystem.closes.get())
@@ -1289,6 +1320,7 @@ class WorldRegionConcurrencyTest {
 
             decodeGate.open()
             assertEquals(concurrencyDocument(42), decoding.await())
+            sameFile.await()
             assertEquals(1, fileSystem.flushes.get())
             assertEquals(1, fileSystem.closes.get())
             assertContentEquals(byteArrayOf(8), store.readChunk(ChunkPosition(1, 0))?.payload?.compressedBytes)

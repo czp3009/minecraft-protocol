@@ -9,55 +9,39 @@ private const val TEMPORARY_RANDOM_WIDTH = 13
 private const val TEMPORARY_PREFIX = ".tmp-"
 private const val TEMPORARY_ATTEMPTS = 256
 
-internal fun FileSystem.readFileWithinLimit(
-    path: Path,
-    maximumBytes: Int,
-): ByteArray {
-    require(maximumBytes >= 0)
-    return readFile(path, maximumBytes) { source, size ->
+internal fun FileSystem.readFileBytes(path: Path): ByteArray =
+    readFile(path) { source, size ->
         source.readByteArray(size)
     }
-}
 
-internal fun WorldFileAccess.readFileWithinLimit(
-    path: Path,
-    maximumBytes: Int,
-): ByteArray {
-    require(maximumBytes >= 0)
-    return readFile(path, maximumBytes) { source, size ->
+internal fun WorldFileAccess.readFileBytes(path: Path): ByteArray =
+    readFile(path) { source, size ->
         source.readByteArray(size)
     }
-}
 
 internal fun <T> FileSystem.readFile(
     path: Path,
-    maximumBytes: Int,
     block: (BufferedSource, Long) -> T,
 ): T = readFile(
     path = path,
-    maximumBytes = maximumBytes,
     openSource = { source(path) },
     block = block,
 )
 
 internal fun <T> WorldFileAccess.readFile(
     path: Path,
-    maximumBytes: Int,
     block: (BufferedSource, Long) -> T,
 ): T = fileSystem.readFile(
     path = path,
-    maximumBytes = maximumBytes,
     openSource = { openSource(path) },
     block = block,
 )
 
 private fun <T> FileSystem.readFile(
     path: Path,
-    maximumBytes: Int,
     openSource: () -> Source,
     block: (BufferedSource, Long) -> T,
 ): T {
-    require(maximumBytes >= 0)
     val metadata = metadataOrNull(path)
         ?: throw WorldIOException("File does not exist: $path")
     if (!metadata.isRegularFile) {
@@ -65,11 +49,7 @@ private fun <T> FileSystem.readFile(
     }
     val size = metadata.size
         ?: throw WorldIOException("Regular file has no size: $path")
-    if (size !in 0L..maximumBytes.toLong()) {
-        throw WorldIOException(
-            "File $path size $size exceeds limit $maximumBytes",
-        )
-    }
+    if (size < 0L) throw WorldIOException("File has a negative size: $path")
 
     val limitedSource = openSource()
         .limit(size, throwIfSourceIsLonger = true)
@@ -83,28 +63,15 @@ private fun <T> FileSystem.readFile(
     }
 }
 
-// Keep byte-limit policy on the Okio side of world-io. closeDelegate is
-// explicit because a file-handle sink is owned here, while other callers may
-// lend a sink whose lifetime must outlive the limiter.
-internal class LimitedSink(
+internal class CountingSink(
     private val delegate: Sink,
-    maximumBytes: Int,
     private val closeDelegate: Boolean = false,
 ) : Sink {
-    private val maximumBytes = maximumBytes.toLong()
     internal var bytesWritten = 0L
         private set
 
-    init {
-        require(maximumBytes >= 0)
-    }
-
     override fun write(source: Buffer, byteCount: Long) {
-        if (byteCount < 0 || byteCount > maximumBytes - bytesWritten) {
-            throw WorldIOException(
-                "Output exceeds configured limit $maximumBytes",
-            )
-        }
+        require(byteCount >= 0L)
         delegate.write(source, byteCount)
         bytesWritten += byteCount
     }

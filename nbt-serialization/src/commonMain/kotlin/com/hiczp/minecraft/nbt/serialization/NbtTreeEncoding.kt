@@ -61,14 +61,7 @@ internal class NbtTreeEncoder(
     override fun beginCollection(
         descriptor: SerialDescriptor,
         collectionSize: Int,
-    ): CompositeEncoder {
-        if (collectionSize !in 0..configuration.maximumCollectionSize) {
-            throw NbtLimitException(
-                "Collection size $collectionSize at $path exceeds configured limit ${configuration.maximumCollectionSize}",
-            )
-        }
-        return compositeEncoder(descriptor, collectionSize)
-    }
+    ): CompositeEncoder = compositeEncoder(descriptor, collectionSize)
 
     override fun <T : Any?> encodeSerializableValue(
         serializer: SerializationStrategy<T>,
@@ -77,33 +70,18 @@ internal class NbtTreeEncoder(
         val serialName = serializer.descriptor.serialName
         when {
             value is ByteArray && serialName == BYTE_ARRAY_SERIAL_NAME -> {
-                if (value.size > configuration.maximumByteArraySize) {
-                    throw NbtLimitException(
-                        "NBT byte array length ${value.size} at $path exceeds configured limit ${configuration.maximumByteArraySize}",
-                    )
-                }
                 emit(NbtByteArray(value))
             }
 
             value is IntArray && serialName == INT_ARRAY_SERIAL_NAME -> {
-                checkPrimitiveArraySize(value.size, "int")
                 emit(NbtIntArray(value))
             }
 
             value is LongArray && serialName == LONG_ARRAY_SERIAL_NAME -> {
-                checkPrimitiveArraySize(value.size, "long")
                 emit(NbtLongArray(value))
             }
 
             else -> serializer.serialize(this, value)
-        }
-    }
-
-    private fun checkPrimitiveArraySize(size: Int, kind: String) {
-        if (size > configuration.maximumCollectionSize) {
-            throw NbtLimitException(
-                "NBT $kind array length $size at $path exceeds configured limit ${configuration.maximumCollectionSize}",
-            )
         }
     }
 

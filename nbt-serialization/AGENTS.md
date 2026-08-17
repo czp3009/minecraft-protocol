@@ -8,7 +8,8 @@ This module owns the physical Java Edition binary NBT grammar and the
 - Named, any-tag, unnamed, and compound-document roots are explicit APIs.
 - Binary strings use Java modified UTF, numeric payloads are big-endian, and mixed logical lists use the
   compound-wrapper convention from the selected official Minecraft release.
-- Depth, collection, primitive-array, string, and total-byte limits are applied before untrusted allocation or work.
+- The codec imposes no policy-sized depth, collection, primitive-array, string, or total-byte ceiling. Reject negative
+  binary lengths and retain only bounds encoded by NBT itself, notably the unsigned-short modified-UTF byte length.
 - Byte-array decoding rejects trailing input; stream decoding consumes exactly one value and never closes caller-owned
   `Source` or `Sink` instances.
 - Binary serialization writes directly from serializer events to the caller's `Sink` and reads directly from the

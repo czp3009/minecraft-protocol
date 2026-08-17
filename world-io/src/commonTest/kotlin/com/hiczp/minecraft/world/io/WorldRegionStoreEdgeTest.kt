@@ -20,10 +20,7 @@ import kotlinx.io.Source as KotlinxSource
 
 class WorldRegionStoreEdgeTest {
     @Test
-    fun configurationRejectsInvalidLimits() {
-        assertFailsWith<IllegalArgumentException> {
-            WorldRegionStoreConfiguration(maximumCompressedChunkBytes = -1)
-        }
+    fun configurationAcceptsEveryWriteCompression() {
         Compression.entries
             .forEach {
                 WorldRegionStoreConfiguration(writeCompression = it)
@@ -132,15 +129,7 @@ class WorldRegionStoreEdgeTest {
         assertTrue(
             existsForRecord(
                 record(
-                    length = REGION_SECTOR_BYTES,
-                    version = RegionChunkRecordHeader.compressionId(Compression.NONE),
-                ),
-            ),
-        )
-        assertTrue(
-            existsForRecord(
-                record(
-                    length = REGION_SECTOR_BYTES + 1,
+                    length = REGION_SECTOR_BYTES - Int.SIZE_BYTES,
                     version = RegionChunkRecordHeader.compressionId(Compression.NONE),
                 ),
             ),
@@ -148,7 +137,7 @@ class WorldRegionStoreEdgeTest {
         assertFalse(
             existsForRecord(
                 record(
-                    length = REGION_SECTOR_BYTES + 2,
+                    length = REGION_SECTOR_BYTES - Int.SIZE_BYTES + 1,
                     version = RegionChunkRecordHeader.compressionId(Compression.NONE),
                 ),
             ),
@@ -446,12 +435,8 @@ private val identityCustomCompressionCodec =
                 override fun close() = sink.flush()
             }
 
-        override fun decompressingSource(
-            source: KotlinxSource,
-            maximumOutputBytes: Int,
-        ): KotlinxRawSource {
-            require(maximumOutputBytes >= 0)
-            return object : KotlinxRawSource {
+        override fun decompressingSource(source: KotlinxSource): KotlinxRawSource =
+            object : KotlinxRawSource {
                 override fun readAtMostTo(
                     sink: KotlinxBuffer,
                     byteCount: Long,
@@ -459,7 +444,6 @@ private val identityCustomCompressionCodec =
 
                 override fun close() = Unit
             }
-        }
     }
 
 private fun FileSystem.writeRaw(path: Path, bytes: ByteArray) {
@@ -474,7 +458,7 @@ private fun FileSystem.writeRaw(path: Path, bytes: ByteArray) {
 }
 
 private fun FileSystem.readRaw(path: Path): ByteArray =
-    readFileWithinLimit(path, Int.MAX_VALUE)
+    readFileBytes(path)
 
 private enum class ExternalFileKind {
     MISSING,

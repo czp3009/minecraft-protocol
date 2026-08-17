@@ -2,8 +2,6 @@ package com.hiczp.minecraft.protocol.serialization.internal
 
 import com.hiczp.minecraft.nbt.NbtTag
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
-import com.hiczp.minecraft.nbt.serialization.NbtFormatConfiguration
-import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormatConfiguration
 import kotlinx.io.Buffer
 import kotlinx.io.RawSource
 import kotlinx.io.Source
@@ -16,31 +14,18 @@ import kotlinx.io.buffered
  * UTF-8. NBT serialization failures propagate through the shared
  * [kotlinx.serialization.SerializationException] hierarchy without wrapping.
  */
-internal class NbtBinaryCodec(
-    private val configuration: MinecraftProtocolFormatConfiguration,
-) {
+internal object NbtBinaryCodec {
     fun writeAny(writer: MinecraftWriter, tag: NbtTag) {
-        format(Long.MAX_VALUE).encodeAnyTagToSink(tag, writer)
+        NbtFormat.encodeAnyTagToSink(tag, writer)
     }
 
     fun readAny(reader: MinecraftReader): NbtTag {
         val counting = OneByteCountingSource(reader.peekSource())
         val source = counting.buffered()
-        val tag = format(reader.remaining.toLong())
-            .decodeAnyTagFromSource(source)
+        val tag = NbtFormat.decodeAnyTagFromSource(source)
         reader.skip(counting.bytesRead)
         return tag
     }
-
-    private fun format(maximumEncodedBytes: Long): NbtFormat =
-        NbtFormat(
-            NbtFormatConfiguration(
-                maximumDepth = configuration.maximumNbtDepth,
-                maximumCollectionSize = configuration.maximumCollectionSize,
-                maximumByteArraySize = configuration.maximumByteArraySize,
-                maximumEncodedBytes = maximumEncodedBytes,
-            ),
-        )
 }
 
 /**

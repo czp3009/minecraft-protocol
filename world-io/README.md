@@ -4,6 +4,11 @@ World-file adapters built on Okio `Path`, `FileSystem`, and positional `FileHand
 locked whole-world lease, a lock-free live reader, a directory-level region store, and the single region-file primitive
 the others share.
 
+World-file stores impose no policy-sized maximum read, write, decompression, or allocation limit. APIs returning a
+`String`, `JsonElement`, `NbtDocument`, `RegionFile`, or `ByteArray` necessarily retain that complete result; overloads
+accepting an Okio or `kotlinx.io` source/sink callback are the low-memory path for large files. Format-intrinsic lengths
+remain in force, including NBT modified UTF and Anvil header/location fields.
+
 All three high-level entries support concurrent coroutine calls. The mutable entries, `MinecraftWorldAccess` and
 `WorldRegionStore`, allow readers of one logical metadata file or `.mca` file to run concurrently. A writer takes
 exclusive access to that logical file, waits for existing readers, and blocks new readers and writers until its file
@@ -72,6 +77,77 @@ backup; saved data still writes synced GZIP directly; statistics and advancement
 JSON path directly. A healthy level/player read is shared, but a recoverable primary failure upgrades to exclusive
 access before performing promotion or corrupt-copy recovery. There is no transaction or global ordering across logical
 groups.
+
+## Streaming large files
+
+Streaming changes only how bytes move through memory, not how they reach storage. In particular, no extra temporary file
+or second disk pass is introduced as a memory-saving spool. Sources and sinks lent to a callback are valid only for that
+callback; the store owns their completion and closure.
+
+Standalone NBT callbacks expose the decompressed binary NBT stream. This avoids an intermediate compressed or
+decompressed `ByteArray`; the example still returns an `NbtDocument`, so the resulting tree itself remains in memory:
+
+```kotlin
+val level = world.readLevelData { source ->
+    NbtFormat.decodeDocumentFromSource(source)
+}
+world.writeLevelData { sink ->
+    NbtFormat.encodeDocumentToSink(level, sink)
+}
+```
+
+The same input/output callbacks exist for player data and saved data. A caller can instead use a serializable type with
+`NbtFormat.decodeFromSource` and `encodeToSink` to avoid constructing an intermediate `NbtDocument`.
+
+Statistics and advancements expose raw Okio streams, so copying or transforming a very large JSON file does not require
+a `String` or `JsonElement`:
+
+```kotlin
+world.readAdvancements(playerUuid) {
+    backupSink.writeAll(this)
+}
+world.writeAdvancements(playerUuid) {
+    writeAll(restoredSource)
+}
+```
+
+For structured JSON, `Utf8JsonFileStore` decodes and encodes directly against the file stream. The resulting Kotlin
+value is still retained, but no intermediate `String` or `JsonElement` is created:
+
+```kotlin
+val jsonFiles = Utf8JsonFileStore()
+val path = paths.statistics(playerUuid)
+val statistics = jsonFiles.readJson(path, PlayerStatistics.serializer())
+jsonFiles.writeJson(path, PlayerStatistics.serializer(), statistics)
+```
+
+Raw chunk reads lend the stored compressed payload, including a resolved `.mcc` sidecar, without making a
+`RegionChunk` byte array:
+
+```kotlin
+val info = world.readChunk(position) { chunkInfo, compressedSource ->
+    compressedArchiveSink.writeAll(compressedSource)
+    chunkInfo
+}
+```
+
+Anvil stores the compressed chunk length before its payload, so an NBT convenience write with an initially unknown
+compressed length retains that one compressed payload in memory. If the compressed length is already known, stream the
+payload directly and write exactly that many bytes:
+
+```kotlin
+val compressedLength = requireNotNull(fileSystem.metadata(compressedPath).size)
+fileSystem.source(compressedPath).buffer().use { compressedSource ->
+    world.writeChunk(position, Compression.ZLIB, compressedLength) {
+        writeAll(compressedSource)
+    }
+}
+```
+
+The known-length chunk path selects inline MCA sectors or the normal external MCC strategy automatically. It does not
+change the existing in-place MCA commit order or the existing temporary-and-move policy for an MCC sidecar. The same
+compressed-source callbacks are available on `WorldRegionStore` and `RegionFileStore`; their read callbacks must consume
+the complete lent payload.
 
 ## Locked world access
 
@@ -195,6 +271,8 @@ val player = players.read(playerUuid)
 
 val savedData = SavedDataFileStore(paths)
 val raids = savedData.read("minecraft:raids")
+
+val advancements = Utf8JsonFileStore().readJson(paths.advancement(playerUuid))
 ```
 
 The default filesystem is Okio `FileSystem.SYSTEM` on JVM, Android, and Native, and the Node filesystem on Kotlin/JS

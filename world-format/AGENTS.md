@@ -14,8 +14,8 @@ chunk representation, and NBT composition.
   values, records each chunk's own registration, and never chooses or changes their compression.
 - Callers can inspect or repack a region without inflating preserved compressed payloads.
 - Sector, version, compression, checksum, and external-chunk behavior match the selected official server.
-- Parsing rejects overlaps, truncation, overflow, invalid versions, checksum failures, and decompression-limit
-  violations.
+- Parsing rejects overlaps, truncation, overflow, invalid versions, checksum failures, and intrinsic framing or field
+  length violations. It does not impose a policy-sized region, chunk, or decompressed-output ceiling.
 - Custom compression stays injectable through the public registry; built-in machinery remains private.
 - Raw compression and checksums always come from maintained libraries. Shared code may own the vanilla LZ4Block
   container and framing validation, but never a raw codec or checksum algorithm.

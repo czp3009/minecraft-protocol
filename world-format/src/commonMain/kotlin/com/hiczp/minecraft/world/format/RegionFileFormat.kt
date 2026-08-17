@@ -2,21 +2,19 @@ package com.hiczp.minecraft.world.format
 
 import kotlinx.io.*
 
-data class RegionFileFormatConfiguration(
-    val maximumRegionBytes: Int = 512 * 1_048_576,
-    val maximumCompressedChunkBytes: Int = 256 * 1_048_576,
-) {
-    init {
-        require(maximumRegionBytes >= REGION_HEADER_BYTES)
-        require(maximumCompressedChunkBytes >= 0)
-    }
-}
-
 /** A structural Anvil or compression-container error, independent of I/O. */
 class RegionFormatException(
     message: String,
     cause: Throwable? = null,
 ) : Exception(message, cause)
+
+data class RegionFileChunkStreamInfo(
+    val position: LocalChunkPosition,
+    val compression: Compression,
+    val compressedLength: Int,
+    val external: Boolean,
+    val timestamp: Int,
+)
 
 /**
  * Structural codec for the Anvil `.mca` container.
@@ -25,33 +23,42 @@ class RegionFormatException(
  * process the region sector-by-sector; array methods are adapters for callers
  * that explicitly want one in-memory file image.
  */
-sealed class RegionFileFormat(
-    val configuration: RegionFileFormatConfiguration,
-) {
-    companion object Default :
-        RegionFileFormat(RegionFileFormatConfiguration()) {
-        operator fun invoke(
-            configuration: RegionFileFormatConfiguration =
-                RegionFileFormatConfiguration(),
-        ): RegionFileFormat = ConfiguredRegionFileFormat(configuration)
-    }
+sealed class RegionFileFormat {
+    companion object Default : RegionFileFormat()
 
     /** Reads one region without closing [source]. */
     fun decodeFromSource(source: Source): RegionFile {
-        if (source.exhausted()) return RegionFile()
-        return try {
-            decodeNonEmpty(source)
+        val chunks = linkedMapOf<LocalChunkPosition, RegionChunk>()
+        readChunksFromSource(source) { info, payload ->
+            val bytes = payload.readByteArray()
+            val chunkPayload = if (info.external) {
+                RegionChunkPayload.External()
+            } else {
+                RegionChunkPayload.Inline(bytes)
+            }
+            chunks[info.position] = RegionChunk(
+                compression = info.compression,
+                payload = chunkPayload,
+                timestamp = info.timestamp,
+            )
+        }
+        return RegionFile(chunks)
+    }
+
+    /** Lends each inline compressed payload in location order without retaining it. */
+    fun readChunksFromSource(
+        source: Source,
+        block: (RegionFileChunkStreamInfo, Source) -> Unit,
+    ) {
+        if (source.exhausted()) return
+        try {
+            readNonEmptyChunks(source, block)
         } catch (failure: EOFException) {
             throw RegionFormatException("Truncated region file", failure)
         }
     }
 
     fun decodeFromByteArray(bytes: ByteArray): RegionFile {
-        if (bytes.size > configuration.maximumRegionBytes) {
-            throw RegionFormatException(
-                "Region file size ${bytes.size} exceeds configured limit ${configuration.maximumRegionBytes}",
-            )
-        }
         val buffer = Buffer()
         buffer.write(bytes)
         return decodeFromSource(buffer)
@@ -71,7 +78,7 @@ sealed class RegionFileFormat(
                 position = plan.position,
                 location = RegionLocation(
                     plan.sectorOffset,
-                    plan.record.allocatedSectors,
+                    plan.allocatedSectors,
                 ),
                 timestamp = plan.chunk.timestamp,
             )
@@ -79,13 +86,18 @@ sealed class RegionFileFormat(
         sink.write(header.encode())
 
         plans.forEach { plan ->
-            sink.write(plan.record.bytes)
-            plan.record.externalPayload?.let {
-                externalChunks[plan.position] = it
+            val payloadLength = if (plan.external) 0 else plan.compressedPayload.size
+            sink.writeInt(payloadLength + 1)
+            val version = RegionChunkRecordHeader.compressionId(plan.chunk.compression) or
+                    if (plan.external) REGION_EXTERNAL_STREAM_FLAG else 0
+            sink.writeByte(version.toByte())
+            if (plan.external) {
+                externalChunks[plan.position] = plan.compressedPayload
+            } else {
+                sink.write(plan.compressedPayload)
             }
-            val padding =
-                plan.record.allocatedSectors * REGION_SECTOR_BYTES -
-                        plan.record.bytes.size
+            val padding = plan.allocatedSectors * REGION_SECTOR_BYTES -
+                    REGION_CHUNK_RECORD_HEADER_BYTES - payloadLength
             writeZeroes(sink, padding)
         }
         return externalChunks
@@ -102,16 +114,15 @@ sealed class RegionFileFormat(
         region: RegionFile,
     ): Map<LocalChunkPosition, ByteArray> = buildMap {
         plan(region).forEach { chunk ->
-            chunk.record.externalPayload?.let { put(chunk.position, it) }
+            if (chunk.external) put(chunk.position, chunk.compressedPayload)
         }
     }
 
-    private fun decodeNonEmpty(source: Source): RegionFile {
+    private fun readNonEmptyChunks(
+        source: Source,
+        block: (RegionFileChunkStreamInfo, Source) -> Unit,
+    ) {
         val header = RegionHeader.decode(source.readByteArray(REGION_HEADER_BYTES))
-        val maximumSectors = configuration.maximumRegionBytes / REGION_SECTOR_BYTES
-        val usedSectors = BooleanArray(maximumSectors)
-        usedSectors[0] = true
-        usedSectors[1] = true
         val plans = ArrayList<DecodeChunkPlan>()
 
         for (index in 0 until REGION_CHUNK_COUNT) {
@@ -124,18 +135,15 @@ sealed class RegionFileFormat(
                     "Chunk $position has invalid sector location $sectorOffset+$allocatedSectors",
                 )
             }
-            if (sectorOffset > maximumSectors - allocatedSectors) {
-                throw RegionFormatException(
-                    "Chunk $position allocation exceeds configured region limit",
-                )
+            val endSector = sectorOffset + allocatedSectors
+            val overlap = plans.firstOrNull { existing ->
+                sectorOffset < existing.sectorOffset + existing.allocatedSectors &&
+                        existing.sectorOffset < endSector
             }
-            for (sector in sectorOffset until sectorOffset + allocatedSectors) {
-                if (usedSectors[sector]) {
-                    throw RegionFormatException(
-                        "Chunk $position overlaps sector $sector",
-                    )
-                }
-                usedSectors[sector] = true
+            if (overlap != null) {
+                throw RegionFormatException(
+                    "Chunk $position overlaps chunk ${overlap.position}",
+                )
             }
             plans += DecodeChunkPlan(
                 position = position,
@@ -145,7 +153,6 @@ sealed class RegionFileFormat(
             )
         }
 
-        val chunks = linkedMapOf<LocalChunkPosition, RegionChunk>()
         var currentSector = 2
         plans.sortedBy(DecodeChunkPlan::sectorOffset).forEach { plan ->
             val gapSectors = plan.sectorOffset - currentSector
@@ -154,8 +161,9 @@ sealed class RegionFileFormat(
             val length = source.readInt()
             val allocatedPayloadBytes = plan.allocatedSectors * REGION_SECTOR_BYTES - Int.SIZE_BYTES
             if (length !in 1..allocatedPayloadBytes) {
+                val sectors = plan.allocatedSectors
                 throw RegionFormatException(
-                    "Chunk ${plan.position} declares invalid record length $length for ${plan.allocatedSectors} allocated sector(s)",
+                    "Chunk ${plan.position} declares invalid record length $length for $sectors allocated sector(s)",
                 )
             }
             val versionByte = source.readByte().toInt() and 0xFF
@@ -167,50 +175,45 @@ sealed class RegionFileFormat(
                     "Chunk ${plan.position} uses unknown compression ID $compressionId",
                 )
             val compressedLength = length - 1
-            if (compressedLength > configuration.maximumCompressedChunkBytes) {
-                throw RegionFormatException(
-                    "Chunk ${plan.position} compressed size $compressedLength exceeds configured limit ${configuration.maximumCompressedChunkBytes}",
-                )
-            }
-            val payload = if (external) {
+            val info = RegionFileChunkStreamInfo(
+                position = plan.position,
+                compression = compression,
+                compressedLength = compressedLength,
+                external = external,
+                timestamp = plan.timestamp,
+            )
+            if (external) {
                 if (compressedLength != 0) {
                     throw RegionFormatException(
                         "External chunk ${plan.position} also contains an inline payload",
                     )
                 }
-                RegionChunkPayload.External()
+                block(info, Buffer())
             } else {
-                RegionChunkPayload.Inline(
-                    source.readByteArray(compressedLength),
-                )
+                val bounded = BoundedRawSource(source, compressedLength.toLong())
+                val payload = bounded.buffered()
+                payload.use {
+                    block(info, payload)
+                    if (!payload.exhausted()) {
+                        throw RegionFormatException(
+                            "Chunk ${plan.position} payload was not fully consumed",
+                        )
+                    }
+                }
             }
             val padding = allocatedPayloadBytes - length
             source.skip(padding.toLong())
-            chunks[plan.position] = RegionChunk(
-                compression = compression,
-                payload = payload,
-                timestamp = plan.timestamp,
-            )
             currentSector = plan.sectorOffset + plan.allocatedSectors
         }
 
-        discardTrailingSectors(source, currentSector.toLong() * REGION_SECTOR_BYTES)
-        return RegionFile(chunks)
+        discardTrailingSectors(source)
     }
 
-    private fun discardTrailingSectors(source: Source, consumedBytes: Long) {
-        var totalBytes = consumedBytes
+    private fun discardTrailingSectors(source: Source) {
         val scratch = ByteArray(8_192)
         while (true) {
             val read = source.readAtMostTo(scratch)
             if (read < 0) return
-            if (read == 0) continue
-            if (totalBytes > configuration.maximumRegionBytes.toLong() - read) {
-                throw RegionFormatException(
-                    "Region stream exceeds configured limit ${configuration.maximumRegionBytes}",
-                )
-            }
-            totalBytes += read
         }
     }
 
@@ -221,13 +224,7 @@ sealed class RegionFileFormat(
         var nextSector = 2
         plans.forEach {
             it.sectorOffset = nextSector
-            nextSector += it.record.allocatedSectors
-        }
-        val totalBytes = nextSector.toLong() * REGION_SECTOR_BYTES
-        if (totalBytes > configuration.maximumRegionBytes) {
-            throw RegionFormatException(
-                "Encoded region size $totalBytes exceeds configured limit ${configuration.maximumRegionBytes}",
-            )
+            nextSector += it.allocatedSectors
         }
         if (nextSector > REGION_MAX_SECTOR_OFFSET + 1) {
             throw RegionFormatException(
@@ -245,31 +242,27 @@ sealed class RegionFileFormat(
             ?: throw RegionFormatException(
                 "External chunk $position has not been resolved",
             )
-        if (compressedBytes.size > configuration.maximumCompressedChunkBytes) {
-            throw RegionFormatException(
-                "Chunk $position compressed size ${compressedBytes.size} exceeds configured limit ${configuration.maximumCompressedChunkBytes}",
-            )
-        }
+        val inlineSectors = regionSectorsForBytes(
+            REGION_CHUNK_RECORD_HEADER_BYTES.toLong() + compressedBytes.size,
+        )
+        val external = chunk.payload.isExternal ||
+                inlineSectors >= REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD
         return ChunkPlan(
             position = position,
             chunk = chunk,
-            record = EncodedRegionChunkRecord.encode(
-                compression = chunk.compression,
-                compressedPayload = compressedBytes,
-                forceExternal = chunk.payload.isExternal,
-            ),
+            compressedPayload = compressedBytes,
+            external = external,
+            allocatedSectors = if (external) 1 else inlineSectors,
         )
     }
 }
 
-private class ConfiguredRegionFileFormat(
-    configuration: RegionFileFormatConfiguration,
-) : RegionFileFormat(configuration)
-
 private class ChunkPlan(
     val position: LocalChunkPosition,
     val chunk: RegionChunk,
-    val record: EncodedRegionChunkRecord,
+    val compressedPayload: ByteArray,
+    val external: Boolean,
+    val allocatedSectors: Int,
     var sectorOffset: Int = 0,
 )
 
@@ -279,6 +272,25 @@ private data class DecodeChunkPlan(
     val sectorOffset: Int,
     val allocatedSectors: Int,
 )
+
+private class BoundedRawSource(
+    private val upstream: Source,
+    byteCount: Long,
+) : RawSource {
+    private var remaining = byteCount
+
+    override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
+        require(byteCount >= 0L)
+        if (byteCount == 0L) return 0L
+        if (remaining == 0L) return -1L
+        val read = upstream.readAtMostTo(sink, minOf(byteCount, remaining))
+        if (read < 0L) throw EOFException("Truncated region chunk payload")
+        remaining -= read
+        return read
+    }
+
+    override fun close() = Unit
+}
 
 private fun writeZeroes(sink: Sink, byteCount: Int) {
     var remaining = byteCount

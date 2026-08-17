@@ -19,33 +19,23 @@ object NeoForgeSplitPayloads {
         connection: MinecraftPacketConnection<Incoming, Outgoing>,
         packet: Outgoing,
         maximumPartSize: Int = NeoForgeProtocol.SPLIT_PART_SIZE,
-        maximumPacketSize: Int = NeoForgeProtocol.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE,
     ): List<NeoForgeSplitPacket> = split(
         connection.encodeCustomPayload(packet),
         maximumPartSize,
-        maximumPacketSize,
     )
 
     fun split(
         payload: RoutedCustomPayload,
         maximumPartSize: Int = NeoForgeProtocol.SPLIT_PART_SIZE,
-        maximumPacketSize: Int = NeoForgeProtocol.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE,
     ): List<NeoForgeSplitPacket> {
         require(maximumPartSize > 0) {
             "NeoForge split part size must be positive"
         }
-        require(maximumPacketSize > 0) {
-            "NeoForge split packet size must be positive"
-        }
         val target = encodeTarget(payload)
-        if (target.size > maximumPacketSize) {
-            throw MinecraftSerializationException(
-                "NeoForge split target has ${target.size} bytes; maximum is $maximumPacketSize",
-            )
-        }
         if (target.size <= maximumPartSize) {
+            val targetSize = target.size
             throw MinecraftSerializationException(
-                "NeoForge split target has ${target.size} bytes and does not require splitting at $maximumPartSize bytes",
+                "NeoForge split target has $targetSize bytes and does not require splitting at $maximumPartSize bytes",
             )
         }
         val result = mutableListOf<NeoForgeSplitPacket>()
@@ -90,22 +80,9 @@ object NeoForgeSplitPayloads {
 }
 
 /** Stateful assembler for exactly one ordered NeoForge split stream. */
-class NeoForgeSplitAssembler(
-    val maximumPacketSize: Int = NeoForgeProtocol.DEFAULT_MAXIMUM_SPLIT_PACKET_SIZE,
-    maximumChannelSizes: Map<Identifier, Int> = emptyMap(),
-) {
-    private val maximumChannelSizes = maximumChannelSizes.toMap()
+class NeoForgeSplitAssembler {
     private val fragments = mutableListOf<ByteArray>()
     private var byteCount: Int = 0
-
-    init {
-        require(maximumPacketSize > 0) {
-            "NeoForge split packet size must be positive"
-        }
-        require(this.maximumChannelSizes.values.all { it > 0 }) {
-            "NeoForge split channel sizes must be positive"
-        }
-    }
 
     val isCollecting: Boolean
         get() = fragments.isNotEmpty()
@@ -166,13 +143,6 @@ class NeoForgeSplitAssembler(
             NeoForgeSplitTarget.serializer(),
             targetBytes,
         )
-        val channelMaximum = maximumChannelSizes[target.channel]
-            ?: maximumPacketSize
-        if (targetBytes.size > channelMaximum) {
-            throw MinecraftSerializationException(
-                "NeoForge split target ${target.channel} has ${targetBytes.size} bytes; maximum is $channelMaximum",
-            )
-        }
         return RoutedCustomPayload(
             PacketRoute.CustomPayload(
                 state,
@@ -190,10 +160,10 @@ class NeoForgeSplitAssembler(
     }
 
     private fun append(fragment: ByteArray) {
-        if (byteCount.toLong() + fragment.size > maximumPacketSize) {
+        if (byteCount > Int.MAX_VALUE - fragment.size) {
             clear()
             throw MinecraftSerializationException(
-                "NeoForge split stream exceeds $maximumPacketSize bytes",
+                "NeoForge split stream cannot be represented by a ByteArray",
             )
         }
         fragments += fragment

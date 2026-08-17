@@ -6,9 +6,14 @@ filesystem; browser and Wasm targets use the stream modules and do not receive a
 ## Invariants
 
 - Common production code contains no Java or platform filesystem APIs.
-- Convert between Okio sources or sinks and `kotlinx.io` only through `kotlinx-io-okio`; keep size limits, byte counts,
-  durable flushes, and ownership policy in this module instead of duplicating the library's transport adapters. At the
-  stream boundary, retain the adapters' documented mapping into the wrapping library's I/O exception hierarchy.
+- Convert between Okio sources or sinks and `kotlinx.io` only through `kotlinx-io-okio`; keep exact snapshot and
+  declared byte counts, durable flushes, and ownership policy in this module instead of duplicating the library's
+  transport adapters. At the stream boundary, retain the adapters' documented mapping into the wrapping library's I/O
+  exception hierarchy.
+- World-file APIs impose no policy-sized read, write, decompression, tree-depth, or allocation ceiling. Preserve only
+  bounds intrinsic to the represented format and exact lengths needed for framing. Full `String`, JSON, NBT, region, and
+  byte-array conveniences may retain their value in memory; also expose caller-owned streaming paths so large data need
+  not be duplicated. Never add temporary files or extra filesystem passes solely to reduce memory pressure.
 - Public filesystem/store entry points expose Okio I/O exceptions. Normalize only a downstream `kotlinx.io.IOException`
   left after an official adapter crossing, restore a preserved Okio cause when present, and leave format/NBT,
   argument/state, cancellation, and cleanup-rethrow failures in their owning semantic category.
@@ -40,9 +45,10 @@ filesystem; browser and Wasm targets use the stream modules and do not receive a
   failure, keep cancellation primary and retain the other failure as suppressed. Never let a broad catch, `runCatching`,
   or standard `use` turn cancellation into an ordinary failure or skip cleanup.
 - Region and metadata entries are active-operation pins, not idle caches. Remove the coordinator and close an opened
-  region handle after its final user, including a user still encoding or decoding outside physical file access. With
-  `syncWrites = false`, that final release performs the automatic durable flush and close; with `syncWrites = true`,
-  each region commit also flushes. Do not restore an LRU or an idle per-file lock map.
+  region handle after its final user, including a user still encoding before exclusive file access or streaming and
+  decoding under shared file access. With `syncWrites = false`, that final release performs the automatic durable flush
+  and close; with `syncWrites = true`, each region commit also flushes. Do not restore an LRU or an idle per-file lock
+  map.
 - A region runtime path that needs both locks takes logical `fileAccess` before `openMutex`. Final cleanup may take
   `openMutex` alone only after bookkeeping atomically moves `users` to zero and sets `closing`: zero users excludes
   admitted paths, and `closing` redirects new acquisition to the completion signal. Never add an
@@ -87,6 +93,10 @@ competing same-file operation where applicable and prove it is registered but ca
 releasing the gate. Assert the original or complete-new bytes can still be decoded, all entry/user/handle counts drain,
 continuations after the cancelled call do not run, cleanup failures remain attached, and later close callers observe the
 shared barrier result.
+
+Streaming tests use small chunked or probing sources and sinks to prove incremental transfer and removal of policy
+ceilings. Do not write hundreds of megabytes merely to cross a deleted limit. Real payload size is justified only when
+testing an intrinsic format boundary such as Anvil's inline-to-external chunk transition.
 
 Live-reader tests separately gate level, player, saved-data, statistics, advancements, MCA, and MCC reads. Prove that
 same-file reads reach I/O together, that a slow read never delays an external writer, and that repeated missing-file

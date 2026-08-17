@@ -282,10 +282,7 @@ class OfficialWorldStorageInteropTest {
             "Player fallback did not return the old data"
         }
         check(
-            fileSystem.readFileWithinLimit(
-                paths.playerData(playerKey),
-                CORRUPTED_BYTES.size,
-            ).contentEquals(CORRUPTED_BYTES),
+            fileSystem.readFileBytes(paths.playerData(playerKey)).contentEquals(CORRUPTED_BYTES),
         ) {
             "Player fallback promoted old data over the corrupted primary"
         }

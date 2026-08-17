@@ -37,8 +37,8 @@ internal actual fun platformZlibDecompressingSource(
 internal actual fun platformGzipCompressingSink(sink: Sink): RawSink =
 // kompress-gzip exposes only an archive callback that must synchronously
 // finish an entry. It cannot back caller-driven RawSink/RawSource APIs
-// without staging the complete payload, which would defeat streaming and
-// decompression limits. Use Kompress's official framing base, Deflater,
+// without staging the complete payload, which would defeat streaming and add
+// a whole-payload allocation. Use Kompress's official framing base, Deflater,
     // Inflater, and CRC32; only the RFC 1952 adaptation below is project-owned.
     mapKompressFailure("Cannot create gzip compression stream") {
         sink.callerOwned()

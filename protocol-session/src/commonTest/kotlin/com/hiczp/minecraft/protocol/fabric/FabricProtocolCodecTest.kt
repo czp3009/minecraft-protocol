@@ -161,11 +161,10 @@ class FabricProtocolCodecTest {
         val fragments = FabricSplitPayloads.split(
             routed,
             maximumChunkSize = 32,
-            maximumPacketSize = 256,
         )
         assertTrue(fragments.size > 1)
         val assembler = FabricSplitAssembler(
-            mapOf(Identifier("mod:large") to 256),
+            setOf(Identifier("mod:large")),
         )
         var result: RoutedCustomPayload? = null
         fragments.forEach { fragment ->

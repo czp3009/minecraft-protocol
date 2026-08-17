@@ -24,12 +24,11 @@ Trace official `NbtIo` and nested reader/writer operations for:
 Match the official method appropriate to each repository API. Do not make all root modes aliases just because their
 payloads can coincide for one sample.
 
-## Enforce untrusted-input limits
+## Validate intrinsic structure without policy ceilings
 
-Test negative and excessive lengths, unknown tag IDs, missing end tags, truncated scalars and UTF, invalid root types,
-excessive nesting, trailing bytes where the API requires complete consumption, and allocation-amplifying structures. A
-configurable project safety ceiling may be stricter than an unlimited official helper, but it must be explicit and
-consistently enforced.
+Test negative lengths, unknown tag IDs, missing end tags, truncated scalars and UTF, invalid root types, trailing bytes
+where the API requires complete consumption, and lengths that exceed their binary representation. Do not impose a
+project policy ceiling on otherwise representable bytes, collections, arrays, or nesting.
 
 ## Use official interoperability
 

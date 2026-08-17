@@ -25,8 +25,8 @@ composition of caller-supplied NBT documents into region records in `world-forma
 preserve caller ownership and require complete bounded streams.
 
 Delegate raw GZIP, ZLIB, LZ4, and checksums to maintained multiplatform libraries where available. Handwrite only the
-Minecraft-specific container, preprocessing, ownership guard, limit enforcement, or compatibility layer, and document
-that boundary beside the special logic.
+Minecraft-specific container, preprocessing, ownership guard, format-intrinsic framing validation, or compatibility
+layer, and document that boundary beside the special logic.
 
 Keep Okio paths, directory creation, random-access file mutation, sidecar placement, locks, and replacement policy in
 `world-io`. Do not make a portable format API depend on a host filesystem.
@@ -40,4 +40,4 @@ affects bytes persisted by a real world store, also run `./gradlew :world-io:jvm
 official generate/rewrite/reload interoperability.
 
 Report the official format paths inspected, compression/container decisions, maintained libraries used, custom-extension
-limits, focused tasks, and official reload result when applicable.
+constraints, focused tasks, and official reload result when applicable.

@@ -281,32 +281,19 @@ class NbtFormatTreeTest {
     }
 
     @Test
-    fun `tree encoding checks specialized array limits before building tags`() {
-        val limited = NbtFormat(
-            NbtFormatConfiguration(
-                maximumCollectionSize = 1,
-                maximumByteArraySize = 1,
-            ),
+    fun `tree encoding preserves specialized arrays without policy limits`() {
+        assertEquals(
+            NbtByteArray(byteArrayOf(1, 2)),
+            NbtFormat.encodeToNbtTag(ByteArraySerializer(), byteArrayOf(1, 2)),
         )
-
-        assertFailsWith<NbtLimitException> {
-            limited.encodeToNbtTag(
-                ByteArraySerializer(),
-                byteArrayOf(1, 2),
-            )
-        }
-        assertFailsWith<NbtLimitException> {
-            limited.encodeToNbtTag(
-                IntArraySerializer(),
-                intArrayOf(1, 2),
-            )
-        }
-        assertFailsWith<NbtLimitException> {
-            limited.encodeToNbtTag(
-                LongArraySerializer(),
-                longArrayOf(1, 2),
-            )
-        }
+        assertEquals(
+            NbtIntArray(intArrayOf(1, 2)),
+            NbtFormat.encodeToNbtTag(IntArraySerializer(), intArrayOf(1, 2)),
+        )
+        assertEquals(
+            NbtLongArray(longArrayOf(1, 2)),
+            NbtFormat.encodeToNbtTag(LongArraySerializer(), longArrayOf(1, 2)),
+        )
     }
 
     @Test

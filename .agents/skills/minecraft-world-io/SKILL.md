@@ -26,8 +26,9 @@ Use Okio `Path`, `FileSystem`, and `FileHandle`. Keep format parsing in lower mo
 behind the smallest platform boundary. Preserve ownership of caller-provided filesystems and handles.
 
 Match official file compression, backup, replacement, durable-write, recovery, lock, external-sidecar, and directory
-lifecycle semantics. Keep configurable project safety limits explicit. Never expose Fixture Host paths or process
-machinery as production APIs.
+lifecycle semantics. Do not add policy-sized read, write, decompression, tree-depth, or allocation ceilings; preserve
+only format-intrinsic bounds and exact framing lengths. Never expose Fixture Host paths or process machinery as
+production APIs.
 
 ## Verify and report
 
