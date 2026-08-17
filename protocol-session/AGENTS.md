@@ -8,8 +8,10 @@ The published session follows `protocol-transport` onto JVM, Android, supported 
 Node. Browser, D8, and Wasm/WASI are not configured because the public session contract requires TCP transport.
 
 State changes occur only after the transition packet crosses the wire. Authentication code activates encryption after
-the Encryption Response exchange. Packet payload rules remain in `protocol-model` and `protocol-serialization`; socket
-creation, authentication policy, and client/server orchestration remain in their owning modules.
+the Encryption Response exchange. State that must be registered before a suspending wire write, such as Login Query
+correlation, is provisional: a failed or cancelled write rolls it back with `NonCancellable` cleanup and then propagates
+the original failure. Packet payload rules remain in `protocol-model` and `protocol-serialization`; socket creation,
+authentication policy, and client/server orchestration remain in their owning modules.
 
 `MinecraftConnectionDefinition` and loader definition objects are immutable and shareable. One-connection profile
 instances retain caller-owned static schemas, registry snapshots, packet registrations, and resolved contexts by

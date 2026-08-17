@@ -13,7 +13,8 @@ padding algorithms.
 
 Key exchange produces the shared secret; `protocol-transport` owns the continuous socket cipher, and
 `protocol-client`/`protocol-server` own activation timing. Automated tests use deterministic HTTP mocks and no live
-account credentials. Run `:protocol-auth:jvmTest` after changes.
+account credentials. Cryptography failure mapping leaves `CancellationException` unwrapped, including around suspend
+platform-backend calls. Run `:protocol-auth:jvmTest` after changes.
 
 Direct identity, Session Server, hash, and key-exchange APIs use Kotlin standard types or models owned by this module.
 Convenience extensions may adapt `protocol-model` profiles and Login packets in the same source files; that dependency

@@ -83,6 +83,11 @@ onto the consumer classpath.
 - Use maintained multiplatform APIs before adding `expect`/`actual`. An unavoidable platform boundary exposes the
   smallest reusable primitive, shares identical implementations through standard source sets, and handles optional
   capabilities at the narrowest call site.
+- In coroutine-aware production code, a broad `catch`, `runCatching`, or other `Result` helper must not turn
+  `CancellationException` into an ordinary failure. Rethrow cancellation unless a documented boundary owns an
+  independent job and intentionally publishes cancellation as its terminal state. Complete required state/resource
+  rollback with `NonCancellable` before rethrowing, keep cancellation primary when cleanup also fails, and retain the
+  other failure as suppressed context.
 - When a maintained library cannot be called directly and integration needs preprocessing, framing, ownership
   protection, failure normalization, or a compatibility workaround, document that reason beside the special logic and
   identify which library still owns the underlying algorithm. Platform internals may differ, but equivalent public calls
@@ -243,8 +248,10 @@ substantial coordination complexity.
 
 Coroutine tests use `runTest`, not `runBlocking` or `Dispatchers.IO`. `runTest` uses virtual time, so socket and process
 tests establish ordering with `await`, `join`, channels, `CompletableDeferred`, or observed readiness events rather than
-delays, sleeps, arbitrary timeouts, or probabilistic interleavings. Ktor selector loops use `Dispatchers.Default`
-because Native selectors perform blocking OS waits and cannot run on the virtual test dispatcher.
+delays, sleeps, arbitrary timeouts, or probabilistic interleavings. Cancellation/concurrency tests first observe the
+exact admission, wait, commit, or cleanup point, then cancel and explicitly release the next gate; an unchecked
+`isCompleted` observation alone is not ordering evidence. Ktor selector loops use `Dispatchers.Default` because Native
+selectors perform blocking OS waits and cannot run on the virtual test dispatcher.
 
 ## Development and verification
 

@@ -41,10 +41,21 @@ handle close still waits for the last reader or writer reference. `flush()` pins
 is usually a no-op after all operations have returned. `flush()` and `close()` have no internal timeout and may wait for
 admitted operations or slow storage.
 
+Cancellation is observed at coroutine admission and waiting points. Once a synchronous filesystem call or region
+record/header commit has started, cancellation does not interrupt it between physical writes: the operation completes
+that commit and its non-cancellable users, handle, and barrier cleanup before returning `CancellationException`.
+Cancellation before exclusive file admission prevents the physical update. A cancelled `flush()` releases every pin but
+stops issuing new explicit flushes, so it does not promise that every entry in its original snapshot became durable;
+`close()` still completes its full shared cleanup and publishes that cleanup's success or failure to later callers.
+Cooperative cancellation therefore leaves either the state from before admission or the complete synchronous update, not
+a cancellation-interrupted record/header or replacement sequence. If cancellation races an I/O or cleanup failure,
+`CancellationException` remains primary and the other failure is retained as suppressed diagnostic context.
+
 Final-entry cleanup is synchronous, not a background event. If its flush or close fails, the operation performing the
-last release fails. A later owner close does not replay that already-reported failure. If owner close has already sealed
-admission and is directly waiting for the cleanup when it fails, the close barrier and its concurrent waiters report it
-too; both calls then describe the same single physical cleanup attempt.
+last release fails. Starting owner close after that cleanup completes does not replay the already-reported failure. If
+owner close has already sealed admission and is directly waiting for the cleanup when it fails, the close barrier and
+its waiters report it too; every call to that same owner close, including calls made after it completes, observes the
+barrier's final success or failure.
 
 Logical-file coordination follows the commit boundary rather than individual path names:
 

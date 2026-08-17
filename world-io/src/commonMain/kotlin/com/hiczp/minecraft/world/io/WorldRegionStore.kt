@@ -10,6 +10,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okio.FileSystem
 import okio.Path
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Configuration for one region directory. The caller—not this library—decides how many region files
@@ -195,23 +196,23 @@ class WorldRegionStore internal constructor(
         var failure: Throwable? = null
         pinned.forEach { entry ->
             var entryFailure: Throwable? = null
-            try {
-                entry.fileAccess.write {
-                    entry.store?.flush()
+            // Every entry was pinned as one snapshot. After cancellation, skip further flush work
+            // but still release every pin through non-cancellable cleanup.
+            if (failure !is CancellationException) {
+                try {
+                    entry.fileAccess.write {
+                        entry.store?.flush()
+                    }
+                } catch (caught: Throwable) {
+                    entryFailure = caught
                 }
-            } catch (caught: Throwable) {
-                entryFailure = caught
             }
-            try {
-                release(entry)
-            } catch (releaseFailure: Throwable) {
-                entryFailure = combineFailures(entryFailure, releaseFailure)
-            }
+            entryFailure = collectCleanupFailure(entryFailure) { release(entry) }
             entryFailure?.let { caught ->
                 failure = combineFailures(failure, caught)
             }
         }
-        failure?.let { throw it }
+        throwFailureOrCancellation(failure)
     }
 
     /**
@@ -219,32 +220,31 @@ class WorldRegionStore internal constructor(
      *
      * Final-entry cleanup runs synchronously before its last operation returns, so that operation
      * observes any cleanup failure. A failure finalized before this close begins is not replayed.
-     * If this close has already sealed admission and is waiting for that cleanup, the close barrier
-     * and its concurrent waiters observe the same failure as well.
+     * If this close has already sealed admission and is waiting for that cleanup, every current or
+     * later caller of the same close barrier observes its final failure as well.
      */
     suspend fun close() {
         val completion: CompletableDeferred<Unit>
-        val concurrentWait: Boolean
+        val owner: Boolean
         bookkeeping.withLock {
             val existing = closeCompletion
             if (existing != null) {
                 completion = existing
-                concurrentWait = !existing.isCompleted
+                owner = false
             } else {
                 checkOpen()
                 closed = true
                 completion = CompletableDeferred()
                 closeCompletion = completion
-                concurrentWait = false
+                owner = true
             }
         }
-        if (concurrentWait) {
-            completion.await()
+        if (owner) {
+            firstClose(completion)
+        } else {
+            if (!completion.isCompleted) completion.await()
             closeFailure?.let { throw it }
-            return
         }
-        if (completion.isCompleted) return
-        firstClose(completion)
     }
 
     internal suspend fun activeRegionCount(): Int = bookkeeping.withLock {
@@ -260,18 +260,20 @@ class WorldRegionStore internal constructor(
             val entries = bookkeeping.withLock {
                 regions.values.toList()
             }
-            entries.map { it.drained }.awaitAll()
             entries.map { it.closed }.awaitAll()
             val failure = bookkeeping.withLock {
-                closeBarrierFailures.reduceOrNull { current, caught ->
+                val result = closeBarrierFailures.reduceOrNull { current, caught ->
                     combineFailures(current, caught)
                 }
+                closeFailure = result
+                result
             }
-            closeFailure = failure
             completion.complete(Unit)
             failure
         }
-        failure?.let { throw it }
+        // The cleanup itself must finish even if its owner is cancelled. Observe that cancellation
+        // only after the shared close result has been finalized for every current and later caller.
+        throwFailureOrCancellation(failure)
     }
 
     private suspend fun acquire(position: RegionPosition): RegionEntry {
@@ -299,59 +301,44 @@ class WorldRegionStore internal constructor(
         block: suspend (RegionEntry) -> T,
     ): T {
         val entry = acquire(position)
-        var operationFailure: Throwable? = null
-        try {
-            return block(entry)
-        } catch (caught: Throwable) {
-            operationFailure = caught
-            throw caught
-        } finally {
-            try {
-                release(entry)
-            } catch (releaseFailure: Throwable) {
-                val current = operationFailure ?: throw releaseFailure
-                if (current !== releaseFailure) {
-                    current.addSuppressed(releaseFailure)
-                }
-            }
+        return withCleanup(
+            cleanup = { release(entry) },
+        ) {
+            block(entry)
         }
     }
 
-    private suspend fun release(entry: RegionEntry) {
-        val failure: Throwable? = withContext(NonCancellable) {
-            val shouldClose = bookkeeping.withLock {
-                check(entry.users > 0) { "Region entry is not in use: ${entry.position}" }
-                entry.users--
-                if (entry.users > 0) return@withLock false
-                entry.drained.complete(Unit)
-                check(!entry.closing) { "Region entry is already closing: ${entry.position}" }
-                entry.closing = true
-                true
-            }
-            if (!shouldClose) return@withContext null
-            val storeToClose = entry.openMutex.withLock {
-                entry.store.also { entry.store = null }
-            }
-            var closeFailure: Throwable? = null
-            if (storeToClose != null) {
-                try {
-                    storeToClose.close()
-                } catch (caught: Throwable) {
-                    closeFailure = caught
-                }
-            }
-            bookkeeping.withLock {
-                if (regions[entry.position] === entry) {
-                    regions.remove(entry.position)
-                }
-                entry.closed.complete(Unit)
-                closeFailure?.let {
-                    if (closed) closeBarrierFailures += it
-                }
-            }
-            closeFailure
+    private suspend fun release(entry: RegionEntry): Throwable? {
+        val shouldClose = bookkeeping.withLock {
+            check(entry.users > 0) { "Region entry is not in use: ${entry.position}" }
+            check(!entry.closing) { "Region entry is already closing: ${entry.position}" }
+            entry.users--
+            if (entry.users > 0) return@withLock false
+            entry.closing = true
+            true
         }
-        failure?.let { throw it }
+        if (!shouldClose) return null
+        val storeToClose = entry.openMutex.withLock {
+            entry.store.also { entry.store = null }
+        }
+        var closeFailure: Throwable? = null
+        if (storeToClose != null) {
+            try {
+                storeToClose.close()
+            } catch (caught: Throwable) {
+                closeFailure = caught
+            }
+        }
+        bookkeeping.withLock {
+            if (regions[entry.position] === entry) {
+                regions.remove(entry.position)
+            }
+            entry.closed.complete(Unit)
+            closeFailure?.let {
+                if (closed) closeBarrierFailures += it
+            }
+        }
+        return closeFailure
     }
 
     private suspend fun openedStore(entry: RegionEntry): RegionFileStore = entry.openMutex.withLock {
@@ -378,15 +365,6 @@ class WorldRegionStore internal constructor(
         check(!closed) { "Region store is closed: $directory" }
     }
 
-    private fun combineFailures(
-        current: Throwable?,
-        caught: Throwable,
-    ): Throwable {
-        if (current == null) return caught
-        if (current !== caught) current.addSuppressed(caught)
-        return current
-    }
-
     /**
      * A runtime path that needs both locks acquires [fileAccess] before [openMutex]. Final cleanup is
      * the only path that takes [openMutex] without [fileAccess]; it may do so only after bookkeeping
@@ -400,7 +378,6 @@ class WorldRegionStore internal constructor(
         val fileAccess = LogicalFileAccess()
         var users = 1
         var closing = false
-        val drained = CompletableDeferred<Unit>()
         val closed = CompletableDeferred<Unit>()
     }
 }

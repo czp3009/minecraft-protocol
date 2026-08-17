@@ -33,6 +33,12 @@ filesystem; browser and Wasm targets use the stream modules and do not receive a
   physical file commit. This is not a fair/FIFO lock and promises no relative order among same-kind waiters. Different
   groups proceed independently. One region group includes an MCA header and all MCC sidecars it addresses; level,
   player, canonical saved-data, statistics, and advancements groups follow their complete commit and recovery path sets.
+- Coroutine cancellation is an admission and waiting signal, not an interrupt inside synchronous Okio work. Check it
+  after logical admission and before starting physical work. Once a synchronous standalone-file update or region
+  record/header sequence starts, finish that sequence and every users/handle/barrier transition before rethrowing
+  cancellation. State and resource cleanup runs with `NonCancellable`; when cancellation races an I/O or cleanup
+  failure, keep cancellation primary and retain the other failure as suppressed. Never let a broad catch, `runCatching`,
+  or standard `use` turn cancellation into an ordinary failure or skip cleanup.
 - Region and metadata entries are active-operation pins, not idle caches. Remove the coordinator and close an opened
   region handle after its final user, including a user still encoding or decoding outside physical file access. With
   `syncWrites = false`, that final release performs the automatic durable flush and close; with `syncWrites = true`,
@@ -43,7 +49,10 @@ filesystem; browser and Wasm targets use the stream modules and do not receive a
   `openMutex`-to-`fileAccess` path.
 - Final-entry cleanup is synchronous and reports failure to its last operation. Retain a cleanup failure for owner close
   only when close already sealed admission before cleanup finalized; this lets the active close barrier and its
-  concurrent waiters report the failure without accumulating or replaying failures from completed earlier operations.
+  concurrent waiters report the failure without accumulating failures from completed earlier operations. Every caller of
+  that same completed close barrier observes its finalized failure. Return a physical cleanup failure across a
+  `NonCancellable` context and throw it only afterward so coroutine stack recovery cannot copy it or lose suppressed
+  failures.
 - `RegionFileStore` is an uncoordinated byte-level primitive. Direct callers and separate store instances own all
   read/write/close exclusion. `WorldRegionStore` and `MinecraftWorldAccess` provide coordination only within their own
   registry.
@@ -72,6 +81,12 @@ preference, failure, cancellation, and admission cleanup with `runTest` and expl
 race tests use controlled gates at exact source, sink, handle, codec, and close operations; do not use delays, repeated
 stress, or scheduler luck as concurrency evidence. Okio `FakeFileSystem` is not JVM-thread-safe, so a concurrent oracle
 must protect its model or use a purpose-built filesystem while observing admission before that protection.
+
+Cancellation tests gate before admission, inside a synchronous physical write/flush, and during owner close. Start a
+competing same-file operation where applicable and prove it is registered but cannot cross the commit boundary before
+releasing the gate. Assert the original or complete-new bytes can still be decoded, all entry/user/handle counts drain,
+continuations after the cancelled call do not run, cleanup failures remain attached, and later close callers observe the
+shared barrier result.
 
 Live-reader tests separately gate level, player, saved-data, statistics, advancements, MCA, and MCC reads. Prove that
 same-file reads reach I/O together, that a slow read never delays an external writer, and that repeated missing-file

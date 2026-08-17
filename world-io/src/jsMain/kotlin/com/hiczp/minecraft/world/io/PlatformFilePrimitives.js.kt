@@ -4,6 +4,7 @@ import okio.FileHandle
 import okio.FileSystem
 import okio.NodeJsFileSystem
 import okio.Path
+import kotlin.coroutines.cancellation.CancellationException
 
 internal actual val systemFileSystem: FileSystem
     get() = NodeJsFileSystem
@@ -44,23 +45,30 @@ internal actual fun syncSystemFilePath(path: Path) {
     try {
         fsyncSync(descriptor)
     } catch (caught: Throwable) {
-        caught.rethrowIfCancellation()
-        val syncFailure = WorldIOException(
-            "Could not durably sync $path",
-            caught,
-        )
+        val syncFailure = if (caught is CancellationException) {
+            caught
+        } else {
+            WorldIOException(
+                "Could not durably sync $path",
+                caught,
+            )
+        }
         failure = syncFailure
         throw syncFailure
     } finally {
         try {
             closeSync(descriptor)
         } catch (caught: Throwable) {
-            caught.rethrowIfCancellation()
-            val closeFailure = WorldIOException(
-                "Could not close durable-sync descriptor for $path",
-                caught,
-            )
-            failure?.addSuppressed(closeFailure) ?: throw closeFailure
+            val closeFailure = if (caught is CancellationException) {
+                caught
+            } else {
+                WorldIOException(
+                    "Could not close durable-sync descriptor for $path",
+                    caught,
+                )
+            }
+            val primary = combineFailures(failure, closeFailure)
+            if (primary !== failure) throw primary
         }
     }
 }

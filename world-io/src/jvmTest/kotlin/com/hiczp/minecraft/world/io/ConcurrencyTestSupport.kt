@@ -3,9 +3,7 @@ package com.hiczp.minecraft.world.io
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.NbtInt
-import com.hiczp.minecraft.world.format.Compression
-import com.hiczp.minecraft.world.format.RegionChunk
-import com.hiczp.minecraft.world.format.RegionChunkPayload
+import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.CompletableDeferred
 import okio.*
 import okio.fakefilesystem.FakeFileSystem
@@ -15,6 +13,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
+import kotlinx.io.Buffer as KotlinxBuffer
+import kotlinx.io.RawSink as KotlinxRawSink
+import kotlinx.io.RawSource as KotlinxRawSource
+import kotlinx.io.Sink as KotlinxSink
+import kotlinx.io.Source as KotlinxSource
 
 internal class BlockingGate(
     private val expectedEntrants: Int = 1,
@@ -51,6 +54,7 @@ internal class GatedFileSystem(
     private val target: Path,
     private val readGate: BlockingGate? = null,
     private val writeGate: BlockingGate? = null,
+    private val flushGate: BlockingGate? = null,
     private val closeGate: BlockingGate? = null,
     private val sourceGate: BlockingGate? = null,
     private val sinkGate: BlockingGate? = null,
@@ -140,6 +144,7 @@ internal class GatedFileSystem(
 
             override fun protectedFlush() {
                 if (file == target) flushes.incrementAndGet()
+                if (file == target) flushGate?.awaitRelease()
                 handle.flush()
             }
 
@@ -191,6 +196,48 @@ internal class GatedFileSystem(
 
     fun enableReadGate() {
         gateReads.set(true)
+    }
+}
+
+internal class SequencedFlushFailureFileSystem(
+    delegate: FileSystem,
+    failures: List<Throwable>,
+) : ForwardingFileSystem(delegate) {
+    private val failures = failures.toList()
+    val flushAttempts = AtomicInteger()
+
+    override fun openReadWrite(
+        file: Path,
+        mustCreate: Boolean,
+        mustExist: Boolean,
+    ): FileHandle {
+        val handle = super.openReadWrite(file, mustCreate, mustExist)
+        return object : FileHandle(readWrite = true) {
+            override fun protectedRead(
+                fileOffset: Long,
+                array: ByteArray,
+                arrayOffset: Int,
+                byteCount: Int,
+            ): Int = handle.read(fileOffset, array, arrayOffset, byteCount)
+
+            override fun protectedWrite(
+                fileOffset: Long,
+                array: ByteArray,
+                arrayOffset: Int,
+                byteCount: Int,
+            ) = handle.write(fileOffset, array, arrayOffset, byteCount)
+
+            override fun protectedFlush() {
+                handle.flush()
+                failures.getOrNull(flushAttempts.getAndIncrement())?.let { throw it }
+            }
+
+            override fun protectedResize(size: Long) = handle.resize(size)
+
+            override fun protectedSize(): Long = handle.size()
+
+            override fun protectedClose() = handle.close()
+        }
     }
 }
 
@@ -338,7 +385,9 @@ private class ThreadSafeFakeFileSystem(
 
 internal fun threadSafeFakeFileSystem(base: FakeFileSystem): FileSystem = ThreadSafeFakeFileSystem(base)
 
-internal class RecordingWorldDirectoryLock : WorldDirectoryLock {
+internal class RecordingWorldDirectoryLock(
+    private val closeGate: BlockingGate? = null,
+) : WorldDirectoryLock {
     private val valid = AtomicBoolean(true)
     val closeAttempts = AtomicInteger()
 
@@ -347,6 +396,7 @@ internal class RecordingWorldDirectoryLock : WorldDirectoryLock {
 
     override fun close() {
         closeAttempts.incrementAndGet()
+        closeGate?.awaitRelease()
         valid.set(false)
     }
 }
@@ -364,3 +414,45 @@ internal fun concurrencyFakeFileSystem(): FakeFileSystem = FakeFileSystem().appl
 internal fun concurrencyDocument(value: Int): NbtDocument = NbtDocument(
     NbtCompound(mapOf("value" to NbtInt(value))),
 )
+
+internal fun gatedNbtFormat(gate: BlockingGate): RegionChunkNbtFormat = RegionChunkNbtFormat(
+    compressionCodecs = CompressionCodecs(
+        mapOf(Compression.NONE to GatedIdentityCompressionCodec(gate)),
+    ),
+)
+
+private class GatedIdentityCompressionCodec(
+    private val gate: BlockingGate,
+) : CompressionCodec {
+    override fun compressingSink(sink: KotlinxSink): KotlinxRawSink = object : KotlinxRawSink {
+        override fun write(
+            source: KotlinxBuffer,
+            byteCount: Long,
+        ) {
+            gate.awaitRelease()
+            sink.write(source, byteCount)
+        }
+
+        override fun flush() = sink.flush()
+
+        override fun close() = sink.flush()
+    }
+
+    override fun decompressingSource(
+        source: KotlinxSource,
+        maximumOutputBytes: Int,
+    ): KotlinxRawSource {
+        require(maximumOutputBytes >= 0)
+        return object : KotlinxRawSource {
+            override fun readAtMostTo(
+                sink: KotlinxBuffer,
+                byteCount: Long,
+            ): Long {
+                gate.awaitRelease()
+                return source.readAtMostTo(sink, byteCount)
+            }
+
+            override fun close() = Unit
+        }
+    }
+}

@@ -87,16 +87,12 @@ private class MingwWorldDirectoryLock(
     override fun close() {
         val openHandle = handle ?: return
         handle = null
-
-        try {
-            unlockWindowsFile(openHandle, path)
-        } finally {
-            try {
-                closeWindowsFile(openHandle, path)
-            } finally {
-                removeInProcessLock(key)
-            }
-        }
+        closeAllPreserving(
+            null,
+            { unlockWindowsFile(openHandle, path) },
+            { closeWindowsFile(openHandle, path) },
+            { removeInProcessLock(key) },
+        )
     }
 }
 

@@ -9,6 +9,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okio.Path
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Shared resource-owning implementation behind mutable world access.
@@ -179,45 +180,44 @@ internal class OpenMinecraftWorld(
         var failure: Throwable? = null
         pinned.forEach { entry ->
             var entryFailure: Throwable? = null
-            try {
-                entry.store.flush()
-            } catch (caught: Throwable) {
-                entryFailure = caught
+            // Every entry was pinned as one snapshot. After cancellation, skip further flush work
+            // but still release every pin through non-cancellable cleanup.
+            if (failure !is CancellationException) {
+                try {
+                    entry.store.flush()
+                } catch (caught: Throwable) {
+                    entryFailure = caught
+                }
             }
-            try {
-                releaseRegionStore(entry)
-            } catch (releaseFailure: Throwable) {
-                entryFailure = combineFailures(entryFailure, releaseFailure)
-            }
+            entryFailure = collectCleanupFailure(entryFailure) { releaseRegionStore(entry) }
             entryFailure?.let { caught ->
                 failure = combineFailures(failure, caught)
             }
         }
-        failure?.let { throw it }
+        throwFailureOrCancellation(failure)
     }
 
     suspend fun close() {
         val completion: CompletableDeferred<Unit>
-        val concurrentWait: Boolean
+        val owner: Boolean
         state.withLock {
             val existing = closeCompletion
             if (existing != null) {
                 completion = existing
-                concurrentWait = !existing.isCompleted
+                owner = false
             } else {
                 closed = true
                 completion = CompletableDeferred()
                 closeCompletion = completion
-                concurrentWait = false
+                owner = true
             }
         }
-        if (concurrentWait) {
-            completion.await()
+        if (owner) {
+            firstClose(completion)
+        } else {
+            if (!completion.isCompleted) completion.await()
             closeFailure?.let { throw it }
-            return
         }
-        if (completion.isCompleted) return
-        firstClose(completion)
     }
 
     internal suspend fun activeMetadataEntryCount(): Int = state.withLock {
@@ -232,6 +232,10 @@ internal class OpenMinecraftWorld(
         regionStores.size
     }
 
+    internal suspend fun activeRegionStoreUsers(): Int = state.withLock {
+        regionStores.values.sumOf { it.users }
+    }
+
     private suspend fun firstClose(completion: CompletableDeferred<Unit>) {
         val failure: Throwable? = withContext(NonCancellable) {
             val storeEntries = state.withLock {
@@ -240,8 +244,6 @@ internal class OpenMinecraftWorld(
             val activeMetadataEntries = state.withLock {
                 metadataEntries.values.toList()
             }
-            storeEntries.map { it.drained }.awaitAll()
-            activeMetadataEntries.map { it.drained }.awaitAll()
             storeEntries.map { it.closed }.awaitAll()
             activeMetadataEntries.map { it.closed }.awaitAll()
 
@@ -259,12 +261,14 @@ internal class OpenMinecraftWorld(
                 regionStores.clear()
                 metadataEntries.clear()
                 closeBarrierFailures.clear()
+                closeFailure = failure
             }
-            closeFailure = failure
             completion.complete(Unit)
             failure
         }
-        failure?.let { throw it }
+        // The cleanup itself must finish even if its owner is cancelled. Observe that cancellation
+        // only after the shared close result has been finalized for every current and later caller.
+        throwFailureOrCancellation(failure)
     }
 
     private suspend fun <T> withMetadata(
@@ -283,21 +287,10 @@ internal class OpenMinecraftWorld(
         block: suspend (MetadataEntry) -> T,
     ): T {
         val entry = acquireMetadata(key)
-        var operationFailure: Throwable? = null
-        try {
-            return block(entry)
-        } catch (caught: Throwable) {
-            operationFailure = caught
-            throw caught
-        } finally {
-            try {
-                releaseMetadata(entry)
-            } catch (releaseFailure: Throwable) {
-                val current = operationFailure ?: throw releaseFailure
-                if (current !== releaseFailure) {
-                    current.addSuppressed(releaseFailure)
-                }
-            }
+        return withCleanup(
+            cleanup = { releaseMetadata(entry) },
+        ) {
+            block(entry)
         }
     }
 
@@ -307,59 +300,34 @@ internal class OpenMinecraftWorld(
         block: suspend WorldRegionStore.() -> T,
     ): T {
         val entry = acquireRegionStore(storage, dimension)
-        var operationFailure: Throwable? = null
-        try {
-            return entry.store.block()
-        } catch (caught: Throwable) {
-            operationFailure = caught
-            throw caught
-        } finally {
-            try {
-                releaseRegionStore(entry)
-            } catch (releaseFailure: Throwable) {
-                val current = operationFailure ?: throw releaseFailure
-                if (current !== releaseFailure) {
-                    current.addSuppressed(releaseFailure)
-                }
-            }
+        return withCleanup(
+            cleanup = { releaseRegionStore(entry) },
+        ) {
+            entry.store.block()
         }
     }
 
-    private suspend fun acquireMetadata(key: () -> MetadataKey): MetadataEntry {
-        while (true) {
-            val closing = state.withLock {
-                checkValid()
-                val metadataKey = key()
-                val entry = metadataEntries[metadataKey]
-                if (entry == null) {
-                    val created = MetadataEntry(metadataKey)
-                    metadataEntries[metadataKey] = created
-                    return created
-                }
-                if (!entry.closing) {
-                    entry.users++
-                    return entry
-                }
-                entry.closed
-            }
-            closing.await()
+    private suspend fun acquireMetadata(key: () -> MetadataKey): MetadataEntry = state.withLock {
+        checkValid()
+        val metadataKey = key()
+        metadataEntries.getOrPut(metadataKey) {
+            MetadataEntry(metadataKey)
+        }.also { entry ->
+            entry.users++
         }
     }
 
-    private suspend fun releaseMetadata(entry: MetadataEntry) {
-        withContext(NonCancellable) {
-            state.withLock {
-                check(entry.users > 0) { "Metadata entry is not in use: ${entry.key}" }
-                entry.users--
-                if (entry.users > 0) return@withLock
-                entry.drained.complete(Unit)
-                entry.closing = true
-                if (metadataEntries[entry.key] === entry) {
-                    metadataEntries.remove(entry.key)
-                }
-                entry.closed.complete(Unit)
+    private suspend fun releaseMetadata(entry: MetadataEntry): Throwable? {
+        state.withLock {
+            check(entry.users > 0) { "Metadata entry is not in use: ${entry.key}" }
+            entry.users--
+            if (entry.users > 0) return@withLock
+            if (metadataEntries[entry.key] === entry) {
+                metadataEntries.remove(entry.key)
             }
+            entry.closed.complete(Unit)
         }
+        return null
     }
 
     private suspend fun acquireRegionStore(
@@ -396,36 +364,32 @@ internal class OpenMinecraftWorld(
         }
     }
 
-    private suspend fun releaseRegionStore(entry: RegionStoreEntry) {
-        val failure: Throwable? = withContext(NonCancellable) {
-            val shouldClose = state.withLock {
-                check(entry.users > 0) { "Region store entry is not in use: ${entry.key}" }
-                entry.users--
-                if (entry.users > 0) return@withLock false
-                entry.drained.complete(Unit)
-                check(!entry.closing) { "Region store entry is already closing: ${entry.key}" }
-                entry.closing = true
-                true
-            }
-            if (!shouldClose) return@withContext null
-            var closeFailure: Throwable? = null
-            try {
-                entry.store.close()
-            } catch (caught: Throwable) {
-                closeFailure = caught
-            }
-            state.withLock {
-                if (regionStores[entry.key] === entry) {
-                    regionStores.remove(entry.key)
-                }
-                entry.closed.complete(Unit)
-                closeFailure?.let {
-                    if (closed) closeBarrierFailures += it
-                }
-            }
-            closeFailure
+    private suspend fun releaseRegionStore(entry: RegionStoreEntry): Throwable? {
+        val shouldClose = state.withLock {
+            check(entry.users > 0) { "Region store entry is not in use: ${entry.key}" }
+            check(!entry.closing) { "Region store entry is already closing: ${entry.key}" }
+            entry.users--
+            if (entry.users > 0) return@withLock false
+            entry.closing = true
+            true
         }
-        failure?.let { throw it }
+        if (!shouldClose) return null
+        var closeFailure: Throwable? = null
+        try {
+            entry.store.close()
+        } catch (caught: Throwable) {
+            closeFailure = caught
+        }
+        state.withLock {
+            if (regionStores[entry.key] === entry) {
+                regionStores.remove(entry.key)
+            }
+            entry.closed.complete(Unit)
+            closeFailure?.let {
+                if (closed) closeBarrierFailures += it
+            }
+        }
+        return closeFailure
     }
 
     private fun checkValid() {
@@ -436,15 +400,6 @@ internal class OpenMinecraftWorld(
                 "World directory lock is no longer valid: ${paths.root}",
             )
         }
-    }
-
-    private fun combineFailures(
-        current: Throwable?,
-        caught: Throwable,
-    ): Throwable {
-        if (current == null) return caught
-        if (current !== caught) current.addSuppressed(caught)
-        return current
     }
 
     private data class RegionStoreKey(
@@ -479,9 +434,7 @@ internal class OpenMinecraftWorld(
 
     private class MetadataEntry(val key: MetadataKey) {
         val fileAccess = LogicalFileAccess()
-        var users = 1
-        var closing = false
-        val drained = CompletableDeferred<Unit>()
+        var users = 0
         val closed = CompletableDeferred<Unit>()
     }
 
@@ -491,7 +444,6 @@ internal class OpenMinecraftWorld(
     ) {
         var users = 1
         var closing = false
-        val drained = CompletableDeferred<Unit>()
         val closed = CompletableDeferred<Unit>()
     }
 }

@@ -1,10 +1,24 @@
 package com.hiczp.minecraft.protocol.auth
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlin.io.encoding.Base64
 import kotlin.test.*
 
 class MinecraftLoginKeyExchangeContractTest {
+    @Test
+    fun cryptographyFailureMappingDoesNotWrapCancellation() {
+        val cancellation = CancellationException("cancel cryptography")
+
+        val failure = assertFailsWith<CancellationException> {
+            mapCryptographyFailure("synthetic cryptography failure") {
+                throw cancellation
+            }
+        }
+
+        assertSame(cancellation, failure)
+    }
+
     @Test
     fun createsVanillaChallengeWithDefensiveContextValues() = runTest {
         val keyPair = MinecraftServerKeyPair.generate()

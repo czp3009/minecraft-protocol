@@ -116,4 +116,5 @@ try {
 
 Instead of generating a key pair, callers may construct `MinecraftServerKeyPair` from DER-encoded public and private
 keys. The server key-pair object is intentionally opaque because it owns private-key material; response and result
-models are data classes.
+models are data classes. Backend cryptography failures use `MinecraftCryptographyException`; coroutine cancellation
+propagates as `CancellationException` instead of being wrapped as a cryptography failure.

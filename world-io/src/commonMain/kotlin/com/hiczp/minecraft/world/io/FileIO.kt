@@ -1,7 +1,6 @@
 package com.hiczp.minecraft.world.io
 
 import okio.*
-import kotlin.coroutines.cancellation.CancellationException
 import kotlin.random.Random
 import kotlinx.io.IOException as KotlinxIOException
 
@@ -75,33 +74,13 @@ private fun <T> FileSystem.readFile(
     val limitedSource = openSource()
         .limit(size, throwIfSourceIsLonger = true)
         .buffer()
-    return limitedSource.use { source ->
+    return useResource(limitedSource, { it.close() }) { source ->
         val value = block(source, size)
         if (!source.exhausted()) {
             throw WorldIOException("File $path was not fully consumed")
         }
         value
     }
-}
-
-internal fun closeAllPreserving(
-    failure: Throwable?,
-    vararg closes: () -> Unit,
-) {
-    var primary = failure
-    closes.forEach { close ->
-        try {
-            close()
-        } catch (closeFailure: Throwable) {
-            val current = primary
-            if (current == null) {
-                primary = closeFailure
-            } else {
-                current.addSuppressed(closeFailure)
-            }
-        }
-    }
-    if (failure == null) throw primary ?: return
 }
 
 // Keep byte-limit policy on the Okio side of world-io. closeDelegate is
@@ -305,12 +284,9 @@ internal fun FileSystem.deleteIfExistsPreserving(
     try {
         deleteIfExists(path)
     } catch (cleanupFailure: Throwable) {
-        failure.addSuppressed(cleanupFailure)
+        val primary = combineFailures(failure, cleanupFailure)
+        if (primary !== failure) throw primary
     }
-}
-
-internal fun Throwable.rethrowIfCancellation() {
-    if (this is CancellationException) throw this
 }
 
 /*

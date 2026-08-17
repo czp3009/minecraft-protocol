@@ -77,16 +77,12 @@ private class NodeWorldDirectoryLock(
     override fun close() {
         val openDescriptor = descriptor ?: return
         descriptor = null
-
-        try {
-            unlockWorldLock(openDescriptor, path)
-        } finally {
-            try {
-                closeWorldLock(openDescriptor, path)
-            } finally {
-                IN_PROCESS_LOCK_KEYS.remove(key)
-            }
-        }
+        closeAllPreserving(
+            null,
+            { unlockWorldLock(openDescriptor, path) },
+            { closeWorldLock(openDescriptor, path) },
+            { IN_PROCESS_LOCK_KEYS.remove(key) },
+        )
     }
 }
 

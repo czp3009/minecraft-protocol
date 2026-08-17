@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.world.io
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.test.runTest
 import okio.*
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
@@ -136,6 +137,57 @@ class FileIOTest {
 
         assertSame(first, thrown)
         assertSame(second, thrown.suppressedExceptions.single())
+    }
+
+    @Test
+    fun cleanupAggregationKeepsCancellationPrimaryAndRunsEveryCleanup() {
+        val operationFailure = IllegalStateException("operation")
+        val cancellation = CancellationException("cleanup cancelled")
+        var finalCleanupRan = false
+
+        val thrown = assertFailsWith<CancellationException> {
+            try {
+                throw operationFailure
+            } finally {
+                closeAllPreserving(
+                    operationFailure,
+                    { throw cancellation },
+                    { finalCleanupRan = true },
+                )
+            }
+        }
+
+        assertSame(cancellation, thrown)
+        assertSame(operationFailure, thrown.suppressedExceptions.single())
+        assertTrue(finalCleanupRan)
+    }
+
+    @Test
+    fun nonCancellableCleanupKeepsTheExactThrownCancellationAndItsDiagnostics() = runTest {
+        val operationFailure = IllegalStateException("operation")
+        val cancellation = CancellationException("cleanup cancelled")
+
+        val result = collectCleanupFailure(operationFailure) {
+            throw cancellation
+        }
+
+        assertSame(cancellation, result)
+        assertSame(operationFailure, cancellation.suppressedExceptions.single())
+    }
+
+    @Test
+    fun resourceCloseCancellationOverridesBlockFailureWithoutLosingIt() {
+        val operationFailure = IllegalStateException("operation")
+        val cancellation = CancellationException("resource close cancelled")
+
+        val thrown = assertFailsWith<CancellationException> {
+            useResource(Unit, { throw cancellation }) {
+                throw operationFailure
+            }
+        }
+
+        assertSame(cancellation, thrown)
+        assertSame(operationFailure, thrown.suppressedExceptions.single())
     }
 
     @Test
@@ -313,6 +365,24 @@ class FileIOTest {
         DeleteFailingFileSystem(fileSystem, target, deleteFailure)
             .deleteIfExistsPreserving(target, original)
         assertSame(deleteFailure, original.suppressedExceptions.single())
+        assertTrue(fileSystem.exists(target))
+    }
+
+    @Test
+    fun temporaryCleanupDoesNotSuppressCancellation() {
+        val fileSystem = FakeFileSystem()
+        val target = "/world/value.dat".toPath()
+        fileSystem.writeRaw(target, byteArrayOf(1))
+        val operationFailure = IllegalStateException("operation")
+        val cancellation = CancellationException("delete cancelled")
+
+        val thrown = assertFailsWith<CancellationException> {
+            DeleteFailingFileSystem(fileSystem, target, cancellation)
+                .deleteIfExistsPreserving(target, operationFailure)
+        }
+
+        assertSame(cancellation, thrown)
+        assertSame(operationFailure, thrown.suppressedExceptions.single())
         assertTrue(fileSystem.exists(target))
     }
 

@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.ChunkPosition
+import com.hiczp.minecraft.world.format.Compression
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
 import okio.IOException
@@ -370,6 +371,267 @@ class OpenMinecraftWorldConcurrencyTest {
         }
         assertFalse(lock.isValid)
         assertEquals(1, lock.closeAttempts.get())
+    }
+
+    @Test
+    fun cancellationDuringMetadataWriteCompletesTheFileBeforeReleasingItsEntry() = runTest {
+        val paths = MinecraftWorldPaths("/world".toPath())
+        val playerUuid = "cancelled-writer"
+        val target = paths.statistics(playerUuid)
+        val json = "{\"complete\":true}"
+        val base = concurrencyFakeFileSystem()
+        val sinkGate = BlockingGate()
+        val fileSystem = GatedFileSystem(base, target, sinkGate = sinkGate)
+        val lock = RecordingWorldDirectoryLock()
+        val world = concurrencyWorld(paths, fileSystem, lock)
+        val jobs = mutableListOf<Deferred<*>>()
+        try {
+            val returned = CompletableDeferred<Unit>()
+            val writing = async(Dispatchers.Default) {
+                world.writeStatistics(playerUuid, json)
+                returned.complete(Unit)
+            }
+            jobs += writing
+            sinkGate.awaitEntered()
+
+            val readerReturned = CompletableDeferred<Unit>()
+            val reading = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+                world.readStatistics(playerUuid).also { readerReturned.complete(Unit) }
+            }
+            jobs += reading
+            assertFalse(readerReturned.isCompleted)
+            assertEquals(1, world.activeMetadataEntryCount())
+            assertEquals(2, world.activeMetadataUsers())
+
+            val cancellation = CancellationException("cancelled during metadata write")
+            writing.cancel(cancellation)
+            sinkGate.open()
+            val failure = assertFailsWith<CancellationException> { writing.await() }
+
+            assertEquals(cancellation.message, failure.message)
+            assertFalse(returned.isCompleted)
+            assertEquals(json, reading.await())
+            assertEquals(0, world.activeMetadataEntryCount())
+            assertEquals(json, world.readStatistics(playerUuid))
+            assertEquals(0, world.activeMetadataEntryCount())
+            base.checkNoOpenFiles()
+        } finally {
+            withContext(NonCancellable) {
+                sinkGate.open()
+                jobs.joinAll()
+                world.close()
+                assertFalse(lock.isValid)
+                base.checkNoOpenFiles()
+            }
+        }
+    }
+
+    @Test
+    fun cancellationDuringNestedRegionWriteCompletesAValidCommitAndReleasesBothStateLayers() = runTest {
+        val paths = MinecraftWorldPaths("/world".toPath())
+        val position = ChunkPosition(0, 0)
+        val target = paths.regionFile(position.region)
+        val base = concurrencyFakeFileSystem()
+        val writeGate = BlockingGate()
+        val fileSystem = GatedFileSystem(base, target, writeGate = writeGate)
+        val lock = RecordingWorldDirectoryLock()
+        val world = concurrencyWorld(paths, fileSystem, lock)
+        val jobs = mutableListOf<Deferred<*>>()
+        try {
+            val returned = CompletableDeferred<Unit>()
+            val writing = async(Dispatchers.Default) {
+                world.writeChunk(
+                    position,
+                    concurrencyChunk(5),
+                    RegionStorageDirectory.CHUNKS,
+                    DimensionDirectory.Overworld,
+                )
+                returned.complete(Unit)
+            }
+            jobs += writing
+            writeGate.awaitEntered()
+
+            val readerReturned = CompletableDeferred<Unit>()
+            val reading = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+                world.readChunk(
+                    position,
+                    RegionStorageDirectory.CHUNKS,
+                    DimensionDirectory.Overworld,
+                ).also { readerReturned.complete(Unit) }
+            }
+            jobs += reading
+            assertFalse(readerReturned.isCompleted)
+            assertEquals(1, world.activeRegionStoreCount())
+            assertEquals(2, world.activeRegionStoreUsers())
+
+            val cancellation = CancellationException("cancelled during nested region write")
+            writing.cancel(cancellation)
+            writeGate.open()
+            val failure = assertFailsWith<CancellationException> { writing.await() }
+
+            assertEquals(cancellation.message, failure.message)
+            assertFalse(returned.isCompleted)
+            assertContentEquals(
+                byteArrayOf(5),
+                reading.await()?.payload?.compressedBytes,
+            )
+            assertEquals(0, world.activeRegionStoreCount())
+            assertContentEquals(
+                byteArrayOf(5),
+                world.readChunk(
+                    position,
+                    RegionStorageDirectory.CHUNKS,
+                    DimensionDirectory.Overworld,
+                )?.payload?.compressedBytes,
+            )
+            assertEquals(0, world.activeRegionStoreCount())
+            base.checkNoOpenFiles()
+        } finally {
+            withContext(NonCancellable) {
+                writeGate.open()
+                jobs.joinAll()
+                world.close()
+                assertFalse(lock.isValid)
+                base.checkNoOpenFiles()
+            }
+        }
+    }
+
+    @Test
+    fun cancelledCloseOwnerFinishesDirectoryLockCleanupAndPublishesSuccess() = runTest {
+        val paths = MinecraftWorldPaths("/world".toPath())
+        val base = concurrencyFakeFileSystem()
+        val closeGate = BlockingGate()
+        val lock = RecordingWorldDirectoryLock(closeGate)
+        val world = concurrencyWorld(paths, base, lock)
+        val jobs = mutableListOf<Deferred<*>>()
+        try {
+            val returned = CompletableDeferred<Unit>()
+            val closing = async(Dispatchers.Default) {
+                world.close()
+                returned.complete(Unit)
+            }
+            jobs += closing
+            closeGate.awaitEntered()
+
+            val cancellation = CancellationException("world close owner cancelled")
+            closing.cancel(cancellation)
+            closeGate.open()
+            val failure = assertFailsWith<CancellationException> { closing.await() }
+
+            assertEquals(cancellation.message, failure.message)
+            assertFalse(returned.isCompleted)
+            assertFalse(lock.isValid)
+            assertEquals(1, lock.closeAttempts.get())
+            base.checkNoOpenFiles()
+
+            world.close()
+            assertEquals(1, lock.closeAttempts.get())
+        } finally {
+            withContext(NonCancellable) {
+                closeGate.open()
+                jobs.joinAll()
+                world.close()
+                base.checkNoOpenFiles()
+            }
+        }
+    }
+
+    @Test
+    fun flushKeepsCancellationPrimaryAcrossRegionStoresAndOnlyReleasesRemainingPins() = runTest {
+        val paths = MinecraftWorldPaths("/world".toPath())
+        val position = ChunkPosition(0, 0)
+        val storageDirectories = RegionStorageDirectory.entries
+        val base = concurrencyFakeFileSystem()
+        storageDirectories.forEachIndexed { index, storage ->
+            val setup = WorldRegionStore(
+                paths = paths,
+                storage = storage,
+                fileSystem = base,
+                configuration = WorldRegionStoreConfiguration(syncWrites = false),
+            )
+            setup.writeChunkNbt(position, concurrencyDocument(index), Compression.NONE)
+            setup.close()
+        }
+
+        val earlierFailure = IOException("synthetic world flush failure before cancellation")
+        val cancellation = CancellationException("synthetic world flush cancellation")
+        val fileSystem = SequencedFlushFailureFileSystem(
+            delegate = threadSafeFakeFileSystem(base),
+            failures = listOf(earlierFailure, cancellation),
+        )
+        val decodeGate = BlockingGate(expectedEntrants = storageDirectories.size)
+        val lock = RecordingWorldDirectoryLock()
+        val world = OpenMinecraftWorld(
+            paths = paths,
+            files = WorldFileAccess.mutable(fileSystem),
+            regionChunkNbtFormat = gatedNbtFormat(decodeGate),
+            regionStoreConfiguration = WorldRegionStoreConfiguration(syncWrites = false),
+            directoryLock = lock,
+        )
+        val jobs = mutableListOf<Deferred<*>>()
+        try {
+            val decoding = storageDirectories.map { storage ->
+                async(Dispatchers.Default) {
+                    world.readChunkNbt(position, storage, DimensionDirectory.Overworld)
+                }
+            }
+            jobs += decoding
+            decodeGate.awaitEntered()
+
+            val failure = assertFailsWith<CancellationException> { world.flush() }
+
+            assertSame(cancellation, failure)
+            assertSame(earlierFailure, failure.suppressedExceptions.single())
+            assertEquals(2, fileSystem.flushAttempts.get())
+            assertEquals(storageDirectories.size, world.activeRegionStoreCount())
+
+            decodeGate.open()
+            decoding.forEachIndexed { index, result ->
+                assertEquals(concurrencyDocument(index), result.await())
+            }
+            assertEquals(0, world.activeRegionStoreCount())
+            world.close()
+            assertFalse(lock.isValid)
+            base.checkNoOpenFiles()
+        } finally {
+            withContext(NonCancellable) {
+                decodeGate.open()
+                jobs.joinAll()
+                world.close()
+                base.checkNoOpenFiles()
+            }
+        }
+    }
+
+    @Test
+    fun completedCloseFailureIsReportedToLaterCloseCallers() = runTest {
+        val paths = MinecraftWorldPaths("/world".toPath())
+        val base = concurrencyFakeFileSystem()
+        val expected = IOException("synthetic directory lock close failure")
+        var closeAttempts = 0
+        val lock = object : WorldDirectoryLock {
+            private var valid = true
+
+            override val isValid: Boolean
+                get() = valid
+
+            override fun close() {
+                closeAttempts++
+                valid = false
+                throw expected
+            }
+        }
+        val world = concurrencyWorld(paths, base, lock)
+
+        val first = assertFailsWith<IOException> { world.close() }
+        val later = assertFailsWith<IOException> { world.close() }
+
+        assertSame(expected, first)
+        assertSame(first, later)
+        assertEquals(1, closeAttempts)
+        assertFalse(lock.isValid)
+        base.checkNoOpenFiles()
     }
 
     @Test

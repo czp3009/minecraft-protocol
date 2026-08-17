@@ -10,6 +10,10 @@ import com.hiczp.minecraft.protocol.serialization.*
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import io.ktor.utils.io.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.EOFException
 import kotlinx.io.Sink
@@ -397,6 +401,57 @@ class MinecraftSessionTest {
         assertEquals(response, server.receive())
     }
 
+    @Test
+    fun cancellationDuringLoginQueryWriteRollsBackCorrelation() = runTest {
+        val clientToServer = ByteChannel()
+        val serverOutput = FlushGatedByteWriteChannel()
+        val client = MinecraftSession(
+            frames = MinecraftFrameStream(serverOutput.bytes, clientToServer),
+            side = MinecraftSessionSide.CLIENT,
+        )
+        val server = MinecraftSession(
+            frames = MinecraftFrameStream(clientToServer, serverOutput),
+            side = MinecraftSessionSide.SERVER,
+        )
+        loginHandshake(client, server)
+        val request = LoginPluginRequestPacket(
+            messageId = 23,
+            channel = Identifier("test:cancellation"),
+            data = ByteString(byteArrayOf(1)),
+        )
+        val firstFailure = CompletableDeferred<Throwable>()
+        val first = launch {
+            try {
+                server.send(request)
+            } catch (failure: Throwable) {
+                firstFailure.complete(failure)
+            }
+        }
+        serverOutput.flushes.receive()
+
+        first.cancel(CancellationException("cancel test write"))
+        first.join()
+
+        assertIs<CancellationException>(firstFailure.await())
+
+        val retryFailure = CompletableDeferred<Throwable>()
+        val retry = launch {
+            try {
+                server.send(request)
+            } catch (failure: Throwable) {
+                retryFailure.complete(failure)
+            }
+        }
+        val reachedWire = select {
+            serverOutput.flushes.onReceive { true }
+            retryFailure.onAwait { false }
+        }
+
+        assertTrue(reachedWire, "Cancelled Login Query remained registered")
+        retry.cancel()
+        retry.join()
+    }
+
     private suspend fun loginHandshake(
         client: MinecraftSession,
         server: MinecraftSession,
@@ -481,6 +536,19 @@ class MinecraftSessionTest {
             bytes[size++] = current.toByte()
         } while (remaining != 0)
         return bytes.copyOf(size)
+    }
+}
+
+private class FlushGatedByteWriteChannel(
+    val bytes: ByteChannel = ByteChannel(),
+) : ByteWriteChannel by bytes {
+    val flushes = Channel<Unit>(Channel.UNLIMITED)
+    private val releases = Channel<Unit>()
+
+    override suspend fun flush() {
+        flushes.send(Unit)
+        releases.receive()
+        bytes.flush()
     }
 }
 

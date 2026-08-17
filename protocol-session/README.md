@@ -83,4 +83,6 @@ The module ships preset profiles for Fabric API, NeoForge, and Forge networking 
 Closing a connection closes its pumps and transport. EOF, framing errors, malformed known payloads, and pump failures
 close the channels with the original cause; catch it from `incoming.receive`, channel iteration, or `awaitClosed`.
 Closing `outgoing` drains values already accepted by that channel and then closes the connection, while
-`connection.close()` is the immediate, idempotent cancellation path and may discard queued outgoing values.
+`connection.close()` is the immediate, idempotent cancellation path and may discard queued outgoing values. Cancelling
+an in-flight send propagates cancellation without committing a transition; provisional Login Query correlation is rolled
+back before the send returns.

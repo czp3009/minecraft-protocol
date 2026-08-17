@@ -1,10 +1,8 @@
 package com.hiczp.minecraft.world.io
 
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 
 /**
  * Writer-preferring suspend coordination for one logical world file group.
@@ -38,6 +36,7 @@ internal class LogicalFileAccess {
                 }
                 signal?.await()
             }
+            throwFailureOrCancellation(null)
             return block()
         } catch (caught: Throwable) {
             failure = caught
@@ -72,6 +71,7 @@ internal class LogicalFileAccess {
                 }
                 signal?.await()
             }
+            throwFailureOrCancellation(null)
             return block()
         } catch (caught: Throwable) {
             failure = caught
@@ -112,16 +112,11 @@ internal class LogicalFileAccess {
         operationFailure: Throwable?,
         update: () -> CompletableDeferred<Unit>?,
     ) {
-        try {
-            withContext(NonCancellable) {
-                state.withLock { update() }?.complete(Unit)
-            }
-        } catch (releaseFailure: Throwable) {
-            if (operationFailure == null) throw releaseFailure
-            if (operationFailure !== releaseFailure) {
-                operationFailure.addSuppressed(releaseFailure)
-            }
+        val failure = collectCleanupFailure(operationFailure) {
+            state.withLock { update() }?.complete(Unit)
+            null
         }
+        throwFailureOrCancellation(failure)
     }
 
     private fun rotateSignal(): CompletableDeferred<Unit> {

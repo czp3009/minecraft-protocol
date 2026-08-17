@@ -6,7 +6,6 @@ import kotlinx.cinterop.*
 import okio.FileHandle
 import okio.FileSystem
 import okio.Path
-import okio.use
 import platform.windows.*
 import kotlin.experimental.ExperimentalNativeApi
 import kotlin.native.ref.Cleaner
@@ -47,7 +46,7 @@ internal actual fun FileSystem.openTruncatedReadWrite(
     path: Path,
 ): FileHandle {
     if (this !== FileSystem.SYSTEM) {
-        sink(path).use {}
+        useResource(sink(path), { it.close() }) {}
         return openReadWrite(path, mustExist = true)
     }
     return openWindowsFileHandle(

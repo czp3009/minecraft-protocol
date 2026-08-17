@@ -486,4 +486,44 @@ class LogicalFileAccessTest {
         firstReader.await()
         secondReader.await()
     }
+
+    @Test
+    fun cancellationRequestedInsideReaderIsObservedAfterReadStateIsReleased() = runTest {
+        val access = LogicalFileAccess()
+        val continued = CompletableDeferred<Unit>()
+        val cancellation = CancellationException("reader cancelled after synchronous work")
+
+        val reader = async(start = CoroutineStart.UNDISPATCHED) {
+            access.read {
+                currentCoroutineContext().cancel(cancellation)
+                1
+            }
+            continued.complete(Unit)
+        }
+        val failure = assertFailsWith<CancellationException> { reader.await() }
+
+        assertEquals(cancellation.message, failure.message)
+        assertFalse(continued.isCompleted)
+        assertEquals(2, access.write { 2 })
+    }
+
+    @Test
+    fun cancellationRequestedInsideWriterIsObservedAfterWriteStateIsReleased() = runTest {
+        val access = LogicalFileAccess()
+        val continued = CompletableDeferred<Unit>()
+        val cancellation = CancellationException("writer cancelled after synchronous work")
+
+        val writer = async(start = CoroutineStart.UNDISPATCHED) {
+            access.write {
+                currentCoroutineContext().cancel(cancellation)
+                1
+            }
+            continued.complete(Unit)
+        }
+        val failure = assertFailsWith<CancellationException> { writer.await() }
+
+        assertEquals(cancellation.message, failure.message)
+        assertFalse(continued.isCompleted)
+        assertEquals(2, access.read { 2 })
+    }
 }

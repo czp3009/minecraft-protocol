@@ -4,7 +4,10 @@ import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.serialization.NbtSerializationException
 import com.hiczp.minecraft.world.format.Compression
 import com.hiczp.minecraft.world.format.RegionFormatException
-import okio.*
+import okio.FileSystem
+import okio.IOException
+import okio.Path
+import okio.buffer
 import kotlin.random.Random
 
 class LevelDataStore(
@@ -162,13 +165,15 @@ class PlayerDataStore(
         val parent = checkNotNull(primary.parent)
         var temporary: TemporaryFileSink? = null
         try {
-            fileSystem.source(primary).use { source ->
+            val source = fileSystem.source(primary)
+            useResource(source, { it.close() }) {
                 val destination = fileSystem.openUniqueTemporarySink(
                     directory = parent,
                     prefix = "${primary.name}_corrupted_",
                 )
                 temporary = destination
-                destination.sink.buffer().use { sink ->
+                val sink = destination.sink.buffer()
+                useResource(sink, { it.close() }) {
                     sink.writeAll(source)
                 }
             }
@@ -204,7 +209,8 @@ class SavedDataFileStore(
     }
 
     private fun detectSavedDataCompression(path: Path): Compression {
-        return nbtFiles.openSource(path).buffer().use { source ->
+        val source = nbtFiles.openSource(path).buffer()
+        return useResource(source, { it.close() }) {
             if (
                 source.request(2L) &&
                 source.buffer[0L] == GZIP_MAGIC_FIRST &&

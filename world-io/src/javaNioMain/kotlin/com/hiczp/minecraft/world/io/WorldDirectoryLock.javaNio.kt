@@ -91,11 +91,11 @@ private class JavaNioWorldDirectoryLock(
         get() = lock.isValid
 
     override fun close() {
-        try {
-            if (lock.isValid) lock.release()
-        } finally {
-            if (channel.isOpen) channel.close()
-        }
+        closeAllPreserving(
+            null,
+            { if (lock.isValid) lock.release() },
+            { if (channel.isOpen) channel.close() },
+        )
     }
 }
 

@@ -100,20 +100,7 @@ class LiveMinecraftWorldReader private constructor(
             maximumCompressedChunkBytes = regionFileConfiguration.maximumCompressedChunkBytes,
             syncWrites = regionFileConfiguration.syncWrites,
         )
-        var operationFailure: Throwable? = null
-        return try {
-            block(store)
-        } catch (caught: Throwable) {
-            operationFailure = caught
-            throw caught
-        } finally {
-            try {
-                store.close()
-            } catch (closeFailure: Throwable) {
-                val current = operationFailure ?: throw closeFailure
-                if (current !== closeFailure) current.addSuppressed(closeFailure)
-            }
-        }
+        return useResource(store, { it.close() }, block)
     }
 
     companion object {

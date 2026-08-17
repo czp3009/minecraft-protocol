@@ -68,12 +68,13 @@ class NbtFileStore internal constructor(
                 converted,
                 Int.MAX_VALUE,
             )
-            MaximumBytesRawSource(
+            val opened = MaximumBytesRawSource(
                 decompressed,
                 configuration.maximumDecompressedBytes,
-            ).buffered().use { opened ->
-                val document = nbt.decodeDocumentFromSource(opened)
-                if (!opened.exhausted()) {
+            ).buffered()
+            useResource(opened, { it.close() }) { source ->
+                val document = nbt.decodeDocumentFromSource(source)
+                if (!source.exhausted()) {
                     throw NbtDecodingException(
                         "Decompressed NBT file has trailing bytes",
                     )
@@ -93,7 +94,8 @@ class NbtFileStore internal constructor(
         val parent = path.parent
             ?: throw WorldIOException("File has no parent directory: $path")
         fileSystem.createDirectories(parent)
-        fileSystem.openTruncatedReadWrite(path).use { handle ->
+        val handle = fileSystem.openTruncatedReadWrite(path)
+        useResource(handle, { it.close() }) {
             writeHandle(path, handle, document, compression)
         }
     }
@@ -106,7 +108,7 @@ class NbtFileStore internal constructor(
         files.requireWritable()
         val temporary = fileSystem.openUniqueTemporaryHandle(directory)
         try {
-            temporary.handle.use { handle ->
+            useResource(temporary.handle, { it.close() }) { handle ->
                 writeHandle(
                     temporary.path,
                     handle,
@@ -134,7 +136,8 @@ class NbtFileStore internal constructor(
             configuration.maximumCompressedBytes,
             closeDelegate = true,
         )
-        limitedFileSink.buffer().use { fileSink ->
+        val fileSink = limitedFileSink.buffer()
+        useResource(fileSink, { it.close() }) {
             encode(document, compression, fileSink)
             fileSink.flush()
         }
@@ -153,11 +156,12 @@ class NbtFileStore internal constructor(
                 compression,
                 converted,
             )
-            MaximumBytesRawSink(
+            val limited = MaximumBytesRawSink(
                 compressed,
                 configuration.maximumDecompressedBytes,
-            ).buffered().use { limited ->
-                nbt.encodeDocumentToSink(document, limited)
+            ).buffered()
+            useResource(limited, { it.close() }) { sink ->
+                nbt.encodeDocumentToSink(document, sink)
             }
             converted.flush()
         }

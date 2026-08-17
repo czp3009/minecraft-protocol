@@ -1,7 +1,10 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.*
-import okio.*
+import okio.Buffer
+import okio.FileHandle
+import okio.FileSystem
+import okio.Path
 import kotlin.time.Clock
 
 data class RegionFileStoreConfiguration(
@@ -145,12 +148,7 @@ class RegionFileStore private constructor(
                 try {
                     handle.resize(size + REGION_SECTOR_BYTES - remainder)
                 } catch (resizeFailure: Throwable) {
-                    val current = failure
-                    if (current == null) {
-                        failure = resizeFailure
-                    } else {
-                        current.addSuppressed(resizeFailure)
-                    }
+                    failure = combineFailures(failure, resizeFailure)
                 }
             }
         }
@@ -270,7 +268,7 @@ class RegionFileStore private constructor(
         )
         try {
             val buffer = Buffer().apply { write(payload) }
-            temporary.sink.use { sink ->
+            useResource(temporary.sink, { it.close() }) { sink ->
                 sink.write(buffer, payload.size.toLong())
             }
 

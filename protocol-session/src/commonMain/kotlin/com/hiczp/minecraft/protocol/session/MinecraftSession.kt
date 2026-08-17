@@ -10,10 +10,12 @@ import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import com.hiczp.minecraft.protocol.serialization.PacketRegistry
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
 
@@ -405,8 +407,10 @@ class MinecraftSession(
                 }
             }
         } catch (cause: Throwable) {
-            recordedRequest?.let { request ->
-                discardLoginQuery(request.messageId, request.channel)
+            withContext(NonCancellable) {
+                recordedRequest?.let { request ->
+                    discardLoginQuery(request.messageId, request.channel)
+                }
             }
             throw cause
         } finally {

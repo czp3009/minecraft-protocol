@@ -53,8 +53,8 @@ internal actual fun syncSystemFilePath(path: Path) {
             val closeFailure = IOException(
                 "Could not close durable-sync descriptor for $path",
             )
-            if (failure == null) throw closeFailure
-            failure.addSuppressed(closeFailure)
+            val primary = combineFailures(failure, closeFailure)
+            if (primary !== failure) throw primary
         }
     }
 }

@@ -89,20 +89,17 @@ private class PosixWorldDirectoryLock(
         val openDescriptor = descriptor
         if (openDescriptor == CLOSED_DESCRIPTOR) return
         descriptor = CLOSED_DESCRIPTOR
-
-        try {
-            if (valid) {
-                unlockPosixFile(openDescriptor, path)
+        closeAllPreserving(
+            null,
+            {
+                if (valid) unlockPosixFile(openDescriptor, path)
+            },
+            { closePosixFile(openDescriptor, path) },
+            {
                 valid = false
-            }
-        } finally {
-            try {
-                closePosixFile(openDescriptor, path)
-            } finally {
                 removeInProcessLock(path, key)
-                valid = false
-            }
-        }
+            },
+        )
     }
 }
 

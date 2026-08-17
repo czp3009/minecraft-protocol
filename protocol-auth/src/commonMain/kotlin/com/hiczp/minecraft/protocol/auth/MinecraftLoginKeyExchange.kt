@@ -120,7 +120,7 @@ class MinecraftServerKeyPair private constructor(
 
     companion object {
         suspend fun generate(): MinecraftServerKeyPair =
-            mapSuspendCryptographyFailure(
+            mapCryptographyFailure(
                 "Cannot generate the Minecraft RSA key pair",
             ) {
                 MinecraftServerKeyPair(
@@ -284,25 +284,13 @@ private fun secureRandomBytes(size: Int): ByteArray =
         CryptographyRandom.nextBytes(size)
     }
 
-@Suppress("SameParameterValue")
-private inline fun <T> mapSuspendCryptographyFailure(
+internal inline fun <T> mapCryptographyFailure(
     message: String,
     operation: () -> T,
 ): T = try {
     operation()
 } catch (failure: CancellationException) {
     throw failure
-} catch (failure: MinecraftKeyExchangeException) {
-    throw failure
-} catch (failure: Throwable) {
-    throw MinecraftCryptographyException(message, failure)
-}
-
-private inline fun <T> mapCryptographyFailure(
-    message: String,
-    operation: () -> T,
-): T = try {
-    operation()
 } catch (failure: MinecraftKeyExchangeException) {
     throw failure
 } catch (failure: Throwable) {
