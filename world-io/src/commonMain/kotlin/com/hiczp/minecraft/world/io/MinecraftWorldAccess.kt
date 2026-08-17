@@ -15,7 +15,16 @@ data class MinecraftWorldAccessConfiguration(
     val regionChunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
 )
 
-/** A system-filesystem world lease backed by the vanilla `session.lock`. */
+/**
+ * A system-filesystem world lease backed by the vanilla `session.lock`.
+ *
+ * Public operations may be called concurrently. Readers of one logical metadata file or `.mca`
+ * file may run together; a writer has exclusive access to that file, and independent files may
+ * progress concurrently. This class does not create a thread pool or select a dispatcher: blocking
+ * filesystem I/O, NBT work, and compression run in each calling coroutine's context, so callers
+ * must move work off a main/UI thread when required. [close] seals admission, waits for every
+ * admitted operation and resource cleanup, and releases `session.lock` last.
+ */
 class MinecraftWorldAccess private constructor(
     val paths: MinecraftWorldPaths,
     val configuration: MinecraftWorldAccessConfiguration,

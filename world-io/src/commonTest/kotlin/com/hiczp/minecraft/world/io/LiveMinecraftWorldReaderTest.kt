@@ -62,47 +62,38 @@ class LiveMinecraftWorldReaderTest {
         val before = fileSystem.snapshot(root)
         assertFalse(fileSystem.exists(paths.sessionLock))
         val reader = LiveMinecraftWorldReader.open(root, fileSystem)
-        try {
-            assertEquals(document, reader.readLevelData())
-            assertEquals(document, reader.readPlayerData(player))
+        assertEquals(document, reader.readLevelData())
+        assertEquals(document, reader.readPlayerData(player))
+        assertEquals(
+            document,
+            reader.readSavedData("example:renderer/state"),
+        )
+        assertEquals(
+            "{\"blocks\":1}",
+            reader.readStatistics(player),
+        )
+        assertEquals(
+            "{\"done\":true}",
+            reader.readAdvancements(player),
+        )
+        RegionStorageDirectory.entries.forEach { storage ->
+            assertTrue(reader.doesChunkExist(position, storage))
             assertEquals(
                 document,
-                reader.readSavedData("example:renderer/state"),
+                reader.readChunkNbt(position, storage),
             )
-            assertEquals(
-                "{\"blocks\":1}",
-                reader.readStatistics(player),
+            assertNotNull(
+                reader.readRegion(position.region, storage)[
+                    position.local
+                ],
             )
-            assertEquals(
-                "{\"done\":true}",
-                reader.readAdvancements(player),
-            )
-            RegionStorageDirectory.entries.forEach { storage ->
-                assertTrue(reader.doesChunkExist(position, storage))
-                assertEquals(
-                    document,
-                    reader.readChunkNbt(position, storage),
-                )
-                assertNotNull(
-                    reader.readRegion(position.region, storage)[
-                        position.local
-                    ],
-                )
-            }
-            assertContentEquals(
-                externalPayload,
-                reader.readChunk(externalPosition)
-                    ?.payload
-                    ?.compressedBytes,
-            )
-        } finally {
-            reader.close()
         }
-        reader.close()
-
-        assertFailsWith<IllegalStateException> {
-            reader.readLevelData()
-        }
+        assertContentEquals(
+            externalPayload,
+            reader.readChunk(externalPosition)
+                ?.payload
+                ?.compressedBytes,
+        )
         assertFalse(fileSystem.exists(paths.sessionLock))
         fileSystem.assertSnapshotEquals(root, before)
         fileSystem.checkNoOpenFiles()
@@ -133,12 +124,8 @@ class LiveMinecraftWorldReaderTest {
         val before = fileSystem.snapshot(root)
 
         val reader = LiveMinecraftWorldReader.open(root, fileSystem)
-        try {
-            assertEquals(previous, reader.readLevelData())
-            assertEquals(previous, reader.readPlayerData(player))
-        } finally {
-            reader.close()
-        }
+        assertEquals(previous, reader.readLevelData())
+        assertEquals(previous, reader.readPlayerData(player))
 
         fileSystem.assertSnapshotEquals(root, before)
         assertTrue(
@@ -149,7 +136,7 @@ class LiveMinecraftWorldReaderTest {
     }
 
     @Test
-    fun missingFilesStayMissingAndReadOnlyStoresRejectWrites() = runTest {
+    fun missingFilesStayMissingAndReadOnlyFileAccessRejectsWrites() = runTest {
         val fileSystem = FakeFileSystem()
         val root = "/world".toPath()
         val paths = MinecraftWorldPaths(root)
@@ -157,13 +144,9 @@ class LiveMinecraftWorldReaderTest {
         fileSystem.createDirectories(root)
 
         val reader = LiveMinecraftWorldReader.open(root, fileSystem)
-        try {
-            assertTrue(reader.readRegion(position.region).chunks.isEmpty())
-            assertNull(reader.readChunk(position))
-            assertFalse(reader.doesChunkExist(position))
-        } finally {
-            reader.close()
-        }
+        assertTrue(reader.readRegion(position.region).chunks.isEmpty())
+        assertNull(reader.readChunk(position))
+        assertFalse(reader.doesChunkExist(position))
         assertFalse(
             fileSystem.exists(
                 paths.regionDirectory(RegionStorageDirectory.CHUNKS),
@@ -171,19 +154,6 @@ class LiveMinecraftWorldReaderTest {
         )
 
         val files = WorldFileAccess.liveReadOnly(fileSystem)
-        val regionStore = WorldRegionStore(
-            paths = paths,
-            storage = RegionStorageDirectory.CHUNKS,
-            dimension = DimensionDirectory.Overworld,
-            files = files,
-        )
-        try {
-            assertFailsWith<IllegalStateException> {
-                regionStore.writeChunk(position, liveChunk(1))
-            }
-        } finally {
-            regionStore.close()
-        }
         assertFailsWith<IllegalStateException> {
             NbtFileStore(files).writeDirect(
                 paths.levelData,
@@ -244,9 +214,4 @@ private fun FileSystem.assertSnapshotEquals(
 
 private fun liveDocument(value: Int): NbtDocument = NbtDocument(
     NbtCompound(mapOf("value" to NbtInt(value))),
-)
-
-private fun liveChunk(value: Int): RegionChunk = RegionChunk(
-    compression = Compression.NONE,
-    payload = RegionChunkPayload.Inline(byteArrayOf(value.toByte())),
 )

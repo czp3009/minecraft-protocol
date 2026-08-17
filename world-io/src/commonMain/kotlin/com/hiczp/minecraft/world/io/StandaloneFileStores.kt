@@ -35,6 +35,13 @@ class LevelDataStore(
         return fallback
     }
 
+    internal fun readForSharedAccess(): CoordinatedRead<NbtDocument> = try {
+        CoordinatedRead.Complete(nbtFiles.read(paths.levelData))
+    } catch (failure: Throwable) {
+        if (!failure.isRecoverableNbtReadFailure()) throw failure
+        CoordinatedRead.RequiresExclusive
+    }
+
     fun write(document: NbtDocument) {
         val temporary = nbtFiles.writeSyncedTemporary(paths.root, document)
         try {
@@ -115,6 +122,23 @@ class PlayerDataStore(
             return null
         }
         return nbtFiles.read(previous)
+    }
+
+    internal fun readForSharedAccess(playerUuid: String): CoordinatedRead<NbtDocument?> {
+        val primary = paths.playerData(playerUuid)
+        val previous = paths.previousPlayerData(playerUuid)
+        if (nbtFiles.fileSystem.metadataOrNull(primary)?.isRegularFile == true) {
+            return try {
+                CoordinatedRead.Complete(nbtFiles.read(primary))
+            } catch (failure: Throwable) {
+                if (!failure.isRecoverableNbtReadFailure()) throw failure
+                CoordinatedRead.RequiresExclusive
+            }
+        }
+        if (nbtFiles.fileSystem.metadataOrNull(previous)?.isRegularFile != true) {
+            return CoordinatedRead.Complete(null)
+        }
+        return CoordinatedRead.Complete(nbtFiles.read(previous))
     }
 
     fun write(playerUuid: String, document: NbtDocument) {
@@ -237,6 +261,14 @@ private fun Throwable.isRecoverableNbtReadFailure(): Boolean {
     return this is IOException ||
             this is NbtSerializationException ||
             this is RegionFormatException
+}
+
+internal sealed interface CoordinatedRead<out T> {
+    data class Complete<T>(
+        val value: T,
+    ) : CoordinatedRead<T>
+
+    data object RequiresExclusive : CoordinatedRead<Nothing>
 }
 
 private fun throwPromotionFailure(

@@ -1,66 +1,120 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
-import com.hiczp.minecraft.world.format.ChunkPosition
-import com.hiczp.minecraft.world.format.RegionChunk
-import com.hiczp.minecraft.world.format.RegionFile
-import com.hiczp.minecraft.world.format.RegionPosition
+import com.hiczp.minecraft.world.format.*
 import okio.FileSystem
 import okio.Path
 
 /**
  * A non-locking reader for a world that may be modified concurrently.
  *
- * Reads may observe stale or torn state and propagate the resulting I/O,
- * format, or decompression failure. On the system filesystem, every opened
- * handle permits the read, write, delete, and replacement operations used by
- * the matching official server. The reader never repairs or mutates files.
+ * This class takes neither `session.lock` nor per-file operating-system or in-process exclusion.
+ * Reads may observe stale or torn state and propagate the resulting I/O, format, or decompression
+ * failure. On the system filesystem, every opened handle permits the read, write, delete, and
+ * replacement operations used by the matching official server. The reader never repairs or
+ * mutates files and does not delay the server's writes.
+ *
+ * Public operations may be called concurrently, including reads of the same logical metadata file
+ * or `.mca` file. This class does not create a thread pool or select a dispatcher; blocking
+ * filesystem I/O, NBT work, and compression run synchronously on the calling thread and are not
+ * automatically main-safe. Callers may invoke them from many coroutines on their own dispatcher.
+ * The reader has no mutable lifecycle or retained file resource and does not need to be closed.
  */
 class LiveMinecraftWorldReader private constructor(
     val paths: MinecraftWorldPaths,
-    private val world: OpenMinecraftWorld,
+    private val files: WorldFileAccess,
+    private val regionChunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
+    private val regionFileConfiguration: RegionFileStoreConfiguration = RegionFileStoreConfiguration(),
 ) {
-    suspend fun readLevelData(): NbtDocument = world.readLevelData()
+    private val nbtFiles = NbtFileStore(files)
+    private val levelData = LevelDataStore(paths, nbtFiles)
+    private val playerData = PlayerDataStore(paths, nbtFiles)
+    private val jsonFiles = Utf8JsonFileStore(files)
 
-    suspend fun readPlayerData(playerUuid: String): NbtDocument? =
-        world.readPlayerData(playerUuid)
+    fun readLevelData(): NbtDocument = levelData.read()
 
-    suspend fun readSavedData(
+    fun readPlayerData(playerUuid: String): NbtDocument? =
+        playerData.read(playerUuid)
+
+    fun readSavedData(
         identifier: String,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ): NbtDocument? = world.readSavedData(identifier, dimension)
+    ): NbtDocument? = SavedDataFileStore(paths, dimension, nbtFiles).read(identifier)
 
-    suspend fun readStatistics(playerUuid: String): String =
-        world.readStatistics(playerUuid)
+    fun readStatistics(playerUuid: String): String = jsonFiles.read(paths.statistics(playerUuid))
 
-    suspend fun readAdvancements(playerUuid: String): String =
-        world.readAdvancements(playerUuid)
+    fun readAdvancements(playerUuid: String): String = jsonFiles.read(paths.advancement(playerUuid))
 
-    suspend fun readRegion(
+    fun readRegion(
         position: RegionPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ): RegionFile = world.readRegion(position, storage, dimension)
+    ): RegionFile = withRegionFile(position, storage, dimension) { store ->
+        store?.readAll() ?: RegionFile()
+    }
 
-    suspend fun readChunk(
+    fun readChunk(
         position: ChunkPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ): RegionChunk? = world.readChunk(position, storage, dimension)
+    ): RegionChunk? = withRegionFile(position.region, storage, dimension) { store ->
+        store?.read(position)
+    }
 
-    suspend fun doesChunkExist(
+    fun doesChunkExist(
         position: ChunkPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ): Boolean = world.doesChunkExist(position, storage, dimension)
+    ): Boolean = withRegionFile(position.region, storage, dimension) { store ->
+        store?.exists(position) == true
+    }
 
-    suspend fun readChunkNbt(
+    fun readChunkNbt(
         position: ChunkPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ): NbtDocument? = world.readChunkNbt(position, storage, dimension)
+    ): NbtDocument? = withRegionFile(position.region, storage, dimension) { store ->
+        val chunk = store?.read(position) ?: return@withRegionFile null
+        withOkioIoExceptions("Cannot decode chunk $position") {
+            regionChunkNbtFormat.decode(chunk)
+        }
+    }
 
-    suspend fun close() = world.close()
+    private fun <T> withRegionFile(
+        position: RegionPosition,
+        storage: RegionStorageDirectory,
+        dimension: DimensionDirectory,
+        block: (RegionFileStore?) -> T,
+    ): T {
+        val directory = paths.regionDirectory(storage, dimension)
+        val path = directory / "r.${position.x}.${position.z}.mca"
+        val metadata = files.fileSystem.metadataOrNull(path)
+            ?: return block(null)
+        if (!metadata.isRegularFile) {
+            throw WorldIOException("Path is not a regular file: $path")
+        }
+        val store = RegionFileStore.open(
+            files = files,
+            directory = directory,
+            position = position,
+            maximumCompressedChunkBytes = regionFileConfiguration.maximumCompressedChunkBytes,
+            syncWrites = regionFileConfiguration.syncWrites,
+        )
+        var operationFailure: Throwable? = null
+        return try {
+            block(store)
+        } catch (caught: Throwable) {
+            operationFailure = caught
+            throw caught
+        } finally {
+            try {
+                store.close()
+            } catch (closeFailure: Throwable) {
+                val current = operationFailure ?: throw closeFailure
+                if (current !== closeFailure) current.addSuppressed(closeFailure)
+            }
+        }
+    }
 
     companion object {
         fun open(root: Path): LiveMinecraftWorldReader =
@@ -78,11 +132,10 @@ class LiveMinecraftWorldReader private constructor(
                 throw WorldIOException("World path is not a directory: $root")
             }
             val paths = MinecraftWorldPaths(root)
-            val world = OpenMinecraftWorld(
+            return LiveMinecraftWorldReader(
                 paths = paths,
                 files = WorldFileAccess.liveReadOnly(fileSystem),
             )
-            return LiveMinecraftWorldReader(paths, world)
         }
     }
 }

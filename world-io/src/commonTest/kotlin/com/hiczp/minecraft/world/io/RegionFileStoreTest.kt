@@ -43,14 +43,19 @@ class RegionFileStoreTest {
         val path = "/world/region/r.0.0.mca".toPath()
         val position = ChunkPosition(5, 7)
         val document = NbtDocument(NbtCompound(mapOf("Value" to NbtInt(42))))
+        val chunkNbtFormat = RegionChunkNbtFormat()
 
         val store = RegionFileStore.open(path, fileSystem)
         try {
-            assertNull(store.readChunkNbt(position))
+            assertNull(store.read(position))
             assertFalse(store.exists(position))
 
-            store.writeChunkNbt(position, document, Compression.NONE)
-            assertEquals(document, store.readChunkNbt(position))
+            store.write(
+                position,
+                chunkNbtFormat.encode(document, Compression.NONE),
+            )
+            val read = checkNotNull(store.read(position))
+            assertEquals(document, chunkNbtFormat.decode(read))
             assertTrue(store.exists(position))
             assertEquals(setOf(position.local), store.readAll().chunks.keys)
         } finally {
@@ -106,7 +111,7 @@ class RegionFileStoreTest {
                 assertFailsWith<IllegalArgumentException> { store.exists(outside) }
                 assertFailsWith<IllegalArgumentException> { store.write(outside, null) }
                 assertFailsWith<IllegalArgumentException> {
-                    store.readChunkNbt(outside)
+                    store.read(outside)
                 }
             }
         } finally {

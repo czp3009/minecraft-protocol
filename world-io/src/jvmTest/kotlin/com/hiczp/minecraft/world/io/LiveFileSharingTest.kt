@@ -33,16 +33,12 @@ class LiveFileSharingTest {
             try {
                 writer.writeChunk(position, sharingChunk(5))
                 val reader = LiveMinecraftWorldReader.open(root)
-                try {
-                    assertContentEquals(
-                        byteArrayOf(5),
-                        reader.readChunk(position)
-                            ?.payload
-                            ?.compressedBytes,
-                    )
-                } finally {
-                    reader.close()
-                }
+                assertContentEquals(
+                    byteArrayOf(5),
+                    reader.readChunk(position)
+                        ?.payload
+                        ?.compressedBytes,
+                )
             } finally {
                 writer.close()
             }
@@ -53,7 +49,7 @@ class LiveFileSharingTest {
     }
 
     @Test
-    fun cachedRegionHandleRefreshesHeaderForEveryRead() = runTest {
+    fun separateLiveRegionReadsObserveFreshHeaders() = runTest {
         val temporaryDirectory = Files.createTempDirectory(
             "world-io-live-header-",
         )
@@ -70,31 +66,27 @@ class LiveFileSharingTest {
             }
 
             val reader = LiveMinecraftWorldReader.open(root)
+            assertContentEquals(
+                byteArrayOf(1),
+                reader.readChunk(first)?.payload?.compressedBytes,
+            )
+
+            val updater = WorldRegionStore(paths)
             try {
-                assertContentEquals(
-                    byteArrayOf(1),
-                    reader.readChunk(first)?.payload?.compressedBytes,
-                )
-
-                val updater = WorldRegionStore(paths)
-                try {
-                    updater.writeChunk(first, sharingChunk(2))
-                    updater.writeChunk(second, sharingChunk(3))
-                } finally {
-                    updater.close()
-                }
-
-                assertContentEquals(
-                    byteArrayOf(2),
-                    reader.readChunk(first)?.payload?.compressedBytes,
-                )
-                assertContentEquals(
-                    byteArrayOf(3),
-                    reader.readChunk(second)?.payload?.compressedBytes,
-                )
+                updater.writeChunk(first, sharingChunk(2))
+                updater.writeChunk(second, sharingChunk(3))
             } finally {
-                reader.close()
+                updater.close()
             }
+
+            assertContentEquals(
+                byteArrayOf(2),
+                reader.readChunk(first)?.payload?.compressedBytes,
+            )
+            assertContentEquals(
+                byteArrayOf(3),
+                reader.readChunk(second)?.payload?.compressedBytes,
+            )
         } finally {
             FileSystem.SYSTEM.deleteRecursively(root, mustExist = false)
         }

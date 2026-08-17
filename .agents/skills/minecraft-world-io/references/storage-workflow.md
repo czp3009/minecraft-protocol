@@ -37,8 +37,13 @@ Verify region filename and coordinate mapping, random-access handle ownership, c
 external payload placement, sidecar replacement and cleanup, per-write compression choice, and failure recovery. Keep
 format validation in `world-format`; translate only genuine filesystem failures at the I/O boundary.
 
-Live read-only access must not take ownership of or mutate an official process's world. Mutable stores must honor the
-directory lock and deterministic close behavior defined by the public API.
+When coordination or lifecycle changes, take the current module `AGENTS.md` and source as authoritative. Audit every
+logical commit group, admission/close boundary, and final-reference cleanup with coroutine signals and gate-controlled
+filesystem operations; do not infer correctness from delays, repeated stress, or a data race inside the test fake.
+
+Audit live read-only access separately as a bypass observer: it must take neither `session.lock` nor mutable per-file
+coordination, retain no cross-call resource or mutable lifecycle, and never delay or mutate an official process's world.
+Mutable stores must honor the directory lock and deterministic close behavior defined by the public API.
 
 ## Use the existing official gate
 

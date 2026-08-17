@@ -25,7 +25,7 @@ persistence policy, permissions, and operations remain application responsibilit
 | [`protocol-client`](protocol-client/README.md)               | Status, Login, Configuration, and a Play-ready client connection                  |
 | [`protocol-server`](protocol-server/README.md)               | Connection admission and finite initial chunk/entity projection                   |
 | [`world-format`](world-format/README.md)                     | Filesystem-independent Anvil containers and chunk NBT composition                 |
-| [`world-io`](world-io/README.md)                             | World paths and filesystem-backed NBT and region stores                           |
+| [`world-io`](world-io/README.md)                             | Concurrent world leases, bypass live reads, and filesystem-backed stores          |
 
 The project is fully modular: depend on exactly the modules you need. Higher layers reuse the lower layers their APIs
 require, so a focused consumer never pulls in unrelated capabilities.

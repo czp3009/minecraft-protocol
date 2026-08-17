@@ -24,9 +24,6 @@ class WorldRegionStoreEdgeTest {
         assertFailsWith<IllegalArgumentException> {
             WorldRegionStoreConfiguration(maximumCompressedChunkBytes = -1)
         }
-        assertFailsWith<IllegalArgumentException> {
-            WorldRegionStoreConfiguration(maximumOpenRegions = 0)
-        }
         Compression.entries
             .forEach {
                 WorldRegionStoreConfiguration(writeCompression = it)

@@ -5,7 +5,10 @@ import kotlinx.coroutines.test.runTest
 import okio.*
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 /** Portable lifecycle and handle-failure coverage for region stores. */
 class WorldRegionLifecycleTest {
@@ -21,16 +24,16 @@ class WorldRegionLifecycleTest {
         )
 
         store.writeChunk(ChunkPosition(0, 0), lifecycleChunk(1))
-        assertEquals(2, fileSystem.flushes)
+        assertEquals(3, fileSystem.flushes)
         store.flush()
         assertEquals(3, fileSystem.flushes)
         store.close()
-        assertEquals(4, fileSystem.flushes)
+        assertEquals(3, fileSystem.flushes)
         base.checkNoOpenFiles()
     }
 
     @Test
-    fun nonSyncWritesWaitForExplicitFlushAndClose() = runTest {
+    fun nonSyncWriteFlushesOnceWhenItsLastEntryUserReleases() = runTest {
         val base = FakeFileSystem()
         val fileSystem = FlushRecordingFileSystem(base)
         val store = WorldRegionStore(
@@ -40,79 +43,70 @@ class WorldRegionLifecycleTest {
         )
 
         store.writeChunk(ChunkPosition(0, 0), lifecycleChunk(1))
-        assertEquals(0, fileSystem.flushes)
+        assertEquals(1, fileSystem.flushes)
         store.flush()
         assertEquals(1, fileSystem.flushes)
         store.close()
-        assertEquals(2, fileSystem.flushes)
+        assertEquals(1, fileSystem.flushes)
+        base.checkNoOpenFiles()
     }
 
     @Test
-    fun lruHitsPromoteToMruAndStoresOwnIndependentCaches() = runTest {
+    fun regionStoresReleaseIdleEntriesWithoutAnOpenFileLimit() = runTest {
         val fileSystem = FakeFileSystem()
         val firstDirectory = "/world/region".toPath()
         val first = WorldRegionStore(
             directory = firstDirectory,
             fileSystem = fileSystem,
-            configuration = WorldRegionStoreConfiguration(
-                maximumOpenRegions = 2,
-                syncWrites = false,
-            ),
+            configuration = WorldRegionStoreConfiguration(syncWrites = false),
         )
         first.readRegion(RegionPosition(0, 0))
         first.readRegion(RegionPosition(1, 0))
         first.readRegion(RegionPosition(0, 0))
         first.readRegion(RegionPosition(2, 0))
 
-        assertTrue(firstDirectory / "r.0.0.mca" in fileSystem.openPaths)
-        assertTrue(firstDirectory / "r.2.0.mca" in fileSystem.openPaths)
-        assertFalse(firstDirectory / "r.1.0.mca" in fileSystem.openPaths)
+        assertTrue(firstDirectory / "r.0.0.mca" in fileSystem.allPaths)
+        assertTrue(firstDirectory / "r.2.0.mca" in fileSystem.allPaths)
+        assertTrue(fileSystem.openPaths.isEmpty())
 
         val secondDirectory = "/world/entities".toPath()
         val second = WorldRegionStore(
             directory = secondDirectory,
             fileSystem = fileSystem,
-            configuration = WorldRegionStoreConfiguration(
-                maximumOpenRegions = 1,
-                syncWrites = false,
-            ),
+            configuration = WorldRegionStoreConfiguration(syncWrites = false),
         )
         second.readRegion(RegionPosition(9, 9))
-        assertTrue(secondDirectory / "r.9.9.mca" in fileSystem.openPaths)
-        assertEquals(3, fileSystem.openPaths.size)
+        assertTrue(secondDirectory / "r.9.9.mca" in fileSystem.allPaths)
+        assertTrue(fileSystem.openPaths.isEmpty())
 
         first.close()
-        assertEquals(1, fileSystem.openPaths.size)
+        assertEquals(0, fileSystem.openPaths.size)
         second.close()
         fileSystem.checkNoOpenFiles()
     }
 
     @Test
-    fun lruEvictionFailureDoesNotCacheTheRequestedRegion() = runTest {
+    fun lastReleaseCloseFailureDoesNotLeaveAnIdleEntry() = runTest {
         val base = FakeFileSystem()
         val fileSystem = FiniteCloseFailingFileSystem(base, failures = 1)
         val directory = "/world/region".toPath()
         val store = WorldRegionStore(
             directory = directory,
             fileSystem = fileSystem,
-            configuration = WorldRegionStoreConfiguration(
-                maximumOpenRegions = 1,
-                syncWrites = false,
-            ),
+            configuration = WorldRegionStoreConfiguration(syncWrites = false),
         )
-        store.readRegion(RegionPosition(0, 0))
 
         assertFailsWith<IOException> {
-            store.readRegion(RegionPosition(1, 0))
+            store.readRegion(RegionPosition(0, 0))
         }
 
         assertEquals(1, fileSystem.closeAttempts)
         base.checkNoOpenFiles()
-        assertFalse(base.exists(directory / "r.1.0.mca"))
+        assertTrue(base.exists(directory / "r.0.0.mca"))
 
         store.readRegion(RegionPosition(1, 0))
-        assertEquals(listOf(directory / "r.1.0.mca"), base.openPaths)
-        store.close()
+        assertTrue(base.openPaths.isEmpty())
+        assertFailsWith<IOException> { store.close() }
         base.checkNoOpenFiles()
     }
 
@@ -125,8 +119,8 @@ class WorldRegionLifecycleTest {
             fileSystem = fileSystem,
             configuration = WorldRegionStoreConfiguration(syncWrites = false),
         )
-        store.readRegion(RegionPosition(0, 0))
-        store.readRegion(RegionPosition(1, 0))
+        assertFailsWith<IOException> { store.readRegion(RegionPosition(0, 0)) }
+        assertFailsWith<IOException> { store.readRegion(RegionPosition(1, 0)) }
 
         val failure = assertFailsWith<IOException> { store.close() }
 
@@ -147,7 +141,9 @@ class WorldRegionLifecycleTest {
             fileSystem = fileSystem,
             configuration = WorldRegionStoreConfiguration(syncWrites = false),
         )
-        store.writeChunk(ChunkPosition(0, 0), lifecycleChunk(1))
+        assertFailsWith<IOException> {
+            store.writeChunk(ChunkPosition(0, 0), lifecycleChunk(1))
+        }
 
         assertFailsWith<IOException> { store.close() }
 
@@ -185,7 +181,7 @@ class WorldRegionLifecycleTest {
             fileSystem = fileSystem,
             configuration = WorldRegionStoreConfiguration(syncWrites = false),
         )
-        store.readRegion(RegionPosition(0, 0))
+        assertFailsWith<IOException> { store.readRegion(RegionPosition(0, 0)) }
 
         assertFailsWith<IOException> { store.close() }
 
@@ -203,14 +199,13 @@ class WorldRegionLifecycleTest {
             fileSystem = fileSystem,
             configuration = WorldRegionStoreConfiguration(syncWrites = false),
         )
-        store.readRegion(RegionPosition(0, 0))
-        store.readRegion(RegionPosition(1, 0))
+        assertFailsWith<IOException> { store.readRegion(RegionPosition(0, 0)) }
+        assertFailsWith<IOException> { store.readRegion(RegionPosition(1, 0)) }
 
-        val failure = assertFailsWith<IOException> { store.flush() }
+        val failure = assertFailsWith<IOException> { store.close() }
 
         assertEquals(2, fileSystem.flushAttempts)
         assertEquals(1, failure.suppressedExceptions.size)
-        store.close()
         base.checkNoOpenFiles()
     }
 }

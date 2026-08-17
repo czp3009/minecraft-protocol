@@ -1,0 +1,131 @@
+package com.hiczp.minecraft.world.io
+
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+
+/**
+ * Writer-preferring suspend coordination for one logical world file group.
+ *
+ * Readers hold only a shared admission count while their block runs; they do not hold [state] and
+ * therefore do not serialize each other. Okio `FileHandle` owns concurrent random-access read
+ * support. This coordinator adds the boundary that prevents a writer or final close from
+ * overlapping those reads.
+ */
+internal class LogicalFileAccess {
+    private val state = Mutex()
+    private var activeReaders = 0
+    private var writerActive = false
+    private var waitingWriters = 0
+    private var changed = CompletableDeferred<Unit>()
+
+    suspend fun <T> read(block: suspend () -> T): T {
+        var acquired = false
+        var failure: Throwable? = null
+        try {
+            while (!acquired) {
+                val signal = state.withLock {
+                    if (!writerActive && waitingWriters == 0) {
+                        activeReaders++
+                        acquired = true
+                        null
+                    } else {
+                        changed
+                    }
+                }
+                signal?.await()
+            }
+            return block()
+        } catch (caught: Throwable) {
+            failure = caught
+            throw caught
+        } finally {
+            if (acquired) {
+                releaseRead(failure)
+            }
+        }
+    }
+
+    suspend fun <T> write(block: suspend () -> T): T {
+        var registered = false
+        var acquired = false
+        var failure: Throwable? = null
+        try {
+            while (!acquired) {
+                val signal = state.withLock {
+                    if (!registered) {
+                        waitingWriters++
+                        registered = true
+                    }
+                    if (!writerActive && activeReaders == 0) {
+                        waitingWriters--
+                        registered = false
+                        writerActive = true
+                        acquired = true
+                        null
+                    } else {
+                        changed
+                    }
+                }
+                signal?.await()
+            }
+            return block()
+        } catch (caught: Throwable) {
+            failure = caught
+            throw caught
+        } finally {
+            when {
+                acquired -> releaseWrite(failure)
+                registered -> removeWaitingWriter(failure)
+            }
+        }
+    }
+
+    private suspend fun releaseRead(operationFailure: Throwable?) {
+        finish(operationFailure) {
+            check(activeReaders > 0) { "Logical file read access is not held" }
+            activeReaders--
+            if (activeReaders == 0) rotateSignal() else null
+        }
+    }
+
+    private suspend fun releaseWrite(operationFailure: Throwable?) {
+        finish(operationFailure) {
+            check(writerActive) { "Logical file write access is not held" }
+            writerActive = false
+            rotateSignal()
+        }
+    }
+
+    private suspend fun removeWaitingWriter(operationFailure: Throwable?) {
+        finish(operationFailure) {
+            check(waitingWriters > 0) { "Logical file writer is not waiting" }
+            waitingWriters--
+            rotateSignal()
+        }
+    }
+
+    private suspend fun finish(
+        operationFailure: Throwable?,
+        update: () -> CompletableDeferred<Unit>?,
+    ) {
+        try {
+            withContext(NonCancellable) {
+                state.withLock { update() }?.complete(Unit)
+            }
+        } catch (releaseFailure: Throwable) {
+            if (operationFailure == null) throw releaseFailure
+            if (operationFailure !== releaseFailure) {
+                operationFailure.addSuppressed(releaseFailure)
+            }
+        }
+    }
+
+    private fun rotateSignal(): CompletableDeferred<Unit> {
+        val previous = changed
+        changed = CompletableDeferred()
+        return previous
+    }
+}

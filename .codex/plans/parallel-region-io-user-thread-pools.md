@@ -1,11 +1,20 @@
-# 高层并行存档 IO:active entry、per-file 串行、调用方并发
+# 高层并行存档 IO:active entry、共享读/排它写、调用方并发
+
+## 完成状态
+
+已完成。实现、文档和确定性竞态覆盖均已落地;最终验证结果:
+
+- `:world-io:jvmTest`:156 tests,0 failures,含官方服务端 generate/rewrite/reload 互操作;
+- `:world-io:jsNodeTest`:118 tests,0 failures;
+- `:world-io:linuxX64Test`:118 tests,0 failures;
+- `git diff --check HEAD`:通过。
 
 ## 背景与结论
 
-现状是两级粗锁:`OpenMinecraftWorld` 一把 world 级 `Mutex` 包住一切,`WorldRegionStore` 一把目录级
+改造前是两级粗锁:`OpenMinecraftWorld` 一把 world 级 `Mutex` 包住一切,`WorldRegionStore` 一把目录级
 `Mutex` 包住该目录全部读写。多协程调用高层入口时一切串行,压缩/编码也发生在锁内。
 
-官方 26.2 (本仓库选中版本,server JAR 反编译)的参考结论:
+仓库选中版本的官方 server JAR 参考结论:
 
 - 单个 region 目录内由 `IOWorker` 的单任务队列彻底串行 (读优先、同 chunk 写合并);
 - 跨 storage/跨维度通过多个 `IOWorker` 共享 `Util.IO_POOL` 并行;
@@ -16,14 +25,17 @@ close barrier,不创建线程,不接收 dispatcher,也不限制打开数量。
 
 ## 目标
 
-1. 高层入口 (`MinecraftWorldAccess` / `LiveMinecraftWorldReader` / `WorldRegionStore`)支持并发调用:
-   **同一逻辑文件内操作 (含读)完全串行,不同逻辑文件之间并行**。
-2. NBT 编解码和压缩发生在 region 文件锁外,文件锁只保护容器读取/提交与内存快照一致性。
+1. 可变高层入口 (`MinecraftWorldAccess` / `WorldRegionStore`)支持并发调用:
+   **同一逻辑文件组允许共享读,写入使用排它访问,不同逻辑文件组之间并行**。
+2. 读者只在极短状态临界区登记,实际读取期间不持互斥锁;写者等待既有读者退出并阻止后来读者插队。NBT 编解码和压缩发生在
+   region 文件共享读/排它写区之外,排它区只覆盖打开与容器提交。
 3. 库不创建、不拥有线程或线程池,不提供 dispatcher 参数;blocking IO 和 CPU 密集工作运行在调用方 context。
 4. 不设置 `maximumOpenRegions`。打开句柄数由当前 in-flight 操作决定,并发度完全由调用方决定。
 5. 不保留 idle entry、idle mutex 或 idle region-store 缓存。操作结束后程序内不继续累积已经不需要的内容。
 6. region 与 metadata 都使用 pinned logical-file entry;close 等待所有已 admission 的读者/写者。
 7. `syncWrites = false` 时,同一 region entry 的最后一个 user 释放时执行一次最终 close/flush。
+8. `LiveMinecraftWorldReader` 是独立的旁路观察者:不取得 `session.lock`,不创建 logical-file coordinator 或 per-file
+   registry,对 metadata、MCA、MCC 的每次读取都独立进行,不延迟官方服务端写入。
 
 ## 非目标
 
@@ -40,8 +52,9 @@ close barrier,不创建线程,不接收 dispatcher,也不限制打开数量。
 ```text
 world-format      无状态纯函数:Anvil 容器字节格式 + 压缩 + chunk NBT 编解码(不动)
 RegionFileStore   单个 .mca(+.mcc)的 Anvil 容器,字节级 API,无锁,无 NBT 依赖
-WorldRegionStore  一个 region 目录的编排:active entry + per-file 锁 + 编解码锁外化 + close 屏障
-OpenMinecraftWorld session.lock 生命周期 + active region-store registry + metadata logical-file 锁
+WorldRegionStore  一个 region 目录的编排:active entry + logical-file shared/exclusive access + 编解码区外化 + close 屏障
+OpenMinecraftWorld session.lock 生命周期 + active region-store registry + metadata logical-file shared/exclusive access
+LiveMinecraftWorldReader 无可变状态、无 close 的独立 per-call 旁路读取
 ```
 
 关键调整:**NBT 编解码从 `RegionFileStore` 上移到 `WorldRegionStore`**。
@@ -54,6 +67,7 @@ OpenMinecraftWorld session.lock 生命周期 + active region-store registry + me
 删除 `compressionDispatcher`、`ioDispatcher` 和 `dispatchOn` 设计。所有 production API 遵守:
 
 - suspend 只用于等待内部 admission/coordination lock;
+- 无任何挂起点的 live reader 公开普通同步函数,由调用方放入自己的 dispatcher/coroutine;
 - blocking filesystem IO 与 NBT 编解码运行在调用方 coroutine context;
 - 库不选择线程、不创建 executor、不隐藏调度;
 - 调用方需要调度时在外部 `withContext(...)`,或先用公开 bytes/format API 分段组合。
@@ -67,7 +81,8 @@ KDoc 和 README 必须明确这些函数不是自动 main-safe。
 ```kotlin
 private class RegionEntry {
     var store: RegionFileStore? = null
-    val fileMutex = Mutex()
+    val openMutex = Mutex()
+    val fileAccess = LogicalFileAccess()
     var users = 0
     var closing = false
 }
@@ -75,11 +90,13 @@ private class RegionEntry {
 
 - `bookkeeping: Mutex` 只保护 entry map、每条 `users`、`closing`、store 的 open/sealed 状态和 closing 计数。 **临界区内不做
   IO、不等待 file lock、不执行 close**。
-- `fileMutex` 只序列化同一个 region 文件的容器读取、打开和提交。读写共用,因为读走 `writer.header`
-  内存快照,写中途的读会看到半提交状态。
-- `users` 在拿 `fileMutex` 之前递增,包含已 admission 但还在等待 file lock 的读者/写者。
+- `fileAccess` 使用数据库式共享读/排它写语义。读者仅登记 active-reader 计数,不持 `Mutex` 执行文件 IO;写者等待计数归零后
+  取得排它权,写者等待期间的新读者不插队。这样读不会看到半提交的 header/payload/sidecar 状态,读者之间也不会互相阻塞。
+- `openMutex` 仅单飞首次打开/不存在探测,不包住已经打开后的读取。
+- `users` 在进入 logical-file access 之前递增,包含 encode/decode、active reader、active writer 和等待 access 的调用。
 - entry 不做 LRU、不做 idle cache。最后一个 user 释放时进入 closing,并完成 `RegionFileStore.close()`。
-- live-read-only 的“文件不存在”结果不持久缓存;下次访问重新探测,避免无限累积 absent entry。
+- 一个 region logical-file group 覆盖 `r.x.z.mca` 及其所有 `c.*.*.mcc` sidecar;不能按最终路径分别协调,因为 MCA header 决定
+  sidecar 的可达性。
 
 ### Admission 与 close 的边界
 
@@ -90,8 +107,9 @@ private class RegionEntry {
 
 NBT 操作也在 admission 之后才编码/解码:
 
-- 写路径先 pin region entry,再在 **不持 fileMutex** 的情况下 encode + validate,最后拿 fileMutex 打开/提交;
-- 读路径先在 fileMutex 内读出不可变 compressed `RegionChunk`,释放 fileMutex 后 decode,但 entry/users 保持到 decode 完成。
+- 写路径先 pin region entry,再在 **不持排它权** 的情况下 encode + validate,最后取得排它权打开/提交;
+- 读路径取得共享读 admission 后读出不可变 compressed `RegionChunk`,立即退出共享读区再 decode,但 entry/users 保持到
+  decode 完成。
 
 这样 close barrier 覆盖完整高层操作,而不是只覆盖最后一段文件 IO。
 
@@ -102,7 +120,7 @@ NBT 操作也在 admission 之后才编码/解码:
 
 1. release 在 bookkeeping 内确认 `users == 0`,置 `closing = true`,并保留一个可等待的完成信号;
 2. 新 acquire 看到 closing entry 后等待完成信号,然后重新查找/创建新 entry;
-3. last release 在 fileMutex 或等价的 entry 过渡锁内执行 `RegionFileStore.close()`;
+3. last release 在 `openMutex` 或等价的 entry 过渡锁内取得唯一 store 并执行 `RegionFileStore.close()`;
 4. close 完成后才从 map 移除 entry 并唤醒等待者。
 
 因此旧 handle 的 final resize/flush/close 与新 handle 的 open/read header 不会重叠。该清理一旦把 entry 标记为 closing
@@ -120,28 +138,28 @@ raw write:
 1. admission/pin region entry;
 2. `files.requireWritable()`;
 3. `validatedCompressedPayload`,保持非法 payload 不创建文件的既有契约;
-4. `fileMutex` 内打开 (如需) 并执行 `store.write(position, chunk)`;
+4. 取得 logical-file 排它权,单飞打开 (如需) 并执行 `store.write(position, chunk)`;
 5. release;若这是最后一个 user,执行一次 entry close。
 
 NBT write:
 
 1. admission/pin region entry;
 2. `files.requireWritable()`;
-3. 不持 fileMutex,执行 `chunkNbtFormat.encode(document, compression)`;
+3. 不持 logical-file 排它权,执行 `chunkNbtFormat.encode(document, compression)`;
 4. validate compressed payload;
-5. `fileMutex` 内打开 (如需) 并提交 bytes;
+5. 取得 logical-file 排它权,打开 (如需) 并提交 bytes;
 6. release,last user 触发最终 close。
 
 NBT read:
 
 1. admission/pin region entry;
-2. `fileMutex` 内读出 `RegionChunk?`;
-3. 释放 fileMutex;
+2. 在 shared-read admission 内读出 `RegionChunk?`;
+3. 立即退出 shared-read admission;
 4. 锁外执行 `chunkNbtFormat.decode(chunk)`;
 5. release,last user 触发最终 close。
 
-`readRegion`/`readChunk`/`doesChunkExist` 同样 admission、拿 fileMutex、执行 IO、release。读者也会触发 last-release
-close;下一次读取重新打开。
+`readRegion`/`readChunk`/`doesChunkExist` 同样 admission、进入 shared-read、执行 IO、退出 shared-read、release。多个读者可以同时
+读取一个已经打开的 Okio `FileHandle`;读者也会触发 last-release close,下一次读取重新打开。
 
 ## `syncWrites` 与最终 close/flush
 
@@ -155,7 +173,7 @@ close;下一次读取重新打开。
 调用方并发发起 N 个保存
 NBT/压缩在 file lock 外并发执行
 不同 region 文件并行提交
-同一 region 文件按 fileMutex 串行提交
+同一 region logical-file group 的写入按排它权串行提交
 每个 region 的最后一个 in-flight 操作释放时只 close/flush 一次
 wave 结束后没有 idle handle 或 idle entry
 ```
@@ -167,7 +185,7 @@ entry 上有并发/排队操作。write 正常返回后,同一高层协调实例
 `flush()` 只 pin 并处理当时仍 active 的 entry:
 
 - 在 bookkeeping 内 snapshot 并 `users++`,避免与 last-release close 竞争;
-- 逐 entry 在 fileMutex 内 flush,完成一个 unpin 一个;
+- 逐 entry 取得排它权后 flush,完成一个 unpin 一个;
 - 已经进入 closing 的 entry 等其 cleanup 完成,不需要再次 flush;
 - flush 不 seal,不阻塞新写入;之后才 admission 的写入不在本次 flush 范围内; 由于新写入自身会 last-release close,这不是正确性问题。
 
@@ -218,12 +236,26 @@ Advancements(playerUuid)
 - `LevelData` group 覆盖 primary、backup 和 temporary;
 - `PlayerData` group 覆盖 primary、`.dat_old`、temporary 和 corrupt-copy fallback;
 - statistics/advancements 分别按 UUID 独立加锁;
-- 同一 logical group 串行,不同 group 并行;
+- 同一 logical group 共享读/排它写,不同 group 并行;
+- `level.dat` 与 player data 的 mutable recovery read 可能执行 promotion/corrupt-copy,按真实副作用进入排它路径;纯读取的
+  saved data、statistics 和 advancements 允许共享读;
 - read/write 都 admission/pin;`users == 0` 即移除 metadata entry;
 - close sealed 后等待所有 metadata users/closing cleanup,最后才释放 directory lock。
 
 写入策略本身不变:level/player temporary + backup,saved data synced direct GZIP,advancements/statistics 官方式直接写最终
 JSON。
+
+## `LiveMinecraftWorldReader` 旁路语义
+
+`LiveMinecraftWorldReader` 不复用 `OpenMinecraftWorld` 或可变 `WorldRegionStore` 的 logical-file registry。它是给外部程序
+观察正在运行的官方服务端存档用的简单入口:
+
+- 不取得或探测 `session.lock`,也不创建任何操作系统文件锁;
+- level/player/saved-data/statistics/advancements/MCA/MCC 的读取都不进入程序内 per-file coordinator;
+- 同一文件的多个读取独立打开并并发推进,region handle 在单次调用结束时关闭,不跨调用保留 entry 或 handle;
+- reader 不保留可变生命周期或跨调用资源,不需要 `close()`,所有调用之间没有共享 admission lock;
+- 系统文件句柄允许官方服务端并发 write/delete/replace,读取不得修复、复制、提升或改写文件;
+- stale/torn 数据以及由此产生的 IO、格式、NBT、解压失败属于调用方可重试结果。
 
 ## close 语义与并行读者
 
@@ -237,8 +269,8 @@ JSON。
 
 特别要求:
 
-- 正在等待 fileMutex 的读者也算 in-flight;close 不能只等待已拿到锁的操作;
-- encode/decode 虽在 fileMutex 外,但对应 entry 仍被 pin,close 必须等待;
+- 正在等待 shared/exclusive access 的读者/写者也算 in-flight;close 不能只等待已经进入文件 IO 的操作;
+- encode/decode 虽在 logical-file access 外,但对应 entry 仍被 pin,close 必须等待;
 - 读者可能是最后一个 user,此时也执行 handle close;后续读者等待 closing 完成后重新打开;
 - close 期间另一个文件的慢 IO 不阻塞本文件完成,但全局 close 要等所有 admitted 操作;
 - 直连 `RegionFileStore` 或另一个不共享 registry 的实例不属于该 barrier 保护范围。
@@ -249,7 +281,8 @@ JSON。
 
 ## 对用户的语义契约 (写入 KDoc 与 README)
 
-- 高层入口可安全并发调用;同一逻辑文件的操作 (含读)完全串行,不同逻辑文件并行;
+- 可变高层入口可安全并发调用;同一逻辑文件组共享读/排它写,不同逻辑文件组并行;
+- live 高层入口对所有文件执行无锁旁路读取,不参与可变入口的 logical-file coordination;
 - 并发度由调用方 launch 数/外部 dispatcher 决定;库没有线程池、dispatcher 或 `maximumOpenRegions`;
 - blocking IO 与编解码运行在调用方 context,API 不自动 main-safe;
 - 跨文件无全局顺序;单次写入的文件内原子性与崩溃一致性协议不变;
@@ -264,48 +297,72 @@ JSON。
 - `world-io/src/commonMain/kotlin/com/hiczp/minecraft/world/io/RegionFileStore.kt`(字节级化)
 - `world-io/src/commonMain/kotlin/com/hiczp/minecraft/world/io/WorldRegionStore.kt`(active entry 重写)
 - `world-io/src/commonMain/kotlin/com/hiczp/minecraft/world/io/OpenMinecraftWorld.kt`
+- `world-io/src/commonMain/kotlin/com/hiczp/minecraft/world/io/LiveMinecraftWorldReader.kt`
 - `world-io/src/commonMain/kotlin/com/hiczp/minecraft/world/io/MinecraftWorldAccess.kt`(KDoc 与配置清理)
-- `world-io/README.md`(并发、执行位置、last-release close、Single region-file access 示例)
+- `world-io/AGENTS.md` 与 `world-io/README.md`(可变协调、live 旁路、执行位置、last-release close)
 - 测试:`world-io/src/commonTest/`,必要的 JVM 并发 oracle 与既有官方互操作场景
 
 ## 测试计划
 
-1. 多协程并发写 N 个不同 region 文件:全部落盘、header 合法、可重新读取;
-2. 多协程并发写同一文件:串行化、无损坏、每个位置内容为某次完整写入的结果;
-3. 并发首读同一文件:只打开一次 (fileMutex 单飞,用计数 filesystem/handle 断言 open 次数);
-4. 一个文件的慢读/慢写阻塞同文件后续读写,但不阻塞另一文件;
+1. 两个不同 region 文件分别停在真实提交点,确认同时到达后再放行:全部落盘、header 合法、可重新读取;
+2. 多协程并发写同一文件:排它串行、无损坏、每个位置内容为某次完整写入的结果;
+3. 并发首读同一文件:只打开一次 (`openMutex` 单飞,用计数 filesystem/handle 断言 open 次数),打开后读者并行;
+4. `R→R` 共享、`R→W` 写等待读者、`W→R` 读等待后一起恢复、`W→W` 排它,且等待写者先于后来读者;
 5. 所有操作完成后:active map 为空、FakeFileSystem 没有打开 handle,反复访问大量 region 不累积 entry;
 6. last-release close 与立即重新打开:旧 close 和新 open 不重叠,无 double-close/use-after-close;
 7. `syncWrites = false`:同一 region 的多个排队写只在最后一个 release 时 close/flush 一次;
 8. 读者是最后一个 user 时也触发 close;后续读者等待 closing 完成后重新读取新状态;
-9. close 边界:已 admission 但还在等待 fileMutex 的读者会被 close 等待;seal 后新读者失败;
+9. close 边界:已 admission 但还在等待 shared/exclusive access 的调用会被 close 等待;seal 后新调用失败;
 10. close 边界:encode/decode 仍在进行时 close 等待;close 完成前不释放 session lock;
 11. 并发 `close()` 合并等待同一完成结果,不出现第二个 close 早退或 session lock 提前释放;
-12. metadata 同一 logical group 串行、不同 group 并行;`foo` 与 `minecraft:foo` 落同一 saved-data 锁;
+12. metadata 同一 logical group 共享读/排它写、不同 group 并行;`foo` 与 `minecraft:foo` 落同一 saved-data entry;
 13. metadata close barrier 等待 read/write;seal 后新操作失败;
 14. advancements/statistics 保持直接最终路径写入,不产生 temporary/rename;
 15. 既有契约回归:非法 payload 在创建 region 文件之前被拒绝;
-16. NBT encode/decode 不持 fileMutex,可与其他文件操作并行;
-17. 官方互操作 generate/rewrite/reload 场景保持绿色;
-18. 可选基准:(a) 现状串行、 (b) 并行编码+同文件串行提交、 (c) 多文件并行提交,三者对比。
+16. NBT encode/decode 不占用 shared/exclusive 文件访问,可与其他操作并行;
+17. MCA header 与对应 MCC sidecar 落在同一个 region logical-file group,sidecar 慢读会阻止 header 重写;
+18. 官方互操作 generate/rewrite/reload 场景保持绿色;
+19. live reader 对 level/player/saved-data/statistics/advancements/MCA/MCC 的同文件读取均可同时到达 IO gate;
+20. live 慢读不阻塞服务端风格的直接写入/替换,反复 missing read 不保留句柄;
+21. 可选基准:(a) 原全局串行、 (b) 共享读+同文件排它写、 (c) 多文件并行提交,三者对比。
 
 竞态测试使用 gate-controlled hanging `ForwardingFileSystem`/fake `FileHandle`,不依赖 sleep、真实磁盘延迟或
 概率调度。“永远不返回”必须可由测试释放,并在 finally 打开 gate,避免遗留永久阻塞 worker。需要真实并行 blocking oracle 的用例放在
 JVM 测试 dispatcher 上执行,仍以外层 `runTest` 组织与断言。
 
+## 已完成覆盖矩阵
+
+| 边界                        | 确定性覆盖                                                                                           |
+|-----------------------------|------------------------------------------------------------------------------------------------------|
+| `R→R`                       | 两个 reader 都到达显式 gate 后统一放行;common coordinator 与真实 region handle 各覆盖一次            |
+| `R→W` / `R,R→W`             | writer 在一个或全部 reader 释放前不能进入;另一个 region 文件仍可完成写入                             |
+| `W→R,R`                     | 两个 reader 都在 writer commit 后同时到达 read gate,且 writer 的排它权已经释放                       |
+| `W→W` / 多 writer           | 同一 region 的真实 handle 最大并发写为 1,每个 chunk 保持一次完整提交结果                             |
+| `R→W→R` / writer preference | 等待 writer 阻止后来 reader;多个已登记 writer 全部先于后来 reader                                    |
+| cancellation / failure      | 等待和 active reader/writer 分别取消,read/write block 分别抛错,均释放 admission 与 entry pin         |
+| close admission             | close 等待 active、waiting、encode、decode 与 last-release cleanup;seal 后拒绝新调用;并发 close 合并 |
+| final release / reopen      | active map 回到空、handle 全关;旧 close 完成前新 open 不发生;大量文件访问不累积 entry                |
+| `syncWrites`                | false 在最后 reader/writer 引用释放时一次 final flush/close;true 每次 commit flush 且仍延迟 close    |
+| logical groups              | MCA+全部 MCC、level、player、canonical saved data、statistics、advancements 分别按真实路径组覆盖     |
+| live bypass                 | 全部 metadata 类型及 MCA/MCC 同文件 reader 同时到达 IO;慢读不阻塞直接写;missing read 不留 handle     |
+| official peer               | repository-selected 官方服务端完成 generate/rewrite/reload,并验证 `session.lock` 互斥与 live 旁路    |
+
 ## 实施步骤
 
 1. `RegionFileStore` 字节级化:移除 NBT 方法与 `chunkNbtFormat` 参数,更新直连示例;
-2. 重写 `WorldRegionStore`:active entry、fileMutex、last-release closing、bookkeeping barrier,编解码上移;
+2. 重写 `WorldRegionStore`:active entry、shared-read/exclusive-write、open single-flight、last-release closing、bookkeeping
+   barrier,编解码上移;
 3. 重写 `OpenMinecraftWorld`:active region-store registry、metadata logical-file entry、统一 close barrier;
-4. 删除 `maximumOpenRegions` 与 dispatcher 相关计划/API,KDoc/README 说明调用方执行位置契约;
-5. 增加 mock 并发测试、close/reader 边界测试和 metadata 测试;
-6. 运行 `:world-io:jvmTest`,再按变更范围运行 Node/desktop Native 标准任务与官方互操作门禁。
+4. 将 `LiveMinecraftWorldReader` 与可变协调完全拆开,实现无锁、无缓存的 per-call 旁路读取;
+5. 删除 `maximumOpenRegions` 与 dispatcher 相关计划/API,KDoc/README 说明调用方执行位置契约;
+6. 增加 mock 并发测试、close/reader 边界测试、metadata 测试与 live 全文件类型旁路测试;
+7. 运行 `:world-io:jvmTest`,再按变更范围运行 Node/desktop Native 标准任务与官方互操作门禁。
 
 ## 风险与备注
 
-- fileMutex 跨阻塞 IO 持有;per-file 粒度下竞争罕见,这是内存快照一致性的代价。
-- 读写共用文件锁使同文件读吞吐受写影响;不同文件互不影响。
+- 读者不跨阻塞 IO 持有 Mutex,但 active-reader 计数会阻止写者;忘记退出 shared admission 会永久阻塞写入,必须用不可取消的
+  finally 清理并测试取消路径。
+- 写者在文件提交期间持有 logical-file 排它权;同组读写互斥是 MCA header/payload/sidecar 一致性的代价,不同文件互不影响。
 - pinned-only 模式会让顺序逐个调用时反复 open/close。批量性能来自并发保存或将来显式 user-managed lease, 不来自隐藏 idle
   cache。
 - `flush`/`close` 可能无限期等待底层 IO;库不提供内部 timeout。

@@ -25,8 +25,30 @@ filesystem; browser and Wasm targets use the stream modules and do not receive a
   neither API accepts caller-controlled timestamps or external markers.
 - Standalone files keep their distinct official policies: level/player NBT use sibling temporary files and backups,
   dimension saved data uses a synced direct write, and player JSON truncates and writes its final path directly.
-- System-filesystem world access holds `session.lock` until all owned region stores close. Injectable raw stores do not
-  pretend a fake filesystem provides a cross-process lock.
+- System-filesystem world access uses `session.lock` only as the process-exclusive world-directory lease and holds it
+  until every admitted operation and owned resource has drained. It is not a world-wide I/O mutex. Injectable raw stores
+  do not pretend a fake filesystem provides a cross-process lock.
+- Mutable high-level stores coordinate each logical file group with writer-preferring shared-read/exclusive-write
+  admission. Existing readers may finish together; a waiting writer blocks later readers; the writer covers only the
+  physical file commit. Different groups proceed independently. One region group includes an MCA header and all MCC
+  sidecars it addresses; level, player, canonical saved-data, statistics, and advancements groups follow their complete
+  commit and recovery path sets.
+- Region and metadata entries are active-operation pins, not idle caches. Remove the coordinator and close an opened
+  region handle after its final user, including a user still encoding or decoding outside physical file access. With
+  `syncWrites = false`, that final release performs the automatic durable flush and close; with `syncWrites = true`,
+  each region commit also flushes. Do not restore an LRU or an idle per-file lock map.
+- `RegionFileStore` is an uncoordinated byte-level primitive. Direct callers and separate store instances own all
+  read/write/close exclusion. `WorldRegionStore` and `MinecraftWorldAccess` provide coordination only within their own
+  registry.
+- `LiveMinecraftWorldReader` is a simple bypass observer for a world owned by another process. It takes no
+  `session.lock`, creates no logical-file coordinator or per-file registry, and retains no region handle between calls.
+  Every metadata, MCA, and MCC read proceeds independently, including concurrent reads of the same file. It has no
+  mutable lifecycle and requires no `close()`. Live handles must permit the official server's concurrent write, delete,
+  and replacement operations. The reader never repairs or mutates files, and stale or torn input and parse failures are
+  expected.
+- Coordination never chooses a dispatcher or owns a thread pool. Blocking filesystem operations and NBT/compression work
+  stay synchronously on the calling thread; keep bookkeeping mutex sections free of I/O, codec work, file-access waits,
+  and resource close.
 - Establish `session.lock` behavior from the matching official server's `DirectoryLock` first and the repository Java
   major's OpenJDK `FileChannel` implementation second. The JVM path mirrors the official control flow and exception
   ordering; Native and Node reproduce the same observable open, marker-write, force, non-blocking whole-file lock, and
@@ -37,6 +59,16 @@ filesystem; browser and Wasm targets use the stream modules and do not receive a
   same non-blocking whole-file exclusive OS lock as the official JVM implementation.
 
 ## Tests
+
+Portable coordination state tests belong in `commonTest`. Cover shared readers, every read/write ordering, writer
+preference, failure, cancellation, and admission cleanup with `runTest` and explicit coroutine signals. JVM filesystem
+race tests use controlled gates at exact source, sink, handle, codec, and close operations; do not use delays, repeated
+stress, or scheduler luck as concurrency evidence. Okio `FakeFileSystem` is not JVM-thread-safe, so a concurrent oracle
+must protect its model or use a purpose-built filesystem while observing admission before that protection.
+
+Live-reader tests separately gate level, player, saved-data, statistics, advancements, MCA, and MCC reads. Prove that
+same-file reads reach I/O together, that a slow read never delays an external writer, and that repeated missing-file
+observations retain neither handles nor entries.
 
 Filesystem behavior expressible through Okio or its fake filesystem belongs in `commonTest`. Keep the shared
 official-server test's Host-filesystem namespace restriction explicit in its KDoc. Each execution uses one public store

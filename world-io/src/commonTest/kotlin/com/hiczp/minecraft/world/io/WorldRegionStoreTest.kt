@@ -186,7 +186,7 @@ class WorldRegionStoreTest {
         assertFailsWith<IOException> {
             clearing.clearChunk(position)
         }
-        assertNull(clearing.readChunk(position))
+        assertNotNull(clearing.readChunk(position))
         clearing.close()
 
         assertEquals(oldHeader, header(base, path))
@@ -394,9 +394,9 @@ class WorldRegionStoreTest {
                 oldHeader.location(position.local),
             )
             assertEquals(
-                oldLocation.sectorOffset + 2,
+                oldLocation.sectorOffset + 1,
                 header(base, path).location(position.local)?.sectorOffset,
-                "Failure point $failurePoint did not retain vanilla's reserved sector",
+                "Failure point $failurePoint did not reuse the disk allocation after last-release close",
             )
             store.close()
 
@@ -582,22 +582,21 @@ class WorldRegionStoreTest {
     }
 
     @Test
-    fun eachStoreHasItsOwnBoundedLruAndCloseRejectsNewOperations() = runTest {
+    fun storesDoNotRetainIdleRegionHandlesAndCloseRejectsNewOperations() = runTest {
         val fileSystem = FakeFileSystem()
         val directory = "/world/region".toPath()
         val store = WorldRegionStore(
             directory = directory,
             fileSystem = fileSystem,
-            configuration = WorldRegionStoreConfiguration(
-                maximumOpenRegions = 1,
-                syncWrites = false,
-            ),
+            configuration = WorldRegionStoreConfiguration(syncWrites = false),
         )
 
         store.readRegion(RegionPosition(0, 0))
-        assertEquals(1, fileSystem.openPaths.size)
+        assertEquals(0, fileSystem.openPaths.size)
         store.readRegion(RegionPosition(1, 0))
-        assertEquals(listOf(directory / "r.1.0.mca"), fileSystem.openPaths)
+        assertTrue(fileSystem.exists(directory / "r.0.0.mca"))
+        assertTrue(fileSystem.exists(directory / "r.1.0.mca"))
+        assertEquals(0, fileSystem.openPaths.size)
         store.close()
         fileSystem.checkNoOpenFiles()
         assertFailsWith<IllegalStateException> {

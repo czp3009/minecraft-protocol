@@ -1,6 +1,5 @@
 package com.hiczp.minecraft.world.io
 
-import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.world.format.*
 import okio.*
 import kotlin.time.Clock
@@ -21,10 +20,11 @@ data class RegionFileStoreConfiguration(
  * header, and then retire old allocations; the whole file is never replaced
  * or shrunk. Timestamps and the internal/sidecar threshold are automatic.
  *
- * Instances are not thread-safe, and at most one writable instance may cover
- * one file at a time; world-level coordination belongs to
- * [MinecraftWorldAccess]. Chunk coordinates must belong to the opened
- * region; other regions are rejected instead of routed.
+ * This primitive does not coordinate reads, writes, or close. Okio file handles support concurrent
+ * positional reads, but callers are responsible for excluding writes and close from those reads
+ * and for coordinating multiple instances that cover the same file. [WorldRegionStore] and
+ * [MinecraftWorldAccess] provide higher-level shared-read/exclusive-write coordination. Chunk
+ * coordinates must belong to the opened region; other regions are rejected instead of routed.
  */
 class RegionFileStore private constructor(
     private val files: WorldFileAccess,
@@ -33,7 +33,6 @@ class RegionFileStore private constructor(
     val path: Path,
     private val handle: FileHandle,
     private val writer: RegionWriterState?,
-    private val chunkNbtFormat: RegionChunkNbtFormat,
     private val maximumCompressedChunkBytes: Int,
 ) {
     private var closed = false
@@ -117,24 +116,6 @@ class RegionFileStore private constructor(
         writeHeader(writer)
         files.fileSystem.deleteIfExists(externalPath(position))
         writer.allocator.free(oldLocation)
-    }
-
-    fun readChunkNbt(position: ChunkPosition): NbtDocument? {
-        val chunk = read(position) ?: return null
-        return withOkioIoExceptions("Cannot decode chunk $position") {
-            chunkNbtFormat.decode(chunk)
-        }
-    }
-
-    fun writeChunkNbt(
-        position: ChunkPosition,
-        document: NbtDocument,
-        compression: Compression = Compression.ZLIB,
-    ) {
-        val chunk = withOkioIoExceptions("Cannot encode chunk $position") {
-            chunkNbtFormat.encode(document, compression)
-        }
-        write(position, chunk)
     }
 
     fun flush() {
@@ -223,12 +204,13 @@ class RegionFileStore private constructor(
             val maximumPayload = location.allocatedBytes - REGION_CHUNK_RECORD_HEADER_BYTES
             if (record.compressedLength !in 0..maximumPayload) {
                 throw RegionFormatException(
-                    "Chunk $position declares invalid record length ${record.length} for ${location.sectorCount} allocated sector(s)",
+                    "Chunk $position has invalid length ${record.length} in ${location.sectorCount} allocated sectors",
                 )
             }
             if (record.compressedLength > maximumCompressedChunkBytes) {
+                val compressedLength = record.compressedLength
                 throw RegionFormatException(
-                    "Chunk $position compressed size ${record.compressedLength} exceeds configured limit $maximumCompressedChunkBytes",
+                    "Chunk $position compressed size $compressedLength exceeds limit $maximumCompressedChunkBytes",
                 )
             }
             val bytes = handle.readAtMost(
@@ -343,7 +325,6 @@ class RegionFileStore private constructor(
         fun open(
             regionFile: Path,
             fileSystem: FileSystem = systemFileSystem,
-            chunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
             configuration: RegionFileStoreConfiguration = RegionFileStoreConfiguration(),
         ): RegionFileStore {
             val directory = regionFile.parent
@@ -356,7 +337,6 @@ class RegionFileStore private constructor(
                 files = WorldFileAccess.mutable(fileSystem),
                 directory = directory,
                 position = position,
-                chunkNbtFormat = chunkNbtFormat,
                 maximumCompressedChunkBytes = configuration.maximumCompressedChunkBytes,
                 syncWrites = configuration.syncWrites,
             )
@@ -366,7 +346,6 @@ class RegionFileStore private constructor(
             files: WorldFileAccess,
             directory: Path,
             position: RegionPosition,
-            chunkNbtFormat: RegionChunkNbtFormat,
             maximumCompressedChunkBytes: Int,
             syncWrites: Boolean,
         ): RegionFileStore {
@@ -394,7 +373,6 @@ class RegionFileStore private constructor(
                     path = path,
                     handle = handle,
                     writer = writer,
-                    chunkNbtFormat = chunkNbtFormat,
                     maximumCompressedChunkBytes = maximumCompressedChunkBytes,
                 )
             } catch (caught: Throwable) {
@@ -420,7 +398,7 @@ internal fun validatedCompressedPayload(
         )
     if (compressedBytes.size > maximumCompressedChunkBytes) {
         throw RegionFormatException(
-            "Chunk $position compressed size ${compressedBytes.size} exceeds configured limit $maximumCompressedChunkBytes",
+            "Chunk $position compressed size ${compressedBytes.size} exceeds limit $maximumCompressedChunkBytes",
         )
     }
     return compressedBytes
