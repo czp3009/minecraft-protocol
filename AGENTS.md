@@ -144,10 +144,12 @@ Official behavior resolves conflicts. Unresolved nullability remains nullable an
 Deterministic facts belong in Gradle-produced analysis or generated source; semantic decisions belong in source, tests,
 and public documentation.
 
-Java policy is independent of Minecraft. `BuildVersions` fixes the Gradle JVM toolchain and JVM/Android bytecode target
-at Java 25. The Fixture Host launches official processes with `java` from `PATH`, whose major version is 25 or newer;
-minor and patch versions are not pinned or inferred from Mojang metadata. `JvmProcessArguments` owns the shared
-build-logic native-access argument; the Fixture Host owns the equivalent child-process command helper.
+Java policy follows the repository-selected Minecraft release: the project's Java major version is the Java major
+required by that release, and `BuildVersions.JAVA_VERSION` fixes this value for the Gradle JVM toolchain and JVM/Android
+bytecode target. The Fixture Host launches official processes with `java` from `PATH`, whose major version is the
+configured major or newer; minor and patch versions are not pinned or inferred from Mojang metadata.
+`JvmProcessArguments` owns the shared build-logic native-access argument; the Fixture Host owns the equivalent
+child-process command helper.
 
 The deterministic build pipeline follows these ownership rules:
 

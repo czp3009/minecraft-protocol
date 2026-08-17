@@ -101,7 +101,8 @@ MinecraftServer.bind(selectorManager = selector).use { server ->
 
 Requirements:
 
-- A JDK with `java` on `PATH`; the required Java major version is fixed by the Gradle toolchain.
+- A JDK with `java` on `PATH`; the project's Java major version follows the Java version required by the matching
+  Minecraft release. See `BuildVersions.JAVA_VERSION` in the Gradle configuration for the current value.
 - An Android SDK configured through the standard Gradle mechanisms, only when building or testing Android targets.
 - Network access for the first build so Gradle can download dependencies; tests that verify against official Minecraft
   peers additionally download exact-version fixtures.
