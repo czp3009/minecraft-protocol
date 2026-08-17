@@ -4,6 +4,7 @@ import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
 import okio.FileSystem
+import okio.IOException
 import okio.Path.Companion.toPath
 import kotlin.test.*
 import kotlinx.io.Buffer as KotlinxBuffer
@@ -520,6 +521,111 @@ class WorldRegionConcurrencyTest {
             val firstCloseEnd = fileSystem.events.indexOf("close-end")
             val secondOpen = fileSystem.events.lastIndexOf("open")
             assertTrue(firstCloseEnd in 0 until secondOpen)
+            fileSystem.base.checkNoOpenFiles()
+        } finally {
+            withContext(NonCancellable) {
+                closeGate.open()
+                jobs.joinAll()
+                store.close()
+                fileSystem.base.checkNoOpenFiles()
+            }
+        }
+    }
+
+    @Test
+    fun closeFailureUnblocksSameRegionReopenWithoutPoisoningLaterStoreClose() = runTest {
+        val directory = "/world/region".toPath()
+        val position = ChunkPosition(0, 0)
+        val target = directory / "r.0.0.mca"
+        val closeGate = BlockingGate()
+        val fileSystem = GatedFileSystem(
+            base = concurrencyFakeFileSystem(),
+            target = target,
+            closeGate = closeGate,
+            closeFailures = 1,
+        )
+        val store = concurrencyStore(fileSystem)
+        val jobs = mutableListOf<Deferred<*>>()
+        try {
+            val first = async(Dispatchers.Default) {
+                runCatching { store.readChunk(position) }
+            }
+            jobs += first
+            closeGate.awaitEntered()
+
+            val reopen = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+                store.readChunk(position)
+            }
+            jobs += reopen
+            assertFalse(reopen.isCompleted)
+            assertEquals(1, fileSystem.opens.get())
+
+            closeGate.open()
+            val operationFailure = assertIs<IOException>(first.await().exceptionOrNull())
+            assertEquals("synthetic gated close failure", operationFailure.message)
+            assertNull(reopen.await())
+
+            assertEquals(2, fileSystem.opens.get())
+            assertEquals(2, fileSystem.closes.get())
+            assertEquals(0, store.activeRegionCount())
+            val firstCloseEnd = fileSystem.events.indexOf("close-end")
+            val secondOpen = fileSystem.events.lastIndexOf("open")
+            assertTrue(firstCloseEnd in 0 until secondOpen)
+            fileSystem.base.checkNoOpenFiles()
+
+            store.close()
+        } finally {
+            withContext(NonCancellable) {
+                closeGate.open()
+                jobs.joinAll()
+                store.close()
+                fileSystem.base.checkNoOpenFiles()
+            }
+        }
+    }
+
+    @Test
+    fun closeBarrierAndConcurrentWaiterObserveLastReleaseCloseFailure() = runTest {
+        val directory = "/world/region".toPath()
+        val position = ChunkPosition(0, 0)
+        val target = directory / "r.0.0.mca"
+        val closeGate = BlockingGate()
+        val fileSystem = GatedFileSystem(
+            base = concurrencyFakeFileSystem(),
+            target = target,
+            closeGate = closeGate,
+            closeFailures = 1,
+        )
+        val store = concurrencyStore(fileSystem)
+        val jobs = mutableListOf<Deferred<*>>()
+        try {
+            val operation = async(Dispatchers.Default) {
+                runCatching { store.readChunk(position) }
+            }
+            jobs += operation
+            closeGate.awaitEntered()
+
+            val firstClose = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+                runCatching { store.close() }
+            }
+            val secondClose = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+                runCatching { store.close() }
+            }
+            jobs += firstClose
+            jobs += secondClose
+            assertFalse(firstClose.isCompleted)
+            assertFalse(secondClose.isCompleted)
+            assertFailsWith<IllegalStateException> { store.readChunk(position) }
+
+            closeGate.open()
+            val operationFailure = assertIs<IOException>(operation.await().exceptionOrNull())
+            val firstCloseFailure = assertIs<IOException>(firstClose.await().exceptionOrNull())
+            val secondCloseFailure = assertIs<IOException>(secondClose.await().exceptionOrNull())
+            assertEquals("synthetic gated close failure", operationFailure.message)
+            assertEquals(operationFailure.message, firstCloseFailure.message)
+            assertEquals(operationFailure.message, secondCloseFailure.message)
+            assertEquals(1, fileSystem.opens.get())
+            assertEquals(1, fileSystem.closes.get())
             fileSystem.base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {

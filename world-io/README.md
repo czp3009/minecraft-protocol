@@ -8,7 +8,9 @@ All three high-level entries support concurrent coroutine calls. The mutable ent
 `WorldRegionStore`, allow readers of one logical metadata file or `.mca` file to run concurrently. A writer takes
 exclusive access to that logical file, waits for existing readers, and blocks new readers and writers until its file
 update is complete; once a writer is waiting, later readers do not bypass it. Operations for different files can run
-concurrently. `LiveMinecraftWorldReader` is the deliberately uncoordinated bypass-reader described below.
+concurrently. This is writer preference, not a fair/FIFO scheduling contract: queued writers have no promised relative
+order, and neither do readers that become eligible together. `LiveMinecraftWorldReader` is the deliberately
+uncoordinated bypass-reader described below.
 
 The library does not create or own threads, choose a dispatcher, or impose an open-region limit. Blocking filesystem
 I/O, NBT work, and compression run synchronously on the calling thread, so these APIs are not automatically main-safe;
@@ -38,6 +40,11 @@ and close the same file each time. With `syncWrites = true`, each write commit a
 handle close still waits for the last reader or writer reference. `flush()` pins only entries active when it starts and
 is usually a no-op after all operations have returned. `flush()` and `close()` have no internal timeout and may wait for
 admitted operations or slow storage.
+
+Final-entry cleanup is synchronous, not a background event. If its flush or close fails, the operation performing the
+last release fails. A later owner close does not replay that already-reported failure. If owner close has already sealed
+admission and is directly waiting for the cleanup when it fails, the close barrier and its concurrent waiters report it
+too; both calls then describe the same single physical cleanup attempt.
 
 Logical-file coordination follows the commit boundary rather than individual path names:
 

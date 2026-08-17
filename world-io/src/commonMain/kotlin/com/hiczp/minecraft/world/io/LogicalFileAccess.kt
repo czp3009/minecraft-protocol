@@ -12,7 +12,8 @@ import kotlinx.coroutines.withContext
  * Readers hold only a shared admission count while their block runs; they do not hold [state] and
  * therefore do not serialize each other. Okio `FileHandle` owns concurrent random-access read
  * support. This coordinator adds the boundary that prevents a writer or final close from
- * overlapping those reads.
+ * overlapping those reads. It is not a fair or FIFO lock: no relative admission order is promised
+ * among waiting writers or among readers that become eligible together.
  */
 internal class LogicalFileAccess {
     private val state = Mutex()

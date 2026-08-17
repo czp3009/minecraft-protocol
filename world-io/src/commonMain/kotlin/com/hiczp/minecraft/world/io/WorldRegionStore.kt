@@ -30,11 +30,12 @@ data class WorldRegionStoreConfiguration(
  * One mutable vanilla-style region storage directory for one dimension.
  *
  * Reads of the same `.mca` file may run concurrently. A write has exclusive access to that file and
- * waits for its admitted readers, while different files may progress independently. NBT encoding
- * and decoding happens outside exclusive file access. Region entries and handles exist only while
- * operations are in flight; the last operation for a file closes that file. These suspend functions
- * wait only for coordination; blocking filesystem I/O and compression run on the calling
- * coroutine's dispatcher and are not automatically main-safe.
+ * waits for its admitted readers, while different files may progress independently. Admission is
+ * writer-preferring but not fair or FIFO among same-kind waiters. NBT encoding and decoding happens
+ * outside exclusive file access. Region entries and handles exist only while operations are in
+ * flight; the last operation for a file closes that file. These suspend functions wait only for
+ * coordination; blocking filesystem I/O and compression run on the calling coroutine's dispatcher
+ * and are not automatically main-safe.
  */
 class WorldRegionStore internal constructor(
     val directory: Path,
@@ -94,7 +95,7 @@ class WorldRegionStore internal constructor(
     private var closed = false
     private var closeCompletion: CompletableDeferred<Unit>? = null
     private var closeFailure: Throwable? = null
-    private val cleanupFailures = mutableListOf<Throwable>()
+    private val closeBarrierFailures = mutableListOf<Throwable>()
 
     /** Reads one complete in-memory snapshot without reading unrelated files. */
     suspend fun readRegion(position: RegionPosition): RegionFile =
@@ -213,6 +214,14 @@ class WorldRegionStore internal constructor(
         failure?.let { throw it }
     }
 
+    /**
+     * Seals new admission and waits for every admitted operation and final entry cleanup.
+     *
+     * Final-entry cleanup runs synchronously before its last operation returns, so that operation
+     * observes any cleanup failure. A failure finalized before this close begins is not replayed.
+     * If this close has already sealed admission and is waiting for that cleanup, the close barrier
+     * and its concurrent waiters observe the same failure as well.
+     */
     suspend fun close() {
         val completion: CompletableDeferred<Unit>
         val concurrentWait: Boolean
@@ -254,7 +263,7 @@ class WorldRegionStore internal constructor(
             entries.map { it.drained }.awaitAll()
             entries.map { it.closed }.awaitAll()
             val failure = bookkeeping.withLock {
-                cleanupFailures.reduceOrNull { current, caught ->
+                closeBarrierFailures.reduceOrNull { current, caught ->
                     combineFailures(current, caught)
                 }
             }
@@ -336,7 +345,9 @@ class WorldRegionStore internal constructor(
                     regions.remove(entry.position)
                 }
                 entry.closed.complete(Unit)
-                closeFailure?.let { cleanupFailures += it }
+                closeFailure?.let {
+                    if (closed) closeBarrierFailures += it
+                }
             }
             closeFailure
         }
@@ -376,6 +387,13 @@ class WorldRegionStore internal constructor(
         return current
     }
 
+    /**
+     * A runtime path that needs both locks acquires [fileAccess] before [openMutex]. Final cleanup is
+     * the only path that takes [openMutex] without [fileAccess]; it may do so only after bookkeeping
+     * atomically moves [users] to zero and sets [closing]. Zero users excludes admitted runtime
+     * paths, while closing redirects new acquisition to [closed]. Never acquire [fileAccess] while
+     * holding [openMutex].
+     */
     private class RegionEntry(val position: RegionPosition) {
         var store: RegionFileStore? = null
         val openMutex = Mutex()

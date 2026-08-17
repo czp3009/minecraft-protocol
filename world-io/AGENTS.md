@@ -30,13 +30,20 @@ filesystem; browser and Wasm targets use the stream modules and do not receive a
   do not pretend a fake filesystem provides a cross-process lock.
 - Mutable high-level stores coordinate each logical file group with writer-preferring shared-read/exclusive-write
   admission. Existing readers may finish together; a waiting writer blocks later readers; the writer covers only the
-  physical file commit. Different groups proceed independently. One region group includes an MCA header and all MCC
-  sidecars it addresses; level, player, canonical saved-data, statistics, and advancements groups follow their complete
-  commit and recovery path sets.
+  physical file commit. This is not a fair/FIFO lock and promises no relative order among same-kind waiters. Different
+  groups proceed independently. One region group includes an MCA header and all MCC sidecars it addresses; level,
+  player, canonical saved-data, statistics, and advancements groups follow their complete commit and recovery path sets.
 - Region and metadata entries are active-operation pins, not idle caches. Remove the coordinator and close an opened
   region handle after its final user, including a user still encoding or decoding outside physical file access. With
   `syncWrites = false`, that final release performs the automatic durable flush and close; with `syncWrites = true`,
   each region commit also flushes. Do not restore an LRU or an idle per-file lock map.
+- A region runtime path that needs both locks takes logical `fileAccess` before `openMutex`. Final cleanup may take
+  `openMutex` alone only after bookkeeping atomically moves `users` to zero and sets `closing`: zero users excludes
+  admitted paths, and `closing` redirects new acquisition to the completion signal. Never add an
+  `openMutex`-to-`fileAccess` path.
+- Final-entry cleanup is synchronous and reports failure to its last operation. Retain a cleanup failure for owner close
+  only when close already sealed admission before cleanup finalized; this lets the active close barrier and its
+  concurrent waiters report the failure without accumulating or replaying failures from completed earlier operations.
 - `RegionFileStore` is an uncoordinated byte-level primitive. Direct callers and separate store instances own all
   read/write/close exclusion. `WorldRegionStore` and `MinecraftWorldAccess` provide coordination only within their own
   registry.

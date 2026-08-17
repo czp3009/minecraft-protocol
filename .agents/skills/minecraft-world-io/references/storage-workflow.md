@@ -40,6 +40,10 @@ format validation in `world-format`; translate only genuine filesystem failures 
 When coordination or lifecycle changes, take the current module `AGENTS.md` and source as authoritative. Audit every
 logical commit group, admission/close boundary, and final-reference cleanup with coroutine signals and gate-controlled
 filesystem operations; do not infer correctness from delays, repeated stress, or a data race inside the test fake.
+Fault-inject final flush and close failures: prove the initiating operation observes the failure, a same-key closing
+waiter resumes only after cleanup, and the entry can be recreated. Prove the failure is not replayed by an owner close
+that starts later, while a close barrier already sealed and waiting for that cleanup reports it to every concurrent
+close caller without retaining failures from earlier completed operations.
 
 Audit live read-only access separately as a bypass observer: it must take neither `session.lock` nor mutable per-file
 coordination, retain no cross-call resource or mutable lifecycle, and never delay or mutate an official process's world.

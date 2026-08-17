@@ -3,6 +3,7 @@ package com.hiczp.minecraft.world.io
 import com.hiczp.minecraft.world.format.ChunkPosition
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
+import okio.IOException
 import okio.Path.Companion.toPath
 import kotlin.test.*
 
@@ -369,6 +370,44 @@ class OpenMinecraftWorldConcurrencyTest {
         }
         assertFalse(lock.isValid)
         assertEquals(1, lock.closeAttempts.get())
+    }
+
+    @Test
+    fun completedRegionCleanupFailureDoesNotPoisonLaterWorldClose() = runTest {
+        val paths = MinecraftWorldPaths("/world".toPath())
+        val position = ChunkPosition(0, 0)
+        val base = concurrencyFakeFileSystem()
+        val fileSystem = GatedFileSystem(
+            base = base,
+            target = paths.regionFile(position.region),
+            closeFailures = 1,
+        )
+        val lock = RecordingWorldDirectoryLock()
+        val world = concurrencyWorld(paths, fileSystem, lock)
+        try {
+            val operationFailure = assertFailsWith<IOException> {
+                world.readChunk(
+                    position,
+                    RegionStorageDirectory.CHUNKS,
+                    DimensionDirectory.Overworld,
+                )
+            }
+            assertEquals("synthetic gated close failure", operationFailure.message)
+            assertEquals(0, world.activeRegionStoreCount())
+            assertTrue(lock.isValid)
+
+            world.close()
+
+            assertFalse(lock.isValid)
+            assertEquals(1, lock.closeAttempts.get())
+            assertEquals(1, fileSystem.closes.get())
+            base.checkNoOpenFiles()
+        } finally {
+            withContext(NonCancellable) {
+                world.close()
+                base.checkNoOpenFiles()
+            }
+        }
     }
 }
 

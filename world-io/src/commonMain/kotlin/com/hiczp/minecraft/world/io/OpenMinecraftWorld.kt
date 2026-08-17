@@ -37,7 +37,7 @@ internal class OpenMinecraftWorld(
     private var closed = false
     private var closeCompletion: CompletableDeferred<Unit>? = null
     private var closeFailure: Throwable? = null
-    private val cleanupFailures = mutableListOf<Throwable>()
+    private val closeBarrierFailures = mutableListOf<Throwable>()
 
     // Mutable healthy reads share access. Official fallback promotion and corrupt-player copying
     // mutate the logical file group, so a recoverable primary failure is retried exclusively.
@@ -246,7 +246,7 @@ internal class OpenMinecraftWorld(
             activeMetadataEntries.map { it.closed }.awaitAll()
 
             var failure = state.withLock {
-                cleanupFailures.reduceOrNull { current, caught ->
+                closeBarrierFailures.reduceOrNull { current, caught ->
                     combineFailures(current, caught)
                 }
             }
@@ -258,7 +258,7 @@ internal class OpenMinecraftWorld(
             state.withLock {
                 regionStores.clear()
                 metadataEntries.clear()
-                cleanupFailures.clear()
+                closeBarrierFailures.clear()
             }
             closeFailure = failure
             completion.complete(Unit)
@@ -419,7 +419,9 @@ internal class OpenMinecraftWorld(
                     regionStores.remove(entry.key)
                 }
                 entry.closed.complete(Unit)
-                closeFailure?.let { cleanupFailures += it }
+                closeFailure?.let {
+                    if (closed) closeBarrierFailures += it
+                }
             }
             closeFailure
         }

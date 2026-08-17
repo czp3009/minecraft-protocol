@@ -4,7 +4,7 @@
 
 已完成。实现、文档和确定性竞态覆盖均已落地;最终验证结果:
 
-- `:world-io:jvmTest`:156 tests,0 failures,含官方服务端 generate/rewrite/reload 互操作;
+- `:world-io:jvmTest`:159 tests,0 failures,含官方服务端 generate/rewrite/reload 互操作;
 - `:world-io:jsNodeTest`:118 tests,0 failures;
 - `:world-io:linuxX64Test`:118 tests,0 failures;
 - `git diff --check HEAD`:通过。
@@ -28,7 +28,8 @@ close barrier,不创建线程,不接收 dispatcher,也不限制打开数量。
 1. 可变高层入口 (`MinecraftWorldAccess` / `WorldRegionStore`)支持并发调用:
    **同一逻辑文件组允许共享读,写入使用排它访问,不同逻辑文件组之间并行**。
 2. 读者只在极短状态临界区登记,实际读取期间不持互斥锁;写者等待既有读者退出并阻止后来读者插队。NBT 编解码和压缩发生在
-   region 文件共享读/排它写区之外,排它区只覆盖打开与容器提交。
+   region 文件共享读/排它写区之外,排它区只覆盖打开与容器提交。该策略只承诺 writer preference,不是 fair/FIFO lock; 同类型
+   waiter 之间不承诺相对 admission 顺序。
 3. 库不创建、不拥有线程或线程池,不提供 dispatcher 参数;blocking IO 和 CPU 密集工作运行在调用方 context。
 4. 不设置 `maximumOpenRegions`。打开句柄数由当前 in-flight 操作决定,并发度完全由调用方决定。
 5. 不保留 idle entry、idle mutex 或 idle region-store 缓存。操作结束后程序内不继续累积已经不需要的内容。
@@ -91,8 +92,12 @@ private class RegionEntry {
 - `bookkeeping: Mutex` 只保护 entry map、每条 `users`、`closing`、store 的 open/sealed 状态和 closing 计数。 **临界区内不做
   IO、不等待 file lock、不执行 close**。
 - `fileAccess` 使用数据库式共享读/排它写语义。读者仅登记 active-reader 计数,不持 `Mutex` 执行文件 IO;写者等待计数归零后
-  取得排它权,写者等待期间的新读者不插队。这样读不会看到半提交的 header/payload/sidecar 状态,读者之间也不会互相阻塞。
+  取得排它权,写者等待期间的新读者不插队。它不承诺同类型 waiter 的 FIFO 顺序。这样读不会看到半提交的 header/payload/sidecar
+  状态,读者之间也不会互相阻塞。
 - `openMutex` 仅单飞首次打开/不存在探测,不包住已经打开后的读取。
+- 运行期需要同时取两把锁的路径固定为 `fileAccess → openMutex`;final cleanup 是唯一只取 `openMutex` 的路径,且必须先在
+  bookkeeping 内原子完成 `users: 1 → 0` 与 `closing = true`。前者排除已 admission 路径,后者让新 acquire 等待
+  `closed`;禁止增加 `openMutex → fileAccess` 的反向路径。
 - `users` 在进入 logical-file access 之前递增,包含 encode/decode、active reader、active writer 和等待 access 的调用。
 - entry 不做 LRU、不做 idle cache。最后一个 user 释放时进入 closing,并完成 `RegionFileStore.close()`。
 - 一个 region logical-file group 覆盖 `r.x.z.mca` 及其所有 `c.*.*.mcc` sidecar;不能按最终路径分别协调,因为 MCA header 决定
@@ -290,6 +295,8 @@ JSON。
 - `syncWrites = false` 时,每个 region 的最后 in-flight 操作执行一次最终 close/flush;
 - `flush()`/`close()` 没有内部超时,可能等待慢磁盘、mock IO 和已 admission 操作;
 - write 返回后,同一协调实例的后续读取可见新逻辑结果;flush/close 主要提供崩溃持久性和资源收尾;
+- final-entry cleanup 同步发生在 last operation 返回前,失败先到达该 operation。cleanup 在线性化上早于 owner close 时不重放;
+  owner close 已 seal 并直接等待该 cleanup 时,close barrier 及其并发 waiter 也收到同一次物理 cleanup 的失败;
 - 同一目录创建多个 `WorldRegionStore` 实例 (或与 `RegionFileStore.open` 直连混用)仍属调用方责任。
 
 ## 涉及文件
@@ -325,6 +332,8 @@ JSON。
 19. live reader 对 level/player/saved-data/statistics/advancements/MCA/MCC 的同文件读取均可同时到达 IO gate;
 20. live 慢读不阻塞服务端风格的直接写入/替换,反复 missing read 不保留句柄;
 21. 可选基准:(a) 原全局串行、 (b) 共享读+同文件排它写、 (c) 多文件并行提交,三者对比。
+22. last-release 的 `RegionFileStore.close()` 抛错时:当前调用方收到异常;已经等待 closing 的同 region acquire 被唤醒并用新
+    entry 完成;之后才开始的 owner close 不重放。owner close 已 seal 时则 barrier 与并发 close waiter 都报告该清理异常。
 
 竞态测试使用 gate-controlled hanging `ForwardingFileSystem`/fake `FileHandle`,不依赖 sleep、真实磁盘延迟或
 概率调度。“永远不返回”必须可由测试释放,并在 finally 打开 gate,避免遗留永久阻塞 worker。需要真实并行 blocking oracle 的用例放在
@@ -339,9 +348,11 @@ JVM 测试 dispatcher 上执行,仍以外层 `runTest` 组织与断言。
 | `W→R,R`                     | 两个 reader 都在 writer commit 后同时到达 read gate,且 writer 的排它权已经释放                       |
 | `W→W` / 多 writer           | 同一 region 的真实 handle 最大并发写为 1,每个 chunk 保持一次完整提交结果                             |
 | `R→W→R` / writer preference | 等待 writer 阻止后来 reader;多个已登记 writer 全部先于后来 reader                                    |
+| waiter ordering             | 明确只承诺 writer preference;同类型 waiter 不承诺 fair/FIFO admission                                |
 | cancellation / failure      | 等待和 active reader/writer 分别取消,read/write block 分别抛错,均释放 admission 与 entry pin         |
 | close admission             | close 等待 active、waiting、encode、decode 与 last-release cleanup;seal 后拒绝新调用;并发 close 合并 |
 | final release / reopen      | active map 回到空、handle 全关;旧 close 完成前新 open 不发生;大量文件访问不累积 entry                |
+| cleanup failure             | operation 必定收到;较晚 close 不重放;已 seal 的 close barrier 同时收到且不积累历史 failure           |
 | `syncWrites`                | false 在最后 reader/writer 引用释放时一次 final flush/close;true 每次 commit flush 且仍延迟 close    |
 | logical groups              | MCA+全部 MCC、level、player、canonical saved data、statistics、advancements 分别按真实路径组覆盖     |
 | live bypass                 | 全部 metadata 类型及 MCA/MCC 同文件 reader 同时到达 IO;慢读不阻塞直接写;missing read 不留 handle     |

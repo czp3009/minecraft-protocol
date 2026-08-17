@@ -56,7 +56,9 @@ internal class GatedFileSystem(
     private val sinkGate: BlockingGate? = null,
     private val additionalWriteGates: Map<Path, BlockingGate> = emptyMap(),
     gateReadsInitially: Boolean = true,
+    closeFailures: Int = 0,
 ) : ForwardingFileSystem(ThreadSafeFakeFileSystem(base)) {
+    private val remainingCloseFailures = AtomicInteger(closeFailures)
     private val gateReads = AtomicBoolean(gateReadsInitially)
     val events = ConcurrentLinkedQueue<String>()
     val opens = AtomicInteger()
@@ -66,6 +68,10 @@ internal class GatedFileSystem(
     val maximumConcurrentReads = AtomicInteger()
     val activeWrites = AtomicInteger()
     val maximumConcurrentWrites = AtomicInteger()
+
+    init {
+        require(closeFailures >= 0)
+    }
 
     override fun openReadWrite(
         file: Path,
@@ -153,6 +159,9 @@ internal class GatedFileSystem(
                 } else {
                     handle.close()
                     closes.incrementAndGet()
+                }
+                if (file == target && remainingCloseFailures.getAndUpdate { maxOf(0, it - 1) } > 0) {
+                    throw IOException("synthetic gated close failure")
                 }
             }
         }

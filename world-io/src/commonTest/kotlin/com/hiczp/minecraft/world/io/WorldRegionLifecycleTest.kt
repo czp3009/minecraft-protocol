@@ -86,7 +86,7 @@ class WorldRegionLifecycleTest {
     }
 
     @Test
-    fun lastReleaseCloseFailureDoesNotLeaveAnIdleEntry() = runTest {
+    fun lastReleaseCloseFailureAllowsSameRegionReopenWithoutPoisoningLaterClose() = runTest {
         val base = FakeFileSystem()
         val fileSystem = FiniteCloseFailingFileSystem(base, failures = 1)
         val directory = "/world/region".toPath()
@@ -96,22 +96,26 @@ class WorldRegionLifecycleTest {
             configuration = WorldRegionStoreConfiguration(syncWrites = false),
         )
 
-        assertFailsWith<IOException> {
+        val operationFailure = assertFailsWith<IOException> {
             store.readRegion(RegionPosition(0, 0))
         }
 
+        assertEquals("synthetic finite close failure", operationFailure.message)
         assertEquals(1, fileSystem.closeAttempts)
+        assertEquals(0, store.activeRegionCount())
         base.checkNoOpenFiles()
         assertTrue(base.exists(directory / "r.0.0.mca"))
 
-        store.readRegion(RegionPosition(1, 0))
+        store.readRegion(RegionPosition(0, 0))
+        assertEquals(2, fileSystem.closeAttempts)
+        assertEquals(0, store.activeRegionCount())
         assertTrue(base.openPaths.isEmpty())
-        assertFailsWith<IOException> { store.close() }
+        store.close()
         base.checkNoOpenFiles()
     }
 
     @Test
-    fun closeAggregatesEveryRegionFlushAndCloseFailure() = runTest {
+    fun eachLastReleaseReportsItsFlushAndCloseFailuresWithoutPoisoningStoreClose() = runTest {
         val base = FakeFileSystem()
         val fileSystem = ClosingFailingFileSystem(base)
         val store = WorldRegionStore(
@@ -119,21 +123,24 @@ class WorldRegionLifecycleTest {
             fileSystem = fileSystem,
             configuration = WorldRegionStoreConfiguration(syncWrites = false),
         )
-        assertFailsWith<IOException> { store.readRegion(RegionPosition(0, 0)) }
-        assertFailsWith<IOException> { store.readRegion(RegionPosition(1, 0)) }
+        val first = assertFailsWith<IOException> { store.readRegion(RegionPosition(0, 0)) }
+        val second = assertFailsWith<IOException> { store.readRegion(RegionPosition(1, 0)) }
 
-        val failure = assertFailsWith<IOException> { store.close() }
+        store.close()
 
         assertEquals(2, fileSystem.flushAttempts)
         assertEquals(2, fileSystem.closeAttempts)
-        assertTrue(failure.suppressedExceptions.isNotEmpty())
+        assertEquals("synthetic flush failure", first.message)
+        assertEquals("synthetic flush failure", second.message)
+        assertEquals("synthetic close failure", first.suppressedExceptions.single().message)
+        assertEquals("synthetic close failure", second.suppressedExceptions.single().message)
         base.checkNoOpenFiles()
         store.close()
         assertFailsWith<IllegalStateException> { store.flush() }
     }
 
     @Test
-    fun closeStillFlushesAndClosesAfterPaddingFailure() = runTest {
+    fun lastReleaseStillFlushesAndClosesAfterPaddingFailure() = runTest {
         val base = FakeFileSystem()
         val fileSystem = ResizeFailingFileSystem(base)
         val store = WorldRegionStore(
@@ -145,7 +152,7 @@ class WorldRegionLifecycleTest {
             store.writeChunk(ChunkPosition(0, 0), lifecycleChunk(1))
         }
 
-        assertFailsWith<IOException> { store.close() }
+        store.close()
 
         assertTrue(fileSystem.resizeAttempted)
         assertTrue(fileSystem.flushAttempted)
@@ -173,7 +180,7 @@ class WorldRegionLifecycleTest {
     }
 
     @Test
-    fun closeSizeFailureStillFlushesAndCloses() = runTest {
+    fun lastReleaseSizeFailureStillFlushesAndClosesWithoutPoisoningStoreClose() = runTest {
         val base = FakeFileSystem()
         val fileSystem = SizeFailingFileSystem(base, failureCall = 2)
         val store = WorldRegionStore(
@@ -183,7 +190,7 @@ class WorldRegionLifecycleTest {
         )
         assertFailsWith<IOException> { store.readRegion(RegionPosition(0, 0)) }
 
-        assertFailsWith<IOException> { store.close() }
+        store.close()
 
         assertTrue(fileSystem.flushAttempted)
         assertTrue(fileSystem.closeAttempted)
@@ -191,7 +198,7 @@ class WorldRegionLifecycleTest {
     }
 
     @Test
-    fun flushAggregatesFailuresButAttemptsEveryOpenRegion() = runTest {
+    fun eachLastReleaseReportsItsFlushFailureWithoutPoisoningStoreClose() = runTest {
         val base = FakeFileSystem()
         val fileSystem = FiniteFlushFailingFileSystem(base, failures = 2)
         val store = WorldRegionStore(
@@ -199,13 +206,14 @@ class WorldRegionLifecycleTest {
             fileSystem = fileSystem,
             configuration = WorldRegionStoreConfiguration(syncWrites = false),
         )
-        assertFailsWith<IOException> { store.readRegion(RegionPosition(0, 0)) }
-        assertFailsWith<IOException> { store.readRegion(RegionPosition(1, 0)) }
+        val first = assertFailsWith<IOException> { store.readRegion(RegionPosition(0, 0)) }
+        val second = assertFailsWith<IOException> { store.readRegion(RegionPosition(1, 0)) }
 
-        val failure = assertFailsWith<IOException> { store.close() }
+        store.close()
 
         assertEquals(2, fileSystem.flushAttempts)
-        assertEquals(1, failure.suppressedExceptions.size)
+        assertEquals("synthetic finite flush failure", first.message)
+        assertEquals("synthetic finite flush failure", second.message)
         base.checkNoOpenFiles()
     }
 }
