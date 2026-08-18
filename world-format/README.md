@@ -87,12 +87,18 @@ region and its local position; combining those values restores the original coor
 val chunk = ChunkPosition(-33, 63)
 val region = chunk.region
 val local = chunk.local
+check(chunk in region)
+check(region.local(chunk) == local)
 check(region.chunk(local) == chunk)
 
 region.chunkPositions().forEach { position ->
   collectChunk(position)
 }
 ```
+
+`RegionPosition.local(chunk)` is the checked absolute-to-local conversion and throws `IllegalArgumentException` when the
+Chunk belongs to another Region. `ChunkPosition.local` is convenient when the containing Region is already implied;
+`RegionPosition.chunk(local)` performs the inverse conversion correctly for positive and negative coordinates.
 
 `chunkPositions()` describes the region's coordinate coverage, not which chunks are actually present in an `.mca`.
 

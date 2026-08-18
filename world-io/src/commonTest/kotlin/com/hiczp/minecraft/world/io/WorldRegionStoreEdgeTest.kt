@@ -28,7 +28,7 @@ class WorldRegionStoreEdgeTest {
     }
 
     @Test
-    fun missingAndShortRegionsOpenAsVanillaEmptyHeaders() = runTest {
+    fun missingReadsDoNotCreateFilesAndShortRegionsUseVanillaEmptyHeaders() = runTest {
         val fileSystem = FakeFileSystem()
         val directory = "/world/region".toPath()
         val path = directory / "r.0.0.mca"
@@ -36,8 +36,7 @@ class WorldRegionStoreEdgeTest {
         val store = edgeStore(fileSystem, directory)
 
         assertNull(store.readChunk(position))
-        assertTrue(fileSystem.exists(path))
-        assertEquals(0L, fileSystem.metadata(path).size)
+        assertFalse(fileSystem.exists(path))
         store.close()
 
         fileSystem.writeRaw(path, byteArrayOf(1))
@@ -263,19 +262,20 @@ class WorldRegionStoreEdgeTest {
     }
 
     @Test
-    fun configuredDefaultAndExplicitNbtWriteModesRoundTrip() = runTest {
+    fun configuredMutableAndLiveNbtModesRoundTrip() = runTest {
         val fileSystem = FakeFileSystem()
         val document = edgeRegionDocument()
-        val store = WorldRegionStore(
-            directory = "/world/region".toPath(),
-            fileSystem = fileSystem,
-            chunkNbtFormat = RegionChunkNbtFormat(
-                compressionCodecs = CompressionCodecs(
-                    mapOf(
-                        Compression.CUSTOM to identityCustomCompressionCodec,
-                    ),
+        val configuredChunkNbtFormat = RegionChunkNbtFormat(
+            compressionCodecs = CompressionCodecs(
+                mapOf(
+                    Compression.CUSTOM to identityCustomCompressionCodec,
                 ),
             ),
+        )
+        val store = WorldRegionStore(
+            paths = MinecraftWorldPaths("/world".toPath()),
+            fileSystem = fileSystem,
+            chunkNbtFormat = configuredChunkNbtFormat,
             configuration = WorldRegionStoreConfiguration(
                 syncWrites = false,
                 writeCompression = Compression.LZ4,
@@ -287,16 +287,39 @@ class WorldRegionStoreEdgeTest {
                 val position = ChunkPosition(index, -index)
 
                 if (compression == store.configuration.writeCompression) {
-                    store.writeChunkNbt(position, document)
+                    store.writeChunkNbtDocument(position, document)
                 } else {
-                    store.writeChunkNbt(position, document, compression)
+                    store.writeChunkNbtDocument(position, document, compression)
                 }
 
-                assertEquals(document, store.readChunkNbt(position))
+                assertEquals(document, store.readChunkNbtDocument(position))
                 assertEquals(compression, store.readChunk(position)?.compression)
             }
         } finally {
             store.close()
+        }
+
+        val liveConfiguration = LiveMinecraftWorldReaderConfiguration(
+            regionChunkNbtFormat = configuredChunkNbtFormat,
+        )
+        val reader = LiveMinecraftWorldReader.open(
+            root = "/world".toPath(),
+            fileSystem = fileSystem,
+            configuration = liveConfiguration,
+        )
+        assertSame(liveConfiguration, reader.configuration)
+        assertSame(configuredChunkNbtFormat, reader.chunkNbtFormat)
+        Compression.entries.forEachIndexed { index, compression ->
+            assertEquals(
+                expected = document,
+                actual = reader.readChunkNbtDocument(ChunkPosition(index, -index)),
+                message = "Live reader did not preserve $compression chunk NBT",
+            )
+        }
+        val customPosition = ChunkPosition(Compression.CUSTOM.ordinal, -Compression.CUSTOM.ordinal)
+        reader.withRegion(customPosition.region) {
+            assertSame(configuredChunkNbtFormat, chunkNbtFormat)
+            assertEquals(document, readChunkNbtDocument(customPosition))
         }
         fileSystem.checkNoOpenFiles()
     }
@@ -311,7 +334,7 @@ class WorldRegionStoreEdgeTest {
         store.writeChunk(first, edgeChunk(byteArrayOf(1)))
         store.writeChunk(second, edgeChunk(byteArrayOf(2)))
 
-        assertEquals(2, store.readRegion(first.region).chunks.size)
+        assertEquals(2, checkNotNull(store.readRegion(first.region)).chunks.size)
         store.clearChunk(first)
         store.clearChunk(first)
 

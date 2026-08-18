@@ -3,6 +3,7 @@ package com.hiczp.minecraft.world.io
 import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
+import kotlinx.io.readByteArray
 import okio.FileSystem
 import okio.IOException
 import okio.Path.Companion.toPath
@@ -62,9 +63,11 @@ class WorldRegionConcurrencyTest {
     @Test
     fun slowSameFileReadQueuesSameFileButNotAnotherFile() = runTest {
         val directory = "/world/region".toPath()
+        val base = concurrencyFakeFileSystem()
+        seedConcurrencyRegion(base, directory)
         val readGate = BlockingGate()
         val fileSystem = GatedFileSystem(
-            base = concurrencyFakeFileSystem(),
+            base = base,
             target = directory / "r.0.0.mca",
             readGate = readGate,
         )
@@ -115,9 +118,11 @@ class WorldRegionConcurrencyTest {
     fun cancellingAWaitingWriterReleasesItsEntryPin() = runTest {
         val directory = "/world/region".toPath()
         val position = ChunkPosition(0, 0)
+        val base = concurrencyFakeFileSystem()
+        seedConcurrencyRegion(base, directory, position)
         val readGate = BlockingGate()
         val fileSystem = GatedFileSystem(
-            base = concurrencyFakeFileSystem(),
+            base = base,
             target = directory / "r.0.0.mca",
             readGate = readGate,
         )
@@ -272,7 +277,7 @@ class WorldRegionConcurrencyTest {
         val target = directory / "r.0.0.mca"
         val base = concurrencyFakeFileSystem()
         val setup = concurrencyStore(base)
-        setup.writeChunkNbt(ChunkPosition(0, 0), concurrencyDocument(12), Compression.NONE)
+        setup.writeChunkNbtDocument(ChunkPosition(0, 0), concurrencyDocument(12), Compression.NONE)
         setup.close()
 
         val decodeGate = BlockingGate()
@@ -292,7 +297,7 @@ class WorldRegionConcurrencyTest {
         val jobs = mutableListOf<Deferred<*>>()
         try {
             val decoding = async(Dispatchers.Default) {
-                store.readChunkNbt(ChunkPosition(0, 0))
+                store.readChunkNbtDocument(ChunkPosition(0, 0))
             }
             jobs += decoding
             decodeGate.awaitEntered()
@@ -334,7 +339,7 @@ class WorldRegionConcurrencyTest {
         val base = concurrencyFakeFileSystem()
         val setup = concurrencyStore(base)
         positions.forEachIndexed { index, position ->
-            setup.writeChunkNbt(position, concurrencyDocument(index), Compression.NONE)
+            setup.writeChunkNbtDocument(position, concurrencyDocument(index), Compression.NONE)
         }
         setup.close()
 
@@ -366,7 +371,7 @@ class WorldRegionConcurrencyTest {
             readGate.awaitEntered()
             val encoding = positions.mapIndexed { index, position ->
                 async(Dispatchers.Default) {
-                    store.writeChunkNbt(position, concurrencyDocument(index + 10), Compression.NONE)
+                    store.writeChunkNbtDocument(position, concurrencyDocument(index + 10), Compression.NONE)
                 }
             }
             jobs += encoding
@@ -405,7 +410,7 @@ class WorldRegionConcurrencyTest {
         val target = directory / "r.0.0.mca"
         val base = concurrencyFakeFileSystem()
         val setup = concurrencyStore(base)
-        setup.writeChunkNbt(position, concurrencyDocument(7), Compression.NONE)
+        setup.writeChunkNbtDocument(position, concurrencyDocument(7), Compression.NONE)
         setup.close()
         val bytesBeforeCancellation = base.read(target) { readByteArray() }
 
@@ -434,7 +439,7 @@ class WorldRegionConcurrencyTest {
             jobs += reading
             readGate.awaitEntered()
             val encoding = async(Dispatchers.Default) {
-                store.writeChunkNbt(position, concurrencyDocument(8), Compression.NONE)
+                store.writeChunkNbtDocument(position, concurrencyDocument(8), Compression.NONE)
             }
             jobs += encoding
             encodeGate.awaitEntered()
@@ -616,7 +621,7 @@ class WorldRegionConcurrencyTest {
         val base = concurrencyFakeFileSystem()
         val original = concurrencyDocument(4)
         val setup = concurrencyStore(base)
-        setup.writeChunkNbt(position, original, Compression.NONE)
+        setup.writeChunkNbtDocument(position, original, Compression.NONE)
         setup.close()
         val bytesBeforeCancellation = base.read(target) { readByteArray() }
 
@@ -631,7 +636,7 @@ class WorldRegionConcurrencyTest {
         try {
             val returned = CompletableDeferred<Unit>()
             val writing = async(Dispatchers.Default) {
-                store.writeChunkNbt(position, concurrencyDocument(8), Compression.NONE)
+                store.writeChunkNbtDocument(position, concurrencyDocument(8), Compression.NONE)
                 returned.complete(Unit)
             }
             jobs += writing
@@ -654,7 +659,7 @@ class WorldRegionConcurrencyTest {
                 configuration = concurrencyConfiguration(),
             )
             try {
-                assertEquals(original, verifier.readChunkNbt(position))
+                assertEquals(original, verifier.readChunkNbtDocument(position))
             } finally {
                 verifier.close()
             }
@@ -676,7 +681,7 @@ class WorldRegionConcurrencyTest {
         val target = directory / "r.0.0.mca"
         val base = concurrencyFakeFileSystem()
         val setup = concurrencyStore(base)
-        setup.writeChunkNbt(position, concurrencyDocument(6), Compression.NONE)
+        setup.writeChunkNbtDocument(position, concurrencyDocument(6), Compression.NONE)
         setup.close()
         val bytesBeforeClose = base.read(target) { readByteArray() }
 
@@ -691,7 +696,7 @@ class WorldRegionConcurrencyTest {
         )
         val jobs = mutableListOf<Deferred<*>>()
         try {
-            val decoding = async(Dispatchers.Default) { store.readChunkNbt(position) }
+            val decoding = async(Dispatchers.Default) { store.readChunkNbtDocument(position) }
             jobs += decoding
             decodeGate.awaitEntered()
 
@@ -749,6 +754,7 @@ class WorldRegionConcurrencyTest {
             val position = ChunkPosition(0, 0)
             val target = directory / "r.0.0.mca"
             val base = concurrencyFakeFileSystem()
+            seedConcurrencyRegion(base, directory, position)
             val closeGate = BlockingGate()
             val fileSystem = GatedFileSystem(
                 base = base,
@@ -859,8 +865,10 @@ class WorldRegionConcurrencyTest {
     fun concurrentFirstAccessOpensARegionOnceAndReleasesIt() = runTest {
         val directory = "/world/region".toPath()
         val target = directory / "r.0.0.mca"
+        val base = concurrencyFakeFileSystem()
+        seedConcurrencyRegion(base, directory)
         val readGate = BlockingGate()
-        val fileSystem = GatedFileSystem(concurrencyFakeFileSystem(), target, readGate = readGate)
+        val fileSystem = GatedFileSystem(base, target, readGate = readGate)
         val store = concurrencyStore(fileSystem)
         val jobs = mutableListOf<Deferred<*>>()
         try {
@@ -973,8 +981,10 @@ class WorldRegionConcurrencyTest {
     fun lastReleaseCloseAndImmediateReopenDoNotOverlap() = runTest {
         val directory = "/world/region".toPath()
         val target = directory / "r.0.0.mca"
+        val base = concurrencyFakeFileSystem()
+        seedConcurrencyRegion(base, directory)
         val closeGate = BlockingGate()
-        val fileSystem = GatedFileSystem(concurrencyFakeFileSystem(), target, closeGate = closeGate)
+        val fileSystem = GatedFileSystem(base, target, closeGate = closeGate)
         val store = concurrencyStore(fileSystem)
         val jobs = mutableListOf<Deferred<*>>()
         try {
@@ -1013,9 +1023,11 @@ class WorldRegionConcurrencyTest {
         val directory = "/world/region".toPath()
         val position = ChunkPosition(0, 0)
         val target = directory / "r.0.0.mca"
+        val base = concurrencyFakeFileSystem()
+        seedConcurrencyRegion(base, directory, position)
         val closeGate = BlockingGate()
         val fileSystem = GatedFileSystem(
-            base = concurrencyFakeFileSystem(),
+            base = base,
             target = target,
             closeGate = closeGate,
             closeFailures = 1,
@@ -1039,7 +1051,7 @@ class WorldRegionConcurrencyTest {
             closeGate.open()
             val operationFailure = assertIs<IOException>(first.await().exceptionOrNull())
             assertEquals("synthetic gated close failure", operationFailure.message)
-            assertNull(reopen.await())
+            assertContentEquals(byteArrayOf(0), reopen.await()?.payload?.compressedBytes)
 
             assertEquals(2, fileSystem.opens.get())
             assertEquals(2, fileSystem.closes.get())
@@ -1065,9 +1077,11 @@ class WorldRegionConcurrencyTest {
         val directory = "/world/region".toPath()
         val position = ChunkPosition(0, 0)
         val target = directory / "r.0.0.mca"
+        val base = concurrencyFakeFileSystem()
+        seedConcurrencyRegion(base, directory, position)
         val closeGate = BlockingGate()
         val fileSystem = GatedFileSystem(
-            base = concurrencyFakeFileSystem(),
+            base = base,
             target = target,
             closeGate = closeGate,
             closeFailures = 1,
@@ -1119,9 +1133,11 @@ class WorldRegionConcurrencyTest {
     @Test
     fun closeWaitsForAdmittedWaitingReadersThenRejectsNewReaders() = runTest {
         val directory = "/world/region".toPath()
+        val base = concurrencyFakeFileSystem()
+        seedConcurrencyRegion(base, directory)
         val readGate = BlockingGate()
         val fileSystem = GatedFileSystem(
-            base = concurrencyFakeFileSystem(),
+            base = base,
             target = directory / "r.0.0.mca",
             readGate = readGate,
         )
@@ -1163,9 +1179,11 @@ class WorldRegionConcurrencyTest {
     fun closeWaitsForAWriterAdmittedBehindAnActiveReader() = runTest {
         val directory = "/world/region".toPath()
         val position = ChunkPosition(0, 0)
+        val base = concurrencyFakeFileSystem()
+        seedConcurrencyRegion(base, directory, position)
         val readGate = BlockingGate()
         val fileSystem = GatedFileSystem(
-            base = concurrencyFakeFileSystem(),
+            base = base,
             target = directory / "r.0.0.mca",
             readGate = readGate,
         )
@@ -1204,9 +1222,11 @@ class WorldRegionConcurrencyTest {
     @Test
     fun concurrentClosesCoalesceAroundOneCompletion() = runTest {
         val directory = "/world/region".toPath()
+        val base = concurrencyFakeFileSystem()
+        seedConcurrencyRegion(base, directory)
         val readGate = BlockingGate()
         val fileSystem = GatedFileSystem(
-            base = concurrencyFakeFileSystem(),
+            base = base,
             target = directory / "r.0.0.mca",
             readGate = readGate,
         )
@@ -1240,6 +1260,106 @@ class WorldRegionConcurrencyTest {
     }
 
     @Test
+    fun explicitRegionSerializesWritesWhileKeepingOneHandleOpen() = runTest {
+        val directory = "/world/region".toPath()
+        val target = directory / "r.0.0.mca"
+        val writeGate = BlockingGate()
+        val fileSystem = GatedFileSystem(
+            base = concurrencyFakeFileSystem(),
+            target = target,
+            writeGate = writeGate,
+        )
+        val store = concurrencyStore(fileSystem)
+        val region = store.openRegion(RegionPosition(0, 0))
+        val jobs = mutableListOf<Deferred<*>>()
+        try {
+            val first = async(Dispatchers.Default) {
+                region.writeChunk(LocalChunkPosition(0, 0), concurrencyChunk(1))
+            }
+            jobs += first
+            writeGate.awaitEntered()
+            val second = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+                region.writeChunk(LocalChunkPosition(1, 0), concurrencyChunk(2))
+            }
+            jobs += second
+
+            assertFalse(second.isCompleted)
+            assertEquals(1, fileSystem.opens.get())
+            assertEquals(0, fileSystem.closes.get())
+            assertEquals(1, store.activeRegionUsers(region.position))
+
+            writeGate.open()
+            jobs.awaitAll()
+            assertEquals(1, fileSystem.maximumConcurrentWrites.get())
+            assertContentEquals(
+                byteArrayOf(1),
+                region.readChunk(LocalChunkPosition(0, 0))?.payload?.compressedBytes,
+            )
+            assertContentEquals(
+                byteArrayOf(2),
+                region.readChunk(LocalChunkPosition(1, 0))?.payload?.compressedBytes,
+            )
+            assertEquals(1, fileSystem.opens.get())
+            assertEquals(0, fileSystem.closes.get())
+
+            region.close()
+            assertEquals(1, fileSystem.closes.get())
+            assertEquals(0, store.activeRegionCount())
+        } finally {
+            withContext(NonCancellable) {
+                writeGate.open()
+                jobs.joinAll()
+                region.close()
+                store.close()
+                fileSystem.base.checkNoOpenFiles()
+            }
+        }
+    }
+
+    @Test
+    fun explicitRegionAndStoreCloseWaitForAnAdmittedRead() = runTest {
+        val directory = "/world/region".toPath()
+        val position = ChunkPosition(0, 0)
+        val base = concurrencyFakeFileSystem()
+        seedConcurrencyRegion(base, directory, position)
+        val readGate = BlockingGate()
+        val fileSystem = GatedFileSystem(base, directory / "r.0.0.mca", readGate = readGate)
+        val store = concurrencyStore(fileSystem)
+        val region = store.openRegion(position.region)
+        val jobs = mutableListOf<Deferred<*>>()
+        try {
+            val reading = async(Dispatchers.Default) { region.readChunk(position.local) }
+            jobs += reading
+            readGate.awaitEntered()
+
+            val regionClose = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) { region.close() }
+            val storeClose = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) { store.close() }
+            jobs += regionClose
+            jobs += storeClose
+            assertFalse(regionClose.isCompleted)
+            assertFalse(storeClose.isCompleted)
+            assertFailsWith<IllegalStateException> { region.readChunk(position.local) }
+            assertFailsWith<IllegalStateException> { store.readChunk(position) }
+
+            readGate.open()
+            assertContentEquals(byteArrayOf(0), reading.await()?.payload?.compressedBytes)
+            regionClose.await()
+            storeClose.await()
+            assertEquals(1, fileSystem.opens.get())
+            assertEquals(1, fileSystem.closes.get())
+            assertEquals(0, store.activeRegionCount())
+        } finally {
+            withContext(NonCancellable) {
+                readGate.open()
+                jobs.joinAll()
+                region.close()
+                store.close()
+                base.checkNoOpenFiles()
+            }
+        }
+    }
+
+    @Test
     fun nbtEncodingDoesNotHoldTheRegionFileMutex() = runTest {
         val directory = "/world/region".toPath()
         val encodeGate = BlockingGate()
@@ -1254,7 +1374,7 @@ class WorldRegionConcurrencyTest {
         val jobs = mutableListOf<Deferred<*>>()
         try {
             val encoding = async(Dispatchers.Default) {
-                store.writeChunkNbt(ChunkPosition(0, 0), concurrencyDocument(42), Compression.NONE)
+                store.writeChunkNbtDocument(ChunkPosition(0, 0), concurrencyDocument(42), Compression.NONE)
             }
             jobs += encoding
             encodeGate.awaitEntered()
@@ -1272,7 +1392,7 @@ class WorldRegionConcurrencyTest {
             encoding.await()
             assertEquals(1, fileSystem.flushes.get())
             assertEquals(1, fileSystem.closes.get())
-            assertEquals(concurrencyDocument(42), store.readChunkNbt(ChunkPosition(0, 0)))
+            assertEquals(concurrencyDocument(42), store.readChunkNbtDocument(ChunkPosition(0, 0)))
             assertContentEquals(byteArrayOf(8), store.readChunk(ChunkPosition(1, 0))?.payload?.compressedBytes)
             base.checkNoOpenFiles()
         } finally {
@@ -1290,7 +1410,7 @@ class WorldRegionConcurrencyTest {
         val directory = "/world/region".toPath()
         val base = concurrencyFakeFileSystem()
         val setup = concurrencyStore(base)
-        setup.writeChunkNbt(ChunkPosition(0, 0), concurrencyDocument(42), Compression.NONE)
+        setup.writeChunkNbtDocument(ChunkPosition(0, 0), concurrencyDocument(42), Compression.NONE)
         setup.close()
 
         val decodeGate = BlockingGate()
@@ -1304,7 +1424,7 @@ class WorldRegionConcurrencyTest {
         val jobs = mutableListOf<Deferred<*>>()
         try {
             val decoding = async(Dispatchers.Default) {
-                store.readChunkNbt(ChunkPosition(0, 0))
+                store.readChunkNbtDocument(ChunkPosition(0, 0))
             }
             jobs += decoding
             decodeGate.awaitEntered()
@@ -1349,7 +1469,7 @@ class WorldRegionConcurrencyTest {
         val jobs = mutableListOf<Deferred<*>>()
         try {
             val encoding = async(Dispatchers.Default) {
-                store.writeChunkNbt(ChunkPosition(0, 0), concurrencyDocument(42), Compression.NONE)
+                store.writeChunkNbtDocument(ChunkPosition(0, 0), concurrencyDocument(42), Compression.NONE)
             }
             jobs += encoding
             encodeGate.awaitEntered()
@@ -1379,7 +1499,7 @@ class WorldRegionConcurrencyTest {
         val directory = "/world/region".toPath()
         val base = concurrencyFakeFileSystem()
         val setup = concurrencyStore(base)
-        setup.writeChunkNbt(ChunkPosition(0, 0), concurrencyDocument(7), Compression.NONE)
+        setup.writeChunkNbtDocument(ChunkPosition(0, 0), concurrencyDocument(7), Compression.NONE)
         setup.close()
 
         val decodeGate = BlockingGate()
@@ -1392,7 +1512,7 @@ class WorldRegionConcurrencyTest {
         val jobs = mutableListOf<Deferred<*>>()
         try {
             val decoding = async(Dispatchers.Default) {
-                store.readChunkNbt(ChunkPosition(0, 0))
+                store.readChunkNbtDocument(ChunkPosition(0, 0))
             }
             jobs += decoding
             decodeGate.awaitEntered()

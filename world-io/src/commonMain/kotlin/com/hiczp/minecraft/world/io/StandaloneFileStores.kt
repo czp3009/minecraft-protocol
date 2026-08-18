@@ -9,13 +9,18 @@ import com.hiczp.minecraft.world.format.RegionFormatException
 import kotlinx.io.buffered
 import kotlinx.io.okio.asKotlinxIoRawSink
 import kotlinx.io.okio.asKotlinxIoRawSource
+import kotlinx.io.readString
+import kotlinx.io.writeString
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.io.decodeFromSource
 import kotlinx.serialization.json.io.encodeToSink
-import okio.*
+import okio.FileSystem
+import okio.IOException
+import okio.Path
+import okio.buffer
 import kotlin.random.Random
 import kotlinx.io.Sink as KotlinxSink
 import kotlinx.io.Source as KotlinxSource
@@ -28,7 +33,7 @@ class LevelDataStore(
         require(paths.root == paths.levelData.parent)
     }
 
-    fun read(): NbtDocument = read(nbtFiles.nbt::decodeDocumentFromSource)
+    fun readDocument(): NbtDocument = read(nbtFiles.nbt::decodeDocumentFromSource)
 
     fun <T> read(deserializer: DeserializationStrategy<T>): T =
         read { source -> nbtFiles.nbt.decodeFromSource(deserializer, source) }
@@ -53,7 +58,7 @@ class LevelDataStore(
         return fallback
     }
 
-    internal fun readForSharedAccess(): CoordinatedRead<NbtDocument> =
+    internal fun readDocumentForSharedAccess(): CoordinatedRead<NbtDocument> =
         readForSharedAccess(nbtFiles.nbt::decodeDocumentFromSource)
 
     internal fun <T> readForSharedAccess(
@@ -67,7 +72,7 @@ class LevelDataStore(
         CoordinatedRead.RequiresExclusive
     }
 
-    fun write(document: NbtDocument) {
+    fun writeDocument(document: NbtDocument) {
         write { sink -> nbtFiles.nbt.encodeDocumentToSink(document, sink) }
     }
 
@@ -112,8 +117,15 @@ class PlayerDataStore(
     val paths: MinecraftWorldPaths,
     val nbtFiles: NbtFileStore = NbtFileStore(),
 ) {
-    fun read(playerUuid: String): NbtDocument? =
+    fun readDocument(playerUuid: String): NbtDocument? =
         read(playerUuid, nbtFiles.nbt::decodeDocumentFromSource)
+
+    fun <T> read(
+        playerUuid: String,
+        deserializer: DeserializationStrategy<T>,
+    ): T? = read(playerUuid) { source ->
+        nbtFiles.nbt.decodeFromSource(deserializer, source)
+    }
 
     fun <T> read(playerUuid: String, block: (KotlinxSource) -> T): T? {
         val primary = paths.playerData(playerUuid)
@@ -161,7 +173,7 @@ class PlayerDataStore(
         return nbtFiles.read(previous, block = block)
     }
 
-    internal fun readForSharedAccess(playerUuid: String): CoordinatedRead<NbtDocument?> =
+    internal fun readDocumentForSharedAccess(playerUuid: String): CoordinatedRead<NbtDocument?> =
         readForSharedAccess(playerUuid, nbtFiles.nbt::decodeDocumentFromSource)
 
     internal fun <T> readForSharedAccess(
@@ -184,8 +196,16 @@ class PlayerDataStore(
         return CoordinatedRead.Complete(nbtFiles.read(previous, block = block))
     }
 
-    fun write(playerUuid: String, document: NbtDocument) {
+    fun writeDocument(playerUuid: String, document: NbtDocument) {
         write(playerUuid) { sink -> nbtFiles.nbt.encodeDocumentToSink(document, sink) }
+    }
+
+    fun <T> write(
+        playerUuid: String,
+        serializer: SerializationStrategy<T>,
+        value: T,
+    ) = write(playerUuid) { sink ->
+        nbtFiles.nbt.encodeToSink(serializer, value, sink)
     }
 
     fun write(playerUuid: String, block: (KotlinxSink) -> Unit) {
@@ -235,8 +255,15 @@ class SavedDataFileStore(
     val dimension: DimensionDirectory = DimensionDirectory.Overworld,
     val nbtFiles: NbtFileStore = NbtFileStore(),
 ) {
-    fun read(identifier: String): NbtDocument? =
+    fun readDocument(identifier: String): NbtDocument? =
         read(identifier, nbtFiles.nbt::decodeDocumentFromSource)
+
+    fun <T> read(
+        identifier: String,
+        deserializer: DeserializationStrategy<T>,
+    ): T? = read(identifier) { source ->
+        nbtFiles.nbt.decodeFromSource(deserializer, source)
+    }
 
     fun <T> read(identifier: String, block: (KotlinxSource) -> T): T? {
         val path = paths.savedData(identifier, dimension)
@@ -247,12 +274,20 @@ class SavedDataFileStore(
         return nbtFiles.read(path, compression, block)
     }
 
-    fun write(identifier: String, document: NbtDocument) {
+    fun writeDocument(identifier: String, document: NbtDocument) {
         write(identifier) { sink -> nbtFiles.nbt.encodeDocumentToSink(document, sink) }
     }
 
+    fun <T> write(
+        identifier: String,
+        serializer: SerializationStrategy<T>,
+        value: T,
+    ) = write(identifier) { sink ->
+        nbtFiles.nbt.encodeToSink(serializer, value, sink)
+    }
+
     fun write(identifier: String, block: (KotlinxSink) -> Unit) {
-        nbtFiles.writeDirect(paths.savedData(identifier, dimension), block = block)
+        nbtFiles.write(paths.savedData(identifier, dimension), block = block)
     }
 
     private fun detectSavedDataCompression(path: Path): Compression {
@@ -279,11 +314,15 @@ class Utf8JsonFileStore internal constructor(internal val files: WorldFileAccess
     val fileSystem: FileSystem
         get() = files.fileSystem
 
-    fun read(path: Path): String = read(path) { readUtf8() }
+    fun readText(path: Path): String = read(path) { source -> source.readString() }
 
     /** Lends the UTF-8 file source for the duration of [block]. */
-    fun <T> read(path: Path, block: BufferedSource.() -> T): T =
-        files.readFile(path) { source, _ -> source.block() }
+    fun <T> read(path: Path, block: (KotlinxSource) -> T): T =
+        files.readFile(path) { source, _ ->
+            withOkioIoExceptions("Cannot read UTF-8 file $path") {
+                block(source.asKotlinxIoRawSource().buffered())
+            }
+        }
 
     fun readJson(path: Path, json: Json = Json): JsonElement =
         readJson(path, JsonElement.serializer(), json)
@@ -292,20 +331,23 @@ class Utf8JsonFileStore internal constructor(internal val files: WorldFileAccess
         path: Path,
         deserializer: DeserializationStrategy<T>,
         json: Json = Json,
-    ): T = read(path) {
-        val source = asKotlinxIoRawSource().buffered()
-        json.decodeFromSource(deserializer, source)
-    }
+    ): T = read(path) { source -> json.decodeFromSource(deserializer, source) }
 
-    fun write(path: Path, json: String) = write(path) { writeUtf8(json) }
+    fun writeText(path: Path, text: String) = write(path) { sink -> sink.writeString(text) }
 
     /** Directly truncates and streams the final file. */
-    fun write(path: Path, block: BufferedSink.() -> Unit) {
+    fun write(path: Path, block: (KotlinxSink) -> Unit) {
         files.requireWritable()
         val parent = path.parent
             ?: throw WorldIOException("File has no parent directory: $path")
         fileSystem.createDirectories(parent)
-        fileSystem.write(path, writerAction = block)
+        fileSystem.write(path) {
+            withOkioIoExceptions("Cannot write UTF-8 file $path") {
+                val converted = asKotlinxIoRawSink().buffered()
+                block(converted)
+                converted.flush()
+            }
+        }
     }
 
     fun writeJson(path: Path, element: JsonElement, json: Json = Json) =
@@ -316,11 +358,7 @@ class Utf8JsonFileStore internal constructor(internal val files: WorldFileAccess
         serializer: SerializationStrategy<T>,
         value: T,
         json: Json = Json,
-    ) = write(path) {
-        val sink = asKotlinxIoRawSink().buffered()
-        json.encodeToSink(serializer, value, sink)
-        sink.flush()
-    }
+    ) = write(path) { sink -> json.encodeToSink(serializer, value, sink) }
 }
 
 private fun Throwable.isRecoverableNbtReadFailure(): Boolean {

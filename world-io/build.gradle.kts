@@ -74,9 +74,9 @@ kotlin {
             api(project(":nbt-serialization"))
             api(project(":world-format"))
             api(libs.kotlinx.serialization.json)
+            api(libs.kotlinx.io.core)
             api(libs.okio)
             implementation(libs.kotlinx.coroutines.core)
-            implementation(libs.kotlinx.io.core)
             implementation(libs.kotlinx.io.okio)
             implementation(libs.kotlinx.serialization.json.io)
         }

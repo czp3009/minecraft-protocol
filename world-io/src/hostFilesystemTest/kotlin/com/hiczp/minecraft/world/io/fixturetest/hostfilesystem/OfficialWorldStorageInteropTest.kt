@@ -299,13 +299,13 @@ class OfficialWorldStorageInteropTest {
         val fileSystem = nbtFiles.fileSystem
 
         val levelStore = LevelDataStore(paths, nbtFiles)
-        val level = levelStore.read()
-        levelStore.write(level)
+        val level = levelStore.readDocument()
+        levelStore.writeDocument(level)
         check(fileSystem.metadata(paths.previousLevelData).isRegularFile) {
             "level.dat write did not create level.dat_old"
         }
         fileSystem.writeRaw(paths.levelData, CORRUPTED_BYTES)
-        check(levelStore.read() == level) {
+        check(levelStore.readDocument() == level) {
             "level.dat fallback did not return level.dat_old"
         }
         check(
@@ -315,7 +315,7 @@ class OfficialWorldStorageInteropTest {
         ) {
             "level.dat fallback did not preserve the corrupted primary"
         }
-        levelStore.write(level)
+        levelStore.writeDocument(level)
 
         val typedLevel = levelStore.read(LevelDat.serializer())
         val renamedLevel = typedLevel.copy(
@@ -328,10 +328,10 @@ class OfficialWorldStorageInteropTest {
 
         val playerKey = audit.playerKeys.first()
         val playerStore = PlayerDataStore(paths, nbtFiles)
-        val player = checkNotNull(playerStore.read(playerKey))
-        playerStore.write(playerKey, player)
+        val player = checkNotNull(playerStore.readDocument(playerKey))
+        playerStore.writeDocument(playerKey, player)
         fileSystem.writeRaw(paths.playerData(playerKey), CORRUPTED_BYTES)
-        check(playerStore.read(playerKey) == player) {
+        check(playerStore.readDocument(playerKey) == player) {
             "Player fallback did not return the old data"
         }
         check(
@@ -351,13 +351,13 @@ class OfficialWorldStorageInteropTest {
         ) {
             "Player fallback did not preserve a corrupted copy; directory entries: ${playerFiles.joinToString { it.name }}"
         }
-        nbtFiles.writeDirect(paths.playerData(playerKey), player)
+        nbtFiles.writeDocument(paths.playerData(playerKey), player)
 
         val savedIdentifier = audit.savedDataIdentifiers.first()
         val savedStore = SavedDataFileStore(paths, nbtFiles = nbtFiles)
-        val savedData = checkNotNull(savedStore.read(savedIdentifier))
-        savedStore.write(savedIdentifier, savedData)
-        check(savedStore.read(savedIdentifier) == savedData) {
+        val savedData = checkNotNull(savedStore.readDocument(savedIdentifier))
+        savedStore.writeDocument(savedIdentifier, savedData)
+        check(savedStore.readDocument(savedIdentifier) == savedData) {
             "Saved data did not survive direct GZIP rewrite"
         }
 
@@ -402,7 +402,7 @@ class OfficialWorldStorageInteropTest {
         try {
             COMPRESSION_PROBES.forEach { probe ->
                 documents[probe.position] = checkNotNull(
-                    readingStore.readChunkNbt(probe.position),
+                    readingStore.readChunkNbtDocument(probe.position),
                 ) {
                     "Official fixture generated no chunk ${probe.position}"
                 }
@@ -417,7 +417,7 @@ class OfficialWorldStorageInteropTest {
         val writingStore = WorldRegionStore(paths)
         try {
             COMPRESSION_PROBES.forEach { probe ->
-                writingStore.writeChunkNbt(
+                writingStore.writeChunkNbtDocument(
                     probe.position,
                     documents.getValue(probe.position),
                     probe.compression,
@@ -517,7 +517,7 @@ class OfficialWorldStorageInteropTest {
             ),
         )
         try {
-            externalStore.writeChunkNbt(absolutePosition, fixtureDocument)
+            externalStore.writeChunkNbtDocument(absolutePosition, fixtureDocument)
             val stored = checkNotNull(
                 externalStore.readChunk(absolutePosition),
             )
@@ -544,7 +544,7 @@ class OfficialWorldStorageInteropTest {
         val paths = MinecraftWorldPaths(worldDirectory)
         val terrain = WorldRegionStore(paths)
         try {
-            terrain.writeChunkNbt(
+            terrain.writeChunkNbtDocument(
                 terrainMutation.position,
                 terrainMutation.originalDocument,
             )
@@ -576,7 +576,7 @@ class OfficialWorldStorageInteropTest {
         val fileSystem = systemFileSystem
         val nbtFiles = NbtFileStore()
         val levelStore = LevelDataStore(paths, nbtFiles)
-        val level = levelStore.read()
+        val level = levelStore.readDocument()
         check(level.root.value["Data"] is NbtCompound) {
             "Official level.dat has no Data compound"
         }
@@ -591,14 +591,14 @@ class OfficialWorldStorageInteropTest {
             .map { it.name.removeSuffix(".dat") }
         val playerStore = PlayerDataStore(paths, nbtFiles)
         playerKeys.forEach { playerKey ->
-            checkNotNull(playerStore.read(playerKey))
+            checkNotNull(playerStore.readDocument(playerKey))
         }
 
         val savedDirectory = paths.savedDataDirectory()
         val savedDataIdentifiers = savedDataIdentifiers(savedDirectory)
         val savedStore = SavedDataFileStore(paths, nbtFiles = nbtFiles)
         savedDataIdentifiers.forEach { identifier ->
-            checkNotNull(savedStore.read(identifier))
+            checkNotNull(savedStore.readDocument(identifier))
         }
 
         val statisticsDirectory = checkNotNull(paths.statistics("probe").parent)
@@ -636,7 +636,7 @@ class OfficialWorldStorageInteropTest {
             val store = WorldRegionStore(paths, storage)
             try {
                 regionPositions(directory).forEach { regionPosition ->
-                    val region = store.readRegion(regionPosition)
+                    val region = checkNotNull(store.readRegion(regionPosition))
                     regionFiles[storage] = checkNotNull(regionFiles[storage]) + 1
                     val regionPath = directory /
                             "r.${regionPosition.x}.${regionPosition.z}.mca"

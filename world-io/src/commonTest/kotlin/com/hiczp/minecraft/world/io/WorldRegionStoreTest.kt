@@ -530,6 +530,19 @@ class WorldRegionStoreTest {
                 ),
             )
         }
+        assertFailsWith<RegionFormatException> {
+            store.writeRegion(
+                position.region,
+                RegionFile(
+                    mapOf(
+                        position.local to RegionChunk(
+                            compression = Compression.NONE,
+                            payload = RegionChunkPayload.External(),
+                        ),
+                    ),
+                ),
+            )
+        }
 
         assertFalse(fileSystem.exists(directory / "r.0.0.mca"))
         store.close()
@@ -574,8 +587,8 @@ class WorldRegionStoreTest {
         store.readRegion(RegionPosition(0, 0))
         assertEquals(0, fileSystem.openPaths.size)
         store.readRegion(RegionPosition(1, 0))
-        assertTrue(fileSystem.exists(directory / "r.0.0.mca"))
-        assertTrue(fileSystem.exists(directory / "r.1.0.mca"))
+        assertFalse(fileSystem.exists(directory / "r.0.0.mca"))
+        assertFalse(fileSystem.exists(directory / "r.1.0.mca"))
         assertEquals(0, fileSystem.openPaths.size)
         store.close()
         fileSystem.checkNoOpenFiles()

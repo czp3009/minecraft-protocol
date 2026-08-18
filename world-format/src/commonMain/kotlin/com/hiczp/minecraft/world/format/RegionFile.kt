@@ -17,6 +17,16 @@ data class RegionPosition(
     val x: Int,
     val z: Int,
 ) {
+    /** Returns whether [position] belongs to this 32 by 32 Region. */
+    operator fun contains(position: ChunkPosition): Boolean = position.region == this
+
+    /** Converts an absolute [position] in this Region to its Region-local coordinates. */
+    fun local(position: ChunkPosition): LocalChunkPosition {
+        require(position in this) { "Chunk $position does not belong to Region $this" }
+        return position.local
+    }
+
+    /** Converts Region-local coordinates to an absolute Chunk position. */
     fun chunk(local: LocalChunkPosition): ChunkPosition =
         ChunkPosition(
             x = x * REGION_SIDE + local.x,
@@ -105,6 +115,7 @@ data class RegionChunk(
     val timestamp: Int = 0,
 )
 
+/** A detached Region snapshot whose chunks are keyed independently of any source Region position. */
 data class RegionFile(
     val chunks: Map<LocalChunkPosition, RegionChunk> = emptyMap(),
 ) {

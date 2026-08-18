@@ -19,18 +19,18 @@ class StandaloneFileStoreEdgeTest {
         val fileSystem = FakeFileSystem()
         val path = "/world/value.dat".toPath()
         val normal = NbtFileStore(fileSystem)
-        normal.writeDirect(path, edgeDocument(1), Compression.NONE)
+        normal.writeDocument(path, edgeDocument(1), Compression.NONE)
         val original = fileSystem.readRaw(path)
         fileSystem.writeRaw(
             path,
             original.copyOf(original.size + 1).also { it[it.lastIndex] = 1 },
         )
         assertFailsWith<NbtDecodingException> {
-            normal.read(path, Compression.NONE)
+            normal.readDocument(path, Compression.NONE)
         }
 
         fileSystem.writeRaw(path, original)
-        assertEquals(edgeDocument(1), normal.read(path, Compression.NONE))
+        assertEquals(edgeDocument(1), normal.readDocument(path, Compression.NONE))
         fileSystem.checkNoOpenFiles()
     }
 
@@ -39,15 +39,15 @@ class StandaloneFileStoreEdgeTest {
         val fileSystem = FakeFileSystem()
         val path = "/world/data/value.dat".toPath()
         val normal = NbtFileStore(fileSystem)
-        normal.writeDirect(path, edgeDocument(1))
+        normal.writeDocument(path, edgeDocument(1))
         val oldBytes = fileSystem.readRaw(path)
         val failure = WorldIOException("synthetic streaming failure")
 
-        assertSame(failure, assertFails { normal.writeDirect(path) { throw failure } })
+        assertSame(failure, assertFails { normal.write(path) { throw failure } })
 
         val failedBytes = fileSystem.readRaw(path)
         assertFalse(oldBytes.contentEquals(failedBytes))
-        assertFails { normal.read(path) }
+        assertFails { normal.readDocument(path) }
         fileSystem.checkNoOpenFiles()
     }
 
@@ -59,7 +59,7 @@ class StandaloneFileStoreEdgeTest {
                 "/world-${failurePoint.name}".toPath(),
             )
             val first = edgeDocument(1)
-            LevelDataStore(paths, NbtFileStore(base)).write(first)
+            LevelDataStore(paths, NbtFileStore(base)).writeDocument(first)
             val failing = TemporaryHandleFailingFileSystem(
                 base,
                 failurePoint,
@@ -67,11 +67,11 @@ class StandaloneFileStoreEdgeTest {
 
             val failure = assertFails {
                 LevelDataStore(paths, NbtFileStore(failing))
-                    .write(edgeDocument(2))
+                    .writeDocument(edgeDocument(2))
             }
             assertIs<IOException>(failure)
 
-            assertEquals(first, NbtFileStore(base).read(paths.levelData))
+            assertEquals(first, NbtFileStore(base).readDocument(paths.levelData))
             assertFalse(base.exists(paths.previousLevelData))
             assertTrue(base.allPaths.none { it.name.startsWith(".tmp-") })
             base.checkNoOpenFiles()
@@ -86,15 +86,15 @@ class StandaloneFileStoreEdgeTest {
         val level = LevelDataStore(paths, nbt)
         val primary = edgeDocument(1)
         val previous = edgeDocument(2)
-        nbt.writeDirect(paths.levelData, primary)
-        nbt.writeDirect(paths.previousLevelData, previous)
+        nbt.writeDocument(paths.levelData, primary)
+        nbt.writeDocument(paths.previousLevelData, previous)
 
-        assertEquals(primary, level.read())
-        assertEquals(previous, nbt.read(paths.previousLevelData))
+        assertEquals(primary, level.readDocument())
+        assertEquals(previous, nbt.readDocument(paths.previousLevelData))
 
         fileSystem.delete(paths.levelData)
-        assertEquals(previous, level.read())
-        assertEquals(previous, nbt.read(paths.levelData))
+        assertEquals(previous, level.readDocument())
+        assertEquals(previous, nbt.readDocument(paths.levelData))
         assertFalse(fileSystem.exists(paths.previousLevelData))
         assertTrue(
             fileSystem.list(paths.root).none {
@@ -108,7 +108,7 @@ class StandaloneFileStoreEdgeTest {
         val empty = FakeFileSystem()
         val emptyPaths = MinecraftWorldPaths("/empty".toPath())
         val missing = assertFailsWith<WorldIOException> {
-            LevelDataStore(emptyPaths, NbtFileStore(empty)).read()
+            LevelDataStore(emptyPaths, NbtFileStore(empty)).readDocument()
         }
         assertEquals(1, missing.suppressedExceptions.size)
 
@@ -116,7 +116,7 @@ class StandaloneFileStoreEdgeTest {
         val paths = MinecraftWorldPaths("/world".toPath())
         val nbt = NbtFileStore(base)
         base.writeRaw(paths.levelData, byteArrayOf(1, 2, 3))
-        nbt.writeDirect(paths.previousLevelData, edgeDocument(7))
+        nbt.writeDocument(paths.previousLevelData, edgeDocument(7))
         val failing = PromotionFailingFileSystem(
             base,
             paths.levelData,
@@ -124,7 +124,7 @@ class StandaloneFileStoreEdgeTest {
         )
 
         val promotionFailure = assertFails {
-            LevelDataStore(paths, NbtFileStore(failing)).read()
+            LevelDataStore(paths, NbtFileStore(failing)).readDocument()
         }
 
         assertTrue(promotionFailure.suppressedExceptions.isNotEmpty())
@@ -145,11 +145,11 @@ class StandaloneFileStoreEdgeTest {
         val nbt = NbtFileStore(base)
         val corrupt = byteArrayOf(1, 2, 3)
         base.writeRaw(paths.levelData, corrupt)
-        nbt.writeDirect(paths.previousLevelData, edgeDocument(4))
+        nbt.writeDocument(paths.previousLevelData, edgeDocument(4))
         val failing = CorruptedMoveFailingFileSystem(base, paths.levelData)
 
         val failure = assertFails {
-            LevelDataStore(paths, NbtFileStore(failing)).read()
+            LevelDataStore(paths, NbtFileStore(failing)).readDocument()
         }
 
         assertTrue(failure.suppressedExceptions.isNotEmpty())
@@ -173,7 +173,7 @@ class StandaloneFileStoreEdgeTest {
             displacementPaths.levelData,
             displacementCorrupt,
         )
-        NbtFileStore(displacementBase).writeDirect(
+        NbtFileStore(displacementBase).writeDocument(
             displacementPaths.previousLevelData,
             displacementPrevious,
         )
@@ -189,12 +189,12 @@ class StandaloneFileStoreEdgeTest {
             LevelDataStore(
                 displacementPaths,
                 NbtFileStore(displacement),
-            ).read(),
+            ).readDocument(),
         )
         assertEquals(3, displacement.attempts)
         assertEquals(
             displacementPrevious,
-            NbtFileStore(displacementBase).read(
+            NbtFileStore(displacementBase).readDocument(
                 displacementPaths.levelData,
             ),
         )
@@ -213,7 +213,7 @@ class StandaloneFileStoreEdgeTest {
         val promotionCorrupt = byteArrayOf(4, 5, 6)
         val promotionPrevious = edgeDocument(12)
         promotionBase.writeRaw(promotionPaths.levelData, promotionCorrupt)
-        NbtFileStore(promotionBase).writeDirect(
+        NbtFileStore(promotionBase).writeDocument(
             promotionPaths.previousLevelData,
             promotionPrevious,
         )
@@ -229,12 +229,12 @@ class StandaloneFileStoreEdgeTest {
             LevelDataStore(
                 promotionPaths,
                 NbtFileStore(promotion),
-            ).read(),
+            ).readDocument(),
         )
         assertEquals(3, promotion.attempts)
         assertEquals(
             promotionPrevious,
-            NbtFileStore(promotionBase).read(promotionPaths.levelData),
+            NbtFileStore(promotionBase).readDocument(promotionPaths.levelData),
         )
         assertFalse(promotionBase.exists(promotionPaths.previousLevelData))
         assertContentEquals(
@@ -250,7 +250,7 @@ class StandaloneFileStoreEdgeTest {
         val base = FakeFileSystem()
         val paths = MinecraftWorldPaths("/world".toPath())
         base.writeRaw(paths.levelData, byteArrayOf(1))
-        NbtFileStore(base).writeDirect(
+        NbtFileStore(base).writeDocument(
             paths.previousLevelData,
             edgeDocument(1),
         )
@@ -260,7 +260,7 @@ class StandaloneFileStoreEdgeTest {
         )
 
         assertFailsWith<CancellationException> {
-            LevelDataStore(paths, NbtFileStore(cancelling)).read()
+            LevelDataStore(paths, NbtFileStore(cancelling)).readDocument()
         }
         assertTrue(base.exists(paths.previousLevelData))
         assertContentEquals(byteArrayOf(1), base.readRaw(paths.levelData))
@@ -271,7 +271,7 @@ class StandaloneFileStoreEdgeTest {
         val base = FakeFileSystem()
         val paths = MinecraftWorldPaths("/world".toPath())
         base.writeRaw(paths.levelData, byteArrayOf(1))
-        NbtFileStore(base).writeDirect(
+        NbtFileStore(base).writeDocument(
             paths.previousLevelData,
             edgeDocument(1),
         )
@@ -281,7 +281,7 @@ class StandaloneFileStoreEdgeTest {
         )
 
         assertFailsWith<CancellationException> {
-            LevelDataStore(paths, NbtFileStore(cancelling)).read()
+            LevelDataStore(paths, NbtFileStore(cancelling)).readDocument()
         }
         assertTrue(base.exists(paths.previousLevelData))
         assertContentEquals(byteArrayOf(1), base.readRaw(paths.levelData))
@@ -295,7 +295,7 @@ class StandaloneFileStoreEdgeTest {
             corruptedMovePaths.levelData,
             byteArrayOf(1, 2, 3),
         )
-        NbtFileStore(corruptedMoveBase).writeDirect(
+        NbtFileStore(corruptedMoveBase).writeDocument(
             corruptedMovePaths.previousLevelData,
             edgeDocument(1),
         )
@@ -314,7 +314,7 @@ class StandaloneFileStoreEdgeTest {
                 LevelDataStore(
                     corruptedMovePaths,
                     NbtFileStore(corruptedMoveCancelling),
-                ).read()
+                ).readDocument()
             },
         )
         assertEquals(1, corruptedMoveCancelling.attempts)
@@ -336,7 +336,7 @@ class StandaloneFileStoreEdgeTest {
             previousMovePaths.levelData,
             byteArrayOf(1, 2, 3),
         )
-        NbtFileStore(previousMoveBase).writeDirect(
+        NbtFileStore(previousMoveBase).writeDocument(
             previousMovePaths.previousLevelData,
             edgeDocument(2),
         )
@@ -355,7 +355,7 @@ class StandaloneFileStoreEdgeTest {
                 LevelDataStore(
                     previousMovePaths,
                     NbtFileStore(previousMoveCancelling),
-                ).read()
+                ).readDocument()
             },
         )
         assertEquals(1, previousMoveCancelling.attempts)
@@ -375,7 +375,7 @@ class StandaloneFileStoreEdgeTest {
         val fallbackBase = FakeFileSystem()
         val fallbackPaths = MinecraftWorldPaths("/level-fallback".toPath())
         fallbackBase.writeRaw(fallbackPaths.levelData, byteArrayOf(1))
-        NbtFileStore(fallbackBase).writeDirect(
+        NbtFileStore(fallbackBase).writeDocument(
             fallbackPaths.previousLevelData,
             edgeDocument(31),
         )
@@ -394,7 +394,7 @@ class StandaloneFileStoreEdgeTest {
                 LevelDataStore(
                     fallbackPaths,
                     NbtFileStore(fallbackFailing),
-                ).read()
+                ).readDocument()
             },
         )
         assertContentEquals(
@@ -406,7 +406,7 @@ class StandaloneFileStoreEdgeTest {
         val promotionBase = FakeFileSystem()
         val promotionPaths = MinecraftWorldPaths("/level-promotion".toPath())
         promotionBase.writeRaw(promotionPaths.levelData, byteArrayOf(2))
-        NbtFileStore(promotionBase).writeDirect(
+        NbtFileStore(promotionBase).writeDocument(
             promotionPaths.previousLevelData,
             edgeDocument(32),
         )
@@ -425,7 +425,7 @@ class StandaloneFileStoreEdgeTest {
                 LevelDataStore(
                     promotionPaths,
                     NbtFileStore(promotionFailing),
-                ).read()
+                ).readDocument()
             },
         )
         assertEquals(1, promotionFailing.attempts)
@@ -445,18 +445,18 @@ class StandaloneFileStoreEdgeTest {
         val player = "player"
         val previous = edgeDocument(1)
 
-        assertNull(players.read(player))
-        nbt.writeDirect(paths.previousPlayerData(player), previous)
-        assertEquals(previous, players.read(player))
+        assertNull(players.readDocument(player))
+        nbt.writeDocument(paths.previousPlayerData(player), previous)
+        assertEquals(previous, players.readDocument(player))
         assertFalse(fileSystem.exists(paths.playerData(player)))
 
         val primary = edgeDocument(2)
-        nbt.writeDirect(paths.playerData(player), primary)
-        assertEquals(primary, players.read(player))
+        nbt.writeDocument(paths.playerData(player), primary)
+        assertEquals(primary, players.readDocument(player))
 
         fileSystem.writeRaw(paths.playerData(player), byteArrayOf(1, 2, 3))
         fileSystem.writeRaw(paths.previousPlayerData(player), byteArrayOf(4, 5))
-        val failure = assertFails { players.read(player) }
+        val failure = assertFails { players.readDocument(player) }
         assertTrue(failure.suppressedExceptions.isNotEmpty())
         assertTrue(
             fileSystem.list(checkNotNull(paths.playerData(player).parent)).any {
@@ -468,7 +468,7 @@ class StandaloneFileStoreEdgeTest {
         val corrupt = byteArrayOf(9, 8, 7)
         fileSystem.writeRaw(paths.playerData(withoutPrevious), corrupt)
         val primaryFailure = assertFails {
-            players.read(withoutPrevious)
+            players.readDocument(withoutPrevious)
         }
         assertTrue(primaryFailure.suppressedExceptions.isEmpty())
         assertContentEquals(
@@ -494,7 +494,7 @@ class StandaloneFileStoreEdgeTest {
         val player = "player"
         val previous = edgeDocument(8)
         base.writeRaw(paths.playerData(player), byteArrayOf(1, 2, 3))
-        NbtFileStore(base).writeDirect(
+        NbtFileStore(base).writeDocument(
             paths.previousPlayerData(player),
             previous,
         )
@@ -506,7 +506,7 @@ class StandaloneFileStoreEdgeTest {
 
         assertEquals(
             previous,
-            PlayerDataStore(paths, NbtFileStore(failing)).read(player),
+            PlayerDataStore(paths, NbtFileStore(failing)).readDocument(player),
         )
         assertTrue(
             base.list(checkNotNull(paths.playerData(player).parent)).none {
@@ -528,7 +528,7 @@ class StandaloneFileStoreEdgeTest {
                 paths.playerData(player),
                 byteArrayOf(1, 2, 3),
             )
-            NbtFileStore(base).writeDirect(
+            NbtFileStore(base).writeDocument(
                 paths.previousPlayerData(player),
                 previous,
             )
@@ -539,7 +539,7 @@ class StandaloneFileStoreEdgeTest {
 
             assertEquals(
                 previous,
-                PlayerDataStore(paths, NbtFileStore(failing)).read(player),
+                PlayerDataStore(paths, NbtFileStore(failing)).readDocument(player),
             )
             assertTrue(
                 base.list(checkNotNull(paths.playerData(player).parent)).none {
@@ -560,7 +560,7 @@ class StandaloneFileStoreEdgeTest {
         val paths = MinecraftWorldPaths("/world".toPath())
         val player = "player"
         base.writeRaw(paths.playerData(player), byteArrayOf(1))
-        NbtFileStore(base).writeDirect(
+        NbtFileStore(base).writeDocument(
             paths.previousPlayerData(player),
             edgeDocument(1),
         )
@@ -570,7 +570,7 @@ class StandaloneFileStoreEdgeTest {
         )
 
         assertFailsWith<CancellationException> {
-            PlayerDataStore(paths, NbtFileStore(cancelling)).read(player)
+            PlayerDataStore(paths, NbtFileStore(cancelling)).readDocument(player)
         }
         assertTrue(
             base.list(checkNotNull(paths.playerData(player).parent)).none {
@@ -588,7 +588,7 @@ class StandaloneFileStoreEdgeTest {
             copyPaths.playerData(player),
             byteArrayOf(1, 2, 3),
         )
-        NbtFileStore(copyBase).writeDirect(
+        NbtFileStore(copyBase).writeDocument(
             copyPaths.previousPlayerData(player),
             edgeDocument(1),
         )
@@ -605,7 +605,7 @@ class StandaloneFileStoreEdgeTest {
                 PlayerDataStore(
                     copyPaths,
                     NbtFileStore(copyCancelling),
-                ).read(player)
+                ).readDocument(player)
             },
         )
         assertTrue(
@@ -620,7 +620,7 @@ class StandaloneFileStoreEdgeTest {
             fallbackPaths.playerData(player),
             byteArrayOf(1, 2, 3),
         )
-        NbtFileStore(fallbackBase).writeDirect(
+        NbtFileStore(fallbackBase).writeDocument(
             fallbackPaths.previousPlayerData(player),
             edgeDocument(2),
         )
@@ -633,7 +633,7 @@ class StandaloneFileStoreEdgeTest {
             PlayerDataStore(
                 fallbackPaths,
                 NbtFileStore(fallbackCancelling),
-            ).read(player)
+            ).readDocument(player)
         }
         assertTrue(fallbackBase.exists(fallbackPaths.previousPlayerData(player)))
         assertContentEquals(
@@ -648,7 +648,7 @@ class StandaloneFileStoreEdgeTest {
         val copyPaths = MinecraftWorldPaths("/player-copy-runtime".toPath())
         val player = "player"
         copyBase.writeRaw(copyPaths.playerData(player), byteArrayOf(1, 2, 3))
-        NbtFileStore(copyBase).writeDirect(
+        NbtFileStore(copyBase).writeDocument(
             copyPaths.previousPlayerData(player),
             edgeDocument(41),
         )
@@ -667,7 +667,7 @@ class StandaloneFileStoreEdgeTest {
                 PlayerDataStore(
                     copyPaths,
                     NbtFileStore(copyFailing),
-                ).read(player)
+                ).readDocument(player)
             },
         )
         assertTrue(copyBase.exists(copyPaths.previousPlayerData(player)))
@@ -680,7 +680,7 @@ class StandaloneFileStoreEdgeTest {
             fallbackPaths.playerData(player),
             byteArrayOf(4, 5, 6),
         )
-        NbtFileStore(fallbackBase).writeDirect(
+        NbtFileStore(fallbackBase).writeDocument(
             fallbackPaths.previousPlayerData(player),
             edgeDocument(42),
         )
@@ -699,7 +699,7 @@ class StandaloneFileStoreEdgeTest {
                 PlayerDataStore(
                     fallbackPaths,
                     NbtFileStore(fallbackFailing),
-                ).read(player)
+                ).readDocument(player)
             },
         )
         assertContentEquals(
@@ -717,14 +717,14 @@ class StandaloneFileStoreEdgeTest {
         val players = PlayerDataStore(paths, nbt)
         val player = "player"
 
-        players.write(player, edgeDocument(1))
+        players.writeDocument(player, edgeDocument(1))
         assertFalse(fileSystem.exists(paths.previousPlayerData(player)))
-        players.write(player, edgeDocument(2))
+        players.writeDocument(player, edgeDocument(2))
 
-        assertEquals(edgeDocument(2), nbt.read(paths.playerData(player)))
+        assertEquals(edgeDocument(2), nbt.readDocument(paths.playerData(player)))
         assertEquals(
             edgeDocument(1),
-            nbt.read(paths.previousPlayerData(player)),
+            nbt.readDocument(paths.previousPlayerData(player)),
         )
     }
 
@@ -733,11 +733,11 @@ class StandaloneFileStoreEdgeTest {
         val base = FakeFileSystem()
         val paths = MinecraftWorldPaths("/world".toPath())
         val saved = SavedDataFileStore(paths, nbtFiles = NbtFileStore(base))
-        assertNull(saved.read("missing"))
+        assertNull(saved.readDocument("missing"))
 
         val identifier = "example:state/value"
         val path = paths.savedData(identifier)
-        NbtFileStore(base).writeDirect(
+        NbtFileStore(base).writeDocument(
             path,
             edgeDocument(3),
             Compression.NONE,
@@ -748,11 +748,11 @@ class StandaloneFileStoreEdgeTest {
             SavedDataFileStore(
                 paths,
                 nbtFiles = NbtFileStore(shortReads),
-            ).read(identifier),
+            ).readDocument(identifier),
         )
 
         base.writeRaw(path, byteArrayOf(0x1F))
-        assertFails { saved.read(identifier) }
+        assertFails { saved.readDocument(identifier) }
         base.checkNoOpenFiles()
     }
 
@@ -762,14 +762,14 @@ class StandaloneFileStoreEdgeTest {
         val store = Utf8JsonFileStore(fileSystem)
         val path = "/world/value.json".toPath()
 
-        assertFailsWith<WorldIOException> { store.read(path) }
+        assertFailsWith<WorldIOException> { store.readText(path) }
         fileSystem.createDirectories(path)
-        assertFailsWith<WorldIOException> { store.read(path) }
+        assertFailsWith<WorldIOException> { store.readText(path) }
         fileSystem.delete(path)
-        store.write(path, "{}")
-        assertEquals("{}", store.read(path))
-        store.write(path, "\u00E9x")
-        assertEquals("\u00E9x", store.read(path))
+        store.writeText(path, "{}")
+        assertEquals("{}", store.readText(path))
+        store.writeText(path, "\u00E9x")
+        assertEquals("\u00E9x", store.readText(path))
     }
 
     @Test
@@ -777,7 +777,7 @@ class StandaloneFileStoreEdgeTest {
         JsonFailure.entries.forEach { failurePoint ->
             val base = FakeFileSystem()
             val path = "/world-${failurePoint.name}/value.json".toPath()
-            Utf8JsonFileStore(base).write(path, "old")
+            Utf8JsonFileStore(base).writeText(path, "old")
             val failing = JsonSinkFailingFileSystem(
                 base,
                 path,
@@ -785,14 +785,19 @@ class StandaloneFileStoreEdgeTest {
             )
 
             assertFailsWith<IOException> {
-                Utf8JsonFileStore(failing).write(path, "new")
+                Utf8JsonFileStore(failing).writeText(path, "new")
             }
 
-            val expected = when (failurePoint) {
-                JsonFailure.WRITE -> "n"
-                JsonFailure.CLOSE -> "new"
+            val actual = Utf8JsonFileStore(base).readText(path)
+            when (failurePoint) {
+                JsonFailure.WRITE -> {
+                    assertTrue(actual.isNotEmpty())
+                    assertTrue("new".startsWith(actual))
+                    assertNotEquals("new", actual)
+                }
+
+                JsonFailure.CLOSE -> assertEquals("new", actual)
             }
-            assertEquals(expected, Utf8JsonFileStore(base).read(path))
             base.checkNoOpenFiles()
         }
     }

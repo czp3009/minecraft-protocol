@@ -7,8 +7,6 @@ import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializer
-import okio.BufferedSink
-import okio.BufferedSource
 import okio.Path
 import kotlinx.io.Sink as KotlinxSink
 import kotlinx.io.Source as KotlinxSource
@@ -70,28 +68,66 @@ class MinecraftWorldAccess private constructor(
     suspend fun writeLevelData(block: (KotlinxSink) -> Unit) =
         world.writeLevelData(block)
 
-    suspend fun readPlayerData(playerUuid: String): NbtDocument? =
-        world.readPlayerData(playerUuid)
+    suspend fun readPlayerDataDocument(playerUuid: String): NbtDocument? =
+        world.readPlayerDataDocument(playerUuid)
+
+    suspend fun <T> readPlayerData(
+        playerUuid: String,
+        deserializer: DeserializationStrategy<T>,
+    ): T? = world.readPlayerData(playerUuid, deserializer)
+
+    suspend inline fun <reified T> readPlayerData(playerUuid: String): T? =
+        readPlayerData(playerUuid, configuration.standaloneNbtFormat.serializersModule.serializer())
 
     suspend fun <T> readPlayerData(
         playerUuid: String,
         block: (KotlinxSource) -> T,
     ): T? = world.readPlayerData(playerUuid, block)
 
-    suspend fun writePlayerData(
+    suspend fun writePlayerDataDocument(
         playerUuid: String,
         document: NbtDocument,
-    ) = world.writePlayerData(playerUuid, document)
+    ) = world.writePlayerDataDocument(playerUuid, document)
+
+    suspend fun <T> writePlayerData(
+        playerUuid: String,
+        serializer: SerializationStrategy<T>,
+        value: T,
+    ) = world.writePlayerData(playerUuid, serializer, value)
+
+    suspend inline fun <reified T> writePlayerData(
+        playerUuid: String,
+        value: T,
+    ) = writePlayerData(
+        playerUuid,
+        configuration.standaloneNbtFormat.serializersModule.serializer(),
+        value,
+    )
 
     suspend fun writePlayerData(
         playerUuid: String,
         block: (KotlinxSink) -> Unit,
     ) = world.writePlayerData(playerUuid, block)
 
-    suspend fun readSavedData(
+    suspend fun readSavedDataDocument(
         identifier: String,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ): NbtDocument? = world.readSavedData(identifier, dimension)
+    ): NbtDocument? = world.readSavedDataDocument(identifier, dimension)
+
+    suspend fun <T> readSavedData(
+        identifier: String,
+        deserializer: DeserializationStrategy<T>,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): T? = world.readSavedData(identifier, deserializer, dimension)
+
+    suspend inline fun <reified T> readSavedData(
+        identifier: String,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): T? = readSavedData(
+        identifier,
+        configuration.standaloneNbtFormat.serializersModule.serializer(),
+        dimension,
+    )
 
     suspend fun <T> readSavedData(
         identifier: String,
@@ -99,11 +135,29 @@ class MinecraftWorldAccess private constructor(
         block: (KotlinxSource) -> T,
     ): T? = world.readSavedData(identifier, dimension, block)
 
-    suspend fun writeSavedData(
+    suspend fun writeSavedDataDocument(
         identifier: String,
         document: NbtDocument,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ) = world.writeSavedData(identifier, document, dimension)
+    ) = world.writeSavedDataDocument(identifier, document, dimension)
+
+    suspend fun <T> writeSavedData(
+        identifier: String,
+        serializer: SerializationStrategy<T>,
+        value: T,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ) = world.writeSavedData(identifier, serializer, value, dimension)
+
+    suspend inline fun <reified T> writeSavedData(
+        identifier: String,
+        value: T,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ) = writeSavedData(
+        identifier,
+        configuration.standaloneNbtFormat.serializersModule.serializer(),
+        value,
+        dimension,
+    )
 
     suspend fun writeSavedData(
         identifier: String,
@@ -127,7 +181,7 @@ class MinecraftWorldAccess private constructor(
 
     suspend fun <T> readStatistics(
         playerUuid: String,
-        block: BufferedSource.() -> T,
+        block: (KotlinxSource) -> T,
     ): T = world.readStatistics(playerUuid, block)
 
     suspend fun writeStatisticsText(playerUuid: String, text: String) =
@@ -148,7 +202,7 @@ class MinecraftWorldAccess private constructor(
 
     suspend fun writeStatistics(
         playerUuid: String,
-        block: BufferedSink.() -> Unit,
+        block: (KotlinxSink) -> Unit,
     ) = world.writeStatistics(playerUuid, block)
 
     suspend fun readAdvancementsText(playerUuid: String): String =
@@ -167,7 +221,7 @@ class MinecraftWorldAccess private constructor(
 
     suspend fun <T> readAdvancements(
         playerUuid: String,
-        block: BufferedSource.() -> T,
+        block: (KotlinxSource) -> T,
     ): T = world.readAdvancements(playerUuid, block)
 
     suspend fun writeAdvancementsText(playerUuid: String, text: String) =
@@ -188,14 +242,60 @@ class MinecraftWorldAccess private constructor(
 
     suspend fun writeAdvancements(
         playerUuid: String,
-        block: BufferedSink.() -> Unit,
+        block: (KotlinxSink) -> Unit,
     ) = world.writeAdvancements(playerUuid, block)
 
     suspend fun readRegion(
         position: RegionPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ): RegionFile = world.readRegion(position, storage, dimension)
+    ): RegionFile? = world.readRegion(position, storage, dimension)
+
+    suspend fun <T> readRegion(
+        position: RegionPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+        block: RegionReadScope.() -> T,
+    ): T? = world.readRegion(position, storage, dimension, block)
+
+    suspend fun writeRegion(
+        position: RegionPosition,
+        region: RegionFile,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ) = world.writeRegion(position, region, storage, dimension)
+
+    suspend fun writeRegion(
+        position: RegionPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+        block: RegionWriteScope.() -> Unit,
+    ) = world.writeRegion(position, storage, dimension, block)
+
+    suspend fun clearRegion(
+        position: RegionPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ) = world.clearRegion(position, storage, dimension)
+
+    suspend fun doesRegionExist(
+        position: RegionPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): Boolean = world.doesRegionExist(position, storage, dimension)
+
+    suspend fun openRegion(
+        position: RegionPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): WorldRegion = world.openRegion(position, storage, dimension)
+
+    suspend fun <T> withRegion(
+        position: RegionPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+        block: suspend WorldRegion.() -> T,
+    ): T = world.withRegion(position, storage, dimension, block)
 
     suspend fun readChunk(
         position: ChunkPosition,
@@ -203,12 +303,27 @@ class MinecraftWorldAccess private constructor(
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
     ): RegionChunk? = world.readChunk(position, storage, dimension)
 
+    suspend fun readChunk(
+        regionPosition: RegionPosition,
+        position: LocalChunkPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): RegionChunk? = world.readChunk(regionPosition, position, storage, dimension)
+
     suspend fun <T> readChunk(
         position: ChunkPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-        block: (RegionChunkStreamInfo, BufferedSource) -> T,
+        block: (RegionChunkStreamInfo, KotlinxSource) -> T,
     ): T? = world.readChunk(position, storage, dimension, block)
+
+    suspend fun <T> readChunk(
+        regionPosition: RegionPosition,
+        position: LocalChunkPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+        block: (RegionChunkStreamInfo, KotlinxSource) -> T,
+    ): T? = world.readChunk(regionPosition, position, storage, dimension, block)
 
     suspend fun doesChunkExist(
         position: ChunkPosition,
@@ -216,21 +331,47 @@ class MinecraftWorldAccess private constructor(
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
     ): Boolean = world.doesChunkExist(position, storage, dimension)
 
+    suspend fun doesChunkExist(
+        regionPosition: RegionPosition,
+        position: LocalChunkPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): Boolean = world.doesChunkExist(regionPosition, position, storage, dimension)
+
     suspend fun writeChunk(
         position: ChunkPosition,
-        chunk: RegionChunk?,
+        chunk: RegionChunk,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
     ) = world.writeChunk(position, chunk, storage, dimension)
 
+    suspend fun writeChunk(
+        regionPosition: RegionPosition,
+        position: LocalChunkPosition,
+        chunk: RegionChunk,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ) = world.writeChunk(regionPosition, position, chunk, storage, dimension)
+
+    /** Streams one already-compressed Chunk whose exact length is known before allocation. */
     suspend fun writeChunk(
         position: ChunkPosition,
         compression: Compression,
         compressedLength: Long,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-        block: BufferedSink.() -> Unit,
+        block: (KotlinxSink) -> Unit,
     ) = world.writeChunk(position, compression, compressedLength, storage, dimension, block)
+
+    suspend fun writeChunk(
+        regionPosition: RegionPosition,
+        position: LocalChunkPosition,
+        compression: Compression,
+        compressedLength: Long,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+        block: (KotlinxSink) -> Unit,
+    ) = world.writeChunk(regionPosition, position, compression, compressedLength, storage, dimension, block)
 
     suspend fun clearChunk(
         position: ChunkPosition,
@@ -238,18 +379,147 @@ class MinecraftWorldAccess private constructor(
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
     ) = world.clearChunk(position, storage, dimension)
 
-    suspend fun readChunkNbt(
+    suspend fun clearChunk(
+        regionPosition: RegionPosition,
+        position: LocalChunkPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ) = world.clearChunk(regionPosition, position, storage, dimension)
+
+    suspend fun readChunkNbtDocument(
         position: ChunkPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ): NbtDocument? = world.readChunkNbt(position, storage, dimension)
+    ): NbtDocument? = world.readChunkNbtDocument(position, storage, dimension)
 
-    suspend fun writeChunkNbt(
+    suspend fun readChunkNbtDocument(
+        regionPosition: RegionPosition,
+        position: LocalChunkPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): NbtDocument? = world.readChunkNbtDocument(regionPosition, position, storage, dimension)
+
+    suspend fun <T> readChunkNbt(
+        position: ChunkPosition,
+        deserializer: DeserializationStrategy<T>,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): T? = world.readChunkNbt(position, deserializer, storage, dimension)
+
+    suspend fun <T> readChunkNbt(
+        regionPosition: RegionPosition,
+        position: LocalChunkPosition,
+        deserializer: DeserializationStrategy<T>,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): T? = world.readChunkNbt(regionPosition, position, deserializer, storage, dimension)
+
+    suspend inline fun <reified T> readChunkNbt(
+        position: ChunkPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): T? = readChunkNbt(
+        position,
+        configuration.regionChunkNbtFormat.nbt.serializersModule.serializer(),
+        storage,
+        dimension,
+    )
+
+    suspend inline fun <reified T> readChunkNbt(
+        regionPosition: RegionPosition,
+        position: LocalChunkPosition,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): T? = readChunkNbt(
+        regionPosition,
+        position,
+        configuration.regionChunkNbtFormat.nbt.serializersModule.serializer(),
+        storage,
+        dimension,
+    )
+
+    suspend fun writeChunkNbtDocument(
         position: ChunkPosition,
         document: NbtDocument,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ) = world.writeChunkNbt(position, document, storage, dimension)
+    ) = world.writeChunkNbtDocument(position, document, storage, dimension)
+
+    suspend fun writeChunkNbtDocument(
+        regionPosition: RegionPosition,
+        position: LocalChunkPosition,
+        document: NbtDocument,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ) = world.writeChunkNbtDocument(regionPosition, position, document, storage, dimension)
+
+    suspend fun writeChunkNbtDocument(
+        position: ChunkPosition,
+        document: NbtDocument,
+        compression: Compression,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ) = world.writeChunkNbtDocument(position, document, compression, storage, dimension)
+
+    suspend fun writeChunkNbtDocument(
+        regionPosition: RegionPosition,
+        position: LocalChunkPosition,
+        document: NbtDocument,
+        compression: Compression,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ) = world.writeChunkNbtDocument(regionPosition, position, document, compression, storage, dimension)
+
+    suspend fun <T> writeChunkNbt(
+        position: ChunkPosition,
+        serializer: SerializationStrategy<T>,
+        value: T,
+        compression: Compression = configuration.regionStoreConfiguration.writeCompression,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ) = world.writeChunkNbt(position, serializer, value, compression, storage, dimension)
+
+    suspend fun <T> writeChunkNbt(
+        regionPosition: RegionPosition,
+        position: LocalChunkPosition,
+        serializer: SerializationStrategy<T>,
+        value: T,
+        compression: Compression = configuration.regionStoreConfiguration.writeCompression,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ) = world.writeChunkNbt(regionPosition, position, serializer, value, compression, storage, dimension)
+
+    suspend inline fun <reified T> writeChunkNbt(
+        position: ChunkPosition,
+        value: T,
+        compression: Compression = configuration.regionStoreConfiguration.writeCompression,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ) = writeChunkNbt(
+        position,
+        configuration.regionChunkNbtFormat.nbt.serializersModule.serializer(),
+        value,
+        compression,
+        storage,
+        dimension,
+    )
+
+    suspend inline fun <reified T> writeChunkNbt(
+        regionPosition: RegionPosition,
+        position: LocalChunkPosition,
+        value: T,
+        compression: Compression = configuration.regionStoreConfiguration.writeCompression,
+        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ) = writeChunkNbt(
+        regionPosition,
+        position,
+        configuration.regionChunkNbtFormat.nbt.serializersModule.serializer(),
+        value,
+        compression,
+        storage,
+        dimension,
+    )
 
     suspend fun flush() = world.flush()
 

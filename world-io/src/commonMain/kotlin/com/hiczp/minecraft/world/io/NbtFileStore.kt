@@ -50,7 +50,7 @@ class NbtFileStore internal constructor(
     internal val liveReadOnly: Boolean
         get() = files.liveReadOnly
 
-    fun read(
+    fun readDocument(
         path: Path,
         compression: Compression = Compression.GZIP,
     ): NbtDocument = read(path, compression) { source ->
@@ -87,25 +87,25 @@ class NbtFileStore internal constructor(
     }
 
     /** Directly truncates, writes, and durably syncs the final file. */
-    fun writeDirect(
+    fun writeDocument(
         path: Path,
         document: NbtDocument,
         compression: Compression = Compression.GZIP,
-    ) = writeDirect(path, compression) { sink ->
+    ) = write(path, compression) { sink ->
         nbt.encodeDocumentToSink(document, sink)
     }
 
-    fun <T> writeDirect(
+    fun <T> write(
         path: Path,
         serializer: SerializationStrategy<T>,
         value: T,
         compression: Compression = Compression.GZIP,
-    ) = writeDirect(path, compression) { sink ->
+    ) = write(path, compression) { sink ->
         nbt.encodeToSink(serializer, value, sink)
     }
 
     /** Directly truncates, streams, and durably syncs the final file. */
-    fun writeDirect(
+    fun write(
         path: Path,
         compression: Compression = Compression.GZIP,
         block: (KotlinxSink) -> Unit,

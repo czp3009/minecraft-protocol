@@ -20,21 +20,21 @@ class LiveMinecraftWorldReaderConcurrencyTest {
         val base = concurrencyFakeFileSystem()
         base.createDirectories(root)
         val nbtFiles = NbtFileStore(base)
-        LevelDataStore(paths, nbtFiles).write(document)
-        PlayerDataStore(paths, nbtFiles).write(player, document)
-        SavedDataFileStore(paths, nbtFiles = nbtFiles).write("example:data", document)
+        LevelDataStore(paths, nbtFiles).writeDocument(document)
+        PlayerDataStore(paths, nbtFiles).writeDocument(player, document)
+        SavedDataFileStore(paths, nbtFiles = nbtFiles).writeDocument("example:data", document)
         val jsonFiles = Utf8JsonFileStore(base)
-        jsonFiles.write(paths.statistics(player), "statistics")
-        jsonFiles.write(paths.advancement(player), "advancements")
+        jsonFiles.writeText(paths.statistics(player), "statistics")
+        jsonFiles.writeText(paths.advancement(player), "advancements")
 
         assertConcurrentSourceReads(root, base, paths.levelData, document) {
             readLevelDataDocument()
         }
         assertConcurrentSourceReads(root, base, paths.playerData(player), document) {
-            readPlayerData(player)
+            readPlayerDataDocument(player)
         }
         assertConcurrentSourceReads(root, base, paths.savedData("example:data"), document) {
-            readSavedData("example:data")
+            readSavedDataDocument("example:data")
         }
         assertConcurrentSourceReads(root, base, paths.statistics(player), "statistics") {
             readStatisticsText(player)
@@ -132,7 +132,7 @@ class LiveMinecraftWorldReaderConcurrencyTest {
             sourceGate.awaitEntered()
 
             val writing = async(Dispatchers.Default) {
-                Utf8JsonFileStore(fileSystem).write(target, "replacement")
+                Utf8JsonFileStore(fileSystem).writeText(target, "replacement")
             }
             jobs += writing
             writing.await()

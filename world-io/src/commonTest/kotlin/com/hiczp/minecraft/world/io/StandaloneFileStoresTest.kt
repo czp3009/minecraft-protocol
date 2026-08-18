@@ -10,6 +10,8 @@ import com.hiczp.minecraft.world.format.LevelDat
 import com.hiczp.minecraft.world.format.PlayerAdvancements
 import com.hiczp.minecraft.world.format.PlayerStatistics
 import kotlinx.coroutines.test.runTest
+import kotlinx.io.readString
+import kotlinx.io.writeString
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.MapSerializer
@@ -42,8 +44,8 @@ class StandaloneFileStoresTest {
 
         standaloneFileCompressions.forEach { compression ->
             val path = "/world/${compression.name}.dat".toPath()
-            store.writeDirect(path, document, compression)
-            assertEquals(document, store.read(path, compression))
+            store.writeDocument(path, document, compression)
+            assertEquals(document, store.readDocument(path, compression))
         }
         fileSystem.checkNoOpenFiles()
     }
@@ -56,7 +58,7 @@ class StandaloneFileStoresTest {
 
         standaloneFileCompressions.forEach { compression ->
             val path = "/world/stream-${compression.name}.dat".toPath()
-            store.writeDirect(path, compression) { sink ->
+            store.write(path, compression) { sink ->
                 store.nbt.encodeDocumentToSink(document, sink)
             }
             assertEquals(
@@ -80,7 +82,7 @@ class StandaloneFileStoresTest {
         )
         val callerSerializer = CountingSerializer(CallerLevelData.serializer())
 
-        store.writeDirect(callerPath, callerSerializer, callerValue)
+        store.write(callerPath, callerSerializer, callerValue)
         assertEquals(callerValue, store.read(callerPath, callerSerializer))
         assertEquals(1, callerSerializer.encodeCalls)
         assertEquals(1, callerSerializer.decodeCalls)
@@ -102,14 +104,14 @@ class StandaloneFileStoresTest {
         val first = sampleDocument(1)
         val second = sampleDocument(2)
 
-        level.write(first)
-        level.write(second)
-        assertEquals(second, nbt.read(paths.levelData))
-        assertEquals(first, nbt.read(paths.previousLevelData))
+        level.writeDocument(first)
+        level.writeDocument(second)
+        assertEquals(second, nbt.readDocument(paths.levelData))
+        assertEquals(first, nbt.readDocument(paths.previousLevelData))
 
         fileSystem.writeRaw(paths.levelData, byteArrayOf(1, 2, 3))
-        assertEquals(first, level.read())
-        assertEquals(first, nbt.read(paths.levelData))
+        assertEquals(first, level.readDocument())
+        assertEquals(first, nbt.readDocument(paths.levelData))
         assertFalse(fileSystem.exists(paths.previousLevelData))
         assertTrue(
             fileSystem.list(paths.root).any {
@@ -129,15 +131,15 @@ class StandaloneFileStoresTest {
         val player = "00000000-0000-0000-0000-000000000000"
         val previous = sampleDocument(7)
 
-        nbt.writeDirect(paths.previousPlayerData(player), previous)
+        nbt.writeDocument(paths.previousPlayerData(player), previous)
         fileSystem.writeRaw(paths.playerData(player), byteArrayOf(1, 2, 3))
 
-        assertEquals(previous, players.read(player))
+        assertEquals(previous, players.readDocument(player))
         assertContentEquals(
             byteArrayOf(1, 2, 3),
             fileSystem.readRaw(paths.playerData(player)),
         )
-        assertEquals(previous, nbt.read(paths.previousPlayerData(player)))
+        assertEquals(previous, nbt.readDocument(paths.previousPlayerData(player)))
         assertTrue(
             fileSystem.list(checkNotNull(paths.playerData(player).parent)).any {
                 it.name.startsWith("${paths.playerData(player).name}_corrupted_")
@@ -156,10 +158,10 @@ class StandaloneFileStoresTest {
         val legacy = sampleDocument(1)
         val current = sampleDocument(2)
 
-        nbt.writeDirect(path, legacy, Compression.NONE)
-        assertEquals(legacy, saved.read("maps/map_1"))
-        saved.write("maps/map_1", current)
-        assertEquals(current, saved.read("maps/map_1"))
+        nbt.writeDocument(path, legacy, Compression.NONE)
+        assertEquals(legacy, saved.readDocument("maps/map_1"))
+        saved.writeDocument("maps/map_1", current)
+        assertEquals(current, saved.readDocument("maps/map_1"))
         assertContentEquals(
             byteArrayOf(0x1F, 0x8B.toByte()),
             fileSystem.readRaw(path).copyOfRange(0, 2),
@@ -172,10 +174,10 @@ class StandaloneFileStoresTest {
         val store = Utf8JsonFileStore(fileSystem)
         val path = "/world/players/stats/player.json".toPath()
 
-        store.write(path, "{\"long\":true}")
-        store.write(path, "{}")
+        store.writeText(path, "{\"long\":true}")
+        store.writeText(path, "{}")
 
-        assertEquals("{}", store.read(path))
+        assertEquals("{}", store.readText(path))
         assertEquals(setOf(path), fileSystem.allPaths().filter { fileSystem.metadata(it).isRegularFile }.toSet())
     }
 
@@ -192,14 +194,14 @@ class StandaloneFileStoresTest {
         assertEquals(element, store.readJson(path))
 
         val encoded = Json.encodeToString(element)
-        store.write(path) {
-            encoded.chunked(257).forEach(::writeUtf8)
+        store.write(path) { sink ->
+            encoded.chunked(257).forEach(sink::writeString)
         }
-        val copied = Buffer()
+        val copied = kotlinx.io.Buffer()
         val reads = mutableListOf<Long>()
-        store.read(path) {
+        store.read(path) { source ->
             while (true) {
-                val read = read(copied, 257L)
+                val read = source.readAtMostTo(copied, 257L)
                 if (read < 0L) break
                 reads += read
             }
@@ -207,7 +209,7 @@ class StandaloneFileStoresTest {
 
         assertTrue(reads.size > 1)
         assertTrue(reads.all { it in 1L..257L })
-        assertEquals(encoded, copied.readUtf8())
+        assertEquals(encoded, copied.readString())
     }
 
     @Test
@@ -259,7 +261,7 @@ class StandaloneFileStoresTest {
             values = (0 until 2_048).associate { index -> "key_$index" to index },
         )
         val nbtStore = NbtFileStore(segmented)
-        nbtStore.writeDirect(nbtPath, CallerLevelData.serializer(), nbtValue)
+        nbtStore.write(nbtPath, CallerLevelData.serializer(), nbtValue)
         assertTrue(segmented.writeCalls > 1)
         assertEquals(nbtValue, nbtStore.read(nbtPath, CallerLevelData.serializer()))
         assertTrue(segmented.readCalls > 1)
@@ -290,15 +292,15 @@ class StandaloneFileStoresTest {
         val paths = MinecraftWorldPaths("/world".toPath())
         val initialStore = LevelDataStore(paths, NbtFileStore(base))
         val first = sampleDocument(1)
-        initialStore.write(first)
+        initialStore.writeDocument(first)
         val failing = ReplacementFailingFileSystem(base, paths.levelData)
         val level = LevelDataStore(paths, NbtFileStore(failing))
 
         assertFailsWith<WorldIOException> {
-            level.write(sampleDocument(2))
+            level.writeDocument(sampleDocument(2))
         }
 
-        assertEquals(first, NbtFileStore(base).read(paths.levelData))
+        assertEquals(first, NbtFileStore(base).readDocument(paths.levelData))
         assertEquals(10, failing.replacementAttempts)
         assertFalse(base.exists(paths.previousLevelData))
         assertTrue(base.allPaths.none { it.name.startsWith(".tmp-") })
@@ -308,7 +310,7 @@ class StandaloneFileStoresTest {
     fun failedBackupMovePreservesPrimaryAndCleansTheTemporaryFile() = runTest {
         val base = FakeFileSystem()
         val paths = MinecraftWorldPaths("/world".toPath())
-        LevelDataStore(paths, NbtFileStore(base)).write(sampleDocument(1))
+        LevelDataStore(paths, NbtFileStore(base)).writeDocument(sampleDocument(1))
         val failing = BackupMoveFailingFileSystem(
             delegate = base,
             primary = paths.levelData,
@@ -317,12 +319,12 @@ class StandaloneFileStoresTest {
 
         assertFailsWith<WorldIOException> {
             LevelDataStore(paths, NbtFileStore(failing))
-                .write(sampleDocument(2))
+                .writeDocument(sampleDocument(2))
         }
 
         assertEquals(
             sampleDocument(1),
-            NbtFileStore(base).read(paths.levelData),
+            NbtFileStore(base).readDocument(paths.levelData),
         )
         assertEquals(10, failing.attempts)
         assertFalse(base.exists(paths.previousLevelData))
@@ -334,7 +336,7 @@ class StandaloneFileStoresTest {
         val base = FakeFileSystem()
         val paths = MinecraftWorldPaths("/world".toPath())
         val first = sampleDocument(1)
-        LevelDataStore(paths, NbtFileStore(base)).write(first)
+        LevelDataStore(paths, NbtFileStore(base)).writeDocument(first)
         val failing = ReplacementAndRollbackFailingFileSystem(
             delegate = base,
             primary = paths.levelData,
@@ -343,13 +345,13 @@ class StandaloneFileStoresTest {
 
         val failure = assertFailsWith<WorldIOException> {
             LevelDataStore(paths, NbtFileStore(failing))
-                .write(sampleDocument(2))
+                .writeDocument(sampleDocument(2))
         }
 
         assertFalse(base.exists(paths.levelData))
         assertEquals(
             first,
-            NbtFileStore(base).read(paths.previousLevelData),
+            NbtFileStore(base).readDocument(paths.previousLevelData),
         )
         assertEquals(10, failing.replacementAttempts)
         assertEquals(10, failing.rollbackAttempts)
@@ -362,12 +364,12 @@ class StandaloneFileStoresTest {
         val base = FakeFileSystem()
         val paths = MinecraftWorldPaths("/world".toPath())
         val first = sampleDocument(1)
-        LevelDataStore(paths, NbtFileStore(base)).write(first)
+        LevelDataStore(paths, NbtFileStore(base)).writeDocument(first)
         val failure = WorldIOException("synthetic streaming failure")
 
         assertSame(failure, assertFails { LevelDataStore(paths, NbtFileStore(base)).write { throw failure } })
 
-        assertEquals(first, NbtFileStore(base).read(paths.levelData))
+        assertEquals(first, NbtFileStore(base).readDocument(paths.levelData))
         assertTrue(base.allPaths.none { it.name.startsWith(".tmp-") })
     }
 
@@ -379,8 +381,8 @@ class StandaloneFileStoresTest {
             paths.savedData("a/../b")
         }
         val jsonPath = "/world/value.json".toPath()
-        Utf8JsonFileStore(fileSystem).write(jsonPath, "\u00E9")
-        assertEquals("\u00E9", Utf8JsonFileStore(fileSystem).read(jsonPath))
+        Utf8JsonFileStore(fileSystem).writeText(jsonPath, "\u00E9")
+        assertEquals("\u00E9", Utf8JsonFileStore(fileSystem).readText(jsonPath))
         assertNotEquals(
             sampleDocument(1),
             sampleDocument(2),

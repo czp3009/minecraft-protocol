@@ -5,10 +5,7 @@ import kotlinx.coroutines.test.runTest
 import okio.*
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 /** Portable lifecycle and handle-failure coverage for region stores. */
 class WorldRegionLifecycleTest {
@@ -52,7 +49,7 @@ class WorldRegionLifecycleTest {
     }
 
     @Test
-    fun regionStoresReleaseIdleEntriesWithoutAnOpenFileLimit() = runTest {
+    fun missingReadsCreateNeitherFilesNorIdleEntries() = runTest {
         val fileSystem = FakeFileSystem()
         val firstDirectory = "/world/region".toPath()
         val first = WorldRegionStore(
@@ -65,8 +62,8 @@ class WorldRegionLifecycleTest {
         first.readRegion(RegionPosition(0, 0))
         first.readRegion(RegionPosition(2, 0))
 
-        assertTrue(firstDirectory / "r.0.0.mca" in fileSystem.allPaths)
-        assertTrue(firstDirectory / "r.2.0.mca" in fileSystem.allPaths)
+        assertFalse(firstDirectory / "r.0.0.mca" in fileSystem.allPaths)
+        assertFalse(firstDirectory / "r.2.0.mca" in fileSystem.allPaths)
         assertTrue(fileSystem.openPaths.isEmpty())
 
         val secondDirectory = "/world/entities".toPath()
@@ -76,7 +73,7 @@ class WorldRegionLifecycleTest {
             configuration = WorldRegionStoreConfiguration(syncWrites = false),
         )
         second.readRegion(RegionPosition(9, 9))
-        assertTrue(secondDirectory / "r.9.9.mca" in fileSystem.allPaths)
+        assertFalse(secondDirectory / "r.9.9.mca" in fileSystem.allPaths)
         assertTrue(fileSystem.openPaths.isEmpty())
 
         first.close()
@@ -90,6 +87,7 @@ class WorldRegionLifecycleTest {
         val base = FakeFileSystem()
         val fileSystem = FiniteCloseFailingFileSystem(base, failures = 1)
         val directory = "/world/region".toPath()
+        base.createEmptyRegion(directory, RegionPosition(0, 0))
         val store = WorldRegionStore(
             directory = directory,
             fileSystem = fileSystem,
@@ -118,8 +116,11 @@ class WorldRegionLifecycleTest {
     fun eachLastReleaseReportsItsFlushAndCloseFailuresWithoutPoisoningStoreClose() = runTest {
         val base = FakeFileSystem()
         val fileSystem = ClosingFailingFileSystem(base)
+        val directory = "/world/region".toPath()
+        base.createEmptyRegion(directory, RegionPosition(0, 0))
+        base.createEmptyRegion(directory, RegionPosition(1, 0))
         val store = WorldRegionStore(
-            directory = "/world/region".toPath(),
+            directory = directory,
             fileSystem = fileSystem,
             configuration = WorldRegionStoreConfiguration(syncWrites = false),
         )
@@ -163,9 +164,11 @@ class WorldRegionLifecycleTest {
     @Test
     fun openSizeFailureClosesTheHandleAndDoesNotCacheIt() = runTest {
         val base = FakeFileSystem()
+        val directory = "/world/region".toPath()
+        base.createEmptyRegion(directory, RegionPosition(0, 0))
         val fileSystem = SizeFailingFileSystem(base, failureCall = 1)
         val store = WorldRegionStore(
-            directory = "/world/region".toPath(),
+            directory = directory,
             fileSystem = fileSystem,
             configuration = WorldRegionStoreConfiguration(syncWrites = false),
         )
@@ -182,9 +185,11 @@ class WorldRegionLifecycleTest {
     @Test
     fun lastReleaseSizeFailureStillFlushesAndClosesWithoutPoisoningStoreClose() = runTest {
         val base = FakeFileSystem()
+        val directory = "/world/region".toPath()
+        base.createEmptyRegion(directory, RegionPosition(0, 0))
         val fileSystem = SizeFailingFileSystem(base, failureCall = 2)
         val store = WorldRegionStore(
-            directory = "/world/region".toPath(),
+            directory = directory,
             fileSystem = fileSystem,
             configuration = WorldRegionStoreConfiguration(syncWrites = false),
         )
@@ -200,9 +205,12 @@ class WorldRegionLifecycleTest {
     @Test
     fun eachLastReleaseReportsItsFlushFailureWithoutPoisoningStoreClose() = runTest {
         val base = FakeFileSystem()
+        val directory = "/world/region".toPath()
+        base.createEmptyRegion(directory, RegionPosition(0, 0))
+        base.createEmptyRegion(directory, RegionPosition(1, 0))
         val fileSystem = FiniteFlushFailingFileSystem(base, failures = 2)
         val store = WorldRegionStore(
-            directory = "/world/region".toPath(),
+            directory = directory,
             fileSystem = fileSystem,
             configuration = WorldRegionStoreConfiguration(syncWrites = false),
         )
@@ -407,3 +415,11 @@ private fun lifecycleChunk(value: Byte): RegionChunk = RegionChunk(
 
 private fun lifecycleChunk(value: Int): RegionChunk =
     lifecycleChunk(value.toByte())
+
+private fun FileSystem.createEmptyRegion(
+    directory: Path,
+    position: RegionPosition,
+) {
+    createDirectories(directory)
+    write(directory / "r.${position.x}.${position.z}.mca") {}
+}

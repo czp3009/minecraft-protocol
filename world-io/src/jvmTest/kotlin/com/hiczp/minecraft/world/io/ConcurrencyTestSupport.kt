@@ -406,6 +406,23 @@ internal fun concurrencyChunk(value: Byte): RegionChunk = RegionChunk(
     payload = RegionChunkPayload.Inline(byteArrayOf(value)),
 )
 
+internal suspend fun seedConcurrencyRegion(
+    fileSystem: FileSystem,
+    directory: Path,
+    position: ChunkPosition = ChunkPosition(0, 0),
+) {
+    val store = WorldRegionStore(
+        directory = directory,
+        fileSystem = fileSystem,
+        configuration = WorldRegionStoreConfiguration(syncWrites = false),
+    )
+    try {
+        store.writeChunk(position, concurrencyChunk(0))
+    } finally {
+        store.close()
+    }
+}
+
 internal fun concurrencyFakeFileSystem(): FakeFileSystem = FakeFileSystem().apply {
     allowReadsWhileWriting = true
     allowWritesWhileWriting = true

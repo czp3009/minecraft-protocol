@@ -164,11 +164,11 @@ class SystemWorldStorageTest {
             fileSystem.writeSystemBytes(path, ByteArray(4_096) { 1 })
 
             val store = NbtFileStore(fileSystem)
-            store.writeDirect(path, document, Compression.NONE)
+            store.writeDocument(path, document, Compression.NONE)
 
             assertEquals(
                 document,
-                store.read(path, Compression.NONE),
+                store.readDocument(path, Compression.NONE),
             )
             assertTrue(checkNotNull(fileSystem.metadata(path).size) < 4_096L)
         } finally {
@@ -193,7 +193,7 @@ class SystemWorldStorageTest {
         try {
             val initialStore = WorldRegionStore(MinecraftWorldPaths(root))
             try {
-                initialStore.writeChunkNbt(
+                initialStore.writeChunkNbtDocument(
                     preservedPosition,
                     preservedDocument,
                     Compression.GZIP,
@@ -213,14 +213,14 @@ class SystemWorldStorageTest {
             )
             try {
                 access.writeLevelDataDocument(document)
-                access.writePlayerData(player, document)
-                access.writeSavedData("example:state/value", document)
+                access.writePlayerDataDocument(player, document)
+                access.writeSavedDataDocument("example:state/value", document)
                 access.writeStatisticsText(player, "{}")
                 access.writeAdvancementsText(player, "{\"done\":true}")
                 dimensions.forEachIndexed { dimensionIndex, dimension ->
                     RegionStorageDirectory.entries.forEach { storage ->
                         val value = dimensionIndex * RegionStorageDirectory.entries.size + storage.ordinal
-                        access.writeChunkNbt(
+                        access.writeChunkNbtDocument(
                             position = position,
                             document = systemDocument(value),
                             storage = storage,
@@ -242,10 +242,10 @@ class SystemWorldStorageTest {
             val reopened = MinecraftWorldAccess.open(root)
             try {
                 assertEquals(document, reopened.readLevelDataDocument())
-                assertEquals(document, reopened.readPlayerData(player))
+                assertEquals(document, reopened.readPlayerDataDocument(player))
                 assertEquals(
                     document,
-                    reopened.readSavedData("example:state/value"),
+                    reopened.readSavedDataDocument("example:state/value"),
                 )
                 assertEquals("{}", reopened.readStatisticsText(player))
                 assertEquals(
@@ -258,7 +258,7 @@ class SystemWorldStorageTest {
                 )
                 assertEquals(
                     preservedDocument,
-                    reopened.readChunkNbt(preservedPosition),
+                    reopened.readChunkNbtDocument(preservedPosition),
                 )
                 dimensions.forEachIndexed { dimensionIndex, dimension ->
                     RegionStorageDirectory.entries.forEach { storage ->
@@ -273,7 +273,7 @@ class SystemWorldStorageTest {
                         )
                         assertEquals(
                             systemDocument(value),
-                            reopened.readChunkNbt(
+                            reopened.readChunkNbtDocument(
                                 position,
                                 storage,
                                 dimension,
@@ -350,14 +350,14 @@ class SystemWorldStorageTest {
         val second = systemDocument(2)
         try {
             val store = PlayerDataStore(paths)
-            store.write(player, first)
-            store.write(player, second)
+            store.writeDocument(player, first)
+            store.writeDocument(player, second)
             fileSystem.writeSystemBytes(
                 paths.playerData(player),
                 byteArrayOf(1, 2, 3),
             )
 
-            assertEquals(first, store.read(player))
+            assertEquals(first, store.readDocument(player))
             assertTrue(
                 fileSystem.list(checkNotNull(paths.playerData(player).parent))
                     .any {

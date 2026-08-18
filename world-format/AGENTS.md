@@ -22,6 +22,10 @@ representation, and NBT composition.
 - Chunk-NBT encoders select compression per operation. `RegionFileFormat` receives already-compressed `RegionChunk`
   values, records each chunk's own registration, and never chooses or changes their compression.
 - Callers can inspect or repack a region without inflating preserved compressed payloads.
+- `ChunkPosition.region` and `ChunkPosition.local` own unchecked absolute decomposition;
+  `RegionPosition.local(ChunkPosition)` owns checked absolute-to-local conversion, `RegionPosition.chunk` owns the
+  inverse, and `ChunkPosition in RegionPosition` owns membership. Preserve floor semantics for negative coordinates and
+  keep filesystem layers dependent on these canonical conversions rather than duplicating the arithmetic.
 - Sector, version, compression, checksum, and external-chunk behavior match the selected official server.
 - Parsing rejects overlaps, truncation, overflow, invalid versions, checksum failures, and intrinsic framing or field
   length violations. It does not impose a policy-sized region, chunk, or decompressed-output ceiling.

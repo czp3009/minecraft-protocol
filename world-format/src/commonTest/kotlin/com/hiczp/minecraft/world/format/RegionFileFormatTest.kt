@@ -5,6 +5,7 @@ import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.*
+import kotlinx.serialization.Serializable
 import kotlin.random.Random
 import kotlin.test.*
 
@@ -22,18 +23,26 @@ class RegionFileFormatTest {
 
     @Test
     fun mapsNegativeChunkCoordinatesWithFloorDivision() {
+        val negativeRegion = RegionPosition(-1, -1)
+        val negativeChunk = ChunkPosition(-1, -1)
         assertEquals(
-            RegionPosition(-1, -1),
-            ChunkPosition(-1, -1).region,
+            negativeRegion,
+            negativeChunk.region,
         )
         assertEquals(
             LocalChunkPosition(31, 31),
-            ChunkPosition(-1, -1).local,
+            negativeChunk.local,
         )
         assertEquals(
-            ChunkPosition(-1, -1),
-            RegionPosition(-1, -1).chunk(LocalChunkPosition(31, 31)),
+            negativeChunk,
+            negativeRegion.chunk(LocalChunkPosition(31, 31)),
         )
+        assertTrue(negativeChunk in negativeRegion)
+        assertEquals(LocalChunkPosition(31, 31), negativeRegion.local(negativeChunk))
+        assertFalse(ChunkPosition(0, 0) in negativeRegion)
+        assertFailsWith<IllegalArgumentException> {
+            negativeRegion.local(ChunkPosition(0, 0))
+        }
         assertEquals(
             RegionPosition(-2, 1),
             ChunkPosition(-33, 63).region,
@@ -391,6 +400,30 @@ class RegionFileFormatTest {
                 format.decodeFromSource(stream, compression),
             )
             assertTrue(stream.exhausted())
+        }
+    }
+
+    @Test
+    fun typedChunkNbtUsesTheSameUnnamedRootAsDocuments() = runTest {
+        val expected = TypedChunkNbt(4_000, "ready")
+        val format = RegionChunkNbtFormat()
+
+        for (compression in listOf(Compression.GZIP, Compression.ZLIB, Compression.NONE, Compression.LZ4)) {
+            val typedChunk = format.encode(TypedChunkNbt.serializer(), expected, compression)
+            val document = format.decode(typedChunk)
+            assertEquals(expected, format.decode(TypedChunkNbt.serializer(), typedChunk))
+
+            val documentChunk = format.encode(document, compression)
+            assertEquals(expected, format.decode(TypedChunkNbt.serializer(), documentChunk))
+
+            val stream = Buffer()
+            format.encodeToSink(TypedChunkNbt.serializer(), expected, compression, stream)
+            assertEquals(document, format.decodeFromSource(stream, compression))
+            assertTrue(stream.exhausted())
+        }
+
+        assertFailsWith<IllegalArgumentException> {
+            RegionChunkNbtFormat(NbtFormat)
         }
     }
 
@@ -1153,5 +1186,11 @@ class RegionFileFormatTest {
             source.skip(compressedLength.toLong())
         }
     }
+
+    @Serializable
+    private data class TypedChunkNbt(
+        val dataVersion: Int,
+        val status: String,
+    )
 
 }

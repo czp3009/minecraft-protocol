@@ -4,10 +4,10 @@ import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.nbt.NbtTagTreeSerializer
-import com.hiczp.minecraft.world.format.LevelDat
-import com.hiczp.minecraft.world.format.PlayerAdvancements
-import com.hiczp.minecraft.world.format.PlayerStatistics
+import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.test.runTest
+import kotlinx.io.readString
+import kotlinx.io.writeString
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonElement
@@ -29,6 +29,9 @@ class TypedWorldFilesTest {
             files = WorldFileAccess.mutable(fileSystem),
         )
         val player = "00000000-0000-0000-0000-000000000000"
+        val region = RegionPosition(0, -1)
+        val localChunk = LocalChunkPosition(3, 30)
+        val chunk = region.chunk(localChunk)
         val level = testLevelDat()
         val statistics = typedStatistics()
         val advancements = typedAdvancements()
@@ -41,6 +44,43 @@ class TypedWorldFilesTest {
             )
             assertIs<NbtCompound>(levelRoot["Data"])
 
+            world.writePlayerData(player, LevelDat.serializer(), level)
+            assertEquals(level, world.readPlayerData(player, LevelDat.serializer()))
+            assertIs<NbtCompound>(world.readPlayerDataDocument(player)?.root)
+
+            world.writeSavedData("example:typed", LevelDat.serializer(), level, DimensionDirectory.Overworld)
+            assertEquals(
+                level,
+                world.readSavedData("example:typed", LevelDat.serializer(), DimensionDirectory.Overworld),
+            )
+            assertIs<NbtCompound>(world.readSavedDataDocument("example:typed", DimensionDirectory.Overworld)?.root)
+
+            world.writeChunkNbt(
+                region,
+                localChunk,
+                LevelDat.serializer(),
+                level,
+                Compression.NONE,
+                RegionStorageDirectory.CHUNKS,
+                DimensionDirectory.Overworld,
+            )
+            assertEquals(
+                level,
+                world.readChunkNbt(
+                    chunk,
+                    LevelDat.serializer(),
+                    RegionStorageDirectory.CHUNKS,
+                    DimensionDirectory.Overworld,
+                ),
+            )
+            assertIs<NbtCompound>(
+                world.readChunkNbtDocument(
+                    chunk,
+                    RegionStorageDirectory.CHUNKS,
+                    DimensionDirectory.Overworld,
+                )?.root,
+            )
+
             world.writeStatistics(player, PlayerStatistics.serializer(), statistics)
             assertEquals(statistics, world.readStatistics(player, PlayerStatistics.serializer()))
             assertEquals(
@@ -52,7 +92,10 @@ class TypedWorldFilesTest {
                     )
                 },
             )
-            assertEquals(world.readStatisticsText(player), world.readStatistics(player) { readUtf8() })
+            assertEquals(
+                world.readStatisticsText(player),
+                world.readStatistics(player) { source -> source.readString() },
+            )
 
             world.writeAdvancements(player, PlayerAdvancements.serializer(), advancements)
             assertEquals(advancements, world.readAdvancements(player, PlayerAdvancements.serializer()))
@@ -63,8 +106,8 @@ class TypedWorldFilesTest {
             )
             assertEquals(advancements, world.readAdvancements(player, PlayerAdvancements.serializer()))
             val advancementText = world.readAdvancementsText(player)
-            world.writeAdvancements(player) {
-                writeUtf8(advancementText)
+            world.writeAdvancements(player) { sink ->
+                sink.writeString(advancementText)
             }
             assertEquals(advancements, world.readAdvancements(player, PlayerAdvancements.serializer()))
         } finally {
@@ -80,16 +123,33 @@ class TypedWorldFilesTest {
         val nbtFiles = NbtFileStore(fileSystem)
         val jsonFiles = Utf8JsonFileStore(fileSystem)
         val player = "00000000-0000-0000-0000-000000000000"
+        val region = RegionPosition(0, -1)
+        val localChunk = LocalChunkPosition(3, 30)
+        val chunk = region.chunk(localChunk)
         val level = testLevelDat()
         val statistics = typedStatistics()
         val advancements = typedAdvancements()
         LevelDataStore(paths, nbtFiles).write(LevelDat.serializer(), level)
+        PlayerDataStore(paths, nbtFiles).write(player, LevelDat.serializer(), level)
+        SavedDataFileStore(paths, nbtFiles = nbtFiles).write("example:typed", LevelDat.serializer(), level)
+        val regions = WorldRegionStore(paths, fileSystem = fileSystem)
+        try {
+            regions.writeChunkNbt(chunk, LevelDat.serializer(), level, Compression.NONE)
+        } finally {
+            regions.close()
+        }
         jsonFiles.writeJson(paths.statistics(player), PlayerStatistics.serializer(), statistics)
         jsonFiles.writeJson(paths.advancement(player), PlayerAdvancements.serializer(), advancements)
 
         val reader = LiveMinecraftWorldReader.open(paths.root, fileSystem)
         assertEquals(level, reader.readLevelData(LevelDat.serializer()))
         assertEquals(level, reader.readLevelData<LevelDat>())
+        assertEquals(level, reader.readPlayerData(player, LevelDat.serializer()))
+        assertEquals(level, reader.readPlayerData<LevelDat>(player))
+        assertEquals(level, reader.readSavedData("example:typed", LevelDat.serializer()))
+        assertEquals(level, reader.readSavedData<LevelDat>("example:typed"))
+        assertEquals(level, reader.readChunkNbt(chunk, LevelDat.serializer()))
+        assertEquals(level, reader.readChunkNbt<LevelDat>(region, localChunk))
         assertEquals(statistics, reader.readStatistics(player, PlayerStatistics.serializer()))
         assertEquals(statistics, reader.readStatistics<PlayerStatistics>(player))
         assertEquals(advancements, reader.readAdvancements(player, PlayerAdvancements.serializer()))
