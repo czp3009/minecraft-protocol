@@ -23,11 +23,15 @@ data class MinecraftClientConfiguration(
     val storedCookies: Map<Identifier, ByteString>,
 )
 
+/**
+ * Client-side negotiation facts. The installed, potentially replaceable registry context remains
+ * connection state: [MinecraftClientConnection.registries] holds its authoritative value once
+ * negotiation reaches Play.
+ */
 data class MinecraftClientNegotiationResult(
     val login: LoginSuccessPacket,
     val configuration: MinecraftClientConfiguration,
     val playLogin: PlayLoginPacket,
-    val registries: ProtocolRegistryContext,
     val profile: NegotiationProfileResult,
 )
 
@@ -74,6 +78,12 @@ class MinecraftClientNegotiationOptions(
     }
 }
 
+/**
+ * Runs one status exchange on a fresh Handshake connection: Handshake into Status, one
+ * request/response, one ping/pong. Status has no continuation after the pong; this method does not
+ * close the local connection, which remains the caller's responsibility whether or not the peer
+ * closes first.
+ */
 suspend fun MinecraftClientConnection.queryStatus(
     pingPayload: Long = 0,
 ): MinecraftStatusExchange {
@@ -102,6 +112,13 @@ suspend fun MinecraftClientConnection.queryStatus(
  * Runs the preset negotiation while exclusively borrowing [incoming] and
  * [outgoing]. Callers must not concurrently receive or send until this method
  * returns. The implementation uses only this connection's public API.
+ *
+ * On return the open connection has reached Play with the negotiated registry context installed
+ * in [MinecraftClientConnection.registries]; further traffic and closing then belong to the
+ * caller. Failures raised by this library, including server rejections and
+ * [MinecraftClientTransferException] (whose host and port describe the reconnection target),
+ * leave the connection open for the caller to close. Wire and pump failures surface as their
+ * original exception with the connection already terminated; only closing remains.
  */
 suspend fun MinecraftClientConnection.negotiate(
     identity: MinecraftIdentity,
@@ -268,17 +285,16 @@ suspend fun MinecraftClientConnection.negotiate(
         }
         when (val packet = incoming.receive()) {
             is PlayLoginPacket -> {
+                val context = checkNotNull(resolvedContext) {
+                    "Configuration did not resolve registry context"
+                }
                 val activeContext = configureActiveDimension(
-                    resolvedContext
-                        ?: throw MinecraftClientException(
-                            "Configuration did not resolve registry context",
-                        ),
+                    context,
                     registryPackets,
                     packet,
                     options.protocolData,
                 )
                 installRegistryContext(activeContext)
-                resolvedContext = activeContext
                 playLogin = packet
             }
 
@@ -305,10 +321,6 @@ suspend fun MinecraftClientConnection.negotiate(
             storedCookies.toMap(),
         ),
         playLogin = actualPlayLogin,
-        registries = resolvedContext
-            ?: throw MinecraftClientException(
-                "Play Login did not install registry context",
-            ),
         profile = profileResult,
     )
 }

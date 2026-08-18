@@ -8,25 +8,37 @@ import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.session.NegotiationProfileResult
 import com.hiczp.minecraft.protocol.session.ServerNegotiationProfile
 import com.hiczp.minecraft.protocol.session.VanillaServer
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
-sealed interface MinecraftServerNegotiationResult {
-    data object StatusCompleted : MinecraftServerNegotiationResult
-
-    data class PlayReady(
-        val profile: GameProfile,
-        val clientInformation: ClientInformation,
-        val acceptedKnownPacks: List<KnownPack>,
-        val login: PlayLoginPacket,
-        val registries: ProtocolRegistryContext,
-        val negotiationProfile: NegotiationProfileResult,
-        val transferred: Boolean = false,
-    ) : MinecraftServerNegotiationResult
-}
+/**
+ * Facts produced when the peer completes Login and Configuration negotiation.
+ * [login] is the exact Play Login packet sent at the end of that successful transition, while
+ * [MinecraftServerConnection.registries] remains the connection's authoritative mutable registry
+ * context.
+ */
+data class MinecraftServerPlayReady(
+    val profile: GameProfile,
+    val clientInformation: ClientInformation,
+    val acceptedKnownPacks: List<KnownPack>,
+    val login: PlayLoginPacket,
+    val negotiationProfile: NegotiationProfileResult,
+    val transferred: Boolean = false,
+)
 
 /**
  * Runs the preset negotiation while exclusively borrowing [MinecraftServerConnection.incoming]
  * and [MinecraftServerConnection.outgoing]. Callers must not concurrently
  * receive or send until this method returns.
+ *
+ * Returns null when a non-login connection (a status ping) was answered and closed completely
+ * before returning; the caller has nothing left to do. A returned [MinecraftServerPlayReady]
+ * means the open connection reached Play, contains the exact Play Login in
+ * [MinecraftServerPlayReady.login], and has the negotiated registry context installed; further
+ * traffic and closing then belong to the caller. Negotiation failures raised by this library,
+ * such as [MinecraftLoginRejectedException], leave the connection open so the caller may send the
+ * rejection's failure packet explicitly before closing. Wire and pump failures surface as their
+ * original exception with the connection already terminated; only closing remains.
  */
 suspend fun MinecraftServerConnection.negotiate(
     profile: ServerNegotiationProfile = VanillaServer,
@@ -34,7 +46,7 @@ suspend fun MinecraftServerConnection.negotiate(
         MinecraftServerNegotiationOptions(),
     policy: MinecraftServerNegotiationPolicy =
         DefaultMinecraftServerNegotiationPolicy,
-): MinecraftServerNegotiationResult {
+): MinecraftServerPlayReady? {
     require(
         state == ConnectionState.HANDSHAKE ||
                 state == ConnectionState.STATUS ||
@@ -60,10 +72,7 @@ suspend fun MinecraftServerConnection.negotiate(
             if (transferred && !options.acceptsTransfers) {
                 throw MinecraftLoginRejectedException(
                     reason = JsonTextComponent(
-                        textComponentJson(
-                            "translate",
-                            "multiplayer.disconnect.transfers_disabled",
-                        ),
+                        buildJsonObject { put("translate", "multiplayer.disconnect.transfers_disabled") }.toString(),
                     ),
                     message = "Transfer connections are disabled by configuration",
                 )
@@ -73,9 +82,7 @@ suspend fun MinecraftServerConnection.negotiate(
             if (actualVersion != expectedVersion) {
                 val message = "Unsupported protocol version $actualVersion; expected $expectedVersion"
                 throw MinecraftLoginRejectedException(
-                    reason = JsonTextComponent(
-                        textComponentJson("text", message),
-                    ),
+                    reason = JsonTextComponent(buildJsonObject { put("text", message) }.toString()),
                     message = message,
                 )
             }
@@ -91,7 +98,7 @@ suspend fun MinecraftServerConnection.negotiate(
 private suspend fun MinecraftServerConnection.handleStatus(
     options: MinecraftServerNegotiationOptions,
     policy: MinecraftServerNegotiationPolicy,
-): MinecraftServerNegotiationResult {
+): MinecraftServerPlayReady? {
     requirePacket<StatusRequestPacket>(incoming.receive())
     outgoing.send(
         StatusResponsePacket(
@@ -105,7 +112,7 @@ private suspend fun MinecraftServerConnection.handleStatus(
     outgoing.send(StatusPongResponsePacket(ping.timestamp))
     outgoing.close()
     awaitClosed()
-    return MinecraftServerNegotiationResult.StatusCompleted
+    return null
 }
 
 private suspend fun MinecraftServerConnection.handleLogin(
@@ -113,7 +120,7 @@ private suspend fun MinecraftServerConnection.handleLogin(
     profile: ServerNegotiationProfile,
     options: MinecraftServerNegotiationOptions,
     policy: MinecraftServerNegotiationPolicy,
-): MinecraftServerNegotiationResult.PlayReady {
+): MinecraftServerPlayReady {
     val start = awaitLoginPacket<LoginStartPacket>(profile, options, policy)
     val gameProfile = authenticate(start, profile, options, policy)
     val rejection = policy.profileRejection(
@@ -212,12 +219,11 @@ private suspend fun MinecraftServerConnection.handleLogin(
     outgoing.send(login)
     playLogin = login
     val profileResult = profile.complete(this)
-    return MinecraftServerNegotiationResult.PlayReady(
+    return MinecraftServerPlayReady(
         profile = gameProfile,
         clientInformation = clientInformation,
         acceptedKnownPacks = acceptedKnownPacks,
         login = login,
-        registries = registryContext,
         negotiationProfile = profileResult,
         transferred = transferred,
     )

@@ -116,10 +116,7 @@ class MinecraftServerProtocolTest {
             )
             pair.client.send(StatusPingRequestPacket(42))
             assertEquals(StatusPongResponsePacket(42), pair.client.receive())
-            assertEquals(
-                MinecraftServerNegotiationResult.StatusCompleted,
-                negotiation.await(),
-            )
+            assertNull(negotiation.await())
             assertFalse(pair.server.isOpen)
         } finally {
             pair.close()
@@ -139,25 +136,23 @@ class MinecraftServerProtocolTest {
             pair.client.send(handshake(HandshakeNextState.LOGIN))
             pair.client.send(LoginStartPacket(identity.name, identity.id))
             val transcript = finishClientNegotiation(pair.client, options)
-            val result = assertIs<MinecraftServerNegotiationResult.PlayReady>(
-                negotiation.await(),
-            )
+            val result = assertNotNull(negotiation.await())
 
             assertEquals(identity.id, result.profile.id)
             assertEquals(transcript.login, result.profile)
             assertEquals(transcript.playLogin, result.login)
+            assertEquals(result.login, pair.server.playLogin)
             assertEquals(
                 PlayerGameMode.CREATIVE,
                 result.login.spawnInfo.gameMode,
             )
-            assertSame(result.registries, pair.server.registries)
             assertSame(
                 options.protocolData.registryContext.registries,
-                result.registries.registries,
+                pair.server.registries.registries,
             )
             assertSame(
                 options.protocolData.registryContext.blockStates,
-                result.registries.blockStates,
+                pair.server.registries.blockStates,
             )
         } finally {
             pair.close()
@@ -240,9 +235,7 @@ class MinecraftServerProtocolTest {
 
             pair.client.send(LoginStartPacket(identity.name, identity.id))
             finishClientNegotiation(pair.client, options)
-            assertIs<MinecraftServerNegotiationResult.PlayReady>(
-                negotiation.await(),
-            )
+            assertNotNull(negotiation.await())
         } finally {
             pair.close()
         }
@@ -291,9 +284,7 @@ class MinecraftServerProtocolTest {
                 assertEquals(ConfigurationPingPacket(91), client.receive())
                 client.send(ConfigurationPongPacket(91))
             }
-            assertIs<MinecraftServerNegotiationResult.PlayReady>(
-                negotiation.await(),
-            )
+            assertNotNull(negotiation.await())
         } finally {
             pair.close()
         }
@@ -360,9 +351,7 @@ class MinecraftServerProtocolTest {
                     pair.client,
                     options,
                 )
-                val result = assertIs<MinecraftServerNegotiationResult.PlayReady>(
-                    negotiation.await(),
-                )
+                val result = assertNotNull(negotiation.await())
 
                 assertEquals(profileId, transcript.login.id)
                 assertEquals(profileId, result.profile.id)

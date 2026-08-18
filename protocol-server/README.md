@@ -11,13 +11,9 @@ MinecraftServer.bind(selectorManager = selector).use { server ->
         val connection = server.accept()
         launch {
             connection.use {
-                when (val result = connection.negotiate()) {
-                    MinecraftServerNegotiationResult.StatusCompleted -> Unit
-                    is MinecraftServerNegotiationResult.PlayReady -> {
-                        for (packet in connection.incoming) {
-                            handlePlayPacket(connection, packet)
-                        }
-                    }
+                connection.negotiate() ?: return@use
+                for (packet in connection.incoming) {
+                    handlePlayPacket(connection, packet)
                 }
             }
         }
@@ -26,8 +22,10 @@ MinecraftServer.bind(selectorManager = selector).use { server ->
 ```
 
 The preset `negotiate` extension supports Status or Login, synchronizes `ProtocolDataSet`, installs the negotiated
-registry context, and returns a Play-ready connection. Applications can instead write their own complete negotiation
-with `incoming`, `outgoing`, `awaitState`, `installRegistryContext`, and `activateExtensionRoutes`.
+registry context, and returns `MinecraftServerPlayReady`. A status ping is answered and closed completely before
+`negotiate` returns null, so the caller has nothing left to do. A non-null result contains the exact Play Login and
+application-level negotiation facts; `connection.registries` is the authoritative installed registry context. The
+extension is the library's preset orchestration path over the same typed packet connection returned by `accept`.
 
 ## Shared definitions and modded profiles
 

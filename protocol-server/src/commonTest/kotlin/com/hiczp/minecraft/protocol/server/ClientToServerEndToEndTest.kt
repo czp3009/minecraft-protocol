@@ -62,20 +62,11 @@ class ClientToServerEndToEndTest {
                             .int,
                     )
                 }
-                assertEquals(
-                    MinecraftServerNegotiationResult.StatusCompleted,
-                    statusServer.await(),
-                )
+                assertNull(statusServer.await())
 
                 val playServer = async {
                     server.accept().use { connection ->
-                        val negotiationResult = connection.negotiate(
-                            options = options,
-                        )
-                        val negotiation =
-                            assertIs<MinecraftServerNegotiationResult.PlayReady>(
-                                negotiationResult,
-                            )
+                        val negotiation = assertNotNull(connection.negotiate(options = options))
                         val world = MinecraftInitialWorld.flatVanilla(
                             options = options,
                             chunkRadius = 0,
@@ -261,6 +252,6 @@ class ClientToServerEndToEndTest {
 }
 
 private data class ServerWorldOutcome(
-    val negotiation: MinecraftServerNegotiationResult.PlayReady,
+    val negotiation: MinecraftServerPlayReady,
     val synchronization: MinecraftInitialWorldSynchronization,
 )

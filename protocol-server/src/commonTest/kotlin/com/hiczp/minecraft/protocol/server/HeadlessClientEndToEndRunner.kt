@@ -115,127 +115,116 @@ internal object HeadlessClientEndToEndRunner {
                     throw failure
                 }
                 try {
-                    when (
-                        val negotiation = connection.negotiate(
-                            options = OPTIONS,
-                        )
-                    ) {
-                        MinecraftServerNegotiationResult.StatusCompleted -> {
-                            connection.close()
-                        }
-
-                        is MinecraftServerNegotiationResult.PlayReady -> {
-                            val pig = MinecraftEntitySnapshot(
-                                entityId = 2,
-                                uuid = Uuid.fromLongs(0, 2),
-                                type = Identifier("pig"),
-                                position = Vector3d(3.5, 65.0, 3.5),
-                            )
-                            val arrow = MinecraftEntitySnapshot(
-                                entityId = 3,
-                                uuid = Uuid.fromLongs(0, 3),
-                                type = Identifier("arrow"),
-                                position = Vector3d(2.5, 66.0, 2.5),
-                                velocity = Vector3d(0.05, 0.0, 0.0),
-                            )
-                            val minecart = MinecraftEntitySnapshot(
-                                entityId = 4,
-                                uuid = Uuid.fromLongs(0, 4),
-                                type = Identifier("minecart"),
-                                position = Vector3d(4.5, 65.0, 4.5),
-                            )
-                            val horse = MinecraftEntitySnapshot(
-                                entityId = 5,
-                                uuid = Uuid.fromLongs(0, 5),
-                                type = Identifier("horse"),
-                                position = Vector3d(5.5, 65.0, 5.5),
-                            )
-                            val world = MinecraftInitialWorld.flatVanilla(
-                                options = OPTIONS,
-                                entities = listOf(pig, arrow, minecart, horse),
-                            )
-                            val synchronization = connection.synchronizeInitialWorld(world)
-                            connection.outgoing.send(
-                                PlayClientboundKeepAlivePacket(
-                                    INITIAL_KEEP_ALIVE_ID,
-                                ),
-                            )
-                            val observed = mutableListOf<String>()
-                            var teleportAcknowledged = false
-                            var chunkBatchAcknowledged = false
-                            var keepAliveAcknowledged = false
-                            var clientTickObserved = false
-                            var initialPacketBudget = OPTIONS.maximumPacketsPerPhase
-                            while (
-                                initialPacketBudget-- > 0 &&
-                                !(
-                                        teleportAcknowledged &&
-                                                chunkBatchAcknowledged &&
-                                                keepAliveAcknowledged &&
-                                                clientTickObserved
-                                        )
-                            ) {
-                                val packet = connection.incoming.receive()
-                                observed +=
-                                    packet::class.simpleName ?: "<anonymous>"
-                                when (packet) {
-                                    is ConfirmTeleportationPacket ->
-                                        teleportAcknowledged =
-                                            packet.teleportId ==
-                                                    synchronization.teleportId
-
-                                    is ChunkBatchReceivedPacket ->
-                                        chunkBatchAcknowledged = true
-
-                                    is PlayServerboundKeepAlivePacket ->
-                                        keepAliveAcknowledged =
-                                            packet.id ==
-                                                    INITIAL_KEEP_ALIVE_ID
-
-                                    is ClientTickEndPacket ->
-                                        clientTickObserved = true
-
-                                    else -> Unit
-                                }
-                            }
-                            check(
+                    val ready = connection.negotiate(options = OPTIONS) ?: continue
+                    val pig = MinecraftEntitySnapshot(
+                        entityId = 2,
+                        uuid = Uuid.fromLongs(0, 2),
+                        type = Identifier("pig"),
+                        position = Vector3d(3.5, 65.0, 3.5),
+                    )
+                    val arrow = MinecraftEntitySnapshot(
+                        entityId = 3,
+                        uuid = Uuid.fromLongs(0, 3),
+                        type = Identifier("arrow"),
+                        position = Vector3d(2.5, 66.0, 2.5),
+                        velocity = Vector3d(0.05, 0.0, 0.0),
+                    )
+                    val minecart = MinecraftEntitySnapshot(
+                        entityId = 4,
+                        uuid = Uuid.fromLongs(0, 4),
+                        type = Identifier("minecart"),
+                        position = Vector3d(4.5, 65.0, 4.5),
+                    )
+                    val horse = MinecraftEntitySnapshot(
+                        entityId = 5,
+                        uuid = Uuid.fromLongs(0, 5),
+                        type = Identifier("horse"),
+                        position = Vector3d(5.5, 65.0, 5.5),
+                    )
+                    val world = MinecraftInitialWorld.flatVanilla(
+                        options = OPTIONS,
+                        entities = listOf(pig, arrow, minecart, horse),
+                    )
+                    val synchronization = connection.synchronizeInitialWorld(world)
+                    connection.outgoing.send(
+                        PlayClientboundKeepAlivePacket(
+                            INITIAL_KEEP_ALIVE_ID,
+                        ),
+                    )
+                    val observed = mutableListOf<String>()
+                    var teleportAcknowledged = false
+                    var chunkBatchAcknowledged = false
+                    var keepAliveAcknowledged = false
+                    var clientTickObserved = false
+                    var initialPacketBudget = OPTIONS.maximumPacketsPerPhase
+                    while (
+                        initialPacketBudget-- > 0 &&
+                        !(
                                 teleportAcknowledged &&
                                         chunkBatchAcknowledged &&
                                         keepAliveAcknowledged &&
-                                        clientTickObserved,
-                            ) {
-                                "Client did not complete initial-world acknowledgements; teleport=$teleportAcknowledged, chunkBatch=$chunkBatchAcknowledged, keepAlive=$keepAliveAcknowledged, clientTick=$clientTickObserved; observed ${observed.joinToString()}"
-                            }
+                                        clientTickObserved
+                                )
+                    ) {
+                        val packet = connection.incoming.receive()
+                        observed +=
+                            packet::class.simpleName ?: "<anonymous>"
+                        when (packet) {
+                            is ConfirmTeleportationPacket ->
+                                teleportAcknowledged =
+                                    packet.teleportId ==
+                                            synchronization.teleportId
 
-                            exercisePlayPackets(
-                                connection = connection,
-                                playerEntityId = negotiation.login.playerId,
-                                entity = pig,
-                                projectile = arrow,
-                                vehicle = minecart,
-                                horse = horse,
-                                nextTeleportId = synchronization.teleportId + 1,
-                                observed = observed,
-                            )
-                            exerciseRespawn(
-                                connection = connection,
-                                world = world.copy(
-                                    teleportId = world.teleportId + 2,
-                                ),
-                                observed = observed,
-                            )
-                            exerciseReconfiguration(
-                                connection = connection,
-                                world = world,
-                                observedPlayPackets = observed,
-                            )
-                            check(MinecraftTestSupport.isAlive(client)) {
-                                "Official client exited after protocol round-trip probes"
-                            }
-                            connection.close()
-                            completed = true
+                            is ChunkBatchReceivedPacket ->
+                                chunkBatchAcknowledged = true
+
+                            is PlayServerboundKeepAlivePacket ->
+                                keepAliveAcknowledged =
+                                    packet.id ==
+                                            INITIAL_KEEP_ALIVE_ID
+
+                            is ClientTickEndPacket ->
+                                clientTickObserved = true
+
+                            else -> Unit
                         }
                     }
+                    check(
+                        teleportAcknowledged &&
+                                chunkBatchAcknowledged &&
+                                keepAliveAcknowledged &&
+                                clientTickObserved,
+                    ) {
+                        "Client did not complete initial-world acknowledgements; teleport=$teleportAcknowledged, chunkBatch=$chunkBatchAcknowledged, keepAlive=$keepAliveAcknowledged, clientTick=$clientTickObserved; observed ${observed.joinToString()}"
+                    }
+
+                    exercisePlayPackets(
+                        connection = connection,
+                        playerEntityId = ready.login.playerId,
+                        entity = pig,
+                        projectile = arrow,
+                        vehicle = minecart,
+                        horse = horse,
+                        nextTeleportId = synchronization.teleportId + 1,
+                        observed = observed,
+                    )
+                    exerciseRespawn(
+                        connection = connection,
+                        world = world.copy(
+                            teleportId = world.teleportId + 2,
+                        ),
+                        observed = observed,
+                    )
+                    exerciseReconfiguration(
+                        connection = connection,
+                        world = world,
+                        observedPlayPackets = observed,
+                    )
+                    check(MinecraftTestSupport.isAlive(client)) {
+                        "Official client exited after protocol round-trip probes"
+                    }
+                    connection.close()
+                    completed = true
                 } catch (failure: Throwable) {
                     connection.close()
                     throw failure

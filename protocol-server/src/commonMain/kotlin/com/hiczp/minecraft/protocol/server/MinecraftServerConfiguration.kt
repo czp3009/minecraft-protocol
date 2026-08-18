@@ -12,9 +12,7 @@ import kotlinx.io.readString
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.io.encodeToSink
-import kotlinx.serialization.json.put
 import kotlin.random.Random
 import kotlin.uuid.Uuid
 
@@ -138,9 +136,6 @@ data class MinecraftServerNegotiationOptions(
         const val MAX_VIEW_DISTANCE: Int = 32
     }
 }
-
-internal fun textComponentJson(key: String, value: String): String =
-    buildJsonObject { put(key, value) }.toString()
 
 @Serializable
 private data class ServerStatus(

@@ -75,7 +75,7 @@ SelectorManager(Dispatchers.Default).use { selector ->
 Or log in and enter Play, then take over the packet loop:
 
 ```kotlin
-val result = connection.negotiate(MinecraftOfflineIdentity("Player"))
+connection.negotiate(MinecraftOfflineIdentity("Player"))
 for (packet in connection.incoming) {
   handlePlayPacket(packet)
 }
@@ -89,13 +89,9 @@ MinecraftServer.bind(selectorManager = selector).use { server ->
     val connection = server.accept()
     launch {
       connection.use {
-        when (val result = connection.negotiate()) {
-          MinecraftServerNegotiationResult.StatusCompleted -> Unit
-          is MinecraftServerNegotiationResult.PlayReady -> {
-            for (packet in connection.incoming) {
-              handlePlayPacket(connection, packet)
-            }
-          }
+        connection.negotiate() ?: return@use
+        for (packet in connection.incoming) {
+          handlePlayPacket(connection, packet)
         }
       }
     }
