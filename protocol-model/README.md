@@ -9,7 +9,9 @@ The module provides:
 - sealed variants and logical `kotlinx.serialization` serializers for conditional protocol shapes;
 - open direction-specific packet extension branches plus lossless `PacketRoute`/`UnknownPacket` values;
 - immutable static, remote, and resolved registry models for dynamic block-state and registry IDs;
-- wire-hint annotations interpreted by [`protocol-serialization`](../protocol-serialization/README.md).
+- wire-hint annotations interpreted by [`protocol-serialization`](../protocol-serialization/README.md);
+- packet and data-component identity annotations, validated at compile time and generated into dispatch tables by the
+  private [`protocol-symbol-processor`](../protocol-symbol-processor/README.md).
 
 Models contain values and invariants; binary byte layout is supplied by a `kotlinx.serialization` format such as
 `MinecraftProtocolFormat`. For example, a Status handshake and request are ordinary model values—this module does not
