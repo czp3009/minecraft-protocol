@@ -63,7 +63,9 @@ client orchestration 与 TCP-specific connection factory 分开配置。
 - `protocol-transport` 的 Web zlib 由 Kompress 提供，理论上可复用到浏览器，但尚未经过本方案的浏览器目标验证。
 - `protocol-auth` 已配置 JS/WasmJS browser target，并通过 internal node-forge backend 实现浏览器 Login RSA；这不提供
   browser socket carrier 或 AES-CFB8。
-- `protocol-session` 的核心公共 API 实际依赖 `MinecraftFrameStream`，但其当前构建和文档仍将它视为 TCP-only。
+- `protocol-session` 的公共契约已重构为 channel-first 的 `MinecraftPacketConnection`/`MinecraftConnectionDefinition`；其
+  `MinecraftConnectionEngine` 内部经 `MinecraftSession` 依赖 `MinecraftFrameStream`。模块仍未配置 browser target，
+  `protocol-session/AGENTS.md` 仍以 “public session contract requires TCP transport” 为由排除 browser。
 
 ### 2.3 正确的 wire transform 顺序
 
@@ -334,8 +336,11 @@ sequenceDiagram
     P ->> S: unchanged ciphertext bytes
 ```
 
-现有客户端顺序是先 `session.send(EncryptionResponse)`，成功后再 `session.enableEncryption(sharedSecret)`；该
-顺序应保留。WebSocket pump 可以改变物理 chunk 边界，但不能改变 channel 内的字节顺序。
+现有客户端顺序已是 arm/commit 两段式：`MinecraftClientProtocol` 先调用 `prepareOutboundEncryption(sharedSecret)`， 再把
+`EncryptionResponsePacket` 写入 outgoing channel；writer pump 经 `MinecraftFrameStream.sendPacketDataAndCommit`
+在明文 response 完全 flush 后才提交 `frames.enableEncryption`，并通过 `inboundEncryptionActivation` 发布入站加密已激活
+（server reader 在其上等待第一个加密帧）。该边界语义应保留。WebSocket pump 可以改变物理 chunk 边界，但不能改变 channel
+内的字节顺序。
 
 Set Compression 仍由 `protocol-session` 在收到对应 packet 后激活；代理不参与压缩切换。
 
@@ -360,6 +365,9 @@ protocol-client
     -> protocol-session + protocol-auth
 ```
 
+当前 `protocol-client` 还因 TCP `connect` 工厂直接以 `api` 依赖 `protocol-transport`（此外还有 `protocol-model`、
+`protocol-vanilla-data` 与 Ktor）；carrier 拆分后 TCP socket 装配应随 TCP capability 移动，浏览器装配不应经由该 TCP 工厂。
+
 代理是外部独立服务，不依赖任何上述模块。
 
 ### 8.2 `protocol-transport` 可能需要的整理
@@ -373,18 +381,22 @@ protocol-client
 - 保留 Node source set 对 Node `crypto` 的调用，不因为 browser 支持而降低 Node 实现；
 - browser AES npm 包保持 `implementation`，不泄漏到公共 ABI。
 
-是否需要新建 `protocol-transport-core` 尚未决定。优先评估在现有模块内通过 source-set capability 分层完成，
-避免无必要的模块迁移和发布兼容破坏。
+是否需要新建 `protocol-transport-core` 尚未决定。优先评估在现有模块内通过 source-set capability 分层完成；
+仓库处于早期阶段、不要求发布兼容，模块拆分与否只取决于最终结构的清晰度。
 
 ### 8.3 `protocol-session` 和 `protocol-client`
 
-- `protocol-session` 的核心依赖是 `MinecraftFrameStream`，理论上可增加 browser target；需要同步修改其当前 “public contract
-  requires TCP” 的文档和验证假设。
-- `MinecraftClientProtocol` 已经只依赖 `MinecraftSession`，适合作为 transport-neutral orchestration 保留。
-- `MinecraftClientConnection` 和其公开 `Socket` 属性是 TCP-specific，应放入 TCP capability source set，或由
-  transport-neutral connection facade 替代。
-- 第一阶段不必立即提供浏览器 convenience connection class；浏览器代码可以先显式装配 WebSocket frames、
-  `MinecraftSession` 和 `MinecraftClientProtocol`，待接口稳定后再增加便利 API。
+- `protocol-session` 的 channel-first 公共契约（`MinecraftPacketConnection`/`MinecraftConnectionDefinition`）不直接暴露
+  socket；其 `MinecraftConnectionEngine` 经 `MinecraftSession` 依赖 `MinecraftFrameStream`，理论上可增加 browser
+  target。需要同步修改其当前 “public session contract requires TCP transport” 的文档和验证假设。
+- `MinecraftClientProtocol` 的 `queryStatus`/`negotiate` 等扩展函数已经只通过 `MinecraftClientConnection` 暴露的公共
+  channel 契约工作，不直接接触 `MinecraftSession` 或 frame stream，适合作为 transport-neutral orchestration 保留。
+- `MinecraftClientConnection` 已不再公开 `Socket` 或 frame stream；实例是 transport-neutral facade（internal constructor
+  包裹 `MinecraftPacketConnection` 与 `serverAddress`/`serverPort`）。TCP-specific 的只剩 companion `connect` 工厂， 它直接创建
+  Ktor TCP socket 并装配 `MinecraftTransport`。
+- 第一阶段浏览器代码不能直接构造 `MinecraftClientConnection`（internal constructor），也不能把 `MinecraftSession` 直接 交给
+  `MinecraftClientProtocol` 扩展；需要为浏览器提供等价的 connection 工厂（由 WebSocket carrier 构造
+  `MinecraftFrameStream` + `MinecraftConnectionEngine`），或公开 transport-neutral 构造路径，待接口稳定后再增加便利 API。
 
 ### 8.4 `protocol-auth`
 
@@ -474,7 +486,8 @@ protocol-client
 - aes-js 在真实浏览器和大量 chunk/registry 流量下的吞吐是否足够。
 - Kompress 的 browser compression/decompression 性能和边界行为。
 - `protocol-auth` 的现有 client/server key-exchange API 在 Kotlin/WasmJS browser bundle 中是否保持与 Kotlin/JS 等价。
-- TCP-only convenience API 如何移动 source set 而不造成不必要的发布兼容破坏。
+- TCP-only convenience API（`MinecraftTransport` 与 `MinecraftClientConnection.connect` 工厂）如何移动到 TCP capability
+  source set；仓库处于早期阶段、不要求发布兼容，应优先选择最简洁的最终结构而非兼容垫片。
 - dynamic upstream control plane 的具体协议。
 - WebSocket proxy URL、TCP upstream 地址与 Minecraft Handshake 地址之间的配置和一致性规则。
 - 浏览器专用端到端验证如何接入现有 Fixture Host，而不违反标准 task 和资源所有权规则。
