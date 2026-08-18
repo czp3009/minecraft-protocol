@@ -32,7 +32,7 @@ KSP, model declarations, loaders, codecs, and tests remain handwritten.
 | Login, Configuration, Play, transfer, or reconfiguration ordering changed                                      | `minecraft-protocol-flow`          | model and serialization for affected packets                                                |
 | tag algebra, list rules, root forms, modified UTF, or binary NBT changed                                       | `minecraft-nbt`                    | protocol serialization and/or world format consumers                                        |
 | region header, sector, compression identifier, external-chunk marker, or region-record NBT composition changed | `minecraft-world-format`           | `minecraft-world-io` for disk interoperability                                              |
-| dimension path, standalone file, backup, lock, sidecar, or region lifecycle changed                            | `minecraft-world-io`               | NBT and world format as required                                                            |
+| standalone-file schema/model/serializer, dimension path, backup, lock, sidecar, or region lifecycle changed    | `minecraft-world-io`               | NBT and world format as required                                                            |
 | KSP packet-report validation or source-derived dispatch generation changed                                     | `minecraft-protocol-model`         | `protocol-symbol-processor`                                                                 |
 | official packet or NBT oracle bridge no longer compiles or loads                                               | packet serialization or NBT skill  | `minecraft-test-fixture-host`                                                               |
 | official server/client preparation fails before a protocol or world assertion                                  | affected flow or world-I/O skill   | `buildSrc` and fixture modules                                                              |
@@ -73,7 +73,8 @@ unchanged. Work through the current handwritten inventory:
 4. trace every implemented Status, Login, Configuration, Play-entry, transfer, and reconfiguration branch against both
    peers;
 5. inspect NBT, physical transport, Anvil, and world-file entry points wherever selected-release evidence can affect
-   their formats, limits, activation, or paths;
+   their formats, limits, activation, or paths; reconcile every provided standalone-file model and serializer with the
+   current official schema even when compilation still succeeds;
 6. distinguish product failures from KSP, official-oracle, artifact-preparation, and Fixture Host compatibility failures
    before editing;
 7. run focused lower-layer tests before official-peer and applicable platform tests.

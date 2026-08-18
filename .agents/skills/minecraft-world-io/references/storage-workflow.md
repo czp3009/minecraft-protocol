@@ -21,6 +21,8 @@ mapping deterministic and reject unsafe path components.
 For each official file family, establish:
 
 - binary NBT, JSON, or another structured format;
+- the exact selected-release root and field schema, including field names, types, presence conditions, nullability,
+  defaults, dynamic identifiers, and intentionally raw subtrees;
 - compression wrapper and detection behavior;
 - absent-file result;
 - format-intrinsic length fields and confirmation that no policy-sized read or decompression ceiling is added;
@@ -30,6 +32,11 @@ For each official file family, establish:
 
 Use the maintained structured-data library for JSON and the NBT modules for binary NBT. Do not hand-escape structured
 formats or parse NBT in this module.
+
+Reconcile every library-provided serializable standalone-file model and custom serializer against those facts during a
+Minecraft release update. A field the selected release always writes is required and non-null without a compatibility
+default. Remove or reshape stale declarations instead of preserving an older schema, unless the task explicitly adds
+historical compatibility. Verify both direct serializer use and official generate/rewrite/reload behavior.
 
 ## Audit region stores
 

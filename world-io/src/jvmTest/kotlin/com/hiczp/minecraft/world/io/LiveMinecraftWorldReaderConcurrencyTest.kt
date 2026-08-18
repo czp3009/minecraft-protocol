@@ -157,8 +157,10 @@ class LiveMinecraftWorldReaderConcurrencyTest {
         val base = concurrencyFakeFileSystem()
         base.createDirectories(root)
         val reader = LiveMinecraftWorldReader.open(root, base)
+        val firstLocalPosition = LocalChunkPosition(0, 0)
         repeat(2_048) { index ->
-            assertEquals(null, reader.readChunk(ChunkPosition(index * 32, 0)))
+            val position = RegionPosition(index, 0).chunk(firstLocalPosition)
+            assertEquals(null, reader.readChunk(position))
         }
         base.checkNoOpenFiles()
     }

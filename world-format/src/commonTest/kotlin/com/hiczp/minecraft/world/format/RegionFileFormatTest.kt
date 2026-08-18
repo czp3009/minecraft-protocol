@@ -74,6 +74,22 @@ class RegionFileFormatTest {
     }
 
     @Test
+    fun enumeratesEveryRegionChunkPositionInHeaderOrder() {
+        val region = RegionPosition(-2, 1)
+        val positions = region.chunkPositions().toList()
+
+        assertEquals(REGION_CHUNK_COUNT, positions.size)
+        positions.forEachIndexed { index, position ->
+            val local = LocalChunkPosition.fromIndex(index)
+            assertEquals(region.chunk(local), position)
+            assertEquals(region, position.region)
+            assertEquals(local, position.local)
+        }
+        assertEquals(ChunkPosition(-64, 32), positions.first())
+        assertEquals(ChunkPosition(-33, 63), positions.last())
+    }
+
+    @Test
     fun roundTripsInlineChunksAndHeaderMetadata() {
         val firstPosition = LocalChunkPosition(0, 0)
         val lastPosition = LocalChunkPosition(31, 31)

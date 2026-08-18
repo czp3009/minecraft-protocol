@@ -1,4 +1,4 @@
 interface:
   display_name: "Minecraft World I/O"
-  short_description: "Implement and verify Minecraft world filesystem behavior"
-  default_prompt: "Use $minecraft-world-io to implement or audit Minecraft world filesystem storage."
+  short_description: "Verify Minecraft world-file schemas and filesystem behavior"
+  default_prompt: "Use $minecraft-world-io to implement or audit Minecraft world-file schemas and filesystem storage."

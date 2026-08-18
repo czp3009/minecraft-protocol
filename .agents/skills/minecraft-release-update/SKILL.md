@@ -40,7 +40,15 @@ Read only the affected leaf skills completely:
 - session, client, and server lifecycle: `../minecraft-protocol-flow/SKILL.md`;
 - NBT value or binary semantics: `../minecraft-nbt/SKILL.md`;
 - filesystem-independent Anvil formats: `../minecraft-world-format/SKILL.md`;
-- world paths and disk behavior: `../minecraft-world-io/SKILL.md`.
+- selected-release standalone world-file models and serializers, world paths, and disk behavior:
+  `../minecraft-world-io/SKILL.md`.
+
+Treat every library-provided serializable Minecraft model as a handwritten version-dependent contract even when its
+source still compiles. For each affected standalone file, compare the model and serializer with the matching official
+writer, reader, codec, and generated output. Revisit every field's name, type, presence, nullability, default, and
+dynamic/raw boundary; a field the selected release always writes is required and non-null without an old-version
+default. Update model tests and user documentation together, and do not preserve old schema branches unless historical
+compatibility is explicitly requested.
 
 For a repository-wide completeness request, account for every leaf domain: either apply its workflow or record concrete
 official evidence that its contract did not change. Do not create or load a transport skill merely because the release
@@ -60,4 +68,5 @@ Start with affected JVM suites, then run downstream official-peer suites and app
 run Gradle wrapper invocations concurrently.
 
 Report the selected release, leaf workflows used, handwritten changes, official evidence behind non-obvious decisions,
-standard tasks run, unresolved evidence including `@UnknownNullability`, and any external prerequisite.
+standalone-file models and serializers reviewed, standard tasks run, unresolved evidence including
+`@UnknownNullability`, and any external prerequisite.

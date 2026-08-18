@@ -54,6 +54,23 @@ compressedChunkSink.flush()
 
 ## Anvil region containers
 
+Coordinate conversion is public, portable, and independent of filesystem access. A chunk exposes both its containing
+region and its local position; combining those values restores the original coordinate. A region can also enumerate all
+1,024 covered positions in Anvil header-index order:
+
+```kotlin
+val chunk = ChunkPosition(-33, 63)
+val region = chunk.region
+val local = chunk.local
+check(region.chunk(local) == chunk)
+
+region.chunkPositions().forEach { position ->
+  collectChunk(position)
+}
+```
+
+`chunkPositions()` describes the region's coordinate coverage, not which chunks are actually present in an `.mca`.
+
 `RegionFileFormat` is the whole-file codec: decode one complete `.mca` image, read or replace chunks without inflating
 unrelated payloads, and re-encode. Oversized chunks become external `.mcc` payloads automatically:
 

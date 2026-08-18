@@ -1,6 +1,6 @@
 ---
 name: minecraft-world-io
-description: Implement, update, test, or audit handwritten Minecraft world filesystem behavior in world-io for the selected release. Use for Okio Path/FileSystem/FileHandle APIs, dimension-to-directory mapping, level.dat and level.dat_old, playerdata, advancements, statistics, saved data, region/entities/POI directories, external chunk sidecars, standalone NBT compression, atomic or backup replacement, durable writes, session.lock, live read-only access, region-store lifecycle, or official world generate/rewrite/reload interoperability.
+description: Implement, update, test, or audit handwritten selected-release Minecraft standalone world-file schemas and world filesystem behavior. Use for provided kotlinx.serialization models and serializers for level.dat, advancements, or statistics; Okio Path/FileSystem/FileHandle APIs; dimension-to-directory mapping; playerdata; saved data; region/entities/POI directories; external chunk sidecars; standalone NBT compression; atomic or backup replacement; durable writes; session.lock; live read-only access; region-store lifecycle; or official world generate/rewrite/reload interoperability.
 ---
 
 # Minecraft world I/O
@@ -19,6 +19,13 @@ file-store code.
 
 Historical compatibility paths are valid only when intentionally supported and tested. Do not infer current official
 placement from Wiki prose or an older world tree.
+
+For every project-provided `kotlinx.serialization` model of a standalone world file, inspect the matching official
+writer, reader, codec, and generated file. Treat the model, nested declarations, custom serializers, field names and
+types, nullability, defaults, and dynamic/raw subtree boundaries as selected-release handwritten contracts. If that
+release always writes a field, model it as required and non-null without an old-version missing-field default. Update
+the models, serializers, tests, and user documentation with the selected release; do not retain old schema branches
+unless historical compatibility is explicitly in scope.
 
 ## Implement filesystem policy
 
@@ -44,4 +51,5 @@ their contracts changed. After JVM stability, run applicable Node or desktop Nat
 capability matrix.
 
 Report path and replacement decisions, compression choices, official classes and generated paths inspected, focused
-tasks, official reload result, unsupported platform capabilities, and any intentionally retained historical behavior.
+tasks, model and serializer schema decisions when applicable, official reload result, unsupported platform capabilities,
+and any intentionally retained historical behavior.

@@ -22,6 +22,16 @@ data class RegionPosition(
             x = x * REGION_SIDE + local.x,
             z = z * REGION_SIDE + local.z,
         )
+
+    /**
+     * All absolute chunk positions covered by this region, in Anvil header-index order.
+     *
+     * This describes coordinate coverage, not the chunks actually present in an `.mca` file.
+     */
+    fun chunkPositions(): Sequence<ChunkPosition> =
+        (0 until REGION_CHUNK_COUNT).asSequence().map { index ->
+            chunk(LocalChunkPosition.fromIndex(index))
+        }
 }
 
 /** A chunk coordinate inside one 32 by 32 Anvil region. */
