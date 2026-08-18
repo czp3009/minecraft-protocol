@@ -19,6 +19,13 @@ filesystem; browser and Wasm targets use the stream modules and do not receive a
   argument/state, cancellation, and cleanup-rethrow failures in their owning semantic category.
 - Standalone NBT stores compose `nbt-serialization` with compression and filesystem policy; byte grammar remains in the
   serialization module.
+- Typed `level.dat`, advancement, and statistics operations accept caller-selected serializers and connect the file,
+  compression decorator where applicable, and format stream API in one pass. Built-in models use the same generic path;
+  tree/text/document conveniences are thin wrappers or direct complete-value operations and never stringify, reparse, or
+  create a second complete representation.
+- Typed, tree/document, text, and raw operations for one standalone file use the same logical-file coordinator and keep
+  that file family's existing replacement policy. `LiveMinecraftWorldReader` provides the same typed reads without
+  coordination, recovery, or mutation.
 - Current paths derive from official resource constants and migration code; historical paths remain explicit API
   variants.
 - Region updates allocate and write new sectors in place while the old allocation remains reserved. They commit the

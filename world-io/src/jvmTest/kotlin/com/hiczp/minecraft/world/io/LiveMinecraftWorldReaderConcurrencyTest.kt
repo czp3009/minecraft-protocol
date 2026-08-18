@@ -28,7 +28,7 @@ class LiveMinecraftWorldReaderConcurrencyTest {
         jsonFiles.write(paths.advancement(player), "advancements")
 
         assertConcurrentSourceReads(root, base, paths.levelData, document) {
-            readLevelData()
+            readLevelDataDocument()
         }
         assertConcurrentSourceReads(root, base, paths.playerData(player), document) {
             readPlayerData(player)
@@ -37,10 +37,10 @@ class LiveMinecraftWorldReaderConcurrencyTest {
             readSavedData("example:data")
         }
         assertConcurrentSourceReads(root, base, paths.statistics(player), "statistics") {
-            readStatistics(player)
+            readStatisticsText(player)
         }
         assertConcurrentSourceReads(root, base, paths.advancement(player), "advancements") {
-            readAdvancements(player)
+            readAdvancementsText(player)
         }
         base.checkNoOpenFiles()
     }
@@ -127,7 +127,7 @@ class LiveMinecraftWorldReaderConcurrencyTest {
         val reader = LiveMinecraftWorldReader.open(root, fileSystem)
         val jobs = mutableListOf<kotlinx.coroutines.Job>()
         try {
-            val reading = async(Dispatchers.Default) { reader.readStatistics(player) }
+            val reading = async(Dispatchers.Default) { reader.readStatisticsText(player) }
             jobs += reading
             sourceGate.awaitEntered()
 

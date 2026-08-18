@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
+import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
@@ -8,6 +9,9 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.DeserializationStrategy
+import kotlinx.serialization.SerializationStrategy
+import kotlinx.serialization.json.Json
 import okio.BufferedSink
 import okio.BufferedSource
 import okio.Path
@@ -24,6 +28,7 @@ import kotlinx.io.Source as KotlinxSource
 internal class OpenMinecraftWorld(
     val paths: MinecraftWorldPaths,
     private val files: WorldFileAccess,
+    private val nbtFormat: NbtFormat = minecraftWorldNbtFormat(),
     private val regionChunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
     private val regionStoreConfiguration: WorldRegionStoreConfiguration = WorldRegionStoreConfiguration(),
     private val directoryLock: WorldDirectoryLock? = null,
@@ -33,7 +38,7 @@ internal class OpenMinecraftWorld(
     }
 
     private val state = Mutex()
-    private val nbtFiles = NbtFileStore(files)
+    private val nbtFiles = NbtFileStore(files, nbtFormat)
     private val levelData = LevelDataStore(paths, nbtFiles)
     private val playerData = PlayerDataStore(paths, nbtFiles)
     private val jsonFiles = Utf8JsonFileStore(files)
@@ -46,13 +51,22 @@ internal class OpenMinecraftWorld(
 
     // Mutable healthy reads share access. Official fallback promotion and corrupt-player copying
     // mutate the logical file group, so a recoverable primary failure is retried exclusively.
-    suspend fun readLevelData(): NbtDocument = withMetadataEntry({ MetadataKey.LevelData }) { entry ->
+    suspend fun readLevelDataDocument(): NbtDocument = withMetadataEntry({ MetadataKey.LevelData }) { entry ->
         val fileAccess = entry.fileAccess
         when (val read = fileAccess.read { levelData.readForSharedAccess() }) {
             is CoordinatedRead.Complete -> read.value
             CoordinatedRead.RequiresExclusive -> fileAccess.write { levelData.read() }
         }
     }
+
+    suspend fun <T> readLevelData(deserializer: DeserializationStrategy<T>): T =
+        withMetadataEntry({ MetadataKey.LevelData }) { entry ->
+            val fileAccess = entry.fileAccess
+            when (val read = fileAccess.read { levelData.readForSharedAccess(deserializer) }) {
+                is CoordinatedRead.Complete -> read.value
+                CoordinatedRead.RequiresExclusive -> fileAccess.write { levelData.read(deserializer) }
+            }
+        }
 
     suspend fun <T> readLevelData(block: (KotlinxSource) -> T): T =
         withMetadataEntry({ MetadataKey.LevelData }) { entry ->
@@ -63,10 +77,17 @@ internal class OpenMinecraftWorld(
             }
         }
 
-    suspend fun writeLevelData(document: NbtDocument) =
+    suspend fun writeLevelDataDocument(document: NbtDocument) =
         withMetadata({ MetadataKey.LevelData }, MetadataAccess.WRITE) {
             levelData.write(document)
         }
+
+    suspend fun <T> writeLevelData(
+        serializer: SerializationStrategy<T>,
+        value: T,
+    ) = withMetadata({ MetadataKey.LevelData }, MetadataAccess.WRITE) {
+        levelData.write(serializer, value)
+    }
 
     suspend fun writeLevelData(block: (KotlinxSink) -> Unit) =
         withMetadata({ MetadataKey.LevelData }, MetadataAccess.WRITE) {
@@ -150,10 +171,18 @@ internal class OpenMinecraftWorld(
         SavedDataFileStore(paths, dimension, nbtFiles).write(identifier, block)
     }
 
-    suspend fun readStatistics(playerUuid: String): String =
+    suspend fun readStatisticsText(playerUuid: String): String =
         withMetadata({ MetadataKey.Statistics(playerUuid) }, MetadataAccess.READ) {
             jsonFiles.read(paths.statistics(playerUuid))
         }
+
+    suspend fun <T> readStatistics(
+        playerUuid: String,
+        deserializer: DeserializationStrategy<T>,
+        json: Json = Json,
+    ): T = withMetadata({ MetadataKey.Statistics(playerUuid) }, MetadataAccess.READ) {
+        jsonFiles.readJson(paths.statistics(playerUuid), deserializer, json)
+    }
 
     suspend fun <T> readStatistics(
         playerUuid: String,
@@ -162,10 +191,19 @@ internal class OpenMinecraftWorld(
         jsonFiles.read(paths.statistics(playerUuid), block)
     }
 
-    suspend fun writeStatistics(playerUuid: String, json: String) =
+    suspend fun writeStatisticsText(playerUuid: String, text: String) =
         withMetadata({ MetadataKey.Statistics(playerUuid) }, MetadataAccess.WRITE) {
-            jsonFiles.write(paths.statistics(playerUuid), json)
+            jsonFiles.write(paths.statistics(playerUuid), text)
         }
+
+    suspend fun <T> writeStatistics(
+        playerUuid: String,
+        serializer: SerializationStrategy<T>,
+        value: T,
+        json: Json = Json,
+    ) = withMetadata({ MetadataKey.Statistics(playerUuid) }, MetadataAccess.WRITE) {
+        jsonFiles.writeJson(paths.statistics(playerUuid), serializer, value, json)
+    }
 
     suspend fun writeStatistics(
         playerUuid: String,
@@ -174,10 +212,18 @@ internal class OpenMinecraftWorld(
         jsonFiles.write(paths.statistics(playerUuid), block)
     }
 
-    suspend fun readAdvancements(playerUuid: String): String =
+    suspend fun readAdvancementsText(playerUuid: String): String =
         withMetadata({ MetadataKey.Advancements(playerUuid) }, MetadataAccess.READ) {
             jsonFiles.read(paths.advancement(playerUuid))
         }
+
+    suspend fun <T> readAdvancements(
+        playerUuid: String,
+        deserializer: DeserializationStrategy<T>,
+        json: Json = Json,
+    ): T = withMetadata({ MetadataKey.Advancements(playerUuid) }, MetadataAccess.READ) {
+        jsonFiles.readJson(paths.advancement(playerUuid), deserializer, json)
+    }
 
     suspend fun <T> readAdvancements(
         playerUuid: String,
@@ -186,10 +232,19 @@ internal class OpenMinecraftWorld(
         jsonFiles.read(paths.advancement(playerUuid), block)
     }
 
-    suspend fun writeAdvancements(playerUuid: String, json: String) =
+    suspend fun writeAdvancementsText(playerUuid: String, text: String) =
         withMetadata({ MetadataKey.Advancements(playerUuid) }, MetadataAccess.WRITE) {
-            jsonFiles.write(paths.advancement(playerUuid), json)
+            jsonFiles.write(paths.advancement(playerUuid), text)
         }
+
+    suspend fun <T> writeAdvancements(
+        playerUuid: String,
+        serializer: SerializationStrategy<T>,
+        value: T,
+        json: Json = Json,
+    ) = withMetadata({ MetadataKey.Advancements(playerUuid) }, MetadataAccess.WRITE) {
+        jsonFiles.writeJson(paths.advancement(playerUuid), serializer, value, json)
+    }
 
     suspend fun writeAdvancements(
         playerUuid: String,

@@ -212,11 +212,11 @@ class SystemWorldStorageTest {
                 ),
             )
             try {
-                access.writeLevelData(document)
+                access.writeLevelDataDocument(document)
                 access.writePlayerData(player, document)
                 access.writeSavedData("example:state/value", document)
-                access.writeStatistics(player, "{}")
-                access.writeAdvancements(player, "{\"done\":true}")
+                access.writeStatisticsText(player, "{}")
+                access.writeAdvancementsText(player, "{\"done\":true}")
                 dimensions.forEachIndexed { dimensionIndex, dimension ->
                     RegionStorageDirectory.entries.forEach { storage ->
                         val value = dimensionIndex * RegionStorageDirectory.entries.size + storage.ordinal
@@ -236,21 +236,21 @@ class SystemWorldStorageTest {
 
             assertFalse(MinecraftWorldAccess.isLocked(root))
             assertTrue(fileSystem.exists(MinecraftWorldPaths(root).sessionLock))
-            assertFails { access.readLevelData() }
+            assertFails { access.readLevelDataDocument() }
             assertFails { access.readChunk(position) }
 
             val reopened = MinecraftWorldAccess.open(root)
             try {
-                assertEquals(document, reopened.readLevelData())
+                assertEquals(document, reopened.readLevelDataDocument())
                 assertEquals(document, reopened.readPlayerData(player))
                 assertEquals(
                     document,
                     reopened.readSavedData("example:state/value"),
                 )
-                assertEquals("{}", reopened.readStatistics(player))
+                assertEquals("{}", reopened.readStatisticsText(player))
                 assertEquals(
                     "{\"done\":true}",
-                    reopened.readAdvancements(player),
+                    reopened.readAdvancementsText(player),
                 )
                 assertEquals(
                     Compression.GZIP,
@@ -281,6 +281,53 @@ class SystemWorldStorageTest {
                         )
                     }
                 }
+            } finally {
+                reopened.close()
+            }
+        } finally {
+            fileSystem.deleteRecursively(parent, mustExist = false)
+        }
+    }
+
+    @Test
+    fun worldLeasePersistsTypedStructuredFilesThroughPublicExplicitAndReifiedApis() = runTest {
+        val fileSystem = systemFileSystem
+        val parent = createSystemTemporaryDirectory(fileSystem)
+        val root = parent / "typed-world"
+        val player = "00000000-0000-0000-0000-000000000000"
+        val level = testLevelDat()
+        val statistics = PlayerStatistics(
+            stats = mapOf("minecraft:mined" to mapOf("minecraft:stone" to 42)),
+            dataVersion = 4_903,
+        )
+        val advancements = PlayerAdvancements(
+            dataVersion = 4_903,
+            advancements = mapOf(
+                "minecraft:story/root" to PlayerAdvancements.Progress(
+                    criteria = mapOf("crafting_table" to "2026-08-18 00:00:00 +0000"),
+                    done = true,
+                ),
+            ),
+        )
+        try {
+            val access = MinecraftWorldAccess.open(root)
+            try {
+                access.writeLevelData(level)
+                access.writeStatistics(player, PlayerStatistics.serializer(), statistics)
+                access.writeAdvancements(player, advancements)
+            } finally {
+                access.close()
+            }
+
+            val reopened = MinecraftWorldAccess.open(root)
+            try {
+                assertEquals(level, reopened.readLevelData(LevelDat.serializer()))
+                assertEquals(level, reopened.readLevelData<LevelDat>())
+                assertEquals(statistics, reopened.readStatistics<PlayerStatistics>(player))
+                assertEquals(
+                    advancements,
+                    reopened.readAdvancements(player, PlayerAdvancements.serializer()),
+                )
             } finally {
                 reopened.close()
             }

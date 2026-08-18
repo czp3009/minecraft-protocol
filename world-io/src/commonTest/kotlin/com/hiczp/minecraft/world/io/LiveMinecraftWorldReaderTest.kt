@@ -62,7 +62,7 @@ class LiveMinecraftWorldReaderTest {
         val before = fileSystem.snapshot(root)
         assertFalse(fileSystem.exists(paths.sessionLock))
         val reader = LiveMinecraftWorldReader.open(root, fileSystem)
-        assertEquals(document, reader.readLevelData())
+        assertEquals(document, reader.readLevelDataDocument())
         assertEquals(document, reader.readPlayerData(player))
         assertEquals(
             document,
@@ -70,11 +70,11 @@ class LiveMinecraftWorldReaderTest {
         )
         assertEquals(
             "{\"blocks\":1}",
-            reader.readStatistics(player),
+            reader.readStatisticsText(player),
         )
         assertEquals(
             "{\"done\":true}",
-            reader.readAdvancements(player),
+            reader.readAdvancementsText(player),
         )
         RegionStorageDirectory.entries.forEach { storage ->
             assertTrue(reader.doesChunkExist(position, storage))
@@ -124,7 +124,7 @@ class LiveMinecraftWorldReaderTest {
         val before = fileSystem.snapshot(root)
 
         val reader = LiveMinecraftWorldReader.open(root, fileSystem)
-        assertEquals(previous, reader.readLevelData())
+        assertEquals(previous, reader.readLevelDataDocument())
         assertEquals(previous, reader.readPlayerData(player))
 
         fileSystem.assertSnapshotEquals(root, before)

@@ -3,11 +3,17 @@ package com.hiczp.minecraft.world.io
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.serialization.NbtDecodingException
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
+import com.hiczp.minecraft.nbt.serialization.NbtFormatConfiguration
+import com.hiczp.minecraft.nbt.serialization.NbtRootEncoding
 import com.hiczp.minecraft.world.format.Compression
 import com.hiczp.minecraft.world.format.CompressionCodecs
 import kotlinx.io.buffered
 import kotlinx.io.okio.asKotlinxIoRawSink
 import kotlinx.io.okio.asKotlinxIoRawSource
+import kotlinx.serialization.DeserializationStrategy
+import kotlinx.serialization.SerializationStrategy
+import kotlinx.serialization.modules.EmptySerializersModule
+import kotlinx.serialization.modules.SerializersModule
 import okio.*
 import kotlinx.io.Sink as KotlinxSink
 import kotlinx.io.Source as KotlinxSource
@@ -21,12 +27,16 @@ import kotlinx.io.Source as KotlinxSource
  */
 class NbtFileStore internal constructor(
     internal val files: WorldFileAccess,
-    val nbt: NbtFormat = NbtFormat,
+    val nbt: NbtFormat = minecraftWorldNbtFormat(),
     val compressionCodecs: CompressionCodecs = CompressionCodecs,
 ) {
+    init {
+        nbt.requireStandaloneWorldRoot()
+    }
+
     constructor(
         fileSystem: FileSystem = systemFileSystem,
-        nbt: NbtFormat = NbtFormat,
+        nbt: NbtFormat = minecraftWorldNbtFormat(),
         compressionCodecs: CompressionCodecs = CompressionCodecs,
     ) : this(
         files = WorldFileAccess.mutable(fileSystem),
@@ -45,6 +55,14 @@ class NbtFileStore internal constructor(
         compression: Compression = Compression.GZIP,
     ): NbtDocument = read(path, compression) { source ->
         nbt.decodeDocumentFromSource(source)
+    }
+
+    fun <T> read(
+        path: Path,
+        deserializer: DeserializationStrategy<T>,
+        compression: Compression = Compression.GZIP,
+    ): T = read(path, compression) { source ->
+        nbt.decodeFromSource(deserializer, source)
     }
 
     /** Lends the decompressed file stream for the duration of [block]. */
@@ -75,6 +93,15 @@ class NbtFileStore internal constructor(
         compression: Compression = Compression.GZIP,
     ) = writeDirect(path, compression) { sink ->
         nbt.encodeDocumentToSink(document, sink)
+    }
+
+    fun <T> writeDirect(
+        path: Path,
+        serializer: SerializationStrategy<T>,
+        value: T,
+        compression: Compression = Compression.GZIP,
+    ) = writeDirect(path, compression) { sink ->
+        nbt.encodeToSink(serializer, value, sink)
     }
 
     /** Directly truncates, streams, and durably syncs the final file. */
@@ -163,3 +190,19 @@ class NbtFileStore internal constructor(
         }
     }
 }
+
+internal fun NbtFormat.requireStandaloneWorldRoot() {
+    require(configuration.rootEncoding == NbtRootEncoding.UNNAMED) {
+        "Standalone world NBT requires NbtRootEncoding.UNNAMED"
+    }
+}
+
+/** Creates an NBT format with the unnamed-root framing used by standalone world files. */
+fun minecraftWorldNbtFormat(
+    serializersModule: SerializersModule = EmptySerializersModule(),
+): NbtFormat = NbtFormat(
+    NbtFormatConfiguration(
+        serializersModule = serializersModule,
+        rootEncoding = NbtRootEncoding.UNNAMED,
+    ),
+)

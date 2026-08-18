@@ -1,11 +1,20 @@
 # world-format
 
-This module owns filesystem-independent Anvil coordinates, region headers and sectors, compression dispatch, external
-chunk representation, and NBT composition.
+This module owns the selected-release `level.dat`, advancement, and statistics models and serializers, plus
+filesystem-independent Anvil coordinates, region headers and sectors, compression dispatch, external chunk
+representation, and NBT composition.
 
 ## Invariants
 
 - Container parsing remains separate from filesystem access, decompression, and NBT decoding.
+- `LevelDat`, `PlayerAdvancements`, and `PlayerStatistics` describe only the repository-selected release. Audit their
+  official writer, reader, codec, generated file, nested types, field names/types, nullability, defaults, and dynamic
+  boundaries on every release update; do not retain an old-schema branch or add an implicit DataFixer.
+- Fixed structures use generated serializers. The advancement root is the sole expected custom serializer because its
+  JSON object mixes `DataVersion` with dynamic advancement identifiers; it consumes map composite events directly and
+  never materializes a JSON tree.
+- Typed decoding is strict about unknown fields by default. Raw `NbtTag`/`NbtDocument` and `JsonElement` remain the
+  lossless path for modded, future, or otherwise unmodeled content.
 - Region, compression, and chunk-NBT stream methods are canonical and never close caller-owned endpoints. In-memory
   methods wrap those paths; compressed byte arrays remain only where they are the value owned by `RegionChunk`.
 - Region chunk composition delegates compound-document bytes to `nbt-serialization` and exposes NBT model values from

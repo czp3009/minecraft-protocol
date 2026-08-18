@@ -4,8 +4,19 @@ import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.nbt.NbtString
+import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.world.format.Compression
+import com.hiczp.minecraft.world.format.LevelDat
+import com.hiczp.minecraft.world.format.PlayerAdvancements
+import com.hiczp.minecraft.world.format.PlayerStatistics
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -16,6 +27,13 @@ import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.*
 
 class StandaloneFileStoresTest {
+    @Test
+    fun physicalNbtStoreRequiresStandaloneRootEncoding() {
+        assertFailsWith<IllegalArgumentException> {
+            NbtFileStore(FakeFileSystem(), NbtFormat)
+        }
+    }
+
     @Test
     fun physicalNbtFilesRoundTripEverySupportedWrapper() = runTest {
         val fileSystem = FakeFileSystem()
@@ -48,6 +66,30 @@ class StandaloneFileStoresTest {
                 },
             )
         }
+        fileSystem.checkNoOpenFiles()
+    }
+
+    @Test
+    fun physicalNbtFilesDecodeCallerAndBuiltInTypesDirectlyFromTheCompressedStream() {
+        val fileSystem = FakeFileSystem()
+        val store = NbtFileStore(fileSystem)
+        val callerPath = "/world/caller.dat".toPath()
+        val callerValue = CallerLevelData(
+            marker = 7,
+            values = mapOf("one" to 1, "two" to 2),
+        )
+        val callerSerializer = CountingSerializer(CallerLevelData.serializer())
+
+        store.writeDirect(callerPath, callerSerializer, callerValue)
+        assertEquals(callerValue, store.read(callerPath, callerSerializer))
+        assertEquals(1, callerSerializer.encodeCalls)
+        assertEquals(1, callerSerializer.decodeCalls)
+
+        val paths = MinecraftWorldPaths("/world".toPath())
+        val level = testLevelDat(levelName = "world")
+        val levelStore = LevelDataStore(paths, store)
+        levelStore.write(LevelDat.serializer(), level)
+        assertEquals(level, levelStore.read(LevelDat.serializer()))
         fileSystem.checkNoOpenFiles()
     }
 
@@ -166,6 +208,80 @@ class StandaloneFileStoresTest {
         assertTrue(reads.size > 1)
         assertTrue(reads.all { it in 1L..257L })
         assertEquals(encoded, copied.readUtf8())
+    }
+
+    @Test
+    fun jsonFilesUseOneGenericSerializerPathForCallerCollectionsAndBuiltInModels() {
+        val fileSystem = FakeFileSystem()
+        val paths = MinecraftWorldPaths("/world".toPath())
+        val store = Utf8JsonFileStore(fileSystem)
+        val player = "00000000-0000-0000-0000-000000000000"
+        val mapSerializer = MapSerializer(String.serializer(), Int.serializer())
+        val callerMap = mapOf("alpha" to 1, "beta" to 2)
+
+        store.writeJson(paths.statistics(player), mapSerializer, callerMap)
+        assertEquals(callerMap, store.readJson(paths.statistics(player), mapSerializer))
+
+        val statistics = PlayerStatistics(
+            stats = mapOf("minecraft:mined" to mapOf("minecraft:stone" to 42)),
+            dataVersion = 4_903,
+        )
+        store.writeJson(paths.statistics(player), PlayerStatistics.serializer(), statistics)
+        assertEquals(
+            statistics,
+            store.readJson(paths.statistics(player), PlayerStatistics.serializer()),
+        )
+
+        val advancements = PlayerAdvancements(
+            dataVersion = 4_903,
+            advancements = mapOf(
+                "minecraft:story/root" to PlayerAdvancements.Progress(
+                    criteria = mapOf("crafting_table" to "2026-08-18 00:00:00 +0000"),
+                    done = true,
+                ),
+            ),
+        )
+        store.writeJson(paths.advancement(player), PlayerAdvancements.serializer(), advancements)
+        assertEquals(
+            advancements,
+            store.readJson(paths.advancement(player), PlayerAdvancements.serializer()),
+        )
+        fileSystem.checkNoOpenFiles()
+    }
+
+    @Test
+    fun typedNbtAndJsonPathsAcceptSmallSegmentedFileTransfers() {
+        val base = FakeFileSystem()
+        val segmented = SegmentingFileSystem(base, maxSegmentBytes = 31L)
+        val nbtPath = "/world/segmented.dat".toPath()
+        val nbtValue = CallerLevelData(
+            marker = 9,
+            values = (0 until 2_048).associate { index -> "key_$index" to index },
+        )
+        val nbtStore = NbtFileStore(segmented)
+        nbtStore.writeDirect(nbtPath, CallerLevelData.serializer(), nbtValue)
+        assertTrue(segmented.writeCalls > 1)
+        assertEquals(nbtValue, nbtStore.read(nbtPath, CallerLevelData.serializer()))
+        assertTrue(segmented.readCalls > 1)
+
+        val jsonPath = "/world/segmented.json".toPath()
+        val jsonValue = PlayerAdvancements(
+            dataVersion = 4_903,
+            advancements = (0 until 2_048).associate { index ->
+                "example:advancement_$index" to PlayerAdvancements.Progress(
+                    criteria = mapOf("criterion_$index" to "2026-08-18 00:00:00 +0000"),
+                    done = index % 2 == 0,
+                )
+            },
+        )
+        val jsonStore = Utf8JsonFileStore(segmented)
+        val writesBeforeJson = segmented.writeCalls
+        jsonStore.writeJson(jsonPath, PlayerAdvancements.serializer(), jsonValue)
+        assertTrue(segmented.writeCalls > writesBeforeJson + 1)
+        val readsBeforeJson = segmented.readCalls
+        assertEquals(jsonValue, jsonStore.readJson(jsonPath, PlayerAdvancements.serializer()))
+        assertTrue(segmented.readCalls > readsBeforeJson + 1)
+        base.checkNoOpenFiles()
     }
 
     @Test
@@ -330,6 +446,124 @@ private class ReplacementAndRollbackFailingFileSystem(
         super.atomicMove(source, target)
     }
 }
+
+private class SegmentingFileSystem(
+    delegate: FileSystem,
+    private val maxSegmentBytes: Long,
+) : ForwardingFileSystem(delegate) {
+    var readCalls: Int = 0
+        private set
+    var writeCalls: Int = 0
+        private set
+
+    init {
+        require(maxSegmentBytes in 1L..Int.MAX_VALUE.toLong())
+    }
+
+    override fun source(file: Path): Source {
+        val source = super.source(file)
+        return object : ForwardingSource(source) {
+            override fun read(sink: Buffer, byteCount: Long): Long {
+                val read = super.read(sink, minOf(byteCount, maxSegmentBytes))
+                if (read >= 0L) readCalls++
+                return read
+            }
+        }
+    }
+
+    override fun sink(file: Path, mustCreate: Boolean): Sink {
+        val sink = super.sink(file, mustCreate)
+        return object : Sink by sink {
+            override fun write(source: Buffer, byteCount: Long) {
+                var remaining = byteCount
+                while (remaining > 0L) {
+                    val segment = minOf(remaining, maxSegmentBytes)
+                    sink.write(source, segment)
+                    writeCalls++
+                    remaining -= segment
+                }
+            }
+        }
+    }
+
+    override fun openReadWrite(
+        file: Path,
+        mustCreate: Boolean,
+        mustExist: Boolean,
+    ): FileHandle {
+        val handle = super.openReadWrite(file, mustCreate, mustExist)
+        return object : FileHandle(readWrite = true) {
+            override fun protectedRead(
+                fileOffset: Long,
+                array: ByteArray,
+                arrayOffset: Int,
+                byteCount: Int,
+            ): Int = handle.read(
+                fileOffset,
+                array,
+                arrayOffset,
+                minOf(byteCount.toLong(), maxSegmentBytes).toInt(),
+            )
+
+            override fun protectedWrite(
+                fileOffset: Long,
+                array: ByteArray,
+                arrayOffset: Int,
+                byteCount: Int,
+            ) {
+                var offset = arrayOffset
+                var remaining = byteCount
+                while (remaining > 0) {
+                    val segment = minOf(remaining.toLong(), maxSegmentBytes).toInt()
+                    handle.write(
+                        fileOffset + (offset - arrayOffset).toLong(),
+                        array,
+                        offset,
+                        segment,
+                    )
+                    writeCalls++
+                    offset += segment
+                    remaining -= segment
+                }
+            }
+
+            override fun protectedFlush() = handle.flush()
+
+            override fun protectedResize(size: Long) = handle.resize(size)
+
+            override fun protectedSize(): Long = handle.size()
+
+            override fun protectedClose() = handle.close()
+        }
+    }
+}
+
+private class CountingSerializer<T>(
+    private val delegate: KSerializer<T>,
+) : KSerializer<T> {
+    override val descriptor: SerialDescriptor
+        get() = delegate.descriptor
+    var encodeCalls: Int = 0
+        private set
+    var decodeCalls: Int = 0
+        private set
+
+    override fun serialize(encoder: Encoder, value: T) {
+        encodeCalls++
+        delegate.serialize(encoder, value)
+    }
+
+    override fun deserialize(decoder: Decoder): T {
+        decodeCalls++
+        return delegate.deserialize(decoder)
+    }
+}
+
+@Serializable
+private data class CallerLevelData(
+    val marker: Int,
+    val values: Map<String, Int>,
+)
 
 private fun sampleDocument(value: Int): NbtDocument = NbtDocument(
     NbtCompound(

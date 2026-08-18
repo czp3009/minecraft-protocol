@@ -27,6 +27,11 @@ release always writes a field, model it as required and non-null without an old-
 the models, serializers, tests, and user documentation with the selected release; do not retain old schema branches
 unless historical compatibility is explicitly in scope.
 
+The current model audit is never implicit: review `LevelDat` and every nested declaration, `PlayerAdvancements` and its
+heterogeneous root-map serializer, and `PlayerStatistics` individually. Confirm that the advancement serializer still
+uses composite map events rather than `JsonElement`, and that each typed file path connects the stream directly to the
+caller-selected serializer without a byte-array, string, NBT-tree, or JSON-tree intermediary.
+
 ## Implement filesystem policy
 
 Use Okio `Path`, `FileSystem`, and `FileHandle`. Keep format parsing in lower modules and keep host-only primitives

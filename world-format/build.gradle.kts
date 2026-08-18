@@ -7,6 +7,7 @@ import org.jetbrains.kotlin.gradle.tasks.CInteropProcess
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
+    alias(libs.plugins.kotlinSerialization)
 }
 
 // NativeBuilds' published Gradle plugin still calls a Gradle Kotlin DSL internal removed in Gradle 9.6.1. Consume
@@ -117,6 +118,7 @@ kotlin {
             api(project(":nbt"))
             api(project(":nbt-serialization"))
             api(libs.kotlinx.io.core)
+            api(libs.kotlinx.serialization.core)
         }
         webMain.dependencies {
             implementation(libs.kompress.core)
@@ -135,6 +137,8 @@ kotlin {
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
+            implementation(libs.kotlinx.serialization.json)
+            implementation(libs.kotlinx.serialization.json.io)
         }
 
         jvmTest.dependencies {

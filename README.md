@@ -24,8 +24,8 @@ persistence policy, permissions, and operations remain application responsibilit
 | [`protocol-auth`](protocol-auth/README.md)                   | Game identities, Session Server HTTP, and Login key exchange                      |
 | [`protocol-client`](protocol-client/README.md)               | Status, Login, Configuration, and a Play-ready client connection                  |
 | [`protocol-server`](protocol-server/README.md)               | Connection admission and finite initial chunk/entity projection                   |
-| [`world-format`](world-format/README.md)                     | Filesystem-independent Anvil containers and chunk NBT composition                 |
-| [`world-io`](world-io/README.md)                             | Concurrent world leases, bypass live reads, and filesystem-backed stores          |
+| [`world-format`](world-format/README.md)                     | Anvil formats and selected-release structured world-file models                   |
+| [`world-io`](world-io/README.md)                             | Typed world files, concurrent leases, live reads, and filesystem-backed stores    |
 
 The project is fully modular: depend on exactly the modules you need. Higher layers reuse the lower layers their APIs
 require, so a focused consumer never pulls in unrelated capabilities.
@@ -37,14 +37,14 @@ require, so a focused consumer never pulls in unrelated capabilities.
   negotiation profiles.
 - Offline and online Login with Session Server calls and Login key exchange; Microsoft OAuth and Xbox account HTTP APIs
   are available separately.
-- Streaming binary NBT and filesystem-independent Anvil containers, plus Okio-based world I/O with full-value and
-  streaming APIs that read, mutate, and live-read real worlds—including worlds owned by the official server.
+- Streaming binary NBT, selected-release level/advancement/statistics models, and filesystem-independent Anvil
+  containers, plus Okio-based typed, full-value, and streaming world I/O—including live reads of official-server worlds.
 
 Usage examples are documented at each owning layer: binary NBT in
 [`nbt-serialization`](nbt-serialization/README.md), compression and Anvil containers in
 [`world-format`](world-format/README.md), and filesystem-backed JSON, NBT, MCA, and MCC access in
-[`world-io`](world-io/README.md#streaming-large-files). Every published module in the table above documents its own key
-entry points rather than requiring consumers to infer them from a higher layer.
+[`world-io`](world-io/README.md#typed-structured-world-files). Every published module in the table above documents its
+own key entry points rather than requiring consumers to infer them from a higher layer.
 
 Together these blocks cover applications such as:
 

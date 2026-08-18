@@ -1,18 +1,43 @@
 # world-format
 
-Filesystem-independent Minecraft world storage formats. The legacy `.mcr` Region format and its conversion to Anvil are
-intentionally out of scope.
+Filesystem-independent Minecraft world storage formats and selected-release structured-file models. The legacy `.mcr`
+Region format and its conversion to Anvil are intentionally out of scope.
 
-Two independently usable format families share one compression registry:
+The module provides three independently usable capabilities:
 
 - **Anvil region containers** model absolute, region, and local chunk coordinates; parse and pack region headers and
   sectors; preserve compressed payloads; and represent external `.mcc` chunks explicitly.
 - **Compression streams** wrap bytes behind the GZIP, ZLIB, NONE, and LZ4 registrations, plus caller-registered custom
   codecs. The same registry decodes a chunk payload inside a region file and a standalone compressed NBT document such
   as `level.dat`.
+- **Structured world-file models** describe the repository-selected release's `level.dat`, player advancements, and
+  player statistics through ordinary `kotlinx.serialization` serializers.
 
 NBT values come from [`nbt`](../nbt/README.md); document bytes are delegated to
 [`nbt-serialization`](../nbt-serialization/README.md).
+
+## Selected-release structured files
+
+`LevelDat`, `PlayerAdvancements`, and `PlayerStatistics` are the recommended strongly typed roots for the three common
+standalone files. They model only the repository-selected Minecraft release and do not perform historical migration or
+rewrite `DataVersion`.
+
+The models do not create separate formats. Use `NbtFormat` configured for `NbtRootEncoding.UNNAMED` for level data and
+`Json` for the JSON models:
+
+```kotlin
+val levelNbt = NbtFormat(
+  NbtFormatConfiguration(rootEncoding = NbtRootEncoding.UNNAMED),
+)
+val level = levelNbt.decodeFromSource<LevelDat>(nbtSource)
+levelNbt.encodeToSink(level, nbtSink)
+
+val advancements = Json.decodeFromSource<PlayerAdvancements>(jsonSource)
+Json.encodeToSink(advancements, jsonSink)
+```
+
+Dynamic stat and advancement identifiers remain maps. Decoders reject unknown fields by default; use `NbtDocument`,
+`NbtTag`, or `JsonElement` when modded or future fields must survive a round trip.
 
 ## Compressed unnamed-root NBT data
 

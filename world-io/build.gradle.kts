@@ -1,10 +1,13 @@
 import com.hiczp.minecraft.buildlogic.BuildVersions
 import com.hiczp.minecraft.buildlogic.JvmProcessArguments
 import com.hiczp.minecraft.buildlogic.useMinecraftTestFixtures
+import org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest
+import org.jetbrains.kotlin.gradle.targets.js.testing.mocha.KotlinMocha
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
+    alias(libs.plugins.kotlinSerialization)
 }
 
 kotlin {
@@ -112,4 +115,10 @@ kotlin {
 
 tasks.withType<Test>().configureEach {
     jvmArgs(JvmProcessArguments.ENABLE_NATIVE_ACCESS_ALL_UNNAMED)
+}
+
+tasks.withType<KotlinJsTest>().configureEach {
+    onTestFrameworkSet {
+        if (this is KotlinMocha) timeout = "6m"
+    }
 }

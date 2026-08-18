@@ -44,7 +44,7 @@ class OfficialWorldStorageInteropTest {
             prepareOfficialWorld(server, worldDirectory)
             val initial = auditWorld(worldDirectory)
             requireCompleteOfficialFixture(initial)
-            exerciseStandalonePolicies(worldDirectory, initial)
+            val structuredRewrite = exerciseStandalonePolicies(worldDirectory, initial)
             exerciseCompressionMatrix(worldDirectory)
             val terrainMutation = exerciseTerrainMutation(worldDirectory)
 
@@ -52,6 +52,11 @@ class OfficialWorldStorageInteropTest {
             mutateAndStopOfficialServer(server, "platform_write")
             val afterExternal = auditWorld(worldDirectory)
             requireCompleteOfficialFixture(afterExternal)
+            requireStructuredPlayerRewrite(
+                worldDirectory,
+                structuredRewrite,
+                minimumLeaveGame = structuredRewrite.leaveGameAfterRewrite + 1,
+            )
 
             restoreInternalAndClearEntity(
                 worldDirectory = worldDirectory,
@@ -65,6 +70,11 @@ class OfficialWorldStorageInteropTest {
             mutateAndStopOfficialServer(server, "official_resave")
             val final = auditWorld(worldDirectory)
             requireCompleteOfficialFixture(final)
+            requireStructuredPlayerRewrite(
+                worldDirectory,
+                structuredRewrite,
+                minimumLeaveGame = structuredRewrite.leaveGameAfterRewrite + 2,
+            )
 
             MinecraftTestSupport.deleteWorkingDirectory(server)
             check(!systemFileSystem.exists(workingDirectory)) {
@@ -129,12 +139,46 @@ class OfficialWorldStorageInteropTest {
         server: OfficialMinecraftServer,
         verificationPhase: String,
     ) {
+        var client: HeadlessMinecraftClient? = null
+        var failure: Throwable? = null
         try {
             verifyOfficialCompressionMatrix(server, verificationPhase)
             generateWorldStorage(server)
+            client = MinecraftTestSupport.newHeadlessClient(
+                HeadlessMinecraftClientConfiguration(
+                    playerName = PLAYER_NAME,
+                ),
+            )
+            MinecraftTestSupport.connectHeadlessClient(
+                client = client,
+                endpoint = server.endpoint,
+            )
+            MinecraftTestSupport.waitForLog(server, "$PLAYER_NAME joined the game")
+            val advancementToken = "minecraft_protocol_${verificationPhase}_advancement_loaded"
+            MinecraftTestSupport.sendCommand(
+                server,
+                "execute if entity @a[advancements={minecraft:story/root=true}] run say $advancementToken",
+            )
+            MinecraftTestSupport.waitForLog(server, advancementToken)
+            MinecraftTestSupport.sendCommand(
+                server,
+                "kick $PLAYER_NAME structured files loaded",
+            )
+            MinecraftTestSupport.waitForLog(server, "$PLAYER_NAME left the game")
+            MinecraftTestSupport.closeProcess(client)
             saveAndStop(server)
-        } catch (failure: Throwable) {
-            throw officialFailure(server, client = null, failure)
+        } catch (caught: Throwable) {
+            failure = caught
+            throw officialFailure(server, client, caught)
+        } finally {
+            client?.let { launched ->
+                try {
+                    MinecraftTestSupport.close(launched)
+                } catch (closeFailure: Throwable) {
+                    if (failure == null) throw closeFailure
+                    failure.addSuppressed(closeFailure)
+                }
+            }
         }
     }
 
@@ -249,7 +293,7 @@ class OfficialWorldStorageInteropTest {
     private fun exerciseStandalonePolicies(
         worldDirectory: Path,
         audit: AuditResult,
-    ) {
+    ): StructuredPlayerRewrite {
         val paths = MinecraftWorldPaths(worldDirectory)
         val nbtFiles = NbtFileStore()
         val fileSystem = nbtFiles.fileSystem
@@ -272,6 +316,15 @@ class OfficialWorldStorageInteropTest {
             "level.dat fallback did not preserve the corrupted primary"
         }
         levelStore.write(level)
+
+        val typedLevel = levelStore.read(LevelDat.serializer())
+        val renamedLevel = typedLevel.copy(
+            data = typedLevel.data.copy(levelName = "typed-storage-fixture"),
+        )
+        levelStore.write(LevelDat.serializer(), renamedLevel)
+        check(levelStore.read(LevelDat.serializer()).data.levelName == "typed-storage-fixture") {
+            "Typed level.dat rewrite did not retain the selected-release schema"
+        }
 
         val playerKey = audit.playerKeys.first()
         val playerStore = PlayerDataStore(paths, nbtFiles)
@@ -307,6 +360,39 @@ class OfficialWorldStorageInteropTest {
         check(savedStore.read(savedIdentifier) == savedData) {
             "Saved data did not survive direct GZIP rewrite"
         }
+
+        val jsonStore = Utf8JsonFileStore(fileSystem)
+        val statisticsPath = paths.statistics(playerKey)
+        val statistics = jsonStore.readJson(statisticsPath, PlayerStatistics.serializer())
+        val customStatistics = statistics.stats[CUSTOM_STATISTICS].orEmpty()
+        val leaveGame = customStatistics[LEAVE_GAME_STATISTIC] ?: 0
+        check(leaveGame < Int.MAX_VALUE - 2) {
+            "Official fixture leave_game statistic cannot survive two verification disconnects"
+        }
+        val leaveGameAfterRewrite = leaveGame + 1
+        val updatedStatistics = statistics.copy(
+            stats = statistics.stats + (
+                    CUSTOM_STATISTICS to (customStatistics + (LEAVE_GAME_STATISTIC to leaveGameAfterRewrite))
+                    ),
+        )
+        jsonStore.writeJson(statisticsPath, PlayerStatistics.serializer(), updatedStatistics)
+        check(jsonStore.readJson(statisticsPath, PlayerStatistics.serializer()) == updatedStatistics) {
+            "Typed player statistics did not survive direct JSON rewrite"
+        }
+
+        val advancementPath = paths.advancement(playerKey)
+        val advancements = jsonStore.readJson(advancementPath, PlayerAdvancements.serializer())
+        check(advancements.advancements.isNotEmpty()) {
+            "Official fixture generated no advancement progress"
+        }
+        jsonStore.writeJson(advancementPath, PlayerAdvancements.serializer(), advancements)
+        check(jsonStore.readJson(advancementPath, PlayerAdvancements.serializer()) == advancements) {
+            "Typed player advancements did not survive direct JSON rewrite"
+        }
+        return StructuredPlayerRewrite(
+            playerKey = playerKey,
+            leaveGameAfterRewrite = leaveGameAfterRewrite,
+        )
     }
 
     private suspend fun exerciseCompressionMatrix(worldDirectory: Path) {
@@ -489,9 +575,14 @@ class OfficialWorldStorageInteropTest {
         val paths = MinecraftWorldPaths(worldDirectory)
         val fileSystem = systemFileSystem
         val nbtFiles = NbtFileStore()
-        val level = LevelDataStore(paths, nbtFiles).read()
+        val levelStore = LevelDataStore(paths, nbtFiles)
+        val level = levelStore.read()
         check(level.root.value["Data"] is NbtCompound) {
             "Official level.dat has no Data compound"
+        }
+        val typedLevel = levelStore.read(LevelDat.serializer())
+        check(typedLevel.data.dataVersion == typedLevel.data.versionInfo.id) {
+            "Official level.dat DataVersion and Version.Id disagree"
         }
 
         val playerDirectory = checkNotNull(paths.playerData("probe").parent)
@@ -513,8 +604,20 @@ class OfficialWorldStorageInteropTest {
         val statisticsDirectory = checkNotNull(paths.statistics("probe").parent)
         val advancementDirectory = checkNotNull(paths.advancement("probe").parent)
         val jsonStore = Utf8JsonFileStore(fileSystem)
-        regularFiles(statisticsDirectory, ".json").forEach(jsonStore::read)
-        regularFiles(advancementDirectory, ".json").forEach(jsonStore::read)
+        val statisticFiles = regularFiles(statisticsDirectory, ".json")
+        val advancementFiles = regularFiles(advancementDirectory, ".json")
+        statisticFiles.forEach { path ->
+            val statistics = jsonStore.readJson(path, PlayerStatistics.serializer())
+            check(statistics.dataVersion == typedLevel.data.dataVersion) {
+                "Statistics DataVersion does not match level.dat: $path"
+            }
+        }
+        advancementFiles.forEach { path ->
+            val advancements = jsonStore.readJson(path, PlayerAdvancements.serializer())
+            check(advancements.dataVersion == typedLevel.data.dataVersion) {
+                "Advancements DataVersion does not match level.dat: $path"
+            }
+        }
 
         val regionFiles = RegionStorageDirectory.entries
             .associateWith { 0 }
@@ -559,6 +662,8 @@ class OfficialWorldStorageInteropTest {
             firstChunks = firstChunks,
             playerKeys = playerKeys,
             savedDataIdentifiers = savedDataIdentifiers,
+            statisticFiles = statisticFiles,
+            advancementFiles = advancementFiles,
         )
     }
 
@@ -580,6 +685,12 @@ class OfficialWorldStorageInteropTest {
         }
         check(audit.savedDataIdentifiers.isNotEmpty()) {
             "Official fixture generated no dimension saved-data"
+        }
+        check(audit.statisticFiles.isNotEmpty()) {
+            "Official fixture generated no player statistics JSON"
+        }
+        check(audit.advancementFiles.isNotEmpty()) {
+            "Official fixture generated no player advancements JSON"
         }
     }
 
@@ -635,6 +746,30 @@ class OfficialWorldStorageInteropTest {
             }
             .sorted()
             .toList()
+    }
+
+    private fun requireStructuredPlayerRewrite(
+        worldDirectory: Path,
+        rewrite: StructuredPlayerRewrite,
+        minimumLeaveGame: Int,
+    ) {
+        val paths = MinecraftWorldPaths(worldDirectory)
+        val jsonStore = Utf8JsonFileStore(systemFileSystem)
+        val statistics = jsonStore.readJson(
+            paths.statistics(rewrite.playerKey),
+            PlayerStatistics.serializer(),
+        )
+        val leaveGame = statistics.stats[CUSTOM_STATISTICS]?.get(LEAVE_GAME_STATISTIC)
+        check(leaveGame != null && leaveGame >= minimumLeaveGame) {
+            "Official server did not load and save the rewritten leave_game statistic: $leaveGame"
+        }
+        val advancements = jsonStore.readJson(
+            paths.advancement(rewrite.playerKey),
+            PlayerAdvancements.serializer(),
+        )
+        check(advancements.advancements[ROOT_ADVANCEMENT]?.done == true) {
+            "Official server did not retain the rewritten root advancement"
+        }
     }
 
     private fun readRegionHeader(path: Path): RegionHeader =
@@ -693,6 +828,8 @@ class OfficialWorldStorageInteropTest {
         return AssertionError(
             """
             |Official world interoperability failed.
+            |--- failure ---
+            |${failure::class.simpleName}: ${failure.message}
             |--- official server log ---
             |${MinecraftTestSupport.logText(server)}
             |--- official client log ---
@@ -721,11 +858,21 @@ class OfficialWorldStorageInteropTest {
         val firstChunks: Map<RegionStorageDirectory, ChunkPosition>,
         val playerKeys: List<String>,
         val savedDataIdentifiers: List<String>,
+        val statisticFiles: List<Path>,
+        val advancementFiles: List<Path>,
+    )
+
+    private data class StructuredPlayerRewrite(
+        val playerKey: String,
+        val leaveGameAfterRewrite: Int,
     )
 
     private companion object {
         const val WORLD_NAME = "wio"
         const val PLAYER_NAME = "StorageAudit"
+        const val CUSTOM_STATISTICS = "minecraft:custom"
+        const val LEAVE_GAME_STATISTIC = "minecraft:leave_game"
+        const val ROOT_ADVANCEMENT = "minecraft:story/root"
         const val EXTERNAL_FIXTURE_TAG = "minecraft_protocol_external_fixture"
         const val EXTERNAL_FIXTURE_BYTES = 1_100_000
         const val TERRAIN_MUTATION_BLOCK_X = 64

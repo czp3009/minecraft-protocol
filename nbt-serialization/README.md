@@ -13,11 +13,11 @@ val unnamedNbt = NbtFormat(
 )
 
 // Encode directly to a caller-owned stream; NbtFormat does not flush or close it.
-unnamedNbt.encodeToSink(MyValue.serializer(), value, sink)
+unnamedNbt.encodeToSink(value, sink)
 sink.flush()
 
 // Decode directly from a caller-owned stream without first making a ByteArray.
-val decoded = unnamedNbt.decodeFromSource(MyValue.serializer(), source)
+val decoded = unnamedNbt.decodeFromSource<MyValue>(source)
 ```
 
 The explicit tag and document entry points are streaming too:

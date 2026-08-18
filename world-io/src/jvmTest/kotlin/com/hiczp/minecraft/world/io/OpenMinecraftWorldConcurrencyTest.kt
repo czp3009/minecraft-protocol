@@ -2,8 +2,11 @@ package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.ChunkPosition
 import com.hiczp.minecraft.world.format.Compression
+import com.hiczp.minecraft.world.format.PlayerStatistics
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import okio.IOException
 import okio.Path.Companion.toPath
 import kotlin.test.*
@@ -40,8 +43,8 @@ class OpenMinecraftWorldConcurrencyTest {
         val world = concurrencyWorld(paths, fileSystem)
         val jobs = mutableListOf<Deferred<*>>()
         try {
-            val first = async(Dispatchers.Default) { world.readLevelData() }
-            val second = async(Dispatchers.Default) { world.readLevelData() }
+            val first = async(Dispatchers.Default) { world.readLevelDataDocument() }
+            val second = async(Dispatchers.Default) { world.readLevelDataDocument() }
             jobs += first
             jobs += second
             sourceGate.awaitEntered()
@@ -111,8 +114,8 @@ class OpenMinecraftWorldConcurrencyTest {
         val world = concurrencyWorld(paths, fileSystem, lock)
         val jobs = mutableListOf<Deferred<*>>()
         try {
-            val first = async(Dispatchers.Default) { world.readAdvancements(player) }
-            val second = async(Dispatchers.Default) { world.readAdvancements(player) }
+            val first = async(Dispatchers.Default) { world.readAdvancementsText(player) }
+            val second = async(Dispatchers.Default) { world.readAdvancementsText(player) }
             jobs += first
             jobs += second
             sourceGate.awaitEntered()
@@ -148,8 +151,8 @@ class OpenMinecraftWorldConcurrencyTest {
         val world = concurrencyWorld(paths, fileSystem)
         val jobs = mutableListOf<Deferred<*>>()
         try {
-            val first = async(Dispatchers.Default) { world.readStatistics(player) }
-            val second = async(Dispatchers.Default) { world.readStatistics(player) }
+            val first = async(Dispatchers.Default) { world.readStatisticsText(player) }
+            val second = async(Dispatchers.Default) { world.readStatisticsText(player) }
             jobs += first
             jobs += second
             sourceGate.awaitEntered()
@@ -163,6 +166,78 @@ class OpenMinecraftWorldConcurrencyTest {
         } finally {
             withContext(NonCancellable) {
                 sourceGate.open()
+                jobs.joinAll()
+                world.close()
+                base.checkNoOpenFiles()
+            }
+        }
+    }
+
+    @Test
+    fun typedTreeTextAndRawStatisticsShareOneWriterPreferringBoundary() = runTest {
+        val paths = MinecraftWorldPaths("/world".toPath())
+        val player = "typed-player"
+        val target = paths.statistics(player)
+        val initial = PlayerStatistics(
+            stats = mapOf("minecraft:custom" to mapOf("minecraft:play_time" to 1)),
+            dataVersion = 4_903,
+        )
+        val replacement = initial.copy(
+            stats = mapOf("minecraft:custom" to mapOf("minecraft:play_time" to 2)),
+        )
+        val base = concurrencyFakeFileSystem()
+        Utf8JsonFileStore(base).writeJson(target, PlayerStatistics.serializer(), initial)
+        val sourceGate = BlockingGate(expectedEntrants = 3)
+        val sinkGate = BlockingGate()
+        val fileSystem = GatedFileSystem(
+            base = base,
+            target = target,
+            sourceGate = sourceGate,
+            sinkGate = sinkGate,
+        )
+        val world = concurrencyWorld(paths, fileSystem)
+        val jobs = mutableListOf<Deferred<*>>()
+        try {
+            val typed = async(Dispatchers.Default) {
+                world.readStatistics(player, PlayerStatistics.serializer())
+            }
+            val tree = async(Dispatchers.Default) {
+                world.readStatistics(player, JsonElement.serializer())
+            }
+            val raw = async(Dispatchers.Default) { world.readStatistics(player) { readUtf8() } }
+            jobs += typed
+            jobs += tree
+            jobs += raw
+            sourceGate.awaitEntered()
+            assertEquals(3, world.activeMetadataUsers())
+
+            val writer = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+                world.writeStatistics(player, PlayerStatistics.serializer(), replacement)
+            }
+            jobs += writer
+            assertFalse(writer.isCompleted)
+            assertEquals(4, world.activeMetadataUsers())
+
+            sourceGate.open()
+            assertEquals(initial, typed.await())
+            assertEquals(initial, Json.decodeFromJsonElement(PlayerStatistics.serializer(), tree.await()))
+            assertEquals(initial, Json.decodeFromString(PlayerStatistics.serializer(), raw.await()))
+            sinkGate.awaitEntered()
+
+            val text = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+                world.readStatisticsText(player)
+            }
+            jobs += text
+            assertFalse(text.isCompleted)
+            sinkGate.open()
+            writer.await()
+            assertEquals(replacement, Json.decodeFromString(PlayerStatistics.serializer(), text.await()))
+            assertEquals(0, world.activeMetadataEntryCount())
+            base.checkNoOpenFiles()
+        } finally {
+            withContext(NonCancellable) {
+                sourceGate.open()
+                sinkGate.open()
                 jobs.joinAll()
                 world.close()
                 base.checkNoOpenFiles()
@@ -187,18 +262,18 @@ class OpenMinecraftWorldConcurrencyTest {
         val jobs = mutableListOf<Deferred<*>>()
         try {
             val writer = async(Dispatchers.Default) {
-                world.writeStatistics(player, "new")
+                world.writeStatisticsText(player, "new")
             }
             jobs += writer
             sinkGate.awaitEntered()
             val sameFileReader = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-                world.readStatistics(player)
+                world.readStatisticsText(player)
             }
             jobs += sameFileReader
             assertFalse(sameFileReader.isCompleted)
 
             val independent = async(Dispatchers.Default) {
-                world.writeAdvancements(player, "new-advancement")
+                world.writeAdvancementsText(player, "new-advancement")
             }
             jobs += independent
             independent.await()
@@ -275,11 +350,11 @@ class OpenMinecraftWorldConcurrencyTest {
         val world = concurrencyWorld(paths, fileSystem, lock)
         val jobs = mutableListOf<Deferred<*>>()
         try {
-            val reader = async(Dispatchers.Default) { world.readStatistics(player) }
+            val reader = async(Dispatchers.Default) { world.readStatisticsText(player) }
             jobs += reader
             sourceGate.awaitEntered()
             val writer = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-                world.writeStatistics(player, "replacement")
+                world.writeStatisticsText(player, "replacement")
             }
             jobs += writer
             assertEquals(2, world.activeMetadataUsers())
@@ -291,7 +366,7 @@ class OpenMinecraftWorldConcurrencyTest {
             assertFalse(secondClose.isCompleted)
             assertTrue(lock.isValid)
             assertEquals(0, lock.closeAttempts.get())
-            assertFailsWith<IllegalStateException> { world.readStatistics(player) }
+            assertFailsWith<IllegalStateException> { world.readStatisticsText(player) }
 
             sourceGate.open()
             assertEquals("value", reader.await())
@@ -378,7 +453,10 @@ class OpenMinecraftWorldConcurrencyTest {
         val paths = MinecraftWorldPaths("/world".toPath())
         val playerUuid = "cancelled-writer"
         val target = paths.statistics(playerUuid)
-        val json = "{\"complete\":true}"
+        val statistics = PlayerStatistics(
+            stats = mapOf("minecraft:custom" to mapOf("minecraft:play_time" to 7)),
+            dataVersion = 4_903,
+        )
         val base = concurrencyFakeFileSystem()
         val sinkGate = BlockingGate()
         val fileSystem = GatedFileSystem(base, target, sinkGate = sinkGate)
@@ -388,7 +466,7 @@ class OpenMinecraftWorldConcurrencyTest {
         try {
             val returned = CompletableDeferred<Unit>()
             val writing = async(Dispatchers.Default) {
-                world.writeStatistics(playerUuid, json)
+                world.writeStatistics(playerUuid, PlayerStatistics.serializer(), statistics)
                 returned.complete(Unit)
             }
             jobs += writing
@@ -396,7 +474,9 @@ class OpenMinecraftWorldConcurrencyTest {
 
             val readerReturned = CompletableDeferred<Unit>()
             val reading = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-                world.readStatistics(playerUuid).also { readerReturned.complete(Unit) }
+                world.readStatistics(playerUuid, PlayerStatistics.serializer()).also {
+                    readerReturned.complete(Unit)
+                }
             }
             jobs += reading
             assertFalse(readerReturned.isCompleted)
@@ -410,9 +490,9 @@ class OpenMinecraftWorldConcurrencyTest {
 
             assertEquals(cancellation.message, failure.message)
             assertFalse(returned.isCompleted)
-            assertEquals(json, reading.await())
+            assertEquals(statistics, reading.await())
             assertEquals(0, world.activeMetadataEntryCount())
-            assertEquals(json, world.readStatistics(playerUuid))
+            assertEquals(statistics, world.readStatistics(playerUuid, PlayerStatistics.serializer()))
             assertEquals(0, world.activeMetadataEntryCount())
             base.checkNoOpenFiles()
         } finally {

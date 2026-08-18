@@ -50,6 +50,11 @@ dynamic/raw boundary; a field the selected release always writes is required and
 default. Update model tests and user documentation together, and do not preserve old schema branches unless historical
 compatibility is explicitly requested.
 
+For standalone world files, explicitly account for `LevelDat` and every nested model, `PlayerAdvancements` and its
+heterogeneous root serializer, and `PlayerStatistics`; none may be waved through because its generated serializer still
+compiles. Reconfirm the current paths, root encoding/compression, strict unknown-field behavior, and direct-stream file
+adapters at the same time.
+
 For a repository-wide completeness request, account for every leaf domain: either apply its workflow or record concrete
 official evidence that its contract did not change. Do not create or load a transport skill merely because the release
 changed. Audit `protocol-transport` only if official framing, compression-envelope, or stream-encryption behavior

@@ -1,7 +1,12 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
+import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.world.format.*
+import kotlinx.serialization.DeserializationStrategy
+import kotlinx.serialization.SerializationStrategy
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.serializer
 import okio.BufferedSink
 import okio.BufferedSource
 import okio.Path
@@ -17,7 +22,12 @@ import kotlinx.io.Source as KotlinxSource
 data class MinecraftWorldAccessConfiguration(
     val regionStoreConfiguration: WorldRegionStoreConfiguration = WorldRegionStoreConfiguration(),
     val regionChunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
-)
+    val standaloneNbtFormat: NbtFormat = minecraftWorldNbtFormat(),
+) {
+    init {
+        standaloneNbtFormat.requireStandaloneWorldRoot()
+    }
+}
 
 /**
  * A system-filesystem world lease backed by the vanilla `session.lock`.
@@ -35,13 +45,27 @@ class MinecraftWorldAccess private constructor(
     val configuration: MinecraftWorldAccessConfiguration,
     private val world: OpenMinecraftWorld,
 ) {
-    suspend fun readLevelData(): NbtDocument = world.readLevelData()
+    suspend fun readLevelDataDocument(): NbtDocument = world.readLevelDataDocument()
+
+    suspend fun <T> readLevelData(deserializer: DeserializationStrategy<T>): T =
+        world.readLevelData(deserializer)
+
+    suspend inline fun <reified T> readLevelData(): T =
+        readLevelData(configuration.standaloneNbtFormat.serializersModule.serializer())
 
     suspend fun <T> readLevelData(block: (KotlinxSource) -> T): T =
         world.readLevelData(block)
 
-    suspend fun writeLevelData(document: NbtDocument) =
-        world.writeLevelData(document)
+    suspend fun writeLevelDataDocument(document: NbtDocument) =
+        world.writeLevelDataDocument(document)
+
+    suspend fun <T> writeLevelData(
+        serializer: SerializationStrategy<T>,
+        value: T,
+    ) = world.writeLevelData(serializer, value)
+
+    suspend inline fun <reified T> writeLevelData(value: T) =
+        writeLevelData(configuration.standaloneNbtFormat.serializersModule.serializer(), value)
 
     suspend fun writeLevelData(block: (KotlinxSink) -> Unit) =
         world.writeLevelData(block)
@@ -87,32 +111,80 @@ class MinecraftWorldAccess private constructor(
         block: (KotlinxSink) -> Unit,
     ) = world.writeSavedData(identifier, dimension, block)
 
-    suspend fun readStatistics(playerUuid: String): String =
-        world.readStatistics(playerUuid)
+    suspend fun readStatisticsText(playerUuid: String): String =
+        world.readStatisticsText(playerUuid)
+
+    suspend fun <T> readStatistics(
+        playerUuid: String,
+        deserializer: DeserializationStrategy<T>,
+        json: Json = Json,
+    ): T = world.readStatistics(playerUuid, deserializer, json)
+
+    suspend inline fun <reified T> readStatistics(
+        playerUuid: String,
+        json: Json = Json,
+    ): T = readStatistics(playerUuid, json.serializersModule.serializer(), json)
 
     suspend fun <T> readStatistics(
         playerUuid: String,
         block: BufferedSource.() -> T,
     ): T = world.readStatistics(playerUuid, block)
 
-    suspend fun writeStatistics(playerUuid: String, json: String) =
-        world.writeStatistics(playerUuid, json)
+    suspend fun writeStatisticsText(playerUuid: String, text: String) =
+        world.writeStatisticsText(playerUuid, text)
+
+    suspend fun <T> writeStatistics(
+        playerUuid: String,
+        serializer: SerializationStrategy<T>,
+        value: T,
+        json: Json = Json,
+    ) = world.writeStatistics(playerUuid, serializer, value, json)
+
+    suspend inline fun <reified T> writeStatistics(
+        playerUuid: String,
+        value: T,
+        json: Json = Json,
+    ) = writeStatistics(playerUuid, json.serializersModule.serializer(), value, json)
 
     suspend fun writeStatistics(
         playerUuid: String,
         block: BufferedSink.() -> Unit,
     ) = world.writeStatistics(playerUuid, block)
 
-    suspend fun readAdvancements(playerUuid: String): String =
-        world.readAdvancements(playerUuid)
+    suspend fun readAdvancementsText(playerUuid: String): String =
+        world.readAdvancementsText(playerUuid)
+
+    suspend fun <T> readAdvancements(
+        playerUuid: String,
+        deserializer: DeserializationStrategy<T>,
+        json: Json = Json,
+    ): T = world.readAdvancements(playerUuid, deserializer, json)
+
+    suspend inline fun <reified T> readAdvancements(
+        playerUuid: String,
+        json: Json = Json,
+    ): T = readAdvancements(playerUuid, json.serializersModule.serializer(), json)
 
     suspend fun <T> readAdvancements(
         playerUuid: String,
         block: BufferedSource.() -> T,
     ): T = world.readAdvancements(playerUuid, block)
 
-    suspend fun writeAdvancements(playerUuid: String, json: String) =
-        world.writeAdvancements(playerUuid, json)
+    suspend fun writeAdvancementsText(playerUuid: String, text: String) =
+        world.writeAdvancementsText(playerUuid, text)
+
+    suspend fun <T> writeAdvancements(
+        playerUuid: String,
+        serializer: SerializationStrategy<T>,
+        value: T,
+        json: Json = Json,
+    ) = world.writeAdvancements(playerUuid, serializer, value, json)
+
+    suspend inline fun <reified T> writeAdvancements(
+        playerUuid: String,
+        value: T,
+        json: Json = Json,
+    ) = writeAdvancements(playerUuid, json.serializersModule.serializer(), value, json)
 
     suspend fun writeAdvancements(
         playerUuid: String,
@@ -197,6 +269,7 @@ class MinecraftWorldAccess private constructor(
             val world = OpenMinecraftWorld(
                 paths = paths,
                 files = WorldFileAccess.mutable(systemFileSystem),
+                nbtFormat = configuration.standaloneNbtFormat,
                 regionChunkNbtFormat = configuration.regionChunkNbtFormat,
                 regionStoreConfiguration = configuration.regionStoreConfiguration,
                 directoryLock = lock,

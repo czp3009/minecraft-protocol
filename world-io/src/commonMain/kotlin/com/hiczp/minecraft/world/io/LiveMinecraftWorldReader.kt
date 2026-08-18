@@ -1,9 +1,13 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
+import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.world.format.*
 import kotlinx.io.buffered
 import kotlinx.io.okio.asKotlinxIoRawSource
+import kotlinx.serialization.DeserializationStrategy
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.serializer
 import okio.BufferedSource
 import okio.FileSystem
 import okio.Path
@@ -27,14 +31,22 @@ import kotlinx.io.Source as KotlinxSource
 class LiveMinecraftWorldReader private constructor(
     val paths: MinecraftWorldPaths,
     private val files: WorldFileAccess,
+    @PublishedApi
+    internal val standaloneNbtFormat: NbtFormat,
     private val regionChunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
 ) {
-    private val nbtFiles = NbtFileStore(files)
+    private val nbtFiles = NbtFileStore(files, standaloneNbtFormat)
     private val levelData = LevelDataStore(paths, nbtFiles)
     private val playerData = PlayerDataStore(paths, nbtFiles)
     private val jsonFiles = Utf8JsonFileStore(files)
 
-    fun readLevelData(): NbtDocument = levelData.read()
+    fun readLevelDataDocument(): NbtDocument = levelData.read()
+
+    fun <T> readLevelData(deserializer: DeserializationStrategy<T>): T =
+        levelData.read(deserializer)
+
+    inline fun <reified T> readLevelData(): T =
+        readLevelData(standaloneNbtFormat.serializersModule.serializer())
 
     fun <T> readLevelData(block: (KotlinxSource) -> T): T = levelData.read(block)
 
@@ -55,12 +67,34 @@ class LiveMinecraftWorldReader private constructor(
         block: (KotlinxSource) -> T,
     ): T? = SavedDataFileStore(paths, dimension, nbtFiles).read(identifier, block)
 
-    fun readStatistics(playerUuid: String): String = jsonFiles.read(paths.statistics(playerUuid))
+    fun readStatisticsText(playerUuid: String): String = jsonFiles.read(paths.statistics(playerUuid))
+
+    fun <T> readStatistics(
+        playerUuid: String,
+        deserializer: DeserializationStrategy<T>,
+        json: Json = Json,
+    ): T = jsonFiles.readJson(paths.statistics(playerUuid), deserializer, json)
+
+    inline fun <reified T> readStatistics(
+        playerUuid: String,
+        json: Json = Json,
+    ): T = readStatistics(playerUuid, json.serializersModule.serializer(), json)
 
     fun <T> readStatistics(playerUuid: String, block: BufferedSource.() -> T): T =
         jsonFiles.read(paths.statistics(playerUuid), block)
 
-    fun readAdvancements(playerUuid: String): String = jsonFiles.read(paths.advancement(playerUuid))
+    fun readAdvancementsText(playerUuid: String): String = jsonFiles.read(paths.advancement(playerUuid))
+
+    fun <T> readAdvancements(
+        playerUuid: String,
+        deserializer: DeserializationStrategy<T>,
+        json: Json = Json,
+    ): T = jsonFiles.readJson(paths.advancement(playerUuid), deserializer, json)
+
+    inline fun <reified T> readAdvancements(
+        playerUuid: String,
+        json: Json = Json,
+    ): T = readAdvancements(playerUuid, json.serializersModule.serializer(), json)
 
     fun <T> readAdvancements(playerUuid: String, block: BufferedSource.() -> T): T =
         jsonFiles.read(paths.advancement(playerUuid), block)
@@ -136,9 +170,15 @@ class LiveMinecraftWorldReader private constructor(
         fun open(root: Path): LiveMinecraftWorldReader =
             open(root, systemFileSystem)
 
+        fun open(
+            root: Path,
+            standaloneNbtFormat: NbtFormat,
+        ): LiveMinecraftWorldReader = open(root, systemFileSystem, standaloneNbtFormat)
+
         internal fun open(
             root: Path,
             fileSystem: FileSystem,
+            standaloneNbtFormat: NbtFormat = minecraftWorldNbtFormat(),
         ): LiveMinecraftWorldReader {
             val metadata = fileSystem.metadataOrNull(root)
                 ?: throw WorldIOException(
@@ -151,6 +191,7 @@ class LiveMinecraftWorldReader private constructor(
             return LiveMinecraftWorldReader(
                 paths = paths,
                 files = WorldFileAccess.liveReadOnly(fileSystem),
+                standaloneNbtFormat = standaloneNbtFormat,
             )
         }
     }

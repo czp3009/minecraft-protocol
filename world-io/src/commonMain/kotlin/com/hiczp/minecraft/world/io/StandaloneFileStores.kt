@@ -30,6 +30,9 @@ class LevelDataStore(
 
     fun read(): NbtDocument = read(nbtFiles.nbt::decodeDocumentFromSource)
 
+    fun <T> read(deserializer: DeserializationStrategy<T>): T =
+        read { source -> nbtFiles.nbt.decodeFromSource(deserializer, source) }
+
     fun <T> read(block: (KotlinxSource) -> T): T {
         val primaryFailure = try {
             return nbtFiles.read(paths.levelData, block = block)
@@ -53,6 +56,10 @@ class LevelDataStore(
     internal fun readForSharedAccess(): CoordinatedRead<NbtDocument> =
         readForSharedAccess(nbtFiles.nbt::decodeDocumentFromSource)
 
+    internal fun <T> readForSharedAccess(
+        deserializer: DeserializationStrategy<T>,
+    ): CoordinatedRead<T> = readForSharedAccess { source -> nbtFiles.nbt.decodeFromSource(deserializer, source) }
+
     internal fun <T> readForSharedAccess(block: (KotlinxSource) -> T): CoordinatedRead<T> = try {
         CoordinatedRead.Complete(nbtFiles.read(paths.levelData, block = block))
     } catch (failure: Throwable) {
@@ -63,6 +70,11 @@ class LevelDataStore(
     fun write(document: NbtDocument) {
         write { sink -> nbtFiles.nbt.encodeDocumentToSink(document, sink) }
     }
+
+    fun <T> write(
+        serializer: SerializationStrategy<T>,
+        value: T,
+    ) = write { sink -> nbtFiles.nbt.encodeToSink(serializer, value, sink) }
 
     fun write(block: (KotlinxSink) -> Unit) {
         val temporary = nbtFiles.writeSyncedTemporary(paths.root, block = block)

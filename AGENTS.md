@@ -27,8 +27,8 @@ Published runtime code is divided by responsibility:
 - `protocol-auth` owns offline/online identities, Session Server HTTP calls, hashes, and Login key exchange.
 - `protocol-client` and `protocol-server` own connection orchestration through Play. The server can project a finite
   initial chunk/entity view; it does not implement gameplay.
-- `world-format` owns filesystem-independent Anvil containers, coordinates, compression dispatch, and chunk NBT
-  composition.
+- `world-format` owns selected-release standalone structured world-file models plus filesystem-independent Anvil
+  containers, coordinates, compression dispatch, and chunk NBT composition.
 - `world-io` owns Okio paths, filesystems, and filesystem-backed stores.
 
 Private development infrastructure has separate boundaries:
