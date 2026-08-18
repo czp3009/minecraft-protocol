@@ -4,6 +4,13 @@ This file defines repository-wide development rules for coding agents. [README.m
 project and usage guide. Before changing a module, read that module's nearest `AGENTS.md`; module guidance adds only
 local ownership, invariants, and verification requirements.
 
+## Project maturity and compatibility
+
+This is an early-stage project. Complete refactors are allowed, and backward API compatibility is not required. Change
+public APIs, module boundaries, implementations, and tests as needed when that produces a cleaner overall result. Prefer
+a simple, elegant, and coherent final design over compatibility shims, deprecated aliases, transitional paths, or
+preserving existing structure for its own sake.
+
 ## Repository architecture
 
 Published runtime code is divided by responsibility:
