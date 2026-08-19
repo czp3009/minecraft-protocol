@@ -1,7 +1,7 @@
 # nbt-serialization
 
-This module owns the physical Java Edition binary NBT grammar and the
-`kotlinx.serialization` format that maps arbitrary supported serializers to the model in `nbt`.
+This module owns the physical Java Edition binary NBT and SNBT grammars plus the
+`kotlinx.serialization` formats that map arbitrary supported serializers to the model in `nbt`.
 
 ## Invariants
 
@@ -14,13 +14,20 @@ This module owns the physical Java Edition binary NBT grammar and the
   `Source` or `Sink` instances.
 - Binary serialization writes directly from serializer events to the caller's `Sink` and reads directly from the
   caller's `Source`; tree and byte-array APIs are optional adapters, not hidden staging in the stream path.
+- SNBT tag serialization traverses directly to a caller-owned `Sink`, and parsing incrementally decodes UTF-8 from a
+  caller-owned `Source` without staging the complete text. A returned tag tree and the shared tree used by generic
+  `kotlinx.serialization` conversion are the intentional retained forms.
+- SNBT follows the selected release's heterogeneous lists, numeric literals, typed arrays, boolean and UUID operations,
+  trailing separators, quoting, and escapes. It rejects values with no round-trippable SNBT representation. The portable
+  default accepts numeric Unicode escapes; `\N{name}` requires a caller-supplied Unicode-name resolver because Kotlin
+  Multiplatform has no common Unicode character-name database.
 - NBT exceptions inherit `SerializationException`. Integrations propagate them unless they add genuinely distinct
   behavior; do not wrap them merely to rename the same serialization failure.
 - Compression, filesystems, packets, Anvil containers, and sockets remain in their owning modules.
 - The production API remains independently consumable with only `nbt`,
   `kotlinx-serialization-core`, and `kotlinx-io-core`; Fixture Host integration is test-only evidence.
-- The official NBT differential entry lives in `commonTest` under the `fixturetest` package; unsupported fixture tasks
-  filter that entry while retaining ordinary binary-format coverage.
+- The official NBT/SNBT differential entry lives in `commonTest` under the `fixturetest` package; unsupported fixture
+  tasks filter that entry while retaining ordinary format coverage.
 
 ## Verification
 

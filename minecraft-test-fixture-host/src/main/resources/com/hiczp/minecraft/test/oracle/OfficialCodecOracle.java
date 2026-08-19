@@ -39,7 +39,9 @@ import net.minecraft.network.protocol.status.StatusProtocols;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
+import net.minecraft.nbt.TagParser;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.Bootstrap;
 
@@ -192,6 +194,86 @@ public final class OfficialCodecOracle {
                     )
             );
         }
+    }
+
+    /** Parses SNBT with the matching vanilla grammar and compares its NBT value. */
+    public static void runSnbt(String fixturesJson) throws Exception {
+        List<SnbtFixture> fixtures = readSnbtFixtures(fixturesJson);
+        Set<String> fixtureNames = new HashSet<>();
+        for (SnbtFixture fixture : fixtures) {
+            if (!fixtureNames.add(fixture.sample())) {
+                throw new IllegalArgumentException(
+                        "Duplicate SNBT fixture sample %s".formatted(fixture.sample())
+                );
+            }
+        }
+
+        List<String> failures = new ArrayList<>();
+        for (SnbtFixture fixture : fixtures) {
+            try {
+                Tag parsed = TagParser.create(NbtOps.INSTANCE).parseFully(fixture.input());
+                if (fixture.reject()) {
+                    failures.add(
+                            "%s: vanilla accepted a rejected fixture".formatted(fixture.sample())
+                    );
+                    continue;
+                }
+                Tag expected = readAnyNbt(fixture.expected());
+                if (!expected.equals(parsed)) {
+                    throw new AssertionError(
+                            "Vanilla parsed %s, expected %s".formatted(
+                                    parsed,
+                                    expected
+                            )
+                    );
+                }
+
+                Tag reparsed = TagParser.create(NbtOps.INSTANCE).parseFully(parsed.toString());
+                if (!parsed.equals(reparsed)) {
+                    throw new AssertionError("Vanilla SNBT writer did not round-trip its parsed value");
+                }
+            } catch (Throwable error) {
+                if (!fixture.reject() || !(error instanceof Exception)) {
+                    failures.add(
+                            "%s: %s".formatted(
+                                    fixture.sample(),
+                                    conciseError(error)
+                            )
+                    );
+                }
+            }
+        }
+        if (!failures.isEmpty()) {
+            String details = failures.stream()
+                    .limit(MAX_REPORTED_FAILURES)
+                    .map(failure -> "- %s".formatted(failure))
+                    .collect(Collectors.joining("\n"));
+            String omitted =
+                    failures.size() > MAX_REPORTED_FAILURES
+                            ? "\n- ... %d additional failure(s) omitted".formatted(
+                                    failures.size() - MAX_REPORTED_FAILURES
+                            )
+                            : "";
+            throw new AssertionError(
+                    "Official SNBT parser rejected %d fixture(s):\n%s%s".formatted(
+                            failures.size(),
+                            details,
+                            omitted
+                    )
+            );
+        }
+    }
+
+    private static Tag readAnyNbt(byte[] bytes) throws Exception {
+        ByteArrayInputStream storage = new ByteArrayInputStream(bytes);
+        DataInputStream input = new DataInputStream(storage);
+        Tag result = NbtIo.readAnyTag(input, NbtAccounter.unlimitedHeap());
+        if (storage.available() != 0) {
+            throw new IllegalStateException(
+                    "Expected NBT has %d trailing byte(s)".formatted(storage.available())
+            );
+        }
+        return result;
     }
 
     private static byte[] passThroughOfficialNbt(
@@ -392,6 +474,28 @@ public final class OfficialCodecOracle {
         return fixtures;
     }
 
+    private static List<SnbtFixture> readSnbtFixtures(String fixturesJson) {
+        SnbtFixtureInput[] inputs = GSON.fromJson(
+                fixturesJson,
+                SnbtFixtureInput[].class
+        );
+        if (inputs == null || inputs.length == 0) {
+            throw new IllegalArgumentException("SNBT fixtures are empty");
+        }
+        List<SnbtFixture> fixtures = new ArrayList<>(inputs.length);
+        for (SnbtFixtureInput input : inputs) {
+            fixtures.add(
+                    new SnbtFixture(
+                            input.sample(),
+                            input.input(),
+                            HexFormat.of().parseHex(input.expectedHex()),
+                            input.reject()
+                    )
+            );
+        }
+        return fixtures;
+    }
+
     private static String normalizeId(String value) {
         int parsed = parseId(value);
         return "0x%s".formatted(Integer.toHexString(parsed).toUpperCase());
@@ -469,6 +573,22 @@ public final class OfficialCodecOracle {
             byte[] payload,
             byte[] expected,
             boolean exactBytes,
+            boolean reject
+    ) {
+    }
+
+    private record SnbtFixtureInput(
+            String sample,
+            String input,
+            String expectedHex,
+            boolean reject
+    ) {
+    }
+
+    private record SnbtFixture(
+            String sample,
+            String input,
+            byte[] expected,
             boolean reject
     ) {
     }

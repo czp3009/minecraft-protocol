@@ -16,7 +16,7 @@ preserving existing structure for its own sake.
 Published runtime code is divided by responsibility:
 
 - `nbt` owns the shared NBT value algebra and logical raw-tag serializer handoff.
-- `nbt-serialization` owns physical binary NBT streams and the NBT `kotlinx.serialization` format.
+- `nbt-serialization` owns physical binary NBT streams, SNBT text streams, and their `kotlinx.serialization` formats.
 - `protocol-model` owns format-independent packet payloads, shared values, logical serializers, and wire annotations.
 - `protocol-serialization` owns physical Minecraft encodings and the runtime packet registry.
 - `protocol-vanilla-data` owns generated, version-matched protocol data.

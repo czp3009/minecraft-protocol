@@ -65,6 +65,8 @@ interface MinecraftTestSupportService {
     suspend fun verifyOfficialCodec(fixtures: JsonElement)
 
     suspend fun verifyOfficialNbt(fixtures: JsonElement)
+
+    suspend fun verifyOfficialSnbt(fixtures: JsonElement)
 }
 
 internal const val FIXTURE_RPC_URL_ENV = "MINECRAFT_TEST_FIXTURE_RPC_URL"

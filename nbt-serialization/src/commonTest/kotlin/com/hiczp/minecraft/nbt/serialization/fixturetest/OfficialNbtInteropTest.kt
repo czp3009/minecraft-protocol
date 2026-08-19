@@ -2,6 +2,7 @@ package com.hiczp.minecraft.nbt.serialization.fixturetest
 
 import com.hiczp.minecraft.nbt.*
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
+import com.hiczp.minecraft.nbt.serialization.SnbtFormat
 import com.hiczp.minecraft.test.MinecraftTestSupport
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonArray
@@ -13,7 +14,111 @@ class OfficialNbtInteropTest {
     @Test
     fun libraryBytesCrossReadAndWriteWithOfficialNbtIo() = runTest {
         MinecraftTestSupport.verifyOfficialNbt(officialNbtFixtures())
+        MinecraftTestSupport.verifyOfficialSnbt(officialSnbtFixtures())
     }
+}
+
+private fun officialSnbtFixtures() = buildJsonArray {
+    fun addFixture(sample: String, input: String, expected: NbtTag) {
+        add(
+            buildJsonObject {
+                put("sample", sample)
+                put("input", input)
+                put("expectedHex", NbtFormat.encodeAnyTagToByteArray(expected).toHexString())
+                put("reject", false)
+            },
+        )
+    }
+
+    fun addRejected(sample: String, input: String) {
+        add(
+            buildJsonObject {
+                put("sample", sample)
+                put("input", input)
+                put("expectedHex", "")
+                put("reject", true)
+            },
+        )
+    }
+
+    val canonical = NbtCompound(
+        linkedMapOf(
+            "byte" to NbtByte(-1),
+            "short" to NbtShort(2),
+            "int" to NbtInt(3),
+            "long" to NbtLong(4),
+            "intMin" to NbtInt(Int.MIN_VALUE),
+            "longMin" to NbtLong(Long.MIN_VALUE),
+            "float" to NbtFloat(1.25f),
+            "double" to NbtDouble(-2.5),
+            "floatMin" to NbtFloat(Float.MIN_VALUE),
+            "floatMax" to NbtFloat(Float.MAX_VALUE),
+            "floatNegativeZero" to NbtFloat(-0.0f),
+            "doubleMin" to NbtDouble(Double.MIN_VALUE),
+            "doubleMax" to NbtDouble(Double.MAX_VALUE),
+            "doubleNegativeZero" to NbtDouble(-0.0),
+            "bytes" to NbtByteArray(byteArrayOf(1, -1)),
+            "ints" to NbtIntArray(intArrayOf(Int.MIN_VALUE, 2, Int.MAX_VALUE)),
+            "longs" to NbtLongArray(longArrayOf(Long.MIN_VALUE, 3, Long.MAX_VALUE)),
+            "mixed" to NbtList(listOf(NbtInt(1), NbtString("two"))),
+            "string" to NbtString("quote'\"slash\\line\ncontrol\u0001"),
+        ),
+    )
+    addFixture("canonical-writer", SnbtFormat.encodeTagToString(canonical), canonical)
+    addFixture(
+        "selected-release-number-grammar",
+        """
+            {
+                zeroByte: 0b,
+                binary: 0 b 1010,
+                hex: 0xFFFFFFFF,
+                signedHex: -0x1si,
+                underscored: 1__2,
+                floats: [.5f, 1.d, 1 e 2],
+                bytes: [B; 1, 255ub, -1sb,],
+                ints: [I; 1b, 2s, 3,],
+                longs: [L; 1b, 2s, 3, 4L,],
+            }
+        """.trimIndent(),
+        NbtCompound(
+            linkedMapOf(
+                "zeroByte" to NbtByte(0),
+                "binary" to NbtInt(10),
+                "hex" to NbtInt(-1),
+                "signedHex" to NbtInt(-1),
+                "underscored" to NbtInt(12),
+                "floats" to NbtList(listOf(NbtFloat(0.5f), NbtDouble(1.0), NbtDouble(100.0))),
+                "bytes" to NbtByteArray(byteArrayOf(1, -1, -1)),
+                "ints" to NbtIntArray(intArrayOf(1, 2, 3)),
+                "longs" to NbtLongArray(longArrayOf(1, 2, 3, 4)),
+            ),
+        ),
+    )
+    addFixture(
+        "booleans-and-operations",
+        "[TRUE,false,bool(-2),bool(0),uuid(\"1-1-1-1-1\"),]",
+        NbtList(
+            listOf(
+                NbtByte(1),
+                NbtByte(0),
+                NbtByte(1),
+                NbtByte(0),
+                NbtIntArray(intArrayOf(1, 65_537, 65_536, 1)),
+            ),
+        ),
+    )
+    addFixture("Unicode-name-escape", "\"\\N{LATIN CAPITAL LETTER A}\"", NbtString("A"))
+    addFixture("duplicate-key-last-wins", "{value:1,value:2}", NbtCompound(mapOf("value" to NbtInt(2))))
+
+    addRejected("empty-compound-key", "{\"\":1}")
+    addRejected("byte-array-out-of-range", "[B;128]")
+    addRejected("invalid-int-array-element", "[I;1L]")
+    addRejected("negative-unsigned-hex", "-0x1")
+    addRejected("infinite-double", "1e9999")
+    addRejected("fraction-leading-underscore", "1._0")
+    addRejected("fraction-trailing-underscore", "1.0_")
+    addRejected("truncated-hex", "0x")
+    addRejected("unknown-escape", "\"\\q\"")
 }
 
 private fun officialNbtFixtures() = buildJsonArray {

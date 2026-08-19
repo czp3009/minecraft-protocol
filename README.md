@@ -4,7 +4,7 @@
 
 `minecraft-protocol` is a Kotlin Multiplatform library for the Minecraft Java Edition network protocol and world-storage
 formats. It provides typed packet models, `kotlinx.serialization` wire codecs, Ktor transport and connection
-orchestration, authentication helpers, version-matched vanilla data, binary NBT, and Anvil world I/O.
+orchestration, authentication helpers, version-matched vanilla data, binary NBT, SNBT, and Anvil world I/O.
 
 The library is infrastructure for Minecraft applications, not a complete game: gameplay, authoritative worlds, ticking,
 persistence policy, permissions, and operations remain application responsibilities.
@@ -14,7 +14,7 @@ persistence policy, permissions, and operations remain application responsibilit
 | Module                                                       | Purpose                                                                           |
 |--------------------------------------------------------------|-----------------------------------------------------------------------------------|
 | [`nbt`](nbt/README.md)                                       | Format-independent NBT values and logical serializers                             |
-| [`nbt-serialization`](nbt-serialization/README.md)           | Binary NBT and NBT tree conversion through `kotlinx.serialization`                |
+| [`nbt-serialization`](nbt-serialization/README.md)           | Binary NBT, SNBT, and NBT tree conversion through `kotlinx.serialization`         |
 | [`protocol-model`](protocol-model/README.md)                 | Format-independent packet payloads and shared protocol values                     |
 | [`protocol-serialization`](protocol-serialization/README.md) | Minecraft wire encodings and composable packet registries                         |
 | [`protocol-vanilla-data`](protocol-vanilla-data/README.md)   | Version-matched Known Packs, registries, tags, and vanilla catalogues             |
@@ -39,10 +39,11 @@ require, so a focused consumer never pulls in unrelated capabilities.
   negotiation profiles.
 - Offline and online Login with Session Server calls and Login key exchange; Microsoft OAuth and Xbox account HTTP APIs
   are available separately.
-- Streaming binary NBT, selected-release level/advancement/statistics models, and filesystem-independent Anvil
-  containers, plus Okio-based typed, full-value, and streaming world I/O—including live reads of official-server worlds.
+- Streaming binary NBT and textual SNBT, selected-release level/advancement/statistics models, and
+  filesystem-independent Anvil containers, plus Okio-based typed, full-value, and streaming world I/O—including live
+  reads of official-server worlds.
 
-Usage examples are documented at each owning layer: binary NBT in
+Usage examples are documented at each owning layer: binary NBT and SNBT in
 [`nbt-serialization`](nbt-serialization/README.md), compression and Anvil containers in
 [`world-format`](world-format/README.md), and filesystem-backed JSON, NBT, MCA, and MCC access in
 [`world-io`](world-io/README.md#one-api-shape). Every published module in the table above documents its

@@ -208,6 +208,10 @@ private class MinecraftTestSupportServiceServer(
     override suspend fun verifyOfficialNbt(fixtures: JsonElement) {
         verifyFixturesWithOfficialCodec(fixtures, "runNbt")
     }
+
+    override suspend fun verifyOfficialSnbt(fixtures: JsonElement) {
+        verifyFixturesWithOfficialCodec(fixtures, "runSnbt")
+    }
 }
 
 private class HostedFixtureResources(maximumParallelUsages: Int) {
