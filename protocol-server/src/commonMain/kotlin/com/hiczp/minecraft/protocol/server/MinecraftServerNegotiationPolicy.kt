@@ -17,21 +17,21 @@ interface MinecraftServerNegotiationPolicy {
     ): String = options.statusJson(onlineMode = onlineMode)
 
     suspend fun profileRejection(
-        profile: GameProfile,
+        gameProfile: GameProfile,
         transferred: Boolean,
         options: MinecraftServerNegotiationOptions,
     ): JsonTextComponent? = null
 
     suspend fun playLogin(
-        profile: GameProfile,
+        gameProfile: GameProfile,
         clientInformation: ClientInformation,
         transferred: Boolean,
         onlineMode: Boolean,
         options: MinecraftServerNegotiationOptions,
-    ): PlayLoginPacket = options.playLogin(profile, onlineMode)
+    ): PlayLoginPacket = options.playLogin(gameProfile, onlineMode)
 
     suspend fun configurationPackets(
-        profile: GameProfile,
+        gameProfile: GameProfile,
         clientInformation: ClientInformation,
         acceptedKnownPacks: List<KnownPack>,
         transferred: Boolean,
@@ -39,7 +39,7 @@ interface MinecraftServerNegotiationPolicy {
     ): List<ClientboundPacket> = emptyList()
 
     suspend fun configurationTasks(
-        profile: GameProfile,
+        gameProfile: GameProfile,
         clientInformation: ClientInformation,
         acceptedKnownPacks: List<KnownPack>,
         transferred: Boolean,

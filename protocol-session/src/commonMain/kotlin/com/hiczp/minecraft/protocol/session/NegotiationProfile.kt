@@ -12,7 +12,7 @@ data object VanillaNegotiationProfileResult : NegotiationProfileResult
 
 /**
  * Loader-neutral client algorithm hooks. Implementations only receive the same
- * public connection contract available to an application-written negotiator.
+ * public connection contract exposed by the session layer.
  */
 interface ClientNegotiationProfile {
     suspend fun begin(

@@ -30,11 +30,24 @@ val connectionContext = moddedStaticSchema.resolve(remoteRegistrySnapshot)
 Resolution follows remote registry order when assigning global block-state IDs. The resulting immutable context supplies
 block-state/biome palette sizes and lookup helpers to serialization and the server's initial-world APIs.
 
-`ProtocolDataSet` is the common boundary consumed by server negotiation. Dimension layout helpers derive the vertical
-section count and install it into the connection-specific serialization context:
+`ProtocolDataSet` is the common boundary for preset and application-defined negotiation. Resolve the exact Registry Data
+packets received or sent during Configuration, then apply the dimension selected by Play Login:
 
 ```kotlin
 val data: ProtocolDataSet = VanillaProtocolData
-val overworld = MinecraftDimensionLayout.from(data, Identifier("overworld"))
-val connectionContext = data.registryContext.withChunkSectionCount(overworld.sectionCount)
+val configurationContext = data.resolveSynchronizedRegistryContext(
+    registries = registryPackets,
+    staticRegistries = applicationStaticSchema,
+)
+val playContext = configurationContext.withPlayLoginDimension(
+    login = playLogin,
+    registries = registryPackets,
+    protocolData = data,
+)
 ```
+
+Both operations are pure: they do not access a connection, send packets, or invoke a negotiation profile. The first
+preserves the selected static schema, overlays synchronized raw-ID mappings, and rejects a missing or empty biome
+registry. The second requires the advertised active level and synchronized dimension-type raw ID, falls back to the
+matching `ProtocolDataSet` only when a Known Packs entry omitted its NBT, and changes only the chunk section count.
+Install and profile-hook ordering remains the caller's responsibility.

@@ -33,6 +33,8 @@ require, so a focused consumer never pulls in unrelated capabilities.
 ## Highlights
 
 - Channel-first typed packet connections over standard coroutine channels.
+- Public primitives for application-defined Status, Login, Configuration, Play entry, and initial-world synchronization;
+  client/server presets are optional orchestration conveniences.
 - Immutable, composable packet registries for vanilla and modded protocols, with preset Fabric, NeoForge, and Forge
   negotiation profiles.
 - Offline and online Login with Session Server calls and Login key exchange; Microsoft OAuth and Xbox account HTTP APIs
@@ -58,7 +60,8 @@ Unknown top-level packet IDs, Login queries, and custom-payload routes stay loss
 
 ## Client example
 
-Query a server's Status response:
+Ping a server as the multiplayer server list does. `queryStatus()` performs the Status handshake, obtains the server's
+Status response, and completes the Ping/Pong exchange; it does not run Login negotiation:
 
 ```kotlin
 SelectorManager(Dispatchers.Default).use { selector ->
@@ -68,9 +71,13 @@ SelectorManager(Dispatchers.Default).use { selector ->
   ).use { connection ->
     val status = connection.queryStatus()
     val description = status.response.jsonResponse
+    val echoedPingPayload = status.pong.timestamp
   }
 }
 ```
+
+Status has no continuation into Login. Close this connection after the ping, then create a fresh connection and call
+`negotiate()` only when joining the server.
 
 Or log in and enter Play, then take over the packet loop:
 
@@ -80,6 +87,18 @@ for (packet in connection.incoming) {
   handlePlayPacket(packet)
 }
 ```
+
+The preset runs in the calling coroutine and exclusively owns `incoming` and `outgoing` until it returns. No other
+coroutine may read or write either channel during that interval. Applications can write the negotiation sequence
+themselves under the same single-coroutine ownership precondition; the library assumes that ownership and does not lock
+or arbitrate application-created races. Read the maintained [client
+`negotiate` implementation](protocol-client/src/commonMain/kotlin/com/hiczp/minecraft/protocol/client/MinecraftClientProtocol.kt)
+and [server
+`negotiate` implementation](protocol-server/src/commonMain/kotlin/com/hiczp/minecraft/protocol/server/MinecraftServerProtocol.kt)
+as the source-level packet-order references. The [
+`protocol-client`](protocol-client/README.md#writing-your-own-negotiation)
+and [`protocol-server`](protocol-server/README.md#writing-your-own-negotiation) guides identify the public primitives
+used by those implementations.
 
 ## Server example
 

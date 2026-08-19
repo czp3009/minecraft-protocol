@@ -33,12 +33,10 @@ data class MinecraftInitialWorld(
         require(spawnYaw.isFinite() && spawnPitch.isFinite()) {
             "The initial player rotation must be finite"
         }
-        require(
-            viewDistance in
-                    MinecraftServerNegotiationOptions.MIN_VIEW_DISTANCE..
-                    MinecraftServerNegotiationOptions.MAX_VIEW_DISTANCE,
-        ) {
-            "View distance must be in ${MinecraftServerNegotiationOptions.MIN_VIEW_DISTANCE}..${MinecraftServerNegotiationOptions.MAX_VIEW_DISTANCE}"
+        val viewDistanceRange =
+            MinecraftServerNegotiationOptions.MIN_VIEW_DISTANCE..MinecraftServerNegotiationOptions.MAX_VIEW_DISTANCE
+        require(viewDistance in viewDistanceRange) {
+            "View distance must be in $viewDistanceRange"
         }
         require(simulationDistance >= 0)
         require(teleportId >= 0)
@@ -50,10 +48,7 @@ data class MinecraftInitialWorld(
         ) {
             "Initial chunks must have unique coordinates"
         }
-        require(
-            entities.map(MinecraftEntitySnapshot::entityId).toSet().size ==
-                    entities.size
-        ) {
+        require(entities.map(MinecraftEntitySnapshot::entityId).toSet().size == entities.size) {
             "Initial entities must have unique entity IDs"
         }
         require(
@@ -65,7 +60,39 @@ data class MinecraftInitialWorld(
         }
     }
 
+    internal fun validateSynchronization(
+        login: PlayLoginPacket,
+        registries: ProtocolRegistryContext,
+    ) {
+        require(dimension == login.spawnInfo.dimension) {
+            "Initial world dimension does not match the Play login dimension"
+        }
+        require(dimension in login.levels) {
+            "Initial world dimension is absent from the advertised Play levels"
+        }
+        require(dimensionType.registryId == login.spawnInfo.dimensionTypeId) {
+            "Initial dimension-type registry ID does not match Play login"
+        }
+        require(registries.chunkSectionCount == dimensionType.sectionCount) {
+            "Initial dimension height does not match the installed registry context"
+        }
+        require(entities.none { it.entityId == login.playerId }) {
+            "Initial entities must not reuse the player entity ID"
+        }
+    }
+
     companion object {
+        /** Returns the vanilla player abilities associated with [gameMode]. */
+        fun vanillaPlayerAbilities(gameMode: PlayerGameMode): PlayerAbilities =
+            PlayerAbilities(
+                invulnerable = gameMode == PlayerGameMode.CREATIVE || gameMode == PlayerGameMode.SPECTATOR,
+                flying = gameMode == PlayerGameMode.SPECTATOR,
+                canFly = gameMode == PlayerGameMode.CREATIVE || gameMode == PlayerGameMode.SPECTATOR,
+                instantBuild = gameMode == PlayerGameMode.CREATIVE,
+                flyingSpeed = DEFAULT_FLYING_SPEED,
+                walkingSpeed = DEFAULT_WALKING_SPEED,
+            )
+
         /**
          * Creates a vanilla flat-world projection centered on the spawn
          * chunk. The radius is measured in chunks.
@@ -74,8 +101,7 @@ data class MinecraftInitialWorld(
             options: MinecraftServerNegotiationOptions,
             dimension: Identifier = Identifier("overworld"),
             groundY: Int = 64,
-            spawnPosition: Vector3d =
-                Vector3d(0.5, groundY + 1.0, 0.5),
+            spawnPosition: Vector3d = Vector3d(0.5, groundY + 1.0, 0.5),
             chunkRadius: Int = options.viewDistance,
             surfaceBlock: Identifier = Identifier("grass_block"),
             biome: Identifier = Identifier("plains"),
@@ -91,10 +117,7 @@ data class MinecraftInitialWorld(
             val centerZ = floor(spawnPosition.z / CHUNK_SIZE).toInt()
             val chunks = buildList {
                 for (chunkZ in centerZ - chunkRadius..centerZ + chunkRadius) {
-                    for (
-                    chunkX in
-                    centerX - chunkRadius..centerX + chunkRadius
-                    ) {
+                    for (chunkX in centerX - chunkRadius..centerX + chunkRadius) {
                         add(
                             MinecraftChunkSnapshot.flat(
                                 registries = registries,
@@ -122,7 +145,6 @@ data class MinecraftInitialWorld(
                 entities = entities,
             )
         }
-        private const val CHUNK_SIZE: Double = 16.0
     }
 }
 
@@ -134,19 +156,19 @@ data class MinecraftInitialWorldSynchronization(
 
 /**
  * Sends the stateless Play bootstrap needed for a client to place the player,
- * accept chunk columns, render blocks and track initial entities.
+ * accept chunk columns, render blocks and track initial entities. [login] must
+ * be the Play Login packet that describes this world and was actually sent to
+ * the peer.
  */
 suspend fun MinecraftServerConnection.synchronizeInitialWorld(
     world: MinecraftInitialWorld,
+    login: PlayLoginPacket,
 ): MinecraftInitialWorldSynchronization {
     require(state == ConnectionState.PLAY) {
         "Initial world synchronization requires a Play session"
     }
-    validateInitialWorld(
-        world = world,
-        login = checkNotNull(playLogin) {
-            "Initial world synchronization requires a completed Play login"
-        },
+    world.validateSynchronization(
+        login = login,
         registries = registries,
     )
 
@@ -213,30 +235,6 @@ suspend fun MinecraftServerConnection.synchronizeInitialWorld(
     )
 }
 
-internal fun validateInitialWorld(
-    world: MinecraftInitialWorld,
-    login: PlayLoginPacket,
-    registries: ProtocolRegistryContext,
-) {
-    require(world.dimension == login.spawnInfo.dimension) {
-        "Initial world dimension does not match the Play login dimension"
-    }
-    require(world.dimension in login.levels) {
-        "Initial world dimension is absent from the advertised Play levels"
-    }
-    require(
-        world.dimensionType.registryId == login.spawnInfo.dimensionTypeId,
-    ) {
-        "Initial dimension-type registry ID does not match Play login"
-    }
-    require(registries.chunkSectionCount == world.dimensionType.sectionCount) {
-        "Initial dimension height does not match the installed registry context"
-    }
-    require(world.entities.none { it.entityId == login.playerId }) {
-        "Initial entities must not reuse the player entity ID"
-    }
-}
-
 private fun Vector3d.toBlockPosition(): BlockPosition =
     BlockPosition(
         x = floor(x).toInt(),
@@ -246,20 +244,6 @@ private fun Vector3d.toBlockPosition(): BlockPosition =
 
 private fun Vector3d.isFinite(): Boolean =
     x.isFinite() && y.isFinite() && z.isFinite()
-
-fun vanillaPlayerAbilities(gameMode: PlayerGameMode): PlayerAbilities =
-    PlayerAbilities(
-        invulnerable =
-            gameMode == PlayerGameMode.CREATIVE ||
-                    gameMode == PlayerGameMode.SPECTATOR,
-        flying = gameMode == PlayerGameMode.SPECTATOR,
-        canFly =
-            gameMode == PlayerGameMode.CREATIVE ||
-                    gameMode == PlayerGameMode.SPECTATOR,
-        instantBuild = gameMode == PlayerGameMode.CREATIVE,
-        flyingSpeed = DEFAULT_FLYING_SPEED,
-        walkingSpeed = DEFAULT_WALKING_SPEED,
-    )
 
 private const val DEFAULT_FLYING_SPEED: Float = 0.05f
 private const val DEFAULT_WALKING_SPEED: Float = 0.1f

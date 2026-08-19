@@ -82,12 +82,22 @@ class MinecraftServerProtocolTest {
         }
 
         val profile = GameProfile(Uuid.fromLongs(1, 2), "Probe", emptyList())
-        assertFalse(
-            options.playLogin(profile, onlineMode = false).enforcesSecureChat,
-        )
-        assertTrue(
-            options.playLogin(profile, onlineMode = true).enforcesSecureChat,
-        )
+        val offlineLogin = options.playLogin(profile, onlineMode = false)
+        val onlineLogin = options.playLogin(profile, onlineMode = true)
+        assertFalse(offlineLogin.enforcesSecureChat)
+        assertTrue(onlineLogin.enforcesSecureChat)
+        options.validatePlayLogin(offlineLogin)
+        assertFailsWith<IllegalArgumentException> {
+            options.validatePlayLogin(offlineLogin.copy(maxPlayers = -1))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            options.validatePlayLogin(
+                offlineLogin.copy(chunkRadius = MinecraftServerNegotiationOptions.MIN_VIEW_DISTANCE - 1),
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            options.validatePlayLogin(offlineLogin.copy(simulationDistance = -1))
+        }
     }
 
     @Test
@@ -138,13 +148,12 @@ class MinecraftServerProtocolTest {
             val transcript = finishClientNegotiation(pair.client, options)
             val result = assertNotNull(negotiation.await())
 
-            assertEquals(identity.id, result.profile.id)
-            assertEquals(transcript.login, result.profile)
-            assertEquals(transcript.playLogin, result.login)
-            assertEquals(result.login, pair.server.playLogin)
+            assertEquals(identity.id, result.gameProfile.id)
+            assertEquals(transcript.login, result.gameProfile)
+            assertEquals(transcript.playLogin, result.playLogin)
             assertEquals(
                 PlayerGameMode.CREATIVE,
-                result.login.spawnInfo.gameMode,
+                result.playLogin.spawnInfo.gameMode,
             )
             assertSame(
                 options.protocolData.registryContext.registries,
@@ -253,7 +262,7 @@ class MinecraftServerProtocolTest {
         )
         val policy = object : MinecraftServerNegotiationPolicy {
             override suspend fun configurationPackets(
-                profile: GameProfile,
+                gameProfile: GameProfile,
                 clientInformation: ClientInformation,
                 acceptedKnownPacks: List<KnownPack>,
                 transferred: Boolean,
@@ -261,7 +270,7 @@ class MinecraftServerProtocolTest {
             ): List<ClientboundPacket> = listOf(brand)
 
             override suspend fun configurationTasks(
-                profile: GameProfile,
+                gameProfile: GameProfile,
                 clientInformation: ClientInformation,
                 acceptedKnownPacks: List<KnownPack>,
                 transferred: Boolean,
@@ -354,9 +363,9 @@ class MinecraftServerProtocolTest {
                 val result = assertNotNull(negotiation.await())
 
                 assertEquals(profileId, transcript.login.id)
-                assertEquals(profileId, result.profile.id)
-                assertTrue(result.login.onlineMode)
-                assertTrue(result.login.enforcesSecureChat)
+                assertEquals(profileId, result.gameProfile.id)
+                assertTrue(result.playLogin.onlineMode)
+                assertTrue(result.playLogin.enforcesSecureChat)
                 assertEquals("203.0.113.42", requestedIp)
             } finally {
                 pair.close()

@@ -1,8 +1,8 @@
 package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.protocol.auth.*
-import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
-import com.hiczp.minecraft.protocol.data.completeRegistryPackets
+import com.hiczp.minecraft.protocol.data.resolveSynchronizedRegistryContext
+import com.hiczp.minecraft.protocol.data.withPlayLoginDimension
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.session.NegotiationProfileResult
@@ -13,40 +13,41 @@ import kotlinx.serialization.json.put
 
 /**
  * Facts produced when the peer completes Login and Configuration negotiation.
- * [login] is the exact Play Login packet sent at the end of that successful transition, while
+ * [playLogin] is the exact Play Login packet sent at the end of that successful transition, while
  * [MinecraftServerConnection.registries] remains the connection's authoritative mutable registry
  * context.
  */
-data class MinecraftServerPlayReady(
-    val profile: GameProfile,
+data class MinecraftServerNegotiationResult(
+    val gameProfile: GameProfile,
     val clientInformation: ClientInformation,
     val acceptedKnownPacks: List<KnownPack>,
-    val login: PlayLoginPacket,
-    val negotiationProfile: NegotiationProfileResult,
+    val playLogin: PlayLoginPacket,
+    val profile: NegotiationProfileResult,
     val transferred: Boolean = false,
 )
 
 /**
  * Runs the preset negotiation while exclusively borrowing [MinecraftServerConnection.incoming]
- * and [MinecraftServerConnection.outgoing]. Callers must not concurrently
- * receive or send until this method returns.
+ * and [MinecraftServerConnection.outgoing]. Callers must guarantee that no
+ * other coroutine receives or sends until this method returns; violating that
+ * precondition is a programming error. This method runs sequentially in the
+ * calling coroutine, does not launch a negotiation scope or select a
+ * dispatcher, and uses no lock to arbitrate competing channel users.
  *
  * Returns null when a non-login connection (a status ping) was answered and closed completely
- * before returning; the caller has nothing left to do. A returned [MinecraftServerPlayReady]
+ * before returning; the caller has nothing left to do. A returned [MinecraftServerNegotiationResult]
  * means the open connection reached Play, contains the exact Play Login in
- * [MinecraftServerPlayReady.login], and has the negotiated registry context installed; further
- * traffic and closing then belong to the caller. Negotiation failures raised by this library,
+ * [MinecraftServerNegotiationResult.playLogin], and has the negotiated registry context installed;
+ * further traffic and closing then belong to the caller. Negotiation failures raised by this library,
  * such as [MinecraftLoginRejectedException], leave the connection open so the caller may send the
  * rejection's failure packet explicitly before closing. Wire and pump failures surface as their
  * original exception with the connection already terminated; only closing remains.
  */
 suspend fun MinecraftServerConnection.negotiate(
     profile: ServerNegotiationProfile = VanillaServer,
-    options: MinecraftServerNegotiationOptions =
-        MinecraftServerNegotiationOptions(),
-    policy: MinecraftServerNegotiationPolicy =
-        DefaultMinecraftServerNegotiationPolicy,
-): MinecraftServerPlayReady? {
+    options: MinecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(),
+    policy: MinecraftServerNegotiationPolicy = DefaultMinecraftServerNegotiationPolicy,
+): MinecraftServerNegotiationResult? {
     require(
         state == ConnectionState.HANDSHAKE ||
                 state == ConnectionState.STATUS ||
@@ -65,6 +66,7 @@ suspend fun MinecraftServerConnection.negotiate(
                 )
             }
             handleStatus(options, policy)
+            null
         }
 
         ConnectionState.LOGIN -> {
@@ -98,7 +100,7 @@ suspend fun MinecraftServerConnection.negotiate(
 private suspend fun MinecraftServerConnection.handleStatus(
     options: MinecraftServerNegotiationOptions,
     policy: MinecraftServerNegotiationPolicy,
-): MinecraftServerPlayReady? {
+) {
     requirePacket<StatusRequestPacket>(incoming.receive())
     outgoing.send(
         StatusResponsePacket(
@@ -112,7 +114,6 @@ private suspend fun MinecraftServerConnection.handleStatus(
     outgoing.send(StatusPongResponsePacket(ping.timestamp))
     outgoing.close()
     awaitClosed()
-    return null
 }
 
 private suspend fun MinecraftServerConnection.handleLogin(
@@ -120,7 +121,7 @@ private suspend fun MinecraftServerConnection.handleLogin(
     profile: ServerNegotiationProfile,
     options: MinecraftServerNegotiationOptions,
     policy: MinecraftServerNegotiationPolicy,
-): MinecraftServerPlayReady {
+): MinecraftServerNegotiationResult {
     val start = awaitLoginPacket<LoginStartPacket>(profile, options, policy)
     val gameProfile = authenticate(start, profile, options, policy)
     val rejection = policy.profileRejection(
@@ -165,8 +166,8 @@ private suspend fun MinecraftServerConnection.handleLogin(
             policy,
             "Known Packs",
         ).knownPacks
-    options.protocolData.registryPackets(acceptedKnownPacks)
-        .forEach { outgoing.send(it) }
+    val synchronizedRegistries = options.protocolData.registryPackets(acceptedKnownPacks)
+    synchronizedRegistries.forEach { outgoing.send(it) }
     outgoing.send(options.protocolData.tags)
 
     profile.negotiateConfiguration(this)
@@ -201,10 +202,18 @@ private suspend fun MinecraftServerConnection.handleLogin(
         onlineMode,
         options,
     )
-    validatePlayLogin(login, options)
-    val registryContext = profile.resolveRegistryContext(
-        activeRegistryContext(options, login),
-    )
+    val vanillaRegistryContext = try {
+        options.validatePlayLogin(login)
+        options.protocolData
+            .resolveSynchronizedRegistryContext(synchronizedRegistries)
+            .withPlayLoginDimension(login, synchronizedRegistries, options.protocolData)
+    } catch (failure: IllegalArgumentException) {
+        throw MinecraftServerException(
+            failure.message ?: "Invalid Play Login or registry context",
+            failure,
+        )
+    }
+    val registryContext = profile.resolveRegistryContext(vanillaRegistryContext)
     installRegistryContext(registryContext)
 
     outgoing.send(FinishConfigurationPacket)
@@ -217,14 +226,13 @@ private suspend fun MinecraftServerConnection.handleLogin(
     awaitState(ConnectionState.PLAY)
     profile.preparePlay(this)
     outgoing.send(login)
-    playLogin = login
     val profileResult = profile.complete(this)
-    return MinecraftServerPlayReady(
-        profile = gameProfile,
+    return MinecraftServerNegotiationResult(
+        gameProfile = gameProfile,
         clientInformation = clientInformation,
         acceptedKnownPacks = acceptedKnownPacks,
-        login = login,
-        negotiationProfile = profileResult,
+        playLogin = login,
+        profile = profileResult,
         transferred = transferred,
     )
 }
@@ -364,53 +372,6 @@ private fun validateConfigurationExtensionPacket(packet: ClientboundPacket) {
             "Configuration extension ${packet::class.simpleName} is managed by the Vanilla negotiator",
         )
     }
-}
-
-private fun validatePlayLogin(
-    login: PlayLoginPacket,
-    options: MinecraftServerNegotiationOptions,
-) {
-    if (login.maxPlayers < 0) {
-        throw MinecraftServerException(
-            "Play Login maximum players must be non-negative",
-        )
-    }
-    if (
-        login.chunkRadius !in
-        MinecraftServerNegotiationOptions.MIN_VIEW_DISTANCE..
-        MinecraftServerNegotiationOptions.MAX_VIEW_DISTANCE
-    ) {
-        throw MinecraftServerException(
-            "Play Login chunk radius must be in ${MinecraftServerNegotiationOptions.MIN_VIEW_DISTANCE}..${MinecraftServerNegotiationOptions.MAX_VIEW_DISTANCE}",
-        )
-    }
-    if (login.simulationDistance < 0) {
-        throw MinecraftServerException(
-            "Play Login simulation distance must be non-negative",
-        )
-    }
-    if (login.spawnInfo.dimension !in login.levels) {
-        throw MinecraftServerException(
-            "Play Login dimension is absent from its advertised levels",
-        )
-    }
-    MinecraftDimensionLayout.from(
-        options.protocolData.completeRegistryPackets(),
-        login.spawnInfo.dimensionTypeId,
-    )
-}
-
-private fun activeRegistryContext(
-    options: MinecraftServerNegotiationOptions,
-    login: PlayLoginPacket,
-): ProtocolRegistryContext {
-    val dimension = MinecraftDimensionLayout.from(
-        options.protocolData.completeRegistryPackets(),
-        login.spawnInfo.dimensionTypeId,
-    )
-    return options.protocolData.registryContext.withChunkSectionCount(
-        dimension.sectionCount,
-    )
 }
 
 private inline fun <reified T : ServerboundPacket> requirePacket(

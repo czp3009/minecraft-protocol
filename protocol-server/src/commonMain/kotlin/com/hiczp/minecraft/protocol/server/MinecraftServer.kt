@@ -3,7 +3,6 @@
 package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.protocol.model.packet.ClientboundPacket
-import com.hiczp.minecraft.protocol.model.packet.PlayLoginPacket
 import com.hiczp.minecraft.protocol.model.packet.ServerboundPacket
 import com.hiczp.minecraft.protocol.session.MinecraftConnectionDefinition
 import com.hiczp.minecraft.protocol.session.MinecraftConnectionEngine
@@ -58,10 +57,8 @@ class MinecraftServer private constructor(
             host: String = "0.0.0.0",
             port: Int = MinecraftServerConnection.DEFAULT_PORT,
             definition: MinecraftConnectionDefinition = MinecraftConnectionDefinition(),
-            authentication: MinecraftServerAuthentication =
-                MinecraftServerAuthentication.Offline,
-            transportConfiguration: MinecraftTransportConfiguration =
-                MinecraftTransportConfiguration(),
+            authentication: MinecraftServerAuthentication = MinecraftServerAuthentication.Offline,
+            transportConfiguration: MinecraftTransportConfiguration = MinecraftTransportConfiguration(),
         ): MinecraftServer = MinecraftServer(
             socket = aSocket(selectorManager).tcp().bind(host, port),
             definition = definition,
@@ -97,9 +94,6 @@ class MinecraftServerConnection internal constructor(
     val authentication: MinecraftServerAuthentication,
     val clientIpAddress: String?,
 ) : MinecraftPacketConnection<ServerboundPacket, ClientboundPacket> by connection {
-    var playLogin: PlayLoginPacket? = null
-        internal set
-
     companion object {
         const val DEFAULT_PORT: Int = 25565
     }

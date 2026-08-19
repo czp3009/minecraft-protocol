@@ -145,7 +145,10 @@ internal object HeadlessClientEndToEndRunner {
                         options = OPTIONS,
                         entities = listOf(pig, arrow, minecart, horse),
                     )
-                    val synchronization = connection.synchronizeInitialWorld(world)
+                    val synchronization = connection.synchronizeInitialWorld(
+                        world = world,
+                        login = ready.playLogin,
+                    )
                     connection.outgoing.send(
                         PlayClientboundKeepAlivePacket(
                             INITIAL_KEEP_ALIVE_ID,
@@ -195,12 +198,17 @@ internal object HeadlessClientEndToEndRunner {
                                 keepAliveAcknowledged &&
                                 clientTickObserved,
                     ) {
-                        "Client did not complete initial-world acknowledgements; teleport=$teleportAcknowledged, chunkBatch=$chunkBatchAcknowledged, keepAlive=$keepAliveAcknowledged, clientTick=$clientTickObserved; observed ${observed.joinToString()}"
+                        buildString {
+                            append("Client did not complete initial-world acknowledgements")
+                            append("; teleport=$teleportAcknowledged, chunkBatch=$chunkBatchAcknowledged")
+                            append(", keepAlive=$keepAliveAcknowledged, clientTick=$clientTickObserved")
+                            append("; observed ${observed.joinToString()}")
+                        }
                     }
 
                     exercisePlayPackets(
                         connection = connection,
-                        playerEntityId = ready.login.playerId,
+                        playerEntityId = ready.playLogin.playerId,
                         entity = pig,
                         projectile = arrow,
                         vehicle = minecart,
@@ -210,6 +218,7 @@ internal object HeadlessClientEndToEndRunner {
                     )
                     exerciseRespawn(
                         connection = connection,
+                        login = ready.playLogin,
                         world = world.copy(
                             teleportId = world.teleportId + 2,
                         ),
@@ -217,6 +226,7 @@ internal object HeadlessClientEndToEndRunner {
                     )
                     exerciseReconfiguration(
                         connection = connection,
+                        login = ready.playLogin,
                         world = world,
                         observedPlayPackets = observed,
                     )
@@ -1053,19 +1063,17 @@ internal object HeadlessClientEndToEndRunner {
 
     private suspend fun exerciseRespawn(
         connection: MinecraftServerConnection,
+        login: PlayLoginPacket,
         world: MinecraftInitialWorld,
         observed: MutableList<String>,
     ) {
-        val login = checkNotNull(connection.playLogin) {
-            "Respawn requires the negotiated Play Login"
-        }
         connection.outgoing.send(
             RespawnPacket(
                 spawnInfo = login.spawnInfo,
                 dataToKeep = RespawnPacket.KEEP_ALL_DATA.toByte(),
             ),
         )
-        val synchronization = connection.synchronizeInitialWorld(world)
+        val synchronization = connection.synchronizeInitialWorld(world, login)
         connection.outgoing.send(
             PlayClientboundKeepAlivePacket(RESPAWN_KEEP_ALIVE_ID),
         )
@@ -1120,7 +1128,11 @@ internal object HeadlessClientEndToEndRunner {
                     chunkBatch &&
                     playerLoaded,
         ) {
-            "Official client did not complete Respawn; keepAlive=$keepAlive, ping=$ping, tick=$tick, teleport=$teleport, chunkBatch=$chunkBatch, playerLoaded=$playerLoaded"
+            buildString {
+                append("Official client did not complete Respawn")
+                append("; keepAlive=$keepAlive, ping=$ping, tick=$tick, teleport=$teleport")
+                append(", chunkBatch=$chunkBatch, playerLoaded=$playerLoaded")
+            }
         }
     }
 
@@ -1169,7 +1181,11 @@ internal object HeadlessClientEndToEndRunner {
             }
         } catch (failure: Throwable) {
             throw AssertionError(
-                "Official client disconnected while processing $label; ping=$pingRoundTrip, keepAlive=$keepAliveRoundTrip, tick=$tickObserved, additional=${additionalComplete()}",
+                buildString {
+                    append("Official client disconnected while processing $label")
+                    append("; ping=$pingRoundTrip, keepAlive=$keepAliveRoundTrip, tick=$tickObserved")
+                    append(", additional=${additionalComplete()}")
+                },
                 failure,
             )
         }
@@ -1179,12 +1195,17 @@ internal object HeadlessClientEndToEndRunner {
                     tickObserved &&
                     additionalComplete(),
         ) {
-            "Official client did not pass the $label barrier; ping=$pingRoundTrip, keepAlive=$keepAliveRoundTrip, tick=$tickObserved, additional=${additionalComplete()}"
+            buildString {
+                append("Official client did not pass the $label barrier")
+                append("; ping=$pingRoundTrip, keepAlive=$keepAliveRoundTrip, tick=$tickObserved")
+                append(", additional=${additionalComplete()}")
+            }
         }
     }
 
     private suspend fun exerciseReconfiguration(
         connection: MinecraftServerConnection,
+        login: PlayLoginPacket,
         world: MinecraftInitialWorld,
         observedPlayPackets: MutableList<String>,
     ) {
@@ -1310,7 +1331,11 @@ internal object HeadlessClientEndToEndRunner {
                     pingRoundTrip &&
                     knownPacks != null,
         ) {
-            "Official client did not complete Configuration probes; cookie=$cookieRoundTrip, keepAlive=$keepAliveRoundTrip, ping=$pingRoundTrip, knownPacks=${knownPacks != null}"
+            buildString {
+                append("Official client did not complete Configuration probes")
+                append("; cookie=$cookieRoundTrip, keepAlive=$keepAliveRoundTrip, ping=$pingRoundTrip")
+                append(", knownPacks=${knownPacks != null}")
+            }
         }
         val acceptedKnownPacks = knownPacks.knownPacks
         OPTIONS.protocolData
@@ -1337,15 +1362,14 @@ internal object HeadlessClientEndToEndRunner {
             "Server session did not return to Play after reconfiguration"
         }
 
-        connection.outgoing.send(
-            checkNotNull(connection.playLogin) {
-                "Reconfiguration requires the negotiated Play Login"
-            },
-        )
+        connection.outgoing.send(login)
         val reconfiguredWorld = world.copy(
             teleportId = world.teleportId + 3,
         )
-        val synchronization = connection.synchronizeInitialWorld(reconfiguredWorld)
+        val synchronization = connection.synchronizeInitialWorld(
+            world = reconfiguredWorld,
+            login = login,
+        )
         connection.outgoing.send(
             PlayClientboundKeepAlivePacket(
                 POST_CONFIGURATION_KEEP_ALIVE_ID,
@@ -1410,7 +1434,11 @@ internal object HeadlessClientEndToEndRunner {
                     postChunkBatch &&
                     postPlayerLoaded,
         ) {
-            "Official client did not resume Play after reconfiguration; keepAlive=$postKeepAlive, ping=$postPing, tick=$postTick, teleport=$postTeleport, chunkBatch=$postChunkBatch, playerLoaded=$postPlayerLoaded"
+            buildString {
+                append("Official client did not resume Play after reconfiguration")
+                append("; keepAlive=$postKeepAlive, ping=$postPing, tick=$postTick, teleport=$postTeleport")
+                append(", chunkBatch=$postChunkBatch, playerLoaded=$postPlayerLoaded")
+            }
         }
     }
 

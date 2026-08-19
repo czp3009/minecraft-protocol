@@ -96,7 +96,7 @@ data class MinecraftServerNegotiationOptions(
     }
 
     fun playLogin(
-        profile: GameProfile,
+        gameProfile: GameProfile,
         onlineMode: Boolean,
     ): PlayLoginPacket {
         val dimension = Identifier("overworld")
@@ -105,7 +105,7 @@ data class MinecraftServerNegotiationOptions(
             dimension,
         )
         return PlayLoginPacket(
-            playerId = profile.id.hashCode(),
+            playerId = gameProfile.id.hashCode(),
             hardcore = hardcore,
             levels = setOf(dimension),
             maxPlayers = maximumPlayers,
@@ -129,6 +129,24 @@ data class MinecraftServerNegotiationOptions(
             onlineMode = onlineMode,
             enforcesSecureChat = effectiveSecureChatEnforcement(onlineMode),
         )
+    }
+
+    /**
+     * Validates the server-policy fields of [login] without reading connection
+     * state or performing I/O. Registry and active-dimension consistency is
+     * validated by `withPlayLoginDimension` in `protocol-vanilla-data`.
+     */
+    fun validatePlayLogin(login: PlayLoginPacket) {
+        require(login.maxPlayers >= 0) {
+            "Play Login maximum players must be non-negative"
+        }
+        val chunkRadiusRange = MIN_VIEW_DISTANCE..MAX_VIEW_DISTANCE
+        require(login.chunkRadius in chunkRadiusRange) {
+            "Play Login chunk radius must be in $chunkRadiusRange"
+        }
+        require(login.simulationDistance >= 0) {
+            "Play Login simulation distance must be non-negative"
+        }
     }
 
     companion object {

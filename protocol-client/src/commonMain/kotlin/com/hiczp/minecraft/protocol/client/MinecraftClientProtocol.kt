@@ -1,7 +1,10 @@
 package com.hiczp.minecraft.protocol.client
 
 import com.hiczp.minecraft.protocol.auth.*
-import com.hiczp.minecraft.protocol.data.*
+import com.hiczp.minecraft.protocol.data.ProtocolDataSet
+import com.hiczp.minecraft.protocol.data.VanillaProtocolData
+import com.hiczp.minecraft.protocol.data.resolveSynchronizedRegistryContext
+import com.hiczp.minecraft.protocol.data.withPlayLoginDimension
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
@@ -35,16 +38,16 @@ data class MinecraftClientNegotiationResult(
     val profile: NegotiationProfileResult,
 )
 
-sealed interface NegotiationQueryResult {
-    data object Pass : NegotiationQueryResult
+sealed interface ClientNegotiationQueryResult {
+    data object Pass : ClientNegotiationQueryResult
 
     data class Respond(
         val packets: List<ServerboundPacket>,
-    ) : NegotiationQueryResult
+    ) : ClientNegotiationQueryResult
 
     data class Reject(
         val reason: String,
-    ) : NegotiationQueryResult
+    ) : ClientNegotiationQueryResult
 }
 
 class MinecraftClientNegotiationOptions(
@@ -67,7 +70,7 @@ class MinecraftClientNegotiationOptions(
     val resourcePackResult: ResourcePackResult = ResourcePackResult.DECLINED,
     val staticRegistries: StaticRegistrySchema = protocolData.staticRegistries,
     val maximumPacketsPerPhase: Int = 2_048,
-    val onUnhandledQuery: (suspend (UnknownPacket.Clientbound) -> NegotiationQueryResult)? = null,
+    val onUnhandledQuery: (suspend (UnknownPacket.Clientbound) -> ClientNegotiationQueryResult)? = null,
 ) {
     val loginCookies: Map<Identifier, ByteString> = loginCookies.toMap()
     val configurationCookies: Map<Identifier, ByteString> = configurationCookies.toMap()
@@ -110,8 +113,12 @@ suspend fun MinecraftClientConnection.queryStatus(
 
 /**
  * Runs the preset negotiation while exclusively borrowing [incoming] and
- * [outgoing]. Callers must not concurrently receive or send until this method
- * returns. The implementation uses only this connection's public API.
+ * [outgoing]. Callers must guarantee that no other coroutine receives or sends
+ * until this method returns; violating that precondition is a programming
+ * error. This method runs sequentially in the calling coroutine, does not
+ * launch a negotiation scope or select a dispatcher, and uses no lock to
+ * arbitrate competing channel users. The implementation uses only this
+ * connection's public API.
  *
  * On return the open connection has reached Play with the negotiated registry context installed
  * in [MinecraftClientConnection.registries]; further traffic and closing then belong to the
@@ -124,24 +131,36 @@ suspend fun MinecraftClientConnection.negotiate(
     identity: MinecraftIdentity,
     sessionHttpClient: HttpClient? = null,
     profile: ClientNegotiationProfile = VanillaClient,
-    options: MinecraftClientNegotiationOptions =
-        MinecraftClientNegotiationOptions(),
+    options: MinecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(),
 ): MinecraftClientNegotiationResult {
     require(state == ConnectionState.HANDSHAKE) {
         "Login requires a fresh Handshake connection"
     }
+    val login = negotiateLogin(identity, sessionHttpClient, profile, options)
+    val configuration = negotiateConfiguration(profile, options)
+    val playLogin = awaitPlayLogin(configuration.registries, options)
+    val profileResult = profile.complete(this)
+    return MinecraftClientNegotiationResult(
+        login = login,
+        configuration = configuration,
+        playLogin = playLogin,
+        profile = profileResult,
+    )
+}
+
+private suspend fun MinecraftClientConnection.negotiateLogin(
+    identity: MinecraftIdentity,
+    sessionHttpClient: HttpClient?,
+    profile: ClientNegotiationProfile,
+    options: MinecraftClientNegotiationOptions,
+): LoginSuccessPacket {
     profile.begin(this)
     outgoing.send(
         profile.prepareHandshake(handshake(HandshakeNextState.LOGIN)),
     )
     outgoing.send(LoginStartPacket(identity.name, identity.id))
 
-    var loginSuccess: LoginSuccessPacket? = null
-    var loginPackets = 0
-    while (loginSuccess == null) {
-        if (++loginPackets > options.maximumPacketsPerPhase) {
-            throw MinecraftClientException("Login packet limit exceeded")
-        }
+    repeat(options.maximumPacketsPerPhase) {
         when (val packet = incoming.receive()) {
             is LoginDisconnectPacket ->
                 throw MinecraftClientException(
@@ -164,29 +183,28 @@ suspend fun MinecraftClientConnection.negotiate(
             is SetCompressionPacket -> Unit
 
             is LoginSuccessPacket -> {
-                loginSuccess = packet
                 outgoing.send(LoginAcknowledgedPacket)
                 awaitState(ConnectionState.CONFIGURATION)
+                return packet
             }
 
             else -> handleLoginExtension(profile, packet, options)
         }
     }
-    val login = checkNotNull(loginSuccess)
+    throw MinecraftClientException("Login packet limit exceeded")
+}
 
+private suspend fun MinecraftClientConnection.negotiateConfiguration(
+    profile: ClientNegotiationProfile,
+    options: MinecraftClientNegotiationOptions,
+): MinecraftClientConfiguration {
     outgoing.send(ConfigurationClientInformationPacket(options.information))
     var knownPacks: ConfigurationClientboundKnownPacksPacket? = null
     var featureFlags: FeatureFlagsPacket? = null
     var tags: ConfigurationUpdateTagsPacket? = null
     val registryPackets = mutableListOf<RegistryDataPacket>()
     val storedCookies = linkedMapOf<Identifier, ByteString>()
-    var resolvedContext: ProtocolRegistryContext? = null
-    var configurationFinished = false
-    var configurationPackets = 0
-    while (!configurationFinished) {
-        if (++configurationPackets > options.maximumPacketsPerPhase) {
-            throw MinecraftClientException("Configuration packet limit exceeded")
-        }
+    repeat(options.maximumPacketsPerPhase) {
         when (val packet = incoming.receive()) {
             is ConfigurationDisconnectPacket ->
                 throw MinecraftClientException(
@@ -252,17 +270,24 @@ suspend fun MinecraftClientConnection.negotiate(
                 throw MinecraftClientTransferException(packet.host, packet.port)
 
             is FinishConfigurationPacket -> {
-                val context = resolveRegistryContext(
-                    registryPackets,
-                    options,
-                    profile,
-                )
-                resolvedContext = context
+                val baseContext = registryContextOrClientFailure {
+                    options.protocolData.resolveSynchronizedRegistryContext(
+                        registries = registryPackets,
+                        staticRegistries = options.staticRegistries,
+                    )
+                }
+                val context = profile.resolveRegistryContext(baseContext)
                 installRegistryContext(context)
                 profile.preparePlay(this)
                 outgoing.send(AcknowledgeFinishConfigurationPacket)
                 awaitState(ConnectionState.PLAY)
-                configurationFinished = true
+                return MinecraftClientConfiguration(
+                    knownPacks = knownPacks,
+                    featureFlags = featureFlags,
+                    registries = registryPackets.toList(),
+                    tags = tags,
+                    storedCookies = storedCookies.toMap(),
+                )
             }
 
             is ConfigurationRemoveResourcePackPacket,
@@ -276,26 +301,25 @@ suspend fun MinecraftClientConnection.negotiate(
             else -> handleConfigurationExtension(profile, packet, options)
         }
     }
+    throw MinecraftClientException("Configuration packet limit exceeded")
+}
 
-    var playLogin: PlayLoginPacket? = null
-    var playPackets = 0
-    while (playLogin == null) {
-        if (++playPackets > options.maximumPacketsPerPhase) {
-            throw MinecraftClientException("Play Login packet limit exceeded")
-        }
+private suspend fun MinecraftClientConnection.awaitPlayLogin(
+    registryPackets: List<RegistryDataPacket>,
+    options: MinecraftClientNegotiationOptions,
+): PlayLoginPacket {
+    repeat(options.maximumPacketsPerPhase) {
         when (val packet = incoming.receive()) {
             is PlayLoginPacket -> {
-                val context = checkNotNull(resolvedContext) {
-                    "Configuration did not resolve registry context"
+                val activeContext = registryContextOrClientFailure {
+                    registries.withPlayLoginDimension(
+                        login = packet,
+                        registries = registryPackets,
+                        protocolData = options.protocolData,
+                    )
                 }
-                val activeContext = configureActiveDimension(
-                    context,
-                    registryPackets,
-                    packet,
-                    options.protocolData,
-                )
                 installRegistryContext(activeContext)
-                playLogin = packet
+                return packet
             }
 
             else -> {
@@ -309,20 +333,7 @@ suspend fun MinecraftClientConnection.negotiate(
             }
         }
     }
-    val actualPlayLogin = checkNotNull(playLogin)
-    val profileResult = profile.complete(this)
-    return MinecraftClientNegotiationResult(
-        login = login,
-        configuration = MinecraftClientConfiguration(
-            knownPacks,
-            featureFlags,
-            registryPackets.toList(),
-            tags,
-            storedCookies.toMap(),
-        ),
-        playLogin = actualPlayLogin,
-        profile = profileResult,
-    )
+    throw MinecraftClientException("Play Login packet limit exceeded")
 }
 
 private suspend fun MinecraftClientConnection.handleLoginExtension(
@@ -368,21 +379,21 @@ private suspend fun MinecraftClientConnection.handleUnknownQuery(
     val decision = options.onUnhandledQuery?.invoke(packet)
         ?: defaultUnknownQueryResult(packet)
     when (decision) {
-        NegotiationQueryResult.Pass -> Unit
-        is NegotiationQueryResult.Reject ->
+        ClientNegotiationQueryResult.Pass -> Unit
+        is ClientNegotiationQueryResult.Reject ->
             throw MinecraftClientException(decision.reason)
 
-        is NegotiationQueryResult.Respond ->
+        is ClientNegotiationQueryResult.Respond ->
             decision.packets.forEach { outgoing.send(it) }
     }
 }
 
 private fun defaultUnknownQueryResult(
     packet: UnknownPacket.Clientbound,
-): NegotiationQueryResult {
+): ClientNegotiationQueryResult {
     val route = packet.route as? PacketRoute.LoginQuery
-        ?: return NegotiationQueryResult.Pass
-    return NegotiationQueryResult.Respond(
+        ?: return ClientNegotiationQueryResult.Pass
+    return ClientNegotiationQueryResult.Respond(
         listOf(
             UnknownPacket.Serverbound(
                 PacketRoute.LoginQuery(
@@ -434,70 +445,15 @@ private suspend fun MinecraftClientConnection.answerEncryptionRequest(
     }
 }
 
-private suspend fun MinecraftClientConnection.resolveRegistryContext(
-    registries: List<RegistryDataPacket>,
-    options: MinecraftClientNegotiationOptions,
-    profile: ClientNegotiationProfile,
-): ProtocolRegistryContext {
-    var context = options.protocolData.registryContext
-    if (options.staticRegistries !== options.protocolData.staticRegistries) {
-        context = context.withStaticRegistryResolution(
-            options.staticRegistries.resolve(),
-        )
-    }
-    context = context.withRegistries(
-        registries.map { packet ->
-            ProtocolRegistry(
-                packet.registryId,
-                packet.entries.mapIndexed { rawId, entry ->
-                    ProtocolRegistryEntry(entry.id, rawId)
-                },
-            )
-        },
+private inline fun registryContextOrClientFailure(
+    operation: () -> ProtocolRegistryContext,
+): ProtocolRegistryContext = try {
+    operation()
+} catch (failure: IllegalArgumentException) {
+    throw MinecraftClientException(
+        failure.message ?: "Invalid negotiated registry context",
+        failure,
     )
-    val biomeSize = context.registrySize(ProtocolRegistryContext.BIOME_REGISTRY)
-        ?: throw MinecraftClientException(
-            "Configuration did not provide a biome registry and the static schema has none",
-        )
-    if (biomeSize == 0) {
-        throw MinecraftClientException("The synchronized biome registry is empty")
-    }
-    return profile.resolveRegistryContext(context)
-}
-
-private fun configureActiveDimension(
-    context: ProtocolRegistryContext,
-    registries: List<RegistryDataPacket>,
-    playLogin: PlayLoginPacket,
-    protocolData: ProtocolDataSet,
-): ProtocolRegistryContext {
-    if (playLogin.spawnInfo.dimension !in playLogin.levels) {
-        throw MinecraftClientException(
-            "Play Login selected dimension ${playLogin.spawnInfo.dimension}, but it is absent from the advertised levels",
-        )
-    }
-    val dimensionTypeRegistryId = Identifier("dimension_type")
-    val dimensionTypeRegistry =
-        registries.registry(dimensionTypeRegistryId)
-            ?: protocolData.requireRegistry(dimensionTypeRegistryId)
-    val dimensionType = dimensionTypeRegistry.entries.getOrNull(
-        playLogin.spawnInfo.dimensionTypeId,
-    ) ?: throw MinecraftClientException(
-        "Play Login selected absent dimension-type registry ID ${playLogin.spawnInfo.dimensionTypeId}",
-    )
-    val dimension =
-        if (dimensionType.data == null) {
-            MinecraftDimensionLayout.from(
-                protocolData,
-                dimensionType.id,
-            )
-        } else {
-            MinecraftDimensionLayout.from(
-                listOf(dimensionTypeRegistry),
-                playLogin.spawnInfo.dimensionTypeId,
-            )
-        }
-    return context.withChunkSectionCount(dimension.sectionCount)
 }
 
 private fun MinecraftClientConnection.handshake(

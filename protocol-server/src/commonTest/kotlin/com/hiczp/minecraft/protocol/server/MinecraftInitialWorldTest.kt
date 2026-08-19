@@ -518,44 +518,37 @@ class MinecraftInitialWorldTest {
             entities = entities,
         )
 
-        validateInitialWorld(world(), login, registries)
+        world().validateSynchronization(login, registries)
 
         assertFailsWith<IllegalArgumentException> {
-            validateInitialWorld(
-                world(dimension = Identifier("the_nether")),
+            world(dimension = Identifier("the_nether")).validateSynchronization(
                 login,
                 registries,
             )
         }
         assertFailsWith<IllegalArgumentException> {
-            validateInitialWorld(
-                world(dimensionType = nether),
+            world(dimensionType = nether).validateSynchronization(
                 login,
                 registries,
             )
         }
         assertFailsWith<IllegalArgumentException> {
-            validateInitialWorld(
-                world(dimensionType = overworld.copy(height = 16)),
+            world(dimensionType = overworld.copy(height = 16)).validateSynchronization(
                 login,
                 registries,
             )
         }
         assertFailsWith<IllegalArgumentException> {
-            validateInitialWorld(
-                world(
-                    entities = listOf(
-                        MinecraftEntitySnapshot(
-                            entityId = login.playerId,
-                            uuid = Uuid.fromLongs(3, 4),
-                            type = Identifier("pig"),
-                            position = Vector3d(0.0, 65.0, 0.0),
-                        ),
+            world(
+                entities = listOf(
+                    MinecraftEntitySnapshot(
+                        entityId = login.playerId,
+                        uuid = Uuid.fromLongs(3, 4),
+                        type = Identifier("pig"),
+                        position = Vector3d(0.0, 65.0, 0.0),
                     ),
                 ),
-                login,
-                registries,
-            )
+            ).validateSynchronization(login, registries)
         }
 
         val customDimension = Identifier("test:custom_world")
@@ -563,8 +556,7 @@ class MinecraftInitialWorldTest {
             levels = setOf(customDimension),
             spawnInfo = login.spawnInfo.copy(dimension = customDimension),
         )
-        validateInitialWorld(
-            world(dimension = customDimension),
+        world(dimension = customDimension).validateSynchronization(
             customLogin,
             registries,
         )
@@ -595,7 +587,7 @@ class MinecraftInitialWorldTest {
             ),
         )
         expected.forEach { (gameMode, abilities) ->
-            assertEquals(abilities, vanillaPlayerAbilities(gameMode))
+            assertEquals(abilities, MinecraftInitialWorld.vanillaPlayerAbilities(gameMode))
         }
 
         val options = MinecraftServerNegotiationOptions(
