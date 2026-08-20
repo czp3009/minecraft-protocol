@@ -30,6 +30,11 @@ persistence policy, permissions, and operations remain application responsibilit
 The project is fully modular: depend on exactly the modules you need. Higher layers reuse the lower layers their APIs
 require, so a focused consumer never pulls in unrelated capabilities.
 
+## Demo
+
+- [Minecraft Launcher](demo/launcher) — A Kotlin Multiplatform terminal launcher for managing offline and Microsoft
+  accounts, installing official Minecraft versions, and launching the game.
+
 ## Highlights
 
 - Channel-first typed packet connections over standard coroutine channels.

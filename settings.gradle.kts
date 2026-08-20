@@ -33,4 +33,5 @@ include(
     ":minecraft-test-support",
     ":minecraft-test-fixture-host",
     ":protocol-symbol-processor",
+    ":demo:launcher",
 )

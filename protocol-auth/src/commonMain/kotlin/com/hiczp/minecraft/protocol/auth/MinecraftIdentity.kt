@@ -1,14 +1,24 @@
+@file:OptIn(kotlin.uuid.ExperimentalUuidApi::class)
+
 package com.hiczp.minecraft.protocol.auth
 
 import com.hiczp.minecraft.protocol.model.type.GameProfile
+import kotlinx.serialization.DeserializationStrategy
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
+import kotlinx.serialization.json.JsonContentPolymorphicSerializer
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.jsonObject
 import okio.ByteString.Companion.encodeUtf8
 import kotlin.uuid.Uuid
 
+@Serializable(with = MinecraftIdentitySerializer::class)
 sealed interface MinecraftIdentity {
     val id: Uuid
     val name: String
 }
 
+@Serializable
 data class MinecraftOfflineIdentity(
     override val name: String,
 ) : MinecraftIdentity {
@@ -16,6 +26,7 @@ data class MinecraftOfflineIdentity(
         require(name.isNotEmpty()) { "Minecraft player name cannot be empty" }
     }
 
+    @Transient
     override val id: Uuid = minecraftOfflineUuid(name)
 
     companion object {
@@ -32,6 +43,7 @@ data class MinecraftOfflineIdentity(
     }
 }
 
+@Serializable
 data class MinecraftOnlineIdentity(
     override val id: Uuid,
     override val name: String,
@@ -41,6 +53,16 @@ data class MinecraftOnlineIdentity(
         require(name.isNotEmpty()) { "Minecraft profile name cannot be empty" }
         require(accessToken.isNotBlank()) { "Minecraft access token cannot be blank" }
     }
+}
+
+internal object MinecraftIdentitySerializer :
+    JsonContentPolymorphicSerializer<MinecraftIdentity>(MinecraftIdentity::class) {
+    override fun selectDeserializer(element: JsonElement): DeserializationStrategy<MinecraftIdentity> =
+        if ("accessToken" in element.jsonObject) {
+            MinecraftOnlineIdentity.serializer()
+        } else {
+            MinecraftOfflineIdentity.serializer()
+        }
 }
 
 fun MinecraftOfflineIdentity.toGameProfile(): GameProfile = GameProfile(

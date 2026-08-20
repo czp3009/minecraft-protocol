@@ -1,9 +1,7 @@
 package com.hiczp.minecraft.protocol.auth
 
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertIs
+import kotlinx.serialization.json.Json
+import kotlin.test.*
 
 class OfflineAuthenticationTest {
     @Test
@@ -67,5 +65,27 @@ class OfflineAuthenticationTest {
         assertFailsWith<IllegalArgumentException> {
             MinecraftOfflineIdentity.minecraftOfflineUuid("")
         }
+    }
+
+    @Test
+    fun identitiesRoundTripWithoutAClassDiscriminator() {
+        val offline: MinecraftIdentity = MinecraftOfflineIdentity("Player")
+        val online: MinecraftIdentity = MinecraftOnlineIdentity(
+            id = offline.id,
+            name = offline.name,
+            accessToken = "access-token",
+        )
+
+        val offlineJson = Json.encodeToString(offline)
+        val onlineJson = Json.encodeToString(online)
+
+        assertEquals("""{"name":"Player"}""", offlineJson)
+        assertEquals(
+            """{"id":"${online.id}","name":"Player","accessToken":"access-token"}""",
+            onlineJson,
+        )
+        assertEquals(offline, Json.decodeFromString<MinecraftIdentity>(offlineJson))
+        assertEquals(online, Json.decodeFromString<MinecraftIdentity>(onlineJson))
+        assertFalse("\"id\"" in offlineJson)
     }
 }
