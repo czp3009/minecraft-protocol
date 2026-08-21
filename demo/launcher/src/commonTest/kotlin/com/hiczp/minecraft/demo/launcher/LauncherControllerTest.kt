@@ -81,8 +81,9 @@ class LauncherControllerTest {
     }
 
     @Test
-    fun cancellingInstallStopsAllDownloadsAndReturnsToVersions() = runTest {
+    fun cancellingReinstallAfterContentDownloadsStartLeavesVersionUninstalled() = runTest {
         val fixture = InstallFixture(blockContentDownloads = true)
+        fixture.recordInstalled()
         val controller = createController(
             scope = backgroundScope,
             client = fixture.client,
@@ -94,18 +95,58 @@ class LauncherControllerTest {
         )
         try {
             controller.start()
-            controller.state.first { it.manifest is VersionManifestState.Ready }
+            controller.state.first {
+                it.manifest is VersionManifestState.Ready && it.installed.installations.isNotEmpty()
+            }
             controller.confirmInstall(fixture.entry)
             controller.install(fixture.entry)
             fixture.activeContentDownloads.first { it == 3 }
 
             assertIs<LauncherDestination.Installing>(controller.state.value.destination)
+            assertTrue(controller.installedVersions().isEmpty())
+            assertTrue(fixture.store.loadInstalled().installations.isEmpty())
             controller.cancelInstallation()
 
             controller.state.first { it.destination == LauncherDestination.Versions }
             fixture.activeContentDownloads.first { it == 0 }
             assertTrue(fixture.store.loadInstalled().installations.isEmpty())
             assertEquals(LauncherDestination.Versions, controller.state.value.destination)
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun cancellingReinstallDuringAssetIndexDownloadKeepsInstalledRecord() = runTest {
+        val fixture = InstallFixture(blockAssetIndexDownload = true)
+        fixture.recordInstalled()
+        val controller = createController(
+            scope = backgroundScope,
+            client = fixture.client,
+            fileSystem = fixture.fileSystem,
+            root = fixture.root,
+            store = fixture.store,
+            installationService = fixture.service,
+            platform = fixture.platform,
+        )
+        try {
+            controller.start()
+            controller.state.first {
+                it.manifest is VersionManifestState.Ready && it.installed.installations.isNotEmpty()
+            }
+            controller.confirmInstall(fixture.entry)
+            controller.install(fixture.entry)
+            fixture.activeAssetIndexDownloads.first { it == 1 }
+
+            assertIs<LauncherDestination.PreparingInstall>(controller.state.value.destination)
+            val installed = InstalledVersion(fixture.entry.id, fixture.platform.platformKey)
+            assertEquals(listOf(installed), controller.installedVersions())
+            assertEquals(1, fixture.store.loadInstalled().installations.size)
+            controller.cancelInstallation()
+
+            controller.state.first { it.destination == LauncherDestination.Versions }
+            fixture.activeAssetIndexDownloads.first { it == 0 }
+            assertEquals(1, fixture.store.loadInstalled().installations.size)
         } finally {
             fixture.close()
         }
@@ -256,7 +297,7 @@ class LauncherControllerTest {
         )
         val processRuntime = RecordingGameProcessRuntime()
         try {
-            fixture.service.install(fixture.service.prepareInstallation(fixture.entry))
+            fixture.service.install(fixture.entry)
             fixture.store.auth.update {
                 selectedIdentityId = identity.id
                 accounts = listOf(StoredAccount(identity, "old-refresh-token", 0))
@@ -300,7 +341,7 @@ class LauncherControllerTest {
         val fixture = InstallFixture()
         val processRuntime = FailingGameProcessRuntime()
         try {
-            fixture.service.install(fixture.service.prepareInstallation(fixture.entry))
+            fixture.service.install(fixture.entry)
             val accountService = AccountService(fixture.client, fixture.store, BrowserService {})
             val controller = LauncherController(
                 backgroundScope,

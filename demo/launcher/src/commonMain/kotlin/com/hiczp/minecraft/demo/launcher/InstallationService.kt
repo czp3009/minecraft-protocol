@@ -26,7 +26,29 @@ internal class InstallationService(
 
     suspend fun loadInstalled(): InstalledState = store.reconcileInstalled(platform)
 
-    suspend fun prepareInstallation(entry: VersionEntry): PreparedInstallation {
+    suspend fun install(
+        entry: VersionEntry,
+        onDownloadsStarted: (InstalledState) -> Unit = {},
+    ): CompletedInstallation {
+        val prepared = prepareInstallation(entry)
+        val downloadingState = store.updateInstalled { installed ->
+            installed.copy(
+                installations = installed.installations.filterNot {
+                    it.versionId == entry.id && it.platformKey == platform.platformKey
+                },
+            )
+        }
+        onDownloadsStarted(downloadingState)
+        downloadAll(prepared.downloads, prepared.gameRoot)
+
+        val completedState = store.updateInstalled { installed ->
+            val record = InstalledVersion(prepared.metadata.id, platform.platformKey)
+            installed.copy(installations = installed.installations.filterNot { it == record } + record)
+        }
+        return CompletedInstallation(prepared.metadata, completedState)
+    }
+
+    private suspend fun prepareInstallation(entry: VersionEntry): PreparedInstallation {
         val metadata = loadVersionMetadata(entry)
         val plan = MetadataPlanner.createInstallPlan(metadata, platform)
         val gameRoot = store.gameRoot(entry.id)
@@ -43,16 +65,6 @@ internal class InstallationService(
             .distinctBy(DownloadSpec::relativePath)
         resetProgress(downloads.size)
         return PreparedInstallation(metadata, gameRoot, downloads)
-    }
-
-    suspend fun install(prepared: PreparedInstallation): VersionMetadata {
-        downloadAll(prepared.downloads, prepared.gameRoot)
-
-        store.updateInstalled { installed ->
-            val record = InstalledVersion(prepared.metadata.id, platform.platformKey)
-            installed.copy(installations = installed.installations.filterNot { it == record } + record)
-        }
-        return prepared.metadata
     }
 
     suspend fun validateInstallation(metadata: VersionMetadata): InstallPlan {
@@ -121,10 +133,15 @@ internal class InstallationService(
     }
 }
 
-internal data class PreparedInstallation(
+private data class PreparedInstallation(
     val metadata: VersionMetadata,
     val gameRoot: Path,
     val downloads: List<DownloadSpec>,
+)
+
+internal data class CompletedInstallation(
+    val metadata: VersionMetadata,
+    val installed: InstalledState,
 )
 
 private const val DOWNLOAD_CONCURRENCY = 16

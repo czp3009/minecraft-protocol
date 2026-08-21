@@ -142,13 +142,18 @@ internal fun VersionsScreen(
     platform: String,
     visibleRows: Int,
     versionsFor: (String?) -> List<VersionEntry>,
+    installedVersionIds: Set<String>,
     onInstall: (VersionEntry) -> Unit,
     onBack: () -> Unit,
 ) {
     var filter by remember { mutableStateOf(VersionFilter.STABLE) }
     val selection = rememberSelectionState()
     val items = versionsFor(filter.type).map { entry ->
-        ActionItem(entry.id, onActivate = { onInstall(entry) })
+        ActionItem(
+            label = entry.id,
+            onActivate = { onInstall(entry) },
+            trailingText = if (entry.id in installedVersionIds) "Installed" else null,
+        )
     }
 
     LauncherScaffold(
@@ -186,19 +191,24 @@ internal fun VersionsScreen(
 @Composable
 internal fun ConfirmInstallScreen(
     entry: VersionEntry,
+    installed: Boolean,
     platform: String,
     onInstall: () -> Unit,
     onBack: () -> Unit,
 ) {
     LauncherScaffold(
         platform = platform,
-        hints = listOf(KeyHint("Enter", "Install"), KeyHint("Esc", "Back")),
+        hints = listOf(KeyHint("Enter", if (installed) "Reinstall" else "Install"), KeyHint("Esc", "Back")),
         onKeyEvent = { event -> handleConfirmationKey(event, onInstall, onBack) },
     ) {
-        SectionHeading("Install ${entry.id}")
+        SectionHeading(if (installed) "Reinstall ${entry.id}" else "Install ${entry.id}")
         PropertyRow("Type", entry.type)
         PropertyRow("Directory", "minecraft/${entry.id}/")
         Spacer(Modifier.height(1))
+        if (installed) {
+            Status("Already installed. Continuing will overwrite this version.")
+            Spacer(Modifier.height(1))
+        }
         WrappedText("Each version keeps its own libraries, assets, saves, and settings.")
     }
 }

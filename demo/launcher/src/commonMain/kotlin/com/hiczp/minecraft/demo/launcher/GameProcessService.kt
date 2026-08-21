@@ -177,11 +177,15 @@ internal class GameProcessService(
         val decoder = OutputChunkDecoder()
         while (true) {
             val line = reader.readLine() ?: break
-            decoder.feed("$line\n").forEach { output.append(source, it) }
+            decoder.feed(normalizeProcessLineEnding(line)).forEach { output.append(source, it) }
         }
         decoder.feed("", endOfInput = true).forEach { output.append(source, it) }
     }
 }
+
+// Kommand Native removes only LF from CRLF, while JVM BufferedReader removes the complete line terminator.
+// Restore LF and normalize CRLF so terminal decoding receives the same input on every target.
+internal fun normalizeProcessLineEnding(line: String): String = "$line\n".replace("\r\n", "\n")
 
 internal fun parseJavaMajor(text: String): Int {
     val version = JAVA_VERSION_PATTERN.find(text)?.groupValues?.get(1)

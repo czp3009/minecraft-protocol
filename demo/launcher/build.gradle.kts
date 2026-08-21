@@ -84,25 +84,37 @@ kotlin {
 }
 
 val konanDataDirectory = providers.gradleProperty("konan.data.dir")
+    .orElse(providers.environmentVariable("KONAN_DATA_DIR"))
     .orElse(providers.systemProperty("user.home").map { "$it/.konan" })
 val mingwRuntimeDirectory = konanDataDirectory.map { "$it/dependencies/msys2-mingw-w64-x86_64-2/bin" }
 val mingwRuntimePath = mingwRuntimeDirectory.zip(providers.environmentVariable("PATH").orElse("")) { directory, path ->
     "$directory;$path"
 }
 
+// Kommand's MinGW binary needs the MSYS2 runtime libraries while native tests execute.
 tasks.named<KotlinNativeTest>("mingwX64Test") {
     environment("PATH", mingwRuntimePath.get())
 }
 
-tasks.register<Sync>("installMingwX64Executable") {
-    group = "distribution"
-    description = "Installs the Windows x64 executable with its MinGW runtime DLLs."
-    dependsOn("linkReleaseExecutableMingwX64")
-    from(layout.buildDirectory.dir("bin/mingwX64/releaseExecutable")) {
-        include("launcher.exe")
+fun registerNativeExecutableInstall(targetName: String, executableName: String): TaskProvider<Sync> {
+    val taskTargetName = targetName.replaceFirstChar { it.titlecase() }
+    return tasks.register<Sync>("install${taskTargetName}Executable") {
+        group = "distribution"
+        description = "Installs the $targetName executable distribution."
+        from(tasks.named("linkReleaseExecutable$taskTargetName")) {
+            include(executableName)
+        }
+        into(layout.buildDirectory.dir("install/launcher-$targetName"))
     }
+}
+
+registerNativeExecutableInstall("mingwX64", "launcher.exe").configure {
+    // Kommand's MinGW binary needs these MSYS2 runtime libraries beside the installed launcher executable.
     from(mingwRuntimeDirectory) {
         include("libstdc++-6.dll", "libgcc_s_seh-1.dll", "libwinpthread-1.dll")
     }
-    into(layout.buildDirectory.dir("install/launcher-mingwX64"))
 }
+
+registerNativeExecutableInstall("linuxX64", "launcher.kexe")
+registerNativeExecutableInstall("linuxArm64", "launcher.kexe")
+registerNativeExecutableInstall("macosArm64", "launcher.kexe")

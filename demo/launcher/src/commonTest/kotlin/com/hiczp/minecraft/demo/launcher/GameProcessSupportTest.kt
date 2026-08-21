@@ -33,6 +33,13 @@ class GameProcessSupportTest {
     }
 
     @Test
+    fun processLineEndingNormalizesCrLfAndPreservesBareCarriageReturns() {
+        assertEquals("line\n", normalizeProcessLineEnding("line\r"))
+        assertEquals("line\n", normalizeProcessLineEnding("line"))
+        assertEquals("progress\rupdated\n", normalizeProcessLineEnding("progress\rupdated"))
+    }
+
+    @Test
     fun outputIsSanitizedRedactedAndBounded() = runTest {
         val buffer = GameOutputBuffer(listOf("secret"), capacity = 3, maximumLineLength = 20)
         buffer.append(OutputSource.STDOUT, "\u001B[31msecret\u001B[0m")

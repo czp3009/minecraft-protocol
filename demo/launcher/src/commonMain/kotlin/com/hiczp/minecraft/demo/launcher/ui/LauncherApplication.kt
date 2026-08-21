@@ -52,12 +52,18 @@ internal fun LauncherApplication(controller: LauncherController, platform: Launc
             platform.platformKey,
             visibleRows,
             controller::availableVersions,
+            state.installed.installations
+                .filter { it.platformKey == platform.platformKey }
+                .mapTo(mutableSetOf()) { it.versionId },
             controller::confirmInstall,
             controller::showHome,
         )
 
         is LauncherDestination.ConfirmInstall -> ConfirmInstallScreen(
             destination.entry,
+            state.installed.installations.any {
+                it.versionId == destination.entry.id && it.platformKey == platform.platformKey
+            },
             platform.platformKey,
             onInstall = { controller.install(destination.entry) },
             onBack = controller::showVersions,

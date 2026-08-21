@@ -152,17 +152,23 @@ internal class LauncherController(
 
     fun install(entry: VersionEntry) {
         runOperation(LauncherDestination.PreparingInstall(entry)) {
-            val prepared = installationService.prepareInstallation(entry)
-            show(LauncherDestination.Installing(entry))
-            val metadata = installationService.install(prepared)
-            val record = InstalledVersion(entry.id, platform.platformKey)
+            val completed = installationService.install(
+                entry = entry,
+                onDownloadsStarted = { installed ->
+                    _state.update { current ->
+                        current.copy(
+                            destination = LauncherDestination.Installing(entry),
+                            installed = installed,
+                            installedMetadata = current.installedMetadata - entry.id,
+                        )
+                    }
+                },
+            )
             _state.update { current ->
                 current.copy(
                     destination = LauncherDestination.Installed,
-                    installed = current.installed.copy(
-                        installations = current.installed.installations.filterNot { it == record } + record,
-                    ),
-                    installedMetadata = current.installedMetadata + (entry.id to metadata),
+                    installed = completed.installed,
+                    installedMetadata = current.installedMetadata + (entry.id to completed.metadata),
                 )
             }
         }

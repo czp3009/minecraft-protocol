@@ -33,14 +33,12 @@ class InstallationServiceTest {
     fun miniatureInstallIsIsolatedIndexedLastAndOverwritten() = runTest {
         val fixture = InstallFixture()
 
-        val first = fixture.service.prepareInstallation(fixture.entry)
         assertTrue(fixture.store.loadInstalled().installations.isEmpty())
-        assertEquals(InstallProgress(totalFiles = 3), fixture.service.progress.value)
-        fixture.service.install(first)
+        fixture.service.install(fixture.entry)
         assertEquals(InstallProgress(completedFiles = 3, totalFiles = 3), fixture.service.progress.value)
 
-        val second = fixture.service.prepareInstallation(fixture.entry)
-        fixture.service.install(second)
+        var stateWhenDownloadsStarted: InstalledState? = null
+        fixture.service.install(fixture.entry) { installed -> stateWhenDownloadsStarted = installed }
 
         val gameRoot = fixture.store.gameRoot("demo")
         assertTrue(fixture.fileSystem.exists(gameRoot / "client.jar"))
@@ -49,6 +47,7 @@ class InstallationServiceTest {
         val assetPath = gameRoot / "assets/objects/${fixture.assetHash.take(2)}/${fixture.assetHash}"
         assertTrue(fixture.fileSystem.exists(assetPath))
         val expectedInstallations = listOf(InstalledVersion("demo", fixture.platform.platformKey))
+        assertTrue(stateWhenDownloadsStarted?.installations.orEmpty().isEmpty())
         assertEquals(expectedInstallations, fixture.store.loadInstalled().installations)
         assertEquals(2, fixture.countRequests(fixture.metadataUrl))
         assertEquals(2, fixture.countRequests(fixture.clientUrl))
@@ -62,9 +61,8 @@ class InstallationServiceTest {
     @Test
     fun failedResourceDownloadRetriesUntilItSucceeds() = runTest {
         val fixture = InstallFixture(corruptClientAttempts = 2)
-        val prepared = fixture.service.prepareInstallation(fixture.entry)
 
-        fixture.service.install(prepared)
+        fixture.service.install(fixture.entry)
 
         assertEquals(3, fixture.countRequests(fixture.clientUrl))
         assertEquals(InstallProgress(completedFiles = 3, totalFiles = 3), fixture.service.progress.value)
@@ -77,6 +75,7 @@ class InstallationServiceTest {
 internal class InstallFixture(
     corruptClientAttempts: Int = 0,
     private val blockContentDownloads: Boolean = false,
+    private val blockAssetIndexDownload: Boolean = false,
 ) {
     val root = "/launcher root".toPath()
     val fileSystem = FakeFileSystem().also { it.createDirectories(root) }
@@ -147,6 +146,7 @@ internal class InstallFixture(
     private val requests = mutableListOf<String>()
     private var remainingCorruptClientAttempts = corruptClientAttempts
     val activeContentDownloads = MutableStateFlow(0)
+    val activeAssetIndexDownloads = MutableStateFlow(0)
     private val engine = MockEngine { request ->
         val url = request.url.toString()
         val corruptClient = requestMutex.withLock {
@@ -164,6 +164,14 @@ internal class InstallFixture(
                 awaitCancellation()
             } finally {
                 activeContentDownloads.update { it - 1 }
+            }
+        }
+        if (blockAssetIndexDownload && url == assetIndexUrl) {
+            activeAssetIndexDownloads.update { it + 1 }
+            try {
+                awaitCancellation()
+            } finally {
+                activeAssetIndexDownloads.update { it - 1 }
             }
         }
         val content = when (url) {
@@ -189,6 +197,13 @@ internal class InstallFixture(
     val service = InstallationService(createMojangApi(client), fileSystem, store, platform)
 
     suspend fun countRequests(url: String): Int = requestMutex.withLock { requests.count { it == url } }
+
+    suspend fun recordInstalled() {
+        fileSystem.createDirectories(store.gameRoot(entry.id))
+        store.updateInstalled {
+            it.copy(installations = listOf(InstalledVersion(entry.id, platform.platformKey)))
+        }
+    }
 
     fun close() {
         client.close()
