@@ -1,9 +1,9 @@
 package com.hiczp.minecraft.protocol.client
 
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
+import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.data.VanillaProtocolData
 import com.hiczp.minecraft.protocol.data.resolveSynchronizedRegistryContext
-import com.hiczp.minecraft.protocol.data.withPlayLoginDimension
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.ByteString
@@ -233,12 +233,13 @@ internal object OfficialServerClientScenario {
 
         val playLogin = connection.incoming.receive() as? PlayLoginPacket
             ?: error("Official server did not send Play Login first")
+        val dimensionLayout = MinecraftDimensionLayout.from(
+            login = playLogin,
+            registries = registries,
+            protocolData = options.protocolData,
+        )
         connection.installRegistryContext(
-            connection.registries.withPlayLoginDimension(
-                login = playLogin,
-                registries = registries,
-                protocolData = options.protocolData,
-            ),
+            connection.registries.withChunkSectionCount(dimensionLayout.sectionCount),
         )
         val profileResult = profile.complete(connection)
         return MinecraftClientNegotiationResult(
@@ -251,6 +252,7 @@ internal object OfficialServerClientScenario {
                 storedCookies = storedCookies.toMap(),
             ),
             playLogin = playLogin,
+            dimensionLayout = dimensionLayout,
             profile = profileResult,
         )
     }

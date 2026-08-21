@@ -401,9 +401,9 @@ internal class RecordingWorldDirectoryLock(
     }
 }
 
-internal fun concurrencyChunk(value: Byte): RegionChunk = RegionChunk(
+internal fun concurrencyChunk(value: Byte): CompressedChunk = CompressedChunk(
     compression = Compression.NONE,
-    payload = RegionChunkPayload.Inline(byteArrayOf(value)),
+    compressedBytes = byteArrayOf(value),
 )
 
 internal suspend fun seedConcurrencyRegion(
@@ -411,13 +411,13 @@ internal suspend fun seedConcurrencyRegion(
     directory: Path,
     position: ChunkPosition = ChunkPosition(0, 0),
 ) {
-    val store = WorldRegionStore(
+    val store = RegionStorage(
         directory = directory,
         fileSystem = fileSystem,
-        configuration = WorldRegionStoreConfiguration(syncWrites = false),
+        configuration = RegionStorageConfiguration(syncWrites = false),
     )
     try {
-        store.writeChunk(position, concurrencyChunk(0))
+        store.writeCompressedChunk(position, concurrencyChunk(0))
     } finally {
         store.close()
     }
@@ -432,8 +432,8 @@ internal fun concurrencyDocument(value: Int): NbtDocument = NbtDocument(
     NbtCompound(mapOf("value" to NbtInt(value))),
 )
 
-internal fun gatedNbtFormat(gate: BlockingGate): RegionChunkNbtFormat = RegionChunkNbtFormat(
-    compressionCodecs = CompressionCodecs(
+internal fun gatedNbtFormat(gate: BlockingGate): CompressedNbtFormat = CompressedNbtFormat(
+    compressionRegistry = CompressionRegistry(
         mapOf(Compression.NONE to GatedIdentityCompressionCodec(gate)),
     ),
 )

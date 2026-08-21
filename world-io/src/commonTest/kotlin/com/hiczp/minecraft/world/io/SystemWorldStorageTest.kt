@@ -44,14 +44,12 @@ class SystemWorldStorageTest {
             fileSystem.write(lockPath) {
                 write(originalLockBytes)
             }
-            val access = MinecraftWorldAccess.open(root)
-            try {
+            MinecraftWorldAccess.open(root).use { minecraftWorldAccess ->
                 assertTrue(MinecraftWorldAccess.isLocked(root))
                 assertFailsWith<WorldLockException> {
                     MinecraftWorldAccess.open(root)
                 }
-            } finally {
-                access.close()
+                assertEquals(root, minecraftWorldAccess.paths.root)
             }
             assertFalse(MinecraftWorldAccess.isLocked(root))
             val storedLockBytes = fileSystem.read(lockPath) {
@@ -74,20 +72,20 @@ class SystemWorldStorageTest {
 
             val directory = root / "region"
             val position = ChunkPosition(0, 0)
-            val store = WorldRegionStore(
+            val store = RegionStorage(
                 directory = directory,
                 fileSystem = fileSystem,
-                configuration = WorldRegionStoreConfiguration(
+                configuration = RegionStorageConfiguration(
                     syncWrites = true,
                 ),
             )
             try {
-                store.writeChunk(position, inlineChunk(byteArrayOf(1)))
-                store.writeChunk(position, inlineChunk(byteArrayOf(2)))
+                store.writeCompressedChunk(position, inlineChunk(byteArrayOf(1)))
+                store.writeCompressedChunk(position, inlineChunk(byteArrayOf(2)))
                 store.flush()
                 assertContentEquals(
                     byteArrayOf(2),
-                    store.readChunk(position)?.payload?.compressedBytes,
+                    store.readCompressedChunk(position).bytesOrNull(),
                 )
             } finally {
                 store.close()
@@ -115,18 +113,18 @@ class SystemWorldStorageTest {
         val first = systemExternalPayload(1)
         val second = systemExternalPayload(2)
         try {
-            val store = WorldRegionStore(directory, fileSystem)
+            val store = RegionStorage(directory, fileSystem)
             try {
-                store.writeChunk(position, zlibChunk(first))
+                store.writeCompressedChunk(position, zlibChunk(first))
                 assertContentEquals(
                     first,
                     fileSystem.read(sidecar) { readByteArray() },
                 )
 
-                store.writeChunk(position, zlibChunk(second))
+                store.writeCompressedChunk(position, zlibChunk(second))
                 assertContentEquals(
                     second,
-                    store.readChunk(position)?.payload?.compressedBytes,
+                    store.readCompressedChunk(position).bytesOrNull(),
                 )
                 assertContentEquals(
                     second,
@@ -136,11 +134,11 @@ class SystemWorldStorageTest {
                 store.close()
             }
 
-            val reopened = WorldRegionStore(directory, fileSystem)
+            val reopened = RegionStorage(directory, fileSystem)
             try {
                 assertContentEquals(
                     second,
-                    reopened.readChunk(position)?.payload?.compressedBytes,
+                    reopened.readCompressedChunk(position).bytesOrNull(),
                 )
             } finally {
                 reopened.close()
@@ -191,7 +189,7 @@ class SystemWorldStorageTest {
             DimensionDirectory.Nether,
         )
         try {
-            val initialStore = WorldRegionStore(MinecraftWorldPaths(root))
+            val initialStore = RegionStorage(MinecraftWorldPaths(root))
             try {
                 initialStore.writeChunkNbtDocument(
                     preservedPosition,
@@ -205,84 +203,71 @@ class SystemWorldStorageTest {
             val access = MinecraftWorldAccess.open(
                 root = root,
                 configuration = MinecraftWorldAccessConfiguration(
-                    regionStoreConfiguration =
-                        WorldRegionStoreConfiguration(
+                    regionStorageConfiguration =
+                        RegionStorageConfiguration(
                             writeCompression = Compression.LZ4,
                         ),
                 ),
             )
-            try {
-                access.writeLevelDataDocument(document)
-                access.writePlayerDataDocument(player, document)
-                access.writeSavedDataDocument("example:state/value", document)
-                access.writeStatisticsText(player, "{}")
-                access.writeAdvancementsText(player, "{\"done\":true}")
+            access.use { minecraftWorldAccess ->
+                minecraftWorldAccess.writeLevelDataDocument(document)
+                minecraftWorldAccess.writePlayerDataDocument(player, document)
+                minecraftWorldAccess.writeSavedDataDocument("example:state/value", document)
+                minecraftWorldAccess.writeStatisticsText(player, "{}")
+                minecraftWorldAccess.writeAdvancementsText(player, "{\"done\":true}")
                 dimensions.forEachIndexed { dimensionIndex, dimension ->
-                    RegionStorageDirectory.entries.forEach { storage ->
-                        val value = dimensionIndex * RegionStorageDirectory.entries.size + storage.ordinal
-                        access.writeChunkNbtDocument(
-                            position = position,
-                            document = systemDocument(value),
-                            storage = storage,
-                            dimension = dimension,
-                        )
+                    minecraftWorldAccess.openRegion(position.region, dimension).use { regionHandle ->
+                        regionHandle.writeChunkNbtDocument(position, systemDocument(dimensionIndex))
                     }
                 }
-                access.flush()
-            } finally {
-                access.close()
+                assertEquals(
+                    listOf(position.region, preservedPosition.region),
+                    minecraftWorldAccess.listRegionPositions(),
+                )
+                assertEquals(
+                    listOf(position.region),
+                    minecraftWorldAccess.listRegionPositions(DimensionDirectory.Nether),
+                )
+                minecraftWorldAccess.flush()
             }
             access.close()
 
             assertFalse(MinecraftWorldAccess.isLocked(root))
             assertTrue(fileSystem.exists(MinecraftWorldPaths(root).sessionLock))
             assertFails { access.readLevelDataDocument() }
-            assertFails { access.readChunk(position) }
+            assertFails { access.openRegion(position.region) }
 
-            val reopened = MinecraftWorldAccess.open(root)
-            try {
-                assertEquals(document, reopened.readLevelDataDocument())
-                assertEquals(document, reopened.readPlayerDataDocument(player))
+            MinecraftWorldAccess.open(root).use { minecraftWorldAccess ->
+                assertEquals(document, minecraftWorldAccess.readLevelDataDocument())
+                assertEquals(document, minecraftWorldAccess.readPlayerDataDocument(player))
                 assertEquals(
                     document,
-                    reopened.readSavedDataDocument("example:state/value"),
+                    minecraftWorldAccess.readSavedDataDocument("example:state/value"),
                 )
-                assertEquals("{}", reopened.readStatisticsText(player))
+                assertEquals("{}", minecraftWorldAccess.readStatisticsText(player))
                 assertEquals(
                     "{\"done\":true}",
-                    reopened.readAdvancementsText(player),
+                    minecraftWorldAccess.readAdvancementsText(player),
                 )
-                assertEquals(
-                    Compression.GZIP,
-                    reopened.readChunk(preservedPosition)?.compression,
-                )
-                assertEquals(
-                    preservedDocument,
-                    reopened.readChunkNbtDocument(preservedPosition),
-                )
+                minecraftWorldAccess.openRegion(preservedPosition.region).use { regionHandle ->
+                    assertEquals(
+                        Compression.GZIP,
+                        regionHandle.readCompressedChunk(preservedPosition)?.compression,
+                    )
+                    assertEquals(preservedDocument, regionHandle.readChunkNbtDocument(preservedPosition))
+                }
                 dimensions.forEachIndexed { dimensionIndex, dimension ->
-                    RegionStorageDirectory.entries.forEach { storage ->
-                        val value = dimensionIndex * RegionStorageDirectory.entries.size + storage.ordinal
+                    minecraftWorldAccess.openRegion(position.region, dimension).use { regionHandle ->
                         assertEquals(
                             Compression.LZ4,
-                            reopened.readChunk(
-                                position,
-                                storage,
-                                dimension,
-                            )?.compression,
+                            regionHandle.readCompressedChunk(position)?.compression,
                         )
                         assertEquals(
-                            systemDocument(value),
-                            reopened.readChunkNbtDocument(
-                                position,
-                                storage,
-                                dimension,
-                            ),
+                            systemDocument(dimensionIndex),
+                            regionHandle.readChunkNbtDocument(position),
                         )
                     }
                 }
-            } finally {
-                reopened.close()
             }
         } finally {
             fileSystem.deleteRecursively(parent, mustExist = false)
@@ -310,26 +295,20 @@ class SystemWorldStorageTest {
             ),
         )
         try {
-            val access = MinecraftWorldAccess.open(root)
-            try {
-                access.writeLevelData(level)
-                access.writeStatistics(player, PlayerStatistics.serializer(), statistics)
-                access.writeAdvancements(player, advancements)
-            } finally {
-                access.close()
+            MinecraftWorldAccess.open(root).use { minecraftWorldAccess ->
+                minecraftWorldAccess.writeLevelData(level)
+                minecraftWorldAccess.writeStatistics(player, PlayerStatistics.serializer(), statistics)
+                minecraftWorldAccess.writeAdvancements(player, advancements)
             }
 
-            val reopened = MinecraftWorldAccess.open(root)
-            try {
-                assertEquals(level, reopened.readLevelData(LevelDat.serializer()))
-                assertEquals(level, reopened.readLevelData<LevelDat>())
-                assertEquals(statistics, reopened.readStatistics<PlayerStatistics>(player))
+            MinecraftWorldAccess.open(root).use { minecraftWorldAccess ->
+                assertEquals(level, minecraftWorldAccess.readLevelData(LevelDat.serializer()))
+                assertEquals(level, minecraftWorldAccess.readLevelData<LevelDat>())
+                assertEquals(statistics, minecraftWorldAccess.readStatistics<PlayerStatistics>(player))
                 assertEquals(
                     advancements,
-                    reopened.readAdvancements(player, PlayerAdvancements.serializer()),
+                    minecraftWorldAccess.readAdvancements(player, PlayerAdvancements.serializer()),
                 )
-            } finally {
-                reopened.close()
             }
         } finally {
             fileSystem.deleteRecursively(parent, mustExist = false)
@@ -372,14 +351,14 @@ class SystemWorldStorageTest {
     }
 }
 
-private fun inlineChunk(bytes: ByteArray): RegionChunk = RegionChunk(
+private fun inlineChunk(bytes: ByteArray): CompressedChunk = CompressedChunk(
     compression = Compression.NONE,
-    payload = RegionChunkPayload.Inline(bytes),
+    compressedBytes = bytes,
 )
 
-private fun zlibChunk(bytes: ByteArray): RegionChunk = RegionChunk(
+private fun zlibChunk(bytes: ByteArray): CompressedChunk = CompressedChunk(
     compression = Compression.ZLIB,
-    payload = RegionChunkPayload.Inline(bytes),
+    compressedBytes = bytes,
 )
 
 private fun systemExternalPayload(seed: Int): ByteArray = ByteArray(

@@ -9,15 +9,15 @@ import kotlinx.serialization.Serializable
 import kotlin.random.Random
 import kotlin.test.*
 
-class RegionFileFormatTest {
+class AnvilRegionFormatTest {
     @Test
     fun decodesOfficialZeroByteEmptyRegion() {
         assertEquals(
-            expected = RegionFile(),
-            actual = RegionFileFormat.decodeFromByteArray(byteArrayOf()),
+            expected = AnvilRegion(),
+            actual = AnvilRegionFormat.decodeFromByteArray(byteArrayOf()),
         )
-        assertFailsWith<RegionFormatException> {
-            RegionFileFormat.decodeFromByteArray(ByteArray(1))
+        assertFailsWith<AnvilFormatException> {
+            AnvilRegionFormat.decodeFromByteArray(ByteArray(1))
         }
     }
 
@@ -102,23 +102,23 @@ class RegionFileFormatTest {
     fun roundTripsInlineChunksAndHeaderMetadata() {
         val firstPosition = LocalChunkPosition(0, 0)
         val lastPosition = LocalChunkPosition(31, 31)
-        val region = RegionFile(
+        val region = AnvilRegion(
             linkedMapOf(
-                firstPosition to RegionChunk(
+                firstPosition to testRecord(
                     compression = Compression.ZLIB,
-                    payload = RegionChunkPayload.Inline(byteArrayOf(1, 2, 3)),
-                    timestamp = 123,
+                    content = inlineContent(byteArrayOf(1, 2, 3)),
+                    timestampEpochSeconds = 123,
                 ),
-                lastPosition to RegionChunk(
+                lastPosition to testRecord(
                     compression = Compression.NONE,
-                    payload = RegionChunkPayload.Inline(ByteArray(5_000) { it.toByte() }),
-                    timestamp = -1,
+                    content = inlineContent(ByteArray(5_000) { it.toByte() }),
+                    timestampEpochSeconds = -1,
                 ),
             ),
         )
 
-        val encoded = RegionFileFormat.encodeToByteArray(region)
-        val decoded = RegionFileFormat.decodeFromByteArray(encoded.bytes)
+        val encoded = AnvilRegionFormat.encodeToByteArray(region)
+        val decoded = AnvilRegionFormat.decodeFromByteArray(encoded.bytes)
 
         assertTrue(encoded.externalChunks.isEmpty())
         assertEquals(region, decoded)
@@ -127,18 +127,18 @@ class RegionFileFormatTest {
 
     @Test
     fun streamMethodsConsumeAndEmitOneWholeRegion() {
-        val region = RegionFile(
+        val region = AnvilRegion(
             mapOf(
-                LocalChunkPosition(3, 4) to RegionChunk(
+                LocalChunkPosition(3, 4) to testRecord(
                     Compression.GZIP,
-                    RegionChunkPayload.Inline(byteArrayOf(7, 8)),
+                    inlineContent(byteArrayOf(7, 8)),
                 ),
             ),
         )
         val buffer = Buffer()
 
-        assertTrue(RegionFileFormat.encodeToSink(region, buffer).isEmpty())
-        assertEquals(region, RegionFileFormat.decodeFromSource(buffer))
+        assertTrue(AnvilRegionFormat.encodeRecordsToSink(region, buffer).isEmpty())
+        assertEquals(region, AnvilRegionFormat.decodeFromSource(buffer))
         assertTrue(buffer.exhausted())
     }
 
@@ -146,25 +146,29 @@ class RegionFileFormatTest {
     fun externalChunksUseStubAndSeparatePayload() {
         val position = LocalChunkPosition(5, 7)
         val bytes = byteArrayOf(9, 8, 7)
-        val region = RegionFile(
+        val content = CompressedChunk(Compression.LZ4, bytes)
+        val region = AnvilRegion(
             mapOf(
-                position to RegionChunk(
-                    Compression.LZ4,
-                    RegionChunkPayload.External(bytes),
-                    timestamp = 42,
+                position to AnvilChunkRecord(
+                    compression = Compression.LZ4,
+                    content = content,
+                    placement = AnvilChunkPlacement.EXTERNAL,
+                    timestampEpochSeconds = 42,
                 ),
             ),
         )
 
-        val encoded = RegionFileFormat.encodeToByteArray(region)
-        val decoded = RegionFileFormat.decodeFromByteArray(encoded.bytes)
+        val sidecars = AnvilRegionFormat.encodeRecordsToSink(region, Buffer())
+        val encoded = AnvilRegionFormat.encodeToByteArray(region)
+        val decoded = AnvilRegionFormat.decodeFromByteArray(encoded.bytes)
         val chunk = decoded[position]!!
 
+        assertSame(content, sidecars.getValue(position))
         assertContentEquals(bytes, encoded.externalChunks.getValue(position))
-        assertTrue(chunk.payload.isExternal)
-        assertNull(chunk.payload.compressedBytes)
+        assertEquals(AnvilChunkPlacement.EXTERNAL, chunk.placement)
+        assertNull(chunk.content)
         assertEquals(Compression.LZ4, chunk.compression)
-        assertEquals(42, chunk.timestamp)
+        assertEquals(42, chunk.timestampEpochSeconds)
         assertEquals(3 * REGION_SECTOR_BYTES, encoded.bytes.size)
     }
 
@@ -172,12 +176,12 @@ class RegionFileFormatTest {
     fun oversizedInlineChunkIsAutomaticallyExternalized() {
         val position = LocalChunkPosition(1, 2)
         val bytes = ByteArray(256 * REGION_SECTOR_BYTES)
-        val encoded = RegionFileFormat.encodeToByteArray(
-            RegionFile(
+        val encoded = AnvilRegionFormat.encodeToByteArray(
+            AnvilRegion(
                 mapOf(
-                    position to RegionChunk(
+                    position to testRecord(
                         Compression.NONE,
-                        RegionChunkPayload.Inline(bytes),
+                        inlineContent(bytes),
                     ),
                 ),
             ),
@@ -185,10 +189,9 @@ class RegionFileFormatTest {
 
         assertContentEquals(bytes, encoded.externalChunks.getValue(position))
         assertTrue(
-            RegionFileFormat
+            AnvilRegionFormat
                 .decodeFromByteArray(encoded.bytes)[position]!!
-                .payload
-                .isExternal,
+                .placement == AnvilChunkPlacement.EXTERNAL,
         )
     }
 
@@ -198,28 +201,28 @@ class RegionFileFormatTest {
         val external = LocalChunkPosition(1, 0)
         val largestInlinePayload = 255 * REGION_SECTOR_BYTES - Int.SIZE_BYTES - 1
         val firstExternalPayload = largestInlinePayload + 1
-        val encoded = RegionFileFormat.encodeToByteArray(
-            RegionFile(
+        val encoded = AnvilRegionFormat.encodeToByteArray(
+            AnvilRegion(
                 linkedMapOf(
-                    inline to RegionChunk(
+                    inline to testRecord(
                         Compression.NONE,
-                        RegionChunkPayload.Inline(
+                        inlineContent(
                             ByteArray(largestInlinePayload),
                         ),
                     ),
-                    external to RegionChunk(
+                    external to testRecord(
                         Compression.NONE,
-                        RegionChunkPayload.Inline(
+                        inlineContent(
                             ByteArray(firstExternalPayload),
                         ),
                     ),
                 ),
             ),
         )
-        val decoded = RegionFileFormat.decodeFromByteArray(encoded.bytes)
+        val decoded = AnvilRegionFormat.decodeFromByteArray(encoded.bytes)
 
-        assertFalse(decoded[inline]!!.payload.isExternal)
-        assertTrue(decoded[external]!!.payload.isExternal)
+        assertEquals(AnvilChunkPlacement.INLINE, decoded[inline]!!.placement)
+        assertEquals(AnvilChunkPlacement.EXTERNAL, decoded[external]!!.placement)
         assertEquals(setOf(external), encoded.externalChunks.keys)
         assertEquals(
             firstExternalPayload,
@@ -238,47 +241,47 @@ class RegionFileFormatTest {
                 .shuffled(random)
                 .take(random.nextInt(33))
                 .sortedBy(LocalChunkPosition::index)
-            val sourceChunks = linkedMapOf<LocalChunkPosition, RegionChunk>()
+            val sourceChunks = linkedMapOf<LocalChunkPosition, AnvilChunkRecord>()
             selected.forEach { position ->
                 val bytes = ByteArray(random.nextInt(8_193)) {
                     random.nextInt().toByte()
                 }
-                val payload = if (random.nextBoolean()) {
-                    RegionChunkPayload.Inline(bytes)
+                val content = if (random.nextBoolean()) {
+                    inlineContent(bytes)
                 } else {
-                    RegionChunkPayload.External(bytes)
+                    externalContent(bytes)
                 }
-                sourceChunks[position] = RegionChunk(
+                sourceChunks[position] = testRecord(
                     compression = Compression.entries[
                         random.nextInt(Compression.entries.size)
                     ],
-                    payload = payload,
-                    timestamp = random.nextInt(),
+                    content = content,
+                    timestampEpochSeconds = random.nextInt(),
                 )
             }
 
-            val encoded = RegionFileFormat.encodeToByteArray(
-                RegionFile(sourceChunks),
+            val encoded = AnvilRegionFormat.encodeToByteArray(
+                AnvilRegion(sourceChunks),
             )
-            val decoded = RegionFileFormat.decodeFromByteArray(encoded.bytes)
+            val decoded = AnvilRegionFormat.decodeFromByteArray(encoded.bytes)
 
             assertEquals(sourceChunks.keys, decoded.chunks.keys)
             sourceChunks.forEach { (position, source) ->
                 val actual = decoded[position]!!
                 assertEquals(source.compression, actual.compression)
-                assertEquals(source.timestamp, actual.timestamp)
-                if (source.payload.isExternal) {
-                    assertTrue(actual.payload.isExternal)
-                    assertNull(actual.payload.compressedBytes)
+                assertEquals(source.timestampEpochSeconds, actual.timestampEpochSeconds)
+                if (source.placement == AnvilChunkPlacement.EXTERNAL) {
+                    assertEquals(AnvilChunkPlacement.EXTERNAL, actual.placement)
+                    assertNull(actual.content)
                     assertContentEquals(
-                        source.payload.compressedBytes,
+                        source.content!!.toByteArray(),
                         encoded.externalChunks.getValue(position),
                     )
                 } else {
-                    assertFalse(actual.payload.isExternal)
+                    assertEquals(AnvilChunkPlacement.INLINE, actual.placement)
                     assertContentEquals(
-                        source.payload.compressedBytes,
-                        actual.payload.compressedBytes,
+                        source.content!!.toByteArray(),
+                        actual.content!!.toByteArray(),
                         "Random region sample $sample at $position failed",
                     )
                 }
@@ -288,13 +291,13 @@ class RegionFileFormatTest {
 
     @Test
     fun rejectsUnresolvedExternalPayloadWhenEncoding() {
-        assertFailsWith<RegionFormatException> {
-            RegionFileFormat.encodeToByteArray(
-                RegionFile(
+        assertFailsWith<AnvilFormatException> {
+            AnvilRegionFormat.encodeToByteArray(
+                AnvilRegion(
                     mapOf(
-                        LocalChunkPosition(0, 0) to RegionChunk(
+                        LocalChunkPosition(0, 0) to testRecord(
                             Compression.ZLIB,
-                            RegionChunkPayload.External(),
+                            externalContent(),
                         ),
                     ),
                 ),
@@ -306,20 +309,20 @@ class RegionFileFormatTest {
     fun rejectsInvalidLocationsOverlapsAndRecordLengths() {
         val beforeHeader = ByteArray(REGION_HEADER_BYTES)
         writeInt(beforeHeader, 0, (1 shl 8) or 1)
-        assertFailsWith<RegionFormatException> {
-            RegionFileFormat.decodeFromByteArray(beforeHeader)
+        assertFailsWith<AnvilFormatException> {
+            AnvilRegionFormat.decodeFromByteArray(beforeHeader)
         }
 
         val zeroAllocation = ByteArray(3 * REGION_SECTOR_BYTES)
         writeInt(zeroAllocation, 0, 2 shl 8)
-        assertFailsWith<RegionFormatException> {
-            RegionFileFormat.decodeFromByteArray(zeroAllocation)
+        assertFailsWith<AnvilFormatException> {
+            AnvilRegionFormat.decodeFromByteArray(zeroAllocation)
         }
 
         val outsideFile = ByteArray(3 * REGION_SECTOR_BYTES)
         writeInt(outsideFile, 0, (3 shl 8) or 1)
-        assertFailsWith<RegionFormatException> {
-            RegionFileFormat.decodeFromByteArray(outsideFile)
+        assertFailsWith<AnvilFormatException> {
+            AnvilRegionFormat.decodeFromByteArray(outsideFile)
         }
 
         val overlap = ByteArray(3 * REGION_SECTOR_BYTES)
@@ -327,20 +330,20 @@ class RegionFileFormatTest {
         writeInt(overlap, 4, (2 shl 8) or 1)
         writeInt(overlap, 2 * REGION_SECTOR_BYTES, 1)
         overlap[2 * REGION_SECTOR_BYTES + 4] = RegionChunkRecordHeader.compressionId(Compression.NONE).toByte()
-        assertFailsWith<RegionFormatException> {
-            RegionFileFormat.decodeFromByteArray(overlap)
+        assertFailsWith<AnvilFormatException> {
+            AnvilRegionFormat.decodeFromByteArray(overlap)
         }
 
         val excessiveLength = ByteArray(3 * REGION_SECTOR_BYTES)
         writeInt(excessiveLength, 0, (2 shl 8) or 1)
         writeInt(excessiveLength, 2 * REGION_SECTOR_BYTES, REGION_SECTOR_BYTES)
-        assertFailsWith<RegionFormatException> {
-            RegionFileFormat.decodeFromByteArray(excessiveLength)
+        assertFailsWith<AnvilFormatException> {
+            AnvilRegionFormat.decodeFromByteArray(excessiveLength)
         }
 
         for (length in listOf(0, -1)) {
-            assertFailsWith<RegionFormatException> {
-                RegionFileFormat.decodeFromByteArray(
+            assertFailsWith<AnvilFormatException> {
+                AnvilRegionFormat.decodeFromByteArray(
                     singleRecord(
                         length = length,
                         version = RegionChunkRecordHeader.compressionId(Compression.NONE),
@@ -352,24 +355,24 @@ class RegionFileFormatTest {
         val truncatedRecord = ByteArray(REGION_HEADER_BYTES + Int.SIZE_BYTES)
         writeInt(truncatedRecord, 0, (2 shl 8) or 1)
         writeInt(truncatedRecord, REGION_HEADER_BYTES, 1)
-        assertFailsWith<RegionFormatException> {
-            RegionFileFormat.decodeFromByteArray(truncatedRecord)
+        assertFailsWith<AnvilFormatException> {
+            AnvilRegionFormat.decodeFromByteArray(truncatedRecord)
         }
     }
 
     @Test
     fun rejectsUnknownCompressionAndExternalInlinePayload() {
         val unknown = singleRecord(length = 1, version = 5)
-        assertFailsWith<RegionFormatException> {
-            RegionFileFormat.decodeFromByteArray(unknown)
+        assertFailsWith<AnvilFormatException> {
+            AnvilRegionFormat.decodeFromByteArray(unknown)
         }
 
         val mixed = singleRecord(
             length = 2,
             version = RegionChunkRecordHeader.compressionId(Compression.ZLIB) or 0x80,
         )
-        assertFailsWith<RegionFormatException> {
-            RegionFileFormat.decodeFromByteArray(mixed)
+        assertFailsWith<AnvilFormatException> {
+            AnvilRegionFormat.decodeFromByteArray(mixed)
         }
     }
 
@@ -383,21 +386,21 @@ class RegionFileFormatTest {
                 ),
             ),
         )
-        val format = RegionChunkNbtFormat()
+        val format = CompressedNbtFormat()
         for (compression in listOf(
             Compression.GZIP,
             Compression.ZLIB,
             Compression.NONE,
             Compression.LZ4,
         )) {
-            val chunk = format.encode(document, compression)
-            assertEquals(document, format.decode(chunk))
+            val chunk = format.encodeDocument(document, compression)
+            assertEquals(document, format.decodeDocument(chunk))
 
             val stream = Buffer()
-            format.encodeToSink(document, compression, stream)
+            format.encodeDocumentToSink(document, compression, stream)
             assertEquals(
                 document,
-                format.decodeFromSource(stream, compression),
+                format.decodeDocumentFromSource(stream, compression),
             )
             assertTrue(stream.exhausted())
         }
@@ -406,24 +409,24 @@ class RegionFileFormatTest {
     @Test
     fun typedChunkNbtUsesTheSameUnnamedRootAsDocuments() = runTest {
         val expected = TypedChunkNbt(4_000, "ready")
-        val format = RegionChunkNbtFormat()
+        val format = CompressedNbtFormat()
 
         for (compression in listOf(Compression.GZIP, Compression.ZLIB, Compression.NONE, Compression.LZ4)) {
             val typedChunk = format.encode(TypedChunkNbt.serializer(), expected, compression)
-            val document = format.decode(typedChunk)
+            val document = format.decodeDocument(typedChunk)
             assertEquals(expected, format.decode(TypedChunkNbt.serializer(), typedChunk))
 
-            val documentChunk = format.encode(document, compression)
+            val documentChunk = format.encodeDocument(document, compression)
             assertEquals(expected, format.decode(TypedChunkNbt.serializer(), documentChunk))
 
             val stream = Buffer()
             format.encodeToSink(TypedChunkNbt.serializer(), expected, compression, stream)
-            assertEquals(document, format.decodeFromSource(stream, compression))
+            assertEquals(document, format.decodeDocumentFromSource(stream, compression))
             assertTrue(stream.exhausted())
         }
 
         assertFailsWith<IllegalArgumentException> {
-            RegionChunkNbtFormat(NbtFormat)
+            CompressedNbtFormat(NbtFormat)
         }
     }
 
@@ -450,28 +453,29 @@ class RegionFileFormatTest {
                 ),
             ),
         )
-        val chunkNbt = RegionChunkNbtFormat()
-        val encodedRegion = RegionFileFormat.encodeToByteArray(
-            RegionFile(
+        val chunkNbt = CompressedNbtFormat()
+        val encodedRegion = AnvilRegionFormat.encodeToByteArray(
+            AnvilRegion(
                 mapOf(
-                    position to chunkNbt.encode(
-                        document = document,
+                    position to AnvilChunkRecord(
                         compression = Compression.ZLIB,
-                        timestamp = 1_234_567,
+                        content = chunkNbt.encodeDocument(document, Compression.ZLIB),
+                        placement = AnvilChunkPlacement.INLINE,
+                        timestampEpochSeconds = 1_234_567,
                     ),
                 ),
             ),
         )
 
         assertTrue(encodedRegion.externalChunks.isEmpty())
-        val arrayLoaded = RegionFileFormat.decodeFromByteArray(encodedRegion.bytes)
-        assertEquals(1_234_567, arrayLoaded[position]?.timestamp)
-        assertEquals(document, chunkNbt.decode(arrayLoaded[position]!!))
+        val arrayLoaded = AnvilRegionFormat.decodeFromByteArray(encodedRegion.bytes)
+        assertEquals(1_234_567, arrayLoaded[position]?.timestampEpochSeconds)
+        assertEquals(document, chunkNbt.decodeDocument(arrayLoaded[position]!!.content!!))
 
         val stream = Buffer().also { it.write(encodedRegion.bytes) }
-        val streamLoaded = RegionFileFormat.decodeFromSource(stream)
+        val streamLoaded = AnvilRegionFormat.decodeFromSource(stream)
         assertTrue(stream.exhausted())
-        assertEquals(document, chunkNbt.decode(streamLoaded[position]!!))
+        assertEquals(document, chunkNbt.decodeDocument(streamLoaded[position]!!.content!!))
     }
 
     @Test
@@ -515,7 +519,7 @@ class RegionFileFormatTest {
         samples.forEach { (compression, expected, encoded) ->
             assertContentEquals(
                 expected,
-                CompressionCodecs.decompress(
+                CompressionRegistry.decompress(
                     compression,
                     encoded,
                 ),
@@ -531,16 +535,16 @@ class RegionFileFormatTest {
             Compression.ZLIB,
             Compression.LZ4,
         )) {
-            val encoded = CompressionCodecs.compress(compression, input)
+            val encoded = CompressionRegistry.compress(compression, input)
             encoded[encoded.lastIndex / 2] =
                 (encoded[encoded.lastIndex / 2].toInt() xor 1).toByte()
             val expectedFailure = if (compression == Compression.LZ4) {
-                RegionFormatException::class
+                CompressionFormatException::class
             } else {
                 IOException::class
             }
             assertFailsWith(expectedFailure) {
-                CompressionCodecs.decompress(
+                CompressionRegistry.decompress(
                     compression,
                     encoded,
                 )
@@ -580,13 +584,13 @@ class RegionFileFormatTest {
             Compression.LZ4,
         )) {
             samples.forEachIndexed { index, input ->
-                val encoded = CompressionCodecs.compress(
+                val encoded = CompressionRegistry.compress(
                     compression,
                     input,
                 )
                 assertContentEquals(
                     input,
-                    CompressionCodecs.decompress(
+                    CompressionRegistry.decompress(
                         compression,
                         encoded,
                     ),
@@ -605,7 +609,7 @@ class RegionFileFormatTest {
         assertEquals(
             listOf(0x10),
             lz4BlockMethods(
-                CompressionCodecs.compress(
+                CompressionRegistry.compress(
                     Compression.LZ4,
                     rawInput,
                 ),
@@ -614,20 +618,20 @@ class RegionFileFormatTest {
         assertEquals(
             listOf(0x20),
             lz4BlockMethods(
-                CompressionCodecs.compress(
+                CompressionRegistry.compress(
                     Compression.LZ4,
                     compressedInput,
                 ),
             ),
         )
-        val multipleBlocks = CompressionCodecs.compress(
+        val multipleBlocks = CompressionRegistry.compress(
             Compression.LZ4,
             multipleBlocksInput,
         )
         assertEquals(2, lz4BlockMethods(multipleBlocks).size)
         assertContentEquals(
             multipleBlocksInput,
-            CompressionCodecs.decompress(
+            CompressionRegistry.decompress(
                 Compression.LZ4,
                 multipleBlocks,
             ),
@@ -646,7 +650,7 @@ class RegionFileFormatTest {
             Compression.LZ4,
         )) {
             val encoded = Buffer()
-            val compressor = CompressionCodecs
+            val compressor = CompressionRegistry
                 .compressingSink(compression, encoded)
                 .buffered()
             val first = Buffer().apply {
@@ -663,7 +667,7 @@ class RegionFileFormatTest {
 
             val encodedBytes = encoded.readByteArray()
             val encodedSource = Buffer().apply { write(encodedBytes) }
-            val decompressor = CompressionCodecs
+            val decompressor = CompressionRegistry
                 .decompressingSource(
                     compression,
                     encodedSource,
@@ -708,7 +712,7 @@ class RegionFileFormatTest {
             override fun decompressingSource(source: Source): RawSource =
                 Buffer().apply { write(source.readByteArray().reversedArray()) }
         }
-        val codecs = CompressionCodecs(
+        val codecs = CompressionRegistry(
             mapOf(Compression.CUSTOM to reversingCodec),
         )
         val input = byteArrayOf(1, 2, 3)
@@ -747,7 +751,7 @@ class RegionFileFormatTest {
                 override fun close() = Unit
             }
         }
-        val codecs = CompressionCodecs(
+        val codecs = CompressionRegistry(
             mapOf(Compression.CUSTOM to cancellingCodec),
         )
 
@@ -796,25 +800,25 @@ class RegionFileFormatTest {
         val secondPosition = LocalChunkPosition(1, 0)
         val firstPayload = ByteArray(32 * 1_024) { it.toByte() }
         val secondPayload = ByteArray(24 * 1_024) { (it * 3).toByte() }
-        val encoded = RegionFileFormat.encodeToByteArray(
-            RegionFile(
+        val encoded = AnvilRegionFormat.encodeToByteArray(
+            AnvilRegion(
                 mapOf(
-                    firstPosition to RegionChunk(
+                    firstPosition to testRecord(
                         Compression.NONE,
-                        RegionChunkPayload.Inline(firstPayload),
+                        inlineContent(firstPayload),
                     ),
-                    secondPosition to RegionChunk(
+                    secondPosition to testRecord(
                         Compression.ZLIB,
-                        RegionChunkPayload.Inline(secondPayload),
+                        inlineContent(secondPayload),
                     ),
                 ),
             ),
         )
         val observed = linkedMapOf<LocalChunkPosition, ByteArray>()
 
-        RegionFileFormat.readChunksFromSource(Buffer().apply { write(encoded.bytes) }) { info, source ->
+        AnvilRegionFormat.decodeRecordsFromSource(Buffer().apply { write(encoded.bytes) }) { info, source ->
             observed[info.position] = source.readByteArray()
-            assertEquals(observed.getValue(info.position).size, info.compressedLength)
+            assertEquals(observed.getValue(info.position).size.toLong(), info.compressedByteCount)
         }
 
         assertContentEquals(firstPayload, observed.getValue(firstPosition))
@@ -824,19 +828,19 @@ class RegionFileFormatTest {
     @Test
     fun streamingRegionPayloadMustBeFullyConsumedDespiteBufferReadAhead() {
         val position = LocalChunkPosition(0, 0)
-        val encoded = RegionFileFormat.encodeToByteArray(
-            RegionFile(
+        val encoded = AnvilRegionFormat.encodeToByteArray(
+            AnvilRegion(
                 mapOf(
-                    position to RegionChunk(
+                    position to testRecord(
                         Compression.NONE,
-                        RegionChunkPayload.Inline(ByteArray(32) { it.toByte() }),
+                        inlineContent(ByteArray(32) { it.toByte() }),
                     ),
                 ),
             ),
         )
 
-        assertFailsWith<RegionFormatException> {
-            RegionFileFormat.readChunksFromSource(Buffer().apply { write(encoded.bytes) }) { _, payload ->
+        assertFailsWith<AnvilFormatException> {
+            AnvilRegionFormat.decodeRecordsFromSource(Buffer().apply { write(encoded.bytes) }) { _, payload ->
                 payload.readByte()
             }
         }
@@ -844,26 +848,26 @@ class RegionFileFormatTest {
 
     @Test
     fun rejectsMissingCustomCodecAndKeepsByteArrayAdaptersIsolated() = runTest {
-        assertFailsWith<RegionFormatException> {
-            CompressionCodecs.compress(
+        assertFailsWith<CompressionFormatException> {
+            CompressionRegistry.compress(
                 Compression.CUSTOM,
                 byteArrayOf(),
             )
         }
-        assertFailsWith<RegionFormatException> {
-            CompressionCodecs.decompress(
+        assertFailsWith<CompressionFormatException> {
+            CompressionRegistry.decompress(
                 Compression.CUSTOM,
                 byteArrayOf(),
             )
         }
         val original = byteArrayOf(1, 2, 3)
-        val compressed = CompressionCodecs.compress(
+        val compressed = CompressionRegistry.compress(
             Compression.NONE,
             original,
         )
         compressed[0] = 9
         assertContentEquals(byteArrayOf(1, 2, 3), original)
-        val decoded = CompressionCodecs.decompress(
+        val decoded = CompressionRegistry.decompress(
             Compression.NONE,
             original,
         )
@@ -874,15 +878,15 @@ class RegionFileFormatTest {
     @Test
     fun rejectsMalformedZlibGzipAndLz4HeadersAndTrailers() = runTest {
         val input = "compression-probe".encodeToByteArray()
-        val zlib = CompressionCodecs.compress(
+        val zlib = CompressionRegistry.compress(
             Compression.ZLIB,
             input,
         )
-        val gzip = CompressionCodecs.compress(
+        val gzip = CompressionRegistry.compress(
             Compression.GZIP,
             input,
         )
-        val lz4 = CompressionCodecs.compress(
+        val lz4 = CompressionRegistry.compress(
             Compression.LZ4,
             input,
         )
@@ -891,8 +895,8 @@ class RegionFileFormatTest {
             compression: Compression,
             bytes: ByteArray,
         ) {
-            assertFailsWith<RegionFormatException> {
-                CompressionCodecs.decompress(
+            assertFailsWith<CompressionFormatException> {
+                CompressionRegistry.decompress(
                     compression,
                     bytes,
                 )
@@ -904,7 +908,7 @@ class RegionFileFormatTest {
             bytes: ByteArray,
         ) {
             assertFailsWith<IOException> {
-                CompressionCodecs.decompress(
+                CompressionRegistry.decompress(
                     compression,
                     bytes,
                 )
@@ -1034,7 +1038,7 @@ class RegionFileFormatTest {
         )
         rejectsFormat(
             Compression.LZ4,
-            CompressionCodecs
+            CompressionRegistry
                 .compress(Compression.LZ4, byteArrayOf())
                 .also { writeIntLittleEndian(it, 17, 1) },
         )
@@ -1043,7 +1047,7 @@ class RegionFileFormatTest {
     @Test
     fun gzipDecoderAcceptsEveryOptionalHeaderField() = runTest {
         val input = "optional-gzip-header\u0000".encodeToByteArray()
-        val ordinary = CompressionCodecs.compress(
+        val ordinary = CompressionRegistry.compress(
             Compression.GZIP,
             input,
         )
@@ -1073,7 +1077,7 @@ class RegionFileFormatTest {
 
         assertContentEquals(
             input,
-            CompressionCodecs.decompress(
+            CompressionRegistry.decompress(
                 Compression.GZIP,
                 withOptionalHeader,
             ),
@@ -1082,47 +1086,111 @@ class RegionFileFormatTest {
 
     @Test
     fun contentBackedRegionValuesUseContentEquality() {
-        val inlineA = RegionChunkPayload.Inline(byteArrayOf(1, 2))
-        val inlineB = RegionChunkPayload.Inline(byteArrayOf(1, 2))
-        val externalA = RegionChunkPayload.External(byteArrayOf(3, 4))
-        val externalB = RegionChunkPayload.External(byteArrayOf(3, 4))
-        assertEquals(inlineA, inlineB)
-        assertEquals(inlineA.hashCode(), inlineB.hashCode())
-        assertEquals(externalA, externalB)
-        assertEquals(externalA.hashCode(), externalB.hashCode())
-        assertNotEquals(externalA, RegionChunkPayload.External())
+        val firstChunk = CompressedChunk(Compression.ZLIB, byteArrayOf(1, 2))
+        val secondChunk = CompressedChunk(Compression.ZLIB, byteArrayOf(1, 2))
+        assertEquals(firstChunk, secondChunk)
+        assertEquals(firstChunk.hashCode(), secondChunk.hashCode())
+        assertNotEquals(firstChunk, CompressedChunk(Compression.GZIP, byteArrayOf(1, 2)))
 
         val position = LocalChunkPosition(1, 2)
-        val first = EncodedRegionFile(
+        val first = EncodedAnvilRegion(
             bytes = byteArrayOf(5, 6),
             externalChunks = mapOf(position to byteArrayOf(7, 8)),
         )
-        val second = EncodedRegionFile(
+        val second = EncodedAnvilRegion(
             bytes = byteArrayOf(5, 6),
             externalChunks = mapOf(position to byteArrayOf(7, 8)),
         )
         assertEquals(first, second)
         assertEquals(first.hashCode(), second.hashCode())
-        assertNotEquals(first, second.copy(bytes = byteArrayOf(5, 9)))
+        assertNotEquals(
+            first,
+            EncodedAnvilRegion(
+                bytes = byteArrayOf(5, 9),
+                externalChunks = second.externalChunks,
+            ),
+        )
     }
 
     @Test
-    fun chunkNbtFormatRejectsUnresolvedAndRoundTripsPayloads() = runTest {
-        val format = RegionChunkNbtFormat()
-        assertFailsWith<RegionFormatException> {
-            format.decode(
-                RegionChunk(
-                    Compression.ZLIB,
-                    RegionChunkPayload.External(),
+    fun encodedRegionOwnsItsArraysAndStreamsWithoutExposingThem() {
+        val position = LocalChunkPosition(1, 2)
+        val regionBytes = byteArrayOf(1, 2, 3)
+        val externalBytes = byteArrayOf(4, 5, 6)
+        val encoded = EncodedAnvilRegion(regionBytes, mapOf(position to externalBytes))
+        regionBytes[0] = 9
+        externalBytes[0] = 9
+        encoded.bytes[1] = 9
+        encoded.externalChunks.getValue(position)[1] = 9
+
+        val regionSink = Buffer()
+        val externalSink = Buffer()
+        encoded.writeTo(regionSink)
+
+        assertTrue(encoded.writeExternalChunkTo(position, externalSink))
+        assertFalse(encoded.writeExternalChunkTo(LocalChunkPosition(0, 0), Buffer()))
+        assertEquals(3L, encoded.byteCount)
+        assertEquals(setOf(position), encoded.externalChunkPositions)
+        assertContentEquals(byteArrayOf(1, 2, 3), regionSink.readByteArray())
+        assertContentEquals(byteArrayOf(4, 5, 6), externalSink.readByteArray())
+    }
+
+    @Test
+    fun recordCallbackFailuresAreNotReclassifiedAsContainerTruncation() {
+        val position = LocalChunkPosition(0, 0)
+        val encoded = AnvilRegionFormat.encodeToByteArray(
+            AnvilRegion(
+                mapOf(
+                    position to AnvilChunkRecord(
+                        compression = Compression.NONE,
+                        content = CompressedChunk(Compression.NONE, byteArrayOf(1)),
+                        placement = AnvilChunkPlacement.INLINE,
+                    ),
                 ),
-            )
+            ),
+        )
+        val expected = EOFException("consumer failure")
+
+        val actual = assertFailsWith<EOFException> {
+            AnvilRegionFormat.decodeRecordsFromSource(Buffer().apply { encoded.writeTo(this) }) { _, _ ->
+                throw expected
+            }
         }
+
+        assertSame(expected, actual)
+    }
+
+    @Test
+    fun chunkNbtFormatRoundTripsCompleteCompressedContent() = runTest {
+        val format = CompressedNbtFormat()
         val document = NbtDocument(
             NbtCompound(mapOf("value" to NbtInt(1))),
         )
 
-        assertEquals(document, format.decode(format.encode(document)))
+        assertEquals(document, format.decodeDocument(format.encodeDocument(document)))
     }
+
+    private data class TestRecordContent(
+        val bytes: ByteArray?,
+        val placement: AnvilChunkPlacement,
+    )
+
+    private fun inlineContent(bytes: ByteArray): TestRecordContent =
+        TestRecordContent(bytes, AnvilChunkPlacement.INLINE)
+
+    private fun externalContent(bytes: ByteArray? = null): TestRecordContent =
+        TestRecordContent(bytes, AnvilChunkPlacement.EXTERNAL)
+
+    private fun testRecord(
+        compression: Compression,
+        content: TestRecordContent,
+        timestampEpochSeconds: Int = 0,
+    ): AnvilChunkRecord = AnvilChunkRecord(
+        compression = compression,
+        content = content.bytes?.let { CompressedChunk(compression, it) },
+        placement = content.placement,
+        timestampEpochSeconds = timestampEpochSeconds,
+    )
 
     private fun nbtBinaryFormatBytes(): ByteArray =
         NbtFormat.encodeDocumentToByteArray(

@@ -6,7 +6,7 @@ import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.nbt.serialization.NbtFormatConfiguration
 import com.hiczp.minecraft.nbt.serialization.NbtRootEncoding
 import com.hiczp.minecraft.world.format.Compression
-import com.hiczp.minecraft.world.format.CompressionCodecs
+import com.hiczp.minecraft.world.format.CompressionRegistry
 import kotlinx.io.buffered
 import kotlinx.io.okio.asKotlinxIoRawSink
 import kotlinx.io.okio.asKotlinxIoRawSource
@@ -28,7 +28,7 @@ import kotlinx.io.Source as KotlinxSource
 class NbtFileStore internal constructor(
     internal val files: WorldFileAccess,
     val nbt: NbtFormat = minecraftWorldNbtFormat(),
-    val compressionCodecs: CompressionCodecs = CompressionCodecs,
+    val compressionCodecs: CompressionRegistry = CompressionRegistry,
 ) {
     init {
         nbt.requireStandaloneWorldRoot()
@@ -37,7 +37,7 @@ class NbtFileStore internal constructor(
     constructor(
         fileSystem: FileSystem = systemFileSystem,
         nbt: NbtFormat = minecraftWorldNbtFormat(),
-        compressionCodecs: CompressionCodecs = CompressionCodecs,
+        compressionCodecs: CompressionRegistry = CompressionRegistry,
     ) : this(
         files = WorldFileAccess.mutable(fileSystem),
         nbt = nbt,

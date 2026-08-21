@@ -132,7 +132,7 @@ class TypedWorldFilesTest {
         LevelDataStore(paths, nbtFiles).write(LevelDat.serializer(), level)
         PlayerDataStore(paths, nbtFiles).write(player, LevelDat.serializer(), level)
         SavedDataFileStore(paths, nbtFiles = nbtFiles).write("example:typed", LevelDat.serializer(), level)
-        val regions = WorldRegionStore(paths, fileSystem = fileSystem)
+        val regions = RegionStorage(paths, fileSystem = fileSystem)
         try {
             regions.writeChunkNbt(chunk, LevelDat.serializer(), level, Compression.NONE)
         } finally {
@@ -141,15 +141,16 @@ class TypedWorldFilesTest {
         jsonFiles.writeJson(paths.statistics(player), PlayerStatistics.serializer(), statistics)
         jsonFiles.writeJson(paths.advancement(player), PlayerAdvancements.serializer(), advancements)
 
-        val reader = LiveMinecraftWorldReader.open(paths.root, fileSystem)
+        val reader = LiveMinecraftWorldAccess.open(paths.root, fileSystem)
         assertEquals(level, reader.readLevelData(LevelDat.serializer()))
         assertEquals(level, reader.readLevelData<LevelDat>())
         assertEquals(level, reader.readPlayerData(player, LevelDat.serializer()))
         assertEquals(level, reader.readPlayerData<LevelDat>(player))
         assertEquals(level, reader.readSavedData("example:typed", LevelDat.serializer()))
         assertEquals(level, reader.readSavedData<LevelDat>("example:typed"))
-        assertEquals(level, reader.readChunkNbt(chunk, LevelDat.serializer()))
-        assertEquals(level, reader.readChunkNbt<LevelDat>(region, localChunk))
+        val liveRegionHandle = reader.openRegion(region)
+        assertEquals(level, liveRegionHandle.readChunkNbt(chunk, LevelDat.serializer()))
+        assertEquals(level, liveRegionHandle.readChunkNbt<LevelDat>(localChunk))
         assertEquals(statistics, reader.readStatistics(player, PlayerStatistics.serializer()))
         assertEquals(statistics, reader.readStatistics<PlayerStatistics>(player))
         assertEquals(advancements, reader.readAdvancements(player, PlayerAdvancements.serializer()))

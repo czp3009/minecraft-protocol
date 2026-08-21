@@ -1,8 +1,6 @@
 package com.hiczp.minecraft.world.io.fixturetest.hostfilesystem
 
-import com.hiczp.minecraft.nbt.NbtByteArray
-import com.hiczp.minecraft.nbt.NbtCompound
-import com.hiczp.minecraft.nbt.NbtDocument
+import com.hiczp.minecraft.nbt.*
 import com.hiczp.minecraft.test.*
 import com.hiczp.minecraft.world.format.*
 import com.hiczp.minecraft.world.io.*
@@ -270,14 +268,12 @@ class OfficialWorldStorageInteropTest {
     private suspend fun captureLockAcquisitionFailure(
         worldDirectory: Path,
     ): Throwable {
-        var acquired: MinecraftWorldAccess? = null
         val failure = try {
-            acquired = MinecraftWorldAccess.open(worldDirectory)
+            MinecraftWorldAccess.open(worldDirectory).use {}
             null
         } catch (caught: Throwable) {
             caught
         }
-        acquired?.close()
         return checkNotNull(failure) {
             "Library acquired the live official world's session.lock"
         }
@@ -287,7 +283,7 @@ class OfficialWorldStorageInteropTest {
         check(!MinecraftWorldAccess.isLocked(worldDirectory)) {
             "Official server retained session.lock after exit"
         }
-        MinecraftWorldAccess.open(worldDirectory).close()
+        MinecraftWorldAccess.open(worldDirectory).use {}
     }
 
     private fun exerciseStandalonePolicies(
@@ -344,12 +340,13 @@ class OfficialWorldStorageInteropTest {
         }
         val playerDirectory = checkNotNull(paths.playerData(playerKey).parent)
         val playerFiles = fileSystem.list(playerDirectory)
+        val playerDirectoryEntries = playerFiles.joinToString { it.name }
         check(
             playerFiles.any {
                 it.name.startsWith("${paths.playerData(playerKey).name}_corrupted_")
             },
         ) {
-            "Player fallback did not preserve a corrupted copy; directory entries: ${playerFiles.joinToString { it.name }}"
+            "Player fallback did not preserve a corrupted copy; directory entries: $playerDirectoryEntries"
         }
         nbtFiles.writeDocument(paths.playerData(playerKey), player)
 
@@ -398,7 +395,7 @@ class OfficialWorldStorageInteropTest {
     private suspend fun exerciseCompressionMatrix(worldDirectory: Path) {
         val paths = MinecraftWorldPaths(worldDirectory)
         val documents = linkedMapOf<ChunkPosition, NbtDocument>()
-        val readingStore = WorldRegionStore(paths)
+        val readingStore = RegionStorage(paths)
         try {
             COMPRESSION_PROBES.forEach { probe ->
                 documents[probe.position] = checkNotNull(
@@ -411,33 +408,41 @@ class OfficialWorldStorageInteropTest {
             readingStore.close()
         }
 
-        // One mixed region makes the official server exercise every platform codec in one restart. The marker block in
-        // each original NBT document proves that the server loaded our bytes instead of accepting only the MCA header or
-        // silently regenerating a missing chunk.
-        val writingStore = WorldRegionStore(paths)
+        // One mixed region makes the official server exercise every platform codec in one restart. The marker block
+        // in each original NBT document proves that the server loaded our bytes instead of accepting only the MCA
+        // header or silently regenerating a missing chunk.
+        val writingStore = RegionStorage(paths)
         try {
-            COMPRESSION_PROBES.forEach { probe ->
-                writingStore.writeChunkNbtDocument(
-                    probe.position,
-                    documents.getValue(probe.position),
-                    probe.compression,
-                )
+            COMPRESSION_PROBES.forEachIndexed { index, probe ->
+                val document = documents.getValue(probe.position)
+                if (index == 0) {
+                    val codec = strongChunkCodec(document)
+                    val chunk = codec.decodeDocument(document, probe.position)
+                    documents[probe.position] = codec.encodeDocument(chunk, probe.position)
+                    writingStore.writeChunk(probe.position, chunk, codec, probe.compression)
+                } else {
+                    writingStore.writeChunkNbtDocument(
+                        probe.position,
+                        document,
+                        probe.compression,
+                    )
+                }
             }
         } finally {
             writingStore.close()
         }
 
-        val verifyingStore = WorldRegionStore(paths)
+        val verifyingStore = RegionStorage(paths)
         try {
             COMPRESSION_PROBES.forEach { probe ->
                 val stored = checkNotNull(
-                    verifyingStore.readChunk(probe.position),
+                    verifyingStore.readCompressedChunk(probe.position),
                 )
                 check(stored.compression == probe.compression) {
                     "Chunk ${probe.position} stored ${stored.compression}, expected ${probe.compression}"
                 }
                 check(
-                    verifyingStore.chunkNbtFormat.decode(stored) ==
+                    verifyingStore.chunkNbtFormat.decodeDocument(stored) ==
                             documents.getValue(probe.position),
                 ) {
                     "Chunk ${probe.position} changed while writing ${probe.compression}"
@@ -456,16 +461,16 @@ class OfficialWorldStorageInteropTest {
         val absolutePosition = TERRAIN_MUTATION_POSITION
         val regionPosition = absolutePosition.region
         val regionPath = paths.regionFile(regionPosition)
-        val originalChunk: RegionChunk
+        val originalChunk: CompressedChunk
         val originalDocument: NbtDocument
-        val readingStore = WorldRegionStore(paths)
+        val readingStore = RegionStorage(paths)
         try {
             originalChunk = checkNotNull(
-                readingStore.readChunk(absolutePosition),
+                readingStore.readCompressedChunk(absolutePosition),
             ) {
                 "Official fixture generated no terrain mutation chunk $absolutePosition"
             }
-            originalDocument = readingStore.chunkNbtFormat.decode(
+            originalDocument = readingStore.chunkNbtFormat.decodeDocument(
                 originalChunk,
             )
         } finally {
@@ -483,9 +488,9 @@ class OfficialWorldStorageInteropTest {
         )
         check(oldAllocation.size == oldLocation.allocatedBytes)
 
-        val writingStore = WorldRegionStore(paths)
+        val writingStore = RegionStorage(paths)
         try {
-            writingStore.writeChunk(absolutePosition, originalChunk)
+            writingStore.writeCompressedChunk(absolutePosition, originalChunk)
         } finally {
             writingStore.close()
         }
@@ -509,9 +514,9 @@ class OfficialWorldStorageInteropTest {
             "Region update shrank the MCA file"
         }
         val fixtureDocument = externalFixture(originalDocument)
-        val externalStore = WorldRegionStore(
+        val externalStore = RegionStorage(
             paths = paths,
-            configuration = WorldRegionStoreConfiguration(
+            configuration = RegionStorageConfiguration(
                 syncWrites = true,
                 writeCompression = Compression.NONE,
             ),
@@ -519,10 +524,10 @@ class OfficialWorldStorageInteropTest {
         try {
             externalStore.writeChunkNbtDocument(absolutePosition, fixtureDocument)
             val stored = checkNotNull(
-                externalStore.readChunk(absolutePosition),
+                externalStore.readCompressedChunk(absolutePosition),
             )
-            check(stored.payload.isExternal)
-            check(externalStore.chunkNbtFormat.decode(stored) == fixtureDocument)
+            check(externalStore.readChunkInfo(absolutePosition)?.placement == AnvilChunkPlacement.EXTERNAL)
+            check(externalStore.chunkNbtFormat.decodeDocument(stored) == fixtureDocument)
         } finally {
             externalStore.close()
         }
@@ -542,15 +547,14 @@ class OfficialWorldStorageInteropTest {
         entityPosition: ChunkPosition,
     ) {
         val paths = MinecraftWorldPaths(worldDirectory)
-        val terrain = WorldRegionStore(paths)
+        val terrain = RegionStorage(paths)
         try {
             terrain.writeChunkNbtDocument(
                 terrainMutation.position,
                 terrainMutation.originalDocument,
             )
             check(
-                checkNotNull(terrain.readChunk(terrainMutation.position))
-                    .payload.isExternal.not(),
+                terrain.readChunkInfo(terrainMutation.position)?.placement == AnvilChunkPlacement.INLINE,
             )
         } finally {
             terrain.close()
@@ -559,13 +563,13 @@ class OfficialWorldStorageInteropTest {
             "Internal rewrite retained the external chunk sidecar"
         }
 
-        val entities = WorldRegionStore(
+        val entities = RegionStorage(
             paths,
             storage = RegionStorageDirectory.ENTITIES,
         )
         try {
-            entities.clearChunk(entityPosition)
-            check(entities.readChunk(entityPosition) == null)
+            entities.removeChunk(entityPosition)
+            check(entities.readCompressedChunk(entityPosition) == null)
         } finally {
             entities.close()
         }
@@ -633,18 +637,18 @@ class OfficialWorldStorageInteropTest {
             if (fileSystem.metadataOrNull(directory)?.isDirectory != true) {
                 return@forEach
             }
-            val store = WorldRegionStore(paths, storage)
+            val store = RegionStorage(paths, storage)
             try {
                 regionPositions(directory).forEach { regionPosition ->
-                    val region = checkNotNull(store.readRegion(regionPosition))
+                    val region = checkNotNull(store.readAnvilRegion(regionPosition))
                     regionFiles[storage] = checkNotNull(regionFiles[storage]) + 1
-                    val regionPath = directory /
-                            "r.${regionPosition.x}.${regionPosition.z}.mca"
+                    val regionPath = directory / "r.${regionPosition.x}.${regionPosition.z}.mca"
+                    val regionSize = fileSystem.metadata(regionPath).size
                     regionDiagnostics.getValue(storage).add(
-                        "$regionPath(size=${fileSystem.metadata(regionPath).size}, readableChunks=${region.chunks.size})",
+                        "$regionPath(size=$regionSize, readableChunks=${region.chunks.size})",
                     )
-                    region.chunks.forEach { (local, chunk) ->
-                        store.chunkNbtFormat.decode(chunk)
+                    region.chunks.forEach { (local, record) ->
+                        store.chunkNbtFormat.decodeDocument(checkNotNull(record.content))
                         chunks[storage] = checkNotNull(chunks[storage]) + 1
                         if (!firstChunks.containsKey(storage)) {
                             firstChunks[storage] = regionPosition.chunk(local)
@@ -813,6 +817,36 @@ class OfficialWorldStorageInteropTest {
             },
         )
         return NbtDocument(NbtCompound(values))
+    }
+
+    private fun strongChunkCodec(document: NbtDocument): ChunkNbtCodec<BlockStateDescriptor, String> {
+        val dataVersion = (document.root["DataVersion"] as? NbtInt)?.value
+            ?: error("Official terrain Chunk has no integer DataVersion")
+        val minSectionY = (document.root["yPos"] as? NbtInt)?.value
+            ?: error("Official terrain Chunk has no integer yPos")
+        val sections = document.root["sections"] as? NbtList
+            ?: error("Official terrain Chunk has no Section list")
+        val maxSemanticSectionY = sections.value.mapNotNull { tag ->
+            val section = tag as? NbtCompound ?: return@mapNotNull null
+            if (section["block_states"] == null || section["biomes"] == null) return@mapNotNull null
+            (section["Y"] as? NbtByte)?.value?.toInt()
+        }.maxOrNull() ?: minSectionY
+        check(maxSemanticSectionY >= minSectionY) {
+            "Official terrain Chunk has a semantic Section below yPos"
+        }
+        return ChunkNbtCodec(
+            ChunkNbtContext(
+                layout = ChunkLayout(
+                    minSectionY = minSectionY,
+                    sectionCount = maxSemanticSectionY - minSectionY + 1,
+                ),
+                registries = ChunkDataRegistries(
+                    blockStates = DescriptorBlockStateRegistry(),
+                    biomes = NamedBiomeRegistry(),
+                ),
+                expectedDataVersion = dataVersion,
+            ),
+        )
     }
 
     private suspend fun officialFailure(

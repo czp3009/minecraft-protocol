@@ -3,6 +3,7 @@ package com.hiczp.minecraft.protocol.data
 import com.hiczp.minecraft.nbt.NbtByte
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtInt
+import com.hiczp.minecraft.protocol.model.packet.PlayLoginPacket
 import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.RegistryEntry
@@ -60,6 +61,37 @@ data class MinecraftDimensionLayout(
                 registries.requireRegistry(dimensionTypeRegistry),
                 registryId,
             )
+
+        /**
+         * Resolves the active dimension selected by [login] from the Configuration registry snapshot.
+         *
+         * The synchronized dimension-type entry is authoritative when it contains NBT. When Known Packs caused the
+         * server to omit that NBT, [protocolData] supplies the matching known entry instead.
+         */
+        fun from(
+            login: PlayLoginPacket,
+            registries: List<RegistryDataPacket>,
+            protocolData: ProtocolDataSet,
+        ): MinecraftDimensionLayout {
+            require(login.spawnInfo.dimension in login.levels) {
+                val dimension = login.spawnInfo.dimension
+                "Play Login selected dimension $dimension, but it is absent from the advertised levels"
+            }
+            val registry = requireNotNull(
+                registries.singleOrNull { it.registryId == dimensionTypeRegistry },
+            ) {
+                "Configuration must provide exactly one synchronized registry $dimensionTypeRegistry"
+            }
+            val registryId = login.spawnInfo.dimensionTypeId
+            val entry = requireNotNull(registry.entries.getOrNull(registryId)) {
+                "Play Login selected absent dimension-type registry ID $registryId"
+            }
+            return if (entry.data == null) {
+                from(protocolData, entry.id)
+            } else {
+                from(listOf(registry), registryId)
+            }
+        }
 
         private fun from(
             registry: RegistryDataPacket,

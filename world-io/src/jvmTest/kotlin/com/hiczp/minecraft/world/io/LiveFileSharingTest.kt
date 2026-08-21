@@ -1,9 +1,8 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.ChunkPosition
+import com.hiczp.minecraft.world.format.CompressedChunk
 import com.hiczp.minecraft.world.format.Compression
-import com.hiczp.minecraft.world.format.RegionChunk
-import com.hiczp.minecraft.world.format.RegionChunkPayload
 import kotlinx.coroutines.test.runTest
 import okio.Buffer
 import okio.FileHandle
@@ -29,18 +28,15 @@ class LiveFileSharingTest {
         val root = temporaryDirectory.toOkioPath()
         val position = ChunkPosition(0, 0)
         try {
-            val writer = MinecraftWorldAccess.open(root)
-            try {
-                writer.writeChunk(position, sharingChunk(5))
-                val reader = LiveMinecraftWorldReader.open(root)
+            MinecraftWorldAccess.open(root).use { minecraftWorldAccess ->
+                minecraftWorldAccess.openRegion(position.region).use { regionHandle ->
+                    regionHandle.writeCompressedChunk(position, sharingChunk(5))
+                }
+                val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(root)
                 assertContentEquals(
                     byteArrayOf(5),
-                    reader.readChunk(position)
-                        ?.payload
-                        ?.compressedBytes,
+                    liveMinecraftWorldAccess.openRegion(position.region).readCompressedChunk(position).bytesOrNull(),
                 )
-            } finally {
-                writer.close()
             }
             assertFalse(MinecraftWorldAccess.isLocked(root))
         } finally {
@@ -58,34 +54,35 @@ class LiveFileSharingTest {
         val first = ChunkPosition(0, 0)
         val second = ChunkPosition(1, 0)
         try {
-            val initial = WorldRegionStore(paths)
+            val initial = RegionStorage(paths)
             try {
-                initial.writeChunk(first, sharingChunk(1))
+                initial.writeCompressedChunk(first, sharingChunk(1))
             } finally {
                 initial.close()
             }
 
-            val reader = LiveMinecraftWorldReader.open(root)
+            val reader = LiveMinecraftWorldAccess.open(root)
+            val liveRegionHandle = reader.openRegion(first.region)
             assertContentEquals(
                 byteArrayOf(1),
-                reader.readChunk(first)?.payload?.compressedBytes,
+                liveRegionHandle.readCompressedChunk(first).bytesOrNull(),
             )
 
-            val updater = WorldRegionStore(paths)
+            val updater = RegionStorage(paths)
             try {
-                updater.writeChunk(first, sharingChunk(2))
-                updater.writeChunk(second, sharingChunk(3))
+                updater.writeCompressedChunk(first, sharingChunk(2))
+                updater.writeCompressedChunk(second, sharingChunk(3))
             } finally {
                 updater.close()
             }
 
             assertContentEquals(
                 byteArrayOf(2),
-                reader.readChunk(first)?.payload?.compressedBytes,
+                liveRegionHandle.readCompressedChunk(first).bytesOrNull(),
             )
             assertContentEquals(
                 byteArrayOf(3),
-                reader.readChunk(second)?.payload?.compressedBytes,
+                liveRegionHandle.readCompressedChunk(second).bytesOrNull(),
             )
         } finally {
             FileSystem.SYSTEM.deleteRecursively(root, mustExist = false)
@@ -242,9 +239,9 @@ private fun liveSharingClasspath(): String = listOf(
     File(type.protectionDomain.codeSource.location.toURI()).absolutePath
 }.distinct().joinToString(File.pathSeparator)
 
-private fun sharingChunk(value: Int): RegionChunk = RegionChunk(
+private fun sharingChunk(value: Int): CompressedChunk = CompressedChunk(
     compression = Compression.NONE,
-    payload = RegionChunkPayload.Inline(byteArrayOf(value.toByte())),
+    compressedBytes = byteArrayOf(value.toByte()),
 )
 
 private const val LIVE_SHARING_MAIN_CLASS = "com.hiczp.minecraft.world.io.LiveFileSharingProcessMain"

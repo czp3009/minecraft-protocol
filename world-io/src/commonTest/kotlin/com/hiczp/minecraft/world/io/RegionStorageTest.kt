@@ -8,7 +8,7 @@ import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.*
 import kotlin.time.Clock
 
-class WorldRegionStoreTest {
+class RegionStorageTest {
     @Test
     fun updatesUseNewSectorsThenReleaseTheOldAllocation() = runTest {
         val fileSystem = RecordingFileSystem(
@@ -18,17 +18,17 @@ class WorldRegionStoreTest {
         val position = ChunkPosition(0, 0)
         val store = store(fileSystem, directory)
 
-        store.writeChunk(position, chunk(byteArrayOf(1)))
+        store.writeCompressedChunk(position, chunk(byteArrayOf(1)))
         val path = directory / "r.0.0.mca"
         assertEquals(RegionLocation(2, 1), header(fileSystem, path).location(position.local))
 
-        store.writeChunk(position, chunk(byteArrayOf(2)))
+        store.writeCompressedChunk(position, chunk(byteArrayOf(2)))
         assertEquals(RegionLocation(3, 1), header(fileSystem, path).location(position.local))
         assertEquals(1, fileSystem.readBytes(path)[2 * REGION_SECTOR_BYTES + 5].toInt())
 
-        store.writeChunk(position, chunk(byteArrayOf(3)))
+        store.writeCompressedChunk(position, chunk(byteArrayOf(3)))
         assertEquals(RegionLocation(2, 1), header(fileSystem, path).location(position.local))
-        assertContentEquals(byteArrayOf(3), store.readChunk(position)?.payload?.compressedBytes)
+        assertContentEquals(byteArrayOf(3), store.readCompressedChunk(position).bytesOrNull())
         assertTrue(fileSystem.moves.none { (_, target) -> target.name.endsWith(".mca") })
 
         store.close()
@@ -47,19 +47,19 @@ class WorldRegionStoreTest {
                     REGION_CHUNK_RECORD_HEADER_BYTES,
         ) { (it * 13).toByte() }
 
-        store.writeChunk(position, chunk(externalBytes))
+        store.writeCompressedChunk(position, chunk(externalBytes))
         val sidecar = directory / "c.-1.-1.mcc"
         assertContentEquals(externalBytes, fileSystem.readBytes(sidecar))
-        assertTrue(checkNotNull(store.readChunk(position)).payload.isExternal)
-        assertTrue(store.doesChunkExist(position))
+        assertEquals(AnvilChunkPlacement.EXTERNAL, store.readChunkInfo(position)?.placement)
+        assertTrue(store.hasChunk(position))
 
-        store.writeChunk(position, chunk(byteArrayOf(9, 8, 7)))
+        store.writeCompressedChunk(position, chunk(byteArrayOf(9, 8, 7)))
         assertFalse(fileSystem.exists(sidecar))
-        assertFalse(checkNotNull(store.readChunk(position)).payload.isExternal)
+        assertEquals(AnvilChunkPlacement.INLINE, store.readChunkInfo(position)?.placement)
 
-        store.clearChunk(position)
-        assertNull(store.readChunk(position))
-        assertFalse(store.doesChunkExist(position))
+        store.removeChunk(position)
+        assertNull(store.readCompressedChunk(position))
+        assertFalse(store.hasChunk(position))
         store.close()
         fileSystem.checkNoOpenFiles()
     }
@@ -95,14 +95,14 @@ class WorldRegionStoreTest {
         fileSystem.writeBytes(path, bytes)
 
         val store = store(fileSystem, directory)
-        assertNull(store.readChunk(ChunkPosition(0, 0)))
+        assertNull(store.readCompressedChunk(ChunkPosition(0, 0)))
         assertContentEquals(
             byteArrayOf(42),
-            store.readChunk(ChunkPosition(1, 0))?.payload?.compressedBytes,
+            store.readCompressedChunk(ChunkPosition(1, 0)).bytesOrNull(),
         )
         assertContentEquals(
             byteArrayOf(42),
-            store.readChunk(ChunkPosition(2, 0))?.payload?.compressedBytes,
+            store.readCompressedChunk(ChunkPosition(2, 0)).bytesOrNull(),
         )
         store.close()
     }
@@ -113,7 +113,7 @@ class WorldRegionStoreTest {
         val directory = "/world/region".toPath()
         val position = ChunkPosition(0, 0)
         store(base, directory).also {
-            it.writeChunk(position, chunk(byteArrayOf(1)))
+            it.writeCompressedChunk(position, chunk(byteArrayOf(1)))
             it.close()
         }
         val beforeSize = base.metadata(directory / "r.0.0.mca").size!!
@@ -121,14 +121,14 @@ class WorldRegionStoreTest {
         val store = store(failing, directory)
 
         assertFailsWith<IOException> {
-            store.writeChunk(position, chunk(byteArrayOf(2)))
+            store.writeCompressedChunk(position, chunk(byteArrayOf(2)))
         }
         store.close()
 
         val reopened = store(base, directory)
         assertContentEquals(
             byteArrayOf(1),
-            reopened.readChunk(position)?.payload?.compressedBytes,
+            reopened.readCompressedChunk(position).bytesOrNull(),
         )
         assertTrue(base.metadata(directory / "r.0.0.mca").size!! > beforeSize)
         reopened.close()
@@ -145,7 +145,7 @@ class WorldRegionStoreTest {
         val store = store(base, directory)
         val beforeWrite = Clock.System.now().epochSeconds.toInt()
 
-        store.writeChunk(position, chunk(byteArrayOf(1)))
+        store.writeCompressedChunk(position, chunk(byteArrayOf(1)))
 
         val afterWrite = Clock.System.now().epochSeconds.toInt()
         val writtenHeader = header(base, path)
@@ -156,7 +156,7 @@ class WorldRegionStoreTest {
         )
 
         val beforeClear = Clock.System.now().epochSeconds.toInt()
-        store.clearChunk(position)
+        store.removeChunk(position)
         val afterClear = Clock.System.now().epochSeconds.toInt()
 
         val clearedHeader = header(base, path)
@@ -177,16 +177,16 @@ class WorldRegionStoreTest {
         val position = ChunkPosition(0, 0)
         val payload = externalPayload(11)
         store(base, directory).also {
-            it.writeChunk(position, chunk(payload))
+            it.writeCompressedChunk(position, chunk(payload))
             it.close()
         }
         val oldHeader = header(base, path)
         val clearing = store(HeaderFailingFileSystem(base), directory)
 
         assertFailsWith<IOException> {
-            clearing.clearChunk(position)
+            clearing.removeChunk(position)
         }
-        assertNotNull(clearing.readChunk(position))
+        assertNotNull(clearing.readCompressedChunk(position))
         clearing.close()
 
         assertEquals(oldHeader, header(base, path))
@@ -194,7 +194,7 @@ class WorldRegionStoreTest {
         val reopened = store(base, directory)
         assertContentEquals(
             payload,
-            reopened.readChunk(position)?.payload?.compressedBytes,
+            reopened.readCompressedChunk(position).bytesOrNull(),
         )
         reopened.close()
     }
@@ -206,7 +206,7 @@ class WorldRegionStoreTest {
         val path = directory / "r.0.0.mca"
         val position = ChunkPosition(0, 0)
         store(base, directory).also {
-            it.writeChunk(position, chunk(byteArrayOf(1)))
+            it.writeCompressedChunk(position, chunk(byteArrayOf(1)))
             it.close()
         }
         val oldLocation = header(base, path).location(position.local)
@@ -215,7 +215,7 @@ class WorldRegionStoreTest {
         val store = store(failing, directory)
 
         assertFailsWith<IOException> {
-            store.writeChunk(position, chunk(byteArrayOf(2, 3, 4)))
+            store.writeCompressedChunk(position, chunk(byteArrayOf(2, 3, 4)))
         }
         store.close()
 
@@ -224,7 +224,7 @@ class WorldRegionStoreTest {
         val reopened = store(base, directory)
         assertContentEquals(
             byteArrayOf(1),
-            reopened.readChunk(position)?.payload?.compressedBytes,
+            reopened.readCompressedChunk(position).bytesOrNull(),
         )
         reopened.close()
     }
@@ -238,20 +238,20 @@ class WorldRegionStoreTest {
             val directory = "/world-sync-$failureCall/region".toPath()
             val position = ChunkPosition(0, 0)
             store(base, directory).also {
-                it.writeChunk(position, chunk(byteArrayOf(1)))
+                it.writeCompressedChunk(position, chunk(byteArrayOf(1)))
                 it.close()
             }
             val failing = NthFlushFailingFileSystem(base, failureCall)
-            val updating = WorldRegionStore(
+            val updating = RegionStorage(
                 directory = directory,
                 fileSystem = failing,
-                configuration = WorldRegionStoreConfiguration(
+                configuration = RegionStorageConfiguration(
                     syncWrites = true,
                 ),
             )
 
             assertFailsWith<IOException> {
-                updating.writeChunk(position, chunk(byteArrayOf(2)))
+                updating.writeCompressedChunk(position, chunk(byteArrayOf(2)))
             }
             updating.close()
 
@@ -263,7 +263,7 @@ class WorldRegionStoreTest {
             val reopened = store(base, directory)
             assertContentEquals(
                 expected,
-                reopened.readChunk(position)?.payload?.compressedBytes,
+                reopened.readCompressedChunk(position).bytesOrNull(),
             )
             reopened.close()
         }
@@ -273,21 +273,21 @@ class WorldRegionStoreTest {
         val position = ChunkPosition(0, 0)
         val sidecar = directory / "c.0.0.mcc"
         store(base, directory).also {
-            it.writeChunk(position, chunk(externalPayload(13)))
+            it.writeCompressedChunk(position, chunk(externalPayload(13)))
             it.close()
         }
-        val clearing = WorldRegionStore(
+        val clearing = RegionStorage(
             directory = directory,
             fileSystem = NthFlushFailingFileSystem(base, failureCall = 1),
-            configuration = WorldRegionStoreConfiguration(syncWrites = true),
+            configuration = RegionStorageConfiguration(syncWrites = true),
         )
 
-        assertFailsWith<IOException> { clearing.clearChunk(position) }
+        assertFailsWith<IOException> { clearing.removeChunk(position) }
         clearing.close()
 
         assertTrue(base.exists(sidecar))
         val reopened = store(base, directory)
-        assertNull(reopened.readChunk(position))
+        assertNull(reopened.readCompressedChunk(position))
         reopened.close()
     }
 
@@ -300,7 +300,7 @@ class WorldRegionStoreTest {
         val first = externalPayload(1)
         val second = externalPayload(2)
         store(base, directory).also {
-            it.writeChunk(position, chunk(first))
+            it.writeCompressedChunk(position, chunk(first))
             it.close()
         }
         val oldLocation = header(base, path).location(position.local)
@@ -309,7 +309,7 @@ class WorldRegionStoreTest {
         val beforeWrite = Clock.System.now().epochSeconds.toInt()
 
         assertFailsWith<IOException> {
-            store.writeChunk(position, chunk(second))
+            store.writeCompressedChunk(position, chunk(second))
         }
         val afterWrite = Clock.System.now().epochSeconds.toInt()
         store.close()
@@ -325,7 +325,7 @@ class WorldRegionStoreTest {
         val reopened = store(base, directory)
         assertContentEquals(
             first,
-            reopened.readChunk(position)?.payload?.compressedBytes,
+            reopened.readCompressedChunk(position).bytesOrNull(),
         )
         reopened.close()
     }
@@ -338,7 +338,7 @@ class WorldRegionStoreTest {
         val sidecar = directory / "c.0.0.mcc"
         val position = ChunkPosition(0, 0)
         store(base, directory).also {
-            it.writeChunk(position, chunk(byteArrayOf(1)))
+            it.writeCompressedChunk(position, chunk(byteArrayOf(1)))
             it.close()
         }
         val oldLocation = header(base, path).location(position.local)
@@ -348,7 +348,7 @@ class WorldRegionStoreTest {
         )
 
         assertFailsWith<IOException> {
-            failingStore.writeChunk(position, chunk(externalPayload(12)))
+            failingStore.writeCompressedChunk(position, chunk(externalPayload(12)))
         }
         failingStore.close()
 
@@ -359,10 +359,10 @@ class WorldRegionStoreTest {
         assertFalse(base.exists(sidecar))
         assertTrue(base.allPaths.none { it.name.startsWith(".mcc-") })
         val reopened = store(base, directory)
-        assertFailsWith<WorldIOException> {
-            reopened.readChunk(position)
-        }
-        assertFalse(reopened.doesChunkExist(position))
+        assertNull(reopened.readCompressedChunk(position))
+        assertTrue(reopened.hasChunk(position))
+        assertEquals(1, reopened.readChunkCount(position.region))
+        assertEquals(listOf(position.local), reopened.readLocalChunkPositions(position.region))
         reopened.close()
     }
 
@@ -376,7 +376,7 @@ class WorldRegionStoreTest {
             val path = directory / "r.0.0.mca"
             val position = ChunkPosition(0, 0)
             store(base, directory).also {
-                it.writeChunk(position, chunk(byteArrayOf(1)))
+                it.writeCompressedChunk(position, chunk(byteArrayOf(1)))
                 it.close()
             }
             val oldHeader = header(base, path)
@@ -384,12 +384,12 @@ class WorldRegionStoreTest {
             val store = store(failing, directory)
 
             assertFailsWith<IOException> {
-                store.writeChunk(position, chunk(externalPayload(6)))
+                store.writeCompressedChunk(position, chunk(externalPayload(6)))
             }
             assertEquals(oldHeader, header(base, path))
             assertTrue(base.allPaths.none { it.name.startsWith(".mcc-") })
 
-            store.writeChunk(position, chunk(byteArrayOf(2)))
+            store.writeCompressedChunk(position, chunk(byteArrayOf(2)))
             val oldLocation = checkNotNull(
                 oldHeader.location(position.local),
             )
@@ -403,7 +403,7 @@ class WorldRegionStoreTest {
             val reopened = store(base, directory)
             assertContentEquals(
                 byteArrayOf(2),
-                reopened.readChunk(position)?.payload?.compressedBytes,
+                reopened.readCompressedChunk(position).bytesOrNull(),
             )
             reopened.close()
         }
@@ -418,14 +418,14 @@ class WorldRegionStoreTest {
         val position = ChunkPosition(0, 0)
         val first = externalPayload(7)
         store(base, directory).also {
-            it.writeChunk(position, chunk(first))
+            it.writeCompressedChunk(position, chunk(first))
             it.close()
         }
         val oldHeader = header(base, path)
         val store = store(HeaderFailingFileSystem(base), directory)
 
         assertFailsWith<IOException> {
-            store.writeChunk(position, chunk(externalPayload(8)))
+            store.writeCompressedChunk(position, chunk(externalPayload(8)))
         }
         store.close()
 
@@ -442,35 +442,35 @@ class WorldRegionStoreTest {
         val sidecar = directory / "c.0.0.mcc"
         val position = ChunkPosition(0, 0)
         store(base, directory).also {
-            it.writeChunk(position, chunk(externalPayload(3)))
+            it.writeCompressedChunk(position, chunk(externalPayload(3)))
             it.close()
         }
 
         val internalFailure = SidecarDeleteFailingFileSystem(base, sidecar)
         val internalStore = store(internalFailure, directory)
         assertFailsWith<IOException> {
-            internalStore.writeChunk(position, chunk(byteArrayOf(9)))
+            internalStore.writeCompressedChunk(position, chunk(byteArrayOf(9)))
         }
         internalStore.close()
         assertTrue(base.exists(sidecar))
         val committedInternal = store(base, directory)
         assertContentEquals(
             byteArrayOf(9),
-            committedInternal.readChunk(position)?.payload?.compressedBytes,
+            committedInternal.readCompressedChunk(position).bytesOrNull(),
         )
-        committedInternal.writeChunk(position, chunk(externalPayload(4)))
+        committedInternal.writeCompressedChunk(position, chunk(externalPayload(4)))
         committedInternal.close()
 
         val clearFailure = SidecarDeleteFailingFileSystem(base, sidecar)
         val clearingStore = store(clearFailure, directory)
         assertFailsWith<IOException> {
-            clearingStore.clearChunk(position)
+            clearingStore.removeChunk(position)
         }
         clearingStore.close()
         assertNull(header(base, path).location(position.local))
         assertTrue(base.exists(sidecar))
         val reopened = store(base, directory)
-        assertNull(reopened.readChunk(position))
+        assertNull(reopened.readCompressedChunk(position))
         reopened.close()
     }
 
@@ -481,7 +481,7 @@ class WorldRegionStoreTest {
         val path = directory / "r.0.0.mca"
         val position = ChunkPosition(0, 0)
         store(base, directory).also {
-            it.writeChunk(position, chunk(ByteArray(8_000) { 1 }))
+            it.writeCompressedChunk(position, chunk(ByteArray(8_000) { 1 }))
             it.close()
         }
         val fileSize = checkNotNull(base.metadata(path).size)
@@ -490,9 +490,9 @@ class WorldRegionStoreTest {
 
         assertContentEquals(
             ByteArray(8_000) { 1 },
-            store.readChunk(position)?.payload?.compressedBytes,
+            store.readCompressedChunk(position).bytesOrNull(),
         )
-        store.writeChunk(position, chunk(byteArrayOf(7)))
+        store.writeCompressedChunk(position, chunk(byteArrayOf(7)))
 
         assertTrue(
             recording.reads.any {
@@ -512,32 +512,29 @@ class WorldRegionStoreTest {
                 it.offset == 0L && it.byteCount == REGION_HEADER_BYTES
             },
         )
+        assertFalse(
+            recording.writes.any {
+                it.offset == 0L && it.byteCount.toLong() >= fileSize
+            },
+        )
         store.close()
     }
 
     @Test
-    fun unresolvedExternalWritesAreRejectedBeforeCreatingARegionFile() = runTest {
+    fun unresolvedExternalRegionReplacementIsRejectedBeforeCreatingARegionFile() = runTest {
         val fileSystem = FakeFileSystem()
         val directory = "/world/region".toPath()
         val position = ChunkPosition(0, 0)
         val store = store(fileSystem, directory)
-        assertFailsWith<RegionFormatException> {
-            store.writeChunk(
-                position,
-                RegionChunk(
-                    compression = Compression.NONE,
-                    payload = RegionChunkPayload.External(),
-                ),
-            )
-        }
-        assertFailsWith<RegionFormatException> {
-            store.writeRegion(
+        assertFailsWith<AnvilFormatException> {
+            store.replaceRegion(
                 position.region,
-                RegionFile(
+                AnvilRegion(
                     mapOf(
-                        position.local to RegionChunk(
+                        position.local to AnvilChunkRecord(
                             compression = Compression.NONE,
-                            payload = RegionChunkPayload.External(),
+                            content = null,
+                            placement = AnvilChunkPlacement.EXTERNAL,
                         ),
                     ),
                 ),
@@ -549,28 +546,30 @@ class WorldRegionStoreTest {
     }
 
     @Test
-    fun externalReadsRejectMissingSidecarsWithoutImposingASizePolicy() = runTest {
+    fun regionIndexRetainsChunksWhoseExternalPayloadIsMissing() = runTest {
         val fileSystem = FakeFileSystem()
         val directory = "/world/region".toPath()
         val position = ChunkPosition(0, 0)
         val sidecar = directory / "c.0.0.mcc"
         val payload = externalPayload(5)
         store(fileSystem, directory).also {
-            it.writeChunk(position, chunk(payload))
+            it.writeCompressedChunk(position, chunk(payload))
             it.close()
         }
         fileSystem.delete(sidecar)
 
         val missing = store(fileSystem, directory)
-        assertFailsWith<WorldIOException> {
-            missing.readChunk(position)
-        }
+        assertNull(missing.readCompressedChunk(position))
+        assertTrue(missing.hasChunk(position))
+        assertEquals(1, missing.readChunkCount(position.region))
+        assertEquals(listOf(position.local), missing.readLocalChunkPositions(position.region))
+        assertTrue(missing.readChunkInfos(position.region).isEmpty())
         missing.close()
 
         fileSystem.writeBytes(sidecar, payload)
         val reopened = store(fileSystem, directory)
-        assertTrue(reopened.doesChunkExist(position))
-        assertContentEquals(payload, checkNotNull(reopened.readChunk(position)).payload.compressedBytes)
+        assertTrue(reopened.hasChunk(position))
+        assertContentEquals(payload, checkNotNull(reopened.readCompressedChunk(position)).toByteArray())
         reopened.close()
     }
 
@@ -578,37 +577,37 @@ class WorldRegionStoreTest {
     fun storesDoNotRetainIdleRegionHandlesAndCloseRejectsNewOperations() = runTest {
         val fileSystem = FakeFileSystem()
         val directory = "/world/region".toPath()
-        val store = WorldRegionStore(
+        val store = RegionStorage(
             directory = directory,
             fileSystem = fileSystem,
-            configuration = WorldRegionStoreConfiguration(syncWrites = false),
+            configuration = RegionStorageConfiguration(syncWrites = false),
         )
 
-        store.readRegion(RegionPosition(0, 0))
+        store.readAnvilRegion(RegionPosition(0, 0))
         assertEquals(0, fileSystem.openPaths.size)
-        store.readRegion(RegionPosition(1, 0))
+        store.readAnvilRegion(RegionPosition(1, 0))
         assertFalse(fileSystem.exists(directory / "r.0.0.mca"))
         assertFalse(fileSystem.exists(directory / "r.1.0.mca"))
         assertEquals(0, fileSystem.openPaths.size)
         store.close()
         fileSystem.checkNoOpenFiles()
         assertFailsWith<IllegalStateException> {
-            store.readChunk(ChunkPosition(0, 0))
+            store.readCompressedChunk(ChunkPosition(0, 0))
         }
     }
 
     private fun store(
         fileSystem: FileSystem,
         directory: Path,
-    ): WorldRegionStore = WorldRegionStore(
+    ): RegionStorage = RegionStorage(
         directory = directory,
         fileSystem = fileSystem,
-        configuration = WorldRegionStoreConfiguration(syncWrites = false),
+        configuration = RegionStorageConfiguration(syncWrites = false),
     )
 
-    private fun chunk(bytes: ByteArray): RegionChunk = RegionChunk(
+    private fun chunk(bytes: ByteArray): CompressedChunk = CompressedChunk(
         compression = Compression.NONE,
-        payload = RegionChunkPayload.Inline(bytes),
+        compressedBytes = bytes,
     )
 }
 

@@ -15,7 +15,7 @@ class DeflateJavaCompatibilityTest {
     @Test
     fun portableZlibAndGzipEncodersAreReadableByJava() = runTest {
         samples().forEachIndexed { index, input ->
-            val zlib = CompressionCodecs.compress(
+            val zlib = CompressionRegistry.compress(
                 Compression.ZLIB,
                 input,
             )
@@ -26,7 +26,7 @@ class DeflateJavaCompatibilityTest {
                 "zlib sample=$index",
             )
 
-            val gzip = CompressionCodecs.compress(
+            val gzip = CompressionRegistry.compress(
                 Compression.GZIP,
                 input,
             )
@@ -47,7 +47,7 @@ class DeflateJavaCompatibilityTest {
             }.toByteArray()
             assertContentEquals(
                 input,
-                CompressionCodecs.decompress(
+                CompressionRegistry.decompress(
                     Compression.ZLIB,
                     zlib,
                 ),
@@ -59,7 +59,7 @@ class DeflateJavaCompatibilityTest {
             }.toByteArray()
             assertContentEquals(
                 input,
-                CompressionCodecs.decompress(
+                CompressionRegistry.decompress(
                     Compression.GZIP,
                     gzip,
                 ),

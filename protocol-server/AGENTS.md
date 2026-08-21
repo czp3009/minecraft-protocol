@@ -4,6 +4,11 @@ This module owns server-side socket acceptance and protocol orchestration. It ne
 offline and caller-configured online authentication, synchronizes `ProtocolDataSet`, enters Play, and returns control to
 the application. Initial-world APIs project finite chunks and entity snapshots; gameplay remains outside the module.
 
+The module may depend on filesystem-independent `world-format` to project strong semantic Chunks into initial-world
+snapshots and clientbound Chunk packets. It never depends on `world-io` or opens world files; applications compose that
+module when their initial view comes from disk. Palette packing and light projection stay stateless, use the installed
+registry context, and require caller-owned block semantics that registry IDs cannot express.
+
 ## Application boundary
 
 Per-connection state belongs to `MinecraftServerConnection` and the negotiation extension. Application concurrency,

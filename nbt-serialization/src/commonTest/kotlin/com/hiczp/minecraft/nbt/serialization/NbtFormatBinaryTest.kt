@@ -212,6 +212,17 @@ class NbtFormatBinaryTest {
     }
 
     @Test
+    fun documentFluentAdaptersWriteAndDecodeWithoutChangingOwnership() {
+        val nbtDocument = NbtDocument(NbtCompound(mapOf("number" to NbtInt(42))))
+        val nbtSink = Buffer()
+
+        nbtDocument.writeTo(nbtSink)
+
+        assertEquals(nbtDocument, NbtFormat.decodeDocumentFromSource(nbtSink))
+        assertEquals(KnownBinaryValue(42), nbtDocument.decodeNbt<KnownBinaryValue>())
+    }
+
+    @Test
     fun usesJavaModifiedUtfEncoding() {
         val encoded = NbtFormat.encodeAnyTagToByteArray(
             NbtString("\u0000Aé😀"),

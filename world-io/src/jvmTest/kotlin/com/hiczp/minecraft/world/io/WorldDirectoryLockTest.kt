@@ -22,14 +22,12 @@ class WorldDirectoryLockTest {
                 write(original)
             }
 
-            val access = MinecraftWorldAccess.open(root)
-            try {
+            MinecraftWorldAccess.open(root).use { minecraftWorldAccess ->
                 assertTrue(MinecraftWorldAccess.isLocked(root))
                 assertFailsWith<WorldLockException> {
                     MinecraftWorldAccess.open(root)
                 }
-            } finally {
-                access.close()
+                assertEquals(root, minecraftWorldAccess.paths.root)
             }
 
             assertFalse(MinecraftWorldAccess.isLocked(root))
@@ -66,6 +64,26 @@ class WorldDirectoryLockTest {
     }
 
     @Test
+    fun useReleasesTheWorldLeaseWhenItsBlockFails() = runTest {
+        val temporaryDirectory = Files.createTempDirectory(
+            "world-io-use-failure-",
+        )
+        val root = temporaryDirectory.toOkioPath()
+        try {
+            val failure = assertFailsWith<IllegalArgumentException> {
+                MinecraftWorldAccess.open(root).use {
+                    throw IllegalArgumentException("block failure")
+                }
+            }
+
+            assertEquals("block failure", failure.message)
+            assertFalse(MinecraftWorldAccess.isLocked(root))
+        } finally {
+            FileSystem.SYSTEM.deleteRecursively(root, mustExist = false)
+        }
+    }
+
+    @Test
     fun leaseInteroperatesWithAnOfficialStyleLockInAnotherProcess() = runTest {
         val temporaryDirectory = Files.createTempDirectory(
             "world-io-process-lock-",
@@ -95,8 +113,9 @@ class WorldDirectoryLockTest {
                 "Lock holder exited with ${process.exitValue()}"
             }
 
-            val access = MinecraftWorldAccess.open(root)
-            access.close()
+            MinecraftWorldAccess.open(root).use { minecraftWorldAccess ->
+                assertEquals(root, minecraftWorldAccess.paths.root)
+            }
             assertFalse(MinecraftWorldAccess.isLocked(root))
         } finally {
             if (process.isAlive) process.destroyForcibly().waitFor()

@@ -3,7 +3,7 @@ package com.hiczp.minecraft.protocol.server
 import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
-import kotlin.math.floor
+import com.hiczp.minecraft.world.format.MinecraftCoordinates
 import com.hiczp.minecraft.protocol.model.type.GameMode as PlayerGameMode
 
 /**
@@ -113,25 +113,18 @@ data class MinecraftInitialWorld(
                 dimension,
             )
             val registries = options.protocolData.registryContext
-            val centerX = floor(spawnPosition.x / CHUNK_SIZE).toInt()
-            val centerZ = floor(spawnPosition.z / CHUNK_SIZE).toInt()
-            val chunks = buildList {
-                for (chunkZ in centerZ - chunkRadius..centerZ + chunkRadius) {
-                    for (chunkX in centerX - chunkRadius..centerX + chunkRadius) {
-                        add(
-                            MinecraftChunkSnapshot.flat(
-                                registries = registries,
-                                dimension = dimensionType,
-                                chunkX = chunkX,
-                                chunkZ = chunkZ,
-                                groundY = groundY,
-                                surfaceBlock = surfaceBlock,
-                                biome = biome,
-                            ),
-                        )
-                    }
-                }
-            }
+            val center = MinecraftCoordinates.block(spawnPosition.x, spawnPosition.y, spawnPosition.z).chunk
+            val chunks = MinecraftCoordinates.chunkPositionsAround(center, chunkRadius).map { position ->
+                MinecraftChunkSnapshot.flat(
+                    registries = registries,
+                    dimension = dimensionType,
+                    chunkX = position.x,
+                    chunkZ = position.z,
+                    groundY = groundY,
+                    surfaceBlock = surfaceBlock,
+                    biome = biome,
+                )
+            }.toList()
             return MinecraftInitialWorld(
                 dimension = dimension,
                 dimensionType = dimensionType,
@@ -171,6 +164,11 @@ suspend fun MinecraftServerConnection.synchronizeInitialWorld(
         login = login,
         registries = registries,
     )
+    val centerChunk = MinecraftCoordinates.block(
+        world.spawnPosition.x,
+        world.spawnPosition.y,
+        world.spawnPosition.z,
+    ).chunk
 
     outgoing.send(
         ClientboundChangeDifficultyPacket(
@@ -217,8 +215,8 @@ suspend fun MinecraftServerConnection.synchronizeInitialWorld(
     )
     outgoing.send(
         SetCenterChunkPacket(
-            chunkX = floor(world.spawnPosition.x / CHUNK_SIZE).toInt(),
-            chunkZ = floor(world.spawnPosition.z / CHUNK_SIZE).toInt(),
+            chunkX = centerChunk.x,
+            chunkZ = centerChunk.z,
         ),
     )
     outgoing.send(ChunkBatchStartPacket)
@@ -237,9 +235,9 @@ suspend fun MinecraftServerConnection.synchronizeInitialWorld(
 
 private fun Vector3d.toBlockPosition(): BlockPosition =
     BlockPosition(
-        x = floor(x).toInt(),
-        y = floor(y).toInt(),
-        z = floor(z).toInt(),
+        x = MinecraftCoordinates.blockCoordinate(x),
+        y = MinecraftCoordinates.blockCoordinate(y),
+        z = MinecraftCoordinates.blockCoordinate(z),
     )
 
 private fun Vector3d.isFinite(): Boolean =
@@ -247,4 +245,3 @@ private fun Vector3d.isFinite(): Boolean =
 
 private const val DEFAULT_FLYING_SPEED: Float = 0.05f
 private const val DEFAULT_WALKING_SPEED: Float = 0.1f
-private const val CHUNK_SIZE: Double = 16.0

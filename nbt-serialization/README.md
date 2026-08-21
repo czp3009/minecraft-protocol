@@ -33,6 +33,14 @@ val worldDocument = NbtFormat.decodeDocumentFromSource(worldSource)
 val worldBytes = NbtFormat.encodeDocumentToByteArray(document)
 ```
 
+When a generic tree is already in hand, receiver extensions keep the next operations discoverable without moving the
+physical format into the logical `nbt` module:
+
+```kotlin
+document.writeTo(worldSink)
+val decodedDocumentValue = document.decodeNbt<MyValue>(unnamedNbt)
+```
+
 The format does not impose policy-sized byte, collection, array, or nesting limits. Stream methods process binary input
 and output incrementally; tree and byte-array methods necessarily retain the value they return. The unsigned-short
 length of Java modified UTF remains part of the NBT binary format itself.

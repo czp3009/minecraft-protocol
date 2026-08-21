@@ -5,7 +5,7 @@ package com.hiczp.minecraft.world.io
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.serialization.NbtSerializationException
 import com.hiczp.minecraft.world.format.Compression
-import com.hiczp.minecraft.world.format.RegionFormatException
+import com.hiczp.minecraft.world.format.CompressionFormatException
 import kotlinx.io.buffered
 import kotlinx.io.okio.asKotlinxIoRawSink
 import kotlinx.io.okio.asKotlinxIoRawSource
@@ -364,7 +364,7 @@ class Utf8JsonFileStore internal constructor(internal val files: WorldFileAccess
 private fun Throwable.isRecoverableNbtReadFailure(): Boolean {
     return this is IOException ||
             this is NbtSerializationException ||
-            this is RegionFormatException
+            this is CompressionFormatException
 }
 
 internal sealed interface CoordinatedRead<out T> {

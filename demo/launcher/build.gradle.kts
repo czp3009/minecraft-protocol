@@ -2,7 +2,6 @@ import com.hiczp.minecraft.buildlogic.BuildVersions
 import com.hiczp.minecraft.buildlogic.JvmProcessArguments
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
-import org.jetbrains.kotlin.gradle.plugin.mpp.NativeBuildType
 import org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeTest
 
 plugins {
@@ -33,7 +32,7 @@ kotlin {
     macosArm64()
 
     targets.withType<KotlinNativeTarget>().configureEach {
-        binaries.executable(listOf(NativeBuildType.RELEASE)) {
+        binaries.executable {
             entryPoint = "com.hiczp.minecraft.demo.launcher.main"
         }
     }

@@ -49,14 +49,24 @@ class ProtocolRegistryContextsTest {
 
         assertTrue(registries.all { packet -> packet.entries.all { it.data == null } })
         assertSame(VanillaProtocolData.registryContext, base)
+        val login = playLogin(dimensionTypeId)
+        val dimension = MinecraftDimensionLayout.from(
+            login = login,
+            registries = registries,
+            protocolData = VanillaProtocolData,
+        )
         val active = base.withPlayLoginDimension(
-            login = playLogin(dimensionTypeId),
+            login = login,
             registries = registries,
             protocolData = VanillaProtocolData,
         )
 
         assertEquals(
-            MinecraftDimensionLayout.from(VanillaProtocolData, OVERWORLD).sectionCount,
+            MinecraftDimensionLayout.from(VanillaProtocolData, OVERWORLD),
+            dimension,
+        )
+        assertEquals(
+            dimension.sectionCount,
             active.chunkSectionCount,
         )
         assertEquals(base.registries, active.registries)
@@ -154,16 +164,24 @@ class ProtocolRegistryContextsTest {
         val biomeRegistry = VanillaProtocolData.requireRegistry(BIOME_REGISTRY)
         val registries = listOf(dimensionRegistry, biomeRegistry)
         val base = VanillaProtocolData.resolveSynchronizedRegistryContext(registries)
-
+        val login = playLogin(
+            dimensionTypeId = 0,
+            dimension = customLevel,
+        )
+        val dimension = MinecraftDimensionLayout.from(
+            login = login,
+            registries = registries,
+            protocolData = VanillaProtocolData,
+        )
         val active = base.withPlayLoginDimension(
-            login = playLogin(
-                dimensionTypeId = 0,
-                dimension = customLevel,
-            ),
+            login = login,
             registries = registries,
             protocolData = VanillaProtocolData,
         )
 
+        assertEquals(-64, dimension.minY)
+        assertEquals(512, dimension.height)
+        assertTrue(dimension.hasSkyLight)
         assertEquals(32, active.chunkSectionCount)
         assertEquals(base.registries, active.registries)
     }

@@ -3,6 +3,8 @@ package com.hiczp.minecraft.protocol.server
 import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
 import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.world.format.MinecraftCoordinates
+import com.hiczp.minecraft.world.format.SECTION_SIDE
 
 /**
  * A complete client-facing chunk column. It is a protocol projection, not an
@@ -60,9 +62,9 @@ data class MinecraftChunkSnapshot(
                 "${dimension.id} has no sky light"
             }
 
-            val groundOffset = groundY - dimension.minY
-            val groundSection = groundOffset / SECTION_SIZE
-            val localGroundY = groundOffset % SECTION_SIZE
+            val minimumSectionY = MinecraftCoordinates.sectionCoordinate(dimension.minY)
+            val groundSection = MinecraftCoordinates.sectionCoordinate(groundY) - minimumSectionY
+            val localGroundY = MinecraftCoordinates.blockCoordinateInSection(groundY)
             val sections = List(dimension.sectionCount) { sectionIndex ->
                 ChunkSection(
                     nonAirBlockCount =
@@ -226,9 +228,8 @@ data class MinecraftChunkSnapshot(
             return Int.SIZE_BITS - maximumValue.countLeadingZeroBits()
         }
 
-        private const val SECTION_SIZE: Int = 16
-        private const val SURFACE_BLOCK_COUNT: Int = SECTION_SIZE * SECTION_SIZE
-        private const val HEIGHTMAP_ENTRY_COUNT: Int = SECTION_SIZE * SECTION_SIZE
+        private const val SURFACE_BLOCK_COUNT: Int = SECTION_SIDE * SECTION_SIDE
+        private const val HEIGHTMAP_ENTRY_COUNT: Int = SECTION_SIDE * SECTION_SIDE
         private const val BLOCK_INDIRECT_BITS: Int = 4
         private const val LIGHT_BOUNDARY_SECTION_COUNT: Int = 2
         private const val FULL_LIGHT_BYTE: Byte = -1

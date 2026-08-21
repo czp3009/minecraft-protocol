@@ -48,6 +48,10 @@ class ProtocolModelInvariantTest {
             localZ = 15,
         )
         assertEquals(change, SectionBlockChange.fromPacked(change.packed()))
+        val blockEntityInfo = BlockEntityInfo.fromLocalCoordinates(15, -64, 3, 4, null)
+        assertEquals(15, blockEntityInfo.localX)
+        assertEquals(3, blockEntityInfo.localZ)
+        assertEquals((-64).toShort(), blockEntityInfo.y)
 
         assertFailsWith<IllegalArgumentException> {
             SectionPosition(SectionPosition.MAX_XZ + 1, 0, 0)
@@ -66,6 +70,9 @@ class ProtocolModelInvariantTest {
         }
         assertFailsWith<IllegalArgumentException> {
             SectionBlockChange(0, 0, 0, 16)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            BlockEntityInfo.fromLocalCoordinates(16, 0, 0, 0, null)
         }
     }
 

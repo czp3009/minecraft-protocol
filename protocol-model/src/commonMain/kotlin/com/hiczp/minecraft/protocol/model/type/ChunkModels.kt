@@ -33,6 +33,38 @@ data class BlockEntityInfo(
     init {
         require(typeId >= 0) { "A block-entity type ID must be non-negative" }
     }
+
+    /** Block-entity X inside its packet Chunk. */
+    val localX: Int
+        get() = packedXZ.toInt().ushr(LOCAL_COORDINATE_BITS) and LOCAL_COORDINATE_MASK
+
+    /** Block-entity Z inside its packet Chunk. */
+    val localZ: Int
+        get() = packedXZ.toInt() and LOCAL_COORDINATE_MASK
+
+    companion object {
+        /** Packs the logical local coordinates into the packet representation. */
+        fun fromLocalCoordinates(
+            localX: Int,
+            y: Int,
+            localZ: Int,
+            typeId: Int,
+            tag: NbtCompound?,
+        ): BlockEntityInfo {
+            require(localX in 0..LOCAL_COORDINATE_MASK) { "Local block-entity X must be in 0..15" }
+            require(y in Short.MIN_VALUE..Short.MAX_VALUE) { "Block-entity Y $y does not fit a Short" }
+            require(localZ in 0..LOCAL_COORDINATE_MASK) { "Local block-entity Z must be in 0..15" }
+            return BlockEntityInfo(
+                packedXZ = ((localX shl LOCAL_COORDINATE_BITS) or localZ).toByte(),
+                y = y.toShort(),
+                typeId = typeId,
+                tag = tag,
+            )
+        }
+
+        private const val LOCAL_COORDINATE_BITS: Int = 4
+        private const val LOCAL_COORDINATE_MASK: Int = 0x0F
+    }
 }
 
 @Serializable

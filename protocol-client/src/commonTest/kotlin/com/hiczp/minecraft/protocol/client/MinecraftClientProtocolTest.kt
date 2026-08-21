@@ -141,11 +141,15 @@ class MinecraftClientProtocolTest {
         assertEquals(loginSuccess, result.login)
         assertEquals(playLogin, result.playLogin)
         assertEquals(listOf(corePack), result.configuration.knownPacks?.knownPacks)
+        val expectedDimensionLayout = MinecraftDimensionLayout.from(
+            VanillaProtocolData,
+            Identifier("overworld"),
+        )
+        assertEquals(expectedDimensionLayout, result.dimensionLayout)
+        assertEquals(expectedDimensionLayout.minY, result.chunkLayout.minBlockY)
+        assertEquals(expectedDimensionLayout.sectionCount, result.chunkLayout.sectionCount)
         assertEquals(
-            MinecraftDimensionLayout.from(
-                VanillaProtocolData,
-                Identifier("overworld"),
-            ).sectionCount,
+            expectedDimensionLayout.sectionCount,
             client.registries.chunkSectionCount,
         )
         assertEquals(
@@ -234,6 +238,18 @@ class MinecraftClientProtocolTest {
         )
 
         assertEquals(playLogin, result.playLogin)
+        assertEquals(
+            MinecraftDimensionLayout(
+                id = Identifier("test:short_dimension"),
+                registryId = 0,
+                minY = 0,
+                height = 32,
+                hasSkyLight = false,
+            ),
+            result.dimensionLayout,
+        )
+        assertEquals(0, result.chunkLayout.minSectionY)
+        assertEquals(2, result.chunkLayout.sectionCount)
         assertEquals(
             2,
             client.registries.chunkSectionCount,

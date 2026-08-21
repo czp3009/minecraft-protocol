@@ -14,7 +14,7 @@ class Lz4JavaCompatibilityTest {
     fun kotlinEncoderIsReadableByVanillaLz4Java() = runTest {
         val input = ByteArray(200_000) { (it * 17).toByte() }
 
-        val encoded = CompressionCodecs.compress(
+        val encoded = CompressionRegistry.compress(
             Compression.LZ4,
             input,
         )
@@ -31,7 +31,7 @@ class Lz4JavaCompatibilityTest {
         val output = ByteArrayOutputStream()
         LZ4BlockOutputStream(output).use { it.write(input) }
 
-        val decoded = CompressionCodecs.decompress(
+        val decoded = CompressionRegistry.decompress(
             Compression.LZ4,
             output.toByteArray(),
         )

@@ -16,8 +16,8 @@ SelectorManager(Dispatchers.Default).use { selector ->
         host = "127.0.0.1",
     ).use { connection ->
         val status = connection.queryStatus()
-       val description = status.response.jsonResponse
-       val echoedPingPayload = status.pong.timestamp
+        val description = status.response.jsonResponse
+        val echoedPingPayload = status.pong.timestamp
     }
 }
 ```
@@ -30,9 +30,15 @@ Configuration, dynamic registry context, optional loader profiles, and Play entr
 packet loop:
 
 ```kotlin
-val result = connection.negotiate(MinecraftOfflineIdentity("Player"))
-for (packet in connection.incoming) {
-    handlePlayPacket(packet)
+suspend fun enterPlay(
+    minecraftClientConnection: MinecraftClientConnection,
+    handlePlayPacket: suspend (ClientboundPacket) -> Unit,
+): MinecraftClientNegotiationResult {
+    val minecraftClientNegotiationResult = minecraftClientConnection.negotiate(MinecraftOfflineIdentity("Player"))
+    for (packet in minecraftClientConnection.incoming) {
+        handlePlayPacket(packet)
+    }
+    return minecraftClientNegotiationResult
 }
 ```
 
@@ -46,6 +52,116 @@ The same ownership precondition applies when an application implements negotiati
 Handshake/Login/Configuration sequence and its channel reads and writes in one coroutine; the library assumes this and
 does not detect or repair races created by application code. After negotiation hands the Play connection back, the
 application may establish whatever packet-loop ownership model it needs.
+
+## Use the received registries to read world Chunks
+
+After `negotiate` reaches Play, `connection.registries` contains the block-state and biome mappings selected during
+Configuration, including loader remapping. Convert that installed context directly into the `ChunkDataRegistries`
+required by `world-format`'s strong NBT codec:
+
+`ChunkLayout` deliberately has no repository-version default. Chunk height is a property of the active dimension type,
+and a server can synchronize vanilla, datapack, or modded dimensions with different `min_y` and `height` values. During
+Configuration the server sends its dimension-type registry; Play Login then selects one entry by raw ID. `negotiate`
+resolves that exact entry and exposes both forms on its result:
+
+- `minecraftClientNegotiationResult.dimensionLayout` retains the resolved `MinecraftDimensionLayout`, including sky
+  light information.
+- `minecraftClientNegotiationResult.chunkLayout` is the corresponding `world-format` `ChunkLayout`.
+
+When the synchronized entry contains NBT, those server values are authoritative. When Known Packs allows the server to
+omit known entry NBT, resolution uses the same `MinecraftClientNegotiationOptions.protocolData` supplied to that
+negotiation. It does not silently substitute an Overworld layout or another global default.
+
+```kotlin
+fun createClientChunkNbtCodec(
+    minecraftClientConnection: MinecraftClientConnection,
+    minecraftClientNegotiationResult: MinecraftClientNegotiationResult,
+    expectedDataVersion: Int,
+): ChunkNbtCodec<ProtocolBlockState, ProtocolRegistryEntry> {
+    val chunkDataRegistries = minecraftClientConnection.chunkDataRegistries()
+    val chunkNbtContext = ChunkNbtContext(
+        layout = minecraftClientNegotiationResult.chunkLayout,
+        registries = chunkDataRegistries,
+        expectedDataVersion = expectedDataVersion,
+    )
+    return ChunkNbtCodec(chunkNbtContext)
+}
+```
+
+The returned block values are `ProtocolBlockState` instances with their active global IDs; biome values are
+`ProtocolRegistryEntry` instances with their active raw IDs. Their persistent names and properties still round-trip
+through `ChunkNbtCodec`. Custom default air/biome identifiers can be passed to `chunkDataRegistries` when a negotiated
+profile does not use the vanilla defaults.
+
+## Decode initial-world Chunk packets
+
+The Chunk portion sent by `MinecraftServerConnection.synchronizeInitialWorld` arrives as
+`ChunkDataAndUpdateLightPacket`. Build one decoder for the active dimension, then call `packet.toChunk(...)`. The packet
+continues to own its absolute x/z metadata through `chunkPosition`; the decoded semantic `Chunk` remains positionless:
+
+```kotlin
+fun createChunkPacketDecoder(
+    minecraftClientConnection: MinecraftClientConnection,
+    minecraftClientNegotiationResult: MinecraftClientNegotiationResult,
+    expectedDataVersion: Int,
+): MinecraftChunkPacketDecoder {
+    val chunkMetadata = ChunkMetadata(
+        dataVersion = expectedDataVersion,
+        status = "full",
+    )
+    return MinecraftChunkPacketDecoder(
+        registries = minecraftClientConnection.registries,
+        layout = minecraftClientNegotiationResult.chunkLayout,
+        metadata = chunkMetadata,
+    )
+}
+```
+
+`ChunkDataAndUpdateLightPacket` does not carry persistence-only fields such as data version, generation status,
+inhabited time, or ticks, which is why the caller supplies a metadata template. Packet heightmaps, block entities, and
+light replace the corresponding fields in that template. Palette IDs are resolved directly into logical block/biome
+values; `chunk.block(...)` has already applied the palette and never returns a raw palette index.
+
+The layout stored in `MinecraftClientNegotiationResult` describes the initial Play dimension selected by that result's
+`playLogin`. An application that later changes dimensions creates a decoder for the newly selected dimension instead of
+reusing the old decoder.
+
+The following loop extracts every Chunk in one initial batch and sends the two acknowledgements required by the same
+server synchronization sequence. The callback is an explicit parameter, so no application variable is assumed:
+
+```kotlin
+suspend fun receiveInitialWorldChunks(
+    minecraftClientConnection: MinecraftClientConnection,
+    minecraftChunkPacketDecoder: MinecraftChunkPacketDecoder,
+    consumeChunk: suspend (ChunkPosition, Chunk<ProtocolBlockState, ProtocolRegistryEntry>) -> Unit,
+) {
+    var batchFinished = false
+    while (!batchFinished) {
+        when (val clientboundPacket = minecraftClientConnection.incoming.receive()) {
+            is SynchronizePlayerPositionPacket -> minecraftClientConnection.outgoing.send(
+                ConfirmTeleportationPacket(clientboundPacket.teleportId),
+            )
+
+            is ChunkDataAndUpdateLightPacket -> {
+                val chunkPosition = clientboundPacket.chunkPosition
+                val chunk = clientboundPacket.toChunk(minecraftChunkPacketDecoder)
+                consumeChunk(chunkPosition, chunk)
+            }
+
+            is ChunkBatchFinishedPacket -> {
+                minecraftClientConnection.outgoing.send(ChunkBatchReceivedPacket(desiredChunksPerTick = 10.0f))
+                batchFinished = true
+            }
+
+            else -> Unit
+        }
+    }
+}
+```
+
+The packet decoder validates section count, palette width and IDs, light masks, block-entity registry IDs, and absolute
+block-entity coordinates. Network update tags are reassembled with their separate type and position metadata. This is a
+network projection: it cannot recreate persistence fields that the server never sent.
 
 ## Writing your own negotiation
 

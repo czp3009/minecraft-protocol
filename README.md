@@ -22,10 +22,10 @@ persistence policy, permissions, and operations remain application responsibilit
 | [`protocol-session`](protocol-session/README.md)             | Typed connections, state transitions, and loader profiles                         |
 | [`account-auth`](account-auth/README.md)                     | Microsoft OAuth, Xbox, and Minecraft Services token/entitlement/profile HTTP APIs |
 | [`protocol-auth`](protocol-auth/README.md)                   | Game identities, Session Server HTTP, and Login key exchange                      |
-| [`protocol-client`](protocol-client/README.md)               | Status, Login, Configuration, and a Play-ready client connection                  |
-| [`protocol-server`](protocol-server/README.md)               | Connection admission and finite initial chunk/entity projection                   |
-| [`world-format`](world-format/README.md)                     | Anvil formats and selected-release structured world-file models                   |
-| [`world-io`](world-io/README.md)                             | Layered Region/Chunk, standalone NBT/JSON, live, and filesystem-backed world I/O  |
+| [`protocol-client`](protocol-client/README.md)               | Play-ready clients plus received registry and semantic Chunk projection           |
+| [`protocol-server`](protocol-server/README.md)               | Connection admission and semantic finite initial Chunk/entity projection          |
+| [`world-format`](world-format/README.md)                     | Semantic Chunk/palette/coordinate models, Anvil, and structured world formats     |
+| [`world-io`](world-io/README.md)                             | Logical Region/Chunk, standalone NBT/JSON, live, and filesystem-backed world I/O  |
 
 The project is fully modular: depend on exactly the modules you need. Higher layers reuse the lower layers their APIs
 require, so a focused consumer never pulls in unrelated capabilities.
@@ -50,8 +50,10 @@ require, so a focused consumer never pulls in unrelated capabilities.
 
 Usage examples are documented at each owning layer: binary NBT and SNBT in
 [`nbt-serialization`](nbt-serialization/README.md), compression and Anvil containers in
-[`world-format`](world-format/README.md), and filesystem-backed JSON, NBT, MCA, and MCC access in
-[`world-io`](world-io/README.md#one-api-shape). Every published module in the table above documents its
+[`world-format`](world-format/README.md), including its canonical coordinate API, and logical filesystem-backed Region,
+Chunk, JSON, and NBT access in
+[`world-io`](world-io/README.md#read-a-block-through-the-mutable-path). Every published module in the table above
+documents its
 own key entry points rather than requiring consumers to infer them from a higher layer.
 
 Together these blocks cover applications such as:

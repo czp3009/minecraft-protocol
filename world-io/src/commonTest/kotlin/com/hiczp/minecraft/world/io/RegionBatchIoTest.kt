@@ -16,8 +16,8 @@ class RegionBatchIoTest {
     fun completeAndStreamingRegionWritesShareOneBatchPrimitive() {
         val base = FakeFileSystem()
         val path = "/world/region/r.0.0.mca".toPath()
-        val fileSystem = CountingRegionFileSystem(base, path)
-        val store = RegionFileStore.open(path, fileSystem, syncWrites = false)
+        val fileSystem = CountingMutableRegionFileSystem(base, path)
+        val store = MutableRegionFile.open(path, fileSystem, syncWrites = false)
         val firstPosition = LocalChunkPosition(0, 0)
         val externalPosition = LocalChunkPosition(1, 0)
         val replacementPosition = LocalChunkPosition(2, 0)
@@ -29,49 +29,40 @@ class RegionBatchIoTest {
         val external = ByteArray(firstExternalChunkLength().toInt()) { index -> index.toByte() }
         val replacement = byteArrayOf(7, 8, 9, 10)
         var escapedRead: RegionReadScope? = null
-        var escapedWrite: RegionWriteScope? = null
+        var escapedWrite: RegionReplacementScope? = null
 
         try {
-            store.writeRegion(
-                RegionFile(
-                    linkedMapOf(
-                        firstPosition to RegionChunk(
-                            Compression.NONE,
-                            RegionChunkPayload.External(first),
-                            timestamp = 123,
-                        ),
-                        externalPosition to RegionChunk(
-                            Compression.ZLIB,
-                            RegionChunkPayload.Inline(external),
-                            timestamp = 456,
-                        ),
-                    ),
+            store.replaceRegion(
+                listOf(
+                    RegionChunkInput(firstPosition, CompressedChunk(Compression.NONE, first)),
+                    RegionChunkInput(externalPosition, CompressedChunk(Compression.ZLIB, external)),
                 ),
             )
 
             assertEquals(1, fileSystem.headerWrites)
-            assertFalse(checkNotNull(store.readChunk(firstPosition)).payload.isExternal)
-            assertTrue(checkNotNull(store.readChunk(externalPosition)).payload.isExternal)
-            assertContentEquals(first, store.readChunk(firstAbsolute)?.payload?.compressedBytes)
-            assertContentEquals(external, store.readChunk(externalPosition)?.payload?.compressedBytes)
-            assertFailsWith<IllegalArgumentException> { store.readChunk(ChunkPosition(32, 0)) }
+            assertEquals(AnvilChunkPlacement.INLINE, store.readChunkInfo(firstPosition)?.placement)
+            assertEquals(AnvilChunkPlacement.EXTERNAL, store.readChunkInfo(externalPosition)?.placement)
+            assertContentEquals(first, store.readCompressedChunk(firstAbsolute).bytesOrNull())
+            assertContentEquals(external, store.readCompressedChunk(externalPosition).bytesOrNull())
+            assertFailsWith<IllegalArgumentException> { store.readCompressedChunk(ChunkPosition(32, 0)) }
 
-            store.readRegion {
+            store.withReadScope {
                 escapedRead = this
-                assertEquals(listOf(firstPosition, externalPosition), chunkPositions)
-                assertContentEquals(first, readChunk(firstAbsolute)?.payload?.compressedBytes)
-                readChunk(externalAbsolute) { info, source ->
-                    assertTrue(info.external)
-                    assertEquals(external.size.toLong(), info.compressedLength)
+                assertEquals(listOf(firstPosition, externalPosition), localChunkPositions.toList())
+                assertEquals(listOf(firstAbsolute, externalAbsolute), chunkPositions.toList())
+                assertContentEquals(first, readCompressedChunk(firstAbsolute).bytesOrNull())
+                withCompressedChunkSource(externalAbsolute) { info, source ->
+                    assertEquals(AnvilChunkPlacement.EXTERNAL, info.placement)
+                    assertEquals(external.size.toLong(), info.compressedByteCount)
                     assertContentEquals(external, source.readByteArray())
                 }
             }
-            assertFailsWith<IllegalStateException> { checkNotNull(escapedRead).chunkPositions }
+            assertFailsWith<IllegalStateException> { checkNotNull(escapedRead).localChunkPositions }
 
             fileSystem.headerWrites = 0
-            store.writeRegion {
+            store.replaceRegion {
                 escapedWrite = this
-                writeChunk(
+                writeCompressedChunk(
                     replacementAbsolute,
                     Compression.GZIP,
                     replacement.size.toLong(),
@@ -79,15 +70,15 @@ class RegionBatchIoTest {
             }
 
             assertEquals(1, fileSystem.headerWrites)
-            assertEquals(setOf(replacementPosition), store.readRegion().chunks.keys)
-            assertContentEquals(replacement, store.readChunk(replacementPosition)?.payload?.compressedBytes)
+            assertEquals(setOf(replacementPosition), store.readAnvilRegion().chunks.keys)
+            assertContentEquals(replacement, store.readCompressedChunk(replacementPosition).bytesOrNull())
             assertFalse(base.exists(path.parent!! / "c.1.0.mcc"))
             assertFailsWith<IllegalStateException> {
-                checkNotNull(escapedWrite).writeChunk(firstPosition, inlineChunk(1))
+                checkNotNull(escapedWrite).writeCompressedChunk(firstPosition, inlineChunk(1))
             }
 
-            store.clearRegion()
-            assertTrue(store.readRegion().chunks.isEmpty())
+            store.clear()
+            assertTrue(store.readAnvilRegion().chunks.isEmpty())
             assertTrue(base.exists(path))
         } finally {
             store.close()
@@ -99,25 +90,25 @@ class RegionBatchIoTest {
     fun failedStreamingBatchLeavesThePreviousRegionAndCleansStaging() {
         val base = FakeFileSystem()
         val path = "/world/region/r.0.0.mca".toPath()
-        val fileSystem = CountingRegionFileSystem(base, path)
-        val store = RegionFileStore.open(path, fileSystem, syncWrites = false)
+        val fileSystem = CountingMutableRegionFileSystem(base, path)
+        val store = MutableRegionFile.open(path, fileSystem, syncWrites = false)
         val retainedPosition = LocalChunkPosition(0, 0)
         val failedPosition = LocalChunkPosition(1, 0)
         val retained = byteArrayOf(1, 2, 3)
-        store.writeChunk(retainedPosition, RegionChunk(Compression.NONE, RegionChunkPayload.Inline(retained)))
+        store.writeCompressedChunk(retainedPosition, CompressedChunk(Compression.NONE, retained))
         val committedHeaderWrites = fileSystem.headerWrites
 
         try {
             assertFailsWith<WorldIOException> {
-                store.writeRegion {
-                    writeChunk(retainedPosition, inlineChunk(9))
-                    writeChunk(failedPosition, Compression.NONE, firstExternalChunkLength()) {}
+                store.replaceRegion {
+                    writeCompressedChunk(retainedPosition, inlineChunk(9))
+                    writeCompressedChunk(failedPosition, Compression.NONE, firstExternalChunkLength()) {}
                 }
             }
 
             assertEquals(committedHeaderWrites, fileSystem.headerWrites)
-            assertContentEquals(retained, store.readChunk(retainedPosition)?.payload?.compressedBytes)
-            assertNull(store.readChunk(failedPosition))
+            assertContentEquals(retained, store.readCompressedChunk(retainedPosition).bytesOrNull())
+            assertNull(store.readCompressedChunk(failedPosition))
             assertTrue(base.list(path.parent!!).none { it.name.startsWith(".mcc-") })
         } finally {
             store.close()
@@ -132,38 +123,38 @@ class RegionBatchIoTest {
         val position = RegionPosition(-1, 2)
         val first = LocalChunkPosition(0, 0)
         val second = LocalChunkPosition(31, 31)
-        val store = WorldRegionStore(
+        val store = RegionStorage(
             directory = directory,
             fileSystem = fileSystem,
-            configuration = WorldRegionStoreConfiguration(syncWrites = false),
+            configuration = RegionStorageConfiguration(syncWrites = false),
         )
 
         try {
-            store.writeRegion(
+            store.replaceRegion(
                 position,
-                RegionFile(
-                    linkedMapOf(
-                        first to inlineChunk(1),
-                        second to inlineChunk(2),
-                    ),
+                listOf(
+                    RegionChunkInput(first, inlineChunk(1)),
+                    RegionChunkInput(second, inlineChunk(2)),
                 ),
             )
-            assertEquals(setOf(first, second), store.readRegion(position)?.chunks?.keys)
-            assertContentEquals(byteArrayOf(1), store.readChunk(position, first)?.payload?.compressedBytes)
+            assertEquals(setOf(first, second), store.readAnvilRegion(position)?.chunks?.keys)
+            assertContentEquals(byteArrayOf(1), store.readCompressedChunk(position, first).bytesOrNull())
 
-            val streamed = store.readRegion(position) {
-                chunkPositions.associateWith { local ->
-                    readChunk(position.chunk(local)) { _, source -> source.readByteArray() }
+            val streamed = store.withReadScope(position) {
+                localChunkPositions.associateWith { local ->
+                    withCompressedChunkSource(position.chunk(local)) { _, source -> source.readByteArray() }
                 }
             }
-            assertContentEquals(byteArrayOf(1), streamed?.get(first))
-            assertContentEquals(byteArrayOf(2), streamed?.get(second))
+            assertContentEquals(byteArrayOf(1), streamed[first])
+            assertContentEquals(byteArrayOf(2), streamed[second])
 
-            store.writeRegion(position) {
-                writeChunk(position.chunk(second), Compression.NONE, 1L) { sink -> sink.write(byteArrayOf(3)) }
+            store.replaceRegion(position) {
+                writeCompressedChunk(position.chunk(second), Compression.NONE, 1L) { sink ->
+                    sink.write(byteArrayOf(3))
+                }
             }
-            assertNull(store.readChunk(position.chunk(first)))
-            assertContentEquals(byteArrayOf(3), store.readChunk(position.chunk(second))?.payload?.compressedBytes)
+            assertNull(store.readCompressedChunk(position.chunk(first)))
+            assertContentEquals(byteArrayOf(3), store.readCompressedChunk(position.chunk(second)).bytesOrNull())
         } finally {
             store.close()
         }
@@ -176,23 +167,28 @@ class RegionBatchIoTest {
         val directory = "/world/region".toPath()
         val regionPosition = RegionPosition(0, 0)
         val path = directory / "r.0.0.mca"
-        val fileSystem = CountingRegionFileSystem(base, path)
-        val store = WorldRegionStore(
+        val fileSystem = CountingMutableRegionFileSystem(base, path)
+        val store = RegionStorage(
             directory = directory,
             fileSystem = fileSystem,
-            configuration = WorldRegionStoreConfiguration(syncWrites = false),
+            configuration = RegionStorageConfiguration(syncWrites = false),
         )
         val first = LocalChunkPosition(0, 0)
         val second = LocalChunkPosition(1, 0)
 
-        store.withRegion(regionPosition) {
-            assertEquals(regionPosition, position)
+        store.openRegion(regionPosition).use { regionHandle ->
+            assertEquals(regionPosition, regionHandle.position)
             assertEquals(1, store.activeRegionUsers(regionPosition))
-            writeChunk(first, inlineChunk(1))
-            writeChunk(regionPosition.chunk(second), inlineChunk(2))
-            assertContentEquals(byteArrayOf(1), readChunk(regionPosition.chunk(first))?.payload?.compressedBytes)
-            assertContentEquals(byteArrayOf(2), readChunk(second)?.payload?.compressedBytes)
-            assertFailsWith<IllegalArgumentException> { readChunk(ChunkPosition(32, 0)) }
+            regionHandle.writeCompressedChunk(first, inlineChunk(1))
+            regionHandle.writeCompressedChunk(regionPosition.chunk(second), inlineChunk(2))
+            assertContentEquals(
+                byteArrayOf(1),
+                regionHandle.readCompressedChunk(regionPosition.chunk(first)).bytesOrNull(),
+            )
+            assertContentEquals(byteArrayOf(2), regionHandle.readCompressedChunk(second).bytesOrNull())
+            assertFailsWith<IllegalArgumentException> {
+                regionHandle.readCompressedChunk(ChunkPosition(32, 0))
+            }
             assertEquals(1, fileSystem.mutableOpens)
             assertEquals(0, fileSystem.closes)
         }
@@ -201,25 +197,25 @@ class RegionBatchIoTest {
         assertEquals(1, fileSystem.closes)
         assertEquals(0, store.activeRegionCount())
 
-        store.readChunk(regionPosition, first)
-        store.readChunk(regionPosition.chunk(second))
+        store.readCompressedChunk(regionPosition, first)
+        store.readCompressedChunk(regionPosition.chunk(second))
         assertEquals(3, fileSystem.mutableOpens)
         assertEquals(3, fileSystem.closes)
 
         val unopened = store.openRegion(RegionPosition(1, 0))
-        assertFalse(unopened.doesRegionExist())
-        assertNull(unopened.readRegion())
+        assertFalse(unopened.hasRegion())
+        assertTrue(unopened.readChunkInfos().isEmpty())
         unopened.close()
         unopened.close()
         assertEquals(3, fileSystem.mutableOpens)
-        assertFailsWith<IllegalStateException> { unopened.readRegion() }
+        assertFailsWith<IllegalStateException> { unopened.readChunkInfos() }
 
         store.close()
         base.checkNoOpenFiles()
     }
 }
 
-internal class CountingRegionFileSystem(
+internal class CountingMutableRegionFileSystem(
     delegate: FileSystem,
     private val target: Path,
 ) : ForwardingFileSystem(delegate) {
@@ -284,7 +280,7 @@ private fun firstExternalChunkLength(): Long =
     (REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD - 1L) * REGION_SECTOR_BYTES -
             REGION_CHUNK_RECORD_HEADER_BYTES + 1L
 
-private fun inlineChunk(value: Int): RegionChunk = RegionChunk(
+private fun inlineChunk(value: Int): CompressedChunk = CompressedChunk(
     compression = Compression.NONE,
-    payload = RegionChunkPayload.Inline(byteArrayOf(value.toByte())),
+    compressedBytes = byteArrayOf(value.toByte()),
 )

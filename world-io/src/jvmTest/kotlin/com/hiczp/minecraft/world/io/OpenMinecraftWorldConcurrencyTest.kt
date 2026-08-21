@@ -404,7 +404,7 @@ class OpenMinecraftWorldConcurrencyTest {
         val jobs = mutableListOf<Deferred<*>>()
         try {
             val reader = async(Dispatchers.Default) {
-                world.readChunk(
+                world.readCompressedChunk(
                     ChunkPosition(0, 0),
                     RegionStorageDirectory.CHUNKS,
                     DimensionDirectory.Overworld,
@@ -413,7 +413,7 @@ class OpenMinecraftWorldConcurrencyTest {
             jobs += reader
             readGate.awaitEntered()
             val sameFileWriter = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-                world.writeChunk(
+                world.writeCompressedChunk(
                     ChunkPosition(1, 0),
                     concurrencyChunk(1),
                     RegionStorageDirectory.CHUNKS,
@@ -422,7 +422,7 @@ class OpenMinecraftWorldConcurrencyTest {
             }
             jobs += sameFileWriter
             val otherFileWriter = async(Dispatchers.Default) {
-                world.writeChunk(
+                world.writeCompressedChunk(
                     ChunkPosition(32, 0),
                     concurrencyChunk(2),
                     RegionStorageDirectory.CHUNKS,
@@ -433,12 +433,12 @@ class OpenMinecraftWorldConcurrencyTest {
             otherFileWriter.await()
             assertFalse(sameFileWriter.isCompleted)
             assertTrue(lock.isValid)
-            assertEquals(1, world.activeRegionStoreCount())
+            assertEquals(1, world.activeRegionStorageCount())
 
             readGate.open()
             reader.await()
             sameFileWriter.await()
-            assertEquals(0, world.activeRegionStoreCount())
+            assertEquals(0, world.activeRegionStorageCount())
             assertTrue(lock.isValid)
             base.checkNoOpenFiles()
         } finally {
@@ -466,8 +466,8 @@ class OpenMinecraftWorldConcurrencyTest {
         )
         val jobs = mutableListOf<Deferred<*>>()
         try {
-            region.writeChunk(LocalChunkPosition(0, 0), concurrencyChunk(1))
-            assertEquals(1, world.activeRegionStoreUsers())
+            region.writeCompressedChunk(LocalChunkPosition(0, 0), concurrencyChunk(1))
+            assertEquals(1, world.activeRegionStorageUsers())
 
             val closing = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) { world.close() }
             jobs += closing
@@ -475,7 +475,7 @@ class OpenMinecraftWorldConcurrencyTest {
             assertTrue(lock.isValid)
             assertEquals(0, lock.closeAttempts.get())
             assertFailsWith<IllegalStateException> {
-                world.readChunk(
+                world.readCompressedChunk(
                     ChunkPosition(0, 0),
                     RegionStorageDirectory.CHUNKS,
                     DimensionDirectory.Overworld,
@@ -486,7 +486,7 @@ class OpenMinecraftWorldConcurrencyTest {
             closing.await()
             assertFalse(lock.isValid)
             assertEquals(1, lock.closeAttempts.get())
-            assertEquals(0, world.activeRegionStoreCount())
+            assertEquals(0, world.activeRegionStorageCount())
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
@@ -570,7 +570,7 @@ class OpenMinecraftWorldConcurrencyTest {
         try {
             val returned = CompletableDeferred<Unit>()
             val writing = async(Dispatchers.Default) {
-                world.writeChunk(
+                world.writeCompressedChunk(
                     position,
                     concurrencyChunk(5),
                     RegionStorageDirectory.CHUNKS,
@@ -583,7 +583,7 @@ class OpenMinecraftWorldConcurrencyTest {
 
             val readerReturned = CompletableDeferred<Unit>()
             val reading = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-                world.readChunk(
+                world.readCompressedChunk(
                     position,
                     RegionStorageDirectory.CHUNKS,
                     DimensionDirectory.Overworld,
@@ -591,8 +591,8 @@ class OpenMinecraftWorldConcurrencyTest {
             }
             jobs += reading
             assertFalse(readerReturned.isCompleted)
-            assertEquals(1, world.activeRegionStoreCount())
-            assertEquals(2, world.activeRegionStoreUsers())
+            assertEquals(1, world.activeRegionStorageCount())
+            assertEquals(2, world.activeRegionStorageUsers())
 
             val cancellation = CancellationException("cancelled during nested region write")
             writing.cancel(cancellation)
@@ -603,18 +603,18 @@ class OpenMinecraftWorldConcurrencyTest {
             assertFalse(returned.isCompleted)
             assertContentEquals(
                 byteArrayOf(5),
-                reading.await()?.payload?.compressedBytes,
+                reading.await().bytesOrNull(),
             )
-            assertEquals(0, world.activeRegionStoreCount())
+            assertEquals(0, world.activeRegionStorageCount())
             assertContentEquals(
                 byteArrayOf(5),
-                world.readChunk(
+                world.readCompressedChunk(
                     position,
                     RegionStorageDirectory.CHUNKS,
                     DimensionDirectory.Overworld,
-                )?.payload?.compressedBytes,
+                ).bytesOrNull(),
             )
-            assertEquals(0, world.activeRegionStoreCount())
+            assertEquals(0, world.activeRegionStorageCount())
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
@@ -668,17 +668,17 @@ class OpenMinecraftWorldConcurrencyTest {
     }
 
     @Test
-    fun flushKeepsCancellationPrimaryAcrossRegionStoresAndOnlyReleasesRemainingPins() = runTest {
+    fun flushKeepsCancellationPrimaryAcrossRegionStoragesAndOnlyReleasesRemainingPins() = runTest {
         val paths = MinecraftWorldPaths("/world".toPath())
         val position = ChunkPosition(0, 0)
         val storageDirectories = RegionStorageDirectory.entries
         val base = concurrencyFakeFileSystem()
         storageDirectories.forEachIndexed { index, storage ->
-            val setup = WorldRegionStore(
+            val setup = RegionStorage(
                 paths = paths,
                 storage = storage,
                 fileSystem = base,
-                configuration = WorldRegionStoreConfiguration(syncWrites = false),
+                configuration = RegionStorageConfiguration(syncWrites = false),
             )
             setup.writeChunkNbtDocument(position, concurrencyDocument(index), Compression.NONE)
             setup.close()
@@ -696,8 +696,8 @@ class OpenMinecraftWorldConcurrencyTest {
         val world = OpenMinecraftWorld(
             paths = paths,
             files = WorldFileAccess.mutable(fileSystem),
-            regionChunkNbtFormat = gatedNbtFormat(encodeGate),
-            regionStoreConfiguration = WorldRegionStoreConfiguration(
+            chunkNbtFormat = gatedNbtFormat(encodeGate),
+            regionStorageConfiguration = RegionStorageConfiguration(
                 syncWrites = false,
                 writeCompression = Compression.NONE,
             ),
@@ -707,7 +707,7 @@ class OpenMinecraftWorldConcurrencyTest {
         try {
             val reading = storageDirectories.map { storage ->
                 async(Dispatchers.Default) {
-                    world.readChunk(position, storage, DimensionDirectory.Overworld) { _, source ->
+                    world.withCompressedChunkSource(position, storage, DimensionDirectory.Overworld) { _, source ->
                         readGate.awaitRelease()
                         source.readByteArray()
                     }
@@ -735,11 +735,11 @@ class OpenMinecraftWorldConcurrencyTest {
             assertSame(cancellation, failure)
             assertSame(earlierFailure, failure.suppressedExceptions.single())
             assertEquals(2, fileSystem.flushAttempts.get())
-            assertEquals(storageDirectories.size, world.activeRegionStoreCount())
+            assertEquals(storageDirectories.size, world.activeRegionStorageCount())
 
             encodeGate.open()
             encoding.awaitAll()
-            assertEquals(0, world.activeRegionStoreCount())
+            assertEquals(0, world.activeRegionStorageCount())
             world.close()
             assertFalse(lock.isValid)
             base.checkNoOpenFiles()
@@ -799,14 +799,14 @@ class OpenMinecraftWorldConcurrencyTest {
         val world = concurrencyWorld(paths, fileSystem, lock)
         try {
             val operationFailure = assertFailsWith<IOException> {
-                world.readChunk(
+                world.readCompressedChunk(
                     position,
                     RegionStorageDirectory.CHUNKS,
                     DimensionDirectory.Overworld,
                 )
             }
             assertEquals("synthetic gated close failure", operationFailure.message)
-            assertEquals(0, world.activeRegionStoreCount())
+            assertEquals(0, world.activeRegionStorageCount())
             assertTrue(lock.isValid)
 
             world.close()
@@ -837,6 +837,6 @@ private fun concurrencyWorld(
             fileSystem
         },
     ),
-    regionStoreConfiguration = WorldRegionStoreConfiguration(syncWrites = false),
+    regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
     directoryLock = lock,
 )

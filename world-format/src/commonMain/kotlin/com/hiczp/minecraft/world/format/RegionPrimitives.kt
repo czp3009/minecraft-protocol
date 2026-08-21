@@ -54,6 +54,18 @@ class RegionHeader private constructor(
         timestamps = IntArray(REGION_CHUNK_COUNT),
     )
 
+    /** Number of non-empty entries in the location table, without inspecting any Chunk record. */
+    val chunkCount: Int
+        get() = locations.count { packed -> packed != 0 }
+
+    /** Whether the location table contains [position], without inspecting its Chunk record. */
+    fun hasChunk(position: LocalChunkPosition): Boolean = locations[position.index] != 0
+
+    /** Region-local positions in location-table order, without inspecting their Chunk records. */
+    fun localChunkPositions(): Sequence<LocalChunkPosition> = locations.indices.asSequence()
+        .filter { index -> locations[index] != 0 }
+        .map(LocalChunkPosition::fromIndex)
+
     fun location(position: LocalChunkPosition): RegionLocation? =
         RegionLocation.fromPacked(locations[position.index])
 
@@ -158,7 +170,7 @@ class RegionSectorAllocator {
             }
             if (!available) continue
             if (start > REGION_MAX_SECTOR_OFFSET) {
-                throw RegionFormatException(
+                throw AnvilFormatException(
                     "Region allocation exceeds location-table range",
                 )
             }
@@ -238,12 +250,12 @@ data class RegionChunkRecordHeader(
 
         fun decode(bytes: ByteArray): RegionChunkRecordHeader {
             if (bytes.size < REGION_CHUNK_RECORD_HEADER_BYTES) {
-                throw RegionFormatException("Truncated region chunk record header")
+                throw AnvilFormatException("Truncated region chunk record header")
             }
             val version = bytes[Int.SIZE_BYTES].toInt() and 0xFF
             val compressionId = version and REGION_EXTERNAL_STREAM_FLAG.inv()
             val compression = compressionFromId(compressionId)
-                ?: throw RegionFormatException(
+                ?: throw AnvilFormatException(
                     "Unknown region compression ID $compressionId",
                 )
             return RegionChunkRecordHeader(
@@ -327,7 +339,7 @@ fun regionSectorsForBytes(byteCount: Long): Int {
         (byteCount - 1L) / REGION_SECTOR_BYTES + 1L
     }
     if (sectors > Int.MAX_VALUE) {
-        throw RegionFormatException("Region record is too large")
+        throw AnvilFormatException("Region record is too large")
     }
     return sectors.toInt()
 }

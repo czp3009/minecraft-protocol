@@ -17,17 +17,29 @@ filesystem; browser and Wasm targets use the stream modules and do not receive a
 - Public stream callbacks use `kotlinx.io.Source` and `Sink` consistently across NBT, JSON, Region, and Chunk APIs. Okio
   remains the filesystem handle layer and crosses that boundary only through `kotlinx-io-okio`. Complete writes and
   serializer-driven writes are adapters over the owning streaming primitive. A complete Region stream is a
-  `RegionReadScope` or `RegionWriteScope` of independent Chunk streams, never a fabricated continuous Region stream.
-- Keep independently useful storage components public when callers can use them without violating module invariants.
-  This includes complete/stream value types, borrowed Region scopes, explicit Region resources, exact-file Region
-  readers/writers, path composition, and standalone NBT/JSON stores. Use an internal constructor with a public factory
-  when construction must establish ownership. Keep logical coordinators, reference-counted entries, lock state,
-  replacement transactions, platform primitives, and failure-cleanup machinery internal; exposing those would let a
-  caller bypass the lifecycle contract rather than provide legitimate lower-level control.
+  `RegionReadScope` or `RegionReplacementScope` of independent Chunk streams, never a fabricated continuous Region
+  stream.
+- Region handles expose direct compressed-payload and decompressed-NBT copies to a caller-owned `Sink` as thin adapters
+  over their borrowed `Source` callbacks. Keep the callbacks public for custom incremental consumers and keep the
+  detached-value and semantic shortcuts delegated to the same stream path.
+- Provide ordinary existence, metadata, detached-value, single-Chunk mutation, open, and close methods before adding a
+  DSL. Stateful world and Region resources provide suspend `use` as the single conventional wrapper over their suspend
+  `close`; do not add a second `withRegion` alias for `openRegion(...).use`. Borrowed Source/Sink and multi-operation
+  scopes use callbacks only because their resources and Region admission must not escape. Do not expose raw lock/unlock
+  calls:
+  they would export writer preference, cancellation rollback, close barriers, and lock ordering without adding a safe
+  storage capability.
+- Keep independently useful logical storage components public when callers can use them without violating module
+  invariants. This includes complete/stream value types, logical Region handles, standalone path composition, and
+  standalone NBT/JSON stores. The physical `.mca`/`.mcc` grouping, exact-file readers/writers, logical coordinators,
+  reference-counted Region state, lock state, replacement transactions, platform primitives, and failure-cleanup
+  machinery remain internal; exposing those would leak the implementation below the Region -> Chunk hierarchy or let
+  callers bypass its lifecycle contract.
 - Keep complete-value names unambiguous: NBT uses `read…Document`/`write…Document`, UTF-8 JSON uses
-  `read…Text`/`write…Text`, and Region/Chunk values retain `readRegion`/`writeRegion` and
-  `readChunk`/`writeChunk`. Unsuffixed serializer and stream overloads must not make a raw complete-value call resolve
-  differently when a reified type is inferred.
+  `read…Text`/`write…Text`, compressed Chunk values use `readCompressedChunk`/`writeCompressedChunk`, and
+  selected-release semantic values use `readChunk`/`writeChunk`. Low-level detached Anvil snapshots remain internal to
+  the filesystem implementation; public logical Region handles do not expose exact-file images. Unsuffixed serializer
+  and stream overloads must not make a raw complete-value call resolve differently when a reified type is inferred.
 - Keep Chunk coordinate overloads symmetric across complete, streaming, existence, clear, document, and typed APIs. A
   world or Region-directory owner accepts either an absolute `ChunkPosition` or a
   `(RegionPosition, LocalChunkPosition)` pair because the Region still has to be selected. A Region-bound owner or
@@ -47,23 +59,24 @@ filesystem; browser and Wasm targets use the stream modules and do not receive a
   Chunk twice merely to present an unbounded pre-compression sink. Region Chunk NBT always uses the official unnamed
   root framing, so typed and `NbtDocument` paths remain byte-compatible.
 - Typed, tree/document, text, and raw operations for one standalone file use the same logical-file coordinator and keep
-  that file family's existing replacement policy. `LiveMinecraftWorldReader` provides the same typed reads without
+  that file family's existing replacement policy. `LiveMinecraftWorldAccess` provides the same typed reads without
   coordination, recovery, or mutation.
 - Mutable and live whole-world entry points expose immutable configurations for every format their typed APIs use.
-  `LiveMinecraftWorldReaderConfiguration` carries both the standalone NBT format and Region Chunk NBT format; every
-  one-shot and retained `LiveWorldRegion` read must use those same configured instances. Do not add write-only Region
-  storage policy to the live configuration.
+  `LiveMinecraftWorldAccessConfiguration` carries both the standalone NBT format and Region Chunk NBT format; every live
+  Region read uses those same configured instances. Do not add write-only Region storage policy to the live
+  configuration.
 - Current paths derive from official resource constants and migration code; historical paths remain explicit API
   variants.
 - Region updates allocate and write new sectors in place while the old allocation remains reserved. They commit the
   complete Header before retiring old sectors, never replace or shrink a complete MCA, and preserve the official sidecar
-  order. `writeRegion` is a complete logical replacement: omitted positions are cleared, all supplied Chunk streams are
+  order. `replaceRegion` is a complete logical replacement: omitted positions are cleared, all supplied Chunk streams
+  are
   staged under one exclusive admission, and one Header commit publishes the batch. Do not implement it as repeated
-  public `writeChunk` calls or promise cross-file atomicity across an MCA and its MCC sidecars.
-- Region timestamps and internal/external selection are storage policy. NBT convenience writes use the store's
-  configured default or a per-write official or registered CUSTOM compression. `MinecraftWorldAccess` shares one region
-  configuration across every storage directory and dimension. These choices affect only newly encoded NBT and never
-  migrate untouched chunks. Raw chunk writes may provide an already-compressed GZIP, ZLIB, NONE, LZ4, or CUSTOM payload;
+  public `writeCompressedChunk` calls or promise cross-file atomicity across an MCA and its MCC sidecars.
+- Region timestamps and internal/external selection are storage policy. NBT convenience writes use the storage's
+  configured default or a per-write official or registered CUSTOM compression. `MinecraftWorldAccess` shares one Region
+  configuration across Chunk Regions in every dimension. These choices affect only newly encoded NBT and never migrate
+  untouched chunks. Raw chunk writes may provide an already-compressed GZIP, ZLIB, NONE, LZ4, or CUSTOM payload;
   neither API accepts caller-controlled timestamps or external markers.
 - Standalone files keep their distinct official policies: level/player NBT use sibling temporary files and backups,
   dimension saved data uses a synced direct write, and player JSON truncates and writes its final path directly.
@@ -86,12 +99,13 @@ filesystem; browser and Wasm targets use the stream modules and do not receive a
   decoding under shared file access. With `syncWrites = false`, that final release performs the automatic durable flush
   and close; with `syncWrites = true`, each region commit also flushes. Do not restore an LRU or an idle per-file lock
   map.
-- `WorldRegion` deliberately turns one Region entry into a caller-owned pin. It opens the MCA lazily, retains the same
+- `RegionHandle` deliberately turns one Region entry into a caller-owned pin. It opens the physical Region lazily,
+  retains the same
   handle/Header/allocator between calls, but acquires shared or exclusive file admission per method. Its methods may be
   concurrent; same-Region writes remain legal and serialize. `close()` seals new methods, waits for admitted methods,
-  releases the inner Region before any outer world-store pin, and participates in store/world close barriers. One-shot
-  Region and Chunk calls use lightweight entry pins and the same internal operations without constructing another
-  caller-owned lifecycle object.
+  releases the inner Region before any outer world-storage pin, and participates in storage/world close barriers.
+  One-shot world-level existence and listing calls use lightweight storage pins; Chunk reads and writes go through a
+  caller-owned Region handle.
 - Read, existence, and clear operations on a missing Region must not create its directory or MCA. Only a write creates
   it. Clearing an existing Region retains a valid empty MCA, matching single-Chunk clear semantics.
 - A region runtime path that needs both locks takes logical `fileAccess` before `openMutex`. Final cleanup may take
@@ -104,16 +118,17 @@ filesystem; browser and Wasm targets use the stream modules and do not receive a
   that same completed close barrier observes its finalized failure. Return a physical cleanup failure across a
   `NonCancellable` context and throw it only afterward so coroutine stack recovery cannot copy it or lose suppressed
   failures.
-- `RegionFileStore` is an uncoordinated byte-level primitive. Direct callers and separate store instances own all
-  read/write/close exclusion. `WorldRegionStore` and `MinecraftWorldAccess` provide coordination only within their own
-  registry.
-- `LiveMinecraftWorldReader` is a bypass observer for a world owned by another process. It takes no `session.lock` and
-  creates no logical-file coordinator or per-file registry. One-shot metadata, MCA, and MCC reads proceed independently,
-  including concurrent reads of the same file, and the reader itself has no close lifecycle. `openRegion` returns a
-  caller-owned `LiveWorldRegion` with one retained handle; `withRegion` is its structured-close wrapper and all one-shot
-  Region/Chunk methods delegate through it. `LiveRegionFileReader` is the exact-file primitive. Live handles must permit
-  the official server's concurrent write, delete, and replacement operations. No Live path repairs or mutates files;
-  stale or torn input and parse failures are expected.
+- The mutable exact-file implementation is private to one Region entry. Separate `RegionStorage` instances coordinate
+  only their own Region states; no exact-file resource is a public escape hatch around that coordination.
+- `LiveMinecraftWorldAccess` is a bypass observer for a world owned by another process. It takes no `session.lock` and
+  creates no logical-file coordinator or per-file registry. `openRegion` performs no I/O and always returns a
+  `LiveRegionHandle`; the handle retains only immutable path/format context and has no close lifecycle. Each operation
+  independently opens and closes its physical resources, including concurrent reads of the same file. Live code does not
+  reuse the mutable Region file owner or its cached Header/allocator/lifecycle. Both paths may share only resource-free
+  values, codecs, coordinate conversion, and narrow stateless parsing helpers. Live reads must permit the official
+  server's concurrent write, delete, and replacement operations. No Live path repairs or mutates files; stale or torn
+  input and parse failures are expected. Do not add a no-op `withRegion` wrapper to this path: without an owned
+  lifetime, ordinary `openRegion` and direct read methods are the simpler complete API.
 - Coordination never chooses a dispatcher or owns a thread pool. Blocking filesystem operations and NBT/compression work
   stay synchronously on the calling thread; keep bookkeeping mutex sections free of I/O, codec work, file-access waits,
   and resource close.
@@ -146,10 +161,10 @@ testing an intrinsic format boundary such as Anvil's inline-to-external chunk tr
 their streaming primitives together, Region scope invalidation, one-Header batch replacement, and typed/document Chunk
 NBT cross-compatibility.
 
-Live-reader tests separately gate level, player, saved-data, statistics, advancements, MCA, and MCC reads. Prove that
+Live-access tests separately gate level, player, saved-data, statistics, advancements, MCA, and MCC reads. Prove that
 same-file reads reach I/O together, that a slow read never delays an external writer, that repeated missing-file
-observations retain neither handles nor entries, and that both `openRegion` and `withRegion` reuse and close exactly one
-handle.
+observations retain neither handles nor entries, that `openRegion` itself performs no I/O, and that every Region
+operation closes its per-call resources after completion.
 
 Filesystem behavior expressible through Okio or its fake filesystem belongs in `commonTest`. Keep the shared
 official-server test's Host-filesystem namespace restriction explicit in its KDoc. Each execution uses one public store

@@ -62,6 +62,20 @@ internal inline fun <T, R> useResource(
     }
 }
 
+/** Suspend counterpart of [useResource] for resources whose close waits for coroutine-owned work. */
+internal suspend fun <T, R> useSuspendingResource(
+    resource: T,
+    close: suspend (T) -> Unit,
+    block: suspend (T) -> R,
+): R = withCleanup(
+    cleanup = {
+        close(resource)
+        null
+    },
+) {
+    block(resource)
+}
+
 /**
  * Runs state/resource cleanup to completion and combines its reported failure with [failure].
  * Returning the failure keeps coroutine stack recovery from copying it across [NonCancellable].

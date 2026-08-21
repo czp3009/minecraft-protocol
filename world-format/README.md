@@ -1,158 +1,321 @@
 # world-format
 
-Filesystem-independent Minecraft world storage formats and selected-release structured-file models. The legacy `.mcr`
-Region format and its conversion to Anvil are intentionally out of scope.
+`world-format` owns Minecraft world values and physical formats that do not require a filesystem. It works with ordinary
+values and `kotlinx.io.Source`/`Sink`; it never opens a path, holds a file lock, or depends on a protocol or
+vanilla-data module.
 
-The module provides three independently usable capabilities:
+Its main capabilities are semantic Chunk conversion, coordinates and palettes, compressed unnamed-root NBT, raw
+compression, and low-level Anvil containers. Filesystem-backed logical Region access belongs to
+[`world-io`](../world-io/README.md).
 
-- **Anvil region containers** model absolute, region, and local chunk coordinates; parse and pack region headers and
-  sectors; preserve compressed payloads; and represent external `.mcc` chunks explicitly.
-- **Compression streams** wrap bytes behind the GZIP, ZLIB, NONE, and LZ4 registrations, plus caller-registered custom
-  codecs. The same registry decodes a chunk payload inside a region file and a standalone compressed NBT document such
-  as `level.dat`.
-- **Structured world-file models** describe the repository-selected release's `level.dat`, player advancements, and
-  player statistics through ordinary `kotlinx.serialization` serializers.
+## Follow a Chunk from stored bytes to blocks
 
-NBT values come from [`nbt`](../nbt/README.md); document bytes are delegated to
-[`nbt-serialization`](../nbt-serialization/README.md).
+The detached representations form a discoverable path from stored content to semantic values. Start with a
+`CompressedChunk`, decode its complete generic NBT tree, and then project that tree with caller-supplied world data:
+
+```kotlin
+fun <B : Any, M : Any> decodeStoredChunk(
+    compressedChunk: CompressedChunk,
+    chunkPosition: ChunkPosition,
+    chunkNbtCodec: ChunkNbtCodec<B, M>,
+    compressedNbtFormat: CompressedNbtFormat = CompressedNbtFormat(),
+): Chunk<B, M> {
+    val nbtDocument = compressedChunk.toNbtDocument(compressedNbtFormat)
+    val chunk = nbtDocument.toChunk(chunkPosition, chunkNbtCodec)
+    return chunk
+}
+```
+
+`CompressedChunk` owns the exact compressed payload and its compression algorithm. `NbtDocument` is the lossless generic
+tag tree. `Chunk<B, M>` is the selected-release semantic projection whose Section containers have decoded the packed
+palette IDs and resolved palette entries through the codec's registries. The semantic value is still palette-backed;
+indexed block access resolves an entry without allocating a dense block list.
+
+The content values are deliberately positionless, so the final conversion receives `chunkPosition` and validates it
+against the NBT fields. The conversion functions are extensions in `world-format`: this keeps the lower-level `nbt`
+module independent while still exposing `toNbtDocument()`, `toChunk()`, and the direct downward shortcuts through IDE
+completion. Format- and codec-oriented methods remain available as the canonical streaming implementation.
+
+## Decode a semantic Chunk
+
+`ChunkNbtCodec` converts decompressed unnamed-root Chunk NBT into a positionless `Chunk<B, M>`. The caller supplies the
+dimension layout, expected data version, and bidirectional block-state and biome registries.
+
+`ChunkLayout` has no repository-version default because minimum Y and height belong to a dimension type, not to the
+release as a whole. Obtain them from the world/server dimension metadata or provide the corresponding custom layout.
+
+This complete example uses the open descriptor/name registries included by the module:
+
+```kotlin
+fun decodeBlockStateDescriptor(
+    nbtSource: Source,
+    chunkPosition: ChunkPosition,
+    blockPosition: BlockPosition,
+    chunkLayout: ChunkLayout,
+    expectedDataVersion: Int,
+): BlockStateDescriptor {
+    require(blockPosition.chunk == chunkPosition)
+
+    val chunkDataRegistries = ChunkDataRegistries(
+        blockStates = DescriptorBlockStateRegistry(),
+        biomes = NamedBiomeRegistry(),
+    )
+    val chunkNbtContext = ChunkNbtContext(
+        layout = chunkLayout,
+        registries = chunkDataRegistries,
+        expectedDataVersion = expectedDataVersion,
+    )
+    val chunkNbtCodec = ChunkNbtCodec(chunkNbtContext)
+    val chunk = chunkNbtCodec.decodeFromSource(nbtSource, chunkPosition)
+    val blockStateDescriptor = chunk.block(chunkPosition, blockPosition)
+    return blockStateDescriptor
+}
+```
+
+`DescriptorBlockStateRegistry` accepts every persisted block-state descriptor. `NamedBiomeRegistry` represents biomes by
+their persistent names. An application that needs richer runtime values implements `BlockStateRegistry<B>` and
+`BiomeRegistry<M>` around vanilla data, mod data, or a combined catalogue. The application may depend on
+`protocol-vanilla-data`, but `world-format` does not acquire a reverse dependency on it.
+
+Encoding uses the same explicit position because the semantic Chunk does not store its parent coordinate:
+
+```kotlin
+fun <B : Any, M : Any> encodeChunk(
+    chunk: Chunk<B, M>,
+    chunkPosition: ChunkPosition,
+    chunkNbtCodec: ChunkNbtCodec<B, M>,
+    nbtSink: Sink,
+) {
+    chunkNbtCodec.encodeToSink(chunk, chunkPosition, nbtSink)
+}
+```
+
+`NbtDocument` is the universal NBT-tree path and can represent every legal tag. It has no concept of unknown fields. The
+strong `ChunkNbtCodec` is a separate selected-release projection: it validates required fields, versions, layouts, and
+registry values, but it does not retain tags outside the semantic `Chunk` model. Use a document when arbitrary modded or
+future tags must survive a semantic round trip; use `Chunk` when block, biome, Section, and palette semantics are
+required.
+
+## Coordinates, Sections, and palettes
+
+`MinecraftCoordinates` is the complete coordinate-calculation entry point. Continuous entity/player coordinates are
+floored to the Block that contains them; every later boundary also uses floor semantics, so negative coordinates remain
+correct:
+
+```kotlin
+fun locatePlayer(playerX: Double, playerY: Double, playerZ: Double): RegionPosition {
+    val blockPosition = MinecraftCoordinates.block(playerX, playerY, playerZ)
+    val chunkPosition = MinecraftCoordinates.chunk(blockPosition)
+    val sectionPosition = MinecraftCoordinates.section(blockPosition)
+    val regionPosition = MinecraftCoordinates.region(chunkPosition)
+
+    check(blockPosition.chunk == chunkPosition)
+    check(blockPosition.section == sectionPosition)
+    check(blockPosition.region == regionPosition)
+    check(sectionPosition.chunk == chunkPosition)
+    check(sectionPosition.region == regionPosition)
+    return regionPosition
+}
+```
+
+The object also exposes scalar helpers such as `blockCoordinate`, `chunkCoordinate`, `sectionCoordinate`,
+`regionCoordinate`, `blockCoordinateInChunk`, `blockCoordinateInSection`, and `chunkCoordinateInRegion`. Biome lookup
+uses the same entry point through `quartCoordinate`, `quartCoordinateInSection`, `blockCoordinateInQuart`, and their
+checked reverse conversions. This is useful when only one axis is available. The typed convenience properties delegate
+to the same implementation; neither style maintains a second set of formulas. Checked scalar offsets are available as
+`offsetBlockCoordinate`, `offsetSectionCoordinate`, `offsetChunkCoordinate`, and `offsetRegionCoordinate`.
+
+Parent-relative coordinates round-trip through checked inverse conversions:
+
+```kotlin
+fun verifyCoordinateRoundTrip(blockPosition: BlockPosition) {
+    val chunkPosition = blockPosition.chunk
+    val sectionPosition = blockPosition.section
+    val regionPosition = chunkPosition.region
+    val chunkBlockPosition = chunkPosition.local(blockPosition)
+    val localBlockPosition = sectionPosition.local(blockPosition)
+    val localChunkPosition = regionPosition.local(chunkPosition)
+
+    check(chunkPosition.block(chunkBlockPosition) == blockPosition)
+    check(sectionPosition.block(localBlockPosition) == blockPosition)
+    check(regionPosition.chunk(localChunkPosition) == chunkPosition)
+}
+```
+
+The reverse coverage API exposes the exact absolute ranges owned by a Section, Chunk, or Region. A Region can enumerate
+all 1024 absolute Chunk positions, or the corresponding relative positions, as lazy sequences. `ChunkLayout.blockYRange`
+supplies the vertical Block range for a dimension-specific Chunk layout:
+
+```kotlin
+fun inspectRegionCoverage(regionPosition: RegionPosition): Sequence<ChunkPosition> {
+    val chunkXRange = regionPosition.chunkXRange
+    val chunkZRange = regionPosition.chunkZRange
+    val blockXRange = regionPosition.blockXRange
+    val blockZRange = regionPosition.blockZRange
+    val localChunkPositions = regionPosition.localChunkPositions()
+    val chunkPositions = regionPosition.chunkPositions()
+
+    check(chunkXRange.count() == REGION_SIDE)
+    check(chunkZRange.count() == REGION_SIDE)
+    check(blockXRange.count() == REGION_SIDE * CHUNK_SIDE)
+    check(blockZRange.count() == REGION_SIDE * CHUNK_SIDE)
+    check(localChunkPositions.count() == REGION_CHUNK_COUNT)
+    return chunkPositions
+}
+```
+
+`SectionPosition.blockPositions()` similarly yields all 4096 absolute Blocks in palette-index order. These sequences
+describe coordinate coverage only; which Chunk records actually exist is filesystem metadata exposed by `world-io`.
+Reverse conversions reject an owner mismatch and coordinates whose multiplication would overflow `Int`.
+
+Offsets are checked rather than silently wrapping `Int`. `ChunkPosition.positionsAround(radius)` lazily enumerates a
+square in Z-then-X order and is the canonical way to form a view around a player:
+
+```kotlin
+fun chunksAroundPlayer(playerX: Double, playerY: Double, playerZ: Double): Sequence<ChunkPosition> {
+    val playerBlockPosition = MinecraftCoordinates.block(playerX, playerY, playerZ)
+    val playerChunkPosition = playerBlockPosition.chunk
+    return playerChunkPosition.positionsAround(horizontalRadius = 10)
+}
+```
+
+`Chunk` provides local and absolute block/biome overloads. `ChunkSection` does the same with an explicit
+`SectionPosition` for absolute access:
+
+```kotlin
+fun inspectPalette(
+    chunk: Chunk<BlockStateDescriptor, String>,
+    chunkPosition: ChunkPosition,
+    blockPosition: BlockPosition,
+): BlockStateDescriptor {
+    val blockStateDescriptor = chunk.block(chunkPosition, blockPosition)
+    val sectionPosition = blockPosition.section
+    val chunkSection = chunk.section(chunkPosition, sectionPosition)
+    if (chunkSection != null) {
+        val paletteSnapshot = chunkSection.blockStates.paletteSnapshot()
+        val denseBlockStates = chunkSection.toDenseBlockStates()
+        check(paletteSnapshot.entryCount == denseBlockStates.size)
+    }
+    return blockStateDescriptor
+}
+```
+
+Decoding preserves persisted palette order and unused entries. Indexed lookup resolves palette IDs to logical values.
+Ordinary mutation reuses or appends stable IDs. Encoding compacts a snapshot without mutating the runtime container.
+Call `compactSnapshot()` to inspect the compact palette and remapped IDs without mutation, or `compact()` to apply that
+compaction to the in-memory container. `paletteSnapshot()` is a read-only diagnostic; `toDenseBlockStates()` and
+`toDenseBiomes()` are explicit allocating adapters.
+
+## Read and write compressed NBT
+
+`CompressedNbtFormat` composes a `CompressionRegistry` with unnamed-root binary NBT. Stream methods are canonical and do
+not close caller-owned endpoints.
+
+```kotlin
+fun transcodeNbtDocument(
+    compressedSource: Source,
+    sourceCompression: Compression,
+    targetCompression: Compression,
+    compressedSink: Sink,
+): NbtDocument {
+    val compressedNbtFormat = CompressedNbtFormat()
+    val nbtDocument = compressedNbtFormat.decodeDocumentFromSource(compressedSource, sourceCompression)
+    compressedNbtFormat.encodeDocumentToSink(nbtDocument, targetCompression, compressedSink)
+    return nbtDocument
+}
+```
+
+When a detached compressed value is useful, `toCompressedChunk` returns `CompressedChunk`. Its compression and exact
+length travel with the bytes, and `writeTo` avoids making another complete array:
+
+```kotlin
+fun encodeCompressedChunk(
+    nbtDocument: NbtDocument,
+    compression: Compression,
+    compressedSink: Sink,
+): CompressedChunk {
+    val compressedChunk = nbtDocument.toCompressedChunk(compression)
+    compressedChunk.writeTo(compressedSink)
+    return compressedChunk
+}
+```
+
+`CompressedChunk` defensively copies constructor bytes. `readFromSource` adopts the bytes it reads, `writeTo(Sink)`
+writes the owned payload directly, and `toByteArray()` is the explicit copying adapter.
+
+## Use raw compression
+
+`CompressionRegistry` dispatches GZIP, ZLIB, uncompressed, LZ4Block, and caller-registered custom codecs. Its direct
+stream operations are useful when no NBT interpretation is needed:
+
+```kotlin
+fun decompressPayload(
+    compression: Compression,
+    compressedSource: Source,
+    plainSink: Sink,
+) {
+    val compressionRegistry = CompressionRegistry()
+    compressionRegistry.decompressToSink(compression, compressedSource, plainSink)
+}
+```
+
+The registry also exposes the inverse `compressToSink` operation and source/sink decorators for pipeline composition.
+
+## Inspect an Anvil container
+
+`AnvilRegionFormat` is the lower-level physical container API. It consumes a complete `.mca` stream but cannot resolve
+filesystem sidecars because paths do not exist in this module. `decodeFromSource` therefore leaves external record
+content unresolved:
+
+```kotlin
+fun decodeAnvilRegion(regionSource: Source): AnvilRegion {
+    val anvilRegion = AnvilRegionFormat.decodeFromSource(regionSource)
+    return anvilRegion
+}
+```
+
+For bounded record-at-a-time inspection, `decodeRecordsFromSource` lends each inline compressed payload in physical
+location order:
+
+```kotlin
+fun decodeAnvilRecords(
+    regionSource: Source,
+    consumeRecord: (AnvilChunkRecordInfo, Source) -> Unit,
+) {
+    AnvilRegionFormat.decodeRecordsFromSource(regionSource) { anvilChunkRecordInfo, compressedSource ->
+        consumeRecord(anvilChunkRecordInfo, compressedSource)
+    }
+}
+```
+
+The callback must consume every inline payload completely. An external record supplies an empty inline source; only a
+filesystem owner such as `world-io` can locate and read its actual compressed content.
+
+Encoding streams the main container and returns the detached external payloads that the caller must place:
+
+```kotlin
+fun encodeAnvilRegion(
+    anvilRegion: AnvilRegion,
+    regionSink: Sink,
+): Map<LocalChunkPosition, CompressedChunk> {
+    val externalChunks = AnvilRegionFormat.encodeRecordsToSink(anvilRegion, regionSink)
+    return externalChunks
+}
+```
+
+`encodeToByteArray` is the complete in-memory adapter and returns `EncodedAnvilRegion`. Its array properties are
+defensive copies; `writeTo`, `externalChunkPositions`, and `writeExternalChunkTo` operate on its owned data without
+first creating another complete copy.
 
 ## Selected-release structured files
 
-`LevelDat`, `PlayerAdvancements`, and `PlayerStatistics` are the recommended strongly typed roots for the three common
-standalone files. They model only the repository-selected Minecraft release and do not perform historical migration or
-rewrite `DataVersion`.
+The module also owns the repository-selected `LevelDat`, `PlayerAdvancements`, and `PlayerStatistics` schemas and
+serializers. They do not migrate historical data. Typed decoding is strict; use `NbtDocument`, `NbtTag`, or
+`JsonElement` when arbitrary fields must survive.
 
-The models do not create separate formats. Use `NbtFormat` configured for `NbtRootEncoding.UNNAMED` for level data and
-`Json` for the JSON models:
+## Failures
 
-```kotlin
-val levelNbt = NbtFormat(
-  NbtFormatConfiguration(rootEncoding = NbtRootEncoding.UNNAMED),
-)
-val level = levelNbt.decodeFromSource<LevelDat>(nbtSource)
-levelNbt.encodeToSink(level, nbtSink)
-
-val advancements = Json.decodeFromSource<PlayerAdvancements>(jsonSource)
-Json.encodeToSink(advancements, jsonSink)
-```
-
-Dynamic stat and advancement identifiers remain maps. Decoders reject unknown fields by default; use `NbtDocument`,
-`NbtTag`, or `JsonElement` when modded or future fields must survive a round trip.
-
-## Compressed unnamed-root NBT data
-
-`level.dat`, player data, and saved-data files are all one complete unnamed-root compound NBT stream behind a
-compression wrapper — GZIP for `level.dat`, GZIP or NONE for saved data. This module owns the wrappers; compose them
-with `NbtFormat` to read and write the data itself, independently of any filesystem:
-
-```kotlin
-// Transfer arbitrary bytes without constructing an intermediate ByteArray.
-CompressionCodecs.decompressToSink(Compression.GZIP, compressedSource, plainSink)
-CompressionCodecs.compressToSink(Compression.GZIP, plainSource, compressedSink)
-
-// Decode one compressed NBT stream, for example the contents of level.dat.
-val document = CompressionCodecs.decompressingSource(
-    compression = Compression.GZIP,
-    source = source,
-).buffered().use {
-    NbtFormat.decodeDocumentFromSource(it)
-}
-
-// Encode directly through the compression stream.
-CompressionCodecs.compressingSink(Compression.GZIP, sink).buffered().use {
-    NbtFormat.encodeDocumentToSink(document, it)
-}
-```
-
-The decorators never close the caller-owned `source` or `sink`; closing a compressing decorator is still required
-because it emits the stream terminator. For region-chunk payloads specifically, `RegionChunkNbtFormat` composes the same
-registry into `RegionChunk` values with per-chunk compression and timestamps.
-
-Use its stream methods when the compressed payload itself does not need to become a `RegionChunk` byte array:
-
-```kotlin
-val chunkNbt = RegionChunkNbtFormat()
-val document = chunkNbt.decodeFromSource(compressedChunkSource, Compression.ZLIB)
-chunkNbt.encodeToSink(document, Compression.ZLIB, compressedChunkSink)
-compressedChunkSink.flush()
-```
-
-## Anvil region containers
-
-Coordinate conversion is public, portable, and independent of filesystem access. A chunk exposes both its containing
-region and its local position; combining those values restores the original coordinate. A region can also enumerate all
-1,024 covered positions in Anvil header-index order:
-
-```kotlin
-val chunk = ChunkPosition(-33, 63)
-val region = chunk.region
-val local = chunk.local
-check(chunk in region)
-check(region.local(chunk) == local)
-check(region.chunk(local) == chunk)
-
-region.chunkPositions().forEach { position ->
-  collectChunk(position)
-}
-```
-
-`RegionPosition.local(chunk)` is the checked absolute-to-local conversion and throws `IllegalArgumentException` when the
-Chunk belongs to another Region. `ChunkPosition.local` is convenient when the containing Region is already implied;
-`RegionPosition.chunk(local)` performs the inverse conversion correctly for positive and negative coordinates.
-
-`chunkPositions()` describes the region's coordinate coverage, not which chunks are actually present in an `.mca`.
-
-`RegionFileFormat` is the whole-file codec: decode one complete `.mca` image, read or replace chunks without inflating
-unrelated payloads, and re-encode. Oversized chunks become external `.mcc` payloads automatically:
-
-```kotlin
-val chunkNbt = RegionChunkNbtFormat()
-
-val region = RegionFileFormat.decodeFromSource(source)
-val local = ChunkPosition(x, z).local
-val document = region[local]?.let { chunkNbt.decode(it) }
-
-val updated = chunkNbt.encode(
-  document = editedDocument,
-  compression = Compression.ZLIB,
-  timestamp = epochSeconds,
-)
-val updatedRegion = region.copy(
-  chunks = region.chunks + (local to updated),
-)
-
-// Stream the complete .mca image. The returned values are payloads that belong
-// in c.<x>.<z>.mcc sidecars; world-format deliberately does not open paths.
-val externalChunks = RegionFileFormat.encodeToSink(updatedRegion, encodedRegionSink)
-encodedRegionSink.flush()
-```
-
-For a large `.mca`, process compressed inline payloads one at a time without constructing a `RegionFile` tree:
-
-```kotlin
-RegionFileFormat.readChunksFromSource(source) { info, compressedPayload ->
-  consumeChunk(info.position, info.compression, compressedPayload)
-}
-```
-
-The callback must consume each lent payload before returning. An external marker has an empty inline payload; filesystem
-code resolves its `.mcc` sidecar separately.
-
-Each `RegionChunk` carries its own compression registration, so one `RegionFile` may preserve mixed registrations
-without inflating any payload. For in-place updates that never rewrite the whole file, the same container is also
-exposed as incremental primitives — `RegionHeader`, `RegionLocation`, `RegionSectorAllocator`, and
-`EncodedRegionChunkRecord` — which is the layer [`world-io`](../world-io/README.md) builds its positional region stores
-on. Wire compression IDs belong to the record header (`RegionChunkRecordHeader.compressionId`), not to the `Compression`
-values used by standalone files.
-
-## Details
-
-Entry points expose only `kotlinx.io` sources and sinks and never close caller-owned endpoints; byte-array and
-`RegionChunk` methods wrap the streaming paths. The module does not open paths or impose a typed, version-specific chunk
-schema or policy-sized resource ceilings; filesystem-level defaults belong to [`world-io`](../world-io/README.md).
-Intrinsic Anvil location fields, sector counts, record lengths, and the modified-UTF field used by NBT remain bounded by
-their binary representations.
-
-Structural Anvil or compression-container errors throw `RegionFormatException`, while stream access and
-compression-backend failures surface as `kotlinx.io.IOException`. NBT grammar and serialization failures retain their
-`nbt-serialization` exception types.
+- `AnvilFormatException` reports structural container and record errors.
+- `CompressionFormatException` reports invalid compression framing or missing custom compression support.
+- `ChunkNbtFormatException` reports strong Chunk schema, coordinate, layout, version, or registry projection errors.
+- NBT and stream/backend failures retain the exception type of their owning module.

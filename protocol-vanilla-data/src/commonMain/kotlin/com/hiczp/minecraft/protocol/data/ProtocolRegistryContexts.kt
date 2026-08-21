@@ -2,7 +2,10 @@ package com.hiczp.minecraft.protocol.data
 
 import com.hiczp.minecraft.protocol.model.packet.PlayLoginPacket
 import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
-import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.protocol.model.type.ProtocolRegistry
+import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
+import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryEntry
+import com.hiczp.minecraft.protocol.model.type.StaticRegistrySchema
 
 /**
  * Resolves the base registry context described by one Configuration exchange.
@@ -68,29 +71,6 @@ fun ProtocolRegistryContext.withPlayLoginDimension(
     registries: List<RegistryDataPacket>,
     protocolData: ProtocolDataSet,
 ): ProtocolRegistryContext {
-    require(login.spawnInfo.dimension in login.levels) {
-        "Play Login selected dimension ${login.spawnInfo.dimension}, but it is absent from the advertised levels"
-    }
-    val dimensionTypeRegistry = requireNotNull(
-        registries.singleOrNull { it.registryId == DIMENSION_TYPE_REGISTRY },
-    ) {
-        "Configuration must provide exactly one synchronized registry $DIMENSION_TYPE_REGISTRY"
-    }
-    val dimensionTypeId = login.spawnInfo.dimensionTypeId
-    val dimensionType = requireNotNull(
-        dimensionTypeRegistry.entries.getOrNull(dimensionTypeId),
-    ) {
-        "Play Login selected absent dimension-type registry ID $dimensionTypeId"
-    }
-    val dimension = if (dimensionType.data == null) {
-        MinecraftDimensionLayout.from(protocolData, dimensionType.id)
-    } else {
-        MinecraftDimensionLayout.from(
-            listOf(dimensionTypeRegistry),
-            dimensionTypeId,
-        )
-    }
+    val dimension = MinecraftDimensionLayout.from(login, registries, protocolData)
     return withChunkSectionCount(dimension.sectionCount)
 }
-
-private val DIMENSION_TYPE_REGISTRY = Identifier("dimension_type")

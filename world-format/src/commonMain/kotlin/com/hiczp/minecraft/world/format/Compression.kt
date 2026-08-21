@@ -15,3 +15,9 @@ enum class Compression {
     LZ4,
     CUSTOM,
 }
+
+/** Invalid compression framing or a missing registered custom codec. */
+class CompressionFormatException(
+    message: String,
+    cause: Throwable? = null,
+) : Exception(message, cause)

@@ -74,13 +74,22 @@ class RegionPrimitivesTest {
     @Test
     fun headerCopiesAreIndependentAndClearingPreservesTimestamp() {
         val position = LocalChunkPosition(31, 31)
+        val firstPosition = LocalChunkPosition(0, 0)
         val original = RegionHeader().apply {
+            set(firstPosition, RegionLocation(2, 1), timestamp = 1)
             set(position, RegionLocation(9, 2), timestamp = -1)
         }
         val copy = original.copy()
 
         copy.clearLocation(position)
 
+        assertEquals(2, original.chunkCount)
+        assertTrue(original.hasChunk(firstPosition))
+        assertTrue(original.hasChunk(position))
+        assertEquals(listOf(firstPosition, position), original.localChunkPositions().toList())
+        assertEquals(1, copy.chunkCount)
+        assertFalse(copy.hasChunk(position))
+        assertEquals(listOf(firstPosition), copy.localChunkPositions().toList())
         assertEquals(RegionLocation(9, 2), original.location(position))
         assertNull(copy.location(position))
         assertEquals(-1, copy.timestamp(position))
@@ -186,10 +195,10 @@ class RegionPrimitivesTest {
         assertEquals(1, forced.allocatedSectors)
         assertContentEquals(byteArrayOf(1, 2, 3), forced.externalPayload)
 
-        assertFailsWith<RegionFormatException> {
+        assertFailsWith<AnvilFormatException> {
             RegionChunkRecordHeader.decode(ByteArray(4))
         }
-        assertFailsWith<RegionFormatException> {
+        assertFailsWith<AnvilFormatException> {
             RegionChunkRecordHeader.decode(
                 byteArrayOf(0, 0, 0, 1, 5),
             )
@@ -208,10 +217,10 @@ class RegionPrimitivesTest {
             Int.MAX_VALUE,
             regionSectorsForBytes(largestRepresentableBytes),
         )
-        assertFailsWith<RegionFormatException> {
+        assertFailsWith<AnvilFormatException> {
             regionSectorsForBytes(largestRepresentableBytes + 1L)
         }
-        assertFailsWith<RegionFormatException> {
+        assertFailsWith<AnvilFormatException> {
             regionSectorsForBytes(Long.MAX_VALUE)
         }
     }

@@ -27,8 +27,8 @@ internal class OpenMinecraftWorld(
     val paths: MinecraftWorldPaths,
     private val files: WorldFileAccess,
     private val nbtFormat: NbtFormat = minecraftWorldNbtFormat(),
-    private val regionChunkNbtFormat: RegionChunkNbtFormat = RegionChunkNbtFormat(),
-    private val regionStoreConfiguration: WorldRegionStoreConfiguration = WorldRegionStoreConfiguration(),
+    private val chunkNbtFormat: CompressedNbtFormat = CompressedNbtFormat(),
+    private val regionStorageConfiguration: RegionStorageConfiguration = RegionStorageConfiguration(),
     private val directoryLock: WorldDirectoryLock? = null,
 ) {
     init {
@@ -40,7 +40,7 @@ internal class OpenMinecraftWorld(
     private val levelData = LevelDataStore(paths, nbtFiles)
     private val playerData = PlayerDataStore(paths, nbtFiles)
     private val jsonFiles = Utf8JsonFileStore(files)
-    private val regionStores = mutableMapOf<RegionStoreKey, RegionStoreEntry>()
+    private val regionStorages = mutableMapOf<RegionStorageKey, RegionStorageEntry>()
     private val metadataEntries = mutableMapOf<MetadataKey, MetadataEntry>()
     private var closed = false
     private var closeCompletion: CompletableDeferred<Unit>? = null
@@ -294,175 +294,235 @@ internal class OpenMinecraftWorld(
         jsonFiles.write(paths.advancement(playerUuid), block)
     }
 
-    suspend fun readRegion(
+    suspend fun readAnvilRegion(
         position: RegionPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ): RegionFile? = withRegionStore(storage, dimension) { store ->
-        store.readRegion(position)
+    ): AnvilRegion? = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.readAnvilRegion(position)
     }
 
-    suspend fun <T> readRegion(
+    suspend fun <T> withRegionReadScope(
         position: RegionPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
         block: RegionReadScope.() -> T,
-    ): T? = withRegionStore(storage, dimension) { store ->
-        store.readRegion(position, block)
+    ): T = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.withReadScope(position, block)
     }
 
-    suspend fun writeRegion(
+    suspend fun replaceRegion(
         position: RegionPosition,
-        region: RegionFile,
+        region: AnvilRegion,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ) = withRegionStore(storage, dimension) { store ->
-        store.writeRegion(position, region)
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.replaceRegion(position, region)
     }
 
-    suspend fun writeRegion(
+    suspend fun replaceRegion(
         position: RegionPosition,
+        chunks: Collection<RegionChunkInput>,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-        block: RegionWriteScope.() -> Unit,
-    ) = withRegionStore(storage, dimension) { store ->
-        store.writeRegion(position, block)
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.replaceRegion(position, chunks)
     }
 
-    suspend fun clearRegion(
-        position: RegionPosition,
-        storage: RegionStorageDirectory,
-        dimension: DimensionDirectory,
-    ) = withRegionStore(storage, dimension) { store ->
-        store.clearRegion(position)
-    }
-
-    suspend fun doesRegionExist(
+    suspend fun replaceRegion(
         position: RegionPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ): Boolean = withRegionStore(storage, dimension) { store ->
-        store.doesRegionExist(position)
+        block: RegionReplacementScope.() -> Unit,
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.replaceRegion(position, block)
     }
 
-    suspend fun readChunk(
+    suspend fun clear(
+        position: RegionPosition,
+        storage: RegionStorageDirectory,
+        dimension: DimensionDirectory,
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.clear(position)
+    }
+
+    suspend fun hasRegion(
+        position: RegionPosition,
+        storage: RegionStorageDirectory,
+        dimension: DimensionDirectory,
+    ): Boolean = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.hasRegion(position)
+    }
+
+    suspend fun listRegionPositions(
+        storage: RegionStorageDirectory,
+        dimension: DimensionDirectory,
+    ): List<RegionPosition> = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.listRegionPositions()
+    }
+
+    suspend fun readChunkInfo(
         position: ChunkPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ): RegionChunk? = withRegionStore(storage, dimension) { store ->
-        store.readChunk(position)
+    ): RegionChunkInfo? = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.readChunkInfo(position)
     }
 
-    suspend fun readChunk(
+    suspend fun readChunkInfo(
         regionPosition: RegionPosition,
         position: LocalChunkPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ): RegionChunk? = withRegionStore(storage, dimension) { store ->
-        store.readChunk(regionPosition, position)
+    ): RegionChunkInfo? = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.readChunkInfo(regionPosition, position)
     }
 
-    suspend fun <T> readChunk(
+    suspend fun readChunkInfos(
+        position: RegionPosition,
+        storage: RegionStorageDirectory,
+        dimension: DimensionDirectory,
+    ): List<RegionChunkInfo> = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.readChunkInfos(position)
+    }
+
+    suspend fun readCompressedChunk(
         position: ChunkPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-        block: (RegionChunkStreamInfo, KotlinxSource) -> T,
-    ): T? = withRegionStore(storage, dimension) { store ->
-        store.readChunk(position, block)
+    ): CompressedChunk? = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.readCompressedChunk(position)
     }
 
-    suspend fun <T> readChunk(
+    suspend fun readCompressedChunk(
         regionPosition: RegionPosition,
         position: LocalChunkPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-        block: (RegionChunkStreamInfo, KotlinxSource) -> T,
-    ): T? = withRegionStore(storage, dimension) { store ->
-        store.readChunk(regionPosition, position, block)
+    ): CompressedChunk? = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.readCompressedChunk(regionPosition, position)
     }
 
-    suspend fun doesChunkExist(
+    suspend fun <T> withCompressedChunkSource(
         position: ChunkPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ): Boolean = withRegionStore(storage, dimension) { store ->
-        store.doesChunkExist(position)
+        block: (RegionChunkInfo, KotlinxSource) -> T,
+    ): T? = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.withCompressedChunkSource(position, block)
     }
 
-    suspend fun doesChunkExist(
+    suspend fun <T> withCompressedChunkSource(
         regionPosition: RegionPosition,
         position: LocalChunkPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ): Boolean = withRegionStore(storage, dimension) { store ->
-        store.doesChunkExist(regionPosition, position)
+        block: (RegionChunkInfo, KotlinxSource) -> T,
+    ): T? = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.withCompressedChunkSource(regionPosition, position, block)
     }
 
-    suspend fun writeChunk(
+    suspend fun <T> withChunkNbtSource(
         position: ChunkPosition,
-        chunk: RegionChunk,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ) = withRegionStore(storage, dimension) { store ->
-        store.writeChunk(position, chunk)
+        block: (RegionChunkInfo, KotlinxSource) -> T,
+    ): T? = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.withChunkNbtSource(position, block)
     }
 
-    suspend fun writeChunk(
+    suspend fun <T> withChunkNbtSource(
         regionPosition: RegionPosition,
         position: LocalChunkPosition,
-        chunk: RegionChunk,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ) = withRegionStore(storage, dimension) { store ->
-        store.writeChunk(regionPosition, position, chunk)
+        block: (RegionChunkInfo, KotlinxSource) -> T,
+    ): T? = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.withChunkNbtSource(regionPosition, position, block)
     }
 
-    suspend fun writeChunk(
+    suspend fun hasChunk(
+        position: ChunkPosition,
+        storage: RegionStorageDirectory,
+        dimension: DimensionDirectory,
+    ): Boolean = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.hasChunk(position)
+    }
+
+    suspend fun hasChunk(
+        regionPosition: RegionPosition,
+        position: LocalChunkPosition,
+        storage: RegionStorageDirectory,
+        dimension: DimensionDirectory,
+    ): Boolean = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.hasChunk(regionPosition, position)
+    }
+
+    suspend fun writeCompressedChunk(
+        position: ChunkPosition,
+        chunk: CompressedChunkInput,
+        storage: RegionStorageDirectory,
+        dimension: DimensionDirectory,
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.writeCompressedChunk(position, chunk)
+    }
+
+    suspend fun writeCompressedChunk(
+        regionPosition: RegionPosition,
+        position: LocalChunkPosition,
+        chunk: CompressedChunkInput,
+        storage: RegionStorageDirectory,
+        dimension: DimensionDirectory,
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.writeCompressedChunk(regionPosition, position, chunk)
+    }
+
+    suspend fun writeCompressedChunk(
         position: ChunkPosition,
         compression: Compression,
-        compressedLength: Long,
+        compressedByteCount: Long,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
         block: (KotlinxSink) -> Unit,
-    ) = withRegionStore(storage, dimension) { store ->
-        store.writeChunk(position, compression, compressedLength, block)
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.writeCompressedChunk(position, compression, compressedByteCount, block)
     }
 
-    suspend fun writeChunk(
+    suspend fun writeCompressedChunk(
         regionPosition: RegionPosition,
         position: LocalChunkPosition,
         compression: Compression,
-        compressedLength: Long,
+        compressedByteCount: Long,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
         block: (KotlinxSink) -> Unit,
-    ) = withRegionStore(storage, dimension) { store ->
-        store.writeChunk(regionPosition, position, compression, compressedLength, block)
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.writeCompressedChunk(regionPosition, position, compression, compressedByteCount, block)
     }
 
-    suspend fun clearChunk(
+    suspend fun removeChunk(
         position: ChunkPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ) = withRegionStore(storage, dimension) { store ->
-        store.clearChunk(position)
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.removeChunk(position)
     }
 
-    suspend fun clearChunk(
+    suspend fun removeChunk(
         regionPosition: RegionPosition,
         position: LocalChunkPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ) = withRegionStore(storage, dimension) { store ->
-        store.clearChunk(regionPosition, position)
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.removeChunk(regionPosition, position)
     }
 
     suspend fun readChunkNbtDocument(
         position: ChunkPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ): NbtDocument? = withRegionStore(storage, dimension) { store ->
-        store.readChunkNbtDocument(position)
+    ): NbtDocument? = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.readChunkNbtDocument(position)
     }
 
     suspend fun readChunkNbtDocument(
@@ -470,8 +530,8 @@ internal class OpenMinecraftWorld(
         position: LocalChunkPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ): NbtDocument? = withRegionStore(storage, dimension) { store ->
-        store.readChunkNbtDocument(regionPosition, position)
+    ): NbtDocument? = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.readChunkNbtDocument(regionPosition, position)
     }
 
     suspend fun <T> readChunkNbt(
@@ -479,8 +539,8 @@ internal class OpenMinecraftWorld(
         deserializer: DeserializationStrategy<T>,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ): T? = withRegionStore(storage, dimension) { store ->
-        store.readChunkNbt(position, deserializer)
+    ): T? = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.readChunkNbt(position, deserializer)
     }
 
     suspend fun <T> readChunkNbt(
@@ -489,8 +549,27 @@ internal class OpenMinecraftWorld(
         deserializer: DeserializationStrategy<T>,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ): T? = withRegionStore(storage, dimension) { store ->
-        store.readChunkNbt(regionPosition, position, deserializer)
+    ): T? = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.readChunkNbt(regionPosition, position, deserializer)
+    }
+
+    suspend fun <B : Any, M : Any> readChunk(
+        position: ChunkPosition,
+        codec: ChunkNbtCodec<B, M>,
+        storage: RegionStorageDirectory,
+        dimension: DimensionDirectory,
+    ): Chunk<B, M>? = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.readChunk(position, codec)
+    }
+
+    suspend fun <B : Any, M : Any> readChunk(
+        regionPosition: RegionPosition,
+        position: LocalChunkPosition,
+        codec: ChunkNbtCodec<B, M>,
+        storage: RegionStorageDirectory,
+        dimension: DimensionDirectory,
+    ): Chunk<B, M>? = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.readChunk(regionPosition, position, codec)
     }
 
     suspend fun writeChunkNbtDocument(
@@ -498,8 +577,8 @@ internal class OpenMinecraftWorld(
         document: NbtDocument,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ) = withRegionStore(storage, dimension) { store ->
-        store.writeChunkNbtDocument(position, document)
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.writeChunkNbtDocument(position, document)
     }
 
     suspend fun writeChunkNbtDocument(
@@ -508,8 +587,8 @@ internal class OpenMinecraftWorld(
         document: NbtDocument,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ) = withRegionStore(storage, dimension) { store ->
-        store.writeChunkNbtDocument(regionPosition, position, document)
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.writeChunkNbtDocument(regionPosition, position, document)
     }
 
     suspend fun writeChunkNbtDocument(
@@ -518,8 +597,8 @@ internal class OpenMinecraftWorld(
         compression: Compression,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ) = withRegionStore(storage, dimension) { store ->
-        store.writeChunkNbtDocument(position, document, compression)
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.writeChunkNbtDocument(position, document, compression)
     }
 
     suspend fun writeChunkNbtDocument(
@@ -529,8 +608,8 @@ internal class OpenMinecraftWorld(
         compression: Compression,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ) = withRegionStore(storage, dimension) { store ->
-        store.writeChunkNbtDocument(regionPosition, position, document, compression)
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.writeChunkNbtDocument(regionPosition, position, document, compression)
     }
 
     suspend fun <T> writeChunkNbt(
@@ -540,8 +619,8 @@ internal class OpenMinecraftWorld(
         compression: Compression,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ) = withRegionStore(storage, dimension) { store ->
-        store.writeChunkNbt(position, serializer, value, compression)
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.writeChunkNbt(position, serializer, value, compression)
     }
 
     suspend fun <T> writeChunkNbt(
@@ -552,55 +631,57 @@ internal class OpenMinecraftWorld(
         compression: Compression,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ) = withRegionStore(storage, dimension) { store ->
-        store.writeChunkNbt(regionPosition, position, serializer, value, compression)
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.writeChunkNbt(regionPosition, position, serializer, value, compression)
+    }
+
+    suspend fun <B : Any, M : Any> writeChunk(
+        position: ChunkPosition,
+        chunk: Chunk<B, M>,
+        codec: ChunkNbtCodec<B, M>,
+        compression: Compression,
+        storage: RegionStorageDirectory,
+        dimension: DimensionDirectory,
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.writeChunk(position, chunk, codec, compression)
+    }
+
+    suspend fun <B : Any, M : Any> writeChunk(
+        regionPosition: RegionPosition,
+        position: LocalChunkPosition,
+        chunk: Chunk<B, M>,
+        codec: ChunkNbtCodec<B, M>,
+        compression: Compression,
+        storage: RegionStorageDirectory,
+        dimension: DimensionDirectory,
+    ) = withRegionStorage(storage, dimension) { regionStorage ->
+        regionStorage.writeChunk(regionPosition, position, chunk, codec, compression)
     }
 
     suspend fun openRegion(
         position: RegionPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ): WorldRegion {
-        val entry = acquireRegionStore(storage, dimension)
+    ): RegionHandle {
+        val entry = acquireRegionStorage(storage, dimension)
         var transferred = false
         return withCleanup(
             cleanup = {
-                if (transferred) null else releaseRegionStore(entry)
+                if (transferred) null else releaseRegionStorage(entry)
             },
         ) {
-            val region = entry.store.openRegion(position) {
-                releaseRegionStore(entry)
+            val region = entry.storage.openRegion(position) {
+                releaseRegionStorage(entry)
             }
             transferred = true
             region
         }
     }
 
-    suspend fun <T> withRegion(
-        position: RegionPosition,
-        storage: RegionStorageDirectory,
-        dimension: DimensionDirectory,
-        block: suspend WorldRegion.() -> T,
-    ): T {
-        val region = openRegion(position, storage, dimension)
-        return withCleanup(
-            cleanup = {
-                try {
-                    region.close()
-                    null
-                } catch (caught: Throwable) {
-                    caught
-                }
-            },
-        ) {
-            region.block()
-        }
-    }
-
     suspend fun flush() {
         val pinned = state.withLock {
             checkValid()
-            regionStores.values.filterNot { it.closing }.onEach { it.users++ }
+            regionStorages.values.filterNot { it.closing }.onEach { it.users++ }
         }
         if (pinned.isEmpty()) return
 
@@ -611,12 +692,12 @@ internal class OpenMinecraftWorld(
             // but still release every pin through non-cancellable cleanup.
             if (failure !is CancellationException) {
                 try {
-                    entry.store.flush()
+                    entry.storage.flush()
                 } catch (caught: Throwable) {
                     entryFailure = caught
                 }
             }
-            entryFailure = collectCleanupFailure(entryFailure) { releaseRegionStore(entry) }
+            entryFailure = collectCleanupFailure(entryFailure) { releaseRegionStorage(entry) }
             entryFailure?.let { caught ->
                 failure = combineFailures(failure, caught)
             }
@@ -655,18 +736,18 @@ internal class OpenMinecraftWorld(
         metadataEntries.values.sumOf { it.users }
     }
 
-    internal suspend fun activeRegionStoreCount(): Int = state.withLock {
-        regionStores.size
+    internal suspend fun activeRegionStorageCount(): Int = state.withLock {
+        regionStorages.size
     }
 
-    internal suspend fun activeRegionStoreUsers(): Int = state.withLock {
-        regionStores.values.sumOf { it.users }
+    internal suspend fun activeRegionStorageUsers(): Int = state.withLock {
+        regionStorages.values.sumOf { it.users }
     }
 
     private suspend fun firstClose(completion: CompletableDeferred<Unit>) {
         val failure: Throwable? = withContext(NonCancellable) {
             val storeEntries = state.withLock {
-                regionStores.values.toList()
+                regionStorages.values.toList()
             }
             val activeMetadataEntries = state.withLock {
                 metadataEntries.values.toList()
@@ -685,7 +766,7 @@ internal class OpenMinecraftWorld(
                 failure = combineFailures(failure, lockFailure)
             }
             state.withLock {
-                regionStores.clear()
+                regionStorages.clear()
                 metadataEntries.clear()
                 closeBarrierFailures.clear()
                 closeFailure = failure
@@ -744,28 +825,28 @@ internal class OpenMinecraftWorld(
         return null
     }
 
-    private suspend fun acquireRegionStore(
+    private suspend fun acquireRegionStorage(
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ): RegionStoreEntry {
+    ): RegionStorageEntry {
         while (true) {
             val closing = state.withLock {
                 checkValid()
-                val key = RegionStoreKey(storage, dimension)
-                val entry = regionStores[key]
+                val key = RegionStorageKey(storage, dimension)
+                val entry = regionStorages[key]
                 if (entry == null) {
-                    val created = RegionStoreEntry(
+                    val created = RegionStorageEntry(
                         key = key,
-                        store = WorldRegionStore(
+                        storage = RegionStorage(
                             paths = paths,
                             storage = storage,
                             dimension = dimension,
                             files = files,
-                            chunkNbtFormat = regionChunkNbtFormat,
-                            configuration = regionStoreConfiguration,
+                            chunkNbtFormat = chunkNbtFormat,
+                            configuration = regionStorageConfiguration,
                         ),
                     )
-                    regionStores[key] = created
+                    regionStorages[key] = created
                     return created
                 }
                 if (!entry.closing) {
@@ -778,23 +859,23 @@ internal class OpenMinecraftWorld(
         }
     }
 
-    private suspend fun <T> withRegionStore(
+    private suspend fun <T> withRegionStorage(
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-        block: suspend (WorldRegionStore) -> T,
+        block: suspend (RegionStorage) -> T,
     ): T {
-        val entry = acquireRegionStore(storage, dimension)
+        val entry = acquireRegionStorage(storage, dimension)
         return withCleanup(
-            cleanup = { releaseRegionStore(entry) },
+            cleanup = { releaseRegionStorage(entry) },
         ) {
-            block(entry.store)
+            block(entry.storage)
         }
     }
 
-    private suspend fun releaseRegionStore(entry: RegionStoreEntry): Throwable? {
+    private suspend fun releaseRegionStorage(entry: RegionStorageEntry): Throwable? {
         val shouldClose = state.withLock {
-            check(entry.users > 0) { "Region store entry is not in use: ${entry.key}" }
-            check(!entry.closing) { "Region store entry is already closing: ${entry.key}" }
+            check(entry.users > 0) { "Region storage entry is not in use: ${entry.key}" }
+            check(!entry.closing) { "Region storage entry is already closing: ${entry.key}" }
             entry.users--
             if (entry.users > 0) return@withLock false
             entry.closing = true
@@ -803,13 +884,13 @@ internal class OpenMinecraftWorld(
         if (!shouldClose) return null
         var closeFailure: Throwable? = null
         try {
-            entry.store.close()
+            entry.storage.close()
         } catch (caught: Throwable) {
             closeFailure = caught
         }
         state.withLock {
-            if (regionStores[entry.key] === entry) {
-                regionStores.remove(entry.key)
+            if (regionStorages[entry.key] === entry) {
+                regionStorages.remove(entry.key)
             }
             entry.closed.complete(Unit)
             closeFailure?.let {
@@ -829,7 +910,7 @@ internal class OpenMinecraftWorld(
         }
     }
 
-    private data class RegionStoreKey(
+    private data class RegionStorageKey(
         val storage: RegionStorageDirectory,
         val dimension: DimensionDirectory,
     )
@@ -865,9 +946,9 @@ internal class OpenMinecraftWorld(
         val closed = CompletableDeferred<Unit>()
     }
 
-    private class RegionStoreEntry(
-        val key: RegionStoreKey,
-        val store: WorldRegionStore,
+    private class RegionStorageEntry(
+        val key: RegionStorageKey,
+        val storage: RegionStorage,
     ) {
         var users = 1
         var closing = false

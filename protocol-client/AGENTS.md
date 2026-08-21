@@ -8,6 +8,13 @@ The high-level Login path handles cookies and custom queries, compression, onlin
 Known Packs, Configuration keepalives, dynamic registry context, and optional negotiation profiles. It exclusively
 borrows the public channels until return and has no privileged packet path.
 
+The module may depend on filesystem-independent `world-format`. It owns the client-facing adapter from the installed
+`ProtocolRegistryContext` to `ChunkDataRegistries` and the stateless projection of received clientbound Chunk packets
+into positionless semantic `Chunk` values. The negotiation result retains the server-selected initial
+`MinecraftDimensionLayout` and exposes its derived `ChunkLayout`; there is no release-wide dimension-layout default. It
+never opens world files or invents persistence-only metadata absent from the packet; callers supply that template
+explicitly.
+
 High-level online Login receives a caller-owned `HttpClient` and constructs the stateless `MinecraftSessionApi`
 internally. The caller configures and closes the client; this module owns when `/join` occurs.
 

@@ -1,0 +1,454 @@
+package com.hiczp.minecraft.world.format
+
+import com.hiczp.minecraft.nbt.*
+import kotlinx.io.Buffer
+import kotlinx.io.readByteArray
+import kotlinx.serialization.Serializable
+import kotlin.test.*
+
+class ChunkNbtCodecTest {
+    @Test
+    fun blockSectionAndLocalCoordinatesRoundTripAcrossNegativeBoundaries() {
+        val samples = listOf(
+            BlockPosition(-17, -17, -17),
+            BlockPosition(-16, -16, -16),
+            BlockPosition(-1, -1, -1),
+            BlockPosition(0, 0, 0),
+            BlockPosition(15, 15, 15),
+            BlockPosition(16, 16, 16),
+        )
+
+        samples.forEach { block ->
+            assertEquals(block, block.section.block(block.localInSection))
+            assertEquals(block, block.chunk.block(block.localInChunk))
+            assertEquals(block.localInChunk, block.chunk.local(block))
+            assertEquals(block.localInSection, block.section.local(block))
+            assertEquals(block.chunk, block.section.chunk)
+            assertEquals(block.localInSection, LocalBlockPosition.fromIndex(block.localInSection.index))
+        }
+
+        assertFailsWith<IllegalArgumentException> {
+            ChunkPosition(0, 0).local(BlockPosition(16, 0, 0))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            SectionPosition(0, 0, 0).local(BlockPosition(0, 16, 0))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            RegionPosition(Int.MAX_VALUE, 0).chunk(LocalChunkPosition(0, 0))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            ChunkPosition(Int.MAX_VALUE, 0).block(ChunkBlockPosition(0, 0, 0))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            SectionPosition(0, Int.MIN_VALUE, 0).block(LocalBlockPosition(0, 0, 0))
+        }
+    }
+
+    @Test
+    fun chunkAndSectionAbsoluteOverloadsValidateThenDelegateToLocalCoordinates() {
+        val chunkPosition = ChunkPosition(-2, 3)
+        val blockPosition = chunkPosition.block(ChunkBlockPosition(15, TEST_LAYOUT.minBlockY, 0))
+        val sectionPosition = blockPosition.section
+        val chunk = emptyChunk()
+        val section = chunk.getOrCreateSection(chunkPosition, sectionPosition)
+
+        chunk.setBlock(chunkPosition, blockPosition, STONE)
+        chunk.setBiome(chunkPosition, blockPosition, "minecraft:desert")
+
+        assertEquals(STONE, chunk.block(chunkPosition, blockPosition))
+        assertEquals("minecraft:desert", chunk.biome(chunkPosition, blockPosition))
+        assertEquals(STONE, section.block(sectionPosition, blockPosition))
+        assertEquals("minecraft:desert", section.biome(sectionPosition, blockPosition))
+        assertEquals(section, chunk.section(chunkPosition, sectionPosition))
+
+        section.setBlock(sectionPosition, blockPosition, WATER)
+        section.setBiome(sectionPosition, blockPosition, "minecraft:forest")
+        assertEquals(WATER, chunk.block(blockPosition.localInChunk))
+        assertEquals("minecraft:forest", chunk.biome(blockPosition.localInChunk))
+
+        assertFailsWith<IllegalArgumentException> {
+            chunk.block(ChunkPosition(0, 0), blockPosition)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            section.block(SectionPosition(0, sectionPosition.y, 0), blockPosition)
+        }
+        val otherSectionPosition = SectionPosition(sectionPosition.x, sectionPosition.y + 1, sectionPosition.z)
+        val otherBlockPosition = otherSectionPosition.block(LocalBlockPosition(15, 0, 0))
+        assertFailsWith<IllegalArgumentException> {
+            section.block(otherSectionPosition, otherBlockPosition)
+        }
+    }
+
+    @Test
+    fun compressedChunkOwnsBytesAndWritesWithoutExposingThem() {
+        val original = byteArrayOf(1, 2, 3)
+        val chunk = CompressedChunk(Compression.ZLIB, original)
+        original[0] = 9
+
+        val returned = chunk.toByteArray()
+        returned[1] = 9
+        val sink = Buffer()
+        chunk.writeTo(sink)
+
+        assertEquals(3L, chunk.compressedByteCount)
+        assertContentEquals(byteArrayOf(1, 2, 3), sink.readByteArray())
+        assertContentEquals(byteArrayOf(1, 2, 3), chunk.toByteArray())
+    }
+
+    @Test
+    fun chunkRepresentationsOfferFluentConversionsInBothDirections() {
+        val position = ChunkPosition(-7, 11)
+        val originalChunk = emptyChunk()
+        originalChunk.setBlock(3, TEST_LAYOUT.minBlockY, 5, STONE)
+
+        val nbtDocument = originalChunk.toNbtDocument(position, TEST_CODEC)
+        val compressedChunk = nbtDocument.toCompressedChunk(Compression.GZIP)
+        val decodedDocument = compressedChunk.toNbtDocument()
+        val decodedChunk = compressedChunk.toChunk(position, TEST_CODEC)
+
+        assertEquals(nbtDocument, decodedDocument)
+        assertEquals(STONE, decodedChunk.block(3, TEST_LAYOUT.minBlockY, 5))
+        assertEquals(decodedChunk.metadata, decodedDocument.toChunk(position, TEST_CODEC).metadata)
+
+        val recompressedChunk = decodedChunk.toCompressedChunk(
+            position = position,
+            codec = TEST_CODEC,
+            compression = Compression.LZ4,
+        )
+        assertEquals(Compression.LZ4, recompressedChunk.compression)
+        assertEquals(STONE, recompressedChunk.toChunk(position, TEST_CODEC).block(3, TEST_LAYOUT.minBlockY, 5))
+
+        val nbtSink = Buffer()
+        decodedChunk.writeTo(nbtSink, position, TEST_CODEC)
+        assertEquals(nbtDocument, TEST_CODEC.nbt.decodeDocumentFromSource(nbtSink))
+
+        val decompressedSink = Buffer()
+        compressedChunk.writeDecompressedTo(decompressedSink)
+        assertEquals(nbtDocument, TEST_CODEC.nbt.decodeDocumentFromSource(decompressedSink))
+    }
+
+    @Test
+    fun compressedAndDocumentValuesOfferFluentTypedNbtDecoding() {
+        val value = TypedNbtValue(41)
+        val format = CompressedNbtFormat()
+        val compressedChunk = format.encode(TypedNbtValue.serializer(), value)
+
+        assertEquals(value, compressedChunk.decodeNbt<TypedNbtValue>(format))
+    }
+
+    @Test
+    fun compressedInputsAndSourcesCanContinueAsDetachedValues() {
+        val input = object : CompressedChunkInput {
+            override val compression: Compression = Compression.NONE
+            override val compressedByteCount: Long = 3
+
+            override fun writeTo(sink: kotlinx.io.Sink) {
+                sink.write(byteArrayOf(1, 2, 3))
+            }
+        }
+        val compressedChunk = input.toCompressedChunk()
+        val source = Buffer().apply { compressedChunk.writeTo(this) }
+
+        assertContentEquals(byteArrayOf(1, 2, 3), compressedChunk.toByteArray())
+        assertEquals(compressedChunk, source.readCompressedChunk(Compression.NONE))
+    }
+
+    @Test
+    fun ordinaryPaletteWritesKeepStableIdsUntilEncodingCompactsThem() {
+        val container = PalettedContainer(4, "air")
+        container[0] = "stone"
+        container[1] = "dirt"
+        container[0] = "air"
+        container[1] = "air"
+
+        assertEquals(listOf("air", "stone", "dirt"), container.paletteSnapshot().values)
+        assertEquals(setOf("air"), container.distinctValues())
+
+        val chunk = emptyChunk()
+        chunk.setBlock(0, TEST_LAYOUT.minBlockY, 0, STONE)
+        chunk.setBlock(0, TEST_LAYOUT.minBlockY, 0, AIR)
+        val document = TEST_CODEC.encodeDocument(chunk, ChunkPosition(0, 0))
+        val sections = document.root["sections"] as NbtList
+        val section = sections.value.single() as NbtCompound
+        val blockStates = section["block_states"] as NbtCompound
+
+        assertEquals(1, (blockStates["palette"] as NbtList).size)
+        assertNull(blockStates["data"])
+    }
+
+    @Test
+    fun palettesCanBeCompactedInPlaceOrInspectedAsCompactSnapshots() {
+        val container = PalettedContainer(4, "air")
+        container[0] = "stone"
+        container[1] = "dirt"
+        container[0] = "dirt"
+        val denseValues = container.toDenseList()
+
+        val compactPalette = container.compactSnapshot()
+
+        assertEquals(listOf("dirt", "air"), compactPalette.values)
+        assertEquals(listOf(0, 0, 1, 1), compactPalette.ids)
+        assertEquals(1, compactPalette.bitsPerEntry)
+        assertEquals(4, compactPalette.entryCount)
+        assertEquals(denseValues, List(compactPalette.entryCount) { compactPalette[it] })
+        assertEquals(listOf("air", "stone", "dirt"), container.paletteSnapshot().values)
+
+        container.compact()
+
+        assertEquals(listOf("dirt", "air"), container.paletteSnapshot().values)
+        assertEquals(denseValues, container.toDenseList())
+    }
+
+    @Test
+    fun decodingPreservesPersistedPaletteOrderAndUnusedEntries() {
+        val position = ChunkPosition(0, 0)
+        val chunk = emptyChunk()
+        chunk.setBlock(0, TEST_LAYOUT.minBlockY, 0, STONE)
+        val document = TEST_CODEC.encodeDocument(chunk, position)
+        val root = document.root.value.toMutableMap()
+        val encodedSection = (root.getValue("sections") as NbtList).value.single() as NbtCompound
+        val section = encodedSection.value.toMutableMap()
+        section["block_states"] = NbtCompound(
+            mapOf(
+                "palette" to NbtList(
+                    listOf(
+                        NbtCompound(mapOf("Name" to NbtString(AIR.name))),
+                        NbtCompound(mapOf("Name" to NbtString(STONE.name))),
+                        NbtCompound(
+                            mapOf(
+                                "Name" to NbtString(WATER.name),
+                                "Properties" to NbtCompound(
+                                    WATER.properties.mapValues { (_, value) -> NbtString(value) },
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                "data" to NbtLongArray(LongArray(256) { 0x1111111111111111L }),
+            ),
+        )
+        root["sections"] = NbtList(listOf(NbtCompound(section)))
+
+        val decoded = TEST_CODEC.decodeDocument(
+            com.hiczp.minecraft.nbt.NbtDocument(NbtCompound(root)),
+            position,
+        )
+
+        assertEquals(
+            listOf(AIR, STONE, WATER),
+            decoded.section(TEST_LAYOUT.minSectionY)?.blockStates?.paletteSnapshot()?.values,
+        )
+        assertEquals(STONE, decoded.block(0, TEST_LAYOUT.minBlockY, 0))
+    }
+
+    @Test
+    fun semanticChunkRoundTripsWithOfficialDiskPalettePacking() {
+        val position = ChunkPosition(-25, 43)
+        val chunk = emptyChunk()
+        val lowY = TEST_LAYOUT.minBlockY
+        chunk.setBlock(0, lowY, 0, STONE)
+        chunk.setBlock(15, lowY + 15, 15, WATER)
+        chunk.setBiome(12, lowY + 12, 12, "minecraft:desert")
+
+        val document = TEST_CODEC.encodeDocument(chunk, position)
+        val section = ((document.root["sections"] as NbtList).value.single() as NbtCompound)
+        val blockStates = section["block_states"] as NbtCompound
+        val biomes = section["biomes"] as NbtCompound
+
+        assertEquals(3, (blockStates["palette"] as NbtList).size)
+        assertEquals(256, (blockStates["data"] as NbtLongArray).size)
+        assertEquals(2, (biomes["palette"] as NbtList).size)
+        assertEquals(1, (biomes["data"] as NbtLongArray).size)
+
+        val decoded = TEST_CODEC.decodeDocument(document, position)
+        assertEquals(STONE, decoded.block(0, lowY, 0))
+        assertEquals(WATER, decoded.block(15, lowY + 15, 15))
+        assertEquals(AIR, decoded.block(1, lowY, 0))
+        assertEquals("minecraft:desert", decoded.biome(12, lowY + 12, 12))
+        assertEquals("minecraft:plains", decoded.biome(0, lowY, 0))
+
+        val bytes = Buffer()
+        TEST_CODEC.encodeToSink(decoded, position, bytes)
+        assertEquals(decoded.metadata, TEST_CODEC.decodeFromSource(bytes, position).metadata)
+    }
+
+    @Test
+    fun chunkPositionIsCodecContextRatherThanChunkState() {
+        val chunk = emptyChunk()
+        val first = TEST_CODEC.encodeDocument(chunk, ChunkPosition(-1, -1))
+        val second = TEST_CODEC.encodeDocument(chunk, ChunkPosition(32, 64))
+
+        assertEquals(-1, (first.root["xPos"] as NbtInt).value)
+        assertEquals(-1, (first.root["zPos"] as NbtInt).value)
+        assertEquals(32, (second.root["xPos"] as NbtInt).value)
+        assertEquals(64, (second.root["zPos"] as NbtInt).value)
+        TEST_CODEC.decodeDocument(first, ChunkPosition(-1, -1))
+        assertFailsWith<ChunkNbtFormatException> {
+            TEST_CODEC.decodeDocument(first, ChunkPosition(0, 0))
+        }
+    }
+
+    @Test
+    fun encodingRejectsDefaultsThatWouldChangeWhenMissingSectionsAreDecoded() {
+        val chunk = Chunk(
+            metadata = ChunkMetadata(TEST_DATA_VERSION, status = "minecraft:full"),
+            layout = TEST_LAYOUT,
+            defaultBlockState = STONE,
+            defaultBiome = "minecraft:plains",
+        )
+
+        assertFailsWith<ChunkNbtFormatException> {
+            TEST_CODEC.encodeDocument(chunk, ChunkPosition(0, 0))
+        }
+    }
+
+    @Test
+    fun lightOnlySectionsRemainExplicitWithoutBecomingSemanticSections() {
+        val light = SectionLighting(blockLight = com.hiczp.minecraft.nbt.NbtByteArray(ByteArray(2_048)))
+        val chunk = Chunk(
+            metadata = ChunkMetadata(
+                dataVersion = TEST_DATA_VERSION,
+                status = "minecraft:full",
+                lightOnlySections = mapOf(TEST_LAYOUT.maxSectionY + 1 to light),
+            ),
+            layout = TEST_LAYOUT,
+            defaultBlockState = AIR,
+            defaultBiome = "minecraft:plains",
+        )
+
+        val decoded = TEST_CODEC.decodeDocument(
+            TEST_CODEC.encodeDocument(chunk, ChunkPosition(0, 0)),
+            ChunkPosition(0, 0),
+        )
+
+        assertEquals(emptyList(), decoded.sections.toList())
+        assertEquals(light, decoded.metadata.lightOnlySections.getValue(TEST_LAYOUT.maxSectionY + 1))
+    }
+
+    @Test
+    fun creatingASemanticSectionPromotesItsExistingLighting() {
+        val sectionY = TEST_LAYOUT.minSectionY
+        val light = SectionLighting(skyLight = com.hiczp.minecraft.nbt.NbtByteArray(ByteArray(2_048) { 1 }))
+        val chunk = Chunk(
+            metadata = ChunkMetadata(
+                dataVersion = TEST_DATA_VERSION,
+                status = "minecraft:full",
+                lightOnlySections = mapOf(sectionY to light),
+            ),
+            layout = TEST_LAYOUT,
+            defaultBlockState = AIR,
+            defaultBiome = "minecraft:plains",
+        )
+
+        val section = chunk.getOrCreateSection(sectionY)
+
+        assertEquals(light.skyLight, section.skyLight)
+        assertTrue(chunk.metadata.lightOnlySections.isEmpty())
+    }
+
+    @Test
+    fun chunkSnapshotsMetadataCollections() {
+        val sectionY = TEST_LAYOUT.maxSectionY + 1
+        val light = SectionLighting(blockLight = com.hiczp.minecraft.nbt.NbtByteArray(ByteArray(2_048)))
+        val lightOnlySections = mutableMapOf(sectionY to light)
+        val chunk = Chunk(
+            metadata = ChunkMetadata(
+                dataVersion = TEST_DATA_VERSION,
+                status = "minecraft:full",
+                lightOnlySections = lightOnlySections,
+            ),
+            layout = TEST_LAYOUT,
+            defaultBlockState = AIR,
+            defaultBiome = "minecraft:plains",
+        )
+
+        lightOnlySections.clear()
+
+        assertEquals(light, chunk.metadata.lightOnlySections.getValue(sectionY))
+    }
+
+    @Test
+    fun callerSuppliedDomainValuesRoundTripWithoutAProtocolModuleDependency() {
+        val air = ModBlockState("minecraft:air", emptyMap())
+        val lamp = ModBlockState("example:lamp", mapOf("lit" to "true"))
+        val registry = object : BlockStateRegistry<ModBlockState> {
+            override val defaultValue = air
+
+            override fun resolve(descriptor: BlockStateDescriptor): ModBlockState? =
+                listOf(air, lamp).firstOrNull { it.name == descriptor.name && it.properties == descriptor.properties }
+
+            override fun describe(value: ModBlockState): BlockStateDescriptor? =
+                BlockStateDescriptor(value.name, value.properties)
+        }
+        val codec = ChunkNbtCodec(
+            ChunkNbtContext(
+                layout = TEST_LAYOUT,
+                registries = ChunkDataRegistries(registry, NamedBiomeRegistry()),
+                expectedDataVersion = TEST_DATA_VERSION,
+            ),
+        )
+        val chunk = Chunk(
+            metadata = ChunkMetadata(TEST_DATA_VERSION, status = "minecraft:full"),
+            layout = TEST_LAYOUT,
+            defaultBlockState = air,
+            defaultBiome = "minecraft:plains",
+        )
+        chunk.setBlock(1, TEST_LAYOUT.minBlockY, 2, lamp)
+
+        val decoded = codec.decodeDocument(codec.encodeDocument(chunk, ChunkPosition(0, 0)), ChunkPosition(0, 0))
+
+        assertEquals(lamp, decoded.block(1, TEST_LAYOUT.minBlockY, 2))
+    }
+
+    @Test
+    fun strongProjectionRejectsUnmodeledFieldsWhileDocumentRemainsComplete() {
+        val position = ChunkPosition(0, 0)
+        val ordinary = TEST_CODEC.encodeDocument(emptyChunk(), position)
+        val extendedRoot = ordinary.root.value.toMutableMap()
+        extendedRoot["modded_payload"] = NbtInt(7)
+        val extended = com.hiczp.minecraft.nbt.NbtDocument(NbtCompound(extendedRoot))
+
+        assertEquals(NbtInt(7), extended.root["modded_payload"])
+        assertFailsWith<ChunkNbtFormatException> {
+            TEST_CODEC.decodeDocument(extended, position)
+        }
+    }
+
+    private fun emptyChunk(): Chunk<BlockStateDescriptor, String> = Chunk(
+        metadata = ChunkMetadata(
+            dataVersion = TEST_DATA_VERSION,
+            lastUpdateTime = 12,
+            inhabitedTime = 34,
+            status = "minecraft:full",
+        ),
+        layout = TEST_LAYOUT,
+        defaultBlockState = AIR,
+        defaultBiome = "minecraft:plains",
+    )
+
+    private companion object {
+        const val TEST_DATA_VERSION = 9_999
+        val TEST_LAYOUT = ChunkLayout(minSectionY = -4, sectionCount = 24)
+        val AIR = BlockStateDescriptor("minecraft:air")
+        val STONE = BlockStateDescriptor("minecraft:stone")
+        val WATER = BlockStateDescriptor("minecraft:water", mapOf("level" to "0"))
+        val TEST_CODEC = ChunkNbtCodec(
+            ChunkNbtContext(
+                layout = TEST_LAYOUT,
+                registries = ChunkDataRegistries(
+                    blockStates = DescriptorBlockStateRegistry(AIR),
+                    biomes = NamedBiomeRegistry(),
+                ),
+                expectedDataVersion = TEST_DATA_VERSION,
+            ),
+        )
+    }
+
+    private data class ModBlockState(
+        val name: String,
+        val properties: Map<String, String>,
+    )
+
+    @Serializable
+    private data class TypedNbtValue(val value: Int)
+}

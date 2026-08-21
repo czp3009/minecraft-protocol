@@ -14,6 +14,8 @@ This module owns the physical Java Edition binary NBT and SNBT grammars plus the
   `Source` or `Sink` instances.
 - Binary serialization writes directly from serializer events to the caller's `Sink` and reads directly from the
   caller's `Source`; tree and byte-array APIs are optional adapters, not hidden staging in the stream path.
+- Generic `NbtDocument` receiver extensions for serializer projection and binary output belong here so IDE completion
+  can continue from the tree without making the logical `nbt` module depend on physical serialization.
 - SNBT tag serialization traverses directly to a caller-owned `Sink`, and parsing incrementally decodes UTF-8 from a
   caller-owned `Source` without staging the complete text. A returned tag tree and the shared tree used by generic
   `kotlinx.serialization` conversion are the intentional retained forms.

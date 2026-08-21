@@ -10,7 +10,7 @@ import kotlinx.io.*
  * the stream terminator and checksum. A decompressing decorator validates the
  * complete stream when it is read through end-of-stream.
  *
- * Malformed GZIP or LZ4Block framing is reported as [RegionFormatException]
+ * Malformed GZIP or LZ4Block framing is reported as [CompressionFormatException]
  * because this module owns those vanilla storage framings; raw GZIP and ZLIB
  * libraries still own their algorithms. I/O and backend failures retain their
  * kotlinx-io exception type so callers can distinguish invalid data from
@@ -58,15 +58,15 @@ interface CompressionCodec {
  * exist for ID 127 custom compression, but may replace any implementation.
  * Stream methods are canonical; byte-array methods are in-memory adapters.
  */
-sealed class CompressionCodecs(
+sealed class CompressionRegistry(
     private val overrides: Map<Compression, CompressionCodec>,
 ) {
-    companion object Default : CompressionCodecs(emptyMap()) {
+    companion object Default : CompressionRegistry(emptyMap()) {
         operator fun invoke(
             overrides: Map<Compression, CompressionCodec> =
                 emptyMap(),
-        ): CompressionCodecs =
-            ConfiguredCompressionCodecs(overrides.toMap())
+        ): CompressionRegistry =
+            ConfiguredCompressionRegistry(overrides.toMap())
     }
 
     fun compressingSink(
@@ -113,15 +113,15 @@ sealed class CompressionCodecs(
             Compression.ZLIB -> ZlibCodec
             Compression.NONE -> NoneCodec
             Compression.LZ4 -> Lz4BlockCodec
-            Compression.CUSTOM -> throw RegionFormatException(
+            Compression.CUSTOM -> throw CompressionFormatException(
                 "Custom compression requires a registered codec",
             )
         }
 }
 
-private class ConfiguredCompressionCodecs(
+private class ConfiguredCompressionRegistry(
     overrides: Map<Compression, CompressionCodec>,
-) : CompressionCodecs(overrides)
+) : CompressionRegistry(overrides)
 
 private object NoneCodec : CompressionCodec {
     override fun compressingSink(sink: Sink): RawSink = sink.callerOwned()
@@ -156,16 +156,16 @@ private fun validateGzipHeader(source: Source) {
             source.readByte().toInt() and 0xFF != 0x1F ||
             source.readByte().toInt() and 0xFF != 0x8B
         ) {
-            throw RegionFormatException("Invalid GZIP magic")
+            throw CompressionFormatException("Invalid GZIP magic")
         }
         if (source.readByte().toInt() and 0xFF != 8) {
-            throw RegionFormatException("Unsupported GZIP compression method")
+            throw CompressionFormatException("Unsupported GZIP compression method")
         }
         if (source.readByte().toInt() and 0xE0 != 0) {
-            throw RegionFormatException("Invalid reserved GZIP flags")
+            throw CompressionFormatException("Invalid reserved GZIP flags")
         }
     } catch (failure: EOFException) {
-        throw RegionFormatException("Truncated GZIP header", failure)
+        throw CompressionFormatException("Truncated GZIP header", failure)
     }
 }
 
@@ -351,7 +351,7 @@ private class Lz4BlockDecompressingRawSource(upstream: Source) : RawSource {
         try {
             repeat(LZ4_MAGIC.size) { index ->
                 if (upstream.readByte() != LZ4_MAGIC[index]) {
-                    throw RegionFormatException("Invalid LZ4Block magic")
+                    throw CompressionFormatException("Invalid LZ4Block magic")
                 }
             }
             val token = upstream.readByte().toInt() and 0xFF
@@ -361,7 +361,7 @@ private class Lz4BlockDecompressingRawSource(upstream: Source) : RawSource {
                 method != LZ4_RAW_METHOD && method != LZ4_METHOD ||
                 compressionLevel != LZ4_COMPRESSION_LEVEL
             ) {
-                throw RegionFormatException("Invalid LZ4Block token")
+                throw CompressionFormatException("Invalid LZ4Block token")
             }
             val compressedLength = upstream.readIntLe()
             val originalLength = upstream.readIntLe()
@@ -373,14 +373,14 @@ private class Lz4BlockDecompressingRawSource(upstream: Source) : RawSource {
                 (method == LZ4_RAW_METHOD &&
                         originalLength != compressedLength)
             ) {
-                throw RegionFormatException("Invalid LZ4Block lengths")
+                throw CompressionFormatException("Invalid LZ4Block lengths")
             }
             if (originalLength == 0) {
                 if (method != LZ4_RAW_METHOD || expectedChecksum != 0) {
-                    throw RegionFormatException("Invalid LZ4Block end marker")
+                    throw CompressionFormatException("Invalid LZ4Block end marker")
                 }
                 if (!upstream.exhausted()) {
-                    throw RegionFormatException(
+                    throw CompressionFormatException(
                         "Trailing bytes after LZ4Block end marker",
                     )
                 }
@@ -394,26 +394,26 @@ private class Lz4BlockDecompressingRawSource(upstream: Source) : RawSource {
                 try {
                     platformRawLz4Decompress(encoded, originalLength)
                 } catch (failure: IOException) {
-                    throw RegionFormatException("Invalid raw LZ4 block", failure)
+                    throw CompressionFormatException("Invalid raw LZ4 block", failure)
                 }
             }
             if (decoded.size != originalLength) {
-                throw RegionFormatException("LZ4 block length mismatch")
+                throw CompressionFormatException("LZ4 block length mismatch")
             }
             val actualChecksum = platformXxHash32(
                 decoded,
                 LZ4_XXHASH_SEED,
             ) and LZ4_CHECKSUM_MASK
             if (actualChecksum != expectedChecksum) {
-                throw RegionFormatException("Invalid LZ4Block XXHash-32")
+                throw CompressionFormatException("Invalid LZ4Block XXHash-32")
             }
             block = decoded
             blockOffset = 0
             return true
-        } catch (failure: RegionFormatException) {
+        } catch (failure: CompressionFormatException) {
             throw failure
         } catch (failure: EOFException) {
-            throw RegionFormatException("Truncated LZ4Block stream", failure)
+            throw CompressionFormatException("Truncated LZ4Block stream", failure)
         }
     }
 }

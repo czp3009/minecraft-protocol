@@ -4,7 +4,7 @@ import com.hiczp.minecraft.world.format.ChunkPosition
 import com.hiczp.minecraft.world.format.RegionPosition
 import okio.Path
 
-enum class RegionStorageDirectory(val directoryName: String) {
+internal enum class RegionStorageDirectory(val directoryName: String) {
     CHUNKS("region"),
     ENTITIES("entities"),
     POINTS_OF_INTEREST("poi"),
@@ -105,19 +105,19 @@ class MinecraftWorldPaths(
         ) { path, segment -> path / segment }
     }
 
-    fun regionDirectory(
+    internal fun regionDirectory(
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
     ): Path = dimension(dimension) / storage.directoryName
 
-    fun regionFile(
+    internal fun regionFile(
         position: RegionPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
     ): Path = regionDirectory(storage, dimension) /
             "r.${position.x}.${position.z}.mca"
 
-    fun externalChunk(
+    internal fun externalChunk(
         position: ChunkPosition,
         storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
         dimension: DimensionDirectory = DimensionDirectory.Overworld,

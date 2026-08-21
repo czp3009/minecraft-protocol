@@ -1,16 +1,18 @@
 package com.hiczp.minecraft.protocol.client
 
 import com.hiczp.minecraft.protocol.auth.*
+import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.data.ProtocolDataSet
 import com.hiczp.minecraft.protocol.data.VanillaProtocolData
 import com.hiczp.minecraft.protocol.data.resolveSynchronizedRegistryContext
-import com.hiczp.minecraft.protocol.data.withPlayLoginDimension
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.session.ClientNegotiationProfile
 import com.hiczp.minecraft.protocol.session.NegotiationProfileResult
 import com.hiczp.minecraft.protocol.session.VanillaClient
+import com.hiczp.minecraft.world.format.ChunkLayout
+import com.hiczp.minecraft.world.format.MinecraftCoordinates
 import io.ktor.client.*
 
 data class MinecraftStatusExchange(
@@ -35,8 +37,15 @@ data class MinecraftClientNegotiationResult(
     val login: LoginSuccessPacket,
     val configuration: MinecraftClientConfiguration,
     val playLogin: PlayLoginPacket,
+    val dimensionLayout: MinecraftDimensionLayout,
     val profile: NegotiationProfileResult,
-)
+) {
+    /** The world-Chunk layout selected by the server for the initial Play dimension. */
+    val chunkLayout: ChunkLayout = ChunkLayout(
+        minSectionY = MinecraftCoordinates.sectionCoordinate(dimensionLayout.minY),
+        sectionCount = dimensionLayout.sectionCount,
+    )
+}
 
 sealed interface ClientNegotiationQueryResult {
     data object Pass : ClientNegotiationQueryResult
@@ -138,12 +147,13 @@ suspend fun MinecraftClientConnection.negotiate(
     }
     val login = negotiateLogin(identity, sessionHttpClient, profile, options)
     val configuration = negotiateConfiguration(profile, options)
-    val playLogin = awaitPlayLogin(configuration.registries, options)
+    val play = awaitPlayLogin(configuration.registries, options)
     val profileResult = profile.complete(this)
     return MinecraftClientNegotiationResult(
         login = login,
         configuration = configuration,
-        playLogin = playLogin,
+        playLogin = play.packet,
+        dimensionLayout = play.dimensionLayout,
         profile = profileResult,
     )
 }
@@ -307,19 +317,20 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
 private suspend fun MinecraftClientConnection.awaitPlayLogin(
     registryPackets: List<RegistryDataPacket>,
     options: MinecraftClientNegotiationOptions,
-): PlayLoginPacket {
+): MinecraftClientPlayLogin {
     repeat(options.maximumPacketsPerPhase) {
         when (val packet = incoming.receive()) {
             is PlayLoginPacket -> {
-                val activeContext = registryContextOrClientFailure {
-                    registries.withPlayLoginDimension(
+                val dimensionLayout = registryContextOrClientFailure {
+                    MinecraftDimensionLayout.from(
                         login = packet,
                         registries = registryPackets,
                         protocolData = options.protocolData,
                     )
                 }
+                val activeContext = registries.withChunkSectionCount(dimensionLayout.sectionCount)
                 installRegistryContext(activeContext)
-                return packet
+                return MinecraftClientPlayLogin(packet, dimensionLayout)
             }
 
             else -> {
@@ -335,6 +346,11 @@ private suspend fun MinecraftClientConnection.awaitPlayLogin(
     }
     throw MinecraftClientException("Play Login packet limit exceeded")
 }
+
+private data class MinecraftClientPlayLogin(
+    val packet: PlayLoginPacket,
+    val dimensionLayout: MinecraftDimensionLayout,
+)
 
 private suspend fun MinecraftClientConnection.handleLoginExtension(
     profile: ClientNegotiationProfile,
@@ -445,9 +461,9 @@ private suspend fun MinecraftClientConnection.answerEncryptionRequest(
     }
 }
 
-private inline fun registryContextOrClientFailure(
-    operation: () -> ProtocolRegistryContext,
-): ProtocolRegistryContext = try {
+private inline fun <T> registryContextOrClientFailure(
+    operation: () -> T,
+): T = try {
     operation()
 } catch (failure: IllegalArgumentException) {
     throw MinecraftClientException(

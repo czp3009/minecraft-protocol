@@ -55,6 +55,7 @@ kotlin {
             api(project(":protocol-transport"))
             api(project(":protocol-auth"))
             api(project(":protocol-vanilla-data"))
+            api(project(":world-format"))
             api(libs.ktor.client.core)
             api(libs.ktor.network)
             api(libs.ktor.utils)

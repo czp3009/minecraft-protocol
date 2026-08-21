@@ -6,14 +6,23 @@ A Kotlin Multiplatform server-side Minecraft Java Edition protocol API.
 negotiation or install per-connection callbacks. The application owns the accept loop and concurrency:
 
 ```kotlin
-MinecraftServer.bind(selectorManager = selector).use { server ->
-    while (server.isOpen) {
-        val connection = server.accept()
-        launch {
-            connection.use {
-                connection.negotiate() ?: return@use
-                for (packet in connection.incoming) {
-                    handlePlayPacket(connection, packet)
+suspend fun runMinecraftServer(
+    selectorManager: SelectorManager,
+    handlePlayPacket: suspend (MinecraftServerConnection, ClientboundPacket) -> Unit,
+) {
+    coroutineScope {
+        MinecraftServer.bind(selectorManager = selectorManager).use { minecraftServer ->
+            while (minecraftServer.isOpen) {
+                val minecraftServerConnection = minecraftServer.accept()
+                launch {
+                    minecraftServerConnection.use {
+                        val minecraftServerNegotiationResult = minecraftServerConnection.negotiate()
+                        if (minecraftServerNegotiationResult != null) {
+                            for (clientboundPacket in minecraftServerConnection.incoming) {
+                                handlePlayPacket(minecraftServerConnection, clientboundPacket)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -128,17 +137,165 @@ its registry-aware snapshot overloads so block-state, biome, and entity-type IDs
 to place the player and accept chunks and entities:
 
 ```kotlin
-val world = MinecraftInitialWorld.flatVanilla(
-    options = options,
-    chunkRadius = 0,
-)
-
-val synchronization = connection.synchronizeInitialWorld(
-    world = world,
-    login = ready.playLogin,
-)
+suspend fun synchronizeFlatInitialWorld(
+    minecraftServerConnection: MinecraftServerConnection,
+    minecraftServerNegotiationResult: MinecraftServerNegotiationResult,
+    minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
+): MinecraftInitialWorldSynchronization {
+    val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(
+        options = minecraftServerNegotiationOptions,
+        chunkRadius = 0,
+    )
+    return minecraftServerConnection.synchronizeInitialWorld(
+        world = minecraftInitialWorld,
+        login = minecraftServerNegotiationResult.playLogin,
+    )
+}
 ```
 
 `login` is explicit state, not a hidden connection marker. An application-defined negotiation passes the exact
 `PlayLoginPacket` it sent; preset callers pass `MinecraftServerNegotiationResult.playLogin`. Reconfiguration and respawn
 likewise pass the currently active Play Login, so synchronization never guesses from stale connection history.
+
+### In-memory Chunk to packet
+
+An application that already has a semantic `Chunk` in memory does not need `world-io`. Create one immutable
+`MinecraftChunkPacketEncoder` for the active registry/dimension context and reuse it for every Chunk. Conversion is the
+direct receiver-oriented call `chunk.toMinecraftChunkSnapshot(...)`:
+
+```kotlin
+fun createMinecraftChunkSnapshots(
+    minecraftServerConnection: MinecraftServerConnection,
+    minecraftDimensionLayout: MinecraftDimensionLayout,
+    chunksByPosition: Map<ChunkPosition, Chunk<ProtocolBlockState, ProtocolRegistryEntry>>,
+    isAir: (ProtocolBlockState) -> Boolean,
+    hasFluid: (ProtocolBlockState) -> Boolean,
+): List<MinecraftChunkSnapshot> {
+    val minecraftChunkPacketEncoder = MinecraftChunkPacketEncoder(
+        registries = minecraftServerConnection.registries,
+        isAir = isAir,
+        hasFluid = hasFluid,
+        hasSkyLight = minecraftDimensionLayout.hasSkyLight,
+    )
+    return chunksByPosition.map { (chunkPosition, chunk) ->
+        chunk.toMinecraftChunkSnapshot(
+            position = chunkPosition,
+            encoder = minecraftChunkPacketEncoder,
+        )
+    }
+}
+```
+
+Put the returned snapshot in `MinecraftInitialWorld.chunks`; `synchronizeInitialWorld` sends its
+`ChunkDataAndUpdateLightPacket`. A snapshot's `packet()` method also exposes that packet directly. Palette values are
+packed from the semantic Chunk without first constructing a dense 4096-element block list.
+
+This is the normal server path: an authoritative server usually sends the Chunk already held by its in-memory world or
+Chunk cache. Persistence is only a fallback when that value is absent.
+
+### Disk Chunk to in-memory Chunk to packet
+
+`protocol-server` does not open world files. An application that wants to send stored Chunks adds `world-io` alongside
+`protocol-server`. The path is `MinecraftWorldAccess` → `RegionHandle.readChunk` → `Chunk` →
+`MinecraftChunkSnapshot`; `ChunkNbtCodec` performs the disk NBT-to-semantic-Chunk conversion, then the same packet
+encoder used by the in-memory path performs the network projection.
+
+The following is a complete disk-backed synchronization example. It receives an already-open
+`MinecraftWorldAccess`, so acquiring `session.lock` is not coupled to a player joining:
+
+```kotlin
+suspend fun synchronizeStoredInitialWorld(
+    minecraftServerConnection: MinecraftServerConnection,
+    minecraftServerNegotiationResult: MinecraftServerNegotiationResult,
+    minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
+    minecraftWorldAccess: MinecraftWorldAccess,
+    dimensionIdentifier: Identifier,
+    spawnPosition: Vector3d,
+    chunkPositions: List<ChunkPosition>,
+    expectedDataVersion: Int,
+    isAir: (ProtocolBlockState) -> Boolean,
+    hasFluid: (ProtocolBlockState) -> Boolean,
+): MinecraftInitialWorldSynchronization {
+    require(chunkPositions.distinct().size == chunkPositions.size)
+    val minecraftDimensionLayout = MinecraftDimensionLayout.from(
+        minecraftServerNegotiationOptions.protocolData,
+        dimensionIdentifier,
+    )
+    val chunkLayout = minecraftDimensionLayout.toChunkLayout()
+    val minecraftChunkPacketEncoder = MinecraftChunkPacketEncoder(
+        registries = minecraftServerConnection.registries,
+        isAir = isAir,
+        hasFluid = hasFluid,
+        hasSkyLight = minecraftDimensionLayout.hasSkyLight,
+    )
+    val chunkNbtContext = ChunkNbtContext(
+        layout = chunkLayout,
+        registries = minecraftChunkPacketEncoder.chunkDataRegistries,
+        expectedDataVersion = expectedDataVersion,
+    )
+    val chunkNbtCodec = ChunkNbtCodec(chunkNbtContext)
+    val chunkPositionsByRegion = chunkPositions.groupBy(ChunkPosition::region)
+
+    val minecraftChunkSnapshots = buildList {
+        for ((regionPosition, regionChunkPositions) in chunkPositionsByRegion) {
+            minecraftWorldAccess.openRegion(regionPosition).use { regionHandle ->
+                for (chunkPosition in regionChunkPositions) {
+                    val chunk = regionHandle.readChunk(chunkPosition, chunkNbtCodec) ?: continue
+                    add(
+                        chunk.toMinecraftChunkSnapshot(
+                            position = chunkPosition,
+                            encoder = minecraftChunkPacketEncoder,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+    val minecraftInitialWorld = MinecraftInitialWorld(
+        dimension = dimensionIdentifier,
+        dimensionType = minecraftDimensionLayout,
+        spawnPosition = spawnPosition,
+        viewDistance = minecraftServerNegotiationOptions.viewDistance,
+        simulationDistance = minecraftServerNegotiationOptions.simulationDistance,
+        difficulty = minecraftServerNegotiationOptions.difficulty,
+        difficultyLocked = minecraftServerNegotiationOptions.difficultyLocked,
+        playerAbilities = MinecraftInitialWorld.vanillaPlayerAbilities(minecraftServerNegotiationOptions.gameMode),
+        chunks = minecraftChunkSnapshots,
+    )
+    return minecraftServerConnection.synchronizeInitialWorld(
+        world = minecraftInitialWorld,
+        login = minecraftServerNegotiationResult.playLogin,
+    )
+}
+```
+
+A real server normally opens the world once during application startup, holds its `session.lock` lease for the server
+process lifetime, and closes it during shutdown. The whole server can remain inside one `use` scope:
+
+```kotlin
+suspend fun runMinecraftServerWithWorld(
+    worldPath: Path,
+    runMinecraftServer: suspend (MinecraftWorldAccess) -> Unit,
+) {
+    MinecraftWorldAccess.open(worldPath).use { minecraftWorldAccess ->
+        runMinecraftServer(minecraftWorldAccess)
+    }
+}
+```
+
+The disk function above is an integration example, not a recommendation to read every player-visible Chunk from disk on
+every join. A typical application first looks up each requested position in its in-memory world or Chunk cache, converts
+every hit with `chunk.toMinecraftChunkSnapshot(...)`, and calls the disk path only for the missing positions. Grouping
+those misses by `ChunkPosition.region`, as the example does, lets one `RegionHandle` serve all requested Chunks from
+that Region.
+
+`openRegion` is lazy and does not fail merely because a Region is missing; a missing Chunk is skipped by the nullable
+`readChunk` result. The encoder's `chunkDataRegistries` maps persisted block descriptors and biome names through the
+exact registry context installed on this connection, including loader-resolved values. Registry IDs alone do not say
+whether a state is air or contains fluid, so `isAir` and `hasFluid` come from the same selected-release vanilla/mod data
+catalogue used by the application. The encoder uses them to calculate the two section counts required by the wire
+format.
+
+By default, persisted block-entity `id`/`x`/`y`/`z` fields become the packet's separate metadata and the remaining
+compound becomes its update tag. A block-entity implementation with a type-specific client update tag can supply
+`blockEntityUpdateTag` when constructing `MinecraftChunkPacketEncoder`.

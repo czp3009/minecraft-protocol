@@ -1,658 +1,605 @@
 # world-io
 
-Okio-based access to Minecraft world directories. The module owns paths, standalone NBT/JSON files, Anvil filesystem
-policy, live reads, replacement policy, and `session.lock`; binary formats remain in `nbt-serialization` and
+`world-io` provides Okio-backed access to Minecraft world directories. Its public Chunk API follows the logical
+hierarchy users work with:
+
+```text
+world access -> Region handle -> Chunk -> Section -> block or biome
+```
+
+The module deliberately hides how a Region is split across physical files. Filesystem-independent coordinates,
+compression, Anvil containers, NBT composition, and semantic Chunk models belong to
 [`world-format`](../world-format/README.md).
 
-Choose the narrowest entry point that owns the behavior you need:
+## Read a block through the mutable path
 
-| Entry point                 | Use                                                            |
-|-----------------------------|----------------------------------------------------------------|
-| `MinecraftWorldAccess`      | Mutate a complete world while holding its `session.lock`       |
-| `LiveMinecraftWorldReader`  | Read a world currently owned by another process                |
-| `WorldRegionStore`          | Coordinate all `.mca` files in one Region directory            |
-| `RegionFileStore`           | Mutate one exact `.mca` file without higher-level coordination |
-| `LiveRegionFileReader`      | Read one exact `.mca` file without coordination                |
-| Standalone stores and paths | Compose individual world files without a whole-world owner     |
+Use `MinecraftWorldAccess` when this process owns the world. `open` creates the world directory when necessary and
+immediately acquires its vanilla `session.lock`. Both `MinecraftWorldAccess` and `RegionHandle` provide plain suspend
+`close()` methods and a suspend `use {}` shortcut. Close every Region handle before closing the world access; the world
+close waits for outstanding handles and releases `session.lock` last.
 
-## One API shape
-
-Each data layer offers the same progression from convenient values to physical streams:
-
-| Layer                       | Complete value | Typed value                                   | Streaming callback                     |
-|-----------------------------|----------------|-----------------------------------------------|----------------------------------------|
-| Region                      | `RegionFile`   | Chunk-by-Chunk through `RegionChunkNbtFormat` | `RegionReadScope` / `RegionWriteScope` |
-| Chunk                       | `RegionChunk`  | `readChunkNbt` / `writeChunkNbt`              | compressed `Source` / `Sink`           |
-| Standalone NBT              | `NbtDocument`  | serializer or reified overload                | decompressed `Source` / `Sink`         |
-| Statistics and advancements | UTF-8 `String` | serializer or reified overload                | UTF-8 `Source` / `Sink`                |
-
-The examples below distinguish three useful modes:
-
-- **Complete I/O** materializes the complete natural value, such as a `RegionFile`, `RegionChunk`, `NbtDocument`, or
-  `String`.
-- **Partially streaming I/O** processes a Region one Chunk at a time. Typed Anvil writes retain only the compressed
-  Chunk currently being encoded because its compressed length must be known before sector allocation.
-- **Fully streaming I/O** does not retain a complete payload in memory. Raw Anvil writes therefore accept an
-  already-compressed Chunk stream and its exact length; standalone NBT and JSON can stream directly without that length.
-
-All stream callbacks use `kotlinx.io.Source` and `Sink`. The library owns each stream; it is valid only during its
-callback and must not escape it. Complete and typed writes are adapters over the corresponding streaming path.
-
-## Whole-world entry point
-
-`MinecraftWorldAccess` covers level data, player data, saved data, statistics, advancements, and terrain/entity/POI
-Regions:
+The following example starts with the world lock, opens the Region containing a requested Chunk, inspects Region and
+Chunk metadata, decodes the semantic Chunk, and finally reads an absolute block. Every variable used by the example is
+introduced in the function or supplied as a parameter.
 
 ```kotlin
-val worldRoot = "/srv/minecraft/world".toPath()
-val playerUuid = "01234567-89ab-cdef-0123-456789abcdef"
-val world = MinecraftWorldAccess.open(worldRoot)
-try {
-    val level = world.readLevelData<LevelDat>()
-    world.writeLevelData(level.copy(data = level.data.copy(levelName = "Edited world")))
+suspend fun readBlockStateDescriptor(
+    worldPath: Path,
+    chunkPosition: ChunkPosition,
+    blockPosition: BlockPosition,
+    chunkLayout: ChunkLayout,
+    expectedDataVersion: Int,
+): BlockStateDescriptor? {
+    require(blockPosition.chunk == chunkPosition)
 
-    val statistics = world.readStatistics<PlayerStatistics>(playerUuid)
-    world.writeStatistics(playerUuid, statistics)
+    return MinecraftWorldAccess.open(worldPath).use { minecraftWorldAccess ->
+        val regionPosition = chunkPosition.region
+        minecraftWorldAccess.openRegion(regionPosition).use regionUse@{ regionHandle ->
+            if (!regionHandle.hasRegion()) return@regionUse null
+            if (!regionHandle.hasChunk(chunkPosition)) return@regionUse null
 
-  world.readLevelData { source ->
-    consumeDecompressedNbt(source)
-  }
-  world.readStatistics(playerUuid) { source ->
-    consumeUtf8Json(source)
-  }
-} finally {
-    world.close()
-}
-```
+            val regionChunkInfo = regionHandle.readChunkInfo(chunkPosition) ?: return@regionUse null
+            val compression = regionChunkInfo.compression
+            val compressedByteCount = regionChunkInfo.compressedByteCount
+            val timestampEpochSeconds = regionChunkInfo.timestampEpochSeconds
 
-`MinecraftWorldAccess` holds `session.lock` until `close()`. Reads of one logical file may run together; writes are
-exclusive, while independent files and Regions can progress concurrently. The library creates no thread pool and does
-not choose a dispatcher. Filesystem and codec work runs on the caller's thread.
+            val chunkDataRegistries = ChunkDataRegistries(
+                blockStates = DescriptorBlockStateRegistry(),
+                biomes = NamedBiomeRegistry(),
+            )
+            val chunkNbtContext = ChunkNbtContext(
+                layout = chunkLayout,
+                registries = chunkDataRegistries,
+                expectedDataVersion = expectedDataVersion,
+            )
+            val chunkNbtCodec = ChunkNbtCodec(chunkNbtContext)
+            val chunk = regionHandle.readChunk(chunkPosition, chunkNbtCodec) ?: return@regionUse null
 
-The remaining examples that call `world` reuse this instance and are intended to run inside the `try` block, before
-`world.close()`. Examples that construct another owner manage its lifetime explicitly. Variables are constructed at
-their first appearance. Functions named `load…`, `consume…`, or `write…` represent application-provided data producers
-or consumers.
+            val chunkMetadata = chunk.metadata
+            check(chunkMetadata.dataVersion == expectedDataVersion)
 
-## Region layer
-
-A Region is an `.mca` Header plus up to 1024 independent Chunk records. It is deliberately exposed as a structure of
-Chunk streams, not as one artificial continuous byte stream.
-
-### Region and Chunk coordinates
-
-`RegionPosition` identifies an `.mca` file by the coordinates in its filename. Each Region covers 32 by 32 absolute
-Chunk coordinates; these are Chunk coordinates, not block coordinates:
-
-```kotlin
-val region = RegionPosition(x = 2, z = -1) // region/r.2.-1.mca
-val localChunk = LocalChunkPosition(x = 6, z = 7)
-val absoluteChunk = ChunkPosition(x = 70, z = -25)
-
-check(absoluteChunk.region == region)
-check(absoluteChunk.local == localChunk)
-check(absoluteChunk in region)
-check(region.local(absoluteChunk) == localChunk)
-check(region.chunk(localChunk) == absoluteChunk)
-```
-
-`ChunkPosition` is absolute within one dimension. `LocalChunkPosition` is always in `0..31` on each axis and is used
-only together with an already-selected Region. `RegionPosition.local(absoluteChunk)` verifies that the absolute Chunk
-belongs to that Region before converting it; a mismatch throws `IllegalArgumentException`. In the example,
-`r.2.-1.mca` covers absolute Chunk X `64..95` and Z `-32..-1`.
-
-Every Chunk operation has both coordinate shapes. At a world or Region-directory layer, the local form also takes the
-Region that selects the `.mca` file:
-
-```kotlin
-val byAbsolute: RegionChunk? = world.readChunk(absoluteChunk)
-val byLocal: RegionChunk? = world.readChunk(region, localChunk)
-```
-
-Once a Region is explicitly open, either coordinate is enough. The absolute overload verifies membership:
-
-```kotlin
-world.withRegion(region) {
-  val byAbsolute = readChunk(absoluteChunk)
-  val byLocal = readChunk(localChunk)
-}
-```
-
-The same pair of overloads is available for complete and streaming `readChunk`/`writeChunk`, existence and clearing,
-typed Chunk NBT, document Chunk NBT, `WorldRegionStore`, `RegionFileStore`, and the corresponding live read-only APIs.
-
-### MCA and MCC are one logical Region
-
-Every Region and Chunk API automatically handles external Chunk sidecars associated with the selected `.mca` file.
-Callers do not open, copy, replace, or delete `.mcc` files separately:
-
-- reading an external Chunk follows its marker in the `.mca` record and reads `c.<chunkX>.<chunkZ>.mcc` from the same
-  Region directory;
-- writing selects inline `.mca` storage or external `.mcc` storage from the compressed payload length, creates or
-  replaces the sidecar when external storage is required, and removes an obsolete sidecar when the Chunk becomes inline
-  or is cleared;
-- complete, typed, and streaming Region/Chunk operations all use this same policy, including direct
-  `RegionFileStore` and `LiveRegionFileReader` access.
-
-The `.mca` Header and all sidecars it addresses form one logical coordination group in `MinecraftWorldAccess` and
-`WorldRegionStore`. Cross-file filesystem atomicity is not promised, but operations through the same coordinated owner
-cannot overlap a Region write with reads or other writes to its `.mca` or `.mcc` files.
-
-### Complete Region read and write
-
-`RegionFile` is a detached complete snapshot. Its `chunks` map uses `LocalChunkPosition` because the value deliberately
-does not retain the source filename and can be written to another Region:
-
-```kotlin
-val targetRegion = RegionPosition(x = 3, z = -1) // region/r.3.-1.mca
-
-val snapshot: RegionFile? = world.readRegion(region)
-if (snapshot != null) {
-  world.writeRegion(targetRegion, snapshot)
-}
-```
-
-`writeRegion` is a complete replacement. Positions absent from the supplied `RegionFile` are cleared.
-
-### Fully streaming Region read and write
-
-`RegionReadScope` lends one Header snapshot and opens each compressed Chunk stream only while it is consumed:
-
-```kotlin
-world.readRegion(region) {
-  for (localPosition in chunkPositions) {
-    readChunk(localPosition) { info, source ->
-      consumeCompressedChunk(localPosition, info, source)
+            val blockStateDescriptor = chunk.block(chunkPosition, blockPosition)
+            blockStateDescriptor
+        }
     }
-  }
 }
 ```
 
-`RegionWriteScope` accepts already-compressed streams with known lengths. `PreparedCompressedChunk` below is an example
-application type: its callback writes bytes from whatever file, network stream, or generated source the application
-owns.
+The local variables `compression`, `compressedByteCount`, and `timestampEpochSeconds` show the metadata available before
+NBT or palettes are decoded. `RegionChunkInfo` also exposes `region`, `localPosition`, and the derived absolute
+`position`. Physical sector locations and external-file placement are intentionally absent.
+
+`Chunk.metadata` contains semantic Chunk fields such as data version, status, update time, inhabited time, lighting,
+heightmaps, ticks, block entities, and structures. A `Chunk` does not retain its Region position, absolute Chunk
+position, compression, stored size, or timestamp; those belong to the layer that produced it.
+
+`openRegion` itself performs no filesystem I/O. It returns a handle even when the Region does not exist. Missing reads
+return `false`, `null`, or an empty list, and the first write creates the Region. In code that only needs one Chunk,
+calling `readChunkInfo` directly is sufficient; the separate existence checks above are included to demonstrate the
+available operations.
+
+## Inspect Region metadata
+
+`hasChunk`, `readChunkCount`, and `readLocalChunkPositions` inspect only the Region index. They do not open Chunk
+streams, read record headers, inspect external content, or decode NBT. The count and detached coordinate list therefore
+remain cheap even when the Chunk records are large:
 
 ```kotlin
-data class PreparedCompressedChunk(
-  val position: LocalChunkPosition,
-  val compression: Compression,
-  val compressedLength: Long,
-  val writePayload: (Sink) -> Unit,
+suspend fun readRegionChunkCount(regionHandle: RegionHandle): Int {
+    val chunkCount = regionHandle.readChunkCount()
+    val localChunkPositions = regionHandle.readLocalChunkPositions()
+    check(chunkCount == localChunkPositions.size)
+    return chunkCount
+}
+```
+
+Use the coordinate list to traverse every Chunk named by one Region index. Convert each local coordinate through the
+handle's `position` when an absolute coordinate is needed:
+
+```kotlin
+suspend fun <B : Any, M : Any> visitRegionChunks(
+    regionHandle: RegionHandle,
+    chunkNbtCodec: ChunkNbtCodec<B, M>,
+    visitChunk: (ChunkPosition, Chunk<B, M>) -> Unit,
+) {
+    val localChunkPositions = regionHandle.readLocalChunkPositions()
+    for (localChunkPosition in localChunkPositions) {
+        val chunkPosition = regionHandle.position.chunk(localChunkPosition)
+        val chunk = regionHandle.readChunk(localChunkPosition, chunkNbtCodec) ?: continue
+        visitChunk(chunkPosition, chunk)
+    }
+}
+```
+
+The coordinate list is one header snapshot. A later Chunk read can still return `null` if the record is unavailable or
+the Region changes between calls, which is why the traversal handles that result explicitly.
+
+Every Region metadata result is a detached snapshot, including the count, coordinate list, `RegionChunkInfo`, and its
+lists. If any coroutine writes, removes, or replaces content in that Region, values obtained before the write may be
+stale; call the corresponding read method again when current metadata is required. Keeping the same `RegionHandle` open
+does not make earlier results live and does not hold one lock across calls.
+
+`readChunkInfo` goes one level deeper and reads a selected Chunk's stored compression metadata. It accepts either a
+Region-local or absolute Chunk position. `readChunkInfos` performs that work for the complete Region and materializes a
+detached list in deterministic Region-local order:
+
+```kotlin
+suspend fun readRegionChunkInfos(regionHandle: RegionHandle): List<RegionChunkInfo> {
+    val regionChunkInfos = regionHandle.readChunkInfos()
+    return regionChunkInfos
+}
+```
+
+All returned lists and metadata remain valid after the handle closes. Use `withReadScope` only when several reads must
+share one Region admission and one consistent header snapshot; that advanced form is covered later.
+
+## Load a 21 by 21 Chunk area
+
+The following example accepts the player's continuous world position, calculates its containing Block, Chunk, and
+Region, then calculates the 441 absolute Chunk positions in a 21 by 21 square centered on that Chunk. It groups the
+positions by Region and loads every available strong `Chunk` into memory.
+
+```kotlin
+data class LoadedChunkArea<B : Any, M : Any>(
+    val requestedChunkPositions: List<ChunkPosition>,
+    val regionPositions: List<RegionPosition>,
+    val chunks: Map<ChunkPosition, Chunk<B, M>>,
 )
 
-val preparedCompressedChunks = listOf(
-  PreparedCompressedChunk(
-    position = LocalChunkPosition(x = 6, z = 7),
-    compression = Compression.ZLIB,
-    compressedLength = 12_345L,
-    writePayload = ::writePreparedChunkPayload,
-  ),
-)
+suspend fun <B : Any, M : Any> loadChunksAroundPlayer(
+    worldPath: Path,
+    playerX: Double,
+    playerY: Double,
+    playerZ: Double,
+    chunkNbtCodec: ChunkNbtCodec<B, M>,
+): LoadedChunkArea<B, M> {
+    val viewRadius = 10
+    val playerBlockPosition = MinecraftCoordinates.block(playerX, playerY, playerZ)
+    val playerChunkPosition = playerBlockPosition.chunk
+    val playerRegionPosition = playerChunkPosition.region
+    check(playerBlockPosition.region == playerRegionPosition)
+    val requestedChunkPositions = playerChunkPosition.positionsAround(viewRadius).toList()
+    check(requestedChunkPositions.size == 21 * 21)
 
-world.writeRegion(region) {
-  for (chunk in preparedCompressedChunks) {
-    writeChunk(
-      position = chunk.position,
-      compression = chunk.compression,
-      compressedLength = chunk.compressedLength,
-    ) { sink ->
-      chunk.writePayload(sink)
+    val chunkPositionsByRegion = requestedChunkPositions.groupBy(ChunkPosition::region)
+    val regionPositions = chunkPositionsByRegion.keys.toList()
+    val chunks = MinecraftWorldAccess.open(worldPath).use { minecraftWorldAccess ->
+        buildMap {
+            for (regionPosition in regionPositions) {
+                val regionChunkPositions = chunkPositionsByRegion.getValue(regionPosition)
+                minecraftWorldAccess.openRegion(regionPosition).use regionUse@{ regionHandle ->
+                    if (!regionHandle.hasRegion()) return@regionUse
+
+                    for (chunkPosition in regionChunkPositions) {
+                        val chunk = regionHandle.readChunk(chunkPosition, chunkNbtCodec) ?: continue
+                        put(chunkPosition, chunk)
+                    }
+                }
+            }
+        }
     }
-  }
+
+    return LoadedChunkArea(
+        requestedChunkPositions = requestedChunkPositions,
+        regionPositions = regionPositions,
+        chunks = chunks,
+    )
 }
 ```
 
-The callback must write exactly `compressedLength` bytes. The operation stages the supplied Chunk records and commits
-the `.mca` Header once; omitted positions are cleared. Inline versus `.mcc` storage and timestamps remain automatic.
+`MinecraftCoordinates.block`, `BlockPosition.chunk`, `ChunkPosition.region`, and `positionsAround` delegate to the same
+checked coordinate implementation, so the grouping remains correct when any coordinate is negative and cannot silently
+wrap at an `Int` edge. A 21 by 21 square can touch one, two, or four Regions. The world lease is opened once, each
+Region handle is created once for its complete group, and no `openRegion` call occurs in the per-Chunk loop. Physical
+Region storage is opened lazily by the first Chunk read and retained until that Region's `use` block ends. Missing
+Regions and missing Chunks are omitted from `chunks`, while `requestedChunkPositions` still contains all 441 requested
+positions.
 
-### Streaming through a Region-directory owner
+This example intentionally retains every decoded `Chunk` in memory. For a large radius or a long-running scan, process
+each Chunk inside the loop instead of adding it to the result Map.
 
-`WorldRegionStore` exposes the same Region and Chunk streams when the application wants to operate below the whole-world
-entry point. It coordinates handles and concurrent operations within one selected Region directory, but does not take
-the world's `session.lock`:
+For the complete scalar, absolute/local, reverse, range, Section-block, Region-Chunk, and biome-quart coordinate API,
+see the coordinate section in [`world-format`](../world-format/README.md). `MinecraftCoordinates` owns the formulas; the
+position types expose fluent convenience methods over that one implementation.
+
+## Navigate Chunk, Section, and palette data
+
+Coordinate overloads are available at every logical level. Local overloads do the actual lookup. Absolute overloads
+validate ownership through the coordinate types and then delegate to the local operation.
 
 ```kotlin
-val worldPaths = MinecraftWorldPaths(worldRoot)
-val regionStore = WorldRegionStore(
-  paths = worldPaths,
-  storage = RegionStorageDirectory.CHUNKS,
-  dimension = DimensionDirectory.Overworld,
-)
-try {
-  regionStore.readRegion(region) {
-    for (localPosition in chunkPositions) {
-      readChunk(localPosition) { info, source ->
-        consumeCompressedChunk(localPosition, info, source)
-      }
+fun inspectChunkBlock(
+    chunk: Chunk<BlockStateDescriptor, String>,
+    chunkPosition: ChunkPosition,
+    blockPosition: BlockPosition,
+): BlockStateDescriptor {
+    val chunkBlockPosition = chunkPosition.local(blockPosition)
+    val localBlockStateDescriptor = chunk.block(chunkBlockPosition)
+    val absoluteBlockStateDescriptor = chunk.block(chunkPosition, blockPosition)
+    check(localBlockStateDescriptor == absoluteBlockStateDescriptor)
+
+    val sectionPosition = blockPosition.section
+    val chunkSection = chunk.section(chunkPosition, sectionPosition)
+    if (chunkSection != null) {
+        val localBlockPosition = sectionPosition.local(blockPosition)
+        val sectionBlockStateDescriptor = chunkSection.block(localBlockPosition)
+        val absoluteSectionBlockStateDescriptor = chunkSection.block(sectionPosition, blockPosition)
+        check(sectionBlockStateDescriptor == absoluteSectionBlockStateDescriptor)
+
+        val paletteSnapshot = chunkSection.blockStates.paletteSnapshot()
+        val denseBlockStates = chunkSection.toDenseBlockStates()
+        check(paletteSnapshot.entryCount == denseBlockStates.size)
     }
-  }
-  regionStore.readChunk(absoluteChunk) { info, source ->
-    consumeCompressedChunk(absoluteChunk.local, info, source)
-  }
-} finally {
-  regionStore.close()
+
+    return absoluteBlockStateDescriptor
 }
 ```
 
-### Partially streaming typed Region I/O
+The strong `Chunk` has already unpacked palette IDs. `chunk.block(...)` and `chunkSection.block(...)` return the logical
+block-state value selected by the palette, not a raw palette index. `paletteSnapshot()` exposes the current values and
+logical bit width for diagnostics. `toDenseBlockStates()` and `toDenseBiomes()` explicitly allocate dense lists;
+ordinary indexed access does not.
 
-Typed reads decode directly from each compressed stream. A typed batch write compresses one Chunk at a time, stages it,
-then releases that payload before moving to the next Chunk; it never retains the complete Region payload:
+The example uses the open `DescriptorBlockStateRegistry` and `NamedBiomeRegistry`, so values are represented by their
+persistent descriptors and names. Applications may instead implement `BlockStateRegistry` and `BiomeRegistry` around
+vanilla data, mod data, or a combined catalogue. `world-io` and `world-format` do not depend on
+`protocol-vanilla-data`; applications that want it add that module themselves.
+
+## Follow lower-level Chunk representations
+
+`readChunk` is the shortest path when only blocks or biomes matter. When an application needs to retain or inspect each
+lower representation, it can start with the exact compressed content and continue from the returned value through IDE
+completion:
 
 ```kotlin
-val chunkFormat = world.configuration.regionChunkNbtFormat
-val chunkSerializer = MyChunkData.serializer()
-val replacementChunks = mapOf(
-  localChunk to loadReplacementChunkData(absoluteChunk),
-)
+suspend fun <B : Any, M : Any> readChunkLayers(
+    regionHandle: RegionHandle,
+    chunkPosition: ChunkPosition,
+    chunkNbtCodec: ChunkNbtCodec<B, M>,
+): Chunk<B, M>? {
+    val compressedChunk = regionHandle.readCompressedChunk(chunkPosition) ?: return null
+    val nbtDocument = compressedChunk.toNbtDocument(regionHandle.chunkNbtFormat)
+    val chunk = nbtDocument.toChunk(chunkPosition, chunkNbtCodec)
+    return chunk
+}
+```
 
-world.readRegion(region) {
-  for (localPosition in chunkPositions) {
-    readChunk(localPosition) { info, source ->
-      val value = chunkFormat.decodeFromSource(chunkSerializer, source, info.compression)
-      consumeChunk(value)
+The three detached values have distinct responsibilities:
+
+- `CompressedChunk` contains the original compressed payload and compression algorithm, but no Region metadata.
+- `NbtDocument` contains the complete generic NBT tree and therefore has no unknown-field problem.
+- `Chunk<B, M>` contains selected-release semantic metadata, Sections, and decoded palette-backed block/biome values.
+
+`readChunkNbtDocument` and `readChunk` are direct read shortcuts to the latter two results. They do not first
+materialize a `CompressedChunk`; the fluent chain is available when the caller intentionally retains an earlier value.
+`readChunkNbtDocument` necessarily materializes the requested tree. The current strong `readChunk` implementation also
+projects through that tree before returning the semantic value.
+
+### Detached compressed content
+
+`readCompressedChunk` returns the exact compressed payload together with its algorithm. The result is detached and can
+be retained or written elsewhere without keeping a Region lock or file open:
+
+```kotlin
+suspend fun readCompressedChunk(
+    regionHandle: RegionHandle,
+    chunkPosition: ChunkPosition,
+): CompressedChunk? {
+    val compressedChunk = regionHandle.readCompressedChunk(chunkPosition)
+    return compressedChunk
+}
+```
+
+This is useful for backups, replication, checksums, or repacking without decoding NBT. When retaining the complete
+payload is unnecessary, stream it instead:
+
+```kotlin
+suspend fun copyCompressedChunk(
+    regionHandle: RegionHandle,
+    chunkPosition: ChunkPosition,
+    compressedSink: Sink,
+): RegionChunkInfo? = regionHandle.readCompressedChunkTo(chunkPosition, compressedSink)
+```
+
+`readCompressedChunkTo` is a thin adapter over `withCompressedChunkSource`. Use the callback form when a custom parser
+or incremental transformation needs the borrowed `Source`. It must be consumed completely inside the callback and must
+not escape it; the callback keeps the internal read admission and physical resource alive for exactly that lifetime.
+
+### Universal NBT tree
+
+`NbtDocument` is the generic NBT-tree path. Every legal NBT tag can be represented, so this path does not have an
+“unknown field” problem. It is the appropriate choice when modded or future fields must survive a semantic round trip:
+
+```kotlin
+suspend fun rewriteChunkNbtDocument(
+    regionHandle: RegionHandle,
+    chunkPosition: ChunkPosition,
+    compression: Compression,
+): NbtDocument? {
+    val nbtDocument = regionHandle.readChunkNbtDocument(chunkPosition) ?: return null
+    regionHandle.writeChunkNbtDocument(chunkPosition, nbtDocument, compression)
+    return nbtDocument
+}
+```
+
+The strong `ChunkNbtCodec` validates the selected-release fields, layout, version, and registry values, but it does not
+retain tags outside its semantic `Chunk` model. Use the document path for lossless arbitrary tags and the strong path
+for block/biome-aware editing.
+
+`withChunkNbtSource` exposes the complete decompressed unnamed-root binary NBT stream to a caller-selected parser.
+`readChunkNbtTo` copies that stream directly to a caller-owned `Sink`, while `readChunkNbt(deserializer)` is the
+ordinary serializer adapter over the same representation.
+
+```kotlin
+suspend fun copyChunkNbt(
+    regionHandle: RegionHandle,
+    chunkPosition: ChunkPosition,
+    nbtSink: Sink,
+): RegionChunkInfo? = regionHandle.readChunkNbtTo(chunkPosition, nbtSink)
+```
+
+```kotlin
+suspend fun <T> readTypedChunkNbt(
+    regionHandle: RegionHandle,
+    chunkPosition: ChunkPosition,
+    deserializationStrategy: DeserializationStrategy<T>,
+): T? {
+    val value = regionHandle.readChunkNbt(chunkPosition, deserializationStrategy)
+    return value
+}
+```
+
+## Write a Chunk
+
+The basic write methods mirror the read representations. They are ordinary `RegionHandle` methods; a DSL is not
+required.
+
+```kotlin
+suspend fun replaceBlock(
+    regionHandle: RegionHandle,
+    chunkPosition: ChunkPosition,
+    blockPosition: BlockPosition,
+    replacementBlockStateDescriptor: BlockStateDescriptor,
+    chunkNbtCodec: ChunkNbtCodec<BlockStateDescriptor, String>,
+): Chunk<BlockStateDescriptor, String>? {
+    val chunk = regionHandle.readChunk(chunkPosition, chunkNbtCodec) ?: return null
+    chunk.setBlock(chunkPosition, blockPosition, replacementBlockStateDescriptor)
+    regionHandle.writeChunk(
+        position = chunkPosition,
+        chunk = chunk,
+        codec = chunkNbtCodec,
+        compression = Compression.ZLIB,
+    )
+    return chunk
+}
+```
+
+`writeChunk`, serializer-based `writeChunkNbt`, and `writeChunkNbtDocument` encode and retain one compressed Chunk
+before entering the exclusive Region commit. Anvil allocation needs the exact compressed length, so these methods
+neither encode twice nor keep a second complete uncompressed byte array.
+
+The exclusive commit covers allocation, the selected Chunk payload, Region metadata, and any internally managed external
+content as one Region-level critical section. Mutable metadata and Chunk reads use the matching shared boundary, so an
+in-process reader waits and observes either the state before the commit or the state after it, never an in-progress
+header. Encoding may happen before exclusive access because it has not modified the Region yet.
+
+A single-Chunk write is positional. It writes storage for that Chunk, commits the fixed Region index, and retires the
+old allocation; it does not copy, replace, truncate, or rewrite the complete Region, and unrelated Chunks remain in
+place. `replaceRegion` is the explicit operation whose contract replaces the complete logical Chunk set.
+
+If a complete compressed value is already available, write it directly:
+
+```kotlin
+suspend fun writeCompressedChunk(
+    regionHandle: RegionHandle,
+    chunkPosition: ChunkPosition,
+    compressedChunkInput: CompressedChunkInput,
+) {
+    regionHandle.writeCompressedChunk(chunkPosition, compressedChunkInput)
+}
+```
+
+A producer that already knows the exact compressed length can avoid materializing a `CompressedChunk`:
+
+```kotlin
+suspend fun writeKnownLengthCompressedChunk(
+    regionHandle: RegionHandle,
+    chunkPosition: ChunkPosition,
+    compression: Compression,
+    compressedByteCount: Long,
+    compressedSource: Source,
+) {
+    regionHandle.writeCompressedChunk(
+        position = chunkPosition,
+        compression = compression,
+        compressedByteCount = compressedByteCount,
+    ) { compressedSink ->
+        compressedSource.transferTo(compressedSink)
     }
-  }
-}
-
-world.writeRegion(region) {
-  for ((localPosition, value) in replacementChunks) {
-    val chunk = chunkFormat.encode(chunkSerializer, value, Compression.ZLIB)
-    writeChunk(localPosition, chunk)
-  }
 }
 ```
 
-This typed `writeRegion` still performs one Header commit and remains a complete replacement. The one-Chunk buffer is
-the direct consequence of Anvil placing the compressed length before the payload; the library does not hide that fact
-behind a temporary-file pass or by encoding every Chunk twice.
+The callback must write exactly `compressedByteCount` bytes. The library chooses timestamps and internal storage
+placement; callers do not supply physical placement information.
 
-### Retaining one Region handle for incremental work
-
-One-shot calls intentionally release their Region entry after each operation. For a loop that updates or reads selected
-Chunks without replacing the Region, make the Region explicit:
+For a custom uncompressed NBT producer, use the raw NBT sink. It is also a callback because the compressor must be
+closed before the exact compressed size is known:
 
 ```kotlin
-world.withRegion(region) {
-  readChunk(absoluteChunk) { info, source ->
-    consumeCompressedChunk(absoluteChunk.local, info, source)
-  }
-
-  for ((localPosition, value) in replacementChunks) {
-    writeChunkNbt(localPosition, value, Compression.ZLIB)
-  }
-
-  val decoded = readChunkNbt<MyChunkData>(absoluteChunk)
-}
-
-val openedRegion: WorldRegion = world.openRegion(region)
-try {
-  openedRegion.readRegion {
-    for (localPosition in chunkPositions) {
-      readChunk(localPosition) { info, source ->
-        consumeCompressedChunk(localPosition, info, source)
-      }
+suspend fun writeChunkNbtStream(
+    regionHandle: RegionHandle,
+    chunkPosition: ChunkPosition,
+    nbtDocument: NbtDocument,
+) {
+    regionHandle.writeChunkNbt(chunkPosition, Compression.ZLIB) { nbtSink ->
+        regionHandle.chunkNbtFormat.nbt.encodeDocumentToSink(nbtDocument, nbtSink)
     }
-  }
-} finally {
-  openedRegion.close()
 }
 ```
 
-`WorldRegion` keeps one Region entry and, after first use, one `.mca` handle, Header, and sector allocator alive between
-calls. `openRegion` returns the same caller-owned resource when it must cross function boundaries; its suspending
-`close()` waits for admitted calls. `withRegion` is the structured default.
+Borrowed sources and sinks are closed by the library and must not escape their callbacks. `removeChunk` removes one
+Chunk, `clear` empties the Region, and `flush` completes its pending durable write work.
 
-Methods on one `WorldRegion` may be called concurrently. Reads share access; writes to different Chunks in the same
-Region are legal and serialize at the Region file. Different Regions can run in parallel on a caller-provided
-dispatcher. Each incremental `writeChunk` commits that Chunk while preserving all other positions.
+## Lifecycle shortcuts and batch operations
 
-Reading, existence checks, and clearing a missing Region do not create a directory or `.mca`; the first write does.
-Clearing an existing Region preserves a valid empty `.mca`.
-
-## Chunk layer
-
-Chunk APIs accept both coordinate forms at every layer. World and Region-directory owners use either an absolute
-`ChunkPosition` or a `(RegionPosition, LocalChunkPosition)` pair. An explicit Region accepts either its
-`LocalChunkPosition` or a validated absolute `ChunkPosition`.
-
-### Complete Chunk read and write
-
-`RegionChunk` contains the compressed payload as a value:
+The explicit `open`/`openRegion` and suspend `close()` methods expose the complete lifecycle directly:
 
 ```kotlin
-val targetChunk = ChunkPosition(x = 71, z = -25) // local (7, 7) in the same Region
-
-val storedChunk: RegionChunk? = world.readChunk(absoluteChunk)
-if (storedChunk != null) {
-  world.writeChunk(targetChunk.region, targetChunk.local, storedChunk)
-}
-```
-
-### Fully streaming Chunk read and write
-
-Raw callbacks expose compressed payload bytes. Reads report their compression, exact length, storage form, and
-timestamp; writes select storage form and timestamp automatically:
-
-```kotlin
-world.readChunk(region, localChunk) { info, source ->
-  consumeCompressedChunk(localChunk, info, source)
-}
-
-val preparedChunk = preparedCompressedChunks.single()
-world.writeChunk(
-  position = absoluteChunk,
-  compression = preparedChunk.compression,
-  compressedLength = preparedChunk.compressedLength,
-) { sink ->
-  preparedChunk.writePayload(sink)
-}
-```
-
-The read callback must consume the complete payload, and the write callback must produce exactly the declared length.
-
-### Typed and document Chunk I/O
-
-Typed reads decode from the compressed stream. Typed and `NbtDocument` writes encode and retain one compressed Chunk to
-discover its record length, then delegate to the raw stream writer:
-
-```kotlin
-val value: MyChunkData? = world.readChunkNbt(absoluteChunk)
-if (value != null) {
-  world.writeChunkNbt(absoluteChunk, value, Compression.ZLIB)
-}
-
-val document: NbtDocument? = world.readChunkNbtDocument(absoluteChunk)
-if (document != null) {
-  world.writeChunkNbtDocument(absoluteChunk, document, Compression.LZ4)
-}
-```
-
-For multiple Chunks in one `.mca`, place these calls inside `withRegion` so the file handle is retained.
-
-## Standalone NBT layer
-
-Level data, player data, and saved data expose complete documents, typed values, and decompressed NBT streams with the
-same naming shape.
-
-### Complete and typed NBT
-
-```kotlin
-val levelDocument: NbtDocument = world.readLevelDataDocument()
-world.writeLevelDataDocument(levelDocument)
-
-val player: PlayerData? = world.readPlayerData(playerUuid)
-if (player != null) {
-  world.writePlayerData(playerUuid, player)
-}
-
-val raids: Raids? = world.readSavedData("raids")
-world.writeSavedData("raids", requireNotNull(raids))
-```
-
-Typed operations serialize directly against the physical stream; they do not first build an `NbtDocument`.
-
-### Fully streaming NBT
-
-Streaming callbacks see decompressed unnamed-root NBT bytes. The store owns compression and each file family's
-replacement or backup policy:
-
-```kotlin
-world.readLevelData { source ->
-  consumeDecompressedNbt(source)
-}
-
-world.writePlayerData(playerUuid) { sink ->
-  writeDecompressedPlayerNbt(sink)
-}
-```
-
-The lower-level `NbtFileStore`, `LevelDataStore`, `PlayerDataStore`, and `SavedDataFileStore` expose the same operations
-for caller-selected paths or independently composed world-file policies.
-
-```kotlin
-val nbtFiles = NbtFileStore()
-val levelDataStore = LevelDataStore(worldPaths, nbtFiles)
-val playerDataStore = PlayerDataStore(worldPaths, nbtFiles)
-val savedDataStore = SavedDataFileStore(worldPaths, nbtFiles = nbtFiles)
-
-levelDataStore.read { source ->
-  consumeDecompressedNbt(source)
-}
-playerDataStore.read(playerUuid) { source ->
-  consumeDecompressedNbt(source)
-}
-savedDataStore.read("example:renderer/state") { source ->
-  consumeDecompressedNbt(source)
-}
-nbtFiles.read(worldPaths.levelData) { source ->
-  consumeDecompressedNbt(source)
-}
-```
-
-## Statistics and advancements JSON layer
-
-Complete text, typed JSON, and raw UTF-8 streams share the same progression:
-
-```kotlin
-val text: String = world.readStatisticsText(playerUuid)
-world.writeStatisticsText(playerUuid, text)
-
-val advancements: PlayerAdvancements = world.readAdvancements(playerUuid)
-world.writeAdvancements(playerUuid, advancements)
-
-world.readAdvancements(playerUuid) { source ->
-  consumeUtf8Json(source)
-}
-
-world.writeStatistics(playerUuid) { sink ->
-  writeUtf8Statistics(sink)
-}
-```
-
-Typed JSON operations decode and encode directly on the UTF-8 stream rather than materializing a complete `String`.
-`Utf8JsonFileStore` exposes the same text, `JsonElement`, typed, and streaming operations for arbitrary paths.
-
-```kotlin
-val jsonFiles = Utf8JsonFileStore()
-jsonFiles.read(worldPaths.statistics(playerUuid)) { source ->
-  consumeUtf8Json(source)
-}
-jsonFiles.read(worldPaths.advancement(playerUuid)) { source ->
-  consumeUtf8Json(source)
-}
-```
-
-## Direct exact-Region primitives
-
-Construct the exact overworld terrain Region path from the same coordinates used above:
-
-```kotlin
-val exactRegionPath = worldRoot / "region" / "r.${region.x}.${region.z}.mca"
-```
-
-`RegionFileStore.open(exactRegionPath)` opens or creates that writable Region and exposes the same complete/streaming
-Region-and-Chunk operations. Because the filename identifies `region`, Chunk methods accept either
-`localChunk` or the validated `absoluteChunk`; no caller conversion is required. It takes no `session.lock` and has no
-shared-read/exclusive-write coordinator. The caller must exclude conflicting reads, writes, and close calls, including
-calls through another store covering the same file.
-
-```kotlin
-val exactStore = RegionFileStore.open(exactRegionPath)
-try {
-  val byAbsolute = exactStore.readChunk(absoluteChunk)
-  val byLocal = exactStore.readChunk(localChunk)
-  exactStore.readChunk(absoluteChunk) { info, source ->
-    consumeCompressedChunk(absoluteChunk.local, info, source)
-  }
-  exactStore.readRegion {
-    for (localPosition in chunkPositions) {
-      readChunk(localPosition) { info, source ->
-        consumeCompressedChunk(localPosition, info, source)
-      }
+suspend fun readChunkInfoWithExplicitClose(
+    worldPath: Path,
+    chunkPosition: ChunkPosition,
+): RegionChunkInfo? {
+    val minecraftWorldAccess = MinecraftWorldAccess.open(worldPath)
+    try {
+        val regionHandle = minecraftWorldAccess.openRegion(chunkPosition.region)
+        return try {
+            regionHandle.readChunkInfo(chunkPosition)
+        } finally {
+            regionHandle.close()
+        }
+    } finally {
+        minecraftWorldAccess.close()
     }
-  }
-} finally {
-  exactStore.close()
 }
 ```
 
-`LiveRegionFileReader.open(exactRegionPath)` is its exact-file read-only counterpart. It uses live file sharing,
-performs no repair, and likewise leaves read/close coordination to the caller. Direct primitives must be closed by the
-caller and should be used instead of, rather than concurrently with, another mutable owner covering the same file.
+`use` provides structured, cancellation-safe cleanup for the same lifecycle and is the usual form:
 
 ```kotlin
-val exactReader = LiveRegionFileReader.open(exactRegionPath)
-try {
-  val byAbsolute = exactReader.readChunk(absoluteChunk)
-  val byLocal = exactReader.readChunk(localChunk)
-  exactReader.readChunk(absoluteChunk) { info, source ->
-    consumeCompressedChunk(absoluteChunk.local, info, source)
-  }
-  exactReader.readRegion {
-    for (localPosition in chunkPositions) {
-      readChunk(localPosition) { info, source ->
-        consumeCompressedChunk(localPosition, info, source)
-      }
+suspend fun readChunkInfoWithStructuredClose(
+    worldPath: Path,
+    chunkPosition: ChunkPosition,
+): RegionChunkInfo? = MinecraftWorldAccess.open(worldPath).use { minecraftWorldAccess ->
+    minecraftWorldAccess.openRegion(chunkPosition.region).use { regionHandle ->
+        regionHandle.readChunkInfo(chunkPosition)
     }
-  }
-} finally {
-  exactReader.close()
 }
 ```
 
-## Reading a live world
+Each evaluation of `MinecraftWorldAccess.open(...).use {}` acquires and releases one world lease. Likewise,
+`openRegion(...).use {}` retains one logical Region resource for that complete block and releases it at the end; its
+physical storage is opened lazily by the first operation. Do not put either open/use chain inside a per-Chunk loop. Put
+the complete batch inside one `use` block, or use the explicit open/close form above when the world or Region handle
+must remain available across a wider application-managed lifetime.
 
-`LiveMinecraftWorldReader` takes no lock, never repairs or writes files, and needs no `close()` itself. One-shot calls
-open and close their files independently:
+Ordinary handle methods acquire and release internal Region admission per call. The handle pins Region state but does
+not retain a read or write lock between calls. Same-Region reads may proceed together, writes serialize, and a waiting
+writer blocks later readers. Different Regions progress independently. Operations that need a longer shared lifetime use
+bounded callbacks:
+
+- `withReadScope` holds one shared admission and one metadata snapshot for lazy multi-Chunk inspection;
+- `replaceRegion { ... }` stages and commits one complete replacement.
+
+The detached list remains the simplest way to inspect Region metadata. Use a read scope only when one snapshot or lazy
+streaming matters:
 
 ```kotlin
-val reader = LiveMinecraftWorldReader.open(worldRoot)
-val liveLevel = reader.readLevelData<LevelDat>()
-val liveChunk = reader.readChunkNbt<MyChunkData>(absoluteChunk)
-val sameLiveChunk = reader.readChunkNbt<MyChunkData>(region, localChunk)
+suspend fun sumCompressedRegionBytes(regionHandle: RegionHandle): Long = regionHandle.withReadScope {
+    chunkInfos.sumOf { regionChunkInfo -> regionChunkInfo.compressedByteCount }
+}
 ```
 
-The default formats can be replaced as one immutable reader configuration, matching the mutable world entry point:
+The scope, its sequences, and its sources are invalid after the callback returns.
+
+For complete replacement, the ordinary collection overload comes first:
 
 ```kotlin
-val configuredReader = LiveMinecraftWorldReader.open(
-  root = worldRoot,
-  configuration = LiveMinecraftWorldReaderConfiguration(
-    regionChunkNbtFormat = RegionChunkNbtFormat(),
-    standaloneNbtFormat = minecraftWorldNbtFormat(),
-  ),
-)
+suspend fun replaceRegion(
+    regionHandle: RegionHandle,
+    regionChunkInputs: Collection<RegionChunkInput>,
+) {
+    regionHandle.replaceRegion(regionChunkInputs)
+}
 ```
 
-The supplied Region format is also inherited by every `LiveWorldRegion` opened through that reader. Its NBT serializers
-module and compression registry therefore apply consistently to one-shot, retained-Region, document, and typed Chunk
-reads, including caller-registered CUSTOM compression.
+Use the builder overload when inputs should be supplied one at a time under the same replacement operation. Omitted
+positions are removed. The commit does not promise cross-file filesystem atomicity.
 
-### Streaming live reads
+## Enumerate Regions
 
-`LiveMinecraftWorldReader` is the World-level selector: a world is a directory of independent logical files, so there is
-no single World byte stream. Its streaming methods open the selected standalone file or Region for one callback and
-close it afterward. Use the narrower layers below according to the value being consumed.
-
-#### Chunk stream
-
-`readChunk` lends one compressed Chunk payload together with its record metadata. An external Chunk is read
-transparently from its associated `.mcc` file. The `Source` contains compressed bytes; use `info.compression` to
-interpret them:
+Both access modes can list the Chunk Regions in one dimension:
 
 ```kotlin
-reader.readChunk(absoluteChunk) { info, source ->
-  consumeCompressedChunk(absoluteChunk.local, info, source)
-}
+suspend fun listMutableRegions(
+    minecraftWorldAccess: MinecraftWorldAccess,
+    dimensionDirectory: DimensionDirectory,
+): List<RegionPosition> = minecraftWorldAccess.listRegionPositions(dimensionDirectory)
+
+fun listLiveRegions(
+    liveMinecraftWorldAccess: LiveMinecraftWorldAccess,
+    dimensionDirectory: DimensionDirectory,
+): List<RegionPosition> = liveMinecraftWorldAccess.listRegionPositions(dimensionDirectory)
 ```
 
-#### Region stream
+This is intentionally a detached snapshot: the implementation performs one filesystem directory listing, accepts only
+canonical Region names, sorts the positions, and then returns a materialized `List`. It is O (n), may be slow, and may
+exhaust memory for an extremely large world. It is not transactionally consistent with concurrent file changes. Missing
+Region directories return an empty list.
 
-A Region is streamed as its Header snapshot and independent Chunk streams, not as one artificial continuous `.mca`
-stream. `chunkPositions` comes from that Header snapshot, and every nested `Source` contains one compressed Chunk
-payload:
+## Read a live world without locks
+
+Use `LiveMinecraftWorldAccess` to observe a world that may be owned and modified by another process. It does not acquire
+`session.lock`, does not create or repair files, and has no close lifecycle.
 
 ```kotlin
-reader.readRegion(region) {
-  for (localPosition in chunkPositions) {
-    readChunk(localPosition) { info, source ->
-      consumeCompressedChunk(localPosition, info, source)
-    }
-  }
+fun readLiveBlock(
+    worldPath: Path,
+    chunkPosition: ChunkPosition,
+    blockPosition: BlockPosition,
+    chunkNbtCodec: ChunkNbtCodec<BlockStateDescriptor, String>,
+): BlockStateDescriptor? {
+    require(blockPosition.chunk == chunkPosition)
+
+    val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(worldPath)
+    val liveRegionHandle = liveMinecraftWorldAccess.openRegion(chunkPosition.region)
+    val regionChunkInfo = liveRegionHandle.readChunkInfo(chunkPosition) ?: return null
+    check(regionChunkInfo.position == chunkPosition)
+
+    val chunk = liveRegionHandle.readChunk(chunkPosition, chunkNbtCodec) ?: return null
+    val blockStateDescriptor = chunk.block(chunkPosition, blockPosition)
+    return blockStateDescriptor
 }
 ```
 
-#### Standalone NBT stream
+`LiveRegionHandle` is stateless: it retains only immutable filesystem/path/position/format context. `openRegion`
+performs no I/O and always returns a handle, including for a missing Region. Every operation independently opens and
+closes the resources it needs.
 
-Level data, player data, and dimension-scoped saved data each lend their decompressed binary NBT stream:
+The mutable Region-level coordination described above does not apply to `LiveRegionHandle`. The live path intentionally
+uses no lock, so a different process can change a Region while one live call reads it.
 
-```kotlin
-reader.readLevelData { source ->
-  consumeDecompressedNbt(source)
-}
-reader.readPlayerData(playerUuid) { source ->
-  consumeDecompressedNbt(source)
-}
-reader.readSavedData("example:renderer/state") { source ->
-  consumeDecompressedNbt(source)
-}
-```
+The read methods are the read-only subset of `RegionHandle`: local and absolute existence, header-level Chunk count and
+local-position listing, stored metadata, compressed stream or value, raw NBT stream or document, caller-selected
+serializer, and strong Chunk conversion. Because another process may write, delete, or replace the Region at any time,
+two calls can observe different versions. Stale or torn input and the resulting I/O, Anvil, decompression, or NBT
+failures are part of the live contract. Avoid a separate existence check when a following nullable read already answers
+the question and the narrower observation window is preferable.
 
-#### Statistics and advancement streams
+## Other world files
 
-Statistics and advancement callbacks lend the selected file's UTF-8 JSON stream without first retaining a complete
-`String` or JSON tree:
+The same mutable and live world access classes cover standalone files after the Region/Chunk APIs:
 
-```kotlin
-reader.readStatistics(playerUuid) { source ->
-  consumeUtf8Json(source)
-}
-reader.readAdvancements(playerUuid) { source ->
-  consumeUtf8Json(source)
-}
-```
+- `readLevelDataDocument`, typed `readLevelData`, and their mutable write counterparts;
+- player data by UUID;
+- dimension-scoped saved data by identifier;
+- statistics and advancements as UTF-8 text, caller-selected JSON serializers, or streams.
 
-Every `Source` above is borrowed only for its callback and must not escape it. Typed and document reads decode directly
-from the same streams but return a complete value.
+Document and text methods return complete detached values. Stream callbacks are the bounded-lifetime path. Mutable
+standalone files keep their own official replacement, backup, and durability policies; they do not share the Region
+lock.
 
-#### Retained live Region streams
+## Dimensions, failures, and platforms
 
-Use an explicit Region to reuse one live MCA/MCC handle across several complete or streaming reads:
+Region operations default to `DimensionDirectory.Overworld`. Pass `DimensionDirectory.Nether`,
+`DimensionDirectory.End`, or a validated `DimensionDirectory.Custom` when opening or listing another dimension. The
+public Chunk API always targets that dimension's Chunk `region` directory; entity and point-of-interest Regions are not
+mixed into it through a generic storage enum.
 
-```kotlin
-reader.withRegion(region) {
-  readChunk(absoluteChunk) { info, source ->
-    consumeCompressedChunk(absoluteChunk.local, info, source)
-  }
-  readChunk(targetChunk.local) { info, source ->
-    consumeCompressedChunk(targetChunk.local, info, source)
-  }
-}
+Structural Anvil failures use `AnvilFormatException`, strong Chunk projection failures use `ChunkNbtFormatException`,
+and world/filesystem policy failures use `WorldIOException` or `WorldLockException` as appropriate. Underlying NBT and
+registered custom-codec failures retain the exception category of their owning layer.
 
-val liveRegion = reader.openRegion(region)
-try {
-  liveRegion?.readRegion {
-    for (localPosition in chunkPositions) {
-      readChunk(localPosition) { info, source ->
-        consumeCompressedChunk(localPosition, info, source)
-      }
-    }
-  }
-} finally {
-  liveRegion?.close()
-}
-```
-
-`openRegion` returns `null` for a missing `.mca`. Its result owns one handle; callers must exclude `close()` from its
-concurrent reads. `withRegion` supplies structured ownership and always closes the Region.
-
-An external save may make any live observation stale or torn. Callers should treat I/O, format, and decoding failures
-according to their retry policy.
-
-## Platforms and failures
-
-The system filesystem is available on JVM, Android, Native, and Kotlin/JS Node. Browser and Wasm targets can use the
-filesystem-independent format modules but do not receive a partial world filesystem implementation. I/O failures use
-Okio `IOException`; `WorldIOException` marks world-storage policy failures and `WorldLockException` marks confirmed
-`session.lock` contention.
+System filesystem access is available on JVM, Android, configured Native targets, and Kotlin/JS Node. Browser and Wasm
+applications use the filesystem-independent modules instead. Neither access mode chooses a dispatcher: blocking
+filesystem I/O, compression, and NBT work run in the calling context, so applications move them off a main/UI thread
+when needed.
