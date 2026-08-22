@@ -3,7 +3,6 @@ package com.hiczp.minecraft.protocol.server
 import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.data.ProtocolDataSet
 import com.hiczp.minecraft.protocol.data.VanillaProtocolData
-import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.PlayLoginPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.io.Buffer
@@ -40,19 +39,7 @@ data class MinecraftServerNegotiationOptions(
      * validates and enforces secure profiles and signed chat.
      */
     val enforcesSecureChat: Boolean = false,
-    val maximumPacketsPerPhase: Int = 2_048,
 ) {
-    init {
-        require(compressionThreshold == null || compressionThreshold >= 0)
-        require(maximumPlayers >= 0)
-        require(viewDistance in MIN_VIEW_DISTANCE..MAX_VIEW_DISTANCE) {
-            "View distance must be in $MIN_VIEW_DISTANCE..$MAX_VIEW_DISTANCE"
-        }
-        require(simulationDistance >= 0)
-        require(maximumPacketsPerPhase > 0)
-        require(protocolData.protocolVersion == MinecraftProtocol.PROTOCOL_VERSION)
-    }
-
     fun effectiveSecureChatEnforcement(onlineMode: Boolean): Boolean =
         onlineMode && enforcesSecureChat
 
@@ -76,7 +63,6 @@ data class MinecraftServerNegotiationOptions(
         onlinePlayers: Int = 0,
         onlineMode: Boolean = false,
     ) {
-        require(onlinePlayers >= 0) { "Online player count cannot be negative" }
         serverJson.encodeToSink(
             ServerStatus.serializer(),
             ServerStatus(
@@ -131,28 +117,6 @@ data class MinecraftServerNegotiationOptions(
         )
     }
 
-    /**
-     * Validates the server-policy fields of [login] without reading connection
-     * state or performing I/O. Registry and active-dimension consistency is
-     * validated by `withPlayLoginDimension` in `protocol-vanilla-data`.
-     */
-    fun validatePlayLogin(login: PlayLoginPacket) {
-        require(login.maxPlayers >= 0) {
-            "Play Login maximum players must be non-negative"
-        }
-        val chunkRadiusRange = MIN_VIEW_DISTANCE..MAX_VIEW_DISTANCE
-        require(login.chunkRadius in chunkRadiusRange) {
-            "Play Login chunk radius must be in $chunkRadiusRange"
-        }
-        require(login.simulationDistance >= 0) {
-            "Play Login simulation distance must be non-negative"
-        }
-    }
-
-    companion object {
-        const val MIN_VIEW_DISTANCE: Int = 2
-        const val MAX_VIEW_DISTANCE: Int = 32
-    }
 }
 
 @Serializable

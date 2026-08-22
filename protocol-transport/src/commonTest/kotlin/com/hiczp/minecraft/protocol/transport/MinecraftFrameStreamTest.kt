@@ -24,6 +24,7 @@ class MinecraftFrameStreamTest {
         }
         val send = launch {
             sender.sendPacketData(source, packet.size)
+            sender.flush()
         }
         val sink = Buffer()
 
@@ -76,8 +77,10 @@ class MinecraftFrameStreamTest {
         val serverPacket = byteArrayOf(1, 2, 3, 4)
 
         client.sendPacketData(clientPacket)
+        client.flush()
         assertContentEquals(clientPacket, server.receivePacketData())
         server.sendPacketData(serverPacket)
+        server.flush()
         assertContentEquals(serverPacket, client.receivePacketData())
     }
 
@@ -95,6 +98,7 @@ class MinecraftFrameStreamTest {
             val packet = byteArrayOf(0xFE.toByte(), 0x01)
 
             sender.sendUnframedPacketData(packet)
+            sender.flush()
 
             assertContentEquals(
                 packet,
@@ -131,33 +135,25 @@ class MinecraftFrameStreamTest {
         }
 
     @Test
-    fun serializesConcurrentWritesIntoIndependentFrames() = runTest {
+    fun buffersOrdinaryFramesUntilExplicitlyFlushed() = runTest {
         val channel = ByteChannel()
         val sender = MinecraftFrameStream(ByteChannel(), channel)
         val receiver = MinecraftFrameStream(channel, ByteChannel())
-        val first = ByteArray(4_096) { 0x11 }
-        val second = ByteArray(4_096) { 0x22 }
+        val packet = ByteArray(4_096) { 0x11 }
 
-        val firstWrite = launch { sender.sendPacketData(first) }
-        val secondWrite = launch { sender.sendPacketData(second) }
-        val received = listOf(
-            receiver.receivePacketData(),
-            receiver.receivePacketData(),
-        )
-        firstWrite.join()
-        secondWrite.join()
+        sender.sendPacketData(packet)
+        assertEquals(0, channel.availableForRead)
 
-        assertEquals(
-            setOf(0x11.toByte(), 0x22.toByte()),
-            received.map { it.singleDistinctByte() }.toSet(),
-        )
+        sender.flush()
+        assertContentEquals(packet, receiver.receivePacketData())
     }
 
     @Test
     fun immediateResponsesWaitForTheSendingSideWireCommit() = runTest {
         val clientToServer = ByteChannel()
         val serverToClient = ByteChannel()
-        val client = MinecraftFrameStream(serverToClient, clientToServer)
+        val clientOutput = CountingFlushByteWriteChannel(clientToServer)
+        val client = MinecraftFrameStream(serverToClient, clientOutput)
         val server = MinecraftFrameStream(clientToServer, serverToClient)
         val responseSent = CompletableDeferred<Unit>()
         var committed = false
@@ -172,21 +168,30 @@ class MinecraftFrameStreamTest {
                 server.receivePacketData(),
             )
             server.sendPacketData(byteArrayOf(2))
+            server.flush()
             responseSent.complete(Unit)
         }
 
         client.sendPacketDataAndCommit(byteArrayOf(1)) {
+            clientToServer.flush()
             responseSent.await()
             committed = true
         }
 
+        assertEquals(0, clientOutput.flushCount)
         assertContentEquals(byteArrayOf(2), response.await())
         peer.join()
     }
+}
 
-    private fun ByteArray.singleDistinctByte(): Byte {
-        val first = first()
-        check(all { it == first })
-        return first
+private class CountingFlushByteWriteChannel(
+    private val delegate: ByteWriteChannel,
+) : ByteWriteChannel by delegate {
+    var flushCount: Int = 0
+        private set
+
+    override suspend fun flush() {
+        flushCount++
+        delegate.flush()
     }
 }

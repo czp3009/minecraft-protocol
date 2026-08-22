@@ -3,83 +3,44 @@ package com.hiczp.minecraft.protocol.server
 import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.world.format.ChunkPosition
 import com.hiczp.minecraft.world.format.MinecraftCoordinates
 import com.hiczp.minecraft.protocol.model.type.GameMode as PlayerGameMode
 
 /**
- * A finite initial projection sent after Play Login. Applications remain the
- * owners of authoritative worlds, chunks, entities, ticking, and persistence.
+ * Detached values for the fixed Play packets that precede caller-managed
+ * Chunk and Entity synchronization.
  */
-data class MinecraftInitialWorld(
-    val dimension: Identifier,
-    val dimensionType: MinecraftDimensionLayout,
-    val spawnPosition: Vector3d,
-    val spawnYaw: Float = 0.0f,
-    val spawnPitch: Float = 0.0f,
-    val viewDistance: Int,
-    val simulationDistance: Int,
+data class MinecraftInitialWorldBootstrap(
     val difficulty: Difficulty = Difficulty.EASY,
     val difficultyLocked: Boolean = false,
+    val defaultSpawn: RespawnData,
     val playerAbilities: PlayerAbilities = vanillaPlayerAbilities(PlayerGameMode.SURVIVAL),
+    val viewDistance: Int,
+    val simulationDistance: Int,
+    val playerPosition: PositionMoveRotation,
     val teleportId: Int = 1,
-    val chunks: List<MinecraftChunkSnapshot>,
-    val entities: List<MinecraftEntitySnapshot> = emptyList(),
+    val centerChunk: ChunkPosition = MinecraftCoordinates.block(
+        playerPosition.position.x,
+        playerPosition.position.y,
+        playerPosition.position.z,
+    ).chunk,
 ) {
-    init {
-        require(spawnPosition.isFinite()) {
-            "The initial player position must be finite"
-        }
-        spawnPosition.toBlockPosition()
-        require(spawnYaw.isFinite() && spawnPitch.isFinite()) {
-            "The initial player rotation must be finite"
-        }
-        val viewDistanceRange =
-            MinecraftServerNegotiationOptions.MIN_VIEW_DISTANCE..MinecraftServerNegotiationOptions.MAX_VIEW_DISTANCE
-        require(viewDistance in viewDistanceRange) {
-            "View distance must be in $viewDistanceRange"
-        }
-        require(simulationDistance >= 0)
-        require(teleportId >= 0)
-        require(
-            chunks
-                .map { it.chunkX to it.chunkZ }
-                .toSet()
-                .size == chunks.size,
-        ) {
-            "Initial chunks must have unique coordinates"
-        }
-        require(entities.map(MinecraftEntitySnapshot::entityId).toSet().size == entities.size) {
-            "Initial entities must have unique entity IDs"
-        }
-        require(
-            chunks.all {
-                it.chunkData.sections.size == dimensionType.sectionCount
-            },
-        ) {
-            "Every initial chunk must match the active dimension height"
-        }
-    }
-
-    internal fun validateSynchronization(
-        login: PlayLoginPacket,
-        registries: ProtocolRegistryContext,
-    ) {
-        require(dimension == login.spawnInfo.dimension) {
-            "Initial world dimension does not match the Play login dimension"
-        }
-        require(dimension in login.levels) {
-            "Initial world dimension is absent from the advertised Play levels"
-        }
-        require(dimensionType.registryId == login.spawnInfo.dimensionTypeId) {
-            "Initial dimension-type registry ID does not match Play login"
-        }
-        require(registries.chunkSectionCount == dimensionType.sectionCount) {
-            "Initial dimension height does not match the installed registry context"
-        }
-        require(entities.none { it.entityId == login.playerId }) {
-            "Initial entities must not reuse the player entity ID"
-        }
-    }
+    /** Creates the fixed packets in their initial Play order. */
+    fun packets(): List<ClientboundPacket> = listOf(
+        ClientboundChangeDifficultyPacket(difficulty, difficultyLocked),
+        SetDefaultSpawnPositionPacket(defaultSpawn),
+        ClientboundPlayerAbilitiesPacket(playerAbilities),
+        SetRenderDistancePacket(viewDistance),
+        SetSimulationDistancePacket(simulationDistance),
+        SynchronizePlayerPositionPacket(
+            teleportId = teleportId,
+            change = playerPosition,
+            relatives = RelativeMovements(emptySet()),
+        ),
+        GameEventPacket(GameEventType.LEVEL_CHUNKS_LOAD_START, 0.0f),
+        SetCenterChunkPacket(centerChunk.x, centerChunk.z),
+    )
 
     companion object {
         /** Returns the vanilla player abilities associated with [gameMode]. */
@@ -94,27 +55,80 @@ data class MinecraftInitialWorld(
             )
 
         /**
-         * Creates a vanilla flat-world projection centered on the spawn
-         * chunk. The radius is measured in chunks.
+         * Creates the ordinary vanilla bootstrap. Defaults place the player,
+         * default spawn, and Chunk center at the same position; callers may
+         * supply each value independently.
+         */
+        fun vanilla(
+            options: MinecraftServerNegotiationOptions,
+            dimension: Identifier = Identifier("overworld"),
+            defaultSpawnPosition: Vector3d = Vector3d(0.5, 65.0, 0.5),
+            defaultSpawnYaw: Float = 0.0f,
+            defaultSpawnPitch: Float = 0.0f,
+            playerPosition: Vector3d = defaultSpawnPosition,
+            playerDeltaMovement: Vector3d = Vector3d(0.0, 0.0, 0.0),
+            playerYaw: Float = defaultSpawnYaw,
+            playerPitch: Float = defaultSpawnPitch,
+            centerChunk: ChunkPosition = MinecraftCoordinates.block(
+                playerPosition.x,
+                playerPosition.y,
+                playerPosition.z,
+            ).chunk,
+            teleportId: Int = 1,
+        ): MinecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap(
+            difficulty = options.difficulty,
+            difficultyLocked = options.difficultyLocked,
+            defaultSpawn = RespawnData(
+                globalPosition = GlobalPosition(dimension, defaultSpawnPosition.toBlockPosition()),
+                yaw = defaultSpawnYaw,
+                pitch = defaultSpawnPitch,
+            ),
+            playerAbilities = vanillaPlayerAbilities(options.gameMode),
+            viewDistance = options.viewDistance,
+            simulationDistance = options.simulationDistance,
+            playerPosition = PositionMoveRotation(
+                position = playerPosition,
+                deltaMovement = playerDeltaMovement,
+                yaw = playerYaw,
+                pitch = playerPitch,
+            ),
+            teleportId = teleportId,
+            centerChunk = centerChunk,
+        )
+    }
+}
+
+/** A finite one-shot initial projection for examples and simple servers. */
+data class MinecraftInitialWorld(
+    val bootstrap: MinecraftInitialWorldBootstrap,
+    val chunks: List<MinecraftChunkSnapshot>,
+    val entities: List<MinecraftEntitySnapshot> = emptyList(),
+) {
+    companion object {
+        /**
+         * Creates a vanilla flat-world projection around [bootstrap]'s Chunk
+         * center. The radius is measured in Chunks.
          */
         fun flatVanilla(
             options: MinecraftServerNegotiationOptions,
             dimension: Identifier = Identifier("overworld"),
             groundY: Int = 64,
-            spawnPosition: Vector3d = Vector3d(0.5, groundY + 1.0, 0.5),
+            bootstrap: MinecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
+                options = options,
+                dimension = dimension,
+                defaultSpawnPosition = Vector3d(0.5, groundY + 1.0, 0.5),
+            ),
             chunkRadius: Int = options.viewDistance,
             surfaceBlock: Identifier = Identifier("grass_block"),
             biome: Identifier = Identifier("plains"),
             entities: List<MinecraftEntitySnapshot> = emptyList(),
         ): MinecraftInitialWorld {
-            require(chunkRadius >= 0)
             val dimensionType = MinecraftDimensionLayout.from(
                 options.protocolData,
                 dimension,
             )
             val registries = options.protocolData.registryContext
-            val center = MinecraftCoordinates.block(spawnPosition.x, spawnPosition.y, spawnPosition.z).chunk
-            val chunks = MinecraftCoordinates.chunkPositionsAround(center, chunkRadius).map { position ->
+            val chunks = MinecraftCoordinates.chunkPositionsAround(bootstrap.centerChunk, chunkRadius).map { position ->
                 MinecraftChunkSnapshot.flat(
                     registries = registries,
                     dimension = dimensionType,
@@ -126,14 +140,7 @@ data class MinecraftInitialWorld(
                 )
             }.toList()
             return MinecraftInitialWorld(
-                dimension = dimension,
-                dimensionType = dimensionType,
-                spawnPosition = spawnPosition,
-                viewDistance = options.viewDistance,
-                simulationDistance = options.simulationDistance,
-                difficulty = options.difficulty,
-                difficultyLocked = options.difficultyLocked,
-                playerAbilities = vanillaPlayerAbilities(options.gameMode),
+                bootstrap = bootstrap,
                 chunks = chunks,
                 entities = entities,
             )
@@ -141,96 +148,24 @@ data class MinecraftInitialWorld(
     }
 }
 
-data class MinecraftInitialWorldSynchronization(
-    val teleportId: Int,
-    val chunkCount: Int,
-    val entityCount: Int,
-)
+/**
+ * Enqueues only the fixed bootstrap before caller-managed Chunk and Entity
+ * synchronization. This function does not flush the connection.
+ */
+suspend fun MinecraftServerConnection.sendInitialWorldBootstrap(
+    bootstrap: MinecraftInitialWorldBootstrap,
+): Unit = bootstrap.packets().forEach { outgoing.send(it) }
 
 /**
- * Sends the stateless Play bootstrap needed for a client to place the player,
- * accept chunk columns, render blocks and track initial entities. [login] must
- * be the Play Login packet that describes this world and was actually sent to
- * the peer.
+ * Enqueues the bootstrap, one complete Chunk batch, and every Entity pairing
+ * bundle. This function neither waits for acknowledgements nor flushes.
  */
-suspend fun MinecraftServerConnection.synchronizeInitialWorld(
-    world: MinecraftInitialWorld,
-    login: PlayLoginPacket,
-): MinecraftInitialWorldSynchronization {
-    require(state == ConnectionState.PLAY) {
-        "Initial world synchronization requires a Play session"
-    }
-    world.validateSynchronization(
-        login = login,
-        registries = registries,
-    )
-    val centerChunk = MinecraftCoordinates.block(
-        world.spawnPosition.x,
-        world.spawnPosition.y,
-        world.spawnPosition.z,
-    ).chunk
-
-    outgoing.send(
-        ClientboundChangeDifficultyPacket(
-            difficulty = world.difficulty,
-            locked = world.difficultyLocked,
-        ),
-    )
-    outgoing.send(
-        SetDefaultSpawnPositionPacket(
-            RespawnData(
-                globalPosition = GlobalPosition(
-                    dimension = world.dimension,
-                    position = world.spawnPosition.toBlockPosition(),
-                ),
-                yaw = world.spawnYaw,
-                pitch = world.spawnPitch,
-            ),
-        ),
-    )
-    outgoing.send(
-        ClientboundPlayerAbilitiesPacket(
-            world.playerAbilities,
-        ),
-    )
-    outgoing.send(SetRenderDistancePacket(world.viewDistance))
-    outgoing.send(SetSimulationDistancePacket(world.simulationDistance))
-    outgoing.send(
-        SynchronizePlayerPositionPacket(
-            teleportId = world.teleportId,
-            change = PositionMoveRotation(
-                position = world.spawnPosition,
-                deltaMovement = Vector3d(0.0, 0.0, 0.0),
-                yaw = world.spawnYaw,
-                pitch = world.spawnPitch,
-            ),
-            relatives = RelativeMovements(emptySet()),
-        ),
-    )
-    outgoing.send(
-        GameEventPacket(
-            event = GameEventType.LEVEL_CHUNKS_LOAD_START,
-            value = 0.0f,
-        ),
-    )
-    outgoing.send(
-        SetCenterChunkPacket(
-            chunkX = centerChunk.x,
-            chunkZ = centerChunk.z,
-        ),
-    )
+suspend fun MinecraftServerConnection.synchronizeInitialWorld(world: MinecraftInitialWorld) {
+    sendInitialWorldBootstrap(world.bootstrap)
     outgoing.send(ChunkBatchStartPacket)
     world.chunks.forEach { outgoing.send(it.packet()) }
     outgoing.send(ChunkBatchFinishedPacket(world.chunks.size))
-    world.entities.forEach { entity ->
-        entity.packets(registries).forEach { outgoing.send(it) }
-    }
-
-    return MinecraftInitialWorldSynchronization(
-        teleportId = world.teleportId,
-        chunkCount = world.chunks.size,
-        entityCount = world.entities.size,
-    )
+    world.entities.forEach { entity -> sendEntitySnapshot(entity) }
 }
 
 private fun Vector3d.toBlockPosition(): BlockPosition =
@@ -239,9 +174,6 @@ private fun Vector3d.toBlockPosition(): BlockPosition =
         y = MinecraftCoordinates.blockCoordinate(y),
         z = MinecraftCoordinates.blockCoordinate(z),
     )
-
-private fun Vector3d.isFinite(): Boolean =
-    x.isFinite() && y.isFinite() && z.isFinite()
 
 private const val DEFAULT_FLYING_SPEED: Float = 0.05f
 private const val DEFAULT_WALKING_SPEED: Float = 0.1f

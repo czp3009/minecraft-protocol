@@ -7,7 +7,6 @@ import com.hiczp.minecraft.protocol.model.packet.Packet
 import com.hiczp.minecraft.protocol.model.packet.PacketRoute
 import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.Identifier
-import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
 import com.hiczp.minecraft.protocol.model.wire.RemainingBytes
 import com.hiczp.minecraft.protocol.model.wire.VarIntElements
 import com.hiczp.minecraft.protocol.serialization.*
@@ -21,8 +20,6 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.modules.EmptySerializersModule
-import kotlinx.serialization.modules.SerializersModule
 
 object NeoForgeProtocol {
     const val COMMON_PACKET_VERSION: Int = 1
@@ -164,17 +161,12 @@ object NeoForgeProtocol {
     /** Pure factory; callers may retain and share its result across connections. */
     fun connectionDefinition(
         extensionCodecs: List<PacketCodecRegistration<out Packet>> = emptyList(),
-        registries: ProtocolRegistryContext = ProtocolRegistryContext.Empty,
-        formatConfiguration: MinecraftProtocolFormatConfiguration =
-            MinecraftProtocolFormatConfiguration(),
-        serializersModule: SerializersModule = EmptySerializersModule(),
+        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
         incomingCapacity: Int = MinecraftConnectionDefinition.DEFAULT_CHANNEL_CAPACITY,
         outgoingCapacity: Int = MinecraftConnectionDefinition.DEFAULT_CHANNEL_CAPACITY,
     ): MinecraftConnectionDefinition = MinecraftConnectionDefinition.compose(
         extensionCodecs = packetCodecs + extensionCodecs,
-        registries = registries,
-        formatConfiguration = formatConfiguration,
-        serializersModule = serializersModule,
+        format = format,
         incomingCapacity = incomingCapacity,
         outgoingCapacity = outgoingCapacity,
     )

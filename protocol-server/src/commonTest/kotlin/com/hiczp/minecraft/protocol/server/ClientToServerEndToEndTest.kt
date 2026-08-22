@@ -53,6 +53,7 @@ class ClientToServerEndToEndTest {
                     host = "127.0.0.1",
                     port = server.port,
                     definition = definition,
+                    connectionDispatcher = Dispatchers.Default,
                 ).use { connection ->
                     requestStatus(connection)
                     statusServer.await()
@@ -88,8 +89,8 @@ class ClientToServerEndToEndTest {
                 assertEquals(identity.id, serverOutcome.gameProfile.id)
                 assertEquals(clientOutcome.playLogin, serverOutcome.playLogin)
                 assertEquals(PlayerGameMode.CREATIVE, clientOutcome.playLogin.spawnInfo.gameMode)
-                assertEquals(1, serverOutcome.synchronization.chunkCount)
-                assertEquals(1, serverOutcome.synchronization.entityCount)
+                assertEquals(1, serverOutcome.initialWorld.chunks.size)
+                assertEquals(1, serverOutcome.initialWorld.entities.size)
             }
         }
     }
@@ -103,6 +104,7 @@ class ClientToServerEndToEndTest {
         assertEquals(ConnectionState.STATUS, connection.state)
         assertEquals(StatusRequestPacket, connection.incoming.receive())
         connection.outgoing.send(StatusResponsePacket(options.statusJson()))
+        connection.requestFlush()
         val ping = assertIs<StatusPingRequestPacket>(connection.incoming.receive())
         connection.outgoing.send(StatusPongResponsePacket(ping.timestamp))
         connection.outgoing.close()
@@ -121,6 +123,7 @@ class ClientToServerEndToEndTest {
             ),
         )
         connection.outgoing.send(StatusRequestPacket)
+        connection.requestFlush()
         val response = assertIs<StatusResponsePacket>(connection.incoming.receive())
         val statusDocument = Json.parseToJsonElement(response.jsonResponse).jsonObject
         assertEquals(
@@ -132,6 +135,7 @@ class ClientToServerEndToEndTest {
                 .int,
         )
         connection.outgoing.send(StatusPingRequestPacket(STATUS_PING_ID))
+        connection.requestFlush()
         assertEquals(
             StatusPongResponsePacket(STATUS_PING_ID),
             connection.incoming.receive(),
@@ -154,6 +158,7 @@ class ClientToServerEndToEndTest {
         profile.negotiateLogin(connection)
         options.compressionThreshold?.let { connection.outgoing.send(SetCompressionPacket(it)) }
         connection.outgoing.send(LoginSuccessPacket(gameProfile, options.sessionId))
+        connection.requestFlush()
         assertEquals(LoginAcknowledgedPacket, connection.incoming.receive())
         connection.awaitState(ConnectionState.CONFIGURATION)
 
@@ -166,6 +171,7 @@ class ClientToServerEndToEndTest {
         connection.outgoing.send(
             ConfigurationClientboundKnownPacksPacket(options.protocolData.knownPacks),
         )
+        connection.requestFlush()
         val acceptedKnownPacks = assertIs<ConfigurationServerboundKnownPacksPacket>(
             connection.incoming.receive(),
         ).knownPacks
@@ -175,12 +181,12 @@ class ClientToServerEndToEndTest {
         profile.negotiateConfiguration(connection)
 
         val playLogin = options.playLogin(gameProfile, onlineMode = false)
-        options.validatePlayLogin(playLogin)
         val baseContext = options.protocolData
             .resolveSynchronizedRegistryContext(registries)
             .withPlayLoginDimension(playLogin, registries, options.protocolData)
         connection.installRegistryContext(profile.resolveRegistryContext(baseContext))
         connection.outgoing.send(FinishConfigurationPacket)
+        connection.requestFlush()
         assertEquals(AcknowledgeFinishConfigurationPacket, connection.incoming.receive())
         connection.awaitState(ConnectionState.PLAY)
         profile.preparePlay(connection)
@@ -192,23 +198,17 @@ class ClientToServerEndToEndTest {
             chunkRadius = 0,
             entities = listOf(testPig()),
         )
-        val synchronization = connection.synchronizeInitialWorld(
-            world = world,
-            login = playLogin,
-        )
+        connection.synchronizeInitialWorld(world)
         connection.outgoing.send(PlayClientboundKeepAlivePacket(KEEP_ALIVE_ID))
+        connection.requestFlush()
 
         var teleportConfirmed = false
         var chunkBatchConfirmed = false
         var keepAliveConfirmed = false
-        var remainingPackets = options.maximumPacketsPerPhase
-        while (
-            remainingPackets-- > 0 &&
-            !(teleportConfirmed && chunkBatchConfirmed && keepAliveConfirmed)
-        ) {
+        while (!(teleportConfirmed && chunkBatchConfirmed && keepAliveConfirmed)) {
             when (val packet = connection.incoming.receive()) {
                 is ConfirmTeleportationPacket ->
-                    teleportConfirmed = packet.teleportId == synchronization.teleportId
+                    teleportConfirmed = packet.teleportId == world.bootstrap.teleportId
 
                 is ChunkBatchReceivedPacket -> chunkBatchConfirmed = true
                 is PlayServerboundKeepAlivePacket ->
@@ -226,7 +226,7 @@ class ClientToServerEndToEndTest {
         return ServerPlayOutcome(
             gameProfile = gameProfile,
             playLogin = playLogin,
-            synchronization = synchronization,
+            initialWorld = world,
         )
     }
 
@@ -247,6 +247,7 @@ class ClientToServerEndToEndTest {
             ),
         )
         connection.outgoing.send(LoginStartPacket(identity.name, identity.id))
+        connection.requestFlush()
         val firstLoginPacket = connection.incoming.receive()
         val login = if (firstLoginPacket is SetCompressionPacket) {
             assertIs<LoginSuccessPacket>(connection.incoming.receive())
@@ -271,14 +272,16 @@ class ClientToServerEndToEndTest {
                 ),
             ),
         )
+        connection.requestFlush()
         val registries = mutableListOf<RegistryDataPacket>()
         var configurationFinished = false
         while (!configurationFinished) {
             when (val packet = connection.incoming.receive()) {
                 is FeatureFlagsPacket -> assertEquals(VanillaProtocolData.featureFlags, packet)
-                is ConfigurationClientboundKnownPacksPacket -> connection.outgoing.send(
-                    ConfigurationServerboundKnownPacksPacket(packet.knownPacks),
-                )
+                is ConfigurationClientboundKnownPacksPacket -> {
+                    connection.outgoing.send(ConfigurationServerboundKnownPacksPacket(packet.knownPacks))
+                    connection.requestFlush()
+                }
 
                 is RegistryDataPacket -> registries += packet
                 is ConfigurationUpdateTagsPacket -> assertEquals(VanillaProtocolData.tags, packet)
@@ -288,6 +291,7 @@ class ClientToServerEndToEndTest {
                     connection.installRegistryContext(profiled)
                     profile.preparePlay(connection)
                     connection.outgoing.send(AcknowledgeFinishConfigurationPacket)
+                    connection.requestFlush()
                     connection.awaitState(ConnectionState.PLAY)
                     configurationFinished = true
                 }
@@ -312,18 +316,22 @@ class ClientToServerEndToEndTest {
         var abilities: PlayerAbilities? = null
         while (!keepAliveReceived) {
             when (val packet = connection.incoming.receive()) {
-                is SynchronizePlayerPositionPacket -> connection.outgoing.send(
-                    ConfirmTeleportationPacket(packet.teleportId),
-                )
+                is SynchronizePlayerPositionPacket -> {
+                    connection.outgoing.send(ConfirmTeleportationPacket(packet.teleportId))
+                    connection.requestFlush()
+                }
 
                 is ChunkDataAndUpdateLightPacket -> chunkReceived = true
-                is ChunkBatchFinishedPacket -> connection.outgoing.send(
-                    ChunkBatchReceivedPacket(desiredChunksPerTick = 10.0f),
-                )
+                is ChunkBatchFinishedPacket -> {
+                    connection.outgoing.send(ChunkBatchReceivedPacket(desiredChunksPerTick = 10.0f))
+                    connection.requestFlush()
+                }
 
-                is SpawnEntityPacket -> entityReceived = packet.typeId == testPig().typeId(
-                    VanillaProtocolData.registryContext,
-                )
+                is ClientboundBundlePacket -> entityReceived = packet.subPackets
+                    .filterIsInstance<SpawnEntityPacket>()
+                    .any { spawn ->
+                        spawn.typeId == testPig().typeId(VanillaProtocolData.registryContext)
+                    }
 
                 is ClientboundChangeDifficultyPacket ->
                     difficultyReceived = packet.difficulty == Difficulty.HARD && packet.locked
@@ -332,6 +340,7 @@ class ClientToServerEndToEndTest {
                 is PlayClientboundKeepAlivePacket -> {
                     assertEquals(KEEP_ALIVE_ID, packet.id)
                     connection.outgoing.send(PlayServerboundKeepAlivePacket(packet.id))
+                    connection.requestFlush()
                     keepAliveReceived = true
                 }
 
@@ -342,7 +351,7 @@ class ClientToServerEndToEndTest {
         assertTrue(entityReceived)
         assertTrue(difficultyReceived)
         assertPlayerAbilitiesEqual(
-            expected = MinecraftInitialWorld.vanillaPlayerAbilities(PlayerGameMode.CREATIVE),
+            expected = MinecraftInitialWorldBootstrap.vanillaPlayerAbilities(PlayerGameMode.CREATIVE),
             actual = assertNotNull(abilities),
         )
         assertEquals(PROFILE_REGISTRY_SIZE, connection.registries.registrySize(PROFILE_REGISTRY))
@@ -381,7 +390,7 @@ class ClientToServerEndToEndTest {
 private data class ServerPlayOutcome(
     val gameProfile: GameProfile,
     val playLogin: PlayLoginPacket,
-    val synchronization: MinecraftInitialWorldSynchronization,
+    val initialWorld: MinecraftInitialWorld,
 )
 
 private data class ClientPlayOutcome(

@@ -67,17 +67,10 @@ sealed interface ServerNegotiationQueryResult {
 }
 
 class MinecraftServerNegotiationTask(
-    val name: String,
     packets: List<ClientboundPacket>,
     private val completion: suspend (ServerboundPacket) -> Boolean,
 ) {
     val packets: List<ClientboundPacket> = packets.toList()
-
-    init {
-        require(name.isNotBlank()) {
-            "Configuration task name must not be blank"
-        }
-    }
 
     suspend fun isComplete(packet: ServerboundPacket): Boolean =
         completion(packet)

@@ -302,6 +302,7 @@ class FabricServerProfile(
         )
         connection.outgoing.send(ConfigurationPingPacket(FABRIC_PROBE_ID))
         while (!receivedInitialRegistration && !receivedProbePong) {
+            connection.requestFlush()
             val packet = connection.incoming.receive()
             if (!handleConfigurationPacket(connection, packet)) {
                 throw FabricNegotiationException(
@@ -464,6 +465,7 @@ class FabricServerProfile(
         connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
     ): T {
         while (true) {
+            connection.requestFlush()
             val packet = connection.incoming.receive()
             if (packet is T) {
                 handleConfigurationPacket(connection, packet)

@@ -1,7 +1,19 @@
 package com.hiczp.minecraft.protocol.transport
 
 interface MinecraftStreamCipher {
-    fun process(input: ByteArray): ByteArray
+    fun process(
+        input: ByteArray,
+        startIndex: Int,
+        endIndex: Int,
+        output: ByteArray,
+        outputStartIndex: Int,
+    ): Int
+
+    fun process(input: ByteArray): ByteArray {
+        val output = ByteArray(input.size)
+        val written = process(input, 0, input.size, output, 0)
+        return if (written == output.size) output else output.copyOf(written)
+    }
 }
 
 /** Stateful AES-128/CFB8 transform used by Minecraft's online-mode stream. */

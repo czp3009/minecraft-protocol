@@ -38,7 +38,7 @@ data class CombatDeathPacket(
     @VarInt
     val playerId: Int,
     val message: TextComponent,
-) : PlayStatePacket, ClientboundPacket
+) : PlayStatePacket, SkippableClientboundPacket
 
 @Serializable
 @PacketInfo(

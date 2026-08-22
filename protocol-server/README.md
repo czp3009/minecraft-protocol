@@ -8,18 +8,20 @@ negotiation or install per-connection callbacks. The application owns the accept
 ```kotlin
 suspend fun runMinecraftServer(
     selectorManager: SelectorManager,
-    handlePlayPacket: suspend (MinecraftServerConnection, ClientboundPacket) -> Unit,
+    handlePlayPacket: suspend (MinecraftServerConnection, ServerboundPacket) -> Unit,
 ) {
     coroutineScope {
-        MinecraftServer.bind(selectorManager = selectorManager).use { minecraftServer ->
+        MinecraftServer.bind(
+            selectorManager = selectorManager,
+        ).use { minecraftServer ->
             while (minecraftServer.isOpen) {
                 val minecraftServerConnection = minecraftServer.accept()
                 launch {
                     minecraftServerConnection.use {
                         val minecraftServerNegotiationResult = minecraftServerConnection.negotiate()
                         if (minecraftServerNegotiationResult != null) {
-                            for (clientboundPacket in minecraftServerConnection.incoming) {
-                                handlePlayPacket(minecraftServerConnection, clientboundPacket)
+                            for (serverboundPacket in minecraftServerConnection.incoming) {
+                                handlePlayPacket(minecraftServerConnection, serverboundPacket)
                             }
                         }
                     }
@@ -36,11 +38,18 @@ registry context, and returns `MinecraftServerNegotiationResult`. A status ping 
 application-level negotiation facts; `connection.registries` is the authoritative installed registry context. The
 extension is the library's preset orchestration path over the same typed packet connection returned by `accept`.
 
-`negotiate` runs sequentially in the calling coroutine. It neither launches a negotiation scope nor selects a
-`Dispatcher`, and it exclusively borrows the connection's `incoming` and `outgoing` channels until return. The caller
-must guarantee that no other coroutine reads or writes those channels while negotiation is active. There is no
-negotiator lock that arbitrates competing users; packet theft, ordering failures, and other races caused by concurrent
-application access are the application's responsibility.
+`negotiate` runs sequentially in the calling coroutine and exclusively borrows the connection's `incoming` and
+`outgoing` channels until return. Give that coroutine sole ownership of both channels for the complete negotiation.
+
+The preset does not impose a phase packet count or timeout. It waits for the required response until the connection
+fails or the calling coroutine is cancelled; application-specific admission deadlines belong around `negotiate`.
+
+Every accepted connection's reader, writer, and requested flushes use the dispatcher from `selectorManager` by default.
+Override `connectionDispatcher` on `bind` when those per-connection jobs should use a different dispatcher. A server
+tick can enqueue immutable packet or bundle snapshots with `outgoing.send`/`trySend`, continue its world simulation, and
+call `requestFlush()` once at tick end. Socket backpressure stays on the connection dispatcher. Channel capacity and the
+response to a failed `trySend` remain application policy; the single writer preserves the order of packets accepted by a
+non-dropping outgoing channel.
 
 ## Writing your own negotiation
 
@@ -49,8 +58,8 @@ Applications can write their own `negotiate` function on the typed connection re
 `negotiate` implementation](src/commonMain/kotlin/com/hiczp/minecraft/protocol/server/MinecraftServerProtocol.kt)
 for the complete Status, Login, Configuration, and Play-entry ordering. It is built from the same public channels,
 connection operations, authentication primitives, registry functions, and profile hooks available to callers. The
-ownership contract is unchanged: one coroutine owns both packet channels for the complete sequence, and the library does
-not add locks, a scope, or a dispatcher to caller code.
+ownership contract is unchanged: one coroutine owns both packet channels for the complete sequence and retains its
+current dispatcher.
 
 For vanilla offline Login, the server reads Handshake and Login Start, sends Login Success, receives Client Information
 and Known Packs, then sends its registry and tag snapshot. Before Finish Configuration it resolves that exact snapshot
@@ -72,26 +81,29 @@ Build immutable protocol data at the application lifetime you need, then pass re
 profile definition. `MinecraftServer` reuses its `MinecraftConnectionDefinition` for every accepted connection:
 
 ```kotlin
-val connectionDefinition = NeoForgeProtocol.connectionDefinition(
-    extensionCodecs = myModPacketCodecs,
-    registries = myResolvedRegistryContext,
+val minecraftProtocolFormat = MinecraftProtocolFormat(
+    MinecraftProtocolFormat.configuration.copy(registries = myResolvedRegistryContext),
 )
-val profileDefinition = NeoForgeServerProfileDefinition(
+val minecraftConnectionDefinition = NeoForgeProtocol.connectionDefinition(
+    extensionCodecs = myModPacketCodecs,
+    format = minecraftProtocolFormat,
+)
+val neoForgeServerProfileDefinition = NeoForgeServerProfileDefinition(
     network = myNetworkConfiguration,
     frozenRegistries = myFrozenRegistrySync,
     resolvedRegistryContext = myResolvedRegistryContext,
 )
-val server = MinecraftServer.bind(
-    selectorManager = selector,
-    definition = connectionDefinition,
+val minecraftServer = MinecraftServer.bind(
+    selectorManager = selectorManager,
+    definition = minecraftConnectionDefinition,
 )
 ```
 
 Create only the small mutable profile state per connection:
 
 ```kotlin
-val result = connection.negotiate(
-    profile = NeoForgeServerProfile(profileDefinition),
+val minecraftServerNegotiationResult = minecraftServerConnection.negotiate(
+    profile = NeoForgeServerProfile(neoForgeServerProfileDefinition),
     options = serverOptions,
     policy = applicationPolicy,
 )
@@ -107,12 +119,12 @@ Offline mode is the default. It derives the vanilla offline UUID and performs no
 encryption. Online mode receives a caller-owned `HttpClient`:
 
 ```kotlin
-val authentication = MinecraftServerAuthentication.online(
+val minecraftServerAuthentication = MinecraftServerAuthentication.online(
     sessionHttpClient = applicationHttpClient,
 )
-val server = MinecraftServer.bind(
-    selectorManager = selector,
-    authentication = authentication,
+val minecraftServer = MinecraftServer.bind(
+    selectorManager = selectorManager,
+    authentication = minecraftServerAuthentication,
 )
 ```
 
@@ -129,33 +141,78 @@ ticking, and management services remain application responsibilities. The librar
 because negotiation, encoding, or decoding failed; rejection exceptions expose a ready-to-send failure packet that the
 caller chooses to send.
 
+Supply `compressionThreshold`, player counts, view distance, simulation distance, and custom `PlayLoginPacket` values
+according to the server policy you intend to advertise. The preset forwards those protocol values and does not recreate
+`server.properties` range policy inside the library. Supply a `ProtocolDataSet` for the repository-selected Minecraft
+release so its registries and Configuration payloads match the packet codecs.
+
+`configurationPackets` and `configurationTasks` are the application's extension traffic. Keep the framework-owned
+Feature Flags, Known Packs, registry data, tags, and Finish Configuration packets out of those lists; the preset already
+sends them in protocol order and trusts the policy result without rescanning it.
+
 ## Initial world projection
 
-`MinecraftInitialWorld` projects a finite initial chunk/entity view; it is not an authoritative world or game loop. Use
-its registry-aware snapshot overloads so block-state, biome, and entity-type IDs come from the installed
-`ProtocolRegistryContext`. Once preset negotiation reaches Play, one call sends the stateless bootstrap a client needs
-to place the player and accept chunks and entities:
+`MinecraftInitialWorldBootstrap` contains only the fixed initial Play values. It does not contain Chunks or Entities, so
+a tick-driven server can enqueue the bootstrap before it begins caller-controlled AOI synchronization:
+
+```kotlin
+suspend fun bootstrapTickDrivenWorld(
+    minecraftServerConnection: MinecraftServerConnection,
+    minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
+    dimensionIdentifier: Identifier,
+    defaultSpawnPosition: Vector3d,
+    playerPosition: Vector3d,
+): MinecraftInitialWorldBootstrap {
+    val chunkPosition = MinecraftCoordinates.block(
+        playerPosition.x,
+        playerPosition.y,
+        playerPosition.z,
+    ).chunk
+    val minecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
+        options = minecraftServerNegotiationOptions,
+        dimension = dimensionIdentifier,
+        defaultSpawnPosition = defaultSpawnPosition,
+        playerPosition = playerPosition,
+        centerChunk = chunkPosition,
+    )
+    minecraftServerConnection.sendInitialWorldBootstrap(minecraftInitialWorldBootstrap)
+    return minecraftInitialWorldBootstrap
+}
+```
+
+The default spawn, current player position, and Chunk center are independent values. The `vanilla` factory derives the
+omitted values from one position for simple worlds, while its named parameters allow a returning player to enter at a
+different position from the world's default spawn. `minecraftInitialWorldBootstrap.teleportId` remains available when
+the tick loop handles `ConfirmTeleportationPacket`. Play Login belongs to negotiation and is not repeated here.
+
+`MinecraftInitialWorld` adds a finite list of detached Chunk and Entity snapshots to that bootstrap. It is a one-shot
+convenience for tests and simple servers, not an authoritative world or game loop:
 
 ```kotlin
 suspend fun synchronizeFlatInitialWorld(
     minecraftServerConnection: MinecraftServerConnection,
-    minecraftServerNegotiationResult: MinecraftServerNegotiationResult,
     minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
-): MinecraftInitialWorldSynchronization {
+) {
     val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(
         options = minecraftServerNegotiationOptions,
         chunkRadius = 0,
     )
-    return minecraftServerConnection.synchronizeInitialWorld(
-        world = minecraftInitialWorld,
-        login = minecraftServerNegotiationResult.playLogin,
-    )
+    minecraftServerConnection.synchronizeInitialWorld(minecraftInitialWorld)
+    minecraftServerConnection.requestFlush()
 }
 ```
 
-`login` is explicit state, not a hidden connection marker. An application-defined negotiation passes the exact
-`PlayLoginPacket` it sent; preset callers pass `MinecraftServerNegotiationResult.playLogin`. Reconfiguration and respawn
-likewise pass the currently active Play Login, so synchronization never guesses from stale connection history.
+Neither sending function performs an implicit flush. `MinecraftInitialWorldBootstrap.packets()` exposes the same fixed
+packet sequence when the application needs the detached packets without immediately enqueueing them.
+
+`synchronizeInitialWorld` submits exactly one complete Chunk batch and does not wait for `ChunkBatchReceivedPacket`. For
+incremental initial loading and later movement loading, the application tick loop owns that backpressure directly:
+after it submits `ChunkBatchStartPacket`, the selected complete Chunk packets, and `ChunkBatchFinishedPacket`, that
+tick's batch work is finished. Later ticks drain and dispatch available `incoming.tryReceive()` results and submit no
+next batch until the acknowledgement arrives. Other Play traffic and updates for already-submitted Chunks continue in
+the meantime. If the acknowledgement never arrives, no later Chunk batch is sent; the library does not suspend the tick
+waiting for it or invent a Chunk-specific timeout, and the application may disconnect through its ordinary connection
+health policy.
 
 ### In-memory Chunk to packet
 
@@ -186,12 +243,16 @@ fun createMinecraftChunkSnapshots(
 }
 ```
 
-Put the returned snapshot in `MinecraftInitialWorld.chunks`; `synchronizeInitialWorld` sends its
+Put the returned snapshots in `MinecraftInitialWorld.chunks`; `synchronizeInitialWorld` sends each snapshot's
 `ChunkDataAndUpdateLightPacket`. A snapshot's `packet()` method also exposes that packet directly. Palette values are
 packed from the semantic Chunk without first constructing a dense 4096-element block list.
 
 This is the normal server path: an authoritative server usually sends the Chunk already held by its in-memory world or
 Chunk cache. Persistence is only a fallback when that value is absent.
+
+Construct the encoder and Chunk from the same installed registry context and active dimension layout. The projection
+uses their IDs directly and does not rescan every palette entry merely to enforce that application-level convention; the
+packet serializer still enforces physical wire widths and declared payload boundaries.
 
 ### Disk Chunk to in-memory Chunk to packet
 
@@ -206,17 +267,16 @@ The following is a complete disk-backed synchronization example. It receives an 
 ```kotlin
 suspend fun synchronizeStoredInitialWorld(
     minecraftServerConnection: MinecraftServerConnection,
-    minecraftServerNegotiationResult: MinecraftServerNegotiationResult,
     minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
     minecraftWorldAccess: MinecraftWorldAccess,
     dimensionIdentifier: Identifier,
-    spawnPosition: Vector3d,
+    defaultSpawnPosition: Vector3d,
+    playerPosition: Vector3d,
     chunkPositions: List<ChunkPosition>,
     expectedDataVersion: Int,
     isAir: (ProtocolBlockState) -> Boolean,
     hasFluid: (ProtocolBlockState) -> Boolean,
-): MinecraftInitialWorldSynchronization {
-    require(chunkPositions.distinct().size == chunkPositions.size)
+) {
     val minecraftDimensionLayout = MinecraftDimensionLayout.from(
         minecraftServerNegotiationOptions.protocolData,
         dimensionIdentifier,
@@ -251,21 +311,18 @@ suspend fun synchronizeStoredInitialWorld(
             }
         }
     }
-    val minecraftInitialWorld = MinecraftInitialWorld(
+    val minecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
+        options = minecraftServerNegotiationOptions,
         dimension = dimensionIdentifier,
-        dimensionType = minecraftDimensionLayout,
-        spawnPosition = spawnPosition,
-        viewDistance = minecraftServerNegotiationOptions.viewDistance,
-        simulationDistance = minecraftServerNegotiationOptions.simulationDistance,
-        difficulty = minecraftServerNegotiationOptions.difficulty,
-        difficultyLocked = minecraftServerNegotiationOptions.difficultyLocked,
-        playerAbilities = MinecraftInitialWorld.vanillaPlayerAbilities(minecraftServerNegotiationOptions.gameMode),
+        defaultSpawnPosition = defaultSpawnPosition,
+        playerPosition = playerPosition,
+    )
+    val minecraftInitialWorld = MinecraftInitialWorld(
+        bootstrap = minecraftInitialWorldBootstrap,
         chunks = minecraftChunkSnapshots,
     )
-    return minecraftServerConnection.synchronizeInitialWorld(
-        world = minecraftInitialWorld,
-        login = minecraftServerNegotiationResult.playLogin,
-    )
+    minecraftServerConnection.synchronizeInitialWorld(minecraftInitialWorld)
+    minecraftServerConnection.requestFlush()
 }
 ```
 
@@ -299,3 +356,128 @@ format.
 By default, persisted block-entity `id`/`x`/`y`/`z` fields become the packet's separate metadata and the remaining
 compound becomes its update tag. A block-entity implementation with a type-specific client update tag can supply
 `blockEntityUpdateTag` when constructing `MinecraftChunkPacketEncoder`.
+
+### Entity to pairing bundle
+
+`MinecraftEntitySnapshot` represents the detached state consumed by the selected-release vanilla Entity pairing
+sequence. `bundle(registries)` returns one logical `ClientboundBundlePacket`; `packets(registries)` retains the raw
+opening delimiter, ordered payload packets, and closing delimiter for callers that need the physical sequence. The
+payload order is:
+
+1. spawn;
+2. non-empty metadata, when supplied;
+3. attributes, when supplied;
+4. equipment, when supplied;
+5. this Entity's passengers, when supplied;
+6. its vehicle's complete passenger relationship when this Entity is itself a passenger;
+7. the leash relationship, when supplied.
+
+The snapshot is a projection, not an Entity rules engine. The caller supplies official-valid numeric IDs, relationships,
+attributes, and equipment; the constructor does not add gameplay-policy validation or connection-state locks.
+
+The same pairing bundle is used when an Entity first enters a joining player's already-synchronized area and when it
+later enters an established player's tracked area. Movement and other later changes use their ordinary delta packets.
+Player-list visibility required before spawning a player Entity remains application state and is sent separately.
+Subtype-specific synchronization that vanilla performs after the delimiter-bounded pairing bundle is likewise
+caller-owned and is enqueued after this bundle.
+
+A semantic `world-format` `Entity` contains persistent common state, but it cannot invent connection-local or
+registry-resolved values. Supply those values when creating the snapshot:
+
+```kotlin
+fun <E : Any> createMinecraftEntitySnapshot(
+    entity: Entity<E>,
+    entityId: Int,
+    entityMetadata: EntityMetadata?,
+    entityAttributes: List<AttributeSnapshot>,
+    entityEquipment: List<EquipmentUpdate>,
+    passengerEntityIds: List<Int>,
+    vehiclePassengerRelation: MinecraftEntityPassengersSnapshot?,
+    leashHolderEntityId: Int?,
+): MinecraftEntitySnapshot = entity.toMinecraftEntitySnapshot(
+    entityId = entityId,
+    metadata = entityMetadata,
+    attributes = entityAttributes,
+    equipment = entityEquipment,
+    passengerEntityIds = passengerEntityIds,
+    vehiclePassengerRelation = vehiclePassengerRelation,
+    leashHolderEntityId = leashHolderEntityId,
+)
+```
+
+The helper copies the Entity's position, velocity, and rotation and snapshots the supplied collection structure before
+returning. Build this value on the tick thread while the authoritative Entity state is stable, then enqueue its bundle
+before continuing that tick. The network writer may send it later without observing subsequent mutation of the semantic
+Entity.
+
+`sendEntitySnapshot` is the suspending convenience for sending the complete logical bundle:
+
+```kotlin
+suspend fun sendEntityPairing(
+    minecraftServerConnection: MinecraftServerConnection,
+    minecraftEntitySnapshot: MinecraftEntitySnapshot,
+) {
+    minecraftServerConnection.sendEntitySnapshot(minecraftEntitySnapshot)
+}
+```
+
+It enqueues one `ClientboundBundlePacket` through the connection's ordered `outgoing.send` path and therefore suspends
+when the configured queue is full. A tick loop that must make its own slow-client decision calls
+`minecraftEntitySnapshot.bundle(minecraftServerConnection.registries)` and passes the result to `outgoing.trySend`. The
+writer expands an accepted logical bundle without channel-level interleaving. `packets(registries)` remains available
+when an application deliberately manages the delimiter sequence itself.
+
+### Disk Entity Chunk to Entity to pairing bundle
+
+`protocol-server` already depends on `world-format` for the semantic Entity model, but it does not depend on
+`world-io`. Add `world-io` in the application when Entity Chunks must be loaded from disk. Entity storage is random
+access by Region and Chunk; it is not stored in `level.dat`.
+
+This complete example loads one requested Entity from its Entity Chunk, adds caller-owned runtime pairing state, and
+sends its complete bundle:
+
+```kotlin
+suspend fun sendStoredEntity(
+    minecraftServerConnection: MinecraftServerConnection,
+    minecraftWorldAccess: MinecraftWorldAccess,
+    chunkPosition: ChunkPosition,
+    entityUuid: Uuid,
+    expectedDataVersion: Int,
+    entityId: Int,
+    entityMetadata: EntityMetadata?,
+    entityAttributes: List<AttributeSnapshot>,
+    entityEquipment: List<EquipmentUpdate>,
+    passengerEntityIds: List<Int>,
+    vehiclePassengerRelation: MinecraftEntityPassengersSnapshot?,
+    leashHolderEntityId: Int?,
+): Boolean {
+    val entityDataRegistry = NbtEntityDataRegistry()
+    val entityChunkNbtCodec = EntityChunkNbtCodec(expectedDataVersion, entityDataRegistry)
+    return minecraftWorldAccess.openEntityRegion(chunkPosition.region).use entityRegionUse@{ entityRegionHandle ->
+        val entityChunk = entityRegionHandle.readChunk(chunkPosition, entityChunkNbtCodec)
+            ?: return@entityRegionUse false
+        val entity = entityChunk.entity(entityUuid) ?: return@entityRegionUse false
+        val minecraftEntitySnapshot = entity.toMinecraftEntitySnapshot(
+            entityId = entityId,
+            metadata = entityMetadata,
+            attributes = entityAttributes,
+            equipment = entityEquipment,
+            passengerEntityIds = passengerEntityIds,
+            vehiclePassengerRelation = vehiclePassengerRelation,
+            leashHolderEntityId = leashHolderEntityId,
+        )
+        minecraftServerConnection.sendEntitySnapshot(minecraftEntitySnapshot)
+        true
+    }
+}
+```
+
+For all Entities in the Chunk, iterate `entityChunk.allEntities()` and assign each UUID its current numeric Entity ID.
+Passenger relationships use those runtime IDs; persisted passenger nesting alone is not a protocol ID allocator. A
+long-running server normally reads Entity Chunks into its in-memory world before ticking and sends snapshots from that
+memory. The direct disk path remains available for applications that deliberately need it.
+
+AOI policy is outside this module. A correct application tracks Entities only for positions inside the client's
+requested view whose full Chunk snapshot has already been submitted to that client's ordered outgoing queue. When an
+Entity leaves that intersection, send its removal; when it enters again, send a fresh pairing bundle and then resume
+deltas.

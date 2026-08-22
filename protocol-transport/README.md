@@ -29,22 +29,46 @@ val frame = codec.encodeFrame(packetData)
 check(codec.decodeFrame(frame).contentEquals(packetData))
 ```
 
-`MinecraftTransport` attaches the same codec to one Ktor `Socket`. Compression and encryption are activated exactly when
-the corresponding protocol packet has crossed the wire:
+`MinecraftTransport` owns one Ktor `Socket` and exposes its `frameStream`. A caller using this low-level API changes
+compression or encryption immediately after appending the complete transition packet frame:
 
 ```kotlin
 val transport = MinecraftTransport(socket)
+val frameStream = transport.frameStream
 
-// Immediately after Set Compression has been flushed
-transport.configureCompression(threshold = 256)
+frameStream.sendPacketData(setCompressionPacketData)
+frameStream.configureCompression(threshold = 256)
 
-// Immediately after the Login Encryption Response has been flushed
-transport.enableEncryption(sharedSecret)
+frameStream.sendPacketData(encryptionResponsePacketData)
+frameStream.enableEncryption(sharedSecret)
 
-val packetData = transport.receivePacketData()
-transport.sendPacketData(packetData)
+val packetData = frameStream.receivePacketData()
+frameStream.sendPacketData(packetData)
+frameStream.flush()
 transport.close()
 ```
 
-`transport.frames` is the underlying `MinecraftFrameStream`; construct it directly over any caller-owned
-`ByteReadChannel`/`ByteWriteChannel` pair when the connection is not a plain `Socket`.
+Construct `MinecraftFrameStream` directly over any caller-owned `ByteReadChannel`/`ByteWriteChannel` pair when the
+connection is not a plain `Socket`. [`protocol-session`](../protocol-session/README.md) owns transition ordering for
+typed connections.
+
+## Flush and socket backpressure
+
+`sendPacketData` writes one complete frame to the `ByteWriteChannel` without flushing its pending tail. This lets a
+caller encode several packets and publish them together:
+
+```kotlin
+frameStream.sendPacketData(firstPacketData)
+frameStream.sendPacketData(secondPacketData)
+frameStream.flush()
+```
+
+For a Ktor `Socket`, `flush()` publishes the pending `ByteWriteChannel` bytes to the socket's writer coroutine. It may
+suspend when Ktor's bounded channel buffer has no free space, but returning means neither that the operating system has
+delivered the bytes nor that the peer has decoded them. TCP and Minecraft acknowledgements remain separate layers. Ktor
+makes progress as its own write buffer fills. The explicit flush publishes the remaining tail at the caller's chosen
+boundary. The transport's 8192-byte scratch arrays only bound encryption/decryption copying.
+
+One coroutine owns sequential reads and one coroutine owns sequential writes. The two directions may run concurrently;
+callers do not issue concurrent operations within one direction. The typed connection in `protocol-session` provides
+these two pumps for ordinary use.

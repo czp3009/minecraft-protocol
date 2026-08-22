@@ -1,6 +1,8 @@
 package com.hiczp.minecraft.protocol.client
 
-import com.hiczp.minecraft.nbt.*
+import com.hiczp.minecraft.nbt.NbtCompound
+import com.hiczp.minecraft.nbt.NbtLongArray
+import com.hiczp.minecraft.nbt.NbtTag
 import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.world.format.*
@@ -122,15 +124,13 @@ class MinecraftChunkPacketDecoder(
                 packet.chunkData.heightmaps.mapKeys { (type, _) -> type.name }
                     .mapValues { (_, values) -> NbtLongArray(values) },
             ),
-            blockEntities = NbtList(
-                packet.chunkData.blockEntities.map { info -> decodeBlockEntity(packet.chunkPosition, info) },
-            ),
             lightOnlySections = lightOnlySections,
         )
         return Chunk(
             metadata = decodedMetadata,
             layout = layout,
             sections = sections,
+            blockEntities = packet.chunkData.blockEntities.map { info -> decodeBlockEntity(info) },
             defaultBlockState = chunkDataRegistries.blockStates.defaultValue,
             defaultBiome = chunkDataRegistries.biomes.defaultValue,
         )
@@ -218,23 +218,18 @@ class MinecraftChunkPacketDecoder(
         return result
     }
 
-    private fun decodeBlockEntity(position: ChunkPosition, info: BlockEntityInfo): NbtCompound {
+    private fun decodeBlockEntity(info: BlockEntityInfo): BlockEntity {
         val type = registries.requireRegistry(BLOCK_ENTITY_TYPE_REGISTRY)[info.typeId]
             ?: throw IllegalArgumentException("Block-entity type registry ID ${info.typeId} has no installed entry")
-        val blockPosition = position.block(
-            ChunkBlockPosition(
-                x = info.localX,
-                y = info.y.toInt(),
-                z = info.localZ,
-            ),
-        )
         val values = linkedMapOf<String, NbtTag>()
-        info.tag?.forEachEntry { name, tag -> values[name] = tag }
-        values[BLOCK_ENTITY_ID] = NbtString(type.id.value)
-        values[BLOCK_ENTITY_X] = NbtInt(blockPosition.x)
-        values[BLOCK_ENTITY_Y] = NbtInt(blockPosition.y)
-        values[BLOCK_ENTITY_Z] = NbtInt(blockPosition.z)
-        return NbtCompound(values)
+        info.tag?.forEachEntry { name, tag ->
+            if (name !in BLOCK_ENTITY_STRUCTURE_FIELDS) values[name] = tag
+        }
+        return BlockEntity(
+            type = type.id.value,
+            position = ChunkBlockPosition(info.localX, info.y.toInt(), info.localZ),
+            persistentData = NbtCompound(values),
+        )
     }
 
     private fun requireNoBitsOutside(mask: BitSet, bitCount: Int, name: String) {
@@ -246,10 +241,7 @@ class MinecraftChunkPacketDecoder(
     companion object {
         val BLOCK_ENTITY_TYPE_REGISTRY: Identifier = Identifier("block_entity_type")
 
-        private const val BLOCK_ENTITY_ID: String = "id"
-        private const val BLOCK_ENTITY_X: String = "x"
-        private const val BLOCK_ENTITY_Y: String = "y"
-        private const val BLOCK_ENTITY_Z: String = "z"
+        private val BLOCK_ENTITY_STRUCTURE_FIELDS = setOf("id", "x", "y", "z")
         private const val BLOCK_MINIMUM_INDIRECT_BITS: Int = 4
         private const val BLOCK_MAXIMUM_INDIRECT_BITS: Int = 8
         private const val BIOME_MINIMUM_INDIRECT_BITS: Int = 1

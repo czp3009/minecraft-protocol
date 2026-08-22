@@ -78,16 +78,11 @@ class MinecraftClientNegotiationOptions(
     val acceptCodeOfConduct: Boolean = true,
     val resourcePackResult: ResourcePackResult = ResourcePackResult.DECLINED,
     val staticRegistries: StaticRegistrySchema = protocolData.staticRegistries,
-    val maximumPacketsPerPhase: Int = 2_048,
     val onUnhandledQuery: (suspend (UnknownPacket.Clientbound) -> ClientNegotiationQueryResult)? = null,
 ) {
     val loginCookies: Map<Identifier, ByteString> = loginCookies.toMap()
     val configurationCookies: Map<Identifier, ByteString> = configurationCookies.toMap()
     val acceptedKnownPacks: Set<KnownPack> = acceptedKnownPacks.toSet()
-
-    init {
-        require(maximumPacketsPerPhase > 0)
-    }
 }
 
 /**
@@ -104,6 +99,7 @@ suspend fun MinecraftClientConnection.queryStatus(
     }
     outgoing.send(handshake(HandshakeNextState.STATUS))
     outgoing.send(StatusRequestPacket)
+    requestFlush()
     val response = incoming.receive()
     if (response !is StatusResponsePacket) {
         throw MinecraftClientException(
@@ -111,6 +107,7 @@ suspend fun MinecraftClientConnection.queryStatus(
         )
     }
     outgoing.send(StatusPingRequestPacket(pingPayload))
+    requestFlush()
     val pong = incoming.receive()
     if (pong !is StatusPongResponsePacket || pong.timestamp != pingPayload) {
         throw MinecraftClientException(
@@ -169,8 +166,9 @@ private suspend fun MinecraftClientConnection.negotiateLogin(
         profile.prepareHandshake(handshake(HandshakeNextState.LOGIN)),
     )
     outgoing.send(LoginStartPacket(identity.name, identity.id))
+    requestFlush()
 
-    repeat(options.maximumPacketsPerPhase) {
+    while (true) {
         when (val packet = incoming.receive()) {
             is LoginDisconnectPacket ->
                 throw MinecraftClientException(
@@ -200,8 +198,8 @@ private suspend fun MinecraftClientConnection.negotiateLogin(
 
             else -> handleLoginExtension(profile, packet, options)
         }
+        requestFlush()
     }
-    throw MinecraftClientException("Login packet limit exceeded")
 }
 
 private suspend fun MinecraftClientConnection.negotiateConfiguration(
@@ -209,12 +207,13 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
     options: MinecraftClientNegotiationOptions,
 ): MinecraftClientConfiguration {
     outgoing.send(ConfigurationClientInformationPacket(options.information))
+    requestFlush()
     var knownPacks: ConfigurationClientboundKnownPacksPacket? = null
     var featureFlags: FeatureFlagsPacket? = null
     var tags: ConfigurationUpdateTagsPacket? = null
     val registryPackets = mutableListOf<RegistryDataPacket>()
     val storedCookies = linkedMapOf<Identifier, ByteString>()
-    repeat(options.maximumPacketsPerPhase) {
+    while (true) {
         when (val packet = incoming.receive()) {
             is ConfigurationDisconnectPacket ->
                 throw MinecraftClientException(
@@ -290,6 +289,7 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
                 installRegistryContext(context)
                 profile.preparePlay(this)
                 outgoing.send(AcknowledgeFinishConfigurationPacket)
+                requestFlush()
                 awaitState(ConnectionState.PLAY)
                 return MinecraftClientConfiguration(
                     knownPacks = knownPacks,
@@ -310,15 +310,15 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
 
             else -> handleConfigurationExtension(profile, packet, options)
         }
+        requestFlush()
     }
-    throw MinecraftClientException("Configuration packet limit exceeded")
 }
 
 private suspend fun MinecraftClientConnection.awaitPlayLogin(
     registryPackets: List<RegistryDataPacket>,
     options: MinecraftClientNegotiationOptions,
 ): MinecraftClientPlayLogin {
-    repeat(options.maximumPacketsPerPhase) {
+    while (true) {
         when (val packet = incoming.receive()) {
             is PlayLoginPacket -> {
                 val dimensionLayout = registryContextOrClientFailure {
@@ -343,8 +343,8 @@ private suspend fun MinecraftClientConnection.awaitPlayLogin(
                 }
             }
         }
+        requestFlush()
     }
-    throw MinecraftClientException("Play Login packet limit exceeded")
 }
 
 private data class MinecraftClientPlayLogin(

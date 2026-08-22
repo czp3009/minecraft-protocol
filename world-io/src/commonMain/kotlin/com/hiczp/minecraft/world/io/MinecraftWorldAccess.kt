@@ -270,6 +270,34 @@ class MinecraftWorldAccess private constructor(
         dimension: DimensionDirectory = DimensionDirectory.Overworld,
     ): RegionHandle = world.openRegion(position, RegionStorageDirectory.CHUNKS, dimension)
 
+    /**
+     * Lists a detached snapshot of every canonical Entity Region filename in one dimension.
+     *
+     * This performs one full filesystem directory listing and materializes every result. It is O(n), may be slow, and
+     * may exhaust memory for an extremely large world. Concurrent file changes are not observed transactionally.
+     */
+    suspend fun listEntityRegionPositions(
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): List<RegionPosition> = world.listRegionPositions(RegionStorageDirectory.ENTITIES, dimension)
+
+    suspend fun hasEntityRegion(
+        position: RegionPosition,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): Boolean = world.hasRegion(position, RegionStorageDirectory.ENTITIES, dimension)
+
+    /**
+     * Creates a coordinated logical Entity Region handle without touching the filesystem.
+     *
+     * A missing Region still has a handle. Reads return false, null, or an empty list, and the first write creates the
+     * logical Entity Region.
+     */
+    suspend fun openEntityRegion(
+        position: RegionPosition,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): EntityRegionHandle = EntityRegionHandle(
+        world.openRegion(position, RegionStorageDirectory.ENTITIES, dimension),
+    )
+
     suspend fun flush() = world.flush()
 
     suspend fun close() = world.close()

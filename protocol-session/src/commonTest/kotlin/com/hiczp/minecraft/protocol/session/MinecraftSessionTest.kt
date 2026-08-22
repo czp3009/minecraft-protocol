@@ -10,10 +10,6 @@ import com.hiczp.minecraft.protocol.serialization.*
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import io.ktor.utils.io.*
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.EOFException
 import kotlinx.io.Sink
@@ -54,9 +50,9 @@ class MinecraftSessionTest {
         val threshold = 32
 
         server.send(SetCompressionPacket(threshold))
-        assertEquals(threshold, server.frames.codec.compressionThreshold)
+        assertEquals(threshold, server.frameStream.codec.compressionThreshold)
         assertEquals(SetCompressionPacket(threshold), client.receive())
-        assertEquals(threshold, client.frames.codec.compressionThreshold)
+        assertEquals(threshold, client.frameStream.codec.compressionThreshold)
 
         val success = LoginSuccessPacket(
             GameProfile(Uuid.fromLongs(1, 2), "SessionProbe", emptyList()),
@@ -77,13 +73,13 @@ class MinecraftSessionTest {
 
         server.send(SetCompressionPacket(16))
         assertEquals(SetCompressionPacket(16), client.receive())
-        assertEquals(16, server.frames.codec.compressionThreshold)
-        assertEquals(16, client.frames.codec.compressionThreshold)
+        assertEquals(16, server.frameStream.codec.compressionThreshold)
+        assertEquals(16, client.frameStream.codec.compressionThreshold)
 
         server.send(SetCompressionPacket(-1))
         assertEquals(SetCompressionPacket(-1), client.receive())
-        assertNull(server.frames.codec.compressionThreshold)
-        assertNull(client.frames.codec.compressionThreshold)
+        assertNull(server.frameStream.codec.compressionThreshold)
+        assertNull(client.frameStream.codec.compressionThreshold)
     }
 
     @Test
@@ -139,7 +135,7 @@ class MinecraftSessionTest {
     @Test
     fun appliesStateTransitionsOnlyAfterACompleteWireWrite() = runTest {
         val (client, _) = sessionPair()
-        client.frames.output.cancel(
+        client.frameStream.output.cancel(
             CancellationException("Closed before the test write"),
         )
 
@@ -198,7 +194,7 @@ class MinecraftSessionTest {
     @Test
     fun preservesUnknownPacketIdsButRejectsMalformedPacketIds() = runTest {
         val (unknownClient, unknownServer) = sessionPair()
-        unknownClient.frames.sendPacketData(byteArrayOf(0x7F, 1, 2, 3))
+        unknownClient.frameStream.sendPacketData(byteArrayOf(0x7F, 1, 2, 3))
         assertEquals(
             UnknownPacket.Serverbound(
                 route = PacketRoute.TopLevel(
@@ -213,7 +209,7 @@ class MinecraftSessionTest {
 
         suspend fun reject(packetData: ByteArray) {
             val (client, server) = sessionPair()
-            client.frames.sendPacketData(packetData)
+            client.frameStream.sendPacketData(packetData)
             assertFailsWith<MinecraftSessionException> {
                 server.receive()
             }
@@ -230,7 +226,7 @@ class MinecraftSessionTest {
             val malformedHandshake = encodeVarInt(0) +
                     encodeVarInt(MinecraftProtocol.PROTOCOL_VERSION) +
                     byteArrayOf(1, 'x'.code.toByte(), 0x63, 0xDD.toByte(), 0)
-            client.frames.sendPacketData(malformedHandshake)
+            client.frameStream.sendPacketData(malformedHandshake)
 
             assertFailsWith<IllegalArgumentException> {
                 server.receive()
@@ -402,54 +398,36 @@ class MinecraftSessionTest {
     }
 
     @Test
-    fun cancellationDuringLoginQueryWriteRollsBackCorrelation() = runTest {
-        val clientToServer = ByteChannel()
-        val serverOutput = FlushGatedByteWriteChannel()
-        val client = MinecraftSession(
-            frames = MinecraftFrameStream(serverOutput.bytes, clientToServer),
-            side = MinecraftSessionSide.CLIENT,
-        )
-        val server = MinecraftSession(
-            frames = MinecraftFrameStream(clientToServer, serverOutput),
-            side = MinecraftSessionSide.SERVER,
-        )
+    fun preservesLoginResponsesWithoutAnObservedRequest() = runTest {
+        val (client, server) = sessionPair()
         loginHandshake(client, server)
-        val request = LoginPluginRequestPacket(
-            messageId = 23,
-            channel = Identifier("test:cancellation"),
-            data = ByteString(byteArrayOf(1)),
+        val response = LoginPluginResponsePacket(
+            messageId = 31,
+            data = ByteString(byteArrayOf(1, 2, 3)),
         )
-        val firstFailure = CompletableDeferred<Throwable>()
-        val first = launch {
-            try {
-                server.send(request)
-            } catch (failure: Throwable) {
-                firstFailure.complete(failure)
-            }
-        }
-        serverOutput.flushes.receive()
 
-        first.cancel(CancellationException("cancel test write"))
-        first.join()
+        client.send(response)
 
-        assertIs<CancellationException>(firstFailure.await())
+        assertEquals(response, server.receive())
+    }
 
-        val retryFailure = CompletableDeferred<Throwable>()
-        val retry = launch {
-            try {
-                server.send(request)
-            } catch (failure: Throwable) {
-                retryFailure.complete(failure)
-            }
-        }
-        val reachedWire = select {
-            serverOutput.flushes.onReceive { true }
-            retryFailure.onAwait { false }
-        }
+    @Test
+    fun failedTransitionEncodingLeavesBothDirectionsInThePreviousState() = runTest {
+        val (client, server) = sessionPair()
+        val invalid = HandshakePacket(
+            protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
+            serverAddress = "x".repeat(256),
+            serverPort = 25_565,
+            nextState = HandshakeNextState.LOGIN,
+        )
 
-        assertTrue(reachedWire, "Cancelled Login Query remained registered")
-        retry.cancel()
-        retry.join()
+        assertFailsWith<MinecraftSerializationException> { client.send(invalid) }
+        assertEquals(ConnectionState.HANDSHAKE, client.state)
+        assertEquals(ConnectionState.HANDSHAKE, client.inboundState)
+
+        val valid = invalid.copy(serverAddress = "localhost")
+        client.send(valid)
+        assertEquals(valid, server.receive())
     }
 
     private suspend fun loginHandshake(
@@ -512,14 +490,14 @@ class MinecraftSessionTest {
     private fun sessionPair(
         packetRegistry: PacketRegistry = MinecraftPacketRegistry.compose(emptyList()),
     ): Pair<MinecraftSession, MinecraftSession> {
-        val clientToServer = ByteChannel()
-        val serverToClient = ByteChannel()
+        val clientToServer = ByteChannel(autoFlush = true)
+        val serverToClient = ByteChannel(autoFlush = true)
         return MinecraftSession(
-            frames = MinecraftFrameStream(serverToClient, clientToServer),
+            frameStream = MinecraftFrameStream(serverToClient, clientToServer),
             side = MinecraftSessionSide.CLIENT,
             packetRegistry = packetRegistry,
         ) to MinecraftSession(
-            frames = MinecraftFrameStream(clientToServer, serverToClient),
+            frameStream = MinecraftFrameStream(clientToServer, serverToClient),
             side = MinecraftSessionSide.SERVER,
             packetRegistry = packetRegistry,
         )
@@ -536,19 +514,6 @@ class MinecraftSessionTest {
             bytes[size++] = current.toByte()
         } while (remaining != 0)
         return bytes.copyOf(size)
-    }
-}
-
-private class FlushGatedByteWriteChannel(
-    val bytes: ByteChannel = ByteChannel(),
-) : ByteWriteChannel by bytes {
-    val flushes = Channel<Unit>(Channel.UNLIMITED)
-    private val releases = Channel<Unit>()
-
-    override suspend fun flush() {
-        flushes.send(Unit)
-        releases.receive()
-        bytes.flush()
     }
 }
 

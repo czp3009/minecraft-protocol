@@ -31,10 +31,24 @@ private class NodeAesCfb8Cipher(
 ) : MinecraftStreamCipher {
     // Keep the Node Cipher instance alive and call update only; finalizing at a
     // packet boundary would reset Minecraft's continuous CFB8 feedback stream.
-    override fun process(input: ByteArray): ByteArray =
-        cipher.update(input.asUByteArray().toUint8Array())
+    override fun process(
+        input: ByteArray,
+        startIndex: Int,
+        endIndex: Int,
+        output: ByteArray,
+        outputStartIndex: Int,
+    ): Int {
+        val selected = if (startIndex == 0 && endIndex == input.size) {
+            input
+        } else {
+            input.copyOfRange(startIndex, endIndex)
+        }
+        val transformed = cipher.update(selected.asUByteArray().toUint8Array())
             .toUByteArray()
             .asByteArray()
+        transformed.copyInto(output, outputStartIndex)
+        return transformed.size
+    }
 }
 
 private const val AES_128_CFB8 = "aes-128-cfb8"

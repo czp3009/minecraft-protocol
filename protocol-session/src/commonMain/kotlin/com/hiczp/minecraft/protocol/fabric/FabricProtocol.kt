@@ -19,8 +19,6 @@ import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.descriptors.element
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
-import kotlinx.serialization.modules.EmptySerializersModule
-import kotlinx.serialization.modules.SerializersModule
 
 object FabricProtocol {
     const val COMMON_PACKET_VERSION: Int = 1
@@ -78,17 +76,12 @@ object FabricProtocol {
     /** Pure factory; callers may retain and share its result across connections. */
     fun connectionDefinition(
         extensionCodecs: List<PacketCodecRegistration<out Packet>> = emptyList(),
-        registries: ProtocolRegistryContext = ProtocolRegistryContext.Empty,
-        formatConfiguration: MinecraftProtocolFormatConfiguration =
-            MinecraftProtocolFormatConfiguration(),
-        serializersModule: SerializersModule = EmptySerializersModule(),
+        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
         incomingCapacity: Int = MinecraftConnectionDefinition.DEFAULT_CHANNEL_CAPACITY,
         outgoingCapacity: Int = MinecraftConnectionDefinition.DEFAULT_CHANNEL_CAPACITY,
     ): MinecraftConnectionDefinition = MinecraftConnectionDefinition.compose(
         extensionCodecs = packetCodecs + extensionCodecs,
-        registries = registries,
-        formatConfiguration = formatConfiguration,
-        serializersModule = serializersModule,
+        format = format,
         incomingCapacity = incomingCapacity,
         outgoingCapacity = outgoingCapacity,
     )

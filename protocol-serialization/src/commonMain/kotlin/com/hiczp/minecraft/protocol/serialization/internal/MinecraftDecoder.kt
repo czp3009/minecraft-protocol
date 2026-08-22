@@ -11,6 +11,7 @@ import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormatConfigu
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.builtins.*
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.encoding.CompositeDecoder
@@ -245,6 +246,9 @@ internal class MinecraftDecoder(
         deserializer: DeserializationStrategy<T>,
     ): T {
         return when {
+            isPrimitiveArraySerializer(deserializer) ->
+                decodePrimitiveArray(deserializer.descriptor)
+
             pendingHints.any { it is NetworkNbt } -> {
                 if (deserializer !is NbtTagSerializer<*>) {
                     throw MinecraftSerializationException(
@@ -473,9 +477,99 @@ internal class MinecraftDecoder(
             StructureKind.MAP -> index % descriptor.elementsCount
             else -> index
         }
-        return descriptor.getElementAnnotations(descriptorIndex) +
-                (frames.lastOrNull()?.elementHints ?: emptyList())
+        return combineHints(
+            descriptor.getElementAnnotations(descriptorIndex),
+            frames.lastOrNull()?.elementHints.orEmpty(),
+        )
     }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> decodePrimitiveArray(descriptor: SerialDescriptor): T {
+        val collection = readCollectionSize(descriptor)
+        val size = collection.size
+        val elementHints = collection.elementHints
+        val value: Any = when (descriptor.serialName) {
+            BYTE_ARRAY_SERIAL_NAME -> reader.readBytes(size)
+            BOOLEAN_ARRAY_SERIAL_NAME -> {
+                requireArrayBytes(size, Byte.SIZE_BYTES)
+                BooleanArray(size) {
+                    val byte = reader.readUnsignedByte()
+                    if (configuration.strictBooleans && byte !in 0..1) {
+                        throw MinecraftSerializationException("Invalid boolean byte: $byte")
+                    }
+                    byte != 0
+                }
+            }
+
+            SHORT_ARRAY_SERIAL_NAME -> {
+                requireArrayBytes(size, Short.SIZE_BYTES)
+                ShortArray(size) { reader.readShort() }
+            }
+
+            INT_ARRAY_SERIAL_NAME -> {
+                val variable = elementHints.any { it is VarIntElements }
+                requireArrayBytes(size, if (variable) 1 else Int.SIZE_BYTES)
+                IntArray(size) {
+                    if (variable) {
+                        reader.readVarInt(configuration.rejectNonMinimalVarNumbers)
+                    } else {
+                        reader.readInt()
+                    }
+                }
+            }
+
+            LONG_ARRAY_SERIAL_NAME -> {
+                val variable = elementHints.any { it is VarLongElements }
+                requireArrayBytes(size, if (variable) 1 else Long.SIZE_BYTES)
+                LongArray(size) {
+                    if (variable) {
+                        reader.readVarLong(configuration.rejectNonMinimalVarNumbers)
+                    } else {
+                        reader.readLong()
+                    }
+                }
+            }
+
+            FLOAT_ARRAY_SERIAL_NAME -> {
+                requireArrayBytes(size, Float.SIZE_BYTES)
+                FloatArray(size) { Float.fromBits(reader.readInt()) }
+            }
+
+            DOUBLE_ARRAY_SERIAL_NAME -> {
+                requireArrayBytes(size, Double.SIZE_BYTES)
+                DoubleArray(size) { Double.fromBits(reader.readLong()) }
+            }
+
+            CHAR_ARRAY_SERIAL_NAME -> {
+                requireArrayBytes(size, Char.SIZE_BYTES)
+                CharArray(size) { reader.readUnsignedShort().toChar() }
+            }
+
+            else -> error("Not a primitive-array descriptor: ${descriptor.serialName}")
+        }
+        return value as T
+    }
+
+    private fun requireArrayBytes(size: Int, minimumElementBytes: Int) {
+        if (size > reader.remaining / minimumElementBytes) {
+            throw MinecraftSerializationException(
+                "Array declares $size elements but only ${reader.remaining} payload bytes remain",
+            )
+        }
+    }
+
+    private fun isPrimitiveArraySerializer(deserializer: DeserializationStrategy<*>): Boolean =
+        when (deserializer.descriptor.serialName) {
+            BOOLEAN_ARRAY_SERIAL_NAME -> deserializer === BooleanArraySerializer()
+            BYTE_ARRAY_SERIAL_NAME -> deserializer === ByteArraySerializer()
+            CHAR_ARRAY_SERIAL_NAME -> deserializer === CharArraySerializer()
+            DOUBLE_ARRAY_SERIAL_NAME -> deserializer === DoubleArraySerializer()
+            FLOAT_ARRAY_SERIAL_NAME -> deserializer === FloatArraySerializer()
+            INT_ARRAY_SERIAL_NAME -> deserializer === IntArraySerializer()
+            LONG_ARRAY_SERIAL_NAME -> deserializer === LongArraySerializer()
+            SHORT_ARRAY_SERIAL_NAME -> deserializer === ShortArraySerializer()
+            else -> false
+        }
 
     private fun takePendingHints(): List<Annotation> {
         val result = pendingHints
@@ -510,9 +604,17 @@ internal class MinecraftDecoder(
     )
 
     private companion object {
+        const val BOOLEAN_ARRAY_SERIAL_NAME: String = "kotlin.BooleanArray"
+        const val BYTE_ARRAY_SERIAL_NAME: String = "kotlin.ByteArray"
+        const val CHAR_ARRAY_SERIAL_NAME: String = "kotlin.CharArray"
         const val DEFAULT_STRING_MAXIMUM: Int = 32_767
+        const val DOUBLE_ARRAY_SERIAL_NAME: String = "kotlin.DoubleArray"
+        const val FLOAT_ARRAY_SERIAL_NAME: String = "kotlin.FloatArray"
+        const val INT_ARRAY_SERIAL_NAME: String = "kotlin.IntArray"
+        const val LONG_ARRAY_SERIAL_NAME: String = "kotlin.LongArray"
         const val VECTOR_3D_SERIAL_NAME: String = "com.hiczp.minecraft.protocol.model.type.Vector3d"
         const val PALETTED_CONTAINER_SERIAL_NAME: String = "com.hiczp.minecraft.protocol.model.type.PalettedContainer"
+        const val SHORT_ARRAY_SERIAL_NAME: String = "kotlin.ShortArray"
         const val UUID_SERIAL_NAME: String = "kotlin.uuid.Uuid"
     }
 }

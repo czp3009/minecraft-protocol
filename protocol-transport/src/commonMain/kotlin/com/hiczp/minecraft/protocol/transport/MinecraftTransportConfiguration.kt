@@ -8,16 +8,13 @@ data class MinecraftTransportConfiguration(
     /** Vanilla's post-decompression packet-data ceiling. */
     val maximumUncompressedPacketSize: Int = MAXIMUM_UNCOMPRESSED_PACKET_SIZE,
     /** Enforce the compression threshold on untrusted peers. */
-    val validateCompressionThreshold: Boolean = true,
+    val validateCompressionThreshold: Boolean = false,
     /** Reject longer-than-necessary frame and compression VarInts. */
-    val rejectNonMinimalVarInts: Boolean = true,
+    val rejectNonMinimalVarInts: Boolean = false,
 ) {
     init {
         require(maximumFrameSize in 1..MAXIMUM_FRAME_SIZE)
-        require(
-            maximumUncompressedPacketSize in
-                    maximumFrameSize..MAXIMUM_UNCOMPRESSED_PACKET_SIZE,
-        )
+        require(maximumUncompressedPacketSize in 1..MAXIMUM_UNCOMPRESSED_PACKET_SIZE)
     }
 
     companion object {

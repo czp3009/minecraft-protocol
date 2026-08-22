@@ -22,6 +22,7 @@ import kotlin.uuid.Uuid
  * HeadlessMC's LWJGL stubs. No display server or GUI path is involved.
  */
 internal object HeadlessClientEndToEndRunner {
+    private const val MAXIMUM_PACKETS_PER_STAGE = 2_048
     private const val PLAYER_NAME = "KmpE2EClient"
     private const val INITIAL_KEEP_ALIVE_ID = 0x1020_3040_5060_7080L
     private const val PLAY_PROBE_KEEP_ALIVE_ID = 0x1122_3344_5566_7788L
@@ -145,21 +146,19 @@ internal object HeadlessClientEndToEndRunner {
                         options = OPTIONS,
                         entities = listOf(pig, arrow, minecart, horse),
                     )
-                    val synchronization = connection.synchronizeInitialWorld(
-                        world = world,
-                        login = ready.playLogin,
-                    )
+                    connection.synchronizeInitialWorld(world)
                     connection.outgoing.send(
                         PlayClientboundKeepAlivePacket(
                             INITIAL_KEEP_ALIVE_ID,
                         ),
                     )
+                    connection.requestFlush()
                     val observed = mutableListOf<String>()
                     var teleportAcknowledged = false
                     var chunkBatchAcknowledged = false
                     var keepAliveAcknowledged = false
                     var clientTickObserved = false
-                    var initialPacketBudget = OPTIONS.maximumPacketsPerPhase
+                    var initialPacketBudget = MAXIMUM_PACKETS_PER_STAGE
                     while (
                         initialPacketBudget-- > 0 &&
                         !(
@@ -176,7 +175,7 @@ internal object HeadlessClientEndToEndRunner {
                             is ConfirmTeleportationPacket ->
                                 teleportAcknowledged =
                                     packet.teleportId ==
-                                            synchronization.teleportId
+                                            world.bootstrap.teleportId
 
                             is ChunkBatchReceivedPacket ->
                                 chunkBatchAcknowledged = true
@@ -213,14 +212,16 @@ internal object HeadlessClientEndToEndRunner {
                         projectile = arrow,
                         vehicle = minecart,
                         horse = horse,
-                        nextTeleportId = synchronization.teleportId + 1,
+                        nextTeleportId = world.bootstrap.teleportId + 1,
                         observed = observed,
                     )
                     exerciseRespawn(
                         connection = connection,
                         login = ready.playLogin,
                         world = world.copy(
-                            teleportId = world.teleportId + 2,
+                            bootstrap = world.bootstrap.copy(
+                                teleportId = world.bootstrap.teleportId + 2,
+                            ),
                         ),
                         observed = observed,
                     )
@@ -1073,11 +1074,12 @@ internal object HeadlessClientEndToEndRunner {
                 dataToKeep = RespawnPacket.KEEP_ALL_DATA.toByte(),
             ),
         )
-        val synchronization = connection.synchronizeInitialWorld(world, login)
+        connection.synchronizeInitialWorld(world)
         connection.outgoing.send(
             PlayClientboundKeepAlivePacket(RESPAWN_KEEP_ALIVE_ID),
         )
         connection.outgoing.send(ClientboundPingPacket(RESPAWN_PING_ID))
+        connection.requestFlush()
 
         var keepAlive = false
         var ping = false
@@ -1085,7 +1087,7 @@ internal object HeadlessClientEndToEndRunner {
         var teleport = false
         var chunkBatch = false
         var playerLoaded = false
-        var packetBudget = OPTIONS.maximumPacketsPerPhase
+        var packetBudget = MAXIMUM_PACKETS_PER_STAGE
         while (
             packetBudget-- > 0 &&
             !(
@@ -1110,7 +1112,7 @@ internal object HeadlessClientEndToEndRunner {
                     if (packet.id == RESPAWN_PING_ID) ping = true
 
                 is ConfirmTeleportationPacket ->
-                    if (packet.teleportId == synchronization.teleportId) {
+                    if (packet.teleportId == world.bootstrap.teleportId) {
                         teleport = true
                     }
 
@@ -1149,10 +1151,11 @@ internal object HeadlessClientEndToEndRunner {
         connection.outgoing.send(
             PlayClientboundKeepAlivePacket(keepAliveId),
         )
+        connection.requestFlush()
         var pingRoundTrip = false
         var keepAliveRoundTrip = false
         var tickObserved = false
-        var packetBudget = OPTIONS.maximumPacketsPerPhase
+        var packetBudget = MAXIMUM_PACKETS_PER_STAGE
         try {
             while (
                 packetBudget-- > 0 &&
@@ -1225,7 +1228,7 @@ internal object HeadlessClientEndToEndRunner {
         }
         connection.outgoing.send(StartConfigurationPacket)
         var acknowledged = false
-        var packetBudget = OPTIONS.maximumPacketsPerPhase
+        var packetBudget = MAXIMUM_PACKETS_PER_STAGE
         while (packetBudget-- > 0 && !acknowledged) {
             val packet = receiveForStage(
                 connection,
@@ -1286,7 +1289,7 @@ internal object HeadlessClientEndToEndRunner {
         var keepAliveRoundTrip = false
         var pingRoundTrip = false
         var knownPacks: ConfigurationServerboundKnownPacksPacket? = null
-        packetBudget = OPTIONS.maximumPacketsPerPhase
+        packetBudget = MAXIMUM_PACKETS_PER_STAGE
         while (
             packetBudget-- > 0 &&
             !(
@@ -1347,7 +1350,7 @@ internal object HeadlessClientEndToEndRunner {
         connection.outgoing.send(FinishConfigurationPacket)
 
         var completed = false
-        packetBudget = OPTIONS.maximumPacketsPerPhase
+        packetBudget = MAXIMUM_PACKETS_PER_STAGE
         while (packetBudget-- > 0 && !completed) {
             val packet = receiveForStage(
                 connection,
@@ -1364,12 +1367,11 @@ internal object HeadlessClientEndToEndRunner {
 
         connection.outgoing.send(login)
         val reconfiguredWorld = world.copy(
-            teleportId = world.teleportId + 3,
+            bootstrap = world.bootstrap.copy(
+                teleportId = world.bootstrap.teleportId + 3,
+            ),
         )
-        val synchronization = connection.synchronizeInitialWorld(
-            world = reconfiguredWorld,
-            login = login,
-        )
+        connection.synchronizeInitialWorld(reconfiguredWorld)
         connection.outgoing.send(
             PlayClientboundKeepAlivePacket(
                 POST_CONFIGURATION_KEEP_ALIVE_ID,
@@ -1378,13 +1380,14 @@ internal object HeadlessClientEndToEndRunner {
         connection.outgoing.send(
             ClientboundPingPacket(POST_CONFIGURATION_PING_ID),
         )
+        connection.requestFlush()
         var postKeepAlive = false
         var postPing = false
         var postTick = false
         var postTeleport = false
         var postChunkBatch = false
         var postPlayerLoaded = false
-        packetBudget = OPTIONS.maximumPacketsPerPhase
+        packetBudget = MAXIMUM_PACKETS_PER_STAGE
         while (
             packetBudget-- > 0 &&
             !(
@@ -1414,7 +1417,7 @@ internal object HeadlessClientEndToEndRunner {
                     }
 
                 is ConfirmTeleportationPacket ->
-                    if (packet.teleportId == synchronization.teleportId) {
+                    if (packet.teleportId == reconfiguredWorld.bootstrap.teleportId) {
                         postTeleport = true
                     }
 
@@ -1447,6 +1450,7 @@ internal object HeadlessClientEndToEndRunner {
         stage: String,
     ): Packet =
         try {
+            connection.requestFlush()
             connection.incoming.receive()
         } catch (failure: Throwable) {
             throw IllegalStateException(

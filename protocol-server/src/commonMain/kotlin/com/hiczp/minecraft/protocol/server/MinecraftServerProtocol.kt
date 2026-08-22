@@ -110,6 +110,7 @@ private suspend fun MinecraftServerConnection.handleStatus(
             ),
         ),
     )
+    requestFlush()
     val ping = requirePacket<StatusPingRequestPacket>(incoming.receive())
     outgoing.send(StatusPongResponsePacket(ping.timestamp))
     outgoing.close()
@@ -122,7 +123,7 @@ private suspend fun MinecraftServerConnection.handleLogin(
     options: MinecraftServerNegotiationOptions,
     policy: MinecraftServerNegotiationPolicy,
 ): MinecraftServerNegotiationResult {
-    val start = awaitLoginPacket<LoginStartPacket>(profile, options, policy)
+    val start = awaitLoginPacket<LoginStartPacket>(profile, policy)
     val gameProfile = authenticate(start, profile, options, policy)
     val rejection = policy.profileRejection(
         gameProfile,
@@ -141,15 +142,13 @@ private suspend fun MinecraftServerConnection.handleLogin(
         outgoing.send(SetCompressionPacket(threshold))
     }
     outgoing.send(LoginSuccessPacket(gameProfile, options.sessionId))
-    awaitLoginPacket<LoginAcknowledgedPacket>(profile, options, policy)
+    awaitLoginPacket<LoginAcknowledgedPacket>(profile, policy)
     awaitState(ConnectionState.CONFIGURATION)
 
     val clientInformation =
         awaitConfigurationPacket<ConfigurationClientInformationPacket>(
             profile,
-            options,
             policy,
-            "Client Information",
         ).information
     profile.negotiateConfigurationStart(this)
     outgoing.send(options.protocolData.featureFlags)
@@ -162,9 +161,7 @@ private suspend fun MinecraftServerConnection.handleLogin(
     val acceptedKnownPacks =
         awaitConfigurationPacket<ConfigurationServerboundKnownPacksPacket>(
             profile,
-            options,
             policy,
-            "Known Packs",
         ).knownPacks
     val synchronizedRegistries = options.protocolData.registryPackets(acceptedKnownPacks)
     synchronizedRegistries.forEach { outgoing.send(it) }
@@ -185,13 +182,10 @@ private suspend fun MinecraftServerConnection.handleLogin(
         transferred,
         options,
     )
-    extensionPackets.forEach(::validateConfigurationExtensionPacket)
-    extensionTasks.flatMap(MinecraftServerNegotiationTask::packets)
-        .forEach(::validateConfigurationExtensionPacket)
     extensionPackets.forEach { outgoing.send(it) }
     extensionTasks.forEach { task ->
         task.packets.forEach { outgoing.send(it) }
-        awaitConfigurationTask(task, profile, options, policy)
+        awaitConfigurationTask(task, profile, policy)
     }
 
     val onlineMode = authentication is MinecraftServerAuthentication.Online
@@ -203,7 +197,6 @@ private suspend fun MinecraftServerConnection.handleLogin(
         options,
     )
     val vanillaRegistryContext = try {
-        options.validatePlayLogin(login)
         options.protocolData
             .resolveSynchronizedRegistryContext(synchronizedRegistries)
             .withPlayLoginDimension(login, synchronizedRegistries, options.protocolData)
@@ -219,13 +212,12 @@ private suspend fun MinecraftServerConnection.handleLogin(
     outgoing.send(FinishConfigurationPacket)
     awaitConfigurationPacket<AcknowledgeFinishConfigurationPacket>(
         profile,
-        options,
         policy,
-        "Finish Configuration acknowledgement",
     )
     awaitState(ConnectionState.PLAY)
     profile.preparePlay(this)
     outgoing.send(login)
+    requestFlush()
     val profileResult = profile.complete(this)
     return MinecraftServerNegotiationResult(
         gameProfile = gameProfile,
@@ -253,7 +245,6 @@ private suspend fun MinecraftServerConnection.authenticate(
         outgoing.send(challenge.toEncryptionRequestPacket())
         val response = awaitLoginPacket<EncryptionResponsePacket>(
             profile,
-            options,
             policy,
         )
         val exchange = challenge.accept(response)
@@ -288,51 +279,43 @@ private suspend fun MinecraftServerConnection.authenticate(
 private suspend inline fun <reified T : ServerboundPacket>
         MinecraftServerConnection.awaitLoginPacket(
     profile: ServerNegotiationProfile,
-    options: MinecraftServerNegotiationOptions,
     policy: MinecraftServerNegotiationPolicy,
 ): T {
-    repeat(options.maximumPacketsPerPhase) {
+    while (true) {
+        requestFlush()
         val packet = incoming.receive()
         if (packet is T) return packet
-        if (profile.handleLoginPacket(this, packet)) return@repeat
+        if (profile.handleLoginPacket(this, packet)) continue
         handleUnexpected(packet, policy)
     }
-    throw MinecraftServerException(
-        "${T::class.simpleName} Login packet limit exceeded",
-    )
 }
 
 private suspend inline fun <reified T : ServerboundPacket>
         MinecraftServerConnection.awaitConfigurationPacket(
     profile: ServerNegotiationProfile,
-    options: MinecraftServerNegotiationOptions,
     policy: MinecraftServerNegotiationPolicy,
-    description: String,
 ): T {
-    repeat(options.maximumPacketsPerPhase) {
+    while (true) {
+        requestFlush()
         val packet = incoming.receive()
         if (packet is T) return packet
-        if (profile.handleConfigurationPacket(this, packet)) return@repeat
+        if (profile.handleConfigurationPacket(this, packet)) continue
         handleUnexpected(packet, policy)
     }
-    throw MinecraftServerException("$description packet limit exceeded")
 }
 
 private suspend fun MinecraftServerConnection.awaitConfigurationTask(
     task: MinecraftServerNegotiationTask,
     profile: ServerNegotiationProfile,
-    options: MinecraftServerNegotiationOptions,
     policy: MinecraftServerNegotiationPolicy,
 ) {
-    repeat(options.maximumPacketsPerPhase) {
+    while (true) {
+        requestFlush()
         val packet = incoming.receive()
         if (task.isComplete(packet)) return
-        if (profile.handleConfigurationPacket(this, packet)) return@repeat
+        if (profile.handleConfigurationPacket(this, packet)) continue
         handleUnexpected(packet, policy)
     }
-    throw MinecraftServerException(
-        "Configuration task '${task.name}' packet limit exceeded",
-    )
 }
 
 private suspend fun MinecraftServerConnection.handleUnexpected(
@@ -357,20 +340,6 @@ private suspend fun MinecraftServerConnection.handleUnexpected(
 
         is ServerNegotiationQueryResult.Respond ->
             result.packets.forEach { outgoing.send(it) }
-    }
-}
-
-private fun validateConfigurationExtensionPacket(packet: ClientboundPacket) {
-    if (
-        packet is FeatureFlagsPacket ||
-        packet is ConfigurationClientboundKnownPacksPacket ||
-        packet is RegistryDataPacket ||
-        packet is ConfigurationUpdateTagsPacket ||
-        packet is FinishConfigurationPacket
-    ) {
-        throw MinecraftServerException(
-            "Configuration extension ${packet::class.simpleName} is managed by the Vanilla negotiator",
-        )
     }
 }
 

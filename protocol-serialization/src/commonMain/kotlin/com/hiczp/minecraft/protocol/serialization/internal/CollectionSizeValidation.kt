@@ -20,3 +20,12 @@ internal fun validateCollectionHints(size: Int, hints: List<Annotation>) {
         }
     }
 }
+
+internal fun combineHints(
+    direct: List<Annotation>,
+    inherited: List<Annotation>,
+): List<Annotation> = when {
+    direct.isEmpty() -> inherited
+    inherited.isEmpty() -> direct
+    else -> direct + inherited
+}

@@ -34,17 +34,19 @@ private suspend fun runKtorSocketTransportScenario() = coroutineScope {
             )
             val accepted = server.await()
             val secret = ByteArray(16) { (it * 11).toByte() }
-            client.configureCompression(32)
-            accepted.configureCompression(32)
-            client.enableEncryption(secret)
-            accepted.enableEncryption(secret)
+            client.frameStream.configureCompression(32)
+            accepted.frameStream.configureCompression(32)
+            client.frameStream.enableEncryption(secret)
+            accepted.frameStream.enableEncryption(secret)
             val request = ByteArray(32_768) { (it * 23).toByte() }
             val response = "transport-ok".encodeToByteArray()
 
-            client.sendPacketData(request)
-            assertContentEquals(request, accepted.receivePacketData())
-            accepted.sendPacketData(response)
-            assertContentEquals(response, client.receivePacketData())
+            client.frameStream.sendPacketData(request)
+            client.frameStream.flush()
+            assertContentEquals(request, accepted.frameStream.receivePacketData())
+            accepted.frameStream.sendPacketData(response)
+            accepted.frameStream.flush()
+            assertContentEquals(response, client.frameStream.receivePacketData())
 
             client.close()
             accepted.close()

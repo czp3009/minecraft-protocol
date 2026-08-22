@@ -96,6 +96,72 @@ registry values, but it does not retain tags outside the semantic `Chunk` model.
 future tags must survive a semantic round trip; use `Chunk` when block, biome, Section, and palette semantics are
 required.
 
+## Decode an Entity Chunk
+
+Entity storage uses the same positionless conversion chain. `EntityChunkNbtCodec` validates the selected data version
+and caller-supplied absolute Chunk position, then produces an `EntityChunk` containing mutable detached `Entity`
+instances:
+
+```kotlin
+fun decodeEntityChunk(
+    compressedChunk: CompressedChunk,
+    chunkPosition: ChunkPosition,
+    expectedDataVersion: Int,
+): EntityChunk<NbtCompound> {
+    val entityDataRegistry = NbtEntityDataRegistry()
+    val entityChunkNbtCodec = EntityChunkNbtCodec(expectedDataVersion, entityDataRegistry)
+    val nbtDocument = compressedChunk.toNbtDocument()
+    val entityChunk = nbtDocument.toEntityChunk(chunkPosition, entityChunkNbtCodec)
+    return entityChunk
+}
+```
+
+Each `Entity<E>` exposes its persistent type and UUID, mutable subtype `data`, absolute position, velocity and rotation,
+recursive passengers, and coordinate conveniences such as `blockPosition`, `sectionPosition`, `chunkPosition`, and
+`regionPosition`. `NbtEntityDataRegistry` chooses `NbtCompound` as `E`, preserving every vanilla subtype and mod field.
+An application that wants directly usable subtype state implements `EntityDataRegistry<E>`; `resolve` converts persisted
+NBT to `E`, while `describe` converts the current `E` back for saving. `world-format` therefore never depends on a
+vanilla or mod entity catalogue.
+
+```kotlin
+data class RuntimeEntityData(val silent: Boolean)
+
+val entityDataRegistry = object : EntityDataRegistry<RuntimeEntityData> {
+    override fun resolve(type: String, persistentData: NbtCompound): RuntimeEntityData? {
+        val silent = persistentData["Silent"] as? NbtByte ?: return null
+        return RuntimeEntityData(silent.value != 0.toByte())
+    }
+
+    override fun describe(type: String, value: RuntimeEntityData): NbtCompound = NbtCompound(
+        mapOf("Silent" to NbtByte(if (value.silent) 1.toByte() else 0.toByte())),
+    )
+}
+
+val entityChunkNbtCodec = EntityChunkNbtCodec(expectedDataVersion, entityDataRegistry)
+```
+
+```kotlin
+fun <E : Any> moveEntity(entity: Entity<E>, destination: EntityVector3d): ChunkPosition {
+    entity.position = destination
+    return entity.chunkPosition
+}
+```
+
+`EntityChunk.rootEntities` preserves the persisted root/passenger hierarchy. `allEntities()` walks roots and passengers
+in load order. `rootEntity`, `entity`, `hasEntity`, `addEntity`, `removeRootEntity`, `removeEntity`, `snapshot`,
+`addPassenger`, and `removePassenger` provide ordinary runtime operations. `entitiesIn(sectionPosition)`,
+`entitiesIn(chunkPosition)`, and `entitiesIn(regionPosition)` query current coordinates without creating an Entity
+Section ownership layer. Root Entity positions are checked against the external Chunk coordinate when decoding and
+encoding. Moving an Entity remains a caller-owned update to `position`; transferring it between loaded Entity Chunks is
+likewise caller-owned.
+
+When the generic NBT tree is not needed, collapse the same downward path to
+`compressedChunk.toEntityChunk(chunkPosition, entityChunkNbtCodec)`.
+
+Use `NbtDocument` directly when even the three-field Entity Chunk root must remain open-ended. The semantic Entity model
+validates the selected-release root and common runtime fields; the selected `EntityDataRegistry` decides which subtype
+fields it recognizes and whether it preserves them losslessly.
+
 ## Coordinates, Sections, and palettes
 
 `MinecraftCoordinates` is the complete coordinate-calculation entry point. Continuous entity/player coordinates are
@@ -205,6 +271,16 @@ Ordinary mutation reuses or appends stable IDs. Encoding compacts a snapshot wit
 Call `compactSnapshot()` to inspect the compact palette and remapped IDs without mutation, or `compact()` to apply that
 compaction to the in-memory container. `paletteSnapshot()` is a read-only diagnostic; `toDenseBlockStates()` and
 `toDenseBiomes()` are explicit allocating adapters.
+
+For runtime mutation, `replaceBlock` and `replaceBiome` return the previous logical value; `setBlock` and `setBiome` are
+the simpler write-only forms. `setSection`, `removeSection`, mutable Section light arrays, and `snapshot()` cover the
+remaining container lifecycle. A write updates only the requested state: it does not implicitly recalculate light,
+heightmaps, scheduled ticks, or Block Entities.
+
+Block Entities are semantic `BlockEntity` values indexed by `ChunkBlockPosition`. `blockEntity`, `hasBlockEntity`,
+`setBlockEntity`, and `removeBlockEntity` have local and absolute-coordinate paths, while `persistentData` retains the
+fields other than the structural `id`/`x`/`y`/`z`. Chunk NBT and packet adapters reconstruct those structural fields at
+their own boundary.
 
 ## Read and write compressed NBT
 
@@ -318,4 +394,5 @@ serializers. They do not migrate historical data. Typed decoding is strict; use 
 - `AnvilFormatException` reports structural container and record errors.
 - `CompressionFormatException` reports invalid compression framing or missing custom compression support.
 - `ChunkNbtFormatException` reports strong Chunk schema, coordinate, layout, version, or registry projection errors.
+- `EntityChunkNbtFormatException` reports strong Entity Chunk root, position, version, identity, or vector errors.
 - NBT and stream/backend failures retain the exception type of their owning module.

@@ -30,7 +30,7 @@ import kotlin.uuid.Uuid
 data class DisguisedChatPacket(
     val message: TextComponent,
     val chatType: BoundChatType,
-) : PlayStatePacket, ClientboundPacket
+) : PlayStatePacket, SkippableClientboundPacket
 
 @Serializable
 @PacketInfo(
@@ -273,7 +273,7 @@ data class PlayerChatMessagePacket(
     val unsignedContent: TextComponent?,
     val filterMask: FilterMask,
     val chatType: BoundChatType,
-) : PlayStatePacket, ClientboundPacket {
+) : PlayStatePacket, SkippableClientboundPacket {
     init {
         require(signature == null || signature.size == SIGNATURE_BYTES) {
             "A message signature must contain $SIGNATURE_BYTES bytes"

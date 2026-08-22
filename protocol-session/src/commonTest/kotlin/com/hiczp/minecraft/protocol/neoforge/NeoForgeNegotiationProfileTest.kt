@@ -386,11 +386,11 @@ private class NeoForgeTestConnection<Incoming : Packet, Outgoing : Packet>(
 
     override suspend fun awaitClosed() = Unit
 
-    override suspend fun installRegistryContext(context: ProtocolRegistryContext) {
+    override fun installRegistryContext(context: ProtocolRegistryContext) {
         registryContext = context
     }
 
-    override suspend fun activateExtensionRoutes(routes: Set<PacketRouteKey>) {
+    override fun activateExtensionRoutes(routes: Set<PacketRouteKey>) {
         require(routes.all(declaredExtensionRoutes::contains))
         activeRoutes = routes.toSet()
     }
@@ -433,9 +433,13 @@ private class NeoForgeTestConnection<Incoming : Packet, Outgoing : Packet>(
 
     override suspend fun awaitState(state: ConnectionState) = Unit
 
-    override suspend fun prepareOutboundEncryption(sharedSecret: ByteArray) = Unit
+    override suspend fun flush() = Unit
 
-    override suspend fun enableEncryption(sharedSecret: ByteArray) = Unit
+    override fun requestFlush() = Unit
+
+    override fun prepareOutboundEncryption(sharedSecret: ByteArray) = Unit
+
+    override fun enableEncryption(sharedSecret: ByteArray) = Unit
 
     override fun close() = Unit
 }

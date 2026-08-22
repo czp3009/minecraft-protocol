@@ -488,6 +488,8 @@ class ProtocolRegistryContext private constructor(
 
         val BIOME_REGISTRY: Identifier = Identifier("worldgen/biome")
 
+        val ENTITY_TYPE_REGISTRY: Identifier = Identifier("entity_type")
+
         private fun snapshotRegistries(
             registries: List<ProtocolRegistry>,
         ): Map<Identifier, ProtocolRegistry> {

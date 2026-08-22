@@ -21,10 +21,7 @@ import kotlin.uuid.Uuid
 @OptIn(InternalMinecraftConnectionApi::class)
 class MinecraftClientProtocolFailureTest {
     @Test
-    fun validatesNegotiationOptionsAndIdentityInput() {
-        assertFailsWith<IllegalArgumentException> {
-            MinecraftClientNegotiationOptions(maximumPacketsPerPhase = 0)
-        }
+    fun buildsOfflineIdentityInput() {
         val offline = MinecraftOfflineIdentity("ClientProbe")
         assertEquals(
             MinecraftOfflineIdentity.minecraftOfflineUuid("ClientProbe"),
@@ -315,12 +312,12 @@ class MinecraftClientProtocolFailureTest {
     }
 
     private fun connectionPair(): Pair<MinecraftClientConnection, MinecraftSession> {
-        val clientToServer = ByteChannel()
-        val serverToClient = ByteChannel()
+        val clientToServer = ByteChannel(autoFlush = true)
+        val serverToClient = ByteChannel(autoFlush = true)
         val clientFrames = MinecraftFrameStream(serverToClient, clientToServer)
         val client = MinecraftClientConnection(
             connection = MinecraftConnectionEngine(
-                frames = clientFrames,
+                frameStream = clientFrames,
                 closeTransport = { clientFrames.cancel() },
                 side = MinecraftSessionSide.CLIENT,
                 definition = MinecraftConnectionDefinition(),

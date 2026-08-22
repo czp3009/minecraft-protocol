@@ -3,23 +3,30 @@ package com.hiczp.minecraft.protocol.transport
 import io.ktor.network.sockets.*
 import io.ktor.utils.io.*
 import io.ktor.utils.io.core.*
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.io.Buffer
 import kotlinx.io.Sink
 import kotlinx.io.Source
 import kotlinx.io.readByteArray
 
+/**
+ * A bidirectional Minecraft byte stream with one sequential reader and one
+ * sequential writer. Reading and writing may proceed concurrently; concurrent
+ * calls within the same direction are not supported.
+ */
 class MinecraftFrameStream(
     val input: ByteReadChannel,
     val output: ByteWriteChannel,
     val codec: MinecraftFrameCodec = MinecraftFrameCodec(),
 ) {
-    private val receiveMutex = Mutex()
-    private val sendMutex = Mutex()
-    private val wireEffectMutex = Mutex()
+    private val wireTransition = MutableStateFlow<CompletableDeferred<Unit>?>(null)
     private var decryptor: MinecraftStreamCipher? = null
     private var encryptor: MinecraftStreamCipher? = null
+    private val decryptInput = ByteArray(CHANNEL_COPY_BYTES)
+    private val decryptOutput = ByteArray(CHANNEL_COPY_BYTES)
+    private val encryptInput = ByteArray(CHANNEL_COPY_BYTES)
+    private val encryptOutput = ByteArray(CHANNEL_COPY_BYTES)
 
     fun configureCompression(threshold: Int?) {
         codec.configureCompression(threshold)
@@ -94,7 +101,7 @@ class MinecraftFrameStream(
     suspend fun sendPacketData(
         packetData: Source,
         packetDataByteCount: Int,
-    ) = sendMutex.withLock {
+    ) {
         val frame = Buffer()
         codec.encodeFrameToSink(
             packetData,
@@ -102,30 +109,33 @@ class MinecraftFrameStream(
             frame,
         )
         writeEncrypted(frame, frame.size)
-        output.flush()
     }
 
-    /**
-     * Sends one frame and invokes [commit] after its bytes are flushed while
-     * receive-side decrypt/decompress work is paused at a frame boundary.
-     * The callback owns protocol state; this transport only makes its commit
-     * indivisible from decoding an immediate peer response.
-     */
+    /** Appends one complete frame, then commits state that affects later bytes. */
     suspend fun sendPacketDataAndCommit(
         packetData: Source,
         packetDataByteCount: Int,
         commit: suspend () -> Unit,
-    ) = sendMutex.withLock {
-        wireEffectMutex.withLock {
-            val frame = Buffer()
-            codec.encodeFrameToSink(
-                packetData,
-                packetDataByteCount,
-                frame,
-            )
+    ) {
+        val frame = Buffer()
+        codec.encodeFrameToSink(
+            packetData,
+            packetDataByteCount,
+            frame,
+        )
+        val transition = CompletableDeferred<Unit>()
+        check(wireTransition.compareAndSet(null, transition)) {
+            "Another wire transition is already in progress"
+        }
+        try {
             writeEncrypted(frame, frame.size)
-            output.flush()
             commit()
+            transition.complete(Unit)
+            wireTransition.compareAndSet(transition, null)
+        } catch (cause: Throwable) {
+            transition.completeExceptionally(cause)
+            wireTransition.compareAndSet(transition, null)
+            throw cause
         }
     }
 
@@ -148,18 +158,22 @@ class MinecraftFrameStream(
     suspend fun sendUnframedPacketData(
         packetData: Source,
         packetDataByteCount: Int,
-    ) = sendMutex.withLock {
+    ) {
         if (packetDataByteCount <= 0) {
             throw MinecraftTransportException("Packet data cannot be empty")
         }
         writeEncrypted(packetData, packetDataByteCount.toLong())
-        output.flush()
     }
 
     /** In-memory adapter over the streaming unframed send method. */
     suspend fun sendUnframedPacketData(packetData: ByteArray) {
         val source = Buffer().apply { write(packetData) }
         sendUnframedPacketData(source, packetData.size)
+    }
+
+    /** Flushes bytes buffered by the underlying write channel. */
+    suspend fun flush() {
+        output.flush()
     }
 
     fun cancel(cause: Throwable? = null) {
@@ -171,44 +185,39 @@ class MinecraftFrameStream(
         sink: Sink,
         legacyPacketId: Int?,
         legacyPayloadSize: Int,
-    ): Long = receiveMutex.withLock receive@{
+    ): Long {
         val firstEncrypted = input.readByte()
-        wireEffectMutex.withLock effect@{
-            val first = decryptByte(firstEncrypted)
-            if (legacyPacketId != null && first == legacyPacketId) {
-                sink.writeByte(first.toByte())
-                readDecryptedToSink(legacyPayloadSize, sink)
-                return@effect legacyPayloadSize + 1L
-            }
-
-            val frameLength = readEncryptedFrameLength(first)
-            codec.validateFrameLength(frameLength)
-            val frameBody = Buffer()
-            readDecryptedToSink(frameLength, frameBody)
-            codec.decodeFrameBodyToSink(frameBody, frameLength, sink)
+        wireTransition.value?.await()
+        val first = decryptByte(firstEncrypted)
+        if (legacyPacketId != null && first == legacyPacketId) {
+            sink.writeByte(first.toByte())
+            readDecryptedToSink(legacyPayloadSize, sink)
+            return legacyPayloadSize + 1L
         }
+
+        val frameLength = readEncryptedFrameLength(first)
+        codec.validateFrameLength(frameLength)
+        val frameBody = Buffer()
+        readDecryptedToSink(frameLength, frameBody)
+        return codec.decodeFrameBodyToSink(frameBody, frameLength, sink)
     }
 
     private suspend fun readDecryptedToSink(
         byteCount: Int,
         sink: Sink,
     ) {
-        val encrypted = ByteArray(minOf(byteCount, CHANNEL_COPY_BYTES))
+        val cipher = decryptor
+        if (cipher == null) {
+            sink.write(input.readPacket(byteCount), byteCount.toLong())
+            return
+        }
         var remaining = byteCount
         while (remaining > 0) {
-            val count = minOf(remaining, encrypted.size)
-            input.readFully(encrypted, start = 0, end = count)
-            val cipher = decryptor
-            if (cipher == null) {
-                sink.write(encrypted, endIndex = count)
-            } else {
-                val chunk = if (count == encrypted.size) {
-                    encrypted
-                } else {
-                    encrypted.copyOf(count)
-                }
-                sink.write(cipher.process(chunk))
-            }
+            val count = minOf(remaining, decryptInput.size)
+            input.readFully(decryptInput, start = 0, end = count)
+            val written = cipher.process(decryptInput, 0, count, decryptOutput, 0)
+            checkCipherOutput(count, written)
+            sink.write(decryptOutput, endIndex = written)
             remaining -= count
         }
     }
@@ -218,16 +227,18 @@ class MinecraftFrameStream(
         byteCount: Long,
     ) {
         require(byteCount >= 0)
-        val plaintext = ByteArray(
-            minOf(byteCount, CHANNEL_COPY_BYTES.toLong()).toInt(),
-        )
+        val cipher = encryptor
+        if (cipher == null) {
+            output.writeBuffer(source, byteCount)
+            return
+        }
         var remaining = byteCount
         while (remaining > 0) {
-            val count = minOf(remaining, plaintext.size.toLong()).toInt()
+            val count = minOf(remaining, encryptInput.size.toLong()).toInt()
             var offset = 0
             while (offset < count) {
                 val read = source.readAtMostTo(
-                    plaintext,
+                    encryptInput,
                     startIndex = offset,
                     endIndex = count,
                 )
@@ -238,17 +249,9 @@ class MinecraftFrameStream(
                 }
                 offset += read
             }
-            val cipher = encryptor
-            if (cipher == null) {
-                output.writeFully(plaintext, endIndex = count)
-            } else {
-                val chunk = if (count == plaintext.size) {
-                    plaintext
-                } else {
-                    plaintext.copyOf(count)
-                }
-                output.writeFully(cipher.process(chunk))
-            }
+            val written = cipher.process(encryptInput, 0, count, encryptOutput, 0)
+            checkCipherOutput(count, written)
+            output.writeFully(encryptOutput, endIndex = written)
             remaining -= count
         }
     }
@@ -281,9 +284,19 @@ class MinecraftFrameStream(
     }
 
     private fun decryptByte(value: Byte): Int {
-        val encrypted = byteArrayOf(value)
-        return (decryptor?.process(encrypted)?.single() ?: encrypted.single())
-            .toInt() and 0xFF
+        val cipher = decryptor ?: return value.toInt() and 0xFF
+        decryptInput[0] = value
+        val written = cipher.process(decryptInput, 0, 1, decryptOutput, 0)
+        checkCipherOutput(expected = 1, actual = written)
+        return decryptOutput[0].toInt() and 0xFF
+    }
+
+    private fun checkCipherOutput(expected: Int, actual: Int) {
+        if (actual != expected) {
+            throw MinecraftTransportException(
+                "AES/CFB8 transform produced $actual bytes for $expected input bytes",
+            )
+        }
     }
 
     private companion object {
@@ -297,67 +310,11 @@ class MinecraftTransport(
         MinecraftTransportConfiguration(),
     autoFlush: Boolean = false,
 ) : Closeable {
-    val input: ByteReadChannel = socket.openReadChannel()
-    val output: ByteWriteChannel = socket.openWriteChannel(autoFlush)
-    val frames: MinecraftFrameStream = MinecraftFrameStream(
-        input = input,
-        output = output,
+    val frameStream: MinecraftFrameStream = MinecraftFrameStream(
+        input = socket.openReadChannel(),
+        output = socket.openWriteChannel(autoFlush),
         codec = MinecraftFrameCodec(configuration),
     )
-
-    fun configureCompression(threshold: Int?) {
-        frames.configureCompression(threshold)
-    }
-
-    fun enableEncryption(sharedSecret: ByteArray) {
-        frames.enableEncryption(sharedSecret)
-    }
-
-    suspend fun receivePacketDataToSink(sink: Sink): Long =
-        frames.receivePacketDataToSink(sink)
-
-    suspend fun receivePacketData(): ByteArray = frames.receivePacketData()
-
-    suspend fun receivePacketDataOrLegacyToSink(
-        sink: Sink,
-        legacyPacketId: Int,
-        legacyPayloadSize: Int,
-    ): Long = frames.receivePacketDataOrLegacyToSink(
-        sink,
-        legacyPacketId,
-        legacyPayloadSize,
-    )
-
-    suspend fun receivePacketDataOrLegacy(
-        legacyPacketId: Int,
-        legacyPayloadSize: Int,
-    ): ByteArray =
-        frames.receivePacketDataOrLegacy(
-            legacyPacketId,
-            legacyPayloadSize,
-        )
-
-    suspend fun sendPacketData(
-        packetData: Source,
-        packetDataByteCount: Int,
-    ) {
-        frames.sendPacketData(packetData, packetDataByteCount)
-    }
-
-    suspend fun sendPacketData(packetData: ByteArray) {
-        frames.sendPacketData(packetData)
-    }
-
-    suspend fun sendUnframedPacketData(
-        packetData: Source,
-        packetDataByteCount: Int,
-    ) {
-        frames.sendUnframedPacketData(packetData, packetDataByteCount)
-    }
-
-    suspend fun sendUnframedPacketData(packetData: ByteArray) {
-        frames.sendUnframedPacketData(packetData)
-    }
 
     override fun close() {
         socket.close()

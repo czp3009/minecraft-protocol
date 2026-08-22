@@ -19,7 +19,18 @@ internal actual fun platformAesCfb8Cipher(
     return object : MinecraftStreamCipher {
         // Minecraft encrypts one continuous connection stream. Reuse update
         // instead of finalizing per packet so JCA retains CFB8 feedback state.
-        override fun process(input: ByteArray): ByteArray =
-            cipher.update(input) ?: ByteArray(0)
+        override fun process(
+            input: ByteArray,
+            startIndex: Int,
+            endIndex: Int,
+            output: ByteArray,
+            outputStartIndex: Int,
+        ): Int = cipher.update(
+            input,
+            startIndex,
+            endIndex - startIndex,
+            output,
+            outputStartIndex,
+        )
     }
 }

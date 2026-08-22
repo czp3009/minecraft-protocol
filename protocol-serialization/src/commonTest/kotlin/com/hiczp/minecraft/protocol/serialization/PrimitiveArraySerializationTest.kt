@@ -1,0 +1,79 @@
+package com.hiczp.minecraft.protocol.serialization
+
+import com.hiczp.minecraft.protocol.model.wire.VarIntElements
+import com.hiczp.minecraft.protocol.model.wire.VarLongElements
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.BooleanArraySerializer
+import kotlinx.serialization.builtins.IntArraySerializer
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertFailsWith
+
+class PrimitiveArraySerializationTest {
+    @Test
+    fun `all primitive arrays retain their protocol representation`() {
+        val value = PrimitiveArrays(
+            booleans = booleanArrayOf(false, true),
+            bytes = byteArrayOf(-1, 0, 1),
+            shorts = shortArrayOf(Short.MIN_VALUE, 0, Short.MAX_VALUE),
+            ints = intArrayOf(Int.MIN_VALUE, 0, Int.MAX_VALUE),
+            longs = longArrayOf(Long.MIN_VALUE, 0, Long.MAX_VALUE),
+            floats = floatArrayOf(-1.25f, 0f, 3.5f),
+            doubles = doubleArrayOf(-1.25, 0.0, 3.5),
+            chars = charArrayOf('\u0000', 'A', '\uffff'),
+            varInts = intArrayOf(-1, 0, 128),
+            varLongs = longArrayOf(-1, 0, 128),
+        )
+
+        val encoded = MinecraftProtocolFormat.encodeToByteArray(PrimitiveArrays.serializer(), value)
+        val decoded = MinecraftProtocolFormat.decodeFromByteArray(PrimitiveArrays.serializer(), encoded)
+
+        assertContentEquals(value.booleans, decoded.booleans)
+        assertContentEquals(value.bytes, decoded.bytes)
+        assertContentEquals(value.shorts, decoded.shorts)
+        assertContentEquals(value.ints, decoded.ints)
+        assertContentEquals(value.longs, decoded.longs)
+        assertContentEquals(value.floats, decoded.floats)
+        assertContentEquals(value.doubles, decoded.doubles)
+        assertContentEquals(value.chars, decoded.chars)
+        assertContentEquals(value.varInts, decoded.varInts)
+        assertContentEquals(value.varLongs, decoded.varLongs)
+    }
+
+    @Test
+    fun `boolean arrays follow the official nonzero truth rule by default`() {
+        assertContentEquals(
+            booleanArrayOf(true),
+            MinecraftProtocolFormat.decodeFromByteArray(BooleanArraySerializer(), byteArrayOf(1, 2)),
+        )
+
+        val strict = MinecraftProtocolFormat(MinecraftProtocolFormatConfiguration(strictBooleans = true))
+        assertFailsWith<MinecraftSerializationException> {
+            strict.decodeFromByteArray(BooleanArraySerializer(), byteArrayOf(1, 2))
+        }
+    }
+
+    @Test
+    fun `fixed-width primitive arrays reject impossible payload lengths before allocation`() {
+        assertFailsWith<MinecraftSerializationException> {
+            MinecraftProtocolFormat.decodeFromByteArray(
+                IntArraySerializer(),
+                "ffffffff07".hexToByteArray(),
+            )
+        }
+    }
+}
+
+@Serializable
+private data class PrimitiveArrays(
+    val booleans: BooleanArray,
+    val bytes: ByteArray,
+    val shorts: ShortArray,
+    val ints: IntArray,
+    val longs: LongArray,
+    val floats: FloatArray,
+    val doubles: DoubleArray,
+    val chars: CharArray,
+    @VarIntElements val varInts: IntArray,
+    @VarLongElements val varLongs: LongArray,
+)

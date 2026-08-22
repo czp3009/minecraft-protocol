@@ -5,7 +5,6 @@ import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.world.format.*
-import com.hiczp.minecraft.world.format.BlockPosition
 import com.hiczp.minecraft.world.format.ChunkSection
 import com.hiczp.minecraft.protocol.model.type.ChunkData as NetworkChunkData
 import com.hiczp.minecraft.protocol.model.type.ChunkSection as NetworkChunkSection
@@ -35,41 +34,15 @@ class MinecraftChunkPacketEncoder(
     val chunkDataRegistries: ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry> =
         protocolChunkDataRegistries(registries, defaultBlock, defaultBiome)
 
-    private val biomeRegistry = registries.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY)
-    private val biomeRegistrySize = requireNotNull(registries.biomeRegistrySize) {
-        "The active biome registry has no protocol size"
-    }
-
-    init {
-        require(registries.blockStateRegistrySize > 0) { "The active block-state registry is empty" }
-        require(biomeRegistrySize > 0) { "The active biome registry is empty" }
-    }
+    private val biomeRegistrySize = registries.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY).size
 
     /** Encodes [chunk] directly into the packet accepted by the connection's outgoing channel. */
     fun encodePacket(
         chunk: Chunk<ProtocolBlockState, ProtocolRegistryEntry>,
         position: ChunkPosition,
     ): ChunkDataAndUpdateLightPacket {
-        require(chunk.defaultBlockState == chunkDataRegistries.blockStates.defaultValue) {
-            "Chunk and packet encoder use different default block states"
-        }
-        require(chunk.defaultBiome == chunkDataRegistries.biomes.defaultValue) {
-            "Chunk and packet encoder use different default biomes"
-        }
-        registries.chunkSectionCount?.let { sectionCount ->
-            require(sectionCount == chunk.layout.sectionCount) {
-                "Chunk has ${chunk.layout.sectionCount} Sections, but the active protocol context expects $sectionCount"
-            }
-        }
-
         val metadata = chunk.metadata
         val sectionsByY = chunk.sections.associateBy(ChunkSection<ProtocolBlockState, ProtocolRegistryEntry>::sectionY)
-        val minimumLightSectionY = MinecraftCoordinates.offsetSectionCoordinate(chunk.layout.minSectionY, -1)
-        val maximumLightSectionY = MinecraftCoordinates.offsetSectionCoordinate(chunk.layout.maxSectionY, 1)
-        val relevantLightSections = minimumLightSectionY..maximumLightSectionY
-        require(metadata.lightOnlySections.keys.all { sectionY -> sectionY in relevantLightSections }) {
-            "Chunk contains light outside the protocol dimension's boundary Sections"
-        }
         val packetSections = chunk.layout.sectionYRange.map { sectionY ->
             encodeSection(sectionsByY[sectionY], chunk.defaultBlockState, chunk.defaultBiome)
         }
@@ -85,7 +58,7 @@ class MinecraftChunkPacketEncoder(
             chunkData = NetworkChunkData(
                 heightmaps = encodeHeightmaps(metadata.heightmaps),
                 sections = packetSections,
-                blockEntities = encodeBlockEntities(position, metadata.blockEntities.value),
+                blockEntities = encodeBlockEntities(position, chunk.blockEntities),
             ),
             lightData = packetLight,
         )
@@ -158,28 +131,15 @@ class MinecraftChunkPacketEncoder(
             )
         } else {
             val bits = minimumBitsForDistinctValues(registrySize)
-            require(bits > maximumIndirectBits) {
-                "A direct palette needs more than $maximumIndirectBits bits, but the registry size is $registrySize"
-            }
             NetworkPalettedContainer.Direct(
                 packValues(bits, compact.entryCount) { index -> registryIds[compact.ids[index]] },
             )
         }
     }
 
-    private fun blockStateId(value: ProtocolBlockState): Int {
-        require(registries.blockStates.getOrNull(value.id) == value) {
-            "Block state $value does not belong to the packet encoder's registry context"
-        }
-        return value.id
-    }
+    private fun blockStateId(value: ProtocolBlockState): Int = value.id
 
-    private fun biomeId(value: ProtocolRegistryEntry): Int {
-        require(biomeRegistry[value.rawId] == value) {
-            "Biome $value does not belong to the packet encoder's registry context"
-        }
-        return value.rawId
-    }
+    private fun biomeId(value: ProtocolRegistryEntry): Int = value.rawId
 
     private fun encodeHeightmaps(heightmaps: NbtCompound): Map<HeightmapType, LongArray> = buildMap {
         heightmaps.forEachEntry { name, tag ->
@@ -192,28 +152,20 @@ class MinecraftChunkPacketEncoder(
 
     private fun encodeBlockEntities(
         chunkPosition: ChunkPosition,
-        blockEntities: List<com.hiczp.minecraft.nbt.NbtTag>,
+        blockEntities: Collection<BlockEntity>,
     ): List<BlockEntityInfo> {
         if (blockEntities.isEmpty()) return emptyList()
         val blockEntityTypeRegistry = registries.requireRegistry(BLOCK_ENTITY_TYPE_REGISTRY)
-        return blockEntities.mapIndexed { index, tag ->
-            val compound = tag as? NbtCompound
-                ?: throw IllegalArgumentException("Chunk block entity $index is not a TAG_Compound")
-            val id = (compound[BLOCK_ENTITY_ID] as? NbtString)?.value
-                ?: throw IllegalArgumentException("Chunk block entity $index has no string id")
-            val x = (compound[BLOCK_ENTITY_X] as? NbtInt)?.value
-                ?: throw IllegalArgumentException("Chunk block entity $index has no integer x")
-            val y = (compound[BLOCK_ENTITY_Y] as? NbtInt)?.value
-                ?: throw IllegalArgumentException("Chunk block entity $index has no integer y")
-            val z = (compound[BLOCK_ENTITY_Z] as? NbtInt)?.value
-                ?: throw IllegalArgumentException("Chunk block entity $index has no integer z")
-            val local = chunkPosition.local(BlockPosition(x, y, z))
-            val typeId = blockEntityTypeRegistry.entry(Identifier(id))?.rawId
-                ?: throw IllegalArgumentException("Block entity type $id is absent from the active registry")
+        return blockEntities.map { blockEntity ->
+            val typeId = blockEntityTypeRegistry.entry(Identifier(blockEntity.type))?.rawId
+                ?: throw IllegalArgumentException(
+                    "Block entity type ${blockEntity.type} is absent from the active registry",
+                )
+            val compound = blockEntity.persistedData(chunkPosition)
             BlockEntityInfo.fromLocalCoordinates(
-                localX = local.x,
-                y = y,
-                localZ = local.z,
+                localX = blockEntity.position.x,
+                y = blockEntity.position.y,
+                localZ = blockEntity.position.z,
                 typeId = typeId,
                 tag = blockEntityUpdateTag(compound),
             )
@@ -285,10 +237,6 @@ class MinecraftChunkPacketEncoder(
             HeightmapType.MOTION_BLOCKING_NO_LEAVES,
         )
         private val CLIENT_HEIGHTMAP_TYPES_BY_NAME = CLIENT_HEIGHTMAP_TYPES.associateBy(HeightmapType::name)
-        private const val BLOCK_ENTITY_ID: String = "id"
-        private const val BLOCK_ENTITY_X: String = "x"
-        private const val BLOCK_ENTITY_Y: String = "y"
-        private const val BLOCK_ENTITY_Z: String = "z"
         private const val BLOCK_MINIMUM_INDIRECT_BITS: Int = 4
         private const val BLOCK_MAXIMUM_INDIRECT_BITS: Int = 8
         private const val BIOME_MINIMUM_INDIRECT_BITS: Int = 1
@@ -363,16 +311,10 @@ private fun packValues(
     entryCount: Int,
     valueAt: (Int) -> Int,
 ): PackedLongArray {
-    require(bitsPerEntry in 1..<Int.SIZE_BITS)
-    require(entryCount >= 0)
     val entriesPerLong = Long.SIZE_BITS / bitsPerEntry
     val values = LongArray((entryCount + entriesPerLong - 1) / entriesPerLong)
-    val maximumValue = (1L shl bitsPerEntry) - 1
     repeat(entryCount) { index ->
         val value = valueAt(index)
-        require(value >= 0 && value.toLong() <= maximumValue) {
-            "Packed value $value does not fit in $bitsPerEntry bits"
-        }
         val longIndex = index / entriesPerLong
         val bitIndex = index % entriesPerLong * bitsPerEntry
         values[longIndex] = values[longIndex] or (value.toLong() shl bitIndex)
@@ -381,11 +323,21 @@ private fun packValues(
 }
 
 private fun minimumBitsForDistinctValues(count: Int): Int {
-    require(count > 0)
     return if (count == 1) 0 else Int.SIZE_BITS - (count - 1).countLeadingZeroBits()
 }
 
 private fun defaultBlockEntityUpdateTag(compound: NbtCompound): NbtCompound? {
     val updateValues = compound.value - setOf("id", "x", "y", "z")
     return updateValues.takeIf { values -> values.isNotEmpty() }?.let(::NbtCompound)
+}
+
+private fun BlockEntity.persistedData(chunkPosition: ChunkPosition): NbtCompound {
+    val absolutePosition = absolutePosition(chunkPosition)
+    val value = linkedMapOf<String, NbtTag>()
+    value["id"] = NbtString(type)
+    value["x"] = NbtInt(absolutePosition.x)
+    value["y"] = NbtInt(absolutePosition.y)
+    value["z"] = NbtInt(absolutePosition.z)
+    persistentData.forEachEntry { name, tag -> value[name] = tag }
+    return NbtCompound(value)
 }

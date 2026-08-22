@@ -167,14 +167,24 @@ class PalettedContainer<T : Any> private constructor(
     operator fun get(index: Int): T = palette[ids[index]]
 
     operator fun set(index: Int, value: T) {
+        replace(index, value)
+    }
+
+    /** Replaces one logical value and returns the previous value without compacting the palette. */
+    fun replace(index: Int, value: T): T {
         require(index in 0 until size) { "Palette index $index is outside 0 until $size" }
+        val previous = palette[ids[index]]
         var id = palette.indexOf(value)
         if (id < 0) {
             palette += value
             id = palette.lastIndex
         }
         ids[index] = id
+        return previous
     }
+
+    /** Creates an independently mutable container while retaining the current palette IDs. */
+    fun snapshot(): PalettedContainer<T> = fromPalette(palette, ids)
 
     fun paletteSnapshot(): PaletteSnapshot<T> =
         PaletteSnapshot(
@@ -312,7 +322,6 @@ data class ChunkMetadata(
     val fluidTicks: NbtList = NbtList(emptyList()),
     val postProcessing: NbtList = NbtList(emptyList()),
     val entities: NbtList? = null,
-    val blockEntities: NbtList = NbtList(emptyList()),
     val structures: NbtCompound = NbtCompound(emptyMap()),
     val lightOnlySections: Map<Int, SectionLighting> = emptyMap(),
 ) {
@@ -337,12 +346,34 @@ data class SectionLighting(
     }
 }
 
+/** A mutable semantic Block Entity at Chunk-local X/Z and dimension-absolute Y. */
+class BlockEntity(
+    val type: String,
+    val position: ChunkBlockPosition,
+    persistentData: NbtCompound = NbtCompound(emptyMap()),
+) {
+    init {
+        require(type.isNotBlank()) { "A Block Entity type must not be blank" }
+    }
+
+    var persistentData: NbtCompound = persistentData.requireNoBlockEntityStructureFields()
+        set(value) {
+            field = value.requireNoBlockEntityStructureFields()
+        }
+
+    /** Resolves this positionless value against its owning absolute Chunk position. */
+    fun absolutePosition(chunkPosition: ChunkPosition): BlockPosition = chunkPosition.block(position)
+
+    /** Creates a detached mutable Block Entity snapshot. */
+    fun snapshot(): BlockEntity = BlockEntity(type, position, persistentData)
+}
+
 class ChunkSection<B : Any, M : Any>(
     val sectionY: Int,
     val blockStates: PalettedContainer<B>,
     val biomes: PalettedContainer<M>,
-    val blockLight: NbtByteArray? = null,
-    val skyLight: NbtByteArray? = null,
+    blockLight: NbtByteArray? = null,
+    skyLight: NbtByteArray? = null,
 ) {
     init {
         require(blockStates.size == SECTION_BLOCK_COUNT) {
@@ -359,6 +390,22 @@ class ChunkSection<B : Any, M : Any>(
         }
     }
 
+    var blockLight: NbtByteArray? = blockLight
+        set(value) {
+            require(value == null || value.size == SECTION_LIGHT_BYTE_COUNT) {
+                "Block light must contain $SECTION_LIGHT_BYTE_COUNT bytes"
+            }
+            field = value
+        }
+
+    var skyLight: NbtByteArray? = skyLight
+        set(value) {
+            require(value == null || value.size == SECTION_LIGHT_BYTE_COUNT) {
+                "Sky light must contain $SECTION_LIGHT_BYTE_COUNT bytes"
+            }
+            field = value
+        }
+
     operator fun get(position: LocalBlockPosition): B = blockStates[position.index]
 
     operator fun set(position: LocalBlockPosition, value: B) {
@@ -366,6 +413,8 @@ class ChunkSection<B : Any, M : Any>(
     }
 
     fun block(position: LocalBlockPosition): B = get(position)
+
+    fun block(localX: Int, localY: Int, localZ: Int): B = block(LocalBlockPosition(localX, localY, localZ))
 
     /** Reads an absolute block after validating that it belongs to this Section's supplied position. */
     fun block(sectionPosition: SectionPosition, position: BlockPosition): B =
@@ -375,10 +424,24 @@ class ChunkSection<B : Any, M : Any>(
         set(position, value)
     }
 
+    fun setBlock(localX: Int, localY: Int, localZ: Int, value: B) {
+        setBlock(LocalBlockPosition(localX, localY, localZ), value)
+    }
+
     /** Writes an absolute block after validating that it belongs to this Section's supplied position. */
     fun setBlock(sectionPosition: SectionPosition, position: BlockPosition, value: B) {
         setBlock(local(sectionPosition, position), value)
     }
+
+    /** Replaces one Section-local block and returns its previous state. */
+    fun replaceBlock(position: LocalBlockPosition, value: B): B = blockStates.replace(position.index, value)
+
+    fun replaceBlock(localX: Int, localY: Int, localZ: Int, value: B): B =
+        replaceBlock(LocalBlockPosition(localX, localY, localZ), value)
+
+    /** Replaces one absolute block after validating the supplied positionless Section context. */
+    fun replaceBlock(sectionPosition: SectionPosition, position: BlockPosition, value: B): B =
+        replaceBlock(local(sectionPosition, position), value)
 
     /** Reads one biome at Section-local quart coordinates in `0..3`. */
     fun biome(quartX: Int, quartY: Int, quartZ: Int): M = biomes[biomeIndex(quartX, quartY, quartZ)]
@@ -415,6 +478,32 @@ class ChunkSection<B : Any, M : Any>(
         setBiome(local(sectionPosition, position), value)
     }
 
+    /** Replaces one Section-local biome cell and returns its previous value. */
+    fun replaceBiome(quartX: Int, quartY: Int, quartZ: Int, value: M): M =
+        biomes.replace(biomeIndex(quartX, quartY, quartZ), value)
+
+    /** Replaces the biome cell containing one Section-local block and returns its previous value. */
+    fun replaceBiome(position: LocalBlockPosition, value: M): M =
+        replaceBiome(
+            MinecraftCoordinates.quartCoordinateInSection(position.x),
+            MinecraftCoordinates.quartCoordinateInSection(position.y),
+            MinecraftCoordinates.quartCoordinateInSection(position.z),
+            value,
+        )
+
+    /** Replaces one absolute block's biome cell after validating the supplied Section context. */
+    fun replaceBiome(sectionPosition: SectionPosition, position: BlockPosition, value: M): M =
+        replaceBiome(local(sectionPosition, position), value)
+
+    /** Creates an independently mutable Section snapshot. */
+    fun snapshot(): ChunkSection<B, M> = ChunkSection(
+        sectionY = sectionY,
+        blockStates = blockStates.snapshot(),
+        biomes = biomes.snapshot(),
+        blockLight = blockLight,
+        skyLight = skyLight,
+    )
+
     fun toDenseBlockStates(): List<B> = blockStates.toDenseList()
 
     fun toDenseBiomes(): List<M> = biomes.toDenseList()
@@ -435,10 +524,12 @@ class Chunk<B : Any, M : Any>(
     metadata: ChunkMetadata,
     val layout: ChunkLayout,
     sections: Collection<ChunkSection<B, M>> = emptyList(),
+    blockEntities: Collection<BlockEntity> = emptyList(),
     val defaultBlockState: B,
     val defaultBiome: M,
 ) {
     private val sectionsByY = sections.associateByTo(linkedMapOf(), ChunkSection<B, M>::sectionY)
+    private val blockEntitiesByPosition = blockEntities.associateByTo(linkedMapOf(), BlockEntity::position)
     private var chunkMetadata = metadata.snapshot()
 
     var metadata: ChunkMetadata
@@ -454,6 +545,12 @@ class Chunk<B : Any, M : Any>(
     init {
         require(sectionsByY.size == sections.size) { "A Chunk contains duplicate Section Y coordinates" }
         require(sectionsByY.keys.all { it in layout }) { "A Chunk contains a Section outside its layout" }
+        require(blockEntitiesByPosition.size == blockEntities.size) {
+            "A Chunk contains duplicate Block Entity positions"
+        }
+        require(blockEntitiesByPosition.keys.all { position -> layout.containsBlockY(position.y) }) {
+            "A Chunk contains a Block Entity outside its layout"
+        }
         require(chunkMetadata.lightOnlySections.keys.none(sectionsByY::containsKey)) {
             "A Chunk stores the same Section lighting in both semantic and light-only sections"
         }
@@ -461,6 +558,15 @@ class Chunk<B : Any, M : Any>(
 
     val sections: Collection<ChunkSection<B, M>>
         get() = sectionsByY.values.toList()
+
+    val sectionCount: Int
+        get() = sectionsByY.size
+
+    val blockEntities: Collection<BlockEntity>
+        get() = blockEntitiesByPosition.values.toList()
+
+    val blockEntityCount: Int
+        get() = blockEntitiesByPosition.size
 
     fun section(sectionY: Int): ChunkSection<B, M>? = sectionsByY[sectionY]
 
@@ -487,6 +593,48 @@ class Chunk<B : Any, M : Any>(
         }
     }
 
+    /** Installs one Section and returns the previous Section at the same Y coordinate. */
+    fun setSection(section: ChunkSection<B, M>): ChunkSection<B, M>? {
+        require(section.sectionY in layout) { "Section Y ${section.sectionY} is outside $layout" }
+        if (chunkMetadata.lightOnlySections.containsKey(section.sectionY)) {
+            chunkMetadata = chunkMetadata.copy(
+                lightOnlySections = chunkMetadata.lightOnlySections - section.sectionY,
+            )
+        }
+        return sectionsByY.put(section.sectionY, section)
+    }
+
+    /** Installs one absolute Section after validating the supplied positionless Chunk context. */
+    fun setSection(
+        chunkPosition: ChunkPosition,
+        position: SectionPosition,
+        section: ChunkSection<B, M>,
+    ): ChunkSection<B, M>? {
+        require(position.chunk == chunkPosition) { "Section $position does not belong to Chunk $chunkPosition" }
+        require(section.sectionY == position.y) {
+            "Section value Y ${section.sectionY} does not match position Y ${position.y}"
+        }
+        return setSection(section)
+    }
+
+    /** Removes one semantic Section while retaining any lighting as a light-only Section. */
+    fun removeSection(sectionY: Int): ChunkSection<B, M>? {
+        val removed = sectionsByY.remove(sectionY) ?: return null
+        if (removed.blockLight != null || removed.skyLight != null) {
+            val lighting = SectionLighting(removed.blockLight, removed.skyLight)
+            chunkMetadata = chunkMetadata.copy(
+                lightOnlySections = chunkMetadata.lightOnlySections + (sectionY to lighting),
+            )
+        }
+        return removed
+    }
+
+    /** Removes one absolute Section after validating the supplied positionless Chunk context. */
+    fun removeSection(chunkPosition: ChunkPosition, position: SectionPosition): ChunkSection<B, M>? {
+        require(position.chunk == chunkPosition) { "Section $position does not belong to Chunk $chunkPosition" }
+        return removeSection(position.y)
+    }
+
     /** Finds or creates an absolute Section after validating the supplied positionless Chunk context. */
     fun getOrCreateSection(chunkPosition: ChunkPosition, position: SectionPosition): ChunkSection<B, M> {
         require(position.chunk == chunkPosition) { "Section $position does not belong to Chunk $chunkPosition" }
@@ -499,8 +647,7 @@ class Chunk<B : Any, M : Any>(
     }
 
     operator fun set(position: ChunkBlockPosition, value: B) {
-        require(layout.containsBlockY(position.y)) { "Block Y ${position.y} is outside $layout" }
-        getOrCreateSection(position.sectionY)[position.localInSection] = value
+        replaceBlock(position, value)
     }
 
     fun block(localX: Int, y: Int, localZ: Int): B = get(ChunkBlockPosition(localX, y, localZ))
@@ -523,6 +670,22 @@ class Chunk<B : Any, M : Any>(
         setBlock(chunkPosition.local(position), value)
     }
 
+    /** Replaces one Chunk-local block and returns its previous state. */
+    fun replaceBlock(localX: Int, y: Int, localZ: Int, value: B): B =
+        replaceBlock(ChunkBlockPosition(localX, y, localZ), value)
+
+    /** Replaces one Chunk-local block and returns its previous state. */
+    fun replaceBlock(position: ChunkBlockPosition, value: B): B {
+        require(layout.containsBlockY(position.y)) { "Block Y ${position.y} is outside $layout" }
+        val section = sectionsByY[position.sectionY]
+        if (section == null && value == defaultBlockState) return defaultBlockState
+        return (section ?: getOrCreateSection(position.sectionY)).replaceBlock(position.localInSection, value)
+    }
+
+    /** Replaces one absolute block after validating the supplied positionless Chunk context. */
+    fun replaceBlock(chunkPosition: ChunkPosition, position: BlockPosition, value: B): B =
+        replaceBlock(chunkPosition.local(position), value)
+
     /** Reads the biome cell containing the supplied Chunk-local X/Z and absolute block Y. */
     fun biome(localX: Int, y: Int, localZ: Int): M {
         val position = ChunkBlockPosition(localX, y, localZ)
@@ -542,14 +705,7 @@ class Chunk<B : Any, M : Any>(
 
     /** Writes the 4 by 4 by 4 biome cell containing the supplied Chunk-local X/Z and absolute block Y. */
     fun setBiome(localX: Int, y: Int, localZ: Int, value: M) {
-        val position = ChunkBlockPosition(localX, y, localZ)
-        require(layout.containsBlockY(y)) { "Block Y $y is outside $layout" }
-        getOrCreateSection(position.sectionY).setBiome(
-            MinecraftCoordinates.quartCoordinateInSection(localX),
-            MinecraftCoordinates.quartCoordinateInSection(y),
-            MinecraftCoordinates.quartCoordinateInSection(localZ),
-            value,
-        )
+        replaceBiome(localX, y, localZ, value)
     }
 
     fun setBiome(position: ChunkBlockPosition, value: M) {
@@ -560,10 +716,84 @@ class Chunk<B : Any, M : Any>(
     fun setBiome(chunkPosition: ChunkPosition, position: BlockPosition, value: M) {
         setBiome(chunkPosition.local(position), value)
     }
+
+    /** Replaces one Chunk-local block's biome cell and returns its previous value. */
+    fun replaceBiome(localX: Int, y: Int, localZ: Int, value: M): M {
+        val position = ChunkBlockPosition(localX, y, localZ)
+        require(layout.containsBlockY(y)) { "Block Y $y is outside $layout" }
+        val section = sectionsByY[position.sectionY]
+        if (section == null && value == defaultBiome) return defaultBiome
+        return (section ?: getOrCreateSection(position.sectionY)).replaceBiome(position.localInSection, value)
+    }
+
+    fun replaceBiome(position: ChunkBlockPosition, value: M): M =
+        replaceBiome(position.x, position.y, position.z, value)
+
+    /** Replaces one absolute biome cell after validating the supplied positionless Chunk context. */
+    fun replaceBiome(chunkPosition: ChunkPosition, position: BlockPosition, value: M): M =
+        replaceBiome(chunkPosition.local(position), value)
+
+    fun blockEntity(position: ChunkBlockPosition): BlockEntity? = blockEntitiesByPosition[position]
+
+    /** Finds an absolute Block Entity after validating the supplied positionless Chunk context. */
+    fun blockEntity(chunkPosition: ChunkPosition, position: BlockPosition): BlockEntity? =
+        blockEntity(chunkPosition.local(position))
+
+    fun hasBlockEntity(position: ChunkBlockPosition): Boolean = blockEntitiesByPosition.containsKey(position)
+
+    /** Checks an absolute Block Entity position after validating the supplied positionless Chunk context. */
+    fun hasBlockEntity(chunkPosition: ChunkPosition, position: BlockPosition): Boolean =
+        hasBlockEntity(chunkPosition.local(position))
+
+    /** Installs one Block Entity and returns the previous value at the same position. */
+    fun setBlockEntity(blockEntity: BlockEntity): BlockEntity? {
+        require(layout.containsBlockY(blockEntity.position.y)) {
+            "Block Entity Y ${blockEntity.position.y} is outside $layout"
+        }
+        return blockEntitiesByPosition.put(blockEntity.position, blockEntity)
+    }
+
+    fun setBlockEntity(
+        position: ChunkBlockPosition,
+        type: String,
+        persistentData: NbtCompound = NbtCompound(emptyMap()),
+    ): BlockEntity? = setBlockEntity(BlockEntity(type, position, persistentData))
+
+    /** Installs one absolute Block Entity after validating the supplied positionless Chunk context. */
+    fun setBlockEntity(
+        chunkPosition: ChunkPosition,
+        position: BlockPosition,
+        type: String,
+        persistentData: NbtCompound = NbtCompound(emptyMap()),
+    ): BlockEntity? = setBlockEntity(chunkPosition.local(position), type, persistentData)
+
+    fun removeBlockEntity(position: ChunkBlockPosition): BlockEntity? = blockEntitiesByPosition.remove(position)
+
+    /** Removes an absolute Block Entity after validating the supplied positionless Chunk context. */
+    fun removeBlockEntity(chunkPosition: ChunkPosition, position: BlockPosition): BlockEntity? =
+        removeBlockEntity(chunkPosition.local(position))
+
+    /** Creates an independently mutable Chunk snapshot. Caller-supplied block and biome values are retained. */
+    fun snapshot(): Chunk<B, M> = Chunk(
+        metadata = chunkMetadata,
+        layout = layout,
+        sections = sectionsByY.values.map(ChunkSection<B, M>::snapshot),
+        blockEntities = blockEntitiesByPosition.values.map(BlockEntity::snapshot),
+        defaultBlockState = defaultBlockState,
+        defaultBiome = defaultBiome,
+    )
 }
 
 private fun ChunkMetadata.snapshot(): ChunkMetadata =
     copy(lightOnlySections = lightOnlySections.toMap())
+
+private fun NbtCompound.requireNoBlockEntityStructureFields(): NbtCompound {
+    val reserved = value.keys intersect BLOCK_ENTITY_STRUCTURE_FIELDS
+    require(reserved.isEmpty()) {
+        "Block Entity persistent data cannot contain structural fields: ${reserved.sorted().joinToString()}"
+    }
+    return this
+}
 
 class ChunkNbtFormatException(
     message: String,
@@ -579,3 +809,4 @@ const val BIOME_CELL_SIDE: Int = 4
 const val BIOME_SECTION_SIDE: Int = SECTION_SIDE / BIOME_CELL_SIDE
 const val SECTION_BIOME_COUNT: Int = BIOME_SECTION_SIDE * BIOME_SECTION_SIDE * BIOME_SECTION_SIDE
 const val SECTION_LIGHT_BYTE_COUNT: Int = SECTION_BLOCK_COUNT / 2
+internal val BLOCK_ENTITY_STRUCTURE_FIELDS: Set<String> = setOf("id", "x", "y", "z")

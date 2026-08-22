@@ -188,9 +188,10 @@ class MinecraftFrameCodecTest {
         }
 
         codec.configureCompression(8)
-        assertFailsWith<MinecraftTransportException> {
-            codec.decodeFrameBody(byteArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8))
-        }
+        assertContentEquals(
+            byteArrayOf(1, 2, 3, 4, 5, 6, 7, 8),
+            codec.decodeFrameBody(byteArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8)),
+        )
         assertFailsWith<IOException> {
             codec.decodeFrameBody(
                 byteArrayOf(11) +
@@ -250,12 +251,13 @@ class MinecraftFrameCodecTest {
                 maximumFrameSize = MinecraftTransportConfiguration.MAXIMUM_FRAME_SIZE + 1,
             )
         }
-        assertFailsWith<IllegalArgumentException> {
+        assertEquals(
+            15,
             MinecraftTransportConfiguration(
                 maximumFrameSize = 16,
                 maximumUncompressedPacketSize = 15,
-            )
-        }
+            ).maximumUncompressedPacketSize,
+        )
 
         val codec = MinecraftFrameCodec(
             MinecraftTransportConfiguration(
@@ -263,9 +265,8 @@ class MinecraftFrameCodecTest {
                 maximumUncompressedPacketSize = 8,
             ),
         )
-        assertFailsWith<IllegalArgumentException> {
-            codec.configureCompression(-1)
-        }
+        codec.configureCompression(-1)
+        assertNull(codec.compressionThreshold)
         assertFailsWith<MinecraftTransportException> {
             codec.encodeFrame(byteArrayOf())
         }
@@ -285,9 +286,10 @@ class MinecraftFrameCodecTest {
     @Test
     fun rejectsMalformedVarIntsAndEmptyCompressionPayloads() = runTest {
         val codec = MinecraftFrameCodec()
-        assertFailsWith<MinecraftTransportException> {
-            codec.decodeFrame(byteArrayOf(0x81.toByte(), 0x00, 0x01))
-        }
+        assertContentEquals(
+            byteArrayOf(1),
+            codec.decodeFrame(byteArrayOf(0x81.toByte(), 0x00, 0x01)),
+        )
         assertFailsWith<MinecraftTransportException> {
             codec.decodeFrame(
                 byteArrayOf(
@@ -303,19 +305,30 @@ class MinecraftFrameCodecTest {
         assertFailsWith<MinecraftTransportException> {
             codec.decodeFrameBody(byteArrayOf(0))
         }
+        assertContentEquals(
+            ByteArray(7),
+            codec.decodeFrameBody(encodeVarInt(7) + Zlib.compress(ByteArray(7))),
+        )
+
+        val strictVarInts = MinecraftFrameCodec(
+            MinecraftTransportConfiguration(rejectNonMinimalVarInts = true),
+        )
         assertFailsWith<MinecraftTransportException> {
-            codec.decodeFrameBody(encodeVarInt(7) + Zlib.compress(ByteArray(7)))
+            strictVarInts.decodeFrame(byteArrayOf(0x81.toByte(), 0x00, 0x01))
+        }
+        val strictCompression = MinecraftFrameCodec(
+            MinecraftTransportConfiguration(validateCompressionThreshold = true),
+        )
+        strictCompression.configureCompression(8)
+        assertFailsWith<MinecraftTransportException> {
+            strictCompression.decodeFrameBody(encodeVarInt(7) + Zlib.compress(ByteArray(7)))
         }
     }
 
     @Test
-    fun optionalValidationAcceptsNoncanonicalCompressionThresholdBranches() =
+    fun officialDefaultsAcceptNoncanonicalCompressionThresholdBranches() =
         runTest {
-            val codec = MinecraftFrameCodec(
-                MinecraftTransportConfiguration(
-                    validateCompressionThreshold = false,
-                ),
-            )
+            val codec = MinecraftFrameCodec()
             codec.configureCompression(8)
             val atThreshold = ByteArray(8) { it.toByte() }
             assertContentEquals(
@@ -332,11 +345,7 @@ class MinecraftFrameCodecTest {
                 ),
             )
 
-            val permissiveVarInt = MinecraftFrameCodec(
-                MinecraftTransportConfiguration(
-                    rejectNonMinimalVarInts = false,
-                ),
-            )
+            val permissiveVarInt = MinecraftFrameCodec()
             assertContentEquals(
                 byteArrayOf(1),
                 permissiveVarInt.decodeFrame(

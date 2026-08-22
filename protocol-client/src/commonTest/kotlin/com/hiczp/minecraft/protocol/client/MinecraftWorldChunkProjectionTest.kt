@@ -3,7 +3,6 @@ package com.hiczp.minecraft.protocol.client
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.nbt.NbtLongArray
-import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.type.ChunkSection
@@ -13,6 +12,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import com.hiczp.minecraft.world.format.BlockPosition as WorldBlockPosition
 
 class MinecraftWorldChunkProjectionTest {
     @Test
@@ -80,12 +80,10 @@ class MinecraftWorldChunkProjectionTest {
         assertNull(chunk.section(-1)?.skyLight)
         assertEquals(NbtLongArray(longArrayOf(3L)), chunk.metadata.heightmaps[HeightmapType.WORLD_SURFACE.name])
 
-        val blockEntity = assertIs<NbtCompound>(chunk.metadata.blockEntities[0])
-        assertEquals(NbtString("minecraft:chest"), blockEntity["id"])
-        assertEquals(NbtInt(-13), blockEntity["x"])
-        assertEquals(NbtInt(-1), blockEntity["y"])
-        assertEquals(NbtInt(36), blockEntity["z"])
-        assertEquals(NbtInt(9), blockEntity["custom"])
+        val blockEntity = assertIs<BlockEntity>(chunk.blockEntity(ChunkBlockPosition(3, -1, 4)))
+        assertEquals("minecraft:chest", blockEntity.type)
+        assertEquals(WorldBlockPosition(-13, -1, 36), blockEntity.absolutePosition(packet.chunkPosition))
+        assertEquals(NbtInt(9), blockEntity.persistentData["custom"])
         assertEquals(stone, chunk.section(-1)?.block(LocalBlockPosition(15, 15, 15)))
     }
 

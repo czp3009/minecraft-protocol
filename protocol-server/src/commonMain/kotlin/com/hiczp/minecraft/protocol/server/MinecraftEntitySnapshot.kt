@@ -1,14 +1,15 @@
 package com.hiczp.minecraft.protocol.server
 
-import com.hiczp.minecraft.protocol.model.packet.BundleDelimiterPacket
-import com.hiczp.minecraft.protocol.model.packet.ClientboundPacket
-import com.hiczp.minecraft.protocol.model.packet.SetEntityMetadataPacket
-import com.hiczp.minecraft.protocol.model.packet.SpawnEntityPacket
+import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.world.format.Entity
 import kotlin.uuid.Uuid
 
 /**
- * The client-facing state needed for an initial entity spawn.
+ * Detached client-facing state for the complete vanilla Entity pairing bundle.
+ *
+ * Parameters follow the final packet sequence: spawn fields, metadata, attributes, equipment, the Entity's passenger
+ * relation, its vehicle's passenger relation, and its leash relation.
  */
 data class MinecraftEntitySnapshot(
     val entityId: Int,
@@ -21,31 +22,34 @@ data class MinecraftEntitySnapshot(
     val headYaw: Float = yaw,
     val data: Int = 0,
     val metadata: EntityMetadata? = null,
+    val attributes: List<AttributeSnapshot> = emptyList(),
+    val equipment: List<EquipmentUpdate> = emptyList(),
+    val passengerEntityIds: List<Int> = emptyList(),
+    val vehiclePassengerRelation: MinecraftEntityPassengersSnapshot? = null,
+    val leashHolderEntityId: Int? = null,
 ) {
-    init {
-        require(entityId > 0) {
-            "An entity ID must be positive"
-        }
-        require(position.isFinite()) {
-            "An entity position must be finite"
-        }
-        require(velocity.isFinite()) {
-            "An entity velocity must be finite"
-        }
-        require(pitch.isFinite() && yaw.isFinite() && headYaw.isFinite()) {
-            "Entity rotations must be finite"
-        }
-    }
-
     fun typeId(registries: ProtocolRegistryContext): Int =
-        registries.requireRegistryEntry(ENTITY_TYPE_REGISTRY, type).rawId
+        registries.requireRegistryEntry(ProtocolRegistryContext.ENTITY_TYPE_REGISTRY, type).rawId
 
+    /** Builds the raw delimiter-bounded packet sequence for callers that manage its physical enqueueing themselves. */
     fun packets(registries: ProtocolRegistryContext): List<ClientboundPacket> =
         packets(typeId(registries))
 
+    /** Builds the raw delimiter-bounded packet sequence with an already-resolved Entity type ID. */
     fun packets(typeId: Int): List<ClientboundPacket> = buildList {
-        require(typeId >= 0) { "An entity type ID must be non-negative" }
         add(BundleDelimiterPacket)
+        addAll(contentPackets(typeId))
+        add(BundleDelimiterPacket)
+    }
+
+    /** Builds one logical bundle that a connection enqueues and writes without channel-level interleaving. */
+    fun bundle(registries: ProtocolRegistryContext): ClientboundBundlePacket =
+        bundle(typeId(registries))
+
+    /** Builds one logical bundle with an already-resolved Entity type ID. */
+    fun bundle(typeId: Int): ClientboundBundlePacket = ClientboundBundlePacket(contentPackets(typeId))
+
+    private fun contentPackets(typeId: Int): List<ClientboundPacket> = buildList {
         add(
             SpawnEntityPacket(
                 entityId = entityId,
@@ -61,16 +65,75 @@ data class MinecraftEntitySnapshot(
                 data = data,
             ),
         )
-        metadata?.let {
-            add(SetEntityMetadataPacket(entityId, it))
+        metadata?.takeIf { it.entries.isNotEmpty() }?.let {
+            add(SetEntityMetadataPacket(entityId, EntityMetadata(it.entries.toList())))
         }
-        add(BundleDelimiterPacket)
-    }
-
-    companion object {
-        val ENTITY_TYPE_REGISTRY: Identifier = Identifier("entity_type")
+        if (attributes.isNotEmpty()) {
+            add(
+                UpdateAttributesPacket(
+                    entityId,
+                    attributes.map { attribute -> attribute.copy(modifiers = attribute.modifiers.toList()) },
+                ),
+            )
+        }
+        if (equipment.isNotEmpty()) {
+            add(SetEquipmentPacket(entityId, EquipmentUpdates(equipment.toList())))
+        }
+        if (passengerEntityIds.isNotEmpty()) {
+            add(SetPassengersPacket(entityId, passengerEntityIds.toList()))
+        }
+        vehiclePassengerRelation?.let { relation -> add(relation.packet()) }
+        leashHolderEntityId?.let { holderId -> add(LinkEntitiesPacket(entityId, holderId)) }
     }
 }
 
-private fun Vector3d.isFinite(): Boolean =
-    x.isFinite() && y.isFinite() && z.isFinite()
+/** One vehicle-to-passenger relationship included in an Entity pairing bundle. */
+data class MinecraftEntityPassengersSnapshot(
+    val vehicleEntityId: Int,
+    val passengerEntityIds: List<Int>,
+) {
+    fun packet(): SetPassengersPacket = SetPassengersPacket(vehicleEntityId, passengerEntityIds.toList())
+}
+
+/**
+ * Converts a persisted semantic Entity into detached common spawn state.
+ *
+ * Runtime-only protocol state is supplied explicitly. In particular, persisted NBT does not contain the connection's
+ * numeric Entity ID, registry-resolved attributes, protocol ItemStacks, metadata indices, or current tracking links.
+ */
+fun <E : Any> Entity<E>.toMinecraftEntitySnapshot(
+    entityId: Int,
+    headYaw: Float = rotation.yaw,
+    data: Int = 0,
+    metadata: EntityMetadata? = null,
+    attributes: List<AttributeSnapshot> = emptyList(),
+    equipment: List<EquipmentUpdate> = emptyList(),
+    passengerEntityIds: List<Int> = emptyList(),
+    vehiclePassengerRelation: MinecraftEntityPassengersSnapshot? = null,
+    leashHolderEntityId: Int? = null,
+): MinecraftEntitySnapshot = MinecraftEntitySnapshot(
+    entityId = entityId,
+    uuid = uuid,
+    type = Identifier(type),
+    position = Vector3d(position.x, position.y, position.z),
+    velocity = Vector3d(velocity.x, velocity.y, velocity.z),
+    pitch = rotation.pitch,
+    yaw = rotation.yaw,
+    headYaw = headYaw,
+    data = data,
+    metadata = metadata?.let { value -> EntityMetadata(value.entries.toList()) },
+    attributes = attributes.map { attribute ->
+        attribute.copy(modifiers = attribute.modifiers.toList())
+    },
+    equipment = equipment.toList(),
+    passengerEntityIds = passengerEntityIds.toList(),
+    vehiclePassengerRelation = vehiclePassengerRelation?.let { relation ->
+        relation.copy(passengerEntityIds = relation.passengerEntityIds.toList())
+    },
+    leashHolderEntityId = leashHolderEntityId,
+)
+
+/** Enqueues one complete Entity pairing bundle in protocol order. */
+suspend fun MinecraftServerConnection.sendEntitySnapshot(snapshot: MinecraftEntitySnapshot) {
+    outgoing.send(snapshot.bundle(registries))
+}

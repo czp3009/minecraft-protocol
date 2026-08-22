@@ -270,12 +270,12 @@ class MinecraftClientProtocolTest {
     }
 
     private fun connectionPair(): Pair<MinecraftClientConnection, MinecraftSession> {
-        val clientToServer = ByteChannel()
-        val serverToClient = ByteChannel()
+        val clientToServer = ByteChannel(autoFlush = true)
+        val serverToClient = ByteChannel(autoFlush = true)
         val clientFrames = MinecraftFrameStream(serverToClient, clientToServer)
         val client = MinecraftClientConnection(
             connection = MinecraftConnectionEngine(
-                frames = clientFrames,
+                frameStream = clientFrames,
                 closeTransport = { clientFrames.cancel() },
                 side = MinecraftSessionSide.CLIENT,
                 definition = MinecraftConnectionDefinition(),

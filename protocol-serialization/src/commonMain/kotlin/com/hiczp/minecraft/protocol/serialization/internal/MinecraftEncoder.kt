@@ -15,6 +15,7 @@ import kotlinx.io.Buffer
 import kotlinx.io.writeString
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerializationStrategy
+import kotlinx.serialization.builtins.*
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.encoding.AbstractEncoder
@@ -43,9 +44,10 @@ internal class MinecraftEncoder(
             StructureKind.MAP -> index % descriptor.elementsCount
             else -> index
         }
-        pendingHints =
-            descriptor.getElementAnnotations(descriptorIndex) +
-                    (frames.lastOrNull()?.elementHints ?: emptyList())
+        pendingHints = combineHints(
+            descriptor.getElementAnnotations(descriptorIndex),
+            frames.lastOrNull()?.elementHints.orEmpty(),
+        )
         return true
     }
 
@@ -56,44 +58,10 @@ internal class MinecraftEncoder(
         if (collectionSize < 0) {
             throw MinecraftSerializationException("Invalid collection size: $collectionSize")
         }
-        val hints = takePendingHints()
-        validateCollectionHints(collectionSize, hints)
-        val fixed = hints.filterIsInstance<FixedLength>().singleOrNull()
-        if (fixed != null && collectionSize != fixed.bytes) {
-            throw MinecraftSerializationException(
-                "Expected exactly ${fixed.bytes} elements, got $collectionSize",
-            )
-        }
-        if (hints.any { it is ChunkSectionCount }) {
-            if (descriptor.kind != StructureKind.LIST) {
-                throw MinecraftSerializationException(
-                    "@ChunkSectionCount can only be used with a List",
-                )
-            }
-            val expected = configuration.chunkSectionCount
-            if (expected != null && collectionSize != expected) {
-                throw MinecraftSerializationException(
-                    "Chunk has $collectionSize sections; active dimension requires $expected",
-                )
-            }
-        }
-        if (
-            hints.none {
-                it is Unprefixed ||
-                        it is RemainingBytes ||
-                        it is FixedLength ||
-                        it is ChunkSectionCount
-            }
-        ) {
-            writer.writeVarInt(collectionSize)
-        }
+        val elementHints = writeCollectionHeader(descriptor, collectionSize)
         frames += Frame(
             descriptor,
-            elementHints = hints.filter {
-                it is VarIntElements ||
-                        it is VarLongElements ||
-                        it is MaxLength
-            },
+            elementHints = elementHints,
         )
         return this
     }
@@ -212,6 +180,7 @@ internal class MinecraftEncoder(
         value: T,
     ) {
         when {
+            encodePrimitiveArray(serializer, value) -> Unit
             serializer is NbtTagSerializer<*> -> serializer.serialize(this, value)
             value is Uuid -> writer.write(value.toByteArray())
             pendingHints.any { it is NetworkNbt } -> {
@@ -364,9 +333,107 @@ internal class MinecraftEncoder(
             StructureKind.MAP -> index % descriptor.elementsCount
             else -> index
         }
-        return descriptor.getElementAnnotations(descriptorIndex) +
-                (frames.lastOrNull()?.elementHints ?: emptyList())
+        return combineHints(
+            descriptor.getElementAnnotations(descriptorIndex),
+            frames.lastOrNull()?.elementHints.orEmpty(),
+        )
     }
+
+    private fun writeCollectionHeader(
+        descriptor: SerialDescriptor,
+        collectionSize: Int,
+    ): List<Annotation> {
+        val hints = takePendingHints()
+        validateCollectionHints(collectionSize, hints)
+        val fixed = hints.filterIsInstance<FixedLength>().singleOrNull()
+        if (fixed != null && collectionSize != fixed.bytes) {
+            throw MinecraftSerializationException(
+                "Expected exactly ${fixed.bytes} elements, got $collectionSize",
+            )
+        }
+        if (hints.any { it is ChunkSectionCount }) {
+            if (descriptor.kind != StructureKind.LIST) {
+                throw MinecraftSerializationException(
+                    "@ChunkSectionCount can only be used with a List",
+                )
+            }
+            val expected = configuration.chunkSectionCount
+            if (expected != null && collectionSize != expected) {
+                throw MinecraftSerializationException(
+                    "Chunk has $collectionSize sections; active dimension requires $expected",
+                )
+            }
+        }
+        if (
+            hints.none {
+                it is Unprefixed ||
+                        it is RemainingBytes ||
+                        it is FixedLength ||
+                        it is ChunkSectionCount
+            }
+        ) {
+            writer.writeVarInt(collectionSize)
+        }
+        return hints.filter {
+            it is VarIntElements ||
+                    it is VarLongElements ||
+                    it is MaxLength
+        }
+    }
+
+    private fun <T> encodePrimitiveArray(
+        serializer: SerializationStrategy<T>,
+        value: T,
+    ): Boolean {
+        if (!isPrimitiveArraySerializer(serializer)) return false
+        val descriptor = serializer.descriptor
+        val size = when {
+            descriptor.serialName == BYTE_ARRAY_SERIAL_NAME && value is ByteArray -> value.size
+            descriptor.serialName == BOOLEAN_ARRAY_SERIAL_NAME && value is BooleanArray -> value.size
+            descriptor.serialName == SHORT_ARRAY_SERIAL_NAME && value is ShortArray -> value.size
+            descriptor.serialName == INT_ARRAY_SERIAL_NAME && value is IntArray -> value.size
+            descriptor.serialName == LONG_ARRAY_SERIAL_NAME && value is LongArray -> value.size
+            descriptor.serialName == FLOAT_ARRAY_SERIAL_NAME && value is FloatArray -> value.size
+            descriptor.serialName == DOUBLE_ARRAY_SERIAL_NAME && value is DoubleArray -> value.size
+            descriptor.serialName == CHAR_ARRAY_SERIAL_NAME && value is CharArray -> value.size
+            else -> return false
+        }
+        val elementHints = writeCollectionHeader(descriptor, size)
+        when (value) {
+            is ByteArray -> writer.write(value)
+            is BooleanArray -> value.forEach { writer.writeByte(if (it) 1 else 0) }
+            is ShortArray -> value.forEach { writer.writeShort(it.toInt()) }
+            is IntArray -> if (elementHints.any { it is VarIntElements }) {
+                value.forEach(writer::writeVarInt)
+            } else {
+                value.forEach(writer::writeInt)
+            }
+
+            is LongArray -> if (elementHints.any { it is VarLongElements }) {
+                value.forEach(writer::writeVarLong)
+            } else {
+                value.forEach(writer::writeLong)
+            }
+
+            is FloatArray -> value.forEach { writer.writeInt(it.toBits()) }
+            is DoubleArray -> value.forEach { writer.writeLong(it.toBits()) }
+            is CharArray -> value.forEach { writer.writeShort(it.code) }
+        }
+        return true
+    }
+
+    private fun isPrimitiveArraySerializer(serializer: SerializationStrategy<*>): Boolean =
+        when (serializer.descriptor.serialName) {
+            BOOLEAN_ARRAY_SERIAL_NAME -> serializer === BooleanArraySerializer()
+            BYTE_ARRAY_SERIAL_NAME -> serializer === ByteArraySerializer()
+            CHAR_ARRAY_SERIAL_NAME -> serializer === CharArraySerializer()
+            DOUBLE_ARRAY_SERIAL_NAME -> serializer === DoubleArraySerializer()
+            FLOAT_ARRAY_SERIAL_NAME -> serializer === FloatArraySerializer()
+            INT_ARRAY_SERIAL_NAME -> serializer === IntArraySerializer()
+            LONG_ARRAY_SERIAL_NAME -> serializer === LongArraySerializer()
+            SHORT_ARRAY_SERIAL_NAME -> serializer === ShortArraySerializer()
+            else -> false
+        }
 
     private inline fun <T> withHints(hints: List<Annotation>, block: () -> T): T {
         val previous = pendingHints
@@ -385,7 +452,15 @@ internal class MinecraftEncoder(
     }
 
     private companion object {
+        const val BOOLEAN_ARRAY_SERIAL_NAME: String = "kotlin.BooleanArray"
+        const val BYTE_ARRAY_SERIAL_NAME: String = "kotlin.ByteArray"
+        const val CHAR_ARRAY_SERIAL_NAME: String = "kotlin.CharArray"
         const val DEFAULT_STRING_MAXIMUM: Int = 32_767
+        const val DOUBLE_ARRAY_SERIAL_NAME: String = "kotlin.DoubleArray"
+        const val FLOAT_ARRAY_SERIAL_NAME: String = "kotlin.FloatArray"
+        const val INT_ARRAY_SERIAL_NAME: String = "kotlin.IntArray"
+        const val LONG_ARRAY_SERIAL_NAME: String = "kotlin.LongArray"
+        const val SHORT_ARRAY_SERIAL_NAME: String = "kotlin.ShortArray"
     }
 
     private data class Frame(

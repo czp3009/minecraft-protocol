@@ -648,10 +648,20 @@ class OfficialWorldStorageInteropTest {
                         "$regionPath(size=$regionSize, readableChunks=${region.chunks.size})",
                     )
                     region.chunks.forEach { (local, record) ->
-                        store.chunkNbtFormat.decodeDocument(checkNotNull(record.content))
+                        val chunkPosition = regionPosition.chunk(local)
+                        val document = store.chunkNbtFormat.decodeDocument(checkNotNull(record.content))
+                        if (storage == RegionStorageDirectory.ENTITIES) {
+                            val dataVersion = (document.root["DataVersion"] as? NbtInt)?.value
+                                ?: error("Official Entity Chunk has no DataVersion: $chunkPosition")
+                            val entityChunk = EntityChunkNbtCodec(dataVersion, NbtEntityDataRegistry())
+                                .decodeDocument(document, chunkPosition)
+                            check(!entityChunk.isEmpty) {
+                                "Official Entity storage retained an empty Chunk: $chunkPosition"
+                            }
+                        }
                         chunks[storage] = checkNotNull(chunks[storage]) + 1
                         if (!firstChunks.containsKey(storage)) {
-                            firstChunks[storage] = regionPosition.chunk(local)
+                            firstChunks[storage] = chunkPosition
                         }
                     }
                 }

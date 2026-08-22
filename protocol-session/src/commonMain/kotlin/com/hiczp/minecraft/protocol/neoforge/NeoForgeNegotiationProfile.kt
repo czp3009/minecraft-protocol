@@ -453,6 +453,7 @@ class NeoForgeServerProfile(
         )
         connection.outgoing.send(ConfigurationPingPacket(NEGOTIATION_PING_ID))
         while (!receivedProbePong) {
+            connection.requestFlush()
             val packet = connection.incoming.receive()
             if (!handleConfigurationPacket(connection, packet)) {
                 throw NeoForgeNegotiationException(
@@ -811,6 +812,7 @@ class NeoForgeServerProfile(
         connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
     ): T {
         while (true) {
+            connection.requestFlush()
             val packet = connection.incoming.receive()
             if (packet is T) {
                 handleConfigurationPacket(connection, packet)

@@ -1,17 +1,19 @@
 package com.hiczp.minecraft.protocol.server
 
+import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.data.VanillaProtocolData
 import com.hiczp.minecraft.protocol.data.VanillaStaticData
 import com.hiczp.minecraft.protocol.data.requireRegistry
-import com.hiczp.minecraft.protocol.model.packet.BundleDelimiterPacket
-import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
-import com.hiczp.minecraft.protocol.model.packet.SetEntityMetadataPacket
-import com.hiczp.minecraft.protocol.model.packet.SpawnEntityPacket
+import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
+import com.hiczp.minecraft.world.format.ChunkPosition
+import com.hiczp.minecraft.world.format.Entity
+import com.hiczp.minecraft.world.format.EntityVector3d
 import kotlin.test.*
 import kotlin.uuid.Uuid
+import com.hiczp.minecraft.protocol.model.type.GameMode as PlayerGameMode
 
 class MinecraftInitialWorldTest {
     @Test
@@ -225,19 +227,18 @@ class MinecraftInitialWorldTest {
 
         val packets = entity.packets(VanillaProtocolData.registryContext)
 
-        assertEquals(4, packets.size)
+        assertEquals(3, packets.size)
         val spawn = assertIs<SpawnEntityPacket>(packets[1])
         assertEquals(entity.entityId, spawn.entityId)
         assertEquals(
             entity.typeId(VanillaProtocolData.registryContext),
             spawn.typeId,
         )
-        assertIs<SetEntityMetadataPacket>(packets[2])
 
         val remapped = ProtocolRegistryContext(
             registries = listOf(
                 ProtocolRegistry(
-                    MinecraftEntitySnapshot.ENTITY_TYPE_REGISTRY,
+                    ProtocolRegistryContext.ENTITY_TYPE_REGISTRY,
                     listOf(ProtocolRegistryEntry(Identifier("pig"), 42)),
                 ),
             ),
@@ -248,6 +249,109 @@ class MinecraftInitialWorldTest {
             42,
             assertIs<SpawnEntityPacket>(entity.packets(remapped)[1]).typeId,
         )
+    }
+
+    @Test
+    fun entitySnapshotProducesTheCompletePairingBundleInOfficialOrder() {
+        val uuid = Uuid.fromLongs(1, 2)
+        val type = Identifier("pig")
+        val position = Vector3d(1.5, 65.0, -2.5)
+        val velocity = Vector3d(0.125, -0.25, 0.5)
+        val metadata = EntityMetadata(listOf(EntityMetadataEntry(0, EntityDataValue.ByteValue(1))))
+        val attributes = listOf(AttributeSnapshot(3, 20.0, emptyList()))
+        val equipment = listOf(EquipmentUpdate(EquipmentSlot.MAINHAND, ItemStack.of(4)))
+        val passengerEntityIds = listOf(18)
+        val vehiclePassengerRelation = MinecraftEntityPassengersSnapshot(16, listOf(17))
+        val entity = MinecraftEntitySnapshot(
+            17,
+            uuid,
+            type,
+            position,
+            velocity,
+            10.0f,
+            20.0f,
+            30.0f,
+            41,
+            metadata,
+            attributes,
+            equipment,
+            passengerEntityIds,
+            vehiclePassengerRelation,
+            19,
+        )
+
+        val packets = entity.packets(VanillaProtocolData.registryContext)
+        val bundle = entity.bundle(VanillaProtocolData.registryContext)
+
+        assertEquals(9, packets.size)
+        assertEquals(packets.drop(1).dropLast(1), bundle.subPackets)
+        assertIs<BundleDelimiterPacket>(packets[0])
+        val spawn = assertIs<SpawnEntityPacket>(packets[1])
+        assertEquals(17, spawn.entityId)
+        assertEquals(uuid, spawn.entityUuid)
+        assertEquals(entity.typeId(VanillaProtocolData.registryContext), spawn.typeId)
+        assertEquals(position.x, spawn.x)
+        assertEquals(position.y, spawn.y)
+        assertEquals(position.z, spawn.z)
+        assertEquals(velocity, spawn.velocity)
+        assertEquals(Angle.fromDegrees(10.0f), spawn.pitch)
+        assertEquals(Angle.fromDegrees(20.0f), spawn.yaw)
+        assertEquals(Angle.fromDegrees(30.0f), spawn.headYaw)
+        assertEquals(41, spawn.data)
+        assertIs<SetEntityMetadataPacket>(packets[2])
+        assertIs<UpdateAttributesPacket>(packets[3])
+        assertIs<SetEquipmentPacket>(packets[4])
+        val ownPassengers = assertIs<SetPassengersPacket>(packets[5])
+        assertEquals(17, ownPassengers.vehicleEntityId)
+        assertEquals(listOf(18), ownPassengers.passengerEntityIds)
+        val vehiclePassengers = assertIs<SetPassengersPacket>(packets[6])
+        assertEquals(16, vehiclePassengers.vehicleEntityId)
+        assertEquals(listOf(17), vehiclePassengers.passengerEntityIds)
+        assertIs<LinkEntitiesPacket>(packets[7])
+        assertIs<BundleDelimiterPacket>(packets[8])
+    }
+
+    @Test
+    fun semanticEntityConversionDetachesRuntimeState() {
+        val entity = Entity(
+            type = "minecraft:pig",
+            uuid = Uuid.fromLongs(1, 2),
+            data = NbtCompound(emptyMap()),
+            position = EntityVector3d(1.5, 65.0, -2.5),
+        )
+        val metadataEntries = mutableListOf(EntityMetadataEntry(0, EntityDataValue.ByteValue(1)))
+        val modifiers = mutableListOf(AttributeModifier(Identifier("test"), 1.0, AttributeModifierOperation.ADD_VALUE))
+        val attributes = mutableListOf(AttributeSnapshot(3, 20.0, modifiers))
+        val equipment = mutableListOf(EquipmentUpdate(EquipmentSlot.MAINHAND, ItemStack.of(4)))
+        val passengerEntityIds = mutableListOf(18)
+        val vehiclePassengerIds = mutableListOf(17)
+
+        val snapshot = entity.toMinecraftEntitySnapshot(
+            entityId = 17,
+            metadata = EntityMetadata(metadataEntries),
+            attributes = attributes,
+            equipment = equipment,
+            passengerEntityIds = passengerEntityIds,
+            vehiclePassengerRelation = MinecraftEntityPassengersSnapshot(16, vehiclePassengerIds),
+        )
+        entity.position = EntityVector3d.ZERO
+        metadataEntries.clear()
+        modifiers.clear()
+        attributes.clear()
+        equipment.clear()
+        passengerEntityIds.clear()
+        vehiclePassengerIds.clear()
+
+        val packets = snapshot.packets(typeId = 1)
+        val spawn = assertIs<SpawnEntityPacket>(packets[1])
+        assertEquals(1.5, spawn.x)
+        assertEquals(65.0, spawn.y)
+        assertEquals(-2.5, spawn.z)
+        assertEquals(1, assertIs<SetEntityMetadataPacket>(packets[2]).metadata.entries.size)
+        assertEquals(1, assertIs<UpdateAttributesPacket>(packets[3]).attributes.single().modifiers.size)
+        assertEquals(1, assertIs<SetEquipmentPacket>(packets[4]).updates.entries.size)
+        assertEquals(listOf(18), assertIs<SetPassengersPacket>(packets[5]).passengerEntityIds)
+        assertEquals(listOf(17), assertIs<SetPassengersPacket>(packets[6]).passengerEntityIds)
     }
 
     @Test
@@ -324,242 +428,48 @@ class MinecraftInitialWorldTest {
     }
 
     @Test
-    fun entitySnapshotRejectsInvalidWireFacingState() {
-        fun entity(
-            id: Int = 1,
-            type: Identifier = Identifier("pig"),
-            position: Vector3d = Vector3d(0.0, 64.0, 0.0),
-            velocity: Vector3d = Vector3d(0.0, 0.0, 0.0),
-            pitch: Float = 0.0f,
-            yaw: Float = 0.0f,
-            headYaw: Float = yaw,
-        ) = MinecraftEntitySnapshot(
-            entityId = id,
-            uuid = Uuid.fromLongs(0, 1),
-            type = type,
-            position = position,
-            velocity = velocity,
-            pitch = pitch,
-            yaw = yaw,
-            headYaw = headYaw,
+    fun bootstrapKeepsDefaultSpawnPlayerPositionAndChunkCenterIndependent() {
+        val options = MinecraftServerNegotiationOptions(compressionThreshold = null)
+        val defaultSpawnPosition = Vector3d(32.0, 70.0, -48.0)
+        val playerPosition = Vector3d(-17.5, 80.0, 25.5)
+        val centerChunk = ChunkPosition(9, -4)
+        val bootstrap = MinecraftInitialWorldBootstrap.vanilla(
+            options = options,
+            defaultSpawnPosition = defaultSpawnPosition,
+            defaultSpawnYaw = 10.0f,
+            defaultSpawnPitch = 20.0f,
+            playerPosition = playerPosition,
+            playerYaw = 30.0f,
+            playerPitch = 40.0f,
+            centerChunk = centerChunk,
         )
 
-        assertFailsWith<IllegalArgumentException> { entity(id = 0) }
-        assertFailsWith<IllegalArgumentException> {
-            entity(position = Vector3d(Double.NaN, 0.0, 0.0))
-        }
-        assertFailsWith<IllegalArgumentException> {
-            entity(velocity = Vector3d(0.0, Double.POSITIVE_INFINITY, 0.0))
-        }
-        assertFailsWith<IllegalArgumentException> { entity(pitch = Float.NaN) }
-        assertFailsWith<IllegalArgumentException> {
-            entity(yaw = Float.POSITIVE_INFINITY)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            entity(headYaw = Float.NEGATIVE_INFINITY)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            entity(type = Identifier("test:absent"))
-                .typeId(VanillaProtocolData.registryContext)
-        }
+        val packets = bootstrap.packets()
 
-        val packets = entity().packets(VanillaProtocolData.registryContext)
-        assertEquals(3, packets.size)
-        assertIs<BundleDelimiterPacket>(packets.first())
-        assertIs<SpawnEntityPacket>(packets[1])
-        assertIs<BundleDelimiterPacket>(packets.last())
-    }
+        assertEquals(8, packets.size)
+        assertIs<ClientboundChangeDifficultyPacket>(packets[0])
+        val defaultSpawn = assertIs<SetDefaultSpawnPositionPacket>(packets[1]).respawnData
+        assertEquals(BlockPosition(32, 70, -48), defaultSpawn.globalPosition.position)
+        assertEquals(10.0f, defaultSpawn.yaw)
+        assertEquals(20.0f, defaultSpawn.pitch)
+        assertIs<ClientboundPlayerAbilitiesPacket>(packets[2])
+        assertIs<SetRenderDistancePacket>(packets[3])
+        assertIs<SetSimulationDistancePacket>(packets[4])
+        val position = assertIs<SynchronizePlayerPositionPacket>(packets[5])
+        assertEquals(playerPosition, position.change.position)
+        assertEquals(30.0f, position.change.yaw)
+        assertEquals(40.0f, position.change.pitch)
+        assertIs<GameEventPacket>(packets[6])
+        val center = assertIs<SetCenterChunkPacket>(packets[7])
+        assertEquals(centerChunk.x, center.chunkX)
+        assertEquals(centerChunk.z, center.chunkZ)
 
-    @Test
-    fun initialWorldRejectsInconsistentOrDuplicateProjectionState() {
-        val dimension = MinecraftDimensionLayout.from(
-            VanillaProtocolData,
-            Identifier("overworld"),
+        val world = MinecraftInitialWorld.flatVanilla(
+            options = options,
+            bootstrap = bootstrap,
+            chunkRadius = 0,
         )
-        val surface = VanillaStaticData.blockStates
-            .default(Identifier("grass_block"))
-            .id
-        val biome = VanillaProtocolData.requireRegistry(
-            Identifier("worldgen/biome"),
-        ).entries.indexOfFirst { it.id == Identifier("plains") }
-        val chunk = MinecraftChunkSnapshot.flat(
-            dimension = dimension,
-            chunkX = 0,
-            chunkZ = 0,
-            groundY = 64,
-            surfaceBlockStateId = surface,
-            biomeId = biome,
-            airBlockStateId = VanillaStaticData.blockStates
-                .default(Identifier("air"))
-                .id,
-        )
-        val entity = MinecraftEntitySnapshot(
-            entityId = 1,
-            uuid = Uuid.fromLongs(0, 1),
-            type = Identifier("pig"),
-            position = Vector3d(0.0, 65.0, 0.0),
-        )
-
-        fun world(
-            id: Identifier = dimension.id,
-            type: MinecraftDimensionLayout = dimension,
-            position: Vector3d = Vector3d(0.5, 65.0, 0.5),
-            yaw: Float = 0.0f,
-            pitch: Float = 0.0f,
-            viewDistance: Int = 8,
-            simulationDistance: Int = 8,
-            teleportId: Int = 1,
-            chunks: List<MinecraftChunkSnapshot> = listOf(chunk),
-            entities: List<MinecraftEntitySnapshot> = listOf(entity),
-        ) = MinecraftInitialWorld(
-            dimension = id,
-            dimensionType = type,
-            spawnPosition = position,
-            spawnYaw = yaw,
-            spawnPitch = pitch,
-            viewDistance = viewDistance,
-            simulationDistance = simulationDistance,
-            teleportId = teleportId,
-            chunks = chunks,
-            entities = entities,
-        )
-
-        assertEquals(
-            Identifier("test:custom_world"),
-            world(id = Identifier("test:custom_world")).dimension,
-        )
-        assertFailsWith<IllegalArgumentException> {
-            world(position = Vector3d(Double.NaN, 0.0, 0.0))
-        }
-        assertFailsWith<IllegalArgumentException> {
-            world(
-                position = Vector3d(
-                    BlockPosition.MAX_XZ + 1.0,
-                    0.0,
-                    0.0,
-                ),
-            )
-        }
-        assertFailsWith<IllegalArgumentException> {
-            world(
-                position = Vector3d(
-                    0.0,
-                    BlockPosition.MIN_Y - 1.0,
-                    0.0,
-                ),
-            )
-        }
-        assertFailsWith<IllegalArgumentException> { world(yaw = Float.NaN) }
-        assertFailsWith<IllegalArgumentException> {
-            world(pitch = Float.POSITIVE_INFINITY)
-        }
-        assertFailsWith<IllegalArgumentException> { world(viewDistance = 1) }
-        assertFailsWith<IllegalArgumentException> { world(viewDistance = 33) }
-        assertEquals(2, world(viewDistance = 2).viewDistance)
-        assertEquals(32, world(viewDistance = 32).viewDistance)
-        assertFailsWith<IllegalArgumentException> {
-            world(simulationDistance = -1)
-        }
-        assertFailsWith<IllegalArgumentException> { world(teleportId = -1) }
-        assertFailsWith<IllegalArgumentException> {
-            world(chunks = listOf(chunk, chunk.copy()))
-        }
-        assertFailsWith<IllegalArgumentException> {
-            world(entities = listOf(entity, entity.copy()))
-        }
-        assertFailsWith<IllegalArgumentException> {
-            world(
-                chunks = listOf(
-                    chunk.copy(
-                        chunkData = chunk.chunkData.copy(
-                            sections = chunk.chunkData.sections.dropLast(1),
-                        ),
-                    ),
-                ),
-            )
-        }
-        assertFailsWith<IllegalArgumentException> {
-            MinecraftInitialWorld.flatVanilla(
-                MinecraftServerNegotiationOptions(compressionThreshold = null),
-                chunkRadius = -1,
-            )
-        }
-    }
-
-    @Test
-    fun initialWorldMustMatchTheNegotiatedPlayContext() {
-        val options = MinecraftServerNegotiationOptions(
-            compressionThreshold = null,
-        )
-        val overworld = MinecraftDimensionLayout.from(
-            VanillaProtocolData,
-            Identifier("overworld"),
-        )
-        val nether = MinecraftDimensionLayout.from(
-            VanillaProtocolData,
-            Identifier("the_nether"),
-        )
-        val profile = GameProfile(Uuid.fromLongs(1, 2), "Probe", emptyList())
-        val login = options.playLogin(profile, onlineMode = false)
-        val registries = options.protocolData.registryContext
-            .withChunkSectionCount(overworld.sectionCount)
-
-        fun world(
-            dimension: Identifier = login.spawnInfo.dimension,
-            dimensionType: MinecraftDimensionLayout = overworld,
-            entities: List<MinecraftEntitySnapshot> = emptyList(),
-        ) = MinecraftInitialWorld(
-            dimension = dimension,
-            dimensionType = dimensionType,
-            spawnPosition = Vector3d(0.5, 65.0, 0.5),
-            viewDistance = 8,
-            simulationDistance = 8,
-            chunks = emptyList(),
-            entities = entities,
-        )
-
-        world().validateSynchronization(login, registries)
-
-        assertFailsWith<IllegalArgumentException> {
-            world(dimension = Identifier("the_nether")).validateSynchronization(
-                login,
-                registries,
-            )
-        }
-        assertFailsWith<IllegalArgumentException> {
-            world(dimensionType = nether).validateSynchronization(
-                login,
-                registries,
-            )
-        }
-        assertFailsWith<IllegalArgumentException> {
-            world(dimensionType = overworld.copy(height = 16)).validateSynchronization(
-                login,
-                registries,
-            )
-        }
-        assertFailsWith<IllegalArgumentException> {
-            world(
-                entities = listOf(
-                    MinecraftEntitySnapshot(
-                        entityId = login.playerId,
-                        uuid = Uuid.fromLongs(3, 4),
-                        type = Identifier("pig"),
-                        position = Vector3d(0.0, 65.0, 0.0),
-                    ),
-                ),
-            ).validateSynchronization(login, registries)
-        }
-
-        val customDimension = Identifier("test:custom_world")
-        val customLogin = login.copy(
-            levels = setOf(customDimension),
-            spawnInfo = login.spawnInfo.copy(dimension = customDimension),
-        )
-        world(dimension = customDimension).validateSynchronization(
-            customLogin,
-            registries,
-        )
+        assertEquals(listOf(centerChunk.x to centerChunk.z), world.chunks.map { it.chunkX to it.chunkZ })
     }
 
     @Test
@@ -573,26 +483,26 @@ class MinecraftInitialWorldTest {
             walkingSpeed = 0.1f,
         )
         val expected = mapOf(
-            GameMode.SURVIVAL to survivalAbilities,
-            GameMode.CREATIVE to survivalAbilities.copy(
+            PlayerGameMode.SURVIVAL to survivalAbilities,
+            PlayerGameMode.CREATIVE to survivalAbilities.copy(
                 invulnerable = true,
                 canFly = true,
                 instantBuild = true,
             ),
-            GameMode.ADVENTURE to survivalAbilities,
-            GameMode.SPECTATOR to survivalAbilities.copy(
+            PlayerGameMode.ADVENTURE to survivalAbilities,
+            PlayerGameMode.SPECTATOR to survivalAbilities.copy(
                 invulnerable = true,
                 flying = true,
                 canFly = true,
             ),
         )
         expected.forEach { (gameMode, abilities) ->
-            assertEquals(abilities, MinecraftInitialWorld.vanillaPlayerAbilities(gameMode))
+            assertEquals(abilities, MinecraftInitialWorldBootstrap.vanillaPlayerAbilities(gameMode))
         }
 
         val options = MinecraftServerNegotiationOptions(
             compressionThreshold = null,
-            gameMode = GameMode.SPECTATOR,
+            gameMode = PlayerGameMode.SPECTATOR,
             difficulty = Difficulty.HARD,
             difficultyLocked = true,
         )
@@ -601,11 +511,11 @@ class MinecraftInitialWorldTest {
             chunkRadius = 0,
         )
 
-        assertEquals(Difficulty.HARD, world.difficulty)
-        assertTrue(world.difficultyLocked)
+        assertEquals(Difficulty.HARD, world.bootstrap.difficulty)
+        assertTrue(world.bootstrap.difficultyLocked)
         assertEquals(
-            expected.getValue(GameMode.SPECTATOR),
-            world.playerAbilities,
+            expected.getValue(PlayerGameMode.SPECTATOR),
+            world.bootstrap.playerAbilities,
         )
     }
 

@@ -205,7 +205,7 @@ data class PlayStoreCookiePacket(
 data class SystemChatMessagePacket(
     val content: TextComponent,
     val overlay: Boolean,
-) : PlayStatePacket, ClientboundPacket
+) : PlayStatePacket, SkippableClientboundPacket
 
 @Serializable
 @PacketInfo(
@@ -232,7 +232,7 @@ data class TagQueryResponsePacket(
     @NbtEndOptional
     @NetworkNbt
     val data: NbtCompound?,
-) : PlayStatePacket, ClientboundPacket
+) : PlayStatePacket, SkippableClientboundPacket
 
 @Serializable
 @PacketInfo(

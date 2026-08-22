@@ -1,10 +1,11 @@
 # world-io
 
-`world-io` provides Okio-backed access to Minecraft world directories. Its public Chunk API follows the logical
-hierarchy users work with:
+`world-io` provides Okio-backed access to Minecraft world directories. Its public APIs follow the logical hierarchies
+users work with:
 
 ```text
 world access -> Region handle -> Chunk -> Section -> block or biome
+world access -> Entity Region handle -> Entity Chunk -> Entity -> passengers
 ```
 
 The module deliberately hides how a Region is split across physical files. Filesystem-independent coordinates,
@@ -14,9 +15,9 @@ compression, Anvil containers, NBT composition, and semantic Chunk models belong
 ## Read a block through the mutable path
 
 Use `MinecraftWorldAccess` when this process owns the world. `open` creates the world directory when necessary and
-immediately acquires its vanilla `session.lock`. Both `MinecraftWorldAccess` and `RegionHandle` provide plain suspend
-`close()` methods and a suspend `use {}` shortcut. Close every Region handle before closing the world access; the world
-close waits for outstanding handles and releases `session.lock` last.
+immediately acquires its vanilla `session.lock`. `MinecraftWorldAccess`, `RegionHandle`, and `EntityRegionHandle`
+provide plain suspend `close()` methods and a suspend `use {}` shortcut. Close every Region handle before closing the
+world access; the world close waits for outstanding handles and releases `session.lock` last.
 
 The following example starts with the world lock, opens the Region containing a requested Chunk, inspects Region and
 Chunk metadata, decodes the semantic Chunk, and finally reads an absolute block. Every variable used by the example is
@@ -132,6 +133,68 @@ suspend fun readRegionChunkInfos(regionHandle: RegionHandle): List<RegionChunkIn
 
 All returned lists and metadata remain valid after the handle closes. Use `withReadScope` only when several reads must
 share one Region admission and one consistent header snapshot; that advanced form is covered later.
+
+## Read Entities by Chunk
+
+Entities are not stored in `level.dat`. They are indexed by absolute Chunk position in the dimension's Entity Regions.
+Open them through `openEntityRegion`; the handle has the same Region metadata, compressed-stream, generic-NBT, and
+semantic conversion layers as `RegionHandle`:
+
+```kotlin
+suspend fun readEntityChunk(
+    worldPath: Path,
+    chunkPosition: ChunkPosition,
+    expectedDataVersion: Int,
+): EntityChunk<NbtCompound>? = MinecraftWorldAccess.open(worldPath).use { minecraftWorldAccess ->
+    val regionPosition = chunkPosition.region
+    minecraftWorldAccess.openEntityRegion(regionPosition).use entityRegionUse@{ entityRegionHandle ->
+        if (!entityRegionHandle.hasChunk(chunkPosition)) return@entityRegionUse null
+
+        val regionChunkInfo = entityRegionHandle.readChunkInfo(chunkPosition) ?: return@entityRegionUse null
+        check(regionChunkInfo.position == chunkPosition)
+
+        val entityDataRegistry = NbtEntityDataRegistry()
+        val entityChunkNbtCodec = EntityChunkNbtCodec(expectedDataVersion, entityDataRegistry)
+        val entityChunk = entityRegionHandle.readChunk(chunkPosition, entityChunkNbtCodec)
+        entityChunk
+    }
+}
+```
+
+`EntityChunk` is detached, mutable, and positionless. Its root list preserves the persisted passenger hierarchy;
+`allEntities()` visits roots and recursive passengers in load order. Each `Entity<E>` has absolute position, velocity,
+rotation, UUID, persistent type, caller-selected subtype `data`, passenger operations, and
+`blockPosition`/`sectionPosition`/`chunkPosition`/`regionPosition` conveniences. The example uses
+`NbtEntityDataRegistry`, so type-specific vanilla and mod fields remain losslessly available as `entity.data`.
+
+The lower representations remain reachable from the handle and from each detached value:
+
+```kotlin
+suspend fun <E : Any> readEntityChunkThroughEveryLayer(
+    entityRegionHandle: EntityRegionHandle,
+    chunkPosition: ChunkPosition,
+    entityChunkNbtCodec: EntityChunkNbtCodec<E>,
+): EntityChunk<E>? {
+    val compressedChunk = entityRegionHandle.readCompressedChunk(chunkPosition) ?: return null
+    val nbtDocument = compressedChunk.toNbtDocument()
+    val entityChunk = nbtDocument.toEntityChunk(chunkPosition, entityChunkNbtCodec)
+    return entityChunk
+}
+```
+
+For a no-copy streaming handoff, use `withCompressedChunkSource` or `readCompressedChunkTo`. Use `withChunkNbtSource`
+or `readChunkNbtTo` for the decompressed unnamed-root NBT stream. `readCompressedChunk` materializes only the selected
+record; `readChunkNbtDocument` materializes its complete generic tree; `readChunk` produces semantic Entities.
+
+Writes mirror the same layers. `writeChunk` persists an `EntityChunk`, while `writeChunkNbtDocument`,
+`writeChunkNbt`, and `writeCompressedChunk` accept progressively lower representations. A write locks the complete
+logical Entity Region against other reads and writes through this world access. It updates only the selected Chunk
+record and Region index entry; unrelated Entity Chunks are not rewritten. Writing a semantic Entity Chunk with no root
+Entities removes that indexed record, matching the official Entity storage path.
+
+The public API treats each Entity Region as one logical resource. All of its reads and writes share the same
+Region-granularity coordination. As with map Regions, metadata obtained before any write may be stale and must be read
+again when current state matters.
 
 ## Load a 21 by 21 Chunk area
 
@@ -517,7 +580,7 @@ positions are removed. The commit does not promise cross-file filesystem atomici
 
 ## Enumerate Regions
 
-Both access modes can list the Chunk Regions in one dimension:
+Both access modes can list map Regions and Entity Regions in one dimension:
 
 ```kotlin
 suspend fun listMutableRegions(
@@ -529,6 +592,16 @@ fun listLiveRegions(
     liveMinecraftWorldAccess: LiveMinecraftWorldAccess,
     dimensionDirectory: DimensionDirectory,
 ): List<RegionPosition> = liveMinecraftWorldAccess.listRegionPositions(dimensionDirectory)
+
+suspend fun listMutableEntityRegions(
+    minecraftWorldAccess: MinecraftWorldAccess,
+    dimensionDirectory: DimensionDirectory,
+): List<RegionPosition> = minecraftWorldAccess.listEntityRegionPositions(dimensionDirectory)
+
+fun listLiveEntityRegions(
+    liveMinecraftWorldAccess: LiveMinecraftWorldAccess,
+    dimensionDirectory: DimensionDirectory,
+): List<RegionPosition> = liveMinecraftWorldAccess.listEntityRegionPositions(dimensionDirectory)
 ```
 
 This is intentionally a detached snapshot: the implementation performs one filesystem directory listing, accepts only
@@ -561,6 +634,22 @@ fun readLiveBlock(
 }
 ```
 
+The Entity path is symmetric and remains resource-free at the handle level:
+
+```kotlin
+fun readLiveEntityChunk(
+    worldPath: Path,
+    chunkPosition: ChunkPosition,
+    expectedDataVersion: Int,
+): EntityChunk<NbtCompound>? {
+    val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(worldPath)
+    val liveEntityRegionHandle = liveMinecraftWorldAccess.openEntityRegion(chunkPosition.region)
+    val entityDataRegistry = NbtEntityDataRegistry()
+    val entityChunkNbtCodec = EntityChunkNbtCodec(expectedDataVersion, entityDataRegistry)
+    return liveEntityRegionHandle.readChunk(chunkPosition, entityChunkNbtCodec)
+}
+```
+
 `LiveRegionHandle` is stateless: it retains only immutable filesystem/path/position/format context. `openRegion`
 performs no I/O and always returns a handle, including for a missing Region. Every operation independently opens and
 closes the resources it needs.
@@ -574,6 +663,9 @@ serializer, and strong Chunk conversion. Because another process may write, dele
 two calls can observe different versions. Stale or torn input and the resulting I/O, Anvil, decompression, or NBT
 failures are part of the live contract. Avoid a separate existence check when a following nullable read already answers
 the question and the narrower observation window is preferable.
+
+`openEntityRegion` returns the corresponding stateless `LiveEntityRegionHandle`; it offers the same read-only layers and
+converts the semantic layer with `EntityChunkNbtCodec`.
 
 ## Other world files
 
@@ -591,13 +683,14 @@ lock.
 ## Dimensions, failures, and platforms
 
 Region operations default to `DimensionDirectory.Overworld`. Pass `DimensionDirectory.Nether`,
-`DimensionDirectory.End`, or a validated `DimensionDirectory.Custom` when opening or listing another dimension. The
-public Chunk API always targets that dimension's Chunk `region` directory; entity and point-of-interest Regions are not
-mixed into it through a generic storage enum.
+`DimensionDirectory.End`, or a validated `DimensionDirectory.Custom` when opening or listing another dimension. The map
+methods target that dimension's `region` directory and the explicitly named Entity methods target its `entities`
+directory. The physical storage selector remains internal, so callers cannot accidentally mix the two kinds of Region.
 
 Structural Anvil failures use `AnvilFormatException`, strong Chunk projection failures use `ChunkNbtFormatException`,
-and world/filesystem policy failures use `WorldIOException` or `WorldLockException` as appropriate. Underlying NBT and
-registered custom-codec failures retain the exception category of their owning layer.
+strong Entity Chunk projection failures use `EntityChunkNbtFormatException`, and world/filesystem policy failures use
+`WorldIOException` or `WorldLockException` as appropriate. Underlying NBT and registered custom-codec failures retain
+the exception category of their owning layer.
 
 System filesystem access is available on JVM, Android, configured Native targets, and Kotlin/JS Node. Browser and Wasm
 applications use the filesystem-independent modules instead. Neither access mode chooses a dispatcher: blocking

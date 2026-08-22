@@ -14,6 +14,9 @@ sealed interface ClientboundPacket : Packet {
     interface Extension : ClientboundPacket
 }
 
+/** Clientbound packets vanilla may omit when their payload cannot be encoded. */
+sealed interface SkippableClientboundPacket : ClientboundPacket
+
 sealed interface ServerboundPacket : Packet {
     /**
      * Explicitly extensible branch for serverbound packets declared by an

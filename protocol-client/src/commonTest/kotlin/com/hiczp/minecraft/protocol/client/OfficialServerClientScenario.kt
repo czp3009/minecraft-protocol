@@ -19,6 +19,8 @@ import kotlinx.serialization.json.jsonPrimitive
 
 /** Portable protocol scenario driven by a platform-owned official server. */
 internal object OfficialServerClientScenario {
+    private const val MAXIMUM_PACKETS_PER_STAGE = 2_048
+
     suspend fun run(
         host: String,
         port: Int,
@@ -112,11 +114,12 @@ internal object OfficialServerClientScenario {
             ),
         )
         connection.outgoing.send(LoginStartPacket(identity.name, identity.id))
+        connection.requestFlush()
 
         var login: LoginSuccessPacket? = null
         var loginPackets = 0
         while (login == null) {
-            check(++loginPackets <= options.maximumPacketsPerPhase) {
+            check(++loginPackets <= MAXIMUM_PACKETS_PER_STAGE) {
                 "Login packet limit exceeded"
             }
             when (val packet = connection.incoming.receive()) {
@@ -134,10 +137,12 @@ internal object OfficialServerClientScenario {
                 is LoginDisconnectPacket -> error("Official server rejected Login: ${packet.reason.json}")
                 else -> error("Unexpected Login packet ${packet::class.simpleName}")
             }
+            connection.requestFlush()
         }
         val actualLogin = checkNotNull(login)
 
         connection.outgoing.send(ConfigurationClientInformationPacket(options.information))
+        connection.requestFlush()
         var knownPacks: ConfigurationClientboundKnownPacksPacket? = null
         var featureFlags: FeatureFlagsPacket? = null
         var tags: ConfigurationUpdateTagsPacket? = null
@@ -146,7 +151,7 @@ internal object OfficialServerClientScenario {
         var configurationFinished = false
         var configurationPackets = 0
         while (!configurationFinished) {
-            check(++configurationPackets <= options.maximumPacketsPerPhase) {
+            check(++configurationPackets <= MAXIMUM_PACKETS_PER_STAGE) {
                 "Configuration packet limit exceeded"
             }
             when (val packet = connection.incoming.receive()) {
@@ -201,6 +206,7 @@ internal object OfficialServerClientScenario {
                     connection.installRegistryContext(profiled)
                     profile.preparePlay(connection)
                     connection.outgoing.send(AcknowledgeFinishConfigurationPacket)
+                    connection.requestFlush()
                     connection.awaitState(ConnectionState.PLAY)
                     configurationFinished = true
                 }
@@ -229,6 +235,7 @@ internal object OfficialServerClientScenario {
 
                 else -> error("Unexpected Configuration packet ${packet::class.simpleName}")
             }
+            connection.requestFlush()
         }
 
         val playLogin = connection.incoming.receive() as? PlayLoginPacket

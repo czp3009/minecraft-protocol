@@ -24,8 +24,8 @@ persistence policy, permissions, and operations remain application responsibilit
 | [`protocol-auth`](protocol-auth/README.md)                   | Game identities, Session Server HTTP, and Login key exchange                      |
 | [`protocol-client`](protocol-client/README.md)               | Play-ready clients plus received registry and semantic Chunk projection           |
 | [`protocol-server`](protocol-server/README.md)               | Connection admission and semantic finite initial Chunk/entity projection          |
-| [`world-format`](world-format/README.md)                     | Semantic Chunk/palette/coordinate models, Anvil, and structured world formats     |
-| [`world-io`](world-io/README.md)                             | Logical Region/Chunk, standalone NBT/JSON, live, and filesystem-backed world I/O  |
+| [`world-format`](world-format/README.md)                     | Semantic Chunk/Entity/palette/coordinate models, Anvil, and world formats         |
+| [`world-io`](world-io/README.md)                             | Logical map/Entity Regions, standalone files, and filesystem-backed world I/O     |
 
 The project is fully modular: depend on exactly the modules you need. Higher layers reuse the lower layers their APIs
 require, so a focused consumer never pulls in unrelated capabilities.
@@ -53,8 +53,7 @@ Usage examples are documented at each owning layer: binary NBT and SNBT in
 [`world-format`](world-format/README.md), including its canonical coordinate API, and logical filesystem-backed Region,
 Chunk, JSON, and NBT access in
 [`world-io`](world-io/README.md#read-a-block-through-the-mutable-path). Every published module in the table above
-documents its
-own key entry points rather than requiring consumers to infer them from a higher layer.
+documents its own key entry points rather than requiring consumers to infer them from a higher layer.
 
 Together these blocks cover applications such as:
 
@@ -72,16 +71,13 @@ Ping a server as the multiplayer server list does. `queryStatus()` performs the 
 Status response, and completes the Ping/Pong exchange; it does not run Login negotiation:
 
 ```kotlin
-SelectorManager(Dispatchers.Default).use { selector ->
+suspend fun queryMinecraftStatus(selectorManager: SelectorManager): MinecraftStatusExchange =
   MinecraftClientConnection.connect(
-    selectorManager = selector,
+    selectorManager = selectorManager,
     host = "127.0.0.1",
-  ).use { connection ->
-    val status = connection.queryStatus()
-    val description = status.response.jsonResponse
-    val echoedPingPayload = status.pong.timestamp
+  ).use { minecraftClientConnection ->
+    minecraftClientConnection.queryStatus()
   }
-}
 ```
 
 Status has no continuation into Login. Close this connection after the ping, then create a fresh connection and call
@@ -90,10 +86,21 @@ Status has no continuation into Login. Close this connection after the ping, the
 Or log in and enter Play, then take over the packet loop:
 
 ```kotlin
-connection.negotiate(MinecraftOfflineIdentity("Player"))
-for (packet in connection.incoming) {
-  handlePlayPacket(packet)
-}
+suspend fun runMinecraftClient(
+  selectorManager: SelectorManager,
+  handlePlayPacket: suspend (ClientboundPacket) -> Unit,
+): MinecraftClientNegotiationResult =
+  MinecraftClientConnection.connect(
+    selectorManager = selectorManager,
+    host = "127.0.0.1",
+  ).use { minecraftClientConnection ->
+    val minecraftClientNegotiationResult =
+      minecraftClientConnection.negotiate(MinecraftOfflineIdentity("Player"))
+    for (clientboundPacket in minecraftClientConnection.incoming) {
+      handlePlayPacket(clientboundPacket)
+    }
+    minecraftClientNegotiationResult
+  }
 ```
 
 The preset runs in the calling coroutine and exclusively owns `incoming` and `outgoing` until it returns. No other
@@ -111,14 +118,21 @@ used by those implementations.
 ## Server example
 
 ```kotlin
-MinecraftServer.bind(selectorManager = selector).use { server ->
-  while (server.isOpen) {
-    val connection = server.accept()
-    launch {
-      connection.use {
-        connection.negotiate() ?: return@use
-        for (packet in connection.incoming) {
-          handlePlayPacket(connection, packet)
+suspend fun runMinecraftServer(
+  selectorManager: SelectorManager,
+  handlePlayPacket: suspend (MinecraftServerConnection, ServerboundPacket) -> Unit,
+) {
+  coroutineScope {
+    MinecraftServer.bind(selectorManager = selectorManager).use { minecraftServer ->
+      while (minecraftServer.isOpen) {
+        val minecraftServerConnection = minecraftServer.accept()
+        launch {
+          minecraftServerConnection.use connectionUse@{
+            minecraftServerConnection.negotiate() ?: return@connectionUse
+            for (serverboundPacket in minecraftServerConnection.incoming) {
+              handlePlayPacket(minecraftServerConnection, serverboundPacket)
+            }
+          }
         }
       }
     }

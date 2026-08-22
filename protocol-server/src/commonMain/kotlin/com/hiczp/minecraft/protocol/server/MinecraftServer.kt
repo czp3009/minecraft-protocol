@@ -13,32 +13,33 @@ import com.hiczp.minecraft.protocol.transport.MinecraftTransportConfiguration
 import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
 import io.ktor.utils.io.core.*
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlin.coroutines.ContinuationInterceptor
 
 class MinecraftServer private constructor(
     private val socket: ServerSocket,
     private val definition: MinecraftConnectionDefinition,
     private val authentication: MinecraftServerAuthentication,
     private val transportConfiguration: MinecraftTransportConfiguration,
+    private val connectionDispatcher: CoroutineDispatcher,
 ) : Closeable {
-    private val open = MutableStateFlow(true)
-
     val port: Int
         get() = socket.port
 
     val isOpen: Boolean
-        get() = open.value
+        get() = !socket.isClosed
 
     suspend fun accept(): MinecraftServerConnection {
-        check(isOpen) { "Minecraft server listener is closed" }
         val clientSocket = socket.accept()
         val transport = MinecraftTransport(clientSocket, transportConfiguration)
         return MinecraftServerConnection(
             connection = MinecraftConnectionEngine(
-                frames = transport.frames,
+                frameStream = transport.frameStream,
                 closeTransport = transport::close,
                 side = MinecraftSessionSide.SERVER,
                 definition = definition,
+                connectionDispatcher = connectionDispatcher,
             ),
             authentication = authentication,
             clientIpAddress = (clientSocket.remoteAddress as? InetSocketAddress)
@@ -47,7 +48,6 @@ class MinecraftServer private constructor(
     }
 
     override fun close() {
-        if (!open.compareAndSet(true, false)) return
         socket.close()
     }
 
@@ -58,15 +58,22 @@ class MinecraftServer private constructor(
             port: Int = MinecraftServerConnection.DEFAULT_PORT,
             definition: MinecraftConnectionDefinition = MinecraftConnectionDefinition(),
             authentication: MinecraftServerAuthentication = MinecraftServerAuthentication.Offline,
-            transportConfiguration: MinecraftTransportConfiguration = MinecraftTransportConfiguration(),
+            transportConfiguration: MinecraftTransportConfiguration = MinecraftTransportConfiguration(
+                validateCompressionThreshold = true,
+            ),
+            connectionDispatcher: CoroutineDispatcher = selectorManager.connectionDispatcher,
         ): MinecraftServer = MinecraftServer(
             socket = aSocket(selectorManager).tcp().bind(host, port),
             definition = definition,
             authentication = authentication,
             transportConfiguration = transportConfiguration,
+            connectionDispatcher = connectionDispatcher,
         )
     }
 }
+
+private val SelectorManager.connectionDispatcher: CoroutineDispatcher
+    get() = coroutineContext[ContinuationInterceptor] as? CoroutineDispatcher ?: Dispatchers.Default
 
 internal fun InetSocketAddress.numericHostAddress(): String =
     resolveAddress()?.toNumericIpAddress() ?: hostname

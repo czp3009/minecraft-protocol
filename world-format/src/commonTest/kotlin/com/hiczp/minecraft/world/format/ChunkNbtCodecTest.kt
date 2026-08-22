@@ -200,6 +200,59 @@ class ChunkNbtCodecTest {
     }
 
     @Test
+    fun runtimeBlockOperationsReturnPreviousValuesAndSnapshotsDoNotShareContainers() {
+        val chunk = emptyChunk()
+        val y = TEST_LAYOUT.minBlockY
+
+        assertEquals(AIR, chunk.replaceBlock(1, y, 2, AIR))
+        assertEquals(0, chunk.sectionCount)
+        assertEquals(AIR, chunk.replaceBlock(1, y, 2, STONE))
+        assertEquals(STONE, chunk.replaceBlock(1, y, 2, WATER))
+
+        val section = assertNotNull(chunk.section(MinecraftCoordinates.sectionCoordinate(y)))
+        assertEquals(WATER, section.block(1, 0, 2))
+        assertEquals(WATER, section.replaceBlock(1, 0, 2, STONE))
+        section.blockLight = NbtByteArray(ByteArray(SECTION_LIGHT_BYTE_COUNT) { 1 })
+
+        val snapshot = chunk.snapshot()
+        chunk.setBlock(1, y, 2, WATER)
+        section.blockLight = null
+
+        assertEquals(STONE, snapshot.block(1, y, 2))
+        assertNotNull(snapshot.section(section.sectionY)?.blockLight)
+        assertFailsWith<IllegalArgumentException> {
+            section.skyLight = NbtByteArray(ByteArray(1))
+        }
+    }
+
+    @Test
+    fun semanticBlockEntitiesRoundTripAndSupportLocalAndAbsoluteLookup() {
+        val chunkPosition = ChunkPosition(-2, 3)
+        val localPosition = ChunkBlockPosition(4, TEST_LAYOUT.minBlockY, 7)
+        val absolutePosition = chunkPosition.block(localPosition)
+        val blockEntity = BlockEntity(
+            type = "minecraft:chest",
+            position = localPosition,
+            persistentData = NbtCompound(mapOf("CustomName" to NbtString("storage"))),
+        )
+        val chunk = emptyChunk()
+
+        assertNull(chunk.setBlockEntity(blockEntity))
+        assertSame(blockEntity, chunk.blockEntity(localPosition))
+        assertSame(blockEntity, chunk.blockEntity(chunkPosition, absolutePosition))
+        assertTrue(chunk.hasBlockEntity(chunkPosition, absolutePosition))
+
+        val decoded = TEST_CODEC.decodeDocument(TEST_CODEC.encodeDocument(chunk, chunkPosition), chunkPosition)
+        val decodedBlockEntity = assertNotNull(decoded.blockEntity(localPosition))
+
+        assertEquals(blockEntity.type, decodedBlockEntity.type)
+        assertEquals(blockEntity.persistentData, decodedBlockEntity.persistentData)
+        assertEquals(absolutePosition, decodedBlockEntity.absolutePosition(chunkPosition))
+        assertNotNull(decoded.removeBlockEntity(chunkPosition, absolutePosition))
+        assertEquals(0, decoded.blockEntityCount)
+    }
+
+    @Test
     fun decodingPreservesPersistedPaletteOrderAndUnusedEntries() {
         val position = ChunkPosition(0, 0)
         val chunk = emptyChunk()

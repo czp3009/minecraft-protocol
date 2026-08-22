@@ -12,9 +12,10 @@ Staging is confined to boundaries that must emit an encoded length first or brid
 channels. Transport failures inherit `kotlinx.io.IOException`, and lower-layer I/O failures are not repeatedly
 rewrapped.
 
-`sendPacketDataAndCommit` holds the duplex wire-effect boundary from frame encoding through flush and the caller's
-non-transport state commit. Receive may wait at that boundary only after obtaining the first encrypted frame byte, so an
-idle reader never prevents a transition packet from being sent.
+`sendPacketDataAndCommit` holds the duplex wire-effect boundary from frame encoding through appending the complete frame
+and the caller's non-transport state commit. Receive may wait at that boundary only after obtaining the first encrypted
+frame byte, so an idle reader never prevents a transition packet from being sent. Flushing is an independent transport
+operation controlled by the caller or Ktor's write channel.
 
 Keep pure frame and cipher algorithms independently testable from sockets. The common real-socket scenario runs on JVM,
 Android host, desktop Native, JS Node, and WasmJS Node; Ktor capability reporting excludes runtimes without TCP.

@@ -7,7 +7,6 @@ import com.hiczp.minecraft.protocol.model.packet.Packet
 import com.hiczp.minecraft.protocol.model.packet.PacketRoute
 import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.Identifier
-import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
 import com.hiczp.minecraft.protocol.model.wire.RemainingBytes
 import com.hiczp.minecraft.protocol.model.wire.VarInt
 import com.hiczp.minecraft.protocol.model.wire.VarIntElements
@@ -20,8 +19,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
-import kotlinx.serialization.modules.EmptySerializersModule
-import kotlinx.serialization.modules.SerializersModule
 
 object ForgeProtocol {
     const val NETWORK_VERSION: Int = 0
@@ -90,17 +87,12 @@ object ForgeProtocol {
     /** Pure factory; callers may retain and share its result across connections. */
     fun connectionDefinition(
         extensionCodecs: List<PacketCodecRegistration<out Packet>> = emptyList(),
-        registries: ProtocolRegistryContext = ProtocolRegistryContext.Empty,
-        formatConfiguration: MinecraftProtocolFormatConfiguration =
-            MinecraftProtocolFormatConfiguration(),
-        serializersModule: SerializersModule = EmptySerializersModule(),
+        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
         incomingCapacity: Int = MinecraftConnectionDefinition.DEFAULT_CHANNEL_CAPACITY,
         outgoingCapacity: Int = MinecraftConnectionDefinition.DEFAULT_CHANNEL_CAPACITY,
     ): MinecraftConnectionDefinition = MinecraftConnectionDefinition.compose(
         extensionCodecs = packetCodecs + extensionCodecs,
-        registries = registries,
-        formatConfiguration = formatConfiguration,
-        serializersModule = serializersModule,
+        format = format,
         incomingCapacity = incomingCapacity,
         outgoingCapacity = outgoingCapacity,
     )

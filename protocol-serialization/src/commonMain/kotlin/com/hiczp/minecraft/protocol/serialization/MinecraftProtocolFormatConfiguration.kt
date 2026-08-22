@@ -4,7 +4,7 @@ import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
 
 data class MinecraftProtocolFormatConfiguration(
     /** Reject boolean bytes other than exactly 0 and 1. */
-    val strictBooleans: Boolean = true,
+    val strictBooleans: Boolean = false,
     /** Reject non-minimal VarInt and VarLong encodings permitted but discouraged by the Wiki. */
     val rejectNonMinimalVarNumbers: Boolean = false,
     /** Immutable, connection-specific registry and active-dimension context. */

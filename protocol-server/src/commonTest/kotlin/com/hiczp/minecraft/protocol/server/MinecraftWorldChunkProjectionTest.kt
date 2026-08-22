@@ -1,6 +1,9 @@
 package com.hiczp.minecraft.protocol.server
 
-import com.hiczp.minecraft.nbt.*
+import com.hiczp.minecraft.nbt.NbtByteArray
+import com.hiczp.minecraft.nbt.NbtCompound
+import com.hiczp.minecraft.nbt.NbtInt
+import com.hiczp.minecraft.nbt.NbtLongArray
 import com.hiczp.minecraft.protocol.client.MinecraftChunkPacketDecoder
 import com.hiczp.minecraft.protocol.client.toChunk
 import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
@@ -51,25 +54,16 @@ class MinecraftWorldChunkProjectionTest {
         val blockLight = ByteArray(com.hiczp.minecraft.world.format.SECTION_LIGHT_BYTE_COUNT).apply { this[0] = 4 }
         val skyLight = ByteArray(com.hiczp.minecraft.world.format.SECTION_LIGHT_BYTE_COUNT).apply { this[1] = -1 }
         val chunkPosition = ChunkPosition(-1, 2)
-        val blockEntityPosition = chunkPosition.block(ChunkBlockPosition(3, -1, 4))
         val metadata = ChunkMetadata(
             dataVersion = 1,
             status = "full",
             heightmaps = NbtCompound(mapOf("WORLD_SURFACE" to NbtLongArray(longArrayOf(11L)))),
-            blockEntities = NbtList(
-                listOf(
-                    NbtCompound(
-                        mapOf(
-                            "id" to NbtString("minecraft:chest"),
-                            "x" to NbtInt(blockEntityPosition.x),
-                            "y" to NbtInt(blockEntityPosition.y),
-                            "z" to NbtInt(blockEntityPosition.z),
-                            "custom" to NbtInt(7),
-                        ),
-                    ),
-                ),
-            ),
             lightOnlySections = mapOf(1 to SectionLighting(skyLight = NbtByteArray(skyLight))),
+        )
+        val blockEntity = BlockEntity(
+            type = "minecraft:chest",
+            position = ChunkBlockPosition(3, -1, 4),
+            persistentData = NbtCompound(mapOf("custom" to NbtInt(7))),
         )
         val chunkLayout = ChunkLayout(minSectionY = -1, sectionCount = 2)
         val chunk = Chunk(
@@ -83,6 +77,7 @@ class MinecraftWorldChunkProjectionTest {
                     blockLight = NbtByteArray(blockLight),
                 ),
             ),
+            blockEntities = listOf(blockEntity),
             defaultBlockState = air,
             defaultBiome = plains,
         )
@@ -110,7 +105,8 @@ class MinecraftWorldChunkProjectionTest {
         assertEquals(NbtByteArray(blockLight), decoded.section(-1)?.blockLight)
         assertEquals(NbtByteArray(skyLight), decoded.metadata.lightOnlySections[1]?.skyLight)
         assertEquals(metadata.heightmaps, decoded.metadata.heightmaps)
-        assertEquals(metadata.blockEntities, decoded.metadata.blockEntities)
+        assertEquals(blockEntity.type, decoded.blockEntity(blockEntity.position)?.type)
+        assertEquals(blockEntity.persistentData, decoded.blockEntity(blockEntity.position)?.persistentData)
 
         val format = MinecraftProtocolFormat(
             MinecraftProtocolFormat.configuration.copy(registries = registries),
@@ -121,6 +117,11 @@ class MinecraftWorldChunkProjectionTest {
             decoded.toChunkDataAndUpdateLightPacket(chunkPosition, encoder),
         )
         assertContentEquals(originalBytes, roundTripBytes)
+
+        packet.chunkData.heightmaps.getValue(HeightmapType.WORLD_SURFACE)[0] = 99L
+        assertEquals(NbtLongArray(longArrayOf(11L)), metadata.heightmaps["WORLD_SURFACE"])
+        snapshot.chunkData.heightmaps.getValue(HeightmapType.WORLD_SURFACE)[0] = 100L
+        assertEquals(NbtLongArray(longArrayOf(11L)), metadata.heightmaps["WORLD_SURFACE"])
     }
 
     @Test

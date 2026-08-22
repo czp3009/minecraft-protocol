@@ -101,6 +101,9 @@ class ChunkNbtCodec<B : Any, M : Any>(
 
         val status = root.requireString(STATUS)
         if (status.isBlank()) throw ChunkNbtFormatException("Chunk status must not be blank")
+        val blockEntities = root.requireList(BLOCK_ENTITIES).value.mapIndexed { index, tag ->
+            decodeBlockEntity(tag, index, expectedPosition)
+        }
         val metadata = ChunkMetadata(
             dataVersion = dataVersion,
             lastUpdateTime = root.requireLong(LAST_UPDATE),
@@ -116,17 +119,21 @@ class ChunkNbtCodec<B : Any, M : Any>(
             fluidTicks = root.requireList(FLUID_TICKS),
             postProcessing = root.requireList(POST_PROCESSING),
             entities = root.optionalList(ENTITIES),
-            blockEntities = root.requireList(BLOCK_ENTITIES),
             structures = root.requireCompound(STRUCTURES),
             lightOnlySections = lightOnlySections,
         )
-        return Chunk(
-            metadata = metadata,
-            layout = context.layout,
-            sections = sections,
-            defaultBlockState = context.registries.blockStates.defaultValue,
-            defaultBiome = context.registries.biomes.defaultValue,
-        )
+        return try {
+            Chunk(
+                metadata = metadata,
+                layout = context.layout,
+                sections = sections,
+                blockEntities = blockEntities,
+                defaultBlockState = context.registries.blockStates.defaultValue,
+                defaultBiome = context.registries.biomes.defaultValue,
+            )
+        } catch (failure: IllegalArgumentException) {
+            throw ChunkNbtFormatException("Invalid Chunk", failure)
+        }
     }
 
     fun encodeDocument(chunk: Chunk<B, M>, position: ChunkPosition): NbtDocument {
@@ -190,7 +197,9 @@ class ChunkNbtCodec<B : Any, M : Any>(
         val encodedSections = sections.entries.sortedBy { it.key }.map { it.value }
         root[SECTIONS] = NbtList(encodedSections)
         if (metadata.lightCorrect) root[IS_LIGHT_ON] = NbtByte(1)
-        root[BLOCK_ENTITIES] = metadata.blockEntities
+        root[BLOCK_ENTITIES] = NbtList(chunk.blockEntities.map { blockEntity ->
+            encodeBlockEntity(blockEntity, position)
+        })
         metadata.entities?.let { root[ENTITIES] = it }
         metadata.carvingMask?.let { root[CARVING_MASK] = it }
         root[BLOCK_TICKS] = metadata.blockTicks
@@ -199,6 +208,46 @@ class ChunkNbtCodec<B : Any, M : Any>(
         root[HEIGHTMAPS] = metadata.heightmaps
         root[STRUCTURES] = metadata.structures
         return NbtDocument(NbtCompound(root))
+    }
+
+    private fun decodeBlockEntity(tag: NbtTag, index: Int, chunkPosition: ChunkPosition): BlockEntity {
+        val compound = tag as? NbtCompound
+            ?: throw ChunkNbtFormatException("Chunk Block Entity $index is not a compound")
+        val type = compound.requireString(BLOCK_ENTITY_ID)
+        if (type.isBlank()) throw ChunkNbtFormatException("Chunk Block Entity $index has a blank id")
+        val absolutePosition = BlockPosition(
+            x = compound.requireInt(BLOCK_ENTITY_X),
+            y = compound.requireInt(BLOCK_ENTITY_Y),
+            z = compound.requireInt(BLOCK_ENTITY_Z),
+        )
+        val localPosition = try {
+            chunkPosition.local(absolutePosition)
+        } catch (failure: IllegalArgumentException) {
+            throw ChunkNbtFormatException(
+                "Chunk Block Entity $index at $absolutePosition does not belong to Chunk $chunkPosition",
+                failure,
+            )
+        }
+        val persistentData = linkedMapOf<String, NbtTag>()
+        compound.forEachEntry { name, value ->
+            if (name !in BLOCK_ENTITY_STRUCTURE_FIELDS) persistentData[name] = value
+        }
+        return try {
+            BlockEntity(type, localPosition, NbtCompound(persistentData))
+        } catch (failure: IllegalArgumentException) {
+            throw ChunkNbtFormatException("Invalid Chunk Block Entity $index", failure)
+        }
+    }
+
+    private fun encodeBlockEntity(blockEntity: BlockEntity, chunkPosition: ChunkPosition): NbtCompound {
+        val absolutePosition = blockEntity.absolutePosition(chunkPosition)
+        val value = linkedMapOf<String, NbtTag>()
+        value[BLOCK_ENTITY_ID] = NbtString(blockEntity.type)
+        value[BLOCK_ENTITY_X] = NbtInt(absolutePosition.x)
+        value[BLOCK_ENTITY_Y] = NbtInt(absolutePosition.y)
+        value[BLOCK_ENTITY_Z] = NbtInt(absolutePosition.z)
+        blockEntity.persistentData.forEachEntry { name, tag -> value[name] = tag }
+        return NbtCompound(value)
     }
 
     private fun decodeBlockStates(tag: NbtCompound?, sectionY: Int): PalettedContainer<B> {
@@ -412,6 +461,10 @@ private const val FLUID_TICKS = "fluid_ticks"
 private const val POST_PROCESSING = "PostProcessing"
 private const val ENTITIES = "entities"
 private const val BLOCK_ENTITIES = "block_entities"
+private const val BLOCK_ENTITY_ID = "id"
+private const val BLOCK_ENTITY_X = "x"
+private const val BLOCK_ENTITY_Y = "y"
+private const val BLOCK_ENTITY_Z = "z"
 private const val STRUCTURES = "structures"
 private const val SECTIONS = "sections"
 private const val SECTION_Y = "Y"

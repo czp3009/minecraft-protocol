@@ -586,6 +586,7 @@ class ForgeServerProfile(
         connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
     ) {
         while (expectedResponse != null || expectedAck != null) {
+            connection.requestFlush()
             val packet = connection.incoming.receive()
             if (!handleConfigurationPacket(connection, packet)) {
                 throw ForgeNegotiationException(

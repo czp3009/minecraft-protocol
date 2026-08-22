@@ -93,11 +93,6 @@ class PacketCodecRegistration<T : Packet> private constructor(
         packet: Packet,
         outerPacketId: Int? = null,
     ): PacketRoute {
-        if (packet::class != packetClass) {
-            throw MinecraftSerializationException(
-                "Codec for ${packetClass.simpleName} cannot encode ${packet::class.simpleName}",
-            )
-        }
         @Suppress("UNCHECKED_CAST")
         val typedPacket = packet as T
         return when (val key = route) {
@@ -136,11 +131,6 @@ class PacketCodecRegistration<T : Packet> private constructor(
         packet: Packet,
         sink: Sink,
     ) {
-        if (packet::class != packetClass) {
-            throw MinecraftSerializationException(
-                "Codec for ${packetClass.simpleName} cannot encode ${packet::class.simpleName}",
-            )
-        }
         @Suppress("UNCHECKED_CAST")
         codec.encode(format, packet as T, sink)
     }
@@ -150,20 +140,7 @@ class PacketCodecRegistration<T : Packet> private constructor(
         actualRoute: PacketRoute,
         source: Source,
         byteCount: Int,
-    ): Packet {
-        if (actualRoute.key != route) {
-            throw MinecraftSerializationException(
-                "Codec for $route cannot decode ${actualRoute.key}",
-            )
-        }
-        return codec.decode(format, actualRoute, source, byteCount).also { packet ->
-            if (packet::class != packetClass) {
-                throw MinecraftSerializationException(
-                    "Codec for ${packetClass.simpleName} decoded ${packet::class.simpleName}",
-                )
-            }
-        }
-    }
+    ): Packet = codec.decode(format, actualRoute, source, byteCount)
 
     companion object {
         fun <T : ClientboundPacket.Extension> clientboundTopLevel(

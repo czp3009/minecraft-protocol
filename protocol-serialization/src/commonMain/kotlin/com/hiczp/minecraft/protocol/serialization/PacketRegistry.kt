@@ -74,11 +74,6 @@ class PacketCodec<T : Packet> internal constructor(
         packet: Packet,
         sink: Sink,
     ) {
-        if (packet::class != packetClass) {
-            throw MinecraftSerializationException(
-                "Codec for ${packetClass.simpleName} cannot encode ${packet::class.simpleName}",
-            )
-        }
         @Suppress("UNCHECKED_CAST")
         bodyCodec.encode(format, packet as T, sink)
     }
@@ -296,13 +291,13 @@ class PacketRegistry(
         }
         val route = PacketRoute.TopLevel(state, direction, id)
         val body = readBoundedPayload(source, byteCount)
-        val original = body.peek().readByteArray()
+        val decodedBody = body.copy()
         val packet = try {
-            codec.decodeFromSource(format, body, byteCount)
+            codec.decodeFromSource(format, decodedBody, byteCount)
         } catch (_: UnknownExtensionPacketException) {
-            return unknownPacket(route, original)
+            return unknownPacket(route, body.readByteArray())
         }
-        requireExhausted(body, "Extension payload")
+        requireExhausted(decodedBody, "Extension payload")
         return packet
     }
 
@@ -343,18 +338,18 @@ class PacketRegistry(
                 "No extension codec is registered for ${route.key}",
             )
         val body = readBoundedPayload(source, byteCount)
-        val original = body.peek().readByteArray()
+        val decodedBody = body.copy()
         val packet = try {
             registration.decodeBody(
                 format,
                 route,
-                body,
+                decodedBody,
                 byteCount,
             )
         } catch (_: UnknownExtensionPacketException) {
-            return unknownPacket(route, original)
+            return unknownPacket(route, body.readByteArray())
         }
-        requireExhausted(body, "Extension payload")
+        requireExhausted(decodedBody, "Extension payload")
         return packet
     }
 

@@ -41,20 +41,22 @@ private class ExactKompressZlibRawSource(
 ) : RawSource {
     private var closed = false
     private var finished = false
+    private val output = ByteArray(DECOMPRESSION_BUFFER_BYTES)
+    private val pending = Buffer()
 
     override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
         check(!closed) { "Zlib source is closed" }
         require(byteCount >= 0)
         if (byteCount == 0L) return 0
+        if (!pending.exhausted()) {
+            return pending.readAtMostTo(sink, byteCount)
+        }
         if (finished) return -1
 
-        val output = ByteArray(
-            minOf(byteCount, DECOMPRESSION_BUFFER_BYTES.toLong()).toInt(),
-        )
         val read = decompressor.decompress(output)
         if (read > 0) {
-            sink.write(output, endIndex = read)
-            return read.toLong()
+            pending.write(output, endIndex = read)
+            return pending.readAtMostTo(sink, byteCount)
         }
         if (decompressor.finished) {
             finished = true

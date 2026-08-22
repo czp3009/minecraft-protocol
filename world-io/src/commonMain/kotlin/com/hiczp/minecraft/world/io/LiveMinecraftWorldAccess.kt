@@ -161,6 +161,37 @@ class LiveMinecraftWorldAccess private constructor(
         chunkNbtFormat = chunkNbtFormat,
     )
 
+    /**
+     * Lists a detached snapshot of every canonical Entity Region filename in one dimension.
+     *
+     * This performs one full filesystem directory listing and materializes every result. It is O(n), may be slow, and
+     * may exhaust memory for an extremely large world. Concurrent file changes are not observed transactionally.
+     */
+    fun listEntityRegionPositions(
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): List<RegionPosition> = snapshotRegionPositions(
+        files.fileSystem,
+        paths.regionDirectory(RegionStorageDirectory.ENTITIES, dimension),
+    )
+
+    fun hasEntityRegion(
+        position: RegionPosition,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): Boolean = openEntityRegion(position, dimension).hasRegion()
+
+    /** Creates a stateless logical Entity Region handle without touching the filesystem. */
+    fun openEntityRegion(
+        position: RegionPosition,
+        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+    ): LiveEntityRegionHandle = LiveEntityRegionHandle(
+        LiveRegionHandle(
+            fileSystem = files.fileSystem,
+            directory = paths.regionDirectory(RegionStorageDirectory.ENTITIES, dimension),
+            position = position,
+            chunkNbtFormat = chunkNbtFormat,
+        ),
+    )
+
     companion object {
         fun open(root: Path): LiveMinecraftWorldAccess =
             open(root, LiveMinecraftWorldAccessConfiguration())

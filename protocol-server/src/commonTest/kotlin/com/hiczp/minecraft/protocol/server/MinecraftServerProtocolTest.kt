@@ -25,26 +25,7 @@ import com.hiczp.minecraft.protocol.model.type.GameMode as PlayerGameMode
 @OptIn(InternalMinecraftConnectionApi::class)
 class MinecraftServerProtocolTest {
     @Test
-    fun validatesOptionsAndBuildsStructuredStatusJson() {
-        assertFailsWith<IllegalArgumentException> {
-            MinecraftServerNegotiationOptions(compressionThreshold = -1)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            MinecraftServerNegotiationOptions(maximumPlayers = -1)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            MinecraftServerNegotiationOptions(viewDistance = 1)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            MinecraftServerNegotiationOptions(viewDistance = 33)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            MinecraftServerNegotiationOptions(simulationDistance = -1)
-        }
-        assertFailsWith<IllegalArgumentException> {
-            MinecraftServerNegotiationOptions(maximumPacketsPerPhase = 0)
-        }
-
+    fun buildsStructuredStatusJsonWithoutImposingServerPolicy() {
         val options = MinecraftServerNegotiationOptions(
             statusDescription = "Structured status",
             maximumPlayers = 12,
@@ -77,27 +58,26 @@ class MinecraftServerProtocolTest {
         assertTrue(
             online.getValue("enforcesSecureChat").jsonPrimitive.boolean,
         )
-        assertFailsWith<IllegalArgumentException> {
-            options.statusJson(onlinePlayers = -1)
-        }
+        val unconventionalOptions = MinecraftServerNegotiationOptions(
+            compressionThreshold = -1,
+            maximumPlayers = -1,
+            viewDistance = 1,
+            simulationDistance = -1,
+        )
+        val unconventionalStatus = Json.parseToJsonElement(
+            unconventionalOptions.statusJson(onlinePlayers = -1),
+        ).jsonObject
+        assertEquals(
+            -1,
+            unconventionalStatus.getValue("players").jsonObject
+                .getValue("online").jsonPrimitive.int,
+        )
 
         val profile = GameProfile(Uuid.fromLongs(1, 2), "Probe", emptyList())
         val offlineLogin = options.playLogin(profile, onlineMode = false)
         val onlineLogin = options.playLogin(profile, onlineMode = true)
         assertFalse(offlineLogin.enforcesSecureChat)
         assertTrue(onlineLogin.enforcesSecureChat)
-        options.validatePlayLogin(offlineLogin)
-        assertFailsWith<IllegalArgumentException> {
-            options.validatePlayLogin(offlineLogin.copy(maxPlayers = -1))
-        }
-        assertFailsWith<IllegalArgumentException> {
-            options.validatePlayLogin(
-                offlineLogin.copy(chunkRadius = MinecraftServerNegotiationOptions.MIN_VIEW_DISTANCE - 1),
-            )
-        }
-        assertFailsWith<IllegalArgumentException> {
-            options.validatePlayLogin(offlineLogin.copy(simulationDistance = -1))
-        }
     }
 
     @Test
@@ -277,7 +257,6 @@ class MinecraftServerProtocolTest {
                 options: MinecraftServerNegotiationOptions,
             ): List<MinecraftServerNegotiationTask> = listOf(
                 MinecraftServerNegotiationTask(
-                    name = "ping",
                     packets = listOf(ConfigurationPingPacket(91)),
                 ) { packet -> packet == ConfigurationPongPacket(91) },
             )
@@ -438,13 +417,13 @@ class MinecraftServerProtocolTest {
             MinecraftServerAuthentication.Offline,
         clientIpAddress: String? = "127.0.0.1",
     ): ConnectionPair {
-        val clientToServer = ByteChannel()
-        val serverToClient = ByteChannel()
+        val clientToServer = ByteChannel(autoFlush = true)
+        val serverToClient = ByteChannel(autoFlush = true)
         val serverFrames = MinecraftFrameStream(clientToServer, serverToClient)
         val clientFrames = MinecraftFrameStream(serverToClient, clientToServer)
         val connection = MinecraftServerConnection(
             connection = MinecraftConnectionEngine(
-                frames = serverFrames,
+                frameStream = serverFrames,
                 closeTransport = { serverFrames.cancel() },
                 side = MinecraftSessionSide.SERVER,
                 definition = MinecraftConnectionDefinition(),
@@ -455,7 +434,7 @@ class MinecraftServerProtocolTest {
         return ConnectionPair(
             server = connection,
             client = MinecraftSession(
-                frames = clientFrames,
+                frameStream = clientFrames,
                 side = MinecraftSessionSide.CLIENT,
             ),
             clientFrames = clientFrames,

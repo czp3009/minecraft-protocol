@@ -17,10 +17,7 @@ class MinecraftFrameCodec(
         private set
 
     fun configureCompression(threshold: Int?) {
-        require(threshold == null || threshold >= 0) {
-            "Compression threshold must be non-negative"
-        }
-        compressionThreshold = threshold
+        compressionThreshold = threshold?.takeIf { it >= 0 }
     }
 
     /** Encodes exactly [packetDataByteCount] bytes from [packetData]. */
@@ -192,14 +189,6 @@ class MinecraftFrameCodec(
             if (packetBytes == 0L) {
                 throw MinecraftTransportException(
                     "Packet data cannot be empty",
-                )
-            }
-            if (
-                configuration.validateCompressionThreshold &&
-                packetBytes >= threshold
-            ) {
-                throw MinecraftTransportException(
-                    "Uncompressed packet has $packetBytes bytes, meeting compression threshold $threshold",
                 )
             }
             return packetBytes

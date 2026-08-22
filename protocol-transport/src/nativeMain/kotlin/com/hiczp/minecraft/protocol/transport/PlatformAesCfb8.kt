@@ -6,7 +6,6 @@ import dev.whyoleg.cryptography.CryptographyProvider
 import dev.whyoleg.cryptography.algorithms.AES
 import kotlinx.io.Buffer
 import kotlinx.io.RawSink
-import kotlinx.io.readByteArray
 
 internal actual fun platformAesCfb8Cipher(
     key: ByteArray,
@@ -35,9 +34,28 @@ private class CryptographyAesCfb8Cipher(
     private val transform: RawSink,
     private val output: Buffer,
 ) : MinecraftStreamCipher {
-    override fun process(input: ByteArray): ByteArray {
-        val source = Buffer().apply { write(input) }
-        transform.write(source, source.size)
-        return output.readByteArray()
+    private val inputBuffer = Buffer()
+
+    override fun process(
+        input: ByteArray,
+        startIndex: Int,
+        endIndex: Int,
+        output: ByteArray,
+        outputStartIndex: Int,
+    ): Int {
+        val byteCount = endIndex - startIndex
+        inputBuffer.write(input, startIndex, endIndex)
+        transform.write(inputBuffer, byteCount.toLong())
+        var written = 0
+        while (written < byteCount) {
+            val count = this.output.readAtMostTo(
+                output,
+                startIndex = outputStartIndex + written,
+                endIndex = outputStartIndex + byteCount,
+            )
+            check(count >= 0) { "AES/CFB8 transform did not produce enough bytes" }
+            written += count
+        }
+        return written
     }
 }

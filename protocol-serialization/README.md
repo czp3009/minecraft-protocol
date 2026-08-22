@@ -51,10 +51,10 @@ val encoded = packetRegistry.encodePayload(
 Dynamic block-state and biome palette widths come from the registry context installed on a configured format:
 
 ```kotlin
-val context = staticRegistrySchema.resolve(remoteRegistrySnapshot)
+val protocolRegistryContext = staticRegistrySchema.resolve(remoteRegistrySnapshot)
     .withChunkSectionCount(sectionCount)
-val format = MinecraftProtocolFormat(
-    MinecraftProtocolFormatConfiguration(registries = context),
+val minecraftProtocolFormat = MinecraftProtocolFormat(
+    MinecraftProtocolFormatConfiguration(registries = protocolRegistryContext),
 )
 ```
 

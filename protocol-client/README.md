@@ -10,16 +10,13 @@ Each connection performs one Status or Login handshake. To ping a server as the 
 `queryStatus()`; it obtains the Status response and completes the Ping/Pong exchange without running `negotiate()`:
 
 ```kotlin
-SelectorManager(Dispatchers.Default).use { selector ->
+suspend fun queryMinecraftStatus(selectorManager: SelectorManager): MinecraftStatusExchange =
     MinecraftClientConnection.connect(
-        selectorManager = selector,
+        selectorManager = selectorManager,
         host = "127.0.0.1",
-    ).use { connection ->
-        val status = connection.queryStatus()
-        val description = status.response.jsonResponse
-        val echoedPingPayload = status.pong.timestamp
+    ).use { minecraftClientConnection ->
+        minecraftClientConnection.queryStatus()
     }
-}
 ```
 
 Status cannot continue into Login. Close the Status connection after the ping and create a fresh connection before
@@ -42,16 +39,21 @@ suspend fun enterPlay(
 }
 ```
 
-`negotiate` is a suspending function, not a background job. Its orchestration runs sequentially in the calling
-coroutine, does not create a scope or select a `Dispatcher`, and exclusively borrows `incoming` and `outgoing` until it
-returns. The caller must guarantee that no other coroutine reads or writes either channel during that interval. The
-preset does not add a lock to arbitrate competing channel users; concurrent access is a caller error and can steal a
-packet, reorder a phase, or fail the connection.
+`negotiate` runs sequentially in the calling coroutine and exclusively borrows `incoming` and `outgoing` until it
+returns. Give that coroutine sole ownership of both channels for the complete negotiation.
 
-The same ownership precondition applies when an application implements negotiation itself. Keep the entire
-Handshake/Login/Configuration sequence and its channel reads and writes in one coroutine; the library assumes this and
-does not detect or repair races created by application code. After negotiation hands the Play connection back, the
-application may establish whatever packet-loop ownership model it needs.
+The preset does not impose a phase packet count or timeout. A required response ends the current phase; connection
+failure or coroutine cancellation ends the wait. Apply application-specific deadlines around `negotiate` when needed.
+
+The same ownership rule applies when an application implements negotiation itself. Keep the entire
+Handshake/Login/Configuration sequence and its channel reads and writes in one coroutine. After negotiation hands the
+Play connection back, the application may establish its packet-loop ownership model.
+
+The connection's reader, writer, and requested flushes use the dispatcher from `selectorManager` by default. Override
+`connectionDispatcher` on `connect` when those per-connection jobs should use a different dispatcher. Sending to
+`outgoing` only enters its configured channel; it does not make the tick coroutine perform socket I/O. At the end of a
+client tick, enqueue the complete ordered packet batch and call `requestFlush()`. Use `trySend` when the tick must
+detect a full outgoing queue without suspension and apply its own slow-connection policy.
 
 ## Use the received registries to read world Chunks
 
@@ -150,6 +152,7 @@ suspend fun receiveInitialWorldChunks(
 
             is ChunkBatchFinishedPacket -> {
                 minecraftClientConnection.outgoing.send(ChunkBatchReceivedPacket(desiredChunksPerTick = 10.0f))
+                minecraftClientConnection.flush()
                 batchFinished = true
             }
 
@@ -159,9 +162,117 @@ suspend fun receiveInitialWorldChunks(
 }
 ```
 
+`flush()` deliberately waits until the batch acknowledgement and all earlier queued packets have been flushed to the
+wire. During initial world synchronization, completing this function before `ChunkBatchReceivedPacket` has been sent
+could leave the server transmitting at its previous rate and overwhelm the client. Blocking this joining coroutine is
+appropriate because one client connection is synchronizing with one server. Tick-driven steady-state traffic can still
+use `requestFlush()` when the caller should continue without waiting for the wire flush.
+
 The packet decoder validates section count, palette width and IDs, light masks, block-entity registry IDs, and absolute
 block-entity coordinates. Network update tags are reassembled with their separate type and position metadata. This is a
 network projection: it cannot recreate persistence fields that the server never sent.
+
+## Decode Entity pairing bundles
+
+Entity creation uses the same data boundary as Chunk creation. `MinecraftEntitySnapshot` is a server-side convenience;
+the client receives its `protocol-model` packets. A vanilla Entity pairing bundle begins with `SpawnEntityPacket`. Build
+one decoder from the active registry context to restore its common strong `Entity` state:
+
+```kotlin
+fun decodeEntity(
+    minecraftClientConnection: MinecraftClientConnection,
+    clientboundBundlePacket: ClientboundBundlePacket,
+): Entity<NbtCompound>? {
+    val minecraftEntityPacketDecoder = MinecraftEntityPacketDecoder(minecraftClientConnection.registries)
+    return clientboundBundlePacket.toEntityOrNull(minecraftEntityPacketDecoder)
+}
+```
+
+The decoder resolves `typeId` through the negotiated Entity-type registry and restores type, UUID, position, velocity,
+yaw, and pitch. This basic overload returns an `Entity<NbtCompound>` with empty subtype data. Runtime-only state remains
+in the pairing packets. `clientboundBundlePacket.isEntityPairingBundle` provides a direct Boolean check using the same
+leading-`SpawnEntityPacket` rule when conversion is not yet needed.
+
+Use `MinecraftEntityPacketAdapter` when the returned Entity is the caller's complete client runtime model. The adapter
+creates its subtype data, registers the Entity before dependent packets are applied, and receives each supported tail
+packet through a type-specific callback:
+
+```kotlin
+data class ClientEntityData(
+    val type: Identifier,
+    val spawnData: Int,
+    var headYaw: Float,
+    var metadata: EntityMetadata? = null,
+    var attributes: List<AttributeSnapshot> = emptyList(),
+    var equipment: List<EquipmentUpdate> = emptyList(),
+)
+
+class ClientEntityPacketAdapter(
+    private val entitiesById: MutableMap<Int, Entity<ClientEntityData>>,
+    private val passengerIdsByVehicleId: MutableMap<Int, List<Int>>,
+    private val leashHolderIdsByEntityId: MutableMap<Int, Int>,
+) : MinecraftEntityPacketAdapter<ClientEntityData> {
+    override fun createData(packet: SpawnEntityPacket, type: Identifier): ClientEntityData = ClientEntityData(
+        type = type,
+        spawnData = packet.data,
+        headYaw = packet.headYaw.degrees,
+    )
+
+    override fun registerEntity(packet: SpawnEntityPacket, entity: Entity<ClientEntityData>) {
+        entitiesById[packet.entityId] = entity
+    }
+
+    override fun applyMetadata(entity: Entity<ClientEntityData>, packet: SetEntityMetadataPacket) {
+        entity.data.metadata = packet.metadata
+    }
+
+    override fun applyAttributes(entity: Entity<ClientEntityData>, packet: UpdateAttributesPacket) {
+        entity.data.attributes = packet.attributes.toList()
+    }
+
+    override fun applyEquipment(entity: Entity<ClientEntityData>, packet: SetEquipmentPacket) {
+        entity.data.equipment = packet.updates.entries.toList()
+    }
+
+    override fun applyPassengers(entity: Entity<ClientEntityData>, packet: SetPassengersPacket) {
+        passengerIdsByVehicleId[packet.vehicleEntityId] = packet.passengerEntityIds.toList()
+    }
+
+    override fun applyLink(entity: Entity<ClientEntityData>, packet: LinkEntitiesPacket) {
+        leashHolderIdsByEntityId[packet.attachedEntityId] = packet.holdingEntityId
+    }
+}
+```
+
+The adapter can then be reused by the packet loop. A non-Entity bundle continues through the application's normal packet
+dispatcher:
+
+```kotlin
+suspend fun receiveEntities(
+    minecraftClientConnection: MinecraftClientConnection,
+    minecraftEntityPacketAdapter: MinecraftEntityPacketAdapter<ClientEntityData>,
+    dispatchPacket: suspend (ClientboundPacket) -> Unit,
+) {
+    val minecraftEntityPacketDecoder = MinecraftEntityPacketDecoder(minecraftClientConnection.registries)
+    for (clientboundPacket in minecraftClientConnection.incoming) {
+        val entity = (clientboundPacket as? ClientboundBundlePacket)?.toEntityOrNull(
+            minecraftEntityPacketDecoder,
+            minecraftEntityPacketAdapter,
+        )
+        if (entity == null) dispatchPacket(clientboundPacket)
+    }
+}
+```
+
+The one-step adapter overload calls `registerEntity` before applying metadata, attributes, equipment, passenger
+relations, and leash state. It processes trailing packets in received order but does not require or validate a fixed
+order among their types. `SetPassengersPacket` and `LinkEntitiesPacket` can refer to other Entities, which is why the
+example keeps those relationships in caller-owned ID maps.
+
+Callers that need explicit lifecycle control can use the same primitive operations separately: obtain
+`spawnEntityPacket()`, create the Entity with `SpawnEntityPacket.toEntity`, register it, and then call
+`applyEntityPairingPackets`. The public incoming channel waits for both wire delimiters and publishes one complete
+logical bundle, so it never exposes `BundleDelimiterPacket`.
 
 ## Writing your own negotiation
 
@@ -193,18 +304,27 @@ reference; reaching `ConnectionState.PLAY` alone is not treated as completed Pla
 Declare every possible custom packet before connecting through a shareable `MinecraftConnectionDefinition`:
 
 ```kotlin
-val definition = FabricProtocol.connectionDefinition(
-    extensionCodecs = myModPacketCodecs,
-)
-val connection = MinecraftClientConnection.connect(
-    selectorManager = selector,
-    host = host,
-    definition = definition,
-)
-val result = connection.negotiate(
-    identity = identity,
-    profile = FabricClientProfile(myModdedStaticRegistrySchema),
-)
+suspend fun negotiateFabric(
+    selectorManager: SelectorManager,
+    host: String,
+    minecraftOfflineIdentity: MinecraftOfflineIdentity,
+    packetCodecRegistrations: List<PacketCodecRegistration<out Packet>>,
+    staticRegistrySchema: StaticRegistrySchema,
+): MinecraftClientNegotiationResult {
+    val minecraftConnectionDefinition = FabricProtocol.connectionDefinition(
+        extensionCodecs = packetCodecRegistrations,
+    )
+    return MinecraftClientConnection.connect(
+        selectorManager = selectorManager,
+        host = host,
+        definition = minecraftConnectionDefinition,
+    ).use { minecraftClientConnection ->
+        minecraftClientConnection.negotiate(
+            identity = minecraftOfflineIdentity,
+            profile = FabricClientProfile(staticRegistrySchema),
+        )
+    }
+}
 ```
 
 Equivalent NeoForge and Forge APIs live in [`protocol-session`](../protocol-session/README.md). An unregistered query or
@@ -216,21 +336,32 @@ payload reaches the application or profile as `UnknownPacket.Clientbound`; durin
 Identities come from [`protocol-auth`](../protocol-auth/README.md). Offline Login needs no HTTP API:
 
 ```kotlin
-val result = connection.negotiate(MinecraftOfflineIdentity("Player"))
+suspend fun negotiateOffline(
+    minecraftClientConnection: MinecraftClientConnection,
+): MinecraftClientNegotiationResult =
+    minecraftClientConnection.negotiate(MinecraftOfflineIdentity("Player"))
 ```
 
 Online Login receives account data already available to the game process plus a caller-owned HTTP client:
 
 ```kotlin
-val identity = MinecraftOnlineIdentity(
-    id = profileId,
-    name = profileName,
-    accessToken = minecraftAccessToken,
-)
-val result = connection.negotiate(
-    identity = identity,
-    sessionHttpClient = applicationHttpClient,
-)
+suspend fun negotiateOnline(
+    minecraftClientConnection: MinecraftClientConnection,
+    profileId: Uuid,
+    profileName: String,
+    minecraftAccessToken: String,
+    applicationHttpClient: HttpClient,
+): MinecraftClientNegotiationResult {
+    val minecraftOnlineIdentity = MinecraftOnlineIdentity(
+        id = profileId,
+        name = profileName,
+        accessToken = minecraftAccessToken,
+    )
+    return minecraftClientConnection.negotiate(
+        identity = minecraftOnlineIdentity,
+        sessionHttpClient = applicationHttpClient,
+    )
+}
 ```
 
 How a launcher obtains, stores, or transfers those values is outside this module. When the server sends Encryption
