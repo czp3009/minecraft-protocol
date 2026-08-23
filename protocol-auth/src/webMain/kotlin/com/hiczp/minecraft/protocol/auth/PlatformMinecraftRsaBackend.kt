@@ -62,6 +62,48 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
             forgeAsn1.fromDer(encodedPrivateKey.encodeForgeBytes()),
         ),
     )
+
+    actual override fun decodePublicKey(
+        encodedPublicKey: ByteArray,
+        signatureAlgorithm: MinecraftRsaSignatureAlgorithm,
+    ): MinecraftRsaPublicKey = ForgeRsaPublicKey(
+        key = forgePki.publicKeyFromAsn1(
+            forgeAsn1.fromDer(encodedPublicKey.encodeForgeBytes()),
+        ),
+        signatureAlgorithm = signatureAlgorithm,
+    )
+
+    actual override fun rsaSha256Sign(
+        privateKey: MinecraftRsaPrivateKey,
+        payload: ByteArray,
+    ): ByteArray {
+        requireStrongWebRandom()
+        require(privateKey is ForgeRsaPrivateKey) {
+            "The RSA private key was not created by this platform backend"
+        }
+        val digest = forgeMd.sha256.create().apply {
+            update(payload.encodeForgeBytes())
+        }
+        return privateKey.key.sign(digest).decodeForgeBytes()
+    }
+
+    actual override fun rsaVerify(
+        publicKey: MinecraftRsaPublicKey,
+        payload: ByteArray,
+        signature: ByteArray,
+    ): Boolean {
+        require(publicKey is ForgeRsaPublicKey) {
+            "The RSA public key was not created by this platform backend"
+        }
+        val digest = publicKey.signatureAlgorithm.createForgeDigest().apply {
+            update(payload.encodeForgeBytes())
+        }.digest().getBytes()
+        return try {
+            publicKey.key.verify(digest, signature.encodeForgeBytes())
+        } catch (_: Throwable) {
+            false
+        }
+    }
 }
 
 private suspend fun generateForgeRsaKeyPair(
@@ -100,11 +142,22 @@ private class ForgeRsaPrivateKey(
     val key: ForgePrivateKey,
 ) : MinecraftRsaPrivateKey
 
+private class ForgeRsaPublicKey(
+    val key: ForgePublicKey,
+    val signatureAlgorithm: MinecraftRsaSignatureAlgorithm,
+) : MinecraftRsaPublicKey
+
+private fun MinecraftRsaSignatureAlgorithm.createForgeDigest(): ForgeMessageDigest = when (this) {
+    MinecraftRsaSignatureAlgorithm.SHA1 -> forgeMd.sha1.create()
+    MinecraftRsaSignatureAlgorithm.SHA256 -> forgeMd.sha256.create()
+}
+
 internal external interface ForgeModule : JsAny {
     val options: ForgeOptions
     val pki: ForgePki
     val asn1: ForgeAsn1
     val util: ForgeUtil
+    val md: ForgeMessageDigests
 }
 
 internal external interface ForgeOptions : JsAny {
@@ -144,10 +197,29 @@ internal external interface ForgeRsaKeyPair : JsAny {
 
 internal external interface ForgePublicKey : JsAny {
     fun encrypt(data: String, scheme: String): String
+
+    fun verify(digest: String, signature: String): Boolean
 }
 
 internal external interface ForgePrivateKey : JsAny {
     fun decrypt(data: String, scheme: String): String
+
+    fun sign(digest: ForgeMessageDigest): String
+}
+
+internal external interface ForgeMessageDigests : JsAny {
+    val sha1: ForgeMessageDigestFactory
+    val sha256: ForgeMessageDigestFactory
+}
+
+internal external interface ForgeMessageDigestFactory : JsAny {
+    fun create(): ForgeMessageDigest
+}
+
+internal external interface ForgeMessageDigest : JsAny {
+    fun update(bytes: String): ForgeMessageDigest
+
+    fun digest(): ForgeByteBuffer
 }
 
 internal external interface ForgeAsn1 : JsAny {
@@ -180,6 +252,7 @@ internal expect val forgeOptions: ForgeOptions
 internal expect val forgePki: ForgePki
 internal expect val forgeAsn1: ForgeAsn1
 internal expect val forgeUtil: ForgeUtil
+internal expect val forgeMd: ForgeMessageDigests
 
 private const val RSAES_PKCS1_V1_5 = "RSAES-PKCS1-V1_5"
 private const val RSA_PUBLIC_EXPONENT = 65_537

@@ -75,26 +75,19 @@ kotlin {
         }
 
         commonMain.dependencies {
-            compileOnly(project(":protocol-model"))
+            api(project(":protocol-model"))
             api(libs.ktor.client.core)
             api(libs.kotlinx.serialization.core)
+            implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.serialization.properties)
             implementation(libs.okio)
             implementation(libs.cryptography.bigint)
             implementation(libs.cryptography.random)
         }
-        //Using compileOnly dependencies in these targets is not currently supported, because compileOnly dependencies must be present during the compilation of projects that depend on this project
-        nativeMain.dependencies {
-            api(project(":protocol-model"))
-        }
-        webMain.dependencies {
-            api(project(":protocol-model"))
-        }
 
         commonTest.dependencies {
             implementation(kotlin("test"))
-            implementation(project(":protocol-model"))
             implementation(libs.kotlinx.coroutines.test)
             implementation(libs.ktor.client.mock)
         }

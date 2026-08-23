@@ -11,3 +11,6 @@ internal actual val forgeAsn1: ForgeAsn1
 
 internal actual val forgeUtil: ForgeUtil
     get() = nodeForgeDefault.util
+
+internal actual val forgeMd: ForgeMessageDigests
+    get() = nodeForgeDefault.md

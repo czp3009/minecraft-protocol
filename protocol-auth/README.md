@@ -1,17 +1,21 @@
 # protocol-auth
 
-Authentication capabilities used by a Minecraft game client or server during connection setup:
+Authentication capabilities used by a Minecraft game client or server during connection setup and signed Play chat:
 
 - sealed online and offline identities;
 - Minecraft Session Server `/join` and `/hasJoined` calls;
 - the signed SHA-1 server hash;
-- Minecraft Login RSA challenge/response and shared-secret generation.
+- Minecraft Login RSA challenge/response and shared-secret generation;
+- Minecraft Services `/player/certificates` and `/publickeys` calls;
+- profile-public-key credential verification and player chat signing/verification;
+- locked sender-chain signers and serverbound/clientbound chain verifiers.
 
 Microsoft OAuth, Xbox authentication, and Minecraft Services account login are independent HTTP APIs in
 [`account-auth`](../account-auth/README.md); neither module depends on the other. The shared secret produced here is
 only key material—[`protocol-transport`](../protocol-transport/README.md) performs the continuous stream encryption and
-the connection modules apply it at the correct wire boundary. Optional extensions adapt identities and Session profiles
-to `protocol-model` types when that module is also on the classpath.
+the connection modules apply it at the correct wire boundary. `protocol-model` is a direct API dependency because the
+authentication and signed-chat APIs naturally consume its profiles, packets, and shared wire values. Reconstructed
+signature bodies, chain links, and Brigadier-derived signable arguments remain `protocol-auth` values.
 
 ## Identities
 
@@ -35,7 +39,7 @@ val id = MinecraftOfflineIdentity.minecraftOfflineUuid("Player")
 ```
 
 Identity types are ordinary data classes. Credential logging and storage are caller responsibilities.
-`MinecraftOfflineIdentity.toGameProfile()` is an optional `protocol-model` extension.
+`MinecraftOfflineIdentity.toGameProfile()` adapts the identity to a `protocol-model` profile.
 
 ## Minecraft Session Server
 
@@ -71,6 +75,75 @@ sessions.join(onlineIdentity, serverHash)
 `hasJoined` returns `null` for the documented `204 No Content` unverified-player response and otherwise decodes the
 profile response directly. Other HTTP failures throw `MinecraftSessionResponseException`, which exposes the raw body and
 the decoded service error.
+
+## Profile keys
+
+`MinecraftProfileKeyApi` uses the same caller-owned `HttpClient` pattern. It does not decide when the game requests or
+refreshes a key, cache Mojang service keys, retry, or persist private material:
+
+```kotlin
+val profileKeys = MinecraftProfileKeyApi(applicationHttpClient)
+val keyPair = profileKeys.fetchProfileKeyPair(onlineIdentity).toMinecraftProfileKeyPair()
+val servicesKeys = profileKeys.fetchServicesPublicKeys().toMinecraftServicesPublicKeySet()
+
+val credentialIsValid = servicesKeys.verifyProfilePublicKey(
+    profileId = onlineIdentity.id,
+    publicKeyData = keyPair.publicKeyData,
+)
+```
+
+The official service exposes raw RSA SubjectPublicKeyInfo values in `playerCertificateKeys`; profile credentials use
+`SHA1withRSA`. This is not an X.509 root-certificate chain. `MinecraftProfilePublicKey` parsing is deliberately separate
+from credential trust, so callers can fetch keys elsewhere or construct their own key set. Expiry and refresh helpers
+take an explicit epoch millisecond value and never read the clock implicitly.
+
+## Signed chat
+
+`MinecraftChatSignatures` is the stateless payload/sign/verify layer. `MinecraftChatChainSigner` adds only a locked
+sender/session index. A batch—especially a signed command's arguments—is allocated contiguously and committed only when
+every signature succeeds:
+
+```kotlin
+val signer = MinecraftChatChainSigner(
+    sender = onlineIdentity.id,
+    sessionId = chatSessionId,
+    keyPair = keyPair,
+)
+
+val packet = signer.signChatMessagePacket(
+    message = text,
+    timestampEpochMillis = timestamp,
+    salt = salt,
+    lastSeen = expandedLastSeenSignatures,
+    lastSeenMessages = lastSeenUpdate,
+)
+```
+
+The serverbound chat and signed-command packets do not carry their chain index. The server therefore keeps one
+`MinecraftServerboundChatChainVerifier` per accepted player chat session; each valid message or signed command argument
+advances its implicit index:
+
+```kotlin
+val verifier = MinecraftServerboundChatChainVerifier(
+    sender = playerId,
+    sessionId = sessionId,
+    publicKey = profilePublicKey,
+)
+
+when (val result = verifier.verify(packet, expandedLastSeenSignatures)) {
+    is MinecraftChatVerificationResult.Valid -> handle(result.message)
+    is MinecraftChatVerificationResult.Invalid -> handleInvalid(result.failure)
+}
+```
+
+Invalid input does not mutate the verifier. A caller that wants the official server's permanently-broken-chain policy
+can discard that verifier after a failure. `MinecraftClientboundChatChainVerifier` instead consumes the explicit packet
+index, accepts gaps because a recipient may not receive every sender message, and accepts an exact duplicate.
+
+Packet helpers convert chat packets to unpacked signed bodies, sign command argument lists, and build recipient-specific
+`PlayerChatMessagePacket` values after the caller supplies the global index and packed last-seen signatures. The module
+does not reconstruct acknowledgement updates, manage signature caches/global indices, announce sessions, enforce server
+configuration, disconnect players, order separately returned sends, or broadcast.
 
 ## Login key exchange
 

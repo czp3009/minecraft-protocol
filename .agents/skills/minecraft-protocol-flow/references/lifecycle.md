@@ -25,9 +25,9 @@ handled while waiting, and the exact event that changes protocol state.
   serialization context from synchronized data.
 - `protocol-server` orchestrates the official client-facing path and may emit only the documented finite initial
   chunk/entity projection.
-- `protocol-auth` owns identities, Login key exchange, server hash, and Session Server calls through standard types and
-  module-owned serializable request/response models, with optional `protocol-model` adapters expressed as `compileOnly`
-  extensions.
+- `protocol-auth` owns identities, Login key exchange, server hash, Session Server and profile-key calls, profile-key
+  credential verification, and signed-chat primitives. It directly uses `protocol-model` packet and shared wire types
+  where they form the natural contract, while reconstructed signing-only values remain module-owned.
 - `protocol-transport` owns frames, compression envelope, stream encryption, and sockets.
 
 `account-auth` ends at caller-managed Minecraft account data and access tokens. It does not participate in this

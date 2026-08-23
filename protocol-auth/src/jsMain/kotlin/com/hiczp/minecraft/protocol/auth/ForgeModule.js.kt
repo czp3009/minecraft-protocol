@@ -14,3 +14,6 @@ internal actual external val forgeAsn1: ForgeAsn1
 
 @JsName("util")
 internal actual external val forgeUtil: ForgeUtil
+
+@JsName("md")
+internal actual external val forgeMd: ForgeMessageDigests

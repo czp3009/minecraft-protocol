@@ -5,6 +5,7 @@ package com.hiczp.minecraft.protocol.auth
 import dev.whyoleg.cryptography.BinarySize.Companion.bits
 import dev.whyoleg.cryptography.CryptographyProvider
 import dev.whyoleg.cryptography.algorithms.RSA
+import dev.whyoleg.cryptography.algorithms.SHA1
 import dev.whyoleg.cryptography.algorithms.SHA256
 
 internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
@@ -54,8 +55,53 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
             encodedPrivateKey.copyOf(),
         ),
     )
+
+    actual override fun decodePublicKey(
+        encodedPublicKey: ByteArray,
+        signatureAlgorithm: MinecraftRsaSignatureAlgorithm,
+    ): MinecraftRsaPublicKey = NativeRsaPublicKey(
+        rsa.publicKeyDecoder(signatureAlgorithm.digest).decodeFromByteArrayBlocking(
+            RSA.PublicKey.Format.DER,
+            encodedPublicKey.copyOf(),
+        ),
+    )
+
+    actual override fun rsaSha256Sign(
+        privateKey: MinecraftRsaPrivateKey,
+        payload: ByteArray,
+    ): ByteArray {
+        require(privateKey is NativeRsaPrivateKey) {
+            "The RSA private key was not created by this platform backend"
+        }
+        return privateKey.key.signatureGenerator().generateSignatureBlocking(payload.copyOf())
+    }
+
+    actual override fun rsaVerify(
+        publicKey: MinecraftRsaPublicKey,
+        payload: ByteArray,
+        signature: ByteArray,
+    ): Boolean {
+        require(publicKey is NativeRsaPublicKey) {
+            "The RSA public key was not created by this platform backend"
+        }
+        return publicKey.key.signatureVerifier().tryVerifySignatureBlocking(
+            payload.copyOf(),
+            signature.copyOf(),
+        )
+    }
 }
 
 private class NativeRsaPrivateKey(
     val key: RSA.PKCS1.PrivateKey,
 ) : MinecraftRsaPrivateKey
+
+private class NativeRsaPublicKey(
+    val key: RSA.PKCS1.PublicKey,
+) : MinecraftRsaPublicKey
+
+@OptIn(dev.whyoleg.cryptography.DelicateCryptographyApi::class)
+private val MinecraftRsaSignatureAlgorithm.digest
+    get() = when (this) {
+        MinecraftRsaSignatureAlgorithm.SHA1 -> SHA1
+        MinecraftRsaSignatureAlgorithm.SHA256 -> SHA256
+    }

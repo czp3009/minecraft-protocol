@@ -148,7 +148,7 @@ class MinecraftServerChallenge internal constructor(
         encryptedSharedSecret: ByteArray,
         encryptedVerifyToken: ByteArray,
     ): MinecraftServerKeyExchangeResult {
-        val verifyToken = mapCryptographyFailure(
+        val verifyToken = mapKeyExchangeFailure(
             "Cannot decrypt the Minecraft verify token",
         ) {
             PlatformMinecraftRsaBackend.rsaDecrypt(
@@ -170,7 +170,7 @@ class MinecraftServerChallenge internal constructor(
         } finally {
             verifyToken.fill(0)
         }
-        val decryptedSecret = mapCryptographyFailure(
+        val decryptedSecret = mapKeyExchangeFailure(
             "Cannot decrypt the Minecraft shared secret",
         ) {
             PlatformMinecraftRsaBackend.rsaDecrypt(
@@ -267,15 +267,15 @@ fun MinecraftServerChallenge.accept(
     encryptedVerifyToken = response.verifyToken.toByteArray(),
 )
 
-open class MinecraftKeyExchangeException(
+class MinecraftCryptographyException(
     message: String,
     cause: Throwable? = null,
 ) : IllegalStateException(message, cause)
 
-class MinecraftCryptographyException(
+open class MinecraftKeyExchangeException(
     message: String,
     cause: Throwable? = null,
-) : MinecraftKeyExchangeException(message, cause)
+) : IllegalStateException(message, cause)
 
 private fun secureRandomBytes(size: Int): ByteArray =
     mapCryptographyFailure(
@@ -291,10 +291,23 @@ internal inline fun <T> mapCryptographyFailure(
     operation()
 } catch (failure: CancellationException) {
     throw failure
-} catch (failure: MinecraftKeyExchangeException) {
+} catch (failure: MinecraftCryptographyException) {
     throw failure
 } catch (failure: Throwable) {
     throw MinecraftCryptographyException(message, failure)
+}
+
+private inline fun <T> mapKeyExchangeFailure(
+    message: String,
+    operation: () -> T,
+): T = try {
+    operation()
+} catch (failure: CancellationException) {
+    throw failure
+} catch (failure: MinecraftKeyExchangeException) {
+    throw failure
+} catch (failure: Throwable) {
+    throw MinecraftKeyExchangeException(message, failure)
 }
 
 private const val VANILLA_VERIFY_TOKEN_BYTES = 4

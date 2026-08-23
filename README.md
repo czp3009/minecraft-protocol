@@ -21,7 +21,7 @@ persistence policy, permissions, and operations remain application responsibilit
 | [`protocol-transport`](protocol-transport/README.md)         | Ktor sockets, framing, compression, and encryption                                |
 | [`protocol-session`](protocol-session/README.md)             | Typed connections, state transitions, and loader profiles                         |
 | [`account-auth`](account-auth/README.md)                     | Microsoft OAuth, Xbox, and Minecraft Services token/entitlement/profile HTTP APIs |
-| [`protocol-auth`](protocol-auth/README.md)                   | Game identities, Session Server HTTP, and Login key exchange                      |
+| [`protocol-auth`](protocol-auth/README.md)                   | Game identities, Login auth, profile keys, and signed chat                        |
 | [`protocol-client`](protocol-client/README.md)               | Play-ready clients plus received registry and semantic Chunk projection           |
 | [`protocol-server`](protocol-server/README.md)               | Connection admission and semantic finite initial Chunk/entity projection          |
 | [`world-format`](world-format/README.md)                     | Semantic Chunk/Entity/palette/coordinate models, Anvil, and world formats         |
@@ -42,8 +42,9 @@ require, so a focused consumer never pulls in unrelated capabilities.
   client/server presets are optional orchestration conveniences.
 - Immutable, composable packet registries for vanilla and modded protocols, with preset Fabric, NeoForge, and Forge
   negotiation profiles.
-- Offline and online Login with Session Server calls and Login key exchange; Microsoft OAuth and Xbox account HTTP APIs
-  are available separately.
+- Offline and online Login with Session Server calls and Login key exchange, plus caller-driven profile-key retrieval,
+  credential verification, and signed-chat chain primitives; Microsoft OAuth and Xbox account HTTP APIs are available
+  separately.
 - Streaming binary NBT and textual SNBT, selected-release level/advancement/statistics models, and
   filesystem-independent Anvil containers, plus Okio-based typed, full-value, and streaming world I/O—including live
   reads of official-server worlds.

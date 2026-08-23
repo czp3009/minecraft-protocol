@@ -22,14 +22,14 @@ successful path and conditional branches; do not derive a state machine from pac
 
 Keep typed dispatch and post-wire state effects in `protocol-session`. Keep client-side negotiation in `protocol-client`
 and server-side negotiation plus the finite initial Play projection in `protocol-server`. Keep identities, Login
-key-exchange primitives, hashes, and Session Server calls in `protocol-auth`; this skill owns only when the protocol
-invokes them. Launcher-side Microsoft/Xbox/Minecraft Services calls belong to independent `account-auth` and are outside
-the connection lifecycle.
+key-exchange primitives, hashes, Session Server calls, caller-driven profile-key calls, and signed-chat primitives in
+`protocol-auth`; this skill owns only when the protocol invokes them. Launcher-side Microsoft/Xbox access-token calls
+belong to independent `account-auth` and are outside the connection lifecycle.
 
-Keep `protocol-auth` direct APIs on Kotlin standard types and module-owned serializable request/response models. Its
-`protocol-model` profile and Login packet adapters are optional extensions, `compileOnly` on JVM and Android and `api`
-on Native and web where Kotlin multiplatform cannot express `compileOnly`. Client/server orchestration may use them
-because those modules already supply `protocol-model`, but direct authentication paths never invoke them.
+`protocol-auth` directly uses `protocol-model` packet and shared wire types where they are its natural public contract;
+that dependency is `api`. Keep reconstructed signature bodies, chain links, Brigadier-derived signable arguments, parsed
+key material, HTTP request/response models, cryptographic results, and chain state owned by `protocol-auth`, and do not
+duplicate protocol models solely to conceal the dependency.
 
 Apply state transitions and compression/encryption activation only at the official wire boundary and only after the
 triggering read or write completes successfully. Reject unexpected direction, state, duplicate data, invalid peer
@@ -52,8 +52,9 @@ Use the smallest applicable prefix:
 The client suite reaches Play against the matching official server; the server suite exercises the matching official
 headless client. Run focused lower-layer suites first and applicable platform tests after the JVM path is stable.
 
-When Login authentication primitives or Session Server calls changed, run `./gradlew :protocol-auth:jvmTest` before the
-affected flow suites. When framing, compression-envelope, encryption, channels, or sockets changed, run
+When Login authentication, profile-key, signed-chat primitives, or Session Server calls changed, run
+`./gradlew :protocol-auth:jvmTest` before the affected flow suites. When framing, compression-envelope, encryption,
+channels, or sockets changed, run
 `./gradlew :protocol-transport:jvmTest :protocol-session:jvmTest` before client/server interoperability.
 
 Report the official producer/consumer paths inspected, lifecycle branches changed, activation timing decisions,

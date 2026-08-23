@@ -1,6 +1,12 @@
 package com.hiczp.minecraft.protocol.auth
 
 internal interface MinecraftRsaPrivateKey
+internal interface MinecraftRsaPublicKey
+
+internal enum class MinecraftRsaSignatureAlgorithm {
+    SHA1,
+    SHA256,
+}
 
 internal class MinecraftRsaKeyPair(
     publicKey: ByteArray,
@@ -25,10 +31,26 @@ internal interface MinecraftRsaBackend {
         encodedPrivateKey: ByteArray,
     ): MinecraftRsaPrivateKey
 
+    fun decodePublicKey(
+        encodedPublicKey: ByteArray,
+        signatureAlgorithm: MinecraftRsaSignatureAlgorithm,
+    ): MinecraftRsaPublicKey
+
     fun rsaDecrypt(
         privateKey: MinecraftRsaPrivateKey,
         ciphertext: ByteArray,
     ): ByteArray
+
+    fun rsaSha256Sign(
+        privateKey: MinecraftRsaPrivateKey,
+        payload: ByteArray,
+    ): ByteArray
+
+    fun rsaVerify(
+        publicKey: MinecraftRsaPublicKey,
+        payload: ByteArray,
+        signature: ByteArray,
+    ): Boolean
 }
 
 internal expect object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
@@ -43,8 +65,24 @@ internal expect object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
         encodedPrivateKey: ByteArray,
     ): MinecraftRsaPrivateKey
 
+    override fun decodePublicKey(
+        encodedPublicKey: ByteArray,
+        signatureAlgorithm: MinecraftRsaSignatureAlgorithm,
+    ): MinecraftRsaPublicKey
+
     override fun rsaDecrypt(
         privateKey: MinecraftRsaPrivateKey,
         ciphertext: ByteArray,
     ): ByteArray
+
+    override fun rsaSha256Sign(
+        privateKey: MinecraftRsaPrivateKey,
+        payload: ByteArray,
+    ): ByteArray
+
+    override fun rsaVerify(
+        publicKey: MinecraftRsaPublicKey,
+        payload: ByteArray,
+        signature: ByteArray,
+    ): Boolean
 }
