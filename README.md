@@ -11,21 +11,21 @@ persistence policy, permissions, and operations remain application responsibilit
 
 ## Modules
 
-| Module                                                       | Purpose                                                                           |
-|--------------------------------------------------------------|-----------------------------------------------------------------------------------|
-| [`nbt`](nbt/README.md)                                       | Format-independent NBT values and logical serializers                             |
-| [`nbt-serialization`](nbt-serialization/README.md)           | Binary NBT, SNBT, and NBT tree conversion through `kotlinx.serialization`         |
-| [`protocol-model`](protocol-model/README.md)                 | Format-independent packet payloads and shared protocol values                     |
-| [`protocol-serialization`](protocol-serialization/README.md) | Minecraft wire encodings and composable packet registries                         |
-| [`protocol-vanilla-data`](protocol-vanilla-data/README.md)   | Version-matched Known Packs, registries, tags, and vanilla catalogues             |
-| [`protocol-transport`](protocol-transport/README.md)         | Ktor sockets, framing, compression, and encryption                                |
-| [`protocol-session`](protocol-session/README.md)             | Typed connections, state transitions, and loader profiles                         |
-| [`account-auth`](account-auth/README.md)                     | Microsoft OAuth, Xbox, and Minecraft Services token/entitlement/profile HTTP APIs |
-| [`protocol-auth`](protocol-auth/README.md)                   | Game identities, Login auth, profile keys, and signed chat                        |
-| [`protocol-client`](protocol-client/README.md)               | Play-ready clients plus received registry and semantic Chunk projection           |
-| [`protocol-server`](protocol-server/README.md)               | Connection admission and semantic finite initial Chunk/entity projection          |
-| [`world-format`](world-format/README.md)                     | Semantic Chunk/Entity/palette/coordinate models, Anvil, and world formats         |
-| [`world-io`](world-io/README.md)                             | Logical map/Entity Regions, standalone files, and filesystem-backed world I/O     |
+| Module                                                       | Purpose                                                                       |
+|--------------------------------------------------------------|-------------------------------------------------------------------------------|
+| [`nbt`](nbt/README.md)                                       | Format-independent NBT values and logical serializers                         |
+| [`nbt-serialization`](nbt-serialization/README.md)           | Binary NBT, SNBT, and NBT tree conversion through `kotlinx.serialization`     |
+| [`protocol-model`](protocol-model/README.md)                 | Format-independent packet payloads and shared protocol values                 |
+| [`protocol-serialization`](protocol-serialization/README.md) | Minecraft wire encodings and composable packet registries                     |
+| [`protocol-vanilla-data`](protocol-vanilla-data/README.md)   | Version-matched Known Packs, registries, tags, and vanilla catalogues         |
+| [`protocol-transport`](protocol-transport/README.md)         | Ktor sockets, framing, compression, and encryption                            |
+| [`protocol-session`](protocol-session/README.md)             | Typed connections, state transitions, and loader profiles                     |
+| [`account-auth`](account-auth/README.md)                     | Launcher OAuth, Xbox, Minecraft token, entitlement, and profile HTTP APIs     |
+| [`protocol-auth`](protocol-auth/README.md)                   | Game auth, profiles, user/social services, profile keys, and signed chat      |
+| [`protocol-client`](protocol-client/README.md)               | Play-ready clients plus received registry and semantic Chunk projection       |
+| [`protocol-server`](protocol-server/README.md)               | Connection admission and semantic finite initial Chunk/entity projection      |
+| [`world-format`](world-format/README.md)                     | Semantic Chunk/Entity/palette/coordinate models, Anvil, and world formats     |
+| [`world-io`](world-io/README.md)                             | Logical map/Entity Regions, standalone files, and filesystem-backed world I/O |
 
 The project is fully modular: depend on exactly the modules you need. Higher layers reuse the lower layers their APIs
 require, so a focused consumer never pulls in unrelated capabilities.

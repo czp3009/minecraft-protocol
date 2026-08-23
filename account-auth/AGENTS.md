@@ -1,6 +1,6 @@
 # account-auth
 
-This module owns the caller-driven public-client HTTP flow from Microsoft OAuth through Xbox User authentication, XSTS,
+This module owns the caller-driven launcher HTTP flow from Microsoft OAuth through Xbox User authentication, XSTS,
 Minecraft Services access tokens, Java entitlements, and the Java profile. Each public API method performs at most one
 endpoint request. It never runs a complete login, polling loop, retry, refresh, callback listener, browser, credential
 store, or recovery policy. It does not receive, parse, or validate OAuth callbacks. Pure stateless value tools such as

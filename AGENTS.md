@@ -22,10 +22,11 @@ Published runtime code is divided by responsibility:
 - `protocol-vanilla-data` owns generated, version-matched protocol data.
 - `protocol-transport` owns Ktor sockets, framing, the compression envelope, and encryption.
 - `protocol-session` owns typed dispatch, packet direction, and protocol-state transitions.
-- `account-auth` owns caller-driven Microsoft OAuth, Xbox authentication, Minecraft Services access-token, entitlement,
-  and Java-profile HTTP calls.
-- `protocol-auth` owns offline/online identities, Session Server and profile-key HTTP calls, hashes, Login key exchange,
-  profile-key credential verification, and player chat signatures/chains.
+- `account-auth` owns launcher-driven Microsoft OAuth, Xbox authentication, Minecraft Services access-token,
+  entitlement, and Java-profile HTTP calls.
+- `protocol-auth` owns offline/online identities; Session Server, profile lookup, profile-key, game-user attribute,
+  block-list, Friends, and Presence HTTP calls; hashes; Login key exchange; profile-key credential verification; and
+  player chat signatures/chains.
 - `protocol-client` and `protocol-server` own connection orchestration through Play. The server can project a finite
   initial chunk/entity view; it does not implement gameplay.
 - `world-format` owns selected-release standalone structured world-file models plus filesystem-independent Anvil

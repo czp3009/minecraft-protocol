@@ -1,9 +1,11 @@
 # protocol-auth
 
-Authentication capabilities used by a Minecraft game client or server during connection setup and signed Play chat:
+Authentication and account-backed capabilities used by a Minecraft game client or server at runtime:
 
 - sealed online and offline identities;
-- Minecraft Session Server `/join` and `/hasJoined` calls;
+- Minecraft Session Server `/join`, `/hasJoined`, and profile calls;
+- unauthenticated Java profile lookup by name;
+- Minecraft Services user attributes, block list, Friends, and Presence calls;
 - the signed SHA-1 server hash;
 - Minecraft Login RSA challenge/response and shared-secret generation;
 - Minecraft Services `/player/certificates` and `/publickeys` calls;
@@ -75,6 +77,26 @@ sessions.join(onlineIdentity, serverHash)
 `hasJoined` returns `null` for the documented `204 No Content` unverified-player response and otherwise decodes the
 profile response directly. Other HTTP failures throw `MinecraftSessionResponseException`, which exposes the raw body and
 the decoded service error.
+
+`fetchProfile` retrieves a public Session Server profile and maps the official `requireSecure` argument to the
+`unsigned` query parameter:
+
+```kotlin
+val profile = sessions.fetchProfile(profileId, requireSecure = true)?.toGameProfile()
+```
+
+## Profiles and game-user services
+
+`MinecraftProfileLookupApi` performs unauthenticated single-name or explicit bulk profile lookups. A bulk call performs
+one request; the caller owns batching and retry policy.
+
+`MinecraftUserApi` uses a Minecraft access token to retrieve user privileges, bans, chat and friend preferences, and the
+privacy block list. It also exposes the official attribute update request used for friend and profanity-filter
+preferences.
+
+`MinecraftFriendsApi` retrieves and updates friends and submits the local Presence status. Conditional friend and
+Presence calls return `MinecraftConditionalResponse`, which preserves `304 Not Modified`, `ETag`, and `Retry-After` for
+caller-owned polling and cache policy. None of these APIs starts a poller or retains a cache.
 
 ## Profile keys
 

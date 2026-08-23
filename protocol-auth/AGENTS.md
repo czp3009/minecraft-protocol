@@ -1,10 +1,11 @@
 # protocol-auth
 
-This module owns offline and online game identities, Session Server HTTP calls, Minecraft Services profile-key and
-service-public-key HTTP calls, Minecraft's signed SHA-1 server hash, online-mode Login key exchange, profile-key
-credential verification, and player chat signatures/chains. Microsoft OAuth, Xbox authentication, Minecraft Services
-access-token acquisition, entitlements, and Java profiles belong to `account-auth`; neither module depends on the other.
-A caller may pass the access token produced by `account-auth` without creating a module dependency.
+This module owns offline and online game identities; Session Server, profile lookup, profile-key, game-user attribute,
+block-list, Friends, and Presence HTTP calls used by a Minecraft game client or server; Minecraft's signed SHA-1 server
+hash; online-mode Login key exchange; profile-key credential verification; and player chat signatures/chains. Launcher
+Microsoft OAuth, Xbox authentication, Minecraft Services access-token acquisition, entitlements, and Java profiles
+belong to `account-auth`; neither module depends on the other. A caller may pass the access token produced by
+`account-auth` without creating a module dependency.
 
 Offline identity and server-hash composition remain common Kotlin, while maintained libraries supply MD5/SHA-1,
 constant-time comparison, signed big-integer conversion, secure randomness, and RSA. Session HTTP uses a caller-owned
@@ -30,8 +31,8 @@ signable arguments, opaque parsed key material, cryptographic results, HTTP wire
 Do not mark signing-only logical values serializable without an independent serialization contract. Exercise direct
 byte/key paths and packet conveniences in module tests.
 
-Session Server and profile-key request, success-response, and error-response wire models are public `@Serializable`
-data classes named `*Request` and `*Response`; nested JSON objects are nested classes of their owning response.
+HTTP request, success-response, and error-response wire models are public `@Serializable` data classes named `*Request`
+and `*Response`; nested JSON objects are nested classes of their owning response.
 Serialize and deserialize those wire types directly with kotlinx.serialization, including query parameters through the
 Properties format. Do not manually parse structured HTTP fields, prevalidate server-produced values, or catch text,
 serialization, UUID, timestamp, Base64, or other decoding failures. Explicit post-decode adapters to key and protocol

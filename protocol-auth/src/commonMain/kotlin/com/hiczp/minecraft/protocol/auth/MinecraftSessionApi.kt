@@ -54,6 +54,25 @@ class MinecraftSessionApi(
             else -> throw response.failure()
         }
     }
+
+    suspend fun fetchProfile(
+        profileId: String,
+        request: MinecraftSessionProfileRequest,
+    ): MinecraftSessionProfileResponse? {
+        val endpoint = URLBuilder(MINECRAFT_SESSION_PROFILE_ENDPOINT).apply {
+            appendPathSegments(profileId)
+            parameters.appendAll(Properties.encodeToStringMap(request))
+        }.build()
+        val response = httpClient.get(endpoint) {
+            expectSuccess = false
+            accept(ContentType.Application.Json)
+        }
+        return when (response.status) {
+            HttpStatusCode.OK -> SessionJson.decodeFromString(response.bodyAsText())
+            HttpStatusCode.NoContent -> null
+            else -> throw response.failure()
+        }
+    }
 }
 
 @Serializable
@@ -68,6 +87,11 @@ data class MinecraftSessionHasJoinedRequest(
     val username: String,
     val serverId: String,
     val ip: String? = null,
+)
+
+@Serializable
+data class MinecraftSessionProfileRequest(
+    val unsigned: Boolean,
 )
 
 @Serializable
@@ -95,6 +119,26 @@ data class MinecraftSessionErrorResponse(
     val error: String? = null,
     val errorMessage: String? = null,
 )
+
+@Serializable
+data class MinecraftSessionProfileResponse(
+    val id: String,
+    val name: String,
+    val properties: List<Property>? = null,
+    val profileActions: List<ProfileAction>? = null,
+) {
+    @Serializable
+    data class Property(
+        val name: String,
+        val value: String,
+        val signature: String? = null,
+    )
+
+    @Serializable
+    data class ProfileAction(
+        val type: String,
+    )
+}
 
 open class MinecraftSessionResponseException(
     response: HttpResponse,
@@ -135,11 +179,31 @@ suspend fun MinecraftSessionApi.hasJoined(
     ),
 )
 
+suspend fun MinecraftSessionApi.fetchProfile(
+    profileId: Uuid,
+    requireSecure: Boolean,
+): MinecraftSessionProfileResponse? = fetchProfile(
+    profileId = profileId.toHexString(),
+    request = MinecraftSessionProfileRequest(unsigned = !requireSecure),
+)
+
 fun MinecraftSessionHasJoinedResponse.toGameProfile(
     username: String,
 ): GameProfile = GameProfile(
     id = Uuid.parse(id),
     name = username,
+    properties = properties.orEmpty().map { property ->
+        ProfileProperty(
+            name = property.name,
+            value = property.value,
+            signature = property.signature,
+        )
+    },
+)
+
+fun MinecraftSessionProfileResponse.toGameProfile(): GameProfile = GameProfile(
+    id = Uuid.parse(id),
+    name = name,
     properties = properties.orEmpty().map { property ->
         ProfileProperty(
             name = property.name,
@@ -163,3 +227,4 @@ private val SessionJson = Json {
 }
 private val MINECRAFT_SESSION_JOIN_ENDPOINT = Url("https://sessionserver.mojang.com/session/minecraft/join")
 private val MINECRAFT_SESSION_HAS_JOINED_ENDPOINT = Url("https://sessionserver.mojang.com/session/minecraft/hasJoined")
+private val MINECRAFT_SESSION_PROFILE_ENDPOINT = Url("https://sessionserver.mojang.com/session/minecraft/profile/")

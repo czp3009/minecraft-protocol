@@ -1,8 +1,8 @@
 # account-auth
 
-Caller-driven HTTP APIs for obtaining a Minecraft Services access token through Microsoft OAuth and Xbox authentication.
-Every request is explicit: the library does not open a browser, receive OAuth callbacks, poll, wait, retry, refresh, or
-store credentials automatically.
+Caller-driven launcher HTTP APIs for obtaining a Minecraft Services access token through Microsoft OAuth and Xbox
+authentication. Every request is explicit: the library does not open a browser, receive OAuth callbacks, poll, wait,
+retry, refresh, or store credentials automatically.
 
 Create the API objects with a caller-owned Ktor `HttpClient`:
 

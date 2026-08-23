@@ -43,6 +43,24 @@ class MinecraftSessionApiTest {
                     },
                 )
 
+                "/session/minecraft/profile/b50ad385829d3141a2167e7d7539ba7f" -> respondSessionJson(
+                    buildJsonObject {
+                        put("id", "b50ad385829d3141a2167e7d7539ba7f")
+                        put("name", "Notch")
+                        put(
+                            "properties",
+                            buildJsonArray {
+                                add(
+                                    buildJsonObject {
+                                        put("name", "textures")
+                                        put("value", "profile-texture-value")
+                                    },
+                                )
+                            },
+                        )
+                    },
+                )
+
                 else -> error("Unexpected request ${request.url}")
             }
         }
@@ -71,6 +89,17 @@ class MinecraftSessionApiTest {
             assertEquals("texture-signature", joined.properties?.single()?.signature)
             assertEquals("FUTURE_ACTION", joined.profileActions?.single()?.type)
             assertEquals(profileId, joined.toGameProfile("Notch").id)
+
+            val profile = assertNotNull(
+                api.fetchProfile(
+                    profileId = profileId.toHexString(),
+                    request = MinecraftSessionProfileRequest(unsigned = false),
+                ),
+            )
+            assertEquals("Notch", profile.name)
+            assertEquals("profile-texture-value", profile.properties?.single()?.value)
+            assertNull(profile.properties?.single()?.signature)
+            assertEquals(profileId, profile.toGameProfile().id)
         }
 
         assertEquals(HttpMethod.Post, requests[0].method)
@@ -86,6 +115,8 @@ class MinecraftSessionApiTest {
         assertEquals("Notch", requests[1].url.parameters["username"])
         assertEquals("-server-hash", requests[1].url.parameters["serverId"])
         assertEquals("127.0.0.1", requests[1].url.parameters["ip"])
+        assertEquals(HttpMethod.Get, requests[2].method)
+        assertEquals("false", requests[2].url.parameters["unsigned"])
     }
 
     @Test
@@ -110,11 +141,14 @@ class MinecraftSessionApiTest {
                     serverId = MinecraftServerHash("server-hash"),
                 ),
             )
+            assertNull(api.fetchProfile(identity.id, requireSecure = true))
         }
 
         assertEquals("Player", requests[1].url.parameters["username"])
         assertEquals("server-hash", requests[1].url.parameters["serverId"])
         assertNull(requests[1].url.parameters["ip"])
+        assertEquals(identityProfilePath("Player"), requests[2].url.encodedPath)
+        assertEquals("false", requests[2].url.parameters["unsigned"])
     }
 
     @Test
@@ -254,6 +288,12 @@ class MinecraftSessionApiTest {
                     MinecraftSessionHasJoinedRequest("Player", "hash"),
                 )
             }
+            assertFailsWith<SerializationException> {
+                MinecraftSessionApi(client).fetchProfile(
+                    profileId = "b50ad385829d3141a2167e7d7539ba7f",
+                    request = MinecraftSessionProfileRequest(unsigned = true),
+                )
+            }
         }
 
         HttpClient(
@@ -299,3 +339,6 @@ private fun MockRequestHandleScope.respondSessionJson(
 )
 
 private class ExpectedSessionTransportFailure : RuntimeException()
+
+private fun identityProfilePath(name: String): String =
+    "/session/minecraft/profile/${MinecraftOfflineIdentity.minecraftOfflineUuid(name).toHexString()}"
