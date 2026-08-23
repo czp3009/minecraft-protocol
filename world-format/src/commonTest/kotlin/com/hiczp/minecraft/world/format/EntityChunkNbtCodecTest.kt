@@ -32,12 +32,13 @@ class EntityChunkNbtCodecTest {
             rotation = EntityRotation(90.0f, -10.0f),
             passengers = listOf(passenger),
         )
-        val entityChunk = EntityChunk(EXPECTED_DATA_VERSION, listOf(root))
+        val entityChunk = EntityChunk(position, EXPECTED_DATA_VERSION, listOf(root))
 
-        val document = entityChunk.toNbtDocument(position, codec)
+        val document = entityChunk.toNbtDocument(codec)
         assertEquals(NbtIntArray(intArrayOf(position.x, position.z)), document.root["Position"])
-        val decoded = document.toEntityChunk(position, codec)
+        val decoded = document.toEntityChunk(codec)
 
+        assertEquals(position, decoded.position)
         assertEquals(2, decoded.entityCount)
         val decodedRoot = decoded.entity(root.uuid)
         assertNotNull(decodedRoot)
@@ -50,8 +51,8 @@ class EntityChunkNbtCodecTest {
         assertEquals(BlockPosition(-18, 64, 48), decodedRoot.blockPosition)
         assertEquals(position, decodedRoot.chunkPosition)
 
-        val compressed = decoded.toCompressedChunk(position, codec, Compression.NONE)
-        assertEquals(decoded.entityCount, compressed.toEntityChunk(position, codec).entityCount)
+        val compressed = decoded.toCompressedChunk(codec, Compression.NONE)
+        assertEquals(decoded.entityCount, compressed.toEntityChunk(codec).entityCount)
     }
 
     @Test
@@ -59,8 +60,8 @@ class EntityChunkNbtCodecTest {
         val entityData = NbtEntityDataRegistry()
         val codec = EntityChunkNbtCodec(EXPECTED_DATA_VERSION, entityData)
         val position = ChunkPosition(1, 2)
-        val entityChunk = EntityChunk<NbtCompound>(EXPECTED_DATA_VERSION)
-        val document = codec.encodeDocument(entityChunk, position)
+        val entityChunk = EntityChunk<NbtCompound>(position, EXPECTED_DATA_VERSION)
+        val document = codec.encodeDocument(entityChunk)
 
         assertFailsWith<EntityChunkNbtFormatException> {
             codec.decodeDocument(document, ChunkPosition(2, 1))
@@ -72,10 +73,12 @@ class EntityChunkNbtCodecTest {
             type = "minecraft:pig",
             uuid = Uuid.NIL,
             data = NbtCompound(mapOf("Pos" to NbtString("collision"))),
-            position = EntityVector3d.ZERO,
+            position = EntityVector3d(0.5, 64.0, 0.5),
         )
+        val invalidChunk = EntityChunk(ChunkPosition(0, 0), EXPECTED_DATA_VERSION, listOf(invalid))
+        invalid.position = EntityVector3d(16.5, 64.0, 0.5)
         assertFailsWith<EntityChunkNbtFormatException> {
-            codec.encodeDocument(EntityChunk(EXPECTED_DATA_VERSION, listOf(invalid)), ChunkPosition(0, 0))
+            codec.encodeDocument(invalidChunk)
         }
     }
 
@@ -98,7 +101,7 @@ class EntityChunkNbtCodecTest {
         )
 
         val decoded = codec.decodeDocument(
-            codec.encodeDocument(EntityChunk(EXPECTED_DATA_VERSION, listOf(entity)), position),
+            codec.encodeDocument(EntityChunk(position, EXPECTED_DATA_VERSION, listOf(entity))),
             position,
         )
 
@@ -113,7 +116,7 @@ class EntityChunkNbtCodecTest {
             data = NbtCompound(emptyMap()),
             position = EntityVector3d(1.0, 64.0, 1.0),
         )
-        val entityChunk = EntityChunk(EXPECTED_DATA_VERSION, listOf(entity))
+        val entityChunk = EntityChunk(ChunkPosition(0, 0), EXPECTED_DATA_VERSION, listOf(entity))
 
         assertEquals(listOf(entity), entityChunk.entitiesIn(ChunkPosition(0, 0)).toList())
         assertEquals(SectionPosition(0, 4, 0), entity.sectionPosition)

@@ -30,7 +30,7 @@ fun MinecraftClientConnection.chunkDataRegistries(
     registries.toChunkDataRegistries(defaultBlock, defaultBiome)
 
 /**
- * Stateless decoding of clientbound Chunk packets into positionless strong world Chunks.
+ * Stateless decoding of clientbound Chunk packets into positioned strong world Chunks.
  *
  * The packet does not carry a world data version, generation status, inhabited time, or other persistence-only fields;
  * [metadata] supplies those values. Packet heightmaps, block entities, and light replace the corresponding template
@@ -62,7 +62,7 @@ class MinecraftChunkPacketDecoder(
         }
     }
 
-    /** Decodes one packet. Its x/z coordinates remain available as [ChunkDataAndUpdateLightPacket.chunkPosition]. */
+    /** Decodes one packet while retaining its x/z coordinates in the resulting Chunk. */
     fun decode(packet: ChunkDataAndUpdateLightPacket): Chunk<ProtocolBlockState, ProtocolRegistryEntry> {
         require(packet.chunkData.sections.size == layout.sectionCount) {
             "Chunk packet has ${packet.chunkData.sections.size} Sections, expected ${layout.sectionCount}"
@@ -127,10 +127,13 @@ class MinecraftChunkPacketDecoder(
             lightOnlySections = lightOnlySections,
         )
         return Chunk(
+            position = packet.chunkPosition,
             metadata = decodedMetadata,
             layout = layout,
             sections = sections,
-            blockEntities = packet.chunkData.blockEntities.map { info -> decodeBlockEntity(info) },
+            blockEntities = packet.chunkData.blockEntities.map { info ->
+                decodeBlockEntity(packet.chunkPosition, info)
+            },
             defaultBlockState = chunkDataRegistries.blockStates.defaultValue,
             defaultBiome = chunkDataRegistries.biomes.defaultValue,
         )
@@ -218,7 +221,7 @@ class MinecraftChunkPacketDecoder(
         return result
     }
 
-    private fun decodeBlockEntity(info: BlockEntityInfo): BlockEntity {
+    private fun decodeBlockEntity(chunkPosition: ChunkPosition, info: BlockEntityInfo): BlockEntity {
         val type = registries.requireRegistry(BLOCK_ENTITY_TYPE_REGISTRY)[info.typeId]
             ?: throw IllegalArgumentException("Block-entity type registry ID ${info.typeId} has no installed entry")
         val values = linkedMapOf<String, NbtTag>()
@@ -227,7 +230,7 @@ class MinecraftChunkPacketDecoder(
         }
         return BlockEntity(
             type = type.id.value,
-            position = ChunkBlockPosition(info.localX, info.y.toInt(), info.localZ),
+            position = chunkPosition.block(ChunkBlockPosition(info.localX, info.y.toInt(), info.localZ)),
             persistentData = NbtCompound(values),
         )
     }
@@ -250,7 +253,7 @@ class MinecraftChunkPacketDecoder(
     }
 }
 
-/** Absolute world Chunk coordinates carried outside the positionless decoded [Chunk]. */
+/** Absolute world Chunk coordinates carried by this packet. */
 val ChunkDataAndUpdateLightPacket.chunkPosition: ChunkPosition
     get() = ChunkPosition(chunkX, chunkZ)
 

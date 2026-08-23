@@ -48,6 +48,7 @@ class RegionBatchIoTest {
 
             store.withReadScope {
                 escapedRead = this
+                assertEquals(regionPosition, position)
                 assertEquals(listOf(firstPosition, externalPosition), localChunkPositions.toList())
                 assertEquals(listOf(firstAbsolute, externalAbsolute), chunkPositions.toList())
                 assertContentEquals(first, readCompressedChunk(firstAbsolute).bytesOrNull())
@@ -62,6 +63,7 @@ class RegionBatchIoTest {
             fileSystem.headerWrites = 0
             store.replaceRegion {
                 escapedWrite = this
+                assertEquals(regionPosition, position)
                 writeCompressedChunk(
                     replacementAbsolute,
                     Compression.GZIP,

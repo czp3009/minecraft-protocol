@@ -16,12 +16,11 @@ The detached representations form a discoverable path from stored content to sem
 ```kotlin
 fun <B : Any, M : Any> decodeStoredChunk(
     compressedChunk: CompressedChunk,
-    chunkPosition: ChunkPosition,
     chunkNbtCodec: ChunkNbtCodec<B, M>,
     compressedNbtFormat: CompressedNbtFormat = CompressedNbtFormat(),
 ): Chunk<B, M> {
     val nbtDocument = compressedChunk.toNbtDocument(compressedNbtFormat)
-    val chunk = nbtDocument.toChunk(chunkPosition, chunkNbtCodec)
+    val chunk = nbtDocument.toChunk(chunkNbtCodec)
     return chunk
 }
 ```
@@ -31,14 +30,14 @@ tag tree. `Chunk<B, M>` is the selected-release semantic projection whose Sectio
 palette IDs and resolved palette entries through the codec's registries. The semantic value is still palette-backed;
 indexed block access resolves an entry without allocating a dense block list.
 
-The content values are deliberately positionless, so the final conversion receives `chunkPosition` and validates it
-against the NBT fields. The conversion functions are extensions in `world-format`: this keeps the lower-level `nbt`
-module independent while still exposing `toNbtDocument()`, `toChunk()`, and the direct downward shortcuts through IDE
-completion. Format- and codec-oriented methods remain available as the canonical streaming implementation.
+`CompressedChunk` does not parse a position, while the generic NBT tree retains `xPos`/`zPos` and the final semantic
+`Chunk` exposes them as `position`. A decoder reading a known Region slot may additionally pass its expected
+`ChunkPosition`; that overload validates the slot against the NBT root. The conversion functions are extensions in
+`world-format`, keeping the lower-level `nbt` module independent while exposing the full path through IDE completion.
 
 ## Decode a semantic Chunk
 
-`ChunkNbtCodec` converts decompressed unnamed-root Chunk NBT into a positionless `Chunk<B, M>`. The caller supplies the
+`ChunkNbtCodec` converts decompressed unnamed-root Chunk NBT into a positioned `Chunk<B, M>`. The caller supplies the
 dimension layout, expected data version, and bidirectional block-state and biome registries.
 
 `ChunkLayout` has no repository-version default because minimum Y and height belong to a dimension type, not to the
@@ -67,7 +66,7 @@ fun decodeBlockStateDescriptor(
     )
     val chunkNbtCodec = ChunkNbtCodec(chunkNbtContext)
     val chunk = chunkNbtCodec.decodeFromSource(nbtSource, chunkPosition)
-    val blockStateDescriptor = chunk.block(chunkPosition, blockPosition)
+    val blockStateDescriptor = chunk.block(blockPosition)
     return blockStateDescriptor
 }
 ```
@@ -77,16 +76,15 @@ their persistent names. An application that needs richer runtime values implemen
 `BiomeRegistry<M>` around vanilla data, mod data, or a combined catalogue. The application may depend on
 `protocol-vanilla-data`, but `world-format` does not acquire a reverse dependency on it.
 
-Encoding uses the same explicit position because the semantic Chunk does not store its parent coordinate:
+Encoding uses the position retained by the semantic Chunk:
 
 ```kotlin
 fun <B : Any, M : Any> encodeChunk(
     chunk: Chunk<B, M>,
-    chunkPosition: ChunkPosition,
     chunkNbtCodec: ChunkNbtCodec<B, M>,
     nbtSink: Sink,
 ) {
-    chunkNbtCodec.encodeToSink(chunk, chunkPosition, nbtSink)
+    chunkNbtCodec.encodeToSink(chunk, nbtSink)
 }
 ```
 
@@ -98,20 +96,19 @@ required.
 
 ## Decode an Entity Chunk
 
-Entity storage uses the same positionless conversion chain. `EntityChunkNbtCodec` validates the selected data version
-and caller-supplied absolute Chunk position, then produces an `EntityChunk` containing mutable detached `Entity`
+Entity storage uses the same positioned conversion chain. `EntityChunkNbtCodec` retains the NBT root `Position`, may
+validate it against a caller-supplied Region slot, and produces an `EntityChunk` containing mutable detached `Entity`
 instances:
 
 ```kotlin
 fun decodeEntityChunk(
     compressedChunk: CompressedChunk,
-    chunkPosition: ChunkPosition,
     expectedDataVersion: Int,
 ): EntityChunk<NbtCompound> {
     val entityDataRegistry = NbtEntityDataRegistry()
     val entityChunkNbtCodec = EntityChunkNbtCodec(expectedDataVersion, entityDataRegistry)
     val nbtDocument = compressedChunk.toNbtDocument()
-    val entityChunk = nbtDocument.toEntityChunk(chunkPosition, entityChunkNbtCodec)
+    val entityChunk = nbtDocument.toEntityChunk(entityChunkNbtCodec)
     return entityChunk
 }
 ```
@@ -151,12 +148,12 @@ fun <E : Any> moveEntity(entity: Entity<E>, destination: EntityVector3d): ChunkP
 in load order. `rootEntity`, `entity`, `hasEntity`, `addEntity`, `removeRootEntity`, `removeEntity`, `snapshot`,
 `addPassenger`, and `removePassenger` provide ordinary runtime operations. `entitiesIn(sectionPosition)`,
 `entitiesIn(chunkPosition)`, and `entitiesIn(regionPosition)` query current coordinates without creating an Entity
-Section ownership layer. Root Entity positions are checked against the external Chunk coordinate when decoding and
-encoding. Moving an Entity remains a caller-owned update to `position`; transferring it between loaded Entity Chunks is
+Section ownership layer. Root Entity positions are checked against `EntityChunk.position` when decoding and encoding.
+Moving an Entity remains a caller-owned update to `position`; transferring it between loaded Entity Chunks is
 likewise caller-owned.
 
 When the generic NBT tree is not needed, collapse the same downward path to
-`compressedChunk.toEntityChunk(chunkPosition, entityChunkNbtCodec)`.
+`compressedChunk.toEntityChunk(entityChunkNbtCodec)`.
 
 Use `NbtDocument` directly when even the three-field Entity Chunk root must remain open-ended. The semantic Entity model
 validates the selected-release root and common runtime fields; the selected `EntityDataRegistry` decides which subtype
@@ -164,9 +161,14 @@ fields it recognizes and whether it preserves them losslessly.
 
 ## Coordinates, Sections, and palettes
 
-`MinecraftCoordinates` is the complete coordinate-calculation entry point. Continuous entity/player coordinates are
-floored to the Block that contains them; every later boundary also uses floor semantics, so negative coordinates remain
-correct:
+`MinecraftCoordinates` is the complete coordinate-calculation entry point. The focused coordinate set consists of four
+absolute values (`RegionPosition`, `ChunkPosition`, `SectionPosition`, and
+`BlockPosition`) and three relative values whose owner supplies the missing context (`LocalChunkPosition`,
+`ChunkBlockPosition`, and `LocalBlockPosition`). This is enough to traverse every adjacent boundary in both directions
+without inventing Region-local block/Section types that would duplicate uncommon multi-level combinations.
+
+Continuous entity/player coordinates are floored to the Block that contains them; every later boundary also uses floor
+semantics, so negative coordinates remain correct:
 
 ```kotlin
 fun locatePlayer(playerX: Double, playerY: Double, playerZ: Double): RegionPosition {
@@ -251,12 +253,10 @@ fun chunksAroundPlayer(playerX: Double, playerY: Double, playerZ: Double): Seque
 ```kotlin
 fun inspectPalette(
     chunk: Chunk<BlockStateDescriptor, String>,
-    chunkPosition: ChunkPosition,
     blockPosition: BlockPosition,
 ): BlockStateDescriptor {
-    val blockStateDescriptor = chunk.block(chunkPosition, blockPosition)
-    val sectionPosition = blockPosition.section
-    val chunkSection = chunk.section(chunkPosition, sectionPosition)
+    val blockStateDescriptor = chunk.block(blockPosition)
+    val chunkSection = chunk.section(blockPosition)
     if (chunkSection != null) {
         val paletteSnapshot = chunkSection.blockStates.paletteSnapshot()
         val denseBlockStates = chunkSection.toDenseBlockStates()
@@ -269,18 +269,24 @@ fun inspectPalette(
 Decoding preserves persisted palette order and unused entries. Indexed lookup resolves palette IDs to logical values.
 Ordinary mutation reuses or appends stable IDs. Encoding compacts a snapshot without mutating the runtime container.
 Call `compactSnapshot()` to inspect the compact palette and remapped IDs without mutation, or `compact()` to apply that
-compaction to the in-memory container. `paletteSnapshot()` is a read-only diagnostic; `toDenseBlockStates()` and
-`toDenseBiomes()` are explicit allocating adapters.
+compaction to one `PalettedContainer`. `ChunkSection.compactPalettes()` and `Chunk.compactPalettes()` are the in-place
+conveniences for their complete owned palette sets; the Chunk form visits only Sections already present.
+`paletteSnapshot()` is a read-only diagnostic; `toDenseBlockStates()` and `toDenseBiomes()` are explicit allocating
+adapters. Region values do not own decoded Section palettes and therefore deliberately have no palette-compaction API.
+
+`section(...)` is a nullable, side-effect-free lookup and `hasSection(...)` distinguishes an explicitly present Section.
+Reading a block or biome in an absent Section returns the Chunk's default value without creating anything.
+`getOrCreateSection(...)` is the explicit mutating path; writing a non-default value also creates the required Section.
 
 For runtime mutation, `replaceBlock` and `replaceBiome` return the previous logical value; `setBlock` and `setBiome` are
 the simpler write-only forms. `setSection`, `removeSection`, mutable Section light arrays, and `snapshot()` cover the
 remaining container lifecycle. A write updates only the requested state: it does not implicitly recalculate light,
 heightmaps, scheduled ticks, or Block Entities.
 
-Block Entities are semantic `BlockEntity` values indexed by `ChunkBlockPosition`. `blockEntity`, `hasBlockEntity`,
-`setBlockEntity`, and `removeBlockEntity` have local and absolute-coordinate paths, while `persistentData` retains the
-fields other than the structural `id`/`x`/`y`/`z`. Chunk NBT and packet adapters reconstruct those structural fields at
-their own boundary.
+Block Entities retain their persisted absolute `BlockPosition`. `blockEntity`, `hasBlockEntity`, `setBlockEntity`, and
+`removeBlockEntity` still provide both Chunk-local and absolute-coordinate paths, while `persistentData` retains the
+fields other than the structural `id`/`x`/`y`/`z`. Network adapters convert the absolute position to packet-local X/Z
+only at the wire boundary.
 
 ## Read and write compressed NBT
 

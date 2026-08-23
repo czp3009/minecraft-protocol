@@ -33,7 +33,7 @@ class EntityRegionHandleTest {
                 MinecraftCoordinates.blockCoordinate(chunkPosition.z, 1) + 0.5,
             ),
         )
-        val entityChunk = EntityChunk(EXPECTED_DATA_VERSION, listOf(entity))
+        val entityChunk = EntityChunk(chunkPosition, EXPECTED_DATA_VERSION, listOf(entity))
         val externalBytes = ByteArray(
             REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD * REGION_SECTOR_BYTES - REGION_CHUNK_RECORD_HEADER_BYTES,
         ) { index -> (index * 31).toByte() }
@@ -47,7 +47,7 @@ class EntityRegionHandleTest {
                 MinecraftCoordinates.blockCoordinate(externalPosition.z, 1) + 0.5,
             ),
         )
-        val externalEntityChunk = EntityChunk(EXPECTED_DATA_VERSION, listOf(externalEntity))
+        val externalEntityChunk = EntityChunk(externalPosition, EXPECTED_DATA_VERSION, listOf(externalEntity))
         val removedEntity = Entity(
             type = "minecraft:pig",
             uuid = Uuid.fromLongs(5, 6),
@@ -65,17 +65,15 @@ class EntityRegionHandleTest {
         )
         val entityRegionHandle = EntityRegionHandle(storage.openRegion(regionPosition))
 
-        entityRegionHandle.writeChunk(chunkPosition, entityChunk, codec, Compression.NONE)
-        entityRegionHandle.writeChunk(externalPosition, externalEntityChunk, codec, Compression.NONE)
+        entityRegionHandle.writeChunk(entityChunk, codec, Compression.NONE)
+        entityRegionHandle.writeChunk(externalEntityChunk, codec, Compression.NONE)
         entityRegionHandle.writeChunk(
-            removedPosition,
-            EntityChunk(EXPECTED_DATA_VERSION, listOf(removedEntity)),
+            EntityChunk(removedPosition, EXPECTED_DATA_VERSION, listOf(removedEntity)),
             codec,
             Compression.NONE,
         )
         entityRegionHandle.writeChunk(
-            removedPosition,
-            EntityChunk<NbtCompound>(EXPECTED_DATA_VERSION),
+            EntityChunk<NbtCompound>(removedPosition, EXPECTED_DATA_VERSION),
             codec,
             Compression.NONE,
         )
@@ -83,11 +81,14 @@ class EntityRegionHandleTest {
         assertEquals(2, entityRegionHandle.readChunkCount())
         assertTrue(entityRegionHandle.hasChunk(chunkPosition))
         assertFalse(entityRegionHandle.hasChunk(removedPosition))
-        assertEquals(entity.uuid, entityRegionHandle.readChunk(chunkPosition, codec)?.rootEntities?.single()?.uuid)
+        val decodedChunk = assertNotNull(entityRegionHandle.readChunk(chunkPosition, codec))
+        assertEquals(chunkPosition, decodedChunk.position)
+        assertEquals(entity.uuid, decodedChunk.rootEntities.single().uuid)
         val compressedBuffer = Buffer()
         val streamedInfo = assertNotNull(entityRegionHandle.readCompressedChunkTo(chunkPosition, compressedBuffer))
         val streamedChunk = CompressedChunk(streamedInfo.compression, compressedBuffer.readByteArray())
             .toEntityChunk(chunkPosition, codec)
+        assertEquals(chunkPosition, streamedChunk.position)
         assertEquals(entity.uuid, streamedChunk.rootEntities.single().uuid)
         assertEquals(
             setOf(chunkPosition.local, externalPosition.local),
@@ -102,7 +103,9 @@ class EntityRegionHandleTest {
         val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(worldRoot, fileSystem)
         assertEquals(listOf(regionPosition), liveMinecraftWorldAccess.listEntityRegionPositions())
         val liveEntityRegionHandle = liveMinecraftWorldAccess.openEntityRegion(regionPosition)
-        assertEquals(entity.uuid, liveEntityRegionHandle.readChunk(chunkPosition, codec)?.rootEntities?.single()?.uuid)
+        val liveChunk = assertNotNull(liveEntityRegionHandle.readChunk(chunkPosition, codec))
+        assertEquals(chunkPosition, liveChunk.position)
+        assertEquals(entity.uuid, liveChunk.rootEntities.single().uuid)
         val decodedExternalEntity = liveEntityRegionHandle.readChunk(externalPosition, codec)?.rootEntities?.single()
         assertNotNull(decodedExternalEntity)
         assertEquals(NbtByteArray(externalBytes), decodedExternalEntity.data["test:payload"])

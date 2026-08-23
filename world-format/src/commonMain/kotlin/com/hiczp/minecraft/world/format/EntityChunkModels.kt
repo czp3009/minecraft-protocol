@@ -159,8 +159,9 @@ class Entity<E : Any>(
     )
 }
 
-/** A mutable, positionless, detached Entity Chunk. It deliberately has no Section ownership layer. */
+/** A mutable Entity Chunk at one absolute X/Z position. It deliberately has no Section ownership layer. */
 class EntityChunk<E : Any>(
+    val position: ChunkPosition,
     val dataVersion: Int,
     rootEntities: Collection<Entity<E>> = emptyList(),
 ) {
@@ -169,6 +170,9 @@ class EntityChunk<E : Any>(
     init {
         require(dataVersion >= 0) { "A Minecraft data version must be non-negative" }
         requireUniqueEntityUuids(storedRootEntities)
+        require(storedRootEntities.all { entity -> entity.chunkPosition == position }) {
+            "An Entity Chunk contains a root Entity outside $position"
+        }
     }
 
     val rootEntities: List<Entity<E>>
@@ -205,6 +209,9 @@ class EntityChunk<E : Any>(
         allEntities().filter { entity -> entity.isIn(position) }
 
     fun addEntity(entity: Entity<E>) {
+        require(entity.chunkPosition == position) {
+            "Root Entity ${entity.uuid} belongs to Chunk ${entity.chunkPosition}, expected $position"
+        }
         val existingUuids = allEntities().map { existing -> existing.uuid }.toSet()
         val addedUuids = entity.allEntities().map { added -> added.uuid }.toList()
         require(addedUuids.distinct().size == addedUuids.size) { "An Entity tree contains duplicate UUIDs" }
@@ -226,11 +233,12 @@ class EntityChunk<E : Any>(
     }
 
     /** Creates a detached recursive snapshot while retaining caller-owned subtype values. */
-    fun snapshot(): EntityChunk<E> = EntityChunk(dataVersion, storedRootEntities.map { entity -> entity.snapshot() })
+    fun snapshot(): EntityChunk<E> =
+        EntityChunk(position, dataVersion, storedRootEntities.map { entity -> entity.snapshot() })
 
     /** Creates a detached recursive snapshot and lets the caller copy subtype values. */
     fun snapshot(copyData: (E) -> E): EntityChunk<E> =
-        EntityChunk(dataVersion, storedRootEntities.map { entity -> entity.snapshot(copyData) })
+        EntityChunk(position, dataVersion, storedRootEntities.map { entity -> entity.snapshot(copyData) })
 }
 
 private fun <E : Any> requireUniqueEntityUuids(entities: Collection<Entity<E>>) {

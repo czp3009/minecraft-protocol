@@ -10,7 +10,7 @@ borrows the public channels until return and has no privileged packet path.
 
 The module may depend on filesystem-independent `world-format`. It owns the client-facing adapter from the installed
 `ProtocolRegistryContext` to `ChunkDataRegistries` and the stateless projection of received clientbound Chunk packets
-into positionless semantic `Chunk` values. The negotiation result retains the server-selected initial
+into positioned semantic `Chunk` values. The negotiation result retains the server-selected initial
 `MinecraftDimensionLayout` and exposes its derived `ChunkLayout`; there is no release-wide dimension-layout default. It
 also owns projection of one or more Entity pairing sequences from a bundle or raw packet list into semantic `Entity`
 values and type-based handoff of runtime-only pairing packets through caller-supplied adapters. It never opens world

@@ -27,6 +27,8 @@ class LiveEntityRegionHandle internal constructor(
 
     fun readLocalChunkPositions(): List<LocalChunkPosition> = delegate.readLocalChunkPositions()
 
+    fun readChunkPositions(): List<ChunkPosition> = delegate.readChunkPositions()
+
     fun readChunkInfo(local: LocalChunkPosition): RegionChunkInfo? = delegate.readChunkInfo(local)
 
     fun readChunkInfo(position: ChunkPosition): RegionChunkInfo? = delegate.readChunkInfo(position)

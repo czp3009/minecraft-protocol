@@ -38,6 +38,8 @@ class EntityRegionHandle internal constructor(
 
     suspend fun readLocalChunkPositions(): List<LocalChunkPosition> = delegate.readLocalChunkPositions()
 
+    suspend fun readChunkPositions(): List<ChunkPosition> = delegate.readChunkPositions()
+
     suspend fun hasChunk(local: LocalChunkPosition): Boolean = delegate.hasChunk(local)
 
     suspend fun hasChunk(position: ChunkPosition): Boolean = delegate.hasChunk(position)
@@ -186,27 +188,21 @@ class EntityRegionHandle internal constructor(
         compression: Compression = configuration.writeCompression,
     ) = writeChunkNbt(position, chunkNbtFormat.nbt.serializersModule.serializer(), value, compression)
 
+    /** Writes [chunk] at its retained position after validating Region membership. */
     suspend fun <E : Any> writeChunk(
-        local: LocalChunkPosition,
         chunk: EntityChunk<E>,
         codec: EntityChunkNbtCodec<E>,
         compression: Compression = configuration.writeCompression,
-    ): Unit {
+    ) {
+        val local = position.local(chunk.position)
         if (chunk.isEmpty) {
             delegate.removeChunk(local)
         } else {
             delegate.writeChunkNbt(local, compression) { sink ->
-                codec.encodeToSink(chunk, position.chunk(local), sink)
+                codec.encodeToSink(chunk, sink)
             }
         }
     }
-
-    suspend fun <E : Any> writeChunk(
-        position: ChunkPosition,
-        chunk: EntityChunk<E>,
-        codec: EntityChunkNbtCodec<E>,
-        compression: Compression = configuration.writeCompression,
-    ) = writeChunk(this.position.local(position), chunk, codec, compression)
 
     suspend fun clear() = delegate.clear()
 

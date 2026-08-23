@@ -418,7 +418,7 @@ class OfficialWorldStorageInteropTest {
                 if (index == 0) {
                     val codec = strongChunkCodec(document)
                     val chunk = codec.decodeDocument(document, probe.position)
-                    documents[probe.position] = codec.encodeDocument(chunk, probe.position)
+                    documents[probe.position] = codec.encodeDocument(chunk)
                     writingStore.writeChunk(probe.position, chunk, codec, probe.compression)
                 } else {
                     writingStore.writeChunkNbtDocument(

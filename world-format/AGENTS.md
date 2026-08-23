@@ -32,9 +32,11 @@ representation, and NBT composition.
   inverse, coverage range, and coordinate sequence. Convenience properties and functions on `BlockPosition`,
   `SectionPosition`, `ChunkPosition`, and `RegionPosition` delegate to it. Preserve floor semantics for negative
   coordinates and keep higher layers dependent on these canonical conversions rather than duplicating arithmetic.
-- Positionless `Chunk` and `ChunkSection` expose both local block/biome operations and absolute overloads that receive
-  the owning `ChunkPosition` or `SectionPosition`. Absolute overloads validate and convert through the coordinate types,
-  then delegate to the local operation; they never store parent coordinates in the semantic value.
+- Positioned `Chunk` and `EntityChunk` retain the absolute coordinates encoded by their NBT roots. `BlockEntity`
+  retains its persisted absolute `BlockPosition`. `Chunk` exposes local block/biome operations and common absolute
+  overloads that validate against its retained `ChunkPosition`; `ChunkSection` retains only its stored Y coordinate and
+  receives an owning `SectionPosition` when an absolute operation needs X/Z. Every absolute overload converts through
+  the coordinate types and delegates to the local operation.
 - Palette mutation preserves stable IDs by default. `compactSnapshot()` publicly exposes a non-mutating compact view,
   `compact()` explicitly applies it in place, and encoding uses the snapshot path without mutating the semantic Chunk.
   Cross-format adapters use `PalettedContainer.fromPalette` instead of creating a temporary dense value list.

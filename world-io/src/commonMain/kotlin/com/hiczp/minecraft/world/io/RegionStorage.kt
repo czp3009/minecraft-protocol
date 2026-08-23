@@ -117,7 +117,8 @@ internal class RegionStorage internal constructor(
     ): RegionHandle = RegionHandle(this, acquire(position), afterRelease)
 
     /** Reads one complete in-memory snapshot without creating a missing Region file. */
-    suspend fun readAnvilRegion(position: RegionPosition): AnvilRegion? = withRegionState(position, ::readAnvilRegion)
+    suspend fun readAnvilRegion(position: RegionPosition): PositionedAnvilRegion? =
+        withRegionState(position, ::readAnvilRegion)
 
     suspend fun <R> withReadScope(position: RegionPosition, block: RegionReadScope.() -> R): R =
         withRegionState(position) { entry -> withReadScope(entry, block) }
@@ -369,8 +370,8 @@ internal class RegionStorage internal constructor(
         compression: Compression = configuration.writeCompression,
     ) = withRegionState(region) { entry -> writeChunk(entry, local, chunk, codec, compression) }
 
-    internal suspend fun readAnvilRegion(entry: RegionState): AnvilRegion? = withReadAccess(entry) {
-        openedFileForRead(entry)?.readAnvilRegion()
+    internal suspend fun readAnvilRegion(entry: RegionState): PositionedAnvilRegion? = withReadAccess(entry) {
+        openedFileForRead(entry)?.readAnvilRegion()?.let { region -> PositionedAnvilRegion(entry.position, region) }
     }
 
     internal suspend fun <R> withReadScope(
@@ -605,10 +606,13 @@ internal class RegionStorage internal constructor(
     ) {
         files.requireWritable()
         val absolute = entry.position.chunk(local)
+        require(chunk.position == absolute) {
+            "Chunk position ${chunk.position} does not match Region entry $absolute"
+        }
         val compressed = withOkioIoExceptions("Cannot encode chunk $absolute") {
             val bytes = kotlinx.io.Buffer()
             val compressing = chunkNbtFormat.compressionRegistry.compressingSink(compression, bytes).buffered()
-            compressing.use { codec.encodeToSink(chunk, absolute, compressing) }
+            compressing.use { codec.encodeToSink(chunk, compressing) }
             CompressedChunk.readFromSource(bytes, compression)
         }
         entry.fileAccess.write {

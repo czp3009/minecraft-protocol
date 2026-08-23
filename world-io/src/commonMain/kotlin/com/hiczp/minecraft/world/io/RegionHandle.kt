@@ -67,12 +67,17 @@ class RegionHandle internal constructor(
         owner.readLocalChunkPositions(entry)
     }
 
+    /** Reads occupied absolute Chunk positions in Region header order. */
+    suspend fun readChunkPositions(): List<ChunkPosition> = readLocalChunkPositions().map(position::chunk)
+
     /** Whether the Region index contains [local], without reading Chunk record metadata. */
     suspend fun hasChunk(local: LocalChunkPosition): Boolean = withOperation {
         owner.hasChunk(entry, local)
     }
 
     suspend fun hasChunk(position: ChunkPosition): Boolean = hasChunk(local(position))
+
+    suspend fun hasChunk(position: BlockPosition): Boolean = hasChunk(position.chunk)
 
     suspend fun <R> withCompressedChunkSource(
         local: LocalChunkPosition,
@@ -196,6 +201,11 @@ class RegionHandle internal constructor(
         codec: ChunkNbtCodec<B, M>,
     ): Chunk<B, M>? = readChunk(local(position), codec)
 
+    suspend fun <B : Any, M : Any> readChunk(
+        position: BlockPosition,
+        codec: ChunkNbtCodec<B, M>,
+    ): Chunk<B, M>? = readChunk(position.chunk, codec)
+
     suspend fun writeChunkNbtDocument(
         local: LocalChunkPosition,
         document: NbtDocument,
@@ -269,21 +279,14 @@ class RegionHandle internal constructor(
         compression,
     )
 
+    /** Writes [chunk] at its retained position after validating Region membership. */
     suspend fun <B : Any, M : Any> writeChunk(
-        local: LocalChunkPosition,
         chunk: Chunk<B, M>,
         codec: ChunkNbtCodec<B, M>,
         compression: Compression = configuration.writeCompression,
     ) = withOperation {
-        owner.writeChunk(entry, local, chunk, codec, compression)
+        owner.writeChunk(entry, position.local(chunk.position), chunk, codec, compression)
     }
-
-    suspend fun <B : Any, M : Any> writeChunk(
-        position: ChunkPosition,
-        chunk: Chunk<B, M>,
-        codec: ChunkNbtCodec<B, M>,
-        compression: Compression = configuration.writeCompression,
-    ) = writeChunk(local(position), chunk, codec, compression)
 
     suspend inline fun <reified T> writeChunkNbt(
         position: ChunkPosition,

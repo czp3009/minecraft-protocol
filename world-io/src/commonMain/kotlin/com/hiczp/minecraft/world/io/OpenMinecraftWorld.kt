@@ -298,7 +298,7 @@ internal class OpenMinecraftWorld(
         position: RegionPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
-    ): AnvilRegion? = withRegionStorage(storage, dimension) { regionStorage ->
+    ): PositionedAnvilRegion? = withRegionStorage(storage, dimension) { regionStorage ->
         regionStorage.readAnvilRegion(position)
     }
 

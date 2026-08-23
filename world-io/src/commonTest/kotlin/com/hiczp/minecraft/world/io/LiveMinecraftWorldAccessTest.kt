@@ -71,6 +71,11 @@ class LiveMinecraftWorldAccessTest {
             listOf(chunkPosition.local, externalChunkPosition.local),
             liveRegionHandle.readLocalChunkPositions(),
         )
+        assertEquals(
+            listOf(chunkPosition, externalChunkPosition),
+            liveRegionHandle.readChunkPositions(),
+        )
+        assertTrue(liveRegionHandle.hasChunk(chunkPosition.block(ChunkBlockPosition(0, 0, 0))))
         assertEquals(chunkPosition, liveRegionHandle.readChunkInfo(chunkPosition)?.position)
         assertEquals(
             setOf(chunkPosition, externalChunkPosition),

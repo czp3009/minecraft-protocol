@@ -14,7 +14,7 @@ class EntityChunkNbtFormatException(
     cause: Throwable? = null,
 ) : Exception(message, cause)
 
-/** Selected-release conversion between unnamed-root Entity Chunk NBT and a positionless semantic [EntityChunk]. */
+/** Selected-release conversion between unnamed-root Entity Chunk NBT and a positioned semantic [EntityChunk]. */
 class EntityChunkNbtCodec<E : Any>(
     val context: EntityChunkNbtContext<E>,
     val nbt: NbtFormat = NbtFormat(NbtFormatConfiguration(rootEncoding = NbtRootEncoding.UNNAMED)),
@@ -35,14 +35,25 @@ class EntityChunkNbtCodec<E : Any>(
         }
     }
 
+    /** Decodes an Entity Chunk using the position carried by its NBT root. */
+    fun decodeFromSource(source: Source): EntityChunk<E> = decodeDocument(nbt.decodeDocumentFromSource(source))
+
+    /** Decodes an Entity Chunk and validates its NBT position against its Region entry. */
     fun decodeFromSource(source: Source, expectedPosition: ChunkPosition): EntityChunk<E> =
         decodeDocument(nbt.decodeDocumentFromSource(source), expectedPosition)
 
-    fun encodeToSink(chunk: EntityChunk<E>, position: ChunkPosition, sink: Sink) {
-        nbt.encodeDocumentToSink(encodeDocument(chunk, position), sink)
+    fun encodeToSink(chunk: EntityChunk<E>, sink: Sink) {
+        nbt.encodeDocumentToSink(encodeDocument(chunk), sink)
     }
 
-    fun decodeDocument(document: NbtDocument, expectedPosition: ChunkPosition): EntityChunk<E> {
+    /** Decodes an Entity Chunk using the position carried by its NBT root. */
+    fun decodeDocument(document: NbtDocument): EntityChunk<E> = decodeDocumentInternal(document, null)
+
+    /** Decodes an Entity Chunk and validates its NBT position against its Region entry. */
+    fun decodeDocument(document: NbtDocument, expectedPosition: ChunkPosition): EntityChunk<E> =
+        decodeDocumentInternal(document, expectedPosition)
+
+    private fun decodeDocumentInternal(document: NbtDocument, expectedPosition: ChunkPosition?): EntityChunk<E> {
         val root = document.root
         root.requireOnlyKeys(ENTITY_CHUNK_ROOT_FIELDS, "Entity Chunk")
         val dataVersion = root.requireInt(DATA_VERSION, "Entity Chunk")
@@ -52,7 +63,7 @@ class EntityChunkNbtCodec<E : Any>(
             )
         }
         val actualPosition = root.requireChunkPosition(POSITION)
-        if (actualPosition != expectedPosition) {
+        if (expectedPosition != null && actualPosition != expectedPosition) {
             throw EntityChunkNbtFormatException(
                 "Expected Entity Chunk position $expectedPosition, got $actualPosition",
             )
@@ -60,33 +71,33 @@ class EntityChunkNbtCodec<E : Any>(
         val entities = root.requireList(ENTITIES, "Entity Chunk").value.mapIndexed { index, tag ->
             decodeEntity(tag as? NbtCompound ?: wrongEntityType("Entity Chunk entry $index", "TAG_Compound", tag))
         }
-        entities.firstOrNull { entity -> entity.chunkPosition != expectedPosition }?.let { entity ->
+        entities.firstOrNull { entity -> entity.chunkPosition != actualPosition }?.let { entity ->
             throw EntityChunkNbtFormatException(
-                "Root Entity ${entity.uuid} belongs to Chunk ${entity.chunkPosition}, expected $expectedPosition",
+                "Root Entity ${entity.uuid} belongs to Chunk ${entity.chunkPosition}, expected $actualPosition",
             )
         }
         return try {
-            EntityChunk(dataVersion, entities)
+            EntityChunk(actualPosition, dataVersion, entities)
         } catch (failure: IllegalArgumentException) {
             throw EntityChunkNbtFormatException("Invalid Entity Chunk", failure)
         }
     }
 
-    fun encodeDocument(chunk: EntityChunk<E>, position: ChunkPosition): NbtDocument {
+    fun encodeDocument(chunk: EntityChunk<E>): NbtDocument {
         if (chunk.dataVersion != expectedDataVersion) {
             throw EntityChunkNbtFormatException(
                 "Entity Chunk data version ${chunk.dataVersion} does not match $expectedDataVersion",
             )
         }
-        chunk.rootEntities.firstOrNull { entity -> entity.chunkPosition != position }?.let { entity ->
+        chunk.rootEntities.firstOrNull { entity -> entity.chunkPosition != chunk.position }?.let { entity ->
             throw EntityChunkNbtFormatException(
-                "Root Entity ${entity.uuid} belongs to Chunk ${entity.chunkPosition}, expected $position",
+                "Root Entity ${entity.uuid} belongs to Chunk ${entity.chunkPosition}, expected ${chunk.position}",
             )
         }
         val root = linkedMapOf<String, NbtTag>()
         root[DATA_VERSION] = NbtInt(chunk.dataVersion)
         root[ENTITIES] = NbtList(chunk.rootEntities.map(::encodeEntity))
-        root[POSITION] = NbtIntArray(intArrayOf(position.x, position.z))
+        root[POSITION] = NbtIntArray(intArrayOf(chunk.position.x, chunk.position.z))
         return NbtDocument(NbtCompound(root))
     }
 

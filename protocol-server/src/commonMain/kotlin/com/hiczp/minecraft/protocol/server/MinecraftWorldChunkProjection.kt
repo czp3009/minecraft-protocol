@@ -37,10 +37,7 @@ class MinecraftChunkPacketEncoder(
     private val biomeRegistrySize = registries.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY).size
 
     /** Encodes [chunk] directly into the packet accepted by the connection's outgoing channel. */
-    fun encodePacket(
-        chunk: Chunk<ProtocolBlockState, ProtocolRegistryEntry>,
-        position: ChunkPosition,
-    ): ChunkDataAndUpdateLightPacket {
+    fun encodePacket(chunk: Chunk<ProtocolBlockState, ProtocolRegistryEntry>): ChunkDataAndUpdateLightPacket {
         val metadata = chunk.metadata
         val sectionsByY = chunk.sections.associateBy(ChunkSection<ProtocolBlockState, ProtocolRegistryEntry>::sectionY)
         val packetSections = chunk.layout.sectionYRange.map { sectionY ->
@@ -53,22 +50,20 @@ class MinecraftChunkPacketEncoder(
             metadata.lightOnlySections,
         )
         return ChunkDataAndUpdateLightPacket(
-            chunkX = position.x,
-            chunkZ = position.z,
+            chunkX = chunk.position.x,
+            chunkZ = chunk.position.z,
             chunkData = NetworkChunkData(
                 heightmaps = encodeHeightmaps(metadata.heightmaps),
                 sections = packetSections,
-                blockEntities = encodeBlockEntities(position, chunk.blockEntities),
+                blockEntities = encodeBlockEntities(chunk.position, chunk.blockEntities),
             ),
             lightData = packetLight,
         )
     }
 
     /** Encodes [chunk] into the server's initial-world snapshot value. */
-    fun encode(
-        chunk: Chunk<ProtocolBlockState, ProtocolRegistryEntry>,
-        position: ChunkPosition,
-    ): MinecraftChunkSnapshot = encodePacket(chunk, position).toMinecraftChunkSnapshot()
+    fun encode(chunk: Chunk<ProtocolBlockState, ProtocolRegistryEntry>): MinecraftChunkSnapshot =
+        encodePacket(chunk).toMinecraftChunkSnapshot()
 
     private fun encodeSection(
         section: ChunkSection<ProtocolBlockState, ProtocolRegistryEntry>?,
@@ -157,15 +152,16 @@ class MinecraftChunkPacketEncoder(
         if (blockEntities.isEmpty()) return emptyList()
         val blockEntityTypeRegistry = registries.requireRegistry(BLOCK_ENTITY_TYPE_REGISTRY)
         return blockEntities.map { blockEntity ->
+            val localPosition = chunkPosition.local(blockEntity.position)
             val typeId = blockEntityTypeRegistry.entry(Identifier(blockEntity.type))?.rawId
                 ?: throw IllegalArgumentException(
                     "Block entity type ${blockEntity.type} is absent from the active registry",
                 )
-            val compound = blockEntity.persistedData(chunkPosition)
+            val compound = blockEntity.persistedData()
             BlockEntityInfo.fromLocalCoordinates(
-                localX = blockEntity.position.x,
+                localX = localPosition.x,
                 y = blockEntity.position.y,
-                localZ = blockEntity.position.z,
+                localZ = localPosition.z,
                 typeId = typeId,
                 tag = blockEntityUpdateTag(compound),
             )
@@ -247,15 +243,13 @@ class MinecraftChunkPacketEncoder(
 
 /** Fluent projection from a strong world Chunk to an initial-world snapshot. */
 fun Chunk<ProtocolBlockState, ProtocolRegistryEntry>.toMinecraftChunkSnapshot(
-    position: ChunkPosition,
     encoder: MinecraftChunkPacketEncoder,
-): MinecraftChunkSnapshot = encoder.encode(this, position)
+): MinecraftChunkSnapshot = encoder.encode(this)
 
 /** Fluent projection from a strong world Chunk directly to its clientbound packet. */
 fun Chunk<ProtocolBlockState, ProtocolRegistryEntry>.toChunkDataAndUpdateLightPacket(
-    position: ChunkPosition,
     encoder: MinecraftChunkPacketEncoder,
-): ChunkDataAndUpdateLightPacket = encoder.encodePacket(this, position)
+): ChunkDataAndUpdateLightPacket = encoder.encodePacket(this)
 
 /** Adapts an already-created packet to the server's initial-world snapshot without copying its payloads. */
 fun ChunkDataAndUpdateLightPacket.toMinecraftChunkSnapshot(): MinecraftChunkSnapshot =
@@ -331,13 +325,12 @@ private fun defaultBlockEntityUpdateTag(compound: NbtCompound): NbtCompound? {
     return updateValues.takeIf { values -> values.isNotEmpty() }?.let(::NbtCompound)
 }
 
-private fun BlockEntity.persistedData(chunkPosition: ChunkPosition): NbtCompound {
-    val absolutePosition = absolutePosition(chunkPosition)
+private fun BlockEntity.persistedData(): NbtCompound {
     val value = linkedMapOf<String, NbtTag>()
     value["id"] = NbtString(type)
-    value["x"] = NbtInt(absolutePosition.x)
-    value["y"] = NbtInt(absolutePosition.y)
-    value["z"] = NbtInt(absolutePosition.z)
+    value["x"] = NbtInt(position.x)
+    value["y"] = NbtInt(position.y)
+    value["z"] = NbtInt(position.z)
     persistentData.forEachEntry { name, tag -> value[name] = tag }
     return NbtCompound(value)
 }

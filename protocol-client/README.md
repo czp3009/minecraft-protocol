@@ -98,8 +98,8 @@ profile does not use the vanilla defaults.
 ## Decode initial-world Chunk packets
 
 The Chunk portion sent by `MinecraftServerConnection.synchronizeInitialWorld` arrives as
-`ChunkDataAndUpdateLightPacket`. Build one decoder for the active dimension, then call `packet.toChunk(...)`. The packet
-continues to own its absolute x/z metadata through `chunkPosition`; the decoded semantic `Chunk` remains positionless:
+`ChunkDataAndUpdateLightPacket`. Build one decoder for the active dimension, then call `packet.toChunk(...)`. The
+decoded semantic `Chunk.position` retains the packet's absolute `chunkPosition`:
 
 ```kotlin
 fun createChunkPacketDecoder(
@@ -135,7 +135,7 @@ server synchronization sequence. The callback is an explicit parameter, so no ap
 suspend fun receiveInitialWorldChunks(
     minecraftClientConnection: MinecraftClientConnection,
     minecraftChunkPacketDecoder: MinecraftChunkPacketDecoder,
-    consumeChunk: suspend (ChunkPosition, Chunk<ProtocolBlockState, ProtocolRegistryEntry>) -> Unit,
+    consumeChunk: suspend (Chunk<ProtocolBlockState, ProtocolRegistryEntry>) -> Unit,
 ) {
     var batchFinished = false
     while (!batchFinished) {
@@ -145,9 +145,8 @@ suspend fun receiveInitialWorldChunks(
             )
 
             is ChunkDataAndUpdateLightPacket -> {
-                val chunkPosition = clientboundPacket.chunkPosition
                 val chunk = clientboundPacket.toChunk(minecraftChunkPacketDecoder)
-                consumeChunk(chunkPosition, chunk)
+                consumeChunk(chunk)
             }
 
             is ChunkBatchFinishedPacket -> {

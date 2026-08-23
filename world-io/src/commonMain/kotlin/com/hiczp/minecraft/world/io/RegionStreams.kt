@@ -4,6 +4,36 @@ import com.hiczp.minecraft.world.format.*
 import kotlinx.io.Sink
 import kotlinx.io.Source
 
+/** A detached Anvil image paired with the Region position retained from its `.mca` path. */
+internal class PositionedAnvilRegion(
+    val position: RegionPosition,
+    val anvilRegion: AnvilRegion,
+) {
+    val chunks: Map<LocalChunkPosition, AnvilChunkRecord>
+        get() = anvilRegion.chunks
+
+    val localChunkPositions: Set<LocalChunkPosition>
+        get() = chunks.keys
+
+    val chunkPositions: Set<ChunkPosition>
+        get() = localChunkPositions.mapTo(linkedSetOf(), position::chunk)
+
+    operator fun get(position: LocalChunkPosition): AnvilChunkRecord? = anvilRegion[position]
+
+    operator fun get(position: ChunkPosition): AnvilChunkRecord? = get(this.position.local(position))
+
+    fun hasChunk(position: LocalChunkPosition): Boolean = position in chunks
+
+    fun hasChunk(position: ChunkPosition): Boolean = hasChunk(this.position.local(position))
+
+    override fun equals(other: Any?): Boolean =
+        other is PositionedAnvilRegion && position == other.position && anvilRegion == other.anvilRegion
+
+    override fun hashCode(): Int = 31 * position.hashCode() + anvilRegion.hashCode()
+
+    override fun toString(): String = "PositionedAnvilRegion(position=$position, chunks=$chunks)"
+}
+
 /** Logical storage metadata for one Chunk in a Region. */
 class RegionChunkInfo internal constructor(
     val region: RegionPosition,
@@ -73,6 +103,9 @@ class RegionReadScope private constructor(
     internal constructor(file: MutableRegionFile, header: RegionHeader) : this(file, file.position, header)
 
     private var valid = true
+
+    val position: RegionPosition
+        get() = region
 
     val chunkInfos: Sequence<RegionChunkInfo>
         get() {
@@ -166,7 +199,7 @@ class RegionReadScope private constructor(
  * Anvil allocation requires the exact compressed length before opening a sink.
  */
 class RegionReplacementScope internal constructor(
-    private val region: RegionPosition,
+    val position: RegionPosition,
     private val streamChunk: (
         LocalChunkPosition,
         Compression,
@@ -182,7 +215,7 @@ class RegionReplacementScope internal constructor(
     }
 
     fun writeCompressedChunk(position: ChunkPosition, chunk: CompressedChunkInput) =
-        writeCompressedChunk(region.local(position), chunk)
+        writeCompressedChunk(this.position.local(position), chunk)
 
     fun writeCompressedChunk(
         position: LocalChunkPosition,
@@ -199,14 +232,14 @@ class RegionReplacementScope internal constructor(
         compression: Compression,
         compressedByteCount: Long,
         block: (Sink) -> Unit,
-    ) = writeCompressedChunk(region.local(position), compression, compressedByteCount, block)
+    ) = writeCompressedChunk(this.position.local(position), compression, compressedByteCount, block)
 
     internal fun invalidate() {
         valid = false
     }
 
     private fun checkValid() {
-        check(valid) { "Region replacement scope is no longer valid: $region" }
+        check(valid) { "Region replacement scope is no longer valid: $position" }
     }
 }
 

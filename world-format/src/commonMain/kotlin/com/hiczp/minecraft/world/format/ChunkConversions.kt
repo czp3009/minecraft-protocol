@@ -38,11 +38,17 @@ inline fun <reified T> CompressedChunk.decodeNbt(
     format: CompressedNbtFormat = CompressedNbtFormat(),
 ): T = decodeNbt(format.nbt.serializersModule.serializer(), format)
 
+/** Decodes this compressed content using the Chunk position carried by its NBT root. */
+fun <B : Any, M : Any> CompressedChunk.toChunk(
+    codec: ChunkNbtCodec<B, M>,
+    format: CompressedNbtFormat = CompressedNbtFormat(nbt = codec.nbt),
+): Chunk<B, M> = toNbtDocument(format).toChunk(codec)
+
 /**
- * Decodes this positionless compressed content as a semantic Chunk.
+ * Decodes this compressed content and validates its NBT position against [position].
  *
- * [position] supplies the context validated against the NBT x/z fields. [codec] supplies the selected-release layout
- * and caller-owned block-state and biome registries. Pass [format] when custom compression is registered.
+ * [codec] supplies the selected-release layout and caller-owned block-state and biome registries. Pass [format] when
+ * custom compression is registered.
  */
 fun <B : Any, M : Any> CompressedChunk.toChunk(
     position: ChunkPosition,
@@ -60,7 +66,12 @@ fun CompressedChunk.writeDecompressedTo(
     return compressionRegistry.decompressToSink(compression, source, sink)
 }
 
-/** Projects this generic NBT tree into a semantic Chunk. */
+/** Projects this generic NBT tree into a semantic Chunk using its stored position. */
+fun <B : Any, M : Any> NbtDocument.toChunk(
+    codec: ChunkNbtCodec<B, M>,
+): Chunk<B, M> = codec.decodeDocument(this)
+
+/** Projects this generic NBT tree into a semantic Chunk while validating [position]. */
 fun <B : Any, M : Any> NbtDocument.toChunk(
     position: ChunkPosition,
     codec: ChunkNbtCodec<B, M>,
@@ -72,25 +83,22 @@ fun NbtDocument.toCompressedChunk(
     format: CompressedNbtFormat = CompressedNbtFormat(),
 ): CompressedChunk = format.encodeDocument(this, compression)
 
-/** Converts this semantic Chunk to a generic NBT tree at [position]. */
+/** Converts this semantic Chunk to a generic NBT tree at its retained position. */
 fun <B : Any, M : Any> Chunk<B, M>.toNbtDocument(
-    position: ChunkPosition,
     codec: ChunkNbtCodec<B, M>,
-): NbtDocument = codec.encodeDocument(this, position)
+): NbtDocument = codec.encodeDocument(this)
 
 /** Converts this semantic Chunk directly to detached compressed content. */
 fun <B : Any, M : Any> Chunk<B, M>.toCompressedChunk(
-    position: ChunkPosition,
     codec: ChunkNbtCodec<B, M>,
     compression: Compression = Compression.ZLIB,
     format: CompressedNbtFormat = CompressedNbtFormat(nbt = codec.nbt),
-): CompressedChunk = toNbtDocument(position, codec).toCompressedChunk(compression, format)
+): CompressedChunk = toNbtDocument(codec).toCompressedChunk(compression, format)
 
 /** Writes this semantic Chunk as complete unnamed-root NBT without closing [sink]. */
 fun <B : Any, M : Any> Chunk<B, M>.writeTo(
     sink: Sink,
-    position: ChunkPosition,
     codec: ChunkNbtCodec<B, M>,
 ) {
-    codec.encodeToSink(this, position, sink)
+    codec.encodeToSink(this, sink)
 }

@@ -19,25 +19,23 @@ immediately acquires its vanilla `session.lock`. `MinecraftWorldAccess`, `Region
 provide plain suspend `close()` methods and a suspend `use {}` shortcut. Close every Region handle before closing the
 world access; the world close waits for outstanding handles and releases `session.lock` last.
 
-The following example starts with the world lock, opens the Region containing a requested Chunk, inspects Region and
-Chunk metadata, decodes the semantic Chunk, and finally reads an absolute block. Every variable used by the example is
-introduced in the function or supplied as a parameter.
+The following example starts with only an absolute block coordinate, derives its Region and Chunk coordinates, inspects
+stored metadata, decodes the semantic Chunk, and finally reads the block. Every coordinate along the path remains
+available to the caller.
 
 ```kotlin
 suspend fun readBlockStateDescriptor(
     worldPath: Path,
-    chunkPosition: ChunkPosition,
     blockPosition: BlockPosition,
     chunkLayout: ChunkLayout,
     expectedDataVersion: Int,
 ): BlockStateDescriptor? {
-    require(blockPosition.chunk == chunkPosition)
-
     return MinecraftWorldAccess.open(worldPath).use { minecraftWorldAccess ->
-        val regionPosition = chunkPosition.region
+        val chunkPosition = blockPosition.chunk
+        val regionPosition = blockPosition.region
         minecraftWorldAccess.openRegion(regionPosition).use regionUse@{ regionHandle ->
             if (!regionHandle.hasRegion()) return@regionUse null
-            if (!regionHandle.hasChunk(chunkPosition)) return@regionUse null
+            if (!regionHandle.hasChunk(blockPosition)) return@regionUse null
 
             val regionChunkInfo = regionHandle.readChunkInfo(chunkPosition) ?: return@regionUse null
             val compression = regionChunkInfo.compression
@@ -54,12 +52,13 @@ suspend fun readBlockStateDescriptor(
                 expectedDataVersion = expectedDataVersion,
             )
             val chunkNbtCodec = ChunkNbtCodec(chunkNbtContext)
-            val chunk = regionHandle.readChunk(chunkPosition, chunkNbtCodec) ?: return@regionUse null
+            val chunk = regionHandle.readChunk(blockPosition, chunkNbtCodec) ?: return@regionUse null
 
             val chunkMetadata = chunk.metadata
             check(chunkMetadata.dataVersion == expectedDataVersion)
+            check(chunk.position == chunkPosition)
 
-            val blockStateDescriptor = chunk.block(chunkPosition, blockPosition)
+            val blockStateDescriptor = chunk.block(blockPosition)
             blockStateDescriptor
         }
     }
@@ -70,9 +69,11 @@ The local variables `compression`, `compressedByteCount`, and `timestampEpochSec
 NBT or palettes are decoded. `RegionChunkInfo` also exposes `region`, `localPosition`, and the derived absolute
 `position`. Physical sector locations and external-file placement are intentionally absent.
 
-`Chunk.metadata` contains semantic Chunk fields such as data version, status, update time, inhabited time, lighting,
-heightmaps, ticks, block entities, and structures. A `Chunk` does not retain its Region position, absolute Chunk
-position, compression, stored size, or timestamp; those belong to the layer that produced it.
+`Chunk.position` retains the absolute Chunk coordinate encoded by its NBT and validated against the selected Region
+entry. `Chunk.metadata` contains the other semantic fields such as data version, status, update time, inhabited time,
+lighting, heightmaps, ticks, and structures; `Chunk.blockEntities` contains the separately modeled absolute Block Entity
+values. Compression, stored size, and timestamp remain properties of the stored Region record rather than the semantic
+Chunk.
 
 `openRegion` itself performs no filesystem I/O. It returns a handle even when the Region does not exist. Missing reads
 return `false`, `null`, or an empty list, and the first write creates the Region. In code that only needs one Chunk,
@@ -81,9 +82,9 @@ available operations.
 
 ## Inspect Region metadata
 
-`hasChunk`, `readChunkCount`, and `readLocalChunkPositions` inspect only the Region index. They do not open Chunk
-streams, read record headers, inspect external content, or decode NBT. The count and detached coordinate list therefore
-remain cheap even when the Chunk records are large:
+`hasChunk`, `readChunkCount`, `readLocalChunkPositions`, and `readChunkPositions` inspect only the Region index. They do
+not open Chunk streams, read record headers, inspect external content, or decode NBT. The count and detached coordinate
+lists therefore remain cheap even when the Chunk records are large:
 
 ```kotlin
 suspend fun readRegionChunkCount(regionHandle: RegionHandle): Int {
@@ -94,20 +95,19 @@ suspend fun readRegionChunkCount(regionHandle: RegionHandle): Int {
 }
 ```
 
-Use the coordinate list to traverse every Chunk named by one Region index. Convert each local coordinate through the
-handle's `position` when an absolute coordinate is needed:
+Use the absolute coordinate list to traverse every Chunk named by one Region index. The local counterpart remains
+available when Region-local addressing is more natural:
 
 ```kotlin
 suspend fun <B : Any, M : Any> visitRegionChunks(
     regionHandle: RegionHandle,
     chunkNbtCodec: ChunkNbtCodec<B, M>,
-    visitChunk: (ChunkPosition, Chunk<B, M>) -> Unit,
+    visitChunk: (Chunk<B, M>) -> Unit,
 ) {
-    val localChunkPositions = regionHandle.readLocalChunkPositions()
-    for (localChunkPosition in localChunkPositions) {
-        val chunkPosition = regionHandle.position.chunk(localChunkPosition)
-        val chunk = regionHandle.readChunk(localChunkPosition, chunkNbtCodec) ?: continue
-        visitChunk(chunkPosition, chunk)
+    for (chunkPosition in regionHandle.readChunkPositions()) {
+        val chunk = regionHandle.readChunk(chunkPosition, chunkNbtCodec) ?: continue
+        check(chunk.position == chunkPosition)
+        visitChunk(chunk)
     }
 }
 ```
@@ -161,8 +161,9 @@ suspend fun readEntityChunk(
 }
 ```
 
-`EntityChunk` is detached, mutable, and positionless. Its root list preserves the persisted passenger hierarchy;
-`allEntities()` visits roots and recursive passengers in load order. Each `Entity<E>` has absolute position, velocity,
+`EntityChunk` is detached and mutable, and its `position` retains the absolute Chunk coordinate stored in its NBT. Its
+root list preserves the persisted passenger hierarchy; `allEntities()` visits roots and recursive passengers in load
+order. Each `Entity<E>` has absolute position, velocity,
 rotation, UUID, persistent type, caller-selected subtype `data`, passenger operations, and
 `blockPosition`/`sectionPosition`/`chunkPosition`/`regionPosition` conveniences. The example uses
 `NbtEntityDataRegistry`, so type-specific vanilla and mod fields remain losslessly available as `entity.data`.
@@ -177,7 +178,8 @@ suspend fun <E : Any> readEntityChunkThroughEveryLayer(
 ): EntityChunk<E>? {
     val compressedChunk = entityRegionHandle.readCompressedChunk(chunkPosition) ?: return null
     val nbtDocument = compressedChunk.toNbtDocument()
-    val entityChunk = nbtDocument.toEntityChunk(chunkPosition, entityChunkNbtCodec)
+    val entityChunk = nbtDocument.toEntityChunk(entityChunkNbtCodec)
+    check(entityChunk.position == chunkPosition)
     return entityChunk
 }
 ```
@@ -267,22 +269,23 @@ position types expose fluent convenience methods over that one implementation.
 
 ## Navigate Chunk, Section, and palette data
 
-Coordinate overloads are available at every logical level. Local overloads do the actual lookup. Absolute overloads
-validate ownership through the coordinate types and then delegate to the local operation.
+The basic adjacent conversions are available on the coordinate values themselves: Region plus local Chunk to absolute
+Chunk, Chunk plus local block to absolute block, and Section plus local block to absolute block. The semantic `Chunk`
+also accepts either its natural Chunk-local coordinate or the common absolute `BlockPosition`/`SectionPosition` paths.
 
 ```kotlin
 fun inspectChunkBlock(
     chunk: Chunk<BlockStateDescriptor, String>,
-    chunkPosition: ChunkPosition,
     blockPosition: BlockPosition,
 ): BlockStateDescriptor {
-    val chunkBlockPosition = chunkPosition.local(blockPosition)
+    val chunkBlockPosition = chunk.position.local(blockPosition)
     val localBlockStateDescriptor = chunk.block(chunkBlockPosition)
-    val absoluteBlockStateDescriptor = chunk.block(chunkPosition, blockPosition)
+    val absoluteBlockStateDescriptor = chunk.block(blockPosition)
     check(localBlockStateDescriptor == absoluteBlockStateDescriptor)
 
     val sectionPosition = blockPosition.section
-    val chunkSection = chunk.section(chunkPosition, sectionPosition)
+    val chunkSection = chunk.section(blockPosition)
+    check(chunkSection == chunk.section(sectionPosition))
     if (chunkSection != null) {
         val localBlockPosition = sectionPosition.local(blockPosition)
         val sectionBlockStateDescriptor = chunkSection.block(localBlockPosition)
@@ -322,7 +325,8 @@ suspend fun <B : Any, M : Any> readChunkLayers(
 ): Chunk<B, M>? {
     val compressedChunk = regionHandle.readCompressedChunk(chunkPosition) ?: return null
     val nbtDocument = compressedChunk.toNbtDocument(regionHandle.chunkNbtFormat)
-    val chunk = nbtDocument.toChunk(chunkPosition, chunkNbtCodec)
+    val chunk = nbtDocument.toChunk(chunkNbtCodec)
+    check(chunk.position == chunkPosition)
     return chunk
 }
 ```
@@ -420,15 +424,13 @@ required.
 ```kotlin
 suspend fun replaceBlock(
     regionHandle: RegionHandle,
-    chunkPosition: ChunkPosition,
     blockPosition: BlockPosition,
     replacementBlockStateDescriptor: BlockStateDescriptor,
     chunkNbtCodec: ChunkNbtCodec<BlockStateDescriptor, String>,
 ): Chunk<BlockStateDescriptor, String>? {
-    val chunk = regionHandle.readChunk(chunkPosition, chunkNbtCodec) ?: return null
-    chunk.setBlock(chunkPosition, blockPosition, replacementBlockStateDescriptor)
+    val chunk = regionHandle.readChunk(blockPosition, chunkNbtCodec) ?: return null
+    chunk.setBlock(blockPosition, replacementBlockStateDescriptor)
     regionHandle.writeChunk(
-        position = chunkPosition,
         chunk = chunk,
         codec = chunkNbtCodec,
         compression = Compression.ZLIB,
@@ -617,19 +619,17 @@ Use `LiveMinecraftWorldAccess` to observe a world that may be owned and modified
 ```kotlin
 fun readLiveBlock(
     worldPath: Path,
-    chunkPosition: ChunkPosition,
     blockPosition: BlockPosition,
     chunkNbtCodec: ChunkNbtCodec<BlockStateDescriptor, String>,
 ): BlockStateDescriptor? {
-    require(blockPosition.chunk == chunkPosition)
-
     val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(worldPath)
-    val liveRegionHandle = liveMinecraftWorldAccess.openRegion(chunkPosition.region)
+    val chunkPosition = blockPosition.chunk
+    val liveRegionHandle = liveMinecraftWorldAccess.openRegion(blockPosition.region)
     val regionChunkInfo = liveRegionHandle.readChunkInfo(chunkPosition) ?: return null
     check(regionChunkInfo.position == chunkPosition)
 
-    val chunk = liveRegionHandle.readChunk(chunkPosition, chunkNbtCodec) ?: return null
-    val blockStateDescriptor = chunk.block(chunkPosition, blockPosition)
+    val chunk = liveRegionHandle.readChunk(blockPosition, chunkNbtCodec) ?: return null
+    val blockStateDescriptor = chunk.block(blockPosition)
     return blockStateDescriptor
 }
 ```

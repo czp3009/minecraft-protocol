@@ -62,11 +62,12 @@ class MinecraftWorldChunkProjectionTest {
         )
         val blockEntity = BlockEntity(
             type = "minecraft:chest",
-            position = ChunkBlockPosition(3, -1, 4),
+            position = chunkPosition.block(ChunkBlockPosition(3, -1, 4)),
             persistentData = NbtCompound(mapOf("custom" to NbtInt(7))),
         )
         val chunkLayout = ChunkLayout(minSectionY = -1, sectionCount = 2)
         val chunk = Chunk(
+            position = chunkPosition,
             metadata = metadata,
             layout = chunkLayout,
             sections = listOf(
@@ -82,8 +83,8 @@ class MinecraftWorldChunkProjectionTest {
             defaultBiome = plains,
         )
 
-        val packet = chunk.toChunkDataAndUpdateLightPacket(chunkPosition, encoder)
-        val snapshot = chunk.toMinecraftChunkSnapshot(chunkPosition, encoder)
+        val packet = chunk.toChunkDataAndUpdateLightPacket(encoder)
+        val snapshot = chunk.toMinecraftChunkSnapshot(encoder)
 
         assertEquals(chunkPosition.x, snapshot.chunkX)
         assertEquals(chunkPosition.z, snapshot.chunkZ)
@@ -114,7 +115,7 @@ class MinecraftWorldChunkProjectionTest {
         val originalBytes = format.encodeToByteArray(ChunkDataAndUpdateLightPacket.serializer(), packet)
         val roundTripBytes = format.encodeToByteArray(
             ChunkDataAndUpdateLightPacket.serializer(),
-            decoded.toChunkDataAndUpdateLightPacket(chunkPosition, encoder),
+            decoded.toChunkDataAndUpdateLightPacket(encoder),
         )
         assertContentEquals(originalBytes, roundTripBytes)
 
@@ -166,6 +167,7 @@ class MinecraftWorldChunkProjectionTest {
             ),
         )
         val chunk = Chunk(
+            position = ChunkPosition(0, 0),
             metadata = ChunkMetadata(dataVersion = 1, status = "full"),
             layout = chunkLayout,
             sections = listOf(section),
@@ -173,7 +175,7 @@ class MinecraftWorldChunkProjectionTest {
             defaultBiome = biomeEntries.first(),
         )
 
-        val packet = encoder.encodePacket(chunk, ChunkPosition(0, 0))
+        val packet = encoder.encodePacket(chunk)
 
         assertIs<NetworkPalettedContainer.Direct>(packet.chunkData.sections.single().blockStates)
         assertIs<NetworkPalettedContainer.Direct>(packet.chunkData.sections.single().biomes)

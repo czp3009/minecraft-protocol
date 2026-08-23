@@ -8,10 +8,7 @@ import kotlinx.io.Sink
 import kotlinx.io.readByteArray
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 class RegionChunkApiTest {
     @Test
@@ -25,17 +22,20 @@ class RegionChunkApiTest {
         val firstPosition = ChunkPosition(-1, 32)
         val secondPosition = ChunkPosition(-2, 32)
         val streamedPosition = ChunkPosition(-3, 32)
-        val chunk = emptyChunk()
+        val chunk = emptyChunk(firstPosition)
         chunk.setBlock(15, TEST_LAYOUT.minBlockY, 0, STONE)
         chunk.setBiome(12, TEST_LAYOUT.minBlockY, 12, "example:crystal_caves")
 
         try {
             storage.openRegion(firstPosition.region).use { regionHandle ->
-                regionHandle.writeChunk(firstPosition, chunk, TEST_CODEC, Compression.NONE)
-                regionHandle.writeChunk(secondPosition, chunk, TEST_CODEC, Compression.ZLIB)
+                regionHandle.writeChunk(chunk, TEST_CODEC, Compression.NONE)
+                regionHandle.writeChunk(emptyChunk(secondPosition), TEST_CODEC, Compression.ZLIB)
+                assertFailsWith<IllegalArgumentException> {
+                    regionHandle.writeChunk(emptyChunk(ChunkPosition(32, 32)), TEST_CODEC, Compression.NONE)
+                }
                 regionHandle.writeChunkNbt(streamedPosition, Compression.GZIP) { sink ->
                     storage.chunkNbtFormat.nbt.encodeDocumentToSink(
-                        TEST_CODEC.encodeDocument(chunk, streamedPosition),
+                        TEST_CODEC.encodeDocument(emptyChunk(streamedPosition)),
                         sink,
                     )
                 }
@@ -49,6 +49,11 @@ class RegionChunkApiTest {
             assertEquals(AnvilChunkPlacement.INLINE, info.placement)
             assertTrue(info.compressedByteCount > 0)
 
+            val region = checkNotNull(storage.readAnvilRegion(firstPosition.region))
+            assertEquals(firstPosition.region, region.position)
+            assertTrue(region.hasChunk(firstPosition))
+            assertEquals(setOf(firstPosition, secondPosition, streamedPosition), region.chunkPositions)
+
             val document = checkNotNull(storage.readChunkNbtDocument(firstPosition))
             assertEquals(firstPosition.x, (document.root["xPos"] as NbtInt).value)
             assertEquals(firstPosition.z, (document.root["zPos"] as NbtInt).value)
@@ -61,7 +66,11 @@ class RegionChunkApiTest {
             assertEquals(Compression.GZIP, storage.readChunkInfo(streamedPosition)?.compression)
 
             val decoded = checkNotNull(storage.readChunk(firstPosition.region, firstPosition.local, TEST_CODEC))
+            val absoluteBlock = firstPosition.block(ChunkBlockPosition(15, TEST_LAYOUT.minBlockY, 0))
+            assertEquals(firstPosition, decoded.position)
             assertEquals(STONE, decoded.block(15, TEST_LAYOUT.minBlockY, 0))
+            assertEquals(STONE, decoded.block(absoluteBlock))
+            assertTrue(decoded.hasSection(absoluteBlock))
             assertEquals("example:crystal_caves", decoded.biome(12, TEST_LAYOUT.minBlockY, 12))
 
             storage.withChunkNbtSource(firstPosition) { sourceInfo, source ->
@@ -76,9 +85,16 @@ class RegionChunkApiTest {
                     listOf(streamedPosition.local, secondPosition.local, firstPosition.local),
                     regionHandle.readLocalChunkPositions(),
                 )
+                assertEquals(
+                    listOf(streamedPosition, secondPosition, firstPosition),
+                    regionHandle.readChunkPositions(),
+                )
+                assertTrue(regionHandle.hasChunk(absoluteBlock))
+                assertEquals(firstPosition, regionHandle.readChunkInfo(absoluteBlock.chunk)?.position)
                 val positions = regionHandle.readChunkInfos().mapTo(linkedSetOf(), RegionChunkInfo::position)
                 assertEquals(setOf(firstPosition, secondPosition, streamedPosition), positions)
-                val regionChunk = checkNotNull(regionHandle.readChunk(firstPosition, TEST_CODEC))
+                val regionChunk = checkNotNull(regionHandle.readChunk(absoluteBlock, TEST_CODEC))
+                assertEquals(firstPosition, regionChunk.position)
                 assertEquals(STONE, regionChunk.block(15, TEST_LAYOUT.minBlockY, 0))
 
                 val compressedSink = Buffer()
@@ -161,7 +177,8 @@ class RegionChunkApiTest {
             ),
         )
 
-        fun emptyChunk(): Chunk<BlockStateDescriptor, String> = Chunk(
+        fun emptyChunk(position: ChunkPosition): Chunk<BlockStateDescriptor, String> = Chunk(
+            position = position,
             metadata = ChunkMetadata(TEST_DATA_VERSION, status = "minecraft:full"),
             layout = TEST_LAYOUT,
             defaultBlockState = AIR,

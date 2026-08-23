@@ -224,7 +224,7 @@ direct receiver-oriented call `chunk.toMinecraftChunkSnapshot(...)`:
 fun createMinecraftChunkSnapshots(
     minecraftServerConnection: MinecraftServerConnection,
     minecraftDimensionLayout: MinecraftDimensionLayout,
-    chunksByPosition: Map<ChunkPosition, Chunk<ProtocolBlockState, ProtocolRegistryEntry>>,
+    chunks: Iterable<Chunk<ProtocolBlockState, ProtocolRegistryEntry>>,
     isAir: (ProtocolBlockState) -> Boolean,
     hasFluid: (ProtocolBlockState) -> Boolean,
 ): List<MinecraftChunkSnapshot> {
@@ -234,11 +234,8 @@ fun createMinecraftChunkSnapshots(
         hasFluid = hasFluid,
         hasSkyLight = minecraftDimensionLayout.hasSkyLight,
     )
-    return chunksByPosition.map { (chunkPosition, chunk) ->
-        chunk.toMinecraftChunkSnapshot(
-            position = chunkPosition,
-            encoder = minecraftChunkPacketEncoder,
-        )
+    return chunks.map { chunk ->
+        chunk.toMinecraftChunkSnapshot(minecraftChunkPacketEncoder)
     }
 }
 ```
@@ -302,10 +299,7 @@ suspend fun synchronizeStoredInitialWorld(
                 for (chunkPosition in regionChunkPositions) {
                     val chunk = regionHandle.readChunk(chunkPosition, chunkNbtCodec) ?: continue
                     add(
-                        chunk.toMinecraftChunkSnapshot(
-                            position = chunkPosition,
-                            encoder = minecraftChunkPacketEncoder,
-                        ),
+                        chunk.toMinecraftChunkSnapshot(minecraftChunkPacketEncoder),
                     )
                 }
             }

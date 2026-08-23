@@ -7,7 +7,7 @@ import com.hiczp.minecraft.nbt.serialization.NbtRootEncoding
 import kotlinx.io.Sink
 import kotlinx.io.Source
 
-/** Selected-release conversion between unnamed-root Chunk NBT and a positionless semantic [Chunk]. */
+/** Selected-release conversion between unnamed-root Chunk NBT and a positioned semantic [Chunk]. */
 class ChunkNbtCodec<B : Any, M : Any>(
     val context: ChunkNbtContext<B, M>,
     val nbt: NbtFormat = NbtFormat(
@@ -20,14 +20,25 @@ class ChunkNbtCodec<B : Any, M : Any>(
         }
     }
 
+    /** Decodes a Chunk using the position carried by its NBT root. */
+    fun decodeFromSource(source: Source): Chunk<B, M> = decodeDocument(nbt.decodeDocumentFromSource(source))
+
+    /** Decodes a Chunk and additionally validates its NBT position against its Region entry. */
     fun decodeFromSource(source: Source, expectedPosition: ChunkPosition): Chunk<B, M> =
         decodeDocument(nbt.decodeDocumentFromSource(source), expectedPosition)
 
-    fun encodeToSink(chunk: Chunk<B, M>, position: ChunkPosition, sink: Sink) {
-        nbt.encodeDocumentToSink(encodeDocument(chunk, position), sink)
+    fun encodeToSink(chunk: Chunk<B, M>, sink: Sink) {
+        nbt.encodeDocumentToSink(encodeDocument(chunk), sink)
     }
 
-    fun decodeDocument(document: NbtDocument, expectedPosition: ChunkPosition): Chunk<B, M> {
+    /** Decodes a Chunk using the position carried by its NBT root. */
+    fun decodeDocument(document: NbtDocument): Chunk<B, M> = decodeDocumentInternal(document, expectedPosition = null)
+
+    /** Decodes a Chunk and additionally validates its NBT position against its Region entry. */
+    fun decodeDocument(document: NbtDocument, expectedPosition: ChunkPosition): Chunk<B, M> =
+        decodeDocumentInternal(document, expectedPosition)
+
+    private fun decodeDocumentInternal(document: NbtDocument, expectedPosition: ChunkPosition?): Chunk<B, M> {
         val root = document.root
         root.rejectUnknownKeys(ROOT_KEYS, "Chunk")
 
@@ -38,7 +49,7 @@ class ChunkNbtCodec<B : Any, M : Any>(
             )
         }
         val actualPosition = ChunkPosition(root.requireInt(X_POS), root.requireInt(Z_POS))
-        if (actualPosition != expectedPosition) {
+        if (expectedPosition != null && actualPosition != expectedPosition) {
             throw ChunkNbtFormatException(
                 "Expected Chunk position $expectedPosition, got $actualPosition",
             )
@@ -102,7 +113,7 @@ class ChunkNbtCodec<B : Any, M : Any>(
         val status = root.requireString(STATUS)
         if (status.isBlank()) throw ChunkNbtFormatException("Chunk status must not be blank")
         val blockEntities = root.requireList(BLOCK_ENTITIES).value.mapIndexed { index, tag ->
-            decodeBlockEntity(tag, index, expectedPosition)
+            decodeBlockEntity(tag, index, actualPosition)
         }
         val metadata = ChunkMetadata(
             dataVersion = dataVersion,
@@ -124,6 +135,7 @@ class ChunkNbtCodec<B : Any, M : Any>(
         )
         return try {
             Chunk(
+                position = actualPosition,
                 metadata = metadata,
                 layout = context.layout,
                 sections = sections,
@@ -136,7 +148,7 @@ class ChunkNbtCodec<B : Any, M : Any>(
         }
     }
 
-    fun encodeDocument(chunk: Chunk<B, M>, position: ChunkPosition): NbtDocument {
+    fun encodeDocument(chunk: Chunk<B, M>): NbtDocument {
         if (chunk.layout != context.layout) {
             throw ChunkNbtFormatException(
                 "Chunk layout ${chunk.layout} does not match codec layout ${context.layout}",
@@ -156,9 +168,9 @@ class ChunkNbtCodec<B : Any, M : Any>(
         val metadata = chunk.metadata
         val root = linkedMapOf<String, NbtTag>()
         root[DATA_VERSION] = NbtInt(metadata.dataVersion)
-        root[X_POS] = NbtInt(position.x)
+        root[X_POS] = NbtInt(chunk.position.x)
         root[Y_POS] = NbtInt(context.layout.minSectionY)
-        root[Z_POS] = NbtInt(position.z)
+        root[Z_POS] = NbtInt(chunk.position.z)
         root[LAST_UPDATE] = NbtLong(metadata.lastUpdateTime)
         root[INHABITED_TIME] = NbtLong(metadata.inhabitedTime)
         root[STATUS] = NbtString(metadata.status)
@@ -198,7 +210,7 @@ class ChunkNbtCodec<B : Any, M : Any>(
         root[SECTIONS] = NbtList(encodedSections)
         if (metadata.lightCorrect) root[IS_LIGHT_ON] = NbtByte(1)
         root[BLOCK_ENTITIES] = NbtList(chunk.blockEntities.map { blockEntity ->
-            encodeBlockEntity(blockEntity, position)
+            encodeBlockEntity(blockEntity)
         })
         metadata.entities?.let { root[ENTITIES] = it }
         metadata.carvingMask?.let { root[CARVING_MASK] = it }
@@ -220,7 +232,7 @@ class ChunkNbtCodec<B : Any, M : Any>(
             y = compound.requireInt(BLOCK_ENTITY_Y),
             z = compound.requireInt(BLOCK_ENTITY_Z),
         )
-        val localPosition = try {
+        try {
             chunkPosition.local(absolutePosition)
         } catch (failure: IllegalArgumentException) {
             throw ChunkNbtFormatException(
@@ -233,19 +245,18 @@ class ChunkNbtCodec<B : Any, M : Any>(
             if (name !in BLOCK_ENTITY_STRUCTURE_FIELDS) persistentData[name] = value
         }
         return try {
-            BlockEntity(type, localPosition, NbtCompound(persistentData))
+            BlockEntity(type, absolutePosition, NbtCompound(persistentData))
         } catch (failure: IllegalArgumentException) {
             throw ChunkNbtFormatException("Invalid Chunk Block Entity $index", failure)
         }
     }
 
-    private fun encodeBlockEntity(blockEntity: BlockEntity, chunkPosition: ChunkPosition): NbtCompound {
-        val absolutePosition = blockEntity.absolutePosition(chunkPosition)
+    private fun encodeBlockEntity(blockEntity: BlockEntity): NbtCompound {
         val value = linkedMapOf<String, NbtTag>()
         value[BLOCK_ENTITY_ID] = NbtString(blockEntity.type)
-        value[BLOCK_ENTITY_X] = NbtInt(absolutePosition.x)
-        value[BLOCK_ENTITY_Y] = NbtInt(absolutePosition.y)
-        value[BLOCK_ENTITY_Z] = NbtInt(absolutePosition.z)
+        value[BLOCK_ENTITY_X] = NbtInt(blockEntity.position.x)
+        value[BLOCK_ENTITY_Y] = NbtInt(blockEntity.position.y)
+        value[BLOCK_ENTITY_Z] = NbtInt(blockEntity.position.z)
         blockEntity.persistentData.forEachEntry { name, tag -> value[name] = tag }
         return NbtCompound(value)
     }

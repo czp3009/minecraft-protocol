@@ -69,9 +69,19 @@ class MinecraftCoordinatesTest {
         assertEquals(sectionPosition, blockPosition.section)
         assertEquals(regionPosition, blockPosition.region)
         assertEquals(regionPosition, chunkPosition.region)
+        assertEquals(chunkBlockPosition, blockPosition.localInChunk)
+        assertEquals(localBlockPosition, blockPosition.localInSection)
+        assertEquals(localChunkPosition, chunkPosition.local)
         assertEquals(chunkBlockPosition, chunkPosition.local(blockPosition))
         assertEquals(localBlockPosition, sectionPosition.local(blockPosition))
         assertEquals(localChunkPosition, regionPosition.local(chunkPosition))
+        assertEquals(chunkPosition, regionPosition.chunk(localChunkPosition))
+        assertEquals(blockPosition, chunkPosition.block(chunkBlockPosition))
+        assertEquals(blockPosition, sectionPosition.block(localBlockPosition))
+        assertEquals(sectionPosition, chunkPosition.section(chunkBlockPosition))
+        assertTrue(chunkPosition in regionPosition)
+        assertTrue(sectionPosition in chunkPosition)
+        assertTrue(blockPosition in sectionPosition)
     }
 
     @Test

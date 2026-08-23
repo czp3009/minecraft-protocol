@@ -39,12 +39,17 @@ class LiveRegionHandle internal constructor(
 
     fun hasChunk(position: ChunkPosition): Boolean = hasChunk(local(position))
 
+    fun hasChunk(position: BlockPosition): Boolean = hasChunk(position.chunk)
+
     /** Reads the number of occupied Region header entries without reading Chunk record metadata. */
     fun readChunkCount(): Int = withOpenRegion { _, header -> header.chunkCount } ?: 0
 
     /** Reads a detached list of occupied Region-local positions in header order. */
     fun readLocalChunkPositions(): List<LocalChunkPosition> =
         withOpenRegion { _, header -> header.localChunkPositions().toList() }.orEmpty()
+
+    /** Reads occupied absolute Chunk positions in Region header order. */
+    fun readChunkPositions(): List<ChunkPosition> = readLocalChunkPositions().map(position::chunk)
 
     fun readChunkInfo(local: LocalChunkPosition): RegionChunkInfo? =
         withOpenRegion { handle, header ->
@@ -170,6 +175,11 @@ class LiveRegionHandle internal constructor(
         position: ChunkPosition,
         codec: ChunkNbtCodec<B, M>,
     ): Chunk<B, M>? = readChunk(local(position), codec)
+
+    fun <B : Any, M : Any> readChunk(
+        position: BlockPosition,
+        codec: ChunkNbtCodec<B, M>,
+    ): Chunk<B, M>? = readChunk(position.chunk, codec)
 
     private fun <R> withOpenRegion(block: (FileHandle, RegionHeader) -> R): R? {
         val path = regionFilePath(directory, position)

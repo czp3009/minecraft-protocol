@@ -119,10 +119,14 @@ data class ChunkPosition(
 
     operator fun contains(position: BlockPosition): Boolean = position.chunk == this
 
+    operator fun contains(position: SectionPosition): Boolean = position.chunk == this
+
     /** Converts an absolute block position in this Chunk to local X/Z plus absolute Y. */
     fun local(position: BlockPosition): ChunkBlockPosition = MinecraftCoordinates.local(position, this)
 
     fun section(sectionY: Int): SectionPosition = MinecraftCoordinates.section(this, sectionY)
+
+    fun section(position: ChunkBlockPosition): SectionPosition = section(position.sectionY)
 
     fun block(position: ChunkBlockPosition): BlockPosition = MinecraftCoordinates.block(this, position)
 
