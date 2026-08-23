@@ -5,10 +5,11 @@ offline and caller-configured online authentication, synchronizes `ProtocolDataS
 the application. Initial-world APIs separate the fixed Play bootstrap from optional finite Chunk and Entity snapshots;
 gameplay remains outside the module.
 
-The module may depend on filesystem-independent `world-format` to project strong semantic Chunks into initial-world
-snapshots and clientbound Chunk packets. It never depends on `world-io` or opens world files; applications compose that
-module when their initial view comes from disk. Palette packing and light projection stay stateless, use the installed
-registry context, and require caller-owned block semantics that registry IDs cannot express.
+The module may depend on filesystem-independent `world-format` to project strong semantic Chunks and Entities into
+detached clientbound snapshots and packets. One or more Entity pairing sequences may share one logical bundle. It never
+depends on `world-io` or opens world files; applications compose that module when their initial view comes from disk.
+Palette packing and light projection stay stateless, use the installed registry context, and require caller-owned block
+semantics that registry IDs cannot express.
 
 ## Application boundary
 

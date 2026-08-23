@@ -175,23 +175,32 @@ network projection: it cannot recreate persistence fields that the server never 
 ## Decode Entity pairing bundles
 
 Entity creation uses the same data boundary as Chunk creation. `MinecraftEntitySnapshot` is a server-side convenience;
-the client receives its `protocol-model` packets. A vanilla Entity pairing bundle begins with `SpawnEntityPacket`. Build
-one decoder from the active registry context to restore its common strong `Entity` state:
+the client receives its `protocol-model` packets. An Entity pairing bundle begins with `SpawnEntityPacket`. Build one
+decoder from the active registry context to restore every strong `Entity` represented by the bundle:
 
 ```kotlin
-fun decodeEntity(
+fun decodeEntities(
     minecraftClientConnection: MinecraftClientConnection,
     clientboundBundlePacket: ClientboundBundlePacket,
-): Entity<NbtCompound>? {
+): List<Entity<NbtCompound>>? {
     val minecraftEntityPacketDecoder = MinecraftEntityPacketDecoder(minecraftClientConnection.registries)
-    return clientboundBundlePacket.toEntityOrNull(minecraftEntityPacketDecoder)
+    return clientboundBundlePacket.toEntitiesOrNull(minecraftEntityPacketDecoder)
 }
 ```
 
 The decoder resolves `typeId` through the negotiated Entity-type registry and restores type, UUID, position, velocity,
-yaw, and pitch. This basic overload returns an `Entity<NbtCompound>` with empty subtype data. Runtime-only state remains
-in the pairing packets. `clientboundBundlePacket.isEntityPairingBundle` provides a direct Boolean check using the same
-leading-`SpawnEntityPacket` rule when conversion is not yet needed.
+yaw, and pitch. This basic overload returns `Entity<NbtCompound>` values with empty subtype data. Runtime-only state
+remains in the pairing packets. `clientboundBundlePacket.isEntityPairingBundle` provides a direct Boolean check using
+the same leading-`SpawnEntityPacket` rule when conversion is not yet needed.
+
+The leading packet is the discriminator: the decoder does not scan a bundle for a later Spawn. If the first packet is
+not `SpawnEntityPacket`, `toEntitiesOrNull` returns null and the bundle remains ordinary application traffic.
+
+The matching official server creates one bundle per Entity. The bundle protocol itself is generic, however, and the
+official client simply handles every subpacket in received order. It therefore also accepts several complete Entity
+pairing sequences concatenated in one bundle. `toEntities` supports both shapes by starting a new Entity whenever it
+encounters another `SpawnEntityPacket`. `toEntity` remains the convenient strict form for the ordinary one-Entity
+bundle; it requires exactly one Spawn, while `toEntityOrNull` returns null for a non-Entity or multi-Entity bundle.
 
 Use `MinecraftEntityPacketAdapter` when the returned Entity is the caller's complete client runtime model. The adapter
 creates its subtype data, registers the Entity before dependent packets are applied, and receives each supported tail
@@ -255,24 +264,27 @@ suspend fun receiveEntities(
 ) {
     val minecraftEntityPacketDecoder = MinecraftEntityPacketDecoder(minecraftClientConnection.registries)
     for (clientboundPacket in minecraftClientConnection.incoming) {
-        val entity = (clientboundPacket as? ClientboundBundlePacket)?.toEntityOrNull(
+        val entities = (clientboundPacket as? ClientboundBundlePacket)?.toEntitiesOrNull(
             minecraftEntityPacketDecoder,
             minecraftEntityPacketAdapter,
         )
-        if (entity == null) dispatchPacket(clientboundPacket)
+        if (entities == null) dispatchPacket(clientboundPacket)
     }
 }
 ```
 
-The one-step adapter overload calls `registerEntity` before applying metadata, attributes, equipment, passenger
-relations, and leash state. It processes trailing packets in received order but does not require or validate a fixed
-order among their types. `SetPassengersPacket` and `LinkEntitiesPacket` can refer to other Entities, which is why the
-example keeps those relationships in caller-owned ID maps.
+For every Spawn, the adapter overload calls `registerEntity` before applying that pairing sequence's metadata,
+attributes, equipment, passenger relations, and leash state. A later Spawn starts the next sequence. Tail packets are
+processed in received order without requiring a fixed order among their types. `SetPassengersPacket` and
+`LinkEntitiesPacket` can refer to other Entities, which is why the example keeps those relationships in caller-owned ID
+maps.
 
 Callers that need explicit lifecycle control can use the same primitive operations separately: obtain
 `spawnEntityPacket()`, create the Entity with `SpawnEntityPacket.toEntity`, register it, and then call
-`applyEntityPairingPackets`. The public incoming channel waits for both wire delimiters and publishes one complete
-logical bundle, so it never exposes `BundleDelimiterPacket`.
+`applyEntityPairingPackets` for that one sequence. `spawnEntityPackets()` exposes every Spawn in a multi-Entity bundle.
+An already unwrapped `Iterable<ClientboundPacket>` supports the same `toEntities` and `toEntitiesOrNull` calls, so raw
+packet lists do not need to be wrapped back into `ClientboundBundlePacket`. The public incoming channel waits for both
+wire delimiters and publishes one complete logical bundle, so it never exposes `BundleDelimiterPacket`.
 
 ## Writing your own negotiation
 

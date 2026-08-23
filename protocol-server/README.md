@@ -362,7 +362,9 @@ compound becomes its update tag. A block-entity implementation with a type-speci
 `MinecraftEntitySnapshot` represents the detached state consumed by the selected-release vanilla Entity pairing
 sequence. `bundle(registries)` returns one logical `ClientboundBundlePacket`; `packets(registries)` retains the raw
 opening delimiter, ordered payload packets, and closing delimiter for callers that need the physical sequence. The
-payload order is:
+matching official server constructs and sends one such bundle for each newly tracked Entity. Its client accepts several
+complete pairing sequences in one bundle as well, so a collection of snapshots also supports `bundle(registries)`.
+Within each sequence, the payload order is:
 
 1. spawn;
 2. non-empty metadata, when supplied;
@@ -426,6 +428,31 @@ when the configured queue is full. A tick loop that must make its own slow-clien
 `minecraftEntitySnapshot.bundle(minecraftServerConnection.registries)` and passes the result to `outgoing.trySend`. The
 writer expands an accepted logical bundle without channel-level interleaving. `packets(registries)` remains available
 when an application deliberately manages the delimiter sequence itself.
+
+Several detached snapshots can share one bundle and one queue entry while preserving their iteration order:
+
+```kotlin
+suspend fun sendEntityPairings(
+    minecraftServerConnection: MinecraftServerConnection,
+    minecraftEntitySnapshots: List<MinecraftEntitySnapshot>,
+) {
+    minecraftServerConnection.sendEntitySnapshots(minecraftEntitySnapshots)
+}
+```
+
+For caller-owned semantic Entities, the projection lambda supplies the connection-local state that `Entity` cannot
+contain. The shortcut creates each detached snapshot on the calling tick thread and places all resulting pairing
+sequences in one logical bundle:
+
+```kotlin
+fun <E : Any> createEntityBundle(
+    entities: List<Entity<E>>,
+    protocolRegistryContext: ProtocolRegistryContext,
+    entityIds: Map<Uuid, Int>,
+): ClientboundBundlePacket = entities.toMinecraftEntityBundle(protocolRegistryContext) { entity ->
+    entity.toMinecraftEntitySnapshot(entityId = entityIds.getValue(entity.uuid))
+}
+```
 
 ### Disk Entity Chunk to Entity to pairing bundle
 

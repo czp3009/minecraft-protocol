@@ -9,10 +9,10 @@ import com.hiczp.minecraft.world.format.EntityRotation
 import com.hiczp.minecraft.world.format.EntityVector3d
 
 /**
- * Adapts one vanilla Entity pairing bundle to caller-owned runtime Entity state.
+ * Adapts one or more Entity pairing sequences to caller-owned runtime Entity state.
  *
- * [createData] supplies the runtime subtype value installed in the strong [Entity]. [registerEntity] runs after that
- * Entity has been created and before any trailing pairing packet is applied, matching the official client's lookup
+ * [createData] supplies the runtime subtype value installed in each strong [Entity]. [registerEntity] runs after that
+ * Entity has been created and before its trailing pairing packets are applied, matching the official client's lookup
  * behavior. The remaining callbacks run once per matching packet in received order; their relative order is not
  * validated. Relationship packets can refer to Entities other than the newly registered one, so adapters normally
  * capture the caller's Entity table.
@@ -36,26 +36,52 @@ interface MinecraftEntityPacketAdapter<E : Any> {
 }
 
 /**
- * Stateless projection of clientbound Entity spawn packets into strong world Entities.
+ * Stateless projection of clientbound Entity spawn and pairing packets into strong world Entities.
  *
- * The decoder resolves the packet's numeric Entity type through the active connection registry. The returned Entity
- * contains the semantic state shared with world storage: type, UUID, position, velocity, yaw, and pitch. The adapter
- * overload routes runtime-only pairing state into the caller's client simulation.
+ * The decoder resolves numeric Entity types through the active connection registry. Each returned Entity contains the
+ * semantic state shared with world storage: type, UUID, position, velocity, yaw, and pitch. Adapter overloads route
+ * runtime-only pairing state into the caller's client simulation.
  */
 class MinecraftEntityPacketDecoder(
     val registries: ProtocolRegistryContext,
 ) {
     private val entityTypes = registries.requireRegistry(ProtocolRegistryContext.ENTITY_TYPE_REGISTRY)
 
-    fun decode(packet: SpawnEntityPacket): Entity<NbtCompound> =
-        decode(packet, NbtCompound(emptyMap()))
+    fun decode(packet: SpawnEntityPacket): Entity<NbtCompound> = decode(packet, NbtCompound(emptyMap()))
 
-    /** Decodes common spawn state without adapting trailing runtime packets. */
-    fun decode(bundle: ClientboundBundlePacket): Entity<NbtCompound> = decode(bundle.spawnEntityPacket())
+    /** Decodes one pairing bundle and requires it to contain exactly one Entity. */
+    fun decode(bundle: ClientboundBundlePacket): Entity<NbtCompound> =
+        decode(requireSingleSpawnEntityPacket(bundle))
 
-    /** Returns null when [bundle] is not a vanilla Entity pairing bundle. */
+    /** Returns the Entity only when [bundle] contains exactly one pairing sequence. */
     fun decodeOrNull(bundle: ClientboundBundlePacket): Entity<NbtCompound>? =
-        bundle.spawnEntityPacketOrNull()?.let(::decode)
+        bundle.singleSpawnEntityPacketOrNull()?.let(::decode)
+
+    /** Decodes every pairing sequence in [bundle] without adapting runtime-only packets. */
+    fun decodeEntities(bundle: ClientboundBundlePacket): List<Entity<NbtCompound>> = decodeEntities(bundle.subPackets)
+
+    /** Returns null when [bundle] does not begin with an Entity pairing sequence. */
+    fun decodeEntitiesOrNull(bundle: ClientboundBundlePacket): List<Entity<NbtCompound>>? =
+        decodeEntitiesOrNull(bundle.subPackets)
+
+    /** Decodes every pairing sequence in an unwrapped packet stream. */
+    fun decodeEntities(packets: Iterable<ClientboundPacket>): List<Entity<NbtCompound>> =
+        requireNotNull(decodeEntitiesOrNull(packets)) {
+            "Entity pairing packets must begin with SpawnEntityPacket"
+        }
+
+    /** Returns null when [packets] does not begin with an Entity pairing sequence. */
+    fun decodeEntitiesOrNull(packets: Iterable<ClientboundPacket>): List<Entity<NbtCompound>>? {
+        val iterator = packets.iterator()
+        val firstPacket = iterator.nextOrNull() as? SpawnEntityPacket ?: return null
+        return buildList {
+            add(decode(firstPacket))
+            while (iterator.hasNext()) {
+                val packet = iterator.next()
+                if (packet is SpawnEntityPacket) add(decode(packet))
+            }
+        }
+    }
 
     /** Decodes common spawn state while installing caller-owned runtime subtype data. */
     fun <E : Any> decode(packet: SpawnEntityPacket, data: E): Entity<E> {
@@ -63,30 +89,76 @@ class MinecraftEntityPacketDecoder(
         return createEntity(packet, type, data)
     }
 
-    /** Creates, registers, and adapts one complete vanilla Entity pairing bundle. */
+    /** Creates, registers, and adapts one bundle containing exactly one Entity pairing sequence. */
     fun <E : Any> decode(
         bundle: ClientboundBundlePacket,
         adapter: MinecraftEntityPacketAdapter<E>,
-    ): Entity<E> = decode(bundle, bundle.spawnEntityPacket(), adapter)
+    ): Entity<E> = requireSingleEntity(decodeEntities(bundle, adapter))
 
-    /** Returns null when [bundle] is not a vanilla Entity pairing bundle. */
+    /** Returns the Entity only when [bundle] contains exactly one pairing sequence. */
     fun <E : Any> decodeOrNull(
         bundle: ClientboundBundlePacket,
         adapter: MinecraftEntityPacketAdapter<E>,
-    ): Entity<E>? {
-        val packet = bundle.spawnEntityPacketOrNull() ?: return null
-        return decode(bundle, packet, adapter)
+    ): Entity<E>? = decodeEntitiesOrNull(bundle, adapter)?.singleOrNull()
+
+    /** Creates, registers, and adapts every Entity pairing sequence in [bundle]. */
+    fun <E : Any> decodeEntities(
+        bundle: ClientboundBundlePacket,
+        adapter: MinecraftEntityPacketAdapter<E>,
+    ): List<Entity<E>> = decodeEntities(bundle.subPackets, adapter)
+
+    /** Returns null when [bundle] does not begin with an Entity pairing sequence. */
+    fun <E : Any> decodeEntitiesOrNull(
+        bundle: ClientboundBundlePacket,
+        adapter: MinecraftEntityPacketAdapter<E>,
+    ): List<Entity<E>>? = decodeEntitiesOrNull(bundle.subPackets, adapter)
+
+    /** Creates, registers, and adapts every pairing sequence in an unwrapped packet stream. */
+    fun <E : Any> decodeEntities(
+        packets: Iterable<ClientboundPacket>,
+        adapter: MinecraftEntityPacketAdapter<E>,
+    ): List<Entity<E>> = requireNotNull(decodeEntitiesOrNull(packets, adapter)) {
+        "Entity pairing packets must begin with SpawnEntityPacket"
     }
 
-    private fun <E : Any> decode(
-        bundle: ClientboundBundlePacket,
+    /** Returns null when [packets] does not begin with an Entity pairing sequence. */
+    fun <E : Any> decodeEntitiesOrNull(
+        packets: Iterable<ClientboundPacket>,
+        adapter: MinecraftEntityPacketAdapter<E>,
+    ): List<Entity<E>>? {
+        val iterator = packets.iterator()
+        val firstPacket = iterator.nextOrNull() as? SpawnEntityPacket ?: return null
+        var entity = createAndRegister(firstPacket, adapter)
+        return buildList {
+            add(entity)
+            while (iterator.hasNext()) {
+                when (val packet = iterator.next()) {
+                    is SpawnEntityPacket -> {
+                        entity = createAndRegister(packet, adapter)
+                        add(entity)
+                    }
+
+                    else -> applyEntityPairingPacket(entity, packet, adapter)
+                }
+            }
+        }
+    }
+
+    /** Decodes common spawn state with caller-owned data without adapting trailing runtime packets. */
+    fun <E : Any> decode(bundle: ClientboundBundlePacket, data: E): Entity<E> =
+        decode(requireSingleSpawnEntityPacket(bundle), data)
+
+    /** Returns the Entity only when [bundle] contains exactly one pairing sequence. */
+    fun <E : Any> decodeOrNull(bundle: ClientboundBundlePacket, data: E): Entity<E>? =
+        bundle.singleSpawnEntityPacketOrNull()?.let { packet -> decode(packet, data) }
+
+    private fun <E : Any> createAndRegister(
         packet: SpawnEntityPacket,
         adapter: MinecraftEntityPacketAdapter<E>,
     ): Entity<E> {
         val type = type(packet)
         val entity = createEntity(packet, type, adapter.createData(packet, type))
         adapter.registerEntity(packet, entity)
-        bundle.applyEntityPairingPackets(entity, adapter)
         return entity
     }
 
@@ -108,63 +180,87 @@ class MinecraftEntityPacketDecoder(
             pitch = packet.pitch.degrees,
         ),
     )
-
-    /** Decodes common spawn state with caller-owned data without adapting trailing runtime packets. */
-    fun <E : Any> decode(bundle: ClientboundBundlePacket, data: E): Entity<E> =
-        decode(bundle.spawnEntityPacket(), data)
-
-    /** Returns null when [bundle] is not a vanilla Entity pairing bundle. */
-    fun <E : Any> decodeOrNull(bundle: ClientboundBundlePacket, data: E): Entity<E>? =
-        bundle.spawnEntityPacketOrNull()?.let { packet -> decode(packet, data) }
 }
 
 /**
- * Returns the spawn packet when this bundle uses the vanilla Entity pairing shape.
+ * Returns the first spawn packet when this bundle uses an Entity pairing shape.
  *
- * Vanilla identifies that shape by placing [SpawnEntityPacket] first. The remaining packets are intentionally not
- * scanned or order-validated; callers dispatch their metadata, attributes, equipment, and relationship updates by
- * packet type.
+ * The matching official server emits one Entity per bundle, while the bundle format and official client also accept
+ * several consecutive pairing sequences. The remaining packets are intentionally not order-validated.
  */
 fun ClientboundBundlePacket.spawnEntityPacketOrNull(): SpawnEntityPacket? =
     subPackets.firstOrNull() as? SpawnEntityPacket
 
-/** Whether this bundle uses the vanilla Entity pairing shape. */
+/** Every spawn packet in this bundle, in received order. */
+fun ClientboundBundlePacket.spawnEntityPackets(): Sequence<SpawnEntityPacket> =
+    subPackets.asSequence().filterIsInstance<SpawnEntityPacket>()
+
+/** Whether this bundle begins with one or more Entity pairing sequences. */
 val ClientboundBundlePacket.isEntityPairingBundle: Boolean
     get() = spawnEntityPacketOrNull() != null
 
-/** Returns the leading spawn packet or fails when this is not a vanilla Entity pairing bundle. */
+/** Returns the leading spawn packet or fails when this is not an Entity pairing bundle. */
 fun ClientboundBundlePacket.spawnEntityPacket(): SpawnEntityPacket = requireNotNull(spawnEntityPacketOrNull()) {
-    "An Entity pairing bundle must begin with SpawnEntityPacket"
+    "Entity pairing packets must begin with SpawnEntityPacket"
 }
 
 /**
- * Applies the trailing packets of this Entity pairing bundle to an already created and registered [entity].
+ * Applies one pairing sequence to an already created and registered [entity].
  *
- * This is the primitive counterpart to the decoder's one-step adapter overload. It performs no buffering, grouping,
- * or tail-order validation.
+ * The iterable must include its leading [SpawnEntityPacket] and no second Spawn. This primitive performs no buffering
+ * or tail-order validation. Use [toEntities] when a bundle or raw packet list may contain several pairing sequences.
  */
-fun <E : Any> ClientboundBundlePacket.applyEntityPairingPackets(
+fun <E : Any> Iterable<ClientboundPacket>.applyEntityPairingPackets(
     entity: Entity<E>,
     adapter: MinecraftEntityPacketAdapter<E>,
 ) {
-    spawnEntityPacket()
-    applyTrailingEntityPairingPackets(entity, adapter)
+    val iterator = iterator()
+    require(iterator.nextOrNull() is SpawnEntityPacket) {
+        "Entity pairing packets must begin with SpawnEntityPacket"
+    }
+    while (iterator.hasNext()) {
+        val packet = iterator.next()
+        require(packet !is SpawnEntityPacket) {
+            "applyEntityPairingPackets accepts exactly one Entity pairing sequence"
+        }
+        applyEntityPairingPacket(entity, packet, adapter)
+    }
 }
 
-private fun <E : Any> ClientboundBundlePacket.applyTrailingEntityPairingPackets(
+private fun <E : Any> applyEntityPairingPacket(
     entity: Entity<E>,
+    packet: ClientboundPacket,
     adapter: MinecraftEntityPacketAdapter<E>,
 ) {
-    for (index in 1 until subPackets.size) {
-        when (val packet = subPackets[index]) {
-            is SetEntityMetadataPacket -> adapter.applyMetadata(entity, packet)
-            is UpdateAttributesPacket -> adapter.applyAttributes(entity, packet)
-            is SetEquipmentPacket -> adapter.applyEquipment(entity, packet)
-            is SetPassengersPacket -> adapter.applyPassengers(entity, packet)
-            is LinkEntitiesPacket -> adapter.applyLink(entity, packet)
-            else -> adapter.applyOther(entity, packet)
-        }
+    when (packet) {
+        is SetEntityMetadataPacket -> adapter.applyMetadata(entity, packet)
+        is UpdateAttributesPacket -> adapter.applyAttributes(entity, packet)
+        is SetEquipmentPacket -> adapter.applyEquipment(entity, packet)
+        is SetPassengersPacket -> adapter.applyPassengers(entity, packet)
+        is LinkEntitiesPacket -> adapter.applyLink(entity, packet)
+        else -> adapter.applyOther(entity, packet)
     }
+}
+
+private fun <T> Iterator<T>.nextOrNull(): T? = if (hasNext()) next() else null
+
+private fun ClientboundBundlePacket.singleSpawnEntityPacketOrNull(): SpawnEntityPacket? {
+    if (!isEntityPairingBundle) return null
+    val iterator = spawnEntityPackets().iterator()
+    val packet = iterator.next()
+    return if (iterator.hasNext()) null else packet
+}
+
+private fun requireSingleSpawnEntityPacket(bundle: ClientboundBundlePacket): SpawnEntityPacket =
+    requireNotNull(bundle.singleSpawnEntityPacketOrNull()) {
+        "An Entity pairing bundle must begin with and contain exactly one SpawnEntityPacket"
+    }
+
+private fun <E : Any> requireSingleEntity(entities: List<Entity<E>>): Entity<E> {
+    require(entities.size == 1) {
+        "Exactly one Entity pairing sequence was required, but found ${entities.size}"
+    }
+    return entities.single()
 }
 
 /** Fluent clientbound spawn packet to strong world-Entity conversion. */
@@ -178,36 +274,80 @@ fun <E : Any> SpawnEntityPacket.toEntity(
     data: E,
 ): Entity<E> = decoder.decode(this, data)
 
-/** Fluent complete Entity pairing bundle to strong world-Entity conversion. */
+/** Fluent bundle containing exactly one Entity pairing sequence to a strong world Entity. */
 fun ClientboundBundlePacket.toEntity(
     decoder: MinecraftEntityPacketDecoder,
 ): Entity<NbtCompound> = decoder.decode(this)
 
-/** Returns null when this is not a vanilla Entity pairing bundle. */
+/** Returns the Entity only when this bundle contains exactly one pairing sequence. */
 fun ClientboundBundlePacket.toEntityOrNull(
     decoder: MinecraftEntityPacketDecoder,
 ): Entity<NbtCompound>? = decoder.decodeOrNull(this)
 
-/** Creates, registers, and adapts one complete vanilla Entity pairing bundle. */
+/** Creates, registers, and adapts a bundle containing exactly one Entity pairing sequence. */
 fun <E : Any> ClientboundBundlePacket.toEntity(
     decoder: MinecraftEntityPacketDecoder,
     adapter: MinecraftEntityPacketAdapter<E>,
 ): Entity<E> = decoder.decode(this, adapter)
 
-/** Returns null when this is not a vanilla Entity pairing bundle. */
+/** Returns the adapted Entity only when this bundle contains exactly one pairing sequence. */
 fun <E : Any> ClientboundBundlePacket.toEntityOrNull(
     decoder: MinecraftEntityPacketDecoder,
     adapter: MinecraftEntityPacketAdapter<E>,
 ): Entity<E>? = decoder.decodeOrNull(this, adapter)
 
-/** Fluent complete Entity pairing bundle to strong world-Entity conversion with caller-owned subtype data. */
+/** Fluent bundle containing exactly one Entity pairing sequence with caller-owned subtype data. */
 fun <E : Any> ClientboundBundlePacket.toEntity(
     decoder: MinecraftEntityPacketDecoder,
     data: E,
 ): Entity<E> = decoder.decode(this, data)
 
-/** Returns null when this is not a vanilla Entity pairing bundle. */
+/** Returns the Entity only when this bundle contains exactly one pairing sequence. */
 fun <E : Any> ClientboundBundlePacket.toEntityOrNull(
     decoder: MinecraftEntityPacketDecoder,
     data: E,
 ): Entity<E>? = decoder.decodeOrNull(this, data)
+
+/** Decodes every Entity pairing sequence in this bundle. */
+fun ClientboundBundlePacket.toEntities(
+    decoder: MinecraftEntityPacketDecoder,
+): List<Entity<NbtCompound>> = decoder.decodeEntities(this)
+
+/** Returns null when this bundle does not begin with an Entity pairing sequence. */
+fun ClientboundBundlePacket.toEntitiesOrNull(
+    decoder: MinecraftEntityPacketDecoder,
+): List<Entity<NbtCompound>>? = decoder.decodeEntitiesOrNull(this)
+
+/** Creates, registers, and adapts every Entity pairing sequence in this bundle. */
+fun <E : Any> ClientboundBundlePacket.toEntities(
+    decoder: MinecraftEntityPacketDecoder,
+    adapter: MinecraftEntityPacketAdapter<E>,
+): List<Entity<E>> = decoder.decodeEntities(this, adapter)
+
+/** Returns null when this bundle does not begin with an Entity pairing sequence. */
+fun <E : Any> ClientboundBundlePacket.toEntitiesOrNull(
+    decoder: MinecraftEntityPacketDecoder,
+    adapter: MinecraftEntityPacketAdapter<E>,
+): List<Entity<E>>? = decoder.decodeEntitiesOrNull(this, adapter)
+
+/** Decodes every Entity pairing sequence in this bundle or raw packet list. */
+fun Iterable<ClientboundPacket>.toEntities(
+    decoder: MinecraftEntityPacketDecoder,
+): List<Entity<NbtCompound>> = decoder.decodeEntities(this)
+
+/** Returns null when these packets do not begin with an Entity pairing sequence. */
+fun Iterable<ClientboundPacket>.toEntitiesOrNull(
+    decoder: MinecraftEntityPacketDecoder,
+): List<Entity<NbtCompound>>? = decoder.decodeEntitiesOrNull(this)
+
+/** Creates, registers, and adapts every Entity pairing sequence in this bundle or raw packet list. */
+fun <E : Any> Iterable<ClientboundPacket>.toEntities(
+    decoder: MinecraftEntityPacketDecoder,
+    adapter: MinecraftEntityPacketAdapter<E>,
+): List<Entity<E>> = decoder.decodeEntities(this, adapter)
+
+/** Returns null when these packets do not begin with an Entity pairing sequence. */
+fun <E : Any> Iterable<ClientboundPacket>.toEntitiesOrNull(
+    decoder: MinecraftEntityPacketDecoder,
+    adapter: MinecraftEntityPacketAdapter<E>,
+): List<Entity<E>>? = decoder.decodeEntitiesOrNull(this, adapter)

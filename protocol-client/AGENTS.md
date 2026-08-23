@@ -12,9 +12,9 @@ The module may depend on filesystem-independent `world-format`. It owns the clie
 `ProtocolRegistryContext` to `ChunkDataRegistries` and the stateless projection of received clientbound Chunk packets
 into positionless semantic `Chunk` values. The negotiation result retains the server-selected initial
 `MinecraftDimensionLayout` and exposes its derived `ChunkLayout`; there is no release-wide dimension-layout default. It
-also owns projection of vanilla Entity pairing bundles into semantic `Entity` values and type-based handoff of
-runtime-only pairing packets through caller-supplied adapters. It never opens world files or invents persistence-only
-metadata absent from a packet; callers supply that template explicitly.
+also owns projection of one or more Entity pairing sequences from a bundle or raw packet list into semantic `Entity`
+values and type-based handoff of runtime-only pairing packets through caller-supplied adapters. It never opens world
+files or invents persistence-only metadata absent from a packet; callers supply that template explicitly.
 
 High-level online Login receives a caller-owned `HttpClient` and constructs the stateless `MinecraftSessionApi`
 internally. The caller configures and closes the client; this module owns when `/join` occurs.

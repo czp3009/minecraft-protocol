@@ -312,6 +312,54 @@ class MinecraftInitialWorldTest {
     }
 
     @Test
+    fun severalEntitiesProduceOneBundleWithConsecutivePairingSequences() {
+        val pig = MinecraftEntitySnapshot(
+            entityId = 17,
+            uuid = Uuid.fromLongs(1, 2),
+            type = Identifier("pig"),
+            position = Vector3d(1.5, 65.0, -2.5),
+            metadata = EntityMetadata(listOf(EntityMetadataEntry(0, EntityDataValue.ByteValue(1)))),
+        )
+        val cow = MinecraftEntitySnapshot(
+            entityId = 18,
+            uuid = Uuid.fromLongs(3, 4),
+            type = Identifier("cow"),
+            position = Vector3d(2.5, 65.0, -1.5),
+            equipment = listOf(EquipmentUpdate(EquipmentSlot.MAINHAND, ItemStack.of(4))),
+        )
+
+        val bundle = listOf(pig, cow).bundle(VanillaProtocolData.registryContext)
+
+        assertEquals(4, bundle.size)
+        assertEquals(listOf(17, 18), bundle.subPackets.filterIsInstance<SpawnEntityPacket>().map { it.entityId })
+        assertIs<SetEntityMetadataPacket>(bundle.subPackets[1])
+        assertIs<SetEquipmentPacket>(bundle.subPackets[3])
+
+        val entities = listOf(
+            Entity(
+                type = "minecraft:pig",
+                uuid = pig.uuid,
+                data = NbtCompound(emptyMap()),
+                position = EntityVector3d(1.5, 65.0, -2.5),
+            ),
+            Entity(
+                type = "minecraft:cow",
+                uuid = cow.uuid,
+                data = NbtCompound(emptyMap()),
+                position = EntityVector3d(2.5, 65.0, -1.5),
+            ),
+        )
+        val entityIds = mapOf(pig.uuid to 17, cow.uuid to 18)
+        val projectedBundle = entities.toMinecraftEntityBundle(VanillaProtocolData.registryContext) { entity ->
+            entity.toMinecraftEntitySnapshot(entityIds.getValue(entity.uuid))
+        }
+
+        assertEquals(listOf(17, 18), projectedBundle.subPackets.map { packet ->
+            assertIs<SpawnEntityPacket>(packet).entityId
+        })
+    }
+
+    @Test
     fun semanticEntityConversionDetachesRuntimeState() {
         val entity = Entity(
             type = "minecraft:pig",

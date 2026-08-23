@@ -68,8 +68,12 @@ class MinecraftWorldEntityProjectionTest {
         assertFalse(nonEntityBundle.isEntityPairingBundle)
         assertNull(nonEntityBundle.spawnEntityPacketOrNull())
         assertNull(nonEntityBundle.toEntityOrNull(minecraftEntityPacketDecoder))
+        assertNull(nonEntityBundle.toEntitiesOrNull(minecraftEntityPacketDecoder))
         assertFailsWith<IllegalArgumentException> {
             nonEntityBundle.toEntity(minecraftEntityPacketDecoder)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            nonEntityBundle.toEntities(minecraftEntityPacketDecoder)
         }
     }
 
@@ -179,6 +183,109 @@ class MinecraftWorldEntityProjectionTest {
             listOf("registered", "link", "equipment", "metadata", "passengers", "attributes"),
             entity.data.appliedPackets,
         )
+    }
+
+    @Test
+    fun decodesSeveralConsecutiveEntityPairingsFromOneBundleOrRawPacketList() {
+        val pig = Identifier("pig")
+        val cow = Identifier("cow")
+        val registries = ProtocolRegistryContext(
+            registries = listOf(
+                ProtocolRegistry(
+                    ProtocolRegistryContext.ENTITY_TYPE_REGISTRY,
+                    listOf(
+                        ProtocolRegistryEntry(pig, 7),
+                        ProtocolRegistryEntry(cow, 8),
+                    ),
+                ),
+            ),
+            blockStates = emptyList(),
+        )
+        val minecraftEntityPacketDecoder = MinecraftEntityPacketDecoder(registries)
+        val pigSpawnPacket = SpawnEntityPacket(
+            entityId = 42,
+            entityUuid = Uuid.parse("00112233-4455-6677-8899-aabbccddeeff"),
+            typeId = 7,
+            x = 1.0,
+            y = 2.0,
+            z = 3.0,
+            velocity = Vector3d(0.0, 0.0, 0.0),
+            pitch = Angle(0),
+            yaw = Angle(0),
+            headYaw = Angle(0),
+            data = 1,
+        )
+        val cowSpawnPacket = SpawnEntityPacket(
+            entityId = 43,
+            entityUuid = Uuid.parse("11223344-5566-7788-99aa-bbccddeeff00"),
+            typeId = 8,
+            x = 4.0,
+            y = 5.0,
+            z = 6.0,
+            velocity = Vector3d(0.0, 0.0, 0.0),
+            pitch = Angle(0),
+            yaw = Angle(0),
+            headYaw = Angle(0),
+            data = 2,
+        )
+        val bundle = ClientboundBundlePacket(
+            listOf(
+                pigSpawnPacket,
+                SetEntityMetadataPacket(entityId = 42, metadata = EntityMetadata(emptyList())),
+                cowSpawnPacket,
+                SetEquipmentPacket(
+                    entityId = 43,
+                    updates = EquipmentUpdates(
+                        listOf(EquipmentUpdate(EquipmentSlot.HEAD, ItemStack.EMPTY)),
+                    ),
+                ),
+                SetEntityMetadataPacket(entityId = 43, metadata = EntityMetadata(emptyList())),
+            ),
+        )
+        val entitiesById = mutableMapOf<Int, Entity<TestAdaptedEntityData>>()
+        val adapter = object : MinecraftEntityPacketAdapter<TestAdaptedEntityData> {
+            override fun createData(packet: SpawnEntityPacket, type: Identifier): TestAdaptedEntityData =
+                TestAdaptedEntityData(type, packet.data, packet.headYaw.degrees)
+
+            override fun registerEntity(
+                packet: SpawnEntityPacket,
+                entity: Entity<TestAdaptedEntityData>,
+            ) {
+                entitiesById[packet.entityId] = entity
+                entity.data.appliedPackets += "registered"
+            }
+
+            override fun applyMetadata(
+                entity: Entity<TestAdaptedEntityData>,
+                packet: SetEntityMetadataPacket,
+            ) {
+                assertSame(entitiesById[packet.entityId], entity)
+                entity.data.appliedPackets += "metadata"
+            }
+
+            override fun applyEquipment(
+                entity: Entity<TestAdaptedEntityData>,
+                packet: SetEquipmentPacket,
+            ) {
+                assertSame(entitiesById[packet.entityId], entity)
+                entity.data.appliedPackets += "equipment"
+            }
+        }
+
+        val entities = bundle.toEntities(minecraftEntityPacketDecoder, adapter)
+
+        assertTrue(bundle.isEntityPairingBundle)
+        assertEquals(listOf(pigSpawnPacket, cowSpawnPacket), bundle.spawnEntityPackets().toList())
+        assertEquals(listOf(pig, cow), entities.map { entity -> entity.data.type })
+        assertEquals(listOf("registered", "metadata"), entities[0].data.appliedPackets)
+        assertEquals(listOf("registered", "equipment", "metadata"), entities[1].data.appliedPackets)
+        assertNull(bundle.toEntityOrNull(minecraftEntityPacketDecoder))
+        assertFailsWith<IllegalArgumentException> {
+            bundle.toEntity(minecraftEntityPacketDecoder)
+        }
+
+        val rawEntities = bundle.subPackets.toEntities(minecraftEntityPacketDecoder)
+        assertEquals(listOf("minecraft:pig", "minecraft:cow"), rawEntities.map { entity -> entity.type })
     }
 
     @Test

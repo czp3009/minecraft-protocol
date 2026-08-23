@@ -50,6 +50,15 @@ data class MinecraftEntitySnapshot(
     fun bundle(typeId: Int): ClientboundBundlePacket = ClientboundBundlePacket(contentPackets(typeId))
 
     private fun contentPackets(typeId: Int): List<ClientboundPacket> = buildList {
+        addContentPackets(this@MinecraftEntitySnapshot, typeId)
+    }
+}
+
+private fun MutableList<ClientboundPacket>.addContentPackets(
+    snapshot: MinecraftEntitySnapshot,
+    typeId: Int,
+) {
+    with(snapshot) {
         add(
             SpawnEntityPacket(
                 entityId = entityId,
@@ -86,6 +95,34 @@ data class MinecraftEntitySnapshot(
         leashHolderEntityId?.let { holderId -> add(LinkEntitiesPacket(entityId, holderId)) }
     }
 }
+
+/** Builds one logical bundle containing every Entity snapshot in iteration order. */
+fun Iterable<MinecraftEntitySnapshot>.bundle(
+    registries: ProtocolRegistryContext,
+): ClientboundBundlePacket = ClientboundBundlePacket(
+    buildList {
+        this@bundle.forEach { snapshot ->
+            addContentPackets(snapshot, snapshot.typeId(registries))
+        }
+    },
+)
+
+/**
+ * Snapshots caller-owned runtime Entities and builds one logical bundle in iteration order.
+ *
+ * [snapshotOf] supplies connection-local protocol state that a semantic [Entity] does not own.
+ */
+fun <E : Any> Iterable<Entity<E>>.toMinecraftEntityBundle(
+    registries: ProtocolRegistryContext,
+    snapshotOf: (Entity<E>) -> MinecraftEntitySnapshot,
+): ClientboundBundlePacket = ClientboundBundlePacket(
+    buildList {
+        this@toMinecraftEntityBundle.forEach { entity ->
+            val snapshot = snapshotOf(entity)
+            addContentPackets(snapshot, snapshot.typeId(registries))
+        }
+    },
+)
 
 /** One vehicle-to-passenger relationship included in an Entity pairing bundle. */
 data class MinecraftEntityPassengersSnapshot(
@@ -136,4 +173,9 @@ fun <E : Any> Entity<E>.toMinecraftEntitySnapshot(
 /** Enqueues one complete Entity pairing bundle in protocol order. */
 suspend fun MinecraftServerConnection.sendEntitySnapshot(snapshot: MinecraftEntitySnapshot) {
     outgoing.send(snapshot.bundle(registries))
+}
+
+/** Enqueues one bundle containing every Entity snapshot in iteration order. */
+suspend fun MinecraftServerConnection.sendEntitySnapshots(snapshots: Iterable<MinecraftEntitySnapshot>) {
+    outgoing.send(snapshots.bundle(registries))
 }
