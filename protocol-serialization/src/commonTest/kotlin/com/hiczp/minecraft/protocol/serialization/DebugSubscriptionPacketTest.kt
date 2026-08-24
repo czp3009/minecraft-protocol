@@ -89,15 +89,7 @@ class DebugSubscriptionPacketTest {
                         pieces = listOf(DebugStructurePiece(zeroBox, start = true)),
                     ),
                 ),
-            ) to buildString {
-                append("0c01")
-                append(ZERO_POSITION_HEX)
-                append(ZERO_POSITION_HEX)
-                append("01")
-                append(ZERO_POSITION_HEX)
-                append(ZERO_POSITION_HEX)
-                append("01")
-            },
+            ) to "0c01${ZERO_POSITION_HEX}${ZERO_POSITION_HEX}01${ZERO_POSITION_HEX}${ZERO_POSITION_HEX}01",
             DebugSubscriptionData.GameEventListener(300) to "0dac02",
             DebugSubscriptionData.NeighborUpdate(ZERO_POSITION) to
                     "0e$ZERO_POSITION_HEX",

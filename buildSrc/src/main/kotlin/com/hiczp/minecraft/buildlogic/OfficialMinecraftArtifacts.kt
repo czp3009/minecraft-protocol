@@ -73,9 +73,9 @@ private fun Project.officialMinecraftArtifact(name: String): Configuration {
 }
 
 /**
- * Publishes the official codec oracle Java source from the
+ * Publishes the official codec oracle Java source directory from the
  * owning fixture-host module so the root project can consume it as
- * an input to [CompileOfficialCodecOracleTask].
+ * an input to the root codec-oracle compilation task.
  */
 fun Project.publishCodecOracleSource() {
     val elements = configurations.consumable("codecOracleSourceElements") {
@@ -83,8 +83,8 @@ fun Project.publishCodecOracleSource() {
     }
     artifacts.add(
         elements.name,
-        layout.projectDirectory.file(
-            "src/main/resources/com/hiczp/minecraft/test/oracle/OfficialCodecOracle.java",
+        layout.projectDirectory.dir(
+            "src/main/resources/com/hiczp/minecraft/test/oracle",
         ),
     )
 }

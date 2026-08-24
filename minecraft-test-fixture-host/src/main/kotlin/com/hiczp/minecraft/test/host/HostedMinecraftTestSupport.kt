@@ -84,20 +84,24 @@ internal object HostedMinecraftTestSupport {
                     )
                 }
             } catch (failure: Throwable) {
-                startedResource?.let { resource ->
-                    runCatching { resource.cleanup() }
-                        .onFailure { cleanupFailure ->
+                withContext(NonCancellable) {
+                    startedResource?.let { resource ->
+                        try {
+                            resource.cleanup()
+                        } catch (cleanupFailure: Throwable) {
                             failure.addSuppressed(cleanupFailure)
                         }
-                }
-                runCatching { workDirectory.deleteTree() }
-                    .onFailure { cleanupFailure ->
+                    }
+                    try {
+                        workDirectory.deleteTree()
+                    } catch (cleanupFailure: Throwable) {
                         failure.addSuppressed(cleanupFailure)
                     }
+                }
                 throw failure
             }
         } finally {
-            finishResourceCreation()
+            withContext(NonCancellable) { finishResourceCreation() }
         }
     }
 
@@ -123,20 +127,24 @@ internal object HostedMinecraftTestSupport {
                     )
                 }
             } catch (failure: Throwable) {
-                startedResource?.let { resource ->
-                    runCatching { resource.cleanup() }
-                        .onFailure { cleanupFailure ->
+                withContext(NonCancellable) {
+                    startedResource?.let { resource ->
+                        try {
+                            resource.cleanup()
+                        } catch (cleanupFailure: Throwable) {
                             failure.addSuppressed(cleanupFailure)
                         }
-                }
-                runCatching { workDirectory.deleteTree() }
-                    .onFailure { cleanupFailure ->
+                    }
+                    try {
+                        workDirectory.deleteTree()
+                    } catch (cleanupFailure: Throwable) {
                         failure.addSuppressed(cleanupFailure)
                     }
+                }
                 throw failure
             }
         } finally {
-            finishResourceCreation()
+            withContext(NonCancellable) { finishResourceCreation() }
         }
     }
 
@@ -246,18 +254,31 @@ internal object HostedMinecraftTestSupport {
 
     internal fun scheduleCleanup(resource: ManagedMinecraftTestResource) {
         cleanupScope.launch {
-            val cleanupFailure = runCatching {
-                resource.cleanup()
-                resource.workDirectory.deleteTree()
-            }.exceptionOrNull()
+            var cleanupFailure: Throwable? = null
             try {
-                resource.markClosed(cleanupFailure)
-            } finally {
-                registryMutex.withLock {
-                    resources.remove(resource)
-                    resourceCount.value = resources.size
+                resource.cleanup()
+            } catch (failure: Throwable) {
+                cleanupFailure = failure
+            }
+            withContext(NonCancellable) {
+                try {
+                    resource.workDirectory.deleteTree()
+                } catch (failure: Throwable) {
+                    cleanupFailure?.addSuppressed(failure) ?: run {
+                        cleanupFailure = failure
+                    }
+                }
+                try {
+                    resource.markClosed(cleanupFailure)
+                } finally {
+                    registryMutex.withLock {
+                        resources.remove(resource)
+                        resourceCount.value = resources.size
+                    }
                 }
             }
+            val cancellation = cleanupFailure as? CancellationException
+            if (cancellation != null) throw cancellation
             cleanupFailure?.let { failure ->
                 minecraftTestSupportLogger.warn(failure) {
                     "Could not completely clean Minecraft test resource ${resource.workDirectory}"

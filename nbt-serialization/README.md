@@ -3,6 +3,8 @@
 Portable Java Edition binary NBT and stringified NBT (SNBT) formats over the standalone model from
 [`nbt`](../nbt/README.md). `NbtFormat` implements `BinaryFormat`; `SnbtFormat` implements `StringFormat`.
 
+## Binary NBT
+
 `NbtFormat` converts serializable classes to NBT trees and reads or writes binary NBT. It supports the explicit root
 forms used by packets and world files (any/named/unnamed tag, or a compound-root document). Its caller-owned
 `kotlinx.io` `Source`/`Sink` methods are the canonical binary path. Here `value` is a caller-provided serializable
@@ -49,10 +51,15 @@ The format does not impose policy-sized byte, collection, array, or nesting limi
 and output incrementally; tree and byte-array methods necessarily retain the value they return. The unsigned-short
 length of Java modified UTF remains part of the NBT binary format itself.
 
+## Kotlin value mapping
+
 Classes and `Map<String, T>` values become compounds. Mixed logical lists use the compound-wrapper convention of the
-project-selected Minecraft release. Byte, int, and long arrays use their specialized tags, and enums use serial names.
+repository-selected Minecraft release. Byte, int, and long arrays use their specialized tags, and enums use serial
+names.
 `Char`, non-string map keys, polymorphism, null roots, and null collection values are rejected; null compound properties
 are omitted.
+
+## SNBT
 
 `SnbtFormat` uses the same `NbtTag` tree and Kotlin mapping. Its `Source` decoder reads UTF-8 incrementally and requires
 one complete value plus optional trailing whitespace. Its `Sink` writer traverses tags directly and never builds the

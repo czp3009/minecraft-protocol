@@ -74,19 +74,8 @@ class RegionChunkInfo internal constructor(
         return result
     }
 
-    override fun toString(): String = buildString {
-        append("RegionChunkInfo(region=")
-        append(region)
-        append(", localPosition=")
-        append(localPosition)
-        append(", compression=")
-        append(compression)
-        append(", compressedByteCount=")
-        append(compressedByteCount)
-        append(", timestampEpochSeconds=")
-        append(timestampEpochSeconds)
-        append(')')
-    }
+    override fun toString(): String =
+        "RegionChunkInfo(region=$region, localPosition=$localPosition, compression=$compression, compressedByteCount=$compressedByteCount, timestampEpochSeconds=$timestampEpochSeconds)"
 }
 
 /**

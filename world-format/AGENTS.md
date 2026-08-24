@@ -1,60 +1,46 @@
 # world-format
 
-This module owns the selected-release `level.dat`, advancement, statistics, and data-pack models and serializers, plus
-filesystem-independent Anvil coordinates, region headers and sectors, compression dispatch, external chunk
-representation, and NBT composition.
+This module owns filesystem-independent world schemas, data-pack formats, Anvil containers and compression, coordinate
+conversion, and semantic Chunk/entity values for the repository-selected release.
 
-## Invariants
+## Structured world data
 
-- Container parsing remains separate from filesystem access, decompression, and NBT decoding.
-- `LevelDat`, `PlayerAdvancements`, and `PlayerStatistics` describe only the repository-selected release. Audit their
-  official writer, reader, codec, generated file, nested types, field names/types, nullability, defaults, and dynamic
-  boundaries on every release update; do not retain an old-schema branch or add an implicit DataFixer.
-- Fixed structures use generated serializers. The advancement root is the sole expected custom serializer because its
-  JSON object mixes `DataVersion` with dynamic advancement identifiers; it consumes map composite events directly and
-  never materializes a JSON tree.
-- Typed decoding is strict about unknown fields by default. Raw `NbtTag`/`NbtDocument` and `JsonElement` remain the
-  lossless path for modded, future, or otherwise unmodeled content.
-- Data-pack archives, parsed files, metadata, overlays, filters, stacks, and resolved resources remain filesystem- and
-  protocol-independent. File decoders stay caller-extensible and impose no policy-sized count or content ceiling.
-- Region, compression, and chunk-NBT stream methods are canonical and never close caller-owned endpoints. In-memory
-  methods wrap those paths; compressed byte arrays remain only where they are the value owned by `CompressedChunk`.
-- Detached Chunk representations expose receiver-oriented conversion extensions in this module: compressed content,
-  generic `NbtDocument`, and semantic `Chunk` can continue to the other representations through IDE completion. Keep
-  those methods as thin adapters over the canonical formats/codecs, and use extensions where adding a member would
-  reverse the `nbt` -> `world-format` dependency.
-- Region chunk composition delegates compound-document bytes to `nbt-serialization` and exposes NBT model values from
-  `nbt`; it does not duplicate their grammar.
-- Strong Chunk conversion accepts caller-supplied block-state, biome, and dimension-layout data. This module does not
-  depend on protocol or vanilla-data modules; unresolved logical values are Chunk projection errors, not unknown NBT.
-- Chunk-NBT encoders select compression per operation. `AnvilRegionFormat` receives already-compressed
-  `AnvilChunkRecord` values, records each chunk's own registration, and never chooses or changes their compression.
-- Callers can inspect or repack a region without inflating preserved compressed payloads.
-- `MinecraftCoordinates` owns every scalar and typed absolute/local conversion, continuous-position flooring, checked
-  inverse, coverage range, and coordinate sequence. Convenience properties and functions on `BlockPosition`,
-  `SectionPosition`, `ChunkPosition`, and `RegionPosition` delegate to it. Preserve floor semantics for negative
-  coordinates and keep higher layers dependent on these canonical conversions rather than duplicating arithmetic.
-- Positioned `Chunk` and `EntityChunk` retain the absolute coordinates encoded by their NBT roots. `BlockEntity`
-  retains its persisted absolute `BlockPosition`. `Chunk` exposes local block/biome operations and common absolute
-  overloads that validate against its retained `ChunkPosition`; `ChunkSection` retains only its stored Y coordinate and
-  receives an owning `SectionPosition` when an absolute operation needs X/Z. Every absolute overload converts through
-  the coordinate types and delegates to the local operation.
-- Palette mutation preserves stable IDs by default. `compactSnapshot()` publicly exposes a non-mutating compact view,
-  `compact()` explicitly applies it in place, and encoding uses the snapshot path without mutating the semantic Chunk.
-  Cross-format adapters use `PalettedContainer.fromPalette` instead of creating a temporary dense value list.
-- Sector, version, compression, checksum, and external-chunk behavior match the selected official server.
-- Parsing rejects overlaps, truncation, overflow, invalid versions, checksum failures, and intrinsic framing or field
-  length violations. It does not impose a policy-sized region, chunk, or decompressed-output ceiling.
-- Custom compression stays injectable through the public registry; built-in machinery remains private.
-- Raw compression and checksums always come from maintained libraries. Shared code may own the vanilla LZ4Block
-  container and framing validation, but never a raw codec or checksum algorithm.
-- Compression and Anvil/NBT physical-format APIs expose only `kotlinx.io` streams. Structural container failures use the
-  I/O-independent `AnvilFormatException`; backend/stream I/O remains `kotlinx.io.IOException`, while NBT, cancellation,
-  and registered CUSTOM-codec failures propagate according to their owning layer.
-- Published targets are JVM, Android, the configured Native platforms, JS Node/browser, and WasmJS Node/browser.
-  Wasm/WASI and the WasmJS D8 runtime are intentionally absent; do not remove any other target.
+- `LevelDat`, advancements, and statistics model only the selected release. Audit official reader/writer behavior on
+  release updates; do not keep old-schema branches or add an implicit DataFixer.
+- Fixed structures use generated serializers. The advancement root keeps its custom map-composite serializer because
+  dynamic advancement IDs share the object with `DataVersion`.
+- Typed decoding is strict about unknown fields by default. Raw `NbtDocument`/`NbtTag` and `JsonElement` are the
+  lossless escape hatches for unmodeled content.
+- Data-pack archives, overlays, filters, stacks, and resolved resources remain filesystem- and protocol-independent.
+  Decoders are caller-extensible and add no policy-sized content limits.
+
+## Anvil and compression
+
+- Separate region-container parsing from filesystem access, decompression, and NBT decoding. Stream methods are
+  canonical and never close caller-owned endpoints.
+- `AnvilRegionFormat` receives already-compressed records, preserves each record's compression registration, and does
+  not choose compression. Callers can inspect or repack a region without inflating unchanged payloads.
+- Reject intrinsic corruption such as overlap, truncation, overflow, invalid versions, and checksum failure, but do not
+  impose policy-sized region, chunk, or decompressed-output limits.
+- Keep CUSTOM compression injectable through the public registry. Maintained libraries own raw compression and
+  checksums; this module owns Minecraft containers and validation.
+- Structural failures use `AnvilFormatException`; stream/backend I/O, NBT, cancellation, and custom-codec failures
+  retain their owning categories.
+
+## Semantic values and coordinates
+
+- `MinecraftCoordinates` is the canonical implementation for scalar and typed conversions. Preserve floor semantics for
+  negative coordinates and checked region membership.
+- Positioned `Chunk`, `EntityChunk`, and `BlockEntity` retain their persisted absolute coordinates. Absolute helpers
+  validate membership and delegate to local operations.
+- Strong Chunk conversion requires caller-supplied block-state, biome, and dimension-layout data. Do not depend on
+  protocol or vanilla-default modules.
+- Palette mutation preserves stable IDs. Encoding uses a non-mutating compact snapshot; `compact()` is the explicit
+  mutating operation.
+- Receiver-oriented conversion extensions connect compressed records, `NbtDocument`, and semantic Chunks without
+  reversing the `nbt` dependency.
 
 ## Verification
 
-Run `:world-format:jvmTest` first. Compression changes also require `:world-format:jsNodeTest`,
-`:world-format:wasmJsNodeTest`, and the host Native test; a region-wire change also requires `:world-io:jvmTest`.
+Run `:world-format:jvmTest`. Compression changes also require JS Node, WasmJS Node, and host Native tests; region-wire
+changes require `:world-io:jvmTest`.

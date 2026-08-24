@@ -68,5 +68,24 @@ the HeadlessMC integration rather than production protocol code. When those modu
 rerunning the consuming client/server suite.
 
 Keep Minecraft, HeadlessMC, Fabric Loader, and HMC-Specifics versions independent and require exact compatibility
-evidence before changing a non-Minecraft selector. HeadlessMC output establishes process readiness only; packet
-observations establish protocol state and Play acceptance.
+evidence before changing a non-Minecraft selector.
+
+Treat fixture readiness as staged evidence rather than a successful process start or raw TCP connection:
+
+- For an official server, first observe its selected-release `Done` marker, then complete a bounded Status request and
+  Ping/Pong exchange against its advertised endpoint. Publish the fixture only after both stages succeed.
+- For a HeadlessMC client, first observe the HMC-Specifics command-ready marker, then use its `gui` command to confirm
+  the title-screen state. Command acceptance is not connection success; after `connect`, inspect the returned GUI state
+  and require the consuming test server to observe the inbound protocol connection.
+
+Keep retries at the expensive official-client connection boundary. Use a finite attempt count, bind a fresh loopback
+server endpoint for each attempt, reuse the same title-ready client, and disconnect it before another attempt. Aggregate
+the command state, final GUI state, and connection deadline from every failed attempt. Do not retry localhost kRPC calls
+or deterministic protocol assertions merely to mask a fixture failure.
+
+Every acquired remote fixture still closes explicitly after its final phase. Task-owner cleanup must also cover a
+creation that has started but is not registered yet: owner closure cancels its creation job and prevents late
+registration. Cleanup attempts process termination and work-directory deletion independently, completes required
+rollback under `NonCancellable`, and then rethrows cancellation. When changing this ownership machinery, test both the
+owner-close race and cleanup failure path, and verify that an interrupted consuming run leaves no fixture process or
+Host work directory.

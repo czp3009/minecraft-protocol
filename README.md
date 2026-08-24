@@ -1,200 +1,189 @@
 # minecraft-protocol
 
-> This is an early-stage experimental project. It is not ready for production use.
+> This is an early-stage experimental project and is not ready for production use.
 
-`minecraft-protocol` is a Kotlin Multiplatform library for the Minecraft Java Edition network protocol and world-storage
-formats. It provides typed packet models, `kotlinx.serialization` wire codecs, Ktor transport and connection
-orchestration, authentication helpers, version-matched vanilla data, binary NBT, SNBT, and Anvil world I/O.
+`minecraft-protocol` is a Kotlin Multiplatform toolkit for Minecraft: Java Edition. It covers the network protocol from
+packet models and wire encoding through client/server negotiation, and it also provides NBT, data-pack, Anvil, and
+filesystem-backed world APIs.
 
-The library is infrastructure for Minecraft applications, not a complete game: gameplay, authoritative worlds, ticking,
-persistence policy, permissions, and operations remain application responsibilities.
+Use it to build tools such as:
 
-## Modules
+- protocol clients, bots, proxies, and specialized servers;
+- launchers that authenticate Microsoft accounts and start official game versions;
+- map editors, converters, analyzers, and live world inspectors;
+- mod-aware integrations with custom packets and dynamic registries.
 
-| Module                                                             | Purpose                                                                       |
-|--------------------------------------------------------------------|-------------------------------------------------------------------------------|
-| [`nbt`](nbt/README.md)                                             | Format-independent NBT values and logical serializers                         |
-| [`nbt-serialization`](nbt-serialization/README.md)                 | Binary NBT, SNBT, and NBT tree conversion through `kotlinx.serialization`     |
-| [`protocol-model`](protocol-model/README.md)                       | Format-independent packet payloads and shared protocol values                 |
-| [`protocol-serialization`](protocol-serialization/README.md)       | Minecraft wire encodings and composable packet registries                     |
-| [`protocol-datapack`](protocol-datapack/README.md)                 | Generic data-pack projection and received Configuration runtime views         |
-| [`protocol-datapack-vanilla`](protocol-datapack-vanilla/README.md) | Generated official packs, registries, block states, and defaults              |
-| [`protocol-transport`](protocol-transport/README.md)               | Ktor sockets, framing, compression, and encryption                            |
-| [`protocol-session`](protocol-session/README.md)                   | Typed connections, state transitions, and loader profiles                     |
-| [`account-auth`](account-auth/README.md)                           | Launcher OAuth, Xbox, Minecraft token, entitlement, and profile HTTP APIs     |
-| [`protocol-auth`](protocol-auth/README.md)                         | Game auth, profiles, user/social services, profile keys, and signed chat      |
-| [`protocol-client`](protocol-client/README.md)                     | Play-ready clients plus received registry and semantic Chunk projection       |
-| [`protocol-server`](protocol-server/README.md)                     | Connection admission and semantic finite initial Chunk/entity projection      |
-| [`world-format`](world-format/README.md)                           | Semantic Chunk/Entity/palette/coordinate models, Anvil, and world formats     |
-| [`world-io`](world-io/README.md)                                   | Logical map/Entity Regions, standalone files, and filesystem-backed world I/O |
+It is infrastructure rather than a complete game server. Gameplay, ticking, permissions, player management,
+authoritative world state, and application persistence policy remain application concerns.
 
-The project is fully modular: depend on exactly the modules you need. Higher layers reuse the lower layers their APIs
-require, so a focused consumer never pulls in unrelated capabilities.
+## What the project provides
 
-## Demo
+- Typed packet models and `kotlinx.serialization` codecs for the repository-selected Minecraft release.
+- Ktor-based TCP transport with Minecraft framing, compression, and encryption.
+- Typed client and server connections for Status, Login, Configuration, and entry into Play.
+- Vanilla, Fabric API, NeoForge, and Forge negotiation profiles with composable custom packet registrations.
+- Offline and online game authentication, profile-key verification, and signed-chat primitives.
+- Separate launcher APIs for Microsoft OAuth, Xbox/XSTS, Minecraft Services tokens, entitlements, and profiles.
+- Generated release-matched vanilla registries, block states, Configuration data, and complete official data packs.
+- Immutable NBT values, streaming binary NBT, and SNBT.
+- Filesystem-independent Anvil, Chunk, Entity, coordinate, palette, level, statistics, advancement, and data-pack
+  formats.
+- Okio-backed mutable world access and non-locking live reads of worlds owned by another process.
 
-- [Minecraft Launcher](demo/launcher) — A Kotlin Multiplatform terminal launcher for managing offline and Microsoft
-  accounts, installing official Minecraft versions, and launching the game.
+## Choose the modules you need
 
-## Highlights
+The project is split by capability, so applications can start at the appropriate layer:
 
-- Channel-first typed packet connections over standard coroutine channels.
-- Public primitives for application-defined Status, Login, Configuration, Play entry, and initial-world synchronization;
-  client/server presets are optional orchestration conveniences.
-- Immutable, composable packet registries for vanilla and modded protocols, with preset Fabric, NeoForge, and Forge
-  negotiation profiles.
-- Complete programmatic official data packs, filesystem-independent custom-pack parsing and stacking, explicit registry
-  projection, and client-side reconstruction of the Configuration data that was actually transmitted.
-- Offline and online Login with Session Server calls and Login key exchange, plus caller-driven profile-key retrieval,
-  credential verification, and signed-chat chain primitives; Microsoft OAuth and Xbox account HTTP APIs are available
-  separately.
-- Streaming binary NBT and textual SNBT, selected-release level/advancement/statistics models, and
-  filesystem-independent Anvil containers, plus Okio-based typed, full-value, and streaming world I/O—including live
-  reads of official-server worlds.
+| Area           | Module                                                             | Use it for                                                          |
+|----------------|--------------------------------------------------------------------|---------------------------------------------------------------------|
+| NBT            | [`nbt`](nbt/README.md)                                             | Constructing and inspecting NBT values                              |
+| NBT            | [`nbt-serialization`](nbt-serialization/README.md)                 | Binary NBT, SNBT, and serializable Kotlin models                    |
+| Protocol       | [`protocol-model`](protocol-model/README.md)                       | Packet payloads and shared protocol values                          |
+| Protocol       | [`protocol-serialization`](protocol-serialization/README.md)       | Packet payload encoding and custom packet registries                |
+| Data packs     | [`protocol-datapack`](protocol-datapack/README.md)                 | Projecting caller-supplied packs into Configuration data            |
+| Data packs     | [`protocol-datapack-vanilla`](protocol-datapack-vanilla/README.md) | Release-matched vanilla packs, registries, and defaults             |
+| Networking     | [`protocol-transport`](protocol-transport/README.md)               | Low-level frames, compression, encryption, and sockets              |
+| Networking     | [`protocol-session`](protocol-session/README.md)                   | Typed packet channels, state transitions, and loader profiles       |
+| Authentication | [`account-auth`](account-auth/README.md)                           | Launcher-side Microsoft, Xbox, and Minecraft Services login         |
+| Authentication | [`protocol-auth`](protocol-auth/README.md)                         | Game Login, Session Server, profile keys, and signed chat           |
+| Connections    | [`protocol-client`](protocol-client/README.md)                     | Connecting to a server and entering Play                            |
+| Connections    | [`protocol-server`](protocol-server/README.md)                     | Accepting clients and sending an initial world view                 |
+| Worlds         | [`world-format`](world-format/README.md)                           | Chunk/Entity values, coordinates, compression, and Anvil containers |
+| Worlds         | [`world-io`](world-io/README.md)                                   | Reading and writing actual world directories                        |
 
-Usage examples are documented at each owning layer: binary NBT and SNBT in
-[`nbt-serialization`](nbt-serialization/README.md), compression and Anvil containers in
-[`world-format`](world-format/README.md), including its canonical coordinate API, and logical filesystem-backed Region,
-Chunk, JSON, and NBT access in
-[`world-io`](world-io/README.md#read-a-block-through-the-mutable-path). Every published module in the table above
-documents its own key entry points rather than requiring consumers to infer them from a higher layer.
+The [launcher demo](demo/launcher/README.md) is a terminal application that combines account management,
+official-version installation, and game launch.
 
-The complete data-pack application paths are shown separately for
-[loading a world stack and sending server Configuration](protocol-server/README.md#load-world-data-packs-and-negotiate)
-and for
-[receiving Configuration and building a client runtime](protocol-client/README.md#receive-configuration-data-and-build-the-runtime).
+## Connect a client
 
-Together these blocks cover applications such as:
-
-- map editors that read, render, and rewrite Anvil worlds directly, including worlds owned by a running official server;
-- Minecraft launchers, combining Microsoft/Xbox account authentication with server sessions;
-- clients and servers built entirely on this library's protocol implementation, without depending on official Minecraft
-  code.
-
-Unknown top-level packet IDs, Login queries, and custom-payload routes stay lossless as direction-correct
-`UnknownPacket` values; malformed wire data and invalid packet order propagate instead of being swallowed.
-
-## Client example
-
-Ping a server as the multiplayer server list does. `queryStatus()` performs the Status handshake, obtains the server's
-Status response, and completes the Ping/Pong exchange; it does not run Login negotiation:
+`queryStatus()` performs the server-list Status request followed by Ping/Pong. A Status connection cannot continue into
+Login, so use a fresh connection when joining:
 
 ```kotlin
-suspend fun queryMinecraftStatus(selectorManager: SelectorManager): MinecraftStatusExchange =
-  MinecraftClientConnection.connect(
+suspend fun queryServer(
+    selectorManager: SelectorManager,
+    host: String,
+): MinecraftStatusExchange = MinecraftClientConnection.connect(
     selectorManager = selectorManager,
-    host = "127.0.0.1",
-  ).use { minecraftClientConnection ->
-    minecraftClientConnection.queryStatus()
-  }
-```
-
-Status has no continuation into Login. Close this connection after the ping, then create a fresh connection and call
-`negotiate()` only when joining the server.
-
-Or log in and enter Play, then take over the packet loop:
-
-```kotlin
-suspend fun runMinecraftClient(
-  selectorManager: SelectorManager,
-  handlePlayPacket: suspend (ClientboundPacket) -> Unit,
-): MinecraftClientNegotiationResult =
-  MinecraftClientConnection.connect(
-    selectorManager = selectorManager,
-    host = "127.0.0.1",
-  ).use { minecraftClientConnection ->
-    val minecraftClientNegotiationResult =
-      minecraftClientConnection.negotiate(MinecraftOfflineIdentity("Player"))
-    for (clientboundPacket in minecraftClientConnection.incoming) {
-      handlePlayPacket(clientboundPacket)
-    }
-    minecraftClientNegotiationResult
-  }
-```
-
-The preset runs in the calling coroutine and exclusively owns `incoming` and `outgoing` until it returns. No other
-coroutine may read or write either channel during that interval. Applications can write the negotiation sequence
-themselves under the same single-coroutine ownership precondition; the library assumes that ownership and does not lock
-or arbitrate application-created races. Read the maintained [client
-`negotiate` implementation](protocol-client/src/commonMain/kotlin/com/hiczp/minecraft/protocol/client/MinecraftClientProtocol.kt)
-and [server
-`negotiate` implementation](protocol-server/src/commonMain/kotlin/com/hiczp/minecraft/protocol/server/MinecraftServerProtocol.kt)
-as the source-level packet-order references. The [
-`protocol-client`](protocol-client/README.md#writing-your-own-negotiation)
-and [`protocol-server`](protocol-server/README.md#writing-your-own-negotiation) guides identify the public primitives
-used by those implementations.
-
-## Server example
-
-```kotlin
-suspend fun runMinecraftServer(
-  selectorManager: SelectorManager,
-  handlePlayPacket: suspend (MinecraftServerConnection, ServerboundPacket) -> Unit,
-) {
-  coroutineScope {
-    MinecraftServer.bind(selectorManager = selectorManager).use { minecraftServer ->
-      while (minecraftServer.isOpen) {
-        val minecraftServerConnection = minecraftServer.accept()
-        launch {
-          minecraftServerConnection.use connectionUse@{
-            minecraftServerConnection.negotiate() ?: return@connectionUse
-            for (serverboundPacket in minecraftServerConnection.incoming) {
-              handlePlayPacket(minecraftServerConnection, serverboundPacket)
-            }
-          }
-        }
-      }
-    }
-  }
+    host = host,
+).use { connection ->
+    connection.queryStatus()
 }
 ```
 
-## Building and testing
+For a game connection, `negotiate()` handles Handshake, Login, Configuration, dynamic registries, and entry into Play.
+This example uses an offline identity; online identities are shown in the [
+`protocol-client` guide](protocol-client/README.md#online-login):
+
+```kotlin
+suspend fun runClient(
+    selectorManager: SelectorManager,
+    host: String,
+    handlePacket: suspend (ClientboundPacket) -> Unit,
+) {
+    MinecraftClientConnection.connect(selectorManager, host).use { connection ->
+        val negotiation = connection.negotiate(MinecraftOfflineIdentity("Player"))
+        val initialDimension = negotiation.dimensionLayout
+
+        for (packet in connection.incoming) {
+            handlePacket(packet)
+        }
+    }
+}
+```
+
+The caller owns the packet loop after negotiation returns. See [`protocol-client`](protocol-client/README.md) for custom
+Configuration data, chunk/entity projection, loader profiles, and online Login.
+
+## Accept clients on a server
+
+`MinecraftServer` supplies the listener and typed connection. The application owns the accept loop and chooses one
+coroutine per connection:
+
+```kotlin
+suspend fun runServer(
+    selectorManager: SelectorManager,
+    handlePacket: suspend (MinecraftServerConnection, ServerboundPacket) -> Unit,
+) = coroutineScope {
+    MinecraftServer.bind(selectorManager).use { server ->
+        while (server.isOpen) {
+            val connection = server.accept()
+            launch {
+                connection.use connectionUse@{
+                    connection.negotiate() ?: return@connectionUse
+                    for (packet in connection.incoming) {
+                        handlePacket(connection, packet)
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+The default is an offline, vanilla-compatible negotiation. [`protocol-server`](protocol-server/README.md) shows online
+authentication, application policy, custom data packs, loader profiles, and finite initial Chunk/entity synchronization.
+
+## Read a world
+
+Use `MinecraftWorldAccess` when your process owns the world directory. It acquires `session.lock`, and its suspend `use`
+helpers close Region handles before releasing the world lease:
+
+```kotlin
+suspend fun readChunk(
+    worldPath: Path,
+    chunkPosition: ChunkPosition,
+    codec: ChunkNbtCodec<BlockStateDescriptor, String>,
+): Chunk<BlockStateDescriptor, String>? = MinecraftWorldAccess.open(worldPath).use { world ->
+    world.openRegion(chunkPosition.region).use { region ->
+        region.readChunk(chunkPosition, codec)
+    }
+}
+```
+
+Use `LiveMinecraftWorldAccess` for non-locking read-only observation of a world that another process may be changing.
+See [`world-format`](world-format/README.md) for constructing the codec and [`world-io`](world-io/README.md) for writes,
+Entity Regions, standalone files, and data packs.
+
+## Build and test
 
 Requirements:
 
-- A JDK with `java` on `PATH`; the project's Java major version follows the Java version required by the matching
-  Minecraft release. See `BuildVersions.JAVA_VERSION` in the Gradle configuration for the current value.
-- An Android SDK configured through the standard Gradle mechanisms, only when building or testing Android targets.
-- Network access for the first build so Gradle can download dependencies; tests that verify against official Minecraft
-  peers additionally download exact-version fixtures.
+- a JDK whose `java` command is on `PATH`; the required major version is selected in `BuildVersions.JAVA_VERSION`;
+- an Android SDK only when building Android targets;
+- network access for the first dependency download and for official-peer fixture preparation.
 
-Use the checked-in Gradle wrapper; a separate Gradle installation is unnecessary. Gradle provisions Node and the other
-non-JVM toolchains automatically.
+Use the checked-in Gradle wrapper:
 
 ```shell
-# Assemble everything
 ./gradlew build
-
-# Focused feedback loop during development
 ./gradlew :protocol-serialization:jvmTest
-
-# Every module's JVM suite
 ./gradlew jvmTest
-
-# All configured multiplatform tests
 ./gradlew allTests
 ```
 
-On Windows, replace `./gradlew` with `.\gradlew.bat`.
+On Windows, use `./gradlew.bat` or `.\gradlew.bat` from PowerShell.
+
+Repository contributors can find the private development layers in the [`buildSrc`](buildSrc/README.md),
+[`protocol-symbol-processor`](protocol-symbol-processor/README.md),
+[`minecraft-test-support`](minecraft-test-support/README.md), and
+[`minecraft-test-fixture-host`](minecraft-test-fixture-host/README.md) guides. They are build and test infrastructure,
+not application dependencies.
 
 ## Minecraft release
 
-The repository aligns to one Minecraft release at a time. In code, the matching release and protocol number are exposed
-by `MinecraftProtocol`:
+The repository aligns all Minecraft-dependent modules to one selected release. Generated code exposes its release and
+protocol number:
 
 ```kotlin
-val release = MinecraftProtocol.MINECRAFT_VERSION
+val minecraftVersion = MinecraftProtocol.MINECRAFT_VERSION
 val protocolVersion = MinecraftProtocol.PROTOCOL_VERSION
 ```
 
-Print the currently selected release from the command line:
+Print the selected release without reading build source:
 
 ```shell
 ./gradlew -q minecraftVersion
 ```
 
-Changing the target is a single-constant change in the build configuration, followed by the affected build or test
-tasks.
-
-See each module's README for its API and examples.
+Each runtime-module README documents its own public entry points and examples.

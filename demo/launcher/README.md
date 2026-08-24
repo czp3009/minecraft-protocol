@@ -1,9 +1,10 @@
 # Minecraft Launcher Demo
 
-This is a simple terminal-based launcher for Minecraft: Java Edition. It can manage accounts, install official Minecraft
-versions, and launch the game.
+This repository includes a terminal launcher for Minecraft: Java Edition. It can browse Mojang's version manifest,
+install compatible official game files, manage offline or Microsoft accounts, and launch the official Java client while
+showing its output in the terminal.
 
-The launcher is a repository demo and is not published as a downloadable application. Each install task creates a
+The launcher is an integration demo, not a supported or published end-user application. Each install task creates a
 runnable distribution below `demo/launcher/build/install/launcher-<target>`.
 
 > [!IMPORTANT]
@@ -13,9 +14,23 @@ runnable distribution below `demo/launcher/build/install/launcher-<target>`.
 ## Requirements
 
 The computer running the launcher must have `java` available on `PATH`. Run each build command from the repository root.
-Run a native install task on a host supported by its Kotlin/Native target.
-The launcher creates its state, downloaded Minecraft files, and game files in the artifact directory from which it is
-started.
+The command must provide at least the Java major required by the selected game version. Run a native install task only
+on a host supported by that Kotlin/Native target.
+
+The launcher's working directory is its state directory. It creates `auth.json`, `installed.json`, and a `minecraft/`
+directory there, so start it from a dedicated writable directory. Microsoft refresh and Minecraft access tokens are
+stored unencrypted in `auth.json`; use the demo only in a trusted local environment and do not share that file.
+
+## Supported versions
+
+The version list comes from Mojang, but the demo intentionally accepts only metadata it can launch without guessing. It
+supports the modern structured `arguments` format and ordinary library/artifact and asset-index layouts. It rejects
+legacy `minecraftArguments`, native-classifier/extraction libraries, virtual or resource-mapped assets, unsafe paths,
+and unknown launch rules. An entry that uses one of those shapes remains visible in the manifest but fails with an
+explanation when installation is attempted.
+
+Downloaded client, library, and asset files are checked against the size and SHA-1 declared by Mojang metadata before an
+installation is recorded.
 
 ## Interface
 

@@ -1,9 +1,11 @@
 package com.hiczp.minecraft.test
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonElement
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -47,12 +49,17 @@ object MinecraftTestSupport {
     suspend fun connectHeadlessClient(
         client: HeadlessMinecraftClient,
         endpoint: MinecraftTestEndpoint,
-    ) {
+    ): HeadlessMinecraftClientState {
         require(endpoint.host == LOOPBACK && endpoint.port in 1..0xFFFF) {
             "Headless client tests require a valid loopback endpoint"
         }
-        serviceClient().connectHeadlessClient(client, endpoint)
+        return serviceClient().connectHeadlessClient(client, endpoint)
     }
+
+    /** Returns a correlated GUI-state snapshot without claiming protocol state. */
+    suspend fun headlessClientState(
+        client: HeadlessMinecraftClient,
+    ): HeadlessMinecraftClientState = serviceClient().headlessClientState(client)
 
     suspend fun disconnectHeadlessClient(client: HeadlessMinecraftClient) {
         serviceClient().disconnectHeadlessClient(client)
@@ -148,8 +155,12 @@ object MinecraftTestSupport {
 
     /** Schedules process shutdown and directory cleanup, then returns. */
     suspend fun close(resource: MinecraftTestResource) {
-        withClosingServiceClient { client ->
-            client.close(resource)
+        withContext(NonCancellable + Dispatchers.Default) {
+            withTimeout(EVENT_TIMEOUT) {
+                withClosingServiceClient { client ->
+                    client.close(resource)
+                }
+            }
         }
     }
 

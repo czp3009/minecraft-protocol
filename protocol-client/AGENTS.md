@@ -1,34 +1,23 @@
 # protocol-client
 
-This module owns client-side Status, Login, Configuration, and Play-entry orchestration over the public
-`MinecraftClientPacketConnection` contract. `MinecraftClientConnection` exposes direction-limited standard channels and
-connection state, not the socket, frame stream, or mutable low-level session.
+This module owns client-side Status, Login, Configuration, and entry into Play.
 
-The high-level Login path handles cookies and custom queries, compression, online-mode encryption, client information,
-Known Packs, Configuration keepalives, dynamic registry context, and optional negotiation profiles. It exclusively
-borrows the public channels until return and has no privileged packet path.
+## Local contract
 
-The module may depend on filesystem-independent `world-format`. It owns the client-facing adapter from the installed
-`ProtocolRegistryContext` to `ChunkDataRegistries` and the stateless projection of received clientbound Chunk packets
-into positioned semantic `Chunk` values. The negotiation result retains the server-selected initial
-`MinecraftDimensionLayout` and exposes its derived `ChunkLayout`; there is no release-wide dimension-layout default. It
-also owns projection of one or more Entity pairing sequences from a bundle or raw packet list into semantic `Entity`
-values and type-based handoff of runtime-only pairing packets through caller-supplied adapters. It never opens world
-files or invents persistence-only metadata absent from a packet; callers supply that template explicitly.
+- `MinecraftClientConnection` exposes direction-limited packet channels and connection state, not its socket, frame
+  stream, or mutable low-level session.
+- High-level negotiation handles cookies, custom Login queries, compression, online encryption, client information,
+  Known Packs, Configuration tasks, registry context, and the selected loader profile. It borrows the public channels
+  exclusively until it returns.
+- Online Login borrows a caller-owned `HttpClient`; this module decides when the Session Server `/join` call occurs but
+  never configures or closes that client.
+- The negotiation result retains the server-selected `MinecraftDimensionLayout` and derived `ChunkLayout`. There is no
+  release-global dimension-layout default.
+- Chunk and entity projection is stateless and filesystem-independent. Do not invent persistence-only data missing from
+  packets; require caller-supplied templates or adapters for it.
+- Received data-pack views expose only Configuration-visible resources and may resolve tags against the installed
+  context or caller-supplied schemas. Do not imply that they reconstruct server-only pack content.
 
-The client-facing data-pack adapter may retain exact Configuration packets and resolve their tags against either the
-already-installed profile context or caller-supplied static schemas and loader mappings. It never claims that packets
-reconstruct server-only data-pack resources that were not transmitted.
+## Verification
 
-High-level online Login receives a caller-owned `HttpClient` and constructs the stateless `MinecraftSessionApi`
-internally. The caller configures and closes the client; this module owns when `/join` occurs.
-
-Scripted peers exercise local branches in `commonTest`. The production-client scenario against the exact official
-offline server also lives in `commonTest` under the `fixturetest` package; it requests a remote server and reads status
-and logs only through `minecraft-test-support`. Its all-default configuration automatically clones the stopped server
-template. Live account authentication is not a deterministic test dependency.
-
-The published TCP client targets JVM, Android, supported Native platforms, JS Node, and WasmJS Node. Browser, D8, and
-Wasm/WASI are not TCP targets.
-
-Run `:protocol-client:jvmTest` after changes.
+Run `:protocol-client:jvmTest`.

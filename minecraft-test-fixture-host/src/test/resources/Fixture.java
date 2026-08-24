@@ -13,6 +13,13 @@ class Fixture {
         String command;
         while ((command = input.readLine()) != null) {
             if (command.equals("fixture-exit")) return;
+            if (command.equals("fixture-close-output")) {
+                output.close();
+                while ((command = input.readLine()) != null) {
+                    if (command.equals("fixture-exit")) return;
+                }
+                return;
+            }
             output.write(command);
             output.write("\nack:");
             output.write(command);

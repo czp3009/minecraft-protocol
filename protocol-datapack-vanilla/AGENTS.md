@@ -1,16 +1,19 @@
-# protocol-datapack-vanilla agent guide
+# protocol-datapack-vanilla
 
-This module owns generated, immutable vanilla defaults for the repository-selected release: exact official data-pack
-archives, static registry and block-state catalogues, both Configuration Known Packs branches, feature flags, tags, and
-the convenience path through generic `protocol-datapack` stages. It never reads a filesystem at runtime.
+This module owns generated immutable defaults for the repository-selected official release and convenience factories
+built on `protocol-datapack`.
 
-The root `extractOfficialMinecraftDataPacks` task alone extracts core and built-in packs. The cacheable
-`generateVanillaDataPackSources` task registered here consumes that declared artifact and emits a small manifest plus
-independently loaded batch functions. Do not combine payload strings into an eager property or hand-edit generated
-source. Static and Configuration generators likewise consume declared official artifacts rather than the server JAR.
+## Local invariants
 
-Generic models and transformations belong in `protocol-datapack`; release-specific factories and defaults belong here.
-Every convenience API must return the same public generic stage so callers can replace it and continue manually.
+- Own the official data-pack archives, static registries, block states, Known Packs branches, feature flags, tags, and
+  Configuration defaults. Runtime APIs never read the filesystem.
+- `extractOfficialMinecraftDataPacks` alone extracts core and built-in packs. `generateVanillaDataPackSources` consumes
+  that declared artifact and emits a manifest plus independently loaded batches.
+- Do not hand-edit generated source, combine generated payloads into one eager property, or let a generator inspect the
+  official server JAR directly.
+- Generic models and transformations belong in `protocol-datapack`. Vanilla helpers return the same public generic
+  stages so callers can replace defaults and continue manually.
 
-Run `./gradlew :protocol-datapack-vanilla:jvmTest` after changes to generated-data models, task wiring, payload loading,
-or vanilla branch selection.
+## Verification
+
+Run `:protocol-datapack-vanilla:jvmTest` after model, generator wiring, payload-loading, or branch-selection changes.

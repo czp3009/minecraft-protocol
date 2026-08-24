@@ -66,6 +66,36 @@ class MinecraftTestProcessTest {
     }
 
     @Test
+    fun commandWaitersCanCorrelateOneOfSeveralNewMarkers() = runTest {
+        withFixture { process ->
+            process.waitForLog(STARTED, TIMEOUT)
+
+            val match = process.sendLineAndWaitForAny(
+                line = "new",
+                markers = listOf("not-emitted", "ack:new"),
+                timeout = TIMEOUT,
+            )
+
+            assertTrue("ack:new" in match.line)
+        }
+    }
+
+    @Test
+    fun prematureOutputClosureFailsWaitersWhileProcessIsAlive() = runTest {
+        withFixture { process ->
+            process.waitForLog(STARTED, TIMEOUT)
+            process.sendLine(CLOSE_OUTPUT)
+
+            val failure = assertFailsWith<IllegalStateException> {
+                process.waitForLog("never-emitted", TIMEOUT)
+            }
+
+            assertTrue(failure.message.orEmpty().contains("output failed"))
+            assertTrue(process.isAlive)
+        }
+    }
+
+    @Test
     fun parentExitDoesNotWaitForAChildThatInheritedItsOutputPipe() = runTest {
         val workingDirectory = HostedMinecraftTestSupport.newScratchDirectory()
         val process = MinecraftTestProcess.start(
@@ -195,6 +225,7 @@ class MinecraftTestProcessTest {
     private companion object {
         const val STARTED = "fixture-started"
         const val EXIT = "fixture-exit"
+        const val CLOSE_OUTPUT = "fixture-close-output"
         const val IGNORED_SHUTDOWN_COMMAND = "fixture-ignore-stop"
         const val PARENT_READY = "parent-ready"
         const val SPAWN_CHILD_AND_EXIT = "spawn-child-and-exit"

@@ -64,14 +64,18 @@ exposes all missing identifiers through `blockIds`. Callers can therefore obtain
 schema and retry without discovering failures one block at a time.
 
 Routes without an active codec stay lossless as direction-correct `UnknownPacket` values that preserve the complete
-route and body bytes. Here `bodyBytes` is the payload retained by the framing/dispatch layer for that unknown route:
+route and body bytes. Here `outerPacketId` and `bodyBytes` are the validated header value and payload retained by the
+framing/dispatch layer for that unknown route:
 
 ```kotlin
-val unknown = UnknownPacket.Clientbound(
+fun retainUnknownClientboundPayload(
+    outerPacketId: Int,
+    bodyBytes: ByteArray,
+): UnknownPacket.Clientbound = UnknownPacket.Clientbound(
     route = PacketRoute.CustomPayload(
         state = ConnectionState.PLAY,
         direction = PacketDirection.CLIENTBOUND,
-        packetId = 0x3B,
+        packetId = outerPacketId,
         channel = Identifier("example:counter"),
     ),
     data = ByteString(bodyBytes),

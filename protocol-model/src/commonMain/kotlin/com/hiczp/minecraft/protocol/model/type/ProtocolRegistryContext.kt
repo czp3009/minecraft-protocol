@@ -494,10 +494,8 @@ class ProtocolRegistryContext private constructor(
         return 31 * result + (chunkSectionCount ?: 0)
     }
 
-    override fun toString(): String = buildString {
-        append("ProtocolRegistryContext(registries=$registries, blockStates=$blockStates, ")
-        append("registrySizeOverrides=$registrySizeOverrides, chunkSectionCount=$chunkSectionCount)")
-    }
+    override fun toString(): String =
+        "ProtocolRegistryContext(registries=$registries, blockStates=$blockStates, registrySizeOverrides=$registrySizeOverrides, chunkSectionCount=$chunkSectionCount)"
 
     companion object {
         val Empty: ProtocolRegistryContext = ProtocolRegistryContext(

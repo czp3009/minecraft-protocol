@@ -1,49 +1,38 @@
 # protocol-server
 
-This module owns server-side socket acceptance and protocol orchestration. It negotiates Status or Login, supports
-offline and caller-configured online authentication, synchronizes `ProtocolDataSet`, enters Play, and returns control to
-the application. Initial-world APIs separate the fixed Play bootstrap from optional finite Chunk and Entity snapshots;
-gameplay remains outside the module.
-
-The module may depend on filesystem-independent `world-format` to project strong semantic Chunks and Entities into
-detached clientbound snapshots and packets. One or more Entity pairing sequences may share one logical bundle. It never
-depends on `world-io` or opens world files; applications compose that module when their initial view comes from disk.
-Palette packing and light projection stay stateless, use the installed registry context, and require caller-owned block
-semantics that registry IDs cannot express.
+This module owns server socket acceptance and orchestration for Status or Login through entry into Play. It can project
+a finite initial Chunk/entity view; it does not run gameplay.
 
 ## Application boundary
 
-Per-connection state belongs to `MinecraftServerConnection` and the negotiation extension. Application concurrency,
-players, worlds, persistence, and gameplay remain caller-owned. `accept` returns a raw channel-first connection and does
-not install callbacks or automatically begin negotiation.
+- `accept` returns a raw direction-bound connection. The application chooses when to negotiate and owns concurrency,
+  players, worlds, persistence, ticking, and gameplay.
+- `MinecraftServerNegotiationOptions` contains protocol-visible configuration; `MinecraftServerNegotiationPolicy`
+  contains application decisions. Do not read `server.properties` or hardcode difficulty, game mode, abilities, Status
+  content, transfer admission, resource-pack policy, or secure-chat claims.
+- Fire-and-forget Configuration packets use `configurationPackets`; response-gated work uses ordered
+  `configurationTasks`. Caller extension traffic is not rescanned as framework-owned traffic.
+- Online Login borrows a caller-owned `HttpClient`; this module decides when `/hasJoined` occurs but never configures or
+  closes that client.
+- Definitions, static schemas, and resolved contexts may be shared across connections. Retain large immutable data by
+  reference.
+- Negotiation, codec, and state failures propagate. Do not add automatic disconnect packets or loader-failure replies;
+  the caller chooses the response and lifetime.
 
-Online authentication receives a caller-owned `HttpClient` and constructs the stateless `MinecraftSessionApi`
-internally. The caller configures and closes the client; this module owns when `/hasJoined` occurs.
+## Initial world projection
 
-The module does not read `server.properties`. Protocol-visible choices belong in
-`MinecraftServerNegotiationOptions`, and application decisions belong in `MinecraftServerNegotiationPolicy`.
-Fire-and-forget Configuration traffic uses `configurationPackets`; response-gated exchanges use ordered
-`configurationTasks`. Policy packet lists are caller-owned extension traffic and are not rescanned for framework-owned
-packet types; each task continues dispatching client responses until the task and Finish Configuration are acknowledged.
+- World-format adapters convert semantic Chunks and Entities into detached clientbound packets using the installed
+  registry context.
+- The module never depends on `world-io` or opens files. Applications load data separately and pass semantic values or
+  snapshots.
+- Palette/light projection remains stateless. Require caller-owned semantics when a registry ID alone cannot determine a
+  value.
 
-The caller may share one immutable `MinecraftConnectionDefinition`, loader profile definition, static registry schema,
-and resolved registry context across all connections. The library does not clone large immutable registries per client.
-Negotiation, codec, and state failures propagate; never add automatic disconnect or loader-failure replies.
+## Verification
 
-Do not hardcode difficulty, game mode, abilities, Status behavior, transfer admission, resource-pack policy, or
-secure-chat claims.
+The official headless-client scenario retries only the expensive official-client connection boundary: bind a fresh
+loopback server endpoint for each finite attempt, reuse the title-ready client, disconnect it before the next attempt,
+and aggregate command state, GUI state, and connection deadline diagnostics. Do not retry deterministic protocol
+assertions. The accepted socket and observed packets, not HMC GUI text, prove protocol progress.
 
-## Tests
-
-Portable in-process client/server behavior belongs in `commonTest`. The matching external official-client scenario also
-belongs in `commonTest` under the `fixturetest` package and uses dummy offline credentials through
-`minecraft-test-support`; the Fixture Host owns the exact prepared HeadlessMC wrapper, Fabric profile, upstream
-HMC-Specifics mod, Mojang client, process, files, and logs. Default optional client settings automatically clone the
-title-ready template. The scenario verifies initial world acceptance, client acknowledgements and ticks, and
-bidirectional Play traffic from packets observed by this server; HMC text is control/readiness evidence, not a Play
-oracle. GUI client and account-backed tests are outside the repository gate.
-
-The published TCP server targets JVM, Android, supported Native platforms, JS Node, and WasmJS Node. Browser, D8, and
-Wasm/WASI are not TCP targets.
-
-Run `:protocol-server:jvmTest` after changes.
+Run `:protocol-server:jvmTest`.

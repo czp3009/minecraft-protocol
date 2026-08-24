@@ -1,41 +1,117 @@
 # Minecraft test support
 
-This unpublished Kotlin Multiplatform module is the only official-peer fixture dependency used by subproject tests. It
-contains the `MinecraftTestSupportService` RPC contract, its test-process Ktor WebSocket JSON client, and serializable
-server/client resource values; it contains no process launcher or official-artifact implementation. Process ownership
-and official artifacts live in [`minecraft-test-fixture-host`](../minecraft-test-fixture-host/README.md).
+`minecraft-test-support` is the repository's portable API for tests that need an exact official Minecraft server, a
+prepared headless official client, or the official codec oracle.
 
-## Creating fixtures
+Gradle connects supported test tasks to a private Fixture Host. Test code receives serializable resource handles and
+never launches a process or locates official artifacts itself.
 
-Tests in ordinary source sets call `MinecraftTestSupport.newOfficialServer()` or `newHeadlessClient(...)` and receive
-serializable typed resource values that subsequent support methods accept directly; `use` provides structured cleanup.
-Gradle supplies the Fixture Host connection to supported standard JVM, Android host, Native, JS Node, and WasmJS Node
-test tasks. JS Browser, WasmJS Browser, WasmJS D8, and Wasm/WASI do not run fixture entries; the private Wasm/WASI
-target is a compile scaffold only.
+This is private test infrastructure, not a runtime dependency for library users.
 
-Creation chooses workspace reuse automatically. A completely default server configuration clones the stopped official
-server template; changing any server field starts from the prepared runtime without the template world. The headless
-client's required offline player name is not an optional customization, so any name with default startup and stop limits
-clones the stopped client template. Changing either optional limit uses a fresh game directory from the prepared
-runtime. There is no public template/fresh policy switch.
+## Start an official server
 
-## Headless client lifecycle
+Create a server inside the structured `use` helper:
 
-`newHeadlessClient` returns after HMC-Specifics has initialized and a correlated GUI query observes the title screen. It
-does not connect. `connectHeadlessClient` and `disconnectHeadlessClient` control the explicit connection lifecycle;
-`sendHeadlessClientCommand` exposes the narrow audited action surface. Play is established by packet observations in the
-consuming protocol scenario rather than HeadlessMC text.
+```kotlin
+@Test
+fun officialServerStatus() = runTest {
+    MinecraftTestSupport.newOfficialServer().use { server ->
+        val endpoint = server.endpoint
+        val status = MinecraftTestSupport.status(server)
 
-## RPC client behavior
+        assertTrue(status.alive)
+        assertEquals("127.0.0.1", endpoint.host)
+    }
+}
+```
 
-`MinecraftTestSupport` lazily creates at most one `MinecraftTestSupportServiceClient` at a time, reads its RPC URL and
-task-owner ID from the Gradle-provided environment, and delegates directly to the generated RPC proxy. Close requests
-are idempotent and non-blocking; `use` provides structured cleanup and releases the client transport so Node test
-processes can exit. A later operation reconnects lazily.
+The default configuration starts from the prepared stopped template. Supplying any custom server property starts a fresh
+workspace from the prepared runtime:
 
-Codec success returns no report, while failures carry diagnostics through the RPC exception. `closeProcess` and
-`deleteWorkingDirectory` expose the two synchronous resource-lifecycle stages, `closeAndAwait` performs both, and
-`close` asynchronously schedules both. Process objects and official artifact paths never cross the protocol.
+```kotlin
+val server = MinecraftTestSupport.newOfficialServer(
+    OfficialMinecraftServerConfiguration(
+        properties = mapOf(
+            "online-mode" to "false",
+            "level-name" to "interop-world",
+        ),
+    ),
+)
+```
 
-`hostWorkingDirectory` is the explicitly documented backdoor that returns the Host's absolute working-directory path to
-same-filesystem tests; `world-io` uses it only after the official process has exited.
+Use `sendCommand`, `waitForLog`, `logText`, `restartServer`, `status`, and `awaitExit` for explicit lifecycle scenarios.
+
+## Drive a headless official client
+
+`newHeadlessClient` returns after HMC-Specifics is ready and a correlated GUI query observes the vanilla title screen.
+It does not connect automatically:
+
+```kotlin
+suspend fun connectOfficialClient(
+    testServerPort: Int,
+    recordControlState: (HeadlessMinecraftClientState) -> Unit,
+    verifyPacketsObservedByTestServer: suspend () -> Unit,
+) {
+    MinecraftTestSupport.newHeadlessClient(
+        HeadlessMinecraftClientConfiguration(playerName = "FixturePlayer"),
+    ).use { client ->
+        val endpoint = MinecraftTestEndpoint("127.0.0.1", testServerPort)
+        val state = MinecraftTestSupport.connectHeadlessClient(client, endpoint)
+
+        recordControlState(state)
+        verifyPacketsObservedByTestServer()
+    }
+}
+```
+
+The parameters make the loopback server, optional diagnostic recording, and packet-level assertion explicit.
+
+`connectHeadlessClient` returns a correlated post-command `HeadlessMinecraftClientState`. `headlessClientState` requests
+another correlated snapshot, and `disconnectHeadlessClient` waits for a newly observed title screen.
+
+GUI snapshots are control/liveness evidence only. The accepting server proves the TCP connection, and packets observed
+by the consuming protocol test prove Login, Configuration, or Play.
+
+`sendHeadlessClientCommand` exposes the small audited HMC-Specifics action surface for tests that need another explicit
+client action.
+
+## Stop a process but inspect its files
+
+The normal `use` helper schedules process and workspace cleanup. A filesystem interoperability test can instead separate
+the stages. The `server` value below is an `OfficialMinecraftServer` previously returned by `newOfficialServer()`, and
+`inspectStoppedWorld` is the test's same-host filesystem assertion:
+
+```kotlin
+val exitCode = MinecraftTestSupport.closeProcess(server)
+check(exitCode == 0)
+
+val hostPath = MinecraftTestSupport.hostWorkingDirectory(server)
+inspectStoppedWorld(hostPath)
+
+MinecraftTestSupport.deleteWorkingDirectory(server)
+```
+
+`hostWorkingDirectory` is intentionally non-portable. It is valid only when the test process and Fixture Host share a
+filesystem namespace, and the Host owns the path until deletion. The repository uses this backdoor only for `world-io`
+interoperability after the official process has stopped.
+
+`closeAndAwait` performs both synchronous stages when no file inspection is needed. `close` schedules the same combined
+cleanup and returns after the Host accepts it.
+
+## Verify official codecs
+
+`verifyOfficialCodec`, `verifyOfficialNbt`, and `verifyOfficialSnbt` send structured fixture values to the matching
+official implementation. Success returns normally; failure throws with bounded diagnostics. No standalone success report
+or result file is produced.
+
+## Supported test tasks
+
+Fixture entries run on configured standard tasks with usable TCP support: JVM, Android host, desktop Native, JS Node,
+and WasmJS Node. Browser and D8 tasks filter fixture entries. The private Wasm/WASI target is a compile scaffold, not
+runtime fixture support.
+
+Place an annotated official-peer entry in a package containing `fixturetest`. Portable scenario code remains in the
+owning module's shared test source set. The `world-io` same-filesystem scenario is the sole exception and lives in its
+`hostFilesystemTest` capability source set.
+
+The host implementation is documented in [`minecraft-test-fixture-host`](../minecraft-test-fixture-host/README.md).

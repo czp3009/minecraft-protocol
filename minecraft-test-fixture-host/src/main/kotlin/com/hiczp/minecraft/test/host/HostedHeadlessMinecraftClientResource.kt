@@ -1,9 +1,13 @@
 package com.hiczp.minecraft.test.host
 
 import com.hiczp.minecraft.test.HeadlessMinecraftClientConfiguration
+import com.hiczp.minecraft.test.HeadlessMinecraftClientState
 import com.hiczp.minecraft.test.MinecraftTestEndpoint
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.serialization.json.JsonArray
@@ -35,18 +39,28 @@ internal class HostedHeadlessMinecraftClientResource private constructor(
         process.waitForLog(marker, timeout)
     }
 
-    suspend fun connect(endpoint: MinecraftTestEndpoint) {
+    suspend fun connect(endpoint: MinecraftTestEndpoint): HeadlessMinecraftClientState {
         require(endpoint.host == LOOPBACK && endpoint.port in 1..0xFFFF) {
             "Headless client tests require a valid loopback endpoint"
         }
-        processMutex.withLock {
+        return processMutex.withLock {
             check(managedResource.isOpen) { "Headless client is closing" }
+            val startedAt = TimeSource.Monotonic.markNow()
             process.sendLineAndWait(
                 line = "connect ${endpoint.host} ${endpoint.port}",
                 marker = "Connecting to server ${endpoint.host} at port ${endpoint.port}...",
                 timeout = COMMAND_TIMEOUT,
             )
+            queryHeadlessClientState(
+                process = process,
+                timeout = COMMAND_TIMEOUT - startedAt.elapsedNow(),
+            )
         }
+    }
+
+    suspend fun state(): HeadlessMinecraftClientState = processMutex.withLock {
+        check(managedResource.isOpen) { "Headless client is closing" }
+        queryHeadlessClientState(process, COMMAND_TIMEOUT)
     }
 
     suspend fun disconnect() {
@@ -189,11 +203,8 @@ private suspend fun launchTitleReadyHeadlessClient(
         process.requireAlive("Headless client after title-screen readiness")
         return process
     } catch (failure: Throwable) {
-        if (process.isAlive) {
-            process.forceStop()
-            runCatching { process.awaitExitWithin(FORCED_STOP_TIMEOUT) }
-                .onFailure(failure::addSuppressed)
-        }
+        forceStopAfterFailure(process, failure)
+        if (failure is CancellationException) throw failure
         throw AssertionError(
             """
             |Headless client failed to reach its title screen.
@@ -215,18 +226,42 @@ private suspend fun awaitTitleScreen(
     val startedAt = TimeSource.Monotonic.markNow()
     while (startedAt.elapsedNow() < timeout) {
         val remaining = timeout - startedAt.elapsedNow()
-        val commandSequence = process.sendLineAndWait(
-            line = "gui",
-            marker = SCREEN_MARKER,
-            timeout = remaining,
-        )
-        if (process.containsLogAfter(TITLE_SCREEN_MARKER, commandSequence)) {
+        val state = queryHeadlessClientState(process, remaining)
+        if (state.screenClassName == TITLE_SCREEN_MARKER) {
             return
         }
     }
     error(
         "Headless client did not reach its title screen within $timeout:\n${process.logText()}",
     )
+}
+
+private suspend fun queryHeadlessClientState(
+    process: MinecraftTestProcess,
+    timeout: Duration,
+): HeadlessMinecraftClientState {
+    require(timeout.isPositive() && timeout.isFinite()) {
+        "Headless client state timeout must be positive and finite"
+    }
+    val output = process.sendLineAndWaitForAny(
+        line = "gui",
+        markers = listOf(SCREEN_MARKER, NO_GUI_MARKER),
+        timeout = timeout,
+    ).line
+    return parseHeadlessClientState(output)
+}
+
+internal fun parseHeadlessClientState(output: String): HeadlessMinecraftClientState {
+    if (NO_GUI_MARKER in output) {
+        return HeadlessMinecraftClientState(screenClassName = null)
+    }
+    val screenClassName = SCREEN_CLASS_PATTERN.find(output)
+        ?.groupValues
+        ?.get(1)
+    checkNotNull(screenClassName) {
+        "HMC-Specifics returned an invalid GUI state line: $output"
+    }
+    return HeadlessMinecraftClientState(screenClassName)
 }
 
 internal fun prepareHeadlessClientRuntime(
@@ -341,14 +376,8 @@ private suspend fun stopHeadlessClientProcess(
         }
         return exitCode
     } catch (failure: Throwable) {
-        if (process.isAlive) {
-            process.forceStop()
-            runCatching {
-                checkNotNull(process.awaitExitWithin(FORCED_STOP_TIMEOUT)) {
-                    "Headless client remained alive after forced termination"
-                }
-            }.onFailure(failure::addSuppressed)
-        }
+        forceStopAfterFailure(process, failure)
+        if (failure is CancellationException) throw failure
         throw AssertionError(
             """
             |Headless client did not stop cleanly.
@@ -357,6 +386,21 @@ private suspend fun stopHeadlessClientProcess(
             """.trimMargin(),
             failure,
         )
+    }
+}
+
+private suspend fun forceStopAfterFailure(
+    process: MinecraftTestProcess,
+    failure: Throwable,
+) = withContext(NonCancellable) {
+    if (!process.isAlive) return@withContext
+    process.forceStop()
+    try {
+        checkNotNull(process.awaitExitWithin(FORCED_STOP_TIMEOUT)) {
+            "Headless client remained alive after forced termination"
+        }
+    } catch (cleanupFailure: Throwable) {
+        failure.addSuppressed(cleanupFailure)
     }
 }
 
@@ -558,6 +602,7 @@ private const val TEMPLATE_PLAYER_NAME = "FixtureTemplate"
 private const val HMC_SPECIFICS_READY_MARKER = "HMC-Specifics initialized!"
 private const val TITLE_SCREEN_MARKER = "net.minecraft.client.gui.screens.TitleScreen"
 private const val SCREEN_MARKER = "Screen:"
+private const val NO_GUI_MARKER = "Minecraft is currently not displaying a Gui."
 private const val DISCONNECT_MARKER = "Disconnecting..."
 private const val QUIT_MARKER = "Quitting Minecraft..."
 private val CLIENT_TEMPLATE_CLEARED_DIRECTORIES = listOf(
@@ -581,3 +626,4 @@ private fun clientTemplateIgnoredEntries(): List<String> = buildList {
 
 private val COMMAND_TIMEOUT = 30.seconds
 private val FORCED_STOP_TIMEOUT = 5.seconds
+private val SCREEN_CLASS_PATTERN = Regex("Screen:\\s+([A-Za-z0-9_.$]+)")

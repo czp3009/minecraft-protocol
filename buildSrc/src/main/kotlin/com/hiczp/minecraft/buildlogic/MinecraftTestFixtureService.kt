@@ -266,9 +266,7 @@ private class RunningFixtureHost(
 ) : AutoCloseable {
     fun closeOwner(ownerId: String) {
         if (!process.isAlive) return
-        runCatching {
-            writeCommand("$CLOSE_OWNER_COMMAND_PREFIX$ownerId")
-        }
+        writeCommand("$CLOSE_OWNER_COMMAND_PREFIX$ownerId")
     }
 
     override fun close() {

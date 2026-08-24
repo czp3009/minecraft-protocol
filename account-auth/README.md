@@ -99,9 +99,8 @@ val microsoftToken = try {
 }
 ```
 
-The `error` values handled above are not exhaustive. See Microsoft's
-[expected device-code errors](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code#expected-errors)
-for the documented possibilities.
+The `error` values handled above are not exhaustive. Preserve and handle any other value through the decoded
+`MicrosoftOAuthErrorResponse` instead of assuming that the polling states are the complete service error set.
 
 Refreshing a Microsoft token is also caller-triggered. `savedRefreshToken` is the refresh token previously persisted by
 the caller, and `microsoftClientId` is the same registered client ID used above:

@@ -5,10 +5,7 @@ import io.ktor.server.application.*
 import io.ktor.server.cio.*
 import io.ktor.server.engine.*
 import io.ktor.server.routing.*
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -127,9 +124,11 @@ private class MinecraftTestSupportServiceServer(
     override suspend fun connectHeadlessClient(
         client: HeadlessMinecraftClient,
         endpoint: MinecraftTestEndpoint,
-    ) {
-        resources.hostedClient(client).connect(endpoint)
-    }
+    ): HeadlessMinecraftClientState = resources.hostedClient(client).connect(endpoint)
+
+    override suspend fun headlessClientState(
+        client: HeadlessMinecraftClient,
+    ): HeadlessMinecraftClientState = resources.hostedClient(client).state()
 
     override suspend fun disconnectHeadlessClient(
         client: HeadlessMinecraftClient,
@@ -214,20 +213,22 @@ private class MinecraftTestSupportServiceServer(
     }
 }
 
-private class HostedFixtureResources(maximumParallelUsages: Int) {
+internal class HostedFixtureResources(maximumParallelUsages: Int) {
     private val mutex = Mutex()
 
     // kotlinx.coroutines Semaphore queues suspended acquirers fairly. A slot
     // is returned by the managed resource's post-directory-cleanup callback.
     private val resourceSlots = Semaphore(maximumParallelUsages)
     private val resources = linkedMapOf<String, HostedFixtureResource>()
+    private val ownerCreationJobs = mutableMapOf<String, MutableSet<Job>>()
+    private val closedOwnerIds = mutableSetOf<String>()
     private var acceptingCreations = true
 
     suspend fun newOfficialServer(
         ownerId: String,
         configuration: OfficialMinecraftServerConfiguration,
-    ): OfficialMinecraftServer {
-        acquireResourceSlot()
+    ): OfficialMinecraftServer = withOwnerCreation(ownerId) {
+        acquireResourceSlot(ownerId)
         val resource = try {
             HostedMinecraftTestSupport.newOfficialServer(configuration)
         } catch (failure: Throwable) {
@@ -237,12 +238,10 @@ private class HostedFixtureResources(maximumParallelUsages: Int) {
         val id = newResourceId()
         val hosted = HostedFixtureResource.Server(ownerId, resource)
         hosted.invokeOnCleanupCompletion { resourceSlots.release() }
-        return try {
+        try {
             val server = resource.toOfficialMinecraftServer(id)
             mutex.withLock {
-                check(acceptingCreations) {
-                    "Minecraft test fixture host is shutting down"
-                }
+                checkCreationAllowed(ownerId)
                 resources[id] = hosted
             }
             server
@@ -255,8 +254,8 @@ private class HostedFixtureResources(maximumParallelUsages: Int) {
     suspend fun newHeadlessClient(
         ownerId: String,
         configuration: HeadlessMinecraftClientConfiguration,
-    ): HeadlessMinecraftClient {
-        acquireResourceSlot()
+    ): HeadlessMinecraftClient = withOwnerCreation(ownerId) {
+        acquireResourceSlot(ownerId)
         val resource = try {
             HostedMinecraftTestSupport.newHeadlessClient(configuration)
         } catch (failure: Throwable) {
@@ -266,12 +265,10 @@ private class HostedFixtureResources(maximumParallelUsages: Int) {
         val id = newResourceId()
         val hosted = HostedFixtureResource.Client(ownerId, resource)
         hosted.invokeOnCleanupCompletion { resourceSlots.release() }
-        return try {
+        try {
             val client = resource.toHeadlessMinecraftClient(id)
             mutex.withLock {
-                check(acceptingCreations) {
-                    "Minecraft test fixture host is shutting down"
-                }
+                checkCreationAllowed(ownerId)
                 resources[id] = hosted
             }
             client
@@ -379,17 +376,28 @@ private class HostedFixtureResources(maximumParallelUsages: Int) {
     }
 
     suspend fun closeOwner(ownerId: String) {
-        val owned = mutex.withLock {
+        val closure = mutex.withLock {
+            closedOwnerIds.add(ownerId)
+            val creationJobs = ownerCreationJobs.remove(ownerId)?.toList().orEmpty()
             val selected = resources.values.filter { it.ownerId == ownerId }
             resources.entries.removeAll { it.value.ownerId == ownerId }
-            selected
+            OwnerClosure(creationJobs, selected)
         }
-        owned.forEach(HostedFixtureResource::close)
+        closure.creationJobs.forEach { creationJob ->
+            creationJob.cancel(CancellationException("Fixture owner $ownerId was closed"))
+        }
+        closure.resources.forEach(HostedFixtureResource::close)
     }
 
     suspend fun stopAcceptingCreations() {
-        mutex.withLock {
+        val creationJobs = mutex.withLock {
             acceptingCreations = false
+            ownerCreationJobs.values.flatMap { it.toList() }.also {
+                ownerCreationJobs.clear()
+            }
+        }
+        creationJobs.forEach { creationJob ->
+            creationJob.cancel(CancellationException("Minecraft test fixture host is shutting down"))
         }
         HostedMinecraftTestSupport.stopAcceptingResourceCreations()
     }
@@ -403,18 +411,37 @@ private class HostedFixtureResources(maximumParallelUsages: Int) {
         HostedMinecraftTestSupport.shutdown()
     }
 
-    private suspend fun acquireResourceSlot() {
+    internal suspend fun <T> withOwnerCreation(
+        ownerId: String,
+        action: suspend () -> T,
+    ): T {
+        val creationJob = currentCoroutineContext().job
         mutex.withLock {
-            check(acceptingCreations) {
-                "Minecraft test fixture host is shutting down"
+            checkCreationAllowed(ownerId)
+            ownerCreationJobs.getOrPut(ownerId, ::linkedSetOf).add(creationJob)
+        }
+        try {
+            return action()
+        } finally {
+            withContext(NonCancellable) {
+                mutex.withLock {
+                    val jobs = ownerCreationJobs[ownerId]
+                    if (jobs != null && jobs.remove(creationJob) && jobs.isEmpty()) {
+                        ownerCreationJobs.remove(ownerId)
+                    }
+                }
             }
+        }
+    }
+
+    private suspend fun acquireResourceSlot(ownerId: String) {
+        mutex.withLock {
+            checkCreationAllowed(ownerId)
         }
         resourceSlots.acquire()
         try {
             mutex.withLock {
-                check(acceptingCreations) {
-                    "Minecraft test fixture host is shutting down"
-                }
+                checkCreationAllowed(ownerId)
             }
         } catch (failure: Throwable) {
             resourceSlots.release()
@@ -426,7 +453,22 @@ private class HostedFixtureResources(maximumParallelUsages: Int) {
         mutex.withLock {
             resources[id] ?: error("Fixture resource does not exist: $id")
         }
+
+    private fun checkCreationAllowed(ownerId: String) {
+        require(ownerId.isNotBlank()) { "Fixture owner ID is blank" }
+        check(acceptingCreations) {
+            "Minecraft test fixture host is shutting down"
+        }
+        check(ownerId !in closedOwnerIds) {
+            "Fixture owner $ownerId is already closed"
+        }
+    }
 }
+
+private data class OwnerClosure(
+    val creationJobs: List<Job>,
+    val resources: List<HostedFixtureResource>,
+)
 
 private sealed class HostedFixtureResource(
     val ownerId: String,

@@ -6,8 +6,10 @@ import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.serialization.json.JsonArray
@@ -230,11 +232,16 @@ private suspend fun launchOfficialServer(
             shutdownCommand = "stop",
         )
         try {
+            val startedAt = TimeSource.Monotonic.markNow()
+            process.waitForLog(
+                OFFICIAL_SERVER_DONE_MARKER,
+                configuration.startupTimeout,
+            )
             awaitStatusResponse(
                 process = process,
                 host = LOOPBACK,
                 port = port,
-                timeout = configuration.startupTimeout,
+                timeout = configuration.startupTimeout - startedAt.elapsedNow(),
             )
             return LaunchedOfficialServer(
                 endpoint = MinecraftTestEndpoint(LOOPBACK, port),
@@ -242,8 +249,7 @@ private suspend fun launchOfficialServer(
             )
         } catch (failure: Throwable) {
             val diagnostic = process.logText()
-            runCatching { process.terminate() }
-                .onFailure(failure::addSuppressed)
+            terminateAfterFailure(process, failure)
             if (failure is CancellationException) throw failure
             if (
                 attempt + 1 == configuration.maximumBindAttempts ||
@@ -400,8 +406,7 @@ internal suspend fun generateOfficialMinecraftServerTemplate(
                 gracefulTimeout = configuration.stopTimeout,
             )
         } catch (failure: Throwable) {
-            runCatching { launched.process.terminate() }
-                .onFailure(failure::addSuppressed)
+            terminateAfterFailure(launched.process, failure)
             throw failure
         }
         check(exitCode == 0) {
@@ -469,7 +474,7 @@ internal suspend fun generateOfficialMinecraftServerTemplate(
                     serverTemplateIgnoredEntries().map(::JsonPrimitive),
                 ),
                 "template_policy_revision" to JsonPrimitive(2),
-                "ready_signal" to JsonPrimitive("status-and-pong"),
+                "ready_signal" to JsonPrimitive("done-log-status-and-pong"),
                 "clean_stop" to JsonPrimitive(true),
             ),
         )
@@ -480,6 +485,17 @@ internal suspend fun generateOfficialMinecraftServerTemplate(
     } finally {
         candidate.deleteTree()
         if (!published) outputRoot.deleteTree()
+    }
+}
+
+private suspend fun terminateAfterFailure(
+    process: MinecraftTestProcess,
+    failure: Throwable,
+) = withContext(NonCancellable) {
+    try {
+        process.terminate()
+    } catch (cleanupFailure: Throwable) {
+        failure.addSuppressed(cleanupFailure)
     }
 }
 
@@ -496,6 +512,7 @@ internal suspend fun selectAvailableLoopbackPort(): Int =
 
 private const val LOOPBACK = "127.0.0.1"
 private const val DEFAULT_WORLD_NAME = "world"
+private const val OFFICIAL_SERVER_DONE_MARKER = "[Server thread/INFO]: Done ("
 private val SERVER_EXTRACTED_RUNTIME_DIRECTORIES = listOf(
     "libraries",
     "versions",

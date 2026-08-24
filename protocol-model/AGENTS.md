@@ -1,29 +1,22 @@
 # protocol-model
 
-This module owns format-independent packet payloads and shared protocol values.
+This module owns format-independent packet payloads, shared protocol values, logical serializers, and declarative wire
+metadata.
 
-Shared NBT values come from the `nbt` API dependency. Protocol-only wrappers such as `TextComponent` and wire hints such
-as `NetworkNbt` remain here; NBT tag declarations and binary grammar do not.
+## Local invariants
 
-## Source structure
+- `model.packet` contains packet declarations and `@PacketInfo` identities; `model.type` contains shared values and
+  logical variants; `model.wire` contains hints interpreted by physical formats.
+- Application packets implement the open direction-specific extension branches. `PacketRoute` and `UnknownPacket` remain
+  format-independent and lossless.
+- Models are valid in common Kotlin, contain no buffers or I/O, and enforce intrinsic invariants in their constructors.
+- Static, remote, and resolved registry models are immutable snapshots. Derived contexts retain large immutable
+  collections by reference.
+- Packet and data-component annotations are KSP inputs. The processor validates source coverage and generates runtime
+  handoff tables; do not maintain parallel dispatch tables by hand.
+- `MinecraftProtocol.kt` is generated from the declared target analysis and has no checked-in copy.
 
-- `model.packet` contains packet declarations and `@PacketInfo` protocol identities.
-- `model.type` contains reusable values and sealed logical variants.
-- `model.wire` contains declarative hints interpreted by physical formats.
+## Verification
 
-Application packet types implement the open direction-specific extension branches. `PacketRoute` and `UnknownPacket`
-remain format-independent and lossless. Static, remote, and resolved registry models are immutable snapshots; derived
-contexts retain their large registry and block-state collections by reference.
-
-Models remain valid in common Kotlin source sets, contain no buffers or I/O, and enforce intrinsic value invariants in
-constructors. Presence and discriminator rules stay with the corresponding model through Kotlin types, annotations, or
-logical serializers.
-
-## Generation and tests
-
-Packet and data-component identity annotations are KSP inputs. The private processor validates coverage against the
-official packets report and generates portable runtime handoff tables; manual dispatch tables do not belong in source.
-`MinecraftProtocol.kt` is generated from the root target-analysis artifact and has no source-tree copy.
-
-Add format-independent common tests for new or changed invariants. Run `:protocol-model:jvmTest` and
-`:protocol-serialization:jvmTest` after changing packet identities, wire hints, or shared values.
+Run `:protocol-model:jvmTest`. Packet identity, wire-hint, or shared-value changes also require
+`:protocol-serialization:jvmTest`.

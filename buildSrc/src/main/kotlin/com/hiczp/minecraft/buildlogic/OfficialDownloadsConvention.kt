@@ -3,8 +3,13 @@ package com.hiczp.minecraft.buildlogic
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
+import org.gradle.api.plugins.JvmToolchainsPlugin
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Sync
+import org.gradle.api.tasks.compile.JavaCompile
+import org.gradle.jvm.toolchain.JavaLanguageVersion
+import org.gradle.jvm.toolchain.JavaToolchainService
+import java.nio.charset.StandardCharsets
 
 /** Lazy immutable inputs consumed by standard external-peer test tasks. */
 class MinecraftTestFixtureOutputs(
@@ -19,6 +24,7 @@ class MinecraftTestFixtureOutputs(
 
 /** Registers exact-version fixture artifacts and official-data producers. */
 fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutputs {
+    pluginManager.apply(JvmToolchainsPlugin::class.java)
     val minecraftVersion = MinecraftTarget.MINECRAFT_VERSION
     val protocolRef = layout.buildDirectory.dir("protocol-reference")
     val versionManifestFile = protocolRef.map {
@@ -415,18 +421,34 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
             ),
         ),
     )
-    val codecSourceFile = layout.file(
-        codecOracleSource.elements.map { it.single().asFile },
+    val runtimeFiles = files(extractRuntime.flatMap { it.outputDirectory })
+    val codecCompileClasspath = files(
+        extractRuntime.flatMap { it.outputDirectory.file("server.jar") },
+        runtimeFiles.asFileTree.matching { filter ->
+            filter.include("libraries/**/*.jar")
+        },
     )
+    val javaToolchains = extensions.getByType(JavaToolchainService::class.java)
     val compileCodecOracle = tasks.register(
         "compileOfficialCodecOracle",
-        CompileOfficialCodecOracleTask::class.java,
+        JavaCompile::class.java,
     ) { task ->
         task.group = OFFICIAL_DATA_TASK_GROUP
         task.description = "Compile the official codec bridge."
-        task.sourceFile.set(codecSourceFile)
-        task.runtimeDirectory.set(extractRuntime.flatMap { it.outputDirectory })
-        task.outputDirectory.set(codecClassesDirectory)
+        task.source(codecOracleSource)
+        task.classpath = codecCompileClasspath
+        task.destinationDirectory.set(codecClassesDirectory)
+        task.options.encoding = StandardCharsets.UTF_8.name()
+        task.options.release.set(BuildVersions.JAVA_VERSION)
+        task.sourceCompatibility = BuildVersions.JAVA_VERSION.toString()
+        task.targetCompatibility = BuildVersions.JAVA_VERSION.toString()
+        task.javaCompiler.set(
+            javaToolchains.compilerFor { spec ->
+                spec.languageVersion.set(
+                    JavaLanguageVersion.of(BuildVersions.JAVA_VERSION),
+                )
+            },
+        )
     }
     val prepareCodecOracle = tasks.register(
         "prepareOfficialMinecraftCodecOracle",

@@ -2,6 +2,8 @@
 
 Minecraft Java Edition packet-payload serialization built on `kotlinx.serialization`.
 
+## Encode and decode payloads
+
 `MinecraftProtocolFormat` implements `BinaryFormat` and interprets the structural serializers and wire annotations from
 [`protocol-model`](../protocol-model/README.md). The caller-owned stream API is canonical; decoding takes the payload
 boundary established by framing. In the example, `handshake` is the `HandshakePacket` to encode, `payloadSink` is the
@@ -21,7 +23,9 @@ val packet = MinecraftProtocolFormat.decodeFromSource(
 )
 ```
 
-`MinecraftPacketRegistry` is the immutable vanilla base for the project-selected Minecraft release. Compose a
+## Compose a packet registry
+
+`MinecraftPacketRegistry` is the immutable vanilla base for the repository-selected Minecraft release. Compose a
 connection-specific registry with application or loader packet codecs instead of mutating a global table. Here
 `myPacketCodecs` is the caller's collection of extension registrations and `packet` is the packet value being encoded:
 
@@ -50,6 +54,8 @@ val encoded = packetRegistry.encodePayload(
 )
 ```
 
+## Configure dynamic registries
+
 Dynamic block-state and biome palette widths come from the registry context installed on a configured format. Here
 `staticRegistrySchema` comes from the local vanilla/mod catalogue, `remoteRegistrySnapshot` comes from loader
 negotiation, and `sectionCount` comes from the active dimension layout:
@@ -61,6 +67,8 @@ val minecraftProtocolFormat = MinecraftProtocolFormat(
     MinecraftProtocolFormatConfiguration(registries = protocolRegistryContext),
 )
 ```
+
+## Failure behavior
 
 Malformed known bodies, invalid identifiers, violated wire-field bounds, and unread trailing bytes throw; they are never
 treated as unknown packets. The format does not add a shared policy-sized collection, byte-array, NBT-depth, or

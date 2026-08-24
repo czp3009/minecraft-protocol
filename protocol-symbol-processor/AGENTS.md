@@ -1,12 +1,12 @@
 # protocol-symbol-processor
 
-This private build-time module owns KSP generation derived from Kotlin source annotations.
+This private JVM module owns KSP generation derived from Kotlin source annotations.
 
-- Non-source inputs remain Gradle task concerns. An official report may be supplied only to validate source-derived
+- Non-source generation remains in Gradle tasks. An official report may be supplied only to validate source-derived
   coverage.
-- Generated model-layer Kotlin remains portable and independent of runtime serialization implementation modules.
-- Processor diagnostics identify precise invalid symbols. Compilation and consuming-module tests provide verification;
-  generator snapshot tests are not a separate gate.
-- The module remains unpublished and has no CLI entry point.
+- Generated model-layer Kotlin stays portable and independent of runtime serialization implementations.
+- Diagnostics identify the precise invalid symbol. Compilation and consuming-module tests are the verification path; do
+  not add a separate CLI or snapshot gate.
+- Keep this module unpublished.
 
 Run the affected consuming module's JVM test task after processor changes.

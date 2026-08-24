@@ -161,6 +161,24 @@ class TestFilesTest {
         assertFalse(directory.exists())
     }
 
+    @Test
+    fun resourceDirectoryIsDeletedWhenCleanupFails() = runTest {
+        val directory = HostedMinecraftTestSupport.newScratchDirectory()
+        val expectedFailure = IllegalStateException("cleanup failed")
+        val resource = HostedMinecraftTestSupport.manageTestResource(directory) {
+            throw expectedFailure
+        }
+
+        resource.close()
+        val actualFailure = assertFailsWith<IllegalStateException> {
+            resource.awaitCleanup()
+        }
+        HostedMinecraftTestSupport.awaitCleanup()
+
+        assertEquals(expectedFailure.message, actualFailure.message)
+        assertFalse(directory.exists())
+    }
+
     private fun Path.isBelow(ancestor: Path): Boolean =
         generateSequence(parent) { it.parent }.any { it == ancestor }
 }

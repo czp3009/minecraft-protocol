@@ -618,7 +618,7 @@ abstract class DownloadMinecraftClientAssetObjectsTask : DefaultTask() {
     }
 
     @get:InputDirectory
-    @get:PathSensitive(PathSensitivity.NONE)
+    @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val assetIndexesDirectory: DirectoryProperty
 
     @get:OutputDirectory
@@ -696,11 +696,11 @@ abstract class DownloadMinecraftClientAssetObjectsTask : DefaultTask() {
 @CacheableTask
 abstract class AssembleHeadlessClientAssetsTask : DefaultTask() {
     @get:InputDirectory
-    @get:PathSensitive(PathSensitivity.NONE)
+    @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val assetIndexesDirectory: DirectoryProperty
 
     @get:InputDirectory
-    @get:PathSensitive(PathSensitivity.NONE)
+    @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val originalObjectsDirectory: DirectoryProperty
 
     @get:InputFile

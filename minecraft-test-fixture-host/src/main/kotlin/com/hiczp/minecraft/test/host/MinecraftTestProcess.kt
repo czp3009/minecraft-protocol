@@ -33,9 +33,6 @@ internal class MinecraftTestProcess private constructor(
     val outputSequence: Long
         get() = log.snapshot.value.outputSequence
 
-    fun containsLogAfter(marker: String, afterSequence: Long): Boolean =
-        log.snapshot.value.containsAfter(afterSequence, marker)
-
     fun requireAlive(context: String = "Test process") {
         val current = log.snapshot.value
         current.failure?.let { failure ->
@@ -61,7 +58,17 @@ internal class MinecraftTestProcess private constructor(
         afterSequence: Long,
         timeout: Duration,
     ) {
-        require(marker.isNotEmpty()) { "Log marker is empty" }
+        waitForAnyLogAfter(listOf(marker), afterSequence, timeout)
+    }
+
+    private suspend fun waitForAnyLogAfter(
+        markers: List<String>,
+        afterSequence: Long,
+        timeout: Duration,
+    ): ProcessOutputMatch {
+        require(markers.isNotEmpty() && markers.all(String::isNotEmpty)) {
+            "Log markers must not be empty"
+        }
         require(afterSequence >= 0L) {
             "Output sequence must not be negative"
         }
@@ -71,32 +78,40 @@ internal class MinecraftTestProcess private constructor(
         val observed = withContext(Dispatchers.Default) {
             withTimeoutOrNull(timeout) {
                 log.snapshot.first { snapshot ->
-                    snapshot.containsAfter(afterSequence, marker) ||
+                    snapshot.firstMatchingLineAfter(afterSequence, markers) != null ||
                             snapshot.exitCode != null ||
                             snapshot.failure != null
                 }
             }
         } ?: error(
             """
-            |Test process did not emit '$marker' within $timeout:
+            |Test process did not emit any of ${markers.joinToString()} within $timeout:
             |${logText()}
             """.trimMargin(),
         )
         observed.failure?.let { failure ->
             throw IllegalStateException(
                 """
-                |Test process output failed before log marker '$marker':
+                |Test process output failed before log markers ${markers.joinToString()}:
                 |${observed.text}
                 """.trimMargin(),
                 failure,
             )
         }
-        check(observed.containsAfter(afterSequence, marker)) {
+        val matchingLine = observed.firstMatchingLineAfter(
+            afterSequence,
+            markers,
+        )
+        checkNotNull(matchingLine) {
             """
-            |Test process exited with ${observed.exitCode} before log marker '$marker':
+            |Test process exited with ${observed.exitCode} before log markers ${markers.joinToString()}:
             |${observed.text}
             """.trimMargin()
         }
+        return ProcessOutputMatch(
+            afterSequence = afterSequence,
+            line = matchingLine.text.trimEnd('\n'),
+        )
     }
 
     suspend fun sendLine(line: String) {
@@ -113,7 +128,17 @@ internal class MinecraftTestProcess private constructor(
         line: String,
         marker: String,
         timeout: Duration,
-    ): Long {
+    ): Long = sendLineAndWaitForAny(
+        line = line,
+        markers = listOf(marker),
+        timeout = timeout,
+    ).afterSequence
+
+    suspend fun sendLineAndWaitForAny(
+        line: String,
+        markers: List<String>,
+        timeout: Duration,
+    ): ProcessOutputMatch {
         require('\n' !in line && '\r' !in line) {
             "sendLineAndWait accepts exactly one line"
         }
@@ -121,8 +146,7 @@ internal class MinecraftTestProcess private constructor(
             requireAlive()
             val sequence = outputSequence
             process.sendLine(line)
-            waitForLogAfter(marker, sequence, timeout)
-            return sequence
+            return waitForAnyLogAfter(markers, sequence, timeout)
         }
     }
 
@@ -157,12 +181,16 @@ internal class MinecraftTestProcess private constructor(
             if (command == null) {
                 process.destroy()
             } else {
-                runCatching {
+                try {
                     commandMutex.withLock {
                         process.sendLine(command)
                     }
+                } catch (failure: CancellationException) {
+                    process.destroy()
+                    throw failure
+                } catch (_: Throwable) {
+                    process.destroy()
                 }
-                    .onFailure { process.destroy() }
             }
         }
     }
@@ -191,6 +219,7 @@ internal class MinecraftTestProcess private constructor(
                 onOutput = { line ->
                     log.append(line)
                 },
+                onOutputFailure = log::fail,
             )
             val scope = CoroutineScope(
                 SupervisorJob() + Dispatchers.Default + CoroutineName(threadName),
@@ -275,6 +304,7 @@ internal object MinecraftTestProcesses {
 private class RunningProcess(
     private val process: Process,
     onOutput: (String) -> Unit,
+    onOutputFailure: (Throwable) -> Unit,
 ) {
     val isAlive: Boolean
         get() = process.isAlive
@@ -286,9 +316,22 @@ private class RunningProcess(
     private val inputMutex = Mutex()
     private val input = process.outputStream.bufferedWriter()
     private val outputReader = scope.launch {
-        runCatching {
+        var failure: Throwable? = null
+        try {
             process.inputStream.bufferedReader().useLines { lines ->
                 lines.forEach(onOutput)
+            }
+        } catch (caught: CancellationException) {
+            throw caught
+        } catch (caught: Throwable) {
+            failure = caught
+        } finally {
+            if (process.isAlive) {
+                onOutputFailure(
+                    failure ?: IllegalStateException(
+                        "Test process output closed while the process was still alive",
+                    ),
+                )
             }
         }
     }
@@ -364,7 +407,9 @@ private class ProcessLog {
     }
 
     fun fail(cause: Throwable) {
-        snapshot.update { current -> current.copy(failure = cause) }
+        snapshot.update { current ->
+            if (current.failure == null) current.copy(failure = cause) else current
+        }
     }
 }
 
@@ -379,9 +424,18 @@ private data class ProcessSnapshot(
             lines.forEach { append(it.text) }
         }
 
-    fun containsAfter(sequence: Long, marker: String): Boolean =
-        lines.any { it.sequence > sequence && marker in it.text }
+    fun firstMatchingLineAfter(
+        sequence: Long,
+        markers: List<String>,
+    ): SequencedOutputLine? = lines.firstOrNull { line ->
+        line.sequence > sequence && markers.any { marker -> marker in line.text }
+    }
 }
+
+internal data class ProcessOutputMatch(
+    val afterSequence: Long,
+    val line: String,
+)
 
 private data class SequencedOutputLine(
     val sequence: Long,

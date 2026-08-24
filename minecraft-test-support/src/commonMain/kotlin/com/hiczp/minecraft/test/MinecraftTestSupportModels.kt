@@ -68,6 +68,18 @@ data class HeadlessMinecraftClient(
     override val id: String,
 ) : MinecraftTestResource
 
+/**
+ * The GUI state reported by a correlated HMC-Specifics `gui` command.
+ *
+ * A null [screenClassName] means that Minecraft is not displaying a screen.
+ * This is control/liveness evidence only; protocol packets remain the oracle
+ * for Login, Configuration, and Play state.
+ */
+@Serializable
+data class HeadlessMinecraftClientState(
+    val screenClassName: String?,
+)
+
 @Serializable
 data class MinecraftTestResourceStatus(
     val alive: Boolean,

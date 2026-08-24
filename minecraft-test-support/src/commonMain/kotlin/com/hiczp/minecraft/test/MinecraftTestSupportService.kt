@@ -20,7 +20,11 @@ interface MinecraftTestSupportService {
     suspend fun connectHeadlessClient(
         client: HeadlessMinecraftClient,
         endpoint: MinecraftTestEndpoint,
-    )
+    ): HeadlessMinecraftClientState
+
+    suspend fun headlessClientState(
+        client: HeadlessMinecraftClient,
+    ): HeadlessMinecraftClientState
 
     suspend fun disconnectHeadlessClient(client: HeadlessMinecraftClient)
 

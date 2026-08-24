@@ -1,53 +1,44 @@
 # Minecraft test fixture host
 
-This unpublished JVM module implements the remote fixtures exposed by
-[`minecraft-test-support`](../minecraft-test-support/README.md). A shared Gradle Build Service starts one loopback
-kotlinx.rpc JSON host lazily after the consuming standard test task's required artifact providers have produced their
-files. The host consumes those exact paths and never downloads fixtures.
+`minecraft-test-fixture-host` is the private JVM process behind [
+`minecraft-test-support`](../minecraft-test-support/README.md). It lets multiplatform tests use matching official
+Minecraft processes and codec implementations without exposing process or filesystem APIs to those tests.
 
-## Service contract
+Application and library consumers do not depend on this module directly. A shared Gradle Build Service starts it lazily
+for supported test tasks and supplies the portable client with a loopback RPC endpoint.
 
-`MinecraftTestSupportServiceServer` implements the shared service contract. Its creation methods return serializable
-official-server or headless-client resource values, and every later operation accepts those values directly.
+## What the host provides
 
-## Process and workspace ownership
+- official server processes with isolated workspaces and loopback endpoints;
+- prepared HeadlessMC/Fabric/HMC-Specifics official clients;
+- bounded process logs and event waits;
+- official packet, NBT, and SNBT codec verification;
+- lifecycle operations for stopping a process, retaining files, deleting a workspace, and final cleanup;
+- the explicitly limited same-host working-directory path used by `world-io` tests.
 
-The host owns official-server and HeadlessMC/Fabric/HMC-Specifics client processes, unique workspaces, bounded in-memory
-logs, readiness probes, codec execution, the documented working-directory backdoor, and cleanup. Prepared resources are
-complete before launch; the host never downloads or repairs them. Gradle starts the host with
-`--enable-native-access=ALL-UNNAMED` for its in-process codec oracle, and the host places the same argument on every
-official-server and HeadlessMC JVM command.
+All official artifacts and immutable templates are prepared by Gradle before launch. The host consumes the supplied
+paths and does not download or repair fixtures.
 
-Gradle publishes an immutable runtime and normally stopped template for each process kind. Exact default optional
-configuration clones the corresponding template automatically, while non-default optional configuration starts from the
-assembled runtime without seeded mutable state. The required offline client name does not disable its template.
-Templates preserve generated configuration, Fabric's processed-mod cache, the sole HMC-Specifics mod, server world and
-access-control state, and all reusable empty directories. Only the fixed per-process files listed in each manifest are
-removed. Runtime inputs and templates are never launched in place.
+## Readiness semantics
 
-Immutable runtime trees, the HeadlessMC launcher, HMC-Specifics, and the processed-mod cache are shared only through
-read-only links: where supported, the complete client Minecraft runtime and official-server library directory each use
-one directory symbolic link. The fallback and all other immutable inputs use per-file hard links or copies. Generated
-options, server state, and all other mutable files are copied into the workspace. Cleanup unlinks directory symbolic
-links without traversing their targets.
+An official server is returned only after the host observes a new official `Done (` server-thread event and then
+completes a Status request and Ping/Pong exchange.
 
-## Readiness and shutdown
+A headless client is returned after HMC-Specifics initialization and a correlated `gui` command reports the title
+screen. Connecting returns another correlated GUI snapshot after the connect command has run on the client thread. That
+snapshot is liveness/control evidence only; the accepting test server and observed protocol packets establish TCP and
+Play state.
 
-Official-server creation requires a complete Status response and pong. Headless-client creation requires HMC-Specifics
-initialization plus a correlated `gui` observation of `TitleScreen`; connection is a separate operation, and only packet
-evidence from the production server establishes Play. Normal client shutdown uses HMC-Specifics `quit` and requires
-output EOF and exit code zero.
+Normal headless shutdown sends `quit` and requires correlated output, EOF, process exit, and exit code zero. Forced
+process-tree termination is reserved for cleanup fallback.
 
-Codec verification returns no success report and propagates bounded failure diagnostics.
+## Workspaces and cleanup
 
-## Resource pool
+Every resource gets a unique mutable workspace. Default configurations may clone prepared stopped templates; customized
+resources start from immutable prepared runtimes. No template or immutable runtime is launched in place.
 
-A fair four-slot pool bounds live or retained fixture resources. Each slot covers startup, running, a stopped process
-with retained files, termination, and workspace deletion. Manual process and directory operations wait for their
-postconditions; a close request returns after the same combined cleanup is scheduled, and the slot becomes available
-only after successful directory cleanup.
+A four-slot pool bounds resources that are starting, running, stopped with retained files, or awaiting workspace
+deletion. Task completion releases resources owned by that test task, and Build Service shutdown is the final fallback.
 
-## Integration
-
-Subproject tests depend on `minecraft-test-support`, not this module. Task completion releases that task's resources,
-and Build Service shutdown closes the host and any remaining resources.
+For the public test-facing operations and examples, use [`minecraft-test-support`](../minecraft-test-support/README.md).
+Contributors changing host lifecycle or workspace behavior should also read [AGENTS.md](AGENTS.md).

@@ -8,18 +8,11 @@ import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.*
-import java.io.File
-import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.*
 import java.util.zip.ZipFile
-import javax.tools.DiagnosticCollector
-import javax.tools.JavaFileObject
-import javax.tools.StandardLocation
-import javax.tools.ToolProvider
 import kotlin.io.path.createDirectories
-import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
 
 @CacheableTask
@@ -376,97 +369,5 @@ abstract class ExtractOfficialServerRuntimeTask :
         logger.lifecycle(
             "Extracted official server runtime for $version: $output",
         )
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// CompileOfficialCodecOracleTask
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/**
- * Compiles the `OfficialCodecOracle.java` bridge against the extracted server
- * runtime.  Tests only load the pre-compiled class; no compilation happens at
- * test time.
- */
-@CacheableTask
-abstract class CompileOfficialCodecOracleTask : DefaultTask() {
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.NONE)
-    abstract val sourceFile: RegularFileProperty
-
-    @get:InputDirectory
-    @get:PathSensitive(PathSensitivity.NONE)
-    abstract val runtimeDirectory: DirectoryProperty
-
-    @get:OutputDirectory
-    abstract val outputDirectory: DirectoryProperty
-
-    @TaskAction
-    fun compile() {
-        val source = sourceFile.asFile.get().toPath()
-        check(source.isRegularFile()) {
-            "Official codec bridge source is missing: $source"
-        }
-        val runtime = runtimeDirectory.asFile.get().toPath()
-        val implJar = runtime.resolve("server.jar")
-        check(implJar.isRegularFile()) {
-            "Server runtime implementation JAR is missing: $implJar"
-        }
-        val libsDir = runtime.resolve("libraries")
-        val libraries = if (libsDir.isDirectory()) {
-            Files.walk(libsDir).use { walk ->
-                walk.filter { Files.isRegularFile(it) }
-                    .map { it.toFile() }
-                    .toList()
-            }
-        } else {
-            emptyList()
-        }
-
-        val classes = outputDirectory.asFile.get().toPath()
-        classes.deleteTree()
-        classes.createDirectories()
-
-        val compiler = checkNotNull(
-            ToolProvider.getSystemJavaCompiler(),
-        ) { "Codec oracle compilation requires a full JDK" }
-        val diagnostics = DiagnosticCollector<JavaFileObject>()
-        compiler.getStandardFileManager(
-            diagnostics,
-            Locale.ROOT,
-            StandardCharsets.UTF_8,
-        ).use { fileManager ->
-            fileManager.setLocationFromPaths(
-                StandardLocation.CLASS_OUTPUT,
-                listOf(classes),
-            )
-            val classpath = buildList {
-                add(implJar.toFile())
-                addAll(libraries)
-            }.joinToString(File.pathSeparator)
-            val units = fileManager.getJavaFileObjectsFromPaths(
-                listOf(source),
-            )
-            val success = compiler.getTask(
-                null,
-                fileManager,
-                diagnostics,
-                listOf(
-                    "--release",
-                    BuildVersions.JAVA_VERSION.toString(),
-                    "-classpath",
-                    classpath,
-                ),
-                null,
-                units,
-            ).call()
-            check(success) {
-                diagnostics.diagnostics.joinToString(
-                    prefix = "Codec oracle bridge compilation failed:\n",
-                    separator = "\n",
-                )
-            }
-        }
-        logger.lifecycle("Compiled official codec oracle bridge: $classes")
     }
 }
