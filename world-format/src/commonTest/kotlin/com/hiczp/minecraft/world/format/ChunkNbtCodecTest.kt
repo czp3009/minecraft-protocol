@@ -390,6 +390,16 @@ class ChunkNbtCodecTest {
     }
 
     @Test
+    fun chunkMetadataRecognizesOnlyTheTerminalWorldGenerationStatus() {
+        val metadata = ChunkMetadata(TEST_DATA_VERSION, status = "minecraft:full")
+
+        assertEquals("minecraft:full", ChunkMetadata.FULLY_GENERATED_STATUS)
+        assertTrue(metadata.isFullyGenerated)
+        assertFalse(metadata.copy(status = "minecraft:spawn").isFullyGenerated)
+        assertFalse(metadata.copy(status = "example:custom").isFullyGenerated)
+    }
+
+    @Test
     fun encodingRejectsDefaultsThatWouldChangeWhenMissingSectionsAreDecoded() {
         val chunk = Chunk(
             position = ChunkPosition(0, 0),

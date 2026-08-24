@@ -88,6 +88,11 @@ fun <B : Any, M : Any> encodeChunk(
 }
 ```
 
+`Chunk.metadata.status` retains the persisted world-generation status. `ChunkMetadata.isFullyGenerated` recognizes the
+selected release's terminal `minecraft:full` status without requiring callers to repeat that storage identifier. This
+property describes only the world-generation phase; it does not imply correct lighting, durable storage, or completion
+of any other Chunk or Region.
+
 `NbtDocument` is the universal NBT-tree path and can represent every legal tag. It has no concept of unknown fields. The
 strong `ChunkNbtCodec` is a separate selected-release projection: it validates required fields, versions, layouts, and
 registry values, but it does not retain tags outside the semantic `Chunk` model. Use a document when arbitrary modded or

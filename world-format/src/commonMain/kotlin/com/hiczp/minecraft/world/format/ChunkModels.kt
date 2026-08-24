@@ -329,6 +329,14 @@ data class ChunkMetadata(
         require(dataVersion >= 0) { "A Minecraft data version must be non-negative" }
         require(status.isNotBlank()) { "A Chunk status must not be blank" }
     }
+
+    /** Whether this Chunk has reached the selected release's terminal world-generation status. */
+    val isFullyGenerated: Boolean
+        get() = status == FULLY_GENERATED_STATUS
+
+    companion object {
+        const val FULLY_GENERATED_STATUS: String = "minecraft:full"
+    }
 }
 
 data class SectionLighting(
