@@ -1,7 +1,7 @@
 package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.nbt.*
-import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
+import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.world.format.*

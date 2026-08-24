@@ -1,8 +1,8 @@
 package com.hiczp.minecraft.protocol.server
 
-import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
-import com.hiczp.minecraft.protocol.data.ProtocolDataSet
-import com.hiczp.minecraft.protocol.data.VanillaProtocolData
+import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
+import com.hiczp.minecraft.protocol.datapack.ProtocolDataSet
+import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaDataPacks
 import com.hiczp.minecraft.protocol.model.packet.PlayLoginPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.io.Buffer
@@ -16,7 +16,7 @@ import kotlin.random.Random
 import kotlin.uuid.Uuid
 
 data class MinecraftServerNegotiationOptions(
-    val protocolData: ProtocolDataSet = VanillaProtocolData,
+    val protocolData: ProtocolDataSet = VanillaDataPacks.protocolData,
     val compressionThreshold: Int? = 256,
     val sessionId: Uuid = Uuid.fromLongs(
         Random.nextLong(),

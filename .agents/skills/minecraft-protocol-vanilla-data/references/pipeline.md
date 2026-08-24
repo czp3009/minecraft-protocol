@@ -1,6 +1,6 @@
 # Vanilla protocol-data pipeline
 
-## Official analysis producers
+## Official data producers
 
 The root pipeline currently exposes:
 
@@ -8,21 +8,26 @@ The root pipeline currently exposes:
   official server;
 - `analyzeOfficialMinecraftReports`: vanilla `packets.json`, `registries.json`, and `blocks.json` reports;
 - `analyzeOfficialMinecraftConfiguration`: an executable Configuration capture using report-derived packet IDs;
-- `officialMinecraftAnalysis`: the aggregate over all three analyses.
+- `extractOfficialMinecraftDataPacks`: exact core and built-in data-pack files plus their manifest;
+- `prepareOfficialMinecraftData`: the aggregate over all four producers.
 
-Only root official-analysis tasks inspect the official server JAR. The server-template producer may execute it without
-inspection, while data-driven source generators consume declared JSON artifacts rather than reopening it.
+Only root official-data tasks inspect the official server JAR. The server-template producer may execute it without
+inspection, while data-driven source generators consume declared analysis or extracted artifacts rather than reopening
+it.
 
 ## Source producers
 
 - `:protocol-model:generateMinecraftProtocolSource` renders release constants from target analysis.
-- `:protocol-vanilla-data:generateVanillaStaticDataSource` renders encoded static registry and block-state payload
+- `:protocol-datapack-vanilla:generateVanillaStaticDataSource` renders encoded static registry and block-state payload
   source from target, registry, and block reports.
-- `:protocol-vanilla-data:generateVanillaConfigurationSource` renders encoded Configuration payload source from target
+- `:protocol-datapack-vanilla:generateVanillaConfigurationSource` renders encoded Configuration payload source from
+  target
   and Configuration analysis.
+- `:protocol-datapack-vanilla:generateVanillaDataPackSources` renders a small manifest and independently loaded encoded
+  batch functions from extracted official data-pack content.
 
-Compilation and tests are already wired to these producers. Do not add manual task ordering, generated-source copying,
-or freshness comparison tasks.
+Compilation and tests are wired through the producers' artifact Providers. Do not add duplicate task ordering,
+generated-source copying, or freshness comparison tasks.
 
 ## Handwritten consumers to audit
 

@@ -50,8 +50,11 @@ kotlin {
     )
 
     sourceSets {
-        val javaNioMain = create("javaNioMain") {
+        val okioZipMain = create("okioZipMain") {
             dependsOn(commonMain.get())
+        }
+        val javaNioMain = create("javaNioMain") {
+            dependsOn(okioZipMain)
         }
         jvmMain {
             dependsOn(javaNioMain)
@@ -61,6 +64,9 @@ kotlin {
         }
         val posixMain = create("posixMain") {
             dependsOn(nativeMain.get())
+        }
+        nativeMain {
+            dependsOn(okioZipMain)
         }
         appleMain {
             dependsOn(posixMain)
@@ -82,6 +88,7 @@ kotlin {
         }
         jsMain.dependencies {
             implementation(libs.okio.nodefilesystem)
+            implementation(npm("adm-zip", libs.versions.adm.zip.get()))
             implementation(npm("fs-native-extensions", "1.5.0"))
         }
 

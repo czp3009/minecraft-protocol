@@ -20,7 +20,8 @@ packet registry, and connection-specific composed extension registries.
   encoded body, such as `@ByteLengthPrefixed`.
 - NBT serialization failures retain the shared `SerializationException` hierarchy and are not wrapped solely to change
   the concrete exception name.
-- Configuration capture and data-to-source generation remain in `protocol-vanilla-data` and `buildSrc`; this module has
+- Configuration capture and data-to-source generation remain in `protocol-datapack-vanilla` and `buildSrc`; this module
+  has
   no generator bridge or CLI.
 
 ## Tests

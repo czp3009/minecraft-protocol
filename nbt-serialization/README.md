@@ -5,7 +5,8 @@ Portable Java Edition binary NBT and stringified NBT (SNBT) formats over the sta
 
 `NbtFormat` converts serializable classes to NBT trees and reads or writes binary NBT. It supports the explicit root
 forms used by packets and world files (any/named/unnamed tag, or a compound-root document). Its caller-owned
-`kotlinx.io` `Source`/`Sink` methods are the canonical binary path:
+`kotlinx.io` `Source`/`Sink` methods are the canonical binary path. Here `value` is a caller-provided serializable
+`MyValue`, while `sink` and `source` are the caller-owned binary endpoints:
 
 ```kotlin
 val unnamedNbt = NbtFormat(
@@ -20,7 +21,9 @@ sink.flush()
 val decoded = unnamedNbt.decodeFromSource<MyValue>(source)
 ```
 
-The explicit tag and document entry points are streaming too:
+The explicit tag and document entry points are streaming too. In this block, `tag` is a caller-constructed `NbtTag`,
+`document` is a caller-constructed `NbtDocument`, and each `...Source` or `...Sink` is the endpoint owned by the packet
+or world layer named in that variable:
 
 ```kotlin
 NbtFormat.encodeAnyTagToSink(tag, packetSink)
@@ -34,7 +37,8 @@ val worldBytes = NbtFormat.encodeDocumentToByteArray(document)
 ```
 
 When a generic tree is already in hand, receiver extensions keep the next operations discoverable without moving the
-physical format into the logical `nbt` module:
+physical format into the logical `nbt` module. The `document`, `worldSink`, and `unnamedNbt` values come from the
+preceding examples:
 
 ```kotlin
 document.writeTo(worldSink)
@@ -52,7 +56,8 @@ are omitted.
 
 `SnbtFormat` uses the same `NbtTag` tree and Kotlin mapping. Its `Source` decoder reads UTF-8 incrementally and requires
 one complete value plus optional trailing whitespace. Its `Sink` writer traverses tags directly and never builds the
-complete output text, flushes, or closes the stream:
+complete output text, flushes, or closes the stream. The `tag`, `document`, `sink`, and `source` names refer to the
+caller-owned values and endpoints described in the binary examples above:
 
 ```kotlin
 SnbtFormat.encodeTagToSink(tag, sink)

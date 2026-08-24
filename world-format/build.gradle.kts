@@ -119,6 +119,7 @@ kotlin {
             api(project(":nbt-serialization"))
             api(libs.kotlinx.io.core)
             api(libs.kotlinx.serialization.core)
+            api(libs.kotlinx.serialization.json)
         }
         webMain.dependencies {
             implementation(libs.kompress.core)

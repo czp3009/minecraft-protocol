@@ -1,24 +1,10 @@
 package com.hiczp.minecraft.buildlogic
 
-import com.squareup.kotlinpoet.CodeBlock
-import com.squareup.kotlinpoet.FileSpec
+import com.squareup.kotlinpoet.*
 import com.squareup.kotlinpoet.KModifier.CONST
 import com.squareup.kotlinpoet.KModifier.INTERNAL
-import com.squareup.kotlinpoet.LIST
-import com.squareup.kotlinpoet.MemberName
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
-import com.squareup.kotlinpoet.PropertySpec
-import com.squareup.kotlinpoet.STRING
-import com.squareup.kotlinpoet.TypeSpec
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
+import kotlinx.serialization.json.*
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.*
@@ -178,7 +164,7 @@ abstract class GenerateVanillaStaticDataSourceTask :
             .add(")")
             .build()
         return FileSpec.builder(
-            "com.hiczp.minecraft.protocol.data",
+            "com.hiczp.minecraft.protocol.datapack.vanilla",
             "VanillaStaticDataPayloads",
         ).addType(
             TypeSpec.objectBuilder("VanillaStaticDataPayloads")

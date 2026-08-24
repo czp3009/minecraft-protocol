@@ -3,9 +3,9 @@ package com.hiczp.minecraft.protocol.server
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.auth.toGameProfile
 import com.hiczp.minecraft.protocol.client.MinecraftClientConnection
-import com.hiczp.minecraft.protocol.data.VanillaProtocolData
-import com.hiczp.minecraft.protocol.data.resolveSynchronizedRegistryContext
-import com.hiczp.minecraft.protocol.data.withPlayLoginDimension
+import com.hiczp.minecraft.protocol.datapack.resolveSynchronizedRegistryContext
+import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
+import com.hiczp.minecraft.protocol.datapack.withPlayLoginDimension
 import com.hiczp.minecraft.protocol.fabric.FabricProtocol
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*

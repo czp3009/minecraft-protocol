@@ -1,7 +1,7 @@
 package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.nbt.NbtCompound
-import com.hiczp.minecraft.protocol.data.VanillaStaticData
+import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaStaticData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*

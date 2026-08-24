@@ -51,22 +51,28 @@ class ProtocolRegistryContextTest {
     }
 
     @Test
-    fun missingModBlockSchemaFailsResolution() {
+    fun missingModBlockSchemasAreReportedTogether() {
         val schema = StaticRegistrySchema(emptyMap(), emptyList())
-        assertFailsWith<IllegalArgumentException> {
+        val missing = assertFailsWith<MissingStaticBlockSchemas> {
             schema.resolve(
                 RemoteRegistrySnapshot(
                     listOf(
                         RemoteRegistry(
                             StaticRegistrySchema.BLOCK_REGISTRY,
                             listOf(
-                                RemoteRegistryEntry(Identifier("mod:missing"), 0),
+                                RemoteRegistryEntry(Identifier("mod:first"), 0),
+                                RemoteRegistryEntry(Identifier("mod:second"), 1),
                             ),
                         ),
                     ),
                 ),
             )
         }
+
+        assertEquals(
+            listOf(Identifier("mod:first"), Identifier("mod:second")),
+            missing.blockIds,
+        )
     }
 
     @Test

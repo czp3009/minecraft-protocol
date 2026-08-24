@@ -1,10 +1,10 @@
 package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.nbt.NbtCompound
-import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
-import com.hiczp.minecraft.protocol.data.VanillaProtocolData
-import com.hiczp.minecraft.protocol.data.VanillaStaticData
-import com.hiczp.minecraft.protocol.data.requireRegistry
+import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
+import com.hiczp.minecraft.protocol.datapack.requireRegistry
+import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
+import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaStaticData
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat

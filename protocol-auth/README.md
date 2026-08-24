@@ -22,7 +22,8 @@ signature bodies, chain links, and Brigadier-derived signable arguments remain `
 ## Identities
 
 `MinecraftIdentity` is a sealed interface so downstream connection code can exhaustively distinguish offline and online
-identities:
+identities. The online values `profileId`, `profileName`, and `minecraftAccessToken` are supplied by the launcher or
+account-login layer before the game connection starts:
 
 ```kotlin
 val offline: MinecraftIdentity = MinecraftOfflineIdentity("Player")
@@ -46,7 +47,10 @@ Identity types are ordinary data classes. Credential logging and storage are cal
 ## Minecraft Session Server
 
 `MinecraftSessionApi` is stateless apart from its reference to a caller-owned `HttpClient`. It does not install an
-engine, alter client configuration, close the client, retry, or refresh credentials:
+engine, alter client configuration, close the client, retry, or refresh credentials. Here `applicationHttpClient` is
+that configured client; `serverHash` comes from the current Login key exchange; `playerName` and
+`observedClientAddress` come from the accepted connection. The access token and profile ID were introduced in the
+identity example:
 
 ```kotlin
 val sessions = MinecraftSessionApi(applicationHttpClient)
@@ -71,7 +75,7 @@ val joined = sessions.hasJoined(
 An extension connects the online identity model to the low-level endpoint:
 
 ```kotlin
-sessions.join(onlineIdentity, serverHash)
+sessions.join(online, serverHash)
 ```
 
 `hasJoined` returns `null` for the documented `204 No Content` unverified-player response and otherwise decodes the
@@ -105,11 +109,11 @@ refreshes a key, cache Mojang service keys, retry, or persist private material:
 
 ```kotlin
 val profileKeys = MinecraftProfileKeyApi(applicationHttpClient)
-val keyPair = profileKeys.fetchProfileKeyPair(onlineIdentity).toMinecraftProfileKeyPair()
+val keyPair = profileKeys.fetchProfileKeyPair(online).toMinecraftProfileKeyPair()
 val servicesKeys = profileKeys.fetchServicesPublicKeys().toMinecraftServicesPublicKeySet()
 
 val credentialIsValid = servicesKeys.verifyProfilePublicKey(
-    profileId = onlineIdentity.id,
+    profileId = online.id,
     publicKeyData = keyPair.publicKeyData,
 )
 ```
@@ -123,11 +127,13 @@ take an explicit epoch millisecond value and never read the clock implicitly.
 
 `MinecraftChatSignatures` is the stateless payload/sign/verify layer. `MinecraftChatChainSigner` adds only a locked
 sender/session index. A batch—especially a signed command's arguments—is allocated contiguously and committed only when
-every signature succeeds:
+every signature succeeds. The `online` identity and `keyPair` come from the preceding examples. `chatSessionId` is the
+announced chat session ID; `text`, `timestamp`, `salt`, `expandedLastSeenSignatures`, and `lastSeenUpdate` are the
+message and acknowledgement state supplied by the caller's chat loop:
 
 ```kotlin
 val signer = MinecraftChatChainSigner(
-    sender = onlineIdentity.id,
+    sender = online.id,
     sessionId = chatSessionId,
     keyPair = keyPair,
 )
@@ -143,7 +149,9 @@ val packet = signer.signChatMessagePacket(
 
 The serverbound chat and signed-command packets do not carry their chain index. The server therefore keeps one
 `MinecraftServerboundChatChainVerifier` per accepted player chat session; each valid message or signed command argument
-advances its implicit index:
+advances its implicit index. Here `playerId`, `sessionId`, and `profilePublicKey` come from that player's accepted chat
+session; `packet` and `expandedLastSeenSignatures` come from the server's packet/acknowledgement loop. `handle` and
+`handleInvalid` are the application's callbacks for accepting the verified message or applying its invalid-chat policy:
 
 ```kotlin
 val verifier = MinecraftServerboundChatChainVerifier(
@@ -169,13 +177,15 @@ configuration, disconnect players, order separately returned sends, or broadcast
 
 ## Login key exchange
 
-Client-side response creation is explicit:
+Client-side response creation is explicit. In the example, `encryptionRequest` was received by the Login loop,
+`sessions` and `online` were created above, `send` is the caller's ordered packet-send operation, and `session` is the
+connection/session whose encryption boundary the caller controls:
 
 ```kotlin
 val exchange = MinecraftClientKeyExchange.respond(encryptionRequest)
 
 if (encryptionRequest.shouldAuthenticate) {
-    sessions.join(onlineIdentity, exchange.serverHash)
+    sessions.join(online, exchange.serverHash)
 }
 
 send(exchange.toEncryptionResponsePacket())
@@ -187,7 +197,10 @@ try {
 }
 ```
 
-Server-side key-pair and per-connection challenge creation are separate operations:
+Server-side key-pair and per-connection challenge creation are separate operations. Here `send` and
+`receiveEncryptionResponse` are the server Login loop's ordered packet operations; `session` is that connection,
+`sessions` is its caller-owned Session Server API, and `loginName` plus `observedClientAddress` come from the accepted
+Login Start and socket:
 
 ```kotlin
 val keyPair = MinecraftServerKeyPair.generate()

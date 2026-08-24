@@ -80,6 +80,10 @@ the same public initial-world primitives.
 Build immutable protocol data at the application lifetime you need, then pass references into a shareable connection and
 profile definition. `MinecraftServer` reuses its `MinecraftConnectionDefinition` for every accepted connection:
 
+In the following example, `myResolvedRegistryContext`, `myModPacketCodecs`, `myNetworkConfiguration`, and
+`myFrozenRegistrySync` are immutable values produced by the application's NeoForge integration. `selectorManager` is the
+Ktor selector manager passed to the server's application-lifetime setup, as in the first example.
+
 ```kotlin
 val minecraftProtocolFormat = MinecraftProtocolFormat(
     MinecraftProtocolFormat.configuration.copy(registries = myResolvedRegistryContext),
@@ -101,6 +105,9 @@ val minecraftServer = MinecraftServer.bind(
 
 Create only the small mutable profile state per connection:
 
+Here `minecraftServerConnection` is returned by `minecraftServer.accept()`, while `serverOptions` and
+`applicationPolicy` are the application's protocol-visible options and admission policy.
+
 ```kotlin
 val minecraftServerNegotiationResult = minecraftServerConnection.negotiate(
     profile = NeoForgeServerProfile(neoForgeServerProfileDefinition),
@@ -116,7 +123,8 @@ available through the same public packet channels.
 ## Authentication
 
 Offline mode is the default. It derives the vanilla offline UUID and performs no Session Server I/O or stream
-encryption. Online mode receives a caller-owned `HttpClient`:
+encryption. Online mode receives a caller-owned `HttpClient`. In the example, `applicationHttpClient` is that configured
+client and `selectorManager` is the application-lifetime Ktor selector manager used by `MinecraftServer.bind`:
 
 ```kotlin
 val minecraftServerAuthentication = MinecraftServerAuthentication.online(
@@ -146,9 +154,105 @@ according to the server policy you intend to advertise. The preset forwards thos
 `server.properties` range policy inside the library. Supply a `ProtocolDataSet` for the repository-selected Minecraft
 release so its registries and Configuration payloads match the packet codecs.
 
+The default is `VanillaDataPacks.protocolData` from
+[`protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md). Applications can instead construct a final
+`DataPackProtocolDataSet`, use an explicit generic `DataPackProtocolProjection`, or convert a parsed stack with
+`toVanillaProtocolDataSet`, then pass that value as `MinecraftServerNegotiationOptions.protocolData`. The server
+orchestration sends its feature flags, Known Packs, selected registry snapshot, and tags in the existing Configuration
+order; it does not read a world or data-pack path and never depends on `world-io`.
+
 `configurationPackets` and `configurationTasks` are the application's extension traffic. Keep the framework-owned
 Feature Flags, Known Packs, registry data, tags, and Finish Configuration packets out of those lists; the preset already
 sends them in protocol order and trusts the policy result without rescanning it.
+
+## Load world data packs and negotiate
+
+The following is the complete application-side path from a world's `level.dat` and `datapacks` directory to the
+Configuration packets sent by `negotiate`. The application using this example depends on `world-io` and
+`protocol-datapack-vanilla`; `protocol-server` itself deliberately does not depend on `world-io`.
+
+`WorldDataPackStore` reads only `file/...` references. The resolver below fills the other enabled references from
+caller-supplied in-memory packs first, then from the generated official packs. This preserves the low-to-high priority
+order stored in `DataPacks.Enabled` and leaves the caller free to supply loader or application-defined packs without
+putting them on disk:
+
+`suppliedPacks` is specifically the optional map of built-in packs supplied in memory by a mod or loader. A vanilla
+server, including one using ordinary `file/...` packs from the world's `datapacks` directory, should leave it empty or
+omit the argument. Its default is `emptyMap()`; the generated `VanillaDataPacks` entry supplies `vanilla` automatically.
+When a mod uses this argument, each map key is the exact enabled reference from `DataPacks.Enabled` and its value is the
+corresponding parsed or programmatically constructed `DataPack`.
+
+The extension receiver is the `LoadedWorldDataPacks` returned by `world.readEnabledDataPacks()`. Its
+`enabledReferences` property is copied from `level.dat` at `Data.DataPacks.Enabled`, and its `packs` property contains
+the `file/...` entries that `world-io` has already read and parsed from the world's `datapacks` directory.
+
+```kotlin
+fun LoadedWorldDataPacks.resolveEnabledStack(
+    suppliedPacks: Map<DataPackId, DataPack> = emptyMap(),
+): DataPackStack {
+    val diskPacks = packs.associateBy(DataPack::id)
+    return DataPackStack(
+        enabledReferences.map { reference ->
+            val id = DataPackId(reference)
+            diskPacks[id]
+                ?: suppliedPacks[id]
+                ?: when {
+                    id == VanillaDataPacks.coreId -> VanillaDataPacks.core
+                    id in VanillaDataPacks.packIds -> VanillaDataPacks.parsePack(id)
+                    else -> error("No data pack was supplied for enabled reference $reference")
+                }
+        },
+    )
+}
+
+suspend fun loadWorldProtocolData(
+    world: MinecraftWorldAccess,
+    suppliedPacks: Map<DataPackId, DataPack> = emptyMap(),
+    registryProjectors: List<DataPackSynchronizedRegistryProjector> = emptyList(),
+): DataPackProtocolDataSet {
+    val loaded = world.readEnabledDataPacks()
+    val stack = loaded.resolveEnabledStack(suppliedPacks)
+    return stack.toVanillaProtocolDataSet(registryProjectors)
+}
+```
+
+Load and project the immutable data once when the world is opened, then use it when constructing each connection's
+options. Calling `negotiate` is the step that actually sends Feature Flags, Known Packs, synchronized registries, and
+tags to the client. In the call site below, `openedWorld` is the application's already-open `MinecraftWorldAccess`, and
+`minecraftServerConnection` is one connection returned by `MinecraftServer.accept()`:
+
+```kotlin
+suspend fun negotiateWorldConnection(
+    connection: MinecraftServerConnection,
+    protocolData: ProtocolDataSet,
+): MinecraftServerNegotiationResult? = connection.negotiate(
+    options = MinecraftServerNegotiationOptions(protocolData = protocolData),
+)
+
+val protocolData = loadWorldProtocolData(
+    world = openedWorld,
+)
+val negotiationResult = negotiateWorldConnection(minecraftServerConnection, protocolData)
+```
+
+A modded server can instead provide its loader-owned packs explicitly, without placing them in the world directory. Here
+`modDataPack` is a parsed or programmatically constructed `DataPack` owned by the loader, and
+`modRegistryProjectors` contains that loader's required synchronized-registry conversions:
+
+```kotlin
+val loaderPacks = mapOf(modDataPack.id to modDataPack)
+val protocolData = loadWorldProtocolData(
+    world = openedWorld,
+    suppliedPacks = loaderPacks,
+    registryProjectors = modRegistryProjectors,
+)
+```
+
+The last two values in the snippet belong at different lifetimes: compute `protocolData` once per loaded pack stack, and
+call `negotiateWorldConnection` for each accepted connection. A custom pack that changes a synchronized registry must
+supply its disk-JSON-to-network-NBT `DataPackSynchronizedRegistryProjector`; packs that only change tags or server-only
+resources need no registry projector. Applications can replace the resolver, edit the resulting
+`DataPackStack`, use a generic `DataPackProtocolProjection`, or construct the final `ProtocolDataSet` directly.
 
 ## Initial world projection
 

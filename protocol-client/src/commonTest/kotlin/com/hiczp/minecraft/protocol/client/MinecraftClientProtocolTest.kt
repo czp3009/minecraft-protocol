@@ -4,10 +4,10 @@ import com.hiczp.minecraft.nbt.NbtByte
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
-import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
-import com.hiczp.minecraft.protocol.data.ProtocolDataSet
-import com.hiczp.minecraft.protocol.data.VanillaProtocolData
-import com.hiczp.minecraft.protocol.data.requireRegistry
+import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
+import com.hiczp.minecraft.protocol.datapack.ProtocolDataSet
+import com.hiczp.minecraft.protocol.datapack.requireRegistry
+import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*

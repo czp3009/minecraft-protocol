@@ -16,6 +16,10 @@ also owns projection of one or more Entity pairing sequences from a bundle or ra
 values and type-based handoff of runtime-only pairing packets through caller-supplied adapters. It never opens world
 files or invents persistence-only metadata absent from a packet; callers supply that template explicitly.
 
+The client-facing data-pack adapter may retain exact Configuration packets and resolve their tags against either the
+already-installed profile context or caller-supplied static schemas and loader mappings. It never claims that packets
+reconstruct server-only data-pack resources that were not transmitted.
+
 High-level online Login receives a caller-owned `HttpClient` and constructs the stateless `MinecraftSessionApi`
 internally. The caller configures and closes the client; this module owns when `/join` occurs.
 

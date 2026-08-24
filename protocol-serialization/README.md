@@ -4,7 +4,8 @@ Minecraft Java Edition packet-payload serialization built on `kotlinx.serializat
 
 `MinecraftProtocolFormat` implements `BinaryFormat` and interprets the structural serializers and wire annotations from
 [`protocol-model`](../protocol-model/README.md). The caller-owned stream API is canonical; decoding takes the payload
-boundary established by framing:
+boundary established by framing. In the example, `handshake` is the `HandshakePacket` to encode, `payloadSink` is the
+caller's destination, and `payloadSource` plus `payloadByteCount` are the bounded payload supplied by the framing layer:
 
 ```kotlin
 MinecraftProtocolFormat.encodeToSink(
@@ -21,7 +22,8 @@ val packet = MinecraftProtocolFormat.decodeFromSource(
 ```
 
 `MinecraftPacketRegistry` is the immutable vanilla base for the project-selected Minecraft release. Compose a
-connection-specific registry with application or loader packet codecs instead of mutating a global table:
+connection-specific registry with application or loader packet codecs instead of mutating a global table. Here
+`myPacketCodecs` is the caller's collection of extension registrations and `packet` is the packet value being encoded:
 
 ```kotlin
 val packetRegistry = MinecraftPacketRegistry.compose(myPacketCodecs)
@@ -48,7 +50,9 @@ val encoded = packetRegistry.encodePayload(
 )
 ```
 
-Dynamic block-state and biome palette widths come from the registry context installed on a configured format:
+Dynamic block-state and biome palette widths come from the registry context installed on a configured format. Here
+`staticRegistrySchema` comes from the local vanilla/mod catalogue, `remoteRegistrySnapshot` comes from loader
+negotiation, and `sectionCount` comes from the active dimension layout:
 
 ```kotlin
 val protocolRegistryContext = staticRegistrySchema.resolve(remoteRegistrySnapshot)

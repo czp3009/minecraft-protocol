@@ -14,6 +14,9 @@ filesystem; browser and Wasm targets use the stream modules and do not receive a
   bounds intrinsic to the represented format and exact lengths needed for framing. Full `String`, JSON, NBT, region, and
   byte-array conveniences may retain their value in memory; also expose caller-owned streaming paths so large data need
   not be duplicated. Never add temporary files or extra filesystem passes solely to reduce memory pressure.
+- Data-pack directory and ZIP reads are detached and deliberately take no logical-file or process lock. Only the
+  separate `level.dat` read uses its existing coordination. Size inspection is advisory, and callers retain per-file
+  complete and borrowed-stream paths without a library-selected count or size policy.
 - Public stream callbacks use `kotlinx.io.Source` and `Sink` consistently across NBT, JSON, Region, and Chunk APIs. Okio
   remains the filesystem handle layer and crosses that boundary only through `kotlinx-io-okio`. Complete writes and
   serializer-driven writes are adapters over the owning streaming primitive. A complete Region stream is a

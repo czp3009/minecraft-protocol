@@ -1,5 +1,19 @@
 package com.hiczp.minecraft.protocol.model.type
 
+/** Structured failure produced when a negotiated block mapping has no local state schema. */
+class MissingStaticBlockSchemas(
+    blockIds: List<Identifier>,
+) : IllegalArgumentException(
+    "Missing local block-state schemas for ${blockIds.joinToString()}",
+) {
+    val blockIds: List<Identifier> = blockIds.toList()
+
+    init {
+        require(this.blockIds.isNotEmpty()) { "At least one missing block schema is required" }
+        require(this.blockIds.distinct().size == this.blockIds.size) { "Missing block schema IDs must be distinct" }
+    }
+}
+
 /** One locally known state of a block, in its protocol iteration order. */
 class StaticBlockState(
     properties: Map<String, String>,
@@ -105,17 +119,21 @@ class StaticRegistrySchema(
         }
 
         val blockRegistry = resolvedRegistries[BLOCK_REGISTRY]
-        val blockStates = blockRegistry?.entries
+        val resolvedBlocks = blockRegistry?.entries
             ?.sortedBy(ProtocolRegistryEntry::rawId)
-            ?.flatMap { entry ->
-                val schema = blocksById[entry.id]
-                    ?: entry.aliases.firstNotNullOfOrNull(blocksById::get)
-                    ?: throw IllegalArgumentException(
-                        "Missing local block-state schema for ${entry.id}",
-                    )
-                schema.states.map { state -> entry.id to state }
+            ?.map { entry ->
+                entry to (blocksById[entry.id] ?: entry.aliases.firstNotNullOfOrNull(blocksById::get))
             }
-            ?.mapIndexed { globalId, (block, state) ->
+            .orEmpty()
+        val missingBlocks = resolvedBlocks.mapNotNull { (entry, schema) ->
+            if (schema == null) entry.id else null
+        }
+        if (missingBlocks.isNotEmpty()) throw MissingStaticBlockSchemas(missingBlocks)
+        val blockStates = resolvedBlocks
+            .flatMap { (entry, schema) ->
+                requireNotNull(schema).states.map { state -> entry.id to state }
+            }
+            .mapIndexed { globalId, (block, state) ->
                 ProtocolBlockState(
                     id = globalId,
                     block = block,
@@ -123,7 +141,6 @@ class StaticRegistrySchema(
                     isDefault = state.isDefault,
                 )
             }
-            .orEmpty()
 
         return ProtocolRegistryContext(
             registries = resolvedRegistries.values.toList(),
@@ -477,8 +494,10 @@ class ProtocolRegistryContext private constructor(
         return 31 * result + (chunkSectionCount ?: 0)
     }
 
-    override fun toString(): String =
-        "ProtocolRegistryContext(registries=$registries, blockStates=$blockStates, registrySizeOverrides=$registrySizeOverrides, chunkSectionCount=$chunkSectionCount)"
+    override fun toString(): String = buildString {
+        append("ProtocolRegistryContext(registries=$registries, blockStates=$blockStates, ")
+        append("registrySizeOverrides=$registrySizeOverrides, chunkSectionCount=$chunkSectionCount)")
+    }
 
     companion object {
         val Empty: ProtocolRegistryContext = ProtocolRegistryContext(

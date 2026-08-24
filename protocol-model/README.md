@@ -30,7 +30,7 @@ val request: ServerboundPacket = StatusRequestPacket
 ## Structured values and sealed variants
 
 Conditional protocol shapes are ordinary Kotlin types, so application logic stays exhaustive. Item stacks and their data
-components are typical examples:
+components are typical examples. Here `stoneId` is the raw item ID obtained from the active item registry:
 
 ```kotlin
 val stack: ItemStack = ItemStack.Present(
@@ -47,7 +47,9 @@ fun stackCount(stack: ItemStack): Int = when (stack) {
 }
 ```
 
-Immutable registry models resolve locally known block-state schemas against a loader-provided remote snapshot:
+Immutable registry models resolve locally known block-state schemas against a loader-provided remote snapshot. In the
+example, `staticSchema` is constructed from the client's local vanilla/mod catalogue and `remoteSnapshot` is received
+from its loader negotiation:
 
 ```kotlin
 val context: ProtocolRegistryContext = staticSchema.resolve(remoteSnapshot)
@@ -57,8 +59,12 @@ val biomes = context.registry(ProtocolRegistryContext.BIOME_REGISTRY)
     ?.map { entry -> entry.id }
 ```
 
+When a loader snapshot contains blocks absent from the local schema, resolution throws `MissingStaticBlockSchemas` and
+exposes all missing identifiers through `blockIds`. Callers can therefore obtain or construct every required mod block
+schema and retry without discovering failures one block at a time.
+
 Routes without an active codec stay lossless as direction-correct `UnknownPacket` values that preserve the complete
-route and body bytes:
+route and body bytes. Here `bodyBytes` is the payload retained by the framing/dispatch layer for that unknown route:
 
 ```kotlin
 val unknown = UnknownPacket.Clientbound(

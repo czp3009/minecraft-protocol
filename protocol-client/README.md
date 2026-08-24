@@ -55,6 +55,77 @@ The connection's reader, writer, and requested flushes use the dispatcher from `
 client tick, enqueue the complete ordered packet batch and call `requestFlush()`. Use `trySend` when the tick must
 detect a full outgoing queue without suspension and apply its own slow-connection policy.
 
+The retained Configuration packets can also be converted to a `ClientDataPackRuntime`. The convenient
+`negotiationResult.toDataPackRuntime(connection)` path uses the authoritative registry context already installed by the
+vanilla or loader profile, then resolves every received tag to registry entries. For a hand-written negotiation,
+`MinecraftClientConfiguration.toReceivedDataPackConfiguration` exposes the intermediate constructible value and
+`resolveRuntime` accepts caller-supplied static block schemas and loader registry mappings. See
+[`protocol-datapack`](../protocol-datapack/README.md#resolve-client-configuration-data). The preset's default base data
+comes from `VanillaDataPacks.protocolData` in
+[`protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md); custom and modded clients can replace it through
+`MinecraftClientNegotiationOptions.protocolData` and supply their own static or remote registry mappings.
+
+## Receive Configuration data and build the runtime
+
+The preset retains every data-pack-related Configuration packet and installs the resolved registry context before it
+returns. Convert the result while the connection is open; the callback receives both the exact negotiation facts and the
+runtime registry/block-state/tag view without introducing an application wrapper type:
+
+```kotlin
+suspend fun connectAndUseDataPackRuntime(
+    selectorManager: SelectorManager,
+    profile: ClientNegotiationProfile = VanillaClient,
+    options: MinecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(),
+    usePlayConnection: suspend (
+        MinecraftClientConnection,
+        MinecraftClientNegotiationResult,
+        ClientDataPackRuntime,
+    ) -> Unit,
+) {
+    MinecraftClientConnection.connect(
+        selectorManager = selectorManager,
+        host = "127.0.0.1",
+    ).use { connection ->
+        val negotiationResult = connection.negotiate(
+            identity = MinecraftOfflineIdentity("Player"),
+            profile = profile,
+            options = options,
+        )
+        val dataPackRuntime = negotiationResult.toDataPackRuntime(connection)
+        usePlayConnection(connection, negotiationResult, dataPackRuntime)
+    }
+}
+```
+
+`dataPackRuntime.registryContext.blockStates` is the active global block-state palette,
+`requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY)` supplies the active biome raw IDs, and
+`dataPackRuntime.tags` or `tag(registry, id)` supplies tags already resolved to their registry entries. The same
+`registryContext`, together with `negotiationResult.chunkLayout`, can be passed to `MinecraftChunkPacketDecoder` in the
+next section.
+
+For a loader profile, pass that profile to `negotiate`; `toDataPackRuntime(connection)` then uses the profile's exact
+installed mappings. An application that implements Configuration itself can retain and replace every intermediate value
+explicitly instead. Making those inputs function parameters keeps their sources explicit:
+
+```kotlin
+fun resolveHandwrittenConfiguration(
+    minecraftClientConfiguration: MinecraftClientConfiguration,
+    applicationProtocolData: ProtocolDataSet,
+    applicationStaticRegistries: StaticRegistrySchema,
+    loaderRegistrySnapshot: RemoteRegistrySnapshot,
+): ClientDataPackRuntime {
+    val received = minecraftClientConfiguration.toReceivedDataPackConfiguration()
+    return received.resolveRuntime(
+        protocolData = applicationProtocolData,
+        staticRegistries = applicationStaticRegistries,
+        remoteRegistries = loaderRegistrySnapshot,
+    )
+}
+```
+
+Only Configuration-visible data can be reconstructed on the client. Recipes, loot tables, functions, advancements, and
+other server-only files are not sent by the protocol and therefore are not present in `ClientDataPackRuntime`.
+
 ## Use the received registries to read world Chunks
 
 After `negotiate` reaches Play, `connection.registries` contains the block-state and biome mappings selected during

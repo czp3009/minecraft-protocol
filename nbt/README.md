@@ -10,7 +10,8 @@ are not model state.
 ## Building and reading values
 
 Containers and arrays wrap ordinary Kotlin collections and snapshot them during construction; application code composes
-new values instead of mutating existing ones:
+new values instead of mutating existing ones. In the example, `dataVersion`, `x`, `y`, `z`, and `biomeIds` are values
+supplied by the application from the world state it is representing:
 
 ```kotlin
 val root = NbtCompound(

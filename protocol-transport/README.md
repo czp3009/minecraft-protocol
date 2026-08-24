@@ -30,7 +30,9 @@ check(codec.decodeFrame(frame).contentEquals(packetData))
 ```
 
 `MinecraftTransport` owns one Ktor `Socket` and exposes its `frameStream`. A caller using this low-level API changes
-compression or encryption immediately after appending the complete transition packet frame:
+compression or encryption immediately after appending the complete transition packet frame. Here `socket` is a
+caller-connected Ktor socket, the two `...PacketData` values are already serialized packet payloads, and `sharedSecret`
+is the Login key-exchange result:
 
 ```kotlin
 val transport = MinecraftTransport(socket)
@@ -55,7 +57,8 @@ typed connections.
 ## Flush and socket backpressure
 
 `sendPacketData` writes one complete frame to the `ByteWriteChannel` without flushing its pending tail. This lets a
-caller encode several packets and publish them together:
+caller encode several packets and publish them together. `frameStream` is the stream created in the preceding example;
+`firstPacketData` and `secondPacketData` are two caller-serialized packet payloads:
 
 ```kotlin
 frameStream.sendPacketData(firstPacketData)

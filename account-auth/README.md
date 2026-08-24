@@ -4,7 +4,8 @@ Caller-driven launcher HTTP APIs for obtaining a Minecraft Services access token
 authentication. Every request is explicit: the library does not open a browser, receive OAuth callbacks, poll, wait,
 retry, refresh, or store credentials automatically.
 
-Create the API objects with a caller-owned Ktor `HttpClient`:
+Create the API objects with a caller-owned Ktor `HttpClient`. The `applicationHttpClient` variable below is that
+application-configured and application-closed client:
 
 ```kotlin
 val microsoftOAuthApi = MicrosoftOAuthApi(applicationHttpClient)
@@ -22,7 +23,9 @@ Choose either Authorization Code with PKCE or Device Code. Both branches produce
 
 #### Authorization Code with PKCE
 
-Generate the values for a new authorization operation and build the Microsoft authorization URL:
+Generate the values for a new authorization operation and build the Microsoft authorization URL. Here
+`microsoftClientId` is the application's registered OAuth client ID and `listenerPort` is the port chosen by its local
+callback listener:
 
 ```kotlin
 val state = MicrosoftOAuthTools.generateState()
@@ -38,7 +41,8 @@ val authorizationUrl = MicrosoftOAuthTools.authorizationUrl(
 ```
 
 The caller opens the URL, receives the callback, verifies `state`, handles callback errors, and extracts `code`. The
-library only performs the subsequent token request:
+library only performs the subsequent token request. In the example, `applicationBrowser` is the caller's URL-opening
+adapter and `applicationCallbackHandler` is its listener/validation component:
 
 ```kotlin
 applicationBrowser.open(authorizationUrl)
@@ -59,7 +63,8 @@ val microsoftToken = microsoftOAuthApi.tokenWithAuthorizationCode(
 
 #### Device Code
 
-Request a device code and present Microsoft's response to the user:
+Request a device code and present Microsoft's response to the user. `microsoftClientId` was described in the
+Authorization Code branch; `applicationUi` is the caller's UI adapter for displaying the returned instructions:
 
 ```kotlin
 val deviceAuthorization = microsoftOAuthApi.deviceCode(
@@ -74,7 +79,8 @@ applicationUi.showDeviceAuthorization(
 ```
 
 Each token poll is an explicit call. Microsoft reports states such as `authorization_pending` and `slow_down` as
-non-success responses, so the caller interprets the exception and decides whether and when to poll again:
+non-success responses, so the caller interprets the exception and decides whether and when to poll again.
+`scheduleNextPoll` and `increasePollingInterval` below are application scheduling hooks, not library functions:
 
 ```kotlin
 val microsoftToken = try {
@@ -97,7 +103,8 @@ The `error` values handled above are not exhaustive. See Microsoft's
 [expected device-code errors](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code#expected-errors)
 for the documented possibilities.
 
-Refreshing a Microsoft token is also caller-triggered:
+Refreshing a Microsoft token is also caller-triggered. `savedRefreshToken` is the refresh token previously persisted by
+the caller, and `microsoftClientId` is the same registered client ID used above:
 
 ```kotlin
 val refreshedMicrosoftToken = microsoftOAuthApi.tokenWithRefreshToken(

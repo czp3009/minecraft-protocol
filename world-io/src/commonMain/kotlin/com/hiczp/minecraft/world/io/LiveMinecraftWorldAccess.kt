@@ -3,7 +3,9 @@ package com.hiczp.minecraft.world.io
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.world.format.CompressedNbtFormat
+import com.hiczp.minecraft.world.format.LevelDat
 import com.hiczp.minecraft.world.format.RegionPosition
+import com.hiczp.minecraft.world.format.datapack.DataPackFormat
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializer
@@ -15,6 +17,7 @@ import kotlinx.io.Source as KotlinxSource
 data class LiveMinecraftWorldAccessConfiguration(
     val chunkNbtFormat: CompressedNbtFormat = CompressedNbtFormat(),
     val standaloneNbtFormat: NbtFormat = minecraftWorldNbtFormat(),
+    val dataPackFormat: DataPackFormat = DataPackFormat(),
 ) {
     init {
         standaloneNbtFormat.requireStandaloneWorldRoot()
@@ -44,6 +47,18 @@ class LiveMinecraftWorldAccess private constructor(
     private val levelData = LevelDataStore(paths, nbtFiles)
     private val playerData = PlayerDataStore(paths, nbtFiles)
     private val jsonFiles = Utf8JsonFileStore(files)
+    private val dataPackStore = WorldDataPackStore(files.fileSystem, paths.dataPacks, configuration.dataPackFormat)
+
+    fun readDataPacks(enabledReferences: List<String>): LoadedWorldDataPacks =
+        dataPackStore.readEnabled(enabledReferences)
+
+    fun inspectDataPacks(enabledReferences: List<String>): List<DataPackInspection> =
+        dataPackStore.inspectEnabled(enabledReferences)
+
+    fun readEnabledDataPacks(): LoadedWorldDataPacks = dataPackStore.readEnabled(readLevelData<LevelDat>())
+
+    fun inspectEnabledDataPacks(): List<DataPackInspection> =
+        dataPackStore.inspectEnabled(readLevelData<LevelDat>())
 
     fun readLevelDataDocument(): NbtDocument = levelData.readDocument()
 

@@ -1,6 +1,6 @@
 # world-format
 
-This module owns the selected-release `level.dat`, advancement, and statistics models and serializers, plus
+This module owns the selected-release `level.dat`, advancement, statistics, and data-pack models and serializers, plus
 filesystem-independent Anvil coordinates, region headers and sectors, compression dispatch, external chunk
 representation, and NBT composition.
 
@@ -15,6 +15,8 @@ representation, and NBT composition.
   never materializes a JSON tree.
 - Typed decoding is strict about unknown fields by default. Raw `NbtTag`/`NbtDocument` and `JsonElement` remain the
   lossless path for modded, future, or otherwise unmodeled content.
+- Data-pack archives, parsed files, metadata, overlays, filters, stacks, and resolved resources remain filesystem- and
+  protocol-independent. File decoders stay caller-extensible and impose no policy-sized count or content ceiling.
 - Region, compression, and chunk-NBT stream methods are canonical and never close caller-owned endpoints. In-memory
   methods wrap those paths; compressed byte arrays remain only where they are the value owned by `CompressedChunk`.
 - Detached Chunk representations expose receiver-oriented conversion extensions in this module: compressed content,

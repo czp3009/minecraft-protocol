@@ -1,8 +1,8 @@
 import com.google.devtools.ksp.gradle.KspAATask
 import com.hiczp.minecraft.buildlogic.BuildVersions
 import com.hiczp.minecraft.buildlogic.GenerateMinecraftProtocolSourceTask
-import com.hiczp.minecraft.buildlogic.officialMinecraftAnalysisDirectory
-import com.hiczp.minecraft.buildlogic.officialMinecraftAnalysisFile
+import com.hiczp.minecraft.buildlogic.officialMinecraftArtifactDirectory
+import com.hiczp.minecraft.buildlogic.officialMinecraftArtifactFile
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 
@@ -13,8 +13,8 @@ plugins {
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
 }
 
-val officialTargetFile = officialMinecraftAnalysisFile("officialMinecraftTarget")
-val officialReportsDirectory = officialMinecraftAnalysisDirectory("officialMinecraftReports")
+val officialTargetFile = officialMinecraftArtifactFile("officialMinecraftTarget")
+val officialReportsDirectory = officialMinecraftArtifactDirectory("officialMinecraftReports")
 
 val generatedProtocolSourceDirectory = layout.buildDirectory.dir(
     "generated/sources/minecraftProtocol/commonMain/kotlin",

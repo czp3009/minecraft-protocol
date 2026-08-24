@@ -19,7 +19,10 @@ Published runtime code is divided by responsibility:
 - `nbt-serialization` owns physical binary NBT streams, SNBT text streams, and their `kotlinx.serialization` formats.
 - `protocol-model` owns format-independent packet payloads, shared values, logical serializers, and wire annotations.
 - `protocol-serialization` owns physical Minecraft encodings and the runtime packet registry.
-- `protocol-vanilla-data` owns generated, version-matched protocol data.
+- `protocol-datapack` owns vanilla-neutral data-pack to Configuration projection, constructible protocol-data sets,
+  synchronized-registry/dimension resolution, and received Configuration runtime views.
+- `protocol-datapack-vanilla` owns generated, version-matched official packs, static registries, block states, and
+  Configuration defaults.
 - `protocol-transport` owns Ktor sockets, framing, the compression envelope, and encryption.
 - `protocol-session` owns typed dispatch, packet direction, and protocol-state transitions.
 - `account-auth` owns launcher-driven Microsoft OAuth, Xbox authentication, Minecraft Services access-token,
@@ -35,7 +38,8 @@ Published runtime code is divided by responsibility:
 
 Private development infrastructure has separate boundaries:
 
-- `buildSrc` contains shared Gradle configuration, official-analysis tasks, artifact preparation, and cacheable
+- `buildSrc` contains shared Gradle configuration, official-data analysis/extraction tasks, artifact preparation, and
+  cacheable
   generators driven by non-source inputs.
 - `protocol-symbol-processor` contains the KSP processor for source-derived packet and data-component dispatch.
 - `minecraft-test-support` contains only the KMP kRPC service, test-process client, serializable remote-resource values,
@@ -136,6 +140,14 @@ onto the consumer classpath.
   mix diagnostic logs into the protocol stream. Agent-only infrastructure such as `.codex` hooks follows its host
   protocol and is outside this project-code logging rule.
 
+## Documentation examples
+
+Every value used by a README code example must have a discoverable origin before its first use. Declare it as a function
+parameter or local value, introduce it in an earlier example that the text explicitly continues, or name and describe
+its producer in the immediately preceding prose. Do not leave unexplained application placeholders such as
+`myData`, `applicationState`, or `customRegistry`. When an extension or receiver lambda uses an unqualified property,
+identify the receiver type and the API that produced that receiver before the example.
+
 ## Evidence, versioning, and generated code
 
 `MinecraftTarget.MINECRAFT_VERSION` in `buildSrc` selects the Minecraft release for the entire repository and is the
@@ -170,13 +182,13 @@ The deterministic build pipeline follows these ownership rules:
 - Gradle downloads official artifacts under `build/`, keyed by their exact selected versions or release coordinates.
   Download completion and HTTP failures are handled by the HTTP client; build tasks do not add content-digest or
   expected-size validation. A Mojang asset hash remains only when it is the upstream content-addressed path component.
-- Root official-analysis tasks are the only build tasks that inspect the official server JAR. Each analyzer owns a
+- Root official-data tasks are the only build tasks that inspect the official server JAR. Each producer owns a
   non-overlapping directory below `build/generated/official-minecraft/<version>/` and exposes a precise consumable
-  artifact for target, report, or Configuration data. `generateOfficialMinecraftServerTemplate` may execute, but never
-  inspect, that JAR solely to produce the stopped default fixture template.
+  artifact for target, report, Configuration, or extracted data-pack content. `generateOfficialMinecraftServerTemplate`
+  may execute, but never inspect, that JAR solely to produce the stopped default fixture template.
 - KSP handles source-derived generation. Cacheable `buildSrc` task types handle generation from non-source files, and
   only the module owning an output registers its generator.
-- Data-driven generators consume declared analysis artifacts, never the official JAR.
+- Data-driven generators consume declared official artifacts, never the official JAR.
 - Generated Kotlin uses KSP's standard output or the owning module's
   `build/generated/sources/<generator>/<source-set>/kotlin` directory. Published source JARs include generated Kotlin.
 

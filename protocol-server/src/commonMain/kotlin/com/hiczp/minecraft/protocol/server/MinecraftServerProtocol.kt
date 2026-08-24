@@ -1,8 +1,8 @@
 package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.protocol.auth.*
-import com.hiczp.minecraft.protocol.data.resolveSynchronizedRegistryContext
-import com.hiczp.minecraft.protocol.data.withPlayLoginDimension
+import com.hiczp.minecraft.protocol.datapack.resolveSynchronizedRegistryContext
+import com.hiczp.minecraft.protocol.datapack.withPlayLoginDimension
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.session.NegotiationProfileResult

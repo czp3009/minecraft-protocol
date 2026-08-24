@@ -3,8 +3,8 @@ package com.hiczp.minecraft.buildlogic
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
-import org.gradle.api.tasks.Sync
 import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.Sync
 
 /** Lazy immutable inputs consumed by standard external-peer test tasks. */
 class MinecraftTestFixtureOutputs(
@@ -17,7 +17,7 @@ class MinecraftTestFixtureOutputs(
     val codecClassesDirectory: Provider<Directory>,
 )
 
-/** Registers exact-version fixture artifact and official-analysis producers. */
+/** Registers exact-version fixture artifacts and official-data producers. */
 fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutputs {
     val minecraftVersion = MinecraftTarget.MINECRAFT_VERSION
     val protocolRef = layout.buildDirectory.dir("protocol-reference")
@@ -113,6 +113,9 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
     }
     val configurationFile = analysisRoot.map {
         it.file("configuration/configuration.json")
+    }
+    val dataPacksDirectory = analysisRoot.map {
+        it.dir("datapacks")
     }
 
     tasks.register("minecraftVersion", PrintMinecraftVersionTask::class.java) { task ->
@@ -392,7 +395,7 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         "extractOfficialServerRuntime",
         ExtractOfficialServerRuntimeTask::class.java,
     ) { task ->
-        task.group = OFFICIAL_ANALYSIS_TASK_GROUP
+        task.group = OFFICIAL_DATA_TASK_GROUP
         task.description = "Extract the official server implementation and libraries."
         task.serverJar.set(downloadServer.flatMap { it.serverJar })
         task.outputDirectory.set(serverRuntimeDirectory)
@@ -419,7 +422,7 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         "compileOfficialCodecOracle",
         CompileOfficialCodecOracleTask::class.java,
     ) { task ->
-        task.group = OFFICIAL_ANALYSIS_TASK_GROUP
+        task.group = OFFICIAL_DATA_TASK_GROUP
         task.description = "Compile the official codec bridge."
         task.sourceFile.set(codecSourceFile)
         task.runtimeDirectory.set(extractRuntime.flatMap { it.outputDirectory })
@@ -437,7 +440,7 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         "analyzeOfficialMinecraftTarget",
         AnalyzeOfficialMinecraftTargetTask::class.java,
     ) { task ->
-        task.group = OFFICIAL_ANALYSIS_TASK_GROUP
+        task.group = OFFICIAL_DATA_TASK_GROUP
         task.description = "Analyze version and protocol facts."
         task.serverJar.set(downloadServer.flatMap { it.serverJar })
         task.downloadMetadata.set(downloadServer.flatMap { it.metadataFile })
@@ -447,7 +450,7 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         "analyzeOfficialMinecraftReports",
         AnalyzeOfficialMinecraftReportsTask::class.java,
     ) { task ->
-        task.group = OFFICIAL_ANALYSIS_TASK_GROUP
+        task.group = OFFICIAL_DATA_TASK_GROUP
         task.description = "Capture official packets, registries, and blocks reports."
         task.serverJar.set(downloadServer.flatMap { it.serverJar })
         task.downloadMetadata.set(downloadServer.flatMap { it.metadataFile })
@@ -457,7 +460,7 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         "analyzeOfficialMinecraftConfiguration",
         AnalyzeOfficialMinecraftConfigurationTask::class.java,
     ) { task ->
-        task.group = OFFICIAL_ANALYSIS_TASK_GROUP
+        task.group = OFFICIAL_DATA_TASK_GROUP
         task.description = "Capture official Configuration Known Packs branches."
         task.serverJar.set(downloadServer.flatMap { it.serverJar })
         task.packetsReport.set(
@@ -467,27 +470,42 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         )
         task.outputFile.set(configurationFile)
     }
-    tasks.register("officialMinecraftAnalysis") { task ->
-        task.group = OFFICIAL_ANALYSIS_TASK_GROUP
-        task.description = "Run every official Minecraft analysis task."
-        task.dependsOn(analyzeTarget, analyzeReports, analyzeConfiguration)
+    val extractDataPacks = tasks.register(
+        "extractOfficialMinecraftDataPacks",
+        ExtractOfficialMinecraftDataPacksTask::class.java,
+    ) { task ->
+        task.group = OFFICIAL_DATA_TASK_GROUP
+        task.description = "Extract official core and built-in data packs."
+        task.implementationJar.set(extractRuntime.flatMap { it.outputDirectory.file("server.jar") })
+        task.outputDirectory.set(dataPacksDirectory)
+    }
+    tasks.register("prepareOfficialMinecraftData") { task ->
+        task.group = OFFICIAL_DATA_TASK_GROUP
+        task.description = "Prepare every official analysis and extracted data artifact."
+        task.dependsOn(analyzeTarget, analyzeReports, analyzeConfiguration, extractDataPacks)
     }
 
-    publishOfficialMinecraftAnalysis(
+    publishOfficialMinecraftArtifact(
         "officialMinecraftTarget",
         analyzeTarget.flatMap { it.outputFile },
         analyzeTarget,
     )
-    publishOfficialMinecraftAnalysis(
+    publishOfficialMinecraftArtifact(
         "officialMinecraftReports",
         analyzeReports.flatMap { it.outputDirectory },
         analyzeReports,
         directory = true,
     )
-    publishOfficialMinecraftAnalysis(
+    publishOfficialMinecraftArtifact(
         "officialMinecraftConfiguration",
         analyzeConfiguration.flatMap { it.outputFile },
         analyzeConfiguration,
+    )
+    publishOfficialMinecraftArtifact(
+        "officialMinecraftDataPacks",
+        extractDataPacks.flatMap { it.outputDirectory },
+        extractDataPacks,
+        directory = true,
     )
 
     val outputs = MinecraftTestFixtureOutputs(
@@ -511,5 +529,5 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
 }
 
 private const val FIXTURE_TASK_GROUP = "minecraft fixtures"
-private const val OFFICIAL_ANALYSIS_TASK_GROUP = "official minecraft analysis"
+private const val OFFICIAL_DATA_TASK_GROUP = "official minecraft data"
 private const val VERSION_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"

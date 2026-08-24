@@ -1,7 +1,7 @@
 package com.hiczp.minecraft.protocol.client
 
 import com.hiczp.minecraft.protocol.auth.*
-import com.hiczp.minecraft.protocol.data.VanillaProtocolData
+import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.type.GameMode

@@ -3,7 +3,9 @@ package com.hiczp.minecraft.world.io
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.world.format.CompressedNbtFormat
+import com.hiczp.minecraft.world.format.LevelDat
 import com.hiczp.minecraft.world.format.RegionPosition
+import com.hiczp.minecraft.world.format.datapack.DataPackFormat
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.json.Json
@@ -17,6 +19,7 @@ data class MinecraftWorldAccessConfiguration(
     val regionStorageConfiguration: RegionStorageConfiguration = RegionStorageConfiguration(),
     val chunkNbtFormat: CompressedNbtFormat = CompressedNbtFormat(),
     val standaloneNbtFormat: NbtFormat = minecraftWorldNbtFormat(),
+    val dataPackFormat: DataPackFormat = DataPackFormat(),
 ) {
     init {
         standaloneNbtFormat.requireStandaloneWorldRoot()
@@ -38,6 +41,22 @@ class MinecraftWorldAccess private constructor(
     val configuration: MinecraftWorldAccessConfiguration,
     private val world: OpenMinecraftWorld,
 ) {
+    private val dataPackStore = WorldDataPackStore(paths, configuration.dataPackFormat)
+
+    /** Reads the caller-selected on-disk packs without taking a logical-file or program-level lock. */
+    fun readDataPacks(enabledReferences: List<String>): LoadedWorldDataPacks =
+        dataPackStore.readEnabled(enabledReferences)
+
+    /** Lists file paths and declared sizes without loading their contents. */
+    fun inspectDataPacks(enabledReferences: List<String>): List<DataPackInspection> =
+        dataPackStore.inspectEnabled(enabledReferences)
+
+    /** Coordinates the changing `level.dat` read, then reads the selected immutable pack files without that lock. */
+    suspend fun readEnabledDataPacks(): LoadedWorldDataPacks = dataPackStore.readEnabled(readLevelData<LevelDat>())
+
+    suspend fun inspectEnabledDataPacks(): List<DataPackInspection> =
+        dataPackStore.inspectEnabled(readLevelData<LevelDat>())
+
     suspend fun readLevelDataDocument(): NbtDocument = world.readLevelDataDocument()
 
     suspend fun <T> readLevelData(deserializer: DeserializationStrategy<T>): T =

@@ -78,6 +78,9 @@ sealed interface DimensionDirectory {
 class MinecraftWorldPaths(
     val root: Path,
 ) {
+    val dataPacks: Path
+        get() = root / "datapacks"
+
     val levelData: Path
         get() = root / "level.dat"
 

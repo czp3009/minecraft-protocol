@@ -6,7 +6,7 @@ import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.nbt.NbtLongArray
 import com.hiczp.minecraft.protocol.client.MinecraftChunkPacketDecoder
 import com.hiczp.minecraft.protocol.client.toChunk
-import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
+import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat

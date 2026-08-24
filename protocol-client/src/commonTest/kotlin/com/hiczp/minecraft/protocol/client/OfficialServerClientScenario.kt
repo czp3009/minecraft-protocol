@@ -1,9 +1,9 @@
 package com.hiczp.minecraft.protocol.client
 
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
-import com.hiczp.minecraft.protocol.data.MinecraftDimensionLayout
-import com.hiczp.minecraft.protocol.data.VanillaProtocolData
-import com.hiczp.minecraft.protocol.data.resolveSynchronizedRegistryContext
+import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
+import com.hiczp.minecraft.protocol.datapack.resolveSynchronizedRegistryContext
+import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.ByteString
@@ -272,10 +272,10 @@ internal object OfficialServerClientScenario {
             configuration.knownPacks?.knownPacks ==
                     VanillaProtocolData.knownPacks,
         ) {
-            "Official Known Packs differ from protocol-vanilla-data"
+            "Official Known Packs differ from protocol-datapack-vanilla"
         }
         check(configuration.featureFlags == VanillaProtocolData.featureFlags) {
-            "Official Feature Flags differ from protocol-vanilla-data"
+            "Official Feature Flags differ from protocol-datapack-vanilla"
         }
         check(
             configuration.registries ==
@@ -283,7 +283,7 @@ internal object OfficialServerClientScenario {
                         VanillaProtocolData.knownPacks,
                     ),
         ) {
-            "Official compact registries differ from protocol-vanilla-data"
+            "Official compact registries differ from protocol-datapack-vanilla"
         }
         check(
             configuration.tags != null &&
@@ -292,7 +292,7 @@ internal object OfficialServerClientScenario {
                         VanillaProtocolData.tags,
                     ),
         ) {
-            "Official tags differ from protocol-vanilla-data"
+            "Official tags differ from protocol-datapack-vanilla"
         }
     }
 

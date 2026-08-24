@@ -276,8 +276,9 @@ internal object OfficialVanillaConfigurationCapture {
                         val input = packet.input()
                         val threshold = input.readVarInt()
                         input.requireExhausted()
-                        check(threshold == COMPRESSION_THRESHOLD) {
-                            "Official server negotiated compression threshold $threshold, expected $COMPRESSION_THRESHOLD"
+                        val expectedThreshold = COMPRESSION_THRESHOLD
+                        check(threshold == expectedThreshold) {
+                            "Official server negotiated compression threshold $threshold, expected $expectedThreshold"
                         }
                         connection.compressionThreshold = threshold
                     }
@@ -427,8 +428,10 @@ internal object OfficialVanillaConfigurationCapture {
         check(complete.registries.isNotEmpty()) {
             "Official server sent no Registry Data packets"
         }
-        check(complete.registries.size == clientKnown.registries.size) {
-            "Registry packet count changed between Known Packs branches: ${complete.registries.size} vs ${clientKnown.registries.size}"
+        val completeCount = complete.registries.size
+        val clientKnownCount = clientKnown.registries.size
+        check(completeCount == clientKnownCount) {
+            "Registry packet count changed between Known Packs branches: $completeCount vs $clientKnownCount"
         }
         complete.registries.zip(clientKnown.registries)
             .forEach { (full, compact) ->
@@ -529,7 +532,7 @@ internal data class VanillaConfigurationCaptureResult(
             .addPayload("tags", tags.encode())
             .build()
         return FileSpec.builder(
-            "com.hiczp.minecraft.protocol.data",
+            "com.hiczp.minecraft.protocol.datapack.vanilla",
             "VanillaConfigurationPayloads",
         ).addType(payloads)
             .build()

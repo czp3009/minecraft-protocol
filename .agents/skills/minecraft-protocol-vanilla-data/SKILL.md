@@ -13,20 +13,22 @@ are task outputs, not an agent-maintained catalogue.
 Confirm the target with `./gradlew -q minecraftVersion`, then read [references/pipeline.md](references/pipeline.md).
 
 The handwritten surface includes official analyzer/capture/generator implementations in `buildSrc`,
-`protocol-vanilla-data/src`, its tests, and any packet identity or schema assumptions used by loaders. The following
-generated Kotlin is read-only:
+`protocol-datapack/src`, `protocol-datapack-vanilla/src`, their tests, and any packet identity or schema assumptions
+used by loaders. The following generated Kotlin is read-only:
 
 - `MinecraftProtocol.kt`;
 - `VanillaStaticDataPayloads.kt`;
-- `VanillaConfigurationPayloads.kt`.
+- `VanillaConfigurationPayloads.kt`;
+- `VanillaDataPackPayload.kt` and every `VanillaDataPackPayloadBatch*.kt`.
 
 KSP-generated protocol dispatch is also read-only. Do not copy generated payloads or analysis JSON into source
 directories.
 
 ## Update the pipeline
 
-1. After an explicit target change, run `./gradlew officialMinecraftAnalysis`.
-2. Inspect target, packet/registry/block reports, and both captured Configuration branches as declared task outputs.
+1. After an explicit target change, run `./gradlew prepareOfficialMinecraftData`.
+2. Inspect target, packet/registry/block reports, both captured Configuration branches, and extracted data-pack content
+   as declared task outputs.
 3. If an official output shape or negotiation changes, adapt the owning analyzer or capture implementation rather than
    transcribing values.
 4. If generated source fails to load, fix the handwritten generator schema or public loader at its owning boundary.
@@ -38,9 +40,10 @@ this module an alternate packet implementation.
 
 ## Verify and report
 
-Run `./gradlew :protocol-vanilla-data:jvmTest`. For Configuration or synchronized-registry changes, also run
+Run `./gradlew :protocol-datapack-vanilla:jvmTest`. For Configuration or synchronized-registry changes, also run
 `./gradlew :protocol-client:jvmTest`; run the server JVM suite when its emitted vanilla data or initial Play context
-changed. Let these standard tasks invoke their declared producers and fixtures.
+changed. For generic parsing or projection changes, also run `./gradlew :protocol-datapack:jvmTest`. Let these standard
+tasks invoke their declared producers and fixtures.
 
 Report which official analysis artifact changed, which handwritten pipeline layer required adaptation, both Known Packs
 branch results, downstream official-peer results, and any official data the current public API cannot represent.

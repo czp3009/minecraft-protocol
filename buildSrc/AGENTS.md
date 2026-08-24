@@ -27,8 +27,8 @@ cacheable generation from non-source inputs, immutable fixture templates, and th
   private per-file hard-link-or-copy tree as fallback. The mod and processed-mod cache are fixed immutable subtrees:
   template publication and later workspaces use hard links with copy fallback for their files, while generated options
   and other mutable state use real copies.
-- Root official-analysis tasks own separate target, report, and Configuration output directories and publish precise
-  consumable artifacts. Lifecycle tasks aggregate producers but declare no duplicate output.
+- Root official-data tasks own separate target, report, Configuration, and extracted data-pack output directories and
+  publish precise consumable artifacts. Lifecycle tasks aggregate producers but declare no duplicate output.
 - Cacheable source-generation task types live here, while the runtime module owning the generated source registers the
   task and output directory.
 - `MinecraftTestFixtures` attaches required fixture providers and the shared service to standard test tasks.
@@ -53,8 +53,9 @@ cacheable generation from non-source inputs, immutable fixture templates, and th
   gates include their actual template producers. Do not resolve providers during configuration.
 - Downloads stream to a temporary sibling and publish atomically after a successful HTTP response. Cohesive assembled
   directories use Gradle Sync so stale destination files are removed automatically.
-- Root analysis is the only build-task layer that inspects the official server JAR. The declared server-template
-  producer may execute it without inspection; data-to-source tasks consume analysis JSON rather than the JAR.
+- Root official-data production is the only build-task layer that inspects the official server JAR. The declared
+  server-template producer may execute it without inspection; source generators consume declared analysis or extracted
+  artifacts rather than the JAR. `prepareOfficialMinecraftData` is the sole aggregate for these producers.
 - Kotlin generation uses KotlinPoet; any Java generation would use JavaPoet. Generated output stays in the owning
   module's build directory.
 - Gradle task code logs through Gradle's logger and reports actionable validation errors. It does not use

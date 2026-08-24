@@ -19,7 +19,8 @@ types:
 - the server receives `ServerboundPacket` and sends `ClientboundPacket`.
 
 Both refine the lower-level `MinecraftPacketConnection<Incoming, Outgoing>` contract and expose standard coroutine
-channels:
+channels. In this basic loop, `connection` is an already-open typed client or server connection, `myPacket` is a packet
+created by the application, and `handle` is its packet handler:
 
 ```kotlin
 for (packet in connection.incoming) {
@@ -39,7 +40,9 @@ its acknowledgement allows. The public `state` and `awaitState` expose the commi
 application negotiators alike.
 
 `MinecraftConnectionDefinition` is an immutable, shareable definition of packet codecs, serializers, initial registry
-context, and channel capacities. Build one definition and pass the same instance to every accepted server connection:
+context, and channel capacities. Build one definition and pass the same instance to every accepted server connection.
+Here `myRegistryContext`, `mySerializersModule`, and `myPacketCodecs` are immutable values assembled by the application
+or loader before connections are opened:
 
 ```kotlin
 val minecraftProtocolFormat = MinecraftProtocolFormat(
@@ -61,6 +64,9 @@ packet is encoded by the connection's single writer pump in order.
 makes the same writer pump flush after packets already accepted by `outgoing`; any suspension caused by socket
 backpressure therefore occurs on the connection's network dispatcher rather than the tick coroutine. Use the suspending
 `flush()` only when the calling coroutine must wait for that ordered flush to finish:
+
+In the example, `packetsForThisTick` is the batch produced by the application's tick, and `handleSlowConnection` is its
+policy callback for a full outgoing channel:
 
 ```kotlin
 for (clientboundPacket in packetsForThisTick) {
@@ -86,7 +92,9 @@ enforce wire write order through their outgoing channel and writer pump.
 
 `ClientboundBundlePacket` is one logical Play message containing ordered `subPackets`. Enqueuing it as one outgoing
 channel value makes the single writer emit an opening delimiter, every sub-packet, and the closing delimiter without
-another channel value being interleaved. `sendBundle(subPackets)` and `trySendBundle(subPackets)` are channel shortcuts:
+another channel value being interleaved. `sendBundle(subPackets)` and `trySendBundle(subPackets)` are channel shortcuts.
+Here `spawnEntityPacket` and `setEntityMetadataPacket` are packet values already constructed by the application, and
+`connection` is its open server-side connection:
 
 ```kotlin
 val clientboundPackets = listOf<ClientboundPacket>(spawnEntityPacket, setEntityMetadataPacket)
@@ -122,7 +130,9 @@ val counterCodec = PacketCodecRegistration.clientboundCustomPayload(
 )
 ```
 
-Pass registrations to `MinecraftConnectionDefinition.compose`, then activate only routes accepted by negotiation:
+Pass registrations to `MinecraftConnectionDefinition.compose`, then activate only routes accepted by negotiation. In the
+following block, `counterRoute` was declared in the preceding block and `connection` is the connection whose negotiation
+accepted that route:
 
 ```kotlin
 connection.activateExtensionRoutes(

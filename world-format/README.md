@@ -74,7 +74,7 @@ fun decodeBlockStateDescriptor(
 `DescriptorBlockStateRegistry` accepts every persisted block-state descriptor. `NamedBiomeRegistry` represents biomes by
 their persistent names. An application that needs richer runtime values implements `BlockStateRegistry<B>` and
 `BiomeRegistry<M>` around vanilla data, mod data, or a combined catalogue. The application may depend on
-`protocol-vanilla-data`, but `world-format` does not acquire a reverse dependency on it.
+`protocol-datapack-vanilla`, but `world-format` does not acquire a reverse dependency on it.
 
 Encoding uses the position retained by the semantic Chunk:
 
@@ -123,7 +123,8 @@ recursive passengers, and coordinate conveniences such as `blockPosition`, `sect
 `regionPosition`. `NbtEntityDataRegistry` chooses `NbtCompound` as `E`, preserving every vanilla subtype and mod field.
 An application that wants directly usable subtype state implements `EntityDataRegistry<E>`; `resolve` converts persisted
 NBT to `E`, while `describe` converts the current `E` back for saving. `world-format` therefore never depends on a
-vanilla or mod entity catalogue.
+vanilla or mod entity catalogue. In the example, `expectedDataVersion` is the world data version supplied by the caller
+when it constructs the codec:
 
 ```kotlin
 data class RuntimeEntityData(val silent: Boolean)
@@ -404,6 +405,12 @@ first creating another complete copy.
 The module also owns the repository-selected `LevelDat`, `PlayerAdvancements`, and `PlayerStatistics` schemas and
 serializers. They do not migrate historical data. Typed decoding is strict; use `NbtDocument`, `NbtTag`, or
 `JsonElement` when arbitrary fields must survive.
+
+It also owns the filesystem-independent data-pack chain: `DataPackArchive`, `DataPackFormat`, `DataPack`,
+`DataPackStack`, and `ResolvedDataPackStack`. JSON, GZIP NBT, SNBT, text functions, unknown binary files, pack metadata,
+overlays, filters, and tag merging remain programmatic values. All stages are manually constructible, and
+`DataPackFileDecoder` allows a mod to claim its own file types. Directory and ZIP access belongs to `world-io`, while
+Configuration projection belongs to [`protocol-datapack`](../protocol-datapack/README.md).
 
 ## Failures
 

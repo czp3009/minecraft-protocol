@@ -309,7 +309,7 @@ ordinary indexed access does not.
 The example uses the open `DescriptorBlockStateRegistry` and `NamedBiomeRegistry`, so values are represented by their
 persistent descriptors and names. Applications may instead implement `BlockStateRegistry` and `BiomeRegistry` around
 vanilla data, mod data, or a combined catalogue. `world-io` and `world-format` do not depend on
-`protocol-vanilla-data`; applications that want it add that module themselves.
+`protocol-datapack-vanilla`; applications that want it add that module themselves.
 
 ## Follow lower-level Chunk representations
 
@@ -556,7 +556,8 @@ bounded callbacks:
 - `replaceRegion { ... }` stages and commits one complete replacement.
 
 The detached list remains the simplest way to inspect Region metadata. Use a read scope only when one snapshot or lazy
-streaming matters:
+streaming matters. Inside the receiver lambda, `chunkInfos` is the `RegionReadScope.chunkInfos` sequence supplied by
+`withReadScope`:
 
 ```kotlin
 suspend fun sumCompressedRegionBytes(regionHandle: RegionHandle): Long = regionHandle.withReadScope {
@@ -666,6 +667,56 @@ the question and the narrower observation window is preferable.
 
 `openEntityRegion` returns the corresponding stateless `LiveEntityRegionHandle`; it offers the same read-only layers and
 converts the semantic layer with `EntityChunkNbtCodec`.
+
+## Read world data packs
+
+Data packs have a separate non-locking path. `WorldDataPackStore`, `MinecraftWorldAccess`, and
+`LiveMinecraftWorldAccess` can inspect or read directory and ZIP packs below `datapacks`. Reading `level.dat` to obtain
+`DataPacks.Enabled` uses the access mode's existing coordination; the subsequent pack reads take neither the world
+lease's logical-file locks nor an additional program lock.
+
+```kotlin
+suspend fun inspectThenReadDataPacks(
+    world: MinecraftWorldAccess,
+    decideWhetherToContinue: (DataPackId, ULong, List<DataPackFileInfo>) -> Unit,
+): LoadedWorldDataPacks {
+    val inspections = world.inspectEnabledDataPacks()
+    inspections.forEach { inspection ->
+        val totalSize = inspection.totalSize
+        val individualFiles = inspection.files
+        decideWhetherToContinue(inspection.id, totalSize, individualFiles)
+    }
+    return world.readEnabledDataPacks()
+}
+```
+
+The reader imposes no file-count, individual-file-size, or aggregate-size limit. `DataPackInspection` exposes every path
+and declared size before content is loaded; `WorldDataPackStore.readFile` can then read only a caller-selected file as
+either a detached `DataPackBinary` or a borrowed `kotlinx.io.Source`. Inspections are advisory because pack files are
+intentionally not locked. Returned archives and parsed packs are detached filesystem-independent values from
+`world-format`. Non-file enabled references such as `vanilla` are retained in
+`LoadedWorldDataPacks.unresolvedReferences` for a higher layer such as
+[`protocol-datapack`](../protocol-datapack/README.md) to supply.
+
+When every unresolved reference is already represented by the selected protocol base, an application that also depends
+on `protocol-datapack-vanilla` can pass the detached file-pack stack straight into the vanilla projection convenience
+without introducing a `world-io` dependency into its client or server library. The following function makes the
+already-open world and the application's optional registry projectors explicit inputs:
+
+```kotlin
+suspend fun loadFilePackServerOptions(
+    world: MinecraftWorldAccess,
+    registryProjectors: List<DataPackSynchronizedRegistryProjector> = emptyList(),
+): MinecraftServerNegotiationOptions {
+    val loaded = world.readEnabledDataPacks()
+    val protocolData = loaded.stack.toVanillaProtocolDataSet(registryProjectors)
+    return MinecraftServerNegotiationOptions(protocolData = protocolData)
+}
+```
+
+That short form is suitable for the ordinary vanilla-core base plus file packs. The complete ordered resolver for
+official built-ins and caller-supplied loader packs, followed by the actual server `negotiate` call, is shown in
+[`protocol-server`](../protocol-server/README.md#load-world-data-packs-and-negotiate).
 
 ## Other world files
 
