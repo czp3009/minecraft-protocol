@@ -99,6 +99,24 @@ class AnvilRegionFormatTest {
     }
 
     @Test
+    fun detachedRegionChecksChunkRecordPresenceWithoutInspectingContent() {
+        val storedPosition = LocalChunkPosition(5, 7)
+        val absentPosition = LocalChunkPosition(6, 7)
+        val region = AnvilRegion(
+            mapOf(
+                storedPosition to testRecord(
+                    compression = Compression.ZLIB,
+                    content = externalContent(),
+                ),
+            ),
+        )
+
+        assertTrue(region.hasChunk(storedPosition))
+        assertFalse(region.hasChunk(absentPosition))
+        assertNull(region[storedPosition]?.content)
+    }
+
+    @Test
     fun roundTripsInlineChunksAndHeaderMetadata() {
         val firstPosition = LocalChunkPosition(0, 0)
         val lastPosition = LocalChunkPosition(31, 31)

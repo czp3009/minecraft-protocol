@@ -280,8 +280,10 @@ conveniences for their complete owned palette sets; the Chunk form visits only S
 adapters. Region values do not own decoded Section palettes and therefore deliberately have no palette-compaction API.
 
 `section(...)` is a nullable, side-effect-free lookup and `hasSection(...)` distinguishes an explicitly present Section.
-Reading a block or biome in an absent Section returns the Chunk's default value without creating anything.
-`getOrCreateSection(...)` is the explicit mutating path; writing a non-default value also creates the required Section.
+`hasBlock(...)` checks only whether that complete containing Section is present, so it also returns true for air and
+does not inspect the Block state. Reading a block or biome in an absent Section returns the Chunk's default value
+without creating anything. `getOrCreateSection(...)` is the explicit mutating path; writing a non-default value also
+creates the required Section.
 
 For runtime mutation, `replaceBlock` and `replaceBiome` return the previous logical value; `setBlock` and `setBiome` are
 the simpler write-only forms. `setSection`, `removeSection`, mutable Section light arrays, and `snapshot()` cover the
@@ -360,6 +362,9 @@ fun decodeAnvilRegion(regionSource: Source): AnvilRegion {
     return anvilRegion
 }
 ```
+
+`AnvilRegion.hasChunk(...)` checks the detached record map without inspecting or resolving its content, so an unresolved
+external record is still present.
 
 For bounded record-at-a-time inspection, `decodeRecordsFromSource` lends each inline compressed payload in physical
 location order:

@@ -285,6 +285,9 @@ class AnvilRegion(
         require(this.chunks.size <= REGION_CHUNK_COUNT)
     }
 
+    /** Whether this detached Region contains a Chunk record at [position], without inspecting its payload. */
+    fun hasChunk(position: LocalChunkPosition): Boolean = chunks.containsKey(position)
+
     operator fun get(position: LocalChunkPosition): AnvilChunkRecord? = chunks[position]
 
     override fun equals(other: Any?): Boolean = other is AnvilRegion && chunks == other.chunks

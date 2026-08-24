@@ -704,6 +704,16 @@ class Chunk<B : Any, M : Any>(
 
     fun block(position: BlockPosition): B = get(position)
 
+    /** Whether the complete semantic Section containing this Chunk-local position is explicitly present. */
+    fun hasBlock(localX: Int, y: Int, localZ: Int): Boolean =
+        hasBlock(ChunkBlockPosition(localX, y, localZ))
+
+    /** Whether the complete semantic Section containing [position] is explicitly present, regardless of Block state. */
+    fun hasBlock(position: ChunkBlockPosition): Boolean = hasSection(position)
+
+    /** Whether the complete semantic Section containing this absolute position is explicitly present. */
+    fun hasBlock(position: BlockPosition): Boolean = hasSection(position)
+
     fun setBlock(localX: Int, y: Int, localZ: Int, value: B) {
         set(ChunkBlockPosition(localX, y, localZ), value)
     }

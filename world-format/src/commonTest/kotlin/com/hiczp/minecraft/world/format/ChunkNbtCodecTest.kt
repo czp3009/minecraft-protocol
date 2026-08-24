@@ -245,6 +245,33 @@ class ChunkNbtCodecTest {
     }
 
     @Test
+    fun chunkBlockPresenceTracksOnlyItsContainingSemanticSection() {
+        val chunkPosition = ChunkPosition(-2, 3)
+        val localPosition = ChunkBlockPosition(15, TEST_LAYOUT.minBlockY, 0)
+        val absolutePosition = chunkPosition.block(localPosition)
+        val chunk = emptyChunk(chunkPosition)
+
+        assertFalse(chunk.hasBlock(localPosition.x, localPosition.y, localPosition.z))
+        assertFalse(chunk.hasBlock(localPosition))
+        assertFalse(chunk.hasBlock(absolutePosition))
+        assertEquals(0, chunk.sectionCount)
+
+        chunk.getOrCreateSection(localPosition.sectionY)
+
+        assertTrue(chunk.hasBlock(localPosition.x, localPosition.y, localPosition.z))
+        assertTrue(chunk.hasBlock(localPosition))
+        assertTrue(chunk.hasBlock(absolutePosition))
+        assertEquals(AIR, chunk.block(localPosition))
+
+        chunk.removeSection(localPosition.sectionY)
+
+        assertFalse(chunk.hasBlock(localPosition))
+        assertFailsWith<IllegalArgumentException> {
+            chunk.hasBlock(ChunkPosition(0, 0).block(localPosition))
+        }
+    }
+
+    @Test
     fun runtimeBlockOperationsReturnPreviousValuesAndSnapshotsDoNotShareContainers() {
         val chunk = emptyChunk()
         val y = TEST_LAYOUT.minBlockY
