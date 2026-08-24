@@ -4,7 +4,22 @@ Typed, channel-first Minecraft packet connections over [`protocol-transport`](..
 
 ## Connection contract
 
-`MinecraftPacketConnection<Incoming, Outgoing>` exposes standard coroutine channels:
+The names follow the matching official implementation's `PacketFlow`: `bound` identifies the destination, not the
+sender.
+
+```text
+client -- ServerboundPacket --> server
+client <-- ClientboundPacket -- server
+```
+
+`MinecraftClientPacketConnection` and `MinecraftServerPacketConnection` therefore fix both channel directions in their
+types:
+
+- the client receives `ClientboundPacket` and sends `ServerboundPacket`;
+- the server receives `ServerboundPacket` and sends `ClientboundPacket`.
+
+Both refine the lower-level `MinecraftPacketConnection<Incoming, Outgoing>` contract and expose standard coroutine
+channels:
 
 ```kotlin
 for (packet in connection.incoming) {
@@ -15,7 +30,8 @@ connection.outgoing.send(myPacket)
 connection.requestFlush()
 ```
 
-The connection owns one reader pump and one writer pump. It validates direction and current protocol state, commits
+The endpoint type makes a wrong-direction channel operation unrepresentable. Each connection owns one reader pump and
+one writer pump. It validates the current protocol state and packet route, commits
 Handshake/Login/Configuration/Play transitions after the complete transition frame has been appended, and activates
 compression or encryption at that same ordered boundary. A peer may begin sending the next state's packets as soon as
 its acknowledgement allows. The public `state` and `awaitState` expose the committed connection state;
@@ -62,9 +78,9 @@ transitions do not introduce an implicit flush; call `requestFlush()` at the app
 In the normal Minecraft Login flow, Set Compression is sent once and applies to every later packet in both directions.
 
 The library follows Minecraft's sequential connection model instead of adding locks around every public operation. Keep
-one logical consumer of `incoming`, enqueue outgoing packets in their protocol order, and do not concurrently call the
-low-level session/frame write APIs. High-level connections already enforce wire write order through their outgoing
-channel and writer pump.
+one logical consumer of `incoming`, enqueue outgoing packets in their protocol order, and do not concurrently call
+`MinecraftClientPacketSession` or `MinecraftServerPacketSession` frame-write APIs. High-level connections already
+enforce wire write order through their outgoing channel and writer pump.
 
 ## Clientbound bundles
 

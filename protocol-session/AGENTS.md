@@ -4,6 +4,11 @@ This module binds typed packet codecs to framed transport and owns the public ch
 connection state, packet direction, packet IDs, compression activation, protocol-state transitions, dynamic extension
 route activation, and optional Fabric API/NeoForge/Forge negotiation profiles.
 
+Client and server endpoints remain direction-bound types throughout this module. Endpoint-specific packet flow belongs
+in `MinecraftClientPacketSession`/`MinecraftClientPacketConnection` or
+`MinecraftServerPacketSession`/`MinecraftServerPacketConnection`; only direction-neutral wire, channel, and lifetime
+machinery belongs in their shared bases. Do not reintroduce a runtime client/server side flag.
+
 The published session follows `protocol-transport` onto JVM, Android, supported Native platforms, JS Node, and WasmJS
 Node. Browser, D8, and Wasm/WASI are not configured because the public session contract requires TCP transport.
 

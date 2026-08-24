@@ -7,7 +7,10 @@ import com.hiczp.minecraft.protocol.auth.toEncryptionResponsePacket
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
-import com.hiczp.minecraft.protocol.session.*
+import com.hiczp.minecraft.protocol.session.InternalMinecraftConnectionApi
+import com.hiczp.minecraft.protocol.session.MinecraftClientPacketSession
+import com.hiczp.minecraft.protocol.session.MinecraftConnectionDefinition
+import com.hiczp.minecraft.protocol.session.createMinecraftServerPacketConnection
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import io.ktor.client.*
 import io.ktor.client.engine.mock.*
@@ -385,9 +388,9 @@ class MinecraftServerProtocolTest {
     }
 
     private suspend fun finishClientNegotiation(
-        client: MinecraftSession,
+        client: MinecraftClientPacketSession,
         options: MinecraftServerNegotiationOptions,
-        afterVanillaConfiguration: suspend (MinecraftSession) -> Unit = {},
+        afterVanillaConfiguration: suspend (MinecraftClientPacketSession) -> Unit = {},
     ): ClientNegotiationTranscript {
         options.compressionThreshold?.let { threshold ->
             assertEquals(SetCompressionPacket(threshold), client.receive())
@@ -422,10 +425,9 @@ class MinecraftServerProtocolTest {
         val serverFrames = MinecraftFrameStream(clientToServer, serverToClient)
         val clientFrames = MinecraftFrameStream(serverToClient, clientToServer)
         val connection = MinecraftServerConnection(
-            connection = MinecraftConnectionEngine(
+            connection = createMinecraftServerPacketConnection(
                 frameStream = serverFrames,
                 closeTransport = { serverFrames.cancel() },
-                side = MinecraftSessionSide.SERVER,
                 definition = MinecraftConnectionDefinition(),
             ),
             authentication = authentication,
@@ -433,9 +435,8 @@ class MinecraftServerProtocolTest {
         )
         return ConnectionPair(
             server = connection,
-            client = MinecraftSession(
+            client = MinecraftClientPacketSession(
                 frameStream = clientFrames,
-                side = MinecraftSessionSide.CLIENT,
             ),
             clientFrames = clientFrames,
         )
@@ -471,7 +472,7 @@ private data class ClientNegotiationTranscript(
 
 private data class ConnectionPair(
     val server: MinecraftServerConnection,
-    val client: MinecraftSession,
+    val client: MinecraftClientPacketSession,
     val clientFrames: MinecraftFrameStream,
 ) {
     fun close() {

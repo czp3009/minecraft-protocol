@@ -1,7 +1,7 @@
 # protocol-client
 
 This module owns client-side Status, Login, Configuration, and Play-entry orchestration over the public
-`MinecraftPacketConnection` contract. `MinecraftClientConnection` exposes direction-limited standard channels and
+`MinecraftClientPacketConnection` contract. `MinecraftClientConnection` exposes direction-limited standard channels and
 connection state, not the socket, frame stream, or mutable low-level session.
 
 The high-level Login path handles cookies and custom queries, compression, online-mode encryption, client information,

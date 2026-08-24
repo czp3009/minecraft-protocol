@@ -1,12 +1,13 @@
 package com.hiczp.minecraft.protocol.session
 
-import com.hiczp.minecraft.protocol.model.packet.*
+import com.hiczp.minecraft.protocol.model.packet.ConnectionState
+import com.hiczp.minecraft.protocol.model.packet.Packet
+import com.hiczp.minecraft.protocol.model.packet.PacketRouteKey
 import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
 import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
 import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import com.hiczp.minecraft.protocol.serialization.PacketCodecRegistration
 import com.hiczp.minecraft.protocol.serialization.PacketRegistry
-import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import io.ktor.utils.io.core.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -50,10 +51,6 @@ interface MinecraftPacketConnection<
     fun decodeCustomPayload(payload: RoutedCustomPayload): Incoming
 
     suspend fun awaitState(state: ConnectionState)
-
-    fun prepareOutboundEncryption(sharedSecret: ByteArray)
-
-    fun enableEncryption(sharedSecret: ByteArray)
 }
 
 /**
@@ -89,22 +86,20 @@ class MinecraftConnectionDefinition(
 }
 
 @RequiresOptIn(
-    message = "The connection engine is for client/server orchestration modules.",
+    message = "Low-level packet connection factories are for client/server orchestration modules.",
     level = RequiresOptIn.Level.ERROR,
 )
 annotation class InternalMinecraftConnectionApi
 
-/** Internal bridge used by the public side-specific connection wrappers. */
-@InternalMinecraftConnectionApi
-class MinecraftConnectionEngine<
+/** Shared channel, lifetime, and flush machinery for the two fixed endpoints. */
+internal abstract class MinecraftConnectionEngine<
         Incoming : Packet,
         Outgoing : Packet,
         >(
-    private val frameStream: MinecraftFrameStream,
+    protected val session: MinecraftPacketSession<Incoming, Outgoing>,
     private val closeTransport: () -> Unit,
-    private val side: MinecraftSessionSide,
     definition: MinecraftConnectionDefinition,
-    connectionDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    connectionDispatcher: CoroutineDispatcher,
 ) : MinecraftPacketConnection<Incoming, Outgoing> {
     private val connectionJob = Job()
     private val connectionScope = CoroutineScope(connectionJob + connectionDispatcher)
@@ -112,12 +107,6 @@ class MinecraftConnectionEngine<
     private val backgroundFlushPending = MutableStateFlow(false)
     private val flushRequests = Channel<FlushRequest>(Channel.UNLIMITED)
     private val completionValue = CompletableDeferred<Unit>()
-    private val session = MinecraftSession(
-        frameStream = frameStream,
-        side = side,
-        packetRegistry = definition.packetRegistry,
-        format = definition.format,
-    )
     private val incomingChannel = Channel<Incoming>(definition.incomingCapacity)
     private val outgoingChannel = Channel<Outgoing>(definition.outgoingCapacity)
 
@@ -142,7 +131,7 @@ class MinecraftConnectionEngine<
     override val isOpen: Boolean
         get() = termination.value == null
 
-    init {
+    protected fun start() {
         connectionScope.launch { runReader() }
         connectionScope.launch { runWriter() }
     }
@@ -150,6 +139,7 @@ class MinecraftConnectionEngine<
     override fun installRegistryContext(context: ProtocolRegistryContext) {
         ensureOpen()
         session.installRegistryContext(context)
+        registryContextInstalled(context)
     }
 
     override suspend fun awaitClosed() {
@@ -196,7 +186,7 @@ class MinecraftConnectionEngine<
 
     override fun decodeCustomPayload(payload: RoutedCustomPayload): Incoming {
         ensureOpen()
-        return asIncoming(session.decodeCustomPayload(payload))
+        return session.decodeCustomPayload(payload)
     }
 
     override suspend fun awaitState(state: ConnectionState) {
@@ -207,7 +197,7 @@ class MinecraftConnectionEngine<
             }
             try {
                 select {
-                    stateWaiter.onAwait { Unit }
+                    stateWaiter.onAwait { }
                     completionValue.onAwait { ensureOpen() }
                 }
             } finally {
@@ -216,63 +206,16 @@ class MinecraftConnectionEngine<
         }
     }
 
-    override fun prepareOutboundEncryption(sharedSecret: ByteArray) {
-        ensureOpen()
-        session.prepareOutboundEncryption(sharedSecret)
-    }
-
-    override fun enableEncryption(sharedSecret: ByteArray) {
-        ensureOpen()
-        session.enableEncryption(sharedSecret)
-    }
-
     override fun close() {
         terminate(ConnectionTermination.Normal)
     }
 
     private suspend fun runReader() {
-        var bundledPackets: MutableList<ClientboundPacket>? = null
         try {
             while (currentCoroutineContext().isActive) {
-                val packet = session.receive()
-                if (side == MinecraftSessionSide.CLIENT && packet is ClientboundPacket) {
-                    when {
-                        packet === BundleDelimiterPacket -> {
-                            val currentBundle = bundledPackets
-                            if (currentBundle == null) {
-                                bundledPackets = mutableListOf()
-                            } else {
-                                bundledPackets = null
-                                incomingChannel.send(asIncoming(ClientboundBundlePacket(currentBundle)))
-                            }
-                        }
-
-                        bundledPackets != null -> {
-                            val currentBundle = bundledPackets
-                            if (currentBundle.size == ClientboundBundlePacket.MAX_SUB_PACKET_COUNT) {
-                                val maximum = ClientboundBundlePacket.MAX_SUB_PACKET_COUNT
-                                throw MinecraftSessionException("A clientbound bundle exceeds $maximum packets")
-                            }
-                            currentBundle += packet
-                        }
-
-                        else -> incomingChannel.send(asIncoming(packet))
-                    }
-                } else {
-                    incomingChannel.send(asIncoming(packet))
-                }
-                if (
-                    side == MinecraftSessionSide.SERVER &&
-                    packet is EncryptionResponsePacket
-                ) {
-                    session.awaitInboundEncryptionActivation()
-                }
-                if (
-                    side == MinecraftSessionSide.CLIENT &&
-                    packet is PlayLoginPacket
-                ) {
-                    session.awaitInitialPlayContext()
-                }
+                val packet = receiveIncomingPacket()
+                incomingChannel.send(packet)
+                afterIncomingPacket(packet)
             }
         } catch (cause: CancellationException) {
             handlePumpFailure(cause)
@@ -285,7 +228,7 @@ class MinecraftConnectionEngine<
     private suspend fun runWriter() {
         try {
             while (currentCoroutineContext().isActive) {
-                when (val action = select<WriterAction> {
+                when (val action = select {
                     flushRequests.onReceive { request ->
                         processFlushRequest(request)
                     }
@@ -294,7 +237,7 @@ class MinecraftConnectionEngine<
                         if (packet == null) {
                             WriterAction.Close(result.exceptionOrNull(), flushRequired = true)
                         } else {
-                            sendOutgoingPacket(packet)
+                            writeOutgoingPacket(packet)
                             WriterAction.Continue
                         }
                     }
@@ -322,7 +265,7 @@ class MinecraftConnectionEngine<
                 val result = outgoingChannel.tryReceive()
                 val packet = result.getOrNull()
                 if (packet != null) {
-                    sendOutgoingPacket(packet)
+                    writeOutgoingPacket(packet)
                     continue
                 }
                 val closeCause = result.exceptionOrNull()
@@ -332,14 +275,14 @@ class MinecraftConnectionEngine<
                 }
                 if (result.isClosed && closeCause != null) {
                     try {
-                        frameStream.flush()
+                        session.frameStream.flush()
                     } catch (flushFailure: Throwable) {
                         closeCause.addSuppressed(flushFailure)
                     }
                     waiters.forEach { it.completeExceptionally(closeCause) }
                     return WriterAction.Close(closeCause, flushRequired = false)
                 }
-                frameStream.flush()
+                session.frameStream.flush()
                 waiters.forEach { it.complete(Unit) }
                 return if (result.isClosed) {
                     WriterAction.Close(null, flushRequired = false)
@@ -360,7 +303,7 @@ class MinecraftConnectionEngine<
         var failure = closeCause
         if (flushRequired) {
             try {
-                frameStream.flush()
+                session.frameStream.flush()
             } catch (flushFailure: Throwable) {
                 failure = combineFailures(failure, flushFailure)
             }
@@ -369,22 +312,18 @@ class MinecraftConnectionEngine<
         terminate(failure?.let(ConnectionTermination::Failed) ?: ConnectionTermination.Normal)
     }
 
-    private suspend fun sendOutgoingPacket(packet: Outgoing) {
-        if (packet is ClientboundBundlePacket) {
-            sendPacket(BundleDelimiterPacket)
-            packet.forEach { subPacket -> sendPacket(subPacket) }
-            sendPacket(BundleDelimiterPacket)
-        } else {
-            sendPacket(packet)
-        }
+    protected open suspend fun receiveIncomingPacket(): Incoming = session.receive()
+
+    protected open suspend fun afterIncomingPacket(packet: Incoming) = Unit
+
+    protected open fun registryContextInstalled(context: ProtocolRegistryContext) = Unit
+
+    protected open suspend fun writeOutgoingPacket(packet: Outgoing) {
+        sendPacket(packet)
     }
 
-    private suspend fun sendPacket(packet: Packet) {
-        try {
-            session.send(packet)
-        } catch (_: SkippablePacketEncodingException) {
-            // Vanilla omits this small, explicit packet set when payload encoding fails.
-        }
+    protected suspend fun sendPacket(packet: Outgoing) {
+        session.send(packet)
     }
 
     private fun recordFlushRequest(
@@ -461,7 +400,7 @@ class MinecraftConnectionEngine<
         completeQueuedFlushRequests(cause)
     }
 
-    private fun ensureOpen() {
+    protected fun ensureOpen() {
         when (val terminal = termination.value) {
             null -> Unit
             is ConnectionTermination.Closing ->
@@ -474,9 +413,6 @@ class MinecraftConnectionEngine<
                 throw terminal.cause
         }
     }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun asIncoming(packet: Packet): Incoming = packet as Incoming
 
     private sealed interface ConnectionTermination {
         data class Closing(val cause: Throwable?) : ConnectionTermination

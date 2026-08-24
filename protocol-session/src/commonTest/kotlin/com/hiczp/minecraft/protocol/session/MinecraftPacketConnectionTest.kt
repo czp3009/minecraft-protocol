@@ -14,7 +14,7 @@ import kotlin.test.*
 import kotlin.uuid.Uuid
 
 @OptIn(InternalMinecraftConnectionApi::class)
-class MinecraftConnectionEngineTest {
+class MinecraftPacketConnectionTest {
     @Test
     fun channelsCommitPacketsAndStateInWireOrder() = runTest {
         val (client, server) = enginePair()
@@ -127,10 +127,9 @@ class MinecraftConnectionEngineTest {
         val input = ByteChannel()
         val output = CountingFlushByteWriteChannel(ByteChannel())
         val frameStream = MinecraftFrameStream(input, output)
-        val connection = MinecraftConnectionEngine<ClientboundPacket, ServerboundPacket>(
+        val connection = createMinecraftClientPacketConnection(
             frameStream = frameStream,
             closeTransport = { frameStream.cancel() },
-            side = MinecraftSessionSide.CLIENT,
             definition = MinecraftConnectionDefinition(),
             connectionDispatcher = StandardTestDispatcher(testScheduler),
         )
@@ -168,10 +167,9 @@ class MinecraftConnectionEngineTest {
     fun transportCleanupFailureAlwaysCompletesTheConnection() = runTest {
         val failure = IllegalStateException("transport close failed")
         val frameStream = MinecraftFrameStream(ByteChannel(), ByteChannel())
-        val connection = MinecraftConnectionEngine<ClientboundPacket, ServerboundPacket>(
+        val connection = createMinecraftClientPacketConnection(
             frameStream = frameStream,
             closeTransport = { throw failure },
-            side = MinecraftSessionSide.CLIENT,
             definition = MinecraftConnectionDefinition(),
         )
 
@@ -218,16 +216,14 @@ class MinecraftConnectionEngineTest {
         val failingOutput = FailingFlushByteWriteChannel(clientToServer, failureAt = 2, failure)
         val clientFrames = MinecraftFrameStream(serverToClient, failingOutput)
         val serverFrames = MinecraftFrameStream(clientToServer, serverToClient)
-        val client = MinecraftConnectionEngine<ClientboundPacket, ServerboundPacket>(
+        val client = createMinecraftClientPacketConnection(
             frameStream = clientFrames,
             closeTransport = { clientFrames.cancel() },
-            side = MinecraftSessionSide.CLIENT,
             definition = MinecraftConnectionDefinition(),
         )
-        val server = MinecraftConnectionEngine<ServerboundPacket, ClientboundPacket>(
+        val server = createMinecraftServerPacketConnection(
             frameStream = serverFrames,
             closeTransport = { serverFrames.cancel() },
-            side = MinecraftSessionSide.SERVER,
             definition = MinecraftConnectionDefinition(),
         )
         client.outgoing.send(
@@ -294,8 +290,8 @@ class MinecraftConnectionEngineTest {
     }
 
     private suspend fun enterPlay(
-        client: MinecraftConnectionEngine<ClientboundPacket, ServerboundPacket>,
-        server: MinecraftConnectionEngine<ServerboundPacket, ClientboundPacket>,
+        client: MinecraftClientPacketConnection,
+        server: MinecraftServerPacketConnection,
     ) {
         client.outgoing.send(
             HandshakePacket(
@@ -334,8 +330,8 @@ class MinecraftConnectionEngineTest {
     private fun enginePair(
         definition: MinecraftConnectionDefinition = MinecraftConnectionDefinition(),
     ): Pair<
-            MinecraftConnectionEngine<ClientboundPacket, ServerboundPacket>,
-            MinecraftConnectionEngine<ServerboundPacket, ClientboundPacket>,
+            MinecraftClientPacketConnection,
+            MinecraftServerPacketConnection,
             > {
         val (client, server) = enginePairWithFrames(definition)
         return client to server
@@ -348,24 +344,22 @@ class MinecraftConnectionEngineTest {
         val serverToClient = ByteChannel()
         val clientFrames = MinecraftFrameStream(serverToClient, clientToServer)
         val serverFrames = MinecraftFrameStream(clientToServer, serverToClient)
-        val client = MinecraftConnectionEngine<ClientboundPacket, ServerboundPacket>(
+        val client = createMinecraftClientPacketConnection(
             frameStream = clientFrames,
             closeTransport = { clientFrames.cancel() },
-            side = MinecraftSessionSide.CLIENT,
             definition = definition,
         )
-        val server = MinecraftConnectionEngine<ServerboundPacket, ClientboundPacket>(
+        val server = createMinecraftServerPacketConnection(
             frameStream = serverFrames,
             closeTransport = { serverFrames.cancel() },
-            side = MinecraftSessionSide.SERVER,
             definition = definition,
         )
         return EnginePair(client, server, clientFrames, serverFrames)
     }
 
     private data class EnginePair(
-        val client: MinecraftConnectionEngine<ClientboundPacket, ServerboundPacket>,
-        val server: MinecraftConnectionEngine<ServerboundPacket, ClientboundPacket>,
+        val client: MinecraftClientPacketConnection,
+        val server: MinecraftServerPacketConnection,
         val clientFrames: MinecraftFrameStream,
         val serverFrames: MinecraftFrameStream,
     )

@@ -5,23 +5,16 @@ import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.CustomPayload
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
-import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
 import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import com.hiczp.minecraft.protocol.serialization.PacketRegistry
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
-
-enum class MinecraftSessionSide {
-    CLIENT,
-    SERVER,
-}
 
 /** A custom-payload body paired with its validated vanilla outer route. */
 data class RoutedCustomPayload(
@@ -30,23 +23,21 @@ data class RoutedCustomPayload(
 )
 
 /**
- * Low-level, sequential packet session. High-level connections place exactly
- * one reader pump and one writer pump around this object.
+ * Low-level, sequential packet session shared by the two direction-bound
+ * endpoint sessions.
  */
-class MinecraftSession(
-    val frameStream: MinecraftFrameStream,
-    val side: MinecraftSessionSide,
-    val packetRegistry: PacketRegistry = MinecraftPacketRegistry.compose(emptyList()),
-    format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protected constructor(
+    internal val frameStream: MinecraftFrameStream,
+    protected val inboundDirection: PacketDirection,
+    protected val outboundDirection: PacketDirection,
+    private val packetRegistry: PacketRegistry,
+    format: MinecraftProtocolFormat,
 ) {
     private val stateValue = MutableStateFlow(ConnectionState.HANDSHAKE)
     private val formatValue = MutableStateFlow(format)
     private val activeRoutesValue = MutableStateFlow(emptySet<PacketRouteKey>())
     private val loginQueryMutex = Mutex()
     private val loginQueries = mutableMapOf<Int, Identifier>()
-    private var outboundEncryption: ByteArray? = null
-    private val inboundEncryptionActivation = CompletableDeferred<Unit>()
-    private val initialPlayContext = CompletableDeferred<Unit>()
 
     val state: ConnectionState
         get() = stateValue.value
@@ -66,31 +57,12 @@ class MinecraftSession(
     val activeExtensionRoutes: Set<PacketRouteKey>
         get() = activeRoutesValue.value
 
-    val outboundDirection: PacketDirection
-        get() =
-            if (side == MinecraftSessionSide.CLIENT) {
-                PacketDirection.SERVERBOUND
-            } else {
-                PacketDirection.CLIENTBOUND
-            }
-
-    val inboundDirection: PacketDirection
-        get() =
-            if (side == MinecraftSessionSide.CLIENT) {
-                PacketDirection.CLIENTBOUND
-            } else {
-                PacketDirection.SERVERBOUND
-            }
-
     fun installRegistryContext(context: ProtocolRegistryContext) {
         val current = formatValue.value
         formatValue.value = MinecraftProtocolFormat(
             configuration = current.configuration.copy(registries = context),
             serializersModule = current.serializersModule,
         )
-        if (context.chunkSectionCount != null) {
-            initialPlayContext.complete(Unit)
-        }
     }
 
     /** Atomically replaces the active subset of routes declared at construction. */
@@ -107,40 +79,7 @@ class MinecraftSession(
         stateValue.first { it == expected }
     }
 
-    /**
-     * Arms the next outbound Encryption Response. The writer enables the
-     * continuous stream cipher only after that packet's complete frame has
-     * been appended to the transport.
-     */
-    fun prepareOutboundEncryption(sharedSecret: ByteArray) {
-        require(sharedSecret.size == AES_KEY_BYTES) {
-            "Minecraft stream encryption requires a 16-byte shared secret"
-        }
-        check(outboundEncryption == null) {
-            "Outbound stream encryption is already pending"
-        }
-        outboundEncryption = sharedSecret.copyOf()
-    }
-
-    /** Enables encryption after a fully received Encryption Response. */
-    fun enableEncryption(sharedSecret: ByteArray) {
-        require(sharedSecret.size == AES_KEY_BYTES) {
-            "Minecraft stream encryption requires a 16-byte shared secret"
-        }
-        frameStream.enableEncryption(sharedSecret)
-        inboundEncryptionActivation.complete(Unit)
-    }
-
-    /** Used by a server reader pump to stop before the first encrypted frame. */
-    suspend fun awaitInboundEncryptionActivation() {
-        inboundEncryptionActivation.await()
-    }
-
-    suspend fun awaitInitialPlayContext() {
-        initialPlayContext.await()
-    }
-
-    suspend fun send(packet: Packet) {
+    suspend fun send(packet: Outgoing) {
         when (packet) {
             is UnknownPacket -> sendUnknown(packet)
             is ClientboundPacket.Extension,
@@ -151,7 +90,7 @@ class MinecraftSession(
         }
     }
 
-    suspend fun receive(): Packet {
+    suspend fun receive(): Incoming {
         val legacyAware =
             stateValue.value == ConnectionState.HANDSHAKE &&
                     inboundDirection == PacketDirection.SERVERBOUND
@@ -190,9 +129,11 @@ class MinecraftSession(
             codec == null ||
             codec.extensionRoute?.let { it !in activeRoutesValue.value } == true
         ) {
-            return unknownPacket(
-                PacketRoute.TopLevel(inboundState, inboundDirection, id),
-                ByteString(packetData.readByteArray()),
+            return requireIncoming(
+                unknownPacket(
+                    PacketRoute.TopLevel(inboundState, inboundDirection, id),
+                    ByteString(packetData.readByteArray()),
+                ),
             )
         }
         val packet = packetRegistry.decodePayloadFromSource(
@@ -203,11 +144,12 @@ class MinecraftSession(
             byteCount = packetData.size.toInt(),
             format = formatValue.value,
         )
+        val incoming = requireIncoming(liftIncoming(packet, id))
         applyInboundEffects(packet)
-        return liftIncoming(packet, id)
+        return incoming
     }
 
-    fun encodeCustomPayload(packet: Packet): RoutedCustomPayload {
+    fun encodeCustomPayload(packet: Outgoing): RoutedCustomPayload {
         val outboundState = stateValue.value
         val registration = packetRegistry.registration(
             packet,
@@ -244,7 +186,7 @@ class MinecraftSession(
         )
     }
 
-    fun decodeCustomPayload(payload: RoutedCustomPayload): Packet {
+    fun decodeCustomPayload(payload: RoutedCustomPayload): Incoming {
         val route = payload.route
         validateRoute(route, inboundDirection)
         val expectedPacketId = customPayloadPacketId(
@@ -256,7 +198,7 @@ class MinecraftSession(
                 "$preservedRoute, but the active registry uses $expectedPacketId",
             )
         }
-        return liftRoute(route, payload.data)
+        return requireIncoming(liftRoute(route, payload.data))
     }
 
     private suspend fun sendUnknown(packet: UnknownPacket) {
@@ -275,7 +217,7 @@ class MinecraftSession(
         }
     }
 
-    private suspend fun sendExtension(packet: Packet) {
+    private suspend fun sendExtension(packet: Outgoing) {
         val outboundState = stateValue.value
         val registration = packetRegistry.registration(
             packet,
@@ -328,7 +270,7 @@ class MinecraftSession(
                 "No packet codec for ${packet::class.simpleName}",
             )
         val nextState = transitionState(packet)
-        val encryption = outboundEncryption.takeIf { packet is EncryptionResponsePacket }
+        val encryption = outboundEncryptionFor(packet)
         val packetData = Buffer()
         when (codec.framing) {
             PacketFraming.NORMAL -> packetData.writeVarInt(codec.key.id)
@@ -585,7 +527,7 @@ class MinecraftSession(
         }
         if (route.direction != expectedDirection) {
             throw MinecraftSessionException(
-                "Route ${route.key} is ${route.direction}, but $side sends $expectedDirection packets",
+                "Route ${route.key} is ${route.direction}, but this session sends $expectedDirection packets",
             )
         }
     }
@@ -643,19 +585,18 @@ class MinecraftSession(
         if (encryption != null) {
             try {
                 frameStream.enableEncryption(encryption)
-                inboundEncryptionActivation.complete(Unit)
             } finally {
-                if (outboundEncryption === encryption) {
-                    outboundEncryption = null
+                try {
+                    outboundEncryptionCommitted(encryption)
+                } finally {
+                    encryption.fill(0)
                 }
-                encryption.fill(0)
             }
         }
     }
 
     internal fun clearSensitiveState() {
-        outboundEncryption?.fill(0)
-        outboundEncryption = null
+        clearEndpointSensitiveState()
     }
 
     private fun transitionState(packet: Packet): ConnectionState? = when (packet) {
@@ -677,10 +618,23 @@ class MinecraftSession(
         else -> null
     }
 
+    protected abstract fun requireIncoming(packet: Packet): Incoming
+
+    protected open fun outboundEncryptionFor(packet: Packet): ByteArray? = null
+
+    protected open fun outboundEncryptionCommitted(sharedSecret: ByteArray) = Unit
+
+    protected open fun clearEndpointSensitiveState() = Unit
+
     companion object {
-        private const val AES_KEY_BYTES = 16
         private const val LEGACY_SERVER_LIST_PING_ID = 0xFE
         private const val LEGACY_SERVER_LIST_PING_PAYLOAD_SIZE = 1
+    }
+}
+
+internal fun requireMinecraftEncryptionKey(sharedSecret: ByteArray) {
+    require(sharedSecret.size == 16) {
+        "Minecraft stream encryption requires a 16-byte shared secret"
     }
 }
 

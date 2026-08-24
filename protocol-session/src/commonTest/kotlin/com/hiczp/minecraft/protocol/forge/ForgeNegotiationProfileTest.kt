@@ -3,7 +3,9 @@ package com.hiczp.minecraft.protocol.forge
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.serialization.*
+import com.hiczp.minecraft.protocol.session.MinecraftClientPacketConnection
 import com.hiczp.minecraft.protocol.session.MinecraftPacketConnection
+import com.hiczp.minecraft.protocol.session.MinecraftServerPacketConnection
 import com.hiczp.minecraft.protocol.session.RoutedCustomPayload
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
@@ -23,19 +25,15 @@ class ForgeNegotiationProfileTest {
         )
         val serverToClient = Channel<ClientboundPacket>(Channel.UNLIMITED)
         val clientToServer = Channel<ServerboundPacket>(Channel.UNLIMITED)
-        val clientConnection = ForgeTestConnection(
+        val clientConnection = ForgeTestClientConnection(
             serverToClient,
             clientToServer,
             packetRegistry,
-            PacketDirection.CLIENTBOUND,
-            PacketDirection.SERVERBOUND,
         )
-        val serverConnection = ForgeTestConnection(
+        val serverConnection = ForgeTestServerConnection(
             clientToServer,
             serverToClient,
             packetRegistry,
-            PacketDirection.SERVERBOUND,
-            PacketDirection.CLIENTBOUND,
         )
         val network = forgeTestNetworkConfiguration()
         val staticRegistries = forgeTestStaticSchema()
@@ -163,12 +161,10 @@ class ForgeNegotiationProfileTest {
         )
         val incoming = Channel<ServerboundPacket>(Channel.UNLIMITED)
         val outgoing = Channel<ClientboundPacket>(Channel.UNLIMITED)
-        val connection = ForgeTestConnection(
+        val connection = ForgeTestServerConnection(
             incoming,
             outgoing,
             registry,
-            PacketDirection.SERVERBOUND,
-            PacketDirection.CLIENTBOUND,
         )
         val profile = ForgeServerProfile(
             ForgeServerProfileDefinition(network = network),
@@ -221,12 +217,10 @@ class ForgeNegotiationProfileTest {
         )
         val incoming = Channel<ClientboundPacket>(Channel.UNLIMITED)
         val outgoing = Channel<ServerboundPacket>(Channel.UNLIMITED)
-        val connection = ForgeTestConnection(
+        val connection = ForgeTestClientConnection(
             incoming,
             outgoing,
             registry,
-            PacketDirection.CLIENTBOUND,
-            PacketDirection.SERVERBOUND,
         )
         val profile = ForgeClientProfile(
             ForgeClientProfileDefinition(forgeTestStaticSchema()),
@@ -315,7 +309,7 @@ private fun forgeTestStaticSchema(): StaticRegistrySchema = StaticRegistrySchema
     ),
 )
 
-private class ForgeTestConnection<Incoming : Packet, Outgoing : Packet>(
+private abstract class ForgeTestConnection<Incoming : Packet, Outgoing : Packet>(
     override val incoming: Channel<Incoming>,
     override val outgoing: Channel<Outgoing>,
     private val packetRegistry: PacketRegistry,
@@ -391,9 +385,33 @@ private class ForgeTestConnection<Incoming : Packet, Outgoing : Packet>(
 
     override fun requestFlush() = Unit
 
-    override fun prepareOutboundEncryption(sharedSecret: ByteArray) = Unit
-
-    override fun enableEncryption(sharedSecret: ByteArray) = Unit
-
     override fun close() = Unit
+}
+
+private class ForgeTestClientConnection(
+    incoming: Channel<ClientboundPacket>,
+    outgoing: Channel<ServerboundPacket>,
+    packetRegistry: PacketRegistry,
+) : ForgeTestConnection<ClientboundPacket, ServerboundPacket>(
+    incoming,
+    outgoing,
+    packetRegistry,
+    PacketDirection.CLIENTBOUND,
+    PacketDirection.SERVERBOUND,
+), MinecraftClientPacketConnection {
+    override fun prepareOutboundEncryption(sharedSecret: ByteArray) = Unit
+}
+
+private class ForgeTestServerConnection(
+    incoming: Channel<ServerboundPacket>,
+    outgoing: Channel<ClientboundPacket>,
+    packetRegistry: PacketRegistry,
+) : ForgeTestConnection<ServerboundPacket, ClientboundPacket>(
+    incoming,
+    outgoing,
+    packetRegistry,
+    PacketDirection.SERVERBOUND,
+    PacketDirection.CLIENTBOUND,
+), MinecraftServerPacketConnection {
+    override fun enableEncryption(sharedSecret: ByteArray) = Unit
 }

@@ -2,12 +2,9 @@
 
 package com.hiczp.minecraft.protocol.client
 
-import com.hiczp.minecraft.protocol.model.packet.ClientboundPacket
-import com.hiczp.minecraft.protocol.model.packet.ServerboundPacket
+import com.hiczp.minecraft.protocol.session.MinecraftClientPacketConnection
 import com.hiczp.minecraft.protocol.session.MinecraftConnectionDefinition
-import com.hiczp.minecraft.protocol.session.MinecraftConnectionEngine
-import com.hiczp.minecraft.protocol.session.MinecraftPacketConnection
-import com.hiczp.minecraft.protocol.session.MinecraftSessionSide
+import com.hiczp.minecraft.protocol.session.createMinecraftClientPacketConnection
 import com.hiczp.minecraft.protocol.transport.MinecraftTransport
 import com.hiczp.minecraft.protocol.transport.MinecraftTransportConfiguration
 import io.ktor.network.selector.*
@@ -17,10 +14,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlin.coroutines.ContinuationInterceptor
 
 class MinecraftClientConnection internal constructor(
-    private val connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
+    private val connection: MinecraftClientPacketConnection,
     val serverAddress: String,
     val serverPort: Int,
-) : MinecraftPacketConnection<ClientboundPacket, ServerboundPacket> by connection {
+) : MinecraftClientPacketConnection by connection {
     companion object {
         suspend fun connect(
             selectorManager: SelectorManager,
@@ -33,10 +30,9 @@ class MinecraftClientConnection internal constructor(
             val socket = aSocket(selectorManager).tcp().connect(host, port)
             val transport = MinecraftTransport(socket, transportConfiguration)
             return MinecraftClientConnection(
-                connection = MinecraftConnectionEngine(
+                connection = createMinecraftClientPacketConnection(
                     frameStream = transport.frameStream,
                     closeTransport = transport::close,
-                    side = MinecraftSessionSide.CLIENT,
                     definition = definition,
                     connectionDispatcher = connectionDispatcher,
                 ),

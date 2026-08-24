@@ -2,10 +2,7 @@ package com.hiczp.minecraft.protocol.fabric
 
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
-import com.hiczp.minecraft.protocol.session.ClientNegotiationProfile
-import com.hiczp.minecraft.protocol.session.MinecraftPacketConnection
-import com.hiczp.minecraft.protocol.session.NegotiationProfileResult
-import com.hiczp.minecraft.protocol.session.ServerNegotiationProfile
+import com.hiczp.minecraft.protocol.session.*
 
 data class FabricNegotiationResult(
     val commonVersion: Int?,
@@ -32,7 +29,7 @@ class FabricClientProfile(
     private var begun = false
 
     override suspend fun begin(
-        connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
+        connection: MinecraftClientPacketConnection,
     ) {
         check(!begun) { "A FabricClientProfile can negotiate only one connection" }
         begun = true
@@ -44,7 +41,7 @@ class FabricClientProfile(
     }
 
     override suspend fun handleConfigurationPacket(
-        connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
+        connection: MinecraftClientPacketConnection,
         packet: ClientboundPacket,
     ): Boolean {
         if (splitAssembler.isCollecting && packet !is FabricSplitPacket) {
@@ -187,7 +184,7 @@ class FabricClientProfile(
     }
 
     override suspend fun preparePlay(
-        connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
+        connection: MinecraftClientPacketConnection,
     ) {
         activatePlayRoutes(
             connection,
@@ -199,7 +196,7 @@ class FabricClientProfile(
     }
 
     override suspend fun complete(
-        connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
+        connection: MinecraftClientPacketConnection,
     ): NegotiationProfileResult = result()
 
     private fun applyRegistrySync(packet: FabricRegistrySyncPacket) {
@@ -277,7 +274,7 @@ class FabricServerProfile(
     private var begun = false
 
     override suspend fun begin(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         check(!begun) { "A FabricServerProfile can negotiate only one connection" }
         begun = true
@@ -289,7 +286,7 @@ class FabricServerProfile(
     }
 
     override suspend fun negotiateConfiguration(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         connection.outgoing.send(
             FabricRegisterChannelsPacket(
@@ -365,7 +362,7 @@ class FabricServerProfile(
     }
 
     override suspend fun handleConfigurationPacket(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
         packet: ServerboundPacket,
     ): Boolean = when (packet) {
         is FabricRegisterChannelsPacket -> {
@@ -440,7 +437,7 @@ class FabricServerProfile(
     }
 
     override suspend fun preparePlay(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         activatePlayRoutes(
             connection,
@@ -452,7 +449,7 @@ class FabricServerProfile(
     }
 
     override suspend fun complete(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ): NegotiationProfileResult = FabricNegotiationResult(
         commonVersion,
         remoteConfigurationChannels.toSet(),
@@ -462,7 +459,7 @@ class FabricServerProfile(
 
     private suspend inline fun <reified T : ServerboundPacket>
             awaitConfigurationPacket(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ): T {
         while (true) {
             connection.requestFlush()

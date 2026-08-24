@@ -2,12 +2,9 @@
 
 package com.hiczp.minecraft.protocol.server
 
-import com.hiczp.minecraft.protocol.model.packet.ClientboundPacket
-import com.hiczp.minecraft.protocol.model.packet.ServerboundPacket
 import com.hiczp.minecraft.protocol.session.MinecraftConnectionDefinition
-import com.hiczp.minecraft.protocol.session.MinecraftConnectionEngine
-import com.hiczp.minecraft.protocol.session.MinecraftPacketConnection
-import com.hiczp.minecraft.protocol.session.MinecraftSessionSide
+import com.hiczp.minecraft.protocol.session.MinecraftServerPacketConnection
+import com.hiczp.minecraft.protocol.session.createMinecraftServerPacketConnection
 import com.hiczp.minecraft.protocol.transport.MinecraftTransport
 import com.hiczp.minecraft.protocol.transport.MinecraftTransportConfiguration
 import io.ktor.network.selector.*
@@ -34,10 +31,9 @@ class MinecraftServer private constructor(
         val clientSocket = socket.accept()
         val transport = MinecraftTransport(clientSocket, transportConfiguration)
         return MinecraftServerConnection(
-            connection = MinecraftConnectionEngine(
+            connection = createMinecraftServerPacketConnection(
                 frameStream = transport.frameStream,
                 closeTransport = transport::close,
-                side = MinecraftSessionSide.SERVER,
                 definition = definition,
                 connectionDispatcher = connectionDispatcher,
             ),
@@ -97,10 +93,10 @@ internal fun ByteArray.toNumericIpAddress(): String =
     }
 
 class MinecraftServerConnection internal constructor(
-    private val connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+    private val connection: MinecraftServerPacketConnection,
     val authentication: MinecraftServerAuthentication,
     val clientIpAddress: String?,
-) : MinecraftPacketConnection<ServerboundPacket, ClientboundPacket> by connection {
+) : MinecraftServerPacketConnection by connection {
     companion object {
         const val DEFAULT_PORT: Int = 25565
     }

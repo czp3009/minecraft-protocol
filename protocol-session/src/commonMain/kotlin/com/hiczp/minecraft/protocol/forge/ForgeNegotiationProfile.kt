@@ -4,10 +4,7 @@ import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
 import com.hiczp.minecraft.protocol.model.type.StaticRegistrySchema
-import com.hiczp.minecraft.protocol.session.ClientNegotiationProfile
-import com.hiczp.minecraft.protocol.session.MinecraftPacketConnection
-import com.hiczp.minecraft.protocol.session.NegotiationProfileResult
-import com.hiczp.minecraft.protocol.session.ServerNegotiationProfile
+import com.hiczp.minecraft.protocol.session.*
 
 data class ForgeHandshakeIntent(
     val forgePeer: Boolean,
@@ -127,7 +124,7 @@ class ForgeClientProfile(
     private var begun = false
 
     override suspend fun begin(
-        connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
+        connection: MinecraftClientPacketConnection,
     ) {
         check(!begun) { "A ForgeClientProfile can negotiate only one connection" }
         begun = true
@@ -146,7 +143,7 @@ class ForgeClientProfile(
         ForgeHandshake.enhance(packet, definition.networkVersion)
 
     override suspend fun handleConfigurationPacket(
-        connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
+        connection: MinecraftClientPacketConnection,
         packet: ClientboundPacket,
     ): Boolean = when (packet) {
         is ForgeRegisterChannelsPacket -> {
@@ -210,7 +207,7 @@ class ForgeClientProfile(
     }
 
     override suspend fun preparePlay(
-        connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
+        connection: MinecraftClientPacketConnection,
     ) {
         ensureCompatiblePeer()
         updateForgeRoutes(
@@ -224,7 +221,7 @@ class ForgeClientProfile(
     }
 
     override suspend fun complete(
-        connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
+        connection: MinecraftClientPacketConnection,
     ): NegotiationProfileResult = ForgeNegotiationResult(
         forgePeer,
         definition.networkVersion.takeIf { forgePeer },
@@ -236,7 +233,7 @@ class ForgeClientProfile(
     )
 
     private suspend fun handleHandshakeMessage(
-        connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
+        connection: MinecraftClientPacketConnection,
         message: ForgeClientboundHandshakeMessage,
     ) {
         when (message) {
@@ -324,7 +321,7 @@ class ForgeClientProfile(
     }
 
     private suspend fun acknowledge(
-        connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
+        connection: MinecraftClientPacketConnection,
         token: Int,
     ) {
         connection.outgoing.send(
@@ -357,7 +354,7 @@ class ForgeServerProfile(
     private var begun = false
 
     override suspend fun begin(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         check(!begun) { "A ForgeServerProfile can negotiate only one connection" }
         begun = true
@@ -390,7 +387,7 @@ class ForgeServerProfile(
     }
 
     override suspend fun negotiateConfigurationStart(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         requireStage(ForgeServerStage.BEGIN)
         val intent = handshakeIntent
@@ -438,7 +435,7 @@ class ForgeServerProfile(
     }
 
     override suspend fun handleConfigurationPacket(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
         packet: ServerboundPacket,
     ): Boolean = when (packet) {
         is ForgeRegisterChannelsPacket -> {
@@ -488,7 +485,7 @@ class ForgeServerProfile(
     }
 
     override suspend fun preparePlay(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         requireStage(ForgeServerStage.COMPLETE)
         updateForgeRoutes(
@@ -502,7 +499,7 @@ class ForgeServerProfile(
     }
 
     override suspend fun complete(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ): NegotiationProfileResult {
         val intent = checkNotNull(handshakeIntent)
         return ForgeNegotiationResult(
@@ -554,7 +551,7 @@ class ForgeServerProfile(
     }
 
     private suspend fun synchronizeRegistries(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         val sync = definition.registrySync
         var token = 0
@@ -583,7 +580,7 @@ class ForgeServerProfile(
     }
 
     private suspend fun awaitExpected(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         while (expectedResponse != null || expectedAck != null) {
             connection.requestFlush()

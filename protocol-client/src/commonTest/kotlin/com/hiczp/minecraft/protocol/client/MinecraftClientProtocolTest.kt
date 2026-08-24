@@ -12,7 +12,10 @@ import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.type.GameMode
-import com.hiczp.minecraft.protocol.session.*
+import com.hiczp.minecraft.protocol.session.InternalMinecraftConnectionApi
+import com.hiczp.minecraft.protocol.session.MinecraftConnectionDefinition
+import com.hiczp.minecraft.protocol.session.MinecraftServerPacketSession
+import com.hiczp.minecraft.protocol.session.createMinecraftClientPacketConnection
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import io.ktor.utils.io.*
 import kotlinx.coroutines.async
@@ -269,23 +272,21 @@ class MinecraftClientProtocolTest {
         client.close()
     }
 
-    private fun connectionPair(): Pair<MinecraftClientConnection, MinecraftSession> {
+    private fun connectionPair(): Pair<MinecraftClientConnection, MinecraftServerPacketSession> {
         val clientToServer = ByteChannel(autoFlush = true)
         val serverToClient = ByteChannel(autoFlush = true)
         val clientFrames = MinecraftFrameStream(serverToClient, clientToServer)
         val client = MinecraftClientConnection(
-            connection = MinecraftConnectionEngine(
+            connection = createMinecraftClientPacketConnection(
                 frameStream = clientFrames,
                 closeTransport = { clientFrames.cancel() },
-                side = MinecraftSessionSide.CLIENT,
                 definition = MinecraftConnectionDefinition(),
             ),
             serverAddress = "localhost",
             serverPort = 25_565,
         )
-        val server = MinecraftSession(
+        val server = MinecraftServerPacketSession(
             MinecraftFrameStream(clientToServer, serverToClient),
-            MinecraftSessionSide.SERVER,
         )
         return client to server
     }

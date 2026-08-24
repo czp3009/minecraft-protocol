@@ -5,10 +5,7 @@ import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
 import com.hiczp.minecraft.protocol.model.type.RemoteRegistrySnapshot
 import com.hiczp.minecraft.protocol.model.type.StaticRegistrySchema
-import com.hiczp.minecraft.protocol.session.ClientNegotiationProfile
-import com.hiczp.minecraft.protocol.session.MinecraftPacketConnection
-import com.hiczp.minecraft.protocol.session.NegotiationProfileResult
-import com.hiczp.minecraft.protocol.session.ServerNegotiationProfile
+import com.hiczp.minecraft.protocol.session.*
 
 class NeoForgeClientProfileDefinition(
     val staticRegistries: StaticRegistrySchema,
@@ -98,7 +95,7 @@ class NeoForgeClientProfile(
     private var begun = false
 
     override suspend fun begin(
-        connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
+        connection: MinecraftClientPacketConnection,
     ) {
         check(!begun) { "A NeoForgeClientProfile can negotiate only one connection" }
         begun = true
@@ -111,7 +108,7 @@ class NeoForgeClientProfile(
     }
 
     override suspend fun handleConfigurationPacket(
-        connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
+        connection: MinecraftClientPacketConnection,
         packet: ClientboundPacket,
     ): Boolean = when (packet) {
         is NeoForgeRegisterChannelsPacket -> {
@@ -331,7 +328,7 @@ class NeoForgeClientProfile(
     }
 
     override suspend fun preparePlay(
-        connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
+        connection: MinecraftClientPacketConnection,
     ) {
         val setup = ensureNetworkSetupForOtherPeer()
         activatePlayRoutes(
@@ -366,7 +363,7 @@ class NeoForgeClientProfile(
     }
 
     override suspend fun complete(
-        connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
+        connection: MinecraftClientPacketConnection,
     ): NegotiationProfileResult = result()
 
     private fun ensureNetworkSetupForOtherPeer(): NeoForgeNetworkSetup {
@@ -419,7 +416,7 @@ class NeoForgeServerProfile(
     private var begun = false
 
     override suspend fun begin(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         check(!begun) { "A NeoForgeServerProfile can negotiate only one connection" }
         begun = true
@@ -432,7 +429,7 @@ class NeoForgeServerProfile(
     }
 
     override suspend fun negotiateConfigurationStart(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         requireStage(ServerStage.BEGIN)
         stage = ServerStage.INITIAL
@@ -468,7 +465,7 @@ class NeoForgeServerProfile(
     }
 
     override suspend fun negotiateEarlyConfiguration(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         requireStage(ServerStage.NETWORK_READY)
         stage = ServerStage.EARLY
@@ -489,7 +486,7 @@ class NeoForgeServerProfile(
     }
 
     override suspend fun negotiateConfiguration(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         requireStage(ServerStage.EARLY_COMPLETE)
         stage = ServerStage.LATE
@@ -506,7 +503,7 @@ class NeoForgeServerProfile(
     }
 
     override suspend fun handleConfigurationPacket(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
         packet: ServerboundPacket,
     ): Boolean = when (packet) {
         is NeoForgeRegisterChannelsPacket -> {
@@ -615,7 +612,7 @@ class NeoForgeServerProfile(
     }
 
     override suspend fun preparePlay(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         requireStage(ServerStage.LATE_COMPLETE)
         stage = ServerStage.PLAY
@@ -652,7 +649,7 @@ class NeoForgeServerProfile(
     }
 
     override suspend fun complete(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ): NegotiationProfileResult = NeoForgeNegotiationResult(
         neoForgePeer = neoForgePeer,
         networkSetup = setup ?: NeoForgeNetworkSetup.Empty,
@@ -665,7 +662,7 @@ class NeoForgeServerProfile(
     )
 
     private suspend fun initializeNeoForgePeer(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
         packet: NeoForgeModdedNetworkQueryPacket,
     ) {
         val result = negotiateNeoForgeNetwork(definition.network, packet.queries)
@@ -694,7 +691,7 @@ class NeoForgeServerProfile(
     }
 
     private suspend fun initializeOtherPeer(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         val result = negotiateNeoForgeNetwork(definition.network, emptyMap())
         if (!result.successful) {
@@ -720,7 +717,7 @@ class NeoForgeServerProfile(
     }
 
     private suspend fun negotiateCommonChannels(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         if (
             NeoForgeChannels.CommonVersion !in remoteConfigurationChannels ||
@@ -750,7 +747,7 @@ class NeoForgeServerProfile(
     }
 
     private suspend fun negotiateDataMaps(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         if (!configurationChannelNegotiated(NeoForgeChannels.KnownRegistryDataMaps)) {
             if (mandatoryDataMaps(definition.knownDataMaps).isNotEmpty()) {
@@ -768,7 +765,7 @@ class NeoForgeServerProfile(
     }
 
     private suspend fun negotiateEnums(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         if (!configurationChannelNegotiated(NeoForgeChannels.ExtensibleEnumData)) {
             val required = definition.extensibleEnums.filter { entry ->
@@ -791,7 +788,7 @@ class NeoForgeServerProfile(
     }
 
     private suspend fun negotiateFeatureFlags(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         if (!configurationChannelNegotiated(NeoForgeChannels.FeatureFlagData)) {
             if (definition.featureFlags.isNotEmpty()) {
@@ -809,7 +806,7 @@ class NeoForgeServerProfile(
     }
 
     private suspend inline fun <reified T : ServerboundPacket> awaitExpected(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ): T {
         while (true) {
             connection.requestFlush()
@@ -828,7 +825,7 @@ class NeoForgeServerProfile(
     }
 
     private suspend fun sendPossiblySplit(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
         packet: ClientboundPacket,
     ) {
         val routed = connection.encodeCustomPayload(packet)

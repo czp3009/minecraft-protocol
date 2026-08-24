@@ -10,10 +10,7 @@ import com.hiczp.minecraft.protocol.fabric.FabricProtocol
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
-import com.hiczp.minecraft.protocol.session.ClientNegotiationProfile
-import com.hiczp.minecraft.protocol.session.MinecraftPacketConnection
-import com.hiczp.minecraft.protocol.session.NegotiationProfileResult
-import com.hiczp.minecraft.protocol.session.ServerNegotiationProfile
+import com.hiczp.minecraft.protocol.session.*
 import io.ktor.network.selector.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -402,7 +399,7 @@ private data object TestProfileResult : NegotiationProfileResult
 
 private class TestClientProfile : ClientNegotiationProfile {
     override suspend fun begin(
-        connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
+        connection: MinecraftClientPacketConnection,
     ) {
         connection.activateExtensionRoutes(connection.declaredExtensionRoutes)
     }
@@ -412,13 +409,13 @@ private class TestClientProfile : ClientNegotiationProfile {
     ): ProtocolRegistryContext = context.withRegistrySize(PROFILE_REGISTRY, PROFILE_REGISTRY_SIZE)
 
     override suspend fun complete(
-        connection: MinecraftPacketConnection<ClientboundPacket, ServerboundPacket>,
+        connection: MinecraftClientPacketConnection,
     ): NegotiationProfileResult = TestProfileResult
 }
 
 private class TestServerProfile : ServerNegotiationProfile {
     override suspend fun begin(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ) {
         connection.activateExtensionRoutes(connection.declaredExtensionRoutes)
     }
@@ -428,7 +425,7 @@ private class TestServerProfile : ServerNegotiationProfile {
     ): ProtocolRegistryContext = context.withRegistrySize(PROFILE_REGISTRY, PROFILE_REGISTRY_SIZE)
 
     override suspend fun complete(
-        connection: MinecraftPacketConnection<ServerboundPacket, ClientboundPacket>,
+        connection: MinecraftServerPacketConnection,
     ): NegotiationProfileResult = TestProfileResult
 }
 

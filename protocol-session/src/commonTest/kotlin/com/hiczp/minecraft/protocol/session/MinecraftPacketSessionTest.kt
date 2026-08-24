@@ -18,7 +18,7 @@ import kotlinx.serialization.Serializable
 import kotlin.test.*
 import kotlin.uuid.Uuid
 
-class MinecraftSessionTest {
+class MinecraftPacketSessionTest {
     @Test
     fun performsStatusHandshakeAndTypedDispatch() = runTest {
         val (client, server) = sessionPair()
@@ -107,7 +107,7 @@ class MinecraftSessionTest {
     }
 
     @Test
-    fun rejectsTheWrongDirectionAndStateIndependently() = runTest {
+    fun rejectsPacketsInTheWrongState() = runTest {
         val (client, server) = sessionPair()
 
         assertFailsWith<MinecraftSessionException> {
@@ -125,10 +125,10 @@ class MinecraftSessionTest {
         server.receive()
 
         assertFailsWith<MinecraftSessionException> {
-            client.send(StatusResponsePacket("{}"))
+            client.send(LoginAcknowledgedPacket)
         }
         assertFailsWith<MinecraftSessionException> {
-            server.send(StatusRequestPacket)
+            server.send(FinishConfigurationPacket)
         }
     }
 
@@ -431,8 +431,8 @@ class MinecraftSessionTest {
     }
 
     private suspend fun loginHandshake(
-        client: MinecraftSession,
-        server: MinecraftSession,
+        client: MinecraftClientPacketSession,
+        server: MinecraftServerPacketSession,
     ) {
         client.send(
             HandshakePacket(
@@ -448,8 +448,8 @@ class MinecraftSessionTest {
     }
 
     private suspend fun enterPlay(
-        client: MinecraftSession,
-        server: MinecraftSession,
+        client: MinecraftClientPacketSession,
+        server: MinecraftServerPacketSession,
     ) {
         loginHandshake(client, server)
         server.send(
@@ -470,8 +470,8 @@ class MinecraftSessionTest {
     }
 
     private suspend fun enterConfiguration(
-        client: MinecraftSession,
-        server: MinecraftSession,
+        client: MinecraftClientPacketSession,
+        server: MinecraftServerPacketSession,
     ) {
         loginHandshake(client, server)
         server.send(
@@ -489,16 +489,14 @@ class MinecraftSessionTest {
 
     private fun sessionPair(
         packetRegistry: PacketRegistry = MinecraftPacketRegistry.compose(emptyList()),
-    ): Pair<MinecraftSession, MinecraftSession> {
+    ): Pair<MinecraftClientPacketSession, MinecraftServerPacketSession> {
         val clientToServer = ByteChannel(autoFlush = true)
         val serverToClient = ByteChannel(autoFlush = true)
-        return MinecraftSession(
+        return MinecraftClientPacketSession(
             frameStream = MinecraftFrameStream(serverToClient, clientToServer),
-            side = MinecraftSessionSide.CLIENT,
             packetRegistry = packetRegistry,
-        ) to MinecraftSession(
+        ) to MinecraftServerPacketSession(
             frameStream = MinecraftFrameStream(clientToServer, serverToClient),
-            side = MinecraftSessionSide.SERVER,
             packetRegistry = packetRegistry,
         )
     }

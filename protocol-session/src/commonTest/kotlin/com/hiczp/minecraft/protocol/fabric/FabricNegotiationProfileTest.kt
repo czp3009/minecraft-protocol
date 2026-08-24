@@ -2,7 +2,9 @@ package com.hiczp.minecraft.protocol.fabric
 
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.protocol.session.MinecraftClientPacketConnection
 import com.hiczp.minecraft.protocol.session.MinecraftPacketConnection
+import com.hiczp.minecraft.protocol.session.MinecraftServerPacketConnection
 import com.hiczp.minecraft.protocol.session.RoutedCustomPayload
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
@@ -29,12 +31,12 @@ class FabricNegotiationProfileTest {
         val declared = FabricProtocol.packetCodecs
             .map { registration -> registration.route }
             .toSet() + customRoutes
-        val clientConnection = TestConnection(
+        val clientConnection = TestClientConnection(
             serverToClient,
             clientToServer,
             declared,
         )
-        val serverConnection = TestConnection(
+        val serverConnection = TestServerConnection(
             clientToServer,
             serverToClient,
             declared,
@@ -119,7 +121,7 @@ class FabricNegotiationProfileTest {
     fun incompatibleRegistryThrowsWithoutSendingAReply() = runTest {
         val incoming = Channel<ClientboundPacket>(Channel.UNLIMITED)
         val outgoing = Channel<ServerboundPacket>(Channel.UNLIMITED)
-        val connection = TestConnection(
+        val connection = TestClientConnection(
             incoming,
             outgoing,
             FabricProtocol.packetCodecs
@@ -147,7 +149,7 @@ class FabricNegotiationProfileTest {
     }
 }
 
-private class TestConnection<Incoming : Packet, Outgoing : Packet>(
+private abstract class TestConnection<Incoming : Packet, Outgoing : Packet>(
     override val incoming: Channel<Incoming>,
     override val outgoing: Channel<Outgoing>,
     override val declaredExtensionRoutes: Set<PacketRouteKey>,
@@ -209,11 +211,25 @@ private class TestConnection<Incoming : Packet, Outgoing : Packet>(
 
     override fun requestFlush() = Unit
 
-    override fun prepareOutboundEncryption(sharedSecret: ByteArray) = Unit
-
-    override fun enableEncryption(sharedSecret: ByteArray) = Unit
-
     override fun close() = Unit
+}
+
+private class TestClientConnection(
+    incoming: Channel<ClientboundPacket>,
+    outgoing: Channel<ServerboundPacket>,
+    declaredExtensionRoutes: Set<PacketRouteKey>,
+) : TestConnection<ClientboundPacket, ServerboundPacket>(incoming, outgoing, declaredExtensionRoutes),
+    MinecraftClientPacketConnection {
+    override fun prepareOutboundEncryption(sharedSecret: ByteArray) = Unit
+}
+
+private class TestServerConnection(
+    incoming: Channel<ServerboundPacket>,
+    outgoing: Channel<ClientboundPacket>,
+    declaredExtensionRoutes: Set<PacketRouteKey>,
+) : TestConnection<ServerboundPacket, ClientboundPacket>(incoming, outgoing, declaredExtensionRoutes),
+    MinecraftServerPacketConnection {
+    override fun enableEncryption(sharedSecret: ByteArray) = Unit
 }
 
 private fun testStaticSchema(): StaticRegistrySchema = StaticRegistrySchema(
