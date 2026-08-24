@@ -121,9 +121,11 @@ onto the consumer classpath.
 - Every source generator uses a language-aware library such as KotlinPoet or JavaPoet. This applies to build logic,
   processors, tasks, scripts, tools, tests, and every generated target language; generated declarations are never
   assembled with string concatenation or templates.
-- In Kotlin and Java, do not concatenate strings with `+`; prefer string-template syntax and keep strings on one line
-  where practical. If a Kotlin string genuinely spans lines, use a triple-quoted string. For complex assembly, use
-  `buildString` in Kotlin and `StringBuilder` in Java.
+- In Kotlin and Java, do not concatenate strings with `+`; prefer string-template syntax and keep a logically
+  single-line string on one source line even when that line exceeds the 120-column margin. Never use `buildString` in
+  Kotlin or `StringBuilder` in Java merely to split or wrap a long single-line string. If a Kotlin string genuinely
+  contains line breaks, use a triple-quoted string. Use `buildString` or `StringBuilder` only when assembling literals
+  and variables requires complex control flow, such as loops or non-trivial conditionals.
 - In Kotlin and Java, keep an assignment on one line whenever its right-hand side is a complete expression and the
   joined line stays within the 120-column margin; this covers `val`/`var` declarations, named arguments, and property or
   indexed assignments (for example `val a = "1"`). Break after `=` only when the expression itself spans lines or the
