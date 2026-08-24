@@ -247,6 +247,7 @@ fun resolvePack(
 ```
 
 Archives, parsed files, overlays, filters, enabled feature flags, tags, and merged resources are ordinary values.
+`ResolvedDataPackResource.decodeTagFile()` exposes string and object tag entries as `DataPackTagFile` values.
 Directory and ZIP access is provided by [`world-io`](../world-io/README.md#read-world-data-packs); Configuration
 projection is provided by [`protocol-datapack`](../protocol-datapack/README.md).
 
@@ -254,6 +255,7 @@ projection is provided by [`protocol-datapack`](../protocol-datapack/README.md).
 
 - `AnvilFormatException` reports invalid Region/container structure.
 - `CompressionFormatException` reports invalid compression framing or unavailable CUSTOM codecs.
+- `DataPackFormatException` reports data-pack file and stack-resolution failures.
 - `ChunkNbtFormatException` reports strong Chunk schema, coordinate, layout, version, or registry failures.
 - `EntityChunkNbtFormatException` reports strong Entity Chunk schema, position, identity, or vector failures.
 - NBT and stream/backend errors retain the exception type from their owning module.

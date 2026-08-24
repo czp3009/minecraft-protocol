@@ -141,10 +141,10 @@ internal class MutableRegionFile private constructor(
         writer.header.set(
             local,
             location = null,
-            timestamp = systemEpochSeconds(),
+            timestamp = Clock.System.now().epochSeconds.toInt(),
         )
         writeHeader(writer)
-        files.fileSystem.deleteIfExists(externalPath(local))
+        files.fileSystem.delete(externalPath(local), mustExist = false)
         writer.allocator.free(oldLocation)
         return true
     }
@@ -295,9 +295,9 @@ internal class MutableRegionFile private constructor(
                 handle.flushDurably(files.fileSystem, path)
             }
             committed = true
-            writer.header.set(position, newLocation, systemEpochSeconds())
+            writer.header.set(position, newLocation, Clock.System.now().epochSeconds.toInt())
             writeHeader(writer)
-            files.fileSystem.deleteIfExists(externalPath(position))
+            files.fileSystem.delete(externalPath(position), mustExist = false)
             writer.allocator.free(oldLocation)
         } catch (failure: Throwable) {
             if (!committed) writer.allocator.free(newLocation)
@@ -338,7 +338,7 @@ internal class MutableRegionFile private constructor(
                 handle.flushDurably(files.fileSystem, path)
             }
             committed = true
-            writer.header.set(position, newLocation, systemEpochSeconds())
+            writer.header.set(position, newLocation, Clock.System.now().epochSeconds.toInt())
             writeHeader(writer)
             files.fileSystem.moveReplacing(
                 temporary.path,
@@ -360,7 +360,7 @@ internal class MutableRegionFile private constructor(
         writer: RegionWriterState,
     ) {
         val nextHeader = writer.header.copy()
-        val timestamp = systemEpochSeconds()
+        val timestamp = Clock.System.now().epochSeconds.toInt()
         batch.staged.forEach { chunk ->
             nextHeader.set(chunk.position, chunk.newLocation, timestamp)
         }
@@ -383,7 +383,7 @@ internal class MutableRegionFile private constructor(
             try {
                 val temporary = chunk.externalTemporary
                 if (temporary == null) {
-                    files.fileSystem.deleteIfExists(externalPath(chunk.position))
+                    files.fileSystem.delete(externalPath(chunk.position), mustExist = false)
                 } else {
                     files.fileSystem.moveReplacing(temporary, externalPath(chunk.position))
                 }
@@ -392,7 +392,7 @@ internal class MutableRegionFile private constructor(
                 failure = combineFailures(failure, caught)
                 chunk.externalTemporary?.let { temporary ->
                     try {
-                        files.fileSystem.deleteIfExists(temporary)
+                        files.fileSystem.delete(temporary, mustExist = false)
                     } catch (cleanupFailure: Throwable) {
                         failure = combineFailures(failure, cleanupFailure)
                     }
@@ -401,7 +401,7 @@ internal class MutableRegionFile private constructor(
         }
         batch.cleared.forEach { chunk ->
             try {
-                files.fileSystem.deleteIfExists(externalPath(chunk.position))
+                files.fileSystem.delete(externalPath(chunk.position), mustExist = false)
                 writer.allocator.free(chunk.oldLocation)
             } catch (caught: Throwable) {
                 failure = combineFailures(failure, caught)
@@ -481,7 +481,7 @@ internal class MutableRegionFile private constructor(
             if (!batch.headerAttempted) writer.allocator.free(chunk.newLocation)
             chunk.externalTemporary?.let { temporary ->
                 try {
-                    files.fileSystem.deleteIfExists(temporary)
+                    files.fileSystem.delete(temporary, mustExist = false)
                 } catch (cleanupFailure: Throwable) {
                     result = combineFailures(result, cleanupFailure)
                 }
@@ -786,9 +786,6 @@ internal fun readRegionChunkInfo(
         timestampEpochSeconds = timestamp,
     )
 }
-
-private fun systemEpochSeconds(): Int =
-    Clock.System.now().epochSeconds.toInt()
 
 internal fun FileHandle.readAtMost(offset: Long, byteCount: Int): ByteArray {
     require(offset >= 0)

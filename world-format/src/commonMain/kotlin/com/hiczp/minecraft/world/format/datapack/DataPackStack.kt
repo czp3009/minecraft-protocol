@@ -1,9 +1,6 @@
 package com.hiczp.minecraft.world.format.datapack
 
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.*
 
 /** One effective resource with enough provenance to audit replacement and tag merging. */
 data class ResolvedDataPackResource(
@@ -136,18 +133,17 @@ private fun mergeTag(
     path: DataPackResourcePath,
     file: DataPackFile,
 ): ResolvedDataPackResource {
-    val previousJson = (previous.content as? DataPackFileContent.JsonFile)?.element as? JsonObject
-    val currentJson = (file.content as? DataPackFileContent.JsonFile)?.element as? JsonObject
-    if (previousJson == null || currentJson == null || currentJson["replace"]?.let {
-            (it as? JsonPrimitive)?.booleanOrNull == true
-        } == true
-    ) {
-        return ResolvedDataPackResource(path, file.content, packId, file.path)
+    val currentContent = file.content
+    val previousContent = previous.content
+    if (currentContent !is DataPackFileContent.JsonFile || previousContent !is DataPackFileContent.JsonFile) {
+        return ResolvedDataPackResource(path, currentContent, packId, file.path)
     }
-    val values = buildList {
-        addAll((previousJson["values"] as? JsonArray).orEmpty())
-        addAll((currentJson["values"] as? JsonArray).orEmpty())
+    val currentJson = currentContent.element.jsonObject
+    if (currentJson["replace"]?.jsonPrimitive?.boolean == true) {
+        return ResolvedDataPackResource(path, currentContent, packId, file.path)
     }
+    val previousJson = previousContent.element.jsonObject
+    val values = previousJson.getValue("values").jsonArray + currentJson.getValue("values").jsonArray
     val merged = JsonObject(
         previousJson + currentJson + mapOf(
             "replace" to JsonPrimitive(false),
@@ -162,5 +158,3 @@ private fun mergeTag(
         contributors = previous.contributors + packId,
     )
 }
-
-private fun <T> List<T>?.orEmpty(): List<T> = this ?: emptyList()

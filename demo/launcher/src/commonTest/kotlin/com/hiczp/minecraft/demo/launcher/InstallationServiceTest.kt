@@ -89,7 +89,7 @@ internal class InstallFixture(
     private val clientBytes = "client-bytes".encodeToByteArray()
     private val libraryBytes = "library-bytes".encodeToByteArray()
     private val assetBytes = "asset-bytes".encodeToByteArray()
-    val assetHash = assetBytes.sha1()
+    val assetHash = assetBytes.toByteString().sha1().hex()
     val assetUrl = "https://resources.download.minecraft.net/${assetHash.take(2)}/$assetHash"
     private val assetIndexBytes = launcherJson.encodeToString(
         AssetIndex(mapOf("minecraft/sounds/test.ogg" to AssetObject(assetHash, assetBytes.size.toLong()))),
@@ -103,11 +103,11 @@ internal class InstallFixture(
             assetIndex = AssetIndexDownload(
                 id = "assets-id",
                 url = assetIndexUrl,
-                sha1 = assetIndexBytes.sha1(),
+                sha1 = assetIndexBytes.toByteString().sha1().hex(),
                 size = assetIndexBytes.size.toLong(),
             ),
             downloads = VersionDownloads(
-                Download(clientUrl, clientBytes.sha1(), clientBytes.size.toLong()),
+                Download(clientUrl, clientBytes.toByteString().sha1().hex(), clientBytes.size.toLong()),
             ),
             libraries = listOf(
                 MojangLibrary(
@@ -115,7 +115,7 @@ internal class InstallFixture(
                     downloads = MojangLibrary.Downloads(
                         artifact = Download(
                             libraryUrl,
-                            libraryBytes.sha1(),
+                            libraryBytes.toByteString().sha1().hex(),
                             libraryBytes.size.toLong(),
                             "example/library.jar",
                         ),
@@ -134,7 +134,7 @@ internal class InstallFixture(
         url = metadataUrl,
         time = "now",
         releaseTime = "now",
-        sha1 = metadataBytes.sha1(),
+        sha1 = metadataBytes.toByteString().sha1().hex(),
     )
     private val manifestBytes = launcherJson.encodeToString(
         VersionManifest(
@@ -209,5 +209,3 @@ internal class InstallFixture(
         client.close()
     }
 }
-
-private fun ByteArray.sha1(): String = toByteString().sha1().hex()

@@ -3,7 +3,6 @@ package com.hiczp.minecraft.protocol.auth
 import io.ktor.client.plugins.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
-import io.ktor.http.content.*
 import kotlinx.serialization.json.Json
 
 /** A successful conditional response with the exact headers needed for caller-owned cache and timing policy. */
@@ -20,11 +19,6 @@ data class MinecraftConditionalResponse<T>(
 internal val MinecraftServiceJson = Json {
     ignoreUnknownKeys = true
 }
-
-internal inline fun <reified T> minecraftServiceJsonContent(value: T): TextContent = TextContent(
-    text = MinecraftServiceJson.encodeToString(value),
-    contentType = ContentType.Application.Json,
-)
 
 internal suspend inline fun <reified SuccessBody, reified ErrorBody> HttpResponse.decodeOptionalServiceResponse(
     createFailure: (

@@ -5,6 +5,7 @@ import com.hiczp.minecraft.world.format.CompressedNbtFormat
 import com.hiczp.minecraft.world.format.Compression
 import kotlinx.io.Buffer
 import kotlinx.serialization.json.*
+import kotlin.coroutines.cancellation.CancellationException
 
 class DataPackFormatException(
     message: String,
@@ -53,8 +54,10 @@ class DataPackFormat(
         parsed: Map<DataPackPath, DataPackFileContent>,
     ): DataPack {
         val metadata = parsed[DataPackPath.PACK_METADATA]?.let { content ->
-            val element = (content as? DataPackFileContent.JsonFile)?.element
-                ?: throw DataPackFormatException("Data pack $id has a non-JSON pack.mcmeta")
+            val element = when (content) {
+                is DataPackFileContent.JsonFile -> content.element
+                else -> throw DataPackFormatException("Data pack $id has a non-JSON pack.mcmeta")
+            }
             parseFile(id, DataPackPath.PACK_METADATA) { parseMetadata(id, element) }
         }
         return DataPack(id, metadata, parsed)
@@ -99,17 +102,16 @@ class DataPackFormat(
         block()
     } catch (failure: DataPackFormatException) {
         throw failure
+    } catch (failure: CancellationException) {
+        throw failure
     } catch (failure: Exception) {
         throw DataPackFormatException("Could not parse $path in data pack $packId", failure)
     }
 
     private fun parseMetadata(packId: DataPackId, element: JsonElement): DataPackMetadata {
-        val root = element as? JsonObject
-            ?: throw DataPackFormatException("Data pack $packId has a non-object pack.mcmeta")
-        val pack = root["pack"] as? JsonObject
-            ?: throw DataPackFormatException("Data pack $packId pack.mcmeta has no pack object")
-        val description = pack["description"]
-            ?: throw DataPackFormatException("Data pack $packId pack.mcmeta has no description")
+        val root = element.jsonObject
+        val pack = root.getValue("pack").jsonObject
+        val description = pack.getValue("description")
         val formats = parsePackFormats(packId, pack)
         val enabledFeatures = root["features"]?.jsonObject?.get("enabled")?.jsonArray
             ?.mapTo(linkedSetOf()) { it.jsonPrimitive.content }
@@ -126,13 +128,9 @@ class DataPackFormat(
             DataPackOverlay(
                 formats = parseFormatRange(
                     packId,
-                    overlay["formats"]
-                        ?: throw DataPackFormatException("Data pack $packId has an overlay without formats"),
+                    overlay.getValue("formats"),
                 ),
-                directory = DataPackPath(
-                    overlay["directory"]?.jsonPrimitive?.content
-                        ?: throw DataPackFormatException("Data pack $packId has an overlay without a directory"),
-                ),
+                directory = DataPackPath(overlay.getValue("directory").jsonPrimitive.content),
             )
         }
         return DataPackMetadata(
@@ -175,13 +173,9 @@ class DataPackFormat(
         is JsonArray -> DataPackFormatRange.exact(parseVersion(packId, element, defaultMinor = 0))
 
         is JsonObject -> {
-            val minimum = element["min_inclusive"]
-                ?: throw DataPackFormatException("Data pack $packId format range has no min_inclusive")
-            val maximum = element["max_inclusive"]
-                ?: throw DataPackFormatException("Data pack $packId format range has no max_inclusive")
             DataPackFormatRange(
-                parseVersion(packId, minimum, defaultMinor = 0),
-                parseVersion(packId, maximum, defaultMinor = Int.MAX_VALUE),
+                parseVersion(packId, element.getValue("min_inclusive"), defaultMinor = 0),
+                parseVersion(packId, element.getValue("max_inclusive"), defaultMinor = Int.MAX_VALUE),
             )
         }
     }
@@ -192,18 +186,14 @@ class DataPackFormat(
         defaultMinor: Int,
     ): DataPackFormatVersion {
         if (element is JsonPrimitive) {
-            val major = element.intOrNull
-                ?: throw DataPackFormatException("Data pack $packId has a non-integer format version")
-            return DataPackFormatVersion(major, defaultMinor)
+            return DataPackFormatVersion(element.int, defaultMinor)
         }
-        val parts = element as? JsonArray
-            ?: throw DataPackFormatException("Data pack $packId has an invalid format version")
+        val parts = element.jsonArray
         if (parts.size !in 1..2) {
             throw DataPackFormatException("Data pack $packId format version must have one or two components")
         }
-        val major = parts[0].jsonPrimitive.intOrNull
-            ?: throw DataPackFormatException("Data pack $packId has a non-integer major format")
-        val minor = parts.getOrNull(1)?.jsonPrimitive?.intOrNull ?: 0
+        val major = parts[0].jsonPrimitive.int
+        val minor = parts.getOrNull(1)?.jsonPrimitive?.int ?: 0
         return DataPackFormatVersion(major, minor)
     }
 
@@ -238,5 +228,3 @@ class DataPackDecoder internal constructor(
         return format.finish(id, parsed)
     }
 }
-
-private fun JsonArray?.orEmpty(): JsonArray = this ?: JsonArray(emptyList())

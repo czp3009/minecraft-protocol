@@ -243,7 +243,8 @@ class MinecraftPacketSessionTest {
             PacketDirection.CLIENTBOUND,
             channel,
         )
-        val registry = MinecraftPacketRegistry.compose(
+        val registry = PacketRegistry(
+            MinecraftPacketRegistry.entries,
             listOf(
                 PacketCodecRegistration.clientboundCustomPayload(
                     ConnectionState.CONFIGURATION,
@@ -282,7 +283,8 @@ class MinecraftPacketSessionTest {
             PacketDirection.CLIENTBOUND,
             channel,
         )
-        val registry = MinecraftPacketRegistry.compose(
+        val registry = PacketRegistry(
+            MinecraftPacketRegistry.entries,
             listOf(
                 PacketCodecRegistration.clientboundCustomPayload(
                     ConnectionState.CONFIGURATION,
@@ -321,7 +323,8 @@ class MinecraftPacketSessionTest {
             PacketDirection.SERVERBOUND,
             channel,
         )
-        val registry = MinecraftPacketRegistry.compose(
+        val registry = PacketRegistry(
+            MinecraftPacketRegistry.entries,
             listOf(
                 PacketCodecRegistration.clientboundLoginQuery(
                     channel,
@@ -488,7 +491,7 @@ class MinecraftPacketSessionTest {
     }
 
     private fun sessionPair(
-        packetRegistry: PacketRegistry = MinecraftPacketRegistry.compose(emptyList()),
+        packetRegistry: PacketRegistry = MinecraftPacketRegistry,
     ): Pair<MinecraftClientPacketSession, MinecraftServerPacketSession> {
         val clientToServer = ByteChannel(autoFlush = true)
         val serverToClient = ByteChannel(autoFlush = true)

@@ -52,7 +52,9 @@ val protocolData = stack.toProtocolDataSet(projection, selectedFormat)
 
 Disk JSON and synchronized network NBT are different codecs. A changed registry therefore requires a
 `DataPackSynchronizedRegistryProjector`; unresolved registry types are reported together through
-`MissingDataPackRegistryProjectors`. Filters, overlays, enabled feature flags, and tags are projected generically.
+`MissingDataPackRegistryProjectors`. A projector failure becomes `DataPackRegistryProjectionException`, which retains
+the registry, resource, source pack, source path, and original cause. Filters, overlays, enabled feature flags, and tags
+are projected generically.
 
 For generated official defaults and the shorter `toVanillaProtocolDataSet` path, add
 [`protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md).

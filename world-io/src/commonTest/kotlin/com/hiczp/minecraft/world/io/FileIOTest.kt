@@ -346,7 +346,7 @@ class FileIOTest {
             byteArrayOf(4, 5),
             fileSystem.readFileBytes(target),
         )
-        fileSystem.deleteIfExists("/world/missing".toPath())
+        fileSystem.delete("/world/missing".toPath(), mustExist = false)
 
         val original = IllegalStateException("original")
         val deleteFailure = IllegalArgumentException("delete")
@@ -397,8 +397,8 @@ class FileIOTest {
         )
 
         assertEquals(1, fileSystem.attempts)
-        assertContentEquals(byteArrayOf(1), base.readRaw(target))
-        assertContentEquals(byteArrayOf(2), base.readRaw(temporary))
+        assertContentEquals(byteArrayOf(1), base.readFileBytes(target))
+        assertContentEquals(byteArrayOf(2), base.readFileBytes(temporary))
         assertFalse(base.exists(backup))
     }
 
@@ -424,8 +424,8 @@ class FileIOTest {
         )
 
         assertEquals(3, retrying.attempts)
-        assertContentEquals(byteArrayOf(2), retryBase.readRaw(retryTarget))
-        assertContentEquals(byteArrayOf(1), retryBase.readRaw(retryBackup))
+        assertContentEquals(byteArrayOf(2), retryBase.readFileBytes(retryTarget))
+        assertContentEquals(byteArrayOf(1), retryBase.readFileBytes(retryBackup))
 
         val exhaustedBase = FakeFileSystem()
         val exhaustedTemporary = "/exhausted/.tmp-value".toPath()
@@ -452,11 +452,11 @@ class FileIOTest {
         assertSame(ioFailure, exhaustedFailure.cause)
         assertContentEquals(
             byteArrayOf(1),
-            exhaustedBase.readRaw(exhaustedTarget),
+            exhaustedBase.readFileBytes(exhaustedTarget),
         )
         assertContentEquals(
             byteArrayOf(2),
-            exhaustedBase.readRaw(exhaustedTemporary),
+            exhaustedBase.readFileBytes(exhaustedTemporary),
         )
         assertFalse(exhaustedBase.exists(exhaustedBackup))
 
@@ -484,10 +484,10 @@ class FileIOTest {
             },
         )
         assertEquals(1, runtime.attempts)
-        assertContentEquals(byteArrayOf(1), runtimeBase.readRaw(runtimeTarget))
+        assertContentEquals(byteArrayOf(1), runtimeBase.readFileBytes(runtimeTarget))
         assertContentEquals(
             byteArrayOf(2),
-            runtimeBase.readRaw(runtimeTemporary),
+            runtimeBase.readFileBytes(runtimeTemporary),
         )
         assertFalse(runtimeBase.exists(runtimeBackup))
     }
@@ -523,8 +523,8 @@ class FileIOTest {
             )
             assertEquals(1, fileSystem.attempts)
             assertFalse(base.exists(target))
-            assertContentEquals(byteArrayOf(1), base.readRaw(backup))
-            assertContentEquals(byteArrayOf(2), base.readRaw(temporary))
+            assertContentEquals(byteArrayOf(1), base.readFileBytes(backup))
+            assertContentEquals(byteArrayOf(2), base.readFileBytes(temporary))
         }
     }
 
@@ -550,9 +550,9 @@ class FileIOTest {
 
         assertEquals(10, fileSystem.replacementAttempts)
         assertEquals(3, fileSystem.rollbackAttempts)
-        assertContentEquals(byteArrayOf(1), base.readRaw(target))
+        assertContentEquals(byteArrayOf(1), base.readFileBytes(target))
         assertFalse(base.exists(backup))
-        assertContentEquals(byteArrayOf(2), base.readRaw(temporary))
+        assertContentEquals(byteArrayOf(2), base.readFileBytes(temporary))
     }
 }
 
@@ -741,6 +741,3 @@ private fun FileSystem.writeRaw(path: Path, bytes: ByteArray) {
         sink.close()
     }
 }
-
-private fun FileSystem.readRaw(path: Path): ByteArray =
-    readFileBytes(path)

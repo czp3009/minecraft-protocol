@@ -158,15 +158,9 @@ class MinecraftFrameCodecTest {
                 .repeat(100)
                 .encodeToByteArray()
         val samples = listOf(
-            hello to hexBytes(
-                "7801010b00f4ff68656c6c6f20776f726c641a0b045d",
-            ),
-            hello to hexBytes(
-                "789ccb48cdc9c95728cf2fca4901001a0b045d",
-            ),
-            dynamic to hexBytes(
-                "789cedca470180301045412b5f016a628092d0d910084d3d88e0f8ce33aef35a735f8faa929d8b825d1af21c37d9e193f68fa7f2b9d5585bc891c96432994c2693c96432994c2693ffc82f1dc84f97",
-            ),
+            hello to "7801010b00f4ff68656c6c6f20776f726c641a0b045d".hexToByteArray(),
+            hello to "789ccb48cdc9c95728cf2fca4901001a0b045d".hexToByteArray(),
+            dynamic to "789cedca470180301045412b5f016a628092d0d910084d3d88e0f8ce33aef35a735f8faa929d8b825d1af21c37d9e193f68fa7f2b9d5585bc891c96432994c2693c96432994c2693ffc82f1dc84f97".hexToByteArray(),
         )
 
         samples.forEach { (expected, zlib) ->
@@ -195,7 +189,7 @@ class MinecraftFrameCodecTest {
         assertFailsWith<IOException> {
             codec.decodeFrameBody(
                 byteArrayOf(11) +
-                        hexBytes("789ccb48cdc9c95728cf2fca4901001a0b045c"),
+                        "789ccb48cdc9c95728cf2fca4901001a0b045c".hexToByteArray(),
             )
         }
     }
@@ -236,7 +230,7 @@ class MinecraftFrameCodecTest {
         assertFailsWith<MinecraftTransportException> {
             codec.decodeFrameBody(
                 encodeVarInt(oversizedLength) +
-                        hexBytes("789c030000000001"),
+                        "789c030000000001".hexToByteArray(),
             )
         }
     }
@@ -354,11 +348,6 @@ class MinecraftFrameCodecTest {
             )
         }
 }
-
-private fun hexBytes(value: String): ByteArray =
-    ByteArray(value.length / 2) { index ->
-        value.substring(index * 2, index * 2 + 2).toInt(16).toByte()
-    }
 
 private fun encodeVarInt(value: Int): ByteArray {
     val buffer = Buffer()

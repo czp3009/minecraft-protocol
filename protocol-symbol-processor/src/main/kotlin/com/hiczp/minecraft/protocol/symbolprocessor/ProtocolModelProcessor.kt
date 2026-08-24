@@ -9,6 +9,7 @@ import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import com.squareup.kotlinpoet.ksp.toClassName
 import com.squareup.kotlinpoet.ksp.writeTo
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.nio.file.Files
@@ -120,11 +121,7 @@ private class ProtocolModelProcessor(
                         key = PacketKey(
                             state = state.uppercase(),
                             direction = direction.uppercase(),
-                            id = packetElement.jsonObject
-                                .getValue("protocol_id")
-                                .jsonPrimitive
-                                .content
-                                .toInt(),
+                            id = packetElement.jsonObject.getValue("protocol_id").jsonPrimitive.int,
                         ),
                         name = name.removePrefix("minecraft:"),
                     )

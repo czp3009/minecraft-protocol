@@ -16,7 +16,8 @@ class MinecraftServicesApi(
         val response = httpClient.post(MINECRAFT_XBOX_LOGIN_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
-            setBody(jsonContent(request))
+            contentType(ContentType.Application.Json)
+            setBody(AccountAuthJson.encodeToString(request))
         }
         return response.decodeAccountAuthResponse<MinecraftLoginResponse, MinecraftServicesErrorResponse>(::MinecraftServicesResponseException)
     }

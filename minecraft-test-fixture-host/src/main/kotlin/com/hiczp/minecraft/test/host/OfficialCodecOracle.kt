@@ -1,9 +1,12 @@
 package com.hiczp.minecraft.test.host
 
-import kotlinx.io.files.Path
 import kotlinx.serialization.json.JsonElement
 import java.lang.reflect.InvocationTargetException
 import java.net.URLClassLoader
+import java.nio.file.Path
+import kotlin.io.path.isDirectory
+import kotlin.io.path.isRegularFile
+import kotlin.io.path.writeText
 
 /**
  * Loads the codec bridge prepared by the
@@ -36,11 +39,11 @@ internal object OfficialCodecOracle {
         }
 
         val urls = buildList {
-            add(classes.toNioPath().toUri().toURL())
-            add(runtime.implementationJar.toNioPath().toUri().toURL())
+            add(classes.toUri().toURL())
+            add(runtime.implementationJar.toUri().toURL())
             addAll(
                 runtime.libraries.map {
-                    it.toNioPath().toUri().toURL()
+                    it.toUri().toURL()
                 },
             )
         }.toTypedArray()
@@ -49,7 +52,7 @@ internal object OfficialCodecOracle {
         val previousJomlNoUnsafe = System.getProperty(JOML_NO_UNSAFE_PROPERTY)
         System.setProperty(
             LOG4J_CONFIGURATION_PROPERTY,
-            loggingConfiguration.toNioPath().toUri().toString(),
+            loggingConfiguration.toUri().toString(),
         )
         System.setProperty(JOML_NO_UNSAFE_PROPERTY, "true")
         URLClassLoader(urls, ClassLoader.getPlatformClassLoader()).use { loader ->

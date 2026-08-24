@@ -19,8 +19,8 @@ class SystemWorldStorageTest {
         val source = root / "source.tmp"
         val target = root / "target.mcc"
         try {
-            fileSystem.writeSystemBytes(source, byteArrayOf(2))
-            fileSystem.writeSystemBytes(target, byteArrayOf(1))
+            fileSystem.write(source) { write(byteArrayOf(2)) }
+            fileSystem.write(target) { write(byteArrayOf(1)) }
 
             fileSystem.moveReplacing(source, target)
 
@@ -159,7 +159,7 @@ class SystemWorldStorageTest {
         val path = root / "value.dat"
         val document = systemDocument(7)
         try {
-            fileSystem.writeSystemBytes(path, ByteArray(4_096) { 1 })
+            fileSystem.write(path) { write(ByteArray(4_096) { 1 }) }
 
             val store = NbtFileStore(fileSystem)
             store.writeDocument(path, document, Compression.NONE)
@@ -331,10 +331,7 @@ class SystemWorldStorageTest {
             val store = PlayerDataStore(paths)
             store.writeDocument(player, first)
             store.writeDocument(player, second)
-            fileSystem.writeSystemBytes(
-                paths.playerData(player),
-                byteArrayOf(1, 2, 3),
-            )
+            fileSystem.write(paths.playerData(player)) { write(byteArrayOf(1, 2, 3)) }
 
             assertEquals(first, store.readDocument(player))
             assertTrue(
@@ -385,12 +382,6 @@ private fun createSystemTemporaryDirectory(fileSystem: FileSystem): Path {
         }
     }
     throw WorldIOException("Could not create a system test directory")
-}
-
-private fun FileSystem.writeSystemBytes(path: Path, bytes: ByteArray) {
-    write(path) {
-        write(bytes)
-    }
 }
 
 private const val SYSTEM_TEMPORARY_DIRECTORY_ATTEMPTS = 256

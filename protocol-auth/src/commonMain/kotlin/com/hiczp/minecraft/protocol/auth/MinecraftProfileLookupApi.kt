@@ -41,7 +41,8 @@ class MinecraftProfileLookupApi(
         val response = httpClient.post(MINECRAFT_PROFILE_LOOKUP_BY_NAME_BULK_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
-            setBody(minecraftServiceJsonContent(request))
+            contentType(ContentType.Application.Json)
+            setBody(MinecraftServiceJson.encodeToString(request))
         }
         return response.decodeOptionalServiceResponse<
                 List<MinecraftProfileLookupResponse>,

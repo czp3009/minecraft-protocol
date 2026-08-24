@@ -1,9 +1,7 @@
 package com.hiczp.minecraft.nbt.serialization
 
 import com.hiczp.minecraft.nbt.*
-import kotlinx.io.Sink
-import kotlinx.io.Source
-import kotlinx.io.readByteArray
+import kotlinx.io.*
 
 internal class NbtBinaryReader(
     private val source: Source,
@@ -167,7 +165,7 @@ internal class NbtBinaryReader(
         return characters.concatToString(endIndex = characterIndex)
     }
 
-    internal fun readUnsignedByte(): Int = readByte().toInt() and 0xFF
+    internal fun readUnsignedByte(): Int = source.readUByte().toInt()
 
     internal fun readByte(): Byte {
         return source.readByte()
@@ -177,7 +175,7 @@ internal class NbtBinaryReader(
         return source.readShort()
     }
 
-    internal fun readUnsignedShort(): Int = readShort().toInt() and 0xFFFF
+    internal fun readUnsignedShort(): Int = source.readUShort().toInt()
 
     internal fun readInt(): Int {
         return source.readInt()

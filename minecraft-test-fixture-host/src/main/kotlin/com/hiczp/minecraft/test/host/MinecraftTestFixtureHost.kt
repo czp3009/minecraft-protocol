@@ -9,11 +9,11 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
-import kotlinx.io.files.Path
 import kotlinx.rpc.krpc.ktor.server.Krpc
 import kotlinx.rpc.krpc.ktor.server.rpc
 import kotlinx.rpc.krpc.serialization.json.json
 import kotlinx.serialization.json.JsonElement
+import java.nio.file.Path
 import kotlin.io.path.pathString
 import kotlin.time.Duration
 import kotlin.uuid.Uuid
@@ -26,15 +26,15 @@ fun main(arguments: Array<String>) = runBlocking {
     // 0: The official Minecraft release shared by every prepared fixture input.
     val minecraftVersion = arguments[0]
     // 1: The Gradle-prepared, stopped official-server template and runtime.
-    val officialServerRootDirectory = Path(arguments[1])
+    val officialServerRootDirectory = Path.of(arguments[1])
     // 2: The Gradle-prepared, stopped HeadlessMC template and runtime.
-    val headlessClientRootDirectory = Path(arguments[2])
+    val headlessClientRootDirectory = Path.of(arguments[2])
     // 3: The extracted official server implementation and runtime libraries.
-    val serverRuntimeDirectory = Path(arguments[3])
+    val serverRuntimeDirectory = Path.of(arguments[3])
     // 4: The compiled bridge used to verify values with the official codecs.
-    val codecClassesDirectory = Path(arguments[4])
+    val codecClassesDirectory = Path.of(arguments[4])
     // 5: This Host process's isolated root for runtime directories and scratch files.
-    val hostWorkRoot = Path(arguments[5])
+    val hostWorkRoot = Path.of(arguments[5])
     // 6: The resource capacity shared with the Gradle Build Service task limit.
     val maximumParallelUsages = arguments[6].toInt()
     require(maximumParallelUsages > 0) {
@@ -235,7 +235,7 @@ internal class HostedFixtureResources(maximumParallelUsages: Int) {
             resourceSlots.release()
             throw failure
         }
-        val id = newResourceId()
+        val id = Uuid.random().toString()
         val hosted = HostedFixtureResource.Server(ownerId, resource)
         hosted.invokeOnCleanupCompletion { resourceSlots.release() }
         try {
@@ -262,7 +262,7 @@ internal class HostedFixtureResources(maximumParallelUsages: Int) {
             resourceSlots.release()
             throw failure
         }
-        val id = newResourceId()
+        val id = Uuid.random().toString()
         val hosted = HostedFixtureResource.Client(ownerId, resource)
         hosted.invokeOnCleanupCompletion { resourceSlots.release() }
         try {
@@ -353,7 +353,6 @@ internal class HostedFixtureResources(maximumParallelUsages: Int) {
     suspend fun hostWorkingDirectory(
         resource: MinecraftTestResource,
     ): String = hostedResource(resource.id).workDirectory
-        .toNioPath()
         .toAbsolutePath()
         .normalize()
         .pathString
@@ -544,15 +543,13 @@ private suspend fun verifyFixturesWithOfficialCodec(
     try {
         OfficialCodecOracle.verify(
             fixtures = fixtures,
-            loggingConfiguration = Path(scratch, "log4j2.xml"),
+            loggingConfiguration = scratch.resolve("log4j2.xml"),
             methodName = methodName,
         )
     } finally {
         scratch.deleteTree()
     }
 }
-
-private fun newResourceId(): String = Uuid.random().toString()
 
 private const val LOOPBACK = "127.0.0.1"
 private const val RPC_PATH = "/rpc"

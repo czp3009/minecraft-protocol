@@ -58,8 +58,7 @@ internal class OfficialPacketIds private constructor(
                     val direction = directionName.lowercase()
                     directionElement.jsonObject.forEach { (rawName, packetElement) ->
                         val name = rawName.removePrefix("minecraft:")
-                        val id = packetElement.jsonObject
-                            .requiredInt("protocol_id")
+                        val id = packetElement.jsonObject.getValue("protocol_id").jsonPrimitive.int
                         check(id >= 0) {
                             "Official packet $state/$direction/$name has a negative protocol ID"
                         }
@@ -544,72 +543,60 @@ internal data class VanillaConfigurationCaptureResult(
         val registries = completeRegistries.zip(clientKnownRegistries)
             .map { (full, compact) ->
                 validateRegistryPair(full, compact)
-                jsonObjectOf(
-                    "id" to jsonString(full.registryId),
-                    "entries" to JsonArray(
-                        full.entries.map {
-                            jsonString(it.id)
-                        },
-                    ),
-                    "complete_payload_base64" to jsonString(
-                        Base64.getEncoder().encodeToString(full.encode()),
-                    ),
-                    "client_known_payload_base64" to jsonString(
-                        Base64.getEncoder().encodeToString(compact.encode()),
-                    ),
-                )
+                buildJsonObject {
+                    put("id", full.registryId)
+                    putJsonArray("entries") {
+                        full.entries.forEach { add(it.id) }
+                    }
+                    put("complete_payload_base64", Base64.getEncoder().encodeToString(full.encode()))
+                    put("client_known_payload_base64", Base64.getEncoder().encodeToString(compact.encode()))
+                }
             }
         val structuredTags = tags.registries.map { registry ->
-            jsonObjectOf(
-                "registry" to jsonString(registry.registry),
-                "tags" to JsonArray(
-                    registry.tags.map { tag ->
-                        jsonObjectOf(
-                            "name" to jsonString(tag.name),
-                            "entries" to JsonArray(
-                                tag.entries.map(::jsonNumber),
-                            ),
-                        )
-                    },
-                ),
-            )
+            buildJsonObject {
+                put("registry", registry.registry)
+                putJsonArray("tags") {
+                    registry.tags.forEach { tag ->
+                        addJsonObject {
+                            put("name", tag.name)
+                            putJsonArray("entries") {
+                                tag.entries.forEach { add(it) }
+                            }
+                        }
+                    }
+                }
+            }
         }
-        return jsonObjectOf(
-            "schema_version" to jsonNumber(1),
-            "minecraft_version" to jsonString(target.minecraftVersion),
-            "protocol_version" to jsonNumber(target.protocolVersion),
-            "known_packs" to JsonArray(
-                knownPacks.values.map { pack ->
-                    jsonObjectOf(
-                        "namespace" to jsonString(pack.namespace),
-                        "id" to jsonString(pack.id),
-                        "version" to jsonString(pack.version),
-                    )
-                },
-            ),
-            "feature_flags" to JsonArray(
-                featureFlags.values.map(::jsonString),
-            ),
-            "registries" to JsonArray(registries),
-            "tags" to JsonArray(structuredTags),
-            "payloads" to jsonObjectOf(
-                "known_packs_base64" to jsonString(
-                    Base64.getEncoder().encodeToString(knownPacks.encode()),
-                ),
-                "feature_flags_base64" to jsonString(
-                    Base64.getEncoder().encodeToString(featureFlags.encode()),
-                ),
-                "tags_base64" to jsonString(
-                    Base64.getEncoder().encodeToString(tags.encode()),
-                ),
-            ),
-            "packet_sequence_full" to JsonArray(
-                completePacketSequence.map(::jsonString),
-            ),
-            "packet_sequence_known_packs" to JsonArray(
-                clientKnownPacketSequence.map(::jsonString),
-            ),
-        )
+        return buildJsonObject {
+            put("schema_version", 1)
+            put("minecraft_version", target.minecraftVersion)
+            put("protocol_version", target.protocolVersion)
+            putJsonArray("known_packs") {
+                knownPacks.values.forEach { pack ->
+                    addJsonObject {
+                        put("namespace", pack.namespace)
+                        put("id", pack.id)
+                        put("version", pack.version)
+                    }
+                }
+            }
+            putJsonArray("feature_flags") {
+                featureFlags.values.forEach { add(it) }
+            }
+            put("registries", JsonArray(registries))
+            put("tags", JsonArray(structuredTags))
+            putJsonObject("payloads") {
+                put("known_packs_base64", Base64.getEncoder().encodeToString(knownPacks.encode()))
+                put("feature_flags_base64", Base64.getEncoder().encodeToString(featureFlags.encode()))
+                put("tags_base64", Base64.getEncoder().encodeToString(tags.encode()))
+            }
+            putJsonArray("packet_sequence_full") {
+                completePacketSequence.forEach { add(it) }
+            }
+            putJsonArray("packet_sequence_known_packs") {
+                clientKnownPacketSequence.forEach { add(it) }
+            }
+        }
     }
 
     companion object {
@@ -620,40 +607,35 @@ internal data class VanillaConfigurationCaptureResult(
             document: JsonObject,
             expectedTarget: OfficialMinecraftTargetReport,
         ): VanillaConfigurationCaptureResult {
-            check(document.requiredInt("schema_version") == 1) {
+            check(document.getValue("schema_version").jsonPrimitive.int == 1) {
                 "Unsupported vanilla Configuration analysis schema"
             }
             val target = expectedTarget.target
             check(
-                document.requiredString("minecraft_version") ==
+                document.getValue("minecraft_version").jsonPrimitive.content ==
                         target.minecraftVersion &&
-                        document.requiredInt("protocol_version") ==
+                        document.getValue("protocol_version").jsonPrimitive.int ==
                         target.protocolVersion,
             ) {
                 "Vanilla Configuration analysis targets a different release"
             }
-            val describedKnownPacks = document.requiredArray("known_packs")
+            val describedKnownPacks = document.getValue("known_packs").jsonArray
                 .map { element ->
                     val pack = element.jsonObject
                     KnownPackPayload(
-                        namespace = pack.requiredString("namespace"),
-                        id = pack.requiredString("id"),
-                        version = pack.requiredString("version"),
+                        namespace = pack.getValue("namespace").jsonPrimitive.content,
+                        id = pack.getValue("id").jsonPrimitive.content,
+                        version = pack.getValue("version").jsonPrimitive.content,
                     )
                 }
             val describedFeatureFlags = document
-                .requiredArray("feature_flags")
-                .mapIndexed { index, element ->
-                    element.requiredStringValue("feature_flags[$index]")
-                }
-            val payloads = document.requiredObject("payloads")
-            val knownPacksBytes = payloads.decodeBase64(
-                "known_packs_base64",
-            )
-            val featureFlagsBytes = payloads.decodeBase64(
-                "feature_flags_base64",
-            )
-            val tagsBytes = payloads.decodeBase64("tags_base64")
+                .getValue("feature_flags")
+                .jsonArray
+                .map { it.jsonPrimitive.content }
+            val payloads = document.getValue("payloads").jsonObject
+            val knownPacksBytes = Base64.getDecoder().decode(payloads.getValue("known_packs_base64").jsonPrimitive.content)
+            val featureFlagsBytes = Base64.getDecoder().decode(payloads.getValue("feature_flags_base64").jsonPrimitive.content)
+            val tagsBytes = Base64.getDecoder().decode(payloads.getValue("tags_base64").jsonPrimitive.content)
             val knownPacks = KnownPacksPayload.decode(knownPacksBytes)
             val featureFlags = FeatureFlagsPayload.decode(featureFlagsBytes)
             check(knownPacks.encode().contentEquals(knownPacksBytes)) {
@@ -671,22 +653,13 @@ internal data class VanillaConfigurationCaptureResult(
 
             val completeRegistries = mutableListOf<RegistryPayload>()
             val clientKnownRegistries = mutableListOf<RegistryPayload>()
-            document.requiredArray("registries")
-                .forEachIndexed { index, element ->
+            document.getValue("registries").jsonArray
+                .forEach { element ->
                     val registry = element.jsonObject
-                    val id = registry.requiredString("id")
-                    val entryIds = registry.requiredArray("entries")
-                        .mapIndexed { entryIndex, entry ->
-                            entry.requiredStringValue(
-                                "registries[$index].entries[$entryIndex]",
-                            )
-                        }
-                    val completeBytes = registry.decodeBase64(
-                        "complete_payload_base64",
-                    )
-                    val clientKnownBytes = registry.decodeBase64(
-                        "client_known_payload_base64",
-                    )
+                    val id = registry.getValue("id").jsonPrimitive.content
+                    val entryIds = registry.getValue("entries").jsonArray.map { it.jsonPrimitive.content }
+                    val completeBytes = Base64.getDecoder().decode(registry.getValue("complete_payload_base64").jsonPrimitive.content)
+                    val clientKnownBytes = Base64.getDecoder().decode(registry.getValue("client_known_payload_base64").jsonPrimitive.content)
                     val complete = RegistryPayload.decode(completeBytes)
                     val clientKnown = RegistryPayload.decode(clientKnownBytes)
                     check(complete.encode().contentEquals(completeBytes)) {
@@ -718,21 +691,16 @@ internal data class VanillaConfigurationCaptureResult(
                 }
 
             val describedTags = TagsPayload(
-                document.requiredArray("tags").mapIndexed { index, element ->
+                document.getValue("tags").jsonArray.map { element ->
                     val registry = element.jsonObject
                     RegistryTagsPayload(
-                        registry = registry.requiredString("registry"),
-                        tags = registry.requiredArray("tags")
-                            .mapIndexed { tagIndex, tagElement ->
+                        registry = registry.getValue("registry").jsonPrimitive.content,
+                        tags = registry.getValue("tags").jsonArray
+                            .map { tagElement ->
                                 val tag = tagElement.jsonObject
                                 TagPayload(
-                                    name = tag.requiredString("name"),
-                                    entries = tag.requiredArray("entries")
-                                        .mapIndexed { entryIndex, entry ->
-                                            entry.requiredIntValue(
-                                                "tags[$index].tags[$tagIndex].entries[$entryIndex]",
-                                            )
-                                        },
+                                    name = tag.getValue("name").jsonPrimitive.content,
+                                    entries = tag.getValue("entries").jsonArray.map { it.jsonPrimitive.int },
                                 )
                             },
                     )
@@ -760,46 +728,13 @@ internal data class VanillaConfigurationCaptureResult(
                 completeRegistries = completeRegistries,
                 clientKnownRegistries = clientKnownRegistries,
                 tags = tags,
-                completePacketSequence = document.stringList(
-                    "packet_sequence_full",
-                ),
-                clientKnownPacketSequence = document.stringList(
-                    "packet_sequence_known_packs",
-                ),
+                completePacketSequence = document.getValue("packet_sequence_full").jsonArray
+                    .map { it.jsonPrimitive.content },
+                clientKnownPacketSequence = document.getValue("packet_sequence_known_packs").jsonArray
+                    .map { it.jsonPrimitive.content },
             )
         }
 
-        private fun JsonObject.decodeBase64(name: String): ByteArray =
-            try {
-                Base64.getDecoder().decode(requiredString(name))
-            } catch (failure: IllegalArgumentException) {
-                throw IllegalStateException(
-                    "JSON property '$name' is not canonical Base64",
-                    failure,
-                )
-            }
-
-        private fun JsonObject.stringList(name: String): List<String> =
-            requiredArray(name).mapIndexed { index, element ->
-                element.requiredStringValue("$name[$index]")
-            }
-
-        private fun JsonElement.requiredStringValue(path: String): String =
-            jsonPrimitive.let { value ->
-                check(value.isString) {
-                    "JSON value '$path' is not a string"
-                }
-                value.content
-            }
-
-        private fun JsonElement.requiredIntValue(path: String): Int =
-            jsonPrimitive.let { value ->
-                check(!value.isString) {
-                    "JSON value '$path' is not an integer"
-                }
-                value.intOrNull
-                    ?: error("JSON value '$path' is not an integer")
-            }
     }
 
     private fun TypeSpec.Builder.addPayload(
@@ -1217,12 +1152,12 @@ internal class PacketInput(
         return bytes[position++]
     }
 
-    fun readUnsignedByte(): Int = readByte().toInt() and 0xFF
+    fun readUnsignedByte(): Int = readByte().toUByte().toInt()
 
     fun readShort(): Short =
         readFixed(2).short
 
-    fun readUnsignedShort(): Int = readShort().toInt() and 0xFFFF
+    fun readUnsignedShort(): Int = readShort().toUShort().toInt()
 
     fun readInt(): Int = readFixed(4).int
 
@@ -1514,7 +1449,8 @@ private object GradlePacketFraming {
         require(frameLength in 1..MAXIMUM_FRAME_SIZE) {
             "Invalid incoming frame size $frameLength"
         }
-        val body = input.readExactly(frameLength)
+        val body = input.readNBytes(frameLength)
+        if (body.size != frameLength) throw EOFException("Expected $frameLength bytes, received ${body.size}")
         if (compressionThreshold == null) return body
 
         val cursor = PacketInput(body)
@@ -1619,21 +1555,6 @@ private object GradlePacketFraming {
         error("VarInt is wider than five bytes")
     }
 
-    private fun InputStream.readExactly(length: Int): ByteArray {
-        val result = ByteArray(length)
-        var position = 0
-        while (position < length) {
-            val count = read(result, position, length - position)
-            if (count < 0) {
-                throw EOFException(
-                    "Expected $length bytes, received $position",
-                )
-            }
-            if (count == 0) continue
-            position += count
-        }
-        return result
-    }
 }
 
 private class BoundedProcessLog(

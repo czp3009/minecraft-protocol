@@ -20,7 +20,7 @@ class StandaloneFileStoreEdgeTest {
         val path = "/world/value.dat".toPath()
         val normal = NbtFileStore(fileSystem)
         normal.writeDocument(path, edgeDocument(1), Compression.NONE)
-        val original = fileSystem.readRaw(path)
+        val original = fileSystem.readFileBytes(path)
         fileSystem.writeRaw(
             path,
             original.copyOf(original.size + 1).also { it[it.lastIndex] = 1 },
@@ -40,12 +40,12 @@ class StandaloneFileStoreEdgeTest {
         val path = "/world/data/value.dat".toPath()
         val normal = NbtFileStore(fileSystem)
         normal.writeDocument(path, edgeDocument(1))
-        val oldBytes = fileSystem.readRaw(path)
+        val oldBytes = fileSystem.readFileBytes(path)
         val failure = WorldIOException("synthetic streaming failure")
 
         assertSame(failure, assertFails { normal.write(path) { throw failure } })
 
-        val failedBytes = fileSystem.readRaw(path)
+        val failedBytes = fileSystem.readFileBytes(path)
         assertFalse(oldBytes.contentEquals(failedBytes))
         assertFails { normal.readDocument(path) }
         fileSystem.checkNoOpenFiles()
@@ -154,7 +154,7 @@ class StandaloneFileStoreEdgeTest {
 
         assertTrue(failure.suppressedExceptions.isNotEmpty())
         assertEquals(10, failing.attempts)
-        assertContentEquals(corrupt, base.readRaw(paths.levelData))
+        assertContentEquals(corrupt, base.readFileBytes(paths.levelData))
         assertTrue(base.exists(paths.previousLevelData))
         assertTrue(
             base.list(paths.root).none {
@@ -205,7 +205,7 @@ class StandaloneFileStoreEdgeTest {
             displacementCorrupt,
             displacementBase.list(displacementPaths.root).single {
                 it.name.startsWith("level.dat_corrupted_")
-            }.let(displacementBase::readRaw),
+            }.let(displacementBase::readFileBytes),
         )
 
         val promotionBase = FakeFileSystem()
@@ -241,7 +241,7 @@ class StandaloneFileStoreEdgeTest {
             promotionCorrupt,
             promotionBase.list(promotionPaths.root).single {
                 it.name.startsWith("level.dat_corrupted_")
-            }.let(promotionBase::readRaw),
+            }.let(promotionBase::readFileBytes),
         )
     }
 
@@ -263,7 +263,7 @@ class StandaloneFileStoreEdgeTest {
             LevelDataStore(paths, NbtFileStore(cancelling)).readDocument()
         }
         assertTrue(base.exists(paths.previousLevelData))
-        assertContentEquals(byteArrayOf(1), base.readRaw(paths.levelData))
+        assertContentEquals(byteArrayOf(1), base.readFileBytes(paths.levelData))
     }
 
     @Test
@@ -284,7 +284,7 @@ class StandaloneFileStoreEdgeTest {
             LevelDataStore(paths, NbtFileStore(cancelling)).readDocument()
         }
         assertTrue(base.exists(paths.previousLevelData))
-        assertContentEquals(byteArrayOf(1), base.readRaw(paths.levelData))
+        assertContentEquals(byteArrayOf(1), base.readFileBytes(paths.levelData))
     }
 
     @Test
@@ -399,7 +399,7 @@ class StandaloneFileStoreEdgeTest {
         )
         assertContentEquals(
             byteArrayOf(1),
-            fallbackBase.readRaw(fallbackPaths.levelData),
+            fallbackBase.readFileBytes(fallbackPaths.levelData),
         )
         assertTrue(fallbackBase.exists(fallbackPaths.previousLevelData))
 
@@ -431,7 +431,7 @@ class StandaloneFileStoreEdgeTest {
         assertEquals(1, promotionFailing.attempts)
         assertContentEquals(
             byteArrayOf(2),
-            promotionBase.readRaw(promotionPaths.levelData),
+            promotionBase.readFileBytes(promotionPaths.levelData),
         )
         assertTrue(promotionBase.exists(promotionPaths.previousLevelData))
     }
@@ -479,11 +479,11 @@ class StandaloneFileStoreEdgeTest {
                 it.name.startsWith(
                     "without-previous.dat_corrupted_",
                 )
-            }.let(fileSystem::readRaw),
+            }.let(fileSystem::readFileBytes),
         )
         assertContentEquals(
             corrupt,
-            fileSystem.readRaw(paths.playerData(withoutPrevious)),
+            fileSystem.readFileBytes(paths.playerData(withoutPrevious)),
         )
     }
 
@@ -548,7 +548,7 @@ class StandaloneFileStoreEdgeTest {
             )
             assertContentEquals(
                 byteArrayOf(1, 2, 3),
-                base.readRaw(paths.playerData(player)),
+                base.readFileBytes(paths.playerData(player)),
             )
             base.checkNoOpenFiles()
         }
@@ -638,7 +638,7 @@ class StandaloneFileStoreEdgeTest {
         assertTrue(fallbackBase.exists(fallbackPaths.previousPlayerData(player)))
         assertContentEquals(
             byteArrayOf(1, 2, 3),
-            fallbackBase.readRaw(fallbackPaths.playerData(player)),
+            fallbackBase.readFileBytes(fallbackPaths.playerData(player)),
         )
     }
 
@@ -704,7 +704,7 @@ class StandaloneFileStoreEdgeTest {
         )
         assertContentEquals(
             byteArrayOf(4, 5, 6),
-            fallbackBase.readRaw(fallbackPaths.playerData(player)),
+            fallbackBase.readFileBytes(fallbackPaths.playerData(player)),
         )
         assertTrue(fallbackBase.exists(fallbackPaths.previousPlayerData(player)))
     }
@@ -1096,6 +1096,3 @@ private fun FileSystem.writeRaw(path: Path, bytes: ByteArray) {
         sink.close()
     }
 }
-
-private fun FileSystem.readRaw(path: Path): ByteArray =
-    readFileBytes(path)

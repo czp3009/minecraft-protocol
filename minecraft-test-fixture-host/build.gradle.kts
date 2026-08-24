@@ -21,7 +21,6 @@ dependencies {
     implementation(libs.ktor.network)
     implementation(libs.ktor.server.cio)
     implementation(libs.kotlincrypto.hash.md)
-    implementation(libs.kotlincrypto.hash.sha2)
     implementation(libs.kotlin.logging)
     implementation(libs.xmlutil.serialization)
 

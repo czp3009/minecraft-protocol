@@ -17,11 +17,11 @@ executable.
 1. Inspect the worktree before changing anything.
 2. Run `./gradlew -q minecraftVersion` to resolve the current target.
 3. Change `MinecraftTarget.MINECRAFT_VERSION` only when the user explicitly requests another release, then run
-   `./gradlew officialMinecraftAnalysis` before target-specific implementation.
+   `./gradlew prepareOfficialMinecraftData` before target-specific implementation.
 
-`officialMinecraftAnalysis` analyzes the official server JAR. Run `./gradlew downloadMinecraftClientJar` only when an
-affected workflow needs matching client bytecode; use that declared Gradle producer instead of downloading an artifact
-manually.
+`prepareOfficialMinecraftData` prepares the official analysis and extracted-data artifacts from the official server. Run
+`./gradlew downloadMinecraftClientJar` only when an affected workflow needs matching client bytecode; use that declared
+Gradle producer instead of downloading an artifact manually.
 
 Do not infer a release change from a protocol number or from a secondary project. Keep other `buildSrc` version targets
 independent.

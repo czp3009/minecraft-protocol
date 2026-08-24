@@ -1,9 +1,6 @@
 package com.hiczp.minecraft.buildlogic
 
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
+import kotlinx.serialization.json.*
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.*
@@ -32,14 +29,13 @@ abstract class ExtractOfficialMinecraftDataPacksTask : MinecraftProtocolToolTask
         ZipFile(jar.toFile()).use { archive ->
             val versionEntry = archive.getEntry(VERSION_FILE)
                 ?: error("Official server implementation has no $VERSION_FILE")
-            val versionJson = archive.getInputStream(versionEntry).use { it.readBytes() }
-                .decodeJsonObject("$jar!/$VERSION_FILE")
-            check(versionJson.requiredString("id") == version) {
+            val versionJson = protocolJson.decodeFromString<JsonObject>(archive.getInputStream(versionEntry).use { it.readBytes() }.decodeToString())
+            check(versionJson.getValue("id").jsonPrimitive.content == version) {
                 "Official implementation JAR targets a different Minecraft release"
             }
-            val dataFormat = versionJson.requiredObject("pack_version")
-            val dataMajor = dataFormat.requiredInt("data_major")
-            val dataMinor = dataFormat.requiredInt("data_minor")
+            val dataFormat = versionJson.getValue("pack_version").jsonObject
+            val dataMajor = dataFormat.getValue("data_major").jsonPrimitive.int
+            val dataMinor = dataFormat.getValue("data_minor").jsonPrimitive.int
             archive.entries().asSequence()
                 .filterNot { it.isDirectory }
                 .filter { it.name.startsWith(DATA_PREFIX) }

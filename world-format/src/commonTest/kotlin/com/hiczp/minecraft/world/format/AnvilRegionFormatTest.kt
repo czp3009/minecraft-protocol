@@ -507,30 +507,22 @@ class AnvilRegionFormatTest {
             Triple(
                 Compression.ZLIB,
                 hello,
-                hexBytes(
-                    "7801010b00f4ff68656c6c6f20776f726c641a0b045d",
-                ),
+                "7801010b00f4ff68656c6c6f20776f726c641a0b045d".hexToByteArray(),
             ),
             Triple(
                 Compression.ZLIB,
                 dynamic,
-                hexBytes(
-                    "789cedca470180301045412b5f016a628092d0d910084d3d88e0f8ce33aef35a735f8faa929d8b825d1af21c37d9e193f68fa7f2b9d5585bc891c96432994c2693c96432994c2693ffc82f1dc84f97",
-                ),
+                "789cedca470180301045412b5f016a628092d0d910084d3d88e0f8ce33aef35a735f8faa929d8b825d1af21c37d9e193f68fa7f2b9d5585bc891c96432994c2693c96432994c2693ffc82f1dc84f97".hexToByteArray(),
             ),
             Triple(
                 Compression.GZIP,
                 hello,
-                hexBytes(
-                    "1f8b08000000000000ffcb48cdc9c95728cf2fca49010085114a0d0b000000",
-                ),
+                "1f8b08000000000000ffcb48cdc9c95728cf2fca49010085114a0d0b000000".hexToByteArray(),
             ),
             Triple(
                 Compression.GZIP,
                 dynamic,
-                hexBytes(
-                    "1f8b08000000000000ffedca470180301045412b5f016a628092d0d910084d3d88e0f8ce33aef35a735f8faa929d8b825d1af21c37d9e193f68fa7f2b9d5585bc891c96432994c2693c96432994c2693ffc82f38398b9b94110000",
-                ),
+                "1f8b08000000000000ffedca470180301045412b5f016a628092d0d910084d3d88e0f8ce33aef35a735f8faa929d8b825d1af21c37d9e193f68fa7f2b9d5585bc891c96432994c2693c96432994c2693ffc82f38398b9b94110000".hexToByteArray(),
             ),
         )
 
@@ -1216,15 +1208,6 @@ class AnvilRegionFormatTest {
                 NbtCompound(mapOf("value" to NbtInt(1))),
             ),
         )
-
-    private fun hexBytes(value: String): ByteArray {
-        require(value.length % 2 == 0)
-        return ByteArray(value.length / 2) { index ->
-            value.substring(index * 2, index * 2 + 2)
-                .toInt(16)
-                .toByte()
-        }
-    }
 
     private fun singleRecord(length: Int, version: Int): ByteArray =
         ByteArray(3 * REGION_SECTOR_BYTES).also {

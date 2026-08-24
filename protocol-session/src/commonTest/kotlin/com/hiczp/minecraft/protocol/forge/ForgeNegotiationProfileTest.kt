@@ -20,7 +20,8 @@ class ForgeNegotiationProfileTest {
     @Test
     fun scriptedProfilesNegotiateTasksRegistriesAndDynamicPlayPackets() = runTest {
         val customCodecs = forgeTestPlayCodecs()
-        val packetRegistry = MinecraftPacketRegistry.compose(
+        val packetRegistry = PacketRegistry(
+            MinecraftPacketRegistry.entries,
             ForgeProtocol.packetCodecs + customCodecs,
         )
         val serverToClient = Channel<ClientboundPacket>(Channel.UNLIMITED)
@@ -156,7 +157,8 @@ class ForgeNegotiationProfileTest {
         val network = ForgeNetworkConfiguration(
             listOf(ForgeChannelDefinition(required, 1)),
         )
-        val registry = MinecraftPacketRegistry.compose(
+        val registry = PacketRegistry(
+            MinecraftPacketRegistry.entries,
             ForgeProtocol.packetCodecs,
         )
         val incoming = Channel<ServerboundPacket>(Channel.UNLIMITED)
@@ -212,7 +214,8 @@ class ForgeNegotiationProfileTest {
 
     @Test
     fun outOfOrderRegistryDataThrowsWithoutReply() = runTest {
-        val registry = MinecraftPacketRegistry.compose(
+        val registry = PacketRegistry(
+            MinecraftPacketRegistry.entries,
             ForgeProtocol.packetCodecs,
         )
         val incoming = Channel<ClientboundPacket>(Channel.UNLIMITED)

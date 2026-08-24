@@ -52,7 +52,7 @@ abstract class MinecraftTestFixtureService :
                 "Minecraft test fixture service is shutting down"
             }
             val runningHost = host ?: startHost().also { host = it }
-            val ownerId = ownersByTask.getOrPut(taskPath, ::newOwnerId)
+            val ownerId = ownersByTask.getOrPut(taskPath) { UUID.randomUUID().toString() }
             MinecraftTestFixtureConnection(
                 rpcUrl = runningHost.rpcUrl,
                 ownerId = ownerId,
@@ -89,7 +89,7 @@ abstract class MinecraftTestFixtureService :
         val fixtureWorkRoot = parameters.fixtureWorkRoot.get().asFile
         val hostWorkRoot = File(
             fixtureWorkRoot,
-            "hosts/${newOwnerId()}",
+            "hosts/${UUID.randomUUID()}",
         ).absoluteFile
         check(!hostWorkRoot.exists()) {
             "Minecraft test fixture host work directory already exists: $hostWorkRoot"
@@ -426,8 +426,6 @@ private class BoundedOutput(
     @Synchronized
     fun text(): String = content.toString()
 }
-
-private fun newOwnerId(): String = UUID.randomUUID().toString()
 
 internal const val FIXTURE_RPC_URL_ENV = "MINECRAFT_TEST_FIXTURE_RPC_URL"
 internal const val FIXTURE_OWNER_ID_ENV = "MINECRAFT_TEST_FIXTURE_OWNER_ID"

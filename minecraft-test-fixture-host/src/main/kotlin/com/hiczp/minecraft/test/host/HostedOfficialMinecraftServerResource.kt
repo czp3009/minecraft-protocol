@@ -10,14 +10,14 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import kotlin.concurrent.Volatile
+import kotlin.io.path.*
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -139,7 +139,7 @@ internal class HostedOfficialMinecraftServerResource private constructor(
                 workDirectory = workDirectory,
                 configuration = configuration,
             )
-            Path(workDirectory, "eula.txt").writeText("eula=true\n")
+            workDirectory.resolve("eula.txt").writeText("eula=true\n")
             val launched = launchOfficialServer(
                 artifact = artifact,
                 workDirectory = workDirectory,
@@ -160,7 +160,7 @@ internal fun prepareOfficialServerWorkspace(
     workDirectory: Path,
     configuration: OfficialMinecraftServerConfiguration,
 ): OfficialServerArtifact {
-    workDirectory.ensureDirectory()
+    workDirectory.createDirectories()
     preparedArtifact.runtimeDirectory.linkTreeTo(
         destination = workDirectory,
         excludedRelativePaths = SERVER_SYMBOLIC_RUNTIME_DIRECTORIES,
@@ -169,7 +169,7 @@ internal fun prepareOfficialServerWorkspace(
         preparedArtifact.runtimeDirectory.safeResolve(relativePath)
             .linkDirectoryTo(workDirectory.safeResolve(relativePath))
     }
-    val runtimeJar = Path(workDirectory, "server.jar")
+    val runtimeJar = workDirectory.resolve("server.jar")
     if (!configuration.usesDefaultTemplate()) {
         return preparedArtifact.copy(
             runtimeDirectory = workDirectory,
@@ -180,15 +180,15 @@ internal fun prepareOfficialServerWorkspace(
     val levelName = configuration.properties["level-name"]
         ?: DEFAULT_WORLD_NAME
     val targetWorld = workDirectory.safeResolve(levelName)
-    val defaultWorld = Path(workDirectory, DEFAULT_WORLD_NAME)
+    val defaultWorld = workDirectory.resolve(DEFAULT_WORLD_NAME)
     if (targetWorld != defaultWorld && defaultWorld.isDirectory()) {
         check(!targetWorld.exists()) {
             "Template target world already exists: $targetWorld"
         }
-        targetWorld.parent?.ensureDirectory()
+        targetWorld.parent?.createDirectories()
         Files.move(
-            defaultWorld.toNioPath(),
-            targetWorld.toNioPath(),
+            defaultWorld,
+            targetWorld,
             StandardCopyOption.ATOMIC_MOVE,
         )
     }
@@ -364,7 +364,7 @@ private fun writeProperties(
     properties["online-mode"] = "false"
     properties["server-ip"] = LOOPBACK
     properties["server-port"] = port.toString()
-    Path(workDirectory, "server.properties").writeText(
+    workDirectory.resolve("server.properties").writeText(
         properties.entries.sortedBy { it.key }.joinToString(
             separator = "\n",
             postfix = "\n",
@@ -389,14 +389,14 @@ internal suspend fun generateOfficialMinecraftServerTemplate(
     val candidate = createUniqueDirectory(workRoot)
     var published = false
     try {
-        Path(candidate, "eula.txt").writeText("eula=true\n")
+        candidate.resolve("eula.txt").writeText("eula=true\n")
         val configuration = OfficialMinecraftServerConfiguration(
         )
         val launched = launchOfficialServer(
             artifact = OfficialServerArtifact(
                 runtimeDirectory = candidate,
                 jar = serverJar,
-                templateDirectory = Path(candidate, "unused-template"),
+                templateDirectory = candidate.resolve("unused-template"),
             ),
             workDirectory = candidate,
             configuration = configuration,
@@ -412,17 +412,17 @@ internal suspend fun generateOfficialMinecraftServerTemplate(
         check(exitCode == 0) {
             "Official server template process exited with $exitCode:\n${launched.process.logText()}"
         }
-        check(Path(candidate, DEFAULT_WORLD_NAME).isDirectory()) {
+        check(candidate.resolve(DEFAULT_WORLD_NAME).isDirectory()) {
             "Official server template did not generate the default world"
         }
-        val runtimeDirectory = Path(outputRoot, "runtime")
-        serverJar.copyFileTo(Path(runtimeDirectory, "server.jar"))
+        val runtimeDirectory = outputRoot.resolve("runtime")
+        serverJar.copyFileTo(runtimeDirectory.resolve("server.jar"))
         SERVER_EXTRACTED_RUNTIME_DIRECTORIES.forEach { name ->
             candidate.safeResolve(name).copyTreeTo(
                 runtimeDirectory.safeResolve(name),
             )
         }
-        val templateDirectory = Path(outputRoot, "template")
+        val templateDirectory = outputRoot.resolve("template")
         candidate.copyTreeTo(templateDirectory)
         SERVER_EXTRACTED_RUNTIME_DIRECTORIES.forEach { name ->
             templateDirectory.safeResolve(name).deleteTree()
@@ -443,14 +443,14 @@ internal suspend fun generateOfficialMinecraftServerTemplate(
                 "Official server template retained mutable file $relativePath"
             }
         }
-        val runtimeEntries = SystemFileSystem.list(runtimeDirectory)
-            .map { path -> path.name }
+        val runtimeEntries = runtimeDirectory.listDirectoryEntries()
+            .map { path -> path.fileName.toString() }
             .sorted()
         check(runtimeEntries == SERVER_RUNTIME_ENTRIES) {
             "Official server runtime contains unexpected entries: $runtimeEntries"
         }
-        val templateEntries = SystemFileSystem.list(templateDirectory)
-            .map { path -> path.name }
+        val templateEntries = templateDirectory.listDirectoryEntries()
+            .map { path -> path.fileName.toString() }
             .sorted()
         val manifest = JsonObject(
             linkedMapOf(
@@ -478,7 +478,7 @@ internal suspend fun generateOfficialMinecraftServerTemplate(
                 "clean_stop" to JsonPrimitive(true),
             ),
         )
-        Path(outputRoot, "manifest.json").writeText(
+        outputRoot.resolve("manifest.json").writeText(
             "${testJson.encodeToString(JsonObject.serializer(), manifest)}\n",
         )
         published = true

@@ -25,12 +25,12 @@ val packet = MinecraftProtocolFormat.decodeFromSource(
 
 ## Compose a packet registry
 
-`MinecraftPacketRegistry` is the immutable vanilla base for the repository-selected Minecraft release. Compose a
+`MinecraftPacketRegistry` is the immutable vanilla base for the repository-selected Minecraft release. Construct a
 connection-specific registry with application or loader packet codecs instead of mutating a global table. Here
 `myPacketCodecs` is the caller's collection of extension registrations and `packet` is the packet value being encoded:
 
 ```kotlin
-val packetRegistry = MinecraftPacketRegistry.compose(myPacketCodecs)
+val packetRegistry = PacketRegistry(MinecraftPacketRegistry.entries, myPacketCodecs)
 val encoded = packetRegistry.encodePayload(packet)
 
 val decoded = packetRegistry.decodePayload(

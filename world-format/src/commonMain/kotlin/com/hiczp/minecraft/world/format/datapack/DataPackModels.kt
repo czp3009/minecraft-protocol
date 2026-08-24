@@ -255,6 +255,17 @@ data class DataPackResourceId(
     }
 
     override fun toString(): String = "$namespace:$path"
+
+    companion object {
+        operator fun invoke(value: String): DataPackResourceId {
+            val separator = value.indexOf(':')
+            return if (separator < 0) {
+                DataPackResourceId("minecraft", value)
+            } else {
+                DataPackResourceId(value.substring(0, separator), value.substring(separator + 1))
+            }
+        }
+    }
 }
 
 /** Fully parsed contents of one data pack. Every original file remains addressable in [files]. */

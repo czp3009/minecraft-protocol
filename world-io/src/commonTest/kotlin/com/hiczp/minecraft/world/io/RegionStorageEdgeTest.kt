@@ -47,7 +47,7 @@ class RegionStorageEdgeTest {
             REGION_SECTOR_BYTES.toLong(),
             fileSystem.metadata(path).size,
         )
-        assertContentEquals(byteArrayOf(1), fileSystem.readRaw(path).copyOf(1))
+        assertContentEquals(byteArrayOf(1), fileSystem.readFileBytes(path).copyOf(1))
     }
 
     @Test
@@ -76,10 +76,10 @@ class RegionStorageEdgeTest {
         store.removeChunk(ChunkPosition(0, 0))
 
         assertTrue(fileSystem.exists(regionPath))
-        assertContentEquals(originalHeader, fileSystem.readRaw(regionPath))
-        assertContentEquals(sidecarBytes, fileSystem.readRaw(sidecarPath))
+        assertContentEquals(originalHeader, fileSystem.readFileBytes(regionPath))
+        assertContentEquals(sidecarBytes, fileSystem.readFileBytes(sidecarPath))
         store.close()
-        assertContentEquals(originalHeader, fileSystem.readRaw(regionPath))
+        assertContentEquals(originalHeader, fileSystem.readFileBytes(regionPath))
         fileSystem.checkNoOpenFiles()
     }
 
@@ -102,7 +102,7 @@ class RegionStorageEdgeTest {
         store.close()
 
         val storedHeader = RegionHeader.decode(
-            fileSystem.readRaw(path).copyOfRange(0, REGION_HEADER_BYTES),
+            fileSystem.readFileBytes(path).copyOfRange(0, REGION_HEADER_BYTES),
         )
         assertEquals(RegionLocation(1, 1), storedHeader.location(first))
         assertEquals(RegionLocation(3, 1), storedHeader.location(second))
@@ -520,8 +520,6 @@ private fun FileSystem.writeRaw(path: Path, bytes: ByteArray) {
     }
 }
 
-private fun FileSystem.readRaw(path: Path): ByteArray =
-    readFileBytes(path)
 
 private enum class ExternalFileKind {
     MISSING,

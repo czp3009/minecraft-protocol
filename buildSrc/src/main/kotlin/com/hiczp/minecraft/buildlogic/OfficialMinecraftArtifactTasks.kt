@@ -1,8 +1,7 @@
 package com.hiczp.minecraft.buildlogic
 
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.*
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
@@ -14,6 +13,7 @@ import java.util.*
 import java.util.zip.ZipFile
 import kotlin.io.path.createDirectories
 import kotlin.io.path.isRegularFile
+import kotlin.io.path.readText
 
 @CacheableTask
 abstract class DownloadOfficialMinecraftServerTask :
@@ -41,17 +41,19 @@ abstract class DownloadOfficialMinecraftServerTask :
         require(version.matches(Regex("[0-9A-Za-z._-]+"))) {
             "Unsafe Minecraft version identifier: $version"
         }
-        val metadata = versionMetadata.asFile.get().toPath()
-            .readJsonObject()
-        check(metadata.requiredString("id") == version) {
+        val metadata = protocolJson.decodeFromString<JsonObject>(
+            versionMetadata.asFile.get().toPath().readText(),
+        )
+        check(metadata.getValue("id").jsonPrimitive.content == version) {
             "Version metadata identifies a different release"
         }
-        val server = metadata.requiredObject("downloads")
-            .requiredObject("server")
-        val serverUrl = server.requiredString("url")
+        val server = metadata.getValue("downloads").jsonObject.getValue("server").jsonObject
+        val serverUrl = server.getValue("url").jsonPrimitive.content
         val javaMajor = metadata["javaVersion"]
             ?.jsonObject
-            ?.requiredInt("majorVersion")
+            ?.getValue("majorVersion")
+            ?.jsonPrimitive
+            ?.int
             ?: 0
 
         val destination = serverJar.asFile.get().toPath()
@@ -68,12 +70,12 @@ abstract class DownloadOfficialMinecraftServerTask :
                 "Official server version.json and Mojang metadata disagree on the required Java version"
             }
             metadataPath.writeJson(
-                jsonObjectOf(
-                    "schema_version" to jsonNumber(1),
-                    "minecraft_version" to jsonString(version),
-                    "server_url" to jsonString(serverUrl),
-                    "java_major_version" to jsonNumber(javaMajor),
-                ),
+                buildJsonObject {
+                    put("schema_version", 1)
+                    put("minecraft_version", version)
+                    put("server_url", serverUrl)
+                    put("java_major_version", javaMajor)
+                },
                 sortKeys = true,
             )
             logger.lifecycle(
@@ -103,20 +105,21 @@ abstract class AnalyzeOfficialMinecraftTargetTask :
         val target = server.readMinecraftProtocolTarget(
             minecraftVersion.get(),
         )
-        val metadata = downloadMetadata.asFile.get().toPath()
-            .readJsonObject()
+        val metadata = protocolJson.decodeFromString<JsonObject>(
+            downloadMetadata.asFile.get().toPath().readText(),
+        )
         check(
-            metadata.requiredString("minecraft_version") ==
+            metadata.getValue("minecraft_version").jsonPrimitive.content ==
                     target.minecraftVersion,
         ) {
             "Official server metadata targets a different Minecraft release"
         }
-        val report = jsonObjectOf(
-            "schema_version" to jsonNumber(1),
-            "minecraft_version" to jsonString(target.minecraftVersion),
-            "protocol_version" to jsonNumber(target.protocolVersion),
-            "java_major_version" to jsonNumber(target.javaMajorVersion),
-        )
+        val report = buildJsonObject {
+            put("schema_version", 1)
+            put("minecraft_version", target.minecraftVersion)
+            put("protocol_version", target.protocolVersion)
+            put("java_major_version", target.javaMajorVersion)
+        }
         val output = outputFile.asFile.get().toPath()
         output.writeJson(report, sortKeys = true)
         logger.lifecycle(
@@ -145,13 +148,14 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
         val target = serverJar.readMinecraftProtocolTarget(
             minecraftVersion.get(),
         )
-        val metadata = downloadMetadata.asFile.get().toPath()
-            .readJsonObject()
+        val metadata = protocolJson.decodeFromString<JsonObject>(
+            downloadMetadata.asFile.get().toPath().readText(),
+        )
         check(serverJar.isRegularFile()) {
             "Official server is missing; run downloadOfficialMinecraftServer"
         }
         check(
-            metadata.requiredString("minecraft_version") ==
+            metadata.getValue("minecraft_version").jsonPrimitive.content ==
                     target.minecraftVersion,
         ) {
             "Official server metadata targets a different Minecraft release"
@@ -231,7 +235,7 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
             check(source.isRegularFile()) {
                 "Vanilla data generator did not create reports/$name"
             }
-            source.readJsonObject()
+            protocolJson.decodeFromString<JsonObject>(source.readText())
         }
         validateReports(reports)
         return reports
@@ -257,7 +261,7 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
             }
             directions.forEach { (direction, directionElement) ->
                 val ids = directionElement.jsonObject.values.map {
-                    it.jsonObject.requiredInt("protocol_id")
+                    it.jsonObject.getValue("protocol_id").jsonPrimitive.int
                 }
                 check(ids.isNotEmpty() && ids.all { it >= 0 }) {
                     "Official packets report has invalid entries for $state/$direction"
@@ -273,13 +277,12 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
             "Official registries report is empty"
         }
         registries.forEach { (registry, registryElement) ->
-            val entries = registryElement.jsonObject
-                .requiredObject("entries")
+            val entries = registryElement.jsonObject.getValue("entries").jsonObject
             check(entries.isNotEmpty()) {
                 "Official registry $registry has no entries"
             }
             check(entries.values.all {
-                it.jsonObject.requiredInt("protocol_id") >= 0
+                it.jsonObject.getValue("protocol_id").jsonPrimitive.int >= 0
             }) {
                 "Official registry $registry has a negative protocol ID"
             }
@@ -290,12 +293,12 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
             "Official blocks report is empty"
         }
         blocks.forEach { (block, blockElement) ->
-            val states = blockElement.jsonObject.requiredArray("states")
+            val states = blockElement.jsonObject.getValue("states").jsonArray
             check(states.isNotEmpty()) {
                 "Official block $block has no states"
             }
             check(states.all {
-                it.jsonObject.requiredInt("id") >= 0
+                it.jsonObject.getValue("id").jsonPrimitive.int >= 0
             }) {
                 "Official block $block has a negative state ID"
             }

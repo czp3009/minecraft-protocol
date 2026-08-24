@@ -118,7 +118,7 @@ class StandaloneFileStoresTest {
                 it.name.startsWith("level.dat_corrupted_")
             },
         )
-        assertTrue(fileSystem.allPaths().none { it.name.startsWith(".tmp-") })
+        assertTrue(fileSystem.allPaths.none { it.name.startsWith(".tmp-") })
         fileSystem.checkNoOpenFiles()
     }
 
@@ -137,7 +137,7 @@ class StandaloneFileStoresTest {
         assertEquals(previous, players.readDocument(player))
         assertContentEquals(
             byteArrayOf(1, 2, 3),
-            fileSystem.readRaw(paths.playerData(player)),
+            fileSystem.readFileBytes(paths.playerData(player)),
         )
         assertEquals(previous, nbt.readDocument(paths.previousPlayerData(player)))
         assertTrue(
@@ -164,7 +164,7 @@ class StandaloneFileStoresTest {
         assertEquals(current, saved.readDocument("maps/map_1"))
         assertContentEquals(
             byteArrayOf(0x1F, 0x8B.toByte()),
-            fileSystem.readRaw(path).copyOfRange(0, 2),
+            fileSystem.readFileBytes(path).copyOfRange(0, 2),
         )
     }
 
@@ -178,7 +178,7 @@ class StandaloneFileStoresTest {
         store.writeText(path, "{}")
 
         assertEquals("{}", store.readText(path))
-        assertEquals(setOf(path), fileSystem.allPaths().filter { fileSystem.metadata(it).isRegularFile }.toSet())
+        assertEquals(setOf(path), fileSystem.allPaths.filter { fileSystem.metadata(it).isRegularFile }.toSet())
     }
 
     @Test
@@ -587,8 +587,3 @@ private fun FileSystem.writeRaw(path: Path, bytes: ByteArray) {
         sink.close()
     }
 }
-
-private fun FileSystem.readRaw(path: Path): ByteArray =
-    readFileBytes(path)
-
-private fun FakeFileSystem.allPaths(): Set<Path> = allPaths

@@ -1,9 +1,11 @@
 package com.hiczp.minecraft.buildlogic
 
+import kotlinx.serialization.json.JsonObject
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.*
 import kotlin.io.path.isRegularFile
+import kotlin.io.path.readText
 
 /**
  * Captures the complete portable vanilla Configuration snapshot from the
@@ -35,7 +37,7 @@ abstract class AnalyzeOfficialMinecraftConfigurationTask :
             "Official packets report is missing: $reports"
         }
         val packetIds = OfficialPacketIds.fromReport(
-            reports.readJsonObject(),
+            protocolJson.decodeFromString<JsonObject>(reports.readText()),
         )
         val workDirectory = createIsolatedTemporaryDirectory("configuration")
         val result = try {
@@ -78,7 +80,7 @@ abstract class GenerateVanillaConfigurationSourceTask : DefaultTask() {
         val targetReport = targetFile.asFile.get().toPath()
             .readOfficialMinecraftTargetReport()
         val result = VanillaConfigurationCaptureResult.fromAnalysisJson(
-            configurationFile.asFile.get().toPath().readJsonObject(),
+            protocolJson.decodeFromString<JsonObject>(configurationFile.asFile.get().toPath().readText()),
             expectedTarget = targetReport,
         )
         val source = result.renderKotlin(targetReport.target).toString()

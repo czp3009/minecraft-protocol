@@ -3,6 +3,7 @@ package com.hiczp.minecraft.nbt.serialization
 import com.hiczp.minecraft.nbt.*
 import kotlinx.io.*
 import kotlinx.serialization.Serializable
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.*
 
 class SnbtFormatTest {
@@ -108,6 +109,26 @@ class SnbtFormatTest {
             NbtString("A"),
             withNames.decodeTagFromString("\"\\N{LATIN CAPITAL LETTER A}\""),
         )
+
+        val cause = IllegalStateException("resolver failed")
+        val failing = SnbtFormat(
+            SnbtFormatConfiguration(unicodeNameResolver = SnbtUnicodeNameResolver { throw cause }),
+        )
+        val failure = assertFailsWith<NbtDecodingException> {
+            failing.decodeTagFromString("\"\\N{LATIN CAPITAL LETTER A}\"")
+        }
+        assertContains(failure.message.orEmpty(), "LATIN CAPITAL LETTER A")
+        assertContains(failure.message.orEmpty(), "character")
+        assertSame(cause, failure.cause)
+
+        val cancellation = CancellationException("cancelled")
+        val cancelling = SnbtFormat(
+            SnbtFormatConfiguration(unicodeNameResolver = SnbtUnicodeNameResolver { throw cancellation }),
+        )
+        val thrown = assertFailsWith<CancellationException> {
+            cancelling.decodeTagFromString("\"\\N{LATIN CAPITAL LETTER A}\"")
+        }
+        assertSame(cancellation, thrown)
     }
 
     @Test

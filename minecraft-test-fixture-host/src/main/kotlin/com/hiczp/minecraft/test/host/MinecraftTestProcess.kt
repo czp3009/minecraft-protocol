@@ -6,8 +6,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.io.files.Path
-import java.io.File
+import java.nio.file.Path
+import kotlin.io.path.createDirectories
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -208,12 +208,12 @@ internal class MinecraftTestProcess private constructor(
         ): MinecraftTestProcess {
             require(command.isNotEmpty()) { "Process command is empty" }
             require(threadName.isNotBlank()) { "Process name is blank" }
-            workingDirectory.ensureDirectory()
+            workingDirectory.createDirectories()
 
             val log = ProcessLog()
             val process = RunningProcess(
                 process = ProcessBuilder(command)
-                    .directory(File(workingDirectory.toString()))
+                    .directory(workingDirectory.toFile())
                     .redirectErrorStream(true)
                     .start(),
                 onOutput = { line ->

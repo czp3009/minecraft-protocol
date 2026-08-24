@@ -1,6 +1,11 @@
 package com.hiczp.minecraft.test.host
 
-import kotlinx.io.files.Path
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import java.nio.file.Path
+import kotlin.io.path.isDirectory
+import kotlin.io.path.isRegularFile
+import kotlin.io.path.readText
 
 internal data class MinecraftTestLayout(
     val minecraftVersion: String,
@@ -12,19 +17,11 @@ internal data class MinecraftTestLayout(
 ) {
     fun newRuntimeDirectory(kind: MinecraftRuntimeKind): Path =
         createUniqueDirectory(
-            Path(
-                hostWorkRoot,
-                "runtimes",
-                kind.directoryName,
-                minecraftVersion,
-            ),
+            hostWorkRoot.resolve("runtimes").resolve(kind.directoryName).resolve(minecraftVersion),
         )
 
     fun newScratchDirectory(): Path = createUniqueDirectory(
-        Path(
-            hostWorkRoot,
-            "tmp",
-        ),
+        hostWorkRoot.resolve("tmp"),
     )
 }
 
@@ -42,22 +39,22 @@ internal data class OfficialServerArtifact(
 internal object OfficialArtifacts {
     fun server(layout: MinecraftTestLayout): OfficialServerArtifact {
         val directory = layout.officialServerRootDirectory
-        val manifestFile = Path(directory, "manifest.json")
+        val manifestFile = directory.resolve("manifest.json")
         check(directory.isDirectory() && manifestFile.isRegularFile()) {
             "The official server fixture is missing; run this test through its standard Gradle test task"
         }
-        val manifest = manifestFile.readJsonObject()
-        check(manifest.requiredString("minecraft_version") == layout.minecraftVersion) {
+        val manifest = testJson.decodeFromString<JsonObject>(manifestFile.readText())
+        check(manifest.getValue("minecraft_version").jsonPrimitive.content == layout.minecraftVersion) {
             "The official server fixture belongs to a different Minecraft version"
         }
         val runtimeDirectory = directory.safeResolve(
-            manifest.requiredString("relative_server_runtime_directory"),
+            manifest.getValue("relative_server_runtime_directory").jsonPrimitive.content,
         )
         val jar = directory.safeResolve(
-            manifest.requiredString("relative_server_jar"),
+            manifest.getValue("relative_server_jar").jsonPrimitive.content,
         )
         val template = directory.safeResolve(
-            manifest.requiredString("relative_template_directory"),
+            manifest.getValue("relative_template_directory").jsonPrimitive.content,
         )
         check(
             runtimeDirectory.isDirectory() &&

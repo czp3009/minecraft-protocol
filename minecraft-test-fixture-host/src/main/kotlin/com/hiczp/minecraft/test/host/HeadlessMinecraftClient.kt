@@ -1,6 +1,11 @@
 package com.hiczp.minecraft.test.host
 
-import kotlinx.io.files.Path
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import java.nio.file.Path
+import kotlin.io.path.isDirectory
+import kotlin.io.path.isRegularFile
+import kotlin.io.path.readText
 
 internal data class HeadlessClientInstallation(
     val minecraftVersion: String,
@@ -15,29 +20,29 @@ internal data class HeadlessClientInstallation(
 internal object HeadlessClientPreparation {
     fun prepare(layout: MinecraftTestLayout): HeadlessClientInstallation {
         val root = layout.headlessClientRootDirectory
-        val manifestPath = Path(root, "manifest.json")
+        val manifestPath = root.resolve("manifest.json")
         check(root.isDirectory() && manifestPath.isRegularFile()) {
             "The HeadlessMC client fixture is missing; run this test through its standard Gradle test task"
         }
-        val manifest = manifestPath.readJsonObject()
-        val minecraftVersion = manifest.requiredString("minecraft_version")
+        val manifest = testJson.decodeFromString<JsonObject>(manifestPath.readText())
+        val minecraftVersion = manifest.getValue("minecraft_version").jsonPrimitive.content
         check(minecraftVersion == layout.minecraftVersion) {
             "The HeadlessMC client fixture belongs to a different Minecraft release"
         }
         val minecraftDirectory = root.safeResolve(
-            manifest.requiredString("relative_minecraft_directory"),
+            manifest.getValue("relative_minecraft_directory").jsonPrimitive.content,
         )
         val launcher = root.safeResolve(
-            manifest.requiredString("relative_headlessmc_launcher"),
+            manifest.getValue("relative_headlessmc_launcher").jsonPrimitive.content,
         )
         val modsDirectory = root.safeResolve(
-            manifest.requiredString("relative_mods_directory"),
+            manifest.getValue("relative_mods_directory").jsonPrimitive.content,
         )
         val processedModsDirectory = root.safeResolve(
-            manifest.requiredString("relative_processed_mods_directory"),
+            manifest.getValue("relative_processed_mods_directory").jsonPrimitive.content,
         )
         val templateDirectory = root.safeResolve(
-            manifest.requiredString("relative_template_directory"),
+            manifest.getValue("relative_template_directory").jsonPrimitive.content,
         )
         check(
             minecraftDirectory.isDirectory() &&
@@ -50,7 +55,7 @@ internal object HeadlessClientPreparation {
         }
         return HeadlessClientInstallation(
             minecraftVersion = minecraftVersion,
-            fabricProfileId = manifest.requiredString("fabric_profile_id"),
+            fabricProfileId = manifest.getValue("fabric_profile_id").jsonPrimitive.content,
             minecraftDirectory = minecraftDirectory,
             launcher = launcher,
             modsDirectory = modsDirectory,

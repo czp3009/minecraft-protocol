@@ -32,7 +32,8 @@ class MinecraftUserApi(
             expectSuccess = false
             accept(ContentType.Application.Json)
             bearerAuth(accessToken)
-            setBody(minecraftServiceJsonContent(request))
+            contentType(ContentType.Application.Json)
+            setBody(MinecraftServiceJson.encodeToString(request))
         }
         return response.decodeOptionalServiceResponse<
                 MinecraftUserAttributesResponse,

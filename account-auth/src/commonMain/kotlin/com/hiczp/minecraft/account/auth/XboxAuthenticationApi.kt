@@ -16,8 +16,9 @@ class XboxAuthenticationApi(
         val response = httpClient.post(XBOX_USER_AUTHENTICATE_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
+            contentType(ContentType.Application.Json)
             header(XBOX_CONTRACT_VERSION_HEADER, XBOX_CONTRACT_VERSION)
-            setBody(jsonContent(request))
+            setBody(AccountAuthJson.encodeToString(request))
         }
         return response.decodeAccountAuthResponse<XboxTokenResponse, XboxAuthenticationErrorResponse>(::XboxAuthenticationResponseException)
     }
@@ -28,8 +29,9 @@ class XboxAuthenticationApi(
         val response = httpClient.post(XBOX_XSTS_AUTHORIZE_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
+            contentType(ContentType.Application.Json)
             header(XBOX_CONTRACT_VERSION_HEADER, XBOX_CONTRACT_VERSION)
-            setBody(jsonContent(request))
+            setBody(AccountAuthJson.encodeToString(request))
         }
         return response.decodeAccountAuthResponse<XboxTokenResponse, XboxAuthenticationErrorResponse>(::XboxAuthenticationResponseException)
     }

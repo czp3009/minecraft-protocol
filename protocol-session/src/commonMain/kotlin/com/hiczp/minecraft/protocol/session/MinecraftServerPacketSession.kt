@@ -12,7 +12,7 @@ import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 /** Sequential server endpoint: receives serverbound packets and sends clientbound packets. */
 class MinecraftServerPacketSession(
     frameStream: MinecraftFrameStream,
-    packetRegistry: PacketRegistry = MinecraftPacketRegistry.compose(emptyList()),
+    packetRegistry: PacketRegistry = MinecraftPacketRegistry,
     format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
 ) : MinecraftPacketSession<ServerboundPacket, ClientboundPacket>(
     frameStream = frameStream,

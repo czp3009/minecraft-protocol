@@ -3,6 +3,7 @@ package com.hiczp.minecraft.nbt.serialization
 import com.hiczp.minecraft.nbt.*
 import kotlinx.io.Source
 import kotlinx.io.readCodePointValue
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * The selected-release grammar is implemented locally because no maintained
@@ -279,7 +280,13 @@ internal class SnbtParser(
         expect('}')
         val resolver = configuration.unicodeNameResolver
             ?: fail("SNBT \\N{name} escapes require a unicodeNameResolver")
-        val codePoint = resolver.resolve(name)
+        val codePoint = try {
+            resolver.resolve(name)
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (failure: Exception) {
+            fail("Unicode character name resolver failed for '$name'", failure)
+        }
             ?: fail("Unknown Unicode character name '$name'")
         appendCodePoint(result, codePoint)
     }
@@ -346,8 +353,8 @@ internal class SnbtParser(
         return skipped
     }
 
-    internal fun fail(message: String): Nothing =
-        throw NbtDecodingException("$message at character ${input.position}")
+    internal fun fail(message: String, cause: Throwable? = null): Nothing =
+        throw NbtDecodingException("$message at character ${input.position}", cause)
 }
 
 internal interface SnbtInput {

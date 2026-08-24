@@ -1,7 +1,7 @@
 package com.hiczp.minecraft.test.host
 
-import kotlinx.io.files.Path
 import java.nio.file.Files
+import kotlin.io.path.*
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -10,39 +10,35 @@ import kotlin.test.assertTrue
 class HeadlessClientWorkspaceTest {
     @Test
     fun immutableClientInputsAreLinkedAndMutableTemplateStateIsCopied() {
-        val root = Path(
-            Files.createTempDirectory("headless-client-workspace-").toString(),
-        )
+        val root = Files.createTempDirectory("headless-client-workspace-")
         try {
-            val minecraftDirectory = Path(root, "source", "minecraft")
-            val launcher = Path(root, "source", "headlessmc-launcher.jar")
-            val modsDirectory = Path(root, "source", "mods")
-            val templateDirectory = Path(root, "source", "template")
-            val processedModsDirectory = Path(
-                templateDirectory,
-                ".fabric",
-                "processedMods",
-            )
-            Path(minecraftDirectory, "libraries", "library.jar")
+            val sourceDirectory = root.resolve("source")
+            val minecraftDirectory = sourceDirectory.resolve("minecraft")
+            val launcher = sourceDirectory.resolve("headlessmc-launcher.jar")
+            val modsDirectory = sourceDirectory.resolve("mods")
+            val templateDirectory = sourceDirectory.resolve("template")
+            val processedModsDirectory = templateDirectory.resolve(".fabric").resolve("processedMods")
+            minecraftDirectory.resolve("libraries").createDirectories()
+            minecraftDirectory.resolve("libraries").resolve("library.jar")
                 .writeText("library")
             launcher.writeText("launcher")
-            Path(modsDirectory, "hmc-specifics.jar").writeText("mod")
-            Path(processedModsDirectory, "mixinextras.jar").writeText("cache")
-            Path(templateDirectory, "mods", "hmc-specifics.jar")
+            modsDirectory.createDirectories()
+            modsDirectory.resolve("hmc-specifics.jar").writeText("mod")
+            processedModsDirectory.createDirectories()
+            processedModsDirectory.resolve("mixinextras.jar").writeText("cache")
+            templateDirectory.resolve("mods").createDirectories()
+            templateDirectory.resolve("mods").resolve("hmc-specifics.jar")
                 .writeText("template copy must be excluded")
-            Path(templateDirectory, "options.txt").writeText("options")
-            Path(templateDirectory, "logs").ensureDirectory()
+            templateDirectory.resolve("options.txt").writeText("options")
+            templateDirectory.resolve("logs").createDirectories()
 
-            val probeSource = Path(root, "probe-source")
-            val probeDestination = Path(root, "probe-destination")
+            val probeSource = root.resolve("probe-source")
+            val probeDestination = root.resolve("probe-destination")
             probeSource.writeText("probe")
             val hardLinksSupported = probeSource.linkFileTo(probeDestination)
-            val directoryProbeSource = Path(root, "directory-probe-source")
-            val directoryProbeDestination = Path(
-                root,
-                "directory-probe-destination",
-            )
-            directoryProbeSource.ensureDirectory()
+            val directoryProbeSource = root.resolve("directory-probe-source")
+            val directoryProbeDestination = root.resolve("directory-probe-destination")
+            directoryProbeSource.createDirectories()
             val symbolicLinksSupported = directoryProbeSource.linkDirectoryTo(
                 directoryProbeDestination,
             )
@@ -56,35 +52,26 @@ class HeadlessClientWorkspaceTest {
                 processedModsDirectory = processedModsDirectory,
                 templateDirectory = templateDirectory,
             )
-            val workDirectory = Path(root, "default-work")
+            val workDirectory = root.resolve("default-work")
             val privateInstallation = prepareHeadlessClientRuntime(
                 installation = installation,
                 workDirectory = workDirectory,
             )
-            val gameDirectory = Path(workDirectory, "game")
+            val gameDirectory = workDirectory.resolve("game")
             prepareHeadlessClientWorkspace(
                 installation = privateInstallation,
                 gameDirectory = gameDirectory,
                 useTemplate = true,
             )
 
-            val privateLibrary = Path(
-                privateInstallation.minecraftDirectory,
-                "libraries",
-                "library.jar",
-            )
-            val privateMod = Path(gameDirectory, "mods", "hmc-specifics.jar")
-            val privateCache = Path(
-                gameDirectory,
-                ".fabric",
-                "processedMods",
-                "mixinextras.jar",
-            )
-            val privateOptions = Path(gameDirectory, "options.txt")
+            val privateLibrary = privateInstallation.minecraftDirectory.resolve("libraries").resolve("library.jar")
+            val privateMod = gameDirectory.resolve("mods").resolve("hmc-specifics.jar")
+            val privateCache = gameDirectory.resolve(".fabric").resolve("processedMods").resolve("mixinextras.jar")
+            val privateOptions = gameDirectory.resolve("options.txt")
             assertEquals(
                 symbolicLinksSupported,
                 Files.isSymbolicLink(
-                    privateInstallation.minecraftDirectory.toNioPath(),
+                    privateInstallation.minecraftDirectory,
                 ),
             )
             assertEquals("library", privateLibrary.readText())
@@ -92,74 +79,67 @@ class HeadlessClientWorkspaceTest {
             assertEquals("mod", privateMod.readText())
             assertEquals("cache", privateCache.readText())
             assertEquals("options", privateOptions.readText())
-            assertTrue(Path(gameDirectory, "logs").isDirectory())
+            assertTrue(gameDirectory.resolve("logs").isDirectory())
             assertFalse(
                 Files.isSameFile(
-                    Path(templateDirectory, "options.txt").toNioPath(),
-                    privateOptions.toNioPath(),
+                    templateDirectory.resolve("options.txt"),
+                    privateOptions,
                 ),
             )
             privateOptions.writeText("private options")
             assertEquals(
                 "options",
-                Path(templateDirectory, "options.txt").readText(),
+                templateDirectory.resolve("options.txt").readText(),
             )
 
             if (hardLinksSupported) {
                 assertTrue(
                     Files.isSameFile(
-                        Path(minecraftDirectory, "libraries", "library.jar")
-                            .toNioPath(),
-                        privateLibrary.toNioPath(),
+                        minecraftDirectory.resolve("libraries").resolve("library.jar"),
+                        privateLibrary,
                     ),
                 )
                 assertTrue(
                     Files.isSameFile(
-                        launcher.toNioPath(),
-                        privateInstallation.launcher.toNioPath(),
+                        launcher,
+                        privateInstallation.launcher,
                     ),
                 )
                 assertTrue(
                     Files.isSameFile(
-                        Path(modsDirectory, "hmc-specifics.jar").toNioPath(),
-                        privateMod.toNioPath(),
+                        modsDirectory.resolve("hmc-specifics.jar"),
+                        privateMod,
                     ),
                 )
                 assertTrue(
                     Files.isSameFile(
-                        Path(processedModsDirectory, "mixinextras.jar")
-                            .toNioPath(),
-                        privateCache.toNioPath(),
+                        processedModsDirectory.resolve("mixinextras.jar"),
+                        privateCache,
                     ),
                 )
             }
 
-            val freshGameDirectory = Path(root, "fresh-game")
+            val freshGameDirectory = root.resolve("fresh-game")
             prepareHeadlessClientWorkspace(
                 installation = privateInstallation,
                 gameDirectory = freshGameDirectory,
                 useTemplate = false,
             )
-            assertFalse(Path(freshGameDirectory, "options.txt").exists())
+            assertFalse(freshGameDirectory.resolve("options.txt").exists())
             assertEquals(
                 "mod",
-                Path(freshGameDirectory, "mods", "hmc-specifics.jar")
+                freshGameDirectory.resolve("mods").resolve("hmc-specifics.jar")
                     .readText(),
             )
             assertEquals(
                 "cache",
-                Path(
-                    freshGameDirectory,
-                    ".fabric",
-                    "processedMods",
-                    "mixinextras.jar",
-                ).readText(),
+                freshGameDirectory.resolve(".fabric").resolve("processedMods").resolve("mixinextras.jar").readText(),
             )
 
             workDirectory.deleteTree()
             assertEquals(
                 "library",
-                Path(minecraftDirectory, "libraries", "library.jar")
+                minecraftDirectory.resolve("libraries").resolve("library.jar")
                     .readText(),
             )
         } finally {

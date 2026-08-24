@@ -5,13 +5,15 @@ import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
+import com.hiczp.minecraft.protocol.serialization.PacketRegistry
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
 import kotlinx.serialization.SerializationException
 import kotlin.test.*
 
 class ForgeProtocolCodecTest {
-    private val registry = MinecraftPacketRegistry.compose(
+    private val registry = PacketRegistry(
+        MinecraftPacketRegistry.entries,
         ForgeProtocol.packetCodecs,
     )
 

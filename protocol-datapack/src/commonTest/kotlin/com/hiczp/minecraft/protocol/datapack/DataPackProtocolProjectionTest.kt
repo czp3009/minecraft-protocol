@@ -7,6 +7,7 @@ import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.world.format.datapack.*
 import kotlinx.serialization.json.*
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.*
 
 class DataPackProtocolProjectionTest {
@@ -64,6 +65,74 @@ class DataPackProtocolProjectionTest {
         assertEquals(NbtString("projected"), registry.entries.last().data)
         val tag = data.tags.registries.single().tags.single { it.name == Identifier("test:available") }
         assertEquals(listOf(0, 1), tag.entries)
+    }
+
+    @Test
+    fun callerProjectorFailureIncludesRegistryAndResourceContext() {
+        val cause = IllegalStateException("projector failed")
+        val projection = DataPackProtocolProjection(
+            base = baseData(),
+            registryProjectors = listOf(
+                DataPackSynchronizedRegistryProjector(biomeRegistry) { _, _, _ -> throw cause },
+            ),
+        )
+
+        val failure = assertFailsWith<DataPackRegistryProjectionException> {
+            projection.project(DataPackStack(registryPack("custom", "custom_biome", "projected")))
+        }
+
+        assertEquals(biomeRegistry, failure.registryId)
+        assertEquals(Identifier("test:custom_biome"), failure.resourceId)
+        assertEquals(DataPackId("custom"), failure.sourcePack)
+        assertEquals(DataPackPath("data/test/worldgen/biome/custom_biome.json"), failure.sourcePath)
+        assertSame(cause, failure.cause)
+    }
+
+    @Test
+    fun callerProjectorDoesNotInterceptCancellation() {
+        val cancellation = CancellationException("cancelled")
+        val projection = DataPackProtocolProjection(
+            base = baseData(),
+            registryProjectors = listOf(
+                DataPackSynchronizedRegistryProjector(biomeRegistry) { _, _, _ -> throw cancellation },
+            ),
+        )
+
+        val thrown = assertFailsWith<CancellationException> {
+            projection.project(DataPackStack(registryPack("custom", "custom_biome", "projected")))
+        }
+
+        assertSame(cancellation, thrown)
+    }
+
+    @Test
+    fun resolvedMalformedTagFailureIncludesProjectionContext() {
+        val packId = DataPackId("invalid-tags")
+        val sourcePath = DataPackPath("data/test/tags/worldgen/biome/invalid.json")
+        val resourcePath = DataPackResourcePath("test", "tags/worldgen/biome/invalid.json")
+        val resolved = ResolvedDataPackStack(
+            packs = listOf(packId),
+            resources = mapOf(
+                resourcePath to ResolvedDataPackResource(
+                    path = resourcePath,
+                    content = DataPackFileContent.JsonFile(
+                        buildJsonObject { put("values", buildJsonArray { add(buildJsonArray {}) }) },
+                    ),
+                    sourcePack = packId,
+                    sourcePath = sourcePath,
+                ),
+            ),
+        )
+
+        val failure = assertFailsWith<DataPackTagProjectionException> {
+            DataPackProtocolProjection(base = baseData()).project(resolved)
+        }
+
+        assertContains(failure.message.orEmpty(), "test:invalid")
+        assertContains(failure.message.orEmpty(), biomeRegistry.value)
+        assertIs<DataPackFormatException>(failure.cause)
+        assertContains(failure.cause?.message.orEmpty(), sourcePath.value)
+        assertContains(failure.cause?.message.orEmpty(), packId.value)
     }
 
     @Test

@@ -6,10 +6,7 @@ import com.hiczp.minecraft.protocol.model.packet.FeatureFlagsPacket
 import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.world.format.datapack.*
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
+import kotlin.coroutines.cancellation.CancellationException
 
 enum class DataPackRegistryProjectionMode {
     /** Retain base entries, replace matching values, and append new IDs deterministically. */
@@ -49,9 +46,22 @@ class MissingDataPackRegistryProjectors(
     }
 }
 
+/** A caller-supplied registry entry projector failed for one identified resource. */
+class DataPackRegistryProjectionException(
+    val registryId: Identifier,
+    val resourceId: Identifier,
+    val sourcePack: DataPackId,
+    val sourcePath: DataPackPath,
+    cause: Throwable,
+) : IllegalArgumentException(
+    "Could not project resource $resourceId from $sourcePath in data pack $sourcePack into registry $registryId",
+    cause,
+)
+
 class DataPackTagProjectionException(
     message: String,
-) : IllegalArgumentException(message)
+    cause: Throwable? = null,
+) : IllegalArgumentException(message, cause)
 
 /**
  * Explicit policy for the lossy `ResolvedDataPackStack -> ProtocolDataSet` boundary.
@@ -159,8 +169,22 @@ class DataPackProtocolProjection(
         resources: Map<DataPackResourceId, ResolvedDataPackResource>,
         dataPacks: ResolvedDataPackStack,
     ): RegistryDataPacket {
-        val projected = resources.mapKeys { (id) -> Identifier(id.toString()) }.mapValues { (id, resource) ->
-            RegistryEntry(id, projector.entryProjector.project(id, resource, dataPacks))
+        val projected = resources.entries.associate { (resourceId, resource) ->
+            val id = resourceId.toIdentifier()
+            val data = try {
+                projector.entryProjector.project(id, resource, dataPacks)
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (failure: Exception) {
+                throw DataPackRegistryProjectionException(
+                    registryId = projector.registryId,
+                    resourceId = id,
+                    sourcePack = resource.sourcePack,
+                    sourcePath = resource.sourcePath,
+                    cause = failure,
+                )
+            }
+            id to RegistryEntry(id, data)
         }
         val entries = when (projector.mode) {
             DataPackRegistryProjectionMode.REPLACE -> projected.values.sortedBy { it.id.value }
@@ -245,8 +269,16 @@ class DataPackProtocolProjection(
     ): RegistryTags {
         val rawIds = entries.withIndex().associate { (rawId, id) -> id to rawId }
         val baseById = baseTags.associateBy(TagDefinition::name)
-        val specifications = resources.mapKeys { (id) -> Identifier(id.toString()) }.mapValues { (id, resource) ->
-            parseTagSpecification(registry, id, resource)
+        val specifications = resources.entries.associate { (resourceId, resource) ->
+            val tag = resourceId.toIdentifier()
+            val specification = try {
+                resource.decodeTagFile()
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (failure: Exception) {
+                throw DataPackTagProjectionException("Could not project tag $tag in registry $registry", failure)
+            }
+            tag to specification
         }
         val resolved = linkedMapOf<Identifier, List<Int>>()
         val visiting = linkedSetOf<Identifier>()
@@ -262,10 +294,11 @@ class DataPackProtocolProjection(
             val values = buildList {
                 if (!specification.replace) addAll(baseById[tag]?.entries.orEmpty())
                 specification.values.forEach { value ->
-                    val projected = if (value.tag) resolve(value.id) else rawIds[value.id]?.let(::listOf)
+                    val valueId = value.id.toIdentifier()
+                    val projected = if (value.tag) resolve(valueId) else rawIds[valueId]?.let(::listOf)
                     if (projected == null && value.required) {
                         throw DataPackTagProjectionException(
-                            "Tag $tag in $registry requires missing ${if (value.tag) "tag" else "entry"} ${value.id}",
+                            "Tag $tag in $registry requires missing ${if (value.tag) "tag" else "entry"} $valueId",
                         )
                     }
                     if (projected != null) addAll(projected)
@@ -285,47 +318,11 @@ class DataPackProtocolProjection(
         }
         return RegistryTags(registry, tags)
     }
-
-    private fun parseTagSpecification(
-        registry: Identifier,
-        tag: Identifier,
-        resource: ResolvedDataPackResource,
-    ): DataPackTagSpecification {
-        val json = (resource.content as? DataPackFileContent.JsonFile)?.element as? JsonObject
-            ?: throw DataPackTagProjectionException("Tag $tag in $registry is not a JSON object")
-        val values = json["values"] as? JsonArray
-            ?: throw DataPackTagProjectionException("Tag $tag in $registry has no values array")
-        return DataPackTagSpecification(
-            replace = (json["replace"] as? JsonPrimitive)?.booleanOrNull == true,
-            values = values.map { element ->
-                val primitive = element as? JsonPrimitive
-                val objectValue = element as? JsonObject
-                val encoded = primitive?.content ?: objectValue?.get("id")?.let { (it as? JsonPrimitive)?.content }
-                ?: throw DataPackTagProjectionException("Tag $tag in $registry has an invalid value")
-                val isTag = encoded.startsWith('#')
-                DataPackTagValue(
-                    id = Identifier(if (isTag) encoded.removePrefix("#") else encoded),
-                    tag = isTag,
-                    required = (objectValue?.get("required") as? JsonPrimitive)?.booleanOrNull ?: true,
-                )
-            },
-        )
-    }
-
 }
 
-private data class DataPackTagSpecification(
-    val replace: Boolean,
-    val values: List<DataPackTagValue>,
-)
-
-private data class DataPackTagValue(
-    val id: Identifier,
-    val tag: Boolean,
-    val required: Boolean,
-)
-
 private fun Identifier.toDataPackResourceId(): DataPackResourceId = DataPackResourceId(namespace, path)
+
+private fun DataPackResourceId.toIdentifier(): Identifier = Identifier(namespace, path)
 
 fun DataPackStack.toProtocolDataSet(
     projection: DataPackProtocolProjection,

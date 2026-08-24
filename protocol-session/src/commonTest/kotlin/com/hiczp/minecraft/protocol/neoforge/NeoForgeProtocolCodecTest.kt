@@ -8,6 +8,7 @@ import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
+import com.hiczp.minecraft.protocol.serialization.PacketRegistry
 import com.hiczp.minecraft.protocol.session.RoutedCustomPayload
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
@@ -17,7 +18,8 @@ import kotlinx.serialization.json.put
 import kotlin.test.*
 
 class NeoForgeProtocolCodecTest {
-    private val registry = MinecraftPacketRegistry.compose(
+    private val registry = PacketRegistry(
+        MinecraftPacketRegistry.entries,
         NeoForgeProtocol.packetCodecs,
     )
 

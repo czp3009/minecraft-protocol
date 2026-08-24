@@ -20,7 +20,8 @@ class NeoForgeNegotiationProfileTest {
     @Test
     fun scriptedProfilesNegotiateTasksRegistriesAndDynamicPlayPackets() = runTest {
         val customCodecs = testPlayCodecs()
-        val packetRegistry = MinecraftPacketRegistry.compose(
+        val packetRegistry = PacketRegistry(
+            MinecraftPacketRegistry.entries,
             NeoForgeProtocol.packetCodecs + customCodecs,
         )
         val serverToClient = Channel<ClientboundPacket>(Channel.UNLIMITED)
@@ -202,7 +203,8 @@ class NeoForgeNegotiationProfileTest {
                 KotlinxPacketBodyCodec(RequiredNeoForgePacket.serializer()),
             ),
         )
-        val registry = MinecraftPacketRegistry.compose(
+        val registry = PacketRegistry(
+            MinecraftPacketRegistry.entries,
             NeoForgeProtocol.packetCodecs + requiredPacketCodecs,
         )
         val incoming = Channel<ServerboundPacket>(Channel.UNLIMITED)
@@ -247,7 +249,8 @@ class NeoForgeNegotiationProfileTest {
     fun outOfOrderRegistryPacketThrowsWithoutReply() = runTest {
         val incoming = Channel<ClientboundPacket>(Channel.UNLIMITED)
         val outgoing = Channel<ServerboundPacket>(Channel.UNLIMITED)
-        val registry = MinecraftPacketRegistry.compose(
+        val registry = PacketRegistry(
+            MinecraftPacketRegistry.entries,
             NeoForgeProtocol.packetCodecs,
         )
         val connection = NeoForgeTestClientConnection(

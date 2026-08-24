@@ -152,16 +152,13 @@ object MicrosoftOAuthTools {
     const val REFRESH_TOKEN_GRANT_TYPE = "refresh_token"
 
     fun generateState(byteCount: Int = OAUTH_RANDOM_BYTES): String =
-        CryptographyRandom.nextBytes(byteCount).base64Url()
+        BASE64_URL_WITHOUT_PADDING.encode(CryptographyRandom.nextBytes(byteCount))
 
     fun generateCodeVerifier(byteCount: Int = OAUTH_RANDOM_BYTES): String =
-        CryptographyRandom.nextBytes(byteCount).base64Url()
+        BASE64_URL_WITHOUT_PADDING.encode(CryptographyRandom.nextBytes(byteCount))
 
-    fun s256CodeChallenge(codeVerifier: String): String = codeVerifier
-        .encodeUtf8()
-        .sha256()
-        .toByteArray()
-        .base64Url()
+    fun s256CodeChallenge(codeVerifier: String): String =
+        BASE64_URL_WITHOUT_PADDING.encode(codeVerifier.encodeUtf8().sha256().toByteArray())
 
     fun authorizationUrl(
         clientId: String,
@@ -225,6 +222,6 @@ private val MICROSOFT_TOKEN_ENDPOINT = Url("https://login.microsoftonline.com/co
 
 private val MICROSOFT_DEVICE_CODE_ENDPOINT = Url("https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode")
 
-private fun ByteArray.base64Url(): String = Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT).encode(this)
+private val BASE64_URL_WITHOUT_PADDING = Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT)
 
 private const val OAUTH_RANDOM_BYTES = 32

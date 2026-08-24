@@ -59,7 +59,7 @@ interface MinecraftPacketConnection<
  * without rebuilding or cloning them.
  */
 class MinecraftConnectionDefinition(
-    val packetRegistry: PacketRegistry = MinecraftPacketRegistry.compose(emptyList()),
+    val packetRegistry: PacketRegistry = MinecraftPacketRegistry,
     val format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
     val incomingCapacity: Int = DEFAULT_CHANNEL_CAPACITY,
     val outgoingCapacity: Int = DEFAULT_CHANNEL_CAPACITY,
@@ -77,7 +77,7 @@ class MinecraftConnectionDefinition(
             incomingCapacity: Int = DEFAULT_CHANNEL_CAPACITY,
             outgoingCapacity: Int = DEFAULT_CHANNEL_CAPACITY,
         ): MinecraftConnectionDefinition = MinecraftConnectionDefinition(
-            packetRegistry = MinecraftPacketRegistry.compose(extensionCodecs),
+            packetRegistry = PacketRegistry(MinecraftPacketRegistry.entries, extensionCodecs),
             format = format,
             incomingCapacity = incomingCapacity,
             outgoingCapacity = outgoingCapacity,

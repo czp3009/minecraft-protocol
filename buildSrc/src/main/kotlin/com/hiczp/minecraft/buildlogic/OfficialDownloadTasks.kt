@@ -5,8 +5,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.*
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileSystemOperations
@@ -19,6 +18,7 @@ import javax.inject.Inject
 import kotlin.io.path.createDirectories
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.name
+import kotlin.io.path.readText
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DownloadVersionManifestTask
@@ -52,12 +52,13 @@ abstract class DownloadVersionManifestTask : DefaultTask() {
                 url = url,
                 offline = offline.get(),
             ) { downloaded ->
-                val containsRelease = downloaded.decodeJsonObject(url)
-                    .requiredArray("versions")
+                val containsRelease = protocolJson.decodeFromString<JsonObject>(downloaded.decodeToString())
+                    .getValue("versions")
+                    .jsonArray
                     .map { it.jsonObject }
                     .any {
-                        it.requiredString("id") == version &&
-                                it.requiredString("type") == "release"
+                        it.getValue("id").jsonPrimitive.content == version &&
+                                it.getValue("type").jsonPrimitive.content == "release"
                     }
                 check(containsRelease) {
                     "Mojang manifest has no stable release $version"
@@ -96,24 +97,25 @@ abstract class DownloadVersionMetadataTask : DefaultTask() {
     @TaskAction
     fun download() {
         val version = minecraftVersion.get()
-        val manifest = manifestFile.asFile.get().toPath()
-            .readJsonObject()
-        val entry = manifest.requiredArray("versions")
+        val manifest = protocolJson.decodeFromString<JsonObject>(
+            manifestFile.asFile.get().toPath().readText(),
+        )
+        val entry = manifest.getValue("versions").jsonArray
             .map { it.jsonObject }
             .firstOrNull {
-                it.requiredString("id") == version &&
-                        it.requiredString("type") == "release"
+                it.getValue("id").jsonPrimitive.content == version &&
+                        it.getValue("type").jsonPrimitive.content == "release"
             }
             ?: error("Mojang manifest has no stable release $version")
-        val metadataUrl = entry.requiredString("url")
+        val metadataUrl = entry.getValue("url").jsonPrimitive.content
         val destination = outputFile.asFile.get().toPath()
         runBlocking {
             val bytes = ProtocolHttp.getBytes(
                 url = metadataUrl,
                 offline = offline.get(),
             ) { downloaded ->
-                val metadata = downloaded.decodeJsonObject(metadataUrl)
-                check(metadata.requiredString("id") == version) {
+                val metadata = protocolJson.decodeFromString<JsonObject>(downloaded.decodeToString())
+                check(metadata.getValue("id").jsonPrimitive.content == version) {
                     "Mojang version metadata identifies a different release"
                 }
             }
@@ -164,17 +166,16 @@ abstract class DownloadHmcSpecificsTask : DefaultTask() {
                 offline = offline.get(),
             )
         }
-        val metadata = destination.readZipEntry("fabric.mod.json")
-            .decodeJsonObject("$destination!/fabric.mod.json")
-        check(metadata.requiredString("id") == "headlessmc") {
+        val metadata = protocolJson.decodeFromString<JsonObject>(destination.readZipEntry("fabric.mod.json").decodeToString())
+        check(metadata.getValue("id").jsonPrimitive.content == "headlessmc") {
             "HMC-Specifics Fabric artifact has an unexpected mod id"
         }
-        val dependencies = metadata.requiredObject("depends")
-        check(dependencies.requiredString("fabricloader") == ">=0.14.19") {
+        val dependencies = metadata.getValue("depends").jsonObject
+        check(dependencies.getValue("fabricloader").jsonPrimitive.content == ">=0.14.19") {
             "HMC-Specifics declares an unexpected Fabric Loader requirement"
         }
         val expectedMinecraft = "~${minecraftVersion.get()}.0"
-        check(dependencies.requiredString("minecraft") == expectedMinecraft) {
+        check(dependencies.getValue("minecraft").jsonPrimitive.content == expectedMinecraft) {
             "HMC-Specifics does not target Minecraft ${minecraftVersion.get()}"
         }
         logger.lifecycle(
@@ -213,24 +214,24 @@ abstract class DownloadFabricLoaderProfileTask : DefaultTask() {
                 url = url,
                 offline = offline.get(),
             ) { downloaded ->
-                val profile = downloaded.decodeJsonObject(url)
+                val profile = protocolJson.decodeFromString<JsonObject>(downloaded.decodeToString())
                 val minecraft = minecraftVersion.get()
                 val loader = fabricLoaderVersion.get()
-                check(profile.requiredString("id") == "fabric-loader-$loader-$minecraft") {
+                check(profile.getValue("id").jsonPrimitive.content == "fabric-loader-$loader-$minecraft") {
                     "Fabric profile has an unexpected identity"
                 }
-                check(profile.requiredString("inheritsFrom") == minecraft) {
+                check(profile.getValue("inheritsFrom").jsonPrimitive.content == minecraft) {
                     "Fabric profile inherits from a different Minecraft release"
                 }
                 check(
-                    profile.requiredString("mainClass") ==
+                    profile.getValue("mainClass").jsonPrimitive.content ==
                             "net.fabricmc.loader.impl.launch.knot.KnotClient",
                 ) {
                     "Fabric profile has an unexpected client main class"
                 }
                 check(
-                    profile.requiredArray("libraries")
-                        .map { it.jsonObject.requiredString("name") }
+                    profile.getValue("libraries").jsonArray
+                        .map { it.jsonObject.getValue("name").jsonPrimitive.content }
                         .contains("net.fabricmc:fabric-loader:$loader"),
                 ) {
                     "Fabric profile does not contain the selected loader"
@@ -377,15 +378,15 @@ abstract class DownloadMinecraftClientJarTask : DefaultTask() {
     @TaskAction
     fun download() {
         val version = minecraftVersion.get()
-        val metadata = metadataFile.asFile.get().toPath()
-            .readJsonObject()
-        check(metadata.requiredString("id") == version)
-        val client = metadata.requiredObject("downloads")
-            .requiredObject("client")
+        val metadata = protocolJson.decodeFromString<JsonObject>(
+            metadataFile.asFile.get().toPath().readText(),
+        )
+        check(metadata.getValue("id").jsonPrimitive.content == version)
+        val client = metadata.getValue("downloads").jsonObject.getValue("client").jsonObject
         val destination = clientJar.asFile.get().toPath()
         runBlocking {
             ProtocolHttp.download(
-                url = client.requiredString("url"),
+                url = client.getValue("url").jsonPrimitive.content,
                 destination = destination,
                 offline = offline.get(),
             )
@@ -393,22 +394,16 @@ abstract class DownloadMinecraftClientJarTask : DefaultTask() {
         logger.lifecycle(
             "Downloaded official client JAR: $destination",
         )
-        val assetIndex = metadata.requiredObject("assetIndex")
+        val assetIndex = metadata.getValue("assetIndex").jsonObject
         downloadMetadataFile.asFile.get().toPath().writeJson(
-            jsonObjectOf(
-                "schema_version" to jsonNumber(1),
-                "minecraft_version" to jsonString(version),
-                "client_url" to jsonString(client.requiredString("url")),
-                "library_count" to jsonNumber(
-                    collectClientLibraryArtifacts(metadata).size,
-                ),
-                "asset_index_id" to jsonString(
-                    assetIndex.requiredString("id"),
-                ),
-                "asset_index_url" to jsonString(
-                    assetIndex.requiredString("url"),
-                ),
-            ),
+            buildJsonObject {
+                put("schema_version", 1)
+                put("minecraft_version", version)
+                put("client_url", client.getValue("url").jsonPrimitive.content)
+                put("library_count", collectClientLibraryArtifacts(metadata).size)
+                put("asset_index_id", assetIndex.getValue("id").jsonPrimitive.content)
+                put("asset_index_url", assetIndex.getValue("url").jsonPrimitive.content)
+            },
         )
     }
 }
@@ -447,13 +442,14 @@ abstract class DownloadMinecraftClientLibrariesTask : DefaultTask() {
     @TaskAction
     fun download() {
         val version = minecraftVersion.get()
-        val metadata = metadataFile.asFile.get().toPath()
-            .readJsonObject()
-        check(metadata.requiredString("id") == version)
+        val metadata = protocolJson.decodeFromString<JsonObject>(
+            metadataFile.asFile.get().toPath().readText(),
+        )
+        check(metadata.getValue("id").jsonPrimitive.content == version)
         val libraries = linkedMapOf<String, ClientArtifactSpec>().apply {
             putAll(collectClientLibraryArtifacts(metadata))
             collectFabricLibraryArtifacts(
-                fabricProfileFile.asFile.get().toPath().readJsonObject(),
+                protocolJson.decodeFromString<JsonObject>(fabricProfileFile.asFile.get().toPath().readText()),
             ).forEach { (path, artifact) ->
                 val previous = put(path, artifact)
                 check(previous == null || previous == artifact) {
@@ -528,18 +524,19 @@ abstract class DownloadMinecraftClientAssetIndexTask : DefaultTask() {
     @TaskAction
     fun download() {
         val version = minecraftVersion.get()
-        val metadata = metadataFile.asFile.get().toPath()
-            .readJsonObject()
-        check(metadata.requiredString("id") == version)
-        val assetIndex = metadata.requiredObject("assetIndex")
-        val assetIndexId = assetIndex.requiredString("id")
+        val metadata = protocolJson.decodeFromString<JsonObject>(
+            metadataFile.asFile.get().toPath().readText(),
+        )
+        check(metadata.getValue("id").jsonPrimitive.content == version)
+        val assetIndex = metadata.getValue("assetIndex").jsonObject
+        val assetIndexId = assetIndex.getValue("id").jsonPrimitive.content
         val output = assetIndexesDirectory.asFile.get().toPath()
         val staging = createIsolatedTemporaryDirectory("asset-index")
         val destination = output.resolve("$assetIndexId.json")
         try {
             runBlocking {
                 ProtocolHttp.download(
-                    url = assetIndex.requiredString("url"),
+                    url = assetIndex.getValue("url").jsonPrimitive.content,
                     destination = staging.resolve("$assetIndexId.json"),
                     offline = offline.get(),
                 )
@@ -564,7 +561,7 @@ private fun collectClientLibraryArtifacts(
     metadata: JsonObject,
 ): Map<String, ClientArtifactSpec> {
     val artifacts = linkedMapOf<String, ClientArtifactSpec>()
-    metadata.requiredArray("libraries").forEach { element ->
+    metadata.getValue("libraries").jsonArray.forEach { element ->
         val library = element.jsonObject
         val downloads = library["downloads"]?.jsonObject ?: return@forEach
         val candidates = buildList {
@@ -575,9 +572,9 @@ private fun collectClientLibraryArtifacts(
         }
         candidates.forEach { value ->
             val artifact = ClientArtifactSpec(
-                url = value.requiredString("url"),
+                url = value.getValue("url").jsonPrimitive.content,
             )
-            val path = value.requiredString("path")
+            val path = value.getValue("path").jsonPrimitive.content
             val previous = artifacts.put(path, artifact)
             check(previous == null || previous == artifact)
         }
@@ -587,10 +584,10 @@ private fun collectClientLibraryArtifacts(
 
 private fun collectFabricLibraryArtifacts(
     profile: JsonObject,
-): Map<String, ClientArtifactSpec> = profile.requiredArray("libraries")
+): Map<String, ClientArtifactSpec> = profile.getValue("libraries").jsonArray
     .associate { element ->
         val library = element.jsonObject
-        val coordinate = library.requiredString("name")
+        val coordinate = library.getValue("name").jsonPrimitive.content
         val fields = coordinate.split(':')
         check(fields.size == 3 && fields.all(String::isNotBlank)) {
             "Unsupported Fabric library coordinate: $coordinate"
@@ -599,7 +596,7 @@ private fun collectFabricLibraryArtifacts(
         val artifact = fields[1]
         val version = fields[2]
         val relative = "$group/$artifact/$version/$artifact-$version.jar"
-        val repository = library.requiredString("url").trimEnd('/')
+        val repository = library.getValue("url").jsonPrimitive.content.trimEnd('/')
         relative to ClientArtifactSpec(url = "$repository/$relative")
     }
 
@@ -790,15 +787,16 @@ private fun readOfficialClientAssets(
         "Expected exactly one asset index file in $indexesDirectory, found ${indexFiles.size}: ${indexFiles.map { it.name }}"
     }
     val assets = linkedMapOf<String, OfficialClientAsset>()
-    indexFiles.single().readJsonObject()
-        .requiredObject("objects")
+    protocolJson.decodeFromString<JsonObject>(indexFiles.single().readText())
+        .getValue("objects")
+        .jsonObject
         .forEach { (name, element) ->
             val value = element.jsonObject
             val format = name.substringAfterLast('/')
                 .substringAfterLast('.', "")
                 .lowercase()
             val asset = OfficialClientAsset(
-                hash = value.requiredString("hash").lowercase(),
+                hash = value.getValue("hash").jsonPrimitive.content.lowercase(),
                 dummyFormat = format.takeIf(dummyFormats::contains),
             )
             val previous = assets.putIfAbsent(asset.hash, asset)

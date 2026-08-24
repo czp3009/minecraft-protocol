@@ -5,7 +5,6 @@ package com.hiczp.minecraft.account.auth
 import io.ktor.client.request.forms.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
-import io.ktor.http.content.*
 import io.ktor.util.*
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.properties.Properties
@@ -21,12 +20,6 @@ internal inline fun <reified T> formDataContent(request: T): FormDataContent =
             // kotlinx.serialization owns object-to-property encoding; Ktor owns form URL encoding.
             appendAll(Properties.encodeToStringMap(request))
         },
-    )
-
-internal inline fun <reified T> jsonContent(request: T): TextContent =
-    TextContent(
-        text = AccountAuthJson.encodeToString(request),
-        contentType = ContentType.Application.Json,
     )
 
 internal suspend inline fun <reified SuccessBody, reified ErrorBody> HttpResponse.decodeAccountAuthResponse(

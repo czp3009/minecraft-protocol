@@ -4,8 +4,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.files.Path
 import java.nio.file.Files
+import java.nio.file.Path
+import kotlin.io.path.*
 import kotlin.test.*
 
 class TestFilesTest {
@@ -24,11 +25,11 @@ class TestFilesTest {
         )
         try {
             assertNotEquals(first, second)
-            assertEquals(layout.minecraftVersion, first.parent?.name)
-            assertEquals("official-server", first.parent?.parent?.name)
-            assertEquals("runtimes", first.parent?.parent?.parent?.name)
-            assertTrue(first.name.startsWith("run-"))
-            assertTrue(second.name.startsWith("run-"))
+            assertEquals(layout.minecraftVersion, first.parent?.fileName?.toString())
+            assertEquals("official-server", first.parent?.parent?.fileName?.toString())
+            assertEquals("runtimes", first.parent?.parent?.parent?.fileName?.toString())
+            assertTrue(first.fileName.toString().startsWith("run-"))
+            assertTrue(second.fileName.toString().startsWith("run-"))
             assertTrue(first.isBelow(layout.hostWorkRoot))
             assertTrue(second.isBelow(layout.hostWorkRoot))
         } finally {
@@ -39,15 +40,18 @@ class TestFilesTest {
 
     @Test
     fun treeCopiesCanExcludeImmutableSubtrees() {
-        val root = Path(Files.createTempDirectory("fixture-tree-copy-").toString())
+        val root = Files.createTempDirectory("fixture-tree-copy-")
         try {
-            val source = Path(root, "source")
-            val destination = Path(root, "destination")
-            Path(source, "options.txt").writeText("original")
-            Path(source, "mods", "fixture.jar").writeText("mod")
-            Path(source, ".fabric", "processedMods", "nested.jar")
+            val source = root.resolve("source")
+            val destination = root.resolve("destination")
+            source.createDirectories()
+            source.resolve("options.txt").writeText("original")
+            source.resolve("mods").createDirectories()
+            source.resolve("mods").resolve("fixture.jar").writeText("mod")
+            source.resolve(".fabric").resolve("processedMods").createDirectories()
+            source.resolve(".fabric").resolve("processedMods").resolve("nested.jar")
                 .writeText("cache")
-            Path(source, "logs").ensureDirectory()
+            source.resolve("logs").createDirectories()
 
             source.copyTreeTo(
                 destination = destination,
@@ -57,12 +61,12 @@ class TestFilesTest {
                 ),
             )
 
-            assertEquals("original", Path(destination, "options.txt").readText())
-            assertTrue(Path(destination, "logs").isDirectory())
-            assertFalse(Path(destination, "mods").exists())
-            assertFalse(Path(destination, ".fabric", "processedMods").exists())
-            Path(destination, "options.txt").writeText("private")
-            assertEquals("original", Path(source, "options.txt").readText())
+            assertEquals("original", destination.resolve("options.txt").readText())
+            assertTrue(destination.resolve("logs").isDirectory())
+            assertFalse(destination.resolve("mods").exists())
+            assertFalse(destination.resolve(".fabric").resolve("processedMods").exists())
+            destination.resolve("options.txt").writeText("private")
+            assertEquals("original", source.resolve("options.txt").readText())
         } finally {
             root.deleteTree()
         }
@@ -70,11 +74,11 @@ class TestFilesTest {
 
     @Test
     fun singleFilesUseHardLinksWithCopyFallback() {
-        val root = Path(Files.createTempDirectory("fixture-file-link-").toString())
+        val root = Files.createTempDirectory("fixture-file-link-")
         try {
-            val source = Path(root, "source.jar")
-            val linked = Path(root, "linked.jar")
-            val occupied = Path(root, "occupied.jar")
+            val source = root.resolve("source.jar")
+            val linked = root.resolve("linked.jar")
+            val occupied = root.resolve("occupied.jar")
             source.writeText("immutable")
             occupied.writeText("old")
 
@@ -83,10 +87,10 @@ class TestFilesTest {
 
             assertEquals(
                 usedHardLink,
-                Files.isSameFile(source.toNioPath(), linked.toNioPath()),
+                Files.isSameFile(source, linked),
             )
             assertFalse(usedFallback)
-            assertFalse(Files.isSameFile(source.toNioPath(), occupied.toNioPath()))
+            assertFalse(Files.isSameFile(source, occupied))
             assertEquals("immutable", linked.readText())
             assertEquals("immutable", occupied.readText())
         } finally {
@@ -96,31 +100,30 @@ class TestFilesTest {
 
     @Test
     fun immutableDirectoriesUseSymbolicLinksWithSafeTreeFallback() {
-        val root = Path(
-            Files.createTempDirectory("fixture-directory-link-").toString(),
-        )
+        val root = Files.createTempDirectory("fixture-directory-link-")
         try {
-            val source = Path(root, "source")
-            val destination = Path(root, "destination")
-            val sourceFile = Path(source, "nested", "fixture.jar")
+            val source = root.resolve("source")
+            val destination = root.resolve("destination")
+            val sourceFile = source.resolve("nested").resolve("fixture.jar")
+            sourceFile.parent.createDirectories()
             sourceFile.writeText("immutable")
 
             val usedSymbolicLink = source.linkDirectoryTo(destination)
 
             assertEquals(
                 usedSymbolicLink,
-                Files.isSymbolicLink(destination.toNioPath()),
+                Files.isSymbolicLink(destination),
             )
             assertEquals(
                 "immutable",
-                Path(destination, "nested", "fixture.jar").readText(),
+                destination.resolve("nested").resolve("fixture.jar").readText(),
             )
 
             destination.deleteTree()
 
             assertFalse(
                 Files.exists(
-                    destination.toNioPath(),
+                    destination,
                     java.nio.file.LinkOption.NOFOLLOW_LINKS,
                 ),
             )

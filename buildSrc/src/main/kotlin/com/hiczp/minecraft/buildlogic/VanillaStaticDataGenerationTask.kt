@@ -11,6 +11,7 @@ import org.gradle.api.tasks.*
 import java.nio.charset.StandardCharsets
 import java.util.*
 import kotlin.io.path.isRegularFile
+import kotlin.io.path.readText
 
 /**
  * Produces the multiplatform static registry catalogue from the matching
@@ -49,8 +50,8 @@ abstract class GenerateVanillaStaticDataSourceTask :
         }
 
         val payload = buildPayload(
-            registriesPath.readJsonObject(),
-            blocksPath.readJsonObject(),
+            protocolJson.decodeFromString<JsonObject>(registriesPath.readText()),
+            protocolJson.decodeFromString<JsonObject>(blocksPath.readText()),
         )
         val source = renderSource(
             minecraftVersion = target.minecraftVersion,
@@ -68,9 +69,9 @@ abstract class GenerateVanillaStaticDataSourceTask :
     ): String {
         val registryPayloads = buildJsonArray {
             registries.entries.sortedBy { it.key }.forEach { (registryId, value) ->
-                val entries = value.jsonObject.requiredObject("entries")
+                val entries = value.jsonObject.getValue("entries").jsonObject
                     .map { (entryId, entryValue) ->
-                        entryValue.jsonObject.requiredInt("protocol_id") to entryId
+                        entryValue.jsonObject.getValue("protocol_id").jsonPrimitive.int to entryId
                     }
                     .sortedBy { it.first }
                 check(entries.map { it.first } == entries.indices.toList()) {
@@ -94,15 +95,13 @@ abstract class GenerateVanillaStaticDataSourceTask :
 
         val statesById = linkedMapOf<Int, JsonObject>()
         blocks.entries.sortedBy { it.key }.forEach { (blockId, value) ->
-            value.jsonObject.requiredArray("states").forEach { element ->
+            value.jsonObject.getValue("states").jsonArray.forEach { element ->
                 val state = element.jsonObject
-                val stateId = state.requiredInt("id")
+                val stateId = state.getValue("id").jsonPrimitive.int
                 check(stateId >= 0) {
                     "$blockId has a negative block-state ID"
                 }
-                val isDefault = state["default"]
-                    ?.jsonPrimitive
-                    ?.booleanOrNull == true
+                val isDefault = state["default"]?.jsonPrimitive?.boolean ?: false
                 val properties = state["properties"]
                     ?.jsonObject
                     ?.entries

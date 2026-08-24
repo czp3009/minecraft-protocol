@@ -172,14 +172,14 @@ internal fun FileSystem.replaceWithBackup(
     var createdBackup = false
     if (targetExists) {
         retryFileOperation("back up $target") {
-            deleteIfExists(backup)
+            delete(backup, mustExist = false)
             atomicMove(target, backup)
             metadataOrNull(backup)?.isRegularFile == true
         }
         createdBackup = true
     }
     retryFileOperation("remove destination $target") {
-        deleteIfExists(target)
+        delete(target, mustExist = false)
         !exists(target)
     }
     try {
@@ -209,13 +209,13 @@ internal fun FileSystem.replaceWithoutRollback(
 ) {
     if (exists(target)) {
         retryFileOperation("move displaced $target to $displaced") {
-            deleteIfExists(displaced)
+            delete(displaced, mustExist = false)
             atomicMove(target, displaced)
             metadataOrNull(displaced)?.isRegularFile == true
         }
     }
     retryFileOperation("remove destination $target") {
-        deleteIfExists(target)
+        delete(target, mustExist = false)
         !exists(target)
     }
     retryFileOperation("move replacement to $target") {
@@ -240,16 +240,12 @@ private fun retryFileOperation(
     throw WorldIOException("Could not $description after 10 attempts", lastFailure)
 }
 
-internal fun FileSystem.deleteIfExists(path: Path) {
-    delete(path, mustExist = false)
-}
-
 internal fun FileSystem.deleteIfExistsPreserving(
     path: Path,
     failure: Throwable,
 ) {
     try {
-        deleteIfExists(path)
+        delete(path, mustExist = false)
     } catch (cleanupFailure: Throwable) {
         val primary = combineFailures(failure, cleanupFailure)
         if (primary !== failure) throw primary

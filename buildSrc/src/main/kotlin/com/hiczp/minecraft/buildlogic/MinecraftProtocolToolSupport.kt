@@ -67,76 +67,13 @@ abstract class MinecraftProtocolToolTask : DefaultTask() {
     }
 }
 
-internal fun Path.readJsonObject(): JsonObject =
-    protocolJson.parseToJsonElement(readText()).jsonObject
-
-internal fun ByteArray.decodeJsonObject(source: String): JsonObject =
-    try {
-        protocolJson.parseToJsonElement(toString(StandardCharsets.UTF_8))
-            .jsonObject
-    } catch (failure: Throwable) {
-        throw IllegalStateException(
-            "Source is not a UTF-8 JSON object: $source",
-            failure,
-        )
-    }
-
-internal fun JsonObject.requiredObject(name: String): JsonObject =
-    getValue(name).jsonObject
-
-internal fun JsonObject.requiredArray(name: String): JsonArray =
-    getValue(name).jsonArray
-
-internal fun JsonObject.requiredString(name: String): String =
-    getValue(name).jsonPrimitive.let { value ->
-        check(value.isString) {
-            "JSON property '$name' is not a string"
-        }
-        value.content
-    }
-
-internal fun JsonObject.requiredInt(name: String): Int =
-    getValue(name).jsonPrimitive.let { value ->
-        check(!value.isString) {
-            "JSON property '$name' is not an integer"
-        }
-        value.intOrNull
-            ?: error("JSON property '$name' is not an integer")
-    }
-
-internal fun JsonObject.requiredLong(name: String): Long =
-    getValue(name).jsonPrimitive.let { value ->
-        check(!value.isString) {
-            "JSON property '$name' is not an integer"
-        }
-        value.longOrNull
-            ?: error("JSON property '$name' is not an integer")
-    }
-
-internal fun jsonObjectOf(
-    vararg entries: Pair<String, JsonElement>,
-): JsonObject = JsonObject(linkedMapOf(*entries))
-
-internal fun jsonString(value: String): JsonPrimitive = JsonPrimitive(value)
-
-internal fun jsonNumber(value: Number): JsonPrimitive = JsonPrimitive(value)
-
-internal fun jsonBoolean(value: Boolean): JsonPrimitive = JsonPrimitive(value)
-
 internal fun Path.writeJson(
     value: JsonElement,
     sortKeys: Boolean = false,
 ) {
-    atomicWriteText("${renderJson(value, sortKeys)}\n")
+    val document = if (sortKeys) value.withSortedObjectKeys() else value
+    atomicWriteText("${protocolJson.encodeToString(JsonElement.serializer(), document)}\n")
 }
-
-internal fun renderJson(
-    value: JsonElement,
-    sortKeys: Boolean = false,
-): String = protocolJson.encodeToString(
-    JsonElement.serializer(),
-    if (sortKeys) value.withSortedObjectKeys() else value,
-)
 
 private fun JsonElement.withSortedObjectKeys(): JsonElement = when (this) {
     is JsonArray -> JsonArray(map { it.withSortedObjectKeys() })
@@ -292,7 +229,7 @@ internal object ProtocolHttp {
     ): JsonObject {
         var content: JsonObject? = null
         getBytes(url, connectTimeout, offline) { bytes ->
-            content = bytes.decodeJsonObject(url)
+            content = protocolJson.decodeFromString<JsonObject>(bytes.decodeToString())
         }
         return checkNotNull(content)
     }
@@ -556,15 +493,15 @@ internal fun Path.readOfficialMinecraftTargetReport(): OfficialMinecraftTargetRe
     check(isRegularFile()) {
         "Official Minecraft target analysis is missing: $this"
     }
-    val report = readJsonObject()
-    check(report.requiredInt("schema_version") == 1) {
+    val report = protocolJson.decodeFromString<JsonObject>(readText())
+    check(report.getValue("schema_version").jsonPrimitive.int == 1) {
         "Unsupported official Minecraft target schema"
     }
     return OfficialMinecraftTargetReport(
         target = MinecraftProtocolTarget(
-            minecraftVersion = report.requiredString("minecraft_version"),
-            protocolVersion = report.requiredInt("protocol_version"),
-            javaMajorVersion = report.requiredInt("java_major_version"),
+            minecraftVersion = report.getValue("minecraft_version").jsonPrimitive.content,
+            protocolVersion = report.getValue("protocol_version").jsonPrimitive.int,
+            javaMajorVersion = report.getValue("java_major_version").jsonPrimitive.int,
         ),
     ).also {
         check(it.target.minecraftVersion.isNotBlank()) {
@@ -585,16 +522,15 @@ internal fun Path.readMinecraftProtocolTarget(
     check(isRegularFile()) {
         "Official server JAR is missing: $this"
     }
-    val version = readZipEntry("version.json")
-        .decodeJsonObject("$this!/version.json")
-    val minecraftVersion = version.requiredString("id")
+    val version = protocolJson.decodeFromString<JsonObject>(readZipEntry("version.json").decodeToString())
+    val minecraftVersion = version.getValue("id").jsonPrimitive.content
     check(minecraftVersion == expectedVersion) {
         "Official server identifies Minecraft $minecraftVersion; build selects $expectedVersion"
     }
     return MinecraftProtocolTarget(
         minecraftVersion = minecraftVersion,
-        protocolVersion = version.requiredInt("protocol_version"),
-        javaMajorVersion = version.requiredInt("java_version"),
+        protocolVersion = version.getValue("protocol_version").jsonPrimitive.int,
+        javaMajorVersion = version.getValue("java_version").jsonPrimitive.int,
     )
 }
 

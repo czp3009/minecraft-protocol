@@ -19,7 +19,7 @@ class ExtensionPacketCodecTest {
             packetClass = TestNumberPayload::class,
             codec = KotlinxPacketBodyCodec(TestNumberPayload.serializer()),
         )
-        val registry = MinecraftPacketRegistry.compose(listOf(registration))
+        val registry = PacketRegistry(MinecraftPacketRegistry.entries, listOf(registration))
         val packet = TestNumberPayload(300)
         val body = Buffer()
 
@@ -45,7 +45,8 @@ class ExtensionPacketCodecTest {
     @Test
     fun aKnownExtensionNeverDowngradesMalformedBytesToUnknown() {
         val channel = Identifier("test:number")
-        val registry = MinecraftPacketRegistry.compose(
+        val registry = PacketRegistry(
+            MinecraftPacketRegistry.entries,
             listOf(
                 PacketCodecRegistration.clientboundCustomPayload(
                     ConnectionState.CONFIGURATION,
@@ -87,7 +88,7 @@ class ExtensionPacketCodecTest {
             KotlinxPacketBodyCodec(TestNumberPayload.serializer()),
         )
         assertFailsWith<IllegalArgumentException> {
-            MinecraftPacketRegistry.compose(listOf(topLevelCollision))
+            PacketRegistry(MinecraftPacketRegistry.entries, listOf(topLevelCollision))
         }
 
         val channel = Identifier("test:duplicate")
@@ -104,7 +105,7 @@ class ExtensionPacketCodecTest {
             KotlinxPacketBodyCodec(OtherTestNumberPayload.serializer()),
         )
         assertFailsWith<IllegalArgumentException> {
-            MinecraftPacketRegistry.compose(listOf(first, second))
+            PacketRegistry(MinecraftPacketRegistry.entries, listOf(first, second))
         }
     }
 
@@ -154,7 +155,8 @@ class ExtensionPacketCodecTest {
     fun topLevelExtensionsSelectTheirStateAndPreserveIntentionalUnknownBodies() {
         val statusId = 0x3FFE
         val configurationId = 0x3FFF
-        val registry = MinecraftPacketRegistry.compose(
+        val registry = PacketRegistry(
+            MinecraftPacketRegistry.entries,
             listOf(
                 PacketCodecRegistration.clientboundTopLevel(
                     ConnectionState.STATUS,

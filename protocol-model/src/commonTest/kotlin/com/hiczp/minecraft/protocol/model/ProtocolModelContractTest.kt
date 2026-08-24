@@ -11,11 +11,14 @@ class ProtocolModelContractTest {
     @Test
     fun `identifier normalizes the default namespace and validates both parts`() {
         assertEquals(Identifier("minecraft:stone"), Identifier("stone"))
+        assertEquals(Identifier("test:value"), Identifier("test", "value"))
         assertEquals("minecraft", Identifier("stone").namespace)
         assertEquals("stone", Identifier("stone").path)
         assertFailsWith<IllegalArgumentException> { Identifier("Minecraft:stone") }
         assertFailsWith<IllegalArgumentException> { Identifier("minecraft:") }
         assertFailsWith<IllegalArgumentException> { Identifier("minecraft:bad value") }
+        assertFailsWith<IllegalArgumentException> { Identifier("Minecraft", "stone") }
+        assertFailsWith<IllegalArgumentException> { Identifier("minecraft", "bad value") }
     }
 
     @Test

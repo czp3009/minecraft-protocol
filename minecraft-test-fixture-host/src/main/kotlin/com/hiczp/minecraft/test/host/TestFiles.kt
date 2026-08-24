@@ -1,103 +1,48 @@
 package com.hiczp.minecraft.test.host
 
-import kotlinx.io.Source
-import kotlinx.io.buffered
-import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
-import kotlinx.io.readByteArray
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import org.kotlincrypto.hash.md.MD5
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
+import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import kotlin.io.path.createDirectories
+import kotlin.io.path.isDirectory
+import kotlin.io.path.isRegularFile
 
 internal val testJson = Json {
     ignoreUnknownKeys = false
     prettyPrint = true
 }
 
-internal fun ByteArray.decodeJsonObject(source: String): JsonObject =
-    try {
-        testJson.parseToJsonElement(decodeToString()).jsonObject
-    } catch (failure: Throwable) {
-        throw IllegalStateException("Source is not a UTF-8 JSON object: $source", failure)
-    }
-
-internal fun JsonObject.requiredString(name: String): String =
-    getValue(name).jsonPrimitive.let { value ->
-        check(value.isString) { "JSON property '$name' is not a string" }
-        value.content
-    }
-
-internal fun Path.exists(): Boolean = SystemFileSystem.exists(this)
-
-internal fun Path.isRegularFile(): Boolean =
-    SystemFileSystem.metadataOrNull(this)?.isRegularFile == true
-
-internal fun Path.isDirectory(): Boolean =
-    SystemFileSystem.metadataOrNull(this)?.isDirectory == true
-
-internal fun Path.ensureDirectory() {
-    try {
-        SystemFileSystem.createDirectories(this)
-    } catch (failure: Throwable) {
-        val directoryExists = runCatching { isDirectory() }.getOrDefault(false)
-        if (!directoryExists) throw failure
-    }
-}
-
-internal fun Path.readBytes(): ByteArray =
-    SystemFileSystem.source(this).buffered().use(Source::readByteArray)
-
-internal fun Path.readText(): String = readBytes().decodeToString()
-
-internal fun Path.readJsonObject(): JsonObject =
-    testJson.parseToJsonElement(readText()).jsonObject
-
-internal fun Path.writeText(content: String) {
-    writeBytes(content.encodeToByteArray())
-}
-
-internal fun Path.writeBytes(content: ByteArray) {
-    val directory = requireNotNull(parent) { "Output path has no parent: $this" }
-    directory.ensureDirectory()
-    Files.write(toNioPath(), content)
-}
-
-internal fun ByteArray.md5(): ByteArray = MD5().digest(this)
-
 internal fun Path.safeResolve(relative: String): Path {
     require(relative.isNotBlank()) { "Relative path is blank" }
-    require(!Path(relative).isAbsolute) { "Path is absolute: $relative" }
+    require(!Path.of(relative).isAbsolute) { "Path is absolute: $relative" }
     val components = relative.split('/', '\\')
     require(components.all { it.isNotEmpty() && it != "." && it != ".." && ':' !in it }) {
         "Path escapes $this: $relative"
     }
-    return Path(this, *components.toTypedArray())
+    return components.fold(this) { path, component -> path.resolve(component) }
 }
 
 internal fun Path.deleteTree() {
-    val path = toNioPath()
-    if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return
-    if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
-        SystemFileSystem.list(this).forEach(Path::deleteTree)
+    if (!Files.exists(this, LinkOption.NOFOLLOW_LINKS)) return
+    Files.walk(this).use { paths ->
+        paths.sorted(Comparator.reverseOrder()).forEach(Files::delete)
     }
-    Files.delete(path)
 }
 
 internal fun Path.deleteFilesRecursively() {
-    check(Files.isDirectory(toNioPath(), LinkOption.NOFOLLOW_LINKS)) {
+    check(Files.isDirectory(this, LinkOption.NOFOLLOW_LINKS)) {
         "Directory does not exist: $this"
     }
-    SystemFileSystem.list(this).forEach { child ->
-        if (Files.isDirectory(child.toNioPath(), LinkOption.NOFOLLOW_LINKS)) {
-            child.deleteFilesRecursively()
-        } else {
-            Files.delete(child.toNioPath())
+    Files.list(this).use { children ->
+        children.forEach { child ->
+            if (Files.isDirectory(child, LinkOption.NOFOLLOW_LINKS)) {
+                child.deleteFilesRecursively()
+            } else {
+                Files.delete(child)
+            }
         }
     }
 }
@@ -107,17 +52,14 @@ internal fun Path.copyTreeTo(
     excludedRelativePaths: Set<String> = emptySet(),
 ) {
     check(isDirectory()) { "Source directory does not exist: $this" }
-    val source = toNioPath()
-    val target = destination.toNioPath()
-    val excludedPaths = excludedRelativePaths
-        .map { relativePath -> safeResolve(relativePath).toNioPath() }
-    Files.walk(source).use { paths ->
+    val excludedPaths = excludedRelativePaths.map(::safeResolve)
+    Files.walk(this).use { paths ->
         paths.forEach { current ->
             if (excludedPaths.any(current::startsWith)) {
                 return@forEach
             }
-            val relative = source.relativize(current)
-            val output = target.resolve(relative)
+            val relative = relativize(current)
+            val output = destination.resolve(relative)
             if (Files.isDirectory(current)) {
                 Files.createDirectories(output)
             } else {
@@ -138,17 +80,14 @@ internal fun Path.linkTreeTo(
     excludedRelativePaths: Set<String> = emptySet(),
 ) {
     check(isDirectory()) { "Source directory does not exist: $this" }
-    val source = toNioPath()
-    val target = destination.toNioPath()
-    val excludedPaths = excludedRelativePaths
-        .map { relativePath -> safeResolve(relativePath).toNioPath() }
-    Files.walk(source).use { paths ->
+    val excludedPaths = excludedRelativePaths.map(::safeResolve)
+    Files.walk(this).use { paths ->
         paths.forEach { current ->
             if (excludedPaths.any(current::startsWith)) {
                 return@forEach
             }
-            val relative = source.relativize(current)
-            val output = target.resolve(relative)
+            val relative = relativize(current)
+            val output = destination.resolve(relative)
             if (Files.isDirectory(current)) {
                 Files.createDirectories(output)
             } else {
@@ -166,11 +105,11 @@ internal fun Path.linkTreeTo(
  */
 internal fun Path.linkDirectoryTo(destination: Path): Boolean {
     check(isDirectory()) { "Source directory does not exist: $this" }
-    destination.parent?.ensureDirectory()
+    destination.parent?.createDirectories()
     val failure = try {
         Files.createSymbolicLink(
-            destination.toNioPath(),
-            toNioPath().toAbsolutePath().normalize(),
+            destination,
+            toAbsolutePath().normalize(),
         )
         return true
     } catch (failure: IOException) {
@@ -191,16 +130,16 @@ internal fun Path.linkDirectoryTo(destination: Path): Boolean {
 
 internal fun Path.linkFileTo(destination: Path): Boolean {
     check(isRegularFile()) { "Source file does not exist: $this" }
-    destination.parent?.ensureDirectory()
-    return linkFileOrCopy(toNioPath(), destination.toNioPath())
+    destination.parent?.createDirectories()
+    return linkFileOrCopy(this, destination)
 }
 
 internal fun Path.copyFileTo(destination: Path) {
     check(isRegularFile()) { "Source file does not exist: $this" }
-    destination.parent?.ensureDirectory()
+    destination.parent?.createDirectories()
     Files.copy(
-        toNioPath(),
-        destination.toNioPath(),
+        this,
+        destination,
         StandardCopyOption.REPLACE_EXISTING,
         StandardCopyOption.COPY_ATTRIBUTES,
     )
@@ -223,6 +162,6 @@ private fun linkFileOrCopy(
 }
 
 internal fun createUniqueDirectory(parent: Path): Path {
-    parent.ensureDirectory()
-    return Path(Files.createTempDirectory(parent.toNioPath(), "run-").toString())
+    parent.createDirectories()
+    return Files.createTempDirectory(parent, "run-")
 }

@@ -5,19 +5,19 @@ requirement to edit every listed module.
 
 ## Gradle-owned inputs and outputs
 
-The root task `officialMinecraftAnalysis` produces target, packet/registry/block report, and Configuration analysis
-artifacts from the official server for the selected release. These are evidence and generator inputs, not source files.
-It does not prepare the official client JAR; `downloadMinecraftClientJar` is the declared producer for client-bytecode
-inspection when a routed change requires it.
+The root task `prepareOfficialMinecraftData` produces target, packet/registry/block report, Configuration analysis, and
+extracted data-pack artifacts from the official server for the selected release. These are evidence and generator
+inputs, not source files. It does not prepare the official client JAR; `downloadMinecraftClientJar` is the declared
+producer for client-bytecode inspection when a routed change requires it.
 
 Current production source producers are:
 
-| Producer                                                    | Output responsibility                                                                     |
-|-------------------------------------------------------------|-------------------------------------------------------------------------------------------|
-| `:protocol-model:generateMinecraftProtocolSource`           | `MinecraftProtocol` release and protocol constants                                        |
-| `:protocol-model:kspCommonMainKotlinMetadata`               | packet definitions and data-component serializer dispatch derived from source annotations |
-| `:protocol-vanilla-data:generateVanillaStaticDataSource`    | static registry and block-state payload source                                            |
-| `:protocol-vanilla-data:generateVanillaConfigurationSource` | captured Configuration payload source                                                     |
+| Producer                                                        | Output responsibility                                                                     |
+|-----------------------------------------------------------------|-------------------------------------------------------------------------------------------|
+| `:protocol-model:generateMinecraftProtocolSource`               | `MinecraftProtocol` release and protocol constants                                        |
+| `:protocol-model:kspCommonMainKotlinMetadata`                   | packet definitions and data-component serializer dispatch derived from source annotations |
+| `:protocol-datapack-vanilla:generateVanillaStaticDataSource`    | static registry and block-state payload source                                            |
+| `:protocol-datapack-vanilla:generateVanillaConfigurationSource` | captured Configuration payload source                                                     |
 
 Treat every output of these producers as read-only. Task implementations in `buildSrc`, source annotations consumed by
 KSP, model declarations, loaders, codecs, and tests remain handwritten.

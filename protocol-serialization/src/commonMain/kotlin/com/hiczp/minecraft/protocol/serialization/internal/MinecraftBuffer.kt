@@ -61,7 +61,7 @@ internal class MinecraftReader(
         return source.peek().readByte()
     }
 
-    fun readUnsignedByte(): Int = readByte().toInt() and 0xFF
+    fun readUnsignedByte(): Int = consume(Byte.SIZE_BYTES) { source.readUByte().toInt() }
 
     fun readBytes(length: Int): ByteArray =
         consume(length) { source.readByteArray(length) }
@@ -137,7 +137,7 @@ internal class MinecraftReader(
 
     fun readShort(): Short = consume(Short.SIZE_BYTES) { source.readShort() }
 
-    fun readUnsignedShort(): Int = readShort().toInt() and 0xFFFF
+    fun readUnsignedShort(): Int = consume(Short.SIZE_BYTES) { source.readUShort().toInt() }
 
     fun readInt(): Int = consume(Int.SIZE_BYTES) { source.readInt() }
 

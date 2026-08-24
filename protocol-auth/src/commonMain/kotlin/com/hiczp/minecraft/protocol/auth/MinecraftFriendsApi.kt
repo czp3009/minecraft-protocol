@@ -37,7 +37,8 @@ class MinecraftFriendsApi(
             expectSuccess = false
             accept(ContentType.Application.Json)
             bearerAuth(accessToken)
-            setBody(minecraftServiceJsonContent(request))
+            contentType(ContentType.Application.Json)
+            setBody(MinecraftServiceJson.encodeToString(request))
         }
         return response.decodeOptionalServiceResponse<
                 MinecraftFriendsListResponse,
@@ -55,7 +56,8 @@ class MinecraftFriendsApi(
             accept(ContentType.Application.Json)
             bearerAuth(accessToken)
             etag?.let { header(HttpHeaders.IfNoneMatch, it) }
-            setBody(minecraftServiceJsonContent(request))
+            contentType(ContentType.Application.Json)
+            setBody(MinecraftServiceJson.encodeToString(request))
         }
         return response.decodeConditionalServiceResponse<
                 MinecraftPresenceResponse,

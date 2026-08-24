@@ -23,16 +23,22 @@ value class Identifier private constructor(val value: String) {
 
     companion object {
         operator fun invoke(value: String): Identifier {
-            val normalized = if (':' in value) value else "minecraft:$value"
-            val namespace = normalized.substringBefore(':')
-            val path = normalized.substringAfter(':')
+            val separator = value.indexOf(':')
+            return if (separator < 0) {
+                invoke("minecraft", value)
+            } else {
+                invoke(value.substring(0, separator), value.substring(separator + 1))
+            }
+        }
+
+        operator fun invoke(namespace: String, path: String): Identifier {
             require(namespace.matches(namespacePattern)) {
                 "Invalid identifier namespace: $namespace"
             }
             require(path.matches(valuePattern)) {
                 "Invalid identifier path: $path"
             }
-            return Identifier(normalized)
+            return Identifier("$namespace:$path")
         }
     }
 }

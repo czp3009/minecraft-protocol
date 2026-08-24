@@ -408,7 +408,7 @@ private fun identifier(
     path: String,
     description: String,
 ): Identifier = try {
-    Identifier("$namespace:$path")
+    Identifier(namespace, path)
 } catch (cause: IllegalArgumentException) {
     throw MinecraftSerializationException(
         "Invalid Fabric $description identifier: $namespace:$path",

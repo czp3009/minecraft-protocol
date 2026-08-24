@@ -74,8 +74,8 @@ class MinecraftChunkPacketEncoder(
             return NetworkChunkSection(
                 nonAirBlockCount = if (isAir(defaultBlockState)) 0 else SECTION_BLOCK_COUNT,
                 fluidCount = if (hasFluid(defaultBlockState)) SECTION_BLOCK_COUNT else 0,
-                blockStates = NetworkPalettedContainer.Single(blockStateId(defaultBlockState)),
-                biomes = NetworkPalettedContainer.Single(biomeId(defaultBiome)),
+                blockStates = NetworkPalettedContainer.Single(defaultBlockState.id),
+                biomes = NetworkPalettedContainer.Single(defaultBiome.rawId),
             )
         }
 
@@ -93,14 +93,14 @@ class MinecraftChunkPacketEncoder(
                 registrySize = registries.blockStateRegistrySize,
                 minimumIndirectBits = BLOCK_MINIMUM_INDIRECT_BITS,
                 maximumIndirectBits = BLOCK_MAXIMUM_INDIRECT_BITS,
-                id = ::blockStateId,
+                id = ProtocolBlockState::id,
             ),
             biomes = encodePalette(
                 container = section.biomes,
                 registrySize = biomeRegistrySize,
                 minimumIndirectBits = BIOME_MINIMUM_INDIRECT_BITS,
                 maximumIndirectBits = BIOME_MAXIMUM_INDIRECT_BITS,
-                id = ::biomeId,
+                id = ProtocolRegistryEntry::rawId,
             ),
         )
     }
@@ -131,10 +131,6 @@ class MinecraftChunkPacketEncoder(
             )
         }
     }
-
-    private fun blockStateId(value: ProtocolBlockState): Int = value.id
-
-    private fun biomeId(value: ProtocolRegistryEntry): Int = value.rawId
 
     private fun encodeHeightmaps(heightmaps: NbtCompound): Map<HeightmapType, LongArray> = buildMap {
         heightmaps.forEachEntry { name, tag ->

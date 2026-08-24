@@ -1,7 +1,7 @@
 package com.hiczp.minecraft.test.host
 
 import kotlinx.coroutines.runBlocking
-import kotlinx.io.files.Path
+import java.nio.file.Path
 
 fun main(arguments: Array<String>) = runBlocking {
     require(arguments.isNotEmpty()) {
@@ -14,9 +14,9 @@ fun main(arguments: Array<String>) = runBlocking {
             }
             generateOfficialMinecraftServerTemplate(
                 minecraftVersion = arguments[1],
-                serverJar = Path(arguments[2]),
-                outputRoot = Path(arguments[3]),
-                workRoot = Path(arguments[4]),
+                serverJar = Path.of(arguments[2]),
+                outputRoot = Path.of(arguments[3]),
+                workRoot = Path.of(arguments[4]),
             )
         }
 
@@ -31,10 +31,10 @@ fun main(arguments: Array<String>) = runBlocking {
                 hmcSpecificsReleaseTag = arguments[4],
                 hmcSpecificsAssetName = arguments[5],
                 hmcSpecificsAssetUrl = arguments[6],
-                runtimeDirectory = Path(arguments[7]),
-                templateDirectory = Path(arguments[8]),
-                manifestFile = Path(arguments[9]),
-                workRoot = Path(arguments[10]),
+                runtimeDirectory = Path.of(arguments[7]),
+                templateDirectory = Path.of(arguments[8]),
+                manifestFile = Path.of(arguments[9]),
+                workRoot = Path.of(arguments[10]),
             )
         }
 

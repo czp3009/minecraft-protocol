@@ -8,6 +8,7 @@ import com.hiczp.minecraft.world.format.Compression
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
 import kotlinx.serialization.json.*
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.*
 
 class DataPackFormatTest {
@@ -97,6 +98,29 @@ class DataPackFormatTest {
     }
 
     @Test
+    fun customDecoderFailuresRetainFileContextAndCancellation() {
+        val packId = DataPackId("test")
+        val path = DataPackPath("data/test/custom/value.mod")
+        val content = DataPackBinary(byteArrayOf(1))
+        val cause = IllegalStateException("decoder failed")
+        val failure = assertFailsWith<DataPackFormatException> {
+            DataPackFormat(customDecoders = listOf(DataPackFileDecoder { _, _, _ -> throw cause }))
+                .decode(packId, sequenceOf(path to content))
+        }
+
+        assertSame(cause, failure.cause)
+        assertContains(failure.message.orEmpty(), path.value)
+        assertContains(failure.message.orEmpty(), packId.value)
+
+        val cancellation = CancellationException("cancelled")
+        val thrown = assertFailsWith<CancellationException> {
+            DataPackFormat(customDecoders = listOf(DataPackFileDecoder { _, _, _ -> throw cancellation }))
+                .decode(packId, sequenceOf(path to content))
+        }
+        assertSame(cancellation, thrown)
+    }
+
+    @Test
     fun resolvesOverlaysFiltersAndTagAppendInPriorityOrder() {
         val format = DataPackFormatVersion(107, 1)
         val base = parsedPack(
@@ -141,6 +165,44 @@ class DataPackFormatTest {
         )
         assertTrue(resolved.filtersBaseResource(DataPackResourcePath("test", "recipe/removed.json")))
         assertTrue(resolved.filtersBaseResource(DataPackResourcePath("test", "recipe/replaced.json")))
+    }
+
+    @Test
+    fun tagFilesDecodeTypedEntries() {
+        val pack = parsedPack(
+            id = "tags",
+            metadata = metadata(),
+            files = mapOf(
+                "data/test/tags/block/values.json" to buildJsonObject {
+                    put(
+                        "values",
+                        buildJsonArray {
+                            add("stone")
+                            add("#test:logs")
+                            add(buildJsonObject {
+                                put("id", "test:optional")
+                                put("required", false)
+                            })
+                        },
+                    )
+                },
+            ),
+        )
+
+        val resource = requireNotNull(
+            DataPackStack(pack).resolve().resource(DataPackResourcePath("test", "tags/block/values.json")),
+        )
+
+        assertEquals(
+            DataPackTagFile(
+                values = listOf(
+                    DataPackTagEntry(DataPackResourceId("minecraft", "stone")),
+                    DataPackTagEntry(DataPackResourceId("test", "logs"), tag = true),
+                    DataPackTagEntry(DataPackResourceId("test", "optional"), required = false),
+                ),
+            ),
+            resource.decodeTagFile(),
+        )
     }
 
     private fun parsedPack(

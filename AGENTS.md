@@ -155,6 +155,11 @@ Fixture preparation and lifecycle details belong in the nearest guides under `bu
 
 - A README describes the public contract visible in current source. Do not promise planned behavior, infer target
   support, or copy generated release constants.
+- README files, AGENTS guides, and project skills refer to release and tool versions through their owning selector or by
+  role, such as the repository-selected Minecraft release and matching Java major. Never copy the selector's current
+  literal value. This covers `MinecraftTarget`, `BuildVersions`, the Gradle wrapper, the version catalog, and other
+  `buildSrc` target declarations. Stable protocol identifiers, data-format revisions, HTTP status codes, and example
+  addresses are not release versions and stay explicit when useful.
 - Every value in an example has a discoverable origin before first use: a parameter, a local declaration, a clearly
   continued earlier example, or an immediately described producer. Identify receiver types for unqualified DSL
   properties.

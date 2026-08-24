@@ -1,7 +1,9 @@
 package com.hiczp.minecraft.test.host
 
-import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
+import java.nio.file.Path
+import kotlin.io.path.isDirectory
+import kotlin.io.path.isRegularFile
+import kotlin.io.path.listDirectoryEntries
 
 internal data class OfficialServerRuntime(
     val directory: Path,
@@ -26,11 +28,11 @@ internal fun loadServerRuntime(
     check(output.isDirectory()) {
         "Official runtime is absent: $output; run the Gradle prepareOfficialMinecraftCodecOracle task first"
     }
-    val implementation = Path(output, "server.jar")
+    val implementation = output.resolve("server.jar")
     check(implementation.isRegularFile()) {
         "Official runtime implementation JAR is missing: $implementation"
     }
-    val librariesDir = Path(output, "libraries")
+    val librariesDir = output.resolve("libraries")
     val libraries = if (librariesDir.isDirectory()) {
         collectFiles(librariesDir)
             .sortedBy(Path::toString)
@@ -46,11 +48,10 @@ internal fun loadServerRuntime(
 }
 
 private fun collectFiles(dir: Path): Sequence<Path> =
-    SystemFileSystem.list(dir).asSequence().flatMap { child ->
-        val full = Path(dir, child.name)
-        if (SystemFileSystem.metadataOrNull(full)?.isDirectory == true) {
-            collectFiles(full)
+    dir.listDirectoryEntries().asSequence().flatMap { child ->
+        if (child.isDirectory()) {
+            collectFiles(child)
         } else {
-            sequenceOf(full)
+            sequenceOf(child)
         }
     }

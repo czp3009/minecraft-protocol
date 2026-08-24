@@ -8,11 +8,12 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.kotlincrypto.hash.md.MD5
+import java.nio.file.Path
+import kotlin.io.path.*
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
@@ -165,16 +166,16 @@ private suspend fun launchTitleReadyHeadlessClient(
         installation,
         workDirectory,
     )
-    val gameDirectory = Path(workDirectory, "game")
-    val headlessMcHome = Path(workDirectory, "headlessmc-home")
+    val gameDirectory = workDirectory.resolve("game")
+    val headlessMcHome = workDirectory.resolve("headlessmc-home")
     prepareHeadlessClientWorkspace(
         installation = privateInstallation,
         gameDirectory = gameDirectory,
         useTemplate = useTemplate,
     )
-    headlessMcHome.ensureDirectory()
+    headlessMcHome.createDirectories()
     if (useTemplate) {
-        check(Path(gameDirectory, "options.txt").isRegularFile()) {
+        check(gameDirectory.resolve("options.txt").isRegularFile()) {
             "Headless client template is missing options.txt"
         }
     } else {
@@ -268,9 +269,9 @@ internal fun prepareHeadlessClientRuntime(
     installation: HeadlessClientInstallation,
     workDirectory: Path,
 ): HeadlessClientInstallation {
-    val runtime = Path(workDirectory, "runtime")
-    val minecraft = Path(runtime, "minecraft")
-    val launcher = Path(runtime, "headlessmc", "headlessmc-launcher.jar")
+    val runtime = workDirectory.resolve("runtime")
+    val minecraft = runtime.resolve("minecraft")
+    val launcher = runtime.resolve("headlessmc").resolve("headlessmc-launcher.jar")
     installation.minecraftDirectory.linkDirectoryTo(minecraft)
     installation.launcher.linkFileTo(launcher)
     return installation.copy(
@@ -284,16 +285,16 @@ internal fun prepareHeadlessClientWorkspace(
     gameDirectory: Path,
     useTemplate: Boolean,
 ) {
-    gameDirectory.ensureDirectory()
+    gameDirectory.createDirectories()
     if (useTemplate) {
         installation.templateDirectory.copyTreeTo(
             destination = gameDirectory,
             excludedRelativePaths = CLIENT_TEMPLATE_IMMUTABLE_DIRECTORIES,
         )
     }
-    installation.modsDirectory.linkTreeTo(Path(gameDirectory, "mods"))
+    installation.modsDirectory.linkTreeTo(gameDirectory.resolve("mods"))
     installation.processedModsDirectory?.linkTreeTo(
-        Path(gameDirectory, ".fabric", "processedMods"),
+        gameDirectory.resolve(".fabric").resolve("processedMods"),
     )
 }
 
@@ -424,13 +425,9 @@ internal suspend fun generateHeadlessClientTemplate(
         val installation = HeadlessClientInstallation(
             minecraftVersion = minecraftVersion,
             fabricProfileId = "fabric-loader-$fabricLoaderVersion-$minecraftVersion",
-            minecraftDirectory = Path(runtimeDirectory, "minecraft"),
-            launcher = Path(
-                runtimeDirectory,
-                "headlessmc",
-                "headlessmc-launcher.jar",
-            ),
-            modsDirectory = Path(runtimeDirectory, "mods"),
+            minecraftDirectory = runtimeDirectory.resolve("minecraft"),
+            launcher = runtimeDirectory.resolve("headlessmc").resolve("headlessmc-launcher.jar"),
+            modsDirectory = runtimeDirectory.resolve("mods"),
             processedModsDirectory = null,
             templateDirectory = templateDirectory,
         )
@@ -444,21 +441,21 @@ internal suspend fun generateHeadlessClientTemplate(
             useTemplate = false,
         )
         stopHeadlessClientProcess(process, configuration.stopTimeout)
-        val candidateGame = Path(candidate, "game")
-        check(Path(candidateGame, "options.txt").isRegularFile()) {
+        val candidateGame = candidate.resolve("game")
+        check(candidateGame.resolve("options.txt").isRegularFile()) {
             "Headless client template did not retain deterministic options"
         }
-        val candidateMods = Path(candidateGame, "mods")
-        val modEntries = SystemFileSystem.list(candidateMods)
-            .map { path -> path.name }
+        val candidateMods = candidateGame.resolve("mods")
+        val modEntries = candidateMods.listDirectoryEntries()
+            .map { path -> path.fileName.toString() }
             .sorted()
         check(modEntries == listOf(hmcSpecificsAssetName)) {
             "Headless client template loaded unexpected mods: $modEntries"
         }
-        val processedMods = Path(candidateGame, ".fabric", "processedMods")
+        val processedMods = candidateGame.resolve(".fabric").resolve("processedMods")
         check(
             processedMods.isDirectory() &&
-                    SystemFileSystem.list(processedMods).any { path ->
+                    processedMods.listDirectoryEntries().any { path ->
                         path.isRegularFile()
                     },
         ) {
@@ -469,10 +466,10 @@ internal suspend fun generateHeadlessClientTemplate(
             excludedRelativePaths = CLIENT_TEMPLATE_IMMUTABLE_DIRECTORIES,
         )
         installation.modsDirectory.linkTreeTo(
-            Path(templateDirectory, "mods"),
+            templateDirectory.resolve("mods"),
         )
         processedMods.linkTreeTo(
-            Path(templateDirectory, ".fabric", "processedMods"),
+            templateDirectory.resolve(".fabric").resolve("processedMods"),
         )
         CLIENT_TEMPLATE_CLEARED_DIRECTORIES.forEach { relativePath ->
             templateDirectory.safeResolve(relativePath).deleteFilesRecursively()
@@ -490,8 +487,8 @@ internal suspend fun generateHeadlessClientTemplate(
                 "Headless client template retained mutable file $relativePath"
             }
         }
-        val templateEntries = SystemFileSystem.list(templateDirectory)
-            .map { path -> path.name }
+        val templateEntries = templateDirectory.listDirectoryEntries()
+            .map { path -> path.fileName.toString() }
             .sorted()
         val manifest = JsonObject(
             linkedMapOf(
@@ -564,7 +561,7 @@ internal fun HeadlessMinecraftClientConfiguration.usesDefaultTemplate(): Boolean
     this == HeadlessMinecraftClientConfiguration(playerName = playerName)
 
 private fun offlineUuid(name: String): String {
-    val bytes = "OfflinePlayer:$name".encodeToByteArray().md5()
+    val bytes = MD5().digest("OfflinePlayer:$name".encodeToByteArray())
     bytes[6] = ((bytes[6].toInt() and 0x0f) or 0x30).toByte()
     bytes[8] = ((bytes[8].toInt() and 0x3f) or 0x80).toByte()
     return Uuid.fromByteArray(bytes).toHexString()
@@ -580,7 +577,7 @@ private fun writeClientOptions(gameDirectory: Path) {
         |renderDistance:2
         |simulationDistance:5
     """.trimMargin()
-    Path(gameDirectory, "options.txt").writeText(
+    gameDirectory.resolve("options.txt").writeText(
         "$options\n",
     )
 }

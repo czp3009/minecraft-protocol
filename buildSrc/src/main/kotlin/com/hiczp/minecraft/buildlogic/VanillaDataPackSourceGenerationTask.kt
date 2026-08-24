@@ -14,6 +14,7 @@ import java.util.*
 import java.util.zip.GZIPOutputStream
 import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
+import kotlin.io.path.readText
 
 /** Generates a portable manifest and independently loaded source batches from extracted official data packs. */
 @CacheableTask
@@ -30,16 +31,16 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
         val extracted = extractedDataPacksDirectory.asFile.get().toPath()
         val manifestPath = extracted.resolve(MANIFEST_FILE)
         check(manifestPath.isRegularFile()) { "Official data-pack manifest is missing: $manifestPath" }
-        val manifest = manifestPath.readJsonObject()
-        check(manifest.requiredInt("schema_version") == EXTRACTION_SCHEMA_VERSION) {
+        val manifest = protocolJson.decodeFromString<JsonObject>(manifestPath.readText())
+        check(manifest.getValue("schema_version").jsonPrimitive.int == EXTRACTION_SCHEMA_VERSION) {
             "Unsupported official data-pack extraction schema"
         }
-        val packIds = manifest.requiredArray("packs").map { it.jsonPrimitive.content }
+        val packIds = manifest.getValue("packs").jsonArray.map { it.jsonPrimitive.content }
         val packs = packIds.map { packId -> buildPackPayload(extracted, packId) }
-        check(packs.sumOf(PackPayload::fileCount) == manifest.requiredInt("file_count")) {
+        check(packs.sumOf(PackPayload::fileCount) == manifest.getValue("file_count").jsonPrimitive.int) {
             "Official data-pack file count differs from its extraction manifest"
         }
-        val format = manifest.requiredArray("data_pack_format").map { it.jsonPrimitive.int }
+        val format = manifest.getValue("data_pack_format").jsonArray.map { it.jsonPrimitive.int }
         check(format.size == 2) { "Official data-pack format must have two components" }
 
         val output = outputDirectory.asFile.get().toPath()
@@ -47,7 +48,7 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
         val packageDirectory = output.resolve(GENERATED_PACKAGE.replace('.', '/'))
         Files.createDirectories(packageDirectory)
         renderManifestSource(
-            minecraftVersion = manifest.requiredString("minecraft_version"),
+            minecraftVersion = manifest.getValue("minecraft_version").jsonPrimitive.content,
             dataPackFormat = format,
             packs = packs,
         ).writeSource(packageDirectory.resolve("VanillaDataPackPayload.kt"))

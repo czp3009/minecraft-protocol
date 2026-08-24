@@ -214,10 +214,7 @@ private data class ConditionalArgumentWire(
 
 private fun JsonElement.asStrings(): List<String> = when (this) {
     is JsonPrimitive -> listOf(content)
-    is kotlinx.serialization.json.JsonArray -> map { element ->
-        (element as? JsonPrimitive)?.content
-            ?: throw SerializationException("Mojang argument arrays must contain only strings")
-    }
+    is JsonArray -> map { it.jsonPrimitive.content }
 
     else -> throw SerializationException("Mojang argument value must be a string or string array")
 }

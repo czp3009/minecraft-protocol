@@ -24,7 +24,7 @@ class RegionStorageTest {
 
         store.writeCompressedChunk(position, chunk(byteArrayOf(2)))
         assertEquals(RegionLocation(3, 1), header(fileSystem, path).location(position.local))
-        assertEquals(1, fileSystem.readBytes(path)[2 * REGION_SECTOR_BYTES + 5].toInt())
+        assertEquals(1, fileSystem.read(path) { readByteArray() }[2 * REGION_SECTOR_BYTES + 5].toInt())
 
         store.writeCompressedChunk(position, chunk(byteArrayOf(3)))
         assertEquals(RegionLocation(2, 1), header(fileSystem, path).location(position.local))
@@ -49,7 +49,7 @@ class RegionStorageTest {
 
         store.writeCompressedChunk(position, chunk(externalBytes))
         val sidecar = directory / "c.-1.-1.mcc"
-        assertContentEquals(externalBytes, fileSystem.readBytes(sidecar))
+        assertContentEquals(externalBytes, fileSystem.read(sidecar) { readByteArray() })
         assertEquals(AnvilChunkPlacement.EXTERNAL, store.readChunkInfo(position)?.placement)
         assertTrue(store.hasChunk(position))
 
@@ -92,7 +92,8 @@ class RegionStorageTest {
         writeInt(bytes, 2 * REGION_SECTOR_BYTES, 2)
         bytes[2 * REGION_SECTOR_BYTES + 4] = RegionChunkRecordHeader.compressionId(Compression.NONE).toByte()
         bytes[2 * REGION_SECTOR_BYTES + 5] = 42
-        fileSystem.writeBytes(path, bytes)
+        path.parent?.let(fileSystem::createDirectories)
+        fileSystem.write(path) { write(bytes) }
 
         val store = store(fileSystem, directory)
         assertNull(store.readCompressedChunk(ChunkPosition(0, 0)))
@@ -190,7 +191,7 @@ class RegionStorageTest {
         clearing.close()
 
         assertEquals(oldHeader, header(base, path))
-        assertContentEquals(payload, base.readBytes(sidecar))
+        assertContentEquals(payload, base.read(sidecar) { readByteArray() })
         val reopened = store(base, directory)
         assertContentEquals(
             payload,
@@ -320,7 +321,7 @@ class RegionStorageTest {
             committedHeader.timestamp(position.local) in
                     minOf(beforeWrite, afterWrite)..maxOf(beforeWrite, afterWrite),
         )
-        assertContentEquals(first, base.readBytes(directory / "c.0.0.mcc"))
+        assertContentEquals(first, base.read(directory / "c.0.0.mcc") { readByteArray() })
         assertTrue(base.allPaths.none { it.name.startsWith(".mcc-") })
         val reopened = store(base, directory)
         assertContentEquals(
@@ -430,7 +431,7 @@ class RegionStorageTest {
         store.close()
 
         assertEquals(oldHeader, header(base, path))
-        assertContentEquals(first, base.readBytes(sidecar))
+        assertContentEquals(first, base.read(sidecar) { readByteArray() })
         assertTrue(base.allPaths.none { it.name.startsWith(".mcc-") })
     }
 
@@ -566,7 +567,8 @@ class RegionStorageTest {
         assertTrue(missing.readChunkInfos(position.region).isEmpty())
         missing.close()
 
-        fileSystem.writeBytes(sidecar, payload)
+        sidecar.parent?.let(fileSystem::createDirectories)
+        fileSystem.write(sidecar) { write(payload) }
         val reopened = store(fileSystem, directory)
         assertTrue(reopened.hasChunk(position))
         assertContentEquals(payload, checkNotNull(reopened.readCompressedChunk(position)).toByteArray())
@@ -897,22 +899,8 @@ private fun interceptRegionHandle(
 
 private fun header(fileSystem: FileSystem, path: Path): RegionHeader =
     RegionHeader.decode(
-        fileSystem.readBytes(path).copyOfRange(0, REGION_HEADER_BYTES),
+        fileSystem.read(path) { readByteArray() }.copyOfRange(0, REGION_HEADER_BYTES),
     )
-
-private fun FileSystem.readBytes(path: Path): ByteArray =
-    readFileBytes(path)
-
-private fun FileSystem.writeBytes(path: Path, bytes: ByteArray) {
-    path.parent?.let(::createDirectories)
-    val handle = openReadWrite(path)
-    try {
-        handle.resize(0L)
-        handle.write(0L, bytes, 0, bytes.size)
-    } finally {
-        handle.close()
-    }
-}
 
 private fun writeInt(bytes: ByteArray, offset: Int, value: Int) {
     bytes[offset] = (value ushr 24).toByte()

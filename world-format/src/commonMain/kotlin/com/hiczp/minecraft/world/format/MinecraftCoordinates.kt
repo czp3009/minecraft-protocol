@@ -25,32 +25,32 @@ object MinecraftCoordinates {
     }
 
     /** Converts one absolute Block axis coordinate to its absolute Chunk axis coordinate. */
-    fun chunkCoordinate(blockCoordinate: Int): Int = floorDivide(blockCoordinate, CHUNK_SIDE)
+    fun chunkCoordinate(blockCoordinate: Int): Int = blockCoordinate.floorDiv(CHUNK_SIDE)
 
     /** Converts one absolute Block axis coordinate to its absolute Section axis coordinate. */
-    fun sectionCoordinate(blockCoordinate: Int): Int = floorDivide(blockCoordinate, SECTION_SIDE)
+    fun sectionCoordinate(blockCoordinate: Int): Int = blockCoordinate.floorDiv(SECTION_SIDE)
 
     /** Converts one absolute Block axis coordinate to its absolute 4-Block biome-quart coordinate. */
-    fun quartCoordinate(blockCoordinate: Int): Int = floorDivide(blockCoordinate, BIOME_CELL_SIDE)
+    fun quartCoordinate(blockCoordinate: Int): Int = blockCoordinate.floorDiv(BIOME_CELL_SIDE)
 
     /** Converts one absolute Chunk axis coordinate to its absolute Region axis coordinate. */
-    fun regionCoordinate(chunkCoordinate: Int): Int = floorDivide(chunkCoordinate, REGION_SIDE)
+    fun regionCoordinate(chunkCoordinate: Int): Int = chunkCoordinate.floorDiv(REGION_SIDE)
 
     /** Converts an absolute Block axis coordinate to its local coordinate inside a Chunk. */
-    fun blockCoordinateInChunk(blockCoordinate: Int): Int = floorModulo(blockCoordinate, CHUNK_SIDE)
+    fun blockCoordinateInChunk(blockCoordinate: Int): Int = blockCoordinate.mod(CHUNK_SIDE)
 
     /** Converts an absolute Block axis coordinate to its local coordinate inside a Section. */
-    fun blockCoordinateInSection(blockCoordinate: Int): Int = floorModulo(blockCoordinate, SECTION_SIDE)
+    fun blockCoordinateInSection(blockCoordinate: Int): Int = blockCoordinate.mod(SECTION_SIDE)
 
     /** Converts an absolute Block axis coordinate to its local coordinate inside a biome quart. */
-    fun blockCoordinateInQuart(blockCoordinate: Int): Int = floorModulo(blockCoordinate, BIOME_CELL_SIDE)
+    fun blockCoordinateInQuart(blockCoordinate: Int): Int = blockCoordinate.mod(BIOME_CELL_SIDE)
 
     /** Converts an absolute Block axis coordinate to its biome-quart coordinate inside a Section. */
     fun quartCoordinateInSection(blockCoordinate: Int): Int =
-        floorModulo(quartCoordinate(blockCoordinate), BIOME_SECTION_SIDE)
+        quartCoordinate(blockCoordinate).mod(BIOME_SECTION_SIDE)
 
     /** Converts an absolute Chunk axis coordinate to its local coordinate inside a Region. */
-    fun chunkCoordinateInRegion(chunkCoordinate: Int): Int = floorModulo(chunkCoordinate, REGION_SIDE)
+    fun chunkCoordinateInRegion(chunkCoordinate: Int): Int = chunkCoordinate.mod(REGION_SIDE)
 
     /** Offsets one absolute Block axis coordinate without silently wrapping it. */
     fun offsetBlockCoordinate(blockCoordinate: Int, offset: Int): Int =
@@ -315,14 +315,6 @@ object MinecraftCoordinates {
             }
         }
     }
-
-    private fun floorDivide(value: Int, divisor: Int): Int {
-        val quotient = value / divisor
-        val remainder = value % divisor
-        return if (remainder != 0 && value < 0) quotient - 1 else quotient
-    }
-
-    private fun floorModulo(value: Int, divisor: Int): Int = value - floorDivide(value, divisor) * divisor
 
     private fun coordinateRange(parentCoordinate: Int, size: Int, description: String): IntRange {
         val first = parentCoordinate.toLong() * size
