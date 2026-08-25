@@ -7,11 +7,16 @@ a finite initial Chunk/entity view; it does not run gameplay.
 
 - `accept` returns a raw direction-bound connection. The application chooses when to negotiate and owns concurrency,
   players, worlds, persistence, ticking, and gameplay.
+- Preserve the zero-configuration vanilla path: `bind` requires only the selector and defaults the connection
+  definition, transport, and offline authentication; `negotiate` defaults the vanilla profile, protocol data, and
+  policy. Vanilla initial-world factories also default the matching server options.
 - `MinecraftServerNegotiationOptions` contains protocol-visible configuration; `MinecraftServerNegotiationPolicy`
   contains application decisions. Do not read `server.properties` or hardcode difficulty, game mode, abilities, Status
   content, transfer admission, resource-pack policy, or secure-chat claims.
 - Fire-and-forget Configuration packets use `configurationPackets`; response-gated work uses ordered
   `configurationTasks`. Caller extension traffic is not rescanned as framework-owned traffic.
+- `ProtocolData` supplies domain values; construct Feature Flags, Known Packs, Update Tags, and registry packets at the
+  Configuration send boundary without moving packet sequencing into `protocol-datapack`.
 - Online Login borrows a caller-owned `HttpClient`; this module decides when `/hasJoined` occurs but never configures or
   closes that client.
 - Definitions, static schemas, and resolved contexts may be shared across connections. Retain large immutable data by

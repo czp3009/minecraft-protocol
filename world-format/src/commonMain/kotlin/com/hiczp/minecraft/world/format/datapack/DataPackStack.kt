@@ -4,114 +4,143 @@ import kotlinx.serialization.json.*
 
 /** One effective resource with enough provenance to audit replacement and tag merging. */
 data class ResolvedDataPackResource(
-    val path: DataPackResourcePath,
-    val content: DataPackFileContent,
-    val sourcePack: DataPackId,
-    val sourcePath: DataPackPath,
-    val contributors: List<DataPackId> = listOf(sourcePack),
+    val dataPackResourcePath: DataPackResourcePath,
+    val dataPackFileContent: DataPackFileContent,
+    val sourceDataPackId: DataPackId,
+    val sourceDataPackFilePath: DataPackFilePath,
+    val contributingDataPackIds: List<DataPackId> = listOf(sourceDataPackId),
 )
 
 data class AppliedDataPackFilter(
-    val sourcePack: DataPackId,
-    val pattern: DataPackFilterPattern,
+    val sourceDataPackId: DataPackId,
+    val dataPackFilterPattern: DataPackFilterPattern,
 )
 
 /** A manually constructible, merged data-pack view used by downstream runtime projections. */
 class ResolvedDataPackStack(
-    packs: List<DataPackId>,
-    resources: Map<DataPackResourcePath, ResolvedDataPackResource>,
-    appliedFilters: List<AppliedDataPackFilter> = emptyList(),
+    dataPackIds: List<DataPackId>,
+    resolvedDataPackResources: Map<DataPackResourcePath, ResolvedDataPackResource>,
+    appliedDataPackFilters: List<AppliedDataPackFilter> = emptyList(),
 ) {
-    val packs: List<DataPackId> = packs.toList()
-    val resources: Map<DataPackResourcePath, ResolvedDataPackResource> = resources.toMap()
-    val appliedFilters: List<AppliedDataPackFilter> = appliedFilters.toList()
+    val dataPackIds: List<DataPackId> = dataPackIds.toList()
+    val resolvedDataPackResources: Map<DataPackResourcePath, ResolvedDataPackResource> =
+        resolvedDataPackResources.toMap()
+    val appliedDataPackFilters: List<AppliedDataPackFilter> = appliedDataPackFilters.toList()
 
     init {
-        require(this.packs.distinct().size == this.packs.size) { "A resolved data-pack stack has duplicate pack IDs" }
-        require(this.resources.all { (path, resource) -> path == resource.path }) {
+        require(this.dataPackIds.distinct().size == this.dataPackIds.size) {
+            "A resolved data-pack stack has duplicate pack IDs"
+        }
+        require(this.resolvedDataPackResources.all { (dataPackResourcePath, resolvedDataPackResource) ->
+            dataPackResourcePath == resolvedDataPackResource.dataPackResourcePath
+        }) {
             "Resolved data-pack resource keys must match their paths"
         }
     }
 
-    fun resource(path: DataPackResourcePath): ResolvedDataPackResource? = resources[path]
+    fun resource(dataPackResourcePath: DataPackResourcePath): ResolvedDataPackResource? =
+        resolvedDataPackResources[dataPackResourcePath]
 
     /**
-     * True when a pack filter removes external lower/base content at [path], even if the stack supplies a replacement.
+     * True when a pack filter removes external lower/base content at [dataPackResourcePath], even if the stack supplies
+     * a replacement.
      */
-    fun filtersBaseResource(path: DataPackResourcePath): Boolean =
-        appliedFilters.any { it.pattern.matches(path) }
+    fun filtersBaseResource(dataPackResourcePath: DataPackResourcePath): Boolean =
+        appliedDataPackFilters.any { it.dataPackFilterPattern.matches(dataPackResourcePath) }
 
     fun resource(
-        type: DataPackResourceType,
-        id: DataPackResourceId,
-    ): ResolvedDataPackResource? = resources[type.path(id)]
+        dataPackResourceType: DataPackResourceType,
+        dataPackResourceId: DataPackResourceId,
+    ): ResolvedDataPackResource? = resolvedDataPackResources[dataPackResourceType.path(dataPackResourceId)]
 
-    fun resources(type: DataPackResourceType): Map<DataPackResourceId, ResolvedDataPackResource> = buildMap {
-        resources.forEach { (path, resource) ->
-            type.id(path)?.let { id -> put(id, resource) }
+    fun resources(
+        dataPackResourceType: DataPackResourceType,
+    ): Map<DataPackResourceId, ResolvedDataPackResource> = buildMap {
+        resolvedDataPackResources.forEach { (dataPackResourcePath, resolvedDataPackResource) ->
+            dataPackResourceType.id(dataPackResourcePath)?.let { dataPackResourceId ->
+                put(dataPackResourceId, resolvedDataPackResource)
+            }
         }
     }
 }
 
 /** Low-to-high-priority pack stack. Callers can construct or replace any stage in memory. */
-class DataPackStack(packs: List<DataPack>) {
-    val packs: List<DataPack> = packs.toList()
+class DataPackStack(dataPacks: List<DataPack>) {
+    val dataPacks: List<DataPack> = dataPacks.toList()
 
     init {
-        require(this.packs.map(DataPack::id).distinct().size == this.packs.size) {
+        require(this.dataPacks.map(DataPack::dataPackId).distinct().size == this.dataPacks.size) {
             "A data-pack stack has duplicate pack IDs"
         }
     }
 
-    constructor(vararg packs: DataPack) : this(packs.toList())
+    constructor(vararg dataPacks: DataPack) : this(dataPacks.toList())
 
-    fun resolve(format: DataPackFormatVersion? = null): ResolvedDataPackStack {
-        val resolved = linkedMapOf<DataPackResourcePath, ResolvedDataPackResource>()
-        val filters = mutableListOf<AppliedDataPackFilter>()
-        packs.forEach { pack ->
-            pack.metadata?.filters.orEmpty().forEach { filter ->
-                filters += AppliedDataPackFilter(pack.id, filter)
-                resolved.keys.filter(filter::matches).forEach(resolved::remove)
+    fun resolve(dataPackFormatVersion: DataPackFormatVersion? = null): ResolvedDataPackStack {
+        val resolvedDataPackResources = linkedMapOf<DataPackResourcePath, ResolvedDataPackResource>()
+        val appliedDataPackFilters = mutableListOf<AppliedDataPackFilter>()
+        dataPacks.forEach { dataPack ->
+            dataPack.dataPackMetadata?.dataPackFilterPatterns.orEmpty().forEach { dataPackFilterPattern ->
+                appliedDataPackFilters += AppliedDataPackFilter(dataPack.dataPackId, dataPackFilterPattern)
+                resolvedDataPackResources.keys.filter(dataPackFilterPattern::matches)
+                    .forEach(resolvedDataPackResources::remove)
             }
-            pack.effectiveDataPackFiles(format).forEach { (resourcePath, file) ->
-                val previous = resolved[resourcePath]
-                resolved[resourcePath] = if (
-                    previous != null &&
-                    resourcePath.path.startsWith("tags/") &&
-                    resourcePath.path.endsWith(".json")
+            dataPack.effectiveDataPackFiles(dataPackFormatVersion).forEach { (dataPackResourcePath, dataPackFile) ->
+                val previousResolvedDataPackResource = resolvedDataPackResources[dataPackResourcePath]
+                resolvedDataPackResources[dataPackResourcePath] = if (
+                    previousResolvedDataPackResource != null &&
+                    dataPackResourcePath.path.startsWith("tags/") &&
+                    dataPackResourcePath.path.endsWith(".json")
                 ) {
-                    mergeTag(previous, pack.id, resourcePath, file)
+                    mergeTagFile(
+                        previousResolvedDataPackResource,
+                        dataPack.dataPackId,
+                        dataPackResourcePath,
+                        dataPackFile,
+                    )
                 } else {
                     ResolvedDataPackResource(
-                        path = resourcePath,
-                        content = file.content,
-                        sourcePack = pack.id,
-                        sourcePath = file.path,
+                        dataPackResourcePath = dataPackResourcePath,
+                        dataPackFileContent = dataPackFile.dataPackFileContent,
+                        sourceDataPackId = dataPack.dataPackId,
+                        sourceDataPackFilePath = dataPackFile.dataPackFilePath,
                     )
                 }
             }
         }
-        return ResolvedDataPackStack(packs.map(DataPack::id), resolved, filters)
+        return ResolvedDataPackStack(
+            dataPacks.map(DataPack::dataPackId),
+            resolvedDataPackResources,
+            appliedDataPackFilters,
+        )
     }
 }
 
 internal fun DataPack.effectiveDataPackFiles(
-    format: DataPackFormatVersion?,
-): Map<DataPackResourcePath, DataPackFile> {
-    val result = linkedMapOf<DataPackResourcePath, DataPackFile>()
-    files.entries.sortedBy { it.key.value }.forEach { (path, content) ->
-        path.resourceBelow(prefix = null)?.let { resource -> result[resource] = DataPackFile(path, content) }
-    }
-    if (format == null) return result
-    metadata?.overlays.orEmpty().filter { format in it.formats }.forEach { overlay ->
-        files.entries.sortedBy { it.key.value }.forEach { (path, content) ->
-            path.resourceBelow(overlay.directory)?.let { resource -> result[resource] = DataPackFile(path, content) }
+    dataPackFormatVersion: DataPackFormatVersion?,
+): Map<DataPackResourcePath, EffectiveDataPackFile> {
+    val effectiveDataPackFiles = linkedMapOf<DataPackResourcePath, EffectiveDataPackFile>()
+    dataPackFileContentsByPath.entries.sortedBy { it.key.value }.forEach { (dataPackFilePath, dataPackFileContent) ->
+        dataPackFilePath.resourceBelow(prefix = null)?.let { dataPackResourcePath ->
+            effectiveDataPackFiles[dataPackResourcePath] = EffectiveDataPackFile(dataPackFilePath, dataPackFileContent)
         }
     }
-    return result
+    if (dataPackFormatVersion == null) return effectiveDataPackFiles
+    dataPackMetadata?.dataPackOverlays.orEmpty()
+        .filter { dataPackFormatVersion in it.supportedDataPackFormatVersionRange }
+        .forEach { dataPackOverlay ->
+            dataPackFileContentsByPath.entries.sortedBy { it.key.value }
+                .forEach { (dataPackFilePath, dataPackFileContent) ->
+                    dataPackFilePath.resourceBelow(dataPackOverlay.overlayDirectory)?.let { dataPackResourcePath ->
+                        effectiveDataPackFiles[dataPackResourcePath] =
+                            EffectiveDataPackFile(dataPackFilePath, dataPackFileContent)
+                    }
+                }
+        }
+    return effectiveDataPackFiles
 }
 
-private fun DataPackPath.resourceBelow(prefix: DataPackPath?): DataPackResourcePath? {
+private fun DataPackFilePath.resourceBelow(prefix: DataPackFilePath?): DataPackResourcePath? {
     val prefixSegments = prefix?.segments.orEmpty()
     val pathSegments = segments
     if (pathSegments.size < prefixSegments.size + 3) return null
@@ -119,39 +148,55 @@ private fun DataPackPath.resourceBelow(prefix: DataPackPath?): DataPackResourceP
     val dataIndex = prefixSegments.size
     if (pathSegments[dataIndex] != "data") return null
     val namespace = pathSegments[dataIndex + 1]
-    val relative = pathSegments.drop(dataIndex + 2).joinToString("/")
-    if (!namespace.matches(NAMESPACE_PATTERN) || !relative.matches(RESOURCE_PATH_PATTERN)) return null
-    return DataPackResourcePath(namespace, relative)
+    val relativeDataPackResourcePath = pathSegments.drop(dataIndex + 2).joinToString("/")
+    if (!namespace.matches(NAMESPACE_PATTERN) || !relativeDataPackResourcePath.matches(RESOURCE_PATH_PATTERN)) {
+        return null
+    }
+    return DataPackResourcePath(namespace, relativeDataPackResourcePath)
 }
 
-private fun mergeTag(
-    previous: ResolvedDataPackResource,
-    packId: DataPackId,
-    path: DataPackResourcePath,
-    file: DataPackFile,
+private fun mergeTagFile(
+    previousResolvedDataPackResource: ResolvedDataPackResource,
+    sourceDataPackId: DataPackId,
+    dataPackResourcePath: DataPackResourcePath,
+    dataPackFile: EffectiveDataPackFile,
 ): ResolvedDataPackResource {
-    val currentContent = file.content
-    val previousContent = previous.content
-    if (currentContent !is DataPackFileContent.JsonFile || previousContent !is DataPackFileContent.JsonFile) {
-        return ResolvedDataPackResource(path, currentContent, packId, file.path)
+    val currentDataPackFileContent = dataPackFile.dataPackFileContent
+    val previousDataPackFileContent = previousResolvedDataPackResource.dataPackFileContent
+    if (
+        currentDataPackFileContent !is DataPackFileContent.JsonFile ||
+        previousDataPackFileContent !is DataPackFileContent.JsonFile
+    ) {
+        return ResolvedDataPackResource(
+            dataPackResourcePath,
+            currentDataPackFileContent,
+            sourceDataPackId,
+            dataPackFile.dataPackFilePath,
+        )
     }
-    val currentJson = currentContent.element.jsonObject
-    if (currentJson["replace"]?.jsonPrimitive?.boolean == true) {
-        return ResolvedDataPackResource(path, currentContent, packId, file.path)
+    val currentJsonObject = currentDataPackFileContent.jsonElement.jsonObject
+    if (currentJsonObject["replace"]?.jsonPrimitive?.boolean == true) {
+        return ResolvedDataPackResource(
+            dataPackResourcePath,
+            currentDataPackFileContent,
+            sourceDataPackId,
+            dataPackFile.dataPackFilePath,
+        )
     }
-    val previousJson = previousContent.element.jsonObject
-    val values = previousJson.getValue("values").jsonArray + currentJson.getValue("values").jsonArray
-    val merged = JsonObject(
-        previousJson + currentJson + mapOf(
+    val previousJsonObject = previousDataPackFileContent.jsonElement.jsonObject
+    val mergedTagValues = previousJsonObject.getValue("values").jsonArray +
+            currentJsonObject.getValue("values").jsonArray
+    val mergedJsonObject = JsonObject(
+        previousJsonObject + currentJsonObject + mapOf(
             "replace" to JsonPrimitive(false),
-            "values" to JsonArray(values),
+            "values" to JsonArray(mergedTagValues),
         ),
     )
     return ResolvedDataPackResource(
-        path = path,
-        content = DataPackFileContent.JsonFile(merged),
-        sourcePack = packId,
-        sourcePath = file.path,
-        contributors = previous.contributors + packId,
+        dataPackResourcePath = dataPackResourcePath,
+        dataPackFileContent = DataPackFileContent.JsonFile(mergedJsonObject),
+        sourceDataPackId = sourceDataPackId,
+        sourceDataPackFilePath = dataPackFile.dataPackFilePath,
+        contributingDataPackIds = previousResolvedDataPackResource.contributingDataPackIds + sourceDataPackId,
     )
 }

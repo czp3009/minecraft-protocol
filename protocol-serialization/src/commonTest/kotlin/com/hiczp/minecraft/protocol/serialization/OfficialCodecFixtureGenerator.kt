@@ -25,7 +25,7 @@ internal object OfficialCodecFixtureGenerator {
     fun generate(): JsonElement {
         val format = MinecraftProtocolFormat(
             MinecraftProtocolFormatConfiguration(
-                registries = testRegistryContext(chunkSectionCount = 0),
+                protocolRegistryContext = testProtocolRegistryContext(chunkSectionCount = 0),
             ),
         )
         val fixtures = buildJsonArray {

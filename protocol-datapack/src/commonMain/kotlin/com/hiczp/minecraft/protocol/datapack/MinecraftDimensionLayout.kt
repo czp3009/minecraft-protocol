@@ -13,8 +13,8 @@ import com.hiczp.minecraft.protocol.model.type.RegistryEntry
  * one synchronized dimension type.
  */
 data class MinecraftDimensionLayout(
-    val id: Identifier,
-    val registryId: Int,
+    val dimensionTypeId: Identifier,
+    val dimensionTypeRawId: Int,
     val minY: Int,
     val height: Int,
     val hasSkyLight: Boolean,
@@ -23,7 +23,7 @@ data class MinecraftDimensionLayout(
         get() = height / SECTION_HEIGHT
 
     init {
-        require(registryId >= 0)
+        require(dimensionTypeRawId >= 0)
         require(height > 0 && height % SECTION_HEIGHT == 0) {
             "Dimension height must be a positive multiple of $SECTION_HEIGHT"
         }
@@ -36,81 +36,89 @@ data class MinecraftDimensionLayout(
         private val dimensionTypeRegistry = Identifier("dimension_type")
 
         fun from(
-            data: ProtocolDataSet,
-            id: Identifier,
+            protocolData: ProtocolData,
+            dimensionTypeId: Identifier,
         ): MinecraftDimensionLayout =
-            from(data.completeRegistryPackets(), id)
+            from(protocolData.completeSynchronizedRegistryPackets(), dimensionTypeId)
 
         fun from(
-            registries: List<RegistryDataPacket>,
-            id: Identifier,
+            synchronizedRegistryPackets: List<RegistryDataPacket>,
+            dimensionTypeId: Identifier,
         ): MinecraftDimensionLayout {
-            val registry = registries.requireRegistry(dimensionTypeRegistry)
-            val registryId = registry.entries.indexOfFirst { it.id == id }
-            check(registryId >= 0) {
-                "Dimension type $id is absent from $dimensionTypeRegistry"
+            val dimensionTypeRegistryPacket = synchronizedRegistryPackets.requireRegistryPacket(
+                dimensionTypeRegistry,
+            )
+            val dimensionTypeRawId = dimensionTypeRegistryPacket.entries.indexOfFirst { registryEntry ->
+                registryEntry.id == dimensionTypeId
             }
-            return from(registry, registryId)
+            check(dimensionTypeRawId >= 0) {
+                "Dimension type $dimensionTypeId is absent from $dimensionTypeRegistry"
+            }
+            return from(dimensionTypeRegistryPacket, dimensionTypeRawId)
         }
 
         fun from(
-            registries: List<RegistryDataPacket>,
-            registryId: Int,
+            synchronizedRegistryPackets: List<RegistryDataPacket>,
+            dimensionTypeRawId: Int,
         ): MinecraftDimensionLayout =
             from(
-                registries.requireRegistry(dimensionTypeRegistry),
-                registryId,
+                synchronizedRegistryPackets.requireRegistryPacket(dimensionTypeRegistry),
+                dimensionTypeRawId,
             )
 
         /**
-         * Resolves the active dimension selected by [login] from the Configuration registry snapshot.
+         * Resolves the active dimension selected by [playLoginPacket] from the Configuration registry snapshot.
          *
          * The synchronized dimension-type entry is authoritative when it contains NBT. When Known Packs caused the
          * server to omit that NBT, [protocolData] supplies the matching known entry instead.
          */
         fun from(
-            login: PlayLoginPacket,
-            registries: List<RegistryDataPacket>,
-            protocolData: ProtocolDataSet,
+            playLoginPacket: PlayLoginPacket,
+            synchronizedRegistryPackets: List<RegistryDataPacket>,
+            protocolData: ProtocolData,
         ): MinecraftDimensionLayout {
-            require(login.spawnInfo.dimension in login.levels) {
-                val dimension = login.spawnInfo.dimension
-                "Play Login selected dimension $dimension, but it is absent from the advertised levels"
+            require(playLoginPacket.spawnInfo.dimension in playLoginPacket.levels) {
+                val dimensionId = playLoginPacket.spawnInfo.dimension
+                "Play Login selected dimension $dimensionId, but it is absent from the advertised levels"
             }
-            val registry = requireNotNull(
-                registries.singleOrNull { it.registryId == dimensionTypeRegistry },
+            val dimensionTypeRegistryPacket = requireNotNull(
+                synchronizedRegistryPackets.singleOrNull { registryDataPacket ->
+                    registryDataPacket.registryId == dimensionTypeRegistry
+                },
             ) {
                 "Configuration must provide exactly one synchronized registry $dimensionTypeRegistry"
             }
-            val registryId = login.spawnInfo.dimensionTypeId
-            val entry = requireNotNull(registry.entries.getOrNull(registryId)) {
-                "Play Login selected absent dimension-type registry ID $registryId"
+            val dimensionTypeRawId = playLoginPacket.spawnInfo.dimensionTypeId
+            val dimensionTypeRegistryEntry = requireNotNull(
+                dimensionTypeRegistryPacket.entries.getOrNull(dimensionTypeRawId),
+            ) {
+                "Play Login selected absent dimension-type registry ID $dimensionTypeRawId"
             }
-            return if (entry.data == null) {
-                from(protocolData, entry.id)
+            return if (dimensionTypeRegistryEntry.data == null) {
+                from(protocolData, dimensionTypeRegistryEntry.id)
             } else {
-                from(listOf(registry), registryId)
+                from(listOf(dimensionTypeRegistryPacket), dimensionTypeRawId)
             }
         }
 
         private fun from(
-            registry: RegistryDataPacket,
-            registryId: Int,
+            dimensionTypeRegistryPacket: RegistryDataPacket,
+            dimensionTypeRawId: Int,
         ): MinecraftDimensionLayout {
-            val entry = registry.entries.getOrNull(registryId)
+            val dimensionTypeRegistryEntry = dimensionTypeRegistryPacket.entries.getOrNull(dimensionTypeRawId)
                 ?: error(
-                    "Dimension-type registry ID $registryId is absent from $dimensionTypeRegistry",
+                    "Dimension-type registry ID $dimensionTypeRawId is absent from $dimensionTypeRegistry",
                 )
-            val value = entry.data as? NbtCompound
+            val dimensionTypeData = dimensionTypeRegistryEntry.data as? NbtCompound
                 ?: error(
-                    "Dimension type ${entry.id} has no compound registry data",
+                    "Dimension type ${dimensionTypeRegistryEntry.id} has no compound registry data",
                 )
             return MinecraftDimensionLayout(
-                id = entry.id,
-                registryId = registryId,
-                minY = value.requireInt("min_y"),
-                height = value.requireInt("height"),
-                hasSkyLight = value.requireBoolean("has_skylight"),
+                dimensionTypeId = dimensionTypeRegistryEntry.id,
+                dimensionTypeRawId = dimensionTypeRawId,
+                minY = dimensionTypeData.requireInt("min_y"),
+                height = dimensionTypeData.requireInt("height"),
+                hasSkyLight = dimensionTypeData.requireBoolean("has_skylight"),
             )
         }
 
@@ -118,47 +126,50 @@ data class MinecraftDimensionLayout(
     }
 }
 
-fun ProtocolDataSet.completeRegistryPackets(): List<RegistryDataPacket> =
-    registryPackets(emptyList())
+fun ProtocolData.completeSynchronizedRegistryPackets(): List<RegistryDataPacket> =
+    synchronizedRegistryPackets(emptyList())
 
-fun ProtocolDataSet.registry(id: Identifier): RegistryDataPacket? =
-    completeRegistryPackets().firstOrNull { it.registryId == id }
+fun ProtocolData.registryPacket(registryId: Identifier): RegistryDataPacket? =
+    completeSynchronizedRegistryPackets().firstOrNull { registryDataPacket ->
+        registryDataPacket.registryId == registryId
+    }
 
-fun ProtocolDataSet.requireRegistry(id: Identifier): RegistryDataPacket =
-    registry(id) ?: error("Synchronized registry $id does not exist")
+fun ProtocolData.requireRegistryPacket(registryId: Identifier): RegistryDataPacket =
+    registryPacket(registryId) ?: error("Synchronized registry $registryId does not exist")
 
-fun ProtocolDataSet.registryEntry(
-    registry: Identifier,
-    entry: Identifier,
-): RegistryEntry? =
-    registry(registry)?.entries?.firstOrNull { it.id == entry }
+fun ProtocolData.registryEntry(
+    registryId: Identifier,
+    registryEntryId: Identifier,
+): RegistryEntry? = registryPacket(registryId)?.entries?.firstOrNull { registryEntry ->
+    registryEntry.id == registryEntryId
+}
 
-fun ProtocolDataSet.registryId(
-    registry: Identifier,
-    entry: Identifier,
+fun ProtocolData.registryRawId(
+    registryId: Identifier,
+    registryEntryId: Identifier,
 ): Int? =
-    registry(registry)?.entries?.indexOfFirst { it.id == entry }
+    registryPacket(registryId)?.entries?.indexOfFirst { registryEntry -> registryEntry.id == registryEntryId }
         ?.takeIf { it >= 0 }
 
-fun List<RegistryDataPacket>.registry(id: Identifier): RegistryDataPacket? =
-    firstOrNull { it.registryId == id }
+fun List<RegistryDataPacket>.registryPacket(registryId: Identifier): RegistryDataPacket? =
+    firstOrNull { registryDataPacket -> registryDataPacket.registryId == registryId }
 
-fun List<RegistryDataPacket>.requireRegistry(
-    id: Identifier,
-): RegistryDataPacket =
-    registry(id) ?: error("Synchronized registry $id does not exist")
+fun List<RegistryDataPacket>.requireRegistryPacket(
+    registryId: Identifier,
+): RegistryDataPacket = registryPacket(registryId) ?: error("Synchronized registry $registryId does not exist")
 
 fun List<RegistryDataPacket>.registryEntry(
-    registry: Identifier,
-    entry: Identifier,
-): RegistryEntry? =
-    registry(registry)?.entries?.firstOrNull { it.id == entry }
+    registryId: Identifier,
+    registryEntryId: Identifier,
+): RegistryEntry? = registryPacket(registryId)?.entries?.firstOrNull { registryEntry ->
+    registryEntry.id == registryEntryId
+}
 
-fun List<RegistryDataPacket>.registryId(
-    registry: Identifier,
-    entry: Identifier,
+fun List<RegistryDataPacket>.registryRawId(
+    registryId: Identifier,
+    registryEntryId: Identifier,
 ): Int? =
-    registry(registry)?.entries?.indexOfFirst { it.id == entry }
+    registryPacket(registryId)?.entries?.indexOfFirst { registryEntry -> registryEntry.id == registryEntryId }
         ?.takeIf { it >= 0 }
 
 private fun NbtCompound.requireInt(name: String): Int =

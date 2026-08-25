@@ -30,42 +30,45 @@ data class MinecraftChunkSnapshot(
          * uniform biome data. Sections are emitted bottom-to-top.
          */
         fun flat(
-            dimension: MinecraftDimensionLayout,
+            minecraftDimensionLayout: MinecraftDimensionLayout,
             chunkX: Int,
             chunkZ: Int,
             groundY: Int,
-            surfaceBlockStateId: Int,
-            biomeId: Int,
-            airBlockStateId: Int,
-            fullBrightSky: Boolean = dimension.hasSkyLight,
+            surfaceBlockStateRawId: Int,
+            biomeRawId: Int,
+            airBlockStateRawId: Int,
+            fullBrightSky: Boolean = minecraftDimensionLayout.hasSkyLight,
         ): MinecraftChunkSnapshot {
-            require(groundY in dimension.minY until dimension.minY + dimension.height) {
-                "Ground Y $groundY is outside ${dimension.id}"
+            require(
+                groundY in minecraftDimensionLayout.minY until
+                        minecraftDimensionLayout.minY + minecraftDimensionLayout.height,
+            ) {
+                "Ground Y $groundY is outside ${minecraftDimensionLayout.dimensionTypeId}"
             }
             require(
-                airBlockStateId >= 0,
+                airBlockStateRawId >= 0,
             ) {
                 "Air block-state ID must be non-negative"
             }
             require(
-                surfaceBlockStateId >= 0,
+                surfaceBlockStateRawId >= 0,
             ) {
                 "Surface block-state ID must be non-negative"
             }
-            require(surfaceBlockStateId != airBlockStateId) {
+            require(surfaceBlockStateRawId != airBlockStateRawId) {
                 "The surface block state must differ from air"
             }
-            require(biomeId >= 0) {
+            require(biomeRawId >= 0) {
                 "A biome registry ID must be non-negative"
             }
-            require(!fullBrightSky || dimension.hasSkyLight) {
-                "${dimension.id} has no sky light"
+            require(!fullBrightSky || minecraftDimensionLayout.hasSkyLight) {
+                "${minecraftDimensionLayout.dimensionTypeId} has no sky light"
             }
 
-            val minimumSectionY = MinecraftCoordinates.sectionCoordinate(dimension.minY)
+            val minimumSectionY = MinecraftCoordinates.sectionCoordinate(minecraftDimensionLayout.minY)
             val groundSection = MinecraftCoordinates.sectionCoordinate(groundY) - minimumSectionY
             val localGroundY = MinecraftCoordinates.blockCoordinateInSection(groundY)
-            val sections = List(dimension.sectionCount) { sectionIndex ->
+            val sections = List(minecraftDimensionLayout.sectionCount) { sectionIndex ->
                 ChunkSection(
                     nonAirBlockCount =
                         if (sectionIndex == groundSection) {
@@ -77,19 +80,19 @@ data class MinecraftChunkSnapshot(
                     blockStates =
                         if (sectionIndex == groundSection) {
                             surfacePalette(
-                                airBlockStateId = airBlockStateId,
-                                surfaceBlockStateId = surfaceBlockStateId,
+                                airBlockStateRawId = airBlockStateRawId,
+                                surfaceBlockStateRawId = surfaceBlockStateRawId,
                                 localGroundY = localGroundY,
                             )
                         } else {
-                            PalettedContainer.Single(airBlockStateId)
+                            PalettedContainer.Single(airBlockStateRawId)
                         },
-                    biomes = PalettedContainer.Single(biomeId),
+                    biomes = PalettedContainer.Single(biomeRawId),
                 )
             }
-            val height = groundY - dimension.minY + 1
+            val height = groundY - minecraftDimensionLayout.minY + 1
             val heightmap = packValues(
-                bitsPerEntry = bitsToRepresent(dimension.height),
+                bitsPerEntry = bitsToRepresent(minecraftDimensionLayout.height),
                 entryCount = HEIGHTMAP_ENTRY_COUNT,
             ) { height }.toLongArray()
             val fullSkyLayer = LightDataLayer(
@@ -112,7 +115,7 @@ data class MinecraftChunkSnapshot(
                 lightData = LightUpdateData(
                     skyYMask =
                         if (fullBrightSky) {
-                            sectionMask(dimension.sectionCount)
+                            sectionMask(minecraftDimensionLayout.sectionCount)
                         } else {
                             emptyBitSet()
                         },
@@ -121,12 +124,12 @@ data class MinecraftChunkSnapshot(
                         if (fullBrightSky) {
                             emptyBitSet()
                         } else {
-                            sectionMask(dimension.sectionCount)
+                            sectionMask(minecraftDimensionLayout.sectionCount)
                         },
-                    emptyBlockYMask = sectionMask(dimension.sectionCount),
+                    emptyBlockYMask = sectionMask(minecraftDimensionLayout.sectionCount),
                     skyUpdates =
                         if (fullBrightSky) {
-                            List(dimension.sectionCount) { fullSkyLayer }
+                            List(minecraftDimensionLayout.sectionCount) { fullSkyLayer }
                         } else {
                             emptyList()
                         },
@@ -137,43 +140,43 @@ data class MinecraftChunkSnapshot(
 
         /** Resolves all palette IDs from the caller's active registry context. */
         fun flat(
-            registries: ProtocolRegistryContext,
-            dimension: MinecraftDimensionLayout,
+            protocolRegistryContext: ProtocolRegistryContext,
+            minecraftDimensionLayout: MinecraftDimensionLayout,
             chunkX: Int,
             chunkZ: Int,
             groundY: Int,
-            surfaceBlock: Identifier,
-            biome: Identifier,
-            airBlock: Identifier = Identifier("air"),
-            fullBrightSky: Boolean = dimension.hasSkyLight,
+            surfaceBlockId: Identifier,
+            biomeId: Identifier,
+            airBlockId: Identifier = Identifier("air"),
+            fullBrightSky: Boolean = minecraftDimensionLayout.hasSkyLight,
         ): MinecraftChunkSnapshot = flat(
-            dimension = dimension,
+            minecraftDimensionLayout = minecraftDimensionLayout,
             chunkX = chunkX,
             chunkZ = chunkZ,
             groundY = groundY,
-            surfaceBlockStateId = registries
-                .requireDefaultBlockState(surfaceBlock)
+            surfaceBlockStateRawId = protocolRegistryContext
+                .requireDefaultBlockState(surfaceBlockId)
                 .id,
-            biomeId = registries.requireRegistryEntry(
+            biomeRawId = protocolRegistryContext.requireRegistryEntry(
                 ProtocolRegistryContext.BIOME_REGISTRY,
-                biome,
+                biomeId,
             ).rawId,
-            airBlockStateId = registries
-                .requireDefaultBlockState(airBlock)
+            airBlockStateRawId = protocolRegistryContext
+                .requireDefaultBlockState(airBlockId)
                 .id,
             fullBrightSky = fullBrightSky,
         )
 
         private fun surfacePalette(
-            airBlockStateId: Int,
-            surfaceBlockStateId: Int,
+            airBlockStateRawId: Int,
+            surfaceBlockStateRawId: Int,
             localGroundY: Int,
         ): PalettedContainer.Indirect =
             PalettedContainer.Indirect(
                 bitsPerEntry = BLOCK_INDIRECT_BITS,
                 palette = listOf(
-                    airBlockStateId,
-                    surfaceBlockStateId,
+                    airBlockStateRawId,
+                    surfaceBlockStateRawId,
                 ),
                 data = packValues(
                     bitsPerEntry = BLOCK_INDIRECT_BITS,

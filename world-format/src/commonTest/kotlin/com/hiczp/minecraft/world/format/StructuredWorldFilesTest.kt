@@ -260,9 +260,9 @@ private fun sampleLevelDat(): LevelDat = LevelDat(
             yaw = 0F,
             pitch = 0F,
         ),
-        dataPacks = LevelDat.Data.DataPacks(
-            enabled = listOf("vanilla"),
-            disabled = listOf(
+        dataPackSelection = LevelDat.Data.DataPackSelection(
+            enabledDataPackReferences = listOf("vanilla"),
+            disabledDataPackReferences = listOf(
                 "minecart_improvements",
                 "redstone_experiments",
                 "trade_rebalance",

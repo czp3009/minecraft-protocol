@@ -4,6 +4,7 @@ import com.hiczp.minecraft.protocol.auth.MinecraftClientKeyExchange
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.auth.respond
 import com.hiczp.minecraft.protocol.auth.toEncryptionResponsePacket
+import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
@@ -27,6 +28,17 @@ import com.hiczp.minecraft.protocol.model.type.GameMode as PlayerGameMode
 
 @OptIn(InternalMinecraftConnectionApi::class)
 class MinecraftServerProtocolTest {
+    @Test
+    fun negotiationOptionsDefaultToTheCompleteVanillaServerContract() {
+        val minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions()
+
+        assertSame(VanillaProtocolData, minecraftServerNegotiationOptions.protocolData)
+        assertTrue(minecraftServerNegotiationOptions.statusEnabled)
+        assertFalse(minecraftServerNegotiationOptions.acceptsTransfers)
+        assertEquals(PlayerGameMode.SURVIVAL, minecraftServerNegotiationOptions.gameMode)
+        assertEquals(Difficulty.EASY, minecraftServerNegotiationOptions.difficulty)
+    }
+
     @Test
     fun buildsStructuredStatusJsonWithoutImposingServerPolicy() {
         val options = MinecraftServerNegotiationOptions(
@@ -77,10 +89,10 @@ class MinecraftServerProtocolTest {
         )
 
         val profile = GameProfile(Uuid.fromLongs(1, 2), "Probe", emptyList())
-        val offlineLogin = options.playLogin(profile, onlineMode = false)
-        val onlineLogin = options.playLogin(profile, onlineMode = true)
-        assertFalse(offlineLogin.enforcesSecureChat)
-        assertTrue(onlineLogin.enforcesSecureChat)
+        val offlinePlayLoginPacket = options.createPlayLoginPacket(profile, onlineMode = false)
+        val onlinePlayLoginPacket = options.createPlayLoginPacket(profile, onlineMode = true)
+        assertFalse(offlinePlayLoginPacket.enforcesSecureChat)
+        assertTrue(onlinePlayLoginPacket.enforcesSecureChat)
     }
 
     @Test
@@ -133,18 +145,18 @@ class MinecraftServerProtocolTest {
 
             assertEquals(identity.id, result.gameProfile.id)
             assertEquals(transcript.login, result.gameProfile)
-            assertEquals(transcript.playLogin, result.playLogin)
+            assertEquals(transcript.playLogin, result.playLoginPacket)
             assertEquals(
                 PlayerGameMode.CREATIVE,
-                result.playLogin.spawnInfo.gameMode,
+                result.playLoginPacket.spawnInfo.gameMode,
             )
             assertSame(
-                options.protocolData.registryContext.registries,
-                pair.server.registries.registries,
+                options.protocolData.completeProtocolRegistryContext.registries,
+                pair.server.protocolRegistryContext.registries,
             )
             assertSame(
-                options.protocolData.registryContext.blockStates,
-                pair.server.registries.blockStates,
+                options.protocolData.completeProtocolRegistryContext.blockStates,
+                pair.server.protocolRegistryContext.blockStates,
             )
         } finally {
             pair.close()
@@ -260,7 +272,7 @@ class MinecraftServerProtocolTest {
                 options: MinecraftServerNegotiationOptions,
             ): List<MinecraftServerNegotiationTask> = listOf(
                 MinecraftServerNegotiationTask(
-                    packets = listOf(ConfigurationPingPacket(91)),
+                    clientboundPackets = listOf(ConfigurationPingPacket(91)),
                 ) { packet -> packet == ConfigurationPongPacket(91) },
             )
         }
@@ -345,8 +357,8 @@ class MinecraftServerProtocolTest {
 
                 assertEquals(profileId, transcript.login.id)
                 assertEquals(profileId, result.gameProfile.id)
-                assertTrue(result.playLogin.onlineMode)
-                assertTrue(result.playLogin.enforcesSecureChat)
+                assertTrue(result.playLoginPacket.onlineMode)
+                assertTrue(result.playLoginPacket.enforcesSecureChat)
                 assertEquals("203.0.113.42", requestedIp)
             } finally {
                 pair.close()
@@ -397,16 +409,16 @@ class MinecraftServerProtocolTest {
         val login = assertIs<LoginSuccessPacket>(client.receive()).profile
         client.send(LoginAcknowledgedPacket)
         client.send(ConfigurationClientInformationPacket(clientInformation()))
-        assertEquals(options.protocolData.featureFlags, client.receive())
+        assertEquals(FeatureFlagsPacket(options.protocolData.enabledFeatureFlags), client.receive())
         val knownPacks = assertIs<ConfigurationClientboundKnownPacksPacket>(
             client.receive(),
         )
         client.send(
             ConfigurationServerboundKnownPacksPacket(knownPacks.knownPacks),
         )
-        options.protocolData.registryPackets(knownPacks.knownPacks)
+        options.protocolData.synchronizedRegistryPackets(knownPacks.knownPacks)
             .forEach { expected -> assertEquals(expected, client.receive()) }
-        assertEquals(options.protocolData.tags, client.receive())
+        assertEquals(ConfigurationUpdateTagsPacket(options.protocolData.registryTags), client.receive())
         afterVanillaConfiguration(client)
         assertEquals(FinishConfigurationPacket, client.receive())
         client.send(AcknowledgeFinishConfigurationPacket)

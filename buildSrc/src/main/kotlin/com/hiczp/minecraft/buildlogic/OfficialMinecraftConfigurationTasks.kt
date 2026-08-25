@@ -28,42 +28,42 @@ abstract class AnalyzeOfficialMinecraftConfigurationTask :
 
     @TaskAction
     fun analyze() {
-        val version = minecraftVersion.get()
-        val server = serverJar.asFile.get().toPath()
-        val reports = packetsReport.asFile.get().toPath()
-        val target = server.readMinecraftProtocolTarget(version)
+        val minecraftVersion = minecraftVersion.get()
+        val serverJarPath = serverJar.asFile.get().toPath()
+        val packetsReportPath = packetsReport.asFile.get().toPath()
+        val minecraftProtocolTarget = serverJarPath.readMinecraftProtocolTarget(minecraftVersion)
 
-        check(reports.isRegularFile()) {
-            "Official packets report is missing: $reports"
+        check(packetsReportPath.isRegularFile()) {
+            "Official packets report is missing: $packetsReportPath"
         }
         val packetIds = OfficialPacketIds.fromReport(
-            protocolJson.decodeFromString<JsonObject>(reports.readText()),
+            protocolJson.decodeFromString<JsonObject>(packetsReportPath.readText()),
         )
         val workDirectory = createIsolatedTemporaryDirectory("configuration")
-        val result = try {
+        val vanillaConfigurationCaptureResult = try {
             OfficialVanillaConfigurationCapture.capture(
-                serverJar = server,
+                serverJar = serverJarPath,
                 workDirectory = workDirectory,
-                target = target,
+                target = minecraftProtocolTarget,
                 packetIds = packetIds,
             )
         } finally {
             workDirectory.deleteTree()
         }
-        val output = outputFile.asFile.get().toPath()
-        output.writeJson(
-            result.toAnalysisJson(target),
+        val outputFilePath = outputFile.asFile.get().toPath()
+        outputFilePath.writeJson(
+            vanillaConfigurationCaptureResult.toAnalysisJson(minecraftProtocolTarget),
             sortKeys = true,
         )
         logger.lifecycle(
-            "Analyzed official vanilla Configuration data: $output",
+            "Analyzed official vanilla Configuration data: $outputFilePath",
         )
     }
 }
 
 /** Renders Kotlin solely from official-analysis JSON inputs. */
 @CacheableTask
-abstract class GenerateVanillaConfigurationSourceTask : DefaultTask() {
+abstract class GenerateVanillaConfigurationPacketPayloadSourceTask : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val targetFile: RegularFileProperty
@@ -79,15 +79,15 @@ abstract class GenerateVanillaConfigurationSourceTask : DefaultTask() {
     fun generate() {
         val targetReport = targetFile.asFile.get().toPath()
             .readOfficialMinecraftTargetReport()
-        val result = VanillaConfigurationCaptureResult.fromAnalysisJson(
+        val vanillaConfigurationCaptureResult = VanillaConfigurationCaptureResult.fromAnalysisJson(
             protocolJson.decodeFromString<JsonObject>(configurationFile.asFile.get().toPath().readText()),
             expectedTarget = targetReport,
         )
-        val source = result.renderKotlin(targetReport.target).toString()
-        val output = outputFile.asFile.get().toPath()
-        output.atomicWriteText(source)
+        val generatedSource = vanillaConfigurationCaptureResult.renderKotlin(targetReport.target).toString()
+        val outputFilePath = outputFile.asFile.get().toPath()
+        outputFilePath.atomicWriteText(generatedSource)
         logger.lifecycle(
-            "Generated vanilla Configuration source from analysis data: $output",
+            "Generated vanilla Configuration source from analysis data: $outputFilePath",
         )
     }
 

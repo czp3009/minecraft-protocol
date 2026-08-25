@@ -30,6 +30,10 @@ handled while waiting, and the exact event that changes protocol state.
   where they form the natural contract, while reconstructed signing-only values remain module-owned.
 - `protocol-transport` owns frames, compression envelope, stream encryption, and sockets.
 
+The high-level vanilla path defaults the connection definition, transport configuration, vanilla profile, and
+release-matched protocol data. Do not require callers to construct those values merely to connect or accept an ordinary
+official peer; loader profiles and custom protocol data are explicit opt-ins.
+
 `account-auth` ends at caller-managed Minecraft account data and access tokens. It does not participate in this
 connection state machine and has no dependency relationship with `protocol-auth`.
 

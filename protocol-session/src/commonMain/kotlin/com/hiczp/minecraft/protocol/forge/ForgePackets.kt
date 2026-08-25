@@ -88,16 +88,16 @@ data class ForgeRegistryListMessage(
     @VarInt
     val token: Int,
     @MaxCollectionSize(ForgeProtocolLimits.MAX_REGISTRIES)
-    val normal: List<Identifier>,
+    val registryIds: List<Identifier>,
     @MaxCollectionSize(ForgeProtocolLimits.MAX_REGISTRIES)
-    val dataPacks: List<Identifier>,
+    val dataPackRegistryIds: List<Identifier>,
 ) : ForgeClientboundHandshakeMessage {
     init {
         require(token >= 0) { "Forge registry-list token must be non-negative" }
-        require(normal.distinct().size == normal.size) {
+        require(registryIds.distinct().size == registryIds.size) {
             "Forge registry list contains duplicate ordinary registries"
         }
-        require(dataPacks.distinct().size == dataPacks.size) {
+        require(dataPackRegistryIds.distinct().size == dataPackRegistryIds.size) {
             "Forge registry list contains duplicate data-pack registries"
         }
     }
@@ -159,8 +159,8 @@ class ForgeRegistrySnapshot(
 data class ForgeRegistryDataMessage(
     @VarInt
     val token: Int,
-    val registry: Identifier,
-    val snapshot: ForgeRegistrySnapshot,
+    val registryId: Identifier,
+    val forgeRegistrySnapshot: ForgeRegistrySnapshot,
 ) : ForgeClientboundHandshakeMessage {
     init {
         require(token >= 0) { "Forge registry-data token must be non-negative" }

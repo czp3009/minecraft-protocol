@@ -1,8 +1,8 @@
 package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
-import com.hiczp.minecraft.protocol.datapack.ProtocolDataSet
-import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaDataPacks
+import com.hiczp.minecraft.protocol.datapack.ProtocolData
+import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.packet.PlayLoginPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.io.Buffer
@@ -16,7 +16,7 @@ import kotlin.random.Random
 import kotlin.uuid.Uuid
 
 data class MinecraftServerNegotiationOptions(
-    val protocolData: ProtocolDataSet = VanillaDataPacks.protocolData,
+    val protocolData: ProtocolData = VanillaProtocolData,
     val compressionThreshold: Int? = 256,
     val sessionId: Uuid = Uuid.fromLongs(
         Random.nextLong(),
@@ -80,19 +80,19 @@ data class MinecraftServerNegotiationOptions(
         )
     }
 
-    fun playLogin(
+    fun createPlayLoginPacket(
         gameProfile: GameProfile,
         onlineMode: Boolean,
     ): PlayLoginPacket {
-        val dimension = Identifier("overworld")
-        val dimensionLayout = MinecraftDimensionLayout.from(
+        val dimensionId = Identifier("overworld")
+        val minecraftDimensionLayout = MinecraftDimensionLayout.from(
             protocolData,
-            dimension,
+            dimensionId,
         )
         return PlayLoginPacket(
             playerId = gameProfile.id.hashCode(),
             hardcore = hardcore,
-            levels = setOf(dimension),
+            levels = setOf(dimensionId),
             maxPlayers = maximumPlayers,
             chunkRadius = viewDistance,
             simulationDistance = simulationDistance,
@@ -100,8 +100,8 @@ data class MinecraftServerNegotiationOptions(
             showDeathScreen = true,
             limitedCrafting = false,
             spawnInfo = CommonPlayerSpawnInfo(
-                dimensionTypeId = dimensionLayout.registryId,
-                dimension = dimension,
+                dimensionTypeId = minecraftDimensionLayout.dimensionTypeRawId,
+                dimension = dimensionId,
                 seed = 0,
                 gameMode = gameMode,
                 previousGameMode = null,

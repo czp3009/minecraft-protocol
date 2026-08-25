@@ -62,14 +62,14 @@ object ForgeHandshake {
 }
 
 class ForgeClientProfileDefinition(
-    val staticRegistries: StaticRegistrySchema,
+    val staticRegistrySchema: StaticRegistrySchema,
     val network: ForgeNetworkConfiguration = ForgeNetworkConfiguration(),
     mods: Map<String, ForgeModInfo> = emptyMap(),
-    dataPackRegistries: Set<Identifier> = emptySet(),
+    dataPackRegistryIds: Set<Identifier> = emptySet(),
     val networkVersion: Int = ForgeProtocol.NETWORK_VERSION,
 ) {
     val mods: Map<String, ForgeModInfo> = mods.toMap()
-    val dataPackRegistries: Set<Identifier> = dataPackRegistries.toSet()
+    val dataPackRegistryIds: Set<Identifier> = dataPackRegistryIds.toSet()
 
     init {
         require(networkVersion >= 0) {
@@ -81,9 +81,9 @@ class ForgeClientProfileDefinition(
 class ForgeServerProfileDefinition(
     val network: ForgeNetworkConfiguration = ForgeNetworkConfiguration(),
     mods: Map<String, ForgeModInfo> = emptyMap(),
-    val registrySync: ForgeRegistrySync? = null,
+    val forgeRegistrySync: ForgeRegistrySync? = null,
     /** Caller-built immutable context retained by reference across connections. */
-    val resolvedRegistryContext: ProtocolRegistryContext? = null,
+    val protocolRegistryContext: ProtocolRegistryContext? = null,
     configFiles: List<ForgeConfigDataMessage> = emptyList(),
     val networkVersion: Int = ForgeProtocol.NETWORK_VERSION,
 ) {
@@ -103,7 +103,7 @@ data class ForgeNegotiationResult(
     val remoteChannels: Set<Identifier>,
     val remoteMods: Map<String, ForgeModInfo>,
     val remoteChannelVersions: Map<Identifier, Int>,
-    val registrySynchronized: Boolean,
+    val registriesSynchronized: Boolean,
     val configFiles: List<ForgeConfigDataMessage>,
 ) : NegotiationProfileResult
 
@@ -113,9 +113,9 @@ class ForgeClientProfile(
     private val remoteChannels = linkedSetOf<Identifier>()
     private val remoteMods = linkedMapOf<String, ForgeModInfo>()
     private val remoteChannelVersions = linkedMapOf<Identifier, Int>()
-    private val registrySnapshots = linkedMapOf<Identifier, ForgeRegistrySnapshot>()
+    private val forgeRegistrySnapshots = linkedMapOf<Identifier, ForgeRegistrySnapshot>()
     private val configFiles = mutableListOf<ForgeConfigDataMessage>()
-    private var expectedRegistries: MutableSet<Identifier>? = null
+    private var expectedRegistryIds: MutableSet<Identifier>? = null
     private var forgePeer = false
     private var receivedModVersions = false
     private var receivedChannelVersions = false
@@ -188,22 +188,22 @@ class ForgeClientProfile(
         else -> false
     }
 
-    override suspend fun resolveRegistryContext(
-        context: ProtocolRegistryContext,
+    override suspend fun resolveProtocolRegistryContext(
+        protocolRegistryContext: ProtocolRegistryContext,
     ): ProtocolRegistryContext {
         ensureCompatiblePeer()
-        val expected = expectedRegistries
+        val expected = expectedRegistryIds
         if (expected != null && expected.isNotEmpty()) {
             throw ForgeNegotiationException(
                 "Configuration finished before Forge registries $expected arrived",
             )
         }
-        if (!receivedRegistryList) return context
-        val remote = forgeRemoteRegistrySnapshot(registrySnapshots)
-        requireForgeCompatible(definition.staticRegistries, remote)
-        val resolved = definition.staticRegistries.resolve(remote)
-            .withForgeRegistrySizes(registrySnapshots)
-        return context.withStaticRegistryResolution(resolved)
+        if (!receivedRegistryList) return protocolRegistryContext
+        val remoteRegistrySnapshot = forgeRemoteRegistrySnapshot(forgeRegistrySnapshots)
+        requireForgeCompatible(definition.staticRegistrySchema, remoteRegistrySnapshot)
+        val resolvedProtocolRegistryContext = definition.staticRegistrySchema.resolve(remoteRegistrySnapshot)
+            .withForgeRegistrySizes(forgeRegistrySnapshots)
+        return protocolRegistryContext.withStaticRegistryResolution(resolvedProtocolRegistryContext)
     }
 
     override suspend fun preparePlay(
@@ -228,7 +228,7 @@ class ForgeClientProfile(
         remoteChannels.toSet(),
         remoteMods.toMap(),
         remoteChannelVersions.toMap(),
-        receivedRegistryList && expectedRegistries?.isEmpty() == true,
+        receivedRegistryList && expectedRegistryIds?.isEmpty() == true,
         configFiles.toList(),
     )
 
@@ -280,34 +280,34 @@ class ForgeClientProfile(
                         "Forge registry list arrived out of order",
                     )
                 }
-                val missingDataPacks = message.dataPacks.toSet() - definition.dataPackRegistries
-                if (missingDataPacks.isNotEmpty()) {
-                    throw ForgeMissingDataPackRegistriesException(
-                        missingDataPacks,
+                val missingDataPackRegistryIds = message.dataPackRegistryIds.toSet() - definition.dataPackRegistryIds
+                if (missingDataPackRegistryIds.isNotEmpty()) {
+                    throw ForgeMissingDataPackRegistryIdsException(
+                        missingDataPackRegistryIds,
                     )
                 }
                 receivedRegistryList = true
-                expectedRegistries = message.normal.toMutableSet()
-                registrySnapshots.clear()
+                expectedRegistryIds = message.registryIds.toMutableSet()
+                forgeRegistrySnapshots.clear()
                 acknowledge(connection, message.token)
             }
 
             is ForgeRegistryDataMessage -> {
-                val expected = expectedRegistries
+                val expected = expectedRegistryIds
                     ?: throw ForgeNegotiationException(
                         "Forge registry data arrived before its registry list",
                     )
-                if (!expected.remove(message.registry)) {
+                if (!expected.remove(message.registryId)) {
                     throw ForgeNegotiationException(
-                        "Unexpected Forge registry data ${message.registry}",
+                        "Unexpected Forge registry data ${message.registryId}",
                     )
                 }
-                registrySnapshots[message.registry] = message.snapshot
+                forgeRegistrySnapshots[message.registryId] = message.forgeRegistrySnapshot
                 acknowledge(connection, message.token)
             }
 
             is ForgeConfigDataMessage -> {
-                if (!receivedRegistryList || expectedRegistries?.isNotEmpty() == true) {
+                if (!receivedRegistryList || expectedRegistryIds?.isNotEmpty() == true) {
                     throw ForgeNegotiationException(
                         "Forge config data arrived before registry synchronization completed",
                     )
@@ -349,7 +349,7 @@ class ForgeServerProfile(
     private var handshakeIntent: ForgeHandshakeIntent? = null
     private var expectedResponse: ForgeExpectedResponse? = null
     private var expectedAck: Int? = null
-    private var registrySynchronized = false
+    private var registriesSynchronized = false
     private var stage = ForgeServerStage.BEGIN
     private var begun = false
 
@@ -395,8 +395,8 @@ class ForgeServerProfile(
                 "Forge profile did not observe the Handshake packet",
             )
         if (!intent.forgePeer) {
-            val hasDataPackRegistries = definition.registrySync?.dataPackRegistries?.isNotEmpty() == true
-            if (!definition.network.acceptsVanillaClient() || hasDataPackRegistries) {
+            val hasDataPackRegistryIds = definition.forgeRegistrySync?.dataPackRegistryIds?.isNotEmpty() == true
+            if (!definition.network.acceptsVanillaClient() || hasDataPackRegistryIds) {
                 throw ForgeVanillaPeerRejectedException(
                     "Server Forge channels or data-pack registries require a Forge client",
                 )
@@ -472,15 +472,15 @@ class ForgeServerProfile(
         else -> false
     }
 
-    override suspend fun resolveRegistryContext(
-        context: ProtocolRegistryContext,
+    override suspend fun resolveProtocolRegistryContext(
+        protocolRegistryContext: ProtocolRegistryContext,
     ): ProtocolRegistryContext {
-        val shared = definition.resolvedRegistryContext ?: return context
-        val sectionCount = context.chunkSectionCount ?: return shared
-        return if (shared.chunkSectionCount == sectionCount) {
-            shared
+        val sharedProtocolRegistryContext = definition.protocolRegistryContext ?: return protocolRegistryContext
+        val sectionCount = protocolRegistryContext.chunkSectionCount ?: return sharedProtocolRegistryContext
+        return if (sharedProtocolRegistryContext.chunkSectionCount == sectionCount) {
+            sharedProtocolRegistryContext
         } else {
-            shared.withChunkSectionCount(sectionCount)
+            sharedProtocolRegistryContext.withChunkSectionCount(sectionCount)
         }
     }
 
@@ -508,7 +508,7 @@ class ForgeServerProfile(
             remoteChannels.toSet(),
             remoteMods.toMap(),
             remoteChannelVersions.toMap(),
-            registrySynchronized,
+            registriesSynchronized,
             emptyList(),
         )
     }
@@ -553,30 +553,30 @@ class ForgeServerProfile(
     private suspend fun synchronizeRegistries(
         connection: MinecraftServerPacketConnection,
     ) {
-        val sync = definition.registrySync
+        val forgeRegistrySync = definition.forgeRegistrySync
         var token = 0
         expectedAck = token
         connection.outgoing.send(
             ForgeClientboundHandshakePacket(
                 ForgeRegistryListMessage(
                     token,
-                    sync?.registryNames.orEmpty(),
-                    sync?.dataPackRegistries?.toList().orEmpty(),
+                    forgeRegistrySync?.registryIds.orEmpty(),
+                    forgeRegistrySync?.dataPackRegistryIds?.toList().orEmpty(),
                 ),
             ),
         )
         awaitExpected(connection)
-        sync?.snapshots?.forEach { (registry, snapshot) ->
+        forgeRegistrySync?.forgeRegistrySnapshots?.forEach { (registryId, forgeRegistrySnapshot) ->
             token++
             expectedAck = token
             connection.outgoing.send(
                 ForgeClientboundHandshakePacket(
-                    ForgeRegistryDataMessage(token, registry, snapshot),
+                    ForgeRegistryDataMessage(token, registryId, forgeRegistrySnapshot),
                 ),
             )
             awaitExpected(connection)
         }
-        registrySynchronized = true
+        registriesSynchronized = true
     }
 
     private suspend fun awaitExpected(
@@ -629,10 +629,10 @@ class ForgeNetworkVersionException(
     "Forge network version $remoteVersion does not match $localVersion",
 )
 
-class ForgeMissingDataPackRegistriesException(
-    val missing: Set<Identifier>,
+class ForgeMissingDataPackRegistryIdsException(
+    val missingDataPackRegistryIds: Set<Identifier>,
 ) : ForgeNegotiationException(
-    "Forge client is missing synchronized data-pack registries $missing",
+    "Forge client is missing synchronized data-pack registries $missingDataPackRegistryIds",
 )
 
 class ForgeVanillaPeerRejectedException(

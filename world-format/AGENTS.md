@@ -11,8 +11,9 @@ conversion, and semantic Chunk/entity values for the repository-selected release
   dynamic advancement IDs share the object with `DataVersion`.
 - Typed decoding is strict about unknown fields by default. Raw `NbtDocument`/`NbtTag` and `JsonElement` are the
   lossless escape hatches for unmodeled content.
-- Data-pack archives, overlays, filters, stacks, and resolved resources remain filesystem- and protocol-independent.
-  Decoders are caller-extensible and add no policy-sized content limits.
+- `DataPackArchive` is raw path-to-bytes input, `DataPack` is parsed content, and `DataPackStack`/
+  `ResolvedDataPackStack` own priority resolution. These values remain filesystem- and protocol-independent. Decoders
+  are caller-extensible and add no policy-sized content limits.
 
 ## Anvil and compression
 

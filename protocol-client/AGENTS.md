@@ -9,6 +9,9 @@ This module owns client-side Status, Login, Configuration, and entry into Play.
 - High-level negotiation handles cookies, custom Login queries, compression, online encryption, client information,
   Known Packs, Configuration tasks, registry context, and the selected loader profile. It borrows the public channels
   exclusively until it returns.
+- Preserve the zero-configuration vanilla path: `connect` defaults the connection definition and transport, while
+  `negotiate` requires only the caller's identity and defaults the vanilla profile, protocol data, Known Packs, and
+  client settings. Loader or mod behavior is an explicit override.
 - Online Login borrows a caller-owned `HttpClient`; this module decides when the Session Server `/join` call occurs but
   never configures or closes that client.
 - The negotiation result retains the server-selected `MinecraftDimensionLayout` and derived `ChunkLayout`. There is no
@@ -17,6 +20,8 @@ This module owns client-side Status, Login, Configuration, and entry into Play.
   packets; require caller-supplied templates or adapters for it.
 - Received data-pack views expose only Configuration-visible resources and may resolve tags against the installed
   context or caller-supplied schemas. Do not imply that they reconstruct server-only pack content.
+- `MinecraftClientNegotiationResult` stores one `DataPackConfigurationSnapshot` directly instead of duplicating its
+  Known Packs, feature flags, synchronized registries, and registry tags or wrapping them in another public result.
 
 ## Verification
 

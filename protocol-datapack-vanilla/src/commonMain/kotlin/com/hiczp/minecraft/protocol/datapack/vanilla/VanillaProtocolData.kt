@@ -1,9 +1,10 @@
 package com.hiczp.minecraft.protocol.datapack.vanilla
 
-import com.hiczp.minecraft.protocol.datapack.ProtocolDataSet
+import com.hiczp.minecraft.protocol.datapack.ClientRegistryView
+import com.hiczp.minecraft.protocol.datapack.DataPackConfigurationSnapshot
+import com.hiczp.minecraft.protocol.datapack.ProtocolData
+import com.hiczp.minecraft.protocol.datapack.resolveClientRegistryView
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
-import com.hiczp.minecraft.protocol.model.packet.ConfigurationUpdateTagsPacket
-import com.hiczp.minecraft.protocol.model.packet.FeatureFlagsPacket
 import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
 import com.hiczp.minecraft.protocol.model.type.*
 
@@ -14,61 +15,74 @@ import com.hiczp.minecraft.protocol.model.type.*
  * matching official server: once with all offered Known Packs accepted and
  * once with none accepted.
  */
-sealed class VanillaProtocolData private constructor() : ProtocolDataSet {
-    companion object Default : VanillaProtocolData() {
-        private val snapshot: VanillaConfigurationSnapshot by lazy(
-            LazyThreadSafetyMode.PUBLICATION,
-        ) {
-            decodeVanillaConfigurationSnapshot()
+object VanillaProtocolData : ProtocolData {
+    private val vanillaConfigurationSnapshot: VanillaConfigurationSnapshot by lazy(
+        LazyThreadSafetyMode.PUBLICATION,
+    ) {
+        decodeVanillaConfigurationSnapshot()
+    }
+
+    override val minecraftVersion: String
+        get() = MinecraftProtocol.MINECRAFT_VERSION
+
+    override val protocolVersion: Int
+        get() = MinecraftProtocol.PROTOCOL_VERSION
+
+    override val offeredKnownPacks: List<KnownPack>
+        get() = vanillaConfigurationSnapshot.offeredKnownPacks
+
+    override val enabledFeatureFlags: Set<Identifier>
+        get() = vanillaConfigurationSnapshot.enabledFeatureFlags
+
+    override val registryTags: List<RegistryTags>
+        get() = vanillaConfigurationSnapshot.registryTags
+
+    override val staticRegistrySchema: StaticRegistrySchema
+        get() = VanillaRegistryData.staticRegistrySchema
+
+    override val completeProtocolRegistryContext: ProtocolRegistryContext
+        get() = vanillaProtocolRegistryContext
+
+    override fun synchronizedRegistryPackets(
+        acceptedKnownPacks: List<KnownPack>,
+    ): List<RegistryDataPacket> =
+        if (acceptedKnownPacks == offeredKnownPacks) {
+            vanillaConfigurationSnapshot.knownPackSynchronizedRegistryPackets
+        } else {
+            vanillaConfigurationSnapshot.completeSynchronizedRegistryPackets
         }
 
-        override val minecraftVersion: String
-            get() = MinecraftProtocol.MINECRAFT_VERSION
+    /** Data-pack-related Configuration values for a vanilla client that accepts the offered Known Packs. */
+    val dataPackConfigurationSnapshot: DataPackConfigurationSnapshot by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        DataPackConfigurationSnapshot(
+            offeredKnownPacks = offeredKnownPacks,
+            enabledFeatureFlags = enabledFeatureFlags,
+            synchronizedRegistryPackets = synchronizedRegistryPackets(offeredKnownPacks),
+            registryTags = registryTags,
+        )
+    }
 
-        override val protocolVersion: Int
-            get() = MinecraftProtocol.PROTOCOL_VERSION
+    /** Registry and tag view resolved from [dataPackConfigurationSnapshot]. */
+    val clientRegistryView: ClientRegistryView by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        dataPackConfigurationSnapshot.resolveClientRegistryView(this)
+    }
 
-        override val knownPacks: List<KnownPack>
-            get() = snapshot.knownPacks
-
-        override val featureFlags: FeatureFlagsPacket
-            get() = snapshot.featureFlags
-
-        override val tags: ConfigurationUpdateTagsPacket
-            get() = snapshot.tags
-
-        override val staticRegistries: StaticRegistrySchema
-            get() = VanillaStaticData.registrySchema
-
-        override val registryContext: ProtocolRegistryContext
-            get() = context
-
-        override fun registryPackets(
-            clientKnownPacks: List<KnownPack>,
-        ): List<RegistryDataPacket> =
-            if (clientKnownPacks == knownPacks) {
-                snapshot.clientKnownRegistries
-            } else {
-                snapshot.completeRegistries
-            }
-
-        private val context: ProtocolRegistryContext by lazy(
-            LazyThreadSafetyMode.PUBLICATION,
-        ) {
-            val static = VanillaStaticData.registryContext
-            val registries = static.registries.toMutableMap()
-            snapshot.completeRegistries.forEach { packet ->
-                registries[packet.registryId] = ProtocolRegistry(
-                    packet.registryId,
-                    packet.entries.mapIndexed { rawId, entry ->
-                        ProtocolRegistryEntry(entry.id, rawId)
-                    },
-                )
-            }
-            ProtocolRegistryContext(
-                registries = registries.values.toList(),
-                blockStates = static.blockStates,
+    private val vanillaProtocolRegistryContext: ProtocolRegistryContext by lazy(
+        LazyThreadSafetyMode.PUBLICATION,
+    ) {
+        val staticProtocolRegistryContext = VanillaRegistryData.protocolRegistryContext
+        val protocolRegistries = staticProtocolRegistryContext.registries.toMutableMap()
+        vanillaConfigurationSnapshot.completeSynchronizedRegistryPackets.forEach { registryDataPacket ->
+            protocolRegistries[registryDataPacket.registryId] = ProtocolRegistry(
+                registryDataPacket.registryId,
+                registryDataPacket.entries.mapIndexed { rawId, registryEntry ->
+                    ProtocolRegistryEntry(registryEntry.id, rawId)
+                },
             )
         }
+        ProtocolRegistryContext(
+            registries = protocolRegistries.values.toList(),
+            blockStates = staticProtocolRegistryContext.blockStates,
+        )
     }
 }

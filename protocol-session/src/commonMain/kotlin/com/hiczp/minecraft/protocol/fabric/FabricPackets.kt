@@ -61,27 +61,29 @@ data class FabricSplitPacket(
 ) : FabricBidirectionalPacket
 
 class FabricRegistrySyncPacket(
-    val snapshot: RemoteRegistrySnapshot,
-    optionalRegistries: Set<Identifier> = emptySet(),
+    val remoteRegistrySnapshot: RemoteRegistrySnapshot,
+    optionalRegistryIds: Set<Identifier> = emptySet(),
 ) : ClientboundPacket.Extension {
-    val optionalRegistries: Set<Identifier> = optionalRegistries.toSet()
+    val optionalRegistryIds: Set<Identifier> = optionalRegistryIds.toSet()
 
     init {
-        require(this.optionalRegistries.all(snapshot.registries::containsKey)) {
+        require(this.optionalRegistryIds.all(remoteRegistrySnapshot.registries::containsKey)) {
             "Only synchronized registries can be marked optional"
         }
     }
 
     override fun equals(other: Any?): Boolean =
         other is FabricRegistrySyncPacket &&
-                snapshot == other.snapshot &&
-                optionalRegistries == other.optionalRegistries
+                remoteRegistrySnapshot == other.remoteRegistrySnapshot &&
+                optionalRegistryIds == other.optionalRegistryIds
 
     override fun hashCode(): Int =
-        31 * snapshot.hashCode() + optionalRegistries.hashCode()
+        31 * remoteRegistrySnapshot.hashCode() + optionalRegistryIds.hashCode()
 
-    override fun toString(): String =
-        "FabricRegistrySyncPacket(snapshot=$snapshot, optionalRegistries=$optionalRegistries)"
+    override fun toString(): String {
+        val typeName = "FabricRegistrySyncPacket"
+        return "$typeName(remoteRegistrySnapshot=$remoteRegistrySnapshot, optionalRegistryIds=$optionalRegistryIds)"
+    }
 }
 
 @Serializable

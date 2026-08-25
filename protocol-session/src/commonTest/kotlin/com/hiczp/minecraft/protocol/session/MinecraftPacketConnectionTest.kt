@@ -87,17 +87,19 @@ class MinecraftPacketConnectionTest {
 
     @Test
     fun connectionDefinitionsRetainCallerOwnedRegistryReferences() = runTest {
-        val context = ProtocolRegistryContext.Empty.withChunkSectionCount(24)
+        val protocolRegistryContext = ProtocolRegistryContext.Empty.withChunkSectionCount(24)
         val definition = MinecraftConnectionDefinition.compose(
             format = MinecraftProtocolFormat(
-                MinecraftProtocolFormat.configuration.copy(registries = context),
+                MinecraftProtocolFormat.configuration.copy(
+                    protocolRegistryContext = protocolRegistryContext,
+                ),
             ),
         )
         val (client, server) = enginePair(definition)
 
-        assertSame(context, definition.registries)
-        assertSame(context, client.registries)
-        assertSame(context, server.registries)
+        assertSame(protocolRegistryContext, definition.protocolRegistryContext)
+        assertSame(protocolRegistryContext, client.protocolRegistryContext)
+        assertSame(protocolRegistryContext, server.protocolRegistryContext)
 
         client.close()
         server.close()

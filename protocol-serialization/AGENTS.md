@@ -9,7 +9,8 @@ connection-specific extension registries.
 - Extension registration covers bounded Login-query, Configuration/Play custom-payload, and top-level numeric routes.
   Known malformed bodies and trailing bytes propagate. Only the explicit nested-unknown signal becomes a
   direction-correct `UnknownPacket`.
-- Palette widths come from `MinecraftProtocolFormatConfiguration.registries`, never from a global vanilla count.
+- Palette widths come from `MinecraftProtocolFormatConfiguration.protocolRegistryContext`, never from a global vanilla
+  count.
 - `MinecraftProtocolFormat.encodeToSink` and bounded `decodeFromSource` are canonical. Byte-array and registry helpers
   delegate to them; buffer only a wire construct whose length must precede its body.
 - Keep framing, compression envelopes, encryption, and sockets in `protocol-transport`. Keep Configuration capture and

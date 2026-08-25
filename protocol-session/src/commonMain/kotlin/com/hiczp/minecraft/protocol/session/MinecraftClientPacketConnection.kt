@@ -77,8 +77,8 @@ private class MinecraftClientConnectionEngine(
         if (packet is PlayLoginPacket) initialPlayContext.await()
     }
 
-    override fun registryContextInstalled(context: ProtocolRegistryContext) {
-        if (context.chunkSectionCount != null) initialPlayContext.complete(Unit)
+    override fun protocolRegistryContextInstalled(protocolRegistryContext: ProtocolRegistryContext) {
+        if (protocolRegistryContext.chunkSectionCount != null) initialPlayContext.complete(Unit)
     }
 
     override fun prepareOutboundEncryption(sharedSecret: ByteArray) {

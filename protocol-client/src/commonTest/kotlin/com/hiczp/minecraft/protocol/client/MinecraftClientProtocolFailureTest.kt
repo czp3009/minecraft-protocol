@@ -144,11 +144,11 @@ class MinecraftClientProtocolFailureTest {
         val identity = onlineIdentity()
         val keyPair = MinecraftServerKeyPair.generate()
         val (client, serverSession) = connectionPair()
-        val success = LoginSuccessPacket(
+        val loginSuccessPacket = LoginSuccessPacket(
             GameProfile(identity.id, identity.name, emptyList()),
             Uuid.fromLongs(3, 4),
         )
-        val play = playLogin(onlineMode = true)
+        val playLoginPacket = createPlayLoginPacket(onlineMode = true)
         val server = async {
             assertIs<HandshakePacket>(serverSession.receive())
             assertEquals(
@@ -163,18 +163,18 @@ class MinecraftClientProtocolFailureTest {
             try {
                 serverSession.enableEncryption(secret)
                 serverSession.send(SetCompressionPacket(32))
-                serverSession.send(success)
+                serverSession.send(loginSuccessPacket)
                 assertEquals(LoginAcknowledgedPacket, serverSession.receive())
                 assertIs<ConfigurationClientInformationPacket>(serverSession.receive())
-                VanillaProtocolData.registryPackets(
-                    VanillaProtocolData.knownPacks,
-                ).forEach { serverSession.send(it) }
+                VanillaProtocolData.synchronizedRegistryPackets(
+                    VanillaProtocolData.offeredKnownPacks,
+                ).forEach { registryDataPacket -> serverSession.send(registryDataPacket) }
                 serverSession.send(FinishConfigurationPacket)
                 assertEquals(
                     AcknowledgeFinishConfigurationPacket,
                     serverSession.receive(),
                 )
-                serverSession.send(play)
+                serverSession.send(playLoginPacket)
             } finally {
                 secret.fill(0)
             }
@@ -183,8 +183,8 @@ class MinecraftClientProtocolFailureTest {
         val result = client.negotiate(identity, httpClient)
 
         assertEquals(1, joinRequests)
-        assertEquals(success, result.login)
-        assertEquals(play, result.playLogin)
+        assertEquals(loginSuccessPacket, result.loginSuccessPacket)
+        assertEquals(playLoginPacket, result.playLoginPacket)
         server.await()
         client.close()
         httpClient.close()
@@ -222,7 +222,7 @@ class MinecraftClientProtocolFailureTest {
 
         val result = client.negotiate(identity)
 
-        assertEquals(identity.id, result.login.profile.id)
+        assertEquals(identity.id, result.loginSuccessPacket.profile.id)
         server.await()
         client.close()
     }
@@ -306,12 +306,12 @@ class MinecraftClientProtocolFailureTest {
         )
         assertEquals(LoginAcknowledgedPacket, server.receive())
         assertIs<ConfigurationClientInformationPacket>(server.receive())
-        VanillaProtocolData.registryPackets(
-            VanillaProtocolData.knownPacks,
-        ).forEach { server.send(it) }
+        VanillaProtocolData.synchronizedRegistryPackets(
+            VanillaProtocolData.offeredKnownPacks,
+        ).forEach { registryDataPacket -> server.send(registryDataPacket) }
         server.send(FinishConfigurationPacket)
         assertEquals(AcknowledgeFinishConfigurationPacket, server.receive())
-        server.send(playLogin())
+        server.send(createPlayLoginPacket())
     }
 
     private fun connectionPair(): Pair<MinecraftClientConnection, MinecraftServerPacketSession> {
@@ -333,7 +333,7 @@ class MinecraftClientProtocolFailureTest {
         return client to server
     }
 
-    private fun playLogin(
+    private fun createPlayLoginPacket(
         onlineMode: Boolean = false,
     ): PlayLoginPacket = PlayLoginPacket(
         playerId = 1,

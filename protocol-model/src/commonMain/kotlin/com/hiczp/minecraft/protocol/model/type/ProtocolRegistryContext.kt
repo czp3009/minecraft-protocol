@@ -91,15 +91,15 @@ class StaticRegistrySchema(
     }
 
     fun resolve(
-        remote: RemoteRegistrySnapshot = RemoteRegistrySnapshot.Empty,
+        remoteRegistrySnapshot: RemoteRegistrySnapshot = RemoteRegistrySnapshot.Empty,
     ): ProtocolRegistryContext {
         val resolvedRegistries = linkedMapOf<Identifier, ProtocolRegistry>()
         val registryIds = LinkedHashSet<Identifier>().apply {
             addAll(registries.keys)
-            addAll(remote.registries.keys)
+            addAll(remoteRegistrySnapshot.registries.keys)
         }
         registryIds.forEach { registryId ->
-            val remoteRegistry = remote.registry(registryId)
+            val remoteRegistry = remoteRegistrySnapshot.registry(registryId)
             val entries = if (remoteRegistry == null) {
                 registries[registryId].orEmpty().mapIndexed { rawId, id ->
                     ProtocolRegistryEntry(id, rawId)
@@ -446,12 +446,12 @@ class ProtocolRegistryContext private constructor(
      * dynamic registries already synchronized during Configuration.
      */
     fun withStaticRegistryResolution(
-        resolution: ProtocolRegistryContext,
+        resolvedStaticRegistryContext: ProtocolRegistryContext,
     ): ProtocolRegistryContext = ProtocolRegistryContext(
-        registries = registries + resolution.registries,
-        blockStates = resolution.blockStates,
-        registrySizeOverrides = registrySizeOverrides + resolution.registrySizeOverrides,
-        chunkSectionCount = resolution.chunkSectionCount ?: chunkSectionCount,
+        registries = registries + resolvedStaticRegistryContext.registries,
+        blockStates = resolvedStaticRegistryContext.blockStates,
+        registrySizeOverrides = registrySizeOverrides + resolvedStaticRegistryContext.registrySizeOverrides,
+        chunkSectionCount = resolvedStaticRegistryContext.chunkSectionCount ?: chunkSectionCount,
     )
 
     fun withRegistrySize(id: Identifier, size: Int): ProtocolRegistryContext {
@@ -494,8 +494,13 @@ class ProtocolRegistryContext private constructor(
         return 31 * result + (chunkSectionCount ?: 0)
     }
 
-    override fun toString(): String =
-        "ProtocolRegistryContext(registries=$registries, blockStates=$blockStates, registrySizeOverrides=$registrySizeOverrides, chunkSectionCount=$chunkSectionCount)"
+    override fun toString(): String {
+        val registriesPart = "registries=$registries"
+        val blockStatesPart = "blockStates=$blockStates"
+        val registrySizesPart = "registrySizeOverrides=$registrySizeOverrides"
+        val chunkSectionsPart = "chunkSectionCount=$chunkSectionCount"
+        return "ProtocolRegistryContext($registriesPart, $blockStatesPart, $registrySizesPart, $chunkSectionsPart)"
+    }
 
     companion object {
         val Empty: ProtocolRegistryContext = ProtocolRegistryContext(

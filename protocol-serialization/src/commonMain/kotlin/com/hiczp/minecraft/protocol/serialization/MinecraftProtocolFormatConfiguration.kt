@@ -8,16 +8,16 @@ data class MinecraftProtocolFormatConfiguration(
     /** Reject non-minimal VarInt and VarLong encodings permitted but discouraged by the Wiki. */
     val rejectNonMinimalVarNumbers: Boolean = false,
     /** Immutable, connection-specific registry and active-dimension context. */
-    val registries: ProtocolRegistryContext = ProtocolRegistryContext.Empty,
+    val protocolRegistryContext: ProtocolRegistryContext = ProtocolRegistryContext.Empty,
 ) {
     val chunkSectionCount: Int?
-        get() = registries.chunkSectionCount
+        get() = protocolRegistryContext.chunkSectionCount
 
     val blockStateRegistrySize: Int?
-        get() = registries.blockStateRegistrySize.takeIf { it > 0 }
+        get() = protocolRegistryContext.blockStateRegistrySize.takeIf { it > 0 }
 
     val biomeRegistrySize: Int?
-        get() = registries.biomeRegistrySize
+        get() = protocolRegistryContext.biomeRegistrySize
 
     fun requireBlockStateRegistrySize(): Int =
         blockStateRegistrySize ?: throw MinecraftSerializationException(

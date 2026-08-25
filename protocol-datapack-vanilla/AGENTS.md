@@ -13,7 +13,16 @@ built on `protocol-datapack`.
   official server JAR directly.
 - Generic models and transformations belong in `protocol-datapack`. Vanilla helpers return the same public generic
   stages so callers can replace defaults and continue manually.
+- Keep `VanillaDataPacks` limited to actual archives, parsed packs, and stacks. `VanillaRegistryData` owns static
+  registry/block values; `VanillaProtocolData` owns Configuration defaults and their derived client view.
+- Own release-matched `vanillaDataPackRegistryProjectors` for every synchronized registry exposed by
+  `VanillaProtocolData`. Derive that registry set from generated Configuration data rather than copying IDs; caller
+  projectors override matching vanilla IDs and extend new mod IDs.
+- Keep generated manifest descriptors and handwritten accessors aligned: `dataPackId`, `dataPackIndex`, archive,
+  parsed-pack, stack, protocol-data, Configuration-snapshot, and client-registry-view names must describe their stage.
 
 ## Verification
 
-Run `:protocol-datapack-vanilla:jvmTest` after model, generator wiring, payload-loading, or branch-selection changes.
+Run `:protocol-datapack-vanilla:jvmTest` after model, generator wiring, payload-loading, projector, or branch-selection
+changes. Default registry projection also requires the server JVM suite, whose official-client scenario projects every
+bundled synchronized vanilla registry entry from disk JSON before entering Play.

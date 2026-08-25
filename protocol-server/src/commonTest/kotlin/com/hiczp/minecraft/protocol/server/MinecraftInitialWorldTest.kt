@@ -2,9 +2,9 @@ package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
-import com.hiczp.minecraft.protocol.datapack.requireRegistry
+import com.hiczp.minecraft.protocol.datapack.requireRegistryPacket
 import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
-import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaStaticData
+import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaRegistryData
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
@@ -20,34 +20,34 @@ import com.hiczp.minecraft.protocol.model.type.GameMode as PlayerGameMode
 class MinecraftInitialWorldTest {
     @Test
     fun flatChunkUsesDimensionHeightPalettesHeightmapsAndLight() {
-        val dimension = MinecraftDimensionLayout.from(
+        val minecraftDimensionLayout = MinecraftDimensionLayout.from(
             VanillaProtocolData,
             Identifier("overworld"),
         )
-        val surface = VanillaStaticData.blockStates.default(
+        val surfaceVanillaBlockState = VanillaRegistryData.vanillaBlockStateRegistry.default(
             Identifier("grass_block"),
         )
-        val air = VanillaStaticData.blockStates.default(Identifier("air"))
-        val biomeId = VanillaProtocolData.requireRegistry(
+        val airVanillaBlockState = VanillaRegistryData.vanillaBlockStateRegistry.default(Identifier("air"))
+        val biomeRawId = VanillaProtocolData.requireRegistryPacket(
             Identifier("worldgen/biome"),
         ).entries.indexOfFirst { it.id == Identifier("plains") }
         val groundY = 64
 
-        val chunk = MinecraftChunkSnapshot.flat(
-            dimension = dimension,
+        val minecraftChunkSnapshot = MinecraftChunkSnapshot.flat(
+            minecraftDimensionLayout = minecraftDimensionLayout,
             chunkX = -2,
             chunkZ = 3,
             groundY = groundY,
-            surfaceBlockStateId = surface.id,
-            biomeId = biomeId,
-            airBlockStateId = air.id,
+            surfaceBlockStateRawId = surfaceVanillaBlockState.rawId,
+            biomeRawId = biomeRawId,
+            airBlockStateRawId = airVanillaBlockState.rawId,
         )
 
-        assertEquals(dimension.sectionCount, chunk.chunkData.sections.size)
-        val groundOffset = groundY - dimension.minY
+        assertEquals(minecraftDimensionLayout.sectionCount, minecraftChunkSnapshot.chunkData.sections.size)
+        val groundOffset = groundY - minecraftDimensionLayout.minY
         val groundSection = groundOffset / 16
         val localGroundY = groundOffset % 16
-        chunk.chunkData.sections.forEachIndexed { index, section ->
+        minecraftChunkSnapshot.chunkData.sections.forEachIndexed { index, section ->
             assertEquals(if (index == groundSection) 256 else 0, section.nonAirBlockCount)
             assertEquals(0, section.fluidCount)
             if (index == groundSection) {
@@ -55,7 +55,10 @@ class MinecraftInitialWorldTest {
                     section.blockStates,
                 )
                 assertEquals(4, palette.bitsPerEntry)
-                assertEquals(listOf(air.id, surface.id), palette.palette)
+                assertEquals(
+                    listOf(airVanillaBlockState.rawId, surfaceVanillaBlockState.rawId),
+                    palette.palette,
+                )
                 assertEquals(
                     1,
                     packedEntry(
@@ -74,143 +77,144 @@ class MinecraftInitialWorldTest {
                 )
             } else {
                 assertEquals(
-                    PalettedContainer.Single(air.id),
+                    PalettedContainer.Single(airVanillaBlockState.rawId),
                     section.blockStates,
                 )
             }
             assertEquals(
-                PalettedContainer.Single(biomeId),
+                PalettedContainer.Single(biomeRawId),
                 section.biomes,
             )
         }
 
-        val heightmap = chunk.chunkData.heightmaps.getValue(
+        val heightmap = minecraftChunkSnapshot.chunkData.heightmaps.getValue(
             HeightmapType.WORLD_SURFACE,
         )
         val heightBits = Int.SIZE_BITS -
-                dimension.height.countLeadingZeroBits()
+                minecraftDimensionLayout.height.countLeadingZeroBits()
         assertEquals(
-            groundY - dimension.minY + 1,
+            groundY - minecraftDimensionLayout.minY + 1,
             packedEntry(heightmap, heightBits, 0),
         )
         assertEquals(
-            groundY - dimension.minY + 1,
+            groundY - minecraftDimensionLayout.minY + 1,
             packedEntry(heightmap, heightBits, 255),
         )
-        assertFalse(chunk.lightData.skyYMask[0])
-        assertTrue(chunk.lightData.skyYMask[1])
-        assertTrue(chunk.lightData.skyYMask[dimension.sectionCount])
+        assertFalse(minecraftChunkSnapshot.lightData.skyYMask[0])
+        assertTrue(minecraftChunkSnapshot.lightData.skyYMask[1])
+        assertTrue(minecraftChunkSnapshot.lightData.skyYMask[minecraftDimensionLayout.sectionCount])
         assertFalse(
-            chunk.lightData.skyYMask[dimension.sectionCount + 1],
+            minecraftChunkSnapshot.lightData.skyYMask[minecraftDimensionLayout.sectionCount + 1],
         )
         assertEquals(
-            dimension.sectionCount,
-            chunk.lightData.skyUpdates.size,
+            minecraftDimensionLayout.sectionCount,
+            minecraftChunkSnapshot.lightData.skyUpdates.size,
         )
         assertTrue(
-            chunk.lightData.skyUpdates.all {
+            minecraftChunkSnapshot.lightData.skyUpdates.all {
                 it.bytes.size == 2_048 &&
                         it.bytes.toByteArray().all { byte -> byte == (-1).toByte() }
             },
         )
-        assertTrue(chunk.lightData.blockUpdates.isEmpty())
+        assertTrue(minecraftChunkSnapshot.lightData.blockUpdates.isEmpty())
 
-        val format = MinecraftProtocolFormat(
+        val minecraftProtocolFormat = MinecraftProtocolFormat(
             MinecraftProtocolFormat.configuration.copy(
-                registries = VanillaStaticData.registryContext
+                protocolRegistryContext = VanillaRegistryData.protocolRegistryContext
                     .withRegistrySize(
                         ProtocolRegistryContext.BIOME_REGISTRY,
-                        VanillaProtocolData.requireRegistry(
+                        VanillaProtocolData.requireRegistryPacket(
                             ProtocolRegistryContext.BIOME_REGISTRY,
                         ).entries.size,
                     )
-                    .withChunkSectionCount(dimension.sectionCount),
+                    .withChunkSectionCount(minecraftDimensionLayout.sectionCount),
             ),
         )
-        val packet = chunk.packet()
-        val bytes = format.encodeToByteArray(
-            packet,
+        val chunkDataAndUpdateLightPacket = minecraftChunkSnapshot.packet()
+        val packetPayloadBytes = minecraftProtocolFormat.encodeToByteArray(
+            chunkDataAndUpdateLightPacket,
         )
-        val decoded = format.decodeFromByteArray<ChunkDataAndUpdateLightPacket>(
-            bytes,
-        )
+        val decodedChunkDataAndUpdateLightPacket =
+            minecraftProtocolFormat.decodeFromByteArray<ChunkDataAndUpdateLightPacket>(
+                packetPayloadBytes,
+            )
 
-        assertEquals(packet.chunkX, decoded.chunkX)
-        assertEquals(packet.chunkZ, decoded.chunkZ)
+        assertEquals(chunkDataAndUpdateLightPacket.chunkX, decodedChunkDataAndUpdateLightPacket.chunkX)
+        assertEquals(chunkDataAndUpdateLightPacket.chunkZ, decodedChunkDataAndUpdateLightPacket.chunkZ)
         assertEquals(
-            dimension.sectionCount,
-            decoded.chunkData.sections.size,
+            minecraftDimensionLayout.sectionCount,
+            decodedChunkDataAndUpdateLightPacket.chunkData.sections.size,
         )
         assertContentEquals(
-            bytes,
-            format.encodeToByteArray(
-                decoded,
+            packetPayloadBytes,
+            minecraftProtocolFormat.encodeToByteArray(
+                decodedChunkDataAndUpdateLightPacket,
             ),
         )
     }
 
     @Test
     fun resolvesFlatChunkPalettesFromAModdedRegistryContext() {
-        val air = Identifier("air")
-        val surface = Identifier("example:surface")
-        val biome = Identifier("example:biome")
-        val schema = StaticRegistrySchema(
+        val airBlockId = Identifier("air")
+        val surfaceBlockId = Identifier("example:surface")
+        val biomeId = Identifier("example:biome")
+        val staticRegistrySchema = StaticRegistrySchema(
             registries = mapOf(
-                StaticRegistrySchema.BLOCK_REGISTRY to listOf(air, surface),
-                ProtocolRegistryContext.BIOME_REGISTRY to listOf(biome),
+                StaticRegistrySchema.BLOCK_REGISTRY to listOf(airBlockId, surfaceBlockId),
+                ProtocolRegistryContext.BIOME_REGISTRY to listOf(biomeId),
             ),
             blocks = listOf(
                 StaticBlockSchema(
-                    air,
+                    airBlockId,
                     listOf(StaticBlockState(emptyMap(), true)),
                 ),
                 StaticBlockSchema(
-                    surface,
+                    surfaceBlockId,
                     listOf(StaticBlockState(emptyMap(), true)),
                 ),
             ),
         )
-        val context = schema.resolve(
+        val protocolRegistryContext = staticRegistrySchema.resolve(
             RemoteRegistrySnapshot(
                 listOf(
                     RemoteRegistry(
                         StaticRegistrySchema.BLOCK_REGISTRY,
                         listOf(
-                            RemoteRegistryEntry(surface, rawId = 0),
-                            RemoteRegistryEntry(air, rawId = 1),
+                            RemoteRegistryEntry(surfaceBlockId, rawId = 0),
+                            RemoteRegistryEntry(airBlockId, rawId = 1),
                         ),
                     ),
                     RemoteRegistry(
                         ProtocolRegistryContext.BIOME_REGISTRY,
-                        listOf(RemoteRegistryEntry(biome, rawId = 7)),
+                        listOf(RemoteRegistryEntry(biomeId, rawId = 7)),
                     ),
                 ),
             ),
         )
-        val dimension = MinecraftDimensionLayout.from(
+        val minecraftDimensionLayout = MinecraftDimensionLayout.from(
             VanillaProtocolData,
             Identifier("overworld"),
         )
 
-        val chunk = MinecraftChunkSnapshot.flat(
-            registries = context,
-            dimension = dimension,
+        val minecraftChunkSnapshot = MinecraftChunkSnapshot.flat(
+            protocolRegistryContext = protocolRegistryContext,
+            minecraftDimensionLayout = minecraftDimensionLayout,
             chunkX = 0,
             chunkZ = 0,
             groundY = 64,
-            surfaceBlock = surface,
-            biome = biome,
-            airBlock = air,
+            surfaceBlockId = surfaceBlockId,
+            biomeId = biomeId,
+            airBlockId = airBlockId,
         )
-        val groundSection = (64 - dimension.minY) / 16
-        val palette = assertIs<PalettedContainer.Indirect>(
-            chunk.chunkData.sections[groundSection].blockStates,
+        val groundSection = (64 - minecraftDimensionLayout.minY) / 16
+        val palettedContainer = assertIs<PalettedContainer.Indirect>(
+            minecraftChunkSnapshot.chunkData.sections[groundSection].blockStates,
         )
 
-        assertEquals(listOf(1, 0), palette.palette)
+        assertEquals(listOf(1, 0), palettedContainer.palette)
         assertEquals(
             PalettedContainer.Single(7),
-            chunk.chunkData.sections[groundSection].biomes,
+            minecraftChunkSnapshot.chunkData.sections[groundSection].biomes,
         )
     }
 
@@ -224,17 +228,17 @@ class MinecraftInitialWorldTest {
             metadata = EntityMetadata(emptyList()),
         )
 
-        val packets = entity.packets(VanillaProtocolData.registryContext)
+        val clientboundPackets = entity.packets(VanillaProtocolData.completeProtocolRegistryContext)
 
-        assertEquals(3, packets.size)
-        val spawn = assertIs<SpawnEntityPacket>(packets[1])
-        assertEquals(entity.entityId, spawn.entityId)
+        assertEquals(3, clientboundPackets.size)
+        val spawnEntityPacket = assertIs<SpawnEntityPacket>(clientboundPackets[1])
+        assertEquals(entity.entityId, spawnEntityPacket.entityId)
         assertEquals(
-            entity.typeId(VanillaProtocolData.registryContext),
-            spawn.typeId,
+            entity.typeId(VanillaProtocolData.completeProtocolRegistryContext),
+            spawnEntityPacket.typeId,
         )
 
-        val remapped = ProtocolRegistryContext(
+        val remappedProtocolRegistryContext = ProtocolRegistryContext(
             registries = listOf(
                 ProtocolRegistry(
                     ProtocolRegistryContext.ENTITY_TYPE_REGISTRY,
@@ -243,10 +247,10 @@ class MinecraftInitialWorldTest {
             ),
             blockStates = emptyList(),
         )
-        assertEquals(42, entity.typeId(remapped))
+        assertEquals(42, entity.typeId(remappedProtocolRegistryContext))
         assertEquals(
             42,
-            assertIs<SpawnEntityPacket>(entity.packets(remapped)[1]).typeId,
+            assertIs<SpawnEntityPacket>(entity.packets(remappedProtocolRegistryContext)[1]).typeId,
         )
     }
 
@@ -279,8 +283,8 @@ class MinecraftInitialWorldTest {
             19,
         )
 
-        val packets = entity.packets(VanillaProtocolData.registryContext)
-        val bundle = entity.bundle(VanillaProtocolData.registryContext)
+        val packets = entity.packets(VanillaProtocolData.completeProtocolRegistryContext)
+        val bundle = entity.bundle(VanillaProtocolData.completeProtocolRegistryContext)
 
         assertEquals(9, packets.size)
         assertEquals(packets.drop(1).dropLast(1), bundle.subPackets)
@@ -288,7 +292,7 @@ class MinecraftInitialWorldTest {
         val spawn = assertIs<SpawnEntityPacket>(packets[1])
         assertEquals(17, spawn.entityId)
         assertEquals(uuid, spawn.entityUuid)
-        assertEquals(entity.typeId(VanillaProtocolData.registryContext), spawn.typeId)
+        assertEquals(entity.typeId(VanillaProtocolData.completeProtocolRegistryContext), spawn.typeId)
         assertEquals(position.x, spawn.x)
         assertEquals(position.y, spawn.y)
         assertEquals(position.z, spawn.z)
@@ -327,7 +331,7 @@ class MinecraftInitialWorldTest {
             equipment = listOf(EquipmentUpdate(EquipmentSlot.MAINHAND, ItemStack.of(4))),
         )
 
-        val bundle = listOf(pig, cow).bundle(VanillaProtocolData.registryContext)
+        val bundle = listOf(pig, cow).bundle(VanillaProtocolData.completeProtocolRegistryContext)
 
         assertEquals(4, bundle.size)
         assertEquals(listOf(17, 18), bundle.subPackets.filterIsInstance<SpawnEntityPacket>().map { it.entityId })
@@ -349,7 +353,9 @@ class MinecraftInitialWorldTest {
             ),
         )
         val entityIds = mapOf(pig.uuid to 17, cow.uuid to 18)
-        val projectedBundle = entities.toMinecraftEntityBundle(VanillaProtocolData.registryContext) { entity ->
+        val projectedBundle = entities.toMinecraftEntityBundle(
+            VanillaProtocolData.completeProtocolRegistryContext,
+        ) { entity ->
             entity.toMinecraftEntitySnapshot(entityIds.getValue(entity.uuid))
         }
 
@@ -403,74 +409,79 @@ class MinecraftInitialWorldTest {
 
     @Test
     fun flatChunkRejectsInputsThatCannotDescribeTheDimension() {
-        val overworld = MinecraftDimensionLayout.from(
+        val overworldMinecraftDimensionLayout = MinecraftDimensionLayout.from(
             VanillaProtocolData,
             Identifier("overworld"),
         )
-        val nether = MinecraftDimensionLayout.from(
+        val netherMinecraftDimensionLayout = MinecraftDimensionLayout.from(
             VanillaProtocolData,
             Identifier("the_nether"),
         )
-        val air = VanillaStaticData.blockStates.default(Identifier("air")).id
-        val surface = VanillaStaticData.blockStates
+        val defaultAirBlockStateRawId = VanillaRegistryData.vanillaBlockStateRegistry.default(Identifier("air")).rawId
+        val defaultSurfaceBlockStateRawId = VanillaRegistryData.vanillaBlockStateRegistry
             .default(Identifier("grass_block"))
-            .id
-        val biome = VanillaProtocolData.requireRegistry(
+            .rawId
+        val defaultBiomeRawId = VanillaProtocolData.requireRegistryPacket(
             Identifier("worldgen/biome"),
         ).entries.indexOfFirst { it.id == Identifier("plains") }
 
         fun create(
-            dimension: MinecraftDimensionLayout = overworld,
+            minecraftDimensionLayout: MinecraftDimensionLayout = overworldMinecraftDimensionLayout,
             groundY: Int = 64,
-            surfaceId: Int = surface,
-            biomeId: Int = biome,
-            airId: Int = air,
-            fullBrightSky: Boolean = dimension.hasSkyLight,
+            surfaceBlockStateRawId: Int = defaultSurfaceBlockStateRawId,
+            biomeRawId: Int = defaultBiomeRawId,
+            airBlockStateRawId: Int = defaultAirBlockStateRawId,
+            fullBrightSky: Boolean = minecraftDimensionLayout.hasSkyLight,
         ) = MinecraftChunkSnapshot.flat(
-            dimension = dimension,
+            minecraftDimensionLayout = minecraftDimensionLayout,
             chunkX = 0,
             chunkZ = 0,
             groundY = groundY,
-            surfaceBlockStateId = surfaceId,
-            biomeId = biomeId,
-            airBlockStateId = airId,
+            surfaceBlockStateRawId = surfaceBlockStateRawId,
+            biomeRawId = biomeRawId,
+            airBlockStateRawId = airBlockStateRawId,
             fullBrightSky = fullBrightSky,
         )
 
         assertFailsWith<IllegalArgumentException> {
-            create(groundY = overworld.minY - 1)
+            create(groundY = overworldMinecraftDimensionLayout.minY - 1)
         }
         assertFailsWith<IllegalArgumentException> {
-            create(groundY = overworld.minY + overworld.height)
+            create(
+                groundY = overworldMinecraftDimensionLayout.minY + overworldMinecraftDimensionLayout.height,
+            )
         }
-        assertFailsWith<IllegalArgumentException> { create(airId = -1) }
+        assertFailsWith<IllegalArgumentException> { create(airBlockStateRawId = -1) }
         assertEquals(
-            overworld.sectionCount,
-            create(airId = VanillaStaticData.blockStates.size)
+            overworldMinecraftDimensionLayout.sectionCount,
+            create(airBlockStateRawId = VanillaRegistryData.vanillaBlockStateRegistry.size)
                 .chunkData.sections.size,
         )
-        assertFailsWith<IllegalArgumentException> { create(surfaceId = -1) }
+        assertFailsWith<IllegalArgumentException> { create(surfaceBlockStateRawId = -1) }
         assertEquals(
-            overworld.sectionCount,
-            create(surfaceId = VanillaStaticData.blockStates.size)
+            overworldMinecraftDimensionLayout.sectionCount,
+            create(surfaceBlockStateRawId = VanillaRegistryData.vanillaBlockStateRegistry.size)
                 .chunkData.sections.size,
         )
         assertFailsWith<IllegalArgumentException> {
-            create(surfaceId = air)
+            create(surfaceBlockStateRawId = defaultAirBlockStateRawId)
         }
-        assertFailsWith<IllegalArgumentException> { create(biomeId = -1) }
+        assertFailsWith<IllegalArgumentException> { create(biomeRawId = -1) }
         assertFailsWith<IllegalArgumentException> {
-            create(dimension = nether, fullBrightSky = true)
+            create(minecraftDimensionLayout = netherMinecraftDimensionLayout, fullBrightSky = true)
         }
 
-        listOf(nether.minY, nether.minY + nether.height - 1).forEach { groundY ->
-            val chunk = create(
-                dimension = nether,
+        listOf(
+            netherMinecraftDimensionLayout.minY,
+            netherMinecraftDimensionLayout.minY + netherMinecraftDimensionLayout.height - 1,
+        ).forEach { groundY ->
+            val minecraftChunkSnapshot = create(
+                minecraftDimensionLayout = netherMinecraftDimensionLayout,
                 groundY = groundY,
                 fullBrightSky = false,
             )
-            assertTrue(chunk.lightData.skyYMask.words.isEmpty())
-            assertTrue(chunk.lightData.skyUpdates.isEmpty())
+            assertTrue(minecraftChunkSnapshot.lightData.skyYMask.words.isEmpty())
+            assertTrue(minecraftChunkSnapshot.lightData.skyUpdates.isEmpty())
         }
     }
 
@@ -517,6 +528,19 @@ class MinecraftInitialWorldTest {
             chunkRadius = 0,
         )
         assertEquals(listOf(centerChunk.x to centerChunk.z), world.chunks.map { it.chunkX to it.chunkZ })
+    }
+
+    @Test
+    fun vanillaInitialWorldFactoriesNeedNoOptions() {
+        val bootstrap = MinecraftInitialWorldBootstrap.vanilla()
+        val world = MinecraftInitialWorld.flatVanilla(chunkRadius = 0)
+
+        assertEquals(Difficulty.EASY, bootstrap.difficulty)
+        assertEquals(
+            MinecraftInitialWorldBootstrap.vanillaPlayerAbilities(PlayerGameMode.SURVIVAL),
+            world.bootstrap.playerAbilities,
+        )
+        assertEquals(1, world.chunks.size)
     }
 
     @Test

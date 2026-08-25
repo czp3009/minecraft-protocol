@@ -16,7 +16,7 @@ MinecraftProtocolFormat.encodeToSink(
     payloadSink,
 )
 
-val packet = MinecraftProtocolFormat.decodeFromSource(
+val decodedHandshakePacket = MinecraftProtocolFormat.decodeFromSource(
     HandshakePacket.serializer(),
     payloadSource,
     payloadByteCount,
@@ -31,13 +31,13 @@ connection-specific registry with application or loader packet codecs instead of
 
 ```kotlin
 val packetRegistry = PacketRegistry(MinecraftPacketRegistry.entries, myPacketCodecs)
-val encoded = packetRegistry.encodePayload(packet)
+val encodedPacket = packetRegistry.encodePayload(packet)
 
-val decoded = packetRegistry.decodePayload(
-    state = encoded.key.state,
-    direction = encoded.key.direction,
-    id = encoded.key.id,
-    payload = encoded.payload,
+val decodedPacket = packetRegistry.decodePayload(
+    state = encodedPacket.key.state,
+    direction = encodedPacket.key.direction,
+    id = encodedPacket.key.id,
+    payload = encodedPacket.payload,
 )
 ```
 
@@ -47,7 +47,7 @@ genuinely physical rule such as nested discrimination. When the same extension c
 select its state and direction explicitly:
 
 ```kotlin
-val encoded = packetRegistry.encodePayload(
+val encodedPacket = packetRegistry.encodePayload(
     packet,
     state = ConnectionState.PLAY,
     direction = PacketDirection.CLIENTBOUND,
@@ -64,7 +64,7 @@ negotiation, and `sectionCount` comes from the active dimension layout:
 val protocolRegistryContext = staticRegistrySchema.resolve(remoteRegistrySnapshot)
     .withChunkSectionCount(sectionCount)
 val minecraftProtocolFormat = MinecraftProtocolFormat(
-    MinecraftProtocolFormatConfiguration(registries = protocolRegistryContext),
+    MinecraftProtocolFormatConfiguration(protocolRegistryContext = protocolRegistryContext),
 )
 ```
 

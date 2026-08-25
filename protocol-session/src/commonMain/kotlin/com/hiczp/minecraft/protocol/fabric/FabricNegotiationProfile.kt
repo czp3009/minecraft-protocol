@@ -8,12 +8,12 @@ data class FabricNegotiationResult(
     val commonVersion: Int?,
     val remoteConfigurationChannels: Set<Identifier>,
     val remotePlayChannels: Set<Identifier>,
-    val registrySynchronized: Boolean,
+    val registriesSynchronized: Boolean,
 ) : NegotiationProfileResult
 
 /** One-connection Fabric API client profile. */
 class FabricClientProfile(
-    val staticRegistries: StaticRegistrySchema,
+    val staticRegistrySchema: StaticRegistrySchema,
     supportedCommonVersions: Set<Int> =
         setOf(FabricProtocol.COMMON_PACKET_VERSION),
 ) : ClientNegotiationProfile {
@@ -24,7 +24,7 @@ class FabricClientProfile(
     private val remotePlayChannels = linkedSetOf<Identifier>()
     private val splitAssembler = FabricSplitAssembler(setOf(FabricChannels.RegistrySync))
     private var commonVersion: Int? = null
-    private var registrySync: FabricRegistrySyncPacket? = null
+    private var fabricRegistrySyncPacket: FabricRegistrySyncPacket? = null
     private var sentInitialRegistration = false
     private var begun = false
 
@@ -173,13 +173,13 @@ class FabricClientProfile(
         }
     }
 
-    override suspend fun resolveRegistryContext(
-        context: ProtocolRegistryContext,
+    override suspend fun resolveProtocolRegistryContext(
+        protocolRegistryContext: ProtocolRegistryContext,
     ): ProtocolRegistryContext {
-        val packet = registrySync ?: return context
-        val compatible = compatibleSnapshot(packet)
-        return context.withStaticRegistryResolution(
-            staticRegistries.resolve(compatible),
+        val fabricRegistrySyncPacket = this.fabricRegistrySyncPacket ?: return protocolRegistryContext
+        val remoteRegistrySnapshot = compatibleSnapshot(fabricRegistrySyncPacket)
+        return protocolRegistryContext.withStaticRegistryResolution(
+            staticRegistrySchema.resolve(remoteRegistrySnapshot),
         )
     }
 
@@ -200,22 +200,22 @@ class FabricClientProfile(
     ): NegotiationProfileResult = result()
 
     private fun applyRegistrySync(packet: FabricRegistrySyncPacket) {
-        if (registrySync != null) {
+        if (fabricRegistrySyncPacket != null) {
             throw FabricNegotiationException(
                 "Received more than one Fabric registry snapshot",
             )
         }
         compatibleSnapshot(packet)
-        registrySync = packet
+        fabricRegistrySyncPacket = packet
     }
 
     private fun compatibleSnapshot(
         packet: FabricRegistrySyncPacket,
     ): RemoteRegistrySnapshot {
-        val compatible = packet.snapshot.registries.values.mapNotNull { registry ->
-            val localEntries = staticRegistries.registries[registry.id]
+        val compatibleRegistries = packet.remoteRegistrySnapshot.registries.values.mapNotNull { registry ->
+            val localEntries = staticRegistrySchema.registries[registry.id]
             if (localEntries == null) {
-                if (registry.id in packet.optionalRegistries) return@mapNotNull null
+                if (registry.id in packet.optionalRegistryIds) return@mapNotNull null
                 throw FabricNegotiationException(
                     "Fabric server synchronized unknown mandatory registry ${registry.id}",
                 )
@@ -230,7 +230,7 @@ class FabricClientProfile(
             }
             registry
         }
-        return RemoteRegistrySnapshot(compatible)
+        return RemoteRegistrySnapshot(compatibleRegistries)
     }
 
     private fun requireCommonVersion(version: Int): Int {
@@ -250,15 +250,15 @@ class FabricClientProfile(
         commonVersion,
         remoteConfigurationChannels.toSet(),
         remotePlayChannels.toSet(),
-        registrySync != null,
+        fabricRegistrySyncPacket != null,
     )
 }
 
 /** One-connection Fabric API server profile. */
 class FabricServerProfile(
-    val registrySync: FabricRegistrySyncPacket? = null,
+    val fabricRegistrySyncPacket: FabricRegistrySyncPacket? = null,
     /** Caller-built immutable context; large registry structures are retained by reference. */
-    val resolvedRegistryContext: ProtocolRegistryContext? = null,
+    val protocolRegistryContext: ProtocolRegistryContext? = null,
     supportedCommonVersions: Set<Int> =
         setOf(FabricProtocol.COMMON_PACKET_VERSION),
 ) : ServerNegotiationProfile {
@@ -268,7 +268,7 @@ class FabricServerProfile(
     private val remoteConfigurationChannels = linkedSetOf<Identifier>()
     private val remotePlayChannels = linkedSetOf<Identifier>()
     private var commonVersion: Int? = null
-    private var registrySynchronized = false
+    private var registriesSynchronized = false
     private var receivedInitialRegistration = false
     private var receivedProbePong = false
     private var begun = false
@@ -335,11 +335,11 @@ class FabricServerProfile(
             awaitConfigurationPacket<FabricCommonRegisterPacket>(connection)
         }
 
-        val sync = registrySync ?: return
+        val fabricRegistrySyncPacket = this.fabricRegistrySyncPacket ?: return
         if (FabricChannels.RegistrySync !in remoteConfigurationChannels) {
             if (
-                sync.snapshot.registries.keys.any {
-                    it !in sync.optionalRegistries
+                fabricRegistrySyncPacket.remoteRegistrySnapshot.registries.keys.any {
+                    it !in fabricRegistrySyncPacket.optionalRegistryIds
                 }
             ) {
                 throw FabricNegotiationException(
@@ -348,7 +348,7 @@ class FabricServerProfile(
             }
             return
         }
-        val routed = connection.encodeCustomPayload(sync)
+        val routed = connection.encodeCustomPayload(fabricRegistrySyncPacket)
         val encodedSize = FabricSplitPayloads.encodedPacketSize(routed)
         if (encodedSize >= FabricSplitPayloads.CLIENTBOUND_CHUNK_SIZE) {
             FabricSplitPayloads.split(
@@ -356,7 +356,7 @@ class FabricServerProfile(
                 FabricSplitPayloads.CLIENTBOUND_CHUNK_SIZE,
             ).forEach { connection.outgoing.send(it) }
         } else {
-            connection.outgoing.send(sync)
+            connection.outgoing.send(fabricRegistrySyncPacket)
         }
         awaitConfigurationPacket<FabricRegistrySyncCompletePacket>(connection)
     }
@@ -417,22 +417,22 @@ class FabricServerProfile(
         }
 
         FabricRegistrySyncCompletePacket -> {
-            registrySynchronized = true
+            registriesSynchronized = true
             true
         }
 
         else -> false
     }
 
-    override suspend fun resolveRegistryContext(
-        context: ProtocolRegistryContext,
+    override suspend fun resolveProtocolRegistryContext(
+        protocolRegistryContext: ProtocolRegistryContext,
     ): ProtocolRegistryContext {
-        val shared = resolvedRegistryContext ?: return context
-        val sectionCount = context.chunkSectionCount ?: return shared
-        return if (shared.chunkSectionCount == sectionCount) {
-            shared
+        val sharedProtocolRegistryContext = this.protocolRegistryContext ?: return protocolRegistryContext
+        val sectionCount = protocolRegistryContext.chunkSectionCount ?: return sharedProtocolRegistryContext
+        return if (sharedProtocolRegistryContext.chunkSectionCount == sectionCount) {
+            sharedProtocolRegistryContext
         } else {
-            shared.withChunkSectionCount(sectionCount)
+            sharedProtocolRegistryContext.withChunkSectionCount(sectionCount)
         }
     }
 
@@ -454,7 +454,7 @@ class FabricServerProfile(
         commonVersion,
         remoteConfigurationChannels.toSet(),
         remotePlayChannels.toSet(),
-        registrySynchronized,
+        registriesSynchronized,
     )
 
     private suspend inline fun <reified T : ServerboundPacket>

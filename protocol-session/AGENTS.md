@@ -13,6 +13,8 @@ compression activation, extension routes, and loader negotiation profiles.
   vanilla response packet.
 - `MinecraftConnectionDefinition` and loader definitions are immutable and shareable. Connection profiles retain
   caller-owned schemas, snapshots, registrations, and resolved contexts by reference.
+- Keep `MinecraftConnectionDefinition()` and the `VanillaClient`/`VanillaServer` profiles sufficient as the high-level
+  client/server defaults. Extension registrations and loader profiles remain explicit opt-ins.
 - Preserve unknown valid extension routes as `UnknownPacket`. Propagate malformed bytes and state/order failures without
   inventing automatic replies.
 - Socket creation, authentication policy, and high-level client/server negotiation belong to their orchestration

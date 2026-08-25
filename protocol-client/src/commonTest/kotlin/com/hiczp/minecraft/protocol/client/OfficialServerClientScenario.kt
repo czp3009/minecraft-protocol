@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.protocol.client
 
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
+import com.hiczp.minecraft.protocol.datapack.DataPackConfigurationSnapshot
 import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.datapack.resolveSynchronizedRegistryContext
 import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
@@ -9,6 +10,7 @@ import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.CustomPayload
 import com.hiczp.minecraft.protocol.model.type.Identifier
+import com.hiczp.minecraft.protocol.model.type.RegistryTags
 import com.hiczp.minecraft.protocol.session.VanillaClient
 import io.ktor.network.selector.*
 import kotlinx.coroutines.Dispatchers
@@ -33,11 +35,11 @@ internal object OfficialServerClientScenario {
                 host = host,
                 port = port,
             ).use { statusClient ->
-                val status = statusClient.queryStatus(
+                val minecraftStatusExchange = statusClient.queryStatus(
                     0x0102_0304_0506_0708,
                 )
                 val statusDocument = Json
-                    .parseToJsonElement(status.response.jsonResponse)
+                    .parseToJsonElement(minecraftStatusExchange.statusResponsePacket.jsonResponse)
                     .jsonObject
                 check(
                     statusDocument.getValue("version")
@@ -60,7 +62,7 @@ internal object OfficialServerClientScenario {
                 val login = loginClient.negotiate(
                     MinecraftOfflineIdentity("KmpClientProbe"),
                     options = MinecraftClientNegotiationOptions(
-                        information = defaults.information.copy(
+                        clientInformation = defaults.clientInformation.copy(
                             viewDistance = 2,
                         ),
                     ),
@@ -81,13 +83,13 @@ internal object OfficialServerClientScenario {
                     connection = loginClient,
                     identity = MinecraftOfflineIdentity("KmpProtocolProbe"),
                     options = MinecraftClientNegotiationOptions(
-                        information = defaults.information.copy(viewDistance = 2),
+                        clientInformation = defaults.clientInformation.copy(viewDistance = 2),
                     ),
                 )
                 check(loginClient.state == ConnectionState.PLAY) {
                     "Official-server client did not reach Play"
                 }
-                check(loginClient.registries.chunkSectionCount != null) {
+                check(loginClient.protocolRegistryContext.chunkSectionCount != null) {
                     "Official-server client did not install the active dimension"
                 }
                 verifyVanillaConfiguration(login)
@@ -141,13 +143,13 @@ internal object OfficialServerClientScenario {
         }
         val actualLogin = checkNotNull(login)
 
-        connection.outgoing.send(ConfigurationClientInformationPacket(options.information))
+        connection.outgoing.send(ConfigurationClientInformationPacket(options.clientInformation))
         connection.requestFlush()
-        var knownPacks: ConfigurationClientboundKnownPacksPacket? = null
-        var featureFlags: FeatureFlagsPacket? = null
-        var tags: ConfigurationUpdateTagsPacket? = null
-        val registries = mutableListOf<RegistryDataPacket>()
-        val storedCookies = linkedMapOf<Identifier, ByteString>()
+        var configurationClientboundKnownPacksPacket: ConfigurationClientboundKnownPacksPacket? = null
+        var featureFlagsPacket: FeatureFlagsPacket? = null
+        var configurationUpdateTagsPacket: ConfigurationUpdateTagsPacket? = null
+        val synchronizedRegistryPackets = mutableListOf<RegistryDataPacket>()
+        val storedConfigurationCookies = linkedMapOf<Identifier, ByteString>()
         var configurationFinished = false
         var configurationPackets = 0
         while (!configurationFinished) {
@@ -156,7 +158,7 @@ internal object OfficialServerClientScenario {
             }
             when (val packet = connection.incoming.receive()) {
                 is ConfigurationClientboundKnownPacksPacket -> {
-                    knownPacks = packet
+                    configurationClientboundKnownPacksPacket = packet
                     connection.outgoing.send(
                         ConfigurationServerboundKnownPacksPacket(
                             packet.knownPacks.filter(options.acceptedKnownPacks::contains),
@@ -164,15 +166,15 @@ internal object OfficialServerClientScenario {
                     )
                 }
 
-                is FeatureFlagsPacket -> featureFlags = packet
+                is FeatureFlagsPacket -> featureFlagsPacket = packet
                 is RegistryDataPacket -> {
-                    check(registries.none { it.registryId == packet.registryId }) {
+                    check(synchronizedRegistryPackets.none { it.registryId == packet.registryId }) {
                         "Official server sent duplicate registry ${packet.registryId}"
                     }
-                    registries += packet
+                    synchronizedRegistryPackets += packet
                 }
 
-                is ConfigurationUpdateTagsPacket -> tags = packet
+                is ConfigurationUpdateTagsPacket -> configurationUpdateTagsPacket = packet
                 is ConfigurationCookieRequestPacket -> connection.outgoing.send(
                     ConfigurationCookieResponsePacket(
                         packet.key,
@@ -180,7 +182,7 @@ internal object OfficialServerClientScenario {
                     ),
                 )
 
-                is ConfigurationStoreCookiePacket -> storedCookies[packet.key] = packet.payload
+                is ConfigurationStoreCookiePacket -> storedConfigurationCookies[packet.key] = packet.payload
                 is ConfigurationClientboundKeepAlivePacket -> connection.outgoing.send(
                     ConfigurationServerboundKeepAlivePacket(packet.id),
                 )
@@ -198,12 +200,13 @@ internal object OfficialServerClientScenario {
                 }
 
                 is FinishConfigurationPacket -> {
-                    val resolved = options.protocolData.resolveSynchronizedRegistryContext(
-                        registries = registries,
-                        staticRegistries = options.staticRegistries,
+                    val resolvedProtocolRegistryContext = options.protocolData.resolveSynchronizedRegistryContext(
+                        synchronizedRegistryPackets = synchronizedRegistryPackets,
+                        staticRegistrySchema = options.staticRegistrySchema,
                     )
-                    val profiled = profile.resolveRegistryContext(resolved)
-                    connection.installRegistryContext(profiled)
+                    val profileProtocolRegistryContext =
+                        profile.resolveProtocolRegistryContext(resolvedProtocolRegistryContext)
+                    connection.installProtocolRegistryContext(profileProtocolRegistryContext)
                     profile.preparePlay(connection)
                     connection.outgoing.send(AcknowledgeFinishConfigurationPacket)
                     connection.requestFlush()
@@ -238,76 +241,74 @@ internal object OfficialServerClientScenario {
             connection.requestFlush()
         }
 
-        val playLogin = connection.incoming.receive() as? PlayLoginPacket
+        val playLoginPacket = connection.incoming.receive() as? PlayLoginPacket
             ?: error("Official server did not send Play Login first")
-        val dimensionLayout = MinecraftDimensionLayout.from(
-            login = playLogin,
-            registries = registries,
+        val minecraftDimensionLayout = MinecraftDimensionLayout.from(
+            playLoginPacket = playLoginPacket,
+            synchronizedRegistryPackets = synchronizedRegistryPackets,
             protocolData = options.protocolData,
         )
-        connection.installRegistryContext(
-            connection.registries.withChunkSectionCount(dimensionLayout.sectionCount),
+        connection.installProtocolRegistryContext(
+            connection.protocolRegistryContext.withChunkSectionCount(minecraftDimensionLayout.sectionCount),
         )
-        val profileResult = profile.complete(connection)
+        val negotiationProfileResult = profile.complete(connection)
         return MinecraftClientNegotiationResult(
-            login = actualLogin,
-            configuration = MinecraftClientConfiguration(
-                knownPacks = knownPacks,
-                featureFlags = featureFlags,
-                registries = registries.toList(),
-                tags = tags,
-                storedCookies = storedCookies.toMap(),
+            loginSuccessPacket = actualLogin,
+            dataPackConfigurationSnapshot = DataPackConfigurationSnapshot(
+                offeredKnownPacks = configurationClientboundKnownPacksPacket?.knownPacks.orEmpty(),
+                enabledFeatureFlags = featureFlagsPacket?.featureFlags.orEmpty(),
+                synchronizedRegistryPackets = synchronizedRegistryPackets,
+                registryTags = configurationUpdateTagsPacket?.tags.orEmpty(),
             ),
-            playLogin = playLogin,
-            dimensionLayout = dimensionLayout,
-            profile = profileResult,
+            storedConfigurationCookies = storedConfigurationCookies.toMap(),
+            playLoginPacket = playLoginPacket,
+            minecraftDimensionLayout = minecraftDimensionLayout,
+            negotiationProfileResult = negotiationProfileResult,
         )
     }
 
     private fun verifyVanillaConfiguration(
         result: MinecraftClientNegotiationResult,
     ) {
-        val configuration = result.configuration
+        val dataPackConfigurationSnapshot = result.dataPackConfigurationSnapshot
         check(
-            configuration.knownPacks?.knownPacks ==
-                    VanillaProtocolData.knownPacks,
+            dataPackConfigurationSnapshot.offeredKnownPacks == VanillaProtocolData.offeredKnownPacks,
         ) {
             "Official Known Packs differ from protocol-datapack-vanilla"
         }
-        check(configuration.featureFlags == VanillaProtocolData.featureFlags) {
+        check(dataPackConfigurationSnapshot.enabledFeatureFlags == VanillaProtocolData.enabledFeatureFlags) {
             "Official Feature Flags differ from protocol-datapack-vanilla"
         }
         check(
-            configuration.registries ==
-                    VanillaProtocolData.registryPackets(
-                        VanillaProtocolData.knownPacks,
+            dataPackConfigurationSnapshot.synchronizedRegistryPackets ==
+                    VanillaProtocolData.synchronizedRegistryPackets(
+                        VanillaProtocolData.offeredKnownPacks,
                     ),
         ) {
             "Official compact registries differ from protocol-datapack-vanilla"
         }
         check(
-            configuration.tags != null &&
-                    tagsSemanticallyEqual(
-                        configuration.tags,
-                        VanillaProtocolData.tags,
-                    ),
+            tagsSemanticallyEqual(
+                dataPackConfigurationSnapshot.registryTags,
+                VanillaProtocolData.registryTags,
+            ),
         ) {
             "Official tags differ from protocol-datapack-vanilla"
         }
     }
 
     private fun tagsSemanticallyEqual(
-        first: ConfigurationUpdateTagsPacket,
-        second: ConfigurationUpdateTagsPacket,
+        firstRegistryTags: List<RegistryTags>,
+        secondRegistryTags: List<RegistryTags>,
     ): Boolean =
-        first.registries.associate { registry ->
-            registry.registry to registry.tags.associate { tag ->
-                tag.name to tag.entries.toSet()
+        firstRegistryTags.associate { registryTags ->
+            registryTags.registry to registryTags.tags.associate { tagDefinition ->
+                tagDefinition.name to tagDefinition.entries.toSet()
             }
         } ==
-                second.registries.associate { registry ->
-                    registry.registry to registry.tags.associate { tag ->
-                        tag.name to tag.entries.toSet()
+                secondRegistryTags.associate { registryTags ->
+                    registryTags.registry to registryTags.tags.associate { tagDefinition ->
+                        tagDefinition.name to tagDefinition.entries.toSet()
                     }
                 }
 }

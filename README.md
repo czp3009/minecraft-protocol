@@ -51,6 +51,21 @@ The project is split by capability, so applications can start at the appropriate
 | Worlds         | [`world-format`](world-format/README.md)                           | Chunk/Entity values, coordinates, compression, and Anvil containers |
 | Worlds         | [`world-io`](world-io/README.md)                                   | Reading and writing actual world directories                        |
 
+The data-pack path keeps each representation explicit:
+
+```text
+disk directory/ZIP -> WorldDataPackReader -> DataPack -> DataPackStack -> ResolvedDataPackStack
+    -> DataPackProtocolProjector -> ResolvedProtocolData -> Configuration packets
+
+optional raw snapshot: DataPackArchive -> DataPackFormat -> DataPack
+
+received Configuration values -> DataPackConfigurationSnapshot -> ClientRegistryView
+```
+
+The wire-side `ClientRegistryView` is intentionally not a complete `DataPack`; recipes, functions, loot tables, and
+other server-only resources are never sent during Configuration. `WorldDataPackReader` treats on-disk pack containers as
+immutable inputs throughout their use and adds no data-pack read lock or mutation coordinator.
+
 ## Demo
 
 The [launcher demo](demo/launcher/README.md) is a terminal application that combines account management,
@@ -74,8 +89,9 @@ suspend fun queryServer(
 ```
 
 For a game connection, `negotiate()` handles Handshake, Login, Configuration, dynamic registries, and entry into Play.
-This example uses an offline identity; online identities are shown in the [
-`protocol-client` guide](protocol-client/README.md#online-login):
+The vanilla packet definition, transport settings, negotiation profile, Known Packs, registries, and client options are
+all defaults. This example therefore supplies only the server address and player identity; online identities are shown
+in the [`protocol-client` guide](protocol-client/README.md#online-login):
 
 ```kotlin
 suspend fun runClient(
@@ -84,8 +100,7 @@ suspend fun runClient(
     handlePacket: suspend (ClientboundPacket) -> Unit,
 ) {
     MinecraftClientConnection.connect(selectorManager, host).use { connection ->
-        val negotiation = connection.negotiate(MinecraftOfflineIdentity("Player"))
-        val initialDimension = negotiation.dimensionLayout
+        connection.negotiate(MinecraftOfflineIdentity("Player"))
 
         for (packet in connection.incoming) {
             handlePacket(packet)
@@ -123,8 +138,10 @@ suspend fun runServer(
 }
 ```
 
-The default is an offline, vanilla-compatible negotiation. [`protocol-server`](protocol-server/README.md) shows online
-authentication, application policy, custom data packs, loader profiles, and finite initial Chunk/entity synchronization.
+`bind()` and `negotiate()` default to the vanilla packet definition, transport behavior, offline authentication,
+negotiation profile, Configuration data, and application policy. [`protocol-server`](protocol-server/README.md) shows
+online authentication, policy overrides, custom data packs, loader profiles, and finite initial Chunk/entity
+synchronization.
 
 ## Read a world
 

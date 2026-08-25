@@ -20,10 +20,11 @@ fun MinecraftDimensionLayout.toChunkLayout(): ChunkLayout = ChunkLayout(
  * Stateless projection of strong world Chunks into clientbound Chunk packets.
  *
  * [isAir] and [hasFluid] come from the caller's selected-release vanilla or mod block data. They cannot be inferred
- * from registry IDs alone. The encoder is immutable and can be shared by every Chunk sent with [registries].
+ * from registry IDs alone. The encoder is immutable and can be shared by every Chunk sent with
+ * [protocolRegistryContext].
  */
 class MinecraftChunkPacketEncoder(
-    val registries: ProtocolRegistryContext,
+    val protocolRegistryContext: ProtocolRegistryContext,
     private val isAir: (ProtocolBlockState) -> Boolean,
     private val hasFluid: (ProtocolBlockState) -> Boolean,
     private val hasSkyLight: Boolean,
@@ -32,9 +33,10 @@ class MinecraftChunkPacketEncoder(
     private val blockEntityUpdateTag: (NbtCompound) -> NbtCompound? = ::defaultBlockEntityUpdateTag,
 ) {
     val chunkDataRegistries: ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry> =
-        protocolChunkDataRegistries(registries, defaultBlock, defaultBiome)
+        protocolChunkDataRegistries(protocolRegistryContext, defaultBlock, defaultBiome)
 
-    private val biomeRegistrySize = registries.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY).size
+    private val biomeRegistrySize =
+        protocolRegistryContext.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY).size
 
     /** Encodes [chunk] directly into the packet accepted by the connection's outgoing channel. */
     fun encodePacket(chunk: Chunk<ProtocolBlockState, ProtocolRegistryEntry>): ChunkDataAndUpdateLightPacket {
@@ -90,7 +92,7 @@ class MinecraftChunkPacketEncoder(
             fluidCount = fluidCount,
             blockStates = encodePalette(
                 container = section.blockStates,
-                registrySize = registries.blockStateRegistrySize,
+                registrySize = protocolRegistryContext.blockStateRegistrySize,
                 minimumIndirectBits = BLOCK_MINIMUM_INDIRECT_BITS,
                 maximumIndirectBits = BLOCK_MAXIMUM_INDIRECT_BITS,
                 id = ProtocolBlockState::id,
@@ -146,10 +148,10 @@ class MinecraftChunkPacketEncoder(
         blockEntities: Collection<BlockEntity>,
     ): List<BlockEntityInfo> {
         if (blockEntities.isEmpty()) return emptyList()
-        val blockEntityTypeRegistry = registries.requireRegistry(BLOCK_ENTITY_TYPE_REGISTRY)
+        val blockEntityTypeProtocolRegistry = protocolRegistryContext.requireRegistry(BLOCK_ENTITY_TYPE_REGISTRY)
         return blockEntities.map { blockEntity ->
             val localPosition = chunkPosition.local(blockEntity.position)
-            val typeId = blockEntityTypeRegistry.entry(Identifier(blockEntity.type))?.rawId
+            val typeId = blockEntityTypeProtocolRegistry.entry(Identifier(blockEntity.type))?.rawId
                 ?: throw IllegalArgumentException(
                     "Block entity type ${blockEntity.type} is absent from the active registry",
                 )
@@ -251,34 +253,37 @@ fun ChunkDataAndUpdateLightPacket.toMinecraftChunkSnapshot(): MinecraftChunkSnap
     )
 
 private fun protocolChunkDataRegistries(
-    registries: ProtocolRegistryContext,
+    protocolRegistryContext: ProtocolRegistryContext,
     defaultBlock: Identifier,
     defaultBiome: Identifier,
 ): ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry> =
     ChunkDataRegistries(
         blockStates = object : BlockStateRegistry<ProtocolBlockState> {
-            override val defaultValue = registries.requireDefaultBlockState(defaultBlock)
+            override val defaultValue = protocolRegistryContext.requireDefaultBlockState(defaultBlock)
 
             override fun resolve(descriptor: BlockStateDescriptor): ProtocolBlockState? =
-                descriptor.identifierOrNull()?.let { block -> registries.blockState(block, descriptor.properties) }
+                descriptor.identifierOrNull()?.let { block ->
+                    protocolRegistryContext.blockState(block, descriptor.properties)
+                }
 
             override fun describe(value: ProtocolBlockState): BlockStateDescriptor? =
-                value.takeIf { state -> registries.blockStates.getOrNull(state.id) == state }
+                value.takeIf { state -> protocolRegistryContext.blockStates.getOrNull(state.id) == state }
                     ?.let { state -> BlockStateDescriptor(state.block.value, state.properties) }
         },
         biomes = object : BiomeRegistry<ProtocolRegistryEntry> {
-            private val registry = registries.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY)
+            private val protocolRegistry =
+                protocolRegistryContext.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY)
 
-            override val defaultValue = registries.requireRegistryEntry(
+            override val defaultValue = protocolRegistryContext.requireRegistryEntry(
                 ProtocolRegistryContext.BIOME_REGISTRY,
                 defaultBiome,
             )
 
             override fun resolve(name: String): ProtocolRegistryEntry? =
-                identifierOrNull(name)?.let(registry::entry)
+                identifierOrNull(name)?.let(protocolRegistry::entry)
 
             override fun name(value: ProtocolRegistryEntry): String? =
-                value.takeIf { entry -> registry[entry.rawId] == entry }?.id?.value
+                value.takeIf { entry -> protocolRegistry[entry.rawId] == entry }?.id?.value
         },
     )
 

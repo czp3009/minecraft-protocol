@@ -27,7 +27,7 @@ fun MinecraftClientConnection.chunkDataRegistries(
     defaultBlock: Identifier = Identifier("air"),
     defaultBiome: Identifier = Identifier("plains"),
 ): ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry> =
-    registries.toChunkDataRegistries(defaultBlock, defaultBiome)
+    protocolRegistryContext.toChunkDataRegistries(defaultBlock, defaultBiome)
 
 /**
  * Stateless decoding of clientbound Chunk packets into positioned strong world Chunks.
@@ -37,24 +37,24 @@ fun MinecraftClientConnection.chunkDataRegistries(
  * fields on each decoded Chunk. This decoder is immutable and can be shared across the active dimension.
  */
 class MinecraftChunkPacketDecoder(
-    val registries: ProtocolRegistryContext,
+    val protocolRegistryContext: ProtocolRegistryContext,
     val layout: ChunkLayout,
     private val metadata: ChunkMetadata,
     defaultBlock: Identifier = Identifier("air"),
     defaultBiome: Identifier = Identifier("plains"),
 ) {
     val chunkDataRegistries: ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry> =
-        registries.toChunkDataRegistries(defaultBlock, defaultBiome)
+        protocolRegistryContext.toChunkDataRegistries(defaultBlock, defaultBiome)
 
-    private val biomeRegistry = registries.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY)
-    private val biomeRegistrySize = requireNotNull(registries.biomeRegistrySize) {
+    private val biomeProtocolRegistry = protocolRegistryContext.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY)
+    private val biomeRegistrySize = requireNotNull(protocolRegistryContext.biomeRegistrySize) {
         "The active biome registry has no protocol size"
     }
 
     init {
-        require(registries.blockStateRegistrySize > 0) { "The active block-state registry is empty" }
+        require(protocolRegistryContext.blockStateRegistrySize > 0) { "The active block-state registry is empty" }
         require(biomeRegistrySize > 0) { "The active biome registry is empty" }
-        registries.chunkSectionCount?.let { sectionCount ->
+        protocolRegistryContext.chunkSectionCount?.let { sectionCount ->
             require(sectionCount == layout.sectionCount) {
                 val actual = layout.sectionCount
                 "Chunk layout has $actual Sections, but the active protocol context expects $sectionCount"
@@ -86,7 +86,7 @@ class MinecraftChunkPacketDecoder(
                 blockStates = decodePalette(
                     value = section.blockStates,
                     entryCount = com.hiczp.minecraft.protocol.model.type.ChunkSection.BLOCK_COUNT,
-                    registrySize = registries.blockStateRegistrySize,
+                    registrySize = protocolRegistryContext.blockStateRegistrySize,
                     minimumIndirectBits = BLOCK_MINIMUM_INDIRECT_BITS,
                     maximumIndirectBits = BLOCK_MAXIMUM_INDIRECT_BITS,
                     valueAt = ::blockState,
@@ -139,12 +139,12 @@ class MinecraftChunkPacketDecoder(
         )
     }
 
-    private fun blockState(id: Int): ProtocolBlockState = registries.blockStates.getOrNull(id)
+    private fun blockState(id: Int): ProtocolBlockState = protocolRegistryContext.blockStates.getOrNull(id)
         ?: throw IllegalArgumentException(
-            "Block-state registry ID $id is outside 0 until ${registries.blockStateRegistrySize}",
+            "Block-state registry ID $id is outside 0 until ${protocolRegistryContext.blockStateRegistrySize}",
         )
 
-    private fun biome(id: Int): ProtocolRegistryEntry = biomeRegistry[id]
+    private fun biome(id: Int): ProtocolRegistryEntry = biomeProtocolRegistry[id]
         ?: throw IllegalArgumentException("Biome registry ID $id has no installed entry")
 
     private fun <T : Any> decodePalette(
@@ -222,7 +222,7 @@ class MinecraftChunkPacketDecoder(
     }
 
     private fun decodeBlockEntity(chunkPosition: ChunkPosition, info: BlockEntityInfo): BlockEntity {
-        val type = registries.requireRegistry(BLOCK_ENTITY_TYPE_REGISTRY)[info.typeId]
+        val type = protocolRegistryContext.requireRegistry(BLOCK_ENTITY_TYPE_REGISTRY)[info.typeId]
             ?: throw IllegalArgumentException("Block-entity type registry ID ${info.typeId} has no installed entry")
         val values = linkedMapOf<String, NbtTag>()
         info.tag?.forEachEntry { name, tag ->
@@ -263,34 +263,37 @@ fun ChunkDataAndUpdateLightPacket.toChunk(
 ): Chunk<ProtocolBlockState, ProtocolRegistryEntry> = decoder.decode(this)
 
 private fun protocolChunkDataRegistries(
-    registries: ProtocolRegistryContext,
+    protocolRegistryContext: ProtocolRegistryContext,
     defaultBlock: Identifier,
     defaultBiome: Identifier,
 ): ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry> =
     ChunkDataRegistries(
         blockStates = object : BlockStateRegistry<ProtocolBlockState> {
-            override val defaultValue = registries.requireDefaultBlockState(defaultBlock)
+            override val defaultValue = protocolRegistryContext.requireDefaultBlockState(defaultBlock)
 
             override fun resolve(descriptor: BlockStateDescriptor): ProtocolBlockState? =
-                descriptor.identifierOrNull()?.let { block -> registries.blockState(block, descriptor.properties) }
+                descriptor.identifierOrNull()?.let { block ->
+                    protocolRegistryContext.blockState(block, descriptor.properties)
+                }
 
             override fun describe(value: ProtocolBlockState): BlockStateDescriptor? =
-                value.takeIf { state -> registries.blockStates.getOrNull(state.id) == state }
+                value.takeIf { state -> protocolRegistryContext.blockStates.getOrNull(state.id) == state }
                     ?.let { state -> BlockStateDescriptor(state.block.value, state.properties) }
         },
         biomes = object : BiomeRegistry<ProtocolRegistryEntry> {
-            private val registry = registries.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY)
+            private val protocolRegistry =
+                protocolRegistryContext.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY)
 
-            override val defaultValue = registries.requireRegistryEntry(
+            override val defaultValue = protocolRegistryContext.requireRegistryEntry(
                 ProtocolRegistryContext.BIOME_REGISTRY,
                 defaultBiome,
             )
 
             override fun resolve(name: String): ProtocolRegistryEntry? =
-                identifierOrNull(name)?.let(registry::entry)
+                identifierOrNull(name)?.let(protocolRegistry::entry)
 
             override fun name(value: ProtocolRegistryEntry): String? =
-                value.takeIf { entry -> registry[entry.rawId] == entry }?.id?.value
+                value.takeIf { entry -> protocolRegistry[entry.rawId] == entry }?.id?.value
         },
     )
 

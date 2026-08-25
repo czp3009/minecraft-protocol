@@ -28,12 +28,12 @@ data class MinecraftEntitySnapshot(
     val vehiclePassengerRelation: MinecraftEntityPassengersSnapshot? = null,
     val leashHolderEntityId: Int? = null,
 ) {
-    fun typeId(registries: ProtocolRegistryContext): Int =
-        registries.requireRegistryEntry(ProtocolRegistryContext.ENTITY_TYPE_REGISTRY, type).rawId
+    fun typeId(protocolRegistryContext: ProtocolRegistryContext): Int =
+        protocolRegistryContext.requireRegistryEntry(ProtocolRegistryContext.ENTITY_TYPE_REGISTRY, type).rawId
 
     /** Builds the raw delimiter-bounded packet sequence for callers that manage its physical enqueueing themselves. */
-    fun packets(registries: ProtocolRegistryContext): List<ClientboundPacket> =
-        packets(typeId(registries))
+    fun packets(protocolRegistryContext: ProtocolRegistryContext): List<ClientboundPacket> =
+        packets(typeId(protocolRegistryContext))
 
     /** Builds the raw delimiter-bounded packet sequence with an already-resolved Entity type ID. */
     fun packets(typeId: Int): List<ClientboundPacket> = buildList {
@@ -43,8 +43,8 @@ data class MinecraftEntitySnapshot(
     }
 
     /** Builds one logical bundle that a connection enqueues and writes without channel-level interleaving. */
-    fun bundle(registries: ProtocolRegistryContext): ClientboundBundlePacket =
-        bundle(typeId(registries))
+    fun bundle(protocolRegistryContext: ProtocolRegistryContext): ClientboundBundlePacket =
+        bundle(typeId(protocolRegistryContext))
 
     /** Builds one logical bundle with an already-resolved Entity type ID. */
     fun bundle(typeId: Int): ClientboundBundlePacket = ClientboundBundlePacket(contentPackets(typeId))
@@ -55,10 +55,10 @@ data class MinecraftEntitySnapshot(
 }
 
 private fun MutableList<ClientboundPacket>.addContentPackets(
-    snapshot: MinecraftEntitySnapshot,
+    minecraftEntitySnapshot: MinecraftEntitySnapshot,
     typeId: Int,
 ) {
-    with(snapshot) {
+    with(minecraftEntitySnapshot) {
         add(
             SpawnEntityPacket(
                 entityId = entityId,
@@ -98,11 +98,14 @@ private fun MutableList<ClientboundPacket>.addContentPackets(
 
 /** Builds one logical bundle containing every Entity snapshot in iteration order. */
 fun Iterable<MinecraftEntitySnapshot>.bundle(
-    registries: ProtocolRegistryContext,
+    protocolRegistryContext: ProtocolRegistryContext,
 ): ClientboundBundlePacket = ClientboundBundlePacket(
     buildList {
-        this@bundle.forEach { snapshot ->
-            addContentPackets(snapshot, snapshot.typeId(registries))
+        this@bundle.forEach { minecraftEntitySnapshot ->
+            addContentPackets(
+                minecraftEntitySnapshot,
+                minecraftEntitySnapshot.typeId(protocolRegistryContext),
+            )
         }
     },
 )
@@ -110,16 +113,19 @@ fun Iterable<MinecraftEntitySnapshot>.bundle(
 /**
  * Snapshots caller-owned runtime Entities and builds one logical bundle in iteration order.
  *
- * [snapshotOf] supplies connection-local protocol state that a semantic [Entity] does not own.
+ * [minecraftEntitySnapshotOf] supplies connection-local protocol state that a semantic [Entity] does not own.
  */
 fun <E : Any> Iterable<Entity<E>>.toMinecraftEntityBundle(
-    registries: ProtocolRegistryContext,
-    snapshotOf: (Entity<E>) -> MinecraftEntitySnapshot,
+    protocolRegistryContext: ProtocolRegistryContext,
+    minecraftEntitySnapshotOf: (Entity<E>) -> MinecraftEntitySnapshot,
 ): ClientboundBundlePacket = ClientboundBundlePacket(
     buildList {
         this@toMinecraftEntityBundle.forEach { entity ->
-            val snapshot = snapshotOf(entity)
-            addContentPackets(snapshot, snapshot.typeId(registries))
+            val minecraftEntitySnapshot = minecraftEntitySnapshotOf(entity)
+            addContentPackets(
+                minecraftEntitySnapshot,
+                minecraftEntitySnapshot.typeId(protocolRegistryContext),
+            )
         }
     },
 )
@@ -171,11 +177,11 @@ fun <E : Any> Entity<E>.toMinecraftEntitySnapshot(
 )
 
 /** Enqueues one complete Entity pairing bundle in protocol order. */
-suspend fun MinecraftServerConnection.sendEntitySnapshot(snapshot: MinecraftEntitySnapshot) {
-    outgoing.send(snapshot.bundle(registries))
+suspend fun MinecraftServerConnection.sendEntitySnapshot(minecraftEntitySnapshot: MinecraftEntitySnapshot) {
+    outgoing.send(minecraftEntitySnapshot.bundle(protocolRegistryContext))
 }
 
 /** Enqueues one bundle containing every Entity snapshot in iteration order. */
-suspend fun MinecraftServerConnection.sendEntitySnapshots(snapshots: Iterable<MinecraftEntitySnapshot>) {
-    outgoing.send(snapshots.bundle(registries))
+suspend fun MinecraftServerConnection.sendEntitySnapshots(minecraftEntitySnapshots: Iterable<MinecraftEntitySnapshot>) {
+    outgoing.send(minecraftEntitySnapshots.bundle(protocolRegistryContext))
 }

@@ -2,7 +2,7 @@ package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.protocol.auth.*
 import com.hiczp.minecraft.protocol.datapack.resolveSynchronizedRegistryContext
-import com.hiczp.minecraft.protocol.datapack.withPlayLoginDimension
+import com.hiczp.minecraft.protocol.datapack.withPlayLoginDimensionLayout
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.session.NegotiationProfileResult
@@ -13,16 +13,16 @@ import kotlinx.serialization.json.put
 
 /**
  * Facts produced when the peer completes Login and Configuration negotiation.
- * [playLogin] is the exact Play Login packet sent at the end of that successful transition, while
- * [MinecraftServerConnection.registries] remains the connection's authoritative mutable registry
+ * [playLoginPacket] is the exact Play Login packet sent at the end of that successful transition, while
+ * [MinecraftServerConnection.protocolRegistryContext] remains the connection's authoritative registry
  * context.
  */
 data class MinecraftServerNegotiationResult(
     val gameProfile: GameProfile,
     val clientInformation: ClientInformation,
     val acceptedKnownPacks: List<KnownPack>,
-    val playLogin: PlayLoginPacket,
-    val profile: NegotiationProfileResult,
+    val playLoginPacket: PlayLoginPacket,
+    val negotiationProfileResult: NegotiationProfileResult,
     val transferred: Boolean = false,
 )
 
@@ -37,7 +37,7 @@ data class MinecraftServerNegotiationResult(
  * Returns null when a non-login connection (a status ping) was answered and closed completely
  * before returning; the caller has nothing left to do. A returned [MinecraftServerNegotiationResult]
  * means the open connection reached Play, contains the exact Play Login in
- * [MinecraftServerNegotiationResult.playLogin], and has the negotiated registry context installed;
+ * [MinecraftServerNegotiationResult.playLoginPacket], and has the negotiated registry context installed;
  * further traffic and closing then belong to the caller. Negotiation failures raised by this library,
  * such as [MinecraftLoginRejectedException], leave the connection open so the caller may send the
  * rejection's failure packet explicitly before closing. Wire and pump failures surface as their
@@ -151,11 +151,11 @@ private suspend fun MinecraftServerConnection.handleLogin(
             policy,
         ).information
     profile.negotiateConfigurationStart(this)
-    outgoing.send(options.protocolData.featureFlags)
+    outgoing.send(FeatureFlagsPacket(options.protocolData.enabledFeatureFlags))
     profile.negotiateEarlyConfiguration(this)
     outgoing.send(
         ConfigurationClientboundKnownPacksPacket(
-            options.protocolData.knownPacks,
+            options.protocolData.offeredKnownPacks,
         ),
     )
     val acceptedKnownPacks =
@@ -163,9 +163,9 @@ private suspend fun MinecraftServerConnection.handleLogin(
             profile,
             policy,
         ).knownPacks
-    val synchronizedRegistries = options.protocolData.registryPackets(acceptedKnownPacks)
-    synchronizedRegistries.forEach { outgoing.send(it) }
-    outgoing.send(options.protocolData.tags)
+    val synchronizedRegistryPackets = options.protocolData.synchronizedRegistryPackets(acceptedKnownPacks)
+    synchronizedRegistryPackets.forEach { registryDataPacket -> outgoing.send(registryDataPacket) }
+    outgoing.send(ConfigurationUpdateTagsPacket(options.protocolData.registryTags))
 
     profile.negotiateConfiguration(this)
     val extensionPackets = policy.configurationPackets(
@@ -184,30 +184,30 @@ private suspend fun MinecraftServerConnection.handleLogin(
     )
     extensionPackets.forEach { outgoing.send(it) }
     extensionTasks.forEach { task ->
-        task.packets.forEach { outgoing.send(it) }
+        task.clientboundPackets.forEach { outgoing.send(it) }
         awaitConfigurationTask(task, profile, policy)
     }
 
     val onlineMode = authentication is MinecraftServerAuthentication.Online
-    val login = policy.playLogin(
+    val playLoginPacket = policy.createPlayLoginPacket(
         gameProfile,
         clientInformation,
         transferred,
         onlineMode,
         options,
     )
-    val vanillaRegistryContext = try {
+    val baseProtocolRegistryContext = try {
         options.protocolData
-            .resolveSynchronizedRegistryContext(synchronizedRegistries)
-            .withPlayLoginDimension(login, synchronizedRegistries, options.protocolData)
+            .resolveSynchronizedRegistryContext(synchronizedRegistryPackets)
+            .withPlayLoginDimensionLayout(playLoginPacket, synchronizedRegistryPackets, options.protocolData)
     } catch (failure: IllegalArgumentException) {
         throw MinecraftServerException(
             failure.message ?: "Invalid Play Login or registry context",
             failure,
         )
     }
-    val registryContext = profile.resolveRegistryContext(vanillaRegistryContext)
-    installRegistryContext(registryContext)
+    val protocolRegistryContext = profile.resolveProtocolRegistryContext(baseProtocolRegistryContext)
+    installProtocolRegistryContext(protocolRegistryContext)
 
     outgoing.send(FinishConfigurationPacket)
     awaitConfigurationPacket<AcknowledgeFinishConfigurationPacket>(
@@ -216,15 +216,15 @@ private suspend fun MinecraftServerConnection.handleLogin(
     )
     awaitState(ConnectionState.PLAY)
     profile.preparePlay(this)
-    outgoing.send(login)
+    outgoing.send(playLoginPacket)
     requestFlush()
-    val profileResult = profile.complete(this)
+    val negotiationProfileResult = profile.complete(this)
     return MinecraftServerNegotiationResult(
         gameProfile = gameProfile,
         clientInformation = clientInformation,
         acceptedKnownPacks = acceptedKnownPacks,
-        playLogin = login,
-        profile = profileResult,
+        playLoginPacket = playLoginPacket,
+        negotiationProfileResult = negotiationProfileResult,
         transferred = transferred,
     )
 }
@@ -339,7 +339,7 @@ private suspend fun MinecraftServerConnection.handleUnexpected(
             throw MinecraftServerException(result.reason)
 
         is ServerNegotiationQueryResult.Respond ->
-            result.packets.forEach { outgoing.send(it) }
+            result.clientboundPackets.forEach { outgoing.send(it) }
     }
 }
 

@@ -35,8 +35,8 @@ fun <B : Any, M : Any> decodeStoredChunk(
     compressedChunk: CompressedChunk,
     codec: ChunkNbtCodec<B, M>,
 ): Chunk<B, M> {
-    val document = compressedChunk.toNbtDocument()
-    return document.toChunk(codec)
+    val nbtDocument = compressedChunk.toNbtDocument()
+    return nbtDocument.toChunk(codec)
 }
 ```
 
@@ -48,14 +48,14 @@ fun createDescriptorChunkCodec(
     layout: ChunkLayout,
     expectedDataVersion: Int,
 ): ChunkNbtCodec<BlockStateDescriptor, String> {
-    val registries = ChunkDataRegistries(
+    val chunkDataRegistries = ChunkDataRegistries(
         blockStates = DescriptorBlockStateRegistry(),
         biomes = NamedBiomeRegistry(),
     )
     return ChunkNbtCodec(
         ChunkNbtContext(
             layout = layout,
-            registries = registries,
+            registries = chunkDataRegistries,
             expectedDataVersion = expectedDataVersion,
         ),
     )
@@ -111,11 +111,11 @@ fun decodeEntityChunk(
     compressedChunk: CompressedChunk,
     expectedDataVersion: Int,
 ): EntityChunk<NbtCompound> {
-    val codec = EntityChunkNbtCodec(
+    val entityChunkNbtCodec = EntityChunkNbtCodec(
         expectedDataVersion = expectedDataVersion,
         entityDataRegistry = NbtEntityDataRegistry(),
     )
-    return compressedChunk.toEntityChunk(codec)
+    return compressedChunk.toEntityChunk(entityChunkNbtCodec)
 }
 ```
 
@@ -164,10 +164,10 @@ fun transcodeDocument(
     targetCompression: Compression,
     sink: Sink,
 ): NbtDocument {
-    val format = CompressedNbtFormat()
-    val document = format.decodeDocumentFromSource(source, sourceCompression)
-    format.encodeDocumentToSink(document, targetCompression, sink)
-    return document
+    val compressedNbtFormat = CompressedNbtFormat()
+    val nbtDocument = compressedNbtFormat.decodeDocumentFromSource(source, sourceCompression)
+    compressedNbtFormat.encodeDocumentToSink(nbtDocument, targetCompression, sink)
+    return nbtDocument
 }
 ```
 
@@ -236,18 +236,20 @@ schemas. These models do not migrate historical files. Typed decoding is strict;
 The data-pack API is also filesystem-independent:
 
 ```kotlin
-fun resolvePack(
-    archive: DataPackArchive,
-    selectedFormat: DataPackFormatVersion?,
-    customDecoders: List<DataPackFileDecoder>,
+fun resolveDataPack(
+    dataPackArchive: DataPackArchive,
+    dataPackFormatVersion: DataPackFormatVersion?,
+    dataPackFileDecoders: List<DataPackFileDecoder>,
 ): ResolvedDataPackStack {
-    val pack = DataPackFormat(customDecoders = customDecoders).decode(archive)
-    return DataPackStack(pack).resolve(selectedFormat)
+    val dataPack = DataPackFormat(dataPackFileDecoders = dataPackFileDecoders).decode(dataPackArchive)
+    return DataPackStack(dataPack).resolve(dataPackFormatVersion)
 }
 ```
 
-Archives, parsed files, overlays, filters, enabled feature flags, tags, and merged resources are ordinary values.
-`ResolvedDataPackResource.decodeTagFile()` exposes string and object tag entries as `DataPackTagFile` values.
+Archives, typed files, overlays, filters, enabled feature flags, tags, and merged resources are ordinary values.
+Compressed NBT files are decoded from retained in-memory bytes only when `NbtFile.nbtDocument` is requested; this does
+not reopen the data-pack container or require a data-pack read lock.
+`ResolvedDataPackResource.decodeDataPackTagFile()` exposes string and object tag entries as `DataPackTagFile` values.
 Directory and ZIP access is provided by [`world-io`](../world-io/README.md#read-world-data-packs); Configuration
 projection is provided by [`protocol-datapack`](../protocol-datapack/README.md).
 

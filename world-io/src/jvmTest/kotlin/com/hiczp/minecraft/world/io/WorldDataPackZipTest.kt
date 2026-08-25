@@ -1,7 +1,7 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.datapack.DataPackFileContent
-import com.hiczp.minecraft.world.format.datapack.DataPackPath
+import com.hiczp.minecraft.world.format.datapack.DataPackFilePath
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
@@ -19,8 +19,8 @@ class WorldDataPackZipTest {
     @Test
     fun readsZipAfterCallerInspectsIndividualSizes() {
         val fileSystem = FakeFileSystem()
-        val zipPath = "/world/datapacks/example.zip".toPath()
-        val metadata = buildJsonObject {
+        val dataPackZipPath = "/world/datapacks/example.zip".toPath()
+        val dataPackMetadataJson = buildJsonObject {
             put(
                 "pack",
                 buildJsonObject {
@@ -29,40 +29,49 @@ class WorldDataPackZipTest {
                 },
             )
         }
-        val recipe = buildJsonObject { put("value", 42) }
-        fileSystem.createDirectories(requireNotNull(zipPath.parent))
-        fileSystem.write(zipPath) {
+        val recipeJson = buildJsonObject { put("value", 42) }
+        fileSystem.createDirectories(requireNotNull(dataPackZipPath.parent))
+        fileSystem.write(dataPackZipPath) {
             write(
                 zipBytes(
                     mapOf(
-                        "pack.mcmeta" to jsonBytes(metadata),
-                        "data/example/recipe/value.json" to jsonBytes(recipe),
+                        "pack.mcmeta" to jsonBytes(dataPackMetadataJson),
+                        "data/example/recipe/value.json" to jsonBytes(recipeJson),
                     ),
                 ),
             )
         }
-        val store = WorldDataPackStore(fileSystem, "/world/datapacks".toPath())
+        val worldDataPackReader = WorldDataPackReader(fileSystem, "/world/datapacks".toPath())
 
-        val inspection = store.inspectPack(zipPath)
+        val dataPackInspection = worldDataPackReader.inspectDataPack(dataPackZipPath)
 
-        assertEquals(DataPackContainerKind.ZIP, inspection.containerKind)
-        val recipePath = DataPackPath("data/example/recipe/value.json")
-        assertEquals(jsonBytes(recipe).size.toLong(), inspection.file(recipePath)?.size)
-        assertEquals(jsonBytes(recipe).size, store.readFile(inspection, recipePath).size)
-        assertIs<DataPackFileContent.JsonFile>(store.readPack(inspection).file(recipePath))
+        assertEquals(DataPackContainerKind.ZIP, dataPackInspection.dataPackContainerKind)
+        val recipeDataPackFilePath = DataPackFilePath("data/example/recipe/value.json")
+        assertEquals(
+            jsonBytes(recipeJson).size.toLong(),
+            dataPackInspection.dataPackFileInfo(recipeDataPackFilePath)?.sizeInBytes,
+        )
+        assertEquals(
+            jsonBytes(recipeJson).size,
+            worldDataPackReader.readDataPackFile(dataPackInspection, recipeDataPackFilePath).sizeInBytes,
+        )
+        assertIs<DataPackFileContent.JsonFile>(
+            worldDataPackReader.readDataPack(dataPackInspection).dataPackFileContent(recipeDataPackFilePath),
+        )
         fileSystem.checkNoOpenFiles()
     }
 
-    private fun zipBytes(files: Map<String, ByteArray>): ByteArray = ByteArrayOutputStream().use { bytes ->
-        ZipOutputStream(bytes).use { zip ->
-            files.forEach { (path, content) ->
-                zip.putNextEntry(ZipEntry(path))
-                zip.write(content)
-                zip.closeEntry()
+    private fun zipBytes(dataPackFileBytesByPath: Map<String, ByteArray>): ByteArray =
+        ByteArrayOutputStream().use { zipFileBytes ->
+            ZipOutputStream(zipFileBytes).use { zipOutputStream ->
+                dataPackFileBytesByPath.forEach { (dataPackFilePath, dataPackFileBytes) ->
+                    zipOutputStream.putNextEntry(ZipEntry(dataPackFilePath))
+                    zipOutputStream.write(dataPackFileBytes)
+                    zipOutputStream.closeEntry()
+                }
             }
+            zipFileBytes.toByteArray()
         }
-        bytes.toByteArray()
-    }
 
     private fun jsonBytes(element: JsonElement): ByteArray =
         Json.encodeToString(element).encodeToByteArray()

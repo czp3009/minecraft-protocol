@@ -9,68 +9,78 @@ import com.hiczp.minecraft.protocol.model.type.StaticRegistrySchema
 
 /**
  * Resolves the base registry context described by one Configuration exchange.
- * The caller-selected [staticRegistries] supplies locally known registries and
+ * The caller-selected [staticRegistrySchema] supplies locally known registries and
  * block states; every synchronized packet replaces the raw-ID mapping for its
  * registry.
  */
-fun ProtocolDataSet.resolveSynchronizedRegistryContext(
-    registries: List<RegistryDataPacket>,
-    staticRegistries: StaticRegistrySchema = this.staticRegistries,
+fun ProtocolData.resolveSynchronizedRegistryContext(
+    synchronizedRegistryPackets: List<RegistryDataPacket>,
+    staticRegistrySchema: StaticRegistrySchema = this.staticRegistrySchema,
 ): ProtocolRegistryContext {
-    require(registries.map(RegistryDataPacket::registryId).distinct().size == registries.size) {
+    require(
+        synchronizedRegistryPackets.map(RegistryDataPacket::registryId).distinct().size ==
+                synchronizedRegistryPackets.size,
+    ) {
         "Configuration provided duplicate synchronized registries"
     }
-    val synchronizedBiomeSize = registries.singleOrNull {
-        it.registryId == ProtocolRegistryContext.BIOME_REGISTRY
+    val synchronizedBiomeRegistrySize = synchronizedRegistryPackets.singleOrNull { registryDataPacket ->
+        registryDataPacket.registryId == ProtocolRegistryContext.BIOME_REGISTRY
     }?.entries?.size
-    val biomeSize = requireNotNull(
-        synchronizedBiomeSize ?: staticRegistries.registries[ProtocolRegistryContext.BIOME_REGISTRY]?.size,
+    val biomeRegistrySize = requireNotNull(
+        synchronizedBiomeRegistrySize
+            ?: staticRegistrySchema.registries[ProtocolRegistryContext.BIOME_REGISTRY]?.size,
     ) {
         "Configuration did not provide a biome registry and the static schema has none"
     }
-    require(biomeSize > 0) {
+    require(biomeRegistrySize > 0) {
         "The synchronized biome registry is empty"
     }
-    val base = if (staticRegistries === this.staticRegistries) {
-        registryContext
+    val baseProtocolRegistryContext = if (staticRegistrySchema === this.staticRegistrySchema) {
+        completeProtocolRegistryContext
     } else {
-        staticRegistries.resolve()
+        staticRegistrySchema.resolve()
     }
-    val changedRegistries = registries.mapNotNull { packet ->
-        val matchesBase = base.registry(packet.registryId)?.let { registry ->
-            registry.entries.size == packet.entries.size && packet.entries.withIndex().all { (rawId, entry) ->
-                registry[rawId]?.id == entry.id
-            }
-        } == true
-        if (matchesBase) {
+    val changedProtocolRegistries = synchronizedRegistryPackets.mapNotNull { registryDataPacket ->
+        val matchesBaseProtocolRegistry =
+            baseProtocolRegistryContext.registry(registryDataPacket.registryId)?.let { protocolRegistry ->
+                protocolRegistry.entries.size == registryDataPacket.entries.size &&
+                        registryDataPacket.entries.withIndex().all { (rawId, registryEntry) ->
+                            protocolRegistry[rawId]?.id == registryEntry.id
+                        }
+            } == true
+        if (matchesBaseProtocolRegistry) {
             null
         } else {
             ProtocolRegistry(
-                packet.registryId,
-                packet.entries.mapIndexed { rawId, entry ->
-                    ProtocolRegistryEntry(entry.id, rawId)
+                registryDataPacket.registryId,
+                registryDataPacket.entries.mapIndexed { rawId, registryEntry ->
+                    ProtocolRegistryEntry(registryEntry.id, rawId)
                 },
             )
         }
     }
-    return if (changedRegistries.isEmpty()) {
-        base
+    return if (changedProtocolRegistries.isEmpty()) {
+        baseProtocolRegistryContext
     } else {
-        base.withRegistries(changedRegistries)
+        baseProtocolRegistryContext.withRegistries(changedProtocolRegistries)
     }
 }
 
 /**
- * Returns this context with the chunk height selected by [login]. The active
+ * Returns this context with the chunk height selected by [playLoginPacket]. The active
  * dimension type is resolved by its synchronized raw ID. When Known Packs
  * omitted the entry NBT, only that entry's matching version data is used as a
  * fallback.
  */
-fun ProtocolRegistryContext.withPlayLoginDimension(
-    login: PlayLoginPacket,
-    registries: List<RegistryDataPacket>,
-    protocolData: ProtocolDataSet,
+fun ProtocolRegistryContext.withPlayLoginDimensionLayout(
+    playLoginPacket: PlayLoginPacket,
+    synchronizedRegistryPackets: List<RegistryDataPacket>,
+    protocolData: ProtocolData,
 ): ProtocolRegistryContext {
-    val dimension = MinecraftDimensionLayout.from(login, registries, protocolData)
-    return withChunkSectionCount(dimension.sectionCount)
+    val minecraftDimensionLayout = MinecraftDimensionLayout.from(
+        playLoginPacket,
+        synchronizedRegistryPackets,
+        protocolData,
+    )
+    return withChunkSectionCount(minecraftDimensionLayout.sectionCount)
 }

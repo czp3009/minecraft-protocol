@@ -45,21 +45,27 @@ the order accepted by its non-dropping channel.
 ## Definitions and registry context
 
 `MinecraftConnectionDefinition` is an immutable, shareable description of packet codecs, the format, initial registries,
-and channel capacities:
+and channel capacities. Vanilla users of `MinecraftClientConnection.connect` and `MinecraftServer.bind` do not need to
+construct one: both high-level entry points default to `MinecraftConnectionDefinition()` and the built-in vanilla packet
+registry.
+
+Create a definition only when adding extension codecs, replacing the format, or changing channel capacities:
 
 ```kotlin
 fun createConnectionDefinition(
-    registryContext: ProtocolRegistryContext,
+    protocolRegistryContext: ProtocolRegistryContext,
     serializersModule: SerializersModule,
     extensionCodecs: List<PacketCodecRegistration<out Packet>>,
 ): MinecraftConnectionDefinition {
-    val format = MinecraftProtocolFormat(
-        configuration = MinecraftProtocolFormat.configuration.copy(registries = registryContext),
+    val minecraftProtocolFormat = MinecraftProtocolFormat(
+        configuration = MinecraftProtocolFormat.configuration.copy(
+            protocolRegistryContext = protocolRegistryContext,
+        ),
         serializersModule = serializersModule,
     )
     return MinecraftConnectionDefinition.compose(
         extensionCodecs = extensionCodecs,
-        format = format,
+        format = minecraftProtocolFormat,
     )
 }
 ```
@@ -149,8 +155,9 @@ an error, not an unknown packet.
 ## Negotiation profiles
 
 `ClientNegotiationProfile` and `ServerNegotiationProfile` are optional per-connection algorithms used by the high-level
-client/server `negotiate()` extensions. Applications may omit them and implement negotiation directly through the public
-channels and state operations.
+client/server `negotiate()` extensions. Those extensions default to `VanillaClient` and `VanillaServer`, so a vanilla
+caller never constructs a profile. Applications may provide a loader profile or omit the high-level preset and implement
+negotiation directly through the public channels and state operations.
 
 The module includes profile and connection-definition helpers for:
 

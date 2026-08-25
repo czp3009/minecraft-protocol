@@ -5,8 +5,8 @@ import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
-import com.hiczp.minecraft.protocol.datapack.ProtocolDataSet
-import com.hiczp.minecraft.protocol.datapack.requireRegistry
+import com.hiczp.minecraft.protocol.datapack.ProtocolData
+import com.hiczp.minecraft.protocol.datapack.requireRegistryPacket
 import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
@@ -26,10 +26,26 @@ import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.uuid.Uuid
 
 @OptIn(InternalMinecraftConnectionApi::class)
 class MinecraftClientProtocolTest {
+    @Test
+    fun negotiationOptionsDefaultToTheCompleteVanillaClientContract() {
+        val minecraftClientNegotiationOptions = MinecraftClientNegotiationOptions()
+
+        assertSame(VanillaProtocolData, minecraftClientNegotiationOptions.protocolData)
+        assertEquals(
+            VanillaProtocolData.offeredKnownPacks.toSet(),
+            minecraftClientNegotiationOptions.acceptedKnownPacks,
+        )
+        assertSame(
+            VanillaProtocolData.staticRegistrySchema,
+            minecraftClientNegotiationOptions.staticRegistrySchema,
+        )
+    }
+
     @Test
     fun completesStatusAndPingAgainstAScriptedPeer() = runTest {
         val (client, serverSession) = connectionPair()
@@ -55,9 +71,9 @@ class MinecraftClientProtocolTest {
             serverSession.send(StatusPongResponsePacket(ping.timestamp))
         }
 
-        val result = client.queryStatus(0x0102_0304_0506_0708)
+        val minecraftStatusExchange = client.queryStatus(0x0102_0304_0506_0708)
 
-        assertEquals(0x0102_0304_0506_0708, result.pong.timestamp)
+        assertEquals(0x0102_0304_0506_0708, minecraftStatusExchange.statusPongResponsePacket.timestamp)
         server.await()
         client.close()
     }
@@ -66,12 +82,12 @@ class MinecraftClientProtocolTest {
     fun completesOfflineLoginConfigurationAndPlayEntry() = runTest {
         val (client, serverSession) = connectionPair()
         val identity = MinecraftOfflineIdentity("ClientProbe")
-        val loginSuccess = LoginSuccessPacket(
+        val loginSuccessPacket = LoginSuccessPacket(
             profile = GameProfile(identity.id, identity.name, emptyList()),
             sessionId = Uuid.fromLongs(10, 20),
         )
-        val playLogin = playLogin()
-        val corePack = KnownPack("minecraft", "core", MinecraftProtocol.MINECRAFT_VERSION)
+        val playLoginPacket = createPlayLoginPacket()
+        val coreKnownPack = KnownPack("minecraft", "core", MinecraftProtocol.MINECRAFT_VERSION)
         val server = async {
             assertIs<HandshakePacket>(serverSession.receive())
             assertEquals(
@@ -91,7 +107,7 @@ class MinecraftClientProtocolTest {
                     data = ByteString(byteArrayOf(1, 2, 3)),
                 ),
             )
-            val queryResponse = assertIs<UnknownPacket.Serverbound>(
+            val loginQueryResponse = assertIs<UnknownPacket.Serverbound>(
                 serverSession.receive(),
             )
             assertEquals(
@@ -101,19 +117,19 @@ class MinecraftClientProtocolTest {
                     channel = Identifier("test:query"),
                     hasPayload = false,
                 ),
-                queryResponse.route,
+                loginQueryResponse.route,
             )
-            assertEquals(ByteString(byteArrayOf()), queryResponse.data)
+            assertEquals(ByteString(byteArrayOf()), loginQueryResponse.data)
             serverSession.send(SetCompressionPacket(32))
-            serverSession.send(loginSuccess)
+            serverSession.send(loginSuccessPacket)
             assertEquals(LoginAcknowledgedPacket, serverSession.receive())
             assertIs<ConfigurationClientInformationPacket>(serverSession.receive())
             serverSession.send(FeatureFlagsPacket(setOf(Identifier("vanilla"))))
             serverSession.send(
-                ConfigurationClientboundKnownPacksPacket(listOf(corePack)),
+                ConfigurationClientboundKnownPacksPacket(listOf(coreKnownPack)),
             )
             assertEquals(
-                ConfigurationServerboundKnownPacksPacket(listOf(corePack)),
+                ConfigurationServerboundKnownPacksPacket(listOf(coreKnownPack)),
                 serverSession.receive(),
             )
             serverSession.send(ConfigurationClientboundKeepAlivePacket(42))
@@ -126,38 +142,44 @@ class MinecraftClientProtocolTest {
             serverSession.send(CodeOfConductPacket("Be kind."))
             assertEquals(AcceptCodeOfConductPacket, serverSession.receive())
             serverSession.send(ConfigurationUpdateTagsPacket(emptyList()))
-            VanillaProtocolData.registryPackets(listOf(corePack)).forEach {
-                serverSession.send(it)
+            VanillaProtocolData.synchronizedRegistryPackets(listOf(coreKnownPack)).forEach { registryDataPacket ->
+                serverSession.send(registryDataPacket)
             }
             serverSession.send(FinishConfigurationPacket)
             assertEquals(
                 AcknowledgeFinishConfigurationPacket,
                 serverSession.receive(),
             )
-            serverSession.send(playLogin)
+            serverSession.send(playLoginPacket)
         }
 
-        val result = client.negotiate(identity)
+        val minecraftClientNegotiationResult = client.negotiate(identity)
 
-        assertEquals(loginSuccess, result.login)
-        assertEquals(playLogin, result.playLogin)
-        assertEquals(listOf(corePack), result.configuration.knownPacks?.knownPacks)
-        val expectedDimensionLayout = MinecraftDimensionLayout.from(
+        assertEquals(loginSuccessPacket, minecraftClientNegotiationResult.loginSuccessPacket)
+        assertEquals(playLoginPacket, minecraftClientNegotiationResult.playLoginPacket)
+        assertEquals(
+            listOf(coreKnownPack),
+            minecraftClientNegotiationResult.dataPackConfigurationSnapshot.offeredKnownPacks,
+        )
+        val expectedMinecraftDimensionLayout = MinecraftDimensionLayout.from(
             VanillaProtocolData,
             Identifier("overworld"),
         )
-        assertEquals(expectedDimensionLayout, result.dimensionLayout)
-        assertEquals(expectedDimensionLayout.minY, result.chunkLayout.minBlockY)
-        assertEquals(expectedDimensionLayout.sectionCount, result.chunkLayout.sectionCount)
+        assertEquals(expectedMinecraftDimensionLayout, minecraftClientNegotiationResult.minecraftDimensionLayout)
+        assertEquals(expectedMinecraftDimensionLayout.minY, minecraftClientNegotiationResult.chunkLayout.minBlockY)
         assertEquals(
-            expectedDimensionLayout.sectionCount,
-            client.registries.chunkSectionCount,
+            expectedMinecraftDimensionLayout.sectionCount,
+            minecraftClientNegotiationResult.chunkLayout.sectionCount,
         )
         assertEquals(
-            VanillaProtocolData.requireRegistry(
+            expectedMinecraftDimensionLayout.sectionCount,
+            client.protocolRegistryContext.chunkSectionCount,
+        )
+        assertEquals(
+            VanillaProtocolData.requireRegistryPacket(
                 Identifier("worldgen/biome"),
             ).entries.size,
-            client.registries.biomeRegistrySize,
+            client.protocolRegistryContext.biomeRegistrySize,
         )
         server.await()
         client.close()
@@ -167,8 +189,8 @@ class MinecraftClientProtocolTest {
     fun derivesPlayFormatFromTheSynchronizedCustomRegistries() = runTest {
         val (client, serverSession) = connectionPair()
         val identity = MinecraftOfflineIdentity("RegistryProbe")
-        val dimension = Identifier("test:world")
-        val dimensionTypeRegistry = RegistryDataPacket(
+        val dimensionId = Identifier("test:world")
+        val dimensionTypeRegistryPacket = RegistryDataPacket(
             registryId = Identifier("dimension_type"),
             entries = listOf(
                 RegistryEntry(
@@ -183,30 +205,30 @@ class MinecraftClientProtocolTest {
                 ),
             ),
         )
-        val biomeRegistry = RegistryDataPacket(
+        val biomeRegistryPacket = RegistryDataPacket(
             registryId = Identifier("worldgen/biome"),
             entries = listOf(
                 RegistryEntry(Identifier("test:first"), null),
                 RegistryEntry(Identifier("test:second"), null),
             ),
         )
-        val compactDimensionTypeRegistry = RegistryDataPacket(
-            dimensionTypeRegistry.registryId,
-            dimensionTypeRegistry.entries.map { entry ->
-                RegistryEntry(entry.id, null)
+        val compactDimensionTypeRegistryPacket = RegistryDataPacket(
+            dimensionTypeRegistryPacket.registryId,
+            dimensionTypeRegistryPacket.entries.map { registryEntry ->
+                RegistryEntry(registryEntry.id, null)
             },
         )
-        val protocolData = object : ProtocolDataSet by VanillaProtocolData {
-            override fun registryPackets(
-                clientKnownPacks: List<KnownPack>,
+        val protocolData = object : ProtocolData by VanillaProtocolData {
+            override fun synchronizedRegistryPackets(
+                acceptedKnownPacks: List<KnownPack>,
             ): List<RegistryDataPacket> = listOf(
-                dimensionTypeRegistry,
-                biomeRegistry,
+                dimensionTypeRegistryPacket,
+                biomeRegistryPacket,
             )
         }
-        val playLogin = playLogin(
+        val playLoginPacket = createPlayLoginPacket(
             dimensionTypeId = 0,
-            dimension = dimension,
+            dimension = dimensionId,
         )
         val server = async {
             assertIs<HandshakePacket>(serverSession.receive())
@@ -221,47 +243,47 @@ class MinecraftClientProtocolTest {
             assertIs<ConfigurationClientInformationPacket>(
                 serverSession.receive(),
             )
-            serverSession.send(compactDimensionTypeRegistry)
-            serverSession.send(biomeRegistry)
+            serverSession.send(compactDimensionTypeRegistryPacket)
+            serverSession.send(biomeRegistryPacket)
             serverSession.send(FinishConfigurationPacket)
             assertEquals(
                 AcknowledgeFinishConfigurationPacket,
                 serverSession.receive(),
             )
-            serverSession.send(playLogin)
+            serverSession.send(playLoginPacket)
         }
 
-        val result = client.negotiate(
+        val minecraftClientNegotiationResult = client.negotiate(
             identity,
             options = MinecraftClientNegotiationOptions(
                 protocolData = protocolData,
             ),
         )
 
-        assertEquals(playLogin, result.playLogin)
+        assertEquals(playLoginPacket, minecraftClientNegotiationResult.playLoginPacket)
         assertEquals(
             MinecraftDimensionLayout(
-                id = Identifier("test:short_dimension"),
-                registryId = 0,
+                dimensionTypeId = Identifier("test:short_dimension"),
+                dimensionTypeRawId = 0,
                 minY = 0,
                 height = 32,
                 hasSkyLight = false,
             ),
-            result.dimensionLayout,
+            minecraftClientNegotiationResult.minecraftDimensionLayout,
         )
-        assertEquals(0, result.chunkLayout.minSectionY)
-        assertEquals(2, result.chunkLayout.sectionCount)
+        assertEquals(0, minecraftClientNegotiationResult.chunkLayout.minSectionY)
+        assertEquals(2, minecraftClientNegotiationResult.chunkLayout.sectionCount)
         assertEquals(
             2,
-            client.registries.chunkSectionCount,
+            client.protocolRegistryContext.chunkSectionCount,
         )
         assertEquals(
             2,
-            client.registries.biomeRegistrySize,
+            client.protocolRegistryContext.biomeRegistrySize,
         )
         assertEquals(
             1,
-            client.registries.requireRegistryEntry(
+            client.protocolRegistryContext.requireRegistryEntry(
                 ProtocolRegistryContext.BIOME_REGISTRY,
                 Identifier("test:second"),
             ).rawId,
@@ -289,7 +311,7 @@ class MinecraftClientProtocolTest {
         return client to server
     }
 
-    private fun playLogin(
+    private fun createPlayLoginPacket(
         dimensionTypeId: Int = 0,
         dimension: Identifier = Identifier("overworld"),
     ): PlayLoginPacket {

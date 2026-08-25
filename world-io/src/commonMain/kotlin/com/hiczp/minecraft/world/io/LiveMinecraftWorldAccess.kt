@@ -47,18 +47,23 @@ class LiveMinecraftWorldAccess private constructor(
     private val levelData = LevelDataStore(paths, nbtFiles)
     private val playerData = PlayerDataStore(paths, nbtFiles)
     private val jsonFiles = Utf8JsonFileStore(files)
-    private val dataPackStore = WorldDataPackStore(files.fileSystem, paths.dataPacks, configuration.dataPackFormat)
+    private val worldDataPackReader = WorldDataPackReader(
+        files.fileSystem,
+        paths.dataPacksDirectory,
+        configuration.dataPackFormat,
+    )
 
-    fun readDataPacks(enabledReferences: List<String>): LoadedWorldDataPacks =
-        dataPackStore.readEnabled(enabledReferences)
+    fun readEnabledDataPacks(enabledDataPackReferences: List<String>): WorldDataPackLoadResult =
+        worldDataPackReader.readEnabledDataPacks(enabledDataPackReferences)
 
-    fun inspectDataPacks(enabledReferences: List<String>): List<DataPackInspection> =
-        dataPackStore.inspectEnabled(enabledReferences)
+    fun inspectEnabledFileDataPacks(enabledDataPackReferences: List<String>): List<DataPackInspection> =
+        worldDataPackReader.inspectEnabledFileDataPacks(enabledDataPackReferences)
 
-    fun readEnabledDataPacks(): LoadedWorldDataPacks = dataPackStore.readEnabled(readLevelData<LevelDat>())
+    fun readEnabledDataPacks(): WorldDataPackLoadResult =
+        worldDataPackReader.readEnabledDataPacks(readLevelData<LevelDat>())
 
-    fun inspectEnabledDataPacks(): List<DataPackInspection> =
-        dataPackStore.inspectEnabled(readLevelData<LevelDat>())
+    fun inspectEnabledFileDataPacks(): List<DataPackInspection> =
+        worldDataPackReader.inspectEnabledFileDataPacks(readLevelData<LevelDat>())
 
     fun readLevelDataDocument(): NbtDocument = levelData.readDocument()
 

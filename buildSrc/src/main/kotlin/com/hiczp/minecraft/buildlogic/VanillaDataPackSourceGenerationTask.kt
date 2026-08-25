@@ -28,98 +28,120 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
 
     @TaskAction
     fun generate() {
-        val extracted = extractedDataPacksDirectory.asFile.get().toPath()
-        val manifestPath = extracted.resolve(MANIFEST_FILE)
+        val extractedDataPacksDirectoryPath = extractedDataPacksDirectory.asFile.get().toPath()
+        val manifestPath = extractedDataPacksDirectoryPath.resolve(MANIFEST_FILE)
         check(manifestPath.isRegularFile()) { "Official data-pack manifest is missing: $manifestPath" }
-        val manifest = protocolJson.decodeFromString<JsonObject>(manifestPath.readText())
-        check(manifest.getValue("schema_version").jsonPrimitive.int == EXTRACTION_SCHEMA_VERSION) {
+        val dataPackManifest = protocolJson.decodeFromString<JsonObject>(manifestPath.readText())
+        check(dataPackManifest.getValue("schema_version").jsonPrimitive.int == EXTRACTION_SCHEMA_VERSION) {
             "Unsupported official data-pack extraction schema"
         }
-        val packIds = manifest.getValue("packs").jsonArray.map { it.jsonPrimitive.content }
-        val packs = packIds.map { packId -> buildPackPayload(extracted, packId) }
-        check(packs.sumOf(PackPayload::fileCount) == manifest.getValue("file_count").jsonPrimitive.int) {
+        val dataPackIds = dataPackManifest.getValue("packs").jsonArray.map { it.jsonPrimitive.content }
+        val dataPackPayloads = dataPackIds.map { dataPackId ->
+            buildDataPackPayload(extractedDataPacksDirectoryPath, dataPackId)
+        }
+        check(
+            dataPackPayloads.sumOf(DataPackPayload::dataPackFileCount) ==
+                    dataPackManifest.getValue("file_count").jsonPrimitive.int,
+        ) {
             "Official data-pack file count differs from its extraction manifest"
         }
-        val format = manifest.getValue("data_pack_format").jsonArray.map { it.jsonPrimitive.int }
-        check(format.size == 2) { "Official data-pack format must have two components" }
+        val dataPackFormatVersion = dataPackManifest.getValue("data_pack_format").jsonArray.map {
+            it.jsonPrimitive.int
+        }
+        check(dataPackFormatVersion.size == 2) { "Official data-pack format must have two components" }
 
-        val output = outputDirectory.asFile.get().toPath()
-        output.deleteTree()
-        val packageDirectory = output.resolve(GENERATED_PACKAGE.replace('.', '/'))
+        val outputDirectoryPath = outputDirectory.asFile.get().toPath()
+        outputDirectoryPath.deleteTree()
+        val packageDirectory = outputDirectoryPath.resolve(GENERATED_PACKAGE.replace('.', '/'))
         Files.createDirectories(packageDirectory)
         renderManifestSource(
-            minecraftVersion = manifest.getValue("minecraft_version").jsonPrimitive.content,
-            dataPackFormat = format,
-            packs = packs,
+            minecraftVersion = dataPackManifest.getValue("minecraft_version").jsonPrimitive.content,
+            dataPackFormatVersion = dataPackFormatVersion,
+            dataPackPayloads = dataPackPayloads,
         ).writeSource(packageDirectory.resolve("VanillaDataPackPayload.kt"))
-        packs.forEachIndexed { packIndex, pack ->
-            pack.batches.forEachIndexed { batchIndex, chunks ->
-                renderBatchSource(packIndex, batchIndex, chunks).writeSource(
-                    packageDirectory.resolve("VanillaDataPackPayloadBatch${packIndex}_$batchIndex.kt"),
+        dataPackPayloads.forEachIndexed { dataPackIndex, dataPackPayload ->
+            dataPackPayload.encodedBatches.forEachIndexed { batchIndex, encodedBatchChunks ->
+                renderBatchSource(dataPackIndex, batchIndex, encodedBatchChunks).writeSource(
+                    packageDirectory.resolve("VanillaDataPackPayloadBatch${dataPackIndex}_$batchIndex.kt"),
                 )
             }
         }
-        logger.lifecycle("Generated lazy vanilla data-pack sources: $output")
+        logger.lifecycle("Generated lazy vanilla data-pack sources: $outputDirectoryPath")
     }
 
-    private fun buildPackPayload(extracted: Path, packId: String): PackPayload {
-        val root = extracted.resolve("packs").resolve(packId)
-        check(root.isDirectory()) { "Official data-pack directory is missing: $root" }
-        val files = Files.walk(root).use { paths ->
-            paths.filter { it.isRegularFile() }.sorted().toList()
+    private fun buildDataPackPayload(
+        extractedDataPacksDirectoryPath: Path,
+        dataPackId: String,
+    ): DataPackPayload {
+        val dataPackDirectory = extractedDataPacksDirectoryPath.resolve("packs").resolve(dataPackId)
+        check(dataPackDirectory.isDirectory()) {
+            "Official data-pack directory is missing: $dataPackDirectory"
         }
-        check(files.isNotEmpty()) { "Official data pack $packId has no files" }
-        val batches = files.chunked(PAYLOAD_BATCH_FILE_COUNT).map { batch ->
-            val payload = buildJsonObject {
+        val dataPackFilePaths = Files.walk(dataPackDirectory).use { dataPackPaths ->
+            dataPackPaths.filter { it.isRegularFile() }.sorted().toList()
+        }
+        check(dataPackFilePaths.isNotEmpty()) { "Official data pack $dataPackId has no files" }
+        val encodedBatches = dataPackFilePaths.chunked(PAYLOAD_BATCH_FILE_COUNT).map { dataPackFileBatch ->
+            val dataPackPayloadJson = buildJsonObject {
                 put(
                     "files",
                     buildJsonObject {
-                        batch.forEach { file ->
-                            val relative = root.relativize(file).joinToString("/")
-                            put(relative, Base64.getEncoder().encodeToString(Files.readAllBytes(file)))
+                        dataPackFileBatch.forEach { dataPackFile ->
+                            val dataPackFilePath = dataPackDirectory.relativize(dataPackFile).joinToString("/")
+                            put(
+                                dataPackFilePath,
+                                Base64.getEncoder().encodeToString(Files.readAllBytes(dataPackFile)),
+                            )
                         }
                     },
                 )
             }
-            encodePayload(payload).chunked(SOURCE_CHUNK_SIZE)
+            encodeDataPackPayload(dataPackPayloadJson).chunked(SOURCE_CHUNK_SIZE)
         }
-        return PackPayload(packId, files.size, batches)
+        return DataPackPayload(dataPackId, dataPackFilePaths.size, encodedBatches)
     }
 
-    private fun encodePayload(payload: JsonObject): String {
-        val encodedJson = Json.encodeToString(payload).encodeToByteArray()
-        val compressed = ByteArrayOutputStream().use { bytes ->
-            GZIPOutputStream(bytes).use { gzip -> gzip.write(encodedJson) }
-            bytes.toByteArray()
+    private fun encodeDataPackPayload(dataPackPayloadJson: JsonObject): String {
+        val dataPackPayloadBytes = Json.encodeToString(dataPackPayloadJson).encodeToByteArray()
+        val compressedDataPackPayloadBytes = ByteArrayOutputStream().use { byteOutputStream ->
+            GZIPOutputStream(byteOutputStream).use { gzipOutputStream ->
+                gzipOutputStream.write(dataPackPayloadBytes)
+            }
+            byteOutputStream.toByteArray()
         }
-        return Base64.getEncoder().encodeToString(compressed)
+        return Base64.getEncoder().encodeToString(compressedDataPackPayloadBytes)
     }
 
     private fun renderManifestSource(
         minecraftVersion: String,
-        dataPackFormat: List<Int>,
-        packs: List<PackPayload>,
+        dataPackFormatVersion: List<Int>,
+        dataPackPayloads: List<DataPackPayload>,
     ): FileSpec {
-        val descriptor = ClassName(GENERATED_PACKAGE, "VanillaDataPackPayloadDescriptor")
-        val packsInitializer = CodeBlock.builder()
+        val dataPackPayloadDescriptor = ClassName(GENERATED_PACKAGE, "VanillaDataPackPayloadDescriptor")
+        val dataPackPayloadDescriptorsInitializer = CodeBlock.builder()
             .add("%M(\n", LIST_OF)
             .indent()
             .apply {
-                packs.forEachIndexed { index, pack ->
+                dataPackPayloads.forEachIndexed { dataPackIndex, dataPackPayload ->
                     add(
-                        "%T(id = %S, index = %L, batchCount = %L),\n",
-                        descriptor,
-                        pack.id,
-                        index,
-                        pack.batches.size,
+                        "%T(dataPackId = %S, dataPackIndex = %L, batchCount = %L),\n",
+                        dataPackPayloadDescriptor,
+                        dataPackPayload.dataPackId,
+                        dataPackIndex,
+                        dataPackPayload.encodedBatches.size,
                     )
                 }
             }
             .unindent()
             .add(")")
             .build()
-        val formatInitializer = CodeBlock.of("%M(%L, %L)", LIST_OF, dataPackFormat[0], dataPackFormat[1])
-        val payload = TypeSpec.objectBuilder("VanillaDataPackPayload")
+        val dataPackFormatVersionInitializer = CodeBlock.of(
+            "%M(%L, %L)",
+            LIST_OF,
+            dataPackFormatVersion[0],
+            dataPackFormatVersion[1],
+        )
+        val vanillaDataPackPayload = TypeSpec.objectBuilder("VanillaDataPackPayload")
             .addModifiers(INTERNAL)
             .addKdoc("Official data-pack manifest and lazy batch dispatch; regenerated by Gradle.\n")
             .addProperty(
@@ -133,66 +155,80 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
                     .build(),
             )
             .addProperty(
-                PropertySpec.builder("dataPackFormat", LIST.parameterizedBy(INT))
-                    .getter(FunSpec.getterBuilder().addStatement("return %L", formatInitializer).build())
+                PropertySpec.builder("dataPackFormatVersion", LIST.parameterizedBy(INT))
+                    .getter(
+                        FunSpec.getterBuilder()
+                            .addStatement("return %L", dataPackFormatVersionInitializer)
+                            .build(),
+                    )
                     .build(),
             )
             .addProperty(
-                PropertySpec.builder("packs", LIST.parameterizedBy(descriptor))
-                    .getter(FunSpec.getterBuilder().addStatement("return %L", packsInitializer).build())
+                PropertySpec.builder(
+                    "dataPackPayloadDescriptors",
+                    LIST.parameterizedBy(dataPackPayloadDescriptor),
+                )
+                    .getter(
+                        FunSpec.getterBuilder()
+                            .addStatement("return %L", dataPackPayloadDescriptorsInitializer)
+                            .build(),
+                    )
                     .build(),
             )
-            .addFunction(renderBatchDispatcher(packs))
+            .addFunction(renderBatchDispatcher(dataPackPayloads))
             .build()
         return FileSpec.builder(GENERATED_PACKAGE, "VanillaDataPackPayload")
-            .addType(payload)
+            .addType(vanillaDataPackPayload)
             .build()
     }
 
-    private fun renderBatchDispatcher(packs: List<PackPayload>): FunSpec {
-        val code = CodeBlock.builder().beginControlFlow("return when (packIndex)")
-        packs.forEachIndexed { packIndex, pack ->
-            code.beginControlFlow("%L -> when (batchIndex)", packIndex)
-            pack.batches.indices.forEach { batchIndex ->
-                code.addStatement(
+    private fun renderBatchDispatcher(dataPackPayloads: List<DataPackPayload>): FunSpec {
+        val dispatcherCode = CodeBlock.builder().beginControlFlow("return when (dataPackIndex)")
+        dataPackPayloads.forEachIndexed { dataPackIndex, dataPackPayload ->
+            dispatcherCode.beginControlFlow("%L -> when (batchIndex)", dataPackIndex)
+            dataPackPayload.encodedBatches.indices.forEach { batchIndex ->
+                dispatcherCode.addStatement(
                     "%L -> %M()",
                     batchIndex,
-                    MemberName(GENERATED_PACKAGE, batchFunctionName(packIndex, batchIndex)),
+                    MemberName(GENERATED_PACKAGE, batchFunctionName(dataPackIndex, batchIndex)),
                 )
             }
-            code.addStatement("else -> error(%S)", "Unknown batch index for vanilla data pack ${pack.id}")
-            code.endControlFlow()
+            dispatcherCode.addStatement(
+                "else -> error(%S)",
+                "Unknown batch index for vanilla data pack ${dataPackPayload.dataPackId}",
+            )
+            dispatcherCode.endControlFlow()
         }
-        code.addStatement("else -> error(%S)", "Unknown vanilla data-pack index")
-        code.endControlFlow()
-        return FunSpec.builder("loadBatch")
-            .addParameter("packIndex", INT)
+        dispatcherCode.addStatement("else -> error(%S)", "Unknown vanilla data-pack index")
+        dispatcherCode.endControlFlow()
+        return FunSpec.builder("loadDataPackBatch")
+            .addParameter("dataPackIndex", INT)
             .addParameter("batchIndex", INT)
             .returns(LIST.parameterizedBy(STRING))
-            .addCode(code.build())
+            .addCode(dispatcherCode.build())
             .build()
     }
 
     private fun renderBatchSource(
-        packIndex: Int,
+        dataPackIndex: Int,
         batchIndex: Int,
-        chunks: List<String>,
+        encodedBatchChunks: List<String>,
     ): FileSpec {
-        val initializer = CodeBlock.builder()
+        val encodedBatchChunksInitializer = CodeBlock.builder()
             .add("%M(\n", LIST_OF)
             .indent()
-            .apply { chunks.forEach { chunk -> add("%S,\n", chunk) } }
+            .apply { encodedBatchChunks.forEach { encodedBatchChunk -> add("%S,\n", encodedBatchChunk) } }
             .unindent()
             .add(")")
             .build()
-        val functionName = batchFunctionName(packIndex, batchIndex)
-        return FileSpec.builder(GENERATED_PACKAGE, "VanillaDataPackPayloadBatch${packIndex}_$batchIndex")
+        val functionName = batchFunctionName(dataPackIndex, batchIndex)
+        return FileSpec.builder(GENERATED_PACKAGE, "VanillaDataPackPayloadBatch${dataPackIndex}_$batchIndex")
             .addFunction(
                 FunSpec.builder(functionName)
                     .addModifiers(INTERNAL)
                     .addKdoc("Loads one compressed official data-pack batch on demand.\n")
                     .returns(LIST.parameterizedBy(STRING))
-                    .addStatement("return %L", initializer)
+                    .addStatement("return %L", encodedBatchChunksInitializer)
                     .build(),
             )
             .build()
@@ -202,10 +238,10 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
         path.atomicWriteText(toString())
     }
 
-    private data class PackPayload(
-        val id: String,
-        val fileCount: Int,
-        val batches: List<List<String>>,
+    private data class DataPackPayload(
+        val dataPackId: String,
+        val dataPackFileCount: Int,
+        val encodedBatches: List<List<String>>,
     )
 
     companion object {
@@ -217,7 +253,7 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
         private const val SOURCE_CHUNK_SIZE = 12_000
         private val LIST_OF = MemberName("kotlin.collections", "listOf")
 
-        private fun batchFunctionName(packIndex: Int, batchIndex: Int): String =
-            "loadVanillaDataPackPayloadBatch${packIndex}_$batchIndex"
+        private fun batchFunctionName(dataPackIndex: Int, batchIndex: Int): String =
+            "loadVanillaDataPackPayloadBatch${dataPackIndex}_$batchIndex"
     }
 }

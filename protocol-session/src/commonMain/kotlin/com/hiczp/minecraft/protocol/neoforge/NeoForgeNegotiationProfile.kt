@@ -8,7 +8,7 @@ import com.hiczp.minecraft.protocol.model.type.StaticRegistrySchema
 import com.hiczp.minecraft.protocol.session.*
 
 class NeoForgeClientProfileDefinition(
-    val staticRegistries: StaticRegistrySchema,
+    val staticRegistrySchema: StaticRegistrySchema,
     val network: NeoForgeNetworkConfiguration = NeoForgeNetworkConfiguration(),
     knownDataMaps: Map<Identifier, List<NeoForgeKnownDataMap>> = emptyMap(),
     extensibleEnums: List<NeoForgeEnumEntry> = emptyList(),
@@ -36,9 +36,9 @@ class NeoForgeClientProfileDefinition(
 
 class NeoForgeServerProfileDefinition(
     val network: NeoForgeNetworkConfiguration = NeoForgeNetworkConfiguration(),
-    val frozenRegistries: NeoForgeFrozenRegistrySync? = null,
+    val neoForgeFrozenRegistrySync: NeoForgeFrozenRegistrySync? = null,
     /** Caller-built immutable context retained by reference across connections. */
-    val resolvedRegistryContext: ProtocolRegistryContext? = null,
+    val protocolRegistryContext: ProtocolRegistryContext? = null,
     configFiles: List<NeoForgeConfigFilePacket> = emptyList(),
     knownDataMaps: Map<Identifier, List<NeoForgeKnownDataMap>> = emptyMap(),
     extensibleEnums: List<NeoForgeEnumEntry> = emptyList(),
@@ -71,7 +71,7 @@ data class NeoForgeNegotiationResult(
     val commonVersion: Int?,
     val remoteConfigurationChannels: Set<Identifier>,
     val remotePlayChannels: Set<Identifier>,
-    val registrySynchronized: Boolean,
+    val registriesSynchronized: Boolean,
     val configFiles: List<NeoForgeConfigFilePacket>,
     val remoteKnownDataMaps: Map<Identifier, List<Identifier>>,
 ) : NegotiationProfileResult
@@ -82,10 +82,10 @@ class NeoForgeClientProfile(
     private val remoteConfigurationChannels = linkedSetOf<Identifier>()
     private val remotePlayChannels = linkedSetOf<Identifier>()
     private val configFiles = mutableListOf<NeoForgeConfigFilePacket>()
-    private val frozenPackets = linkedMapOf<Identifier, NeoForgeFrozenRegistryPacket>()
+    private val frozenRegistryPackets = linkedMapOf<Identifier, NeoForgeFrozenRegistryPacket>()
     private val splitAssembler = NeoForgeSplitAssembler()
-    private var expectedFrozenRegistries: Set<Identifier>? = null
-    private var frozenSnapshot: RemoteRegistrySnapshot? = null
+    private var expectedFrozenRegistryIds: Set<Identifier>? = null
+    private var frozenRemoteRegistrySnapshot: RemoteRegistrySnapshot? = null
     private var networkSetup: NeoForgeNetworkSetup? = null
     private var commonVersion: Int? = null
     private var remoteKnownDataMaps: Map<Identifier, List<Identifier>> = emptyMap()
@@ -167,54 +167,54 @@ class NeoForgeClientProfile(
             throw NeoForgeRemoteSetupFailedException(packet)
 
         is NeoForgeFrozenRegistrySyncStartPacket -> {
-            if (expectedFrozenRegistries != null || lateTaskRank != 0) {
+            if (expectedFrozenRegistryIds != null || lateTaskRank != 0) {
                 throw NeoForgeNegotiationException(
                     "NeoForge frozen registry sync started out of order",
                 )
             }
-            if (packet.registries.distinct().size != packet.registries.size) {
+            if (packet.registryIds.distinct().size != packet.registryIds.size) {
                 throw NeoForgeNegotiationException(
                     "NeoForge frozen registry start contains duplicates",
                 )
             }
-            expectedFrozenRegistries = packet.registries.toSet()
-            frozenPackets.clear()
+            expectedFrozenRegistryIds = packet.registryIds.toSet()
+            frozenRegistryPackets.clear()
             true
         }
 
         is NeoForgeFrozenRegistryPacket -> {
-            val expected = expectedFrozenRegistries
+            val expected = expectedFrozenRegistryIds
                 ?: throw NeoForgeNegotiationException(
                     "NeoForge frozen registry arrived before sync start",
                 )
-            if (packet.registry !in expected) {
+            if (packet.registryId !in expected) {
                 throw NeoForgeNegotiationException(
-                    "Unexpected NeoForge frozen registry ${packet.registry}",
+                    "Unexpected NeoForge frozen registry ${packet.registryId}",
                 )
             }
-            if (frozenPackets.put(packet.registry, packet) != null) {
+            if (frozenRegistryPackets.put(packet.registryId, packet) != null) {
                 throw NeoForgeNegotiationException(
-                    "Duplicate NeoForge frozen registry ${packet.registry}",
+                    "Duplicate NeoForge frozen registry ${packet.registryId}",
                 )
             }
             true
         }
 
         NeoForgeFrozenRegistrySyncCompletedPacket -> {
-            val expected = expectedFrozenRegistries
+            val expected = expectedFrozenRegistryIds
                 ?: throw NeoForgeNegotiationException(
                     "NeoForge frozen registry completion arrived before sync start",
                 )
-            val missing = expected - frozenPackets.keys
+            val missing = expected - frozenRegistryPackets.keys
             if (missing.isNotEmpty()) {
                 throw NeoForgeNegotiationException(
                     "NeoForge frozen registry sync omitted $missing",
                 )
             }
-            val snapshot = remoteRegistrySnapshot(frozenPackets.values)
-            definition.staticRegistries.requireCompatible(snapshot)
-            frozenSnapshot = snapshot
-            expectedFrozenRegistries = null
+            val remoteRegistrySnapshot = neoForgeRemoteRegistrySnapshot(frozenRegistryPackets.values)
+            definition.staticRegistrySchema.requireNeoForgeCompatible(remoteRegistrySnapshot)
+            frozenRemoteRegistrySnapshot = remoteRegistrySnapshot
+            expectedFrozenRegistryIds = null
             connection.outgoing.send(
                 NeoForgeFrozenRegistrySyncCompletedPacket,
             )
@@ -312,18 +312,18 @@ class NeoForgeClientProfile(
         else -> false
     }
 
-    override suspend fun resolveRegistryContext(
-        context: ProtocolRegistryContext,
+    override suspend fun resolveProtocolRegistryContext(
+        protocolRegistryContext: ProtocolRegistryContext,
     ): ProtocolRegistryContext {
-        if (expectedFrozenRegistries != null) {
+        if (expectedFrozenRegistryIds != null) {
             throw NeoForgeNegotiationException(
                 "Configuration finished during NeoForge frozen registry sync",
             )
         }
         ensureNetworkSetupForOtherPeer()
-        val snapshot = frozenSnapshot ?: return context
-        return context.withStaticRegistryResolution(
-            definition.staticRegistries.resolve(snapshot),
+        val remoteRegistrySnapshot = frozenRemoteRegistrySnapshot ?: return protocolRegistryContext
+        return protocolRegistryContext.withStaticRegistryResolution(
+            definition.staticRegistrySchema.resolve(remoteRegistrySnapshot),
         )
     }
 
@@ -393,7 +393,7 @@ class NeoForgeClientProfile(
         commonVersion = commonVersion,
         remoteConfigurationChannels = remoteConfigurationChannels.toSet(),
         remotePlayChannels = remotePlayChannels.toSet(),
-        registrySynchronized = frozenSnapshot != null,
+        registriesSynchronized = frozenRemoteRegistrySnapshot != null,
         configFiles = configFiles.toList(),
         remoteKnownDataMaps = remoteKnownDataMaps,
     )
@@ -409,7 +409,7 @@ class NeoForgeServerProfile(
     private var neoForgePeer = false
     private var receivedProbePong = false
     private var commonVersion: Int? = null
-    private var registrySynchronized = false
+    private var registriesSynchronized = false
     private var remoteKnownDataMaps: Map<Identifier, List<Identifier>> = emptyMap()
     private var expectedResponse: ExpectedResponse? = null
     private var stage = ServerStage.BEGIN
@@ -469,18 +469,18 @@ class NeoForgeServerProfile(
     ) {
         requireStage(ServerStage.NETWORK_READY)
         stage = ServerStage.EARLY
-        val frozen = definition.frozenRegistries
-        if (frozen != null && FROZEN_CHANNELS.all(::configurationChannelNegotiated)) {
+        val neoForgeFrozenRegistrySync = definition.neoForgeFrozenRegistrySync
+        if (neoForgeFrozenRegistrySync != null && FROZEN_CHANNELS.all(::configurationChannelNegotiated)) {
             expectedResponse = ExpectedResponse.FROZEN_REGISTRY
-            connection.outgoing.send(frozen.startPacket)
-            frozen.registries.forEach { packet ->
+            connection.outgoing.send(neoForgeFrozenRegistrySync.neoForgeFrozenRegistrySyncStartPacket)
+            neoForgeFrozenRegistrySync.frozenRegistryPackets.forEach { packet ->
                 sendPossiblySplit(connection, packet)
             }
             connection.outgoing.send(
                 NeoForgeFrozenRegistrySyncCompletedPacket,
             )
             awaitExpected<NeoForgeFrozenRegistrySyncCompletedPacket>(connection)
-            registrySynchronized = true
+            registriesSynchronized = true
         }
         stage = ServerStage.EARLY_COMPLETE
     }
@@ -599,15 +599,15 @@ class NeoForgeServerProfile(
         else -> false
     }
 
-    override suspend fun resolveRegistryContext(
-        context: ProtocolRegistryContext,
+    override suspend fun resolveProtocolRegistryContext(
+        protocolRegistryContext: ProtocolRegistryContext,
     ): ProtocolRegistryContext {
-        val shared = definition.resolvedRegistryContext ?: return context
-        val sectionCount = context.chunkSectionCount ?: return shared
-        return if (shared.chunkSectionCount == sectionCount) {
-            shared
+        val sharedProtocolRegistryContext = definition.protocolRegistryContext ?: return protocolRegistryContext
+        val sectionCount = protocolRegistryContext.chunkSectionCount ?: return sharedProtocolRegistryContext
+        return if (sharedProtocolRegistryContext.chunkSectionCount == sectionCount) {
+            sharedProtocolRegistryContext
         } else {
-            shared.withChunkSectionCount(sectionCount)
+            sharedProtocolRegistryContext.withChunkSectionCount(sectionCount)
         }
     }
 
@@ -656,7 +656,7 @@ class NeoForgeServerProfile(
         commonVersion = commonVersion,
         remoteConfigurationChannels = remoteConfigurationChannels.toSet(),
         remotePlayChannels = remotePlayChannels.toSet(),
-        registrySynchronized = registrySynchronized,
+        registriesSynchronized = registriesSynchronized,
         configFiles = emptyList(),
         remoteKnownDataMaps = remoteKnownDataMaps,
     )

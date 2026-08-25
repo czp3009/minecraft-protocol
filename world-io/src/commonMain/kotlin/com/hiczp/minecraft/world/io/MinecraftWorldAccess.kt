@@ -41,21 +41,22 @@ class MinecraftWorldAccess private constructor(
     val configuration: MinecraftWorldAccessConfiguration,
     private val world: OpenMinecraftWorld,
 ) {
-    private val dataPackStore = WorldDataPackStore(paths, configuration.dataPackFormat)
+    private val worldDataPackReader = WorldDataPackReader(paths, configuration.dataPackFormat)
 
     /** Reads the caller-selected on-disk packs without taking a logical-file or program-level lock. */
-    fun readDataPacks(enabledReferences: List<String>): LoadedWorldDataPacks =
-        dataPackStore.readEnabled(enabledReferences)
+    fun readEnabledDataPacks(enabledDataPackReferences: List<String>): WorldDataPackLoadResult =
+        worldDataPackReader.readEnabledDataPacks(enabledDataPackReferences)
 
     /** Lists file paths and declared sizes without loading their contents. */
-    fun inspectDataPacks(enabledReferences: List<String>): List<DataPackInspection> =
-        dataPackStore.inspectEnabled(enabledReferences)
+    fun inspectEnabledFileDataPacks(enabledDataPackReferences: List<String>): List<DataPackInspection> =
+        worldDataPackReader.inspectEnabledFileDataPacks(enabledDataPackReferences)
 
     /** Coordinates the changing `level.dat` read, then reads the selected immutable pack files without that lock. */
-    suspend fun readEnabledDataPacks(): LoadedWorldDataPacks = dataPackStore.readEnabled(readLevelData<LevelDat>())
+    suspend fun readEnabledDataPacks(): WorldDataPackLoadResult =
+        worldDataPackReader.readEnabledDataPacks(readLevelData<LevelDat>())
 
-    suspend fun inspectEnabledDataPacks(): List<DataPackInspection> =
-        dataPackStore.inspectEnabled(readLevelData<LevelDat>())
+    suspend fun inspectEnabledFileDataPacks(): List<DataPackInspection> =
+        worldDataPackReader.inspectEnabledFileDataPacks(readLevelData<LevelDat>())
 
     suspend fun readLevelDataDocument(): NbtDocument = world.readLevelDataDocument()
 

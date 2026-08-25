@@ -21,7 +21,7 @@ value class DataPackId(val value: String) {
 
 /** A normalized relative path inside one data-pack root. */
 @JvmInline
-value class DataPackPath(val value: String) {
+value class DataPackFilePath(val value: String) {
     init {
         val segments = value.split('/')
         require(value.isNotEmpty() && !value.startsWith('/') && '\\' !in value) {
@@ -41,104 +41,111 @@ value class DataPackPath(val value: String) {
     override fun toString(): String = value
 
     companion object {
-        val PACK_METADATA: DataPackPath = DataPackPath("pack.mcmeta")
+        val PACK_METADATA: DataPackFilePath = DataPackFilePath("pack.mcmeta")
     }
 }
 
 /** Immutable bytes retained for unknown or mod-defined data-pack files. */
-class DataPackBinary(bytes: ByteArray) {
-    private val snapshot = bytes.copyOf()
+class DataPackFileBytes(bytes: ByteArray) {
+    private val copiedBytes = bytes.copyOf()
 
-    val size: Int
-        get() = snapshot.size
+    val sizeInBytes: Int
+        get() = copiedBytes.size
 
-    fun toByteArray(): ByteArray = snapshot.copyOf()
+    fun toByteArray(): ByteArray = copiedBytes.copyOf()
 
-    override fun equals(other: Any?): Boolean = other is DataPackBinary && snapshot.contentEquals(other.snapshot)
+    override fun equals(other: Any?): Boolean =
+        other is DataPackFileBytes && copiedBytes.contentEquals(other.copiedBytes)
 
-    override fun hashCode(): Int = snapshot.contentHashCode()
+    override fun hashCode(): Int = copiedBytes.contentHashCode()
 
-    override fun toString(): String = "DataPackBinary(size=$size)"
+    override fun toString(): String = "DataPackFileBytes(sizeInBytes=$sizeInBytes)"
 }
 
 /** Complete raw in-memory contents of one data pack, before file-type parsing. */
 class DataPackArchive(
-    val id: DataPackId,
-    files: Map<DataPackPath, DataPackBinary>,
+    val dataPackId: DataPackId,
+    dataPackFileBytesByPath: Map<DataPackFilePath, DataPackFileBytes>,
 ) {
-    val files: Map<DataPackPath, DataPackBinary> = files.toMap()
+    val dataPackFileBytesByPath: Map<DataPackFilePath, DataPackFileBytes> = dataPackFileBytesByPath.toMap()
 
     init {
-        require(this.files.isNotEmpty()) { "Data pack $id has no files" }
+        require(this.dataPackFileBytesByPath.isNotEmpty()) { "Data pack $dataPackId has no files" }
     }
 
-    constructor(id: DataPackId, files: Iterable<Pair<DataPackPath, ByteArray>>) : this(
-        id,
-        files.toDataPackBinaryMap(id),
+    constructor(dataPackId: DataPackId, dataPackFileBytes: Iterable<Pair<DataPackFilePath, ByteArray>>) : this(
+        dataPackId,
+        dataPackFileBytes.toDataPackFileBytesMap(dataPackId),
     )
 }
 
-private fun Iterable<Pair<DataPackPath, ByteArray>>.toDataPackBinaryMap(
-    id: DataPackId,
-): Map<DataPackPath, DataPackBinary> = buildMap {
-    this@toDataPackBinaryMap.forEach { (path, bytes) ->
-        require(path !in this) { "Data pack $id contains duplicate path $path" }
-        put(path, DataPackBinary(bytes))
+private fun Iterable<Pair<DataPackFilePath, ByteArray>>.toDataPackFileBytesMap(
+    dataPackId: DataPackId,
+): Map<DataPackFilePath, DataPackFileBytes> = buildMap {
+    this@toDataPackFileBytesMap.forEach { (dataPackFilePath, bytes) ->
+        require(dataPackFilePath !in this) {
+            "Data pack $dataPackId contains duplicate path $dataPackFilePath"
+        }
+        put(dataPackFilePath, DataPackFileBytes(bytes))
     }
 }
 
-/** Parsed, filesystem-independent content of one data-pack file. Mods may implement their own strong variants. */
+/** Typed, filesystem-independent content of one data-pack file. Mods may implement their own strong variants. */
 interface DataPackFileContent {
-    data class JsonFile(val element: JsonElement) : DataPackFileContent {
+    data class JsonFile(val jsonElement: JsonElement) : DataPackFileContent {
         fun <T> decode(
             deserializer: DeserializationStrategy<T>,
             json: Json = Json,
-        ): T = json.decodeFromJsonElement(deserializer, element)
+        ): T = json.decodeFromJsonElement(deserializer, jsonElement)
     }
 
-    /** GZIP NBT decoded on first [document] access so complete structure libraries need not expand eagerly. */
+    /**
+     * A compressed NBT file whose document is decoded from retained in-memory bytes on first access. Decoding never
+     * returns to the filesystem or acquires a data-pack read lock.
+     */
     class NbtFile : DataPackFileContent {
-        private val parsedDocument: Lazy<NbtDocument>
+        private val nbtDocumentDelegate: Lazy<NbtDocument>
 
-        constructor(document: NbtDocument) {
-            parsedDocument = lazyOf(document)
+        constructor(nbtDocument: NbtDocument) {
+            nbtDocumentDelegate = lazyOf(nbtDocument)
         }
 
-        internal constructor(parser: () -> NbtDocument) {
-            parsedDocument = lazy(LazyThreadSafetyMode.PUBLICATION, parser)
+        internal constructor(decodeNbtDocument: () -> NbtDocument) {
+            nbtDocumentDelegate = lazy(LazyThreadSafetyMode.PUBLICATION, decodeNbtDocument)
         }
 
-        val document: NbtDocument
-            get() = parsedDocument.value
+        val nbtDocument: NbtDocument
+            get() = nbtDocumentDelegate.value
 
-        override fun equals(other: Any?): Boolean = other is NbtFile && document == other.document
+        override fun equals(other: Any?): Boolean = other is NbtFile && nbtDocument == other.nbtDocument
 
-        override fun hashCode(): Int = document.hashCode()
+        override fun hashCode(): Int = nbtDocument.hashCode()
 
-        override fun toString(): String = if (parsedDocument.isInitialized()) {
-            "NbtFile(document=${parsedDocument.value})"
+        override fun toString(): String = if (nbtDocumentDelegate.isInitialized()) {
+            "NbtFile(nbtDocument=${nbtDocumentDelegate.value})"
         } else {
             "NbtFile(deferred)"
         }
     }
 
-    data class SnbtFile(val tag: NbtTag) : DataPackFileContent
+    data class SnbtFile(val nbtTag: NbtTag) : DataPackFileContent
 
     data class TextFile(val text: String) : DataPackFileContent
 
-    class BinaryFile(val bytes: DataPackBinary) : DataPackFileContent {
-        override fun equals(other: Any?): Boolean = other is BinaryFile && bytes == other.bytes
+    class BinaryFile(val dataPackFileBytes: DataPackFileBytes) : DataPackFileContent {
+        override fun equals(other: Any?): Boolean =
+            other is BinaryFile && dataPackFileBytes == other.dataPackFileBytes
 
-        override fun hashCode(): Int = bytes.hashCode()
+        override fun hashCode(): Int = dataPackFileBytes.hashCode()
 
-        override fun toString(): String = "BinaryFile(bytes=$bytes)"
+        override fun toString(): String = "BinaryFile(dataPackFileBytes=$dataPackFileBytes)"
     }
 }
 
-/** One parsed file and its original path within the pack. */
-data class DataPackFile(
-    val path: DataPackPath,
-    val content: DataPackFileContent,
+/** One effective file paired with its original path while resolving overlays and stack precedence. */
+internal data class EffectiveDataPackFile(
+    val dataPackFilePath: DataPackFilePath,
+    val dataPackFileContent: DataPackFileContent,
 )
 
 /** Minecraft's major/minor data-pack format version. */
@@ -160,7 +167,7 @@ data class DataPackFormatVersion(
     }
 }
 
-data class DataPackFormatRange(
+data class DataPackFormatVersionRange(
     val minimum: DataPackFormatVersion,
     val maximum: DataPackFormatVersion,
 ) {
@@ -168,10 +175,12 @@ data class DataPackFormatRange(
         require(minimum <= maximum) { "Data-pack format range $minimum..$maximum is reversed" }
     }
 
-    operator fun contains(version: DataPackFormatVersion): Boolean = version in minimum..maximum
+    operator fun contains(dataPackFormatVersion: DataPackFormatVersion): Boolean =
+        dataPackFormatVersion in minimum..maximum
 
     companion object {
-        fun exact(version: DataPackFormatVersion): DataPackFormatRange = DataPackFormatRange(version, version)
+        fun exact(dataPackFormatVersion: DataPackFormatVersion): DataPackFormatVersionRange =
+            DataPackFormatVersionRange(dataPackFormatVersion, dataPackFormatVersion)
     }
 }
 
@@ -189,23 +198,24 @@ data class DataPackFilterPattern(
         }
     }
 
-    fun matches(resource: DataPackResourcePath): Boolean =
-        namespaceRegex?.matches(resource.namespace) != false && pathRegex?.matches(resource.path) != false
+    fun matches(dataPackResourcePath: DataPackResourcePath): Boolean =
+        namespaceRegex?.matches(dataPackResourcePath.namespace) != false &&
+                pathRegex?.matches(dataPackResourcePath.path) != false
 }
 
 data class DataPackOverlay(
-    val formats: DataPackFormatRange,
-    val directory: DataPackPath,
+    val supportedDataPackFormatVersionRange: DataPackFormatVersionRange,
+    val overlayDirectory: DataPackFilePath,
 )
 
 /** Strong views of selected-release `pack.mcmeta` fields plus the lossless source object. */
 data class DataPackMetadata(
     val description: JsonElement,
-    val formats: DataPackFormatRange,
-    val enabledFeatures: Set<String> = emptySet(),
-    val filters: List<DataPackFilterPattern> = emptyList(),
-    val overlays: List<DataPackOverlay> = emptyList(),
-    val raw: JsonObject = JsonObject(emptyMap()),
+    val supportedDataPackFormatVersionRange: DataPackFormatVersionRange,
+    val enabledFeatureFlags: Set<String> = emptySet(),
+    val dataPackFilterPatterns: List<DataPackFilterPattern> = emptyList(),
+    val dataPackOverlays: List<DataPackOverlay> = emptyList(),
+    val rawDataPackMetadataJson: JsonObject = JsonObject(emptyMap()),
 )
 
 /** A namespaced path below `data/<namespace>/`. */
@@ -231,16 +241,19 @@ data class DataPackResourceType(
         require(extension.matches(EXTENSION_PATTERN)) { "Invalid data-pack resource extension: $extension" }
     }
 
-    fun path(id: DataPackResourceId): DataPackResourcePath =
-        DataPackResourcePath(id.namespace, "$directory/${id.path}.$extension")
+    fun path(dataPackResourceId: DataPackResourceId): DataPackResourcePath =
+        DataPackResourcePath(
+            dataPackResourceId.namespace,
+            "$directory/${dataPackResourceId.path}.$extension",
+        )
 
-    fun id(path: DataPackResourcePath): DataPackResourceId? {
+    fun id(dataPackResourcePath: DataPackResourcePath): DataPackResourceId? {
         val prefix = "$directory/"
         val suffix = ".$extension"
-        if (!path.path.startsWith(prefix) || !path.path.endsWith(suffix)) return null
-        val identifierPath = path.path.removePrefix(prefix).removeSuffix(suffix)
+        if (!dataPackResourcePath.path.startsWith(prefix) || !dataPackResourcePath.path.endsWith(suffix)) return null
+        val identifierPath = dataPackResourcePath.path.removePrefix(prefix).removeSuffix(suffix)
         if (identifierPath.isEmpty()) return null
-        return DataPackResourceId(path.namespace, identifierPath)
+        return DataPackResourceId(dataPackResourcePath.namespace, identifierPath)
     }
 }
 
@@ -268,28 +281,33 @@ data class DataPackResourceId(
     }
 }
 
-/** Fully parsed contents of one data pack. Every original file remains addressable in [files]. */
+/** Typed contents of one data pack. Every original file remains addressable in [dataPackFileContentsByPath]. */
 class DataPack(
-    val id: DataPackId,
-    val metadata: DataPackMetadata?,
-    files: Map<DataPackPath, DataPackFileContent>,
+    val dataPackId: DataPackId,
+    val dataPackMetadata: DataPackMetadata?,
+    dataPackFileContentsByPath: Map<DataPackFilePath, DataPackFileContent>,
 ) {
-    val files: Map<DataPackPath, DataPackFileContent> = files.toMap()
+    val dataPackFileContentsByPath: Map<DataPackFilePath, DataPackFileContent> = dataPackFileContentsByPath.toMap()
 
     init {
-        require(this.files.isNotEmpty()) { "Data pack $id has no files" }
+        require(this.dataPackFileContentsByPath.isNotEmpty()) { "Data pack $dataPackId has no files" }
     }
 
-    fun file(path: DataPackPath): DataPackFileContent? = files[path]
+    fun dataPackFileContent(dataPackFilePath: DataPackFilePath): DataPackFileContent? =
+        dataPackFileContentsByPath[dataPackFilePath]
 
-    fun resources(format: DataPackFormatVersion? = null): Map<DataPackResourcePath, DataPackFileContent> =
-        effectiveDataPackFiles(format).mapValues { (_, file) -> file.content }
+    fun resources(
+        dataPackFormatVersion: DataPackFormatVersion? = null,
+    ): Map<DataPackResourcePath, DataPackFileContent> =
+        effectiveDataPackFiles(dataPackFormatVersion).mapValues { (_, effectiveDataPackFile) ->
+            effectiveDataPackFile.dataPackFileContent
+        }
 
     fun resource(
-        type: DataPackResourceType,
-        id: DataPackResourceId,
-        format: DataPackFormatVersion? = null,
-    ): DataPackFileContent? = resources(format)[type.path(id)]
+        dataPackResourceType: DataPackResourceType,
+        dataPackResourceId: DataPackResourceId,
+        dataPackFormatVersion: DataPackFormatVersion? = null,
+    ): DataPackFileContent? = resources(dataPackFormatVersion)[dataPackResourceType.path(dataPackResourceId)]
 }
 
 internal val NAMESPACE_PATTERN = Regex("[a-z0-9._-]+")

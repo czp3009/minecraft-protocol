@@ -52,7 +52,7 @@ class ChunkSerializationTest {
         assertFailsWith<MinecraftSerializationException> {
             MinecraftProtocolFormat(
                 MinecraftProtocolFormatConfiguration(
-                    registries = testRegistryContext(chunkSectionCount = 2),
+                    protocolRegistryContext = testProtocolRegistryContext(chunkSectionCount = 2),
                 ),
             ).encodeToByteArray(chunk)
         }

@@ -41,8 +41,8 @@ class FabricNegotiationProfileTest {
             serverToClient,
             declared,
         )
-        val static = testStaticSchema()
-        val sync = FabricRegistrySyncPacket(
+        val staticRegistrySchema = testStaticSchema()
+        val fabricRegistrySyncPacket = FabricRegistrySyncPacket(
             RemoteRegistrySnapshot(
                 listOf(
                     RemoteRegistry(
@@ -55,11 +55,12 @@ class FabricNegotiationProfileTest {
                 ),
             ),
         )
-        val sharedServerContext = static.resolve(sync.snapshot)
-        val clientProfile = FabricClientProfile(static)
+        val sharedProtocolRegistryContext =
+            staticRegistrySchema.resolve(fabricRegistrySyncPacket.remoteRegistrySnapshot)
+        val clientProfile = FabricClientProfile(staticRegistrySchema)
         val serverProfile = FabricServerProfile(
-            registrySync = sync,
-            resolvedRegistryContext = sharedServerContext,
+            fabricRegistrySyncPacket = fabricRegistrySyncPacket,
+            protocolRegistryContext = sharedProtocolRegistryContext,
         )
         clientProfile.begin(clientConnection)
         serverProfile.begin(serverConnection)
@@ -87,19 +88,19 @@ class FabricNegotiationProfileTest {
         serverProfile.negotiateConfiguration(serverConnection)
         client.await()
 
-        val clientContext = clientProfile.resolveRegistryContext(
-            static.resolve().withRegistrySize(
+        val clientProtocolRegistryContext = clientProfile.resolveProtocolRegistryContext(
+            staticRegistrySchema.resolve().withRegistrySize(
                 ProtocolRegistryContext.BIOME_REGISTRY,
                 4,
             ),
         )
-        assertEquals(Identifier("mod:block"), clientContext.blockStates.first().block)
-        assertEquals(4, clientContext.biomeRegistrySize)
-        val serverContext = serverProfile.resolveRegistryContext(
-            sharedServerContext.withChunkSectionCount(24),
+        assertEquals(Identifier("mod:block"), clientProtocolRegistryContext.blockStates.first().block)
+        assertEquals(4, clientProtocolRegistryContext.biomeRegistrySize)
+        val serverProtocolRegistryContext = serverProfile.resolveProtocolRegistryContext(
+            sharedProtocolRegistryContext.withChunkSectionCount(24),
         )
-        assertSame(sharedServerContext.registries, serverContext.registries)
-        assertSame(sharedServerContext.blockStates, serverContext.blockStates)
+        assertSame(sharedProtocolRegistryContext.registries, serverProtocolRegistryContext.registries)
+        assertSame(sharedProtocolRegistryContext.blockStates, serverProtocolRegistryContext.blockStates)
 
         clientConnection.currentState = ConnectionState.PLAY
         serverConnection.currentState = ConnectionState.PLAY
@@ -111,8 +112,8 @@ class FabricNegotiationProfileTest {
                 as FabricNegotiationResult
         assertEquals(1, clientResult.commonVersion)
         assertEquals(1, serverResult.commonVersion)
-        assertTrue(clientResult.registrySynchronized)
-        assertTrue(serverResult.registrySynchronized)
+        assertTrue(clientResult.registriesSynchronized)
+        assertTrue(serverResult.registriesSynchronized)
         assertTrue(customRoutes.all(clientConnection.activeExtensionRoutes::contains))
         assertTrue(customRoutes.all(serverConnection.activeExtensionRoutes::contains))
     }
@@ -155,14 +156,14 @@ private abstract class TestConnection<Incoming : Packet, Outgoing : Packet>(
     override val declaredExtensionRoutes: Set<PacketRouteKey>,
 ) : MinecraftPacketConnection<Incoming, Outgoing> {
     var currentState: ConnectionState = ConnectionState.CONFIGURATION
-    private var registryContext = ProtocolRegistryContext.Empty
+    private var mutableProtocolRegistryContext = ProtocolRegistryContext.Empty
     private var activeRoutes = emptySet<PacketRouteKey>()
 
     override val state: ConnectionState
         get() = currentState
 
-    override val registries: ProtocolRegistryContext
-        get() = registryContext
+    override val protocolRegistryContext: ProtocolRegistryContext
+        get() = mutableProtocolRegistryContext
 
     override val activeExtensionRoutes: Set<PacketRouteKey>
         get() = activeRoutes
@@ -171,8 +172,8 @@ private abstract class TestConnection<Incoming : Packet, Outgoing : Packet>(
 
     override suspend fun awaitClosed() = Unit
 
-    override fun installRegistryContext(context: ProtocolRegistryContext) {
-        registryContext = context
+    override fun installProtocolRegistryContext(protocolRegistryContext: ProtocolRegistryContext) {
+        mutableProtocolRegistryContext = protocolRegistryContext
     }
 
     override fun activateExtensionRoutes(routes: Set<PacketRouteKey>) {

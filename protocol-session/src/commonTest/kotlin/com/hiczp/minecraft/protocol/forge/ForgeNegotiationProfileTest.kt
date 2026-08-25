@@ -37,9 +37,9 @@ class ForgeNegotiationProfileTest {
             packetRegistry,
         )
         val network = forgeTestNetworkConfiguration()
-        val staticRegistries = forgeTestStaticSchema()
+        val staticRegistrySchema = forgeTestStaticSchema()
         val dataPackRegistry = Identifier("mod:data_pack_registry")
-        val registrySync = ForgeRegistrySync(
+        val forgeRegistrySync = ForgeRegistrySync(
             mapOf(
                 Identifier("block") to ForgeRegistrySnapshot(
                     linkedMapOf(
@@ -57,13 +57,13 @@ class ForgeNegotiationProfileTest {
             ),
             setOf(dataPackRegistry),
         )
-        val sharedServerContext = registrySync.resolve(staticRegistries)
+        val sharedProtocolRegistryContext = forgeRegistrySync.resolve(staticRegistrySchema)
         val mods = mapOf(
             "example" to ForgeModInfo("Example", "1.0"),
         )
         val clientProfile = ForgeClientProfile(
             ForgeClientProfileDefinition(
-                staticRegistries,
+                staticRegistrySchema,
                 network,
                 mods,
                 setOf(dataPackRegistry),
@@ -73,8 +73,8 @@ class ForgeNegotiationProfileTest {
             ForgeServerProfileDefinition(
                 network,
                 mods,
-                registrySync,
-                sharedServerContext,
+                forgeRegistrySync,
+                sharedProtocolRegistryContext,
                 listOf(
                     ForgeConfigDataMessage(
                         "server.toml",
@@ -108,24 +108,24 @@ class ForgeNegotiationProfileTest {
         }
         negotiation.await()
 
-        val clientContext = clientProfile.resolveRegistryContext(
-            staticRegistries.resolve()
+        val clientProtocolRegistryContext = clientProfile.resolveProtocolRegistryContext(
+            staticRegistrySchema.resolve()
                 .withRegistrySize(ProtocolRegistryContext.BIOME_REGISTRY, 4)
                 .withChunkSectionCount(24),
         )
         assertEquals(
             Identifier("mod:new_block"),
-            clientContext.blockStates.first().block,
+            clientProtocolRegistryContext.blockStates.first().block,
         )
-        assertEquals(5, clientContext.registrySize(Identifier("block")))
-        assertEquals(4, clientContext.biomeRegistrySize)
-        assertEquals(24, clientContext.chunkSectionCount)
+        assertEquals(5, clientProtocolRegistryContext.registrySize(Identifier("block")))
+        assertEquals(4, clientProtocolRegistryContext.biomeRegistrySize)
+        assertEquals(24, clientProtocolRegistryContext.chunkSectionCount)
 
-        val serverContext = serverProfile.resolveRegistryContext(
+        val serverProtocolRegistryContext = serverProfile.resolveProtocolRegistryContext(
             ProtocolRegistryContext.Empty.withChunkSectionCount(24),
         )
-        assertSame(sharedServerContext.registries, serverContext.registries)
-        assertSame(sharedServerContext.blockStates, serverContext.blockStates)
+        assertSame(sharedProtocolRegistryContext.registries, serverProtocolRegistryContext.registries)
+        assertSame(sharedProtocolRegistryContext.blockStates, serverProtocolRegistryContext.blockStates)
 
         clientProfile.preparePlay(clientConnection)
         clientConnection.currentState = ConnectionState.PLAY
@@ -144,8 +144,8 @@ class ForgeNegotiationProfileTest {
         )
         assertTrue(clientResult.forgePeer)
         assertTrue(serverResult.forgePeer)
-        assertTrue(clientResult.registrySynchronized)
-        assertTrue(serverResult.registrySynchronized)
+        assertTrue(clientResult.registriesSynchronized)
+        assertTrue(serverResult.registriesSynchronized)
         assertEquals(mods, clientResult.remoteMods)
         assertEquals(mods, serverResult.remoteMods)
         assertEquals("server.toml", clientResult.configFiles.single().fileName)
@@ -320,15 +320,15 @@ private abstract class ForgeTestConnection<Incoming : Packet, Outgoing : Packet>
     private val outgoingDirection: PacketDirection,
 ) : MinecraftPacketConnection<Incoming, Outgoing> {
     var currentState: ConnectionState = ConnectionState.CONFIGURATION
-    private var registryContext = ProtocolRegistryContext.Empty
+    private var mutableProtocolRegistryContext = ProtocolRegistryContext.Empty
     private var activeRoutes = emptySet<PacketRouteKey>()
     private val format = MinecraftProtocolFormat.Default
 
     override val state: ConnectionState
         get() = currentState
 
-    override val registries: ProtocolRegistryContext
-        get() = registryContext
+    override val protocolRegistryContext: ProtocolRegistryContext
+        get() = mutableProtocolRegistryContext
 
     override val declaredExtensionRoutes: Set<PacketRouteKey>
         get() = packetRegistry.declaredExtensionRoutes
@@ -340,8 +340,8 @@ private abstract class ForgeTestConnection<Incoming : Packet, Outgoing : Packet>
 
     override suspend fun awaitClosed() = Unit
 
-    override fun installRegistryContext(context: ProtocolRegistryContext) {
-        registryContext = context
+    override fun installProtocolRegistryContext(protocolRegistryContext: ProtocolRegistryContext) {
+        mutableProtocolRegistryContext = protocolRegistryContext
     }
 
     override fun activateExtensionRoutes(routes: Set<PacketRouteKey>) {

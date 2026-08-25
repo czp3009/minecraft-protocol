@@ -21,8 +21,7 @@ suspend fun runServer(
             val connection = server.accept()
             launch {
                 connection.use connectionUse@{
-                    val result = connection.negotiate() ?: return@connectionUse
-                    val profile = result.gameProfile
+                    connection.negotiate() ?: return@connectionUse
 
                     for (packet in connection.incoming) {
                         handlePacket(connection, packet)
@@ -37,20 +36,24 @@ suspend fun runServer(
 `accept()` returns a typed connection without starting negotiation. `negotiate()` answers a Status exchange and returns
 `null`, or completes Login and Configuration and returns `MinecraftServerNegotiationResult` for an open Play connection.
 
+No server configuration object is required for vanilla. `bind()` supplies the vanilla packet definition, transport
+settings, and offline authentication; `negotiate()` supplies the vanilla profile, release-matched Configuration data,
+and default policy.
+
 Negotiation exclusively uses both packet channels until it returns. Run it in one coroutine without concurrent readers
 or writers. The preset has no built-in admission timeout; apply the application's own deadline around the call.
 
 ## Configure the advertised server
 
 `MinecraftServerNegotiationOptions` contains protocol-visible choices such as compression, Status availability, player
-limits, view and simulation distance, game mode, difficulty, secure-chat claim, and the `ProtocolDataSet` sent during
+limits, view and simulation distance, game mode, difficulty, secure-chat claim, and the `ProtocolData` sent during
 Configuration. The `connection` parameter below is a value returned by `MinecraftServer.accept()`:
 
 ```kotlin
 suspend fun negotiateConfigured(
     connection: MinecraftServerConnection,
 ): MinecraftServerNegotiationResult? {
-    val options = MinecraftServerNegotiationOptions(
+    val minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(
         statusDescription = "A Kotlin Minecraft server",
         maximumPlayers = 50,
         viewDistance = 12,
@@ -58,7 +61,7 @@ suspend fun negotiateConfigured(
         gameMode = GameMode.CREATIVE,
         difficulty = Difficulty.NORMAL,
     )
-    return connection.negotiate(options = options)
+    return connection.negotiate(options = minecraftServerNegotiationOptions)
 }
 ```
 
@@ -103,10 +106,10 @@ suspend fun bindOnlineServer(
     selectorManager: SelectorManager,
     httpClient: HttpClient,
 ): MinecraftServer {
-    val authentication = MinecraftServerAuthentication.online(httpClient)
+    val minecraftServerAuthentication = MinecraftServerAuthentication.online(httpClient)
     return MinecraftServer.bind(
         selectorManager = selectorManager,
-        authentication = authentication,
+        authentication = minecraftServerAuthentication,
     )
 }
 ```
@@ -116,24 +119,35 @@ The caller configures and closes the HTTP client. Authentication failure never f
 
 ## Send custom data-pack Configuration
 
-Pass any constructible `ProtocolDataSet` through `MinecraftServerNegotiationOptions.protocolData`. Applications that use
+Pass any constructible `ProtocolData` through `MinecraftServerNegotiationOptions.protocolData`. Applications that use
 world file packs can combine [`world-io`](../world-io/README.md) with the vanilla projection helpers:
 
 ```kotlin
 suspend fun optionsFromWorldPacks(
     world: MinecraftWorldAccess,
-    registryProjectors: List<DataPackSynchronizedRegistryProjector>,
 ): MinecraftServerNegotiationOptions {
-    val loaded = world.readEnabledDataPacks()
-    val protocolData = loaded.stack.toVanillaProtocolDataSet(registryProjectors)
+    val worldDataPackLoadResult = world.readEnabledDataPacks()
+    val protocolData = worldDataPackLoadResult.dataPackStack.toVanillaProtocolData()
     return MinecraftServerNegotiationOptions(protocolData = protocolData)
 }
 ```
 
-The generated vanilla core is the projection base. A file pack that changes a synchronized registry needs a matching
-disk-JSON-to-network-NBT projector; packs that change only tags or server-only resources do not.
+The generated vanilla core is the projection base, and release-matched defaults project every vanilla synchronized
+registry. Tags and server-only resources are handled without extra mapping as well.
 
-For full control, construct a `DataPackProtocolProjection` or `DataPackProtocolDataSet` directly. [
+For a mod registry or a registry whose modded network codec differs from vanilla, pass only its projector. A matching
+registry ID replaces the vanilla default; a new ID extends it:
+
+```kotlin
+fun resolveModdedProtocolData(
+    dataPackStack: DataPackStack,
+    modDataPackRegistryProjector: DataPackRegistryProjector,
+): ResolvedProtocolData = dataPackStack.toVanillaProtocolData(
+    dataPackRegistryProjectorOverrides = listOf(modDataPackRegistryProjector),
+)
+```
+
+For full control, construct a `DataPackProtocolProjector` or `ResolvedProtocolData` directly. [
 `protocol-datapack`](../protocol-datapack/README.md) explains the stages, and [
 `protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md) documents the release-matched defaults.
 
@@ -147,39 +161,37 @@ factory derives ordinary values from the server options:
 ```kotlin
 suspend fun sendBootstrap(
     connection: MinecraftServerConnection,
-    options: MinecraftServerNegotiationOptions,
     playerPosition: Vector3d,
 ) {
-    val bootstrap = MinecraftInitialWorldBootstrap.vanilla(
-        options = options,
+    val minecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
         playerPosition = playerPosition,
     )
-    connection.sendInitialWorldBootstrap(bootstrap)
+    connection.sendInitialWorldBootstrap(minecraftInitialWorldBootstrap)
     connection.requestFlush()
 }
 ```
 
-The returned `teleportId` is available to the application when it handles `ConfirmTeleportationPacket`.
+The returned `teleportId` is available to the application when it handles `ConfirmTeleportationPacket`. If negotiation
+used non-default server options, pass that same options value to `vanilla` so the bootstrap uses the matching game mode,
+difficulty, and distances.
 
 For tests, previews, and simple finite views, `MinecraftInitialWorld` adds complete Chunk and Entity snapshots:
 
 ```kotlin
 suspend fun sendFlatWorld(
     connection: MinecraftServerConnection,
-    options: MinecraftServerNegotiationOptions,
 ) {
-    val world = MinecraftInitialWorld.flatVanilla(
-        options = options,
+    val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(
         chunkRadius = 1,
     )
-    connection.synchronizeInitialWorld(world)
+    connection.synchronizeInitialWorld(minecraftInitialWorld)
     connection.requestFlush()
 }
 ```
 
 This sends one bootstrap, one complete Chunk batch, and the supplied Entity pairing bundles. It does not wait for
 `ChunkBatchReceivedPacket` and does not create a game loop. A long-running server should pace later batches and updates
-from its own tick/AOI state.
+from its own tick/AOI state. Pass the negotiation options explicitly when they were customized.
 
 ## Convert semantic Chunks to packets
 
@@ -188,18 +200,18 @@ Applications can load or construct `world-format` Chunks and project them with t
 ```kotlin
 fun encodeChunks(
     connection: MinecraftServerConnection,
-    dimension: MinecraftDimensionLayout,
+    minecraftDimensionLayout: MinecraftDimensionLayout,
     chunks: Iterable<Chunk<ProtocolBlockState, ProtocolRegistryEntry>>,
     isAir: (ProtocolBlockState) -> Boolean,
     hasFluid: (ProtocolBlockState) -> Boolean,
 ): List<MinecraftChunkSnapshot> {
-    val encoder = MinecraftChunkPacketEncoder(
-        registries = connection.registries,
+    val minecraftChunkPacketEncoder = MinecraftChunkPacketEncoder(
+        protocolRegistryContext = connection.protocolRegistryContext,
         isAir = isAir,
         hasFluid = hasFluid,
-        hasSkyLight = dimension.hasSkyLight,
+        hasSkyLight = minecraftDimensionLayout.hasSkyLight,
     )
-    return chunks.map { chunk -> chunk.toMinecraftChunkSnapshot(encoder) }
+    return chunks.map { chunk -> chunk.toMinecraftChunkSnapshot(minecraftChunkPacketEncoder) }
 }
 ```
 
@@ -218,8 +230,8 @@ suspend fun sendEntity(
     entity: Entity<NbtCompound>,
     runtimeEntityId: Int,
 ) {
-    val snapshot = entity.toMinecraftEntitySnapshot(entityId = runtimeEntityId)
-    connection.sendEntitySnapshot(snapshot)
+    val minecraftEntitySnapshot = entity.toMinecraftEntitySnapshot(entityId = runtimeEntityId)
+    connection.sendEntitySnapshot(minecraftEntitySnapshot)
 }
 ```
 
@@ -238,13 +250,13 @@ suspend fun bindNeoForgeServer(
     applicationPacketCodecs: List<PacketCodecRegistration<out Packet>>,
     applicationProtocolFormat: MinecraftProtocolFormat,
 ): MinecraftServer {
-    val definition = NeoForgeProtocol.connectionDefinition(
+    val minecraftConnectionDefinition = NeoForgeProtocol.connectionDefinition(
         extensionCodecs = applicationPacketCodecs,
         format = applicationProtocolFormat,
     )
     return MinecraftServer.bind(
         selectorManager = selectorManager,
-        definition = definition,
+        definition = minecraftConnectionDefinition,
     )
 }
 ```
@@ -254,11 +266,11 @@ For each connection accepted from that server, supply the prepared NeoForge prof
 ```kotlin
 suspend fun negotiateNeoForge(
     connection: MinecraftServerConnection,
-    profileDefinition: NeoForgeServerProfileDefinition,
+    neoForgeServerProfileDefinition: NeoForgeServerProfileDefinition,
     options: MinecraftServerNegotiationOptions,
     policy: MinecraftServerNegotiationPolicy,
 ): MinecraftServerNegotiationResult? = connection.negotiate(
-    profile = NeoForgeServerProfile(profileDefinition),
+    profile = NeoForgeServerProfile(neoForgeServerProfileDefinition),
     options = options,
     policy = policy,
 )

@@ -10,7 +10,7 @@ class MinecraftWorldEntityProjectionTest {
     @Test
     fun decodesSpawnPacketIntoStrongEntity() {
         val pig = Identifier("pig")
-        val registries = ProtocolRegistryContext(
+        val protocolRegistryContext = ProtocolRegistryContext(
             registries = listOf(
                 ProtocolRegistry(
                     ProtocolRegistryContext.ENTITY_TYPE_REGISTRY,
@@ -19,7 +19,7 @@ class MinecraftWorldEntityProjectionTest {
             ),
             blockStates = emptyList(),
         )
-        val minecraftEntityPacketDecoder = MinecraftEntityPacketDecoder(registries)
+        val minecraftEntityPacketDecoder = MinecraftEntityPacketDecoder(protocolRegistryContext)
         val uuid = Uuid.parse("00112233-4455-6677-8899-aabbccddeeff")
         val spawnEntityPacket = SpawnEntityPacket(
             entityId = 42,
@@ -80,7 +80,7 @@ class MinecraftWorldEntityProjectionTest {
     @Test
     fun adaptsPairingPacketsByTypeWithoutRequiringTailOrder() {
         val pig = Identifier("pig")
-        val registries = ProtocolRegistryContext(
+        val protocolRegistryContext = ProtocolRegistryContext(
             registries = listOf(
                 ProtocolRegistry(
                     ProtocolRegistryContext.ENTITY_TYPE_REGISTRY,
@@ -89,7 +89,7 @@ class MinecraftWorldEntityProjectionTest {
             ),
             blockStates = emptyList(),
         )
-        val minecraftEntityPacketDecoder = MinecraftEntityPacketDecoder(registries)
+        val minecraftEntityPacketDecoder = MinecraftEntityPacketDecoder(protocolRegistryContext)
         val spawnEntityPacket = SpawnEntityPacket(
             entityId = 42,
             entityUuid = Uuid.parse("00112233-4455-6677-8899-aabbccddeeff"),
@@ -189,7 +189,7 @@ class MinecraftWorldEntityProjectionTest {
     fun decodesSeveralConsecutiveEntityPairingsFromOneBundleOrRawPacketList() {
         val pig = Identifier("pig")
         val cow = Identifier("cow")
-        val registries = ProtocolRegistryContext(
+        val protocolRegistryContext = ProtocolRegistryContext(
             registries = listOf(
                 ProtocolRegistry(
                     ProtocolRegistryContext.ENTITY_TYPE_REGISTRY,
@@ -201,7 +201,7 @@ class MinecraftWorldEntityProjectionTest {
             ),
             blockStates = emptyList(),
         )
-        val minecraftEntityPacketDecoder = MinecraftEntityPacketDecoder(registries)
+        val minecraftEntityPacketDecoder = MinecraftEntityPacketDecoder(protocolRegistryContext)
         val pigSpawnPacket = SpawnEntityPacket(
             entityId = 42,
             entityUuid = Uuid.parse("00112233-4455-6677-8899-aabbccddeeff"),
@@ -290,7 +290,7 @@ class MinecraftWorldEntityProjectionTest {
 
     @Test
     fun rejectsUnknownEntityTypeId() {
-        val registries = ProtocolRegistryContext(
+        val protocolRegistryContext = ProtocolRegistryContext(
             registries = listOf(
                 ProtocolRegistry(
                     ProtocolRegistryContext.ENTITY_TYPE_REGISTRY,
@@ -299,7 +299,7 @@ class MinecraftWorldEntityProjectionTest {
             ),
             blockStates = emptyList(),
         )
-        val minecraftEntityPacketDecoder = MinecraftEntityPacketDecoder(registries)
+        val minecraftEntityPacketDecoder = MinecraftEntityPacketDecoder(protocolRegistryContext)
         val spawnEntityPacket = SpawnEntityPacket(
             entityId = 1,
             entityUuid = Uuid.parse("00112233-4455-6677-8899-aabbccddeeff"),

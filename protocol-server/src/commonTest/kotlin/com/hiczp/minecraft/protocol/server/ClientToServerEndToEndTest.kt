@@ -5,7 +5,7 @@ import com.hiczp.minecraft.protocol.auth.toGameProfile
 import com.hiczp.minecraft.protocol.client.MinecraftClientConnection
 import com.hiczp.minecraft.protocol.datapack.resolveSynchronizedRegistryContext
 import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
-import com.hiczp.minecraft.protocol.datapack.withPlayLoginDimension
+import com.hiczp.minecraft.protocol.datapack.withPlayLoginDimensionLayout
 import com.hiczp.minecraft.protocol.fabric.FabricProtocol
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
@@ -82,10 +82,10 @@ class ClientToServerEndToEndTest {
                     clientResult to playServer.await()
                 }
 
-                assertEquals(identity.id, clientOutcome.login.profile.id)
+                assertEquals(identity.id, clientOutcome.loginSuccessPacket.profile.id)
                 assertEquals(identity.id, serverOutcome.gameProfile.id)
-                assertEquals(clientOutcome.playLogin, serverOutcome.playLogin)
-                assertEquals(PlayerGameMode.CREATIVE, clientOutcome.playLogin.spawnInfo.gameMode)
+                assertEquals(clientOutcome.playLoginPacket, serverOutcome.playLoginPacket)
+                assertEquals(PlayerGameMode.CREATIVE, clientOutcome.playLoginPacket.spawnInfo.gameMode)
                 assertEquals(1, serverOutcome.initialWorld.chunks.size)
                 assertEquals(1, serverOutcome.initialWorld.entities.size)
             }
@@ -159,35 +159,37 @@ class ClientToServerEndToEndTest {
         assertEquals(LoginAcknowledgedPacket, connection.incoming.receive())
         connection.awaitState(ConnectionState.CONFIGURATION)
 
-        val information = assertIs<ConfigurationClientInformationPacket>(
+        val clientInformation = assertIs<ConfigurationClientInformationPacket>(
             connection.incoming.receive(),
         ).information
         profile.negotiateConfigurationStart(connection)
-        connection.outgoing.send(options.protocolData.featureFlags)
+        connection.outgoing.send(FeatureFlagsPacket(options.protocolData.enabledFeatureFlags))
         profile.negotiateEarlyConfiguration(connection)
         connection.outgoing.send(
-            ConfigurationClientboundKnownPacksPacket(options.protocolData.knownPacks),
+            ConfigurationClientboundKnownPacksPacket(options.protocolData.offeredKnownPacks),
         )
         connection.requestFlush()
         val acceptedKnownPacks = assertIs<ConfigurationServerboundKnownPacksPacket>(
             connection.incoming.receive(),
         ).knownPacks
-        val registries = options.protocolData.registryPackets(acceptedKnownPacks)
-        registries.forEach { connection.outgoing.send(it) }
-        connection.outgoing.send(options.protocolData.tags)
+        val synchronizedRegistryPackets = options.protocolData.synchronizedRegistryPackets(acceptedKnownPacks)
+        synchronizedRegistryPackets.forEach { registryDataPacket -> connection.outgoing.send(registryDataPacket) }
+        connection.outgoing.send(ConfigurationUpdateTagsPacket(options.protocolData.registryTags))
         profile.negotiateConfiguration(connection)
 
-        val playLogin = options.playLogin(gameProfile, onlineMode = false)
-        val baseContext = options.protocolData
-            .resolveSynchronizedRegistryContext(registries)
-            .withPlayLoginDimension(playLogin, registries, options.protocolData)
-        connection.installRegistryContext(profile.resolveRegistryContext(baseContext))
+        val playLoginPacket = options.createPlayLoginPacket(gameProfile, onlineMode = false)
+        val baseProtocolRegistryContext = options.protocolData
+            .resolveSynchronizedRegistryContext(synchronizedRegistryPackets)
+            .withPlayLoginDimensionLayout(playLoginPacket, synchronizedRegistryPackets, options.protocolData)
+        connection.installProtocolRegistryContext(
+            profile.resolveProtocolRegistryContext(baseProtocolRegistryContext),
+        )
         connection.outgoing.send(FinishConfigurationPacket)
         connection.requestFlush()
         assertEquals(AcknowledgeFinishConfigurationPacket, connection.incoming.receive())
         connection.awaitState(ConnectionState.PLAY)
         profile.preparePlay(connection)
-        connection.outgoing.send(playLogin)
+        connection.outgoing.send(playLoginPacket)
         assertSame(TestProfileResult, profile.complete(connection))
 
         val world = MinecraftInitialWorld.flatVanilla(
@@ -217,12 +219,15 @@ class ClientToServerEndToEndTest {
         assertTrue(teleportConfirmed)
         assertTrue(chunkBatchConfirmed)
         assertTrue(keepAliveConfirmed)
-        assertEquals("en_us", information.locale)
-        assertEquals(PROFILE_REGISTRY_SIZE, connection.registries.registrySize(PROFILE_REGISTRY))
+        assertEquals("en_us", clientInformation.locale)
+        assertEquals(
+            PROFILE_REGISTRY_SIZE,
+            connection.protocolRegistryContext.registrySize(PROFILE_REGISTRY),
+        )
         assertEquals(connection.declaredExtensionRoutes, connection.activeExtensionRoutes)
         return ServerPlayOutcome(
             gameProfile = gameProfile,
-            playLogin = playLogin,
+            playLoginPacket = playLoginPacket,
             initialWorld = world,
         )
     }
@@ -246,7 +251,7 @@ class ClientToServerEndToEndTest {
         connection.outgoing.send(LoginStartPacket(identity.name, identity.id))
         connection.requestFlush()
         val firstLoginPacket = connection.incoming.receive()
-        val login = if (firstLoginPacket is SetCompressionPacket) {
+        val loginSuccessPacket = if (firstLoginPacket is SetCompressionPacket) {
             assertIs<LoginSuccessPacket>(connection.incoming.receive())
         } else {
             assertIs<LoginSuccessPacket>(firstLoginPacket)
@@ -270,22 +275,31 @@ class ClientToServerEndToEndTest {
             ),
         )
         connection.requestFlush()
-        val registries = mutableListOf<RegistryDataPacket>()
+        val synchronizedRegistryPackets = mutableListOf<RegistryDataPacket>()
         var configurationFinished = false
         while (!configurationFinished) {
             when (val packet = connection.incoming.receive()) {
-                is FeatureFlagsPacket -> assertEquals(VanillaProtocolData.featureFlags, packet)
+                is FeatureFlagsPacket -> assertEquals(
+                    FeatureFlagsPacket(VanillaProtocolData.enabledFeatureFlags),
+                    packet,
+                )
                 is ConfigurationClientboundKnownPacksPacket -> {
                     connection.outgoing.send(ConfigurationServerboundKnownPacksPacket(packet.knownPacks))
                     connection.requestFlush()
                 }
 
-                is RegistryDataPacket -> registries += packet
-                is ConfigurationUpdateTagsPacket -> assertEquals(VanillaProtocolData.tags, packet)
+                is RegistryDataPacket -> synchronizedRegistryPackets += packet
+                is ConfigurationUpdateTagsPacket -> assertEquals(
+                    ConfigurationUpdateTagsPacket(VanillaProtocolData.registryTags),
+                    packet,
+                )
                 is FinishConfigurationPacket -> {
-                    val resolved = VanillaProtocolData.resolveSynchronizedRegistryContext(registries)
-                    val profiled = profile.resolveRegistryContext(resolved)
-                    connection.installRegistryContext(profiled)
+                    val resolvedProtocolRegistryContext = VanillaProtocolData.resolveSynchronizedRegistryContext(
+                        synchronizedRegistryPackets,
+                    )
+                    val profileProtocolRegistryContext =
+                        profile.resolveProtocolRegistryContext(resolvedProtocolRegistryContext)
+                    connection.installProtocolRegistryContext(profileProtocolRegistryContext)
                     profile.preparePlay(connection)
                     connection.outgoing.send(AcknowledgeFinishConfigurationPacket)
                     connection.requestFlush()
@@ -297,13 +311,13 @@ class ClientToServerEndToEndTest {
             }
         }
 
-        val playLogin = assertIs<PlayLoginPacket>(connection.incoming.receive())
-        val activeContext = connection.registries.withPlayLoginDimension(
-            login = playLogin,
-            registries = registries,
+        val playLoginPacket = assertIs<PlayLoginPacket>(connection.incoming.receive())
+        val activeProtocolRegistryContext = connection.protocolRegistryContext.withPlayLoginDimensionLayout(
+            playLoginPacket = playLoginPacket,
+            synchronizedRegistryPackets = synchronizedRegistryPackets,
             protocolData = VanillaProtocolData,
         )
-        connection.installRegistryContext(activeContext)
+        connection.installProtocolRegistryContext(activeProtocolRegistryContext)
         assertSame(TestProfileResult, profile.complete(connection))
 
         var chunkReceived = false
@@ -327,7 +341,7 @@ class ClientToServerEndToEndTest {
                 is ClientboundBundlePacket -> entityReceived = packet.subPackets
                     .filterIsInstance<SpawnEntityPacket>()
                     .any { spawn ->
-                        spawn.typeId == testPig().typeId(VanillaProtocolData.registryContext)
+                        spawn.typeId == testPig().typeId(VanillaProtocolData.completeProtocolRegistryContext)
                     }
 
                 is ClientboundChangeDifficultyPacket ->
@@ -351,11 +365,14 @@ class ClientToServerEndToEndTest {
             expected = MinecraftInitialWorldBootstrap.vanillaPlayerAbilities(PlayerGameMode.CREATIVE),
             actual = assertNotNull(abilities),
         )
-        assertEquals(PROFILE_REGISTRY_SIZE, connection.registries.registrySize(PROFILE_REGISTRY))
+        assertEquals(
+            PROFILE_REGISTRY_SIZE,
+            connection.protocolRegistryContext.registrySize(PROFILE_REGISTRY),
+        )
         assertEquals(connection.declaredExtensionRoutes, connection.activeExtensionRoutes)
         return ClientPlayOutcome(
-            login = login,
-            playLogin = playLogin,
+            loginSuccessPacket = loginSuccessPacket,
+            playLoginPacket = playLoginPacket,
         )
     }
 
@@ -386,13 +403,13 @@ class ClientToServerEndToEndTest {
 
 private data class ServerPlayOutcome(
     val gameProfile: GameProfile,
-    val playLogin: PlayLoginPacket,
+    val playLoginPacket: PlayLoginPacket,
     val initialWorld: MinecraftInitialWorld,
 )
 
 private data class ClientPlayOutcome(
-    val login: LoginSuccessPacket,
-    val playLogin: PlayLoginPacket,
+    val loginSuccessPacket: LoginSuccessPacket,
+    val playLoginPacket: PlayLoginPacket,
 )
 
 private data object TestProfileResult : NegotiationProfileResult
@@ -404,9 +421,9 @@ private class TestClientProfile : ClientNegotiationProfile {
         connection.activateExtensionRoutes(connection.declaredExtensionRoutes)
     }
 
-    override suspend fun resolveRegistryContext(
-        context: ProtocolRegistryContext,
-    ): ProtocolRegistryContext = context.withRegistrySize(PROFILE_REGISTRY, PROFILE_REGISTRY_SIZE)
+    override suspend fun resolveProtocolRegistryContext(
+        protocolRegistryContext: ProtocolRegistryContext,
+    ): ProtocolRegistryContext = protocolRegistryContext.withRegistrySize(PROFILE_REGISTRY, PROFILE_REGISTRY_SIZE)
 
     override suspend fun complete(
         connection: MinecraftClientPacketConnection,
@@ -420,9 +437,9 @@ private class TestServerProfile : ServerNegotiationProfile {
         connection.activateExtensionRoutes(connection.declaredExtensionRoutes)
     }
 
-    override suspend fun resolveRegistryContext(
-        context: ProtocolRegistryContext,
-    ): ProtocolRegistryContext = context.withRegistrySize(PROFILE_REGISTRY, PROFILE_REGISTRY_SIZE)
+    override suspend fun resolveProtocolRegistryContext(
+        protocolRegistryContext: ProtocolRegistryContext,
+    ): ProtocolRegistryContext = protocolRegistryContext.withRegistrySize(PROFILE_REGISTRY, PROFILE_REGISTRY_SIZE)
 
     override suspend fun complete(
         connection: MinecraftServerPacketConnection,

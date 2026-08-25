@@ -36,8 +36,8 @@ class NeoForgeNegotiationProfileTest {
             serverToClient,
             packetRegistry,
         )
-        val staticRegistries = testStaticSchema()
-        val frozen = NeoForgeFrozenRegistrySync(
+        val staticRegistrySchema = testStaticSchema()
+        val neoForgeFrozenRegistrySync = NeoForgeFrozenRegistrySync(
             listOf(
                 NeoForgeFrozenRegistryPacket(
                     Identifier("block"),
@@ -54,8 +54,8 @@ class NeoForgeNegotiationProfileTest {
                 ),
             ),
         )
-        val sharedServerContext = staticRegistries.resolve(
-            frozen.remoteSnapshot,
+        val sharedProtocolRegistryContext = staticRegistrySchema.resolve(
+            neoForgeFrozenRegistrySync.remoteRegistrySnapshot,
         )
         val knownDataMaps = mapOf(
             Identifier("item") to listOf(
@@ -73,7 +73,7 @@ class NeoForgeNegotiationProfileTest {
         val network = testNetworkConfiguration()
         val clientProfile = NeoForgeClientProfile(
             NeoForgeClientProfileDefinition(
-                staticRegistries = staticRegistries,
+                staticRegistrySchema = staticRegistrySchema,
                 network = network,
                 knownDataMaps = knownDataMaps,
                 extensibleEnums = enums,
@@ -83,8 +83,8 @@ class NeoForgeNegotiationProfileTest {
         val serverProfile = NeoForgeServerProfile(
             NeoForgeServerProfileDefinition(
                 network = network,
-                frozenRegistries = frozen,
-                resolvedRegistryContext = sharedServerContext,
+                neoForgeFrozenRegistrySync = neoForgeFrozenRegistrySync,
+                protocolRegistryContext = sharedProtocolRegistryContext,
                 configFiles = listOf(
                     NeoForgeConfigFilePacket(
                         "server.toml",
@@ -143,24 +143,24 @@ class NeoForgeNegotiationProfileTest {
         }
         late.await()
 
-        val clientContext = clientProfile.resolveRegistryContext(
-            staticRegistries.resolve().withRegistrySize(
+        val clientProtocolRegistryContext = clientProfile.resolveProtocolRegistryContext(
+            staticRegistrySchema.resolve().withRegistrySize(
                 ProtocolRegistryContext.BIOME_REGISTRY,
                 4,
             ).withChunkSectionCount(24),
         )
         assertEquals(
             Identifier("mod:new_block"),
-            clientContext.blockStates.first().block,
+            clientProtocolRegistryContext.blockStates.first().block,
         )
-        assertEquals(4, clientContext.biomeRegistrySize)
-        assertEquals(24, clientContext.chunkSectionCount)
+        assertEquals(4, clientProtocolRegistryContext.biomeRegistrySize)
+        assertEquals(24, clientProtocolRegistryContext.chunkSectionCount)
 
-        val serverContext = serverProfile.resolveRegistryContext(
+        val serverProtocolRegistryContext = serverProfile.resolveProtocolRegistryContext(
             ProtocolRegistryContext.Empty.withChunkSectionCount(24),
         )
-        assertSame(sharedServerContext.registries, serverContext.registries)
-        assertSame(sharedServerContext.blockStates, serverContext.blockStates)
+        assertSame(sharedProtocolRegistryContext.registries, serverProtocolRegistryContext.registries)
+        assertSame(sharedProtocolRegistryContext.blockStates, serverProtocolRegistryContext.blockStates)
 
         clientProfile.preparePlay(clientConnection)
         clientConnection.currentState = ConnectionState.PLAY
@@ -179,8 +179,8 @@ class NeoForgeNegotiationProfileTest {
         )
         assertTrue(clientResult.neoForgePeer)
         assertTrue(serverResult.neoForgePeer)
-        assertTrue(clientResult.registrySynchronized)
-        assertTrue(serverResult.registrySynchronized)
+        assertTrue(clientResult.registriesSynchronized)
+        assertTrue(serverResult.registriesSynchronized)
         assertEquals(1, clientResult.commonVersion)
         assertEquals(1, serverResult.commonVersion)
         assertEquals("server.toml", clientResult.configFiles.single().fileName)
@@ -363,15 +363,15 @@ private abstract class NeoForgeTestConnection<Incoming : Packet, Outgoing : Pack
     private val outgoingDirection: PacketDirection,
 ) : MinecraftPacketConnection<Incoming, Outgoing> {
     var currentState: ConnectionState = ConnectionState.CONFIGURATION
-    private var registryContext = ProtocolRegistryContext.Empty
+    private var mutableProtocolRegistryContext = ProtocolRegistryContext.Empty
     private var activeRoutes = emptySet<PacketRouteKey>()
     private val format = MinecraftProtocolFormat.Default
 
     override val state: ConnectionState
         get() = currentState
 
-    override val registries: ProtocolRegistryContext
-        get() = registryContext
+    override val protocolRegistryContext: ProtocolRegistryContext
+        get() = mutableProtocolRegistryContext
 
     override val declaredExtensionRoutes: Set<PacketRouteKey>
         get() = packetRegistry.declaredExtensionRoutes
@@ -383,8 +383,8 @@ private abstract class NeoForgeTestConnection<Incoming : Packet, Outgoing : Pack
 
     override suspend fun awaitClosed() = Unit
 
-    override fun installRegistryContext(context: ProtocolRegistryContext) {
-        registryContext = context
+    override fun installProtocolRegistryContext(protocolRegistryContext: ProtocolRegistryContext) {
+        mutableProtocolRegistryContext = protocolRegistryContext
     }
 
     override fun activateExtensionRoutes(routes: Set<PacketRouteKey>) {

@@ -32,9 +32,9 @@ interface ClientNegotiationProfile {
         packet: ClientboundPacket,
     ): Boolean = false
 
-    suspend fun resolveRegistryContext(
-        context: ProtocolRegistryContext,
-    ): ProtocolRegistryContext = context
+    suspend fun resolveProtocolRegistryContext(
+        protocolRegistryContext: ProtocolRegistryContext,
+    ): ProtocolRegistryContext = protocolRegistryContext
 
     /** Runs immediately before the client acknowledges Finish Configuration. */
     suspend fun preparePlay(
@@ -87,9 +87,9 @@ interface ServerNegotiationProfile {
         packet: ServerboundPacket,
     ): Boolean = false
 
-    suspend fun resolveRegistryContext(
-        context: ProtocolRegistryContext,
-    ): ProtocolRegistryContext = context
+    suspend fun resolveProtocolRegistryContext(
+        protocolRegistryContext: ProtocolRegistryContext,
+    ): ProtocolRegistryContext = protocolRegistryContext
 
     /** Runs after the server observes Play state and before it sends Play Login. */
     suspend fun preparePlay(

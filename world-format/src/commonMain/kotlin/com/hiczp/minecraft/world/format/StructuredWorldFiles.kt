@@ -49,9 +49,9 @@ data class LevelDat(
         @SerialName("spawn")
         val spawn: Spawn,
         @SerialName("DataPacks")
-        val dataPacks: DataPacks = DataPacks(
-            enabled = listOf("vanilla"),
-            disabled = emptyList(),
+        val dataPackSelection: DataPackSelection = DataPackSelection(
+            enabledDataPackReferences = listOf("vanilla"),
+            disabledDataPackReferences = emptyList(),
         ),
         @SerialName("enabled_features")
         val enabledFeatures: List<String> = listOf("minecraft:vanilla"),
@@ -88,11 +88,11 @@ data class LevelDat(
         )
 
         @Serializable
-        data class DataPacks(
+        data class DataPackSelection(
             @SerialName("Enabled")
-            val enabled: List<String>,
+            val enabledDataPackReferences: List<String>,
             @SerialName("Disabled")
-            val disabled: List<String>,
+            val disabledDataPackReferences: List<String>,
         )
     }
 }

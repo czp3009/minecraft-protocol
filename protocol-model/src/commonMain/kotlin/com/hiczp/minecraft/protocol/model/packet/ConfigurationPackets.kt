@@ -96,7 +96,7 @@ data class FeatureFlagsPacket(
 @Serializable
 @PacketInfo(0x0D, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "update_tags")
 data class ConfigurationUpdateTagsPacket(
-    val registries: List<RegistryTags>,
+    val tags: List<RegistryTags>,
 ) : ConfigurationStatePacket, ClientboundPacket
 
 @Serializable

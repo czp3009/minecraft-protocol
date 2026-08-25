@@ -1,13 +1,15 @@
 package com.hiczp.minecraft.protocol.datapack.vanilla
 
-import com.hiczp.minecraft.protocol.datapack.*
-import com.hiczp.minecraft.protocol.model.type.KnownPack
+import com.hiczp.minecraft.protocol.datapack.DataPackProtocolProjector
+import com.hiczp.minecraft.protocol.datapack.DataPackRegistryProjector
+import com.hiczp.minecraft.protocol.datapack.ResolvedProtocolData
 import com.hiczp.minecraft.world.format.Compression
 import com.hiczp.minecraft.world.format.CompressionRegistry
 import com.hiczp.minecraft.world.format.datapack.*
 import kotlinx.io.Buffer
 import kotlinx.io.buffered
 import kotlinx.io.readByteArray
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
@@ -15,192 +17,204 @@ import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 internal data class VanillaDataPackPayloadDescriptor(
-    val id: String,
-    val index: Int,
+    val dataPackId: String,
+    val dataPackIndex: Int,
     val batchCount: Int,
 )
 
 /** Programmatic official data packs matching this build's selected release. */
 object VanillaDataPacks {
-    val coreId: DataPackId = DataPackId("vanilla")
+    val coreDataPackId: DataPackId = DataPackId("vanilla")
 
     val minecraftVersion: String
         get() = VanillaDataPackPayload.minecraftVersion
 
-    val formatVersion: DataPackFormatVersion = VanillaDataPackPayload.dataPackFormat.let { format ->
-        check(VanillaDataPackPayload.schemaVersion == PAYLOAD_SCHEMA_VERSION) {
-            "Unsupported bundled vanilla data-pack schema"
+    val dataPackFormatVersion: DataPackFormatVersion =
+        VanillaDataPackPayload.dataPackFormatVersion.let { encodedDataPackFormatVersion ->
+            check(VanillaDataPackPayload.schemaVersion == PAYLOAD_SCHEMA_VERSION) {
+                "Unsupported bundled vanilla data-pack schema"
+            }
+            check(encodedDataPackFormatVersion.size == 2) { "Bundled vanilla data-pack format is invalid" }
+            DataPackFormatVersion(encodedDataPackFormatVersion[0], encodedDataPackFormatVersion[1])
         }
-        check(format.size == 2) { "Bundled vanilla data-pack format is invalid" }
-        DataPackFormatVersion(format[0], format[1])
-    }
 
-    val packIds: Set<DataPackId>
-        get() = descriptorsById.keys
+    val dataPackIds: Set<DataPackId>
+        get() = dataPackPayloadDescriptorsById.keys
 
     /** Decodes one complete raw official archive for a caller-selected parser or transformation. */
-    fun archive(id: DataPackId): DataPackArchive = decodeArchive(requireDescriptor(id))
-
-    /** Complete raw files for every bundled pack. This cache is independent of the parsed [packs] cache. */
-    val archives: Map<DataPackId, DataPackArchive> by lazy(LazyThreadSafetyMode.PUBLICATION) {
-        descriptorsById.mapValues { (_, descriptor) -> decodeArchive(descriptor) }
-    }
+    fun dataPackArchive(dataPackId: DataPackId): DataPackArchive =
+        decodeDataPackArchive(requireDataPackPayloadDescriptor(dataPackId))
 
     /** Parses one bundled pack with caller-selected file decoders without materializing its raw archive first. */
-    fun parsePack(
-        id: DataPackId,
-        format: DataPackFormat = DataPackFormat(),
-    ): DataPack = attachCoreMetadata(format.decode(id, decodedFiles(requireDescriptor(id))))
+    fun parseDataPack(
+        dataPackId: DataPackId,
+        dataPackFormat: DataPackFormat = DataPackFormat(),
+    ): DataPack = attachCoreDataPackMetadata(
+        dataPackFormat.decode(dataPackId, decodedDataPackFileBytes(requireDataPackPayloadDescriptor(dataPackId))),
+    )
 
     /** Every bundled pack parsed through [DataPackFormat], including built-in experimental packs. */
-    val packs: Map<DataPackId, DataPack>
-        get() = defaultPacksById.mapValues { (_, pack) -> pack.value }
+    val dataPacks: Map<DataPackId, DataPack>
+        get() = defaultDataPacksById.mapValues { (_, dataPack) -> dataPack.value }
 
-    val core: DataPack
-        get() = defaultPack(coreId)
+    val coreDataPack: DataPack
+        get() = defaultDataPack(coreDataPackId)
 
-    val builtIn: Map<DataPackId, DataPack>
-        get() = defaultPacksById.filterKeys { it != coreId }.mapValues { (_, pack) -> pack.value }
+    val builtInDataPacks: Map<DataPackId, DataPack>
+        get() = defaultDataPacksById.filterKeys { it != coreDataPackId }
+            .mapValues { (_, dataPack) -> dataPack.value }
 
-    val coreStack: DataPackStack by lazy(LazyThreadSafetyMode.PUBLICATION) { DataPackStack(core) }
-
-    val resolvedCore: ResolvedDataPackStack by lazy(LazyThreadSafetyMode.PUBLICATION) {
-        coreStack.resolve(formatVersion)
+    val coreDataPackStack: DataPackStack by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        DataPackStack(coreDataPack)
     }
 
-    /** Exact official network projection already captured from Configuration negotiation. */
-    val protocolData: ProtocolDataSet
-        get() = VanillaProtocolData
-
-    /** Default bridge from parsed resources to the exact official protocol snapshot. */
-    val protocolProjection: DataPackProtocolProjection by lazy(LazyThreadSafetyMode.PUBLICATION) {
-        createProtocolProjection(emptyList())
-    }
-
-    /** Creates a vanilla-based projection with caller-defined codecs for changed synchronized registries. */
-    fun protocolProjection(
-        registryProjectors: List<DataPackSynchronizedRegistryProjector>,
-    ): DataPackProtocolProjection = if (registryProjectors.isEmpty()) {
-        protocolProjection
-    } else {
-        createProtocolProjection(registryProjectors)
-    }
-
-    val knownPack: KnownPack
-        get() = VanillaProtocolData.knownPacks.single()
-
-    /** Configuration packets seen by a vanilla client that accepts the offered Known Packs. */
-    val clientConfiguration: ReceivedDataPackConfiguration by lazy(LazyThreadSafetyMode.PUBLICATION) {
-        ReceivedDataPackConfiguration(
-            knownPacks = protocolData.knownPacks,
-            featureFlags = protocolData.featureFlags.featureFlags,
-            registries = protocolData.registryPackets(protocolData.knownPacks),
-            tags = protocolData.tags.registries,
-        )
-    }
-
-    /** Runtime registry, block-state, and tag view for [clientConfiguration]. */
-    val clientRuntime: ClientDataPackRuntime by lazy(LazyThreadSafetyMode.PUBLICATION) {
-        clientConfiguration.resolveRuntime(protocolData)
-    }
-
-    fun stack(enabledBuiltIn: Iterable<DataPackId> = emptyList()): DataPackStack {
-        val selected = enabledBuiltIn.toList()
-        require(selected.distinct().size == selected.size) { "Enabled built-in data packs contains duplicates" }
-        val availableBuiltIn = descriptorsById.keys - coreId
-        require(selected.all(availableBuiltIn::contains)) {
-            "Unknown built-in data pack: ${selected.firstOrNull { it !in availableBuiltIn }}"
+    fun dataPackStack(enabledBuiltInDataPackIds: Iterable<DataPackId> = emptyList()): DataPackStack {
+        val selectedBuiltInDataPackIds = enabledBuiltInDataPackIds.toList()
+        require(selectedBuiltInDataPackIds.distinct().size == selectedBuiltInDataPackIds.size) {
+            "Enabled built-in data packs contains duplicates"
+        }
+        val availableBuiltInDataPackIds = dataPackPayloadDescriptorsById.keys - coreDataPackId
+        require(selectedBuiltInDataPackIds.all(availableBuiltInDataPackIds::contains)) {
+            val unknownDataPackId = selectedBuiltInDataPackIds.firstOrNull { it !in availableBuiltInDataPackIds }
+            "Unknown built-in data pack: $unknownDataPackId"
         }
         return DataPackStack(buildList {
-            add(core)
-            selected.mapTo(this, ::defaultPack)
+            add(coreDataPack)
+            selectedBuiltInDataPackIds.mapTo(this, ::defaultDataPack)
         })
     }
 
-    private val descriptorsById: Map<DataPackId, VanillaDataPackPayloadDescriptor> by lazy(
+    private val dataPackPayloadDescriptorsById: Map<DataPackId, VanillaDataPackPayloadDescriptor> by lazy(
         LazyThreadSafetyMode.PUBLICATION,
     ) {
-        val descriptors = VanillaDataPackPayload.packs.associateBy { descriptor -> DataPackId(descriptor.id) }
-        check(descriptors.size == VanillaDataPackPayload.packs.size) {
+        val dataPackPayloadDescriptors = VanillaDataPackPayload.dataPackPayloadDescriptors
+            .associateBy { dataPackPayloadDescriptor -> DataPackId(dataPackPayloadDescriptor.dataPackId) }
+        check(dataPackPayloadDescriptors.size == VanillaDataPackPayload.dataPackPayloadDescriptors.size) {
             "Bundled vanilla data packs contain duplicate identifiers"
         }
-        check(coreId in descriptors) { "Bundled vanilla core data pack is missing" }
-        descriptors
+        check(coreDataPackId in dataPackPayloadDescriptors) { "Bundled vanilla core data pack is missing" }
+        dataPackPayloadDescriptors
     }
 
-    private val defaultPacksById: Map<DataPackId, Lazy<DataPack>> by lazy(LazyThreadSafetyMode.PUBLICATION) {
-        descriptorsById.mapValues { (id) ->
-            lazy(LazyThreadSafetyMode.PUBLICATION) { parsePack(id) }
+    private val defaultDataPacksById: Map<DataPackId, Lazy<DataPack>> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        dataPackPayloadDescriptorsById.mapValues { (dataPackId) ->
+            lazy(LazyThreadSafetyMode.PUBLICATION) { parseDataPack(dataPackId) }
         }
     }
 
-    private fun defaultPack(id: DataPackId): DataPack = defaultPacksById.getValue(id).value
+    private fun defaultDataPack(dataPackId: DataPackId): DataPack = defaultDataPacksById.getValue(dataPackId).value
 
-    private fun requireDescriptor(id: DataPackId): VanillaDataPackPayloadDescriptor =
-        requireNotNull(descriptorsById[id]) { "Unknown bundled vanilla data pack: $id" }
+    private fun requireDataPackPayloadDescriptor(dataPackId: DataPackId): VanillaDataPackPayloadDescriptor =
+        requireNotNull(dataPackPayloadDescriptorsById[dataPackId]) {
+            "Unknown bundled vanilla data pack: $dataPackId"
+        }
 
-    private fun attachCoreMetadata(pack: DataPack): DataPack {
-        if (pack.id != coreId || pack.metadata != null) return pack
+    private fun attachCoreDataPackMetadata(dataPack: DataPack): DataPack {
+        if (dataPack.dataPackId != coreDataPackId || dataPack.dataPackMetadata != null) return dataPack
         return DataPack(
-            id = pack.id,
-            metadata = DataPackMetadata(
+            dataPackId = dataPack.dataPackId,
+            dataPackMetadata = DataPackMetadata(
                 description = JsonPrimitive("Vanilla"),
-                formats = DataPackFormatRange.exact(formatVersion),
+                supportedDataPackFormatVersionRange = DataPackFormatVersionRange.exact(dataPackFormatVersion),
             ),
-            files = pack.files,
+            dataPackFileContentsByPath = dataPack.dataPackFileContentsByPath,
         )
     }
-
-    private fun createProtocolProjection(
-        registryProjectors: List<DataPackSynchronizedRegistryProjector>,
-    ): DataPackProtocolProjection = DataPackProtocolProjection(
-        base = protocolData,
-        registryProjectors = registryProjectors,
-        preprojectedPacks = setOf(coreId),
-    )
 
     private const val PAYLOAD_SCHEMA_VERSION = 3
 }
 
 @Serializable
 private data class VanillaDataPackPayloadBatch(
-    val files: Map<String, String>,
+    @SerialName("files")
+    val encodedDataPackFileBytesByPath: Map<String, String>,
 )
 
 @OptIn(ExperimentalEncodingApi::class)
-private fun decodedFiles(
-    descriptor: VanillaDataPackPayloadDescriptor,
-): Sequence<Pair<DataPackPath, DataPackBinary>> = sequence {
-    repeat(descriptor.batchCount) { batchIndex ->
-        val chunks = VanillaDataPackPayload.loadBatch(descriptor.index, batchIndex)
-        decodeBatch(chunks).files.forEach { (path, encoded) ->
-            yield(DataPackPath(path) to DataPackBinary(Base64.decode(encoded)))
+private fun decodedDataPackFileBytes(
+    dataPackPayloadDescriptor: VanillaDataPackPayloadDescriptor,
+): Sequence<Pair<DataPackFilePath, DataPackFileBytes>> = sequence {
+    repeat(dataPackPayloadDescriptor.batchCount) { batchIndex ->
+        val encodedBatchChunks = VanillaDataPackPayload.loadDataPackBatch(
+            dataPackPayloadDescriptor.dataPackIndex,
+            batchIndex,
+        )
+        decodeDataPackPayloadBatch(encodedBatchChunks).encodedDataPackFileBytesByPath
+            .forEach { (encodedPath, encodedDataPackFileBytes) ->
+                yield(DataPackFilePath(encodedPath) to DataPackFileBytes(Base64.decode(encodedDataPackFileBytes)))
+            }
+    }
+}
+
+private fun decodeDataPackArchive(
+    dataPackPayloadDescriptor: VanillaDataPackPayloadDescriptor,
+): DataPackArchive = DataPackArchive(
+    dataPackId = DataPackId(dataPackPayloadDescriptor.dataPackId),
+    dataPackFileBytesByPath = decodedDataPackFileBytes(dataPackPayloadDescriptor).toMap(),
+)
+
+@OptIn(ExperimentalEncodingApi::class)
+private fun decodeDataPackPayloadBatch(encodedBatchChunks: List<String>): VanillaDataPackPayloadBatch {
+    val compressedBatchBytes = Base64.decode(encodedBatchChunks.joinToString(separator = ""))
+    val compressedBatchSource = Buffer().apply { write(compressedBatchBytes) }
+    val decompressedBatchBytes = CompressionRegistry.decompressingSource(Compression.GZIP, compressedBatchSource)
+        .buffered().use { decompressedBatchSource ->
+            decompressedBatchSource.readByteArray()
+        }
+    return Json.decodeFromString<VanillaDataPackPayloadBatch>(decompressedBatchBytes.decodeToString())
+}
+
+/**
+ * Projects an in-memory stack on top of the exact generated vanilla protocol defaults.
+ *
+ * The release-matched [vanillaDataPackRegistryProjectors] cover ordinary vanilla resources. Caller-supplied projectors
+ * replace matching defaults by registry ID and add projectors for custom registries.
+ */
+fun DataPackStack.toVanillaProtocolData(
+    dataPackRegistryProjectorOverrides: List<DataPackRegistryProjector> = emptyList(),
+    dataPackFormatVersion: DataPackFormatVersion? = VanillaDataPacks.dataPackFormatVersion,
+): ResolvedProtocolData = vanillaDataPackProtocolProjector(dataPackRegistryProjectorOverrides)
+    .project(this, dataPackFormatVersion)
+
+/**
+ * Projects an already resolved stack on top of the exact generated vanilla protocol defaults.
+ *
+ * The release-matched [vanillaDataPackRegistryProjectors] cover ordinary vanilla resources. Caller-supplied projectors
+ * replace matching defaults by registry ID and add projectors for custom registries.
+ */
+fun ResolvedDataPackStack.toVanillaProtocolData(
+    dataPackRegistryProjectorOverrides: List<DataPackRegistryProjector> = emptyList(),
+): ResolvedProtocolData = vanillaDataPackProtocolProjector(dataPackRegistryProjectorOverrides).project(this)
+
+/**
+ * Creates the bridge from parsed vanilla-based resources to Configuration protocol data.
+ *
+ * Caller-supplied projectors replace matching [vanillaDataPackRegistryProjectors] by registry ID and add custom
+ * registries. Construct [DataPackProtocolProjector] directly when every default should be replaced.
+ */
+fun vanillaDataPackProtocolProjector(
+    dataPackRegistryProjectorOverrides: List<DataPackRegistryProjector> = emptyList(),
+): DataPackProtocolProjector = DataPackProtocolProjector(
+    baseProtocolData = VanillaProtocolData,
+    dataPackRegistryProjectors = vanillaDataPackRegistryProjectors.withOverrides(dataPackRegistryProjectorOverrides),
+    preprojectedDataPackIds = setOf(VanillaDataPacks.coreDataPackId),
+)
+
+private fun List<DataPackRegistryProjector>.withOverrides(
+    dataPackRegistryProjectorOverrides: List<DataPackRegistryProjector>,
+): List<DataPackRegistryProjector> {
+    val overrideRegistryIds = dataPackRegistryProjectorOverrides.map(DataPackRegistryProjector::registryId)
+    require(overrideRegistryIds.distinct().size == overrideRegistryIds.size) {
+        "Vanilla data-pack protocol projector has duplicate registry overrides"
+    }
+    val overridesByRegistryId = dataPackRegistryProjectorOverrides.associateBy(DataPackRegistryProjector::registryId)
+    val defaultRegistryIds = mapTo(mutableSetOf(), DataPackRegistryProjector::registryId)
+    return buildList {
+        this@withOverrides.forEach { dataPackRegistryProjector ->
+            add(overridesByRegistryId[dataPackRegistryProjector.registryId] ?: dataPackRegistryProjector)
+        }
+        dataPackRegistryProjectorOverrides.filterTo(this) { dataPackRegistryProjector ->
+            dataPackRegistryProjector.registryId !in defaultRegistryIds
         }
     }
 }
-
-private fun decodeArchive(descriptor: VanillaDataPackPayloadDescriptor): DataPackArchive = DataPackArchive(
-    id = DataPackId(descriptor.id),
-    files = decodedFiles(descriptor).toMap(),
-)
-
-@OptIn(ExperimentalEncodingApi::class)
-private fun decodeBatch(chunks: List<String>): VanillaDataPackPayloadBatch {
-    val compressed = Base64.decode(chunks.joinToString(separator = ""))
-    val source = Buffer().apply { write(compressed) }
-    val payloadBytes = CompressionRegistry.decompressingSource(Compression.GZIP, source).buffered().use { decoded ->
-        decoded.readByteArray()
-    }
-    return Json.decodeFromString<VanillaDataPackPayloadBatch>(payloadBytes.decodeToString())
-}
-
-/** Projects an in-memory stack on top of the exact generated vanilla protocol defaults. */
-fun DataPackStack.toVanillaProtocolDataSet(
-    registryProjectors: List<DataPackSynchronizedRegistryProjector> = emptyList(),
-    format: DataPackFormatVersion? = VanillaDataPacks.formatVersion,
-): DataPackProtocolDataSet = VanillaDataPacks.protocolProjection(registryProjectors).project(this, format)
-
-/** Projects an already resolved stack on top of the exact generated vanilla protocol defaults. */
-fun ResolvedDataPackStack.toVanillaProtocolDataSet(
-    registryProjectors: List<DataPackSynchronizedRegistryProjector> = emptyList(),
-): DataPackProtocolDataSet = VanillaDataPacks.protocolProjection(registryProjectors).project(this)

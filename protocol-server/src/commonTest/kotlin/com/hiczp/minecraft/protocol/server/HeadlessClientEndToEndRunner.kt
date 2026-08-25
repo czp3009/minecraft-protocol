@@ -1,12 +1,18 @@
 package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.nbt.NbtCompound
-import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaStaticData
+import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaDataPacks
+import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaRegistryData
+import com.hiczp.minecraft.protocol.datapack.vanilla.toVanillaProtocolData
+import com.hiczp.minecraft.protocol.datapack.vanilla.vanillaDataPackRegistryProjectors
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.type.GameMode
 import com.hiczp.minecraft.test.*
+import com.hiczp.minecraft.world.format.datapack.DataPack
+import com.hiczp.minecraft.world.format.datapack.DataPackId
+import com.hiczp.minecraft.world.format.datapack.DataPackStack
 import io.ktor.network.selector.*
 import kotlinx.coroutines.*
 import kotlin.time.Duration
@@ -36,11 +42,34 @@ internal object HeadlessClientEndToEndRunner {
         "official-client-cookie".encodeToByteArray(),
     )
     private val OPTIONS = MinecraftServerNegotiationOptions(
+        protocolData = projectedVanillaProtocolData(),
         compressionThreshold = 64,
         viewDistance = 2,
         simulationDistance = 5,
         statusDescription = "minecraft-protocol official client E2E",
     )
+
+    /** Exercises every release-matched default disk-JSON to network-NBT registry projector. */
+    private fun projectedVanillaProtocolData() = VanillaDataPacks.coreDataPackStack.resolve(
+        VanillaDataPacks.dataPackFormatVersion,
+    ).let { resolvedCoreDataPackStack ->
+        val projectedDataPack = DataPack(
+            dataPackId = DataPackId("official-client-default-projectors"),
+            dataPackMetadata = null,
+            dataPackFileContentsByPath = buildMap {
+                vanillaDataPackRegistryProjectors.forEach { dataPackRegistryProjector ->
+                    resolvedCoreDataPackStack.resources(dataPackRegistryProjector.dataPackResourceType)
+                        .values.forEach { resolvedDataPackResource ->
+                            put(
+                                resolvedDataPackResource.sourceDataPackFilePath,
+                                resolvedDataPackResource.dataPackFileContent,
+                            )
+                        }
+                }
+            },
+        )
+        DataPackStack(projectedDataPack).toVanillaProtocolData()
+    }
 
     suspend fun run() {
         var client: HeadlessMinecraftClient? = null
@@ -282,7 +311,7 @@ internal object HeadlessClientEndToEndRunner {
             runProtocolStage("Play packet coverage") {
                 exercisePlayPackets(
                     connection = connection,
-                    playerEntityId = ready.playLogin.playerId,
+                    playerEntityId = ready.playLoginPacket.playerId,
                     entity = pig,
                     projectile = arrow,
                     vehicle = minecart,
@@ -294,7 +323,7 @@ internal object HeadlessClientEndToEndRunner {
             runProtocolStage("Respawn coverage") {
                 exerciseRespawn(
                     connection = connection,
-                    login = ready.playLogin,
+                    login = ready.playLoginPacket,
                     world = world.copy(
                         bootstrap = world.bootstrap.copy(
                             teleportId = world.bootstrap.teleportId + 2,
@@ -306,7 +335,7 @@ internal object HeadlessClientEndToEndRunner {
             runProtocolStage("reconfiguration coverage") {
                 exerciseReconfiguration(
                     connection = connection,
-                    login = ready.playLogin,
+                    login = ready.playLoginPacket,
                     world = world,
                     observedPlayPackets = observed,
                 )
@@ -341,21 +370,21 @@ internal object HeadlessClientEndToEndRunner {
             Identifier("entity.experience_orb.pickup"),
         )
         val simpleParticle = ParticleOptions.Simple(ParticleType.FLAME)
-        val blockTypeId = VanillaStaticData
+        val blockTypeId = VanillaRegistryData
             .requireRegistry(Identifier("block"))
-            .requireProtocolId(Identifier("grass_block"))
-        val blockEntityTypeId = VanillaStaticData
+            .requireRawId(Identifier("grass_block"))
+        val blockEntityTypeId = VanillaRegistryData
             .requireRegistry(Identifier("block_entity_type"))
-            .requireProtocolId(Identifier("furnace"))
-        val genericContainerTypeId = VanillaStaticData
+            .requireRawId(Identifier("furnace"))
+        val genericContainerTypeId = VanillaRegistryData
             .requireRegistry(Identifier("menu"))
-            .requireProtocolId(Identifier("generic_9x1"))
-        val merchantContainerTypeId = VanillaStaticData
+            .requireRawId(Identifier("generic_9x1"))
+        val merchantContainerTypeId = VanillaRegistryData
             .requireRegistry(Identifier("menu"))
-            .requireProtocolId(Identifier("merchant"))
-        val furnaceContainerTypeId = VanillaStaticData
+            .requireRawId(Identifier("merchant"))
+        val furnaceContainerTypeId = VanillaRegistryData
             .requireRegistry(Identifier("menu"))
-            .requireProtocolId(Identifier("furnace"))
+            .requireRawId(Identifier("furnace"))
         val emptyLight = LightUpdateData(
             skyYMask = BitSet(longArrayOf()),
             blockYMask = BitSet(longArrayOf()),
@@ -948,8 +977,9 @@ internal object HeadlessClientEndToEndRunner {
                 effectTypeId = 0,
             ),
             PlayUpdateTagsPacket(
-                OPTIONS.protocolData.tags.registries
-                    .associate { it.registry to it.tags },
+                OPTIONS.protocolData.registryTags.associate { registryTags ->
+                    registryTags.registry to registryTags.tags
+                },
             ),
             SetObjectivePacket(
                 objectiveName = "headless-e2e",
@@ -1356,11 +1386,11 @@ internal object HeadlessClientEndToEndRunner {
         connection.outgoing.send(ConfigurationServerLinksPacket(emptyList()))
         connection.outgoing.send(ConfigurationClearDialogPacket)
         connection.outgoing.send(
-            OPTIONS.protocolData.featureFlags,
+            FeatureFlagsPacket(OPTIONS.protocolData.enabledFeatureFlags),
         )
         connection.outgoing.send(
             ConfigurationClientboundKnownPacksPacket(
-                OPTIONS.protocolData.knownPacks,
+                OPTIONS.protocolData.offeredKnownPacks,
             ),
         )
 
@@ -1423,10 +1453,10 @@ internal object HeadlessClientEndToEndRunner {
         }
         val acceptedKnownPacks = knownPacks.knownPacks
         OPTIONS.protocolData
-            .registryPackets(acceptedKnownPacks)
-            .forEach { connection.outgoing.send(it) }
+            .synchronizedRegistryPackets(acceptedKnownPacks)
+            .forEach { registryDataPacket -> connection.outgoing.send(registryDataPacket) }
         connection.outgoing.send(
-            OPTIONS.protocolData.tags,
+            ConfigurationUpdateTagsPacket(OPTIONS.protocolData.registryTags),
         )
         connection.outgoing.send(FinishConfigurationPacket)
 

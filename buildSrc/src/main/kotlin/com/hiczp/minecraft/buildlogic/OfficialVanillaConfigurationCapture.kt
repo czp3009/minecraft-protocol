@@ -150,29 +150,29 @@ internal object OfficialVanillaConfigurationCapture {
         val log = BoundedProcessLog(process, "vanilla-data-capture-log")
         try {
             waitForServer(process, log)
-            val complete = captureConfiguration(
+            val completeConfigurationCapture = captureConfiguration(
                 port = port,
                 name = "FullDataProbe",
                 acceptKnownPacks = false,
                 protocolVersion = target.protocolVersion,
                 packetIds = packetIds,
             ).canonicalize()
-            val clientKnown = captureConfiguration(
+            val knownPackConfigurationCapture = captureConfiguration(
                 port = port,
                 name = "KnownPackProbe",
                 acceptKnownPacks = true,
                 protocolVersion = target.protocolVersion,
                 packetIds = packetIds,
             ).canonicalize()
-            validateCaptures(complete, clientKnown)
+            validateCaptures(completeConfigurationCapture, knownPackConfigurationCapture)
             return VanillaConfigurationCaptureResult(
-                knownPacks = complete.knownPacks,
-                featureFlags = complete.featureFlags,
-                completeRegistries = complete.registries,
-                clientKnownRegistries = clientKnown.registries,
-                tags = complete.tags,
-                completePacketSequence = complete.receivedPackets,
-                clientKnownPacketSequence = clientKnown.receivedPackets,
+                offeredKnownPacksPayload = completeConfigurationCapture.offeredKnownPacksPayload,
+                enabledFeatureFlagsPayload = completeConfigurationCapture.enabledFeatureFlagsPayload,
+                completeSynchronizedRegistryPayloads = completeConfigurationCapture.synchronizedRegistryPayloads,
+                knownPackSynchronizedRegistryPayloads = knownPackConfigurationCapture.synchronizedRegistryPayloads,
+                registryTagsPayload = completeConfigurationCapture.registryTagsPayload,
+                completeConfigurationPacketSequence = completeConfigurationCapture.receivedPacketRoutes,
+                knownPackConfigurationPacketSequence = knownPackConfigurationCapture.receivedPacketRoutes,
             )
         } catch (failure: Throwable) {
             throw AssertionError(
@@ -230,14 +230,14 @@ internal object OfficialVanillaConfigurationCapture {
             )
 
             var state = LOGIN
-            var knownPacks: KnownPacksPayload? = null
-            var featureFlags: FeatureFlagsPayload? = null
-            var tags: TagsPayload? = null
-            val registries = mutableListOf<RegistryPayload>()
-            val received = mutableListOf<String>()
+            var offeredKnownPacksPayload: KnownPacksPayload? = null
+            var enabledFeatureFlagsPayload: FeatureFlagsPayload? = null
+            var registryTagsPayload: TagsPayload? = null
+            val synchronizedRegistryPayloads = mutableListOf<RegistryPayload>()
+            val receivedPacketRoutes = mutableListOf<String>()
             repeat(MAXIMUM_PACKETS) {
                 val packet = connection.receive(state)
-                received += "$state/clientbound/${packet.name}"
+                receivedPacketRoutes += "$state/clientbound/${packet.name}"
                 when (state to packet.name) {
                     LOGIN to "login_disconnect" ->
                         error(
@@ -338,15 +338,15 @@ internal object OfficialVanillaConfigurationCapture {
                     }
 
                     CONFIGURATION to "select_known_packs" -> {
-                        check(knownPacks == null) {
+                        check(offeredKnownPacksPayload == null) {
                             "Official server sent Known Packs more than once"
                         }
-                        knownPacks = KnownPacksPayload.decode(packet.payload)
+                        offeredKnownPacksPayload = KnownPacksPayload.decode(packet.payload)
                         connection.send(
                             CONFIGURATION,
                             "select_known_packs",
                             if (acceptKnownPacks) {
-                                knownPacks.encode()
+                                offeredKnownPacksPayload.encode()
                             } else {
                                 PacketOutput().apply {
                                     writeVarInt(0)
@@ -356,20 +356,20 @@ internal object OfficialVanillaConfigurationCapture {
                     }
 
                     CONFIGURATION to "update_enabled_features" -> {
-                        check(featureFlags == null) {
+                        check(enabledFeatureFlagsPayload == null) {
                             "Official server sent Feature Flags more than once"
                         }
-                        featureFlags = FeatureFlagsPayload.decode(packet.payload)
+                        enabledFeatureFlagsPayload = FeatureFlagsPayload.decode(packet.payload)
                     }
 
                     CONFIGURATION to "registry_data" ->
-                        registries += RegistryPayload.decode(packet.payload)
+                        synchronizedRegistryPayloads += RegistryPayload.decode(packet.payload)
 
                     CONFIGURATION to "update_tags" -> {
-                        check(tags == null) {
+                        check(registryTagsPayload == null) {
                             "Official server sent Update Tags more than once"
                         }
-                        tags = TagsPayload.decode(packet.payload)
+                        registryTagsPayload = TagsPayload.decode(packet.payload)
                     }
 
                     CONFIGURATION to "code_of_conduct" ->
@@ -388,53 +388,61 @@ internal object OfficialVanillaConfigurationCapture {
 
                     PLAY to "login" ->
                         return ConfigurationCapture(
-                            knownPacks = checkNotNull(knownPacks) {
+                            offeredKnownPacksPayload = checkNotNull(offeredKnownPacksPayload) {
                                 "Official server did not offer Known Packs"
                             },
-                            featureFlags = checkNotNull(featureFlags) {
+                            enabledFeatureFlagsPayload = checkNotNull(enabledFeatureFlagsPayload) {
                                 "Official server did not send Feature Flags"
                             },
-                            registries = registries.toList(),
-                            tags = checkNotNull(tags) {
+                            synchronizedRegistryPayloads = synchronizedRegistryPayloads.toList(),
+                            registryTagsPayload = checkNotNull(registryTagsPayload) {
                                 "Official server did not send Update Tags"
                             },
-                            receivedPackets = received.toList(),
+                            receivedPacketRoutes = receivedPacketRoutes.toList(),
                         )
                 }
             }
             error(
-                "Official server never entered Play for $name; received $received",
+                "Official server never entered Play for $name; received $receivedPacketRoutes",
             )
         }
     }
 
     private fun validateCaptures(
-        complete: ConfigurationCapture,
-        clientKnown: ConfigurationCapture,
+        completeConfigurationCapture: ConfigurationCapture,
+        knownPackConfigurationCapture: ConfigurationCapture,
     ) {
-        check(complete.knownPacks == clientKnown.knownPacks) {
+        check(
+            completeConfigurationCapture.offeredKnownPacksPayload ==
+                    knownPackConfigurationCapture.offeredKnownPacksPayload,
+        ) {
             "Known Packs changed between official captures"
         }
-        check(complete.knownPacks.values.isNotEmpty()) {
+        check(completeConfigurationCapture.offeredKnownPacksPayload.knownPacks.isNotEmpty()) {
             "Official server offered no Known Packs"
         }
-        check(complete.featureFlags == clientKnown.featureFlags) {
+        check(
+            completeConfigurationCapture.enabledFeatureFlagsPayload ==
+                    knownPackConfigurationCapture.enabledFeatureFlagsPayload,
+        ) {
             "Feature Flags changed between official captures"
         }
-        check(complete.tags == clientKnown.tags) {
+        check(completeConfigurationCapture.registryTagsPayload == knownPackConfigurationCapture.registryTagsPayload) {
             "Update Tags changed between official captures"
         }
-        check(complete.registries.isNotEmpty()) {
+        check(completeConfigurationCapture.synchronizedRegistryPayloads.isNotEmpty()) {
             "Official server sent no Registry Data packets"
         }
-        val completeCount = complete.registries.size
-        val clientKnownCount = clientKnown.registries.size
-        check(completeCount == clientKnownCount) {
-            "Registry packet count changed between Known Packs branches: $completeCount vs $clientKnownCount"
+        val completeRegistryPacketCount = completeConfigurationCapture.synchronizedRegistryPayloads.size
+        val knownPackRegistryPacketCount = knownPackConfigurationCapture.synchronizedRegistryPayloads.size
+        val registryPacketCountDescription = "$completeRegistryPacketCount vs $knownPackRegistryPacketCount"
+        check(completeRegistryPacketCount == knownPackRegistryPacketCount) {
+            "Registry packet count changed between Known Packs branches: $registryPacketCountDescription"
         }
-        complete.registries.zip(clientKnown.registries)
-            .forEach { (full, compact) ->
-                validateRegistryPair(full, compact)
+        completeConfigurationCapture.synchronizedRegistryPayloads
+            .zip(knownPackConfigurationCapture.synchronizedRegistryPayloads)
+            .forEach { (completeRegistryPayload, knownPackRegistryPayload) ->
+                validateRegistryPair(completeRegistryPayload, knownPackRegistryPayload)
             }
     }
 
@@ -494,16 +502,16 @@ internal object OfficialVanillaConfigurationCapture {
 }
 
 internal data class VanillaConfigurationCaptureResult(
-    val knownPacks: KnownPacksPayload,
-    val featureFlags: FeatureFlagsPayload,
-    val completeRegistries: List<RegistryPayload>,
-    val clientKnownRegistries: List<RegistryPayload>,
-    val tags: TagsPayload,
-    val completePacketSequence: List<String>,
-    val clientKnownPacketSequence: List<String>,
+    val offeredKnownPacksPayload: KnownPacksPayload,
+    val enabledFeatureFlagsPayload: FeatureFlagsPayload,
+    val completeSynchronizedRegistryPayloads: List<RegistryPayload>,
+    val knownPackSynchronizedRegistryPayloads: List<RegistryPayload>,
+    val registryTagsPayload: TagsPayload,
+    val completeConfigurationPacketSequence: List<String>,
+    val knownPackConfigurationPacketSequence: List<String>,
 ) {
     fun renderKotlin(target: MinecraftProtocolTarget): FileSpec {
-        val payloads = TypeSpec.objectBuilder("VanillaConfigurationPayloads")
+        val vanillaConfigurationPacketPayloads = TypeSpec.objectBuilder("VanillaConfigurationPacketPayloads")
             .addModifiers(INTERNAL)
             .addKdoc(
                 "Exact official-server packet payloads; regenerated by Gradle.\n",
@@ -518,49 +526,58 @@ internal data class VanillaConfigurationCaptureResult(
                     .initializer("%L", target.protocolVersion)
                     .build(),
             )
-            .addPayload("knownPacks", knownPacks.encode())
-            .addPayload("featureFlags", featureFlags.encode())
+            .addPayload("offeredKnownPacksPayloadChunks", offeredKnownPacksPayload.encode())
+            .addPayload("enabledFeatureFlagsPayloadChunks", enabledFeatureFlagsPayload.encode())
             .addPayloadList(
-                "completeRegistries",
-                completeRegistries.map(RegistryPayload::encode),
+                "completeSynchronizedRegistryPacketPayloadChunks",
+                completeSynchronizedRegistryPayloads.map(RegistryPayload::encode),
             )
             .addPayloadList(
-                "clientKnownRegistries",
-                clientKnownRegistries.map(RegistryPayload::encode),
+                "knownPackSynchronizedRegistryPacketPayloadChunks",
+                knownPackSynchronizedRegistryPayloads.map(RegistryPayload::encode),
             )
-            .addPayload("tags", tags.encode())
+            .addPayload("registryTagsPayloadChunks", registryTagsPayload.encode())
             .build()
         return FileSpec.builder(
             "com.hiczp.minecraft.protocol.datapack.vanilla",
-            "VanillaConfigurationPayloads",
-        ).addType(payloads)
+            "VanillaConfigurationPacketPayloads",
+        ).addType(vanillaConfigurationPacketPayloads)
             .build()
     }
 
     fun toAnalysisJson(
         target: MinecraftProtocolTarget,
     ): JsonObject {
-        val registries = completeRegistries.zip(clientKnownRegistries)
-            .map { (full, compact) ->
-                validateRegistryPair(full, compact)
+        val synchronizedRegistryPayloads =
+            completeSynchronizedRegistryPayloads.zip(knownPackSynchronizedRegistryPayloads)
+                .map { (completeRegistryPayload, knownPackRegistryPayload) ->
+                    validateRegistryPair(completeRegistryPayload, knownPackRegistryPayload)
                 buildJsonObject {
-                    put("id", full.registryId)
+                    put("id", completeRegistryPayload.registryId)
                     putJsonArray("entries") {
-                        full.entries.forEach { add(it.id) }
+                        completeRegistryPayload.registryEntryPayloads.forEach { registryEntryPayload ->
+                            add(registryEntryPayload.registryEntryId)
+                        }
                     }
-                    put("complete_payload_base64", Base64.getEncoder().encodeToString(full.encode()))
-                    put("client_known_payload_base64", Base64.getEncoder().encodeToString(compact.encode()))
+                    put(
+                        "complete_payload_base64",
+                        Base64.getEncoder().encodeToString(completeRegistryPayload.encode()),
+                    )
+                    put(
+                        "client_known_payload_base64",
+                        Base64.getEncoder().encodeToString(knownPackRegistryPayload.encode()),
+                    )
                 }
-            }
-        val structuredTags = tags.registries.map { registry ->
+                }
+        val structuredRegistryTags = registryTagsPayload.registryTagsPayloads.map { registryTagsPayload ->
             buildJsonObject {
-                put("registry", registry.registry)
+                put("registry", registryTagsPayload.registryId)
                 putJsonArray("tags") {
-                    registry.tags.forEach { tag ->
+                    registryTagsPayload.tagPayloads.forEach { tagPayload ->
                         addJsonObject {
-                            put("name", tag.name)
+                            put("name", tagPayload.tagId)
                             putJsonArray("entries") {
-                                tag.entries.forEach { add(it) }
+                                tagPayload.rawIds.forEach { add(it) }
                             }
                         }
                     }
@@ -572,29 +589,29 @@ internal data class VanillaConfigurationCaptureResult(
             put("minecraft_version", target.minecraftVersion)
             put("protocol_version", target.protocolVersion)
             putJsonArray("known_packs") {
-                knownPacks.values.forEach { pack ->
+                offeredKnownPacksPayload.knownPacks.forEach { knownPack ->
                     addJsonObject {
-                        put("namespace", pack.namespace)
-                        put("id", pack.id)
-                        put("version", pack.version)
+                        put("namespace", knownPack.namespace)
+                        put("id", knownPack.id)
+                        put("version", knownPack.version)
                     }
                 }
             }
             putJsonArray("feature_flags") {
-                featureFlags.values.forEach { add(it) }
+                enabledFeatureFlagsPayload.enabledFeatureFlags.forEach { add(it) }
             }
-            put("registries", JsonArray(registries))
-            put("tags", JsonArray(structuredTags))
+            put("registries", JsonArray(synchronizedRegistryPayloads))
+            put("tags", JsonArray(structuredRegistryTags))
             putJsonObject("payloads") {
-                put("known_packs_base64", Base64.getEncoder().encodeToString(knownPacks.encode()))
-                put("feature_flags_base64", Base64.getEncoder().encodeToString(featureFlags.encode()))
-                put("tags_base64", Base64.getEncoder().encodeToString(tags.encode()))
+                put("known_packs_base64", Base64.getEncoder().encodeToString(offeredKnownPacksPayload.encode()))
+                put("feature_flags_base64", Base64.getEncoder().encodeToString(enabledFeatureFlagsPayload.encode()))
+                put("tags_base64", Base64.getEncoder().encodeToString(registryTagsPayload.encode()))
             }
             putJsonArray("packet_sequence_full") {
-                completePacketSequence.forEach { add(it) }
+                completeConfigurationPacketSequence.forEach { add(it) }
             }
             putJsonArray("packet_sequence_known_packs") {
-                clientKnownPacketSequence.forEach { add(it) }
+                knownPackConfigurationPacketSequence.forEach { add(it) }
             }
         }
     }
@@ -610,127 +627,139 @@ internal data class VanillaConfigurationCaptureResult(
             check(document.getValue("schema_version").jsonPrimitive.int == 1) {
                 "Unsupported vanilla Configuration analysis schema"
             }
-            val target = expectedTarget.target
+            val minecraftTarget = expectedTarget.target
             check(
                 document.getValue("minecraft_version").jsonPrimitive.content ==
-                        target.minecraftVersion &&
+                        minecraftTarget.minecraftVersion &&
                         document.getValue("protocol_version").jsonPrimitive.int ==
-                        target.protocolVersion,
+                        minecraftTarget.protocolVersion,
             ) {
                 "Vanilla Configuration analysis targets a different release"
             }
-            val describedKnownPacks = document.getValue("known_packs").jsonArray
+            val describedOfferedKnownPacks = document.getValue("known_packs").jsonArray
                 .map { element ->
-                    val pack = element.jsonObject
+                    val knownPack = element.jsonObject
                     KnownPackPayload(
-                        namespace = pack.getValue("namespace").jsonPrimitive.content,
-                        id = pack.getValue("id").jsonPrimitive.content,
-                        version = pack.getValue("version").jsonPrimitive.content,
+                        namespace = knownPack.getValue("namespace").jsonPrimitive.content,
+                        id = knownPack.getValue("id").jsonPrimitive.content,
+                        version = knownPack.getValue("version").jsonPrimitive.content,
                     )
                 }
-            val describedFeatureFlags = document
+            val describedEnabledFeatureFlags = document
                 .getValue("feature_flags")
                 .jsonArray
                 .map { it.jsonPrimitive.content }
-            val payloads = document.getValue("payloads").jsonObject
-            val knownPacksBytes = Base64.getDecoder().decode(payloads.getValue("known_packs_base64").jsonPrimitive.content)
-            val featureFlagsBytes = Base64.getDecoder().decode(payloads.getValue("feature_flags_base64").jsonPrimitive.content)
-            val tagsBytes = Base64.getDecoder().decode(payloads.getValue("tags_base64").jsonPrimitive.content)
-            val knownPacks = KnownPacksPayload.decode(knownPacksBytes)
-            val featureFlags = FeatureFlagsPayload.decode(featureFlagsBytes)
-            check(knownPacks.encode().contentEquals(knownPacksBytes)) {
+            val configurationPayloads = document.getValue("payloads").jsonObject
+            val offeredKnownPacksPayloadBytes = Base64.getDecoder().decode(
+                configurationPayloads.getValue("known_packs_base64").jsonPrimitive.content,
+            )
+            val enabledFeatureFlagsPayloadBytes = Base64.getDecoder().decode(
+                configurationPayloads.getValue("feature_flags_base64").jsonPrimitive.content,
+            )
+            val registryTagsPayloadBytes = Base64.getDecoder().decode(
+                configurationPayloads.getValue("tags_base64").jsonPrimitive.content,
+            )
+            val offeredKnownPacksPayload = KnownPacksPayload.decode(offeredKnownPacksPayloadBytes)
+            val enabledFeatureFlagsPayload = FeatureFlagsPayload.decode(enabledFeatureFlagsPayloadBytes)
+            check(offeredKnownPacksPayload.encode().contentEquals(offeredKnownPacksPayloadBytes)) {
                 "Known Packs payload is not canonical"
             }
-            check(featureFlags.encode().contentEquals(featureFlagsBytes)) {
+            check(enabledFeatureFlagsPayload.encode().contentEquals(enabledFeatureFlagsPayloadBytes)) {
                 "Feature Flags payload is not canonical"
             }
-            check(knownPacks.values == describedKnownPacks) {
+            check(offeredKnownPacksPayload.knownPacks == describedOfferedKnownPacks) {
                 "Known Packs payload disagrees with its structured index"
             }
-            check(featureFlags.values == describedFeatureFlags) {
+            check(enabledFeatureFlagsPayload.enabledFeatureFlags == describedEnabledFeatureFlags) {
                 "Feature Flags payload disagrees with its structured index"
             }
 
-            val completeRegistries = mutableListOf<RegistryPayload>()
-            val clientKnownRegistries = mutableListOf<RegistryPayload>()
+            val completeSynchronizedRegistryPayloads = mutableListOf<RegistryPayload>()
+            val knownPackSynchronizedRegistryPayloads = mutableListOf<RegistryPayload>()
             document.getValue("registries").jsonArray
                 .forEach { element ->
-                    val registry = element.jsonObject
-                    val id = registry.getValue("id").jsonPrimitive.content
-                    val entryIds = registry.getValue("entries").jsonArray.map { it.jsonPrimitive.content }
-                    val completeBytes = Base64.getDecoder().decode(registry.getValue("complete_payload_base64").jsonPrimitive.content)
-                    val clientKnownBytes = Base64.getDecoder().decode(registry.getValue("client_known_payload_base64").jsonPrimitive.content)
-                    val complete = RegistryPayload.decode(completeBytes)
-                    val clientKnown = RegistryPayload.decode(clientKnownBytes)
-                    check(complete.encode().contentEquals(completeBytes)) {
-                        "Complete registry payload $id is not canonical"
+                    val registryIndexJson = element.jsonObject
+                    val registryId = registryIndexJson.getValue("id").jsonPrimitive.content
+                    val registryEntryIds = registryIndexJson.getValue("entries").jsonArray
+                        .map { it.jsonPrimitive.content }
+                    val completeRegistryPayloadBytes = Base64.getDecoder().decode(
+                        registryIndexJson.getValue("complete_payload_base64").jsonPrimitive.content,
+                    )
+                    val knownPackRegistryPayloadBytes = Base64.getDecoder().decode(
+                        registryIndexJson.getValue("client_known_payload_base64").jsonPrimitive.content,
+                    )
+                    val completeRegistryPayload = RegistryPayload.decode(completeRegistryPayloadBytes)
+                    val knownPackRegistryPayload = RegistryPayload.decode(knownPackRegistryPayloadBytes)
+                    check(completeRegistryPayload.encode().contentEquals(completeRegistryPayloadBytes)) {
+                        "Complete registry payload $registryId is not canonical"
                     }
                     check(
-                        clientKnown.encode().contentEquals(clientKnownBytes),
+                        knownPackRegistryPayload.encode().contentEquals(knownPackRegistryPayloadBytes),
                     ) {
-                        "Client-known registry payload $id is not canonical"
+                        "Client-known registry payload $registryId is not canonical"
                     }
                     check(
-                        complete.registryId == id &&
-                                clientKnown.registryId == id &&
-                                complete.entries.map(RegistryEntryPayload::id) ==
-                                entryIds &&
-                                clientKnown.entries.map(RegistryEntryPayload::id) ==
-                                entryIds,
+                        completeRegistryPayload.registryId == registryId &&
+                                knownPackRegistryPayload.registryId == registryId &&
+                                completeRegistryPayload.registryEntryPayloads
+                                    .map(RegistryEntryPayload::registryEntryId) == registryEntryIds &&
+                                knownPackRegistryPayload.registryEntryPayloads
+                                    .map(RegistryEntryPayload::registryEntryId) == registryEntryIds,
                     ) {
-                        "Registry payload $id disagrees with its structured index"
+                        "Registry payload $registryId disagrees with its structured index"
                     }
-                    check(complete.entries.all { it.data != null }) {
-                        "Complete registry payload $id omits entry data"
+                    check(completeRegistryPayload.registryEntryPayloads.all { it.registryEntryData != null }) {
+                        "Complete registry payload $registryId omits entry data"
                     }
-                    check(clientKnown.entries.all { it.data == null }) {
-                        "Client-known registry payload $id retains entry data"
+                    check(knownPackRegistryPayload.registryEntryPayloads.all { it.registryEntryData == null }) {
+                        "Client-known registry payload $registryId retains entry data"
                     }
-                    completeRegistries += complete
-                    clientKnownRegistries += clientKnown
+                    completeSynchronizedRegistryPayloads += completeRegistryPayload
+                    knownPackSynchronizedRegistryPayloads += knownPackRegistryPayload
                 }
 
-            val describedTags = TagsPayload(
+            val describedRegistryTags = TagsPayload(
                 document.getValue("tags").jsonArray.map { element ->
-                    val registry = element.jsonObject
+                    val registryTagsIndexJson = element.jsonObject
                     RegistryTagsPayload(
-                        registry = registry.getValue("registry").jsonPrimitive.content,
-                        tags = registry.getValue("tags").jsonArray
+                        registryId = registryTagsIndexJson.getValue("registry").jsonPrimitive.content,
+                        tagPayloads = registryTagsIndexJson.getValue("tags").jsonArray
                             .map { tagElement ->
-                                val tag = tagElement.jsonObject
+                                val tagIndexJson = tagElement.jsonObject
                                 TagPayload(
-                                    name = tag.getValue("name").jsonPrimitive.content,
-                                    entries = tag.getValue("entries").jsonArray.map { it.jsonPrimitive.int },
+                                    tagId = tagIndexJson.getValue("name").jsonPrimitive.content,
+                                    rawIds = tagIndexJson.getValue("entries").jsonArray
+                                        .map { it.jsonPrimitive.int },
                                 )
                             },
                     )
                 },
             )
-            val tags = TagsPayload.decode(tagsBytes)
-            check(tags.encode().contentEquals(tagsBytes)) {
+            val registryTagsPayload = TagsPayload.decode(registryTagsPayloadBytes)
+            check(registryTagsPayload.encode().contentEquals(registryTagsPayloadBytes)) {
                 "Tags payload is not canonical"
             }
-            check(tags == describedTags) {
+            check(registryTagsPayload == describedRegistryTags) {
                 "Tags payload disagrees with its structured index"
             }
-            check(knownPacks.values.isNotEmpty()) {
+            check(offeredKnownPacksPayload.knownPacks.isNotEmpty()) {
                 "Official server offered no Known Packs"
             }
-            check(completeRegistries.isNotEmpty()) {
+            check(completeSynchronizedRegistryPayloads.isNotEmpty()) {
                 "Official server produced no Configuration registries"
             }
-            check(tags.registries.isNotEmpty()) {
+            check(registryTagsPayload.registryTagsPayloads.isNotEmpty()) {
                 "Official server produced no Configuration tags"
             }
             return VanillaConfigurationCaptureResult(
-                knownPacks = knownPacks,
-                featureFlags = featureFlags,
-                completeRegistries = completeRegistries,
-                clientKnownRegistries = clientKnownRegistries,
-                tags = tags,
-                completePacketSequence = document.getValue("packet_sequence_full").jsonArray
+                offeredKnownPacksPayload = offeredKnownPacksPayload,
+                enabledFeatureFlagsPayload = enabledFeatureFlagsPayload,
+                completeSynchronizedRegistryPayloads = completeSynchronizedRegistryPayloads,
+                knownPackSynchronizedRegistryPayloads = knownPackSynchronizedRegistryPayloads,
+                registryTagsPayload = registryTagsPayload,
+                completeConfigurationPacketSequence = document.getValue("packet_sequence_full").jsonArray
                     .map { it.jsonPrimitive.content },
-                clientKnownPacketSequence = document.getValue("packet_sequence_known_packs").jsonArray
+                knownPackConfigurationPacketSequence = document.getValue("packet_sequence_known_packs").jsonArray
                     .map { it.jsonPrimitive.content },
             )
         }
@@ -739,16 +768,16 @@ internal data class VanillaConfigurationCaptureResult(
 
     private fun TypeSpec.Builder.addPayload(
         name: String,
-        payload: ByteArray,
+        packetPayloadBytes: ByteArray,
     ): TypeSpec.Builder = addProperty(
         PropertySpec.builder(name, LIST.parameterizedBy(STRING))
-            .initializer(payloadInitializer(payload))
+            .initializer(packetPayloadChunksInitializer(packetPayloadBytes))
             .build(),
     )
 
     private fun TypeSpec.Builder.addPayloadList(
         name: String,
-        payloads: List<ByteArray>,
+        packetPayloads: List<ByteArray>,
     ): TypeSpec.Builder = addProperty(
         PropertySpec.builder(
             name,
@@ -758,8 +787,8 @@ internal data class VanillaConfigurationCaptureResult(
                 .add("%M(\n", LIST_OF)
                 .indent()
                 .apply {
-                    payloads.forEach { payload ->
-                        add("%L,\n", payloadInitializer(payload))
+                    packetPayloads.forEach { packetPayloadBytes ->
+                        add("%L,\n", packetPayloadChunksInitializer(packetPayloadBytes))
                     }
                 }
                 .unindent()
@@ -768,40 +797,39 @@ internal data class VanillaConfigurationCaptureResult(
         ).build(),
     )
 
-    private fun payloadInitializer(
-        payload: ByteArray,
+    private fun packetPayloadChunksInitializer(
+        packetPayloadBytes: ByteArray,
     ): CodeBlock = CodeBlock.builder()
         .add("%M(\n", LIST_OF)
         .indent()
         .apply {
-            Base64.getEncoder().encodeToString(payload)
+            Base64.getEncoder().encodeToString(packetPayloadBytes)
                 .chunked(PAYLOAD_CHUNK_SIZE)
-                .forEach { chunk -> add("%S,\n", chunk) }
+                .forEach { packetPayloadChunk -> add("%S,\n", packetPayloadChunk) }
         }
         .unindent()
         .add(")")
         .build()
-
 }
 
 private fun validateRegistryPair(
-    complete: RegistryPayload,
-    clientKnown: RegistryPayload,
+    completeRegistryPayload: RegistryPayload,
+    knownPackRegistryPayload: RegistryPayload,
 ) {
-    check(complete.registryId == clientKnown.registryId) {
-        "Registry order changed: ${complete.registryId} vs ${clientKnown.registryId}"
+    check(completeRegistryPayload.registryId == knownPackRegistryPayload.registryId) {
+        "Registry order changed: ${completeRegistryPayload.registryId} vs ${knownPackRegistryPayload.registryId}"
     }
     check(
-        complete.entries.map(RegistryEntryPayload::id) ==
-                clientKnown.entries.map(RegistryEntryPayload::id),
+        completeRegistryPayload.registryEntryPayloads.map(RegistryEntryPayload::registryEntryId) ==
+                knownPackRegistryPayload.registryEntryPayloads.map(RegistryEntryPayload::registryEntryId),
     ) {
-        "Registry entries changed for ${complete.registryId}"
+        "Registry entries changed for ${completeRegistryPayload.registryId}"
     }
-    check(complete.entries.all { it.data != null }) {
-        "Full-data capture omitted data in ${complete.registryId}"
+    check(completeRegistryPayload.registryEntryPayloads.all { it.registryEntryData != null }) {
+        "Full-data capture omitted data in ${completeRegistryPayload.registryId}"
     }
-    check(clientKnown.entries.all { it.data == null }) {
-        "Known-pack capture retained data in ${clientKnown.registryId}"
+    check(knownPackRegistryPayload.registryEntryPayloads.all { it.registryEntryData == null }) {
+        "Known-pack capture retained data in ${knownPackRegistryPayload.registryId}"
     }
 }
 
@@ -812,21 +840,21 @@ internal data class KnownPackPayload(
 )
 
 internal data class KnownPacksPayload(
-    val values: List<KnownPackPayload>,
+    val knownPacks: List<KnownPackPayload>,
 ) {
     fun encode(): ByteArray = PacketOutput().apply {
-        writeVarInt(values.size)
-        values.forEach { pack ->
-            writeString(pack.namespace)
-            writeString(pack.id)
-            writeString(pack.version)
+        writeVarInt(knownPacks.size)
+        knownPacks.forEach { knownPack ->
+            writeString(knownPack.namespace)
+            writeString(knownPack.id)
+            writeString(knownPack.version)
         }
     }.toByteArray()
 
     companion object {
         fun decode(payload: ByteArray): KnownPacksPayload {
             val input = PacketInput(payload)
-            val values = input.readList {
+            val knownPacks = input.readList {
                 KnownPackPayload(
                     namespace = readString(),
                     id = readString(),
@@ -834,117 +862,119 @@ internal data class KnownPacksPayload(
                 )
             }
             input.requireExhausted()
-            return KnownPacksPayload(values)
+            return KnownPacksPayload(knownPacks)
         }
     }
 }
 
 internal data class FeatureFlagsPayload(
-    val values: List<String>,
+    val enabledFeatureFlags: List<String>,
 ) {
     fun canonicalize(): FeatureFlagsPayload =
-        FeatureFlagsPayload(values.distinct().sorted())
+        FeatureFlagsPayload(enabledFeatureFlags.distinct().sorted())
 
     fun encode(): ByteArray = PacketOutput().apply {
-        writeVarInt(values.size)
-        values.forEach(::writeString)
+        writeVarInt(enabledFeatureFlags.size)
+        enabledFeatureFlags.forEach(::writeString)
     }.toByteArray()
 
     companion object {
         fun decode(payload: ByteArray): FeatureFlagsPayload {
             val input = PacketInput(payload)
-            val values = input.readList(PacketInput::readString)
+            val enabledFeatureFlags = input.readList(PacketInput::readString)
             input.requireExhausted()
-            check(values.distinct().size == values.size) {
+            check(enabledFeatureFlags.distinct().size == enabledFeatureFlags.size) {
                 "Official Feature Flags packet contains duplicates"
             }
-            return FeatureFlagsPayload(values)
+            return FeatureFlagsPayload(enabledFeatureFlags)
         }
     }
 }
 
 internal data class RegistryEntryPayload(
-    val id: String,
-    val data: CapturedNbt?,
+    val registryEntryId: String,
+    val registryEntryData: CapturedNbt?,
 )
 
 internal data class RegistryPayload(
     val registryId: String,
-    val entries: List<RegistryEntryPayload>,
+    val registryEntryPayloads: List<RegistryEntryPayload>,
 ) {
     fun canonicalize(): RegistryPayload =
         copy(
-            entries = entries.map { entry ->
-                entry.copy(data = entry.data?.canonicalize())
+            registryEntryPayloads = registryEntryPayloads.map { registryEntryPayload ->
+                registryEntryPayload.copy(
+                    registryEntryData = registryEntryPayload.registryEntryData?.canonicalize(),
+                )
             },
         )
 
     fun encode(): ByteArray = PacketOutput().apply {
         writeString(registryId)
-        writeVarInt(entries.size)
-        entries.forEach { entry ->
-            writeString(entry.id)
-            writeNullableNbt(entry.data)
+        writeVarInt(registryEntryPayloads.size)
+        registryEntryPayloads.forEach { registryEntryPayload ->
+            writeString(registryEntryPayload.registryEntryId)
+            writeNullableNbt(registryEntryPayload.registryEntryData)
         }
     }.toByteArray()
 
     companion object {
         fun decode(payload: ByteArray): RegistryPayload {
             val input = PacketInput(payload)
-            val registry = input.readString()
-            val entries = input.readList {
+            val registryId = input.readString()
+            val registryEntryPayloads = input.readList {
                 RegistryEntryPayload(
-                    id = readString(),
-                    data = readNullableNbt(),
+                    registryEntryId = readString(),
+                    registryEntryData = readNullableNbt(),
                 )
             }
             input.requireExhausted()
             check(
-                entries.map(RegistryEntryPayload::id).distinct().size ==
-                        entries.size
+                registryEntryPayloads.map(RegistryEntryPayload::registryEntryId).distinct().size ==
+                        registryEntryPayloads.size
             ) {
-                "Official registry $registry contains duplicate entries"
+                "Official registry $registryId contains duplicate entries"
             }
-            return RegistryPayload(registry, entries)
+            return RegistryPayload(registryId, registryEntryPayloads)
         }
     }
 }
 
 internal data class TagPayload(
-    val name: String,
-    val entries: List<Int>,
+    val tagId: String,
+    val rawIds: List<Int>,
 )
 
 internal data class RegistryTagsPayload(
-    val registry: String,
-    val tags: List<TagPayload>,
+    val registryId: String,
+    val tagPayloads: List<TagPayload>,
 )
 
 internal data class TagsPayload(
-    val registries: List<RegistryTagsPayload>,
+    val registryTagsPayloads: List<RegistryTagsPayload>,
 ) {
     fun canonicalize(): TagsPayload =
         TagsPayload(
-            registries.sortedBy(RegistryTagsPayload::registry)
-                .map { registry ->
-                    registry.copy(
-                        tags = registry.tags.sortedBy(TagPayload::name)
-                            .map { tag ->
-                                tag.copy(entries = tag.entries.sorted())
+            registryTagsPayloads.sortedBy(RegistryTagsPayload::registryId)
+                .map { registryTagsPayload ->
+                    registryTagsPayload.copy(
+                        tagPayloads = registryTagsPayload.tagPayloads.sortedBy(TagPayload::tagId)
+                            .map { tagPayload ->
+                                tagPayload.copy(rawIds = tagPayload.rawIds.sorted())
                             },
                     )
                 },
         )
 
     fun encode(): ByteArray = PacketOutput().apply {
-        writeVarInt(registries.size)
-        registries.forEach { registry ->
-            writeString(registry.registry)
-            writeVarInt(registry.tags.size)
-            registry.tags.forEach { tag ->
-                writeString(tag.name)
-                writeVarInt(tag.entries.size)
-                tag.entries.forEach(::writeVarInt)
+        writeVarInt(registryTagsPayloads.size)
+        registryTagsPayloads.forEach { registryTagsPayload ->
+            writeString(registryTagsPayload.registryId)
+            writeVarInt(registryTagsPayload.tagPayloads.size)
+            registryTagsPayload.tagPayloads.forEach { tagPayload ->
+                writeString(tagPayload.tagId)
+                writeVarInt(tagPayload.rawIds.size)
+                tagPayload.rawIds.forEach(::writeVarInt)
             }
         }
     }.toByteArray()
@@ -952,34 +982,34 @@ internal data class TagsPayload(
     companion object {
         fun decode(payload: ByteArray): TagsPayload {
             val input = PacketInput(payload)
-            val registries = input.readList {
-                val registry = readString()
-                val tags = readList {
+            val registryTagsPayloads = input.readList {
+                val registryId = readString()
+                val tagPayloads = readList {
                     TagPayload(
-                        name = readString(),
-                        entries = readList(PacketInput::readVarInt),
+                        tagId = readString(),
+                        rawIds = readList(PacketInput::readVarInt),
                     )
                 }
-                RegistryTagsPayload(registry, tags)
+                RegistryTagsPayload(registryId, tagPayloads)
             }
             input.requireExhausted()
-            return TagsPayload(registries)
+            return TagsPayload(registryTagsPayloads)
         }
     }
 }
 
 private data class ConfigurationCapture(
-    val knownPacks: KnownPacksPayload,
-    val featureFlags: FeatureFlagsPayload,
-    val registries: List<RegistryPayload>,
-    val tags: TagsPayload,
-    val receivedPackets: List<String>,
+    val offeredKnownPacksPayload: KnownPacksPayload,
+    val enabledFeatureFlagsPayload: FeatureFlagsPayload,
+    val synchronizedRegistryPayloads: List<RegistryPayload>,
+    val registryTagsPayload: TagsPayload,
+    val receivedPacketRoutes: List<String>,
 ) {
     fun canonicalize(): ConfigurationCapture =
         copy(
-            featureFlags = featureFlags.canonicalize(),
-            registries = registries.map(RegistryPayload::canonicalize),
-            tags = tags.canonicalize(),
+            enabledFeatureFlagsPayload = enabledFeatureFlagsPayload.canonicalize(),
+            synchronizedRegistryPayloads = synchronizedRegistryPayloads.map(RegistryPayload::canonicalize),
+            registryTagsPayload = registryTagsPayload.canonicalize(),
         )
 }
 

@@ -12,117 +12,125 @@ import kotlin.test.*
 class ProtocolRegistryContextsTest {
     @Test
     fun resolvesCompleteRegistryMappingsAgainstTheSelectedStaticSchema() {
-        val registries = VanillaProtocolData.completeRegistryPackets()
-        val biomePacket = registries.single { it.registryId == BIOME_REGISTRY }
-        val customRegistry = Identifier("test:custom_static")
-        val customEntry = Identifier("test:entry")
-        val staticRegistries = StaticRegistrySchema(
+        val synchronizedRegistryPackets = VanillaProtocolData.completeSynchronizedRegistryPackets()
+        val biomeRegistryPacket = synchronizedRegistryPackets.single { it.registryId == BIOME_REGISTRY }
+        val customRegistryId = Identifier("test:custom_static")
+        val customRegistryEntryId = Identifier("test:entry")
+        val staticRegistrySchema = StaticRegistrySchema(
             registries = mapOf(
-                customRegistry to listOf(customEntry),
-                BIOME_REGISTRY to biomePacket.entries.map(RegistryEntry::id).reversed(),
+                customRegistryId to listOf(customRegistryEntryId),
+                BIOME_REGISTRY to biomeRegistryPacket.entries.map(RegistryEntry::id).reversed(),
             ),
             blocks = emptyList(),
         )
 
-        val context = VanillaProtocolData.resolveSynchronizedRegistryContext(
-            registries = registries,
-            staticRegistries = staticRegistries,
+        val protocolRegistryContext = VanillaProtocolData.resolveSynchronizedRegistryContext(
+            synchronizedRegistryPackets = synchronizedRegistryPackets,
+            staticRegistrySchema = staticRegistrySchema,
         )
 
-        assertEquals(customEntry, context.requireRegistry(customRegistry)[0]?.id)
+        assertEquals(customRegistryEntryId, protocolRegistryContext.requireRegistry(customRegistryId)[0]?.id)
         assertEquals(
-            biomePacket.entries.map(RegistryEntry::id),
-            context.requireRegistry(BIOME_REGISTRY).entries
+            biomeRegistryPacket.entries.map(RegistryEntry::id),
+            protocolRegistryContext.requireRegistry(BIOME_REGISTRY).entries
                 .sortedBy { it.rawId }
                 .map { it.id },
         )
-        assertTrue(context.blockStates.isEmpty())
-        assertNull(context.chunkSectionCount)
+        assertTrue(protocolRegistryContext.blockStates.isEmpty())
+        assertNull(protocolRegistryContext.chunkSectionCount)
     }
 
     @Test
     fun compactKnownPackRegistriesUseMatchingVersionDimensionData() {
-        val registries = VanillaProtocolData.registryPackets(VanillaProtocolData.knownPacks)
-        val dimensionTypeId = requireNotNull(
-            registries.registryId(DIMENSION_TYPE_REGISTRY, OVERWORLD),
+        val synchronizedRegistryPackets = VanillaProtocolData.synchronizedRegistryPackets(
+            VanillaProtocolData.offeredKnownPacks,
         )
-        val base = VanillaProtocolData.resolveSynchronizedRegistryContext(registries)
+        val dimensionTypeRawId = requireNotNull(
+            synchronizedRegistryPackets.registryRawId(DIMENSION_TYPE_REGISTRY, OVERWORLD),
+        )
+        val baseProtocolRegistryContext =
+            VanillaProtocolData.resolveSynchronizedRegistryContext(synchronizedRegistryPackets)
 
-        assertTrue(registries.all { packet -> packet.entries.all { it.data == null } })
-        assertSame(VanillaProtocolData.registryContext, base)
-        val login = playLogin(dimensionTypeId)
-        val dimension = MinecraftDimensionLayout.from(
-            login = login,
-            registries = registries,
+        assertTrue(synchronizedRegistryPackets.all { registryDataPacket ->
+            registryDataPacket.entries.all { it.data == null }
+        })
+        assertSame(VanillaProtocolData.completeProtocolRegistryContext, baseProtocolRegistryContext)
+        val playLoginPacket = createPlayLoginPacket(dimensionTypeRawId)
+        val minecraftDimensionLayout = MinecraftDimensionLayout.from(
+            playLoginPacket = playLoginPacket,
+            synchronizedRegistryPackets = synchronizedRegistryPackets,
             protocolData = VanillaProtocolData,
         )
-        val active = base.withPlayLoginDimension(
-            login = login,
-            registries = registries,
+        val activeProtocolRegistryContext = baseProtocolRegistryContext.withPlayLoginDimensionLayout(
+            playLoginPacket = playLoginPacket,
+            synchronizedRegistryPackets = synchronizedRegistryPackets,
             protocolData = VanillaProtocolData,
         )
 
         assertEquals(
             MinecraftDimensionLayout.from(VanillaProtocolData, OVERWORLD),
-            dimension,
+            minecraftDimensionLayout,
         )
         assertEquals(
-            dimension.sectionCount,
-            active.chunkSectionCount,
+            minecraftDimensionLayout.sectionCount,
+            activeProtocolRegistryContext.chunkSectionCount,
         )
-        assertEquals(base.registries, active.registries)
-        assertEquals(base.blockStates, active.blockStates)
+        assertEquals(baseProtocolRegistryContext.registries, activeProtocolRegistryContext.registries)
+        assertEquals(baseProtocolRegistryContext.blockStates, activeProtocolRegistryContext.blockStates)
     }
 
     @Test
     fun rejectsMissingAndEmptyBiomeRegistries() {
-        val complete = VanillaProtocolData.completeRegistryPackets()
-        val withoutBiome = complete.filterNot { it.registryId == BIOME_REGISTRY }
-        val emptyBiome = complete.map { packet ->
-            if (packet.registryId == BIOME_REGISTRY) {
+        val completeSynchronizedRegistryPackets = VanillaProtocolData.completeSynchronizedRegistryPackets()
+        val synchronizedRegistryPacketsWithoutBiome = completeSynchronizedRegistryPackets.filterNot {
+            it.registryId == BIOME_REGISTRY
+        }
+        val synchronizedRegistryPacketsWithEmptyBiome = completeSynchronizedRegistryPackets.map { registryDataPacket ->
+            if (registryDataPacket.registryId == BIOME_REGISTRY) {
                 RegistryDataPacket(BIOME_REGISTRY, emptyList())
             } else {
-                packet
+                registryDataPacket
             }
         }
 
         assertFailsWith<IllegalArgumentException> {
-            VanillaProtocolData.resolveSynchronizedRegistryContext(withoutBiome)
+            VanillaProtocolData.resolveSynchronizedRegistryContext(synchronizedRegistryPacketsWithoutBiome)
         }
         assertFailsWith<IllegalArgumentException> {
-            VanillaProtocolData.resolveSynchronizedRegistryContext(emptyBiome)
+            VanillaProtocolData.resolveSynchronizedRegistryContext(synchronizedRegistryPacketsWithEmptyBiome)
         }
     }
 
     @Test
     fun rejectsDuplicateSynchronizedRegistries() {
-        val registries = VanillaProtocolData.completeRegistryPackets()
-        val biome = registries.single { it.registryId == BIOME_REGISTRY }
+        val synchronizedRegistryPackets = VanillaProtocolData.completeSynchronizedRegistryPackets()
+        val biomeRegistryPacket = synchronizedRegistryPackets.single { it.registryId == BIOME_REGISTRY }
 
         assertFailsWith<IllegalArgumentException> {
-            VanillaProtocolData.resolveSynchronizedRegistryContext(registries + biome)
+            VanillaProtocolData.resolveSynchronizedRegistryContext(synchronizedRegistryPackets + biomeRegistryPacket)
         }
     }
 
     @Test
     fun rejectsUnknownDimensionRawIdAndDimensionOutsideAdvertisedLevels() {
-        val registries = VanillaProtocolData.completeRegistryPackets()
-        val dimensionTypeId = requireNotNull(
-            registries.registryId(DIMENSION_TYPE_REGISTRY, OVERWORLD),
+        val synchronizedRegistryPackets = VanillaProtocolData.completeSynchronizedRegistryPackets()
+        val dimensionTypeRawId = requireNotNull(
+            synchronizedRegistryPackets.registryRawId(DIMENSION_TYPE_REGISTRY, OVERWORLD),
         )
-        val base = VanillaProtocolData.resolveSynchronizedRegistryContext(registries)
+        val baseProtocolRegistryContext =
+            VanillaProtocolData.resolveSynchronizedRegistryContext(synchronizedRegistryPackets)
 
         assertFailsWith<IllegalArgumentException> {
-            base.withPlayLoginDimension(
-                login = playLogin(Int.MAX_VALUE),
-                registries = registries,
+            baseProtocolRegistryContext.withPlayLoginDimensionLayout(
+                playLoginPacket = createPlayLoginPacket(Int.MAX_VALUE),
+                synchronizedRegistryPackets = synchronizedRegistryPackets,
                 protocolData = VanillaProtocolData,
             )
         }
         assertFailsWith<IllegalArgumentException> {
-            base.withPlayLoginDimension(
-                login = playLogin(dimensionTypeId).copy(levels = emptySet()),
-                registries = registries,
+            baseProtocolRegistryContext.withPlayLoginDimensionLayout(
+                playLoginPacket = createPlayLoginPacket(dimensionTypeRawId).copy(levels = emptySet()),
+                synchronizedRegistryPackets = synchronizedRegistryPackets,
                 protocolData = VanillaProtocolData,
             )
         }
@@ -130,14 +138,15 @@ class ProtocolRegistryContextsTest {
 
     @Test
     fun missingSynchronizedDimensionRegistryDoesNotFallBack() {
-        val registries = VanillaProtocolData.completeRegistryPackets()
+        val synchronizedRegistryPackets = VanillaProtocolData.completeSynchronizedRegistryPackets()
             .filterNot { it.registryId == DIMENSION_TYPE_REGISTRY }
-        val base = VanillaProtocolData.resolveSynchronizedRegistryContext(registries)
+        val baseProtocolRegistryContext =
+            VanillaProtocolData.resolveSynchronizedRegistryContext(synchronizedRegistryPackets)
 
         assertFailsWith<IllegalArgumentException> {
-            base.withPlayLoginDimension(
-                login = playLogin(0),
-                registries = registries,
+            baseProtocolRegistryContext.withPlayLoginDimensionLayout(
+                playLoginPacket = createPlayLoginPacket(0),
+                synchronizedRegistryPackets = synchronizedRegistryPackets,
                 protocolData = VanillaProtocolData,
             )
         }
@@ -145,13 +154,13 @@ class ProtocolRegistryContextsTest {
 
     @Test
     fun synchronizedDimensionDataSelectsANonDefaultHeight() {
-        val customLevel = Identifier("test:tall_world")
-        val customDimensionType = Identifier("test:tall")
-        val dimensionRegistry = RegistryDataPacket(
+        val customLevelId = Identifier("test:tall_world")
+        val customDimensionTypeId = Identifier("test:tall")
+        val dimensionTypeRegistryPacket = RegistryDataPacket(
             registryId = DIMENSION_TYPE_REGISTRY,
             entries = listOf(
                 RegistryEntry(
-                    id = customDimensionType,
+                    id = customDimensionTypeId,
                     data = NbtCompound(
                         mapOf(
                             "min_y" to NbtInt(-64),
@@ -162,32 +171,33 @@ class ProtocolRegistryContextsTest {
                 ),
             ),
         )
-        val biomeRegistry = VanillaProtocolData.requireRegistry(BIOME_REGISTRY)
-        val registries = listOf(dimensionRegistry, biomeRegistry)
-        val base = VanillaProtocolData.resolveSynchronizedRegistryContext(registries)
-        val login = playLogin(
+        val biomeRegistryPacket = VanillaProtocolData.requireRegistryPacket(BIOME_REGISTRY)
+        val synchronizedRegistryPackets = listOf(dimensionTypeRegistryPacket, biomeRegistryPacket)
+        val baseProtocolRegistryContext =
+            VanillaProtocolData.resolveSynchronizedRegistryContext(synchronizedRegistryPackets)
+        val playLoginPacket = createPlayLoginPacket(
             dimensionTypeId = 0,
-            dimension = customLevel,
+            dimension = customLevelId,
         )
-        val dimension = MinecraftDimensionLayout.from(
-            login = login,
-            registries = registries,
+        val minecraftDimensionLayout = MinecraftDimensionLayout.from(
+            playLoginPacket = playLoginPacket,
+            synchronizedRegistryPackets = synchronizedRegistryPackets,
             protocolData = VanillaProtocolData,
         )
-        val active = base.withPlayLoginDimension(
-            login = login,
-            registries = registries,
+        val activeProtocolRegistryContext = baseProtocolRegistryContext.withPlayLoginDimensionLayout(
+            playLoginPacket = playLoginPacket,
+            synchronizedRegistryPackets = synchronizedRegistryPackets,
             protocolData = VanillaProtocolData,
         )
 
-        assertEquals(-64, dimension.minY)
-        assertEquals(512, dimension.height)
-        assertTrue(dimension.hasSkyLight)
-        assertEquals(32, active.chunkSectionCount)
-        assertEquals(base.registries, active.registries)
+        assertEquals(-64, minecraftDimensionLayout.minY)
+        assertEquals(512, minecraftDimensionLayout.height)
+        assertTrue(minecraftDimensionLayout.hasSkyLight)
+        assertEquals(32, activeProtocolRegistryContext.chunkSectionCount)
+        assertEquals(baseProtocolRegistryContext.registries, activeProtocolRegistryContext.registries)
     }
 
-    private fun playLogin(
+    private fun createPlayLoginPacket(
         dimensionTypeId: Int,
         dimension: Identifier = OVERWORLD,
     ): PlayLoginPacket = PlayLoginPacket(

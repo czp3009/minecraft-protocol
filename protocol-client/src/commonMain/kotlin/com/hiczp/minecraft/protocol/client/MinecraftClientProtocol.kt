@@ -1,10 +1,11 @@
 package com.hiczp.minecraft.protocol.client
 
 import com.hiczp.minecraft.protocol.auth.*
+import com.hiczp.minecraft.protocol.datapack.DataPackConfigurationSnapshot
 import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
-import com.hiczp.minecraft.protocol.datapack.ProtocolDataSet
+import com.hiczp.minecraft.protocol.datapack.ProtocolData
 import com.hiczp.minecraft.protocol.datapack.resolveSynchronizedRegistryContext
-import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaDataPacks
+import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
@@ -16,34 +17,32 @@ import com.hiczp.minecraft.world.format.MinecraftCoordinates
 import io.ktor.client.*
 
 data class MinecraftStatusExchange(
-    val response: StatusResponsePacket,
-    val pong: StatusPongResponsePacket,
+    val statusResponsePacket: StatusResponsePacket,
+    val statusPongResponsePacket: StatusPongResponsePacket,
 )
 
-data class MinecraftClientConfiguration(
-    val knownPacks: ConfigurationClientboundKnownPacksPacket?,
-    val featureFlags: FeatureFlagsPacket?,
-    val registries: List<RegistryDataPacket>,
-    val tags: ConfigurationUpdateTagsPacket?,
-    val storedCookies: Map<Identifier, ByteString>,
+private data class MinecraftClientConfigurationResult(
+    val dataPackConfigurationSnapshot: DataPackConfigurationSnapshot,
+    val storedConfigurationCookies: Map<Identifier, ByteString>,
 )
 
 /**
  * Client-side negotiation facts. The installed, potentially replaceable registry context remains
- * connection state: [MinecraftClientConnection.registries] holds its authoritative value once
+ * connection state: [MinecraftClientConnection.protocolRegistryContext] holds its authoritative value once
  * negotiation reaches Play.
  */
 data class MinecraftClientNegotiationResult(
-    val login: LoginSuccessPacket,
-    val configuration: MinecraftClientConfiguration,
-    val playLogin: PlayLoginPacket,
-    val dimensionLayout: MinecraftDimensionLayout,
-    val profile: NegotiationProfileResult,
+    val loginSuccessPacket: LoginSuccessPacket,
+    val dataPackConfigurationSnapshot: DataPackConfigurationSnapshot,
+    val storedConfigurationCookies: Map<Identifier, ByteString>,
+    val playLoginPacket: PlayLoginPacket,
+    val minecraftDimensionLayout: MinecraftDimensionLayout,
+    val negotiationProfileResult: NegotiationProfileResult,
 ) {
     /** The world-Chunk layout selected by the server for the initial Play dimension. */
     val chunkLayout: ChunkLayout = ChunkLayout(
-        minSectionY = MinecraftCoordinates.sectionCoordinate(dimensionLayout.minY),
-        sectionCount = dimensionLayout.sectionCount,
+        minSectionY = MinecraftCoordinates.sectionCoordinate(minecraftDimensionLayout.minY),
+        sectionCount = minecraftDimensionLayout.sectionCount,
     )
 }
 
@@ -51,7 +50,7 @@ sealed interface ClientNegotiationQueryResult {
     data object Pass : ClientNegotiationQueryResult
 
     data class Respond(
-        val packets: List<ServerboundPacket>,
+        val serverboundPackets: List<ServerboundPacket>,
     ) : ClientNegotiationQueryResult
 
     data class Reject(
@@ -60,7 +59,7 @@ sealed interface ClientNegotiationQueryResult {
 }
 
 class MinecraftClientNegotiationOptions(
-    val information: ClientInformation = ClientInformation(
+    val clientInformation: ClientInformation = ClientInformation(
         locale = "en_us",
         viewDistance = 8,
         chatMode = ChatMode.ENABLED,
@@ -71,13 +70,13 @@ class MinecraftClientNegotiationOptions(
         allowServerListings = true,
         particleStatus = ParticleStatus.ALL,
     ),
-    val protocolData: ProtocolDataSet = VanillaDataPacks.protocolData,
+    val protocolData: ProtocolData = VanillaProtocolData,
     loginCookies: Map<Identifier, ByteString> = emptyMap(),
     configurationCookies: Map<Identifier, ByteString> = emptyMap(),
-    acceptedKnownPacks: Set<KnownPack> = protocolData.knownPacks.toSet(),
+    acceptedKnownPacks: Set<KnownPack> = protocolData.offeredKnownPacks.toSet(),
     val acceptCodeOfConduct: Boolean = true,
     val resourcePackResult: ResourcePackResult = ResourcePackResult.DECLINED,
-    val staticRegistries: StaticRegistrySchema = protocolData.staticRegistries,
+    val staticRegistrySchema: StaticRegistrySchema = protocolData.staticRegistrySchema,
     val onUnhandledQuery: (suspend (UnknownPacket.Clientbound) -> ClientNegotiationQueryResult)? = null,
 ) {
     val loginCookies: Map<Identifier, ByteString> = loginCookies.toMap()
@@ -100,21 +99,21 @@ suspend fun MinecraftClientConnection.queryStatus(
     outgoing.send(handshake(HandshakeNextState.STATUS))
     outgoing.send(StatusRequestPacket)
     requestFlush()
-    val response = incoming.receive()
-    if (response !is StatusResponsePacket) {
+    val statusResponsePacket = incoming.receive()
+    if (statusResponsePacket !is StatusResponsePacket) {
         throw MinecraftClientException(
-            "Expected Status Response, received ${response::class.simpleName}",
+            "Expected Status Response, received ${statusResponsePacket::class.simpleName}",
         )
     }
     outgoing.send(StatusPingRequestPacket(pingPayload))
     requestFlush()
-    val pong = incoming.receive()
-    if (pong !is StatusPongResponsePacket || pong.timestamp != pingPayload) {
+    val statusPongResponsePacket = incoming.receive()
+    if (statusPongResponsePacket !is StatusPongResponsePacket || statusPongResponsePacket.timestamp != pingPayload) {
         throw MinecraftClientException(
-            "Status pong did not preserve payload $pingPayload: $pong",
+            "Status pong did not preserve payload $pingPayload: $statusPongResponsePacket",
         )
     }
-    return MinecraftStatusExchange(response, pong)
+    return MinecraftStatusExchange(statusResponsePacket, statusPongResponsePacket)
 }
 
 /**
@@ -127,7 +126,7 @@ suspend fun MinecraftClientConnection.queryStatus(
  * connection's public API.
  *
  * On return the open connection has reached Play with the negotiated registry context installed
- * in [MinecraftClientConnection.registries]; further traffic and closing then belong to the
+ * in [MinecraftClientConnection.protocolRegistryContext]; further traffic and closing then belong to the
  * caller. Failures raised by this library, including server rejections and
  * [MinecraftClientTransferException] (whose host and port describe the reconnection target),
  * leave the connection open for the caller to close. Wire and pump failures surface as their
@@ -142,16 +141,20 @@ suspend fun MinecraftClientConnection.negotiate(
     require(state == ConnectionState.HANDSHAKE) {
         "Login requires a fresh Handshake connection"
     }
-    val login = negotiateLogin(identity, sessionHttpClient, profile, options)
-    val configuration = negotiateConfiguration(profile, options)
-    val play = awaitPlayLogin(configuration.registries, options)
-    val profileResult = profile.complete(this)
+    val loginSuccessPacket = negotiateLogin(identity, sessionHttpClient, profile, options)
+    val minecraftClientConfigurationResult = negotiateConfiguration(profile, options)
+    val minecraftClientPlayLogin = awaitPlayLogin(
+        minecraftClientConfigurationResult.dataPackConfigurationSnapshot.synchronizedRegistryPackets,
+        options,
+    )
+    val negotiationProfileResult = profile.complete(this)
     return MinecraftClientNegotiationResult(
-        login = login,
-        configuration = configuration,
-        playLogin = play.packet,
-        dimensionLayout = play.dimensionLayout,
-        profile = profileResult,
+        loginSuccessPacket = loginSuccessPacket,
+        dataPackConfigurationSnapshot = minecraftClientConfigurationResult.dataPackConfigurationSnapshot,
+        storedConfigurationCookies = minecraftClientConfigurationResult.storedConfigurationCookies,
+        playLoginPacket = minecraftClientPlayLogin.playLoginPacket,
+        minecraftDimensionLayout = minecraftClientPlayLogin.minecraftDimensionLayout,
+        negotiationProfileResult = negotiationProfileResult,
     )
 }
 
@@ -205,14 +208,14 @@ private suspend fun MinecraftClientConnection.negotiateLogin(
 private suspend fun MinecraftClientConnection.negotiateConfiguration(
     profile: ClientNegotiationProfile,
     options: MinecraftClientNegotiationOptions,
-): MinecraftClientConfiguration {
-    outgoing.send(ConfigurationClientInformationPacket(options.information))
+): MinecraftClientConfigurationResult {
+    outgoing.send(ConfigurationClientInformationPacket(options.clientInformation))
     requestFlush()
-    var knownPacks: ConfigurationClientboundKnownPacksPacket? = null
-    var featureFlags: FeatureFlagsPacket? = null
-    var tags: ConfigurationUpdateTagsPacket? = null
-    val registryPackets = mutableListOf<RegistryDataPacket>()
-    val storedCookies = linkedMapOf<Identifier, ByteString>()
+    var configurationClientboundKnownPacksPacket: ConfigurationClientboundKnownPacksPacket? = null
+    var featureFlagsPacket: FeatureFlagsPacket? = null
+    var configurationUpdateTagsPacket: ConfigurationUpdateTagsPacket? = null
+    val synchronizedRegistryPackets = mutableListOf<RegistryDataPacket>()
+    val storedConfigurationCookies = linkedMapOf<Identifier, ByteString>()
     while (true) {
         when (val packet = incoming.receive()) {
             is ConfigurationDisconnectPacket ->
@@ -235,7 +238,7 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
                 outgoing.send(ConfigurationPongPacket(packet.id))
 
             is ConfigurationClientboundKnownPacksPacket -> {
-                knownPacks = packet
+                configurationClientboundKnownPacksPacket = packet
                 outgoing.send(
                     ConfigurationServerboundKnownPacksPacket(
                         packet.knownPacks.filter(options.acceptedKnownPacks::contains),
@@ -243,21 +246,21 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
                 )
             }
 
-            is FeatureFlagsPacket -> featureFlags = packet
+            is FeatureFlagsPacket -> featureFlagsPacket = packet
 
             is RegistryDataPacket -> {
-                if (registryPackets.any { it.registryId == packet.registryId }) {
+                if (synchronizedRegistryPackets.any { it.registryId == packet.registryId }) {
                     throw MinecraftClientException(
                         "Server sent duplicate registry ${packet.registryId}",
                     )
                 }
-                registryPackets += packet
+                synchronizedRegistryPackets += packet
             }
 
-            is ConfigurationUpdateTagsPacket -> tags = packet
+            is ConfigurationUpdateTagsPacket -> configurationUpdateTagsPacket = packet
 
             is ConfigurationStoreCookiePacket ->
-                storedCookies[packet.key] = packet.payload
+                storedConfigurationCookies[packet.key] = packet.payload
 
             is ConfigurationAddResourcePackPacket -> outgoing.send(
                 ConfigurationResourcePackResponsePacket(
@@ -279,24 +282,26 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
                 throw MinecraftClientTransferException(packet.host, packet.port)
 
             is FinishConfigurationPacket -> {
-                val baseContext = registryContextOrClientFailure {
+                val baseProtocolRegistryContext = registryContextOrClientFailure {
                     options.protocolData.resolveSynchronizedRegistryContext(
-                        registries = registryPackets,
-                        staticRegistries = options.staticRegistries,
+                        synchronizedRegistryPackets = synchronizedRegistryPackets,
+                        staticRegistrySchema = options.staticRegistrySchema,
                     )
                 }
-                val context = profile.resolveRegistryContext(baseContext)
-                installRegistryContext(context)
+                val protocolRegistryContext = profile.resolveProtocolRegistryContext(baseProtocolRegistryContext)
+                installProtocolRegistryContext(protocolRegistryContext)
                 profile.preparePlay(this)
                 outgoing.send(AcknowledgeFinishConfigurationPacket)
                 requestFlush()
                 awaitState(ConnectionState.PLAY)
-                return MinecraftClientConfiguration(
-                    knownPacks = knownPacks,
-                    featureFlags = featureFlags,
-                    registries = registryPackets.toList(),
-                    tags = tags,
-                    storedCookies = storedCookies.toMap(),
+                return MinecraftClientConfigurationResult(
+                    dataPackConfigurationSnapshot = DataPackConfigurationSnapshot(
+                        offeredKnownPacks = configurationClientboundKnownPacksPacket?.knownPacks.orEmpty(),
+                        enabledFeatureFlags = featureFlagsPacket?.featureFlags.orEmpty(),
+                        synchronizedRegistryPackets = synchronizedRegistryPackets,
+                        registryTags = configurationUpdateTagsPacket?.tags.orEmpty(),
+                    ),
+                    storedConfigurationCookies = storedConfigurationCookies.toMap(),
                 )
             }
 
@@ -315,22 +320,23 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
 }
 
 private suspend fun MinecraftClientConnection.awaitPlayLogin(
-    registryPackets: List<RegistryDataPacket>,
+    synchronizedRegistryPackets: List<RegistryDataPacket>,
     options: MinecraftClientNegotiationOptions,
 ): MinecraftClientPlayLogin {
     while (true) {
         when (val packet = incoming.receive()) {
             is PlayLoginPacket -> {
-                val dimensionLayout = registryContextOrClientFailure {
+                val minecraftDimensionLayout = registryContextOrClientFailure {
                     MinecraftDimensionLayout.from(
-                        login = packet,
-                        registries = registryPackets,
+                        playLoginPacket = packet,
+                        synchronizedRegistryPackets = synchronizedRegistryPackets,
                         protocolData = options.protocolData,
                     )
                 }
-                val activeContext = registries.withChunkSectionCount(dimensionLayout.sectionCount)
-                installRegistryContext(activeContext)
-                return MinecraftClientPlayLogin(packet, dimensionLayout)
+                val activeProtocolRegistryContext =
+                    protocolRegistryContext.withChunkSectionCount(minecraftDimensionLayout.sectionCount)
+                installProtocolRegistryContext(activeProtocolRegistryContext)
+                return MinecraftClientPlayLogin(packet, minecraftDimensionLayout)
             }
 
             else -> {
@@ -348,8 +354,8 @@ private suspend fun MinecraftClientConnection.awaitPlayLogin(
 }
 
 private data class MinecraftClientPlayLogin(
-    val packet: PlayLoginPacket,
-    val dimensionLayout: MinecraftDimensionLayout,
+    val playLoginPacket: PlayLoginPacket,
+    val minecraftDimensionLayout: MinecraftDimensionLayout,
 )
 
 private suspend fun MinecraftClientConnection.handleLoginExtension(
@@ -400,7 +406,7 @@ private suspend fun MinecraftClientConnection.handleUnknownQuery(
             throw MinecraftClientException(decision.reason)
 
         is ClientNegotiationQueryResult.Respond ->
-            decision.packets.forEach { outgoing.send(it) }
+            decision.serverboundPackets.forEach { outgoing.send(it) }
     }
 }
 

@@ -14,14 +14,14 @@ import kotlin.test.*
 class DataPackFormatTest {
     @Test
     fun customDecoderReceivesPackIdentityAndStreamingInputRejectsDuplicates() {
-        val id = DataPackId("mod:generated")
-        val path = DataPackPath("data/mod/custom/value.mod")
-        val bytes = DataPackBinary(byteArrayOf(1, 2, 3))
-        val format = DataPackFormat(
-            customDecoders = listOf(
-                DataPackFileDecoder { packId, filePath, content ->
-                    if (filePath == path) {
-                        ModFile(packId, filePath, content.size)
+        val dataPackId = DataPackId("mod:generated")
+        val dataPackFilePath = DataPackFilePath("data/mod/custom/value.mod")
+        val dataPackFileBytes = DataPackFileBytes(byteArrayOf(1, 2, 3))
+        val dataPackFormat = DataPackFormat(
+            dataPackFileDecoders = listOf(
+                DataPackFileDecoder { decodedDataPackId, decodedDataPackFilePath, decodedDataPackFileBytes ->
+                    if (decodedDataPackFilePath == dataPackFilePath) {
+                        ModFile(decodedDataPackId, decodedDataPackFilePath, decodedDataPackFileBytes.sizeInBytes)
                     } else {
                         null
                     }
@@ -29,20 +29,23 @@ class DataPackFormatTest {
             ),
         )
 
-        val pack = format.decode(id, sequenceOf(path to bytes))
+        val dataPack = dataPackFormat.decode(dataPackId, sequenceOf(dataPackFilePath to dataPackFileBytes))
 
         assertEquals(
-            ModFile(id, path, 3),
-            assertIs<ModFile>(pack.file(path)),
+            ModFile(dataPackId, dataPackFilePath, 3),
+            assertIs<ModFile>(dataPack.dataPackFileContent(dataPackFilePath)),
         )
         assertFailsWith<DataPackFormatException> {
-            format.decode(id, sequenceOf(path to bytes, path to bytes))
+            dataPackFormat.decode(
+                dataPackId,
+                sequenceOf(dataPackFilePath to dataPackFileBytes, dataPackFilePath to dataPackFileBytes),
+            )
         }
     }
 
     @Test
     fun parsesEveryStandardContentKindAndCurrentMetadataVersion() {
-        val metadata = buildJsonObject {
+        val dataPackMetadataJson = buildJsonObject {
             put(
                 "pack",
                 buildJsonObject {
@@ -56,92 +59,128 @@ class DataPackFormatTest {
             )
             put("features", buildJsonObject { put("enabled", buildJsonArray { add("test:feature") }) })
         }
-        val structure = NbtDocument(NbtCompound(mapOf("name" to NbtString("house"))))
-        val structureBytes = Buffer().also { sink ->
-            CompressedNbtFormat().encodeDocumentToSink(structure, Compression.GZIP, sink)
+        val structureDocument = NbtDocument(NbtCompound(mapOf("name" to NbtString("house"))))
+        val structureFileBytes = Buffer().also { sink ->
+            CompressedNbtFormat().encodeDocumentToSink(structureDocument, Compression.GZIP, sink)
         }.readByteArray()
-        val archive = DataPackArchive(
+        val dataPackArchive = DataPackArchive(
             DataPackId("test"),
             listOf(
-                DataPackPath.PACK_METADATA to jsonBytes(metadata),
-                DataPackPath("data/test/worldgen/biome/example.json") to jsonBytes(
+                DataPackFilePath.PACK_METADATA to jsonBytes(dataPackMetadataJson),
+                DataPackFilePath("data/test/worldgen/biome/example.json") to jsonBytes(
                     buildJsonObject { put("temperature", 0.5) },
                 ),
-                DataPackPath("data/test/structure/house.nbt") to structureBytes,
-                DataPackPath("data/test/custom/value.snbt") to "{name:house}".encodeToByteArray(),
-                DataPackPath("data/test/function/run.mcfunction") to "say hello".encodeToByteArray(),
-                DataPackPath("data/test/mod/value.bin") to byteArrayOf(1, 2, 3),
+                DataPackFilePath("data/test/structure/house.nbt") to structureFileBytes,
+                DataPackFilePath("data/test/custom/value.snbt") to "{name:house}".encodeToByteArray(),
+                DataPackFilePath("data/test/function/run.mcfunction") to "say hello".encodeToByteArray(),
+                DataPackFilePath("data/test/mod/value.bin") to byteArrayOf(1, 2, 3),
             ),
         )
 
-        val pack = DataPackFormat().decode(archive)
+        val dataPack = DataPackFormat().decode(dataPackArchive)
 
-        assertTrue(DataPackFormatVersion(107, 1) in requireNotNull(pack.metadata).formats)
-        assertEquals(setOf("test:feature"), pack.metadata.enabledFeatures)
-        assertIs<DataPackFileContent.JsonFile>(pack.file(DataPackPath("data/test/worldgen/biome/example.json")))
+        assertTrue(
+            DataPackFormatVersion(107, 1) in
+                    requireNotNull(dataPack.dataPackMetadata).supportedDataPackFormatVersionRange,
+        )
+        assertEquals(setOf("test:feature"), dataPack.dataPackMetadata.enabledFeatureFlags)
+        assertIs<DataPackFileContent.JsonFile>(
+            dataPack.dataPackFileContent(DataPackFilePath("data/test/worldgen/biome/example.json")),
+        )
         assertEquals(
-            structure,
-            assertIs<DataPackFileContent.NbtFile>(pack.file(DataPackPath("data/test/structure/house.nbt"))).document,
+            structureDocument,
+            assertIs<DataPackFileContent.NbtFile>(
+                dataPack.dataPackFileContent(DataPackFilePath("data/test/structure/house.nbt")),
+            ).nbtDocument,
         )
         assertEquals(
             NbtCompound(mapOf("name" to NbtString("house"))),
-            assertIs<DataPackFileContent.SnbtFile>(pack.file(DataPackPath("data/test/custom/value.snbt"))).tag,
+            assertIs<DataPackFileContent.SnbtFile>(
+                dataPack.dataPackFileContent(DataPackFilePath("data/test/custom/value.snbt")),
+            ).nbtTag,
         )
         assertEquals(
             "say hello",
-            assertIs<DataPackFileContent.TextFile>(pack.file(DataPackPath("data/test/function/run.mcfunction"))).text,
+            assertIs<DataPackFileContent.TextFile>(
+                dataPack.dataPackFileContent(DataPackFilePath("data/test/function/run.mcfunction")),
+            ).text,
         )
         assertEquals(
-            DataPackBinary(byteArrayOf(1, 2, 3)),
-            assertIs<DataPackFileContent.BinaryFile>(pack.file(DataPackPath("data/test/mod/value.bin"))).bytes,
+            DataPackFileBytes(byteArrayOf(1, 2, 3)),
+            assertIs<DataPackFileContent.BinaryFile>(
+                dataPack.dataPackFileContent(DataPackFilePath("data/test/mod/value.bin")),
+            ).dataPackFileBytes,
         )
     }
 
     @Test
+    fun compressedNbtFailureIsDeferredUntilTheDocumentIsRequested() {
+        val dataPackId = DataPackId("test")
+        val dataPackFilePath = DataPackFilePath("data/test/structure/invalid.nbt")
+        val nbtFile = assertIs<DataPackFileContent.NbtFile>(
+            DataPackFormat().decodeFile(
+                dataPackId,
+                dataPackFilePath,
+                DataPackFileBytes(byteArrayOf(1, 2, 3)),
+            ),
+        )
+
+        val failure = assertFailsWith<DataPackFormatException> { nbtFile.nbtDocument }
+
+        assertContains(failure.message.orEmpty(), dataPackFilePath.value)
+        assertContains(failure.message.orEmpty(), dataPackId.value)
+    }
+
+    @Test
     fun customDecoderFailuresRetainFileContextAndCancellation() {
-        val packId = DataPackId("test")
-        val path = DataPackPath("data/test/custom/value.mod")
-        val content = DataPackBinary(byteArrayOf(1))
+        val dataPackId = DataPackId("test")
+        val dataPackFilePath = DataPackFilePath("data/test/custom/value.mod")
+        val dataPackFileBytes = DataPackFileBytes(byteArrayOf(1))
         val cause = IllegalStateException("decoder failed")
         val failure = assertFailsWith<DataPackFormatException> {
-            DataPackFormat(customDecoders = listOf(DataPackFileDecoder { _, _, _ -> throw cause }))
-                .decode(packId, sequenceOf(path to content))
+            DataPackFormat(dataPackFileDecoders = listOf(DataPackFileDecoder { _, _, _ -> throw cause }))
+                .decode(dataPackId, sequenceOf(dataPackFilePath to dataPackFileBytes))
         }
 
         assertSame(cause, failure.cause)
-        assertContains(failure.message.orEmpty(), path.value)
-        assertContains(failure.message.orEmpty(), packId.value)
+        assertContains(failure.message.orEmpty(), dataPackFilePath.value)
+        assertContains(failure.message.orEmpty(), dataPackId.value)
 
         val cancellation = CancellationException("cancelled")
         val thrown = assertFailsWith<CancellationException> {
-            DataPackFormat(customDecoders = listOf(DataPackFileDecoder { _, _, _ -> throw cancellation }))
-                .decode(packId, sequenceOf(path to content))
+            DataPackFormat(dataPackFileDecoders = listOf(DataPackFileDecoder { _, _, _ -> throw cancellation }))
+                .decode(dataPackId, sequenceOf(dataPackFilePath to dataPackFileBytes))
         }
         assertSame(cancellation, thrown)
     }
 
     @Test
     fun resolvesOverlaysFiltersAndTagAppendInPriorityOrder() {
-        val format = DataPackFormatVersion(107, 1)
-        val base = parsedPack(
-            id = "base",
-            metadata = metadata(),
-            files = mapOf(
+        val dataPackFormatVersion = DataPackFormatVersion(107, 1)
+        val baseDataPack = parsedDataPack(
+            dataPackId = "base",
+            dataPackMetadata = dataPackMetadata(),
+            dataPackFileContentsByPath = mapOf(
                 "data/test/tags/block/logs.json" to tagJson("test:oak"),
                 "data/test/recipe/removed.json" to buildJsonObject { put("value", 1) },
             ),
         )
-        val higherMetadata = metadata(
-            filters = listOf(
+        val higherDataPackMetadata = dataPackMetadata(
+            dataPackFilterPatterns = listOf(
                 DataPackFilterPattern(namespacePattern = "test", pathPattern = "recipe/removed\\.json"),
                 DataPackFilterPattern(namespacePattern = "test", pathPattern = "recipe/replaced\\.json"),
             ),
-            overlays = listOf(DataPackOverlay(DataPackFormatRange.exact(format), DataPackPath("overlay"))),
+            dataPackOverlays = listOf(
+                DataPackOverlay(
+                    DataPackFormatVersionRange.exact(dataPackFormatVersion),
+                    DataPackFilePath("overlay"),
+                ),
+            ),
         )
-        val higher = parsedPack(
-            id = "higher",
-            metadata = higherMetadata,
-            files = mapOf(
+        val higherDataPack = parsedDataPack(
+            dataPackId = "higher",
+            dataPackMetadata = higherDataPackMetadata,
+            dataPackFileContentsByPath = mapOf(
                 "data/test/tags/block/logs.json" to tagJson("test:birch"),
                 "data/test/recipe/replaced.json" to buildJsonObject { put("value", 3) },
                 "data/test/recipe/value.json" to buildJsonObject { put("value", 1) },
@@ -149,30 +188,32 @@ class DataPackFormatTest {
             ),
         )
 
-        val resolved = DataPackStack(base, higher).resolve(format)
+        val resolvedDataPackStack = DataPackStack(baseDataPack, higherDataPack).resolve(dataPackFormatVersion)
 
-        assertEquals(null, resolved.resource(DataPackResourcePath("test", "recipe/removed.json")))
-        val recipe = assertIs<DataPackFileContent.JsonFile>(
-            resolved.resource(DataPackResourcePath("test", "recipe/value.json"))?.content,
-        ).element.jsonObject
-        assertEquals(2, recipe.getValue("value").jsonPrimitive.int)
-        val tag = assertIs<DataPackFileContent.JsonFile>(
-            resolved.resource(DataPackResourcePath("test", "tags/block/logs.json"))?.content,
-        ).element.jsonObject
+        assertEquals(null, resolvedDataPackStack.resource(DataPackResourcePath("test", "recipe/removed.json")))
+        val recipeJson = assertIs<DataPackFileContent.JsonFile>(
+            resolvedDataPackStack.resource(DataPackResourcePath("test", "recipe/value.json"))?.dataPackFileContent,
+        ).jsonElement.jsonObject
+        assertEquals(2, recipeJson.getValue("value").jsonPrimitive.int)
+        val tagJson = assertIs<DataPackFileContent.JsonFile>(
+            resolvedDataPackStack.resource(
+                DataPackResourcePath("test", "tags/block/logs.json"),
+            )?.dataPackFileContent,
+        ).jsonElement.jsonObject
         assertEquals(
             listOf("test:oak", "test:birch"),
-            tag.getValue("values").jsonArray.map { it.jsonPrimitive.content },
+            tagJson.getValue("values").jsonArray.map { it.jsonPrimitive.content },
         )
-        assertTrue(resolved.filtersBaseResource(DataPackResourcePath("test", "recipe/removed.json")))
-        assertTrue(resolved.filtersBaseResource(DataPackResourcePath("test", "recipe/replaced.json")))
+        assertTrue(resolvedDataPackStack.filtersBaseResource(DataPackResourcePath("test", "recipe/removed.json")))
+        assertTrue(resolvedDataPackStack.filtersBaseResource(DataPackResourcePath("test", "recipe/replaced.json")))
     }
 
     @Test
     fun tagFilesDecodeTypedEntries() {
-        val pack = parsedPack(
-            id = "tags",
-            metadata = metadata(),
-            files = mapOf(
+        val dataPack = parsedDataPack(
+            dataPackId = "tags",
+            dataPackMetadata = dataPackMetadata(),
+            dataPackFileContentsByPath = mapOf(
                 "data/test/tags/block/values.json" to buildJsonObject {
                     put(
                         "values",
@@ -189,40 +230,41 @@ class DataPackFormatTest {
             ),
         )
 
-        val resource = requireNotNull(
-            DataPackStack(pack).resolve().resource(DataPackResourcePath("test", "tags/block/values.json")),
+        val resolvedDataPackResource = requireNotNull(
+            DataPackStack(dataPack).resolve().resource(DataPackResourcePath("test", "tags/block/values.json")),
         )
 
         assertEquals(
             DataPackTagFile(
-                values = listOf(
-                    DataPackTagEntry(DataPackResourceId("minecraft", "stone")),
-                    DataPackTagEntry(DataPackResourceId("test", "logs"), tag = true),
-                    DataPackTagEntry(DataPackResourceId("test", "optional"), required = false),
+                dataPackTagValues = listOf(
+                    DataPackTagValue(DataPackResourceId("minecraft", "stone")),
+                    DataPackTagValue(DataPackResourceId("test", "logs"), isTagReference = true),
+                    DataPackTagValue(DataPackResourceId("test", "optional"), isRequired = false),
                 ),
             ),
-            resource.decodeTagFile(),
+            resolvedDataPackResource.decodeDataPackTagFile(),
         )
     }
 
-    private fun parsedPack(
-        id: String,
-        metadata: DataPackMetadata,
-        files: Map<String, JsonElement>,
+    private fun parsedDataPack(
+        dataPackId: String,
+        dataPackMetadata: DataPackMetadata,
+        dataPackFileContentsByPath: Map<String, JsonElement>,
     ): DataPack = DataPack(
-        id = DataPackId(id),
-        metadata = metadata,
-        files = files.mapKeys { DataPackPath(it.key) }.mapValues { DataPackFileContent.JsonFile(it.value) },
+        dataPackId = DataPackId(dataPackId),
+        dataPackMetadata = dataPackMetadata,
+        dataPackFileContentsByPath = dataPackFileContentsByPath.mapKeys { DataPackFilePath(it.key) }
+            .mapValues { DataPackFileContent.JsonFile(it.value) },
     )
 
-    private fun metadata(
-        filters: List<DataPackFilterPattern> = emptyList(),
-        overlays: List<DataPackOverlay> = emptyList(),
+    private fun dataPackMetadata(
+        dataPackFilterPatterns: List<DataPackFilterPattern> = emptyList(),
+        dataPackOverlays: List<DataPackOverlay> = emptyList(),
     ): DataPackMetadata = DataPackMetadata(
         description = JsonPrimitive("test"),
-        formats = DataPackFormatRange.exact(DataPackFormatVersion(107, 1)),
-        filters = filters,
-        overlays = overlays,
+        supportedDataPackFormatVersionRange = DataPackFormatVersionRange.exact(DataPackFormatVersion(107, 1)),
+        dataPackFilterPatterns = dataPackFilterPatterns,
+        dataPackOverlays = dataPackOverlays,
     )
 
     private fun tagJson(value: String): JsonObject = buildJsonObject {
@@ -233,8 +275,8 @@ class DataPackFormatTest {
         Json.encodeToString(element).encodeToByteArray()
 
     private data class ModFile(
-        val packId: DataPackId,
-        val path: DataPackPath,
+        val dataPackId: DataPackId,
+        val dataPackFilePath: DataPackFilePath,
         val size: Int,
     ) : DataPackFileContent
 }

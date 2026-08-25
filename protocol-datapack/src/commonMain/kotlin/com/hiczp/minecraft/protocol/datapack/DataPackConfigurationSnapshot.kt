@@ -1,0 +1,45 @@
+package com.hiczp.minecraft.protocol.datapack
+
+import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
+import com.hiczp.minecraft.protocol.model.type.Identifier
+import com.hiczp.minecraft.protocol.model.type.KnownPack
+import com.hiczp.minecraft.protocol.model.type.RegistryTags
+import com.hiczp.minecraft.protocol.model.type.TagDefinition
+
+/** Manually constructible capture of the data-pack-related packets visible to a client. */
+class DataPackConfigurationSnapshot(
+    offeredKnownPacks: List<KnownPack>,
+    enabledFeatureFlags: Set<Identifier>,
+    synchronizedRegistryPackets: List<RegistryDataPacket>,
+    registryTags: List<RegistryTags>,
+) {
+    val offeredKnownPacks: List<KnownPack> = offeredKnownPacks.toList()
+    val enabledFeatureFlags: Set<Identifier> = enabledFeatureFlags.toSet()
+    val synchronizedRegistryPackets: List<RegistryDataPacket> =
+        synchronizedRegistryPackets.map { registryDataPacket ->
+            RegistryDataPacket(registryDataPacket.registryId, registryDataPacket.entries.toList())
+        }
+    val registryTags: List<RegistryTags> = registryTags.map { registryTags ->
+        RegistryTags(
+            registryTags.registry,
+            registryTags.tags.map { tagDefinition ->
+                TagDefinition(tagDefinition.name, tagDefinition.entries.toList())
+            },
+        )
+    }
+
+    init {
+        require(this.offeredKnownPacks.distinct().size == this.offeredKnownPacks.size) {
+            "Offered Known Packs contains duplicates"
+        }
+        require(
+            this.synchronizedRegistryPackets.map(RegistryDataPacket::registryId).distinct().size ==
+                    this.synchronizedRegistryPackets.size,
+        ) {
+            "Data-pack Configuration contains duplicate synchronized registries"
+        }
+        require(this.registryTags.map(RegistryTags::registry).distinct().size == this.registryTags.size) {
+            "Data-pack Configuration contains duplicate registry tags"
+        }
+    }
+}

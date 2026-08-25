@@ -60,8 +60,8 @@ data class MinecraftInitialWorldBootstrap(
          * supply each value independently.
          */
         fun vanilla(
-            options: MinecraftServerNegotiationOptions,
-            dimension: Identifier = Identifier("overworld"),
+            options: MinecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(),
+            dimensionId: Identifier = Identifier("overworld"),
             defaultSpawnPosition: Vector3d = Vector3d(0.5, 65.0, 0.5),
             defaultSpawnYaw: Float = 0.0f,
             defaultSpawnPitch: Float = 0.0f,
@@ -79,7 +79,7 @@ data class MinecraftInitialWorldBootstrap(
             difficulty = options.difficulty,
             difficultyLocked = options.difficultyLocked,
             defaultSpawn = RespawnData(
-                globalPosition = GlobalPosition(dimension, defaultSpawnPosition.toBlockPosition()),
+                globalPosition = GlobalPosition(dimensionId, defaultSpawnPosition.toBlockPosition()),
                 yaw = defaultSpawnYaw,
                 pitch = defaultSpawnPitch,
             ),
@@ -110,33 +110,33 @@ data class MinecraftInitialWorld(
          * center. The radius is measured in Chunks.
          */
         fun flatVanilla(
-            options: MinecraftServerNegotiationOptions,
-            dimension: Identifier = Identifier("overworld"),
+            options: MinecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(),
+            dimensionId: Identifier = Identifier("overworld"),
             groundY: Int = 64,
             bootstrap: MinecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
                 options = options,
-                dimension = dimension,
+                dimensionId = dimensionId,
                 defaultSpawnPosition = Vector3d(0.5, groundY + 1.0, 0.5),
             ),
             chunkRadius: Int = options.viewDistance,
-            surfaceBlock: Identifier = Identifier("grass_block"),
-            biome: Identifier = Identifier("plains"),
+            surfaceBlockId: Identifier = Identifier("grass_block"),
+            biomeId: Identifier = Identifier("plains"),
             entities: List<MinecraftEntitySnapshot> = emptyList(),
         ): MinecraftInitialWorld {
-            val dimensionType = MinecraftDimensionLayout.from(
+            val minecraftDimensionLayout = MinecraftDimensionLayout.from(
                 options.protocolData,
-                dimension,
+                dimensionId,
             )
-            val registries = options.protocolData.registryContext
+            val protocolRegistryContext = options.protocolData.completeProtocolRegistryContext
             val chunks = MinecraftCoordinates.chunkPositionsAround(bootstrap.centerChunk, chunkRadius).map { position ->
                 MinecraftChunkSnapshot.flat(
-                    registries = registries,
-                    dimension = dimensionType,
+                    protocolRegistryContext = protocolRegistryContext,
+                    minecraftDimensionLayout = minecraftDimensionLayout,
                     chunkX = position.x,
                     chunkZ = position.z,
                     groundY = groundY,
-                    surfaceBlock = surfaceBlock,
-                    biome = biome,
+                    surfaceBlockId = surfaceBlockId,
+                    biomeId = biomeId,
                 )
             }.toList()
             return MinecraftInitialWorld(

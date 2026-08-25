@@ -225,7 +225,7 @@ private object FabricRegistrySyncSerializer : KSerializer<FabricRegistrySyncPack
         value: FabricRegistrySyncPacket,
     ) {
         val registriesByNamespace = linkedMapOf<String, MutableList<RemoteRegistry>>()
-        value.snapshot.registries.values.forEach { registry ->
+        value.remoteRegistrySnapshot.registries.values.forEach { registry ->
             registriesByNamespace.getOrPut(registry.id.namespace, ::mutableListOf)
                 .add(registry)
         }
@@ -240,7 +240,7 @@ private object FabricRegistrySyncSerializer : KSerializer<FabricRegistrySyncPack
                 }
                 output.encodeString(registry.id.path)
                 output.encodeByte(
-                    if (registry.id in value.optionalRegistries) 1 else 0,
+                    if (registry.id in value.optionalRegistryIds) 1 else 0,
                 )
                 val entriesByNamespace = linkedMapOf<String, MutableList<RemoteRegistryEntry>>()
                 registry.entries.forEach { entry ->
@@ -272,8 +272,8 @@ private object FabricRegistrySyncSerializer : KSerializer<FabricRegistrySyncPack
     override fun deserialize(decoder: Decoder): FabricRegistrySyncPacket {
         val input = decoder.beginStructure(descriptor)
         val registryNamespaceGroups = input.decodeCount("registry namespace groups")
-        val registries = mutableListOf<RemoteRegistry>()
-        val optionalRegistries = linkedSetOf<Identifier>()
+        val remoteRegistries = mutableListOf<RemoteRegistry>()
+        val optionalRegistryIds = linkedSetOf<Identifier>()
         repeat(registryNamespaceGroups) {
             val registryNamespace = unoptimizeNamespace(input.decodeString())
             val registriesInNamespace = input.decodeCount("registries in namespace $registryNamespace")
@@ -284,7 +284,7 @@ private object FabricRegistrySyncSerializer : KSerializer<FabricRegistrySyncPack
                     "registry",
                 )
                 val attributes = input.decodeByte().toInt() and 0xFF
-                if (attributes and 1 != 0) optionalRegistries += registryId
+                if (attributes and 1 != 0) optionalRegistryIds += registryId
                 val entryNamespaceGroups = input.decodeCount(
                     "entry namespace groups in $registryId",
                 )
@@ -322,7 +322,7 @@ private object FabricRegistrySyncSerializer : KSerializer<FabricRegistrySyncPack
                     }
                 }
                 try {
-                    registries += RemoteRegistry(registryId, entries)
+                    remoteRegistries += RemoteRegistry(registryId, entries)
                 } catch (cause: IllegalArgumentException) {
                     throw MinecraftSerializationException(
                         "Invalid Fabric registry mapping for $registryId",
@@ -332,15 +332,15 @@ private object FabricRegistrySyncSerializer : KSerializer<FabricRegistrySyncPack
             }
         }
         input.endStructure(descriptor)
-        val snapshot = try {
-            RemoteRegistrySnapshot(registries)
+        val remoteRegistrySnapshot = try {
+            RemoteRegistrySnapshot(remoteRegistries)
         } catch (cause: IllegalArgumentException) {
             throw MinecraftSerializationException(
                 "Invalid Fabric registry snapshot",
                 cause,
             )
         }
-        return FabricRegistrySyncPacket(snapshot, optionalRegistries)
+        return FabricRegistrySyncPacket(remoteRegistrySnapshot, optionalRegistryIds)
     }
 
     private fun kotlinx.serialization.encoding.CompositeDecoder.decodeCount(

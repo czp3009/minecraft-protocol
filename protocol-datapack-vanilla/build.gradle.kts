@@ -12,19 +12,19 @@ val officialReportsDirectory = officialMinecraftArtifactDirectory("officialMinec
 val officialConfigurationFile = officialMinecraftArtifactFile("officialMinecraftConfiguration")
 val officialDataPacksDirectory = officialMinecraftArtifactDirectory("officialMinecraftDataPacks")
 
-val generatedStaticDataDirectory = layout.buildDirectory.dir(
-    "generated/sources/vanillaStaticData/commonMain/kotlin",
+val generatedRegistryDataDirectory = layout.buildDirectory.dir(
+    "generated/sources/vanillaRegistryData/commonMain/kotlin",
 )
-val generatedConfigurationDirectory = layout.buildDirectory.dir(
-    "generated/sources/vanillaConfiguration/commonMain/kotlin",
+val generatedConfigurationPacketPayloadDirectory = layout.buildDirectory.dir(
+    "generated/sources/vanillaConfigurationPacketPayloads/commonMain/kotlin",
 )
 val generatedDataPacksDirectory = layout.buildDirectory.dir(
     "generated/sources/vanillaDataPacks/commonMain/kotlin",
 )
 
-val generateVanillaStaticDataSource =
-    tasks.register<GenerateVanillaStaticDataSourceTask>(
-        "generateVanillaStaticDataSource",
+val generateVanillaRegistryDataSource =
+    tasks.register<GenerateVanillaRegistryDataSourceTask>(
+        "generateVanillaRegistryDataSource",
     ) {
         description = "Generate typed vanilla registry and block-state source."
         targetFile = officialTargetFile
@@ -35,21 +35,21 @@ val generateVanillaStaticDataSource =
             it.file("reports/blocks.json")
         }
         outputFile =
-            generatedStaticDataDirectory.map {
-                it.file("com/hiczp/minecraft/protocol/datapack/vanilla/VanillaStaticDataPayloads.kt")
+            generatedRegistryDataDirectory.map {
+                it.file("com/hiczp/minecraft/protocol/datapack/vanilla/VanillaRegistryDataPayloads.kt")
             }
     }
 
-val generateVanillaConfigurationSource =
-    tasks.register<GenerateVanillaConfigurationSourceTask>(
-        "generateVanillaConfigurationSource",
+val generateVanillaConfigurationPacketPayloadSource =
+    tasks.register<GenerateVanillaConfigurationPacketPayloadSourceTask>(
+        "generateVanillaConfigurationPacketPayloadSource",
     ) {
         description = "Generate vanilla Configuration source from analysis data."
         targetFile = officialTargetFile
         configurationFile = officialConfigurationFile
         outputFile =
-            generatedConfigurationDirectory.map {
-                it.file("com/hiczp/minecraft/protocol/datapack/vanilla/VanillaConfigurationPayloads.kt")
+            generatedConfigurationPacketPayloadDirectory.map {
+                it.file("com/hiczp/minecraft/protocol/datapack/vanilla/VanillaConfigurationPacketPayloads.kt")
             }
     }
 
@@ -105,12 +105,12 @@ kotlin {
     sourceSets {
         commonMain {
             kotlin.srcDir(
-                files(generatedStaticDataDirectory)
-                    .builtBy(generateVanillaStaticDataSource),
+                files(generatedRegistryDataDirectory)
+                    .builtBy(generateVanillaRegistryDataSource),
             )
             kotlin.srcDir(
-                files(generatedConfigurationDirectory)
-                    .builtBy(generateVanillaConfigurationSource),
+                files(generatedConfigurationPacketPayloadDirectory)
+                    .builtBy(generateVanillaConfigurationPacketPayloadSource),
             )
             kotlin.srcDir(
                 files(generatedDataPacksDirectory)

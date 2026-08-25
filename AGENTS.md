@@ -10,6 +10,9 @@ and verification steps, but must not repeat this file.
   Keep documentation and agent guidance aligned with them.
 - This is an early-stage project. Prefer a coherent design over compatibility shims, deprecated aliases, transitional
   paths, or preserving an accidental module boundary.
+- Keep the high-level vanilla client and server paths zero-configuration beyond facts the application must supply, such
+  as a selector, remote address, or player identity. Connection definitions, negotiation profiles, protocol data, and
+  vanilla data-pack registry projectors have release-matched defaults; mods remain explicit overrides or extensions.
 - Inspect existing code and tests before editing. Preserve unrelated work in a dirty worktree and change the layer that
   owns the behavior.
 - Gameplay, authoritative world ticking, permission systems, persistence policy, and a general-purpose Minecraft server
@@ -35,6 +38,12 @@ Runtime libraries are arranged from reusable formats and models toward connectio
 | `protocol-server`           | Server orchestration through entry into Play plus finite initial-view projection        |
 | `world-format`              | Filesystem-independent world schemas, data packs, Anvil containers, and semantic chunks |
 | `world-io`                  | Okio paths, world leases, files, and filesystem-backed stores                           |
+
+Use the representation-stage names consistently across module boundaries: `DataPackArchive` is raw file bytes,
+`DataPack` is parsed content, `DataPackStack`/`ResolvedDataPackStack` are priority views, `ResolvedProtocolData` is the
+server-side Configuration projection, `DataPackConfigurationSnapshot` is the client-visible capture, and
+`ClientRegistryView` is its resolved lookup view. Variables use the corresponding lower-camel name where the full type
+name remains readable.
 
 Private development infrastructure has separate boundaries:
 

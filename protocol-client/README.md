@@ -31,13 +31,16 @@ suspend fun queryStatus(
 }
 ```
 
-The result contains the server's `StatusResponsePacket` and matching `StatusPongResponsePacket`. Status cannot continue
-into Login; close it and open a new connection when joining.
+The result exposes the server's `StatusResponsePacket` as `statusResponsePacket` and the matching
+`StatusPongResponsePacket` as `statusPongResponsePacket`. Status cannot continue into Login; close it and open a new
+connection when joining.
 
 ## Enter Play
 
 The preset negotiation handles compression, optional encryption, cookies, Login queries, client information, Known
-Packs, synchronized registries, tags, and Finish Configuration.
+Packs, synchronized registries, tags, and Finish Configuration. For an ordinary vanilla connection,
+`MinecraftClientConnection.connect` supplies the packet definition and transport defaults, while `negotiate` supplies
+the vanilla profile and release-matched Configuration defaults:
 
 ```kotlin
 suspend fun playOffline(
@@ -46,8 +49,7 @@ suspend fun playOffline(
     handlePacket: suspend (ClientboundPacket) -> Unit,
 ) {
     MinecraftClientConnection.connect(selectorManager, host).use { connection ->
-        val result = connection.negotiate(MinecraftOfflineIdentity("Player"))
-        val initialDimension = result.dimensionLayout
+        connection.negotiate(MinecraftOfflineIdentity("Player"))
 
         for (packet in connection.incoming) {
             handlePacket(packet)
@@ -70,8 +72,8 @@ reached the transport's flush boundary.
 of Conduct decision, resource-pack response, local static registries, and handling of unrecognized negotiation queries:
 
 ```kotlin
-val options = MinecraftClientNegotiationOptions(
-    information = ClientInformation(
+val minecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(
+    clientInformation = ClientInformation(
         locale = "en_us",
         viewDistance = 12,
         chatMode = ChatMode.ENABLED,
@@ -85,15 +87,15 @@ val options = MinecraftClientNegotiationOptions(
     resourcePackResult = ResourcePackResult.ACCEPTED,
 )
 
-val result = connection.negotiate(
+val minecraftClientNegotiationResult = connection.negotiate(
     identity = MinecraftOfflineIdentity("Player"),
-    options = options,
+    options = minecraftClientNegotiationOptions,
 )
 ```
 
-The default `protocolData` is the release-matched vanilla data from [
-`protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md). Replace it when connecting with custom registry or
-data-pack definitions.
+No options object is required for vanilla. The default `protocolData`, static registry schema, and accepted Known Packs
+come from [`protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md). Pass options only to override client
+behavior or to connect with custom registry/data-pack definitions.
 
 ## Online Login
 
@@ -108,13 +110,13 @@ suspend fun playOnline(
     minecraftAccessToken: String,
     httpClient: HttpClient,
 ): MinecraftClientNegotiationResult {
-    val identity = MinecraftOnlineIdentity(
+    val minecraftOnlineIdentity = MinecraftOnlineIdentity(
         id = profileId,
         name = profileName,
         accessToken = minecraftAccessToken,
     )
     return connection.negotiate(
-        identity = identity,
+        identity = minecraftOnlineIdentity,
         sessionHttpClient = httpClient,
     )
 }
@@ -126,37 +128,38 @@ key-exchange APIs.
 
 ## Use received Configuration data
 
-`MinecraftClientNegotiationResult.configuration` retains the data-pack-related packets received during Configuration.
-The connection already contains the registry context resolved from those packets and the selected profile.
+`MinecraftClientNegotiationResult.dataPackConfigurationSnapshot` retains the data-pack-related values received during
+Configuration. The connection already contains the registry context resolved from those values and the selected profile.
 
-Convert both into a client runtime view:
+Convert both into a client registry view:
 
 ```kotlin
-suspend fun useConfigurationRuntime(
+suspend fun useClientRegistryView(
     connection: MinecraftClientConnection,
-    result: MinecraftClientNegotiationResult,
-    consume: suspend (ClientDataPackRuntime) -> Unit,
+    minecraftClientNegotiationResult: MinecraftClientNegotiationResult,
+    consume: suspend (ClientRegistryView) -> Unit,
 ) {
-    val runtime = result.toDataPackRuntime(connection)
-    consume(runtime)
+    val clientRegistryView = minecraftClientNegotiationResult.resolveClientRegistryView(connection)
+    consume(clientRegistryView)
 }
 ```
 
-The runtime exposes synchronized registries, block states, feature flags, and resolved tags. It cannot contain recipes,
-loot tables, functions, advancements, or other server-only data-pack files because Configuration does not transmit them.
+The snapshot retains synchronized registries and feature flags; the resolved view exposes registry entries, block
+states, and tags. Neither can contain recipes, loot tables, functions, advancements, or other server-only data-pack
+files because Configuration does not transmit them.
 
 For a hand-written Configuration flow, make each source explicit:
 
 ```kotlin
 fun resolveConfiguration(
-    configuration: MinecraftClientConfiguration,
-    protocolData: ProtocolDataSet,
-    staticRegistries: StaticRegistrySchema,
-    remoteRegistries: RemoteRegistrySnapshot,
-): ClientDataPackRuntime = configuration.toReceivedDataPackConfiguration().resolveRuntime(
+    dataPackConfigurationSnapshot: DataPackConfigurationSnapshot,
+    protocolData: ProtocolData,
+    staticRegistrySchema: StaticRegistrySchema,
+    remoteRegistrySnapshot: RemoteRegistrySnapshot,
+): ClientRegistryView = dataPackConfigurationSnapshot.resolveClientRegistryView(
     protocolData = protocolData,
-    staticRegistries = staticRegistries,
-    remoteRegistries = remoteRegistries,
+    staticRegistrySchema = staticRegistrySchema,
+    remoteRegistrySnapshot = remoteRegistrySnapshot,
 )
 ```
 
@@ -173,7 +176,7 @@ fun createChunkDecoder(
     result: MinecraftClientNegotiationResult,
     expectedDataVersion: Int,
 ): MinecraftChunkPacketDecoder = MinecraftChunkPacketDecoder(
-    registries = connection.registries,
+    protocolRegistryContext = connection.protocolRegistryContext,
     layout = result.chunkLayout,
     metadata = ChunkMetadata(
         dataVersion = expectedDataVersion,
@@ -204,8 +207,8 @@ fun decodeEntities(
     connection: MinecraftClientConnection,
     bundle: ClientboundBundlePacket,
 ): List<Entity<NbtCompound>>? {
-    val decoder = MinecraftEntityPacketDecoder(connection.registries)
-    return bundle.toEntitiesOrNull(decoder)
+    val minecraftEntityPacketDecoder = MinecraftEntityPacketDecoder(connection.protocolRegistryContext)
+    return bundle.toEntitiesOrNull(minecraftEntityPacketDecoder)
 }
 ```
 
@@ -227,19 +230,19 @@ suspend fun connectFabric(
     host: String,
     identity: MinecraftOfflineIdentity,
     extensionCodecs: List<PacketCodecRegistration<out Packet>>,
-    staticRegistries: StaticRegistrySchema,
+    staticRegistrySchema: StaticRegistrySchema,
 ): MinecraftClientNegotiationResult {
-    val definition = FabricProtocol.connectionDefinition(
+    val minecraftConnectionDefinition = FabricProtocol.connectionDefinition(
         extensionCodecs = extensionCodecs,
     )
     return MinecraftClientConnection.connect(
         selectorManager = selectorManager,
         host = host,
-        definition = definition,
+        definition = minecraftConnectionDefinition,
     ).use { connection ->
         connection.negotiate(
             identity = identity,
-            profile = FabricClientProfile(staticRegistries),
+            profile = FabricClientProfile(staticRegistrySchema),
         )
     }
 }
@@ -252,7 +255,7 @@ NeoForge and Forge definitions and profiles are documented in [
 ## Custom negotiation and lifetime
 
 Applications may implement their own Handshake/Login/Configuration flow using `incoming`, `outgoing`, `awaitState`,
-`installRegistryContext`, `activateExtensionRoutes`, authentication helpers, and profile hooks. The maintained [
+`installProtocolRegistryContext`, `activateExtensionRoutes`, authentication helpers, and profile hooks. The maintained [
 `negotiate` implementation](src/commonMain/kotlin/com/hiczp/minecraft/protocol/client/MinecraftClientProtocol.kt) is the
 complete source-level ordering reference.
 

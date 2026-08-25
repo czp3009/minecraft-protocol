@@ -59,7 +59,7 @@ class MinecraftProtocolFormatTest {
 
         val configuration = MinecraftProtocolFormatConfiguration(
             strictBooleans = false,
-            registries = testRegistryContext(chunkSectionCount = 24),
+            protocolRegistryContext = testProtocolRegistryContext(chunkSectionCount = 24),
         )
         val configured = MinecraftProtocolFormat(configuration)
 

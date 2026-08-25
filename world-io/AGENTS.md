@@ -35,6 +35,8 @@ configured filesystem runtimes only; browser and Wasm do not receive partial imp
   already-compressed built-in or registered CUSTOM payloads; callers do not control timestamps or external markers.
 - Reads, existence checks, and clears do not create missing region directories or files. A write may create them;
   clearing an existing final chunk leaves a valid empty MCA.
+- `WorldDataPackReader` treats enabled directory/ZIP data packs as immutable inputs for the lifetime of their use. It
+  takes no data-pack read lock or mutation coordinator; `session.lock` remains a property of the mutable world lease.
 - Region and metadata entries are active-operation pins, not idle caches. Final release flushes/closes and reports
   cleanup failure to the operation that owns it.
 

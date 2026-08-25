@@ -6,9 +6,9 @@ block-state, and tag lookups.
 
 ```text
 DataPackArchive -> DataPack -> DataPackStack -> ResolvedDataPackStack
-    -> DataPackProtocolProjection -> DataPackProtocolDataSet -> server Configuration packets
+    -> DataPackProtocolProjector -> ResolvedProtocolData -> server Configuration packets
 
-received Configuration packets -> ReceivedDataPackConfiguration -> ClientDataPackRuntime
+received Configuration packets -> DataPackConfigurationSnapshot -> ClientRegistryView
 ```
 
 Every stage is publicly constructible. Applications may start with parsed disk files from `world-io`, an archive from
@@ -18,46 +18,54 @@ packets. This module contains no bundled vanilla values and performs no filesyst
 ## Parse and resolve packs
 
 The filesystem-independent archive, parser, resource, overlay, filter, and stack types are owned by `world-format` and
-are exposed to this layer through its public dependency. `DataPackFormat` parses every file without imposing file-count
-or size policy. JSON remains a lossless `JsonElement` and can be decoded into caller-selected strong types; mods may
-provide `DataPackFileDecoder` and custom `DataPackFileContent` implementations.
+are exposed to this layer through its public dependency. `DataPackFormat` classifies every file without imposing
+file-count or size policy. JSON remains a lossless `JsonElement`; compressed NBT is decoded from retained in-memory
+bytes when its `nbtDocument` is requested; and mods may provide `DataPackFileDecoder` plus custom
+`DataPackFileContent` implementations.
 
-In the example, `packId` identifies the pack, `files` is its detached path-to-content map, `modDecoders` is the optional
-list supplied by a mod, and `selectedFormat` is the data-pack format selected by the caller:
+`WorldDataPackReader.readDataPack` parses directly while reading and need not retain a `DataPackArchive`. Use the
+archive stage only when the caller needs a complete raw byte snapshot.
+
+In the example, `dataPackId` identifies the pack, `dataPackFileBytesByPath` is its detached path-to-bytes map,
+`dataPackFileDecoders` is the optional list supplied by a mod, and `dataPackFormatVersion` is selected by the caller:
 
 ```kotlin
-val archive = DataPackArchive(packId, files)
-val pack = DataPackFormat(customDecoders = modDecoders).decode(archive)
-val stack = DataPackStack(pack)
-val resolved = stack.resolve(selectedFormat)
+val dataPackArchive = DataPackArchive(dataPackId, dataPackFileBytesByPath)
+val dataPack = DataPackFormat(dataPackFileDecoders = dataPackFileDecoders).decode(dataPackArchive)
+val dataPackStack = DataPackStack(dataPack)
+val resolvedDataPackStack = dataPackStack.resolve(dataPackFormatVersion)
 ```
 
 ## Build server Configuration data
 
-`ProtocolDataSet` is the final server/client negotiation boundary. Construct `DataPackProtocolDataSet` directly when a
-loader or application already owns exact Known Packs, registries, tags, static block schemas, and feature flags.
+`ProtocolData` is the final server/client negotiation boundary. Its properties are domain values rather than prebuilt
+Feature Flags or Update Tags packets. Construct `ResolvedProtocolData` directly when a loader or application already
+owns exact Known Packs, synchronized registries, registry tags, static block schemas, and feature flags.
 
-To derive it from resources, supply an explicit base and conversion policy. Here `stack` and `selectedFormat` come from
-the preceding parse example; `applicationProtocolDefaults`, `applicationRegistryProjectors`, and
+To derive it from resources, supply an explicit base and conversion policy. Here `dataPackStack` and
+`dataPackFormatVersion` come from the preceding parse example; `applicationProtocolDefaults`,
+`applicationRegistryProjectors`, and
 `applicationPreprojectedPackIds` are values explicitly selected by the application or loader:
 
 ```kotlin
-val projection = DataPackProtocolProjection(
-    base = applicationProtocolDefaults,
-    registryProjectors = applicationRegistryProjectors,
-    preprojectedPacks = applicationPreprojectedPackIds,
+val dataPackProtocolProjector = DataPackProtocolProjector(
+    baseProtocolData = applicationProtocolDefaults,
+    dataPackRegistryProjectors = applicationRegistryProjectors,
+    preprojectedDataPackIds = applicationPreprojectedPackIds,
 )
-val protocolData = stack.toProtocolDataSet(projection, selectedFormat)
+val resolvedProtocolData = dataPackStack.toProtocolData(dataPackProtocolProjector, dataPackFormatVersion)
 ```
 
 Disk JSON and synchronized network NBT are different codecs. A changed registry therefore requires a
-`DataPackSynchronizedRegistryProjector`; unresolved registry types are reported together through
-`MissingDataPackRegistryProjectors`. A projector failure becomes `DataPackRegistryProjectionException`, which retains
-the registry, resource, source pack, source path, and original cause. Filters, overlays, enabled feature flags, and tags
-are projected generically.
+`DataPackRegistryProjector`; unresolved registry types are reported together through
+`MissingDataPackRegistryProjectorsException`. A projector failure becomes `DataPackRegistryProjectionException`, which
+retains the registry ID, registry-entry ID, source data-pack ID, source file path, and original cause. Filters,
+overlays, enabled feature flags, and tags are projected generically.
 
-For generated official defaults and the shorter `toVanillaProtocolDataSet` path, add
-[`protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md).
+That explicit policy is the vanilla-neutral contract of this module. For generated official defaults—including
+release-matched projectors for every synchronized vanilla registry—and the zero-argument `toVanillaProtocolData()`
+path, add [`protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md). Mod projectors can override or extend
+those defaults, while constructing `DataPackProtocolProjector` directly remains the full replacement escape hatch.
 
 ## Resolve client Configuration data
 
@@ -70,16 +78,16 @@ defaults and local schemas come from the client implementation, while `loaderReg
 loader, or is `RemoteRegistrySnapshot.Empty` on an unmodded client:
 
 ```kotlin
-val received = ReceivedDataPackConfiguration(
-    knownPacks = receivedKnownPacks,
-    featureFlags = receivedFeatureFlags,
-    registries = receivedRegistryPackets,
-    tags = receivedTags,
+val dataPackConfigurationSnapshot = DataPackConfigurationSnapshot(
+    offeredKnownPacks = receivedOfferedKnownPacks,
+    enabledFeatureFlags = receivedFeatureFlags,
+    synchronizedRegistryPackets = receivedRegistryPackets,
+    registryTags = receivedRegistryTags,
 )
-val runtime = received.resolveRuntime(
+val clientRegistryView = dataPackConfigurationSnapshot.resolveClientRegistryView(
     protocolData = matchingProtocolDefaults,
-    staticRegistries = localVanillaAndModSchemas,
-    remoteRegistries = loaderRegistrySnapshot,
+    staticRegistrySchema = localVanillaAndModSchemas,
+    remoteRegistrySnapshot = loaderRegistrySnapshot,
 )
 ```
 

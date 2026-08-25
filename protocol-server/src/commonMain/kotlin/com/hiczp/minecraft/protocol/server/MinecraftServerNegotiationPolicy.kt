@@ -22,13 +22,13 @@ interface MinecraftServerNegotiationPolicy {
         options: MinecraftServerNegotiationOptions,
     ): JsonTextComponent? = null
 
-    suspend fun playLogin(
+    suspend fun createPlayLoginPacket(
         gameProfile: GameProfile,
         clientInformation: ClientInformation,
         transferred: Boolean,
         onlineMode: Boolean,
         options: MinecraftServerNegotiationOptions,
-    ): PlayLoginPacket = options.playLogin(gameProfile, onlineMode)
+    ): PlayLoginPacket = options.createPlayLoginPacket(gameProfile, onlineMode)
 
     suspend fun configurationPackets(
         gameProfile: GameProfile,
@@ -58,7 +58,7 @@ sealed interface ServerNegotiationQueryResult {
     data object Pass : ServerNegotiationQueryResult
 
     data class Respond(
-        val packets: List<ClientboundPacket>,
+        val clientboundPackets: List<ClientboundPacket>,
     ) : ServerNegotiationQueryResult
 
     data class Reject(
@@ -67,10 +67,10 @@ sealed interface ServerNegotiationQueryResult {
 }
 
 class MinecraftServerNegotiationTask(
-    packets: List<ClientboundPacket>,
+    clientboundPackets: List<ClientboundPacket>,
     private val completion: suspend (ServerboundPacket) -> Boolean,
 ) {
-    val packets: List<ClientboundPacket> = packets.toList()
+    val clientboundPackets: List<ClientboundPacket> = clientboundPackets.toList()
 
     suspend fun isComplete(packet: ServerboundPacket): Boolean =
         completion(packet)

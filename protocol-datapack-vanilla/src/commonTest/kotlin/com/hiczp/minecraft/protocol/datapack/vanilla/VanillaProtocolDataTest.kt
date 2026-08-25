@@ -5,8 +5,8 @@ import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.nbt.NbtTag
 import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
-import com.hiczp.minecraft.protocol.datapack.completeRegistryPackets
-import com.hiczp.minecraft.protocol.datapack.requireRegistry
+import com.hiczp.minecraft.protocol.datapack.completeSynchronizedRegistryPackets
+import com.hiczp.minecraft.protocol.datapack.requireRegistryPacket
 import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.KnownPack
@@ -16,20 +16,22 @@ import kotlin.test.*
 class VanillaProtocolDataTest {
     @Test
     fun exposesACompleteOfficialConfigurationSnapshot() {
-        val data = VanillaProtocolData
-        val complete = data.registryPackets(emptyList())
+        val protocolData = VanillaProtocolData
+        val completeSynchronizedRegistryPackets = protocolData.synchronizedRegistryPackets(emptyList())
 
-        assertTrue(data.knownPacks.isNotEmpty())
-        assertTrue(data.featureFlags.featureFlags.isNotEmpty())
-        assertTrue(complete.isNotEmpty())
-        assertTrue(complete.all { packet -> packet.entries.all { it.data != null } })
-        assertTrue(data.tags.registries.isNotEmpty())
-        val biomePacket = complete.single {
-            it.registryId == Identifier("worldgen/biome")
+        assertTrue(protocolData.offeredKnownPacks.isNotEmpty())
+        assertTrue(protocolData.enabledFeatureFlags.isNotEmpty())
+        assertTrue(completeSynchronizedRegistryPackets.isNotEmpty())
+        assertTrue(completeSynchronizedRegistryPackets.all { registryDataPacket ->
+            registryDataPacket.entries.all { it.data != null }
+        })
+        assertTrue(protocolData.registryTags.isNotEmpty())
+        val biomeRegistryPacket = completeSynchronizedRegistryPackets.single { registryDataPacket ->
+            registryDataPacket.registryId == Identifier("worldgen/biome")
         }
         assertEquals(
-            biomePacket.entries.map { it.id },
-            data.registryContext.requireRegistry(biomePacket.registryId)
+            biomeRegistryPacket.entries.map { it.id },
+            protocolData.completeProtocolRegistryContext.requireRegistry(biomeRegistryPacket.registryId)
                 .entries
                 .sortedBy { it.rawId }
                 .map { it.id },
@@ -38,110 +40,121 @@ class VanillaProtocolDataTest {
 
     @Test
     fun exactKnownPacksSelectionUsesTheCompactOfficialBranch() {
-        val data = VanillaProtocolData
-        val complete = data.registryPackets(emptyList())
-        val compact = data.registryPackets(data.knownPacks)
+        val protocolData = VanillaProtocolData
+        val completeSynchronizedRegistryPackets = protocolData.synchronizedRegistryPackets(emptyList())
+        val knownPackSynchronizedRegistryPackets =
+            protocolData.synchronizedRegistryPackets(protocolData.offeredKnownPacks)
 
-        assertEquals(complete.map { it.registryId }, compact.map { it.registryId })
         assertEquals(
-            complete.map { packet -> packet.entries.map { it.id } },
-            compact.map { packet -> packet.entries.map { it.id } },
+            completeSynchronizedRegistryPackets.map { it.registryId },
+            knownPackSynchronizedRegistryPackets.map { it.registryId },
         )
-        assertTrue(compact.all { packet -> packet.entries.all { it.data == null } })
-        assertNotEquals(complete, compact)
+        assertEquals(
+            completeSynchronizedRegistryPackets.map { registryDataPacket ->
+                registryDataPacket.entries.map { it.id }
+            },
+            knownPackSynchronizedRegistryPackets.map { registryDataPacket ->
+                registryDataPacket.entries.map { it.id }
+            },
+        )
+        assertTrue(knownPackSynchronizedRegistryPackets.all { registryDataPacket ->
+            registryDataPacket.entries.all { it.data == null }
+        })
+        assertNotEquals(completeSynchronizedRegistryPackets, knownPackSynchronizedRegistryPackets)
     }
 
     @Test
     fun anyNonExactKnownPacksSelectionUsesCompleteData() {
-        val data = VanillaProtocolData
-        val unknown = KnownPack("example", "not-vanilla", "1")
+        val protocolData = VanillaProtocolData
+        val unknownKnownPack = KnownPack("example", "not-vanilla", "1")
 
         assertEquals(
-            data.registryPackets(emptyList()),
-            data.registryPackets(data.knownPacks + unknown),
+            protocolData.synchronizedRegistryPackets(emptyList()),
+            protocolData.synchronizedRegistryPackets(protocolData.offeredKnownPacks + unknownKnownPack),
         )
     }
 
     @Test
-    fun exposesOfficialStaticRegistryAndBlockStateIds() {
-        val entityTypes = VanillaStaticData.requireRegistry(
+    fun exposesOfficialRegistryAndBlockStateIds() {
+        val entityTypes = VanillaRegistryData.requireRegistry(
             Identifier("entity_type"),
         )
         val pig = Identifier("pig")
         val air = Identifier("air")
         val grass = Identifier("grass_block")
 
-        assertEquals(pig, entityTypes[entityTypes.requireProtocolId(pig)])
+        assertEquals(pig, entityTypes[entityTypes.requireRawId(pig)])
         assertEquals(
             air,
-            VanillaStaticData.blockStates.require(0).block,
+            VanillaRegistryData.vanillaBlockStateRegistry.require(0).blockId,
         )
         assertEquals(
-            VanillaStaticData.requireRegistry(Identifier("block"))
-                .requireProtocolId(grass),
-            VanillaStaticData.blockStates.default(grass).block.let {
-                VanillaStaticData.requireRegistry(Identifier("block"))
-                    .requireProtocolId(it)
+            VanillaRegistryData.requireRegistry(Identifier("block"))
+                .requireRawId(grass),
+            VanillaRegistryData.vanillaBlockStateRegistry.default(grass).blockId.let {
+                VanillaRegistryData.requireRegistry(Identifier("block"))
+                    .requireRawId(it)
             },
         )
-        assertTrue(VanillaStaticData.blockStates.size > 1)
+        assertTrue(VanillaRegistryData.vanillaBlockStateRegistry.size > 1)
     }
 
     @Test
     fun derivesChunkContextFromSynchronizedDimensionData() {
-        val layout = MinecraftDimensionLayout.from(
+        val minecraftDimensionLayout = MinecraftDimensionLayout.from(
             VanillaProtocolData,
             Identifier("overworld"),
         )
-        val fromClientRegistry = MinecraftDimensionLayout.from(
-            VanillaProtocolData.completeRegistryPackets(),
-            layout.registryId,
+        val clientMinecraftDimensionLayout = MinecraftDimensionLayout.from(
+            VanillaProtocolData.completeSynchronizedRegistryPackets(),
+            minecraftDimensionLayout.dimensionTypeRawId,
         )
 
-        assertEquals(0, layout.minY % 16)
-        assertEquals(0, layout.height % 16)
-        assertEquals(layout.height / 16, layout.sectionCount)
-        assertTrue(layout.hasSkyLight)
-        assertEquals(layout, fromClientRegistry)
+        assertEquals(0, minecraftDimensionLayout.minY % 16)
+        assertEquals(0, minecraftDimensionLayout.height % 16)
+        assertEquals(minecraftDimensionLayout.height / 16, minecraftDimensionLayout.sectionCount)
+        assertTrue(minecraftDimensionLayout.hasSkyLight)
+        assertEquals(minecraftDimensionLayout, clientMinecraftDimensionLayout)
         assertEquals(
             Identifier("overworld"),
-            VanillaProtocolData.requireRegistry(
+            VanillaProtocolData.requireRegistryPacket(
                 Identifier("dimension_type"),
-            ).entries[layout.registryId].id,
+            ).entries[minecraftDimensionLayout.dimensionTypeRawId].id,
         )
     }
 
     @Test
     fun committedRegistryAndTagSnapshotsAreStructurallyUnambiguous() {
-        val complete = VanillaProtocolData.completeRegistryPackets()
-        val compact = VanillaProtocolData.registryPackets(
-            VanillaProtocolData.knownPacks,
+        val completeSynchronizedRegistryPackets = VanillaProtocolData.completeSynchronizedRegistryPackets()
+        val knownPackSynchronizedRegistryPackets = VanillaProtocolData.synchronizedRegistryPackets(
+            VanillaProtocolData.offeredKnownPacks,
         )
 
         assertEquals(
-            complete.size,
-            complete.map { it.registryId }.distinct().size,
+            completeSynchronizedRegistryPackets.size,
+            completeSynchronizedRegistryPackets.map { it.registryId }.distinct().size,
         )
-        complete.zip(compact).forEach { (full, known) ->
-            assertEquals(full.registryId, known.registryId)
+        completeSynchronizedRegistryPackets.zip(knownPackSynchronizedRegistryPackets)
+            .forEach { (completeRegistry, knownPackRegistry) ->
+                assertEquals(completeRegistry.registryId, knownPackRegistry.registryId)
             assertEquals(
-                full.entries.size,
-                full.entries.map { it.id }.distinct().size,
+                completeRegistry.entries.size,
+                completeRegistry.entries.map { it.id }.distinct().size,
             )
-            assertTrue(full.entries.all { it.data != null })
-            assertTrue(known.entries.all { it.data == null })
+                assertTrue(completeRegistry.entries.all { it.data != null })
+                assertTrue(knownPackRegistry.entries.all { it.data == null })
         }
 
-        val tags = VanillaProtocolData.tags.registries
-        assertEquals(tags.size, tags.map { it.registry }.distinct().size)
-        tags.forEach { registryTags ->
+        val registryTags = VanillaProtocolData.registryTags
+        assertEquals(registryTags.size, registryTags.map { it.registry }.distinct().size)
+        registryTags.forEach { registryTags ->
             assertEquals(
                 registryTags.tags.size,
                 registryTags.tags.map { it.name }.distinct().size,
             )
             val registrySize =
-                VanillaStaticData.registry(registryTags.registry)?.size
-                    ?: complete
+                VanillaRegistryData.registry(registryTags.registry)?.size
+                    ?: completeSynchronizedRegistryPackets
                         .singleOrNull {
                             it.registryId == registryTags.registry
                         }
@@ -159,54 +172,54 @@ class VanillaProtocolDataTest {
     }
 
     @Test
-    fun committedStaticDataHasBijectiveIdsAndCanonicalBlockStates() {
-        VanillaStaticData.registries.forEach { (id, registry) ->
-            assertEquals(id, registry.id)
+    fun committedRegistryDataHasBijectiveIdsAndCanonicalBlockStates() {
+        VanillaRegistryData.vanillaRegistries.forEach { (registryId, vanillaRegistry) ->
+            assertEquals(registryId, vanillaRegistry.registryId)
             assertEquals(
-                registry.entries.size,
-                registry.entries.distinct().size,
+                vanillaRegistry.registryEntryIds.size,
+                vanillaRegistry.registryEntryIds.distinct().size,
             )
-            registry.entries.forEachIndexed { index, entry ->
-                assertEquals(index, registry.protocolId(entry))
-                assertEquals(entry, registry[index])
+            vanillaRegistry.registryEntryIds.forEachIndexed { rawId, registryEntryId ->
+                assertEquals(rawId, vanillaRegistry.rawId(registryEntryId))
+                assertEquals(registryEntryId, vanillaRegistry[rawId])
             }
-            assertNull(registry[-1])
-            assertNull(registry[registry.size])
+            assertNull(vanillaRegistry[-1])
+            assertNull(vanillaRegistry[vanillaRegistry.size])
         }
 
-        val states = VanillaStaticData.blockStates.states
-        states.forEachIndexed { index, state ->
-            assertEquals(index, state.id)
-            assertEquals(state, VanillaStaticData.blockStates[index])
+        val vanillaBlockStates = VanillaRegistryData.vanillaBlockStateRegistry.vanillaBlockStates
+        vanillaBlockStates.forEachIndexed { rawId, vanillaBlockState ->
+            assertEquals(rawId, vanillaBlockState.rawId)
+            assertEquals(vanillaBlockState, VanillaRegistryData.vanillaBlockStateRegistry[rawId])
             assertEquals(
-                state,
-                VanillaStaticData.blockStates.find(
-                    state.block,
-                    state.properties,
+                vanillaBlockState,
+                VanillaRegistryData.vanillaBlockStateRegistry.find(
+                    vanillaBlockState.blockId,
+                    vanillaBlockState.properties,
                 ),
             )
         }
-        states.groupBy(VanillaBlockState::block).forEach { (block, values) ->
-            assertEquals(1, values.count(VanillaBlockState::isDefault))
+        vanillaBlockStates.groupBy(VanillaBlockState::blockId).forEach { (blockId, blockStates) ->
+            assertEquals(1, blockStates.count(VanillaBlockState::isDefault))
             assertEquals(
-                values.size,
-                values.map(VanillaBlockState::properties).distinct().size,
+                blockStates.size,
+                blockStates.map(VanillaBlockState::properties).distinct().size,
             )
             assertEquals(
-                values.single(VanillaBlockState::isDefault),
-                VanillaStaticData.blockStates.default(block),
+                blockStates.single(VanillaBlockState::isDefault),
+                VanillaRegistryData.vanillaBlockStateRegistry.default(blockId),
             )
         }
         assertEquals(
-            VanillaStaticData.requireRegistry(Identifier("block"))
-                .entries
+            VanillaRegistryData.requireRegistry(Identifier("block"))
+                .registryEntryIds
                 .toSet(),
-            states.map(VanillaBlockState::block).toSet(),
+            vanillaBlockStates.map(VanillaBlockState::blockId).toSet(),
         )
     }
 
     @Test
-    fun rejectsAmbiguousStaticCataloguesAndMalformedDimensionData() {
+    fun rejectsAmbiguousRegistryCataloguesAndMalformedDimensionData() {
         val duplicate = Identifier("test:duplicate")
         assertFailsWith<IllegalArgumentException> {
             VanillaRegistry(
@@ -218,8 +231,8 @@ class VanillaProtocolDataTest {
             VanillaBlockStateRegistry(
                 listOf(
                     VanillaBlockState(
-                        id = 1,
-                        block = Identifier("test:block"),
+                        rawId = 1,
+                        blockId = Identifier("test:block"),
                         properties = emptyMap(),
                         isDefault = true,
                     ),
@@ -230,14 +243,14 @@ class VanillaProtocolDataTest {
             VanillaBlockStateRegistry(
                 listOf(
                     VanillaBlockState(
-                        id = 0,
-                        block = Identifier("test:block"),
+                        rawId = 0,
+                        blockId = Identifier("test:block"),
                         properties = emptyMap(),
                         isDefault = true,
                     ),
                     VanillaBlockState(
-                        id = 1,
-                        block = Identifier("test:block"),
+                        rawId = 1,
+                        blockId = Identifier("test:block"),
                         properties = emptyMap(),
                         isDefault = false,
                     ),
@@ -246,7 +259,7 @@ class VanillaProtocolDataTest {
         }
 
         val dimensionRegistry = Identifier("dimension_type")
-        fun layout(data: NbtTag?): MinecraftDimensionLayout =
+        fun minecraftDimensionLayout(data: NbtTag?): MinecraftDimensionLayout =
             MinecraftDimensionLayout.from(
                 listOf(
                     RegistryDataPacket(
@@ -269,10 +282,10 @@ class VanillaProtocolDataTest {
                 ),
             ),
         ).forEach { invalid ->
-            assertFailsWith<IllegalStateException> { layout(invalid) }
+            assertFailsWith<IllegalStateException> { minecraftDimensionLayout(invalid) }
         }
         assertFailsWith<IllegalArgumentException> {
-            layout(
+            minecraftDimensionLayout(
                 NbtCompound(
                     mapOf(
                         "min_y" to NbtInt(0),

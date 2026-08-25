@@ -26,7 +26,7 @@ interface MinecraftPacketConnection<
     /** Closing this channel drains packets already accepted by it, then closes the connection. */
     val outgoing: SendChannel<Outgoing>
     val state: ConnectionState
-    val registries: ProtocolRegistryContext
+    val protocolRegistryContext: ProtocolRegistryContext
     val declaredExtensionRoutes: Set<PacketRouteKey>
     val activeExtensionRoutes: Set<PacketRouteKey>
     val isOpen: Boolean
@@ -34,7 +34,7 @@ interface MinecraftPacketConnection<
     /** Returns on an orderly close and throws the original wire/pump failure. */
     suspend fun awaitClosed()
 
-    fun installRegistryContext(context: ProtocolRegistryContext)
+    fun installProtocolRegistryContext(protocolRegistryContext: ProtocolRegistryContext)
 
     fun activateExtensionRoutes(routes: Set<PacketRouteKey>)
 
@@ -64,8 +64,8 @@ class MinecraftConnectionDefinition(
     val incomingCapacity: Int = DEFAULT_CHANNEL_CAPACITY,
     val outgoingCapacity: Int = DEFAULT_CHANNEL_CAPACITY,
 ) {
-    val registries: ProtocolRegistryContext
-        get() = format.configuration.registries
+    val protocolRegistryContext: ProtocolRegistryContext
+        get() = format.configuration.protocolRegistryContext
 
     companion object {
         const val DEFAULT_CHANNEL_CAPACITY: Int = 16
@@ -119,8 +119,8 @@ internal abstract class MinecraftConnectionEngine<
     override val state: ConnectionState
         get() = session.state
 
-    override val registries: ProtocolRegistryContext
-        get() = session.registries
+    override val protocolRegistryContext: ProtocolRegistryContext
+        get() = session.protocolRegistryContext
 
     override val declaredExtensionRoutes: Set<PacketRouteKey>
         get() = session.declaredExtensionRoutes
@@ -136,10 +136,10 @@ internal abstract class MinecraftConnectionEngine<
         connectionScope.launch { runWriter() }
     }
 
-    override fun installRegistryContext(context: ProtocolRegistryContext) {
+    override fun installProtocolRegistryContext(protocolRegistryContext: ProtocolRegistryContext) {
         ensureOpen()
-        session.installRegistryContext(context)
-        registryContextInstalled(context)
+        session.installProtocolRegistryContext(protocolRegistryContext)
+        protocolRegistryContextInstalled(protocolRegistryContext)
     }
 
     override suspend fun awaitClosed() {
@@ -316,7 +316,7 @@ internal abstract class MinecraftConnectionEngine<
 
     protected open suspend fun afterIncomingPacket(packet: Incoming) = Unit
 
-    protected open fun registryContextInstalled(context: ProtocolRegistryContext) = Unit
+    protected open fun protocolRegistryContextInstalled(protocolRegistryContext: ProtocolRegistryContext) = Unit
 
     protected open suspend fun writeOutgoingPacket(packet: Outgoing) {
         sendPacket(packet)

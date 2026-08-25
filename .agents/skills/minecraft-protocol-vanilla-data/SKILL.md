@@ -1,6 +1,6 @@
 ---
 name: minecraft-protocol-vanilla-data
-description: Implement, update, test, or audit the selected release's official vanilla protocol-data pipeline and handwritten consumers. Use for official packet/registry/block reports, protocol constants, static registries, block-state palettes, Configuration capture, Known Packs branches, synchronized registries, feature flags, tags, VanillaStaticData, VanillaProtocolData, ProtocolDataSet, MinecraftDimensionLayout, or the Gradle analyzers and generators that own those artifacts. Never use this skill to hand-edit generated payload source.
+description: Implement, update, test, or audit the selected release's official vanilla protocol-data pipeline and handwritten consumers. Use for official packet/registry/block reports, protocol constants, official datapacks, static registries, block-state palettes, Configuration capture, Known Packs branches, synchronized registries, feature flags, tags, VanillaDataPacks, VanillaRegistryData, VanillaProtocolData, ProtocolData, ResolvedProtocolData, DataPackConfigurationSnapshot, ClientRegistryView, MinecraftDimensionLayout, or the Gradle analyzers and generators that own those artifacts. Never use this skill to hand-edit generated payload source.
 ---
 
 # Minecraft vanilla protocol data
@@ -17,8 +17,8 @@ The handwritten surface includes official analyzer/capture/generator implementat
 used by loaders. The following generated Kotlin is read-only:
 
 - `MinecraftProtocol.kt`;
-- `VanillaStaticDataPayloads.kt`;
-- `VanillaConfigurationPayloads.kt`;
+- `VanillaRegistryDataPayloads.kt`;
+- `VanillaConfigurationPacketPayloads.kt`;
 - `VanillaDataPackPayload.kt` and every `VanillaDataPackPayloadBatch*.kt`.
 
 KSP-generated protocol dispatch is also read-only. Do not copy generated payloads or analysis JSON into source

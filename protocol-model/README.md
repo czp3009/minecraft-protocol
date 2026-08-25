@@ -18,13 +18,13 @@ Models contain values and invariants; binary byte layout is supplied by a `kotli
 encode or send them:
 
 ```kotlin
-val handshake: ServerboundPacket = HandshakePacket(
+val handshakePacket: ServerboundPacket = HandshakePacket(
     protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
     serverAddress = "localhost",
     serverPort = 25_565,
     nextState = HandshakeNextState.STATUS,
 )
-val request: ServerboundPacket = StatusRequestPacket
+val statusRequestPacket: ServerboundPacket = StatusRequestPacket
 ```
 
 ## Structured values and sealed variants
@@ -33,7 +33,7 @@ Conditional protocol shapes are ordinary Kotlin types, so application logic stay
 components are typical examples. Here `stoneId` is the raw item ID obtained from the active item registry:
 
 ```kotlin
-val stack: ItemStack = ItemStack.Present(
+val itemStack: ItemStack = ItemStack.Present(
     count = 32,
     itemId = stoneId,
     components = DataComponentPatch(
@@ -41,20 +41,20 @@ val stack: ItemStack = ItemStack.Present(
     ),
 )
 
-fun stackCount(stack: ItemStack): Int = when (stack) {
+fun itemStackCount(itemStack: ItemStack): Int = when (itemStack) {
     ItemStack.Empty -> 0
-    is ItemStack.Present -> stack.count
+    is ItemStack.Present -> itemStack.count
 }
 ```
 
 Immutable registry models resolve locally known block-state schemas against a loader-provided remote snapshot. In the
-example, `staticSchema` is constructed from the client's local vanilla/mod catalogue and `remoteSnapshot` is received
-from its loader negotiation:
+example, `staticRegistrySchema` is constructed from the client's local vanilla/mod catalogue and
+`remoteRegistrySnapshot` is received from its loader negotiation:
 
 ```kotlin
-val context: ProtocolRegistryContext = staticSchema.resolve(remoteSnapshot)
+val protocolRegistryContext: ProtocolRegistryContext = staticRegistrySchema.resolve(remoteRegistrySnapshot)
 
-val biomes = context.registry(ProtocolRegistryContext.BIOME_REGISTRY)
+val biomeIds = protocolRegistryContext.registry(ProtocolRegistryContext.BIOME_REGISTRY)
     ?.entries
     ?.map { entry -> entry.id }
 ```

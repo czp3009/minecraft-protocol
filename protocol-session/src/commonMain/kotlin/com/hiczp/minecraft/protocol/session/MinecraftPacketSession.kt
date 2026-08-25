@@ -48,8 +48,8 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
     val format: MinecraftProtocolFormat
         get() = formatValue.value
 
-    val registries: ProtocolRegistryContext
-        get() = formatValue.value.configuration.registries
+    val protocolRegistryContext: ProtocolRegistryContext
+        get() = formatValue.value.configuration.protocolRegistryContext
 
     val declaredExtensionRoutes: Set<PacketRouteKey>
         get() = packetRegistry.declaredExtensionRoutes
@@ -57,10 +57,10 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
     val activeExtensionRoutes: Set<PacketRouteKey>
         get() = activeRoutesValue.value
 
-    fun installRegistryContext(context: ProtocolRegistryContext) {
+    fun installProtocolRegistryContext(protocolRegistryContext: ProtocolRegistryContext) {
         val current = formatValue.value
         formatValue.value = MinecraftProtocolFormat(
-            configuration = current.configuration.copy(registries = context),
+            configuration = current.configuration.copy(protocolRegistryContext = protocolRegistryContext),
             serializersModule = current.serializersModule,
         )
     }

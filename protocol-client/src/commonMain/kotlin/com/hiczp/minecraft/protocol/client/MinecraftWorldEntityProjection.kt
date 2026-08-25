@@ -43,9 +43,10 @@ interface MinecraftEntityPacketAdapter<E : Any> {
  * runtime-only pairing state into the caller's client simulation.
  */
 class MinecraftEntityPacketDecoder(
-    val registries: ProtocolRegistryContext,
+    val protocolRegistryContext: ProtocolRegistryContext,
 ) {
-    private val entityTypes = registries.requireRegistry(ProtocolRegistryContext.ENTITY_TYPE_REGISTRY)
+    private val entityTypeProtocolRegistry =
+        protocolRegistryContext.requireRegistry(ProtocolRegistryContext.ENTITY_TYPE_REGISTRY)
 
     fun decode(packet: SpawnEntityPacket): Entity<NbtCompound> = decode(packet, NbtCompound(emptyMap()))
 
@@ -162,7 +163,7 @@ class MinecraftEntityPacketDecoder(
         return entity
     }
 
-    private fun type(packet: SpawnEntityPacket): Identifier = entityTypes[packet.typeId]?.id
+    private fun type(packet: SpawnEntityPacket): Identifier = entityTypeProtocolRegistry[packet.typeId]?.id
         ?: throw IllegalArgumentException("Entity type registry ID ${packet.typeId} has no installed entry")
 
     private fun <E : Any> createEntity(

@@ -19,81 +19,89 @@ abstract class ExtractOfficialMinecraftDataPacksTask : MinecraftProtocolToolTask
 
     @TaskAction
     fun extract() {
-        val jar = implementationJar.asFile.get().toPath()
-        check(jar.isRegularFile()) { "Official server implementation JAR is missing: $jar" }
-        val version = minecraftVersion.get()
-        val output = outputDirectory.asFile.get().toPath()
-        output.deleteTree()
-        val packIds = linkedSetOf(CORE_PACK_ID)
-        var fileCount = 0
-        ZipFile(jar.toFile()).use { archive ->
-            val versionEntry = archive.getEntry(VERSION_FILE)
+        val implementationJarPath = implementationJar.asFile.get().toPath()
+        check(implementationJarPath.isRegularFile()) {
+            "Official server implementation JAR is missing: $implementationJarPath"
+        }
+        val minecraftVersion = minecraftVersion.get()
+        val outputDirectoryPath = outputDirectory.asFile.get().toPath()
+        outputDirectoryPath.deleteTree()
+        val dataPackIds = linkedSetOf(CORE_DATA_PACK_ID)
+        var dataPackFileCount = 0
+        ZipFile(implementationJarPath.toFile()).use { implementationArchive ->
+            val versionArchiveEntry = implementationArchive.getEntry(VERSION_FILE)
                 ?: error("Official server implementation has no $VERSION_FILE")
-            val versionJson = protocolJson.decodeFromString<JsonObject>(archive.getInputStream(versionEntry).use { it.readBytes() }.decodeToString())
-            check(versionJson.getValue("id").jsonPrimitive.content == version) {
+            val versionJson = protocolJson.decodeFromString<JsonObject>(
+                implementationArchive.getInputStream(versionArchiveEntry).use { it.readBytes() }.decodeToString(),
+            )
+            check(versionJson.getValue("id").jsonPrimitive.content == minecraftVersion) {
                 "Official implementation JAR targets a different Minecraft release"
             }
-            val dataFormat = versionJson.getValue("pack_version").jsonObject
-            val dataMajor = dataFormat.getValue("data_major").jsonPrimitive.int
-            val dataMinor = dataFormat.getValue("data_minor").jsonPrimitive.int
-            archive.entries().asSequence()
+            val dataPackFormatJson = versionJson.getValue("pack_version").jsonObject
+            val dataPackFormatMajor = dataPackFormatJson.getValue("data_major").jsonPrimitive.int
+            val dataPackFormatMinor = dataPackFormatJson.getValue("data_minor").jsonPrimitive.int
+            implementationArchive.entries().asSequence()
                 .filterNot { it.isDirectory }
                 .filter { it.name.startsWith(DATA_PREFIX) }
                 .sortedBy { it.name }
-                .forEach { entry ->
-                    validateJarPath(entry.name)
-                    val builtIn = parseBuiltInPath(entry.name)
-                    val packId = builtIn?.first ?: CORE_PACK_ID
-                    val relative = builtIn?.second ?: entry.name
-                    packIds += packId
-                    val bytes = archive.getInputStream(entry).use { it.readBytes() }
-                    output.resolve("packs").resolve(packId).resolve(relative).atomicWrite(bytes)
-                    fileCount++
+                .forEach { archiveEntry ->
+                    validateJarEntryPath(archiveEntry.name)
+                    val builtInDataPackFile = parseBuiltInDataPackFile(archiveEntry.name)
+                    val dataPackId = builtInDataPackFile?.dataPackId ?: CORE_DATA_PACK_ID
+                    val dataPackFilePath = builtInDataPackFile?.dataPackFilePath ?: archiveEntry.name
+                    dataPackIds += dataPackId
+                    val dataPackFileBytes = implementationArchive.getInputStream(archiveEntry).use { it.readBytes() }
+                    outputDirectoryPath.resolve("packs").resolve(dataPackId).resolve(dataPackFilePath)
+                        .atomicWrite(dataPackFileBytes)
+                    dataPackFileCount++
                 }
-            check(fileCount > 0) { "Official implementation JAR contains no data-pack files" }
-            val manifest = buildJsonObject {
+            check(dataPackFileCount > 0) { "Official implementation JAR contains no data-pack files" }
+            val dataPackManifest = buildJsonObject {
                 put("schema_version", EXTRACTION_SCHEMA_VERSION)
-                put("minecraft_version", version)
+                put("minecraft_version", minecraftVersion)
                 put(
                     "data_pack_format",
                     buildJsonArray {
-                        add(dataMajor)
-                        add(dataMinor)
+                        add(dataPackFormatMajor)
+                        add(dataPackFormatMinor)
                     },
                 )
                 put(
                     "packs",
                     buildJsonArray {
-                        packIds.forEach { packId -> add(packId) }
+                        dataPackIds.forEach { dataPackId -> add(dataPackId) }
                     },
                 )
-                put("file_count", fileCount)
+                put("file_count", dataPackFileCount)
             }
-            output.resolve(MANIFEST_FILE).writeJson(manifest, sortKeys = true)
+            outputDirectoryPath.resolve(MANIFEST_FILE).writeJson(dataPackManifest, sortKeys = true)
         }
-        logger.lifecycle("Extracted $fileCount official data-pack files: $output")
+        logger.lifecycle("Extracted $dataPackFileCount official data-pack files: $outputDirectoryPath")
     }
 
-    private fun parseBuiltInPath(path: String): Pair<String, String>? {
-        if (!path.startsWith(BUILT_IN_PREFIX)) return null
-        val remainder = path.removePrefix(BUILT_IN_PREFIX)
-        val packId = remainder.substringBefore('/')
-        val relative = remainder.substringAfter('/', missingDelimiterValue = "")
-        check(packId.matches(PACK_ID_PATTERN) && relative.isNotEmpty()) {
-            "Invalid built-in data-pack path in official JAR: $path"
+    private fun parseBuiltInDataPackFile(jarEntryPath: String): BuiltInDataPackFile? {
+        if (!jarEntryPath.startsWith(BUILT_IN_PREFIX)) return null
+        val relativeBuiltInDataPackPath = jarEntryPath.removePrefix(BUILT_IN_PREFIX)
+        val dataPackId = relativeBuiltInDataPackPath.substringBefore('/')
+        val dataPackFilePath = relativeBuiltInDataPackPath.substringAfter('/', missingDelimiterValue = "")
+        check(dataPackId.matches(PACK_ID_PATTERN) && dataPackFilePath.isNotEmpty()) {
+            "Invalid built-in data-pack path in official JAR: $jarEntryPath"
         }
-        return packId to relative
+        return BuiltInDataPackFile(dataPackId, dataPackFilePath)
     }
 
-    private fun validateJarPath(path: String) {
-        check('\\' !in path && !path.startsWith('/') && path.split('/').none { it == "." || it == ".." }) {
-            "Unsafe data-pack path in official JAR: $path"
+    private fun validateJarEntryPath(jarEntryPath: String) {
+        check(
+            '\\' !in jarEntryPath && !jarEntryPath.startsWith('/') &&
+                    jarEntryPath.split('/').none { it == "." || it == ".." },
+        ) {
+            "Unsafe data-pack path in official JAR: $jarEntryPath"
         }
     }
 
     companion object {
         private const val EXTRACTION_SCHEMA_VERSION = 1
-        private const val CORE_PACK_ID = "vanilla"
+        private const val CORE_DATA_PACK_ID = "vanilla"
         private const val VERSION_FILE = "version.json"
         private const val MANIFEST_FILE = "manifest.json"
         private const val DATA_PREFIX = "data/"
@@ -101,3 +109,8 @@ abstract class ExtractOfficialMinecraftDataPacksTask : MinecraftProtocolToolTask
         private val PACK_ID_PATTERN = Regex("[a-z0-9._-]+")
     }
 }
+
+private data class BuiltInDataPackFile(
+    val dataPackId: String,
+    val dataPackFilePath: String,
+)

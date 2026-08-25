@@ -12,12 +12,13 @@ producer for client-bytecode inspection when a routed change requires it.
 
 Current production source producers are:
 
-| Producer                                                        | Output responsibility                                                                     |
-|-----------------------------------------------------------------|-------------------------------------------------------------------------------------------|
-| `:protocol-model:generateMinecraftProtocolSource`               | `MinecraftProtocol` release and protocol constants                                        |
-| `:protocol-model:kspCommonMainKotlinMetadata`                   | packet definitions and data-component serializer dispatch derived from source annotations |
-| `:protocol-datapack-vanilla:generateVanillaStaticDataSource`    | static registry and block-state payload source                                            |
-| `:protocol-datapack-vanilla:generateVanillaConfigurationSource` | captured Configuration payload source                                                     |
+| Producer                                                                     | Output responsibility                                                          |
+|------------------------------------------------------------------------------|--------------------------------------------------------------------------------|
+| `:protocol-model:generateMinecraftProtocolSource`                            | `MinecraftProtocol` release and protocol constants                             |
+| `:protocol-model:kspCommonMainKotlinMetadata`                                | Packet definitions and data-component dispatch derived from source annotations |
+| `:protocol-datapack-vanilla:generateVanillaRegistryDataSource`               | Registry and block-state payload source                                        |
+| `:protocol-datapack-vanilla:generateVanillaConfigurationPacketPayloadSource` | Captured Configuration packet payload source                                   |
+| `:protocol-datapack-vanilla:generateVanillaDataPackSources`                  | Official datapack manifest and independently loaded batch source               |
 
 Treat every output of these producers as read-only. Task implementations in `buildSrc`, source annotations consumed by
 KSP, model declarations, loaders, codecs, and tests remain handwritten.

@@ -168,13 +168,13 @@ class NeoForgeRegistrySnapshot(
 
 @Serializable
 data class NeoForgeFrozenRegistrySyncStartPacket(
-    val registries: List<Identifier>,
+    val registryIds: List<Identifier>,
 ) : ClientboundPacket.Extension
 
 @Serializable
 data class NeoForgeFrozenRegistryPacket(
-    val registry: Identifier,
-    val snapshot: NeoForgeRegistrySnapshot,
+    val registryId: Identifier,
+    val neoForgeRegistrySnapshot: NeoForgeRegistrySnapshot,
 ) : ClientboundPacket.Extension
 
 @Serializable

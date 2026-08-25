@@ -10,82 +10,107 @@ It includes:
 - official static registries and the global block-state schema;
 - both Known Packs response branches;
 - feature flags, synchronized registries, and tags;
-- ready-to-use server protocol data and client Configuration runtime values.
+- default disk-JSON-to-network-NBT projectors for every synchronized vanilla registry;
+- ready-to-use server protocol data, client Configuration snapshots, and registry views.
 
 Everything is available as programmatic Kotlin values on every configured target; runtime filesystem access is not
 required.
 
 ## Use the ready-made defaults
 
-`VanillaDataPacks` exposes each useful stage:
+The three public objects have distinct responsibilities: `VanillaDataPacks` owns actual pack content,
+`VanillaRegistryData` owns static registries and block states, and `VanillaProtocolData` owns Configuration protocol
+defaults.
 
-| Need                               | Entry point             |
-|------------------------------------|-------------------------|
-| One raw official archive           | `archive(id)`           |
-| All raw archives                   | `archives`              |
-| Parsed core pack                   | `core`                  |
-| Parsed core and built-in packs     | `packs`                 |
-| Core-only stack                    | `coreStack`             |
-| Stack with selected built-ins      | `stack(enabledBuiltIn)` |
-| Merged core resources              | `resolvedCore`          |
-| Server Configuration defaults      | `protocolData`          |
-| Equivalent received client packets | `clientConfiguration`   |
-| Resolved client lookup view        | `clientRuntime`         |
+`VanillaDataPacks` exposes the pack stages:
 
-For a normal vanilla server:
+| Need                           | Entry point                                                 |
+|--------------------------------|-------------------------------------------------------------|
+| One raw official archive       | `VanillaDataPacks.dataPackArchive(dataPackId)`              |
+| Parsed core pack               | `VanillaDataPacks.coreDataPack`                             |
+| Parsed core and built-in packs | `VanillaDataPacks.dataPacks`                                |
+| Core-only stack                | `VanillaDataPacks.coreDataPackStack`                        |
+| Stack with selected built-ins  | `VanillaDataPacks.dataPackStack(enabledBuiltInDataPackIds)` |
+
+Raw archives are decoded only when requested and are not retained beside the parsed-pack cache.
+
+The remaining ready-made values stay on the stage that owns them:
+
+| Need                                 | Entry point                                         |
+|--------------------------------------|-----------------------------------------------------|
+| Static registry and block data       | `VanillaRegistryData`                               |
+| Server Configuration defaults        | `VanillaProtocolData`                               |
+| Equivalent client Configuration data | `VanillaProtocolData.dataPackConfigurationSnapshot` |
+| Resolved client lookup view          | `VanillaProtocolData.clientRegistryView`            |
+| Default registry projectors          | `vanillaDataPackRegistryProjectors`                 |
+| Datapack-to-protocol conversion      | `dataPackStack.toVanillaProtocolData()`             |
+
+The high-level client and server modules already use these values. A normal vanilla server does not construct or pass a
+`ProtocolData`, connection definition, profile, or negotiation options:
 
 ```kotlin
-val options = MinecraftServerNegotiationOptions(
-    protocolData = VanillaDataPacks.protocolData,
-)
+suspend fun negotiateVanilla(connection: MinecraftServerConnection): MinecraftServerNegotiationResult? =
+    connection.negotiate()
 ```
 
-This is already the default used by `MinecraftServerNegotiationOptions` and `MinecraftClientNegotiationOptions`; pass it
-explicitly only when doing so makes application composition clearer.
+`MinecraftServerNegotiationOptions` and `MinecraftClientNegotiationOptions` use `VanillaProtocolData` automatically when
+an application does need to override another option.
 
 ## Add custom world packs
 
 Start with the generated vanilla base and project an application-supplied stack:
 
 ```kotlin
-fun createProtocolData(
-    worldStack: DataPackStack,
-    registryProjectors: List<DataPackSynchronizedRegistryProjector>,
-): ProtocolDataSet = worldStack.toVanillaProtocolDataSet(
-    registryProjectors = registryProjectors,
-)
+fun resolveWorldDataPackProtocolData(
+    worldDataPackStack: DataPackStack,
+): ResolvedProtocolData = worldDataPackStack.toVanillaProtocolData()
 ```
 
 The helper treats the official core `vanilla` pack as already projected and applies the world stack above the captured
-defaults. If a custom pack changes a synchronized registry, supply a projector that converts its disk resource into the
-registry's network NBT representation. Packs that change only tags or server-only resources need no registry projector.
+defaults. `vanillaDataPackRegistryProjectors` covers every synchronized registry in the repository-selected release, so
+ordinary vanilla datapacks—including packs that replace or add registry entries—need no caller-written mapping. The
+official-client interoperability suite exercises all bundled vanilla registry entries through this path.
+
+Mods remain an explicit escape hatch. The `modDataPackRegistryProjectors` parameter below contains projectors supplied
+by the loader or application. A matching registry ID replaces the corresponding vanilla default and a new registry ID is
+added after the vanilla set:
+
+```kotlin
+fun resolveModdedDataPackProtocolData(
+    dataPackStack: DataPackStack,
+    modDataPackRegistryProjectors: List<DataPackRegistryProjector>,
+): ResolvedProtocolData = dataPackStack.toVanillaProtocolData(
+    dataPackRegistryProjectorOverrides = modDataPackRegistryProjectors,
+)
+```
 
 Applications can replace any stage: parse an archive with custom decoders, edit a `DataPack`, construct a
-`ResolvedDataPackStack`, use a custom `DataPackProtocolProjection`, or construct `DataPackProtocolDataSet` directly.
+`ResolvedDataPackStack`, construct `DataPackProtocolProjector` directly to replace the entire policy, or construct
+`ResolvedProtocolData` directly.
 
 ## Select built-in packs
 
 Use the generated IDs rather than spelling release-specific pack names:
 
 ```kotlin
-fun resolveBuiltIns(enabledBuiltIns: Set<DataPackId>): ResolvedDataPackStack =
-    VanillaDataPacks.stack(enabledBuiltIns).resolve(VanillaDataPacks.formatVersion)
+fun resolveBuiltInDataPacks(enabledBuiltInDataPackIds: Set<DataPackId>): ResolvedDataPackStack =
+    VanillaDataPacks.dataPackStack(enabledBuiltInDataPackIds).resolve(VanillaDataPacks.dataPackFormatVersion)
 ```
 
-`VanillaDataPacks.packIds` lists the available generated IDs, and `coreId` identifies the core pack.
+`VanillaDataPacks.dataPackIds` lists the available generated IDs, and `coreDataPackId` identifies the core pack.
 
 ## Use static registries and client values
 
-`VanillaStaticData` exposes official protocol registry IDs and block-state schemas. `VanillaProtocolData` exposes the
-matching Configuration packets and chooses compact Known Packs entries only when the client's accepted set matches the
-official offer.
+`VanillaRegistryData` exposes official protocol registry IDs and block-state schemas. `VanillaProtocolData` exposes the
+matching Configuration data and chooses compact synchronized registries only when the client's accepted Known Packs list
+exactly matches the official offer.
 
-Most callers use the combined values:
+Most callers use these values directly:
 
 ```kotlin
-val serverData: ProtocolDataSet = VanillaDataPacks.protocolData
-val staticRegistries: StaticRegistrySchema = serverData.staticRegistries
-val clientRuntime: ClientDataPackRuntime = VanillaDataPacks.clientRuntime
+val protocolData: ProtocolData = VanillaProtocolData
+val staticRegistrySchema: StaticRegistrySchema = protocolData.staticRegistrySchema
+val clientRegistryView: ClientRegistryView = VanillaProtocolData.clientRegistryView
 ```
 
 The generated values always follow the repository-selected Minecraft release; application documentation should not copy

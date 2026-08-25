@@ -189,9 +189,9 @@ suspend fun readEntities(
     position: ChunkPosition,
     expectedDataVersion: Int,
 ): EntityChunk<NbtCompound>? {
-    val codec = EntityChunkNbtCodec(expectedDataVersion, NbtEntityDataRegistry())
+    val entityChunkNbtCodec = EntityChunkNbtCodec(expectedDataVersion, NbtEntityDataRegistry())
     return world.openEntityRegion(position.region).use { region ->
-        region.readChunk(position, codec)
+        region.readChunk(position, entityChunkNbtCodec)
     }
 }
 ```
@@ -212,9 +212,9 @@ fun readLiveChunk(
     position: ChunkPosition,
     codec: ChunkNbtCodec<BlockStateDescriptor, String>,
 ): Chunk<BlockStateDescriptor, String>? {
-    val world = LiveMinecraftWorldAccess.open(worldPath)
-    val region = world.openRegion(position.region)
-    return region.readChunk(position, codec)
+    val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(worldPath)
+    val liveRegionHandle = liveMinecraftWorldAccess.openRegion(position.region)
+    return liveRegionHandle.readChunk(position, codec)
 }
 ```
 
@@ -231,26 +231,28 @@ Both world access modes can inspect and read enabled directory or ZIP packs unde
 from `level.dat`:
 
 ```kotlin
-suspend fun readEnabledPacks(
+suspend fun readApprovedDataPacks(
     world: MinecraftWorldAccess,
     approve: (DataPackInspection) -> Boolean,
-): LoadedWorldDataPacks? {
-    val inspections = world.inspectEnabledDataPacks()
-    if (!inspections.all(approve)) return null
+): WorldDataPackLoadResult? {
+    val dataPackInspections = world.inspectEnabledFileDataPacks()
+    if (!dataPackInspections.all(approve)) return null
     return world.readEnabledDataPacks()
 }
 ```
 
-Inspection exposes paths and declared sizes before file contents are loaded. Pack files are intentionally not locked, so
-that information is advisory. The reader imposes no file-count or size policy.
+Inspection exposes paths and declared sizes before file contents are loaded. On-disk data packs are immutable inputs for
+the lifetime of their reader use, so `WorldDataPackReader` adds no data-pack read lock or mutation coordinator. The
+reader imposes no file-count or size policy.
 
-`LoadedWorldDataPacks.packs` contains resolved `file/...` entries and `stack` provides their low-to-high-priority
-`DataPackStack`. Non-file references such as `vanilla` remain in `unresolvedReferences` for a higher layer to supply.
+`WorldDataPackLoadResult.dataPackStack` contains loaded `file/...` entries in low-to-high priority order. Non-file
+references such as `vanilla` remain in `unresolvedDataPackReferences` for a higher layer to supply; the original ordered
+selection remains in `enabledDataPackReferences`.
 Use [`protocol-datapack`](../protocol-datapack/README.md) or [
 `protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md) to project the stack into Configuration data.
 
-`WorldDataPackStore` can also inspect or read an explicitly selected directory/ZIP pack, archive, or individual file
-without opening a mutable world lease.
+`WorldDataPackReader` also exposes `inspectDataPack`, `readDataPack`, `readDataPackArchive`, and `readDataPackFile` for
+an explicitly selected directory or ZIP without opening a mutable world lease.
 
 ## Other world files
 
