@@ -4,10 +4,11 @@ import com.hiczp.minecraft.nbt.*
 import kotlinx.io.*
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.decodeFromByteArray
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.descriptors.element
+import kotlinx.serialization.encodeToByteArray
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlin.random.Random
@@ -48,13 +49,13 @@ class NbtFormatBinaryTest {
 
         assertContentEquals(
             byteArrayOf(3, 0, 0, 0, 42),
-            NbtFormat.encodeToByteArray(Int.serializer(), 42),
+            NbtFormat.encodeToByteArray(42),
         )
         assertContentEquals(
             unnamedBytes,
             NbtFormat(
                 NbtFormatConfiguration(rootEncoding = NbtRootEncoding.UNNAMED),
-            ).encodeToByteArray(Int.serializer(), 42),
+            ).encodeToByteArray(42),
         )
         val namedFormat = NbtFormat(
             NbtFormatConfiguration(
@@ -62,15 +63,15 @@ class NbtFormatBinaryTest {
                 rootName = "x",
             ),
         )
-        assertContentEquals(namedBytes, namedFormat.encodeToByteArray(Int.serializer(), 42))
-        assertEquals(42, namedFormat.decodeFromByteArray(Int.serializer(), namedBytes))
+        assertContentEquals(namedBytes, namedFormat.encodeToByteArray(42))
+        assertEquals(42, namedFormat.decodeFromByteArray<Int>(namedBytes))
         assertFailsWith<NbtDecodingException> {
             NbtFormat(
                 NbtFormatConfiguration(
                     rootEncoding = NbtRootEncoding.NAMED,
                     rootName = "other",
                 ),
-            ).decodeFromByteArray(Int.serializer(), namedBytes)
+            ).decodeFromByteArray<Int>(namedBytes)
         }
     }
 
@@ -88,20 +89,18 @@ class NbtFormatBinaryTest {
         )
 
         val encoded = format.encodeToByteArray(
-            BinaryFormatSample.serializer(),
             value,
         )
         assertEquals(
             value,
-            format.decodeFromByteArray(
-                BinaryFormatSample.serializer(),
+            format.decodeFromByteArray<BinaryFormatSample>(
                 encoded,
             ),
         )
 
         val sink = Buffer()
         assertFailsWith<NbtEncodingException> {
-            format.encodeToSink(NbtEnd.serializer(), NbtEnd, sink)
+            format.encodeToSink(NbtEnd, sink)
         }
         assertTrue(sink.exhausted())
     }
@@ -140,11 +139,9 @@ class NbtFormatBinaryTest {
         )
 
         val encoded = NbtFormat.encodeToByteArray(
-            DirectBinarySample.serializer(),
             value,
         )
-        val decoded = NbtFormat.decodeFromByteArray(
-            DirectBinarySample.serializer(),
+        val decoded = NbtFormat.decodeFromByteArray<DirectBinarySample>(
             encoded,
         )
 
@@ -170,7 +167,7 @@ class NbtFormatBinaryTest {
 
         assertEquals(
             KnownBinaryValue(42),
-            format.decodeFromByteArray(KnownBinaryValue.serializer(), encoded),
+            format.decodeFromByteArray<KnownBinaryValue>(encoded),
         )
     }
 

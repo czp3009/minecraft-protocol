@@ -197,7 +197,7 @@ class MinecraftChunkPacketEncoder(
         val updates = mutableListOf<LightDataLayer>()
 
         fun add(bit: Int, bytes: NbtByteArray?) {
-            if (bytes == null || isZero(bytes)) {
+            if (bytes == null || (0 until bytes.size).all { index -> bytes[index] == 0.toByte() }) {
                 set(emptyWords, bit)
             } else {
                 set(updateWords, bit)
@@ -211,12 +211,6 @@ class MinecraftChunkPacketEncoder(
 
         private fun set(words: LongArray, bit: Int) {
             words[bit / Long.SIZE_BITS] = words[bit / Long.SIZE_BITS] or (1L shl (bit % Long.SIZE_BITS))
-        }
-
-        private fun isZero(bytes: NbtByteArray): Boolean {
-            var zero = true
-            bytes.forEach { value -> if (value != 0.toByte()) zero = false }
-            return zero
         }
     }
 

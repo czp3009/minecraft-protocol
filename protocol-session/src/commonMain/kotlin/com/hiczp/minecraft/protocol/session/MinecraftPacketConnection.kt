@@ -343,10 +343,6 @@ internal abstract class MinecraftConnectionEngine<
         ) {
             return
         }
-        failConnection(cause)
-    }
-
-    private fun failConnection(cause: Throwable) {
         terminate(ConnectionTermination.Failed(cause))
     }
 

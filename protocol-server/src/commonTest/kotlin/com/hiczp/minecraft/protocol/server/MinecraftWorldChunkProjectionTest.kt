@@ -7,12 +7,12 @@ import com.hiczp.minecraft.nbt.NbtLongArray
 import com.hiczp.minecraft.protocol.client.MinecraftChunkPacketDecoder
 import com.hiczp.minecraft.protocol.client.toChunk
 import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
-import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import com.hiczp.minecraft.world.format.*
 import com.hiczp.minecraft.world.format.ChunkSection
 import com.hiczp.minecraft.world.format.PalettedContainer
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.*
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer as NetworkPalettedContainer
 
@@ -112,9 +112,8 @@ class MinecraftWorldChunkProjectionTest {
         val format = MinecraftProtocolFormat(
             MinecraftProtocolFormat.configuration.copy(registries = registries),
         )
-        val originalBytes = format.encodeToByteArray(ChunkDataAndUpdateLightPacket.serializer(), packet)
+        val originalBytes = format.encodeToByteArray(packet)
         val roundTripBytes = format.encodeToByteArray(
-            ChunkDataAndUpdateLightPacket.serializer(),
             decoded.toChunkDataAndUpdateLightPacket(encoder),
         )
         assertContentEquals(originalBytes, roundTripBytes)

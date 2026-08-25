@@ -25,7 +25,10 @@ private class OkioDataPackZipContainer(
             if (!metadata.isRegularFile) return@mapNotNull null
             val size = metadata.size ?: throw WorldIOException("Data-pack ZIP entry has no size: $path")
             if (size < 0L) throw WorldIOException("Data-pack ZIP entry has a negative size: $path")
-            DataPackFileInfo(path.toDataPackPath(), size)
+            DataPackFileInfo(
+                DataPackPath(path.relativeTo(ZIP_ROOT).segments.joinToString("/")),
+                size,
+            )
         }.sortedBy { it.path.value }.toList()
         if (files.isEmpty()) throw WorldIOException("Data-pack ZIP has no regular files: $containerPath")
         return files
@@ -66,9 +69,6 @@ private class OkioDataPackZipContainer(
             }
         }
     }
-
-    private fun Path.toDataPackPath(): DataPackPath =
-        DataPackPath(relativeTo(ZIP_ROOT).segments.joinToString("/"))
 
     private fun DataPackPath.resolveBelow(root: Path): Path =
         segments.fold(root) { parent, segment -> parent / segment }

@@ -4,6 +4,8 @@ import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.CustomPayload
 import com.hiczp.minecraft.protocol.model.type.Identifier
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -14,28 +16,24 @@ class PlayCommonPacketTest {
         assertContentEquals(
             "ac02".hexToByteArray(),
             MinecraftProtocolFormat.encodeToByteArray(
-                ClientboundCloseContainerPacket.serializer(),
                 ClientboundCloseContainerPacket(300),
             ),
         )
         assertContentEquals(
             "010002fffd".hexToByteArray(),
             MinecraftProtocolFormat.encodeToByteArray(
-                SetContainerPropertyPacket.serializer(),
                 SetContainerPropertyPacket(1, 2, -3),
             ),
         )
         assertContentEquals(
             "0e6d696e6563726166743a74657374".hexToByteArray(),
             MinecraftProtocolFormat.encodeToByteArray(
-                PlayCookieRequestPacket.serializer(),
                 PlayCookieRequestPacket(Identifier("minecraft:test")),
             ),
         )
         assertContentEquals(
             "0f6d696e6563726166743a67726f757014".hexToByteArray(),
             MinecraftProtocolFormat.encodeToByteArray(
-                SetCooldownPacket.serializer(),
                 SetCooldownPacket(Identifier("minecraft:group"), 20),
             ),
         )
@@ -48,14 +46,12 @@ class PlayCommonPacketTest {
         assertContentEquals(
             suggestionsBytes,
             MinecraftProtocolFormat.encodeToByteArray(
-                ChatSuggestionsPacket.serializer(),
                 suggestions,
             ),
         )
         assertEquals(
             suggestions,
-            MinecraftProtocolFormat.decodeFromByteArray(
-                ChatSuggestionsPacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<ChatSuggestionsPacket>(
                 suggestionsBytes,
             ),
         )
@@ -70,14 +66,12 @@ class PlayCommonPacketTest {
         assertContentEquals(
             brandBytes,
             MinecraftProtocolFormat.encodeToByteArray(
-                PlayClientboundPluginMessagePacket.serializer(),
                 brand,
             ),
         )
         assertEquals(
             brand,
-            MinecraftProtocolFormat.decodeFromByteArray(
-                PlayClientboundPluginMessagePacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<PlayClientboundPluginMessagePacket>(
                 brandBytes,
             ),
         )
@@ -92,14 +86,12 @@ class PlayCommonPacketTest {
         assertContentEquals(
             unknownBytes,
             MinecraftProtocolFormat.encodeToByteArray(
-                PlayClientboundPluginMessagePacket.serializer(),
                 unknown,
             ),
         )
         assertEquals(
             unknown,
-            MinecraftProtocolFormat.decodeFromByteArray(
-                PlayClientboundPluginMessagePacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<PlayClientboundPluginMessagePacket>(
                 unknownBytes,
             ),
         )

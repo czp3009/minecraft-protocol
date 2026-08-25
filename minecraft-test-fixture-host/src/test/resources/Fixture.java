@@ -13,8 +13,17 @@ class Fixture {
         String command;
         while ((command = input.readLine()) != null) {
             if (command.equals("fixture-exit")) return;
+            if (command.equals("fixture-output-and-exit")) {
+                for (int index = 0; index < 10_000; index++) {
+                    output.write("exit-output-" + index + "\n");
+                }
+                output.flush();
+                return;
+            }
             if (command.equals("fixture-close-output")) {
                 output.close();
+                // redirectErrorStream(true) gives stderr another write end for the merged pipe.
+                System.err.close();
                 while ((command = input.readLine()) != null) {
                     if (command.equals("fixture-exit")) return;
                 }

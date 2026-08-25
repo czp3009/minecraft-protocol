@@ -135,7 +135,6 @@ private class FabricRegistrationCodec<T : FabricChannelRegistrationPacket>(
             .joinToString("\u0000", transform = Identifier::value)
             .encodeToByteArray()
         format.encodeToSink(
-            RemainingBody.serializer(),
             RemainingBody(ByteString(bytes)),
             sink,
         )
@@ -147,8 +146,7 @@ private class FabricRegistrationCodec<T : FabricChannelRegistrationPacket>(
         source: Source,
         byteCount: Int,
     ): T {
-        val bytes = format.decodeFromSource(
-            RemainingBody.serializer(),
+        val bytes = format.decodeFromSource<RemainingBody>(
             source,
             byteCount,
         ).data.toByteArray()

@@ -75,7 +75,11 @@ class DataPackStack(packs: List<DataPack>) {
             }
             pack.effectiveDataPackFiles(format).forEach { (resourcePath, file) ->
                 val previous = resolved[resourcePath]
-                resolved[resourcePath] = if (previous != null && resourcePath.isTagJson()) {
+                resolved[resourcePath] = if (
+                    previous != null &&
+                    resourcePath.path.startsWith("tags/") &&
+                    resourcePath.path.endsWith(".json")
+                ) {
                     mergeTag(previous, pack.id, resourcePath, file)
                 } else {
                     ResolvedDataPackResource(
@@ -91,12 +95,7 @@ class DataPackStack(packs: List<DataPack>) {
     }
 }
 
-internal fun DataPack.effectiveDataPackResources(
-    format: DataPackFormatVersion?,
-): Map<DataPackResourcePath, DataPackFileContent> =
-    effectiveDataPackFiles(format).mapValues { it.value.content }
-
-private fun DataPack.effectiveDataPackFiles(
+internal fun DataPack.effectiveDataPackFiles(
     format: DataPackFormatVersion?,
 ): Map<DataPackResourcePath, DataPackFile> {
     val result = linkedMapOf<DataPackResourcePath, DataPackFile>()
@@ -124,8 +123,6 @@ private fun DataPackPath.resourceBelow(prefix: DataPackPath?): DataPackResourceP
     if (!namespace.matches(NAMESPACE_PATTERN) || !relative.matches(RESOURCE_PATH_PATTERN)) return null
     return DataPackResourcePath(namespace, relative)
 }
-
-private fun DataPackResourcePath.isTagJson(): Boolean = path.startsWith("tags/") && path.endsWith(".json")
 
 private fun mergeTag(
     previous: ResolvedDataPackResource,

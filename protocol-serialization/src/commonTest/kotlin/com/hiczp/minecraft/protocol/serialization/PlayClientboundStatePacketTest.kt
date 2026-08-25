@@ -6,6 +6,8 @@ import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -19,8 +21,7 @@ class PlayClientboundStatePacketTest {
             DisplayObjectivePacket.serializer(),
             "120178",
         )
-        val invalidSlot = MinecraftProtocolFormat.decodeFromByteArray(
-            DisplayObjectivePacket.serializer(),
+        val invalidSlot = MinecraftProtocolFormat.decodeFromByteArray<DisplayObjectivePacket>(
             "7f0178".hexToByteArray(),
         )
         assertEquals(DisplaySlot.LIST, invalidSlot.slot)
@@ -133,8 +134,7 @@ class PlayClientboundStatePacketTest {
         }
 
         val highFlags = "f3010b6d696e6563726166743a78".hexToByteArray()
-        val decoded = MinecraftProtocolFormat.decodeFromByteArray(
-            StopSoundPacket.serializer(),
+        val decoded = MinecraftProtocolFormat.decodeFromByteArray<StopSoundPacket>(
             highFlags,
         )
         assertEquals(
@@ -143,7 +143,7 @@ class PlayClientboundStatePacketTest {
         )
         assertContentEquals(
             "03010b6d696e6563726166743a78".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(StopSoundPacket.serializer(), decoded),
+            MinecraftProtocolFormat.encodeToByteArray(decoded),
         )
 
     }
@@ -186,8 +186,7 @@ class PlayClientboundStatePacketTest {
             "010a00",
         )
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray(
-                TagQueryResponsePacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<TagQueryResponsePacket>(
                 "0108000178".hexToByteArray(),
             )
         }

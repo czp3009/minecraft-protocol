@@ -4,6 +4,7 @@ import com.hiczp.minecraft.nbt.*
 import com.hiczp.minecraft.test.*
 import com.hiczp.minecraft.world.format.*
 import com.hiczp.minecraft.world.io.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import okio.Buffer
 import okio.FileSystem
@@ -110,17 +111,25 @@ class OfficialWorldStorageInteropTest {
             MinecraftTestSupport.sendCommand(
                 server,
                 "kick $PLAYER_NAME storage fixture complete",
-            )
-            MinecraftTestSupport.waitForLog(
-                server,
-                "$PLAYER_NAME left the game",
+                expectedNewOutput = "$PLAYER_NAME left the game",
             )
             MinecraftTestSupport.closeProcess(client)
             saveAndStop(server)
             assertOfficialLockIsReleased(worldDirectory)
+        } catch (caught: CancellationException) {
+            failure = caught
+            throw caught
         } catch (caught: Throwable) {
             failure = caught
-            throw officialFailure(server, client, caught)
+            val wrapped = try {
+                officialFailure(server, client, caught)
+            } catch (diagnosticCancellation: CancellationException) {
+                diagnosticCancellation.addSuppressed(caught)
+                failure = diagnosticCancellation
+                throw diagnosticCancellation
+            }
+            failure = wrapped
+            throw wrapped
         } finally {
             client?.let { launched ->
                 try {
@@ -156,18 +165,29 @@ class OfficialWorldStorageInteropTest {
             MinecraftTestSupport.sendCommand(
                 server,
                 "execute if entity @a[advancements={minecraft:story/root=true}] run say $advancementToken",
+                expectedNewOutput = advancementToken,
             )
-            MinecraftTestSupport.waitForLog(server, advancementToken)
             MinecraftTestSupport.sendCommand(
                 server,
                 "kick $PLAYER_NAME structured files loaded",
+                expectedNewOutput = "$PLAYER_NAME left the game",
             )
-            MinecraftTestSupport.waitForLog(server, "$PLAYER_NAME left the game")
             MinecraftTestSupport.closeProcess(client)
             saveAndStop(server)
+        } catch (caught: CancellationException) {
+            failure = caught
+            throw caught
         } catch (caught: Throwable) {
             failure = caught
-            throw officialFailure(server, client, caught)
+            val wrapped = try {
+                officialFailure(server, client, caught)
+            } catch (diagnosticCancellation: CancellationException) {
+                diagnosticCancellation.addSuppressed(caught)
+                failure = diagnosticCancellation
+                throw diagnosticCancellation
+            }
+            failure = wrapped
+            throw wrapped
         } finally {
             client?.let { launched ->
                 try {
@@ -210,10 +230,7 @@ class OfficialWorldStorageInteropTest {
         MinecraftTestSupport.sendCommand(
             server,
             "summon minecraft:pig 2 100 2 {NoAI:1b,NoGravity:1b,Invulnerable:1b,PersistenceRequired:1b}",
-        )
-        MinecraftTestSupport.waitForLog(
-            server,
-            "Summoned new Pig",
+            expectedNewOutput = "Summoned new Pig",
         )
     }
 
@@ -230,14 +247,18 @@ class OfficialWorldStorageInteropTest {
             MinecraftTestSupport.sendCommand(
                 server,
                 "execute if block ${probe.blockX} 100 0 minecraft:lectern run say $logToken",
+                expectedNewOutput = logToken,
             )
-            MinecraftTestSupport.waitForLog(server, logToken)
         }
     }
 
     private suspend fun saveAndStop(server: OfficialMinecraftServer) {
         MinecraftTestSupport.sendCommand(server, "save-all flush")
-        MinecraftTestSupport.waitForLog(server, "Saved the game")
+        MinecraftTestSupport.sendCommand(
+            server,
+            "say $SAVE_COMPLETE_TOKEN",
+            expectedNewOutput = SAVE_COMPLETE_TOKEN,
+        )
         val exitCode = MinecraftTestSupport.closeProcess(server)
         check(exitCode == 0) {
             "Official server exited with $exitCode"
@@ -271,6 +292,8 @@ class OfficialWorldStorageInteropTest {
         val failure = try {
             MinecraftWorldAccess.open(worldDirectory).use {}
             null
+        } catch (caught: CancellationException) {
+            throw caught
         } catch (caught: Throwable) {
             caught
         }
@@ -867,20 +890,34 @@ class OfficialWorldStorageInteropTest {
         val clientLog = if (client == null) {
             "<not launched>"
         } else {
-            MinecraftTestSupport.logText(client)
+            diagnosticLog(client, failure, "official client")
         }
+        val serverLog = diagnosticLog(server, failure, "official server")
         return AssertionError(
             """
             |Official world interoperability failed.
             |--- failure ---
             |${failure::class.simpleName}: ${failure.message}
             |--- official server log ---
-            |${MinecraftTestSupport.logText(server)}
+            |$serverLog
             |--- official client log ---
             |$clientLog
             """.trimMargin(),
             failure,
         )
+    }
+
+    private suspend fun diagnosticLog(
+        resource: MinecraftTestResource,
+        failure: Throwable,
+        label: String,
+    ): String = try {
+        MinecraftTestSupport.logText(resource)
+    } catch (logFailure: CancellationException) {
+        throw logFailure
+    } catch (logFailure: Throwable) {
+        failure.addSuppressed(logFailure)
+        "<$label log unavailable>"
     }
 
     private data class TerrainMutation(
@@ -914,6 +951,7 @@ class OfficialWorldStorageInteropTest {
     private companion object {
         const val WORLD_NAME = "wio"
         const val PLAYER_NAME = "StorageAudit"
+        const val SAVE_COMPLETE_TOKEN = "minecraft_protocol_save_complete"
         const val CUSTOM_STATISTICS = "minecraft:custom"
         const val LEAVE_GAME_STATISTIC = "minecraft:leave_game"
         const val ROOT_ADVANCEMENT = "minecraft:story/root"

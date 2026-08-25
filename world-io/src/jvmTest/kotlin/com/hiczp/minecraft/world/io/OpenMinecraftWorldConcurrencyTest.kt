@@ -7,6 +7,7 @@ import kotlinx.io.readByteArray
 import kotlinx.io.readString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.decodeFromJsonElement
 import okio.IOException
 import okio.Path.Companion.toPath
 import kotlin.test.*
@@ -222,8 +223,8 @@ class OpenMinecraftWorldConcurrencyTest {
 
             sourceGate.open()
             assertEquals(initial, typed.await())
-            assertEquals(initial, Json.decodeFromJsonElement(PlayerStatistics.serializer(), tree.await()))
-            assertEquals(initial, Json.decodeFromString(PlayerStatistics.serializer(), raw.await()))
+            assertEquals(initial, Json.decodeFromJsonElement<PlayerStatistics>(tree.await()))
+            assertEquals(initial, Json.decodeFromString<PlayerStatistics>(raw.await()))
             sinkGate.awaitEntered()
 
             val text = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
@@ -233,7 +234,7 @@ class OpenMinecraftWorldConcurrencyTest {
             assertFalse(text.isCompleted)
             sinkGate.open()
             writer.await()
-            assertEquals(replacement, Json.decodeFromString(PlayerStatistics.serializer(), text.await()))
+            assertEquals(replacement, Json.decodeFromString<PlayerStatistics>(text.await()))
             assertEquals(0, world.activeMetadataEntryCount())
             base.checkNoOpenFiles()
         } finally {

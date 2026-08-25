@@ -10,8 +10,9 @@ serializable resource values, the kotlinx.rpc service, the test-process client, 
 - `hostWorkingDirectory` is the explicit exception for same-host filesystem interoperability. Keep its non-portable
   nature visible in KDoc and restrict its use to `world-io`'s host-filesystem test capability.
 - `MinecraftTestSupport` lazily owns one kRPC client, reads its endpoint and owner ID from Gradle-provided environment
-  variables, and may reconnect after an operation closes the transport. Do not add hand-written RPC routing or process
-  abstraction.
+  variables, and may reconnect after an operation closes the transport. Concurrent operations lease the same current
+  client; a terminal or failed operation detaches it, and physical close waits until its existing leases finish. Do not
+  add hand-written RPC routing or process abstraction.
 - `closeProcess()` waits for process exit while retaining the slot and workspace. `deleteWorkingDirectory()` requires a
   stopped process and releases both. `close()` schedules the same combined cleanup idempotently and returns after host
   acceptance; `use` is the ordinary structured helper.

@@ -4,6 +4,8 @@ import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -39,8 +41,7 @@ class PlayClientboundUpdatePacketTest {
             "0101ac023ff0000000000000010b6d696e6563726166743a78c00000000000000002",
         )
 
-        val invalidOperation = MinecraftProtocolFormat.decodeFromByteArray(
-            UpdateAttributesPacket.serializer(),
+        val invalidOperation = MinecraftProtocolFormat.decodeFromByteArray<UpdateAttributesPacket>(
             "0101010000000000000000010b6d696e6563726166743a7800000000000000008001".hexToByteArray(),
         )
         assertEquals(
@@ -56,7 +57,6 @@ class PlayClientboundUpdatePacketTest {
         }
         assertFailsWith<MinecraftSerializationException> {
             MinecraftProtocolFormat.encodeToByteArray(
-                UpdateAttributesPacket.serializer(),
                 UpdateAttributesPacket(1, attributes),
             )
         }
@@ -149,8 +149,7 @@ class PlayClientboundUpdatePacketTest {
             "0100080001780175",
         )
 
-        val invalidBuiltIn = MinecraftProtocolFormat.decodeFromByteArray(
-            PlayServerLinksPacket.serializer(),
+        val invalidBuiltIn = MinecraftProtocolFormat.decodeFromByteArray<PlayServerLinksPacket>(
             "01017f0175".hexToByteArray(),
         )
         assertEquals(

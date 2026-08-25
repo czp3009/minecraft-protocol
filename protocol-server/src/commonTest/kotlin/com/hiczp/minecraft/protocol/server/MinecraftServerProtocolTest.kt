@@ -291,7 +291,6 @@ class MinecraftServerProtocolTest {
                     requestedIp = request.url.parameters["ip"]
                     respond(
                         content = Json.encodeToString(
-                            JsonObject.serializer(),
                             buildJsonObject {
                                 put("id", profileId.toHexString())
                                 put("properties", buildJsonArray {})

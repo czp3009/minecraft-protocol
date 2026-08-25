@@ -13,6 +13,7 @@ import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.Test
@@ -86,8 +87,7 @@ class TypedWorldFilesTest {
             assertEquals(
                 statistics,
                 world.readStatistics(player, JsonElement.serializer()).let { element ->
-                    kotlinx.serialization.json.Json.decodeFromJsonElement(
-                        PlayerStatistics.serializer(),
+                    kotlinx.serialization.json.Json.decodeFromJsonElement<PlayerStatistics>(
                         element,
                     )
                 },
@@ -134,7 +134,7 @@ class TypedWorldFilesTest {
         SavedDataFileStore(paths, nbtFiles = nbtFiles).write("example:typed", LevelDat.serializer(), level)
         val regions = RegionStorage(paths, fileSystem = fileSystem)
         try {
-            regions.writeChunkNbt(chunk, LevelDat.serializer(), level, Compression.NONE)
+            regions.writeChunkNbt(chunk, level, Compression.NONE)
         } finally {
             regions.close()
         }

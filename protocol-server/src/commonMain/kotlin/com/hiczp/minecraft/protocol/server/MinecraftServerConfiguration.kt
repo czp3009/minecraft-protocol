@@ -64,7 +64,6 @@ data class MinecraftServerNegotiationOptions(
         onlineMode: Boolean = false,
     ) {
         serverJson.encodeToSink(
-            ServerStatus.serializer(),
             ServerStatus(
                 version = ServerStatusVersion(
                     protocolData.minecraftVersion,

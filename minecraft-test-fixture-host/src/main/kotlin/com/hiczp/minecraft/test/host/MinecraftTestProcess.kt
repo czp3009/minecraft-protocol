@@ -165,8 +165,19 @@ internal class MinecraftTestProcess private constructor(
         gracefulTimeout: Duration = PROCESS_GRACEFUL_SHUTDOWN_TIMEOUT,
         forcedTimeout: Duration = PROCESS_FORCED_SHUTDOWN_TIMEOUT,
     ): Int {
-        requestStop()
-        awaitExitWithin(gracefulTimeout)?.let { return it }
+        require(gracefulTimeout.isPositive() && gracefulTimeout.isFinite()) {
+            "Graceful termination timeout must be positive and finite"
+        }
+        require(forcedTimeout.isPositive() && forcedTimeout.isFinite()) {
+            "Forced termination timeout must be positive and finite"
+        }
+        val gracefulExit = withContext(Dispatchers.Default) {
+            withTimeoutOrNull(gracefulTimeout) {
+                requestStop()
+                exit.await()
+            }
+        }
+        gracefulExit?.let { return it }
         forceStop()
         return checkNotNull(awaitExitWithin(forcedTimeout)) {
             "Test process did not exit after forced termination:\n${logText()}"
@@ -237,6 +248,10 @@ internal class MinecraftTestProcess private constructor(
                     val exitCode = process.awaitExit()
                     log.exit(exitCode)
                     exit.complete(exitCode)
+                } catch (failure: CancellationException) {
+                    log.fail(failure)
+                    exit.completeExceptionally(failure)
+                    throw failure
                 } catch (failure: Throwable) {
                     log.fail(failure)
                     exit.completeExceptionally(failure)
@@ -350,8 +365,14 @@ private class RunningProcess(
         // stdin first so that such a child can observe EOF instead of keeping
         // the output reader alive indefinitely.
         runCatching { input.close() }
-        runCatching { process.inputStream.close() }
-        outputReader.join()
+        val outputDrained = withTimeoutOrNull(PROCESS_OUTPUT_DRAIN_TIMEOUT) {
+            outputReader.join()
+            true
+        } ?: false
+        if (!outputDrained) {
+            runCatching { process.inputStream.close() }
+            outputReader.join()
+        }
         scope.cancel()
         return exitCode
     }
@@ -385,19 +406,20 @@ private class ProcessLog {
                 sequence = current.outputSequence + 1L,
                 text = "$line\n",
             )
+            var retainedCharacters = current.retainedCharacters + nextLine.text.length
             val retained = current.lines.toMutableList().apply {
                 add(nextLine)
-                var characters = sumOf { it.text.length }
                 while (
                     size > 1 &&
-                    characters > MAXIMUM_LOG_CHARACTERS
+                    retainedCharacters > MAXIMUM_LOG_CHARACTERS
                 ) {
-                    characters -= removeFirst().text.length
+                    retainedCharacters -= removeFirst().text.length
                 }
             }
             current.copy(
                 lines = retained,
                 outputSequence = nextLine.sequence,
+                retainedCharacters = retainedCharacters,
             )
         }
     }
@@ -416,6 +438,7 @@ private class ProcessLog {
 private data class ProcessSnapshot(
     val lines: List<SequencedOutputLine> = emptyList(),
     val outputSequence: Long = 0L,
+    val retainedCharacters: Int = 0,
     val exitCode: Int? = null,
     val failure: Throwable? = null,
 ) {
@@ -448,3 +471,4 @@ private const val PROCESS_SHUTDOWN_REQUESTED = 1
 private const val PROCESS_FORCE_REQUESTED = 2
 internal val PROCESS_GRACEFUL_SHUTDOWN_TIMEOUT = 10.seconds
 internal val PROCESS_FORCED_SHUTDOWN_TIMEOUT = 5.seconds
+private val PROCESS_OUTPUT_DRAIN_TIMEOUT = 1.seconds

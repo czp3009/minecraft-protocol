@@ -63,7 +63,9 @@ internal class InstallationService(
         val contentDownloads = plan.downloads.filterNot { it.relativePath == plan.assetIndex.relativePath }
         val downloads = (contentDownloads + MetadataPlanner.createAssetDownloads(assetIndex))
             .distinctBy(DownloadSpec::relativePath)
-        resetProgress(downloads.size)
+        progressMutex.withLock {
+            _progress.value = InstallProgress(totalFiles = downloads.size)
+        }
         return PreparedInstallation(metadata, gameRoot, downloads)
     }
 
@@ -117,19 +119,13 @@ internal class InstallationService(
                         delay(DOWNLOAD_RETRY_DELAY_MILLIS)
                     }
                 }
-                markCompleted()
+                progressMutex.withLock {
+                    _progress.value = _progress.value.copy(
+                        completedFiles = _progress.value.completedFiles + 1,
+                    )
+                }
             }
         }.awaitAll()
-    }
-
-    private suspend fun resetProgress(totalFiles: Int) = progressMutex.withLock {
-        _progress.value = InstallProgress(totalFiles = totalFiles)
-    }
-
-    private suspend fun markCompleted() = progressMutex.withLock {
-        _progress.value = _progress.value.copy(
-            completedFiles = _progress.value.completedFiles + 1,
-        )
     }
 }
 

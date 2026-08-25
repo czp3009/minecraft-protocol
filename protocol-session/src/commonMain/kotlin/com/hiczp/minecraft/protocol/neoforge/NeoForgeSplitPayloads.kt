@@ -13,6 +13,8 @@ import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationExceptio
 import com.hiczp.minecraft.protocol.session.MinecraftPacketConnection
 import com.hiczp.minecraft.protocol.session.RoutedCustomPayload
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 
 object NeoForgeSplitPayloads {
     fun <Incoming : Packet, Outgoing : Packet> split(
@@ -66,7 +68,6 @@ object NeoForgeSplitPayloads {
 
     private fun encodeTarget(payload: RoutedCustomPayload): ByteArray =
         MinecraftProtocolFormat.Default.encodeToByteArray(
-            NeoForgeSplitTarget.serializer(),
             NeoForgeSplitTarget(
                 payload.route.packetId,
                 payload.route.channel,
@@ -139,8 +140,7 @@ class NeoForgeSplitAssembler {
             offset += fragment.size
         }
         clear()
-        val target = MinecraftProtocolFormat.Default.decodeFromByteArray(
-            NeoForgeSplitTarget.serializer(),
+        val target = MinecraftProtocolFormat.Default.decodeFromByteArray<NeoForgeSplitTarget>(
             targetBytes,
         )
         return RoutedCustomPayload(

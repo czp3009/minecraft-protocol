@@ -45,25 +45,25 @@ internal fun LauncherScaffold(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val terminal = LocalTerminalState.current.size
+    // Mosaic terminates every canvas row with CRLF, so a full-height surface would scroll its first row away.
+    val canvasRows = (terminal.rows - 1).coerceAtLeast(1)
     Column(
         modifier = Modifier
-            .size(terminal.columns.coerceAtLeast(1), terminal.rows.coerceAtLeast(1))
+            .size(terminal.columns.coerceAtLeast(1), canvasRows)
             .onKeyEvent { event -> if (event.ctrl || event.alt) false else onKeyEvent(event) },
     ) {
-        LauncherHeader(platform)
+        WrappedText("$LAUNCHER_TITLE  $platform", Modifier.padding(horizontal = 2))
         Spacer(Modifier.height(1))
         Column(
             modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 2),
             content = content,
         )
         Spacer(Modifier.height(1))
-        KeyHints(hints, Modifier.padding(horizontal = 2))
+        WrappedText(
+            value = hints.joinToString(separator = "  |  ") { hint -> "${hint.key} ${hint.action}" },
+            modifier = Modifier.padding(horizontal = 2),
+        )
     }
-}
-
-@Composable
-private fun LauncherHeader(platform: String) {
-    WrappedText("$LAUNCHER_TITLE  $platform", Modifier.padding(horizontal = 2))
 }
 
 @Composable
@@ -81,11 +81,6 @@ internal fun PropertyRow(label: String, value: String) {
 @Composable
 internal fun Status(text: String) {
     WrappedText("* $text")
-}
-
-@Composable
-internal fun TextBlock(value: String) {
-    WrappedText(value)
 }
 
 @Composable
@@ -131,14 +126,6 @@ internal fun ProgressBar(progress: Float, modifier: Modifier = Modifier) {
             Filler('=', Modifier.fillMaxWidth(fraction).height(1))
         }
     }
-}
-
-@Composable
-private fun KeyHints(hints: List<KeyHint>, modifier: Modifier = Modifier) {
-    WrappedText(
-        value = hints.joinToString(separator = "  |  ") { hint -> "${hint.key} ${hint.action}" },
-        modifier = modifier,
-    )
 }
 
 @Composable

@@ -11,6 +11,8 @@ import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import com.hiczp.minecraft.world.format.ChunkPosition
 import com.hiczp.minecraft.world.format.Entity
 import com.hiczp.minecraft.world.format.EntityVector3d
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.*
 import kotlin.uuid.Uuid
 import com.hiczp.minecraft.protocol.model.type.GameMode as PlayerGameMode
@@ -127,11 +129,9 @@ class MinecraftInitialWorldTest {
         )
         val packet = chunk.packet()
         val bytes = format.encodeToByteArray(
-            ChunkDataAndUpdateLightPacket.serializer(),
             packet,
         )
-        val decoded = format.decodeFromByteArray(
-            ChunkDataAndUpdateLightPacket.serializer(),
+        val decoded = format.decodeFromByteArray<ChunkDataAndUpdateLightPacket>(
             bytes,
         )
 
@@ -144,7 +144,6 @@ class MinecraftInitialWorldTest {
         assertContentEquals(
             bytes,
             format.encodeToByteArray(
-                ChunkDataAndUpdateLightPacket.serializer(),
                 decoded,
             ),
         )

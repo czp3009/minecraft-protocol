@@ -4,6 +4,8 @@ import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -136,13 +138,11 @@ class PlayAdvancedPacketTest {
             ),
         )
         val encoded = MinecraftProtocolFormat.encodeToByteArray(
-            WaypointPacket.serializer(),
             packet,
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(
-                WaypointPacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<WaypointPacket>(
                 encoded,
             ),
         )

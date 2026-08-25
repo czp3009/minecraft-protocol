@@ -26,8 +26,7 @@ abstract class GenerateOfficialMinecraftServerTemplateTask : DefaultTask() {
 
     @TaskAction
     fun generate() {
-        val workDirectory = createIsolatedTemporaryDirectory("server-template")
-        try {
+        withIsolatedTemporaryDirectory("server-template") { workDirectory ->
             runTemplateWorker(
                 workerClasspath = workerClasspath,
                 arguments = listOf(
@@ -39,8 +38,6 @@ abstract class GenerateOfficialMinecraftServerTemplateTask : DefaultTask() {
                 ),
                 workDirectory = workDirectory,
             )
-        } finally {
-            workDirectory.deleteTree()
         }
         logger.lifecycle(
             "Generated official Minecraft server template: ${outputDirectory.asFile.get()}",
@@ -83,8 +80,7 @@ abstract class GenerateHeadlessClientTemplateTask : DefaultTask() {
 
     @TaskAction
     fun generate() {
-        val workDirectory = createIsolatedTemporaryDirectory("client-template")
-        try {
+        withIsolatedTemporaryDirectory("client-template") { workDirectory ->
             runTemplateWorker(
                 workerClasspath = workerClasspath,
                 arguments = listOf(
@@ -102,12 +98,30 @@ abstract class GenerateHeadlessClientTemplateTask : DefaultTask() {
                 ),
                 workDirectory = workDirectory,
             )
-        } finally {
-            workDirectory.deleteTree()
         }
         logger.lifecycle(
             "Generated HeadlessMC client template: ${templateDirectory.asFile.get()}",
         )
+    }
+}
+
+private inline fun <T> DefaultTask.withIsolatedTemporaryDirectory(
+    prefix: String,
+    action: (java.nio.file.Path) -> T,
+): T {
+    val workDirectory = createIsolatedTemporaryDirectory(prefix)
+    var failure: Throwable? = null
+    try {
+        return action(workDirectory)
+    } catch (caught: Throwable) {
+        failure = caught
+        throw caught
+    } finally {
+        try {
+            workDirectory.deleteTree()
+        } catch (cleanupFailure: Throwable) {
+            failure?.addSuppressed(cleanupFailure) ?: throw cleanupFailure
+        }
     }
 }
 

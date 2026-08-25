@@ -3,6 +3,8 @@ package com.hiczp.minecraft.protocol.serialization
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -55,7 +57,6 @@ class NetworkTypeSerializationTest {
         val serializerIds = samples.map { sample ->
             leadingVarInt(
                 MinecraftProtocolFormat.encodeToByteArray(
-                    EntityDataValue.serializer(),
                     sample.value,
                 ),
             )
@@ -64,13 +65,11 @@ class NetworkTypeSerializationTest {
 
         samples.forEach { sample ->
             val bytes = MinecraftProtocolFormat.encodeToByteArray(
-                EntityDataValue.serializer(),
                 sample.value,
             )
             assertEquals(
                 sample.value,
-                MinecraftProtocolFormat.decodeFromByteArray(
-                    EntityDataValue.serializer(),
+                MinecraftProtocolFormat.decodeFromByteArray<EntityDataValue>(
                     bytes,
                 ),
                 sample.name,

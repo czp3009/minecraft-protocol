@@ -90,7 +90,7 @@ class WorldDataPackStoreTest {
 }
 
 private fun FileSystem.writeJson(path: Path, element: JsonElement) {
-    val bytes = Json.encodeToString(JsonElement.serializer(), element).encodeToByteArray()
+    val bytes = Json.encodeToString(element).encodeToByteArray()
     createDirectories(requireNotNull(path.parent))
     write(path) { write(bytes) }
 }

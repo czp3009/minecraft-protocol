@@ -5,6 +5,7 @@ import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.RecipeBookCategory
 import com.hiczp.minecraft.protocol.model.type.ResourcePackResult
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -39,7 +40,6 @@ class PlayServerboundSettingsPacketTest {
         )
         assertFails {
             MinecraftProtocolFormat.encodeToByteArray(
-                RenameItemPacket.serializer(),
                 RenameItemPacket("x".repeat(32_768)),
             )
         }

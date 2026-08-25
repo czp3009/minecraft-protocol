@@ -130,7 +130,7 @@ class ChunkNbtCodecTest {
     fun compressedAndDocumentValuesOfferFluentTypedNbtDecoding() {
         val value = TypedNbtValue(41)
         val format = CompressedNbtFormat()
-        val compressedChunk = format.encode(TypedNbtValue.serializer(), value)
+        val compressedChunk = format.encode(value)
 
         assertEquals(value, compressedChunk.decodeNbt<TypedNbtValue>(format))
     }

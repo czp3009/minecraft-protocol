@@ -674,5 +674,5 @@ private const val INT_ARRAY_SERIAL_NAME = "kotlin.IntArray"
 private const val LONG_ARRAY_SERIAL_NAME = "kotlin.LongArray"
 private const val STRING_SERIAL_NAME = "kotlin.String"
 
-private fun SerialDescriptor.hasStringMapKey(): Boolean =
+internal fun SerialDescriptor.hasStringMapKey(): Boolean =
     getElementDescriptor(0).serialName == STRING_SERIAL_NAME

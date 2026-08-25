@@ -7,6 +7,8 @@ import com.hiczp.minecraft.protocol.model.packet.DeleteMessagePacket
 import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.PackedMessageSignature
 import com.hiczp.minecraft.protocol.model.type.Vector3d
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -24,11 +26,11 @@ class DamageAndSignaturePacketTest {
         val expected = "01020005013ff000000000000040000000000000004008000000000000".hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(DamageEventPacket.serializer(), packet),
+            MinecraftProtocolFormat.encodeToByteArray(packet),
         )
         assertEquals(
             expected = packet,
-            actual = MinecraftProtocolFormat.decodeFromByteArray(DamageEventPacket.serializer(), expected),
+            actual = MinecraftProtocolFormat.decodeFromByteArray<DamageEventPacket>(expected),
         )
     }
 
@@ -41,11 +43,11 @@ class DamageAndSignaturePacketTest {
         val expected = "04000000000000000100000000000000020000000000000003000000000000000400".hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(DebugSamplePacket.serializer(), packet),
+            MinecraftProtocolFormat.encodeToByteArray(packet),
         )
         assertEquals(
             expected = packet,
-            actual = MinecraftProtocolFormat.decodeFromByteArray(DebugSamplePacket.serializer(), expected),
+            actual = MinecraftProtocolFormat.decodeFromByteArray<DebugSamplePacket>(expected),
         )
     }
 
@@ -54,12 +56,11 @@ class DamageAndSignaturePacketTest {
         val cached = DeleteMessagePacket(PackedMessageSignature.Cached(3))
         assertContentEquals(
             "04".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(DeleteMessagePacket.serializer(), cached),
+            MinecraftProtocolFormat.encodeToByteArray(cached),
         )
         assertEquals(
             cached,
-            MinecraftProtocolFormat.decodeFromByteArray(
-                DeleteMessagePacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<DeleteMessagePacket>(
                 "04".hexToByteArray(),
             ),
         )
@@ -71,7 +72,6 @@ class DamageAndSignaturePacketTest {
             PackedMessageSignature.Full(ByteString(signature)),
         )
         val encoded = MinecraftProtocolFormat.encodeToByteArray(
-            DeleteMessagePacket.serializer(),
             full,
         )
         assertEquals(257, encoded.size)
@@ -79,8 +79,7 @@ class DamageAndSignaturePacketTest {
         assertContentEquals(signature, encoded.copyOfRange(1, encoded.size))
         assertEquals(
             full,
-            MinecraftProtocolFormat.decodeFromByteArray(
-                DeleteMessagePacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<DeleteMessagePacket>(
                 encoded,
             ),
         )

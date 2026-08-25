@@ -3,6 +3,7 @@ package com.hiczp.minecraft.test.host
 import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
 import io.ktor.utils.io.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -54,13 +55,18 @@ class MinecraftStatusProbeTest {
                     }
                 }
 
-                val failure = runCatching {
+                val failure = try {
                     MinecraftStatusProbe(selector).query(
                         host = LOOPBACK,
                         port = listener.port,
                         socketTimeoutMillis = 2_000,
                     )
-                }.exceptionOrNull()
+                    null
+                } catch (failure: CancellationException) {
+                    throw failure
+                } catch (failure: Throwable) {
+                    failure
+                }
 
                 assertNotNull(failure)
                 server.join()
@@ -97,7 +103,6 @@ class MinecraftStatusProbeTest {
             }
         }
         val encoded = testJson.encodeToString(
-            JsonElement.serializer(),
             status,
         ).encodeToByteArray()
         return Buffer().apply {

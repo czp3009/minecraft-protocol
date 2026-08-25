@@ -166,10 +166,10 @@ internal object HostedMinecraftTestSupport {
         try {
             stopAcceptingResourceCreations()
             closeAll()
-            MinecraftTestProcesses.requestStopAll()
             val stoppedGracefully = withTimeoutOrNull(
                 PROCESS_GRACEFUL_SHUTDOWN_TIMEOUT,
             ) {
+                MinecraftTestProcesses.requestStopAll()
                 awaitQuiescence()
                 true
             } ?: false

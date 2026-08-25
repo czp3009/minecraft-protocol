@@ -4,6 +4,8 @@ import com.hiczp.minecraft.protocol.model.packet.CommandsPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -33,11 +35,11 @@ class CommandPacketTest {
 
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(CommandsPacket.serializer(), packet),
+            MinecraftProtocolFormat.encodeToByteArray(packet),
         )
         assertEquals(
             expected = packet,
-            actual = MinecraftProtocolFormat.decodeFromByteArray(CommandsPacket.serializer(), expected),
+            actual = MinecraftProtocolFormat.decodeFromByteArray<CommandsPacket>(expected),
         )
 
     }
@@ -72,12 +74,12 @@ class CommandPacketTest {
             val bytes = hex.hexToByteArray()
             assertContentEquals(
                 bytes,
-                MinecraftProtocolFormat.encodeToByteArray(ParserValue.serializer(), value),
+                MinecraftProtocolFormat.encodeToByteArray(value),
                 parser.toString(),
             )
             assertEquals(
                 value,
-                MinecraftProtocolFormat.decodeFromByteArray(ParserValue.serializer(), bytes),
+                MinecraftProtocolFormat.decodeFromByteArray<ParserValue>(bytes),
                 parser.toString(),
             )
         }
@@ -87,11 +89,11 @@ class CommandPacketTest {
     fun `all no-property parser IDs round trip without assuming enum ordinals`() {
         for (type in SimpleCommandParser.entries) {
             val value = ParserValue(CommandParser.Simple(type))
-            val encoded = MinecraftProtocolFormat.encodeToByteArray(ParserValue.serializer(), value)
+            val encoded = MinecraftProtocolFormat.encodeToByteArray(value)
             assertContentEquals(byteArrayOf(type.protocolId.toByte()), encoded, type.name)
             assertEquals(
                 value,
-                MinecraftProtocolFormat.decodeFromByteArray(ParserValue.serializer(), encoded),
+                MinecraftProtocolFormat.decodeFromByteArray<ParserValue>(encoded),
                 type.name,
             )
         }
@@ -107,11 +109,10 @@ class CommandPacketTest {
         )
         assertContentEquals(
             "0300".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(ParserValue.serializer(), value),
+            MinecraftProtocolFormat.encodeToByteArray(value),
         )
 
-        val decoded = MinecraftProtocolFormat.decodeFromByteArray(
-            ParserValue.serializer(),
+        val decoded = MinecraftProtocolFormat.decodeFromByteArray<ParserValue>(
             "0303800000007fffffff".hexToByteArray(),
         )
         assertEquals(
@@ -120,15 +121,14 @@ class CommandPacketTest {
         )
         assertContentEquals(
             "0300".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(ParserValue.serializer(), decoded),
+            MinecraftProtocolFormat.encodeToByteArray(decoded),
         )
     }
 
     @Test
     fun `unknown parser and impossible graph cycles are rejected`() {
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray(
-                ParserValue.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<ParserValue>(
                 "39".hexToByteArray(),
             )
         }
@@ -138,7 +138,7 @@ class CommandPacketTest {
             rootIndex = 0,
         )
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.encodeToByteArray(CommandsPacket.serializer(), childCycle)
+            MinecraftProtocolFormat.encodeToByteArray(childCycle)
         }
 
         val redirectCycle = CommandsPacket(
@@ -146,7 +146,7 @@ class CommandPacketTest {
             rootIndex = 0,
         )
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.encodeToByteArray(CommandsPacket.serializer(), redirectCycle)
+            MinecraftProtocolFormat.encodeToByteArray(redirectCycle)
         }
     }
 }

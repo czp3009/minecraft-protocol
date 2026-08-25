@@ -72,7 +72,7 @@ class PacketRegistryTest {
                 try {
                     @Suppress("UNCHECKED_CAST")
                     val serializer = codec.serializer as KSerializer<Packet>
-                    val sample = serializer.minimalProtocolValue()
+                    val sample = serializer.protocolValue(ProtocolSampleProfile.MINIMAL)
                     val encoded = MinecraftPacketRegistry.encodePayload(sample, format)
                     assertEquals(codec.key, encoded.key)
                     assertEquals(

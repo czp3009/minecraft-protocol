@@ -8,6 +8,8 @@ import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 
 data class ForgeLoginQueryPayload(
     val channel: Identifier,
@@ -66,8 +68,7 @@ object ForgeLoginQueries {
         val route = response.route as? PacketRoute.LoginQuery
             ?: throw IllegalArgumentException("Forge Login wrapper requires a Login query")
         if (!route.hasPayload) return null
-        val wrapper = MinecraftProtocolFormat.Default.decodeFromByteArray(
-            ForgeLoginWrapperWire.serializer(),
+        val wrapper = MinecraftProtocolFormat.Default.decodeFromByteArray<ForgeLoginWrapperWire>(
             response.data.toByteArray(),
         )
         if (wrapper.channel != route.channel) {
@@ -80,7 +81,6 @@ object ForgeLoginQueries {
 
     fun wrap(channel: Identifier, data: ByteString): ByteString = ByteString(
         MinecraftProtocolFormat.Default.encodeToByteArray(
-            ForgeLoginWrapperWire.serializer(),
             ForgeLoginWrapperWire(channel, data),
         ),
     )

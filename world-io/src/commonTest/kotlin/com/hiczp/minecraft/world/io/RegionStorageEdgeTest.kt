@@ -288,7 +288,9 @@ class RegionStorageEdgeTest {
     @Test
     fun configuredMutableAndLiveNbtModesRoundTrip() = runTest {
         val fileSystem = FakeFileSystem()
-        val document = edgeRegionDocument()
+        val document = NbtDocument(
+            NbtCompound(mapOf("value" to NbtInt(42))),
+        )
         val configuredChunkNbtFormat = CompressedNbtFormat(
             compressionRegistry = CompressionRegistry(
                 mapOf(
@@ -476,10 +478,6 @@ private fun edgeStore(
 private fun edgeChunk(bytes: ByteArray): CompressedChunk = CompressedChunk(
     compression = Compression.NONE,
     compressedBytes = bytes,
-)
-
-private fun edgeRegionDocument(): NbtDocument = NbtDocument(
-    NbtCompound(mapOf("value" to NbtInt(42))),
 )
 
 // A CUSTOM codec owns only its transformation, so this identity test codec keeps the public registry's caller-owned

@@ -3,6 +3,8 @@ package com.hiczp.minecraft.nbt.serialization
 import com.hiczp.minecraft.nbt.*
 import kotlinx.io.*
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.*
 
@@ -134,12 +136,12 @@ class SnbtFormatTest {
     @Test
     fun `generic format document and tag shortcuts round trip`() {
         val value = SnbtSample(42, "hello", listOf(1L, 2L))
-        val encoded = SnbtFormat.encodeToString(SnbtSample.serializer(), value)
+        val encoded = SnbtFormat.encodeToString(value)
 
-        assertEquals(value, SnbtFormat.decodeFromString(SnbtSample.serializer(), encoded))
+        assertEquals(value, SnbtFormat.decodeFromString<SnbtSample>(encoded))
         val stream = Buffer()
-        SnbtFormat.encodeToSink(SnbtSample.serializer(), value, stream)
-        assertEquals(value, SnbtFormat.decodeFromSource(SnbtSample.serializer(), stream))
+        SnbtFormat.encodeToSink(value, stream)
+        assertEquals(value, SnbtFormat.decodeFromSource<SnbtSample>(stream))
 
         val tag = NbtCompound(mapOf("value" to NbtInt(42)))
         assertEquals(tag, tag.toSnbtString().toNbtTag())

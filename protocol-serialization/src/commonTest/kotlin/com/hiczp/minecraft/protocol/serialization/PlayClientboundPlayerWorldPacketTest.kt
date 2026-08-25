@@ -4,6 +4,7 @@ import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.decodeFromByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -96,8 +97,7 @@ class PlayClientboundPlayerWorldPacketTest {
         val withUnknownBits = "01${"00".repeat(56)}ffffff81".hexToByteArray()
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(
-                SynchronizePlayerPositionPacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<SynchronizePlayerPositionPacket>(
                 withUnknownBits,
             ),
         )

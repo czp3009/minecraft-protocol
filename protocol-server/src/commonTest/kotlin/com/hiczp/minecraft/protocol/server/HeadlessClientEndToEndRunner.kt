@@ -64,6 +64,10 @@ internal object HeadlessClientEndToEndRunner {
         } catch (failure: Throwable) {
             val clientLog = try {
                 client?.let { MinecraftTestSupport.logText(it) }.orEmpty()
+            } catch (logFailure: CancellationException) {
+                logFailure.addSuppressed(failure)
+                primaryFailure = logFailure
+                throw logFailure
             } catch (logFailure: Throwable) {
                 failure.addSuppressed(logFailure)
                 "<official client log unavailable>"
@@ -81,7 +85,11 @@ internal object HeadlessClientEndToEndRunner {
         } finally {
             withContext(NonCancellable) {
                 try {
-                    client?.let { MinecraftTestSupport.close(it) }
+                    client?.let { launched ->
+                        check(MinecraftTestSupport.closeAndAwait(launched) == 0) {
+                            "Official client did not stop cleanly"
+                        }
+                    }
                 } catch (closeFailure: Throwable) {
                     primaryFailure?.addSuppressed(closeFailure)
                         ?: throw closeFailure

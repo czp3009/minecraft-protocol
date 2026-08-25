@@ -629,11 +629,7 @@ private fun rawListTypeOf(value: Any?, descriptor: SerialDescriptor): Int? {
     return type
 }
 
-private fun SerialDescriptor.hasStringMapKey(): Boolean =
-    getElementDescriptor(0).serialName == STRING_SERIAL_NAME
-
 private const val BYTE_ARRAY_SERIAL_NAME = "kotlin.ByteArray"
 private const val INT_ARRAY_SERIAL_NAME = "kotlin.IntArray"
 private const val LONG_ARRAY_SERIAL_NAME = "kotlin.LongArray"
-private const val STRING_SERIAL_NAME = "kotlin.String"
 private const val NBT_SERIAL_NAME_PREFIX = "com.hiczp.minecraft.nbt.Nbt"

@@ -6,10 +6,6 @@ import io.ktor.client.plugins.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.serialization.kotlinx.json.*
 
-internal fun createLauncherHttpClient(): HttpClient = HttpClient {
-    configureLauncherHttpClient()
-}
-
 internal fun <T : HttpClientEngineConfig> HttpClientConfig<T>.configureLauncherHttpClient() {
     expectSuccess = true
     install(ContentNegotiation) {

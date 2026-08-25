@@ -50,6 +50,8 @@ interface MinecraftTestSupportService {
     suspend fun sendCommand(
         server: OfficialMinecraftServer,
         command: String,
+        expectedNewOutput: String?,
+        timeout: Duration,
     )
 
     suspend fun restartServer(

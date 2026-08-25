@@ -5,7 +5,6 @@ import kotlinx.serialization.Contextual
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.*
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.descriptors.SerialDescriptor
@@ -36,7 +35,7 @@ class NbtFormatTreeTest {
             nested = NestedValue("value"),
         )
 
-        val tag = NbtFormat.encodeToNbtTag(TreeSample.serializer(), value)
+        val tag = NbtFormat.encodeToNbtTag(value)
         val compound = tag as NbtCompound
         assertEquals(NbtByte(1), compound.value["boolean"])
         assertEquals(NbtByteArray(byteArrayOf(1, 2)), compound.value["bytes"])
@@ -53,7 +52,7 @@ class NbtFormatTreeTest {
             compound.value["nested"],
         )
 
-        val decoded = NbtFormat.decodeFromNbtTag(TreeSample.serializer(), tag)
+        val decoded = NbtFormat.decodeFromNbtTag<TreeSample>(tag)
         assertEquals(
             value,
             decoded.copy(
@@ -77,16 +76,16 @@ class NbtFormatTreeTest {
             raw = NbtList(listOf(NbtInt(1), NbtString("two"))),
             concrete = NbtCompound(mapOf("value" to NbtInt(3))),
         )
-        val tag = NbtFormat.encodeToNbtTag(CollectionSample.serializer(), value)
+        val tag = NbtFormat.encodeToNbtTag(value)
 
-        assertEquals(value, NbtFormat.decodeFromNbtTag(CollectionSample.serializer(), tag))
+        assertEquals(value, NbtFormat.decodeFromNbtTag<CollectionSample>(tag))
         assertEquals(
             value.raw,
-            NbtFormat.encodeToNbtTag(NbtTag.serializer(), value.raw),
+            NbtFormat.encodeToNbtTag(value.raw),
         )
         assertEquals(
             value.raw,
-            NbtFormat.decodeFromNbtTag(NbtTag.serializer(), value.raw),
+            NbtFormat.decodeFromNbtTag<NbtTag>(value.raw),
         )
     }
 
@@ -94,19 +93,15 @@ class NbtFormatTreeTest {
     fun `objects use empty compounds and nested failures report their path`() {
         assertEquals(
             NbtCompound(emptyMap()),
-            NbtFormat.encodeToNbtTag(EmptyObject.serializer(), EmptyObject),
+            NbtFormat.encodeToNbtTag(EmptyObject),
         )
         assertEquals(
             EmptyObject,
-            NbtFormat.decodeFromNbtTag(
-                EmptyObject.serializer(),
-                NbtCompound(emptyMap()),
-            ),
+            NbtFormat.decodeFromNbtTag<EmptyObject>(NbtCompound(emptyMap())),
         )
 
         val failure = assertFailsWith<NbtDecodingException> {
-            NbtFormat.decodeFromNbtTag(
-                NestedFailure.serializer(),
+            NbtFormat.decodeFromNbtTag<NestedFailure>(
                 NbtCompound(
                     mapOf(
                         "values" to NbtList(listOf(NbtString("wrong"))),
@@ -125,7 +120,7 @@ class NbtFormatTreeTest {
             floats = floatArrayOf(1.25f, -2.5f),
             doubles = doubleArrayOf(3.5, -4.75),
         )
-        val tag = NbtFormat.encodeToNbtTag(PrimitiveArraySample.serializer(), value)
+        val tag = NbtFormat.encodeToNbtTag(value)
         val compound = tag as NbtCompound
 
         assertEquals(
@@ -145,51 +140,36 @@ class NbtFormatTreeTest {
             compound.value["doubles"],
         )
 
-        val decoded = NbtFormat.decodeFromNbtTag(
-            PrimitiveArraySample.serializer(),
-            tag,
-        )
+        val decoded = NbtFormat.decodeFromNbtTag<PrimitiveArraySample>(tag)
         assertContentEquals(value.booleans, decoded.booleans)
         assertContentEquals(value.shorts, decoded.shorts)
         assertContentEquals(value.floats, decoded.floats)
         assertContentEquals(value.doubles, decoded.doubles)
 
         assertFailsWith<NbtEncodingException> {
-            NbtFormat.encodeToNbtTag(
-                CharArraySample.serializer(),
-                CharArraySample(charArrayOf('x')),
-            )
+            NbtFormat.encodeToNbtTag(CharArraySample(charArrayOf('x')))
         }
     }
 
     @Test
     fun `defaults unknown keys and nullable properties follow configuration`() {
-        val omitted = NbtFormat.encodeToNbtTag(
-            DefaultsSample.serializer(),
-            DefaultsSample(),
-        )
+        val omitted = NbtFormat.encodeToNbtTag(DefaultsSample())
         assertEquals(NbtCompound(emptyMap()), omitted)
         assertEquals(
             DefaultsSample(),
-            NbtFormat.decodeFromNbtTag(DefaultsSample.serializer(), omitted),
+            NbtFormat.decodeFromNbtTag<DefaultsSample>(omitted),
         )
         assertEquals(
             RequiredNullable(null),
-            NbtFormat.decodeFromNbtTag(
-                RequiredNullable.serializer(),
-                NbtCompound(emptyMap()),
-            ),
+            NbtFormat.decodeFromNbtTag<RequiredNullable>(NbtCompound(emptyMap())),
         )
         assertFailsWith<NbtDecodingException> {
-            NbtFormat.decodeFromNbtTag(
-                NestedValue.serializer(),
-                NbtCompound(emptyMap()),
-            )
+            NbtFormat.decodeFromNbtTag<NestedValue>(NbtCompound(emptyMap()))
         }
 
         val withDefaults = NbtFormat(
             NbtFormatConfiguration(encodeDefaults = true),
-        ).encodeToNbtTag(DefaultsSample.serializer(), DefaultsSample())
+        ).encodeToNbtTag(DefaultsSample())
         assertEquals(
             NbtCompound(mapOf("number" to NbtInt(7))),
             withDefaults,
@@ -199,69 +179,39 @@ class NbtFormatTreeTest {
             mapOf("number" to NbtInt(8), "extra" to NbtString("ignored")),
         )
         assertFailsWith<NbtDecodingException> {
-            NbtFormat.decodeFromNbtTag(DefaultsSample.serializer(), unknown)
+            NbtFormat.decodeFromNbtTag<DefaultsSample>(unknown)
         }
         assertEquals(
             DefaultsSample(number = 8),
             NbtFormat(
                 NbtFormatConfiguration(ignoreUnknownKeys = true),
-            ).decodeFromNbtTag(DefaultsSample.serializer(), unknown),
+            ).decodeFromNbtTag<DefaultsSample>(unknown),
         )
     }
 
     @Test
     fun `null roots list entries and map values are rejected`() {
         assertFailsWith<NbtEncodingException> {
-            NbtFormat.encodeToNbtTag(
-                String.serializer().nullable,
-                null,
-            )
+            NbtFormat.encodeToNbtTag<String?>(null)
         }
         assertFailsWith<NbtEncodingException> {
-            NbtFormat.encodeToNbtTag(
-                ListSerializer(
-                    String.serializer().nullable,
-                ),
-                listOf("value", null),
-            )
+            NbtFormat.encodeToNbtTag(listOf("value", null))
         }
         assertFailsWith<NbtEncodingException> {
-            NbtFormat.encodeToNbtTag(
-                MapSerializer(
-                    String.serializer(),
-                    Int.serializer().nullable,
-                ),
-                mapOf("value" to null),
-            )
+            NbtFormat.encodeToNbtTag(mapOf<String, Int?>("value" to null))
         }
     }
 
     @Test
     fun `map keys must serialize as strings`() {
         assertFailsWith<NbtEncodingException> {
-            NbtFormat.encodeToNbtTag(
-                MapSerializer(
-                    Int.serializer(),
-                    String.serializer(),
-                ),
-                mapOf(1 to "one"),
-            )
+            NbtFormat.encodeToNbtTag(mapOf(1 to "one"))
         }
         assertFailsWith<NbtEncodingException> {
-            NbtFormat.encodeToNbtTag(
-                MapSerializer(
-                    TreeMode.serializer(),
-                    Int.serializer(),
-                ),
-                mapOf(TreeMode.FIRST to 1),
-            )
+            NbtFormat.encodeToNbtTag(mapOf(TreeMode.FIRST to 1))
         }
         assertFailsWith<NbtDecodingException> {
-            NbtFormat.decodeFromNbtTag(
-                MapSerializer(
-                    TreeMode.serializer(),
-                    Int.serializer(),
-                ),
+            NbtFormat.decodeFromNbtTag<Map<TreeMode, Int>>(
                 NbtCompound(mapOf("FIRST" to NbtInt(1))),
             )
         }
@@ -270,13 +220,13 @@ class NbtFormatTreeTest {
     @Test
     fun `strict booleans reject noncanonical bytes`() {
         assertFailsWith<NbtDecodingException> {
-            NbtFormat.decodeFromNbtTag(Boolean.serializer(), NbtByte(2))
+            NbtFormat.decodeFromNbtTag<Boolean>(NbtByte(2))
         }
         assertEquals(
             true,
             NbtFormat(
                 NbtFormatConfiguration(strictBooleans = false),
-            ).decodeFromNbtTag(Boolean.serializer(), NbtByte(2)),
+            ).decodeFromNbtTag<Boolean>(NbtByte(2)),
         )
     }
 
@@ -284,15 +234,15 @@ class NbtFormatTreeTest {
     fun `tree encoding preserves specialized arrays without policy limits`() {
         assertEquals(
             NbtByteArray(byteArrayOf(1, 2)),
-            NbtFormat.encodeToNbtTag(ByteArraySerializer(), byteArrayOf(1, 2)),
+            NbtFormat.encodeToNbtTag(byteArrayOf(1, 2)),
         )
         assertEquals(
             NbtIntArray(intArrayOf(1, 2)),
-            NbtFormat.encodeToNbtTag(IntArraySerializer(), intArrayOf(1, 2)),
+            NbtFormat.encodeToNbtTag(intArrayOf(1, 2)),
         )
         assertEquals(
             NbtLongArray(longArrayOf(1, 2)),
-            NbtFormat.encodeToNbtTag(LongArraySerializer(), longArrayOf(1, 2)),
+            NbtFormat.encodeToNbtTag(longArrayOf(1, 2)),
         )
     }
 
@@ -311,29 +261,20 @@ class NbtFormatTreeTest {
     @Test
     fun `raw tag subtype and enum decoding reject incompatible values`() {
         assertFailsWith<NbtDecodingException> {
-            NbtFormat.decodeFromNbtTag(
-                NbtCompound.serializer(),
-                NbtInt(1),
-            )
+            NbtFormat.decodeFromNbtTag<NbtCompound>(NbtInt(1))
         }
         assertFailsWith<NbtDecodingException> {
-            NbtFormat.decodeFromNbtTag(
-                TreeMode.serializer(),
-                NbtString("missing"),
-            )
+            NbtFormat.decodeFromNbtTag<TreeMode>(NbtString("missing"))
         }
     }
 
     @Test
     fun `char and polymorphism are explicitly unsupported`() {
         assertFailsWith<NbtEncodingException> {
-            NbtFormat.encodeToNbtTag(Char.serializer(), 'x')
+            NbtFormat.encodeToNbtTag('x')
         }
         val failure = assertFailsWith<NbtEncodingException> {
-            NbtFormat.encodeToNbtTag(
-                PolymorphicHolder.serializer(),
-                PolymorphicHolder(PolymorphicValue.Text("value")),
-            )
+            NbtFormat.encodeToNbtTag(PolymorphicHolder(PolymorphicValue.Text("value")))
         }
         assertTrue(failure.message.orEmpty().contains("Polymorphic"))
     }
@@ -348,7 +289,7 @@ class NbtFormatTreeTest {
             ),
         )
         val value = ContextHolder(ContextValue("context"))
-        val tag = format.encodeToNbtTag(ContextHolder.serializer(), value)
+        val tag = format.encodeToNbtTag(value)
 
         assertEquals(
             NbtCompound(mapOf("value" to NbtString("context"))),
@@ -356,7 +297,7 @@ class NbtFormatTreeTest {
         )
         assertEquals(
             value,
-            format.decodeFromNbtTag(ContextHolder.serializer(), tag),
+            format.decodeFromNbtTag<ContextHolder>(tag),
         )
     }
 }

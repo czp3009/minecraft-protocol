@@ -68,7 +68,7 @@ internal fun ErrorScreen(
     ) {
         Status("Operation failed")
         Spacer(Modifier.height(1))
-        TextBlock(destination.message)
+        WrappedText(destination.message)
     }
 }
 
@@ -320,7 +320,7 @@ internal fun ConfirmDeleteScreen(
         SectionHeading("Delete $versionId")
         Status("This cannot be undone")
         Spacer(Modifier.height(1))
-        TextBlock(
+        WrappedText(
             "The entire minecraft/$versionId/ directory will be removed, including saves and settings.",
         )
     }

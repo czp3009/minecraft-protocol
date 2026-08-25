@@ -23,12 +23,16 @@ internal actual fun openMinecraftTestSupportServiceConnection(
             override val service: MinecraftTestSupportService = rpcClient.withService()
 
             override fun close() {
-                rpcClient.close()
-                client.close()
+                closeServiceConnection(
+                    closeActions = arrayOf(
+                        { rpcClient.close() },
+                        { client.close() },
+                    ),
+                )
             }
         }
     } catch (failure: Throwable) {
-        client.close()
+        closeServiceConnection(failure, client::close)
         throw failure
     }
 }

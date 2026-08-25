@@ -40,6 +40,8 @@ val server = MinecraftTestSupport.newOfficialServer(
 ```
 
 Use `sendCommand`, `waitForLog`, `logText`, `restartServer`, `status`, and `awaitExit` for explicit lifecycle scenarios.
+When a command has a completion marker, pass it as `sendCommand`'s `expectedNewOutput`; the Host records the pre-command
+output sequence and accepts only a later matching line.
 
 ## Drive a headless official client
 

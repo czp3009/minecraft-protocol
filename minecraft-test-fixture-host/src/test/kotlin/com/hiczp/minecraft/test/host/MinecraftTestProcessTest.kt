@@ -1,8 +1,6 @@
 package com.hiczp.minecraft.test.host
 
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.async
-import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
 import kotlin.test.*
 import kotlin.time.Duration.Companion.milliseconds
@@ -128,9 +126,15 @@ class MinecraftTestProcessTest {
         withFixture { process ->
             process.waitForLog(STARTED, TIMEOUT)
             val missing = async(start = CoroutineStart.UNDISPATCHED) {
-                runCatching {
+                val failure = try {
                     process.waitForLog("never-emitted", TIMEOUT)
-                }.exceptionOrNull()
+                    null
+                } catch (failure: CancellationException) {
+                    throw failure
+                } catch (failure: Throwable) {
+                    failure
+                }
+                checkNotNull(failure) { "Missing marker unexpectedly appeared" }
             }
 
             process.sendLine(EXIT)
@@ -140,6 +144,17 @@ class MinecraftTestProcessTest {
             assertNotNull(process.awaitExitWithin(TIMEOUT))
             process.terminate()
             process.terminate()
+        }
+    }
+
+    @Test
+    fun processExitDrainsTrailingOutputBeforePublishingExit() = runTest {
+        withFixture { process ->
+            process.waitForLog(STARTED, TIMEOUT)
+            process.sendLine(OUTPUT_AND_EXIT)
+
+            assertEquals(0, process.awaitExit())
+            assertTrue("exit-output-9999" in process.logText())
         }
     }
 
@@ -178,6 +193,42 @@ class MinecraftTestProcessTest {
         } finally {
             resource.close()
             HostedMinecraftTestSupport.awaitCleanup()
+        }
+    }
+
+    @Test
+    fun terminationTimeoutIncludesWaitingForTheCommandLock() = runTest {
+        withFixture { process ->
+            process.waitForLog(STARTED, TIMEOUT)
+            val blockedCommand = async(start = CoroutineStart.UNDISPATCHED) {
+                val failure = try {
+                    process.sendLineAndWait(
+                        line = "blocked-command",
+                        marker = "never-emitted",
+                        timeout = TIMEOUT,
+                    )
+                    null
+                } catch (failure: CancellationException) {
+                    throw failure
+                } catch (failure: Throwable) {
+                    failure
+                }
+                checkNotNull(failure) { "Blocked command unexpectedly completed" }
+            }
+            process.waitForLog("ack:blocked-command", TIMEOUT)
+
+            val exitCode = withContext(Dispatchers.Default) {
+                withTimeout(2.seconds) {
+                    process.terminate(
+                        gracefulTimeout = 100.milliseconds,
+                        forcedTimeout = TIMEOUT,
+                    )
+                }
+            }
+
+            assertFalse(process.isAlive)
+            assertEquals(exitCode, process.exitCode)
+            assertIs<IllegalStateException>(blockedCommand.await())
         }
     }
 
@@ -225,6 +276,7 @@ class MinecraftTestProcessTest {
     private companion object {
         const val STARTED = "fixture-started"
         const val EXIT = "fixture-exit"
+        const val OUTPUT_AND_EXIT = "fixture-output-and-exit"
         const val CLOSE_OUTPUT = "fixture-close-output"
         const val IGNORED_SHUTDOWN_COMMAND = "fixture-ignore-stop"
         const val PARENT_READY = "parent-ready"

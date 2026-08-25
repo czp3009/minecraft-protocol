@@ -3,6 +3,7 @@ package com.hiczp.minecraft.protocol.client
 import com.hiczp.minecraft.test.MinecraftTestSupport
 import com.hiczp.minecraft.test.OfficialMinecraftServerConfiguration
 import com.hiczp.minecraft.test.use
+import kotlinx.coroutines.CancellationException
 
 internal object OfficialServerClientInteropRunner {
     suspend fun run() {
@@ -25,7 +26,18 @@ internal object OfficialServerClientInteropRunner {
                 check(MinecraftTestSupport.closeProcess(server) == 0) {
                     "Official server did not stop cleanly"
                 }
+            } catch (failure: CancellationException) {
+                throw failure
             } catch (failure: Throwable) {
+                val serverLog = try {
+                    MinecraftTestSupport.logText(server)
+                } catch (logFailure: CancellationException) {
+                    logFailure.addSuppressed(failure)
+                    throw logFailure
+                } catch (logFailure: Throwable) {
+                    failure.addSuppressed(logFailure)
+                    "<official server log unavailable>"
+                }
                 throw AssertionError(
                     """
                     |Official production-client interop failed during $phase.
@@ -33,7 +45,7 @@ internal object OfficialServerClientInteropRunner {
                     |$failure
                     |cause: ${failure.cause}
                     |--- official server log ---
-                    |${MinecraftTestSupport.logText(server)}
+                    |$serverLog
                     """.trimMargin(),
                     failure,
                 )

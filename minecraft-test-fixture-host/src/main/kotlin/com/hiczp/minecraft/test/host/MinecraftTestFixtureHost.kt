@@ -52,44 +52,52 @@ fun main(arguments: Array<String>) = runBlocking {
     )
 
     val resources = HostedFixtureResources(maximumParallelUsages)
-    val shutdown = CompletableDeferred<Unit>()
     val server = embeddedServer(CIO, host = LOOPBACK, port = 0) {
         fixtureHostModule(resources)
     }
     server.start(wait = false)
-    val connector = server.engine.resolvedConnectors().single()
-    // Standard output is the machine-readable startup channel consumed by the Build Service.
-    println("${READY_PREFIX}ws://$LOOPBACK:${connector.port}$RPC_PATH")
-    System.out.flush()
-
-    launch(Dispatchers.IO) {
-        try {
+    var failure: Throwable? = null
+    try {
+        val connector = server.engine.resolvedConnectors().single()
+        // Standard output is the machine-readable startup channel consumed by the Build Service.
+        println("${READY_PREFIX}ws://$LOOPBACK:${connector.port}$RPC_PATH")
+        System.out.flush()
+        withContext(Dispatchers.IO) {
             while (true) {
                 val command = readlnOrNull() ?: break
                 when {
-                    command == SHUTDOWN_COMMAND -> {
-                        resources.stopAcceptingCreations()
-                        break
-                    }
+                    command == SHUTDOWN_COMMAND -> break
                     command.startsWith(CLOSE_OWNER_COMMAND_PREFIX) ->
                         resources.closeOwner(
                             command.removePrefix(CLOSE_OWNER_COMMAND_PREFIX),
                         )
                 }
             }
-        } finally {
-            resources.stopAcceptingCreations()
-            shutdown.complete(Unit)
         }
-    }
-    shutdown.await()
-    try {
-        resources.shutdown()
+    } catch (caught: Throwable) {
+        failure = caught
+        throw caught
     } finally {
-        server.stop(
-            gracePeriodMillis = HOST_STOP_GRACE_MILLIS,
-            timeoutMillis = HOST_STOP_TIMEOUT_MILLIS,
-        )
+        withContext(NonCancellable) {
+            var cleanupFailure: Throwable? = null
+            try {
+                resources.shutdown()
+            } catch (caught: Throwable) {
+                cleanupFailure = caught
+            }
+            try {
+                server.stop(
+                    gracePeriodMillis = HOST_STOP_GRACE_MILLIS,
+                    timeoutMillis = HOST_STOP_TIMEOUT_MILLIS,
+                )
+            } catch (caught: Throwable) {
+                cleanupFailure?.addSuppressed(caught)
+                    ?: run { cleanupFailure = caught }
+            }
+            cleanupFailure?.let { caught ->
+                failure?.addSuppressed(caught) ?: throw caught
+            }
+        }
     }
 }
 
@@ -170,8 +178,14 @@ private class MinecraftTestSupportServiceServer(
     override suspend fun sendCommand(
         server: OfficialMinecraftServer,
         command: String,
+        expectedNewOutput: String?,
+        timeout: Duration,
     ) {
-        resources.hostedServer(server).sendCommand(command)
+        resources.hostedServer(server).sendCommand(
+            command = command,
+            expectedNewOutput = expectedNewOutput,
+            timeout = timeout,
+        )
     }
 
     override suspend fun restartServer(
@@ -235,13 +249,14 @@ internal class HostedFixtureResources(maximumParallelUsages: Int) {
             resourceSlots.release()
             throw failure
         }
-        val id = Uuid.random().toString()
         val hosted = HostedFixtureResource.Server(ownerId, resource)
         hosted.invokeOnCleanupCompletion { resourceSlots.release() }
         try {
+            val id = Uuid.random().toString()
             val server = resource.toOfficialMinecraftServer(id)
             mutex.withLock {
                 checkCreationAllowed(ownerId)
+                check(id !in resources) { "Fixture resource ID collision: $id" }
                 resources[id] = hosted
             }
             server
@@ -262,13 +277,14 @@ internal class HostedFixtureResources(maximumParallelUsages: Int) {
             resourceSlots.release()
             throw failure
         }
-        val id = Uuid.random().toString()
         val hosted = HostedFixtureResource.Client(ownerId, resource)
         hosted.invokeOnCleanupCompletion { resourceSlots.release() }
         try {
-            val client = resource.toHeadlessMinecraftClient(id)
+            val id = Uuid.random().toString()
+            val client = HeadlessMinecraftClient(id = id)
             mutex.withLock {
                 checkCreationAllowed(ownerId)
+                check(id !in resources) { "Fixture resource ID collision: $id" }
                 resources[id] = hosted
             }
             client
@@ -359,12 +375,15 @@ internal class HostedFixtureResources(maximumParallelUsages: Int) {
 
     suspend fun deleteWorkingDirectory(resource: MinecraftTestResource) {
         val hosted = hostedResource(resource.id)
-        hosted.deleteWorkingDirectory()
-        mutex.withLock {
-            if (resources[resource.id] === hosted) {
-                resources.remove(resource.id)
+        hosted.beginWorkingDirectoryDeletion()
+        withContext(NonCancellable) {
+            mutex.withLock {
+                if (resources[resource.id] === hosted) {
+                    resources.remove(resource.id)
+                }
             }
         }
+        hosted.awaitCleanup()
     }
 
     suspend fun close(resource: MinecraftTestResource) {
@@ -502,10 +521,17 @@ private sealed class HostedFixtureResource(
         }
     }
 
-    suspend fun deleteWorkingDirectory() {
+    suspend fun beginWorkingDirectoryDeletion() {
         when (this) {
-            is Server -> resource.deleteWorkingDirectory()
-            is Client -> resource.deleteWorkingDirectory()
+            is Server -> resource.beginWorkingDirectoryDeletion()
+            is Client -> resource.beginWorkingDirectoryDeletion()
+        }
+    }
+
+    suspend fun awaitCleanup() {
+        when (this) {
+            is Server -> resource.awaitCleanup()
+            is Client -> resource.awaitCleanup()
         }
     }
 }
@@ -517,37 +543,23 @@ private fun HostedOfficialMinecraftServerResource.toOfficialMinecraftServer(
     endpoint = endpoint,
 )
 
-private fun HostedHeadlessMinecraftClientResource.toHeadlessMinecraftClient(
-    id: String,
-): HeadlessMinecraftClient = HeadlessMinecraftClient(
-    id = id,
-)
-
-private fun HostedOfficialMinecraftServerResource.status(): MinecraftTestResourceStatus =
-    MinecraftTestResourceStatus(
-        alive = isAlive,
-        exitCode = if (isAlive) null else exitCode,
-    )
-
-private fun HostedHeadlessMinecraftClientResource.status(): MinecraftTestResourceStatus =
-    MinecraftTestResourceStatus(
-        alive = isAlive,
-        exitCode = if (isAlive) null else exitCode,
-    )
-
 private suspend fun verifyFixturesWithOfficialCodec(
     fixtures: JsonElement,
     methodName: String,
 ) {
     val scratch = HostedMinecraftTestSupport.newScratchDirectory()
+    var failure: Throwable? = null
     try {
         OfficialCodecOracle.verify(
             fixtures = fixtures,
             loggingConfiguration = scratch.resolve("log4j2.xml"),
             methodName = methodName,
         )
+    } catch (caught: Throwable) {
+        failure = caught
+        throw caught
     } finally {
-        scratch.deleteTree()
+        deleteTreesPreserving(failure, scratch)
     }
 }
 

@@ -4,6 +4,8 @@ import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -149,14 +151,12 @@ class PlayClientboundMovementPacketTest {
         assertContentEquals(
             canonical,
             MinecraftProtocolFormat.encodeToByteArray(
-                ClientboundPlayerAbilitiesPacket.serializer(),
                 packet,
             ),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(
-                ClientboundPlayerAbilitiesPacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<ClientboundPlayerAbilitiesPacket>(
                 "fd3d4ccccd3dcccccd".hexToByteArray(),
             ),
         )

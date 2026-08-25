@@ -191,7 +191,7 @@ private fun decodeBatch(chunks: List<String>): VanillaDataPackPayloadBatch {
     val payloadBytes = CompressionRegistry.decompressingSource(Compression.GZIP, source).buffered().use { decoded ->
         decoded.readByteArray()
     }
-    return Json.decodeFromString(VanillaDataPackPayloadBatch.serializer(), payloadBytes.decodeToString())
+    return Json.decodeFromString<VanillaDataPackPayloadBatch>(payloadBytes.decodeToString())
 }
 
 /** Projects an in-memory stack on top of the exact generated vanilla protocol defaults. */

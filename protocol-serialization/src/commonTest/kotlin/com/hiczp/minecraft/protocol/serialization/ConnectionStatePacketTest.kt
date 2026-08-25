@@ -4,6 +4,7 @@ import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -334,13 +335,11 @@ class ConnectionStatePacketTest {
     fun `configuration and login packet-specific limits reject oversized values`() {
         assertFailsWith<MinecraftSerializationException> {
             MinecraftProtocolFormat.encodeToByteArray(
-                LoginStartPacket.serializer(),
                 LoginStartPacket("x".repeat(17), Uuid.fromLongs(0, 0)),
             )
         }
         assertFailsWith<MinecraftSerializationException> {
             MinecraftProtocolFormat.encodeToByteArray(
-                ConfigurationStoreCookiePacket.serializer(),
                 ConfigurationStoreCookiePacket(
                     Identifier("test"),
                     ByteString(ByteArray(5_121)),
@@ -349,7 +348,6 @@ class ConnectionStatePacketTest {
         }
         assertFailsWith<MinecraftSerializationException> {
             MinecraftProtocolFormat.encodeToByteArray(
-                ConfigurationCustomReportDetailsPacket.serializer(),
                 ConfigurationCustomReportDetailsPacket(
                     List(33) { ReportDetail("t", "d") },
                 ),
@@ -357,7 +355,6 @@ class ConnectionStatePacketTest {
         }
         assertFailsWith<MinecraftSerializationException> {
             MinecraftProtocolFormat.encodeToByteArray(
-                ConfigurationServerboundKnownPacksPacket.serializer(),
                 ConfigurationServerboundKnownPacksPacket(
                     List(65) { KnownPack("m", "c", "1") },
                 ),

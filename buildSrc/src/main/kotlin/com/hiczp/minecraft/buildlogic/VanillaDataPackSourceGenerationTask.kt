@@ -87,7 +87,7 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
     }
 
     private fun encodePayload(payload: JsonObject): String {
-        val encodedJson = Json.encodeToString(JsonElement.serializer(), payload).encodeToByteArray()
+        val encodedJson = Json.encodeToString(payload).encodeToByteArray()
         val compressed = ByteArrayOutputStream().use { bytes ->
             GZIPOutputStream(bytes).use { gzip -> gzip.write(encodedJson) }
             bytes.toByteArray()

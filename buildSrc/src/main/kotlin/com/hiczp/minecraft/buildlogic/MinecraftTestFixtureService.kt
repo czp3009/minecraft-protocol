@@ -15,10 +15,10 @@ import org.gradle.tooling.events.task.TaskFinishEvent
 import java.io.BufferedWriter
 import java.io.File
 import java.util.*
-import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 
 data class MinecraftTestFixtureConnection(
@@ -52,6 +52,7 @@ abstract class MinecraftTestFixtureService :
                 "Minecraft test fixture service is shutting down"
             }
             val runningHost = host ?: startHost().also { host = it }
+            runningHost.requireAvailable()
             val ownerId = ownersByTask.getOrPut(taskPath) { UUID.randomUUID().toString() }
             MinecraftTestFixtureConnection(
                 rpcUrl = runningHost.rpcUrl,
@@ -115,18 +116,29 @@ abstract class MinecraftTestFixtureService :
 
         val ready = CountDownLatch(1)
         val output = BoundedOutput(HOST_LOG_LIMIT)
-        var rpcUrl: String? = null
+        val outputReaderFailure = AtomicReference<Throwable?>()
+        val outputEnded = AtomicBoolean()
+        val rpcUrl = AtomicReference<String?>()
         Thread({
-            process.inputStream.bufferedReader().useLines { lines ->
-                lines.forEach { line ->
-                    output.append(line)
-                    if (line.startsWith(READY_PREFIX)) {
-                        rpcUrl = line.removePrefix(READY_PREFIX).takeIf(String::isNotBlank)
-                        ready.countDown()
+            try {
+                process.inputStream.bufferedReader().useLines { lines ->
+                    lines.forEach { line ->
+                        output.append(line)
+                        if (line.startsWith(READY_PREFIX)) {
+                            rpcUrl.compareAndSet(
+                                null,
+                                line.removePrefix(READY_PREFIX).takeIf(String::isNotBlank),
+                            )
+                            ready.countDown()
+                        }
                     }
                 }
+            } catch (failure: Throwable) {
+                outputReaderFailure.set(failure)
+            } finally {
+                outputEnded.set(true)
+                ready.countDown()
             }
-            ready.countDown()
         }, "minecraft-test-fixture-host-output").apply {
             isDaemon = true
             start()
@@ -139,22 +151,36 @@ abstract class MinecraftTestFixtureService :
                 output = output,
                 hostWorkRoot = hostWorkRoot,
                 message = "Minecraft test fixture host did not become ready within $HOST_START_TIMEOUT_SECONDS seconds",
+                cause = outputReaderFailure.get(),
             )
         }
-        val resolvedRpcUrl = rpcUrl
-        if (resolvedRpcUrl == null || !process.isAlive) {
+        val resolvedRpcUrl = rpcUrl.get()
+        val readerFailure = outputReaderFailure.get()
+        if (
+            resolvedRpcUrl == null ||
+            !process.isAlive ||
+            outputEnded.get() ||
+            readerFailure != null
+        ) {
             failFixtureHostStart(
                 process = process,
                 input = input,
                 output = output,
                 hostWorkRoot = hostWorkRoot,
-                message = "Minecraft test fixture host exited before becoming ready",
+                message = if (readerFailure != null) {
+                    "Minecraft test fixture host output reader failed before readiness"
+                } else {
+                    "Minecraft test fixture host exited before becoming ready"
+                },
+                cause = readerFailure,
             )
         }
         return RunningFixtureHost(
             process = process,
             input = input,
             output = output,
+            outputEnded = outputEnded,
+            outputReaderFailure = outputReaderFailure,
             rpcUrl = resolvedRpcUrl,
             hostWorkRoot = hostWorkRoot,
         )
@@ -261,29 +287,65 @@ private class RunningFixtureHost(
     private val process: Process,
     private val input: BufferedWriter,
     private val output: BoundedOutput,
+    private val outputEnded: AtomicBoolean,
+    private val outputReaderFailure: AtomicReference<Throwable?>,
     val rpcUrl: String,
     private val hostWorkRoot: File,
 ) : AutoCloseable {
+    private var closing = false
+
+    fun requireAvailable() {
+        val readerFailure = outputReaderFailure.get()
+        if (!process.isAlive || outputEnded.get() || readerFailure != null) {
+            throw IllegalStateException(
+                "Minecraft test fixture host is unavailable:\n${output.text()}",
+                readerFailure,
+            )
+        }
+    }
+
     fun closeOwner(ownerId: String) {
-        if (!process.isAlive) return
-        writeCommand("$CLOSE_OWNER_COMMAND_PREFIX$ownerId")
+        synchronized(input) {
+            if (closing || !process.isAlive) return
+            try {
+                input.write("$CLOSE_OWNER_COMMAND_PREFIX$ownerId")
+                input.newLine()
+                input.flush()
+            } catch (failure: Throwable) {
+                if (process.isAlive) throw failure
+            }
+        }
     }
 
     override fun close() {
         val observedProcesses = linkedMapOf<Long, ProcessHandle>()
         observeProcessTree(process, observedProcesses)
         var closeFailure: Throwable? = null
-        var hostExited = !process.isAlive
-        try {
-            if (process.isAlive) {
-                runCatching {
-                    synchronized(input) {
+        val startedClosing = synchronized(input) {
+            if (closing) {
+                false
+            } else {
+                closing = true
+                if (process.isAlive) {
+                    try {
                         input.write(SHUTDOWN_COMMAND)
                         input.newLine()
-                        input.close()
+                    } catch (failure: Throwable) {
+                        closeFailure = failure
                     }
                 }
+                try {
+                    input.close()
+                } catch (failure: Throwable) {
+                    closeFailure?.addSuppressed(failure)
+                        ?: run { closeFailure = failure }
+                }
+                true
             }
+        }
+        if (!startedClosing) return
+        var hostExited = !process.isAlive
+        try {
             if (!hostExited) {
                 hostExited = process.waitFor(
                     HOST_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
@@ -322,14 +384,6 @@ private class RunningFixtureHost(
         }
         closeFailure?.let { throw it }
     }
-
-    private fun writeCommand(command: String) {
-        synchronized(input) {
-            input.write(command)
-            input.newLine()
-            input.flush()
-        }
-    }
 }
 
 private fun failFixtureHostStart(
@@ -338,8 +392,9 @@ private fun failFixtureHostStart(
     output: BoundedOutput,
     hostWorkRoot: File,
     message: String,
+    cause: Throwable?,
 ): Nothing {
-    val failure = IllegalStateException("$message:\n${output.text()}")
+    val failure = IllegalStateException("$message:\n${output.text()}", cause)
     val observedProcesses = linkedMapOf<Long, ProcessHandle>()
     runCatching { input.close() }
         .onFailure(failure::addSuppressed)
@@ -359,55 +414,6 @@ private fun failFixtureHostStart(
         hostWorkRoot.toPath().deleteTree()
     }.onFailure(failure::addSuppressed)
     throw failure
-}
-
-private fun observeProcessTree(
-    process: Process,
-    observedProcesses: MutableMap<Long, ProcessHandle>,
-) {
-    if (process.isAlive) {
-        runCatching {
-            process.descendants().use { descendants ->
-                descendants.forEach { handle ->
-                    observedProcesses.putIfAbsent(handle.pid(), handle)
-                }
-            }
-        }
-    }
-    val hostHandle = process.toHandle()
-    observedProcesses.putIfAbsent(hostHandle.pid(), hostHandle)
-}
-
-private fun forceProcessTree(
-    process: Process,
-    observedProcesses: Map<Long, ProcessHandle>,
-) {
-    val hostPid = process.pid()
-    observedProcesses.values
-        .filter { handle -> handle.pid() != hostPid }
-        .asReversed()
-        .plus(observedProcesses[hostPid])
-        .filterNotNull()
-        .filter(ProcessHandle::isAlive)
-        .forEach { handle -> runCatching { handle.destroyForcibly() } }
-}
-
-private fun awaitProcessTreeExit(
-    observedProcesses: Map<Long, ProcessHandle>,
-    timeoutSeconds: Long,
-): Boolean {
-    val exits = observedProcesses.values
-        .filter(ProcessHandle::isAlive)
-        .map(ProcessHandle::onExit)
-        .toTypedArray()
-    if (exits.isEmpty()) return true
-    return try {
-        CompletableFuture.allOf(*exits)
-            .get(timeoutSeconds, TimeUnit.SECONDS)
-        true
-    } catch (_: TimeoutException) {
-        false
-    }
 }
 
 private class BoundedOutput(

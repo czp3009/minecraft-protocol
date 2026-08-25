@@ -14,14 +14,7 @@ import kotlinx.serialization.modules.EmptySerializersModule
 import kotlinx.serialization.modules.SerializersModule
 import kotlin.uuid.Uuid
 
-/**
- * Constructs one deliberately small, protocol-valid value from a serializer.
- *
- * This infrastructure exercises every registered packet codec. It does not manufacture semantically useful game data.
- */
-internal fun <T> KSerializer<T>.minimalProtocolValue(): T =
-    protocolValue(ProtocolSampleProfile.MINIMAL)
-
+/** Constructs a protocol-valid test value for the selected sample [profile]. */
 internal fun <T> KSerializer<T>.protocolValue(
     profile: ProtocolSampleProfile,
 ): T = deserialize(MinimalProtocolValueDecoder(profile = profile))

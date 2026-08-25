@@ -3,8 +3,8 @@ package com.hiczp.minecraft.protocol.serialization
 import com.hiczp.minecraft.protocol.model.wire.VarIntElements
 import com.hiczp.minecraft.protocol.model.wire.VarLongElements
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.BooleanArraySerializer
-import kotlinx.serialization.builtins.IntArraySerializer
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertFailsWith
@@ -25,8 +25,8 @@ class PrimitiveArraySerializationTest {
             varLongs = longArrayOf(-1, 0, 128),
         )
 
-        val encoded = MinecraftProtocolFormat.encodeToByteArray(PrimitiveArrays.serializer(), value)
-        val decoded = MinecraftProtocolFormat.decodeFromByteArray(PrimitiveArrays.serializer(), encoded)
+        val encoded = MinecraftProtocolFormat.encodeToByteArray(value)
+        val decoded = MinecraftProtocolFormat.decodeFromByteArray<PrimitiveArrays>(encoded)
 
         assertContentEquals(value.booleans, decoded.booleans)
         assertContentEquals(value.bytes, decoded.bytes)
@@ -44,20 +44,19 @@ class PrimitiveArraySerializationTest {
     fun `boolean arrays follow the official nonzero truth rule by default`() {
         assertContentEquals(
             booleanArrayOf(true),
-            MinecraftProtocolFormat.decodeFromByteArray(BooleanArraySerializer(), byteArrayOf(1, 2)),
+            MinecraftProtocolFormat.decodeFromByteArray<BooleanArray>(byteArrayOf(1, 2)),
         )
 
         val strict = MinecraftProtocolFormat(MinecraftProtocolFormatConfiguration(strictBooleans = true))
         assertFailsWith<MinecraftSerializationException> {
-            strict.decodeFromByteArray(BooleanArraySerializer(), byteArrayOf(1, 2))
+            strict.decodeFromByteArray<BooleanArray>(byteArrayOf(1, 2))
         }
     }
 
     @Test
     fun `fixed-width primitive arrays reject impossible payload lengths before allocation`() {
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray(
-                IntArraySerializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<IntArray>(
                 "ffffffff07".hexToByteArray(),
             )
         }

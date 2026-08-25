@@ -51,6 +51,8 @@ The project is split by capability, so applications can start at the appropriate
 | Worlds         | [`world-format`](world-format/README.md)                           | Chunk/Entity values, coordinates, compression, and Anvil containers |
 | Worlds         | [`world-io`](world-io/README.md)                                   | Reading and writing actual world directories                        |
 
+## Demo
+
 The [launcher demo](demo/launcher/README.md) is a terminal application that combines account management,
 official-version installation, and game launch.
 

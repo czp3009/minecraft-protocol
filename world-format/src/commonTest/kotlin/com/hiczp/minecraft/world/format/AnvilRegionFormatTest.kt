@@ -430,15 +430,15 @@ class AnvilRegionFormatTest {
         val format = CompressedNbtFormat()
 
         for (compression in listOf(Compression.GZIP, Compression.ZLIB, Compression.NONE, Compression.LZ4)) {
-            val typedChunk = format.encode(TypedChunkNbt.serializer(), expected, compression)
+            val typedChunk = format.encode(expected, compression)
             val document = format.decodeDocument(typedChunk)
-            assertEquals(expected, format.decode(TypedChunkNbt.serializer(), typedChunk))
+            assertEquals(expected, format.decode<TypedChunkNbt>(typedChunk))
 
             val documentChunk = format.encodeDocument(document, compression)
-            assertEquals(expected, format.decode(TypedChunkNbt.serializer(), documentChunk))
+            assertEquals(expected, format.decode<TypedChunkNbt>(documentChunk))
 
             val stream = Buffer()
-            format.encodeToSink(TypedChunkNbt.serializer(), expected, compression, stream)
+            format.encodeToSink(expected, compression, stream)
             assertEquals(document, format.decodeDocumentFromSource(stream, compression))
             assertTrue(stream.exhausted())
         }
@@ -1201,13 +1201,6 @@ class AnvilRegionFormatTest {
         placement = content.placement,
         timestampEpochSeconds = timestampEpochSeconds,
     )
-
-    private fun nbtBinaryFormatBytes(): ByteArray =
-        NbtFormat.encodeDocumentToByteArray(
-            NbtDocument(
-                NbtCompound(mapOf("value" to NbtInt(1))),
-            ),
-        )
 
     private fun singleRecord(length: Int, version: Int): ByteArray =
         ByteArray(3 * REGION_SECTOR_BYTES).also {

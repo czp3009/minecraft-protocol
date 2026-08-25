@@ -5,6 +5,8 @@ import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -32,11 +34,11 @@ class PlayClientboundWorldPacketTest {
 
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(SpawnEntityPacket.serializer(), packet),
+            MinecraftProtocolFormat.encodeToByteArray(packet),
         )
         assertEquals(
             expected = packet,
-            actual = MinecraftProtocolFormat.decodeFromByteArray(SpawnEntityPacket.serializer(), expected),
+            actual = MinecraftProtocolFormat.decodeFromByteArray<SpawnEntityPacket>(expected),
         )
     }
 
@@ -65,11 +67,11 @@ class PlayClientboundWorldPacketTest {
             val expected = "00000000000000000000000000000000$actionHex".hexToByteArray()
             assertContentEquals(
                 expected,
-                MinecraftProtocolFormat.encodeToByteArray(BossBarPacket.serializer(), packet),
+                MinecraftProtocolFormat.encodeToByteArray(packet),
             )
             assertEquals(
                 expected = packet,
-                actual = MinecraftProtocolFormat.decodeFromByteArray(BossBarPacket.serializer(), expected),
+                actual = MinecraftProtocolFormat.decodeFromByteArray<BossBarPacket>(expected),
             )
         }
     }
@@ -80,14 +82,12 @@ class PlayClientboundWorldPacketTest {
         assertContentEquals(
             "0300".hexToByteArray(),
             MinecraftProtocolFormat.encodeToByteArray(
-                ClientboundChangeDifficultyPacket.serializer(),
                 packet,
             ),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(
-                ClientboundChangeDifficultyPacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<ClientboundChangeDifficultyPacket>(
                 "ff0100".hexToByteArray(),
             ),
         )
@@ -107,11 +107,11 @@ class PlayClientboundWorldPacketTest {
         val expected = "01000000020000000102aabb".hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(ChunkBiomesPacket.serializer(), packet),
+            MinecraftProtocolFormat.encodeToByteArray(packet),
         )
         assertEquals(
             expected = packet,
-            actual = MinecraftProtocolFormat.decodeFromByteArray(ChunkBiomesPacket.serializer(), expected),
+            actual = MinecraftProtocolFormat.decodeFromByteArray<ChunkBiomesPacket>(expected),
         )
     }
 
@@ -122,14 +122,13 @@ class PlayClientboundWorldPacketTest {
             typeId = 1,
             data = NbtCompound(mapOf("key" to NbtString("value"))),
         )
-        val encoded = MinecraftProtocolFormat.encodeToByteArray(BlockEntityDataPacket.serializer(), packet)
+        val encoded = MinecraftProtocolFormat.encodeToByteArray(packet)
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(BlockEntityDataPacket.serializer(), encoded),
+            MinecraftProtocolFormat.decodeFromByteArray<BlockEntityDataPacket>(encoded),
         )
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray(
-                BlockEntityDataPacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<BlockEntityDataPacket>(
                 // Position, type ID, then a no-name NBT Int instead of Compound.
                 "0000000000000000010300000000".hexToByteArray(),
             )

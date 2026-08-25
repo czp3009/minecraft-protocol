@@ -2,6 +2,7 @@ package com.hiczp.minecraft.demo.launcher
 
 import com.hiczp.minecraft.demo.launcher.ui.LauncherApplication
 import com.jakewharton.mosaic.runMosaicMain
+import io.ktor.client.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -13,7 +14,7 @@ import okio.SYSTEM
 fun main() {
     val fileSystem = FileSystem.SYSTEM
     val launcherRoot = fileSystem.canonicalize(".".toPath())
-    val httpClient = createLauncherHttpClient()
+    val httpClient = HttpClient { configureLauncherHttpClient() }
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val platform = LauncherPlatform.current()
     val store = LauncherStore(fileSystem, launcherRoot)

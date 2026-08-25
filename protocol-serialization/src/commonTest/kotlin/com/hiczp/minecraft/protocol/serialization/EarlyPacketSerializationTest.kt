@@ -7,6 +7,8 @@ import com.hiczp.minecraft.protocol.model.packet.HandshakeNextState
 import com.hiczp.minecraft.protocol.model.packet.HandshakePacket
 import com.hiczp.minecraft.protocol.model.packet.LegacyServerListPingPacket
 import com.hiczp.minecraft.protocol.model.type.Identifier
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -23,11 +25,11 @@ class EarlyPacketSerializationTest {
         val expected = "8806096c6f63616c686f737463dd02".hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(HandshakePacket.serializer(), packet),
+            MinecraftProtocolFormat.encodeToByteArray(packet),
         )
         assertEquals(
             expected = packet,
-            actual = MinecraftProtocolFormat.decodeFromByteArray(HandshakePacket.serializer(), expected),
+            actual = MinecraftProtocolFormat.decodeFromByteArray<HandshakePacket>(expected),
         )
     }
 
@@ -37,14 +39,12 @@ class EarlyPacketSerializationTest {
         assertContentEquals(
             byteArrayOf(1),
             MinecraftProtocolFormat.encodeToByteArray(
-                LegacyServerListPingPacket.serializer(),
                 packet,
             ),
         )
         assertEquals(
             expected = packet,
-            actual = MinecraftProtocolFormat.decodeFromByteArray(
-                LegacyServerListPingPacket.serializer(),
+            actual = MinecraftProtocolFormat.decodeFromByteArray<LegacyServerListPingPacket>(
                 byteArrayOf(1),
             ),
         )
@@ -59,20 +59,17 @@ class EarlyPacketSerializationTest {
         assertContentEquals(
             "0e6d696e6563726166743a746573740100".hexToByteArray(),
             MinecraftProtocolFormat.encodeToByteArray(
-                ConfigurationCustomClickActionPacket.serializer(),
                 absent,
             ),
         )
 
         val present = absent.copy(payload = NbtString("ok"))
         val bytes = MinecraftProtocolFormat.encodeToByteArray(
-            ConfigurationCustomClickActionPacket.serializer(),
             present,
         )
         assertEquals(
             present,
-            MinecraftProtocolFormat.decodeFromByteArray(
-                ConfigurationCustomClickActionPacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<ConfigurationCustomClickActionPacket>(
                 bytes,
             ),
         )

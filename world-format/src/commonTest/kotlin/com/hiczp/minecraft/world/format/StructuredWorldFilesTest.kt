@@ -3,14 +3,11 @@ package com.hiczp.minecraft.world.format
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.nbt.NbtIntArray
-import com.hiczp.minecraft.nbt.serialization.NbtFormat
-import com.hiczp.minecraft.nbt.serialization.NbtFormatConfiguration
-import com.hiczp.minecraft.nbt.serialization.NbtRootEncoding
+import com.hiczp.minecraft.nbt.serialization.*
 import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
+import kotlinx.serialization.json.*
 import kotlin.test.*
 
 class StructuredWorldFilesTest {
@@ -21,12 +18,12 @@ class StructuredWorldFilesTest {
     @Test
     fun levelDatUsesTheSelectedReleaseNbtShape() {
         val expected = sampleLevelDat()
-        val bytes = nbt.encodeToByteArray(LevelDat.serializer(), expected)
-        val actual = nbt.decodeFromByteArray(LevelDat.serializer(), bytes)
+        val bytes = nbt.encodeToByteArray(expected)
+        val actual = nbt.decodeFromByteArray<LevelDat>(bytes)
 
         assertEquals(expected, actual)
         assertEquals(expected.hashCode(), actual.hashCode())
-        val root = assertIs<NbtCompound>(nbt.encodeToNbtTag(LevelDat.serializer(), expected))
+        val root = assertIs<NbtCompound>(nbt.encodeToNbtTag(expected))
         val data = assertIs<NbtCompound>(root["Data"])
         assertIs<NbtIntArray>(assertIs<NbtCompound>(data["spawn"])["pos"])
         assertFalse("enabled_features" in data.value)
@@ -46,19 +43,19 @@ class StructuredWorldFilesTest {
                 ),
             )
         }
-        val tag = assertIs<NbtCompound>(nbt.encodeToNbtTag(LevelDat.serializer(), expected))
+        val tag = assertIs<NbtCompound>(nbt.encodeToNbtTag(expected))
         val data = assertIs<NbtCompound>(tag["Data"])
 
         assertTrue("enabled_features" in data.value)
         assertTrue("removed_features" in data.value)
         assertIs<NbtIntArray>(data["singleplayer_uuid"])
-        assertEquals(expected, nbt.decodeFromNbtTag(LevelDat.serializer(), tag))
+        assertEquals(expected, nbt.decodeFromNbtTag<LevelDat>(tag))
     }
 
     @Test
     fun levelDatRequiresEveryUnconditionalOfficialField() {
         val encoded = assertIs<NbtCompound>(
-            nbt.encodeToNbtTag(LevelDat.serializer(), sampleLevelDat()),
+            nbt.encodeToNbtTag(sampleLevelDat()),
         )
         val data = assertIs<NbtCompound>(encoded["Data"])
         val requiredDataFields = setOf(
@@ -79,8 +76,7 @@ class StructuredWorldFilesTest {
 
         requiredDataFields.forEach { field ->
             assertFailsWith<SerializationException>("Missing Data.$field must fail") {
-                nbt.decodeFromNbtTag(
-                    LevelDat.serializer(),
+                nbt.decodeFromNbtTag<LevelDat>(
                     NbtCompound(encoded.value + ("Data" to NbtCompound(data.value - field))),
                 )
             }
@@ -107,13 +103,13 @@ class StructuredWorldFilesTest {
         )
 
         assertFailsWith<SerializationException> {
-            nbt.decodeFromNbtTag(LevelDat.serializer(), NbtCompound(encoded.value - "Data"))
+            nbt.decodeFromNbtTag<LevelDat>(NbtCompound(encoded.value - "Data"))
         }
         assertFailsWith<SerializationException> {
-            nbt.decodeFromNbtTag(LevelDat.serializer(), withUnknownData)
+            nbt.decodeFromNbtTag<LevelDat>(withUnknownData)
         }
         assertFailsWith<SerializationException> {
-            nbt.decodeFromNbtTag(LevelDat.serializer(), NbtInt(1))
+            nbt.decodeFromNbtTag<LevelDat>(NbtInt(1))
         }
     }
 
@@ -127,9 +123,9 @@ class StructuredWorldFilesTest {
             )
         }
         val expected = PlayerAdvancements(4_903, advancements)
-        val encoded = Json.encodeToString(PlayerAdvancements.serializer(), expected)
+        val encoded = Json.encodeToString(expected)
 
-        assertEquals(expected, Json.decodeFromString(PlayerAdvancements.serializer(), encoded))
+        assertEquals(expected, Json.decodeFromString<PlayerAdvancements>(encoded))
         val reordered = buildJsonObject {
             put(
                 "example:first",
@@ -155,7 +151,7 @@ class StructuredWorldFilesTest {
                     ),
                 ),
             ),
-            Json.decodeFromJsonElement(PlayerAdvancements.serializer(), reordered),
+            Json.decodeFromJsonElement<PlayerAdvancements>(reordered),
         )
     }
 
@@ -166,21 +162,18 @@ class StructuredWorldFilesTest {
             put("done", JsonPrimitive(false))
         }
         assertFailsWith<SerializationException> {
-            Json.decodeFromJsonElement(
-                PlayerAdvancements.serializer(),
+            Json.decodeFromJsonElement<PlayerAdvancements>(
                 buildJsonObject { put("example:missing_version", progress) },
             )
         }
         val validJson = Json.encodeToString(
-            PlayerAdvancements.serializer(),
             PlayerAdvancements(4_903, emptyMap()),
         )
         assertFailsWith<SerializationException> {
-            Json.decodeFromString(PlayerAdvancements.serializer(), validJson.dropLast(1))
+            Json.decodeFromString<PlayerAdvancements>(validJson.dropLast(1))
         }
         assertFailsWith<SerializationException> {
-            Json.decodeFromJsonElement(
-                PlayerAdvancements.serializer(),
+            Json.decodeFromJsonElement<PlayerAdvancements>(
                 buildJsonObject {
                     put("DataVersion", JsonPrimitive(4_903))
                     put(
@@ -208,12 +201,11 @@ class StructuredWorldFilesTest {
             ),
             dataVersion = 4_903,
         )
-        val encoded = Json.encodeToString(PlayerStatistics.serializer(), expected)
+        val encoded = Json.encodeToString(expected)
 
-        assertEquals(expected, Json.decodeFromString(PlayerStatistics.serializer(), encoded))
+        assertEquals(expected, Json.decodeFromString<PlayerStatistics>(encoded))
         assertFailsWith<SerializationException> {
-            Json.decodeFromJsonElement(
-                PlayerStatistics.serializer(),
+            Json.decodeFromJsonElement<PlayerStatistics>(
                 buildJsonObject { put("stats", JsonObject(emptyMap())) },
             )
         }
@@ -234,7 +226,7 @@ private fun assertRequiredNestedFieldsFail(
         )
         val withoutField = NbtCompound(root.value + ("Data" to updatedData))
         assertFailsWith<SerializationException>("Missing Data.$structureName.$field must fail") {
-            nbt.decodeFromNbtTag(LevelDat.serializer(), withoutField)
+            nbt.decodeFromNbtTag<LevelDat>(withoutField)
         }
     }
 }

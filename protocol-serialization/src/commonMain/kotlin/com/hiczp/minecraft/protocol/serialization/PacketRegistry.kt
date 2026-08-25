@@ -378,12 +378,11 @@ class PacketRegistry(
     }
 }
 
-val MinecraftPacketRegistry: PacketRegistry = PacketRegistry(generatedPacketCodecs())
-
-private fun generatedPacketCodecs(): List<PacketCodec<out Packet>> =
+val MinecraftPacketRegistry: PacketRegistry = PacketRegistry(
     GeneratedPacketDefinitions.entries.map { definition ->
         definition.toPacketCodec()
-    }
+    },
+)
 
 private fun <T : Packet> PacketDefinition<T>.toPacketCodec(): PacketCodec<T> =
     PacketCodec(

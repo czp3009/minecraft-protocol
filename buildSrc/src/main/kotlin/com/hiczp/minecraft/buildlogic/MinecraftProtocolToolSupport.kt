@@ -27,26 +27,20 @@ import java.net.ConnectException
 import java.net.PasswordAuthentication
 import java.net.UnknownHostException
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.LinkOption
-import java.nio.file.Path
-import java.nio.file.StandardCopyOption
-import java.nio.file.StandardOpenOption
+import java.nio.file.*
 import java.time.Duration
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipFile
 import javax.net.ssl.SSLException
-import kotlin.io.path.*
-import kotlin.text.Regex
-import kotlin.text.StringBuilder
-import kotlin.text.appendLine
-import kotlin.text.buildString
-import kotlin.text.isNotBlank
-import kotlin.text.lowercase
-import kotlin.text.matches
-import kotlin.text.orEmpty
-import kotlin.text.toByteArray
+import kotlin.io.path.createDirectories
+import kotlin.io.path.isRegularFile
+import kotlin.io.path.name
+import kotlin.io.path.readText
 import kotlin.text.toCharArray
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -72,7 +66,7 @@ internal fun Path.writeJson(
     sortKeys: Boolean = false,
 ) {
     val document = if (sortKeys) value.withSortedObjectKeys() else value
-    atomicWriteText("${protocolJson.encodeToString(JsonElement.serializer(), document)}\n")
+    atomicWriteText("${protocolJson.encodeToString(document)}\n")
 }
 
 private fun JsonElement.withSortedObjectKeys(): JsonElement = when (this) {
@@ -449,27 +443,149 @@ internal fun runProcess(
             environment().putAll(environment)
         }
         .start()
-    val output = StringBuilder()
+    // These tools are non-interactive. Closing stdin also lets a descendant
+    // that inherited the pipe observe EOF instead of outliving its launcher.
+    val output = StringBuffer()
+    val outputClosedByCaller = AtomicBoolean()
+    val outputReaderFailure = AtomicReference<Throwable?>()
     val reader = Thread.ofVirtual().start {
-        process.inputStream.bufferedReader().useLines { lines ->
-            lines.forEach(output::appendLine)
+        try {
+            process.inputStream.bufferedReader().useLines { lines ->
+                lines.forEach(output::appendLine)
+            }
+        } catch (failure: Throwable) {
+            if (!outputClosedByCaller.get()) {
+                outputReaderFailure.set(failure)
+            }
         }
     }
-    val completed = if (timeout == null) {
-        process.waitFor()
-        true
-    } else {
-        process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)
-    }
-    if (!completed) {
-        process.destroyForcibly()
-        process.waitFor()
-    }
-    reader.join()
-    check(completed) {
-        "Process timed out: ${command.joinToString(" ")}"
+    val observedProcesses = linkedMapOf<Long, ProcessHandle>()
+    var completed = false
+    var failure: Throwable? = null
+    try {
+        process.outputStream.close()
+        completed = if (timeout == null) {
+            process.waitFor()
+            true
+        } else {
+            process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)
+        }
+        if (!completed) {
+            observeProcessTree(process, observedProcesses)
+        }
+        check(completed) {
+            "Process timed out: ${command.joinToString(" ")}"
+        }
+    } catch (caught: Throwable) {
+        failure = caught
+        throw caught
+    } finally {
+        var cleanupFailure: Throwable? = null
+        if (!completed) {
+            try {
+                observeProcessTree(process, observedProcesses)
+                forceProcessTree(process, observedProcesses)
+                check(
+                    awaitProcessTreeExit(
+                        observedProcesses,
+                        PROCESS_FORCED_SHUTDOWN_TIMEOUT_SECONDS,
+                    ),
+                ) {
+                    "Process tree did not exit: ${command.joinToString(" ")}"
+                }
+            } catch (caught: Throwable) {
+                cleanupFailure = caught
+            }
+        }
+        try {
+            if (!reader.joinWithin(PROCESS_OUTPUT_DRAIN_TIMEOUT)) {
+                outputClosedByCaller.set(true)
+                process.inputStream.close()
+                check(reader.joinWithin(PROCESS_OUTPUT_DRAIN_TIMEOUT)) {
+                    "Process output reader did not stop: ${command.joinToString(" ")}"
+                }
+            }
+        } catch (caught: Throwable) {
+            cleanupFailure?.addSuppressed(caught)
+                ?: run { cleanupFailure = caught }
+        }
+        outputReaderFailure.get()?.let { caught ->
+            cleanupFailure?.addSuppressed(caught)
+                ?: run { cleanupFailure = caught }
+        }
+        cleanupFailure?.let { caught ->
+            failure?.addSuppressed(caught) ?: throw caught
+        }
     }
     return ProcessResult(process.exitValue(), output.toString())
+}
+
+private fun Thread.joinWithin(timeout: Duration): Boolean {
+    val deadline = System.nanoTime() + timeout.toNanos()
+    var interrupted = false
+    while (isAlive) {
+        val remaining = deadline - System.nanoTime()
+        if (remaining <= 0L) break
+        try {
+            val milliseconds = TimeUnit.NANOSECONDS.toMillis(remaining)
+            val nanoseconds = (remaining - TimeUnit.MILLISECONDS.toNanos(milliseconds))
+                .toInt()
+            join(milliseconds, nanoseconds)
+        } catch (_: InterruptedException) {
+            interrupted = true
+        }
+    }
+    if (interrupted) Thread.currentThread().interrupt()
+    return !isAlive
+}
+
+internal fun observeProcessTree(
+    process: Process,
+    observedProcesses: MutableMap<Long, ProcessHandle>,
+) {
+    if (process.isAlive) {
+        runCatching {
+            process.descendants().use { descendants ->
+                descendants.forEach { handle ->
+                    observedProcesses.putIfAbsent(handle.pid(), handle)
+                }
+            }
+        }
+    }
+    val rootHandle = process.toHandle()
+    observedProcesses.putIfAbsent(rootHandle.pid(), rootHandle)
+}
+
+internal fun forceProcessTree(
+    process: Process,
+    observedProcesses: Map<Long, ProcessHandle>,
+) {
+    val rootPid = process.pid()
+    observedProcesses.values
+        .filter { handle -> handle.pid() != rootPid }
+        .asReversed()
+        .plus(observedProcesses[rootPid])
+        .filterNotNull()
+        .filter(ProcessHandle::isAlive)
+        .forEach { handle -> runCatching { handle.destroyForcibly() } }
+}
+
+internal fun awaitProcessTreeExit(
+    observedProcesses: Map<Long, ProcessHandle>,
+    timeoutSeconds: Long,
+): Boolean {
+    val exits = observedProcesses.values
+        .filter(ProcessHandle::isAlive)
+        .map(ProcessHandle::onExit)
+        .toTypedArray()
+    if (exits.isEmpty()) return true
+    return try {
+        CompletableFuture.allOf(*exits)
+            .get(timeoutSeconds, TimeUnit.SECONDS)
+        true
+    } catch (_: TimeoutException) {
+        false
+    }
 }
 
 internal fun Path.readZipEntry(name: String): ByteArray =
@@ -541,3 +657,6 @@ internal fun Path.deleteTree() {
             .forEach(Files::delete)
     }
 }
+
+private val PROCESS_OUTPUT_DRAIN_TIMEOUT = Duration.ofSeconds(5)
+private const val PROCESS_FORCED_SHUTDOWN_TIMEOUT_SECONDS = 5L

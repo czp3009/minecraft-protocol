@@ -13,6 +13,8 @@ import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationExceptio
 import com.hiczp.minecraft.protocol.session.MinecraftPacketConnection
 import com.hiczp.minecraft.protocol.session.RoutedCustomPayload
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 
 object FabricSplitPayloads {
     const val CLIENTBOUND_CHUNK_SIZE: Int = 1_048_576
@@ -42,7 +44,6 @@ object FabricSplitPayloads {
             )
         }
         val lengthPrefix = MinecraftProtocolFormat.Default.encodeToByteArray(
-            FabricSplitLength.serializer(),
             FabricSplitLength(target.size),
         )
         if (lengthPrefix.size >= maximumChunkSize) {
@@ -75,7 +76,6 @@ object FabricSplitPayloads {
 
     private fun encodeTarget(payload: RoutedCustomPayload): ByteArray =
         MinecraftProtocolFormat.Default.encodeToByteArray(
-            FabricSplitTarget.serializer(),
             FabricSplitTarget(
                 payload.route.packetId,
                 payload.route.channel,
@@ -114,8 +114,7 @@ class FabricSplitAssembler(
         if (byteCount < expected) return null
         val complete = bytes
         clear()
-        val target = MinecraftProtocolFormat.Default.decodeFromByteArray(
-            FabricSplitTarget.serializer(),
+        val target = MinecraftProtocolFormat.Default.decodeFromByteArray<FabricSplitTarget>(
             complete,
         )
         return RoutedCustomPayload(
@@ -137,8 +136,7 @@ class FabricSplitAssembler(
     }
 
     private fun start(fragment: ByteArray) {
-        val first = MinecraftProtocolFormat.Default.decodeFromByteArray(
-            FabricSplitFirstFragment.serializer(),
+        val first = MinecraftProtocolFormat.Default.decodeFromByteArray<FabricSplitFirstFragment>(
             fragment,
         )
         if (first.packetSize <= 0) {
@@ -146,8 +144,7 @@ class FabricSplitAssembler(
                 "Invalid Fabric split target size ${first.packetSize}",
             )
         }
-        val partial = MinecraftProtocolFormat.Default.decodeFromByteArray(
-            FabricSplitTarget.serializer(),
+        val partial = MinecraftProtocolFormat.Default.decodeFromByteArray<FabricSplitTarget>(
             first.data.toByteArray(),
         )
         if (partial.channel !in splittableChannels) {

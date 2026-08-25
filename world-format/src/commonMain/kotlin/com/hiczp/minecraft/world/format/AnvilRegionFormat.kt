@@ -206,15 +206,7 @@ sealed class AnvilRegionFormat {
             currentSector = plan.sectorOffset + plan.allocatedSectors
         }
 
-        discardTrailingSectors(source)
-    }
-
-    private fun discardTrailingSectors(source: Source) {
-        val scratch = ByteArray(8_192)
-        while (true) {
-            val read = source.readAtMostTo(scratch)
-            if (read < 0) return
-        }
+        source.transferTo(discardingSink())
     }
 
     private fun plan(region: AnvilRegion): List<ChunkPlan> {

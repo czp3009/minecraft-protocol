@@ -19,7 +19,6 @@ import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
 
 object NeoForgeProtocol {
     const val COMMON_PACKET_VERSION: Int = 1
@@ -220,7 +219,7 @@ internal object NeoForgeRegistryDataMapSyncSerializer :
                 value.registry,
                 value.dataMaps.mapValues { (_, entries) ->
                     entries.mapValues { (_, element) ->
-                        json.encodeToString(JsonElement.serializer(), element)
+                        json.encodeToString(element)
                     }
                 },
             ),
@@ -287,7 +286,6 @@ private class NeoForgeRegistrationCodec<T : NeoForgeChannelRegistrationPacket>(
             offset += bytes.size + 1
         }
         format.encodeToSink(
-            RemainingRegistrationBody.serializer(),
             RemainingRegistrationBody(ByteString(output)),
             sink,
         )
@@ -299,8 +297,7 @@ private class NeoForgeRegistrationCodec<T : NeoForgeChannelRegistrationPacket>(
         source: Source,
         byteCount: Int,
     ): T {
-        val bytes = format.decodeFromSource(
-            RemainingRegistrationBody.serializer(),
+        val bytes = format.decodeFromSource<RemainingRegistrationBody>(
             source,
             byteCount,
         ).bytes.toByteArray()

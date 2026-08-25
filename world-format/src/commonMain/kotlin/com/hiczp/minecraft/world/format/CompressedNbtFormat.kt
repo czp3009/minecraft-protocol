@@ -8,6 +8,7 @@ import com.hiczp.minecraft.nbt.serialization.NbtRootEncoding
 import kotlinx.io.*
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
+import kotlinx.serialization.serializer
 
 /**
  * Composes region compression with compound-document NBT while keeping both
@@ -138,3 +139,22 @@ class CompressedNbtFormat(
         compressionRegistry.compressingSink(compression, sink).buffered().use(block)
     }
 }
+
+inline fun <reified T> CompressedNbtFormat.decodeFromSource(
+    source: Source,
+    compression: Compression,
+): T = decodeFromSource(nbt.serializersModule.serializer(), source, compression)
+
+inline fun <reified T> CompressedNbtFormat.encodeToSink(
+    value: T,
+    compression: Compression,
+    sink: Sink,
+) = encodeToSink(nbt.serializersModule.serializer(), value, compression, sink)
+
+inline fun <reified T> CompressedNbtFormat.decode(chunk: CompressedChunk): T =
+    decode(nbt.serializersModule.serializer(), chunk)
+
+inline fun <reified T> CompressedNbtFormat.encode(
+    value: T,
+    compression: Compression = Compression.ZLIB,
+): CompressedChunk = encode(nbt.serializersModule.serializer(), value, compression)

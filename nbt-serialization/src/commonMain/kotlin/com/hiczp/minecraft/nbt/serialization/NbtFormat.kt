@@ -239,9 +239,14 @@ sealed class NbtFormat(
     }
 }
 
-inline fun <reified T> NbtFormat.encodeToSink(value: T, sink: Sink) {
+inline fun <reified T> NbtFormat.encodeToNbtTag(value: T): NbtTag =
+    encodeToNbtTag(serializersModule.serializer(), value)
+
+inline fun <reified T> NbtFormat.decodeFromNbtTag(tag: NbtTag): T =
+    decodeFromNbtTag(serializersModule.serializer(), tag)
+
+inline fun <reified T> NbtFormat.encodeToSink(value: T, sink: Sink) =
     encodeToSink(serializersModule.serializer(), value, sink)
-}
 
 inline fun <reified T> NbtFormat.decodeFromSource(source: Source): T =
     decodeFromSource(serializersModule.serializer(), source)

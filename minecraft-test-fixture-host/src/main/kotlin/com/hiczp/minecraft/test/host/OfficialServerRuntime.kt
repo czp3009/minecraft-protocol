@@ -1,9 +1,10 @@
 package com.hiczp.minecraft.test.host
 
+import java.nio.file.FileVisitOption
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
-import kotlin.io.path.listDirectoryEntries
 
 internal data class OfficialServerRuntime(
     val directory: Path,
@@ -19,12 +20,6 @@ internal data class OfficialServerRuntime(
 internal fun officialServerRuntime(): OfficialServerRuntime {
     val layout = HostedMinecraftTestSupport.layout
     val output = layout.serverRuntimeDirectory
-    return loadServerRuntime(output)
-}
-
-internal fun loadServerRuntime(
-    output: Path,
-): OfficialServerRuntime {
     check(output.isDirectory()) {
         "Official runtime is absent: $output; run the Gradle prepareOfficialMinecraftCodecOracle task first"
     }
@@ -34,9 +29,12 @@ internal fun loadServerRuntime(
     }
     val librariesDir = output.resolve("libraries")
     val libraries = if (librariesDir.isDirectory()) {
-        collectFiles(librariesDir)
-            .sortedBy(Path::toString)
-            .toList()
+        Files.walk(librariesDir, FileVisitOption.FOLLOW_LINKS).use { paths ->
+            paths
+                .filter { path -> path.isRegularFile() }
+                .sorted(compareBy(Path::toString))
+                .toList()
+        }
     } else {
         emptyList()
     }
@@ -46,12 +44,3 @@ internal fun loadServerRuntime(
         libraries = libraries,
     )
 }
-
-private fun collectFiles(dir: Path): Sequence<Path> =
-    dir.listDirectoryEntries().asSequence().flatMap { child ->
-        if (child.isDirectory()) {
-            collectFiles(child)
-        } else {
-            sequenceOf(child)
-        }
-    }

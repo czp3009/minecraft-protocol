@@ -149,7 +149,7 @@ internal class NbtBinaryDecoder(
             }
 
             StructureKind.MAP -> {
-                if (!descriptor.hasBinaryStringMapKey()) {
+                if (!descriptor.hasStringMapKey()) {
                     throw NbtDecodingException(
                         "NBT maps require Kotlin String keys at $path",
                     )
@@ -543,10 +543,6 @@ private fun binaryTagName(type: Int): String = when (type) {
     else -> "unknown tag type $type"
 }
 
-private fun SerialDescriptor.hasBinaryStringMapKey(): Boolean =
-    getElementDescriptor(0).serialName == STRING_SERIAL_NAME
-
 private const val BYTE_ARRAY_SERIAL_NAME = "kotlin.ByteArray"
 private const val INT_ARRAY_SERIAL_NAME = "kotlin.IntArray"
 private const val LONG_ARRAY_SERIAL_NAME = "kotlin.LongArray"
-private const val STRING_SERIAL_NAME = "kotlin.String"

@@ -3,6 +3,7 @@ package com.hiczp.minecraft.test.host
 import com.hiczp.minecraft.test.HeadlessMinecraftClientConfiguration
 import com.hiczp.minecraft.test.HeadlessMinecraftClientState
 import com.hiczp.minecraft.test.MinecraftTestEndpoint
+import com.hiczp.minecraft.test.MinecraftTestResourceStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
@@ -11,13 +12,12 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import org.kotlincrypto.hash.md.MD5
 import java.nio.file.Path
+import java.util.*
 import kotlin.io.path.*
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
-import kotlin.uuid.Uuid
 
 /** A title-ready HMC-Specifics client process in an isolated workspace. */
 internal class HostedHeadlessMinecraftClientResource private constructor(
@@ -28,13 +28,15 @@ internal class HostedHeadlessMinecraftClientResource private constructor(
     private val processMutex = Mutex()
     private lateinit var managedResource: ManagedMinecraftTestResource
 
-    val isAlive: Boolean
-        get() = process.isAlive
-
-    val exitCode: Int
-        get() = process.exitCode
-
     fun logText(): String = process.logText()
+
+    fun status(): MinecraftTestResourceStatus {
+        val alive = process.isAlive
+        return MinecraftTestResourceStatus(
+            alive = alive,
+            exitCode = if (alive) null else process.exitCode,
+        )
+    }
 
     suspend fun waitForLog(marker: String, timeout: Duration) {
         process.waitForLog(marker, timeout)
@@ -67,6 +69,7 @@ internal class HostedHeadlessMinecraftClientResource private constructor(
     suspend fun disconnect() {
         processMutex.withLock {
             check(managedResource.isOpen) { "Headless client is closing" }
+            val startedAt = TimeSource.Monotonic.markNow()
             process.sendLineAndWait(
                 line = "disconnect",
                 marker = DISCONNECT_MARKER,
@@ -74,7 +77,7 @@ internal class HostedHeadlessMinecraftClientResource private constructor(
             )
             awaitTitleScreen(
                 process = process,
-                timeout = COMMAND_TIMEOUT,
+                timeout = COMMAND_TIMEOUT - startedAt.elapsedNow(),
             )
         }
     }
@@ -110,15 +113,16 @@ internal class HostedHeadlessMinecraftClientResource private constructor(
         managedResource.invokeOnCleanupCompletion(handler)
     }
 
-    suspend fun deleteWorkingDirectory() {
+    suspend fun beginWorkingDirectoryDeletion() {
         processMutex.withLock {
             check(!process.isAlive) {
                 "Headless client must be stopped before deleting its working directory"
             }
             managedResource.close()
         }
-        managedResource.awaitCleanup()
     }
+
+    suspend fun awaitCleanup() = managedResource.awaitCleanup()
 
     internal fun attach(resource: ManagedMinecraftTestResource) {
         check(!::managedResource.isInitialized)
@@ -303,54 +307,59 @@ private fun headlessClientCommand(
     gameDirectory: Path,
     headlessMcHome: Path,
     playerName: String,
-): List<String> = fixtureJavaCommand(
-    "-Xms256M",
-    "-Xmx1G",
-    "-Duser.home=$headlessMcHome",
-    "-Djava.awt.headless=true",
-    "-Djoml.nounsafe=true",
-    "--sun-misc-unsafe-memory-access=allow",
-    "-Dhmc.mcdir=${installation.minecraftDirectory}",
-    "-Dhmc.gamedir=$gameDirectory",
-    "-Dhmc.java.versions=java",
-    "-Dhmc.no.auto.config=true",
-    "-Dhmc.java.use.current=false",
-    "-Dhmc.java.require.exact=true",
-    "-Dhmc.auto.download=false",
-    "-Dhmc.auto.download.java=false",
-    "-Dhmc.auto.download.versions=false",
-    "-Dhmc.auto.download.specifics=false",
-    "-Dhmc.assets.dummy=true",
-    "-Dhmc.assets.check.hash=false",
-    "-Dhmc.assets.check.size=false",
-    "-Dhmc.assets.check.file.hash=false",
-    "-Dhmc.always.download.assets.index=false",
-    "-Dhmc.libraries.check.hash=false",
-    "-Dhmc.libraries.check.size=false",
-    "-Dhmc.libraries.check.file.hash=false",
-    "-Dhmc.install.mc.logging=false",
-    "-Dhmc.account.refresh.on.game.launch=false",
-    "-Dhmc.account.refresh.on.launch=false",
-    "-Dhmc.store.accounts=false",
-    "-Dhmc.offline=true",
-    "-Dhmc.offline.username=$playerName",
-    "-Dhmc.offline.uuid=${offlineUuid(playerName)}",
-    "-Dhmc.offline.token=0",
-    "-Dhmc.jline.enabled=false",
-    "-Dhmc.filehandler.enabled=false",
-    "-Dhmc.rethrow.launch.exceptions=true",
-    "-Dhmc.exit.on.failed.command=true",
-    "-Dhmc.crash.report.watcher=true",
-    "-Dhmc.check.xvfb=false",
-    "-jar",
-    installation.launcher.toString(),
-    "--command",
-    "launch",
-    installation.fabricProfileId,
-    "-lwjgl",
-    "-inmemory",
-    "-offline",
-)
+): List<String> {
+    val offlineUuid = UUID.nameUUIDFromBytes("OfflinePlayer:$playerName".encodeToByteArray())
+        .toString()
+        .replace("-", "")
+    return fixtureJavaCommand(
+        "-Xms256M",
+        "-Xmx1G",
+        "-Duser.home=$headlessMcHome",
+        "-Djava.awt.headless=true",
+        "-Djoml.nounsafe=true",
+        "--sun-misc-unsafe-memory-access=allow",
+        "-Dhmc.mcdir=${installation.minecraftDirectory}",
+        "-Dhmc.gamedir=$gameDirectory",
+        "-Dhmc.java.versions=java",
+        "-Dhmc.no.auto.config=true",
+        "-Dhmc.java.use.current=false",
+        "-Dhmc.java.require.exact=true",
+        "-Dhmc.auto.download=false",
+        "-Dhmc.auto.download.java=false",
+        "-Dhmc.auto.download.versions=false",
+        "-Dhmc.auto.download.specifics=false",
+        "-Dhmc.assets.dummy=true",
+        "-Dhmc.assets.check.hash=false",
+        "-Dhmc.assets.check.size=false",
+        "-Dhmc.assets.check.file.hash=false",
+        "-Dhmc.always.download.assets.index=false",
+        "-Dhmc.libraries.check.hash=false",
+        "-Dhmc.libraries.check.size=false",
+        "-Dhmc.libraries.check.file.hash=false",
+        "-Dhmc.install.mc.logging=false",
+        "-Dhmc.account.refresh.on.game.launch=false",
+        "-Dhmc.account.refresh.on.launch=false",
+        "-Dhmc.store.accounts=false",
+        "-Dhmc.offline=true",
+        "-Dhmc.offline.username=$playerName",
+        "-Dhmc.offline.uuid=$offlineUuid",
+        "-Dhmc.offline.token=0",
+        "-Dhmc.jline.enabled=false",
+        "-Dhmc.filehandler.enabled=false",
+        "-Dhmc.rethrow.launch.exceptions=true",
+        "-Dhmc.exit.on.failed.command=true",
+        "-Dhmc.crash.report.watcher=true",
+        "-Dhmc.check.xvfb=false",
+        "-jar",
+        installation.launcher.toString(),
+        "--command",
+        "launch",
+        installation.fabricProfileId,
+        "-lwjgl",
+        "-inmemory",
+        "-offline",
+    )
+}
 
 private suspend fun stopHeadlessClientProcess(
     process: MinecraftTestProcess,
@@ -364,13 +373,22 @@ private suspend fun stopHeadlessClientProcess(
         }
     }
     try {
+        val startedAt = TimeSource.Monotonic.markNow()
         process.sendLineAndWait(
             line = "quit",
             marker = QUIT_MARKER,
             timeout = timeout,
         )
-        val exitCode = checkNotNull(process.awaitExitWithin(timeout)) {
-            "Headless client did not exit after HMC-Specifics accepted quit"
+        val remaining = timeout - startedAt.elapsedNow()
+        val exitCode = if (!process.isAlive) {
+            process.exitCode
+        } else {
+            check(remaining.isPositive()) {
+                "Headless client exhausted its stop timeout after HMC-Specifics accepted quit"
+            }
+            checkNotNull(process.awaitExitWithin(remaining)) {
+                "Headless client did not exit after HMC-Specifics accepted quit"
+            }
         }
         check(exitCode == 0) {
             "Headless client exited abnormally with $exitCode:\n${process.logText()}"
@@ -490,6 +508,9 @@ internal suspend fun generateHeadlessClientTemplate(
         val templateEntries = templateDirectory.listDirectoryEntries()
             .map { path -> path.fileName.toString() }
             .sorted()
+        val excludedMutableEntries =
+            CLIENT_TEMPLATE_CLEARED_DIRECTORIES.map { directory -> "$directory/**" } +
+                    CLIENT_TEMPLATE_IGNORED_FILES
         val manifest = JsonObject(
             linkedMapOf(
                 "schema_version" to JsonPrimitive(1),
@@ -519,7 +540,7 @@ internal suspend fun generateHeadlessClientTemplate(
                     templateEntries.map(::JsonPrimitive),
                 ),
                 "excluded_mutable_entries" to JsonArray(
-                    clientTemplateIgnoredEntries().map(::JsonPrimitive),
+                    excludedMutableEntries.map(::JsonPrimitive),
                 ),
                 "immutable_template_directories" to JsonArray(
                     CLIENT_TEMPLATE_IMMUTABLE_DIRECTORIES
@@ -534,15 +555,19 @@ internal suspend fun generateHeadlessClientTemplate(
             ),
         )
         manifestFile.writeText(
-            "${testJson.encodeToString(JsonObject.serializer(), manifest)}\n",
+            "${testJson.encodeToString(manifest)}\n",
         )
         published = true
+    } catch (failure: Throwable) {
+        deleteTreesPreserving(
+            failure,
+            candidate,
+            templateDirectory,
+            manifestFile,
+        )
+        throw failure
     } finally {
-        candidate.deleteTree()
-        if (!published) {
-            templateDirectory.deleteTree()
-            manifestFile.deleteTree()
-        }
+        if (published) candidate.deleteTree()
     }
 }
 
@@ -559,13 +584,6 @@ private fun validateHeadlessClientAction(command: String) {
 
 internal fun HeadlessMinecraftClientConfiguration.usesDefaultTemplate(): Boolean =
     this == HeadlessMinecraftClientConfiguration(playerName = playerName)
-
-private fun offlineUuid(name: String): String {
-    val bytes = MD5().digest("OfflinePlayer:$name".encodeToByteArray())
-    bytes[6] = ((bytes[6].toInt() and 0x0f) or 0x30).toByte()
-    bytes[8] = ((bytes[8].toInt() and 0x3f) or 0x80).toByte()
-    return Uuid.fromByteArray(bytes).toHexString()
-}
 
 private fun writeClientOptions(gameDirectory: Path) {
     val options = """
@@ -613,13 +631,6 @@ private val CLIENT_TEMPLATE_IMMUTABLE_DIRECTORIES = setOf(
     ".fabric/processedMods",
     "mods",
 )
-
-private fun clientTemplateIgnoredEntries(): List<String> = buildList {
-    CLIENT_TEMPLATE_CLEARED_DIRECTORIES.forEach { directory ->
-        add("$directory/**")
-    }
-    addAll(CLIENT_TEMPLATE_IGNORED_FILES)
-}
 
 private val COMMAND_TIMEOUT = 30.seconds
 private val FORCED_STOP_TIMEOUT = 5.seconds

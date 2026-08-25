@@ -178,7 +178,7 @@ private object ForgeClientboundHandshakeCodec :
             is ForgeMismatchDataMessage ->
                 format.envelope(MISMATCH_DATA, ForgeMismatchDataMessage.serializer(), message)
         }
-        format.encodeToSink(ForgeEnvelope.serializer(), envelope, sink)
+        format.encodeToSink(envelope, sink)
     }
 
     override fun decode(
@@ -187,8 +187,7 @@ private object ForgeClientboundHandshakeCodec :
         source: Source,
         byteCount: Int,
     ): ForgeClientboundHandshakePacket {
-        val envelope = format.decodeFromSource(
-            ForgeEnvelope.serializer(),
+        val envelope = format.decodeFromSource<ForgeEnvelope>(
             source,
             byteCount,
         )
@@ -250,7 +249,7 @@ private object ForgeServerboundHandshakeCodec :
             is ForgeChannelVersionsMessage ->
                 format.envelope(CHANNEL_VERSIONS, ForgeChannelVersionsMessage.serializer(), message)
         }
-        format.encodeToSink(ForgeEnvelope.serializer(), envelope, sink)
+        format.encodeToSink(envelope, sink)
     }
 
     override fun decode(
@@ -259,8 +258,7 @@ private object ForgeServerboundHandshakeCodec :
         source: Source,
         byteCount: Int,
     ): ForgeServerboundHandshakePacket {
-        val envelope = format.decodeFromSource(
-            ForgeEnvelope.serializer(),
+        val envelope = format.decodeFromSource<ForgeEnvelope>(
             source,
             byteCount,
         )
@@ -298,7 +296,6 @@ private object ForgeClientboundPlayHandshakeCodec :
         packet: ForgeClientboundPlayHandshakePacket,
         sink: Sink,
     ) = format.encodeToSink(
-        ForgeEnvelope.serializer(),
         ForgeEnvelope(packet.discriminator, packet.data),
         sink,
     )
@@ -308,8 +305,7 @@ private object ForgeClientboundPlayHandshakeCodec :
         route: PacketRoute,
         source: Source,
         byteCount: Int,
-    ): ForgeClientboundPlayHandshakePacket = format.decodeFromSource(
-        ForgeEnvelope.serializer(),
+    ): ForgeClientboundPlayHandshakePacket = format.decodeFromSource<ForgeEnvelope>(
         source,
         byteCount,
     ).let { envelope ->
@@ -352,7 +348,6 @@ private class ForgeRegistrationCodec<T : ForgeChannelRegistrationPacket>(
             offset += encoded.size + 1
         }
         format.encodeToSink(
-            ForgeRemainingBody.serializer(),
             ForgeRemainingBody(ByteString(output)),
             sink,
         )
@@ -364,8 +359,7 @@ private class ForgeRegistrationCodec<T : ForgeChannelRegistrationPacket>(
         source: Source,
         byteCount: Int,
     ): T {
-        val bytes = format.decodeFromSource(
-            ForgeRemainingBody.serializer(),
+        val bytes = format.decodeFromSource<ForgeRemainingBody>(
             source,
             byteCount,
         ).data.toByteArray()

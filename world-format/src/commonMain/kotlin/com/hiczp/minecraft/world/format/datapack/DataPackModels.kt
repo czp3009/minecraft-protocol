@@ -283,7 +283,7 @@ class DataPack(
     fun file(path: DataPackPath): DataPackFileContent? = files[path]
 
     fun resources(format: DataPackFormatVersion? = null): Map<DataPackResourcePath, DataPackFileContent> =
-        effectiveDataPackResources(format)
+        effectiveDataPackFiles(format).mapValues { (_, file) -> file.content }
 
     fun resource(
         type: DataPackResourceType,

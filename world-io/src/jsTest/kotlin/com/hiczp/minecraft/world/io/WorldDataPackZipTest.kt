@@ -62,5 +62,5 @@ class WorldDataPackZipTest {
     }
 
     private fun jsonBytes(element: JsonElement): ByteArray =
-        Json.encodeToString(JsonElement.serializer(), element).encodeToByteArray()
+        Json.encodeToString(element).encodeToByteArray()
 }

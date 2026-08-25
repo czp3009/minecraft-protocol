@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.test.host
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import nl.adaptivity.xmlutil.XmlDeclMode
 import nl.adaptivity.xmlutil.core.XmlVersion
 import nl.adaptivity.xmlutil.serialization.XML
@@ -13,7 +14,6 @@ internal fun log4jNullConfigurationXml(): String {
         xmlDeclMode = XmlDeclMode.Charset
         xmlVersion = XmlVersion.XML10
     }.encodeToString(
-        Log4jConfigurationXml.serializer(),
         Log4jConfigurationXml(
             status = "OFF",
             appenders = Log4jAppendersXml(

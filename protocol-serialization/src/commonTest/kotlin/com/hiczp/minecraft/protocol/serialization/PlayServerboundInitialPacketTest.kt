@@ -4,6 +4,8 @@ import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.packet.GameMode
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -37,8 +39,7 @@ class PlayServerboundInitialPacketTest {
             "01ffffffff0f",
         )
         assertFails {
-            MinecraftProtocolFormat.decodeFromByteArray(
-                BundleItemSelectedPacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<BundleItemSelectedPacket>(
                 "01feffffff0f".hexToByteArray(),
             )
         }
@@ -53,8 +54,7 @@ class PlayServerboundInitialPacketTest {
         )
         assertEquals(
             Difficulty.HARD,
-            MinecraftProtocolFormat.decodeFromByteArray(
-                ServerboundChangeDifficultyPacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<ServerboundChangeDifficultyPacket>(
                 "ff01".hexToByteArray(),
             ).difficulty,
         )
@@ -65,8 +65,7 @@ class PlayServerboundInitialPacketTest {
         )
         assertEquals(
             GameMode.SURVIVAL,
-            MinecraftProtocolFormat.decodeFromByteArray(
-                ChangeGameModePacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<ChangeGameModePacket>(
                 "7f".hexToByteArray(),
             ).gameMode,
         )
@@ -136,7 +135,6 @@ class PlayServerboundInitialPacketTest {
         )
         assertFails {
             MinecraftProtocolFormat.encodeToByteArray(
-                CommandSuggestionsRequestPacket.serializer(),
                 CommandSuggestionsRequestPacket(1, "x".repeat(32_501)),
             )
         }

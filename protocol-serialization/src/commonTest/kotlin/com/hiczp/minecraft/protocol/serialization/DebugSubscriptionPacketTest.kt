@@ -7,6 +7,8 @@ import com.hiczp.minecraft.protocol.model.packet.DebugEventPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.*
 
 class DebugSubscriptionPacketTest {
@@ -105,15 +107,13 @@ class DebugSubscriptionPacketTest {
             assertContentEquals(
                 expected,
                 MinecraftProtocolFormat.encodeToByteArray(
-                    DebugSubscriptionEvent.serializer(),
                     event,
                 ),
                 data.toString(),
             )
             assertEquals(
                 expected = event,
-                actual = MinecraftProtocolFormat.decodeFromByteArray(
-                    DebugSubscriptionEvent.serializer(),
+                actual = MinecraftProtocolFormat.decodeFromByteArray<DebugSubscriptionEvent>(
                     expected,
                 ),
                 message = data.toString(),
@@ -183,7 +183,6 @@ class DebugSubscriptionPacketTest {
         assertContentEquals(
             "040102010178".hexToByteArray(),
             MinecraftProtocolFormat.encodeToByteArray(
-                DebugSubscriptionEvent.serializer(),
                 goalSelector,
             ),
         )
@@ -212,7 +211,6 @@ class DebugSubscriptionPacketTest {
             ),
         )
         val encoded = MinecraftProtocolFormat.encodeToByteArray(
-            DebugSubscriptionEvent.serializer(),
             latestPathType,
         )
         // The official PathType has one entry beyond the pinned Wiki table.
@@ -221,8 +219,7 @@ class DebugSubscriptionPacketTest {
 
     @Test
     fun `debug enum failure policies match their official codecs`() {
-        val intersection = MinecraftProtocolFormat.decodeFromByteArray(
-            DebugSubscriptionEvent.serializer(),
+        val intersection = MinecraftProtocolFormat.decodeFromByteArray<DebugSubscriptionEvent>(
             "067f".hexToByteArray(),
         )
         assertEquals(
@@ -236,20 +233,17 @@ class DebugSubscriptionPacketTest {
         assertContentEquals(
             "0600".hexToByteArray(),
             MinecraftProtocolFormat.encodeToByteArray(
-                DebugSubscriptionEvent.serializer(),
                 intersection,
             ),
         )
 
         assertFails {
-            MinecraftProtocolFormat.decodeFromByteArray(
-                DebugSubscriptionEvent.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<DebugSubscriptionEvent>(
                 "0930".hexToByteArray(),
             )
         }
         assertFails {
-            MinecraftProtocolFormat.decodeFromByteArray(
-                DebugSubscriptionEvent.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<DebugSubscriptionEvent>(
                 "050100000000${ZERO_POSITION_HEX}000100000000000000000000000000000000000000001b00000000000000000000".hexToByteArray(),
             )
         }
@@ -258,8 +252,7 @@ class DebugSubscriptionPacketTest {
     @Test
     fun `debug dispatch rejects impossible vanilla states`() {
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray(
-                DebugSubscriptionUpdate.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<DebugSubscriptionUpdate>(
                 // Vanilla's type 0 subscription has a null valueStreamCodec,
                 // so even an absent optional cannot be dispatched.
                 "0000".hexToByteArray(),
@@ -268,7 +261,6 @@ class DebugSubscriptionPacketTest {
 
         assertFailsWith<SerializationException> {
             MinecraftProtocolFormat.encodeToByteArray(
-                DebugSubscriptionUpdate.serializer(),
                 DebugSubscriptionUpdate(
                     DebugSubscriptionType.BEE,
                     DebugSubscriptionData.VillageSection,
@@ -277,8 +269,7 @@ class DebugSubscriptionPacketTest {
         }
 
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray(
-                DebugSubscriptionEvent.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<DebugSubscriptionEvent>(
                 "10".hexToByteArray(),
             )
         }

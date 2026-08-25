@@ -19,7 +19,6 @@ lz4-lite = "1.1.2"
 js-xxhash = "5.0.1"
 android-kmp-library-plugin = "9.3.1"
 xmlutil = "1.0.1"
-kotlincrypto-hash = "0.8.0"
 kotlin-logging = "8.0.4"
 slf4j = "2.0.18"
 kotlinpoet = "2.3.0"
@@ -68,8 +67,6 @@ cryptography-random = { module = "dev.whyoleg.cryptography:cryptography-random",
 cryptography-provider-optimal = { module = "dev.whyoleg.cryptography:cryptography-provider-optimal", version.ref = "cryptography-kotlin" }
 kotlinx-browser = { module = "org.jetbrains.kotlinx:kotlinx-browser", version.ref = "kotlinx-browser" }
 xmlutil-serialization = { module = "io.github.pdvrieze.xmlutil:serialization", version.ref = "xmlutil" }
-kotlincrypto-hash-md = { module = "org.kotlincrypto.hash:md", version.ref = "kotlincrypto-hash" }
-kotlincrypto-hash-sha2 = { module = "org.kotlincrypto.hash:sha2", version.ref = "kotlincrypto-hash" }
 kotlin-logging = { module = "io.github.oshai:kotlin-logging", version.ref = "kotlin-logging" }
 slf4j-nop = { module = "org.slf4j:slf4j-nop", version.ref = "slf4j" }
 kotlinpoet = { module = "com.squareup:kotlinpoet", version.ref = "kotlinpoet" }

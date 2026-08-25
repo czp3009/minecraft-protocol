@@ -6,6 +6,8 @@ package com.hiczp.minecraft.protocol.serialization
 
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -53,13 +55,11 @@ class DataComponentSerializationTest {
                 ),
             )
             val bytes = MinecraftProtocolFormat.encodeToByteArray(
-                ItemStack.serializer(),
                 stack,
             )
             assertEquals(
                 stack,
-                MinecraftProtocolFormat.decodeFromByteArray(
-                    ItemStack.serializer(),
+                MinecraftProtocolFormat.decodeFromByteArray<ItemStack>(
                     bytes,
                 ),
                 sample.name,

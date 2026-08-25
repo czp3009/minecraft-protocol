@@ -34,12 +34,16 @@ four-slot pool, isolated workspaces, bounded logs, readiness checks, codec execu
   process-tree termination is a cleanup fallback, not a successful lifecycle result.
 - Output has a monotonically increasing sequence. Record the pre-send sequence and accept only later markers; serialize
   marker-waiting commands per resource.
+- Publish process exit only after ordinary trailing output drains. Bound that drain so a descendant that inherited an
+  output pipe cannot keep the resource alive indefinitely.
 - Child JVM commands use `fixtureJavaCommand`, which inserts the shared native-access argument in the required position.
 
 ## Protocol and cleanup
 
 - Logs and codec inputs cross kRPC as JSON values. Successful codec verification has no payload; failures carry bounded
   diagnostics. Process objects never cross.
+- Serialize official-codec invocations because they temporarily mutate JVM-global logging and JOML properties, and
+  restore every property plus the thread context class loader while preserving the primary failure.
 - `hostWorkingDirectory` returns the absolute Host path only for the documented same-filesystem interoperability test.
 - Standard input is reserved for Build Service control and standard output for the single `READY_PREFIX` announcement.
   All diagnostics use kotlin-logging.

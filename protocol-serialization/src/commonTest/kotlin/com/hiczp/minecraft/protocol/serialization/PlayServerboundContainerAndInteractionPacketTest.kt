@@ -3,6 +3,8 @@ package com.hiczp.minecraft.protocol.serialization
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -47,7 +49,6 @@ class PlayServerboundContainerAndInteractionPacketTest {
         )
         assertFails {
             MinecraftProtocolFormat.encodeToByteArray(
-                PlayCookieResponsePacket.serializer(),
                 PlayCookieResponsePacket(key, ByteString(ByteArray(5_121))),
             )
         }
@@ -75,8 +76,7 @@ class PlayServerboundContainerAndInteractionPacketTest {
             "02000f",
         )
         assertFails {
-            MinecraftProtocolFormat.decodeFromByteArray(
-                DebugSubscriptionRequestPacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<DebugSubscriptionRequestPacket>(
                 "21000000000000000000000000000000000000000000000000000000000000000000"
                     .hexToByteArray(),
             )
@@ -92,19 +92,16 @@ class PlayServerboundContainerAndInteractionPacketTest {
         )
         assertFails {
             MinecraftProtocolFormat.encodeToByteArray(
-                EditBookPacket.serializer(),
                 EditBookPacket(0, List(101) { "" }, null),
             )
         }
         assertFails {
             MinecraftProtocolFormat.encodeToByteArray(
-                EditBookPacket.serializer(),
                 EditBookPacket(0, listOf("x".repeat(1_025)), null),
             )
         }
         assertFails {
             MinecraftProtocolFormat.encodeToByteArray(
-                EditBookPacket.serializer(),
                 EditBookPacket(0, emptyList(), "x".repeat(33)),
             )
         }

@@ -20,7 +20,6 @@ dependencies {
     implementation(libs.kotlinx.rpc.krpc.serialization.json)
     implementation(libs.ktor.network)
     implementation(libs.ktor.server.cio)
-    implementation(libs.kotlincrypto.hash.md)
     implementation(libs.kotlin.logging)
     implementation(libs.xmlutil.serialization)
 

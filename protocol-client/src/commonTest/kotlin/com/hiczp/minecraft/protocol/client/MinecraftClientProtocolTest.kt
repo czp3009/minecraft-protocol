@@ -21,7 +21,6 @@ import io.ktor.utils.io.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.test.Test
@@ -40,7 +39,6 @@ class MinecraftClientProtocolTest {
             serverSession.send(
                 StatusResponsePacket(
                     Json.encodeToString(
-                        JsonObject.serializer(),
                         buildJsonObject {
                             put(
                                 "version",

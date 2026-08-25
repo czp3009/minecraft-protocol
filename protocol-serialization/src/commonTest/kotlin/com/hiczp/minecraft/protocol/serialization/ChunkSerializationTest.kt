@@ -4,6 +4,8 @@ import com.hiczp.minecraft.protocol.model.type.ChunkData
 import com.hiczp.minecraft.protocol.model.type.ChunkSection
 import com.hiczp.minecraft.protocol.model.type.PackedLongArray
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -17,11 +19,11 @@ class ChunkSerializationTest {
 
         assertContentEquals(
             expected,
-            testMinecraftProtocolFormat().encodeToByteArray(ChunkSection.serializer(), section),
+            testMinecraftProtocolFormat().encodeToByteArray(section),
         )
         assertEquals(
             expected = section,
-            actual = testMinecraftProtocolFormat().decodeFromByteArray(ChunkSection.serializer(), expected),
+            actual = testMinecraftProtocolFormat().decodeFromByteArray<ChunkSection>(expected),
         )
     }
 
@@ -37,22 +39,22 @@ class ChunkSerializationTest {
 
         assertContentEquals(
             expected,
-            format.encodeToByteArray(ChunkData.serializer(), chunk),
+            format.encodeToByteArray(chunk),
         )
         assertEquals(
             chunk,
-            format.decodeFromByteArray(ChunkData.serializer(), expected),
+            format.decodeFromByteArray<ChunkData>(expected),
         )
 
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray(ChunkData.serializer(), expected)
+            MinecraftProtocolFormat.decodeFromByteArray<ChunkData>(expected)
         }
         assertFailsWith<MinecraftSerializationException> {
             MinecraftProtocolFormat(
                 MinecraftProtocolFormatConfiguration(
                     registries = testRegistryContext(chunkSectionCount = 2),
                 ),
-            ).encodeToByteArray(ChunkData.serializer(), chunk)
+            ).encodeToByteArray(chunk)
         }
     }
 
@@ -68,12 +70,12 @@ class ChunkSerializationTest {
         )
 
         val format = testMinecraftProtocolFormat()
-        val encoded = format.encodeToByteArray(ChunkSection.serializer(), section)
+        val encoded = format.encodeToByteArray(section)
         assertEquals(15, encoded[4].toInt() and 0xFF)
         assertEquals(7, encoded[4 + 1 + 1_024 * Long.SIZE_BYTES].toInt() and 0xFF)
         assertEquals(
             section,
-            format.decodeFromByteArray(ChunkSection.serializer(), encoded),
+            format.decodeFromByteArray<ChunkSection>(encoded),
         )
     }
 
@@ -89,7 +91,7 @@ class ChunkSerializationTest {
         raw[index] = 0
 
         val format = testMinecraftProtocolFormat()
-        val decoded = format.decodeFromByteArray(ChunkSection.serializer(), raw)
+        val decoded = format.decodeFromByteArray<ChunkSection>(raw)
         assertEquals(
             PalettedContainer.Indirect(
                 bitsPerEntry = 4,
@@ -99,7 +101,7 @@ class ChunkSerializationTest {
             decoded.blockStates,
         )
 
-        val canonical = format.encodeToByteArray(ChunkSection.serializer(), decoded)
+        val canonical = format.encodeToByteArray(decoded)
         assertEquals(4, canonical[4].toInt() and 0xFF)
     }
 
@@ -116,7 +118,7 @@ class ChunkSerializationTest {
             biomes = PalettedContainer.Single(0),
         )
         assertFailsWith<MinecraftSerializationException> {
-            testMinecraftProtocolFormat().encodeToByteArray(ChunkSection.serializer(), invalidSize)
+            testMinecraftProtocolFormat().encodeToByteArray(invalidSize)
         }
 
         val invalidId = ChunkSection(
@@ -128,7 +130,7 @@ class ChunkSerializationTest {
             biomes = PalettedContainer.Single(0),
         )
         assertFailsWith<MinecraftSerializationException> {
-            testMinecraftProtocolFormat().encodeToByteArray(ChunkSection.serializer(), invalidId)
+            testMinecraftProtocolFormat().encodeToByteArray(invalidId)
         }
     }
 

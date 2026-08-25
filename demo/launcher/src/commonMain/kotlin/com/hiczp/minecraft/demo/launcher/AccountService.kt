@@ -156,7 +156,9 @@ internal class AccountService(
             clearRefreshFailure(identityId)
             return@withLock account
         }
-        if (hasRefreshFailure(identityId)) throw AccountLoginExpiredException(identity.name)
+        if (refreshStateMutex.withLock { identityId in failedRefreshes }) {
+            throw AccountLoginExpiredException(identity.name)
+        }
 
         try {
             val refreshed = refreshOnlineAccount(account, identity)
@@ -169,7 +171,7 @@ internal class AccountService(
                 clearRefreshFailure(identityId)
                 return@withLock null
             }
-            markRefreshFailure(identityId)
+            refreshStateMutex.withLock { failedRefreshes += identityId }
             throw AccountLoginExpiredException(identity.name, failure)
         }
     }
@@ -218,14 +220,6 @@ internal class AccountService(
 
     private suspend fun refreshLock(identityId: Uuid): Mutex = refreshStateMutex.withLock {
         refreshLocks.getOrPut(identityId) { Mutex() }
-    }
-
-    private suspend fun hasRefreshFailure(identityId: Uuid): Boolean = refreshStateMutex.withLock {
-        identityId in failedRefreshes
-    }
-
-    private suspend fun markRefreshFailure(identityId: Uuid) = refreshStateMutex.withLock {
-        failedRefreshes += identityId
     }
 
     private suspend fun clearRefreshFailure(identityId: Uuid) = refreshStateMutex.withLock {

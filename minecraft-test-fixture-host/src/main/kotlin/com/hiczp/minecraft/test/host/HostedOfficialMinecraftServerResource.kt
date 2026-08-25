@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.test.host
 
 import com.hiczp.minecraft.test.MinecraftTestEndpoint
+import com.hiczp.minecraft.test.MinecraftTestResourceStatus
 import com.hiczp.minecraft.test.OfficialMinecraftServerConfiguration
 import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
@@ -28,39 +29,48 @@ internal class HostedOfficialMinecraftServerResource private constructor(
     private val serverArtifact: OfficialServerArtifact,
     val workDirectory: Path,
     private val configuration: OfficialMinecraftServerConfiguration,
-    launched: LaunchedOfficialServer,
+    initialLaunch: LaunchedOfficialServer,
 ) : AutoCloseable {
     private val processMutex = Mutex()
     private lateinit var managedResource: ManagedMinecraftTestResource
 
     @Volatile
-    private var process = launched.process
-
-    @Volatile
-    private var currentEndpoint = launched.endpoint
+    private var launched = initialLaunch
 
     val endpoint: MinecraftTestEndpoint
-        get() = currentEndpoint
+        get() = launched.endpoint
 
-    val isAlive: Boolean
-        get() = process.isAlive
+    fun logText(): String = launched.process.logText()
 
-    val exitCode: Int
-        get() = process.exitCode
-
-    fun logText(): String = process.logText()
+    fun status(): MinecraftTestResourceStatus {
+        val current = launched.process
+        val alive = current.isAlive
+        return MinecraftTestResourceStatus(
+            alive = alive,
+            exitCode = if (alive) null else current.exitCode,
+        )
+    }
 
     suspend fun waitForLog(
         marker: String,
-        timeout: Duration = SERVER_EVENT_TIMEOUT,
+        timeout: Duration,
     ) {
-        process.waitForLog(marker, timeout)
+        launched.process.waitForLog(marker, timeout)
     }
 
-    suspend fun sendCommand(command: String) {
+    suspend fun sendCommand(
+        command: String,
+        expectedNewOutput: String?,
+        timeout: Duration,
+    ) {
         processMutex.withLock {
             check(managedResource.isOpen) { "Official server is closing" }
-            process.sendLine(command)
+            val process = launched.process
+            if (expectedNewOutput == null) {
+                process.sendLine(command)
+            } else {
+                process.sendLineAndWait(command, expectedNewOutput, timeout)
+            }
         }
     }
 
@@ -70,25 +80,24 @@ internal class HostedOfficialMinecraftServerResource private constructor(
         closeProcessLocked()
     }
 
-    suspend fun awaitExit(): Int = process.awaitExit()
+    suspend fun awaitExit(): Int = launched.process.awaitExit()
 
     /** Restarts the official server in the same isolated world directory. */
     suspend fun restart() {
         processMutex.withLock {
             check(managedResource.isOpen) { "Official server is closing" }
+            val process = launched.process
             if (process.isAlive) {
                 val exitCode = closeProcessLocked()
                 check(exitCode == 0) {
                     "Official server did not stop cleanly before restart: $exitCode"
                 }
             }
-            val relaunched = launchOfficialServer(
+            launched = launchOfficialServer(
                 artifact = serverArtifact,
                 workDirectory = workDirectory,
                 configuration = configuration,
             )
-            process = relaunched.process
-            currentEndpoint = relaunched.endpoint
         }
     }
 
@@ -100,15 +109,16 @@ internal class HostedOfficialMinecraftServerResource private constructor(
         managedResource.invokeOnCleanupCompletion(handler)
     }
 
-    suspend fun deleteWorkingDirectory() {
+    suspend fun beginWorkingDirectoryDeletion() {
         processMutex.withLock {
-            check(!process.isAlive) {
+            check(!launched.process.isAlive) {
                 "Official server must be stopped before deleting its working directory"
             }
             managedResource.close()
         }
-        managedResource.awaitCleanup()
     }
+
+    suspend fun awaitCleanup() = managedResource.awaitCleanup()
 
     internal fun attach(resource: ManagedMinecraftTestResource) {
         check(!::managedResource.isInitialized)
@@ -122,6 +132,7 @@ internal class HostedOfficialMinecraftServerResource private constructor(
     }
 
     private suspend fun closeProcessLocked(): Int {
+        val process = launched.process
         if (!process.isAlive) return process.exitCode
         return process.terminate(
             gracefulTimeout = configuration.stopTimeout,
@@ -149,7 +160,7 @@ internal class HostedOfficialMinecraftServerResource private constructor(
                 serverArtifact = artifact,
                 workDirectory = workDirectory,
                 configuration = configuration,
-                launched = launched,
+                initialLaunch = launched,
             )
         }
     }
@@ -452,6 +463,8 @@ internal suspend fun generateOfficialMinecraftServerTemplate(
         val templateEntries = templateDirectory.listDirectoryEntries()
             .map { path -> path.fileName.toString() }
             .sorted()
+        val excludedMutableEntries =
+            SERVER_TEMPLATE_CLEARED_DIRECTORIES.map { directory -> "$directory/**" } + SERVER_TEMPLATE_IGNORED_FILES
         val manifest = JsonObject(
             linkedMapOf(
                 "schema_version" to JsonPrimitive(1),
@@ -471,7 +484,7 @@ internal suspend fun generateOfficialMinecraftServerTemplate(
                     templateEntries.map(::JsonPrimitive),
                 ),
                 "excluded_mutable_entries" to JsonArray(
-                    serverTemplateIgnoredEntries().map(::JsonPrimitive),
+                    excludedMutableEntries.map(::JsonPrimitive),
                 ),
                 "template_policy_revision" to JsonPrimitive(2),
                 "ready_signal" to JsonPrimitive("done-log-status-and-pong"),
@@ -479,12 +492,14 @@ internal suspend fun generateOfficialMinecraftServerTemplate(
             ),
         )
         outputRoot.resolve("manifest.json").writeText(
-            "${testJson.encodeToString(JsonObject.serializer(), manifest)}\n",
+            "${testJson.encodeToString(manifest)}\n",
         )
         published = true
+    } catch (failure: Throwable) {
+        deleteTreesPreserving(failure, candidate, outputRoot)
+        throw failure
     } finally {
-        candidate.deleteTree()
-        if (!published) outputRoot.deleteTree()
+        if (published) candidate.deleteTree()
     }
 }
 
@@ -532,12 +547,5 @@ private val SERVER_TEMPLATE_IGNORED_FILES = listOf(
     "server.properties",
 )
 
-private fun serverTemplateIgnoredEntries(): List<String> = buildList {
-    SERVER_TEMPLATE_CLEARED_DIRECTORIES.forEach { directory ->
-        add("$directory/**")
-    }
-    addAll(SERVER_TEMPLATE_IGNORED_FILES)
-}
 private val STATUS_POLL_INTERVAL = 25.milliseconds
 private val STATUS_SOCKET_TIMEOUT = 2.seconds
-private val SERVER_EVENT_TIMEOUT = 30.seconds

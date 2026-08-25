@@ -39,7 +39,7 @@ private class ProtocolModelProcessor(
             .getSymbolsWithAnnotation(PACKET_INFO)
             .filterIsInstance<KSClassDeclaration>()
             .mapNotNull { declaration ->
-                declaration.packetInfo()?.let { annotation ->
+                declaration.annotation(PACKET_INFO)?.let { annotation ->
                     declaration to annotation
                 }
             }
@@ -403,9 +403,6 @@ private class ProtocolModelProcessor(
         )
         .addType(type)
         .build()
-
-    private fun KSClassDeclaration.packetInfo(): KSAnnotation? =
-        annotation(PACKET_INFO)
 
     private fun KSClassDeclaration.annotation(
         qualifiedName: String,

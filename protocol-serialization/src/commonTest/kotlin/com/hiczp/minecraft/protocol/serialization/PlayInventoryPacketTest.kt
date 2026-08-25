@@ -4,6 +4,7 @@ import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.decodeFromByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -69,8 +70,7 @@ class PlayInventoryPacketTest {
             EquipmentUpdates(emptyList())
         }
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray(
-                SetEquipmentPacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<SetEquipmentPacket>(
                 "017f00".hexToByteArray(),
             )
         }
@@ -127,8 +127,7 @@ class PlayInventoryPacketTest {
             "0001010101000202ac02",
         )
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray(
-                SetCreativeModeSlotPacket.serializer(),
+            MinecraftProtocolFormat.decodeFromByteArray<SetCreativeModeSlotPacket>(
                 "000164010000".hexToByteArray(),
             )
         }

@@ -3,6 +3,8 @@ package com.hiczp.minecraft.protocol.serialization
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -39,14 +41,13 @@ class PlayServerboundMovementAndActionPacketTest {
             "03",
         )
 
-        val decoded = MinecraftProtocolFormat.decodeFromByteArray(
-            SetPlayerMovementFlagsPacket.serializer(),
+        val decoded = MinecraftProtocolFormat.decodeFromByteArray<SetPlayerMovementFlagsPacket>(
             "ff".hexToByteArray(),
         )
         assertEquals(flags, decoded.flags)
         assertContentEquals(
             "03".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(SetPlayerMovementFlagsPacket.serializer(), decoded),
+            MinecraftProtocolFormat.encodeToByteArray(decoded),
         )
     }
 
@@ -96,13 +97,12 @@ class PlayServerboundMovementAndActionPacketTest {
             ServerboundPlayerAbilitiesPacket.serializer(),
             "02",
         )
-        val ability = MinecraftProtocolFormat.decodeFromByteArray(
-            ServerboundPlayerAbilitiesPacket.serializer(),
+        val ability = MinecraftProtocolFormat.decodeFromByteArray<ServerboundPlayerAbilitiesPacket>(
             "ff".hexToByteArray(),
         )
         assertContentEquals(
             "02".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(ServerboundPlayerAbilitiesPacket.serializer(), ability),
+            MinecraftProtocolFormat.encodeToByteArray(ability),
         )
         assertPacketBytes(
             PlayPongPacket(0x0102_0304),
@@ -124,14 +124,13 @@ class PlayServerboundMovementAndActionPacketTest {
             "07000000000000000005ac02",
         )
 
-        val wrappedFace = MinecraftProtocolFormat.decodeFromByteArray(
-            PlayerActionPacket.serializer(),
+        val wrappedFace = MinecraftProtocolFormat.decodeFromByteArray<PlayerActionPacket>(
             "000000000000000000ff00".hexToByteArray(),
         )
         assertEquals(BlockFace.SOUTH, wrappedFace.face)
         assertContentEquals(
             "0000000000000000000300".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(PlayerActionPacket.serializer(), wrappedFace),
+            MinecraftProtocolFormat.encodeToByteArray(wrappedFace),
         )
         assertPacketBytes(
             PlayerCommandPacket(
@@ -160,14 +159,13 @@ class PlayServerboundMovementAndActionPacketTest {
             PlayerInputPacket.serializer(),
             "7f",
         )
-        val decoded = MinecraftProtocolFormat.decodeFromByteArray(
-            PlayerInputPacket.serializer(),
+        val decoded = MinecraftProtocolFormat.decodeFromByteArray<PlayerInputPacket>(
             "ff".hexToByteArray(),
         )
         assertEquals(all, decoded.input)
         assertContentEquals(
             "7f".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(PlayerInputPacket.serializer(), decoded),
+            MinecraftProtocolFormat.encodeToByteArray(decoded),
         )
         assertPacketBytes(PlayerLoadedPacket, PlayerLoadedPacket.serializer(), "")
     }

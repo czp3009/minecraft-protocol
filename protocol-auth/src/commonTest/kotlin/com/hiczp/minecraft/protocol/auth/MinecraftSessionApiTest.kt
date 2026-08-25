@@ -147,7 +147,10 @@ class MinecraftSessionApiTest {
         assertEquals("Player", requests[1].url.parameters["username"])
         assertEquals("server-hash", requests[1].url.parameters["serverId"])
         assertNull(requests[1].url.parameters["ip"])
-        assertEquals(identityProfilePath("Player"), requests[2].url.encodedPath)
+        assertEquals(
+            "/session/minecraft/profile/${MinecraftOfflineIdentity.minecraftOfflineUuid("Player").toHexString()}",
+            requests[2].url.encodedPath,
+        )
         assertEquals("false", requests[2].url.parameters["unsigned"])
     }
 
@@ -339,6 +342,3 @@ private fun MockRequestHandleScope.respondSessionJson(
 )
 
 private class ExpectedSessionTransportFailure : RuntimeException()
-
-private fun identityProfilePath(name: String): String =
-    "/session/minecraft/profile/${MinecraftOfflineIdentity.minecraftOfflineUuid(name).toHexString()}"

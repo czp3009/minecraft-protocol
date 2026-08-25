@@ -4,6 +4,8 @@ import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -30,7 +32,6 @@ class PlayServerboundInteractionPacketTest {
         )
         assertFails {
             MinecraftProtocolFormat.encodeToByteArray(
-                SpectatorActionPacket.serializer(),
                 SpectatorActionPacket(-1),
             )
         }
@@ -70,8 +71,7 @@ class PlayServerboundInteractionPacketTest {
             "0000000000000000060001ac02000301020108000178",
         )
 
-        val fallback = MinecraftProtocolFormat.decodeFromByteArray(
-            TestInstanceBlockActionPacket.serializer(),
+        val fallback = MinecraftProtocolFormat.decodeFromByteArray<TestInstanceBlockActionPacket>(
             "00000000000000007f00000000ff01007f00".hexToByteArray(),
         )
         assertEquals(TestInstanceAction.INIT, fallback.action)
@@ -79,7 +79,7 @@ class PlayServerboundInteractionPacketTest {
         assertEquals(TestInstanceStatus.CLEARED, fallback.data.status)
         assertContentEquals(
             "0000000000000000000000000003000000".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(TestInstanceBlockActionPacket.serializer(), fallback),
+            MinecraftProtocolFormat.encodeToByteArray(fallback),
         )
     }
 

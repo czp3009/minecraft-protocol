@@ -32,6 +32,24 @@ internal fun Path.deleteTree() {
     }
 }
 
+internal fun deleteTreesPreserving(
+    primaryFailure: Throwable?,
+    vararg paths: Path,
+) {
+    var cleanupFailure: Throwable? = null
+    paths.forEach { path ->
+        try {
+            path.deleteTree()
+        } catch (failure: Throwable) {
+            cleanupFailure?.addSuppressed(failure)
+                ?: run { cleanupFailure = failure }
+        }
+    }
+    cleanupFailure?.let { failure ->
+        primaryFailure?.addSuppressed(failure) ?: throw failure
+    }
+}
+
 internal fun Path.deleteFilesRecursively() {
     check(Files.isDirectory(this, LinkOption.NOFOLLOW_LINKS)) {
         "Directory does not exist: $this"
@@ -148,17 +166,29 @@ internal fun Path.copyFileTo(destination: Path) {
 private fun linkFileOrCopy(
     source: java.nio.file.Path,
     destination: java.nio.file.Path,
-): Boolean = runCatching {
-    Files.createLink(destination, source)
-    true
-}.getOrElse {
-    Files.copy(
-        source,
-        destination,
-        StandardCopyOption.REPLACE_EXISTING,
-        StandardCopyOption.COPY_ATTRIBUTES,
-    )
-    false
+): Boolean {
+    val linkFailure = try {
+        Files.createLink(destination, source)
+        return true
+    } catch (failure: IOException) {
+        failure
+    } catch (failure: UnsupportedOperationException) {
+        failure
+    } catch (failure: SecurityException) {
+        failure
+    }
+    try {
+        Files.copy(
+            source,
+            destination,
+            StandardCopyOption.REPLACE_EXISTING,
+            StandardCopyOption.COPY_ATTRIBUTES,
+        )
+    } catch (fallbackFailure: Throwable) {
+        fallbackFailure.addSuppressed(linkFailure)
+        throw fallbackFailure
+    }
+    return false
 }
 
 internal fun createUniqueDirectory(parent: Path): Path {

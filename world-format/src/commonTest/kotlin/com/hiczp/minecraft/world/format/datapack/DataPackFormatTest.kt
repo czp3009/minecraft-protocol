@@ -230,7 +230,7 @@ class DataPackFormatTest {
     }
 
     private fun jsonBytes(element: JsonElement): ByteArray =
-        Json.encodeToString(JsonElement.serializer(), element).encodeToByteArray()
+        Json.encodeToString(element).encodeToByteArray()
 
     private data class ModFile(
         val packId: DataPackId,

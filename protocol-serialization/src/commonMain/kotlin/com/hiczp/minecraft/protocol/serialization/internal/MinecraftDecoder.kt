@@ -261,13 +261,13 @@ internal class MinecraftDecoder(
             deserializer is NbtTagSerializer<*> ->
                 decodeWithNbtSerializer(deserializer)
 
-            isUuidDescriptor(deserializer.descriptor) -> {
+            deserializer.descriptor.serialName == UUID_SERIAL_NAME -> {
                 @Suppress("UNCHECKED_CAST")
                 (Uuid.fromByteArray(reader.readBytes(Uuid.SIZE_BYTES)) as T)
             }
 
             pendingHints.any { it is LowPrecisionVector } -> {
-                if (!isVector3dDescriptor(deserializer.descriptor)) {
+                if (deserializer.descriptor.serialName != VECTOR_3D_SERIAL_NAME) {
                     throw MinecraftSerializationException(
                         "@LowPrecisionVector can only be used with Vector3d",
                     )
@@ -277,7 +277,7 @@ internal class MinecraftDecoder(
             }
 
             pendingHints.any { it is Paletted } -> {
-                if (!isPalettedContainerDescriptor(deserializer.descriptor)) {
+                if (deserializer.descriptor.serialName != PALETTED_CONTAINER_SERIAL_NAME) {
                     throw MinecraftSerializationException(
                         "@Paletted can only be used with PalettedContainer",
                     )
@@ -581,15 +581,6 @@ internal class MinecraftDecoder(
     private fun <T> decodeWithNbtSerializer(
         deserializer: DeserializationStrategy<T>,
     ): T = deserializer.deserialize(this)
-
-    private fun isVector3dDescriptor(descriptor: SerialDescriptor): Boolean =
-        descriptor.serialName == VECTOR_3D_SERIAL_NAME
-
-    private fun isPalettedContainerDescriptor(descriptor: SerialDescriptor): Boolean =
-        descriptor.serialName == PALETTED_CONTAINER_SERIAL_NAME
-
-    private fun isUuidDescriptor(descriptor: SerialDescriptor): Boolean =
-        descriptor.serialName == UUID_SERIAL_NAME
 
     private data class Frame(
         val descriptor: SerialDescriptor,
