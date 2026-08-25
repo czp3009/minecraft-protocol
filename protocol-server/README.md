@@ -9,36 +9,14 @@ management, or an authoritative world.
 
 ## Accept connections
 
-`MinecraftServer` binds a Ktor TCP listener. The application owns the accept loop and connection concurrency:
-
-```kotlin
-suspend fun runServer(
-    selectorManager: SelectorManager,
-    handlePacket: suspend (MinecraftServerConnection, ServerboundPacket) -> Unit,
-) = coroutineScope {
-    MinecraftServer.bind(selectorManager).use { server ->
-        while (server.isOpen) {
-            val connection = server.accept()
-            launch {
-                connection.use connectionUse@{
-                    connection.negotiate() ?: return@connectionUse
-
-                    for (packet in connection.incoming) {
-                        handlePacket(connection, packet)
-                    }
-                }
-            }
-        }
-    }
-}
-```
+`MinecraftServer` binds a Ktor TCP listener. The application owns the accept loop and connection concurrency; the
+repository's [server quick start](../README.md#accept-clients-on-a-server) shows that complete outer lifetime.
 
 `accept()` returns a typed connection without starting negotiation. `negotiate()` answers a Status exchange and returns
-`null`, or completes Login and Configuration and returns `MinecraftServerNegotiationResult` for an open Play connection.
+`null` after closing that Status connection, or completes Login and Configuration and returns
+`MinecraftServerNegotiationResult` for an open Play connection.
 
-No server configuration object is required for vanilla. `bind()` supplies the vanilla packet definition, transport
-settings, and offline authentication; `negotiate()` supplies the vanilla profile, release-matched Configuration data,
-and default policy.
+The root quick start uses the built-in vanilla, offline, transport, Configuration, and policy defaults.
 
 Negotiation exclusively uses both packet channels until it returns. Run it in one coroutine without concurrent readers
 or writers. The preset has no built-in admission timeout; apply the application's own deadline around the call.
@@ -133,7 +111,8 @@ suspend fun optionsFromWorldPacks(
 ```
 
 The generated vanilla core is the projection base, and release-matched defaults project every vanilla synchronized
-registry. Tags and server-only resources are handled without extra mapping as well.
+registry. Tags are projected generically. Recipes, functions, loot tables, and other server-only resources remain in the
+resolved data-pack stack and are not emitted as Configuration values.
 
 For a mod registry or a registry whose modded network codec differs from vanilla, pass only its projector. A matching
 registry ID replaces the vanilla default; a new ID extends it:
@@ -147,9 +126,9 @@ fun resolveModdedProtocolData(
 )
 ```
 
-For full control, construct a `DataPackProtocolProjector` or `ResolvedProtocolData` directly. [
-`protocol-datapack`](../protocol-datapack/README.md) explains the stages, and [
-`protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md) documents the release-matched defaults.
+For full control, construct a `DataPackProtocolProjector` or `ResolvedProtocolData` directly.
+[`protocol-datapack`](../protocol-datapack/README.md) explains the stages, and
+[`protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md) documents the release-matched defaults.
 
 ## Send an initial world
 
@@ -171,9 +150,9 @@ suspend fun sendBootstrap(
 }
 ```
 
-The returned `teleportId` is available to the application when it handles `ConfirmTeleportationPacket`. If negotiation
-used non-default server options, pass that same options value to `vanilla` so the bootstrap uses the matching game mode,
-difficulty, and distances.
+The bootstrap's `teleportId` is available to the application when it handles `ConfirmTeleportationPacket`. If
+negotiation used non-default server options, pass that same options value to `vanilla` so the bootstrap uses the
+matching game mode, difficulty, and distances.
 
 For tests, previews, and simple finite views, `MinecraftInitialWorld` adds complete Chunk and Entity snapshots:
 
@@ -281,9 +260,9 @@ Fabric and Forge equivalents are documented in [`protocol-session`](../protocol-
 ## Custom negotiation and connection lifetime
 
 Applications may replace the preset with their own Status/Login/Configuration sequence over the public typed connection.
-The maintained [
-`negotiate` implementation](src/commonMain/kotlin/com/hiczp/minecraft/protocol/server/MinecraftServerProtocol.kt) is the
-source-level ordering reference.
+The maintained
+[`negotiate` implementation](src/commonMain/kotlin/com/hiczp/minecraft/protocol/server/MinecraftServerProtocol.kt) is
+the source-level ordering reference.
 
 After Play begins, enqueue ordered packets through `outgoing` and call `requestFlush()` at a tick boundary. A full
 channel is application backpressure policy; `trySend` lets a tick loop detect it without suspending. Closing the

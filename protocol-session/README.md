@@ -1,8 +1,8 @@
 # protocol-session
 
-`protocol-session` turns framed packet bytes into typed, direction-safe coroutine channels. It sits between [
-`protocol-transport`](../protocol-transport/README.md) and the high-level [
-`protocol-client`](../protocol-client/README.md) / [`protocol-server`](../protocol-server/README.md) modules.
+`protocol-session` turns framed packet bytes into typed, direction-safe coroutine channels. It sits between
+[`protocol-transport`](../protocol-transport/README.md) and the high-level
+[`protocol-client`](../protocol-client/README.md) / [`protocol-server`](../protocol-server/README.md) modules.
 
 ## Typed packet connections
 

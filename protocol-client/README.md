@@ -38,25 +38,9 @@ connection when joining.
 ## Enter Play
 
 The preset negotiation handles compression, optional encryption, cookies, Login queries, client information, Known
-Packs, synchronized registries, tags, and Finish Configuration. For an ordinary vanilla connection,
-`MinecraftClientConnection.connect` supplies the packet definition and transport defaults, while `negotiate` supplies
-the vanilla profile and release-matched Configuration defaults:
-
-```kotlin
-suspend fun playOffline(
-    selectorManager: SelectorManager,
-    host: String,
-    handlePacket: suspend (ClientboundPacket) -> Unit,
-) {
-    MinecraftClientConnection.connect(selectorManager, host).use { connection ->
-        connection.negotiate(MinecraftOfflineIdentity("Player"))
-
-        for (packet in connection.incoming) {
-            handlePacket(packet)
-        }
-    }
-}
-```
+Packs, synchronized registries, tags, and Finish Configuration. The repository's
+[client quick start](../README.md#connect-a-client) owns the default offline example; this guide focuses on the options
+and results beyond that path.
 
 `negotiate()` runs in the calling coroutine and exclusively uses both packet channels until it returns. Do not read from
 `incoming` or send to `outgoing` from another coroutine during that call. The preset has no built-in admission timeout;
@@ -69,7 +53,8 @@ reached the transport's flush boundary.
 ### Configure negotiation
 
 `MinecraftClientNegotiationOptions` controls the client information, protocol data, cookies, accepted Known Packs, Code
-of Conduct decision, resource-pack response, local static registries, and handling of unrecognized negotiation queries:
+of Conduct decision, resource-pack response, local static registries, and handling of unrecognized negotiation queries.
+Here `connection` is a fresh Handshake-state value returned by `MinecraftClientConnection.connect`:
 
 ```kotlin
 val minecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(
@@ -222,42 +207,45 @@ apply pairing metadata, attributes, equipment, passenger relationships, or leash
 ## Loader profiles and custom packets
 
 Declare possible custom packet codecs in a shareable `MinecraftConnectionDefinition`, then use the matching
-per-connection profile. This Fabric example receives all application-owned values as parameters:
+per-connection profile. Keep the connection open while consuming the negotiation result and Play traffic. This Fabric
+example makes that lifetime explicit through a caller-supplied `play` block:
 
 ```kotlin
-suspend fun connectFabric(
+suspend fun runFabric(
     selectorManager: SelectorManager,
     host: String,
     identity: MinecraftOfflineIdentity,
     extensionCodecs: List<PacketCodecRegistration<out Packet>>,
     staticRegistrySchema: StaticRegistrySchema,
-): MinecraftClientNegotiationResult {
+    play: suspend (MinecraftClientConnection, MinecraftClientNegotiationResult) -> Unit,
+) {
     val minecraftConnectionDefinition = FabricProtocol.connectionDefinition(
         extensionCodecs = extensionCodecs,
     )
-    return MinecraftClientConnection.connect(
+    MinecraftClientConnection.connect(
         selectorManager = selectorManager,
         host = host,
         definition = minecraftConnectionDefinition,
     ).use { connection ->
-        connection.negotiate(
+        val result = connection.negotiate(
             identity = identity,
             profile = FabricClientProfile(staticRegistrySchema),
         )
+        play(connection, result)
     }
 }
 ```
 
-NeoForge and Forge definitions and profiles are documented in [
-`protocol-session`](../protocol-session/README.md#negotiation-profiles). Unknown valid routes remain lossless
+NeoForge and Forge definitions and profiles are documented in
+[`protocol-session`](../protocol-session/README.md#negotiation-profiles). Unknown valid routes remain lossless
 `UnknownPacket.Clientbound` values; malformed registered payloads still fail decoding.
 
 ## Custom negotiation and lifetime
 
 Applications may implement their own Handshake/Login/Configuration flow using `incoming`, `outgoing`, `awaitState`,
-`installProtocolRegistryContext`, `activateExtensionRoutes`, authentication helpers, and profile hooks. The maintained [
-`negotiate` implementation](src/commonMain/kotlin/com/hiczp/minecraft/protocol/client/MinecraftClientProtocol.kt) is the
-complete source-level ordering reference.
+`installProtocolRegistryContext`, `activateExtensionRoutes`, authentication helpers, and profile hooks. The maintained
+[`negotiate` implementation](src/commonMain/kotlin/com/hiczp/minecraft/protocol/client/MinecraftClientProtocol.kt) is
+the complete source-level ordering reference.
 
 Closing a connection closes its packet pumps and transport. Protocol rejection and transfer exceptions leave a usable
 lifetime decision to the caller; framing, transport, and packet-pump failures terminate the connection and remain

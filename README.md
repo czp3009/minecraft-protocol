@@ -24,7 +24,8 @@ authoritative world state, and application persistence policy remain application
 - Vanilla, Fabric API, NeoForge, and Forge negotiation profiles with composable custom packet registrations.
 - Offline and online game authentication, profile-key verification, and signed-chat primitives.
 - Separate launcher APIs for Microsoft OAuth, Xbox/XSTS, Minecraft Services tokens, entitlements, and profiles.
-- Generated release-matched vanilla registries, block states, Configuration data, and complete official data packs.
+- Generated release-matched vanilla registries, block states, Configuration data, and official core/built-in data-pack
+  archives.
 - Immutable NBT values, streaming binary NBT, and SNBT.
 - Filesystem-independent Anvil, Chunk, Entity, coordinate, palette, level, statistics, advancement, and data-pack
   formats.
@@ -40,7 +41,7 @@ The project is split by capability, so applications can start at the appropriate
 | NBT            | [`nbt-serialization`](nbt-serialization/README.md)                 | Binary NBT, SNBT, and serializable Kotlin models                    |
 | Protocol       | [`protocol-model`](protocol-model/README.md)                       | Packet payloads and shared protocol values                          |
 | Protocol       | [`protocol-serialization`](protocol-serialization/README.md)       | Packet payload encoding and custom packet registries                |
-| Data packs     | [`protocol-datapack`](protocol-datapack/README.md)                 | Projecting caller-supplied packs into Configuration data            |
+| Data packs     | [`protocol-datapack`](protocol-datapack/README.md)                 | Pack projection and received Configuration views                    |
 | Data packs     | [`protocol-datapack-vanilla`](protocol-datapack-vanilla/README.md) | Release-matched vanilla packs, registries, and defaults             |
 | Networking     | [`protocol-transport`](protocol-transport/README.md)               | Low-level frames, compression, encryption, and sockets              |
 | Networking     | [`protocol-session`](protocol-session/README.md)                   | Typed packet channels, state transitions, and loader profiles       |
@@ -51,42 +52,23 @@ The project is split by capability, so applications can start at the appropriate
 | Worlds         | [`world-format`](world-format/README.md)                           | Chunk/Entity values, coordinates, compression, and Anvil containers |
 | Worlds         | [`world-io`](world-io/README.md)                                   | Reading and writing actual world directories                        |
 
-The data-pack path keeps each representation explicit:
+Use `protocol-client` or `protocol-server` for the maintained connection lifecycle; drop to `protocol-session`,
+`protocol-serialization`, or `protocol-transport` only when the application needs to own that lower-level boundary.
+Launcher authentication in `account-auth` ends with caller-managed tokens and profiles. Game-connection authentication
+in `protocol-auth` consumes those values; neither authentication module depends on the other.
 
-```text
-disk directory/ZIP -> WorldDataPackReader -> DataPack -> DataPackStack -> ResolvedDataPackStack
-    -> DataPackProtocolProjector -> ResolvedProtocolData -> Configuration packets
-
-optional raw snapshot: DataPackArchive -> DataPackFormat -> DataPack
-
-received Configuration values -> DataPackConfigurationSnapshot -> ClientRegistryView
-```
-
-The wire-side `ClientRegistryView` is intentionally not a complete `DataPack`; recipes, functions, loot tables, and
-other server-only resources are never sent during Configuration. `WorldDataPackReader` treats on-disk pack containers as
-immutable inputs throughout their use and adds no data-pack read lock or mutation coordinator.
+Target availability follows capability. The model, serialization, authentication, data-pack, and portable world-format
+layers include configured browser targets; real-socket modules use JS/WasmJS on Node; `world-io` supports JS Node but
+does not expose partial browser or Wasm filesystem APIs. Each module's build script is the exact target list.
 
 ## Demo
 
 The [launcher demo](demo/launcher/README.md) is a terminal application that combines account management,
 official-version installation, and game launch.
 
-## Connect a client
+## Quick starts
 
-`queryStatus()` performs the server-list Status request followed by Ping/Pong. A Status connection cannot continue into
-Login, so use a fresh connection when joining:
-
-```kotlin
-suspend fun queryServer(
-    selectorManager: SelectorManager,
-    host: String,
-): MinecraftStatusExchange = MinecraftClientConnection.connect(
-    selectorManager = selectorManager,
-    host = host,
-).use { connection ->
-    connection.queryStatus()
-}
-```
+### Connect a client
 
 For a game connection, `negotiate()` handles Handshake, Login, Configuration, dynamic registries, and entry into Play.
 The vanilla packet definition, transport settings, negotiation profile, Known Packs, registries, and client options are
@@ -110,9 +92,9 @@ suspend fun runClient(
 ```
 
 The caller owns the packet loop after negotiation returns. See [`protocol-client`](protocol-client/README.md) for custom
-Configuration data, chunk/entity projection, loader profiles, and online Login.
+Configuration data, status queries, chunk/entity projection, loader profiles, and online Login.
 
-## Accept clients on a server
+### Accept clients on a server
 
 `MinecraftServer` supplies the listener and typed connection. The application owns the accept loop and chooses one
 coroutine per connection:
@@ -143,10 +125,9 @@ negotiation profile, Configuration data, and application policy. [`protocol-serv
 online authentication, policy overrides, custom data packs, loader profiles, and finite initial Chunk/entity
 synchronization.
 
-## Read a world
+### Read a world
 
-Use `MinecraftWorldAccess` when your process owns the world directory. It acquires `session.lock`, and its suspend `use`
-helpers close Region handles before releasing the world lease:
+Use `MinecraftWorldAccess` when your process owns the world directory:
 
 ```kotlin
 suspend fun readChunk(
@@ -160,9 +141,9 @@ suspend fun readChunk(
 }
 ```
 
-Use `LiveMinecraftWorldAccess` for non-locking read-only observation of a world that another process may be changing.
-See [`world-format`](world-format/README.md) for constructing the codec and [`world-io`](world-io/README.md) for writes,
-Entity Regions, standalone files, and data packs.
+Use `LiveMinecraftWorldAccess` for read-only observation of a world that another process may be changing. See
+[`world-format`](world-format/README.md) for constructing the codec and [`world-io`](world-io/README.md) for locking,
+lifetime, writes, Entity Regions, standalone files, and data packs.
 
 ## Build and test
 

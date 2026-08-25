@@ -21,21 +21,10 @@ Two access modes serve different situations:
 Filesystem support is configured for JVM, Android, supported Native targets, and Kotlin/JS Node. Browser and Wasm
 applications should use the filesystem-independent modules.
 
-## Read a Chunk from an owned world
+## Open an owned world
 
-Open one world lease and reuse it for the complete operation. Each Region handle is also a suspend resource:
-
-```kotlin
-suspend fun readChunk(
-    worldPath: Path,
-    position: ChunkPosition,
-    codec: ChunkNbtCodec<BlockStateDescriptor, String>,
-): Chunk<BlockStateDescriptor, String>? = MinecraftWorldAccess.open(worldPath).use { world ->
-    world.openRegion(position.region).use { region ->
-        region.readChunk(position, codec)
-    }
-}
-```
+Open one world lease and reuse it for the complete operation. Each Region handle is also a suspend resource. The
+repository's [world quick start](../README.md#read-a-world) shows the basic nested lifetime.
 
 `MinecraftWorldAccess.open()` creates the root when necessary and acquires its `session.lock`. Close Region handles
 before the world; the nested `use` form does this automatically and preserves cleanup under cancellation.
@@ -56,8 +45,8 @@ suspend fun readBlock(
 }
 ```
 
-Constructing `ChunkNbtCodec` and navigating the returned semantic Chunk are covered in [
-`world-format`](../world-format/README.md#decode-a-semantic-chunk).
+Constructing `ChunkNbtCodec` and navigating the returned semantic Chunk are covered in
+[`world-format`](../world-format/README.md#decode-a-semantic-chunk).
 
 ## Inspect Region metadata and lower-level values
 
@@ -247,9 +236,8 @@ reader imposes no file-count or size policy.
 
 `WorldDataPackLoadResult.dataPackStack` contains loaded `file/...` entries in low-to-high priority order. Non-file
 references such as `vanilla` remain in `unresolvedDataPackReferences` for a higher layer to supply; the original ordered
-selection remains in `enabledDataPackReferences`.
-Use [`protocol-datapack`](../protocol-datapack/README.md) or [
-`protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md) to project the stack into Configuration data.
+selection remains in `enabledDataPackReferences`. Use [`protocol-datapack`](../protocol-datapack/README.md) or
+[`protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md) to project the stack into Configuration data.
 
 `WorldDataPackReader` also exposes `inspectDataPack`, `readDataPack`, `readDataPackArchive`, and `readDataPackFile` for
 an explicitly selected directory or ZIP without opening a mutable world lease.
@@ -277,7 +265,9 @@ arbitrary modded or future fields must be retained.
 ## Dimensions, execution, and failures
 
 Region methods default to `DimensionDirectory.Overworld`. Pass `DimensionDirectory.Nether`, `DimensionDirectory.End`, or
-a validated custom dimension directory for another dimension.
+a validated custom dimension directory for another dimension. `LegacyOverworld`, `LegacyNether`, and `LegacyEnd` are
+explicit opt-ins for the older root/`DIM-1`/`DIM1` directory layout; the ordinary built-in values use the
+repository-selected release's namespaced dimension paths.
 
 Neither access mode selects a dispatcher. Filesystem access, compression, and NBT work run in the caller's context, so
 move them away from a UI/main thread where required.

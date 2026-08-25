@@ -43,6 +43,9 @@ Use `sendCommand`, `waitForLog`, `logText`, `restartServer`, `status`, and `awai
 When a command has a completion marker, pass it as `sendCommand`'s `expectedNewOutput`; the Host records the pre-command
 output sequence and accepts only a later matching line.
 
+`newOfficialServer` returns only after a fresh startup reaches its server-thread ready event and a Status plus Ping/Pong
+probe succeeds. Callers therefore receive a reachable server rather than merely a running process.
+
 ## Drive a headless official client
 
 `newHeadlessClient` returns after HMC-Specifics is ready and a correlated GUI query observes the vanilla title screen.

@@ -8,7 +8,7 @@ Use it for:
 - semantic Chunk, Section, palette, Block Entity, Entity, and Entity Chunk values;
 - safe conversion between Block, Section, Chunk, and Region coordinates;
 - selected-release `level.dat`, advancement, and statistics models;
-- GZIP, ZLIB, uncompressed, LZ4Block, and custom compression;
+- GZIP, ZLIB, uncompressed, Minecraft's legacy LZ4 block stream, and custom compression;
 - compressed unnamed-root Chunk NBT;
 - low-level `.mca` Anvil containers and external Chunk records;
 - filesystem-independent data-pack archives, parsing, overlays, filters, and stack resolution.

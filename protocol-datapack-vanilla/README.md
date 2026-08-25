@@ -1,7 +1,7 @@
 # protocol-datapack-vanilla
 
-`protocol-datapack-vanilla` supplies generated, release-matched vanilla inputs for [
-`protocol-datapack`](../protocol-datapack/README.md).
+`protocol-datapack-vanilla` supplies generated, release-matched vanilla inputs for
+[`protocol-datapack`](../protocol-datapack/README.md).
 
 It includes:
 
@@ -45,16 +45,8 @@ The remaining ready-made values stay on the stage that owns them:
 | Default registry projectors          | `vanillaDataPackRegistryProjectors`                 |
 | Datapack-to-protocol conversion      | `dataPackStack.toVanillaProtocolData()`             |
 
-The high-level client and server modules already use these values. A normal vanilla server does not construct or pass a
-`ProtocolData`, connection definition, profile, or negotiation options:
-
-```kotlin
-suspend fun negotiateVanilla(connection: MinecraftServerConnection): MinecraftServerNegotiationResult? =
-    connection.negotiate()
-```
-
-`MinecraftServerNegotiationOptions` and `MinecraftClientNegotiationOptions` use `VanillaProtocolData` automatically when
-an application does need to override another option.
+The high-level client and server defaults already use `VanillaProtocolData`; callers construct negotiation options only
+when overriding another behavior. The root guide owns the zero-configuration client and server examples.
 
 ## Add custom world packs
 
@@ -68,8 +60,7 @@ fun resolveWorldDataPackProtocolData(
 
 The helper treats the official core `vanilla` pack as already projected and applies the world stack above the captured
 defaults. `vanillaDataPackRegistryProjectors` covers every synchronized registry in the repository-selected release, so
-ordinary vanilla datapacks—including packs that replace or add registry entries—need no caller-written mapping. The
-official-client interoperability suite exercises all bundled vanilla registry entries through this path.
+ordinary vanilla datapacks—including packs that replace or add registry entries—need no caller-written mapping.
 
 Mods remain an explicit escape hatch. The `modDataPackRegistryProjectors` parameter below contains projectors supplied
 by the loader or application. A matching registry ID replaces the corresponding vanilla default and a new registry ID is
@@ -113,5 +104,4 @@ val staticRegistrySchema: StaticRegistrySchema = protocolData.staticRegistrySche
 val clientRegistryView: ClientRegistryView = VanillaProtocolData.clientRegistryView
 ```
 
-The generated values always follow the repository-selected Minecraft release; application documentation should not copy
-their literal version.
+The generated values always follow the repository-selected Minecraft release.

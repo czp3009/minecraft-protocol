@@ -1,40 +1,29 @@
 # protocol-datapack
 
 `protocol-datapack` is the vanilla-neutral bridge between filesystem-independent data-pack values and Minecraft
-Configuration data. It also owns the client-side conversion from received Configuration packets to runtime registry,
-block-state, and tag lookups.
+Configuration data. It owns `ProtocolData`/`ResolvedProtocolData` for the server side and
+`DataPackConfigurationSnapshot`/`ClientRegistryView` for the client side.
+
+Its projector, resolved server data, received snapshot, and client view are all caller-constructible. This module
+contains no bundled vanilla values and performs no filesystem or socket I/O.
+
+The cross-module path keeps each representation explicit:
 
 ```text
-DataPackArchive -> DataPack -> DataPackStack -> ResolvedDataPackStack
-    -> DataPackProtocolProjector -> ResolvedProtocolData -> server Configuration packets
+disk directory/ZIP --world-io--> DataPack --world-format--> DataPackStack -> ResolvedDataPackStack
+    --protocol-datapack--> ResolvedProtocolData --protocol-server--> Configuration packets
 
-received Configuration packets -> DataPackConfigurationSnapshot -> ClientRegistryView
+optional raw snapshot: DataPackArchive -> DataPackFormat -> DataPack
+
+received Configuration values -> DataPackConfigurationSnapshot -> ClientRegistryView
 ```
 
-Every stage is publicly constructible. Applications may start with parsed disk files from `world-io`, an archive from
-another source, programmatic JSON/NBT/custom `DataPackFileContent`, an already resolved stack, or exact final protocol
-packets. This module contains no bundled vanilla values and performs no filesystem or socket I/O.
+## Inputs from data packs
 
-## Parse and resolve packs
-
-The filesystem-independent archive, parser, resource, overlay, filter, and stack types are owned by `world-format` and
-are exposed to this layer through its public dependency. `DataPackFormat` classifies every file without imposing
-file-count or size policy. JSON remains a lossless `JsonElement`; compressed NBT is decoded from retained in-memory
-bytes when its `nbtDocument` is requested; and mods may provide `DataPackFileDecoder` plus custom
-`DataPackFileContent` implementations.
-
-`WorldDataPackReader.readDataPack` parses directly while reading and need not retain a `DataPackArchive`. Use the
-archive stage only when the caller needs a complete raw byte snapshot.
-
-In the example, `dataPackId` identifies the pack, `dataPackFileBytesByPath` is its detached path-to-bytes map,
-`dataPackFileDecoders` is the optional list supplied by a mod, and `dataPackFormatVersion` is selected by the caller:
-
-```kotlin
-val dataPackArchive = DataPackArchive(dataPackId, dataPackFileBytesByPath)
-val dataPack = DataPackFormat(dataPackFileDecoders = dataPackFileDecoders).decode(dataPackArchive)
-val dataPackStack = DataPackStack(dataPack)
-val resolvedDataPackStack = dataPackStack.resolve(dataPackFormatVersion)
-```
+The filesystem-independent archive, parser, resource, overlay, filter, and stack types belong to
+[`world-format`](../world-format/README.md#structured-files-and-data-packs). Directory and ZIP loading belongs to
+[`world-io`](../world-io/README.md#read-world-data-packs). This module accepts those parsed stacks but does not redefine
+their parsing or filesystem policy.
 
 ## Build server Configuration data
 
@@ -42,10 +31,10 @@ val resolvedDataPackStack = dataPackStack.resolve(dataPackFormatVersion)
 Feature Flags or Update Tags packets. Construct `ResolvedProtocolData` directly when a loader or application already
 owns exact Known Packs, synchronized registries, registry tags, static block schemas, and feature flags.
 
-To derive it from resources, supply an explicit base and conversion policy. Here `dataPackStack` and
-`dataPackFormatVersion` come from the preceding parse example; `applicationProtocolDefaults`,
-`applicationRegistryProjectors`, and
-`applicationPreprojectedPackIds` are values explicitly selected by the application or loader:
+To derive it from resources, supply an explicit base and conversion policy. Here `dataPackStack` is a caller-prepared
+`DataPackStack` from `world-format`; `dataPackFormatVersion`, `applicationProtocolDefaults`,
+`applicationRegistryProjectors`, and `applicationPreprojectedPackIds` are values explicitly selected by the application
+or loader:
 
 ```kotlin
 val dataPackProtocolProjector = DataPackProtocolProjector(

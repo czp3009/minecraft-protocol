@@ -2,6 +2,11 @@
 
 Minecraft Java Edition packet-payload serialization built on `kotlinx.serialization`.
 
+`MinecraftProtocolFormat` owns field bytes. `PacketRegistry` maps packet types to packet keys and extension routes,
+returning packet-ID and framing metadata separately from the encoded body.
+[`protocol-session`](../protocol-session/README.md) owns stateful dispatch, while
+[`protocol-transport`](../protocol-transport/README.md) owns frames, compression, encryption, and sockets.
+
 ## Encode and decode payloads
 
 `MinecraftProtocolFormat` implements `BinaryFormat` and interprets the structural serializers and wire annotations from

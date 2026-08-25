@@ -5,10 +5,10 @@ Portable Java Edition binary NBT and stringified NBT (SNBT) formats over the sta
 
 ## Binary NBT
 
-`NbtFormat` converts serializable classes to NBT trees and reads or writes binary NBT. It supports the explicit root
-forms used by packets and world files (any/named/unnamed tag, or a compound-root document). Its caller-owned
-`kotlinx.io` `Source`/`Sink` methods are the canonical binary path. Here `value` is a caller-provided serializable
-`MyValue`, while `sink` and `source` are the caller-owned binary endpoints:
+`NbtFormat` converts serializable classes to NBT trees and reads or writes binary NBT. Generic serialization uses the
+configured `NbtRootEncoding`; explicit methods cover any-tag, named-tag, unnamed-tag, and compound-document roots. Its
+caller-owned `kotlinx.io` `Source`/`Sink` methods are the canonical binary path. Here `value` is a caller-provided
+serializable `MyValue`, while `sink` and `source` are the caller-owned binary endpoints:
 
 ```kotlin
 val unnamedNbt = NbtFormat(
@@ -39,12 +39,12 @@ val worldBytes = NbtFormat.encodeDocumentToByteArray(document)
 ```
 
 When a generic tree is already in hand, receiver extensions keep the next operations discoverable without moving the
-physical format into the logical `nbt` module. The `document`, `worldSink`, and `unnamedNbt` values come from the
-preceding examples:
+physical format into the logical `nbt` module. The `document` and `worldSink` values come from the preceding examples;
+tree decoding does not depend on binary root framing:
 
 ```kotlin
 document.writeTo(worldSink)
-val decodedDocumentValue = document.decodeNbt<MyValue>(unnamedNbt)
+val decodedDocumentValue = document.decodeNbt<MyValue>()
 ```
 
 The format does not impose policy-sized byte, collection, array, or nesting limits. Stream methods process binary input

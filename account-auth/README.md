@@ -4,16 +4,14 @@ Caller-driven launcher HTTP APIs for obtaining a Minecraft Services access token
 authentication. Every request is explicit: the library does not open a browser, receive OAuth callbacks, poll, wait,
 retry, refresh, or store credentials automatically.
 
-Create the API objects with a caller-owned Ktor `HttpClient`. The `applicationHttpClient` variable below is that
-application-configured and application-closed client:
+Create the API objects with a caller-configured, caller-closed Ktor `HttpClient`. The `applicationHttpClient` variable
+below is that client:
 
 ```kotlin
 val microsoftOAuthApi = MicrosoftOAuthApi(applicationHttpClient)
 val xboxAuthenticationApi = XboxAuthenticationApi(applicationHttpClient)
 val minecraftServicesApi = MinecraftServicesApi(applicationHttpClient)
 ```
-
-The caller configures and closes the client.
 
 ## Obtain a Minecraft access token
 

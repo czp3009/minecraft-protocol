@@ -13,11 +13,12 @@ Authentication and account-backed capabilities used by a Minecraft game client o
 - locked sender-chain signers and serverbound/clientbound chain verifiers.
 
 Microsoft OAuth, Xbox authentication, and Minecraft Services account login are independent HTTP APIs in
-[`account-auth`](../account-auth/README.md); neither module depends on the other. The shared secret produced here is
-only key material—[`protocol-transport`](../protocol-transport/README.md) performs the continuous stream encryption and
-the connection modules apply it at the correct wire boundary. `protocol-model` is a direct API dependency because the
-authentication and signed-chat APIs naturally consume its profiles, packets, and shared wire values. Reconstructed
-signature bodies, chain links, and Brigadier-derived signable arguments remain `protocol-auth` values.
+[`account-auth`](../account-auth/README.md); this module consumes the resulting caller-managed identity values rather
+than acquiring them. The shared secret produced here is only key material—
+[`protocol-transport`](../protocol-transport/README.md) performs the continuous stream encryption and the connection
+modules apply it at the correct wire boundary. `protocol-model` is a direct API dependency because the authentication
+and signed-chat APIs naturally consume its profiles, packets, and shared wire values. Reconstructed signature bodies,
+chain links, and Brigadier-derived signable arguments remain `protocol-auth` values.
 
 ## Identities
 
