@@ -370,12 +370,12 @@ internal class OpenMinecraftWorld(
     }
 
     suspend fun readChunkInfo(
-        regionPosition: RegionPosition,
-        position: LocalChunkPosition,
+        region: RegionPosition,
+        local: LocalChunkPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
     ): RegionChunkInfo? = withRegionStorage(storage, dimension) { regionStorage ->
-        regionStorage.readChunkInfo(regionPosition, position)
+        regionStorage.readChunkInfo(region, local)
     }
 
     suspend fun readChunkInfos(
@@ -395,12 +395,12 @@ internal class OpenMinecraftWorld(
     }
 
     suspend fun readCompressedChunk(
-        regionPosition: RegionPosition,
-        position: LocalChunkPosition,
+        region: RegionPosition,
+        local: LocalChunkPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
     ): CompressedChunk? = withRegionStorage(storage, dimension) { regionStorage ->
-        regionStorage.readCompressedChunk(regionPosition, position)
+        regionStorage.readCompressedChunk(region, local)
     }
 
     suspend fun <T> withCompressedChunkSource(
@@ -413,13 +413,13 @@ internal class OpenMinecraftWorld(
     }
 
     suspend fun <T> withCompressedChunkSource(
-        regionPosition: RegionPosition,
-        position: LocalChunkPosition,
+        region: RegionPosition,
+        local: LocalChunkPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
         block: (RegionChunkInfo, KotlinxSource) -> T,
     ): T? = withRegionStorage(storage, dimension) { regionStorage ->
-        regionStorage.withCompressedChunkSource(regionPosition, position, block)
+        regionStorage.withCompressedChunkSource(region, local, block)
     }
 
     suspend fun <T> withChunkNbtSource(
@@ -432,13 +432,13 @@ internal class OpenMinecraftWorld(
     }
 
     suspend fun <T> withChunkNbtSource(
-        regionPosition: RegionPosition,
-        position: LocalChunkPosition,
+        region: RegionPosition,
+        local: LocalChunkPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
         block: (RegionChunkInfo, KotlinxSource) -> T,
     ): T? = withRegionStorage(storage, dimension) { regionStorage ->
-        regionStorage.withChunkNbtSource(regionPosition, position, block)
+        regionStorage.withChunkNbtSource(region, local, block)
     }
 
     suspend fun hasChunk(
@@ -450,12 +450,12 @@ internal class OpenMinecraftWorld(
     }
 
     suspend fun hasChunk(
-        regionPosition: RegionPosition,
-        position: LocalChunkPosition,
+        region: RegionPosition,
+        local: LocalChunkPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
     ): Boolean = withRegionStorage(storage, dimension) { regionStorage ->
-        regionStorage.hasChunk(regionPosition, position)
+        regionStorage.hasChunk(region, local)
     }
 
     suspend fun writeCompressedChunk(
@@ -468,13 +468,13 @@ internal class OpenMinecraftWorld(
     }
 
     suspend fun writeCompressedChunk(
-        regionPosition: RegionPosition,
-        position: LocalChunkPosition,
+        region: RegionPosition,
+        local: LocalChunkPosition,
         chunk: CompressedChunkInput,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
     ) = withRegionStorage(storage, dimension) { regionStorage ->
-        regionStorage.writeCompressedChunk(regionPosition, position, chunk)
+        regionStorage.writeCompressedChunk(region, local, chunk)
     }
 
     suspend fun writeCompressedChunk(
@@ -489,15 +489,15 @@ internal class OpenMinecraftWorld(
     }
 
     suspend fun writeCompressedChunk(
-        regionPosition: RegionPosition,
-        position: LocalChunkPosition,
+        region: RegionPosition,
+        local: LocalChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
         block: (KotlinxSink) -> Unit,
     ) = withRegionStorage(storage, dimension) { regionStorage ->
-        regionStorage.writeCompressedChunk(regionPosition, position, compression, compressedByteCount, block)
+        regionStorage.writeCompressedChunk(region, local, compression, compressedByteCount, block)
     }
 
     suspend fun removeChunk(
@@ -509,12 +509,12 @@ internal class OpenMinecraftWorld(
     }
 
     suspend fun removeChunk(
-        regionPosition: RegionPosition,
-        position: LocalChunkPosition,
+        region: RegionPosition,
+        local: LocalChunkPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
     ) = withRegionStorage(storage, dimension) { regionStorage ->
-        regionStorage.removeChunk(regionPosition, position)
+        regionStorage.removeChunk(region, local)
     }
 
     suspend fun readChunkNbtDocument(
@@ -526,12 +526,12 @@ internal class OpenMinecraftWorld(
     }
 
     suspend fun readChunkNbtDocument(
-        regionPosition: RegionPosition,
-        position: LocalChunkPosition,
+        region: RegionPosition,
+        local: LocalChunkPosition,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
     ): NbtDocument? = withRegionStorage(storage, dimension) { regionStorage ->
-        regionStorage.readChunkNbtDocument(regionPosition, position)
+        regionStorage.readChunkNbtDocument(region, local)
     }
 
     suspend fun <T> readChunkNbt(
@@ -544,13 +544,13 @@ internal class OpenMinecraftWorld(
     }
 
     suspend fun <T> readChunkNbt(
-        regionPosition: RegionPosition,
-        position: LocalChunkPosition,
+        region: RegionPosition,
+        local: LocalChunkPosition,
         deserializer: DeserializationStrategy<T>,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
     ): T? = withRegionStorage(storage, dimension) { regionStorage ->
-        regionStorage.readChunkNbt(regionPosition, position, deserializer)
+        regionStorage.readChunkNbt(region, local, deserializer)
     }
 
     suspend fun <B : Any, M : Any> readChunk(
@@ -563,13 +563,13 @@ internal class OpenMinecraftWorld(
     }
 
     suspend fun <B : Any, M : Any> readChunk(
-        regionPosition: RegionPosition,
-        position: LocalChunkPosition,
+        region: RegionPosition,
+        local: LocalChunkPosition,
         codec: ChunkNbtCodec<B, M>,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
     ): Chunk<B, M>? = withRegionStorage(storage, dimension) { regionStorage ->
-        regionStorage.readChunk(regionPosition, position, codec)
+        regionStorage.readChunk(region, local, codec)
     }
 
     suspend fun writeChunkNbtDocument(
@@ -582,13 +582,13 @@ internal class OpenMinecraftWorld(
     }
 
     suspend fun writeChunkNbtDocument(
-        regionPosition: RegionPosition,
-        position: LocalChunkPosition,
+        region: RegionPosition,
+        local: LocalChunkPosition,
         document: NbtDocument,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
     ) = withRegionStorage(storage, dimension) { regionStorage ->
-        regionStorage.writeChunkNbtDocument(regionPosition, position, document)
+        regionStorage.writeChunkNbtDocument(region, local, document)
     }
 
     suspend fun writeChunkNbtDocument(
@@ -602,14 +602,14 @@ internal class OpenMinecraftWorld(
     }
 
     suspend fun writeChunkNbtDocument(
-        regionPosition: RegionPosition,
-        position: LocalChunkPosition,
+        region: RegionPosition,
+        local: LocalChunkPosition,
         document: NbtDocument,
         compression: Compression,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
     ) = withRegionStorage(storage, dimension) { regionStorage ->
-        regionStorage.writeChunkNbtDocument(regionPosition, position, document, compression)
+        regionStorage.writeChunkNbtDocument(region, local, document, compression)
     }
 
     suspend fun <T> writeChunkNbt(
@@ -624,15 +624,15 @@ internal class OpenMinecraftWorld(
     }
 
     suspend fun <T> writeChunkNbt(
-        regionPosition: RegionPosition,
-        position: LocalChunkPosition,
+        region: RegionPosition,
+        local: LocalChunkPosition,
         serializer: SerializationStrategy<T>,
         value: T,
         compression: Compression,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
     ) = withRegionStorage(storage, dimension) { regionStorage ->
-        regionStorage.writeChunkNbt(regionPosition, position, serializer, value, compression)
+        regionStorage.writeChunkNbt(region, local, serializer, value, compression)
     }
 
     suspend fun <B : Any, M : Any> writeChunk(
@@ -647,15 +647,15 @@ internal class OpenMinecraftWorld(
     }
 
     suspend fun <B : Any, M : Any> writeChunk(
-        regionPosition: RegionPosition,
-        position: LocalChunkPosition,
+        region: RegionPosition,
+        local: LocalChunkPosition,
         chunk: Chunk<B, M>,
         codec: ChunkNbtCodec<B, M>,
         compression: Compression,
         storage: RegionStorageDirectory,
         dimension: DimensionDirectory,
     ) = withRegionStorage(storage, dimension) { regionStorage ->
-        regionStorage.writeChunk(regionPosition, position, chunk, codec, compression)
+        regionStorage.writeChunk(region, local, chunk, codec, compression)
     }
 
     suspend fun openRegion(

@@ -18,11 +18,11 @@ internal class PositionedAnvilRegion(
     val chunkPositions: Set<ChunkPosition>
         get() = localChunkPositions.mapTo(linkedSetOf(), position::chunk)
 
-    operator fun get(position: LocalChunkPosition): AnvilChunkRecord? = anvilRegion[position]
+    operator fun get(local: LocalChunkPosition): AnvilChunkRecord? = anvilRegion[local]
 
     operator fun get(position: ChunkPosition): AnvilChunkRecord? = get(this.position.local(position))
 
-    fun hasChunk(position: LocalChunkPosition): Boolean = position in chunks
+    fun hasChunk(local: LocalChunkPosition): Boolean = local in chunks
 
     fun hasChunk(position: ChunkPosition): Boolean = hasChunk(this.position.local(position))
 
@@ -117,26 +117,26 @@ class RegionReadScope private constructor(
     val chunkPositions: Sequence<ChunkPosition>
         get() = localChunkPositions.map(region::chunk)
 
-    fun hasChunk(position: LocalChunkPosition): Boolean {
+    fun hasChunk(local: LocalChunkPosition): Boolean {
         checkValid()
-        return file?.hasChunk(position, header) == true
+        return file?.hasChunk(local, header) == true
     }
 
     fun hasChunk(position: ChunkPosition): Boolean = hasChunk(region.local(position))
 
-    fun readChunkInfo(position: LocalChunkPosition): RegionChunkInfo? {
+    fun readChunkInfo(local: LocalChunkPosition): RegionChunkInfo? {
         checkValid()
-        return file?.readChunkInfo(position, header)
+        return file?.readChunkInfo(local, header)
     }
 
     fun readChunkInfo(position: ChunkPosition): RegionChunkInfo? = readChunkInfo(region.local(position))
 
     fun <R> withCompressedChunkSource(
-        position: LocalChunkPosition,
+        local: LocalChunkPosition,
         block: (RegionChunkInfo, Source) -> R,
     ): R? {
         checkValid()
-        return file?.withCompressedChunkSource(position, header, block)
+        return file?.withCompressedChunkSource(local, header, block)
     }
 
     fun <R> withCompressedChunkSource(
@@ -145,8 +145,8 @@ class RegionReadScope private constructor(
     ): R? = withCompressedChunkSource(region.local(position), block)
 
     /** Copies one complete compressed Chunk payload without retaining it in memory or closing [sink]. */
-    fun readCompressedChunkTo(position: LocalChunkPosition, sink: Sink): RegionChunkInfo? =
-        withCompressedChunkSource(position) { info, source ->
+    fun readCompressedChunkTo(local: LocalChunkPosition, sink: Sink): RegionChunkInfo? =
+        withCompressedChunkSource(local) { info, source ->
             source.transferTo(sink)
             info
         }
@@ -154,8 +154,8 @@ class RegionReadScope private constructor(
     fun readCompressedChunkTo(position: ChunkPosition, sink: Sink): RegionChunkInfo? =
         readCompressedChunkTo(region.local(position), sink)
 
-    fun readCompressedChunk(position: LocalChunkPosition): CompressedChunk? =
-        withCompressedChunkSource(position) { info, source ->
+    fun readCompressedChunk(local: LocalChunkPosition): CompressedChunk? =
+        withCompressedChunkSource(local) { info, source ->
             CompressedChunk.readFromSource(source, info.compression)
         }
 
@@ -198,22 +198,22 @@ class RegionReplacementScope internal constructor(
 ) {
     private var valid = true
 
-    fun writeCompressedChunk(position: LocalChunkPosition, chunk: CompressedChunkInput) {
+    fun writeCompressedChunk(local: LocalChunkPosition, chunk: CompressedChunkInput) {
         checkValid()
-        writeCompressedChunk(position, chunk.compression, chunk.compressedByteCount, chunk::writeTo)
+        writeCompressedChunk(local, chunk.compression, chunk.compressedByteCount, chunk::writeTo)
     }
 
     fun writeCompressedChunk(position: ChunkPosition, chunk: CompressedChunkInput) =
         writeCompressedChunk(this.position.local(position), chunk)
 
     fun writeCompressedChunk(
-        position: LocalChunkPosition,
+        local: LocalChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
         block: (Sink) -> Unit,
     ) {
         checkValid()
-        streamChunk(position, compression, compressedByteCount, block)
+        streamChunk(local, compression, compressedByteCount, block)
     }
 
     fun writeCompressedChunk(

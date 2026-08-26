@@ -24,7 +24,6 @@ class RegionBatchIoTest {
         val regionPosition = RegionPosition(0, 0)
         val firstAbsolute = regionPosition.chunk(firstPosition)
         val externalAbsolute = regionPosition.chunk(externalPosition)
-        val replacementAbsolute = regionPosition.chunk(replacementPosition)
         val first = byteArrayOf(1, 2, 3)
         val external = ByteArray(firstExternalChunkLength().toInt()) { index -> index.toByte() }
         val replacement = byteArrayOf(7, 8, 9, 10)
@@ -51,8 +50,8 @@ class RegionBatchIoTest {
                 assertEquals(regionPosition, position)
                 assertEquals(listOf(firstPosition, externalPosition), localChunkPositions.toList())
                 assertEquals(listOf(firstAbsolute, externalAbsolute), chunkPositions.toList())
-                assertContentEquals(first, readCompressedChunk(firstAbsolute).bytesOrNull())
-                withCompressedChunkSource(externalAbsolute) { info, source ->
+                assertContentEquals(first, readCompressedChunk(local = firstPosition).bytesOrNull())
+                withCompressedChunkSource(local = externalPosition) { info, source ->
                     assertEquals(AnvilChunkPlacement.EXTERNAL, info.placement)
                     assertEquals(external.size.toLong(), info.compressedByteCount)
                     assertContentEquals(external, source.readByteArray())
@@ -65,9 +64,9 @@ class RegionBatchIoTest {
                 escapedWrite = this
                 assertEquals(regionPosition, position)
                 writeCompressedChunk(
-                    replacementAbsolute,
-                    Compression.GZIP,
-                    replacement.size.toLong(),
+                    local = replacementPosition,
+                    compression = Compression.GZIP,
+                    compressedByteCount = replacement.size.toLong(),
                 ) { sink -> sink.write(replacement) }
             }
 

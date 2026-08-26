@@ -22,6 +22,8 @@ class EntityRegionHandleTest {
         val chunkPosition = regionPosition.chunk(LocalChunkPosition(4, 5))
         val externalPosition = regionPosition.chunk(LocalChunkPosition(6, 5))
         val removedPosition = regionPosition.chunk(LocalChunkPosition(7, 5))
+        val typedLocal = LocalChunkPosition(8, 5)
+        val typedNbt = testLevelDat(levelName = "entity-region-typed-nbt")
         val codec = EntityChunkNbtCodec(EXPECTED_DATA_VERSION, NbtEntityDataRegistry())
         val entity = Entity(
             type = "minecraft:pig",
@@ -96,6 +98,12 @@ class EntityRegionHandleTest {
         )
         assertTrue(fileSystem.exists(directory / "r.-1.2.mca"))
         assertTrue(fileSystem.exists(directory / "c.${externalPosition.x}.${externalPosition.z}.mcc"))
+        entityRegionHandle.writeChunkNbt(
+            local = typedLocal,
+            value = typedNbt,
+            compression = Compression.NONE,
+        )
+        assertEquals(typedNbt, entityRegionHandle.readChunkNbt<LevelDat>(local = typedLocal))
 
         entityRegionHandle.close()
         storage.close()
@@ -109,6 +117,7 @@ class EntityRegionHandleTest {
         val decodedExternalEntity = liveEntityRegionHandle.readChunk(externalPosition, codec)?.rootEntities?.single()
         assertNotNull(decodedExternalEntity)
         assertEquals(NbtByteArray(externalBytes), decodedExternalEntity.data["test:payload"])
+        assertEquals(typedNbt, liveEntityRegionHandle.readChunkNbt<LevelDat>(local = typedLocal))
         fileSystem.checkNoOpenFiles()
     }
 

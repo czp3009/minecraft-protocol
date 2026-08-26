@@ -57,21 +57,22 @@ class TypedWorldFilesTest {
             assertIs<NbtCompound>(world.readSavedDataDocument("example:typed", DimensionDirectory.Overworld)?.root)
 
             world.writeChunkNbt(
-                region,
-                localChunk,
-                LevelDat.serializer(),
-                level,
-                Compression.NONE,
-                RegionStorageDirectory.CHUNKS,
-                DimensionDirectory.Overworld,
+                region = region,
+                local = localChunk,
+                serializer = LevelDat.serializer(),
+                value = level,
+                compression = Compression.NONE,
+                storage = RegionStorageDirectory.CHUNKS,
+                dimension = DimensionDirectory.Overworld,
             )
             assertEquals(
                 level,
                 world.readChunkNbt(
-                    chunk,
-                    LevelDat.serializer(),
-                    RegionStorageDirectory.CHUNKS,
-                    DimensionDirectory.Overworld,
+                    region = region,
+                    local = localChunk,
+                    deserializer = LevelDat.serializer(),
+                    storage = RegionStorageDirectory.CHUNKS,
+                    dimension = DimensionDirectory.Overworld,
                 ),
             )
             assertIs<NbtCompound>(
@@ -81,6 +82,18 @@ class TypedWorldFilesTest {
                     DimensionDirectory.Overworld,
                 )?.root,
             )
+            world.openRegion(
+                position = region,
+                storage = RegionStorageDirectory.CHUNKS,
+                dimension = DimensionDirectory.Overworld,
+            ).use { regionHandle ->
+                regionHandle.writeChunkNbt(
+                    local = localChunk,
+                    value = level,
+                    compression = Compression.NONE,
+                )
+                assertEquals(level, regionHandle.readChunkNbt<LevelDat>(local = localChunk))
+            }
 
             world.writeStatistics(player, PlayerStatistics.serializer(), statistics)
             assertEquals(statistics, world.readStatistics(player, PlayerStatistics.serializer()))
@@ -150,7 +163,7 @@ class TypedWorldFilesTest {
         assertEquals(level, reader.readSavedData<LevelDat>("example:typed"))
         val liveRegionHandle = reader.openRegion(region)
         assertEquals(level, liveRegionHandle.readChunkNbt(chunk, LevelDat.serializer()))
-        assertEquals(level, liveRegionHandle.readChunkNbt<LevelDat>(localChunk))
+        assertEquals(level, liveRegionHandle.readChunkNbt<LevelDat>(local = localChunk))
         assertEquals(statistics, reader.readStatistics(player, PlayerStatistics.serializer()))
         assertEquals(statistics, reader.readStatistics<PlayerStatistics>(player))
         assertEquals(advancements, reader.readAdvancements(player, PlayerAdvancements.serializer()))

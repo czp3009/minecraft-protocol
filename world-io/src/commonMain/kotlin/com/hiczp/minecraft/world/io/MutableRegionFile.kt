@@ -172,13 +172,13 @@ internal class MutableRegionFile private constructor(
         checkOpen()
         val writer = writer
         val batch = RegionWriteBatch()
-        val scope = RegionReplacementScope(position) { position, compression, compressedLength, writeBlock ->
+        val scope = RegionReplacementScope(position) { local, compression, compressedLength, writeBlock ->
             check(batch.failure == null) { "Region write has already failed" }
             try {
                 require(compressedLength >= 0L) { "Compressed length must be non-negative" }
-                check(batch.positions.add(position)) { "Chunk $position was written more than once" }
+                check(batch.locals.add(local)) { "Chunk $local was written more than once" }
                 batch.staged += stageRegionChunk(
-                    position = position,
+                    local = local,
                     compression = compression,
                     compressedLength = compressedLength,
                     writer = writer,
@@ -269,14 +269,14 @@ internal class MutableRegionFile private constructor(
     }
 
     private fun writeInternal(
-        position: LocalChunkPosition,
+        local: LocalChunkPosition,
         compression: Compression,
         compressedLength: Long,
         allocatedSectors: Int,
         writer: RegionWriterState,
         block: (KotlinxSink) -> Unit,
     ) {
-        val oldLocation = writer.header.location(position)
+        val oldLocation = writer.header.location(local)
         val newLocation = writer.allocator.allocate(allocatedSectors)
         var committed = false
         try {
@@ -295,9 +295,9 @@ internal class MutableRegionFile private constructor(
                 handle.flushDurably(files.fileSystem, path)
             }
             committed = true
-            writer.header.set(position, newLocation, Clock.System.now().epochSeconds.toInt())
+            writer.header.set(local, newLocation, Clock.System.now().epochSeconds.toInt())
             writeHeader(writer)
-            files.fileSystem.delete(externalPath(position), mustExist = false)
+            files.fileSystem.delete(externalPath(local), mustExist = false)
             writer.allocator.free(oldLocation)
         } catch (failure: Throwable) {
             if (!committed) writer.allocator.free(newLocation)
@@ -306,13 +306,13 @@ internal class MutableRegionFile private constructor(
     }
 
     private fun writeExternal(
-        position: LocalChunkPosition,
+        local: LocalChunkPosition,
         compression: Compression,
         compressedLength: Long,
         writer: RegionWriterState,
         block: (KotlinxSink) -> Unit,
     ) {
-        val oldLocation = writer.header.location(position)
+        val oldLocation = writer.header.location(local)
         val newLocation = writer.allocator.allocate(1)
         var committed = false
         val temporary = files.fileSystem.openUniqueTemporarySink(
@@ -338,11 +338,11 @@ internal class MutableRegionFile private constructor(
                 handle.flushDurably(files.fileSystem, path)
             }
             committed = true
-            writer.header.set(position, newLocation, Clock.System.now().epochSeconds.toInt())
+            writer.header.set(local, newLocation, Clock.System.now().epochSeconds.toInt())
             writeHeader(writer)
             files.fileSystem.moveReplacing(
                 temporary.path,
-                externalPath(position),
+                externalPath(local),
             )
             writer.allocator.free(oldLocation)
         } catch (failure: Throwable) {
@@ -362,14 +362,14 @@ internal class MutableRegionFile private constructor(
         val nextHeader = writer.header.copy()
         val timestamp = Clock.System.now().epochSeconds.toInt()
         batch.staged.forEach { chunk ->
-            nextHeader.set(chunk.position, chunk.newLocation, timestamp)
+            nextHeader.set(chunk.local, chunk.newLocation, timestamp)
         }
         for (index in 0 until REGION_CHUNK_COUNT) {
-            val position = LocalChunkPosition.fromIndex(index)
-            if (position in batch.positions) continue
-            val oldLocation = writer.header.location(position) ?: continue
-            batch.cleared += ClearedRegionChunk(position, oldLocation)
-            nextHeader.set(position, location = null, timestamp = timestamp)
+            val local = LocalChunkPosition.fromIndex(index)
+            if (local in batch.locals) continue
+            val oldLocation = writer.header.location(local) ?: continue
+            batch.cleared += ClearedRegionChunk(local, oldLocation)
+            nextHeader.set(local, location = null, timestamp = timestamp)
         }
         if (writer.syncWrites && batch.staged.isNotEmpty()) {
             handle.flushDurably(files.fileSystem, path)
@@ -383,9 +383,9 @@ internal class MutableRegionFile private constructor(
             try {
                 val temporary = chunk.externalTemporary
                 if (temporary == null) {
-                    files.fileSystem.delete(externalPath(chunk.position), mustExist = false)
+                    files.fileSystem.delete(externalPath(chunk.local), mustExist = false)
                 } else {
-                    files.fileSystem.moveReplacing(temporary, externalPath(chunk.position))
+                    files.fileSystem.moveReplacing(temporary, externalPath(chunk.local))
                 }
                 writer.allocator.free(chunk.oldLocation)
             } catch (caught: Throwable) {
@@ -401,7 +401,7 @@ internal class MutableRegionFile private constructor(
         }
         batch.cleared.forEach { chunk ->
             try {
-                files.fileSystem.delete(externalPath(chunk.position), mustExist = false)
+                files.fileSystem.delete(externalPath(chunk.local), mustExist = false)
                 writer.allocator.free(chunk.oldLocation)
             } catch (caught: Throwable) {
                 failure = combineFailures(failure, caught)
@@ -411,7 +411,7 @@ internal class MutableRegionFile private constructor(
     }
 
     private fun stageRegionChunk(
-        position: LocalChunkPosition,
+        local: LocalChunkPosition,
         compression: Compression,
         compressedLength: Long,
         writer: RegionWriterState,
@@ -425,7 +425,7 @@ internal class MutableRegionFile private constructor(
                 REGION_CHUNK_RECORD_HEADER_BYTES + compressedLength,
             )
         }
-        val oldLocation = writer.header.location(position)
+        val oldLocation = writer.header.location(local)
         val newLocation = writer.allocator.allocate(sectorCount)
         var temporaryPath: Path? = null
         try {
@@ -457,7 +457,7 @@ internal class MutableRegionFile private constructor(
                 )
             }
             return StagedRegionChunk(
-                position = position,
+                local = local,
                 oldLocation = oldLocation,
                 newLocation = newLocation,
                 externalTemporary = temporaryPath,
@@ -648,19 +648,19 @@ private data class RegionWriterState(
 )
 
 private data class StagedRegionChunk(
-    val position: LocalChunkPosition,
+    val local: LocalChunkPosition,
     val oldLocation: RegionLocation?,
     val newLocation: RegionLocation,
     val externalTemporary: Path?,
 )
 
 private data class ClearedRegionChunk(
-    val position: LocalChunkPosition,
+    val local: LocalChunkPosition,
     val oldLocation: RegionLocation,
 )
 
 private class RegionWriteBatch {
-    val positions = mutableSetOf<LocalChunkPosition>()
+    val locals = mutableSetOf<LocalChunkPosition>()
     val staged = mutableListOf<StagedRegionChunk>()
     val cleared = mutableListOf<ClearedRegionChunk>()
     var headerAttempted = false

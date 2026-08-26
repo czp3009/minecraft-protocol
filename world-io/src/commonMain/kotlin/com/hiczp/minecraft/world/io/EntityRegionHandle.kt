@@ -120,8 +120,8 @@ class EntityRegionHandle internal constructor(
         deserializer: DeserializationStrategy<T>,
     ): T? = delegate.readChunkNbt(position, deserializer)
 
-    suspend inline fun <reified T> readChunkNbt(position: LocalChunkPosition): T? =
-        readChunkNbt(position, chunkNbtFormat.nbt.serializersModule.serializer())
+    suspend inline fun <reified T> readChunkNbt(local: LocalChunkPosition): T? =
+        readChunkNbt(local, chunkNbtFormat.nbt.serializersModule.serializer())
 
     suspend inline fun <reified T> readChunkNbt(position: ChunkPosition): T? =
         readChunkNbt(position, chunkNbtFormat.nbt.serializersModule.serializer())
@@ -177,10 +177,10 @@ class EntityRegionHandle internal constructor(
     ) = delegate.writeChunkNbt(position, serializer, value, compression)
 
     suspend inline fun <reified T> writeChunkNbt(
-        position: LocalChunkPosition,
+        local: LocalChunkPosition,
         value: T,
         compression: Compression = configuration.writeCompression,
-    ) = writeChunkNbt(position, chunkNbtFormat.nbt.serializersModule.serializer(), value, compression)
+    ) = writeChunkNbt(local, chunkNbtFormat.nbt.serializersModule.serializer(), value, compression)
 
     suspend inline fun <reified T> writeChunkNbt(
         position: ChunkPosition,
