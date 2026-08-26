@@ -10,14 +10,14 @@ import kotlin.reflect.KClass
 /** Bounded physical codec for the body beneath an extension route header. */
 interface PacketBodyCodec<T : Packet> {
     fun encode(
-        format: MinecraftProtocolFormat,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
         packet: T,
         sink: Sink,
     )
 
     fun decode(
-        format: MinecraftProtocolFormat,
-        route: PacketRoute,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
+        packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
     ): T
@@ -32,22 +32,22 @@ class UnknownExtensionPacketException : Exception()
 
 /** Adapts an ordinary kotlinx serializer to an extension packet body. */
 class KotlinxPacketBodyCodec<T : Packet>(
-    private val serializer: KSerializer<T>,
+    private val kSerializer: KSerializer<T>,
 ) : PacketBodyCodec<T> {
     override fun encode(
-        format: MinecraftProtocolFormat,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
         packet: T,
         sink: Sink,
     ) {
-        format.encodeToSink(serializer, packet, sink)
+        minecraftProtocolFormat.encodeToSink(kSerializer, packet, sink)
     }
 
     override fun decode(
-        format: MinecraftProtocolFormat,
-        route: PacketRoute,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
+        packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
-    ): T = format.decodeFromSource(serializer, source, byteCount)
+    ): T = minecraftProtocolFormat.decodeFromSource(kSerializer, source, byteCount)
 }
 
 /**
@@ -55,26 +55,26 @@ class KotlinxPacketBodyCodec<T : Packet>(
  * and from the application packet type.
  */
 class MappedKotlinxPacketBodyCodec<T : Packet, Body>(
-    private val serializer: KSerializer<Body>,
+    private val kSerializer: KSerializer<Body>,
     private val encodeBody: (T) -> Body,
     private val decodePacket: (PacketRoute, Body) -> T,
 ) : PacketBodyCodec<T> {
     override fun encode(
-        format: MinecraftProtocolFormat,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
         packet: T,
         sink: Sink,
     ) {
-        format.encodeToSink(serializer, encodeBody(packet), sink)
+        minecraftProtocolFormat.encodeToSink(kSerializer, encodeBody(packet), sink)
     }
 
     override fun decode(
-        format: MinecraftProtocolFormat,
-        route: PacketRoute,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
+        packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
     ): T = decodePacket(
-        route,
-        format.decodeFromSource(serializer, source, byteCount),
+        packetRoute,
+        minecraftProtocolFormat.decodeFromSource(kSerializer, source, byteCount),
     )
 }
 
@@ -84,9 +84,9 @@ class MappedKotlinxPacketBodyCodec<T : Packet, Body>(
  * activated or deactivated as a whole route afterward.
  */
 class PacketCodecRegistration<T : Packet> private constructor(
-    val route: PacketRouteKey,
+    val packetRouteKey: PacketRouteKey,
     val packetClass: KClass<T>,
-    val codec: PacketBodyCodec<T>,
+    val packetBodyCodec: PacketBodyCodec<T>,
     private val loginRoute: ((T) -> PacketRoute.LoginQuery)?,
 ) {
     internal fun routeForPacket(
@@ -95,20 +95,20 @@ class PacketCodecRegistration<T : Packet> private constructor(
     ): PacketRoute {
         @Suppress("UNCHECKED_CAST")
         val typedPacket = packet as T
-        return when (val key = route) {
+        return when (val packetRouteKey = packetRouteKey) {
             is PacketRouteKey.TopLevel -> PacketRoute.TopLevel(
-                key.state,
-                key.direction,
-                key.packetId,
+                packetRouteKey.connectionState,
+                packetRouteKey.packetDirection,
+                packetRouteKey.packetId,
             )
 
             is PacketRouteKey.CustomPayload -> PacketRoute.CustomPayload(
-                key.state,
-                key.direction,
+                packetRouteKey.connectionState,
+                packetRouteKey.packetDirection,
                 outerPacketId ?: throw MinecraftSerializationException(
                     "Encoding ${packetClass.simpleName} requires its outer custom-payload packet ID",
                 ),
-                key.channel,
+                packetRouteKey.channel,
             )
 
             is PacketRouteKey.LoginQuery -> {
@@ -116,9 +116,9 @@ class PacketCodecRegistration<T : Packet> private constructor(
                     ?: throw MinecraftSerializationException(
                         "Encoding ${packetClass.simpleName} requires a Login query route selector",
                     )
-                if (actual.key != key) {
+                if (actual.packetRouteKey != packetRouteKey) {
                     throw MinecraftSerializationException(
-                        "${packetClass.simpleName} selected ${actual.key}, but its declared route is $key",
+                        "${packetClass.simpleName} selected ${actual.packetRouteKey}, but its declared route is $packetRouteKey",
                     )
                 }
                 actual
@@ -127,90 +127,90 @@ class PacketCodecRegistration<T : Packet> private constructor(
     }
 
     internal fun encodeBody(
-        format: MinecraftProtocolFormat,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
         packet: Packet,
         sink: Sink,
     ) {
         @Suppress("UNCHECKED_CAST")
-        codec.encode(format, packet as T, sink)
+        packetBodyCodec.encode(minecraftProtocolFormat, packet as T, sink)
     }
 
     internal fun decodeBody(
-        format: MinecraftProtocolFormat,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
         actualRoute: PacketRoute,
         source: Source,
         byteCount: Int,
-    ): Packet = codec.decode(format, actualRoute, source, byteCount)
+    ): Packet = packetBodyCodec.decode(minecraftProtocolFormat, actualRoute, source, byteCount)
 
     companion object {
         fun <T : ClientboundPacket.Extension> clientboundTopLevel(
-            state: ConnectionState,
+            connectionState: ConnectionState,
             packetId: Int,
             packetClass: KClass<T>,
-            codec: PacketBodyCodec<T>,
+            packetBodyCodec: PacketBodyCodec<T>,
         ): PacketCodecRegistration<T> = PacketCodecRegistration(
             PacketRouteKey.TopLevel(
-                state,
+                connectionState,
                 PacketDirection.CLIENTBOUND,
                 packetId,
             ),
             packetClass,
-            codec,
+            packetBodyCodec,
             loginRoute = null,
         )
 
         fun <T : ServerboundPacket.Extension> serverboundTopLevel(
-            state: ConnectionState,
+            connectionState: ConnectionState,
             packetId: Int,
             packetClass: KClass<T>,
-            codec: PacketBodyCodec<T>,
+            packetBodyCodec: PacketBodyCodec<T>,
         ): PacketCodecRegistration<T> = PacketCodecRegistration(
             PacketRouteKey.TopLevel(
-                state,
+                connectionState,
                 PacketDirection.SERVERBOUND,
                 packetId,
             ),
             packetClass,
-            codec,
+            packetBodyCodec,
             loginRoute = null,
         )
 
         fun <T : ClientboundPacket.Extension> clientboundCustomPayload(
-            state: ConnectionState,
+            connectionState: ConnectionState,
             channel: Identifier,
             packetClass: KClass<T>,
-            codec: PacketBodyCodec<T>,
+            packetBodyCodec: PacketBodyCodec<T>,
         ): PacketCodecRegistration<T> = PacketCodecRegistration(
             PacketRouteKey.CustomPayload(
-                state,
+                connectionState,
                 PacketDirection.CLIENTBOUND,
                 channel,
             ),
             packetClass,
-            codec,
+            packetBodyCodec,
             loginRoute = null,
         )
 
         fun <T : ServerboundPacket.Extension> serverboundCustomPayload(
-            state: ConnectionState,
+            connectionState: ConnectionState,
             channel: Identifier,
             packetClass: KClass<T>,
-            codec: PacketBodyCodec<T>,
+            packetBodyCodec: PacketBodyCodec<T>,
         ): PacketCodecRegistration<T> = PacketCodecRegistration(
             PacketRouteKey.CustomPayload(
-                state,
+                connectionState,
                 PacketDirection.SERVERBOUND,
                 channel,
             ),
             packetClass,
-            codec,
+            packetBodyCodec,
             loginRoute = null,
         )
 
         fun <T : ClientboundPacket.Extension> clientboundLoginQuery(
             channel: Identifier,
             packetClass: KClass<T>,
-            codec: PacketBodyCodec<T>,
+            packetBodyCodec: PacketBodyCodec<T>,
             route: (T) -> PacketRoute.LoginQuery,
         ): PacketCodecRegistration<T> = PacketCodecRegistration(
             PacketRouteKey.LoginQuery(
@@ -218,14 +218,14 @@ class PacketCodecRegistration<T : Packet> private constructor(
                 channel,
             ),
             packetClass,
-            codec,
+            packetBodyCodec,
             loginRoute = route,
         )
 
         fun <T : ServerboundPacket.Extension> serverboundLoginQuery(
             channel: Identifier,
             packetClass: KClass<T>,
-            codec: PacketBodyCodec<T>,
+            packetBodyCodec: PacketBodyCodec<T>,
             route: (T) -> PacketRoute.LoginQuery,
         ): PacketCodecRegistration<T> = PacketCodecRegistration(
             PacketRouteKey.LoginQuery(
@@ -233,7 +233,7 @@ class PacketCodecRegistration<T : Packet> private constructor(
                 channel,
             ),
             packetClass,
-            codec,
+            packetBodyCodec,
             loginRoute = route,
         )
     }

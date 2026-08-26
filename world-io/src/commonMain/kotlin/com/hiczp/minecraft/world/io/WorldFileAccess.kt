@@ -16,18 +16,18 @@ internal class WorldFileAccess private constructor(
 
     fun openSource(path: Path): Source {
         if (!liveReadOnly) return fileSystem.source(path)
-        val handle = fileSystem.openLiveReadOnly(path)
+        val fileHandle = fileSystem.openLiveReadOnly(path)
         var source: Source? = null
         try {
-            val opened = handle.source()
+            val opened = fileHandle.source()
             source = opened
-            handle.close()
+            fileHandle.close()
             return opened
         } catch (failure: Throwable) {
             closeAllPreserving(
                 failure,
                 { source?.close() },
-                handle::close,
+                fileHandle::close,
             )
             throw failure
         }

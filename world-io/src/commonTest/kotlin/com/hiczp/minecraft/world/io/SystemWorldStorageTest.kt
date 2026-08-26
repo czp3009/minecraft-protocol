@@ -49,7 +49,7 @@ class SystemWorldStorageTest {
                 assertFailsWith<WorldLockException> {
                     MinecraftWorldAccess.open(root)
                 }
-                assertEquals(root, minecraftWorldAccess.paths.root)
+                assertEquals(root, minecraftWorldAccess.minecraftWorldPaths.root)
             }
             assertFalse(MinecraftWorldAccess.isLocked(root))
             val storedLockBytes = fileSystem.read(lockPath) {
@@ -71,24 +71,24 @@ class SystemWorldStorageTest {
             )
 
             val directory = root / "region"
-            val position = ChunkPosition(0, 0)
-            val store = RegionStorage(
+            val chunkPosition = ChunkPosition(0, 0)
+            val regionStorage = RegionStorage(
                 directory = directory,
                 fileSystem = fileSystem,
-                configuration = RegionStorageConfiguration(
+                regionStorageConfiguration = RegionStorageConfiguration(
                     syncWrites = true,
                 ),
             )
             try {
-                store.writeCompressedChunk(position, inlineChunk(byteArrayOf(1)))
-                store.writeCompressedChunk(position, inlineChunk(byteArrayOf(2)))
-                store.flush()
+                regionStorage.writeCompressedChunk(chunkPosition, inlineChunk(byteArrayOf(1)))
+                regionStorage.writeCompressedChunk(chunkPosition, inlineChunk(byteArrayOf(2)))
+                regionStorage.flush()
                 assertContentEquals(
                     byteArrayOf(2),
-                    store.readCompressedChunk(position).bytesOrNull(),
+                    regionStorage.readCompressedChunk(chunkPosition).bytesOrNull(),
                 )
             } finally {
-                store.close()
+                regionStorage.close()
             }
 
             val regionPath = directory / "r.0.0.mca"
@@ -109,36 +109,36 @@ class SystemWorldStorageTest {
         val root = createSystemTemporaryDirectory(fileSystem)
         val directory = root / "region"
         val sidecar = directory / "c.0.0.mcc"
-        val position = ChunkPosition(0, 0)
+        val chunkPosition = ChunkPosition(0, 0)
         val first = systemExternalPayload(1)
         val second = systemExternalPayload(2)
         try {
-            val store = RegionStorage(directory, fileSystem)
+            val regionStorage = RegionStorage(directory, fileSystem)
             try {
-                store.writeCompressedChunk(position, zlibChunk(first))
+                regionStorage.writeCompressedChunk(chunkPosition, zlibChunk(first))
                 assertContentEquals(
                     first,
                     fileSystem.read(sidecar) { readByteArray() },
                 )
 
-                store.writeCompressedChunk(position, zlibChunk(second))
+                regionStorage.writeCompressedChunk(chunkPosition, zlibChunk(second))
                 assertContentEquals(
                     second,
-                    store.readCompressedChunk(position).bytesOrNull(),
+                    regionStorage.readCompressedChunk(chunkPosition).bytesOrNull(),
                 )
                 assertContentEquals(
                     second,
                     fileSystem.read(sidecar) { readByteArray() },
                 )
             } finally {
-                store.close()
+                regionStorage.close()
             }
 
             val reopened = RegionStorage(directory, fileSystem)
             try {
                 assertContentEquals(
                     second,
-                    reopened.readCompressedChunk(position).bytesOrNull(),
+                    reopened.readCompressedChunk(chunkPosition).bytesOrNull(),
                 )
             } finally {
                 reopened.close()
@@ -157,16 +157,16 @@ class SystemWorldStorageTest {
         val fileSystem = systemFileSystem
         val root = createSystemTemporaryDirectory(fileSystem)
         val path = root / "value.dat"
-        val document = systemDocument(7)
+        val nbtDocument = systemDocument(7)
         try {
             fileSystem.write(path) { write(ByteArray(4_096) { 1 }) }
 
-            val store = NbtFileStore(fileSystem)
-            store.writeDocument(path, document, Compression.NONE)
+            val nbtFileStore = NbtFileStore(fileSystem)
+            nbtFileStore.writeDocument(path, nbtDocument, Compression.NONE)
 
             assertEquals(
-                document,
-                store.readDocument(path, Compression.NONE),
+                nbtDocument,
+                nbtFileStore.readDocument(path, Compression.NONE),
             )
             assertTrue(checkNotNull(fileSystem.metadata(path).size) < 4_096L)
         } finally {
@@ -180,8 +180,8 @@ class SystemWorldStorageTest {
         val parent = createSystemTemporaryDirectory(fileSystem)
         val root = parent / "world"
         val player = "00000000-0000-0000-0000-000000000000"
-        val document = systemDocument(9)
-        val position = ChunkPosition(-1, 32)
+        val nbtDocument = systemDocument(9)
+        val chunkPosition = ChunkPosition(-1, 32)
         val preservedPosition = ChunkPosition(0, 0)
         val preservedDocument = systemDocument(-1)
         val dimensions = listOf(
@@ -200,48 +200,48 @@ class SystemWorldStorageTest {
                 initialStore.close()
             }
             assertFalse(MinecraftWorldAccess.isLocked(root))
-            val access = MinecraftWorldAccess.open(
+            val minecraftWorldAccess = MinecraftWorldAccess.open(
                 root = root,
-                configuration = MinecraftWorldAccessConfiguration(
+                minecraftWorldAccessConfiguration = MinecraftWorldAccessConfiguration(
                     regionStorageConfiguration =
                         RegionStorageConfiguration(
                             writeCompression = Compression.LZ4,
                         ),
                 ),
             )
-            access.use { minecraftWorldAccess ->
-                minecraftWorldAccess.writeLevelDataDocument(document)
-                minecraftWorldAccess.writePlayerDataDocument(player, document)
-                minecraftWorldAccess.writeSavedDataDocument("example:state/value", document)
+            minecraftWorldAccess.use { minecraftWorldAccess ->
+                minecraftWorldAccess.writeLevelDataDocument(nbtDocument)
+                minecraftWorldAccess.writePlayerDataDocument(player, nbtDocument)
+                minecraftWorldAccess.writeSavedDataDocument("example:state/value", nbtDocument)
                 minecraftWorldAccess.writeStatisticsText(player, "{}")
                 minecraftWorldAccess.writeAdvancementsText(player, "{\"done\":true}")
-                dimensions.forEachIndexed { dimensionIndex, dimension ->
-                    minecraftWorldAccess.openRegion(position.region, dimension).use { regionHandle ->
-                        regionHandle.writeChunkNbtDocument(position, systemDocument(dimensionIndex))
+                dimensions.forEachIndexed { dimensionIndex, dimensionDirectory ->
+                    minecraftWorldAccess.openRegion(chunkPosition.regionPosition, dimensionDirectory).use { regionHandle ->
+                        regionHandle.writeChunkNbtDocument(chunkPosition, systemDocument(dimensionIndex))
                     }
                 }
                 assertEquals(
-                    listOf(position.region, preservedPosition.region),
+                    listOf(chunkPosition.regionPosition, preservedPosition.regionPosition),
                     minecraftWorldAccess.listRegionPositions(),
                 )
                 assertEquals(
-                    listOf(position.region),
+                    listOf(chunkPosition.regionPosition),
                     minecraftWorldAccess.listRegionPositions(DimensionDirectory.Nether),
                 )
                 minecraftWorldAccess.flush()
             }
-            access.close()
+            minecraftWorldAccess.close()
 
             assertFalse(MinecraftWorldAccess.isLocked(root))
             assertTrue(fileSystem.exists(MinecraftWorldPaths(root).sessionLock))
-            assertFails { access.readLevelDataDocument() }
-            assertFails { access.openRegion(position.region) }
+            assertFails { minecraftWorldAccess.readLevelDataDocument() }
+            assertFails { minecraftWorldAccess.openRegion(chunkPosition.regionPosition) }
 
             MinecraftWorldAccess.open(root).use { minecraftWorldAccess ->
-                assertEquals(document, minecraftWorldAccess.readLevelDataDocument())
-                assertEquals(document, minecraftWorldAccess.readPlayerDataDocument(player))
+                assertEquals(nbtDocument, minecraftWorldAccess.readLevelDataDocument())
+                assertEquals(nbtDocument, minecraftWorldAccess.readPlayerDataDocument(player))
                 assertEquals(
-                    document,
+                    nbtDocument,
                     minecraftWorldAccess.readSavedDataDocument("example:state/value"),
                 )
                 assertEquals("{}", minecraftWorldAccess.readStatisticsText(player))
@@ -249,22 +249,22 @@ class SystemWorldStorageTest {
                     "{\"done\":true}",
                     minecraftWorldAccess.readAdvancementsText(player),
                 )
-                minecraftWorldAccess.openRegion(preservedPosition.region).use { regionHandle ->
+                minecraftWorldAccess.openRegion(preservedPosition.regionPosition).use { regionHandle ->
                     assertEquals(
                         Compression.GZIP,
                         regionHandle.readCompressedChunk(preservedPosition)?.compression,
                     )
                     assertEquals(preservedDocument, regionHandle.readChunkNbtDocument(preservedPosition))
                 }
-                dimensions.forEachIndexed { dimensionIndex, dimension ->
-                    minecraftWorldAccess.openRegion(position.region, dimension).use { regionHandle ->
+                dimensions.forEachIndexed { dimensionIndex, dimensionDirectory ->
+                    minecraftWorldAccess.openRegion(chunkPosition.regionPosition, dimensionDirectory).use { regionHandle ->
                         assertEquals(
                             Compression.LZ4,
-                            regionHandle.readCompressedChunk(position)?.compression,
+                            regionHandle.readCompressedChunk(chunkPosition)?.compression,
                         )
                         assertEquals(
                             systemDocument(dimensionIndex),
-                            regionHandle.readChunkNbtDocument(position),
+                            regionHandle.readChunkNbtDocument(chunkPosition),
                         )
                     }
                 }
@@ -280,12 +280,12 @@ class SystemWorldStorageTest {
         val parent = createSystemTemporaryDirectory(fileSystem)
         val root = parent / "typed-world"
         val player = "00000000-0000-0000-0000-000000000000"
-        val level = testLevelDat()
-        val statistics = PlayerStatistics(
+        val levelDat = testLevelDat()
+        val playerStatistics = PlayerStatistics(
             stats = mapOf("minecraft:mined" to mapOf("minecraft:stone" to 42)),
             dataVersion = 4_903,
         )
-        val advancements = PlayerAdvancements(
+        val playerAdvancements = PlayerAdvancements(
             dataVersion = 4_903,
             advancements = mapOf(
                 "minecraft:story/root" to PlayerAdvancements.Progress(
@@ -296,17 +296,17 @@ class SystemWorldStorageTest {
         )
         try {
             MinecraftWorldAccess.open(root).use { minecraftWorldAccess ->
-                minecraftWorldAccess.writeLevelData(level)
-                minecraftWorldAccess.writeStatistics(player, PlayerStatistics.serializer(), statistics)
-                minecraftWorldAccess.writeAdvancements(player, advancements)
+                minecraftWorldAccess.writeLevelData(levelDat)
+                minecraftWorldAccess.writeStatistics(player, PlayerStatistics.serializer(), playerStatistics)
+                minecraftWorldAccess.writeAdvancements(player, playerAdvancements)
             }
 
             MinecraftWorldAccess.open(root).use { minecraftWorldAccess ->
-                assertEquals(level, minecraftWorldAccess.readLevelData(LevelDat.serializer()))
-                assertEquals(level, minecraftWorldAccess.readLevelData<LevelDat>())
-                assertEquals(statistics, minecraftWorldAccess.readStatistics<PlayerStatistics>(player))
+                assertEquals(levelDat, minecraftWorldAccess.readLevelData(LevelDat.serializer()))
+                assertEquals(levelDat, minecraftWorldAccess.readLevelData<LevelDat>())
+                assertEquals(playerStatistics, minecraftWorldAccess.readStatistics<PlayerStatistics>(player))
                 assertEquals(
-                    advancements,
+                    playerAdvancements,
                     minecraftWorldAccess.readAdvancements(player, PlayerAdvancements.serializer()),
                 )
             }
@@ -323,22 +323,22 @@ class SystemWorldStorageTest {
                 "00000000-0000-0000-0000-000000000000" /
                 "run-12345678901234567890" /
                 "world-storage-interop"
-        val paths = MinecraftWorldPaths(root)
+        val minecraftWorldPaths = MinecraftWorldPaths(root)
         val player = "00000000-0000-0000-0000-000000000000"
         val first = systemDocument(1)
         val second = systemDocument(2)
         try {
-            val store = PlayerDataStore(paths)
-            store.writeDocument(player, first)
-            store.writeDocument(player, second)
-            fileSystem.write(paths.playerData(player)) { write(byteArrayOf(1, 2, 3)) }
+            val playerDataStore = PlayerDataStore(minecraftWorldPaths)
+            playerDataStore.writeDocument(player, first)
+            playerDataStore.writeDocument(player, second)
+            fileSystem.write(minecraftWorldPaths.playerData(player)) { write(byteArrayOf(1, 2, 3)) }
 
-            assertEquals(first, store.readDocument(player))
+            assertEquals(first, playerDataStore.readDocument(player))
             assertTrue(
-                fileSystem.list(checkNotNull(paths.playerData(player).parent))
+                fileSystem.list(checkNotNull(minecraftWorldPaths.playerData(player).parent))
                     .any {
                         it.name.startsWith(
-                            "${paths.playerData(player).name}_corrupted_",
+                            "${minecraftWorldPaths.playerData(player).name}_corrupted_",
                         )
                     },
             )

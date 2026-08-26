@@ -9,30 +9,30 @@ enum class ForgeChannelPresence {
 }
 
 fun interface ForgeVersionAcceptance {
-    fun accepts(presence: ForgeChannelPresence, version: Int): Boolean
+    fun accepts(forgeChannelPresence: ForgeChannelPresence, version: Int): Boolean
 
     companion object {
         fun exact(expected: Int): ForgeVersionAcceptance {
             require(expected >= 0) { "Forge channel version must be non-negative" }
-            return ForgeVersionAcceptance { presence, version ->
-                presence == ForgeChannelPresence.PRESENT && version == expected
+            return ForgeVersionAcceptance { forgeChannelPresence, version ->
+                forgeChannelPresence == ForgeChannelPresence.PRESENT && version == expected
             }
         }
 
         fun optionalExact(expected: Int): ForgeVersionAcceptance {
             require(expected >= 0) { "Forge channel version must be non-negative" }
-            return ForgeVersionAcceptance { presence, version ->
-                presence == ForgeChannelPresence.MISSING ||
-                        presence == ForgeChannelPresence.PRESENT &&
+            return ForgeVersionAcceptance { forgeChannelPresence, version ->
+                forgeChannelPresence == ForgeChannelPresence.MISSING ||
+                        forgeChannelPresence == ForgeChannelPresence.PRESENT &&
                         version == expected
             }
         }
 
         fun vanillaOrExact(expected: Int): ForgeVersionAcceptance {
             require(expected >= 0) { "Forge channel version must be non-negative" }
-            return ForgeVersionAcceptance { presence, version ->
-                presence == ForgeChannelPresence.VANILLA ||
-                        presence == ForgeChannelPresence.PRESENT &&
+            return ForgeVersionAcceptance { forgeChannelPresence, version ->
+                forgeChannelPresence == ForgeChannelPresence.VANILLA ||
+                        forgeChannelPresence == ForgeChannelPresence.PRESENT &&
                         version == expected
             }
         }
@@ -100,28 +100,28 @@ class ForgeNetworkConfiguration(
 
     private fun validate(
         remote: Map<Identifier, Int>,
-        side: ForgeRemoteSide,
+        forgeRemoteSide: ForgeRemoteSide,
     ): ForgeChannelValidation {
         val mismatched = linkedMapOf<Identifier, ForgeVersionMismatch>()
         val missing = linkedSetOf<Identifier>()
-        channelsById.values.forEach { definition ->
-            val remoteVersion = remote[definition.id]
-            val presence = if (remoteVersion == null) {
+        channelsById.values.forEach { forgeChannelDefinition ->
+            val remoteVersion = remote[forgeChannelDefinition.id]
+            val forgeChannelPresence = if (remoteVersion == null) {
                 ForgeChannelPresence.MISSING
             } else {
                 ForgeChannelPresence.PRESENT
             }
-            val acceptance = when (side) {
-                ForgeRemoteSide.CLIENT -> definition.acceptsClient
-                ForgeRemoteSide.SERVER -> definition.acceptsServer
+            val forgeVersionAcceptance = when (forgeRemoteSide) {
+                ForgeRemoteSide.CLIENT -> forgeChannelDefinition.acceptsClient
+                ForgeRemoteSide.SERVER -> forgeChannelDefinition.acceptsServer
             }
-            if (!acceptance.accepts(presence, remoteVersion ?: 0)) {
+            if (!forgeVersionAcceptance.accepts(forgeChannelPresence, remoteVersion ?: 0)) {
                 if (remoteVersion == null) {
-                    missing += definition.id
+                    missing += forgeChannelDefinition.id
                 } else {
-                    mismatched[definition.id] = ForgeVersionMismatch(
+                    mismatched[forgeChannelDefinition.id] = ForgeVersionMismatch(
                         remoteVersion.toString(),
-                        definition.version.toString(),
+                        forgeChannelDefinition.version.toString(),
                     )
                 }
             }

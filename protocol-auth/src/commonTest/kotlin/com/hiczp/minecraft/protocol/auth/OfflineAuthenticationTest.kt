@@ -22,13 +22,13 @@ class OfflineAuthenticationTest {
 
     @Test
     fun identityDerivesItsUuidAndProfile() {
-        val identity = MinecraftOfflineIdentity("ProtocolProbe")
+        val minecraftOfflineIdentity = MinecraftOfflineIdentity("ProtocolProbe")
 
         assertEquals(
             MinecraftOfflineIdentity.minecraftOfflineUuid("ProtocolProbe"),
-            identity.id,
+            minecraftOfflineIdentity.id,
         )
-        assertEquals(identity.id, identity.toGameProfile().id)
+        assertEquals(minecraftOfflineIdentity.id, minecraftOfflineIdentity.toGameProfile().id)
     }
 
     @Test

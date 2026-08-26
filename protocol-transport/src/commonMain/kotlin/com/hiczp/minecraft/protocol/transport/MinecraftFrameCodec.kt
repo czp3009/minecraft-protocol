@@ -11,7 +11,7 @@ import kotlinx.io.*
  * adapters over the same streaming path.
  */
 class MinecraftFrameCodec(
-    val configuration: MinecraftTransportConfiguration = MinecraftTransportConfiguration(),
+    val minecraftTransportConfiguration: MinecraftTransportConfiguration = MinecraftTransportConfiguration(),
 ) {
     var compressionThreshold: Int? = null
         private set
@@ -64,7 +64,7 @@ class MinecraftFrameCodec(
     fun decodeFrameToSink(source: Source, sink: Sink): Long {
         val frameLength = source.readVarInt(
             maximumBytes = 3,
-            rejectNonMinimal = configuration.rejectNonMinimalVarInts,
+            rejectNonMinimal = minecraftTransportConfiguration.rejectNonMinimalVarInts,
         ).value
         validateFrameLength(frameLength)
         return decodeFrameBodyToSink(source, frameLength, sink)
@@ -89,10 +89,10 @@ class MinecraftFrameCodec(
             if (threshold == null) {
                 if (
                     frameBodyByteCount >
-                    configuration.maximumUncompressedPacketSize
+                    minecraftTransportConfiguration.maximumUncompressedPacketSize
                 ) {
                     throw MinecraftTransportException(
-                        "Packet data has $frameBodyByteCount bytes; maximum is ${configuration.maximumUncompressedPacketSize}",
+                        "Packet data has $frameBodyByteCount bytes; maximum is ${minecraftTransportConfiguration.maximumUncompressedPacketSize}",
                     )
                 }
                 body.transferTo(sink)
@@ -134,9 +134,9 @@ class MinecraftFrameCodec(
     }
 
     internal fun validateFrameLength(frameLength: Int) {
-        if (frameLength !in 1..configuration.maximumFrameSize) {
+        if (frameLength !in 1..minecraftTransportConfiguration.maximumFrameSize) {
             throw MinecraftTransportException(
-                "Invalid frame length $frameLength; maximum is ${configuration.maximumFrameSize}",
+                "Invalid frame length $frameLength; maximum is ${minecraftTransportConfiguration.maximumFrameSize}",
             )
         }
     }
@@ -147,10 +147,10 @@ class MinecraftFrameCodec(
         }
         if (
             packetDataByteCount >
-            configuration.maximumUncompressedPacketSize
+            minecraftTransportConfiguration.maximumUncompressedPacketSize
         ) {
             throw MinecraftTransportException(
-                "Packet data has $packetDataByteCount bytes; maximum is ${configuration.maximumUncompressedPacketSize}",
+                "Packet data has $packetDataByteCount bytes; maximum is ${minecraftTransportConfiguration.maximumUncompressedPacketSize}",
             )
         }
     }
@@ -163,7 +163,7 @@ class MinecraftFrameCodec(
         val body = Buffer()
         MaximumSizeRawSink(
             body,
-            configuration.maximumFrameSize,
+            minecraftTransportConfiguration.maximumFrameSize,
         ).buffered().use { limitedBody ->
             limitedBody.writeVarInt(packetDataByteCount)
             Zlib.compressToSink(packetData, limitedBody)
@@ -182,7 +182,7 @@ class MinecraftFrameCodec(
         sink: Sink,
     ): Long {
         val decodedLength = body.readVarInt(
-            rejectNonMinimal = configuration.rejectNonMinimalVarInts,
+            rejectNonMinimal = minecraftTransportConfiguration.rejectNonMinimalVarInts,
         ).value
         if (decodedLength == 0) {
             val packetBytes = body.transferTo(sink)
@@ -199,7 +199,7 @@ class MinecraftFrameCodec(
             )
         }
         if (
-            configuration.validateCompressionThreshold &&
+            minecraftTransportConfiguration.validateCompressionThreshold &&
             decodedLength < threshold
         ) {
             throw MinecraftTransportException(
@@ -208,10 +208,10 @@ class MinecraftFrameCodec(
         }
         if (
             decodedLength >
-            configuration.maximumUncompressedPacketSize
+            minecraftTransportConfiguration.maximumUncompressedPacketSize
         ) {
             throw MinecraftTransportException(
-                "Compressed packet declares $decodedLength bytes; maximum is ${configuration.maximumUncompressedPacketSize}",
+                "Compressed packet declares $decodedLength bytes; maximum is ${minecraftTransportConfiguration.maximumUncompressedPacketSize}",
             )
         }
         return Zlib.decompressToSink(body, sink, decodedLength)

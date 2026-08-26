@@ -20,20 +20,20 @@ import kotlinx.serialization.modules.SerializersModule
 import kotlin.uuid.Uuid
 
 internal class MinecraftDecoder(
-    private val reader: MinecraftReader,
-    private val configuration: MinecraftProtocolFormatConfiguration,
+    private val minecraftReader: MinecraftReader,
+    private val minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration,
     override val serializersModule: SerializersModule,
 ) : Decoder, CompositeDecoder, NbtTagDecoder {
-    private val nbtCodec: NbtBinaryCodec = NbtBinaryCodec
+    private val nbtBinaryCodec: NbtBinaryCodec = NbtBinaryCodec
     private val frames: MutableList<Frame> = mutableListOf()
     private var pendingHints: List<Annotation> = emptyList()
     private var injectNotNullMark: Boolean = false
 
     val remaining: Int
-        get() = reader.remaining
+        get() = minecraftReader.remaining
 
     override fun beginStructure(descriptor: SerialDescriptor): CompositeDecoder {
-        val collection = when (descriptor.kind) {
+        val decodedCollection = when (descriptor.kind) {
             StructureKind.LIST,
             StructureKind.MAP,
                 -> readCollectionSize(descriptor)
@@ -42,8 +42,8 @@ internal class MinecraftDecoder(
         }
         frames += Frame(
             descriptor,
-            collectionSize = collection?.size,
-            elementHints = collection?.elementHints.orEmpty(),
+            collectionSize = decodedCollection?.size,
+            elementHints = decodedCollection?.elementHints.orEmpty(),
         )
         return this
     }
@@ -51,7 +51,7 @@ internal class MinecraftDecoder(
     override fun endStructure(descriptor: SerialDescriptor) {
         val frame = frames.removeLastOrNull()
             ?: throw MinecraftSerializationException("Decoder structure stack underflow")
-        if (frame.descriptor != descriptor) {
+        if (frame.serialDescriptor != descriptor) {
             throw MinecraftSerializationException("Mismatched decoder structure")
         }
     }
@@ -84,52 +84,52 @@ internal class MinecraftDecoder(
     }
 
     override fun decodeBoolean(): Boolean {
-        val value = reader.readUnsignedByte()
-        if (configuration.strictBooleans && value !in 0..1) {
+        val value = minecraftReader.readUnsignedByte()
+        if (minecraftProtocolFormatConfiguration.strictBooleans && value !in 0..1) {
             throw MinecraftSerializationException("Invalid boolean byte: $value")
         }
         return value != 0
     }
 
-    override fun decodeByte(): Byte = reader.readByte()
+    override fun decodeByte(): Byte = minecraftReader.readByte()
 
-    override fun decodeShort(): Short = reader.readShort()
+    override fun decodeShort(): Short = minecraftReader.readShort()
 
     override fun decodeInt(): Int {
         val hints = takePendingHints()
         return when {
             hints.any { it is VarInt || it is VarIntElements } ->
-                reader.readVarInt(configuration.rejectNonMinimalVarNumbers)
+                minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
 
-            hints.any { it is UnsignedByte } -> reader.readUnsignedByte()
-            hints.any { it is UnsignedShort } -> reader.readUnsignedShort()
-            else -> reader.readInt()
+            hints.any { it is UnsignedByte } -> minecraftReader.readUnsignedByte()
+            hints.any { it is UnsignedShort } -> minecraftReader.readUnsignedShort()
+            else -> minecraftReader.readInt()
         }
     }
 
     override fun decodeLong(): Long =
         if (takePendingHints().any { it is VarLong || it is VarLongElements }) {
-            reader.readVarLong(configuration.rejectNonMinimalVarNumbers)
+            minecraftReader.readVarLong(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
         } else {
-            reader.readLong()
+            minecraftReader.readLong()
         }
 
-    override fun decodeFloat(): Float = Float.fromBits(reader.readInt())
+    override fun decodeFloat(): Float = Float.fromBits(minecraftReader.readInt())
 
-    override fun decodeDouble(): Double = Double.fromBits(reader.readLong())
+    override fun decodeDouble(): Double = Double.fromBits(minecraftReader.readLong())
 
-    override fun decodeChar(): Char = reader.readUnsignedShort().toChar()
+    override fun decodeChar(): Char = minecraftReader.readUnsignedShort().toChar()
 
     override fun decodeString(): String {
         val maximum = takePendingHints().filterIsInstance<MaxLength>()
             .singleOrNull()?.characters ?: DEFAULT_STRING_MAXIMUM
-        val byteLength = reader.readVarInt(configuration.rejectNonMinimalVarNumbers)
+        val byteLength = minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
         if (byteLength < 0 || byteLength > maximum * 3L) {
             throw MinecraftSerializationException(
                 "Invalid string byte length $byteLength for limit $maximum",
             )
         }
-        val value = reader.readUtf8(byteLength)
+        val value = minecraftReader.readUtf8(byteLength)
         if (value.length > maximum) {
             throw MinecraftSerializationException(
                 "String exceeds its limit of $maximum UTF-16 code units",
@@ -144,10 +144,10 @@ internal class MinecraftDecoder(
             hints.filterIsInstance<EnumEncoding>()
                 .singleOrNull()?.kind ?: EnumEncodingKind.VAR_INT
         ) {
-            EnumEncodingKind.BYTE -> reader.readByte().toInt()
-            EnumEncodingKind.UNSIGNED_BYTE -> reader.readUnsignedByte()
-            EnumEncodingKind.VAR_INT -> reader.readVarInt(configuration.rejectNonMinimalVarNumbers)
-            EnumEncodingKind.INT -> reader.readInt()
+            EnumEncodingKind.BYTE -> minecraftReader.readByte().toInt()
+            EnumEncodingKind.UNSIGNED_BYTE -> minecraftReader.readUnsignedByte()
+            EnumEncodingKind.VAR_INT -> minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
+            EnumEncodingKind.INT -> minecraftReader.readInt()
         }
         return when {
             hints.any { it is WrappedEnum } ->
@@ -175,7 +175,7 @@ internal class MinecraftDecoder(
 
     override fun decodeInline(descriptor: SerialDescriptor): Decoder = this
 
-    override fun decodeNbtTag(): NbtTag = nbtCodec.readAny(reader)
+    override fun decodeNbtTag(): NbtTag = nbtBinaryCodec.readAny(minecraftReader)
 
     override fun decodeBooleanElement(
         descriptor: SerialDescriptor,
@@ -263,7 +263,7 @@ internal class MinecraftDecoder(
 
             deserializer.descriptor.serialName == UUID_SERIAL_NAME -> {
                 @Suppress("UNCHECKED_CAST")
-                (Uuid.fromByteArray(reader.readBytes(Uuid.SIZE_BYTES)) as T)
+                (Uuid.fromByteArray(minecraftReader.readBytes(Uuid.SIZE_BYTES)) as T)
             }
 
             pendingHints.any { it is LowPrecisionVector } -> {
@@ -273,7 +273,7 @@ internal class MinecraftDecoder(
                     )
                 }
                 @Suppress("UNCHECKED_CAST")
-                (LowPrecisionVectorCodec.read(reader, configuration) as T)
+                (LowPrecisionVectorCodec.read(minecraftReader, minecraftProtocolFormatConfiguration) as T)
             }
 
             pendingHints.any { it is Paletted } -> {
@@ -282,13 +282,13 @@ internal class MinecraftDecoder(
                         "@Paletted can only be used with PalettedContainer",
                     )
                 }
-                val annotation = pendingHints.filterIsInstance<Paletted>().single()
+                val paletted = pendingHints.filterIsInstance<Paletted>().single()
                 @Suppress("UNCHECKED_CAST")
                 (
                         PalettedContainerCodec.read(
-                            reader,
-                            annotation.kind,
-                            configuration,
+                            minecraftReader,
+                            paletted.kind,
+                            minecraftProtocolFormatConfiguration,
                         ) as T
                         )
             }
@@ -308,54 +308,54 @@ internal class MinecraftDecoder(
     )
 
     private fun <T> decodeSerializableWithHints(
-        deserializer: DeserializationStrategy<T>,
+        deserializationStrategy: DeserializationStrategy<T>,
         hints: List<Annotation>,
     ): T {
-        val lengthPrefix = hints.filterIsInstance<ByteLengthPrefixed>().singleOrNull()
-        if (lengthPrefix != null) {
-            return readLengthPrefixed(lengthPrefix) { nested ->
+        val byteLengthPrefixed = hints.filterIsInstance<ByteLengthPrefixed>().singleOrNull()
+        if (byteLengthPrefixed != null) {
+            return readLengthPrefixed(byteLengthPrefixed) { nested ->
                 nested.decodeSerializableWithHints(
-                    deserializer,
+                    deserializationStrategy,
                     hints.filterNot { it is ByteLengthPrefixed },
                 )
             }
         }
         return withHints(hints) {
-            decodeSerializableValue(deserializer)
+            decodeSerializableValue(deserializationStrategy)
         }
     }
 
     private fun <T : Any> decodeNullableWithHints(
-        deserializer: DeserializationStrategy<T?>,
+        deserializationStrategy: DeserializationStrategy<T?>,
         hints: List<Annotation>,
     ): T? {
-        val lengthPrefix = hints.filterIsInstance<ByteLengthPrefixed>().singleOrNull()
-        if (lengthPrefix != null) {
-            return readLengthPrefixed(lengthPrefix) { nested ->
+        val byteLengthPrefixed = hints.filterIsInstance<ByteLengthPrefixed>().singleOrNull()
+        if (byteLengthPrefixed != null) {
+            return readLengthPrefixed(byteLengthPrefixed) { nested ->
                 nested.decodeNullableWithHints(
-                    deserializer,
+                    deserializationStrategy,
                     hints.filterNot { it is ByteLengthPrefixed },
                 )
             }
         }
         return withHints(hints) {
-            val nullSentinel = hints.filterIsInstance<NullSentinelByte>().singleOrNull()
-            if (nullSentinel != null) {
-                validateNullSentinelByte(nullSentinel)
-                if (reader.peekByte().toInt() == nullSentinel.value) {
-                    reader.readByte()
+            val nullSentinelByte = hints.filterIsInstance<NullSentinelByte>().singleOrNull()
+            if (nullSentinelByte != null) {
+                validateNullSentinelByte(nullSentinelByte)
+                if (minecraftReader.peekByte().toInt() == nullSentinelByte.value) {
+                    minecraftReader.readByte()
                     null
                 } else {
                     injectNotNullMark = true
                     try {
-                        decodeNullableSerializableValue(deserializer)
+                        decodeNullableSerializableValue(deserializationStrategy)
                     } finally {
                         injectNotNullMark = false
                     }
                 }
             } else if (hints.any { it is OptionalVarInt }) {
-                val encoded = reader.readVarInt(
-                    configuration.rejectNonMinimalVarNumbers,
+                val encoded = minecraftReader.readVarInt(
+                    minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers,
                 )
                 if (encoded == 0) {
                     null
@@ -364,50 +364,50 @@ internal class MinecraftDecoder(
                     ((encoded - 1) as T)
                 }
             } else if (hints.any { it is NbtEndOptional }) {
-                if (deserializer !is NbtTagSerializer<*>) {
+                if (deserializationStrategy !is NbtTagSerializer<*>) {
                     throw MinecraftSerializationException(
                         "@NbtEndOptional can only be used with NbtTag",
                     )
                 }
-                val value = nbtCodec.readAny(reader)
-                if (value === NbtEnd) {
+                val nbtTag = nbtBinaryCodec.readAny(minecraftReader)
+                if (nbtTag === NbtEnd) {
                     null
                 } else {
                     @Suppress("UNCHECKED_CAST")
-                    (deserializer.deserializeTag(value) as T)
+                    (deserializationStrategy.deserializeTag(nbtTag) as T)
                 }
             } else {
-                decodeNullableSerializableValue(deserializer)
+                decodeNullableSerializableValue(deserializationStrategy)
             }
         }
     }
 
-    private fun validateNullSentinelByte(annotation: NullSentinelByte) {
-        if (annotation.value !in Byte.MIN_VALUE..Byte.MAX_VALUE) {
+    private fun validateNullSentinelByte(nullSentinelByte: NullSentinelByte) {
+        if (nullSentinelByte.value !in Byte.MIN_VALUE..Byte.MAX_VALUE) {
             throw MinecraftSerializationException(
-                "@NullSentinelByte value must fit a signed byte: ${annotation.value}",
+                "@NullSentinelByte value must fit a signed byte: ${nullSentinelByte.value}",
             )
         }
     }
 
     private inline fun <T> readLengthPrefixed(
-        annotation: ByteLengthPrefixed,
+        byteLengthPrefixed: ByteLengthPrefixed,
         decode: (MinecraftDecoder) -> T,
     ): T {
-        if (annotation.maxBytes < 0) {
+        if (byteLengthPrefixed.maxBytes < 0) {
             throw MinecraftSerializationException(
                 "ByteLengthPrefixed maxBytes must be non-negative",
             )
         }
-        val size = reader.readVarInt(configuration.rejectNonMinimalVarNumbers)
-        if (size !in 0..annotation.maxBytes) {
+        val size = minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
+        if (size !in 0..byteLengthPrefixed.maxBytes) {
             throw MinecraftSerializationException(
-                "Invalid length-prefixed value size $size; maximum is ${annotation.maxBytes}",
+                "Invalid length-prefixed value size $size; maximum is ${byteLengthPrefixed.maxBytes}",
             )
         }
         val nested = MinecraftDecoder(
-            reader.readBounded(size),
-            configuration,
+            minecraftReader.readBounded(size),
+            minecraftProtocolFormatConfiguration,
             serializersModule,
         )
         val value = decode(nested)
@@ -420,16 +420,16 @@ internal class MinecraftDecoder(
     }
 
     private fun readCollectionSize(
-        descriptor: SerialDescriptor,
+        serialDescriptor: SerialDescriptor,
     ): DecodedCollection {
         val hints = takePendingHints()
         val size = when {
-            hints.any { it is RemainingBytes } -> reader.remaining
+            hints.any { it is RemainingBytes } -> minecraftReader.remaining
             hints.any { it is FixedLength } ->
                 hints.filterIsInstance<FixedLength>().single().bytes
 
             hints.any { it is ChunkSectionCount } ->
-                configuration.chunkSectionCount
+                minecraftProtocolFormatConfiguration.chunkSectionCount
                     ?: throw MinecraftSerializationException(
                         "Decoding chunk sections requires chunkSectionCount in MinecraftProtocolFormatConfiguration",
                     )
@@ -439,7 +439,7 @@ internal class MinecraftDecoder(
                     "An unprefixed collection requires a containing custom serializer",
                 )
 
-            else -> reader.readVarInt(configuration.rejectNonMinimalVarNumbers)
+            else -> minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
         }
         if (size < 0) {
             throw MinecraftSerializationException("Invalid collection size: $size")
@@ -466,35 +466,35 @@ internal class MinecraftDecoder(
     }
 
     private inline fun <T> withElementHints(
-        descriptor: SerialDescriptor,
+        serialDescriptor: SerialDescriptor,
         index: Int,
         block: () -> T,
-    ): T = withHints(elementHints(descriptor, index), block)
+    ): T = withHints(elementHints(serialDescriptor, index), block)
 
-    private fun elementHints(descriptor: SerialDescriptor, index: Int): List<Annotation> {
-        val descriptorIndex = when (descriptor.kind) {
+    private fun elementHints(serialDescriptor: SerialDescriptor, index: Int): List<Annotation> {
+        val descriptorIndex = when (serialDescriptor.kind) {
             StructureKind.LIST -> 0
-            StructureKind.MAP -> index % descriptor.elementsCount
+            StructureKind.MAP -> index % serialDescriptor.elementsCount
             else -> index
         }
         return combineHints(
-            descriptor.getElementAnnotations(descriptorIndex),
+            serialDescriptor.getElementAnnotations(descriptorIndex),
             frames.lastOrNull()?.elementHints.orEmpty(),
         )
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun <T> decodePrimitiveArray(descriptor: SerialDescriptor): T {
-        val collection = readCollectionSize(descriptor)
-        val size = collection.size
-        val elementHints = collection.elementHints
-        val value: Any = when (descriptor.serialName) {
-            BYTE_ARRAY_SERIAL_NAME -> reader.readBytes(size)
+    private fun <T> decodePrimitiveArray(serialDescriptor: SerialDescriptor): T {
+        val decodedCollection = readCollectionSize(serialDescriptor)
+        val size = decodedCollection.size
+        val elementHints = decodedCollection.elementHints
+        val value: Any = when (serialDescriptor.serialName) {
+            BYTE_ARRAY_SERIAL_NAME -> minecraftReader.readBytes(size)
             BOOLEAN_ARRAY_SERIAL_NAME -> {
                 requireArrayBytes(size, Byte.SIZE_BYTES)
                 BooleanArray(size) {
-                    val byte = reader.readUnsignedByte()
-                    if (configuration.strictBooleans && byte !in 0..1) {
+                    val byte = minecraftReader.readUnsignedByte()
+                    if (minecraftProtocolFormatConfiguration.strictBooleans && byte !in 0..1) {
                         throw MinecraftSerializationException("Invalid boolean byte: $byte")
                     }
                     byte != 0
@@ -503,7 +503,7 @@ internal class MinecraftDecoder(
 
             SHORT_ARRAY_SERIAL_NAME -> {
                 requireArrayBytes(size, Short.SIZE_BYTES)
-                ShortArray(size) { reader.readShort() }
+                ShortArray(size) { minecraftReader.readShort() }
             }
 
             INT_ARRAY_SERIAL_NAME -> {
@@ -511,9 +511,9 @@ internal class MinecraftDecoder(
                 requireArrayBytes(size, if (variable) 1 else Int.SIZE_BYTES)
                 IntArray(size) {
                     if (variable) {
-                        reader.readVarInt(configuration.rejectNonMinimalVarNumbers)
+                        minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
                     } else {
-                        reader.readInt()
+                        minecraftReader.readInt()
                     }
                 }
             }
@@ -523,51 +523,51 @@ internal class MinecraftDecoder(
                 requireArrayBytes(size, if (variable) 1 else Long.SIZE_BYTES)
                 LongArray(size) {
                     if (variable) {
-                        reader.readVarLong(configuration.rejectNonMinimalVarNumbers)
+                        minecraftReader.readVarLong(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
                     } else {
-                        reader.readLong()
+                        minecraftReader.readLong()
                     }
                 }
             }
 
             FLOAT_ARRAY_SERIAL_NAME -> {
                 requireArrayBytes(size, Float.SIZE_BYTES)
-                FloatArray(size) { Float.fromBits(reader.readInt()) }
+                FloatArray(size) { Float.fromBits(minecraftReader.readInt()) }
             }
 
             DOUBLE_ARRAY_SERIAL_NAME -> {
                 requireArrayBytes(size, Double.SIZE_BYTES)
-                DoubleArray(size) { Double.fromBits(reader.readLong()) }
+                DoubleArray(size) { Double.fromBits(minecraftReader.readLong()) }
             }
 
             CHAR_ARRAY_SERIAL_NAME -> {
                 requireArrayBytes(size, Char.SIZE_BYTES)
-                CharArray(size) { reader.readUnsignedShort().toChar() }
+                CharArray(size) { minecraftReader.readUnsignedShort().toChar() }
             }
 
-            else -> error("Not a primitive-array descriptor: ${descriptor.serialName}")
+            else -> error("Not a primitive-array descriptor: ${serialDescriptor.serialName}")
         }
         return value as T
     }
 
     private fun requireArrayBytes(size: Int, minimumElementBytes: Int) {
-        if (size > reader.remaining / minimumElementBytes) {
+        if (size > minecraftReader.remaining / minimumElementBytes) {
             throw MinecraftSerializationException(
-                "Array declares $size elements but only ${reader.remaining} payload bytes remain",
+                "Array declares $size elements but only ${minecraftReader.remaining} payload bytes remain",
             )
         }
     }
 
-    private fun isPrimitiveArraySerializer(deserializer: DeserializationStrategy<*>): Boolean =
-        when (deserializer.descriptor.serialName) {
-            BOOLEAN_ARRAY_SERIAL_NAME -> deserializer === BooleanArraySerializer()
-            BYTE_ARRAY_SERIAL_NAME -> deserializer === ByteArraySerializer()
-            CHAR_ARRAY_SERIAL_NAME -> deserializer === CharArraySerializer()
-            DOUBLE_ARRAY_SERIAL_NAME -> deserializer === DoubleArraySerializer()
-            FLOAT_ARRAY_SERIAL_NAME -> deserializer === FloatArraySerializer()
-            INT_ARRAY_SERIAL_NAME -> deserializer === IntArraySerializer()
-            LONG_ARRAY_SERIAL_NAME -> deserializer === LongArraySerializer()
-            SHORT_ARRAY_SERIAL_NAME -> deserializer === ShortArraySerializer()
+    private fun isPrimitiveArraySerializer(deserializationStrategy: DeserializationStrategy<*>): Boolean =
+        when (deserializationStrategy.descriptor.serialName) {
+            BOOLEAN_ARRAY_SERIAL_NAME -> deserializationStrategy === BooleanArraySerializer()
+            BYTE_ARRAY_SERIAL_NAME -> deserializationStrategy === ByteArraySerializer()
+            CHAR_ARRAY_SERIAL_NAME -> deserializationStrategy === CharArraySerializer()
+            DOUBLE_ARRAY_SERIAL_NAME -> deserializationStrategy === DoubleArraySerializer()
+            FLOAT_ARRAY_SERIAL_NAME -> deserializationStrategy === FloatArraySerializer()
+            INT_ARRAY_SERIAL_NAME -> deserializationStrategy === IntArraySerializer()
+            LONG_ARRAY_SERIAL_NAME -> deserializationStrategy === LongArraySerializer()
+            SHORT_ARRAY_SERIAL_NAME -> deserializationStrategy === ShortArraySerializer()
             else -> false
         }
 
@@ -579,11 +579,11 @@ internal class MinecraftDecoder(
 
     @Suppress("UNCHECKED_CAST")
     private fun <T> decodeWithNbtSerializer(
-        deserializer: DeserializationStrategy<T>,
-    ): T = deserializer.deserialize(this)
+        deserializationStrategy: DeserializationStrategy<T>,
+    ): T = deserializationStrategy.deserialize(this)
 
     private data class Frame(
-        val descriptor: SerialDescriptor,
+        val serialDescriptor: SerialDescriptor,
         var nextIndex: Int = 0,
         var collectionSize: Int? = null,
         val elementHints: List<Annotation> = emptyList(),

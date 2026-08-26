@@ -14,36 +14,36 @@ import kotlin.test.assertFailsWith
 class ChunkSerializationTest {
     @Test
     fun `wiki chunk-section example has exact bytes`() {
-        val section = wikiExampleSection()
+        val chunkSection = wikiExampleSection()
         val expected = "00000000000001022703ccffccffccffccff".hexToByteArray()
 
         assertContentEquals(
             expected,
-            testMinecraftProtocolFormat().encodeToByteArray(section),
+            testMinecraftProtocolFormat().encodeToByteArray(chunkSection),
         )
         assertEquals(
-            expected = section,
+            expected = chunkSection,
             actual = testMinecraftProtocolFormat().decodeFromByteArray<ChunkSection>(expected),
         )
     }
 
     @Test
     fun `chunk section list is byte length prefixed and dimension sized`() {
-        val chunk = ChunkData(
+        val chunkData = ChunkData(
             heightmaps = emptyMap(),
             sections = listOf(wikiExampleSection()),
             blockEntities = emptyList(),
         )
-        val format = testMinecraftProtocolFormat(chunkSectionCount = 1)
+        val minecraftProtocolFormat = testMinecraftProtocolFormat(chunkSectionCount = 1)
         val expected = "001200000000000001022703ccffccffccffccff00".hexToByteArray()
 
         assertContentEquals(
             expected,
-            format.encodeToByteArray(chunk),
+            minecraftProtocolFormat.encodeToByteArray(chunkData),
         )
         assertEquals(
-            chunk,
-            format.decodeFromByteArray<ChunkData>(expected),
+            chunkData,
+            minecraftProtocolFormat.decodeFromByteArray<ChunkData>(expected),
         )
 
         assertFailsWith<MinecraftSerializationException> {
@@ -54,7 +54,7 @@ class ChunkSerializationTest {
                 MinecraftProtocolFormatConfiguration(
                     protocolRegistryContext = testProtocolRegistryContext(chunkSectionCount = 2),
                 ),
-            ).encodeToByteArray(chunk)
+            ).encodeToByteArray(chunkData)
         }
     }
 
@@ -62,20 +62,20 @@ class ChunkSerializationTest {
     fun `direct palettes derive bits and packed length from registries`() {
         val blockData = PackedLongArray(LongArray(1_024))
         val biomeData = PackedLongArray(LongArray(8))
-        val section = ChunkSection(
+        val chunkSection = ChunkSection(
             nonAirBlockCount = 0,
             fluidCount = 0,
             blockStates = PalettedContainer.Direct(blockData),
             biomes = PalettedContainer.Direct(biomeData),
         )
 
-        val format = testMinecraftProtocolFormat()
-        val encoded = format.encodeToByteArray(section)
+        val minecraftProtocolFormat = testMinecraftProtocolFormat()
+        val encoded = minecraftProtocolFormat.encodeToByteArray(chunkSection)
         assertEquals(15, encoded[4].toInt() and 0xFF)
         assertEquals(7, encoded[4 + 1 + 1_024 * Long.SIZE_BYTES].toInt() and 0xFF)
         assertEquals(
-            section,
-            format.decodeFromByteArray<ChunkSection>(encoded),
+            chunkSection,
+            minecraftProtocolFormat.decodeFromByteArray<ChunkSection>(encoded),
         )
     }
 
@@ -90,8 +90,8 @@ class ChunkSerializationTest {
         raw[index++] = 0
         raw[index] = 0
 
-        val format = testMinecraftProtocolFormat()
-        val decoded = format.decodeFromByteArray<ChunkSection>(raw)
+        val minecraftProtocolFormat = testMinecraftProtocolFormat()
+        val decoded = minecraftProtocolFormat.decodeFromByteArray<ChunkSection>(raw)
         assertEquals(
             PalettedContainer.Indirect(
                 bitsPerEntry = 4,
@@ -101,7 +101,7 @@ class ChunkSerializationTest {
             decoded.blockStates,
         )
 
-        val canonical = format.encodeToByteArray(decoded)
+        val canonical = minecraftProtocolFormat.encodeToByteArray(decoded)
         assertEquals(4, canonical[4].toInt() and 0xFF)
     }
 

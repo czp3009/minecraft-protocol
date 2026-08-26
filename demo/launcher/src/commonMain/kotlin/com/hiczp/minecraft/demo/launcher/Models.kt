@@ -172,11 +172,12 @@ internal object MojangArgumentSerializer : KSerializer<MojangArgument> {
     override fun deserialize(decoder: Decoder): MojangArgument {
         val jsonDecoder = decoder as? JsonDecoder
             ?: throw SerializationException("Mojang arguments are JSON-only")
-        return when (val element = jsonDecoder.decodeJsonElement()) {
-            is JsonPrimitive -> MojangArgument.Literal(element.content)
+        return when (val jsonElement = jsonDecoder.decodeJsonElement()) {
+            is JsonPrimitive -> MojangArgument.Literal(jsonElement.content)
             is JsonObject -> {
-                val wire = jsonDecoder.json.decodeFromJsonElement<ConditionalArgumentWire>(element)
-                MojangArgument.Conditional(wire.rules, wire.value.asStrings())
+                val conditionalArgumentWire =
+                    jsonDecoder.json.decodeFromJsonElement<ConditionalArgumentWire>(jsonElement)
+                MojangArgument.Conditional(conditionalArgumentWire.rules, conditionalArgumentWire.value.asStrings())
             }
 
             else -> throw SerializationException("Mojang argument must be a string or object")
@@ -186,7 +187,7 @@ internal object MojangArgumentSerializer : KSerializer<MojangArgument> {
     override fun serialize(encoder: Encoder, value: MojangArgument) {
         val jsonEncoder = encoder as? JsonEncoder
             ?: throw SerializationException("Mojang arguments are JSON-only")
-        val element = when (value) {
+        val jsonElement = when (value) {
             is MojangArgument.Literal -> JsonPrimitive(value.value)
             is MojangArgument.Conditional -> buildJsonObject {
                 put("rules", jsonEncoder.json.encodeToJsonElement(value.rules))
@@ -202,7 +203,7 @@ internal object MojangArgumentSerializer : KSerializer<MojangArgument> {
                 )
             }
         }
-        jsonEncoder.encodeJsonElement(element)
+        jsonEncoder.encodeJsonElement(jsonElement)
     }
 }
 
@@ -241,7 +242,7 @@ internal data class AuthState(
 
 @Serializable
 internal data class StoredAccount(
-    val identity: MinecraftIdentity,
+    val minecraftIdentity: MinecraftIdentity,
     val microsoftRefreshToken: String? = null,
     val minecraftAccessTokenExpiresAtEpochSeconds: Long? = null,
 )
@@ -254,7 +255,7 @@ internal data class DownloadSpec(
 )
 
 internal data class InstallPlan(
-    val version: VersionMetadata,
+    val versionMetadata: VersionMetadata,
     val gameRootName: String,
     val downloads: List<DownloadSpec>,
     val assetIndex: DownloadSpec,
@@ -279,7 +280,7 @@ internal data class InstallProgress(
 
 internal data class GameOutputLine(
     val sequence: Long,
-    val source: OutputSource,
+    val outputSource: OutputSource,
     val text: String,
 )
 

@@ -11,19 +11,19 @@ import kotlin.coroutines.cancellation.CancellationException
  * kotlinx-io still owns incremental UTF-8 decoding at the stream boundary.
  */
 internal class SnbtParser(
-    private val input: SnbtInput,
-    private val configuration: SnbtFormatConfiguration,
+    private val snbtInput: SnbtInput,
+    private val snbtFormatConfiguration: SnbtFormatConfiguration,
 ) {
     fun parseFully(): NbtTag {
         val result = parseTag()
         skipWhitespace()
-        if (input.peek() != null) fail("Unexpected trailing SNBT data")
+        if (snbtInput.peek() != null) fail("Unexpected trailing SNBT data")
         return result
     }
 
     private fun parseTag(): NbtTag {
         skipWhitespace()
-        return when (val next = input.peek()) {
+        return when (val next = snbtInput.peek()) {
             null -> fail("Expected an SNBT value")
             '{' -> parseCompound()
             '[' -> parseListOrArray()
@@ -53,7 +53,7 @@ internal class SnbtParser(
 
     private fun parseKey(): String {
         skipWhitespace()
-        return when (input.peek()) {
+        return when (snbtInput.peek()) {
             '\'', '"' -> parseQuotedString()
             else -> readUnquotedString()
         }
@@ -64,9 +64,9 @@ internal class SnbtParser(
         skipWhitespace()
         if (consumeIf(']')) return NbtList(emptyList())
 
-        val possiblePrefix = input.peek()
+        val possiblePrefix = snbtInput.peek()
         if (possiblePrefix == 'B' || possiblePrefix == 'I' || possiblePrefix == 'L') {
-            input.read()
+            snbtInput.read()
             val skippedWhitespace = skipWhitespace()
             if (consumeIf(';')) return parseArray(possiblePrefix)
 
@@ -138,9 +138,9 @@ internal class SnbtParser(
     private fun parseNumber(): NbtTag {
         val text = readNumberText()
         SnbtNumberParser.parseFloat(text)?.let { return it }
-        val integer = SnbtNumberParser.parseInteger(text)
+        val snbtIntegerLiteral = SnbtNumberParser.parseInteger(text)
             ?: fail("Invalid SNBT number '$text'")
-        return integer.toTag(this)
+        return snbtIntegerLiteral.toTag(this)
     }
 
     private fun parseIntegerLiteral(): SnbtIntegerLiteral {
@@ -151,9 +151,9 @@ internal class SnbtParser(
 
     private fun readNumberText(): String = buildString {
         while (true) {
-            val next = input.peek() ?: break
+            val next = snbtInput.peek() ?: break
             if (isNumberTerminator(next)) break
-            append(input.read() ?: fail("Unexpected end of SNBT number"))
+            append(snbtInput.read() ?: fail("Unexpected end of SNBT number"))
         }
         if (isEmpty()) fail("Expected an SNBT number")
     }
@@ -237,10 +237,10 @@ internal class SnbtParser(
 
     private fun parseQuotedString(): String {
         skipWhitespace()
-        val quote = input.read() ?: fail("Expected a quoted SNBT string")
+        val quote = snbtInput.read() ?: fail("Expected a quoted SNBT string")
         val result = StringBuilder()
         while (true) {
-            val next = input.read() ?: fail("Unterminated SNBT string")
+            val next = snbtInput.read() ?: fail("Unterminated SNBT string")
             when (next) {
                 quote -> return result.toString()
                 '\\' -> appendEscape(result)
@@ -251,7 +251,7 @@ internal class SnbtParser(
 
     private fun appendEscape(result: StringBuilder) {
         skipWhitespace()
-        when (val escape = input.read() ?: fail("Unterminated SNBT escape")) {
+        when (val escape = snbtInput.read() ?: fail("Unterminated SNBT escape")) {
             'b' -> result.append('\b')
             's' -> result.append(' ')
             't' -> result.append('\t')
@@ -272,16 +272,16 @@ internal class SnbtParser(
     private fun appendUnicodeName(result: StringBuilder) {
         expect('{')
         val name = buildString {
-            while (input.peek()?.isUnicodeNameCharacter() == true) {
-                append(input.read() ?: fail("Unexpected end of Unicode character name"))
+            while (snbtInput.peek()?.isUnicodeNameCharacter() == true) {
+                append(snbtInput.read() ?: fail("Unexpected end of Unicode character name"))
             }
         }
         if (name.isEmpty()) fail("SNBT Unicode character name cannot be empty")
         expect('}')
-        val resolver = configuration.unicodeNameResolver
+        val snbtUnicodeNameResolver = snbtFormatConfiguration.snbtUnicodeNameResolver
             ?: fail("SNBT \\N{name} escapes require a unicodeNameResolver")
         val codePoint = try {
-            resolver.resolve(name)
+            snbtUnicodeNameResolver.resolve(name)
         } catch (failure: CancellationException) {
             throw failure
         } catch (failure: Exception) {
@@ -294,7 +294,7 @@ internal class SnbtParser(
     private fun readHexCodePoint(digitCount: Int): Int {
         val text = buildString {
             repeat(digitCount) {
-                val next = input.read() ?: fail("Expected $digitCount hexadecimal escape digits")
+                val next = snbtInput.read() ?: fail("Expected $digitCount hexadecimal escape digits")
                 if (!next.isHexDigit()) fail("Expected $digitCount hexadecimal escape digits")
                 append(next)
             }
@@ -324,14 +324,14 @@ internal class SnbtParser(
     }
 
     private fun appendUnquotedRemainder(result: StringBuilder) {
-        while (input.peek()?.isAllowedInUnquotedString() == true) {
-            result.append(input.read() ?: fail("Unexpected end of unquoted SNBT string"))
+        while (snbtInput.peek()?.isAllowedInUnquotedString() == true) {
+            result.append(snbtInput.read() ?: fail("Unexpected end of unquoted SNBT string"))
         }
     }
 
     private fun expect(expected: Char) {
         skipWhitespace()
-        val actual = input.read()
+        val actual = snbtInput.read()
         if (actual != expected) {
             val description = actual?.let { "'$it'" } ?: "end of input"
             fail("Expected '$expected', got $description")
@@ -339,22 +339,22 @@ internal class SnbtParser(
     }
 
     private fun consumeIf(expected: Char): Boolean {
-        if (input.peek() != expected) return false
-        input.read()
+        if (snbtInput.peek() != expected) return false
+        snbtInput.read()
         return true
     }
 
     private fun skipWhitespace(): Boolean {
         var skipped = false
-        while (input.peek()?.isJavaWhitespace() == true) {
-            input.read()
+        while (snbtInput.peek()?.isJavaWhitespace() == true) {
+            snbtInput.read()
             skipped = true
         }
         return skipped
     }
 
     internal fun fail(message: String, cause: Throwable? = null): Nothing =
-        throw NbtDecodingException("$message at character ${input.position}", cause)
+        throw NbtDecodingException("$message at character ${snbtInput.position}", cause)
 }
 
 internal interface SnbtInput {
@@ -422,99 +422,99 @@ private object SnbtNumberParser {
     }
 
     fun parseInteger(text: String): SnbtIntegerLiteral? {
-        val cursor = NumberCursor(text)
-        val negative = cursor.readSign()
-        cursor.skipWhitespace()
-        val first = cursor.peek() ?: return null
-        val base: SnbtIntegerBase
+        val numberCursor = NumberCursor(text)
+        val negative = numberCursor.readSign()
+        numberCursor.skipWhitespace()
+        val first = numberCursor.peek() ?: return null
+        val snbtIntegerBase: SnbtIntegerBase
         val digits: String
 
         if (first == '0') {
-            cursor.read()
-            val afterZero = cursor.position
-            cursor.skipWhitespace()
-            when (cursor.peek()) {
+            numberCursor.read()
+            val afterZero = numberCursor.position
+            numberCursor.skipWhitespace()
+            when (numberCursor.peek()) {
                 'x', 'X' -> {
-                    cursor.read()
-                    val parsedDigits = cursor.readNumeral { it.isHexDigit() || it == '_' } ?: return null
-                    base = SnbtIntegerBase.HEX
+                    numberCursor.read()
+                    val parsedDigits = numberCursor.readNumeral { it.isHexDigit() || it == '_' } ?: return null
+                    snbtIntegerBase = SnbtIntegerBase.HEX
                     digits = parsedDigits
                 }
 
                 'b', 'B' -> {
-                    cursor.read()
-                    val binaryDigits = cursor.readNumeral { it == '0' || it == '1' || it == '_' }
+                    numberCursor.read()
+                    val binaryDigits = numberCursor.readNumeral { it == '0' || it == '1' || it == '_' }
                     if (binaryDigits != null) {
-                        base = SnbtIntegerBase.BINARY
+                        snbtIntegerBase = SnbtIntegerBase.BINARY
                         digits = binaryDigits
                     } else {
-                        cursor.position = afterZero
-                        base = SnbtIntegerBase.DECIMAL
+                        numberCursor.position = afterZero
+                        snbtIntegerBase = SnbtIntegerBase.DECIMAL
                         digits = "0"
                     }
                 }
 
                 in '0'..'9' -> return null
                 else -> {
-                    cursor.position = afterZero
-                    base = SnbtIntegerBase.DECIMAL
+                    numberCursor.position = afterZero
+                    snbtIntegerBase = SnbtIntegerBase.DECIMAL
                     digits = "0"
                 }
             }
         } else {
-            base = SnbtIntegerBase.DECIMAL
-            digits = cursor.readNumeral { it in '0'..'9' || it == '_' } ?: return null
+            snbtIntegerBase = SnbtIntegerBase.DECIMAL
+            digits = numberCursor.readNumeral { it in '0'..'9' || it == '_' } ?: return null
         }
 
-        val suffix = cursor.readIntegerSuffix()
-        cursor.skipWhitespace()
-        if (!cursor.exhausted()) return null
-        return SnbtIntegerLiteral(negative, base, digits, suffix)
+        val snbtIntegerSuffix = numberCursor.readIntegerSuffix()
+        numberCursor.skipWhitespace()
+        if (!numberCursor.exhausted()) return null
+        return SnbtIntegerLiteral(negative, snbtIntegerBase, digits, snbtIntegerSuffix)
     }
 
-    private fun parseFloatAlternative(text: String, alternative: FloatAlternative): NbtTag? {
-        val cursor = NumberCursor(text)
-        val negative = cursor.readSign()
+    private fun parseFloatAlternative(text: String, floatAlternative: FloatAlternative): NbtTag? {
+        val numberCursor = NumberCursor(text)
+        val negative = numberCursor.readSign()
         var whole: String? = null
         var fraction: String? = null
         var exponent: SignedNumeral? = null
         var suffix: Char? = null
 
-        when (alternative) {
+        when (floatAlternative) {
             FloatAlternative.WHOLE_AND_DOT -> {
-                whole = cursor.readNumeral { it in '0'..'9' || it == '_' } ?: return null
-                if (!cursor.consume('.')) return null
-                fraction = cursor.readNumeral { it in '0'..'9' || it == '_' }
-                exponent = cursor.readExponent()
-                suffix = cursor.readFloatSuffix()
+                whole = numberCursor.readNumeral { it in '0'..'9' || it == '_' } ?: return null
+                if (!numberCursor.consume('.')) return null
+                fraction = numberCursor.readNumeral { it in '0'..'9' || it == '_' }
+                exponent = numberCursor.readExponent()
+                suffix = numberCursor.readFloatSuffix()
             }
 
             FloatAlternative.DOT_AND_FRACTION -> {
-                if (!cursor.consume('.')) return null
-                fraction = cursor.readNumeral { it in '0'..'9' || it == '_' } ?: return null
-                exponent = cursor.readExponent()
-                suffix = cursor.readFloatSuffix()
+                if (!numberCursor.consume('.')) return null
+                fraction = numberCursor.readNumeral { it in '0'..'9' || it == '_' } ?: return null
+                exponent = numberCursor.readExponent()
+                suffix = numberCursor.readFloatSuffix()
             }
 
             FloatAlternative.WHOLE_AND_EXPONENT -> {
-                whole = cursor.readNumeral { it in '0'..'9' || it == '_' } ?: return null
-                exponent = cursor.readExponent() ?: return null
-                suffix = cursor.readFloatSuffix()
+                whole = numberCursor.readNumeral { it in '0'..'9' || it == '_' } ?: return null
+                exponent = numberCursor.readExponent() ?: return null
+                suffix = numberCursor.readFloatSuffix()
             }
 
             FloatAlternative.WHOLE_AND_SUFFIX -> {
-                whole = cursor.readNumeral { it in '0'..'9' || it == '_' } ?: return null
-                exponent = cursor.readExponent()
-                suffix = cursor.readFloatSuffix() ?: return null
+                whole = numberCursor.readNumeral { it in '0'..'9' || it == '_' } ?: return null
+                exponent = numberCursor.readExponent()
+                suffix = numberCursor.readFloatSuffix() ?: return null
             }
         }
 
-        cursor.skipWhitespace()
-        if (!cursor.exhausted()) return null
+        numberCursor.skipWhitespace()
+        if (!numberCursor.exhausted()) return null
         val number = buildString {
             if (negative) append('-')
             if (whole != null) append(whole.withoutUnderscores())
-            if (fraction != null || alternative == FloatAlternative.WHOLE_AND_DOT) {
+            if (fraction != null || floatAlternative == FloatAlternative.WHOLE_AND_DOT) {
                 append('.')
                 if (fraction != null) append(fraction.withoutUnderscores())
             }
@@ -541,14 +541,14 @@ private object SnbtNumberParser {
 
 private data class SnbtIntegerLiteral(
     val negative: Boolean,
-    val base: SnbtIntegerBase,
+    val snbtIntegerBase: SnbtIntegerBase,
     val digits: String,
-    val suffix: SnbtIntegerSuffix,
+    val snbtIntegerSuffix: SnbtIntegerSuffix,
 ) {
-    fun toTag(parser: SnbtParser): NbtTag {
-        val type = suffix.type ?: SnbtIntegerType.INT
-        val number = number(type, parser)
-        return when (type) {
+    fun toTag(snbtParser: SnbtParser): NbtTag {
+        val snbtIntegerType = snbtIntegerSuffix.snbtIntegerType ?: SnbtIntegerType.INT
+        val number = number(snbtIntegerType, snbtParser)
+        return when (snbtIntegerType) {
             SnbtIntegerType.BYTE -> NbtByte(number.toByte())
             SnbtIntegerType.SHORT -> NbtShort(number.toShort())
             SnbtIntegerType.INT -> NbtInt(number.toInt())
@@ -558,19 +558,19 @@ private data class SnbtIntegerLiteral(
 
     fun arrayNumber(
         defaultType: SnbtIntegerType,
-        parser: SnbtParser,
+        snbtParser: SnbtParser,
     ): Long {
-        val type = suffix.type ?: defaultType
-        if (type.ordinal > defaultType.ordinal) {
-            parser.fail("Invalid ${defaultType.name.lowercase()} array element type")
+        val snbtIntegerType = snbtIntegerSuffix.snbtIntegerType ?: defaultType
+        if (snbtIntegerType.ordinal > defaultType.ordinal) {
+            snbtParser.fail("Invalid ${defaultType.name.lowercase()} array element type")
         }
-        return number(type, parser)
+        return number(snbtIntegerType, snbtParser)
     }
 
-    private fun number(type: SnbtIntegerType, parser: SnbtParser): Long {
-        val signed = suffix.signed ?: (base == SnbtIntegerBase.DECIMAL)
-        if (!signed && negative) parser.fail("Unsigned SNBT integers cannot be negative")
-        val radix = when (base) {
+    private fun number(snbtIntegerType: SnbtIntegerType, snbtParser: SnbtParser): Long {
+        val signed = snbtIntegerSuffix.signed ?: (snbtIntegerBase == SnbtIntegerBase.DECIMAL)
+        if (!signed && negative) snbtParser.fail("Unsigned SNBT integers cannot be negative")
+        val radix = when (snbtIntegerBase) {
             SnbtIntegerBase.BINARY -> 2
             SnbtIntegerBase.DECIMAL -> 10
             SnbtIntegerBase.HEX -> 16
@@ -579,14 +579,14 @@ private data class SnbtIntegerLiteral(
         return try {
             if (signed) {
                 val text = if (negative) "-$cleanDigits" else cleanDigits
-                when (type) {
+                when (snbtIntegerType) {
                     SnbtIntegerType.BYTE -> text.toByte(radix).toLong()
                     SnbtIntegerType.SHORT -> text.toShort(radix).toLong()
                     SnbtIntegerType.INT -> text.toInt(radix).toLong()
                     SnbtIntegerType.LONG -> text.toLong(radix)
                 }
             } else {
-                when (type) {
+                when (snbtIntegerType) {
                     SnbtIntegerType.BYTE -> cleanDigits.toUByte(radix).toByte().toLong()
                     SnbtIntegerType.SHORT -> cleanDigits.toUShort(radix).toShort().toLong()
                     SnbtIntegerType.INT -> cleanDigits.toUInt(radix).toInt().toLong()
@@ -594,14 +594,14 @@ private data class SnbtIntegerLiteral(
                 }
             }
         } catch (_: IllegalArgumentException) {
-            parser.fail("SNBT integer '$digits' is out of range for ${type.name.lowercase()}")
+            snbtParser.fail("SNBT integer '$digits' is out of range for ${snbtIntegerType.name.lowercase()}")
         }
     }
 }
 
 private data class SnbtIntegerSuffix(
     val signed: Boolean?,
-    val type: SnbtIntegerType?,
+    val snbtIntegerType: SnbtIntegerType?,
 ) {
     companion object {
         val NONE = SnbtIntegerSuffix(null, null)
@@ -698,21 +698,21 @@ private class NumberCursor(
         }
         if (first == 'u' || first == 's') {
             position++
-            val type = readIntegerTypeCharacter()
-            if (type != null) return SnbtIntegerSuffix(first == 's', type)
+            val snbtIntegerType = readIntegerTypeCharacter()
+            if (snbtIntegerType != null) return SnbtIntegerSuffix(first == 's', snbtIntegerType)
             position = start
             if (first == 'u') return SnbtIntegerSuffix.NONE
         }
 
-        val type = readIntegerTypeCharacter()
-        if (type != null) return SnbtIntegerSuffix(null, type)
+        val snbtIntegerType = readIntegerTypeCharacter()
+        if (snbtIntegerType != null) return SnbtIntegerSuffix(null, snbtIntegerType)
         position = start
         return SnbtIntegerSuffix.NONE
     }
 
     private fun readIntegerTypeCharacter(): SnbtIntegerType? {
         skipWhitespace()
-        val type = when (peek()?.lowercaseChar()) {
+        val snbtIntegerType = when (peek()?.lowercaseChar()) {
             'b' -> SnbtIntegerType.BYTE
             's' -> SnbtIntegerType.SHORT
             'i' -> SnbtIntegerType.INT
@@ -720,7 +720,7 @@ private class NumberCursor(
             else -> return null
         }
         position++
-        return type
+        return snbtIntegerType
     }
 }
 

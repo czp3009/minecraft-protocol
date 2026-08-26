@@ -35,29 +35,29 @@ object ForgeLoginQueries {
         request: UnknownPacket.Clientbound,
         data: ByteString,
     ): UnknownPacket.Serverbound {
-        val route = request.route as? PacketRoute.LoginQuery
+        val loginQuery = request.packetRoute as? PacketRoute.LoginQuery
             ?: throw IllegalArgumentException("Forge Login response requires a Login query")
         return UnknownPacket.Serverbound(
             PacketRoute.LoginQuery(
                 PacketDirection.SERVERBOUND,
-                route.transactionId,
-                route.channel,
+                loginQuery.transactionId,
+                loginQuery.channel,
                 hasPayload = true,
             ),
-            wrap(route.channel, data),
+            wrap(loginQuery.channel, data),
         )
     }
 
     fun unsupported(
         request: UnknownPacket.Clientbound,
     ): UnknownPacket.Serverbound {
-        val route = request.route as? PacketRoute.LoginQuery
+        val loginQuery = request.packetRoute as? PacketRoute.LoginQuery
             ?: throw IllegalArgumentException("Forge Login response requires a Login query")
         return UnknownPacket.Serverbound(
             PacketRoute.LoginQuery(
                 PacketDirection.SERVERBOUND,
-                route.transactionId,
-                route.channel,
+                loginQuery.transactionId,
+                loginQuery.channel,
                 hasPayload = false,
             ),
             ByteString(byteArrayOf()),
@@ -65,18 +65,18 @@ object ForgeLoginQueries {
     }
 
     fun unwrap(response: UnknownPacket.Serverbound): ForgeLoginQueryPayload? {
-        val route = response.route as? PacketRoute.LoginQuery
+        val loginQuery = response.packetRoute as? PacketRoute.LoginQuery
             ?: throw IllegalArgumentException("Forge Login wrapper requires a Login query")
-        if (!route.hasPayload) return null
-        val wrapper = MinecraftProtocolFormat.Default.decodeFromByteArray<ForgeLoginWrapperWire>(
+        if (!loginQuery.hasPayload) return null
+        val forgeLoginWrapperWire = MinecraftProtocolFormat.Default.decodeFromByteArray<ForgeLoginWrapperWire>(
             response.data.toByteArray(),
         )
-        if (wrapper.channel != route.channel) {
+        if (forgeLoginWrapperWire.channel != loginQuery.channel) {
             throw MinecraftSerializationException(
-                "Forge Login wrapper uses ${wrapper.channel}, but transaction ${route.transactionId} belongs to ${route.channel}",
+                "Forge Login wrapper uses ${forgeLoginWrapperWire.channel}, but transaction ${loginQuery.transactionId} belongs to ${loginQuery.channel}",
             )
         }
-        return ForgeLoginQueryPayload(wrapper.channel, wrapper.data)
+        return ForgeLoginQueryPayload(forgeLoginWrapperWire.channel, forgeLoginWrapperWire.data)
     }
 
     fun wrap(channel: Identifier, data: ByteString): ByteString = ByteString(

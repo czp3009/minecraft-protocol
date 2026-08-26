@@ -7,13 +7,13 @@ import kotlinx.serialization.json.Json
 
 /** A successful conditional response with the exact headers needed for caller-owned cache and timing policy. */
 data class MinecraftConditionalResponse<T>(
-    val status: HttpStatusCode,
+    val httpStatusCode: HttpStatusCode,
     val body: T?,
     val etag: String?,
     val retryAfter: String?,
 ) {
     val isNotModified: Boolean
-        get() = status == HttpStatusCode.NotModified
+        get() = httpStatusCode == HttpStatusCode.NotModified
 }
 
 internal val MinecraftServiceJson = Json {
@@ -22,7 +22,7 @@ internal val MinecraftServiceJson = Json {
 
 internal suspend inline fun <reified SuccessBody, reified ErrorBody> HttpResponse.decodeOptionalServiceResponse(
     createFailure: (
-        response: HttpResponse,
+        httpResponse: HttpResponse,
         responseBody: String,
         parsedErrorBody: ErrorBody,
     ) -> ResponseException,
@@ -37,7 +37,7 @@ internal suspend inline fun <reified SuccessBody, reified ErrorBody> HttpRespons
 internal suspend inline fun <reified SuccessBody, reified ErrorBody> HttpResponse.decodeConditionalServiceResponse(
     requestEtag: String?,
     createFailure: (
-        response: HttpResponse,
+        httpResponse: HttpResponse,
         responseBody: String,
         parsedErrorBody: ErrorBody,
     ) -> ResponseException,
@@ -46,14 +46,14 @@ internal suspend inline fun <reified SuccessBody, reified ErrorBody> HttpRespons
     if (status != HttpStatusCode.NotModified && !status.isSuccess()) {
         throw createFailure(this, responseBody, MinecraftServiceJson.decodeFromString<ErrorBody>(responseBody))
     }
-    val body: SuccessBody? = if (status == HttpStatusCode.NotModified || responseBody.isEmpty()) {
+    val successBody: SuccessBody? = if (status == HttpStatusCode.NotModified || responseBody.isEmpty()) {
         null
     } else {
         MinecraftServiceJson.decodeFromString<SuccessBody>(responseBody)
     }
     return MinecraftConditionalResponse(
-        status = status,
-        body = body,
+        httpStatusCode = status,
+        body = successBody,
         etag = headers[HttpHeaders.ETag] ?: requestEtag.takeIf { status == HttpStatusCode.NotModified },
         retryAfter = headers[HttpHeaders.RetryAfter],
     )

@@ -12,14 +12,14 @@ import com.hiczp.minecraft.protocol.model.type.KnownPack
 /** Application decisions used only while one preset negotiation is running. */
 interface MinecraftServerNegotiationPolicy {
     suspend fun statusJson(
-        options: MinecraftServerNegotiationOptions,
+        minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
         onlineMode: Boolean,
-    ): String = options.statusJson(onlineMode = onlineMode)
+    ): String = minecraftServerNegotiationOptions.statusJson(onlineMode = onlineMode)
 
     suspend fun profileRejection(
         gameProfile: GameProfile,
         transferred: Boolean,
-        options: MinecraftServerNegotiationOptions,
+        minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
     ): JsonTextComponent? = null
 
     suspend fun createPlayLoginPacket(
@@ -27,15 +27,15 @@ interface MinecraftServerNegotiationPolicy {
         clientInformation: ClientInformation,
         transferred: Boolean,
         onlineMode: Boolean,
-        options: MinecraftServerNegotiationOptions,
-    ): PlayLoginPacket = options.createPlayLoginPacket(gameProfile, onlineMode)
+        minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
+    ): PlayLoginPacket = minecraftServerNegotiationOptions.createPlayLoginPacket(gameProfile, onlineMode)
 
     suspend fun configurationPackets(
         gameProfile: GameProfile,
         clientInformation: ClientInformation,
         acceptedKnownPacks: List<KnownPack>,
         transferred: Boolean,
-        options: MinecraftServerNegotiationOptions,
+        minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
     ): List<ClientboundPacket> = emptyList()
 
     suspend fun configurationTasks(
@@ -43,7 +43,7 @@ interface MinecraftServerNegotiationPolicy {
         clientInformation: ClientInformation,
         acceptedKnownPacks: List<KnownPack>,
         transferred: Boolean,
-        options: MinecraftServerNegotiationOptions,
+        minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
     ): List<MinecraftServerNegotiationTask> = emptyList()
 
     suspend fun onUnhandledQuery(
@@ -72,6 +72,6 @@ class MinecraftServerNegotiationTask(
 ) {
     val clientboundPackets: List<ClientboundPacket> = clientboundPackets.toList()
 
-    suspend fun isComplete(packet: ServerboundPacket): Boolean =
-        completion(packet)
+    suspend fun isComplete(serverboundPacket: ServerboundPacket): Boolean =
+        completion(serverboundPacket)
 }

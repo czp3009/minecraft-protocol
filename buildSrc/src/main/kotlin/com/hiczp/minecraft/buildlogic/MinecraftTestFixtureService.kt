@@ -43,7 +43,7 @@ abstract class MinecraftTestFixtureService :
 
     private val lock = Any()
     private val ownersByTask = mutableMapOf<String, String>()
-    private var host: RunningFixtureHost? = null
+    private var runningFixtureHost: RunningFixtureHost? = null
     private var acceptingConnections = true
 
     fun connectionFor(taskPath: String): MinecraftTestFixtureConnection =
@@ -51,31 +51,31 @@ abstract class MinecraftTestFixtureService :
             check(acceptingConnections) {
                 "Minecraft test fixture service is shutting down"
             }
-            val runningHost = host ?: startHost().also { host = it }
-            runningHost.requireAvailable()
+            val runningFixtureHost = runningFixtureHost ?: startHost().also { runningFixtureHost = it }
+            runningFixtureHost.requireAvailable()
             val ownerId = ownersByTask.getOrPut(taskPath) { UUID.randomUUID().toString() }
             MinecraftTestFixtureConnection(
-                rpcUrl = runningHost.rpcUrl,
+                rpcUrl = runningFixtureHost.rpcUrl,
                 ownerId = ownerId,
             )
         }
 
     override fun onFinish(finishEvent: FinishEvent) {
-        val task = finishEvent as? TaskFinishEvent ?: return
+        val taskFinishEvent = finishEvent as? TaskFinishEvent ?: return
         val ownerIdAndHost = synchronized(lock) {
-            val ownerId = ownersByTask.remove(task.descriptor.taskPath) ?: return
-            ownerId to host
+            val ownerId = ownersByTask.remove(taskFinishEvent.descriptor.taskPath) ?: return
+            ownerId to runningFixtureHost
         }
         ownerIdAndHost.second?.closeOwner(ownerIdAndHost.first)
     }
 
     override fun close() {
-        val runningHost = synchronized(lock) {
+        val runningFixtureHost = synchronized(lock) {
             acceptingConnections = false
             ownersByTask.clear()
-            host.also { host = null }
+            runningFixtureHost.also { runningFixtureHost = null }
         }
-        runningHost?.close()
+        runningFixtureHost?.close()
     }
 
     private fun startHost(): RunningFixtureHost {
@@ -115,7 +115,7 @@ abstract class MinecraftTestFixtureService :
         val input = process.outputStream.bufferedWriter()
 
         val ready = CountDownLatch(1)
-        val output = BoundedOutput(HOST_LOG_LIMIT)
+        val boundedOutput = BoundedOutput(HOST_LOG_LIMIT)
         val outputReaderFailure = AtomicReference<Throwable?>()
         val outputEnded = AtomicBoolean()
         val rpcUrl = AtomicReference<String?>()
@@ -123,7 +123,7 @@ abstract class MinecraftTestFixtureService :
             try {
                 process.inputStream.bufferedReader().useLines { lines ->
                     lines.forEach { line ->
-                        output.append(line)
+                        boundedOutput.append(line)
                         if (line.startsWith(READY_PREFIX)) {
                             rpcUrl.compareAndSet(
                                 null,
@@ -148,7 +148,7 @@ abstract class MinecraftTestFixtureService :
             failFixtureHostStart(
                 process = process,
                 input = input,
-                output = output,
+                boundedOutput = boundedOutput,
                 hostWorkRoot = hostWorkRoot,
                 message = "Minecraft test fixture host did not become ready within $HOST_START_TIMEOUT_SECONDS seconds",
                 cause = outputReaderFailure.get(),
@@ -165,7 +165,7 @@ abstract class MinecraftTestFixtureService :
             failFixtureHostStart(
                 process = process,
                 input = input,
-                output = output,
+                boundedOutput = boundedOutput,
                 hostWorkRoot = hostWorkRoot,
                 message = if (readerFailure != null) {
                     "Minecraft test fixture host output reader failed before readiness"
@@ -178,7 +178,7 @@ abstract class MinecraftTestFixtureService :
         return RunningFixtureHost(
             process = process,
             input = input,
-            output = output,
+            boundedOutput = boundedOutput,
             outputEnded = outputEnded,
             outputReaderFailure = outputReaderFailure,
             rpcUrl = resolvedRpcUrl,
@@ -193,7 +193,7 @@ class MinecraftTestFixtureInfrastructure(
 )
 
 fun Project.applyMinecraftTestFixtureServiceConvention(
-    fixtureOutputs: MinecraftTestFixtureOutputs,
+    minecraftTestFixtureOutputs: MinecraftTestFixtureOutputs,
 ): MinecraftTestFixtureInfrastructure {
     check(this == rootProject) {
         "Minecraft test fixture service must be registered on the root project"
@@ -247,16 +247,16 @@ fun Project.applyMinecraftTestFixtureServiceConvention(
             MinecraftTarget.MINECRAFT_VERSION,
         )
         registration.parameters.officialServerRootDirectory.set(
-            fixtureOutputs.officialServerRootDirectory,
+            minecraftTestFixtureOutputs.officialServerRootDirectory,
         )
         registration.parameters.headlessClientRootDirectory.set(
-            fixtureOutputs.headlessClientRootDirectory,
+            minecraftTestFixtureOutputs.headlessClientRootDirectory,
         )
         registration.parameters.serverRuntimeDirectory.set(
-            fixtureOutputs.serverRuntimeDirectory,
+            minecraftTestFixtureOutputs.serverRuntimeDirectory,
         )
         registration.parameters.codecClassesDirectory.set(
-            fixtureOutputs.codecClassesDirectory,
+            minecraftTestFixtureOutputs.codecClassesDirectory,
         )
         registration.parameters.fixtureWorkRoot.set(
             layout.buildDirectory.dir("minecraft-test-support"),
@@ -267,26 +267,26 @@ fun Project.applyMinecraftTestFixtureServiceConvention(
     }
     objects.newInstance(MinecraftTestFixtureEventRegistrar::class.java)
         .register(service)
-    val infrastructure = MinecraftTestFixtureInfrastructure(
+    val minecraftTestFixtureInfrastructure = MinecraftTestFixtureInfrastructure(
         service = service,
         hostClasspath = preparedHostRuntime,
     )
-    extensions.add("minecraftTestFixtureInfrastructure", infrastructure)
-    return infrastructure
+    extensions.add("minecraftTestFixtureInfrastructure", minecraftTestFixtureInfrastructure)
+    return minecraftTestFixtureInfrastructure
 }
 
 private abstract class MinecraftTestFixtureEventRegistrar @Inject constructor(
-    private val events: BuildEventsListenerRegistry,
+    private val buildEventsListenerRegistry: BuildEventsListenerRegistry,
 ) {
     fun register(service: Provider<MinecraftTestFixtureService>) {
-        events.onTaskCompletion(service)
+        buildEventsListenerRegistry.onTaskCompletion(service)
     }
 }
 
 private class RunningFixtureHost(
     private val process: Process,
     private val input: BufferedWriter,
-    private val output: BoundedOutput,
+    private val boundedOutput: BoundedOutput,
     private val outputEnded: AtomicBoolean,
     private val outputReaderFailure: AtomicReference<Throwable?>,
     val rpcUrl: String,
@@ -298,7 +298,7 @@ private class RunningFixtureHost(
         val readerFailure = outputReaderFailure.get()
         if (!process.isAlive || outputEnded.get() || readerFailure != null) {
             throw IllegalStateException(
-                "Minecraft test fixture host is unavailable:\n${output.text()}",
+                "Minecraft test fixture host is unavailable:\n${boundedOutput.text()}",
                 readerFailure,
             )
         }
@@ -369,7 +369,7 @@ private class RunningFixtureHost(
                         HOST_FORCED_SHUTDOWN_TIMEOUT_SECONDS,
                     ),
                 ) {
-                    "Minecraft test fixture host process tree did not exit:\n${output.text()}"
+                    "Minecraft test fixture host process tree did not exit:\n${boundedOutput.text()}"
                 }
             } catch (failure: Throwable) {
                 closeFailure?.addSuppressed(failure)
@@ -389,12 +389,12 @@ private class RunningFixtureHost(
 private fun failFixtureHostStart(
     process: Process,
     input: BufferedWriter,
-    output: BoundedOutput,
+    boundedOutput: BoundedOutput,
     hostWorkRoot: File,
     message: String,
     cause: Throwable?,
 ): Nothing {
-    val failure = IllegalStateException("$message:\n${output.text()}", cause)
+    val failure = IllegalStateException("$message:\n${boundedOutput.text()}", cause)
     val observedProcesses = linkedMapOf<Long, ProcessHandle>()
     runCatching { input.close() }
         .onFailure(failure::addSuppressed)

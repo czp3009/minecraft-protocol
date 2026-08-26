@@ -10,13 +10,13 @@ data class BlockPosition(
     val y: Int,
     val z: Int,
 ) {
-    val chunk: ChunkPosition
+    val chunkPosition: ChunkPosition
         get() = MinecraftCoordinates.chunk(this)
 
-    val region: RegionPosition
+    val regionPosition: RegionPosition
         get() = MinecraftCoordinates.region(this)
 
-    val section: SectionPosition
+    val sectionPosition: SectionPosition
         get() = MinecraftCoordinates.section(this)
 
     val localInChunk: ChunkBlockPosition
@@ -72,10 +72,10 @@ data class SectionPosition(
     val y: Int,
     val z: Int,
 ) {
-    val chunk: ChunkPosition
+    val chunkPosition: ChunkPosition
         get() = MinecraftCoordinates.chunk(this)
 
-    val region: RegionPosition
+    val regionPosition: RegionPosition
         get() = MinecraftCoordinates.region(this)
 
     val blockXRange: IntRange
@@ -87,12 +87,12 @@ data class SectionPosition(
     val blockZRange: IntRange
         get() = MinecraftCoordinates.blockZRange(this)
 
-    operator fun contains(position: BlockPosition): Boolean = position.section == this
+    operator fun contains(blockPosition: BlockPosition): Boolean = blockPosition.sectionPosition == this
 
     /** Converts an absolute block position in this Section to Section-local coordinates. */
-    fun local(position: BlockPosition): LocalBlockPosition = MinecraftCoordinates.local(position, this)
+    fun local(blockPosition: BlockPosition): LocalBlockPosition = MinecraftCoordinates.local(blockPosition, this)
 
-    fun block(local: LocalBlockPosition): BlockPosition = MinecraftCoordinates.block(this, local)
+    fun block(localBlockPosition: LocalBlockPosition): BlockPosition = MinecraftCoordinates.block(this, localBlockPosition)
 
     /** Every absolute Block position in this Section, in palette-index order. */
     fun blockPositions(): Sequence<BlockPosition> = MinecraftCoordinates.blockPositions(this)
@@ -105,10 +105,10 @@ data class ChunkPosition(
     val x: Int,
     val z: Int,
 ) {
-    val region: RegionPosition
+    val regionPosition: RegionPosition
         get() = MinecraftCoordinates.region(this)
 
-    val local: LocalChunkPosition
+    val localChunkPosition: LocalChunkPosition
         get() = MinecraftCoordinates.localChunk(this)
 
     val blockXRange: IntRange
@@ -117,18 +117,18 @@ data class ChunkPosition(
     val blockZRange: IntRange
         get() = MinecraftCoordinates.blockZRange(this)
 
-    operator fun contains(position: BlockPosition): Boolean = position.chunk == this
+    operator fun contains(blockPosition: BlockPosition): Boolean = blockPosition.chunkPosition == this
 
-    operator fun contains(position: SectionPosition): Boolean = position.chunk == this
+    operator fun contains(sectionPosition: SectionPosition): Boolean = sectionPosition.chunkPosition == this
 
     /** Converts an absolute block position in this Chunk to local X/Z plus absolute Y. */
-    fun local(position: BlockPosition): ChunkBlockPosition = MinecraftCoordinates.local(position, this)
+    fun local(blockPosition: BlockPosition): ChunkBlockPosition = MinecraftCoordinates.local(blockPosition, this)
 
     fun section(sectionY: Int): SectionPosition = MinecraftCoordinates.section(this, sectionY)
 
-    fun section(position: ChunkBlockPosition): SectionPosition = section(position.sectionY)
+    fun section(chunkBlockPosition: ChunkBlockPosition): SectionPosition = section(chunkBlockPosition.sectionY)
 
-    fun block(position: ChunkBlockPosition): BlockPosition = MinecraftCoordinates.block(this, position)
+    fun block(chunkBlockPosition: ChunkBlockPosition): BlockPosition = MinecraftCoordinates.block(this, chunkBlockPosition)
 
     fun block(localX: Int, y: Int, localZ: Int): BlockPosition =
         block(ChunkBlockPosition(localX, y, localZ))
@@ -157,14 +157,14 @@ data class RegionPosition(
     val blockZRange: IntRange
         get() = MinecraftCoordinates.blockZRange(this)
 
-    /** Returns whether [position] belongs to this 32 by 32 Region. */
-    operator fun contains(position: ChunkPosition): Boolean = position.region == this
+    /** Returns whether [chunkPosition] belongs to this 32 by 32 Region. */
+    operator fun contains(chunkPosition: ChunkPosition): Boolean = chunkPosition.regionPosition == this
 
-    /** Converts an absolute [position] in this Region to its Region-local coordinates. */
-    fun local(position: ChunkPosition): LocalChunkPosition = MinecraftCoordinates.local(position, this)
+    /** Converts an absolute [chunkPosition] in this Region to its Region-local coordinates. */
+    fun local(chunkPosition: ChunkPosition): LocalChunkPosition = MinecraftCoordinates.local(chunkPosition, this)
 
     /** Converts Region-local coordinates to an absolute Chunk position. */
-    fun chunk(local: LocalChunkPosition): ChunkPosition = MinecraftCoordinates.chunk(this, local)
+    fun chunk(localChunkPosition: LocalChunkPosition): ChunkPosition = MinecraftCoordinates.chunk(this, localChunkPosition)
 
     /**
      * All absolute chunk positions covered by this region, in Anvil header-index order.
@@ -255,12 +255,12 @@ enum class AnvilChunkPlacement {
 data class AnvilChunkRecord(
     val compression: Compression,
     val content: CompressedChunk?,
-    val placement: AnvilChunkPlacement,
+    val anvilChunkPlacement: AnvilChunkPlacement,
     /** Raw signed 32-bit seconds-since-epoch value stored in the header. */
     val timestampEpochSeconds: Int = 0,
 ) {
     init {
-        require(placement == AnvilChunkPlacement.EXTERNAL || content != null) {
+        require(anvilChunkPlacement == AnvilChunkPlacement.EXTERNAL || content != null) {
             "An inline Anvil Chunk record must contain its compressed payload"
         }
         require(content == null || content.compression == compression) {
@@ -271,7 +271,7 @@ data class AnvilChunkRecord(
 
 /** A local position paired with positionless compressed content for a Region write. */
 data class RegionChunkInput(
-    val position: LocalChunkPosition,
+    val localChunkPosition: LocalChunkPosition,
     val content: CompressedChunkInput,
 )
 
@@ -285,10 +285,10 @@ class AnvilRegion(
         require(this.chunks.size <= REGION_CHUNK_COUNT)
     }
 
-    /** Whether this detached Region contains a Chunk record at [position], without inspecting its payload. */
-    fun hasChunk(position: LocalChunkPosition): Boolean = chunks.containsKey(position)
+    /** Whether this detached Region contains a Chunk record at [localChunkPosition], without inspecting its payload. */
+    fun hasChunk(localChunkPosition: LocalChunkPosition): Boolean = chunks.containsKey(localChunkPosition)
 
-    operator fun get(position: LocalChunkPosition): AnvilChunkRecord? = chunks[position]
+    operator fun get(localChunkPosition: LocalChunkPosition): AnvilChunkRecord? = chunks[localChunkPosition]
 
     override fun equals(other: Any?): Boolean = other is AnvilRegion && chunks == other.chunks
 
@@ -337,9 +337,9 @@ class EncodedAnvilRegion private constructor(
         sink.write(encodedBytes)
     }
 
-    /** Writes one encoded `.mcc` payload, returning false when [position] is not external. */
-    fun writeExternalChunkTo(position: LocalChunkPosition, sink: Sink): Boolean {
-        val payload = encodedExternalChunks[position] ?: return false
+    /** Writes one encoded `.mcc` payload, returning false when [localChunkPosition] is not external. */
+    fun writeExternalChunkTo(localChunkPosition: LocalChunkPosition, sink: Sink): Boolean {
+        val payload = encodedExternalChunks[localChunkPosition] ?: return false
         sink.write(payload)
         return true
     }
@@ -356,8 +356,8 @@ class EncodedAnvilRegion private constructor(
         var result = encodedBytes.contentHashCode()
         encodedExternalChunks.entries
             .sortedBy { it.key.index }
-            .forEach { (position, value) ->
-                result = 31 * result + position.hashCode()
+            .forEach { (localChunkPosition, value) ->
+                result = 31 * result + localChunkPosition.hashCode()
                 result = 31 * result + value.contentHashCode()
             }
         return result

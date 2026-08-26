@@ -38,7 +38,7 @@ class PlayCommonPacketTest {
             ),
         )
 
-        val suggestions = ChatSuggestionsPacket(
+        val chatSuggestionsPacket = ChatSuggestionsPacket(
             ChatSuggestionsAction.SET,
             listOf("one", "two"),
         )
@@ -46,11 +46,11 @@ class PlayCommonPacketTest {
         assertContentEquals(
             suggestionsBytes,
             MinecraftProtocolFormat.encodeToByteArray(
-                suggestions,
+                chatSuggestionsPacket,
             ),
         )
         assertEquals(
-            suggestions,
+            chatSuggestionsPacket,
             MinecraftProtocolFormat.decodeFromByteArray<ChatSuggestionsPacket>(
                 suggestionsBytes,
             ),

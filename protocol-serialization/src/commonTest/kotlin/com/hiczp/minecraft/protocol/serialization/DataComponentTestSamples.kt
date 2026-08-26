@@ -14,23 +14,23 @@ import kotlin.test.assertTrue
 
 internal data class NamedDataComponentSample(
     val name: String,
-    val type: DataComponentType,
+    val dataComponentType: DataComponentType,
     val value: DataComponent,
 )
 
 internal fun dataComponentTestSamples(): List<NamedDataComponentSample> =
     buildList {
-        for (type in DataComponentType.entries) {
-            val serializer = serializerForDataComponentType(type)
-            for (profile in ProtocolSampleProfile.entries) {
-                val value = runCatching {
-                    serializer.protocolValue(profile)
+        for (dataComponentType in DataComponentType.entries) {
+            val kSerializer = serializerForDataComponentType(dataComponentType)
+            for (protocolSampleProfile in ProtocolSampleProfile.entries) {
+                val dataComponent = runCatching {
+                    kSerializer.protocolValue(protocolSampleProfile)
                 }.getOrNull() ?: continue
                 add(
                     NamedDataComponentSample(
-                        name = "${type.wireName.substringAfter(':')}-${profile.name.lowercase()}",
-                        type = type,
-                        value = value,
+                        name = "${dataComponentType.wireName.substringAfter(':')}-${protocolSampleProfile.name.lowercase()}",
+                        dataComponentType = dataComponentType,
+                        value = dataComponent,
                     ),
                 )
             }
@@ -42,27 +42,27 @@ class DataComponentSerializationTest {
     fun `every registered data component has an executable network sample`() {
         val samples = dataComponentTestSamples()
         val expectedTypes = DataComponentType.entries.toSet()
-        assertEquals(expectedTypes, samples.map { it.type }.toSet())
+        assertEquals(expectedTypes, samples.map { it.dataComponentType }.toSet())
 
-        val samplesByType = samples.groupingBy { it.type }.eachCount()
+        val samplesByType = samples.groupingBy { it.dataComponentType }.eachCount()
         assertTrue(samplesByType.values.all { it > 0 })
 
-        for (sample in samples) {
-            val stack = ItemStack.of(
+        for (namedDataComponentSample in samples) {
+            val itemStack = ItemStack.of(
                 itemId = 1,
                 components = DataComponentPatch(
-                    added = listOf(sample.value),
+                    added = listOf(namedDataComponentSample.value),
                 ),
             )
-            val bytes = MinecraftProtocolFormat.encodeToByteArray(
-                stack,
+            val byteArray = MinecraftProtocolFormat.encodeToByteArray(
+                itemStack,
             )
             assertEquals(
-                stack,
+                itemStack,
                 MinecraftProtocolFormat.decodeFromByteArray<ItemStack>(
-                    bytes,
+                    byteArray,
                 ),
-                sample.name,
+                namedDataComponentSample.name,
             )
         }
     }
@@ -70,7 +70,7 @@ class DataComponentSerializationTest {
 
 @Suppress("UNCHECKED_CAST")
 private fun serializerForDataComponentType(
-    type: DataComponentType,
+    dataComponentType: DataComponentType,
 ): KSerializer<DataComponent> =
-    GeneratedDataComponentSerializers.serializer(type) as
+    GeneratedDataComponentSerializers.serializer(dataComponentType) as
             KSerializer<DataComponent>

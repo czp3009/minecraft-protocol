@@ -247,7 +247,7 @@ wire 数据可采用每 Chunk palette + 256 个 row-major palette index，避免
 一次视口请求按以下顺序执行：
 
 1. 解析和规范化包含两端的 Chunk 范围。
-2. 生成所有 `ChunkPosition`，并通过其 `region` 分组，以便定位文件和记录诊断信息。
+2. 生成所有 `ChunkPosition`，并通过其 `regionPosition` 分组，以便定位文件和记录诊断信息。
 3. 对每个位置调用对应 `LiveRegionHandle.readChunk(position, codec)`；第一版即使相邻位置属于同一 Region，也保留当前逐调用
    打开和关闭物理文件的行为。
 4. `null` 表示不存在，不向结果列表加入条目。

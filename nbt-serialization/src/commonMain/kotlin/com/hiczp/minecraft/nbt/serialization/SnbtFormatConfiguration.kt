@@ -15,7 +15,7 @@ fun interface SnbtUnicodeNameResolver {
  * The Kotlin Multiplatform standard library has no Unicode character-name
  * database. Numeric `\x`, `\u`, and `\U` escapes work without configuration;
  * callers that need the official `\N{name}` extension can supply
- * [unicodeNameResolver]. The writer never emits name escapes.
+ * [snbtUnicodeNameResolver]. The writer never emits name escapes.
  */
 data class SnbtFormatConfiguration(
     val serializersModule: SerializersModule = EmptySerializersModule(),
@@ -23,7 +23,7 @@ data class SnbtFormatConfiguration(
     val ignoreUnknownKeys: Boolean = false,
     val strictBooleans: Boolean = true,
     val sortCompoundKeys: Boolean = true,
-    val unicodeNameResolver: SnbtUnicodeNameResolver? = null,
+    val snbtUnicodeNameResolver: SnbtUnicodeNameResolver? = null,
 )
 
 internal fun SnbtFormatConfiguration.treeConfiguration(): NbtFormatConfiguration =

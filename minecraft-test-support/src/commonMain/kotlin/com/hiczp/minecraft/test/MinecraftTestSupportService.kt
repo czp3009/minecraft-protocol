@@ -9,64 +9,64 @@ import kotlin.time.Duration
 interface MinecraftTestSupportService {
     suspend fun newOfficialServer(
         ownerId: String,
-        configuration: OfficialMinecraftServerConfiguration,
+        officialMinecraftServerConfiguration: OfficialMinecraftServerConfiguration,
     ): OfficialMinecraftServer
 
     suspend fun newHeadlessClient(
         ownerId: String,
-        configuration: HeadlessMinecraftClientConfiguration,
+        headlessMinecraftClientConfiguration: HeadlessMinecraftClientConfiguration,
     ): HeadlessMinecraftClient
 
     suspend fun connectHeadlessClient(
-        client: HeadlessMinecraftClient,
-        endpoint: MinecraftTestEndpoint,
+        headlessMinecraftClient: HeadlessMinecraftClient,
+        minecraftTestEndpoint: MinecraftTestEndpoint,
     ): HeadlessMinecraftClientState
 
     suspend fun headlessClientState(
-        client: HeadlessMinecraftClient,
+        headlessMinecraftClient: HeadlessMinecraftClient,
     ): HeadlessMinecraftClientState
 
-    suspend fun disconnectHeadlessClient(client: HeadlessMinecraftClient)
+    suspend fun disconnectHeadlessClient(headlessMinecraftClient: HeadlessMinecraftClient)
 
     suspend fun sendHeadlessClientCommand(
-        client: HeadlessMinecraftClient,
+        headlessMinecraftClient: HeadlessMinecraftClient,
         command: String,
         expectedNewOutput: String?,
         timeout: Duration,
     )
 
     suspend fun status(
-        resource: MinecraftTestResource,
+        minecraftTestResource: MinecraftTestResource,
     ): MinecraftTestResourceStatus
 
-    suspend fun logText(resource: MinecraftTestResource): String
+    suspend fun logText(minecraftTestResource: MinecraftTestResource): String
 
     suspend fun waitForLog(
-        resource: MinecraftTestResource,
+        minecraftTestResource: MinecraftTestResource,
         marker: String,
         timeout: Duration,
     )
 
     suspend fun sendCommand(
-        server: OfficialMinecraftServer,
+        officialMinecraftServer: OfficialMinecraftServer,
         command: String,
         expectedNewOutput: String?,
         timeout: Duration,
     )
 
     suspend fun restartServer(
-        server: OfficialMinecraftServer,
+        officialMinecraftServer: OfficialMinecraftServer,
     ): OfficialMinecraftServer
 
-    suspend fun closeProcess(resource: MinecraftTestResource): Int
+    suspend fun closeProcess(minecraftTestResource: MinecraftTestResource): Int
 
-    suspend fun awaitExit(resource: MinecraftTestResource): Int
+    suspend fun awaitExit(minecraftTestResource: MinecraftTestResource): Int
 
-    suspend fun hostWorkingDirectory(resource: MinecraftTestResource): String
+    suspend fun hostWorkingDirectory(minecraftTestResource: MinecraftTestResource): String
 
-    suspend fun deleteWorkingDirectory(resource: MinecraftTestResource)
+    suspend fun deleteWorkingDirectory(minecraftTestResource: MinecraftTestResource)
 
-    suspend fun close(resource: MinecraftTestResource)
+    suspend fun close(minecraftTestResource: MinecraftTestResource)
 
     suspend fun verifyOfficialCodec(fixtures: JsonElement)
 

@@ -37,35 +37,35 @@ class RegionPrimitivesTest {
 
     @Test
     fun headerRoundTripsEveryEntryAndUsesBigEndianIntegers() {
-        val header = RegionHeader()
+        val regionHeader = RegionHeader()
         for (index in 0 until REGION_CHUNK_COUNT) {
-            val position = LocalChunkPosition.fromIndex(index)
-            header.set(
-                position = position,
-                location = RegionLocation(index + 2, index % 255 + 1),
+            val localChunkPosition = LocalChunkPosition.fromIndex(index)
+            regionHeader.set(
+                localChunkPosition = localChunkPosition,
+                regionLocation = RegionLocation(index + 2, index % 255 + 1),
                 timestamp = index * 31,
             )
         }
 
-        val bytes = header.encode()
-        assertEquals(REGION_HEADER_BYTES, bytes.size)
+        val byteArray = regionHeader.encode()
+        assertEquals(REGION_HEADER_BYTES, byteArray.size)
         assertContentEquals(
             byteArrayOf(0, 0, 2, 1),
-            bytes.copyOfRange(0, Int.SIZE_BYTES),
+            byteArray.copyOfRange(0, Int.SIZE_BYTES),
         )
-        assertEquals(header, RegionHeader.decode(bytes))
+        assertEquals(regionHeader, RegionHeader.decode(byteArray))
     }
 
     @Test
     fun shortHeaderTreatsItsMissingSuffixAsZero() {
-        val header = RegionHeader.decode(byteArrayOf(0, 0, 2, 1))
+        val regionHeader = RegionHeader.decode(byteArrayOf(0, 0, 2, 1))
 
         assertEquals(
             RegionLocation(sectorOffset = 2, sectorCount = 1),
-            header.location(LocalChunkPosition(0, 0)),
+            regionHeader.location(LocalChunkPosition(0, 0)),
         )
-        assertNull(header.location(LocalChunkPosition(1, 0)))
-        assertEquals(0, header.timestamp(LocalChunkPosition(0, 0)))
+        assertNull(regionHeader.location(LocalChunkPosition(1, 0)))
+        assertEquals(0, regionHeader.timestamp(LocalChunkPosition(0, 0)))
         assertFailsWith<IllegalArgumentException> {
             RegionHeader.decode(ByteArray(REGION_HEADER_BYTES + 1))
         }
@@ -73,26 +73,26 @@ class RegionPrimitivesTest {
 
     @Test
     fun headerCopiesAreIndependentAndClearingPreservesTimestamp() {
-        val position = LocalChunkPosition(31, 31)
+        val localChunkPosition = LocalChunkPosition(31, 31)
         val firstPosition = LocalChunkPosition(0, 0)
         val original = RegionHeader().apply {
             set(firstPosition, RegionLocation(2, 1), timestamp = 1)
-            set(position, RegionLocation(9, 2), timestamp = -1)
+            set(localChunkPosition, RegionLocation(9, 2), timestamp = -1)
         }
         val copy = original.copy()
 
-        copy.clearLocation(position)
+        copy.clearLocation(localChunkPosition)
 
         assertEquals(2, original.chunkCount)
         assertTrue(original.hasChunk(firstPosition))
-        assertTrue(original.hasChunk(position))
-        assertEquals(listOf(firstPosition, position), original.localChunkPositions().toList())
+        assertTrue(original.hasChunk(localChunkPosition))
+        assertEquals(listOf(firstPosition, localChunkPosition), original.localChunkPositions().toList())
         assertEquals(1, copy.chunkCount)
-        assertFalse(copy.hasChunk(position))
+        assertFalse(copy.hasChunk(localChunkPosition))
         assertEquals(listOf(firstPosition), copy.localChunkPositions().toList())
-        assertEquals(RegionLocation(9, 2), original.location(position))
-        assertNull(copy.location(position))
-        assertEquals(-1, copy.timestamp(position))
+        assertEquals(RegionLocation(9, 2), original.location(localChunkPosition))
+        assertNull(copy.location(localChunkPosition))
+        assertEquals(-1, copy.timestamp(localChunkPosition))
         assertFalse(original == Any())
         assertEquals(original.hashCode(), original.copy().hashCode())
     }
@@ -107,27 +107,27 @@ class RegionPrimitivesTest {
 
     @Test
     fun sectorAllocatorUsesFirstFitAndAllowsOverlappingMarks() {
-        val allocator = RegionSectorAllocator()
-        allocator.mark(RegionLocation(2, 2))
-        allocator.mark(RegionLocation(3, 2))
+        val regionSectorAllocator = RegionSectorAllocator()
+        regionSectorAllocator.mark(RegionLocation(2, 2))
+        regionSectorAllocator.mark(RegionLocation(3, 2))
 
-        assertEquals(RegionLocation(5, 2), allocator.allocate(2))
-        allocator.free(RegionLocation(2, 2))
-        assertEquals(RegionLocation(2, 1), allocator.allocate(1))
-        assertTrue(allocator.isUsed(0))
-        assertTrue(allocator.isUsed(1))
-        assertFalse(allocator.isUsed(-1))
-        assertFalse(allocator.isUsed(100))
-        allocator.free(null)
-        allocator.free(RegionLocation(0, 0))
+        assertEquals(RegionLocation(5, 2), regionSectorAllocator.allocate(2))
+        regionSectorAllocator.free(RegionLocation(2, 2))
+        assertEquals(RegionLocation(2, 1), regionSectorAllocator.allocate(1))
+        assertTrue(regionSectorAllocator.isUsed(0))
+        assertTrue(regionSectorAllocator.isUsed(1))
+        assertFalse(regionSectorAllocator.isUsed(-1))
+        assertFalse(regionSectorAllocator.isUsed(100))
+        regionSectorAllocator.free(null)
+        regionSectorAllocator.free(RegionLocation(0, 0))
         assertFailsWith<IllegalArgumentException> {
-            allocator.mark(RegionLocation(2, 0))
+            regionSectorAllocator.mark(RegionLocation(2, 0))
         }
         assertFailsWith<IllegalArgumentException> {
-            allocator.allocate(0)
+            regionSectorAllocator.allocate(0)
         }
         assertFailsWith<IllegalArgumentException> {
-            allocator.allocate(REGION_MAX_SECTOR_COUNT + 1)
+            regionSectorAllocator.allocate(REGION_MAX_SECTOR_COUNT + 1)
         }
     }
 

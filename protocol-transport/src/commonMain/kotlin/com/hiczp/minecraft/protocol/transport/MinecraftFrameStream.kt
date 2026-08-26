@@ -18,7 +18,7 @@ import kotlinx.io.readByteArray
 class MinecraftFrameStream(
     val input: ByteReadChannel,
     val output: ByteWriteChannel,
-    val codec: MinecraftFrameCodec = MinecraftFrameCodec(),
+    val minecraftFrameCodec: MinecraftFrameCodec = MinecraftFrameCodec(),
 ) {
     private val wireTransition = MutableStateFlow<CompletableDeferred<Unit>?>(null)
     private var decryptor: MinecraftStreamCipher? = null
@@ -29,7 +29,7 @@ class MinecraftFrameStream(
     private val encryptOutput = ByteArray(CHANNEL_COPY_BYTES)
 
     fun configureCompression(threshold: Int?) {
-        codec.configureCompression(threshold)
+        minecraftFrameCodec.configureCompression(threshold)
     }
 
     fun enableEncryption(sharedSecret: ByteArray) {
@@ -103,7 +103,7 @@ class MinecraftFrameStream(
         packetDataByteCount: Int,
     ) {
         val frame = Buffer()
-        codec.encodeFrameToSink(
+        minecraftFrameCodec.encodeFrameToSink(
             packetData,
             packetDataByteCount,
             frame,
@@ -118,7 +118,7 @@ class MinecraftFrameStream(
         commit: suspend () -> Unit,
     ) {
         val frame = Buffer()
-        codec.encodeFrameToSink(
+        minecraftFrameCodec.encodeFrameToSink(
             packetData,
             packetDataByteCount,
             frame,
@@ -196,18 +196,18 @@ class MinecraftFrameStream(
         }
 
         val frameLength = readEncryptedFrameLength(first)
-        codec.validateFrameLength(frameLength)
+        minecraftFrameCodec.validateFrameLength(frameLength)
         val frameBody = Buffer()
         readDecryptedToSink(frameLength, frameBody)
-        return codec.decodeFrameBodyToSink(frameBody, frameLength, sink)
+        return minecraftFrameCodec.decodeFrameBodyToSink(frameBody, frameLength, sink)
     }
 
     private suspend fun readDecryptedToSink(
         byteCount: Int,
         sink: Sink,
     ) {
-        val cipher = decryptor
-        if (cipher == null) {
+        val minecraftStreamCipher = decryptor
+        if (minecraftStreamCipher == null) {
             sink.write(input.readPacket(byteCount), byteCount.toLong())
             return
         }
@@ -215,7 +215,7 @@ class MinecraftFrameStream(
         while (remaining > 0) {
             val count = minOf(remaining, decryptInput.size)
             input.readFully(decryptInput, start = 0, end = count)
-            val written = cipher.process(decryptInput, 0, count, decryptOutput, 0)
+            val written = minecraftStreamCipher.process(decryptInput, 0, count, decryptOutput, 0)
             checkCipherOutput(count, written)
             sink.write(decryptOutput, endIndex = written)
             remaining -= count
@@ -227,8 +227,8 @@ class MinecraftFrameStream(
         byteCount: Long,
     ) {
         require(byteCount >= 0)
-        val cipher = encryptor
-        if (cipher == null) {
+        val minecraftStreamCipher = encryptor
+        if (minecraftStreamCipher == null) {
             output.writeBuffer(source, byteCount)
             return
         }
@@ -249,7 +249,7 @@ class MinecraftFrameStream(
                 }
                 offset += read
             }
-            val written = cipher.process(encryptInput, 0, count, encryptOutput, 0)
+            val written = minecraftStreamCipher.process(encryptInput, 0, count, encryptOutput, 0)
             checkCipherOutput(count, written)
             output.writeFully(encryptOutput, endIndex = written)
             remaining -= count
@@ -266,7 +266,7 @@ class MinecraftFrameStream(
             count++
             if (current and 0x80 == 0) {
                 if (
-                    codec.configuration.rejectNonMinimalVarInts &&
+                    minecraftFrameCodec.minecraftTransportConfiguration.rejectNonMinimalVarInts &&
                     count != varIntSize(result)
                 ) {
                     throw MinecraftTransportException(
@@ -284,9 +284,9 @@ class MinecraftFrameStream(
     }
 
     private fun decryptByte(value: Byte): Int {
-        val cipher = decryptor ?: return value.toInt() and 0xFF
+        val minecraftStreamCipher = decryptor ?: return value.toInt() and 0xFF
         decryptInput[0] = value
-        val written = cipher.process(decryptInput, 0, 1, decryptOutput, 0)
+        val written = minecraftStreamCipher.process(decryptInput, 0, 1, decryptOutput, 0)
         checkCipherOutput(expected = 1, actual = written)
         return decryptOutput[0].toInt() and 0xFF
     }
@@ -306,14 +306,14 @@ class MinecraftFrameStream(
 
 class MinecraftTransport(
     val socket: Socket,
-    configuration: MinecraftTransportConfiguration =
+    minecraftTransportConfiguration: MinecraftTransportConfiguration =
         MinecraftTransportConfiguration(),
     autoFlush: Boolean = false,
 ) : Closeable {
-    val frameStream: MinecraftFrameStream = MinecraftFrameStream(
+    val minecraftFrameStream: MinecraftFrameStream = MinecraftFrameStream(
         input = socket.openReadChannel(),
         output = socket.openWriteChannel(autoFlush),
-        codec = MinecraftFrameCodec(configuration),
+        minecraftFrameCodec = MinecraftFrameCodec(minecraftTransportConfiguration),
     )
 
     override fun close() {

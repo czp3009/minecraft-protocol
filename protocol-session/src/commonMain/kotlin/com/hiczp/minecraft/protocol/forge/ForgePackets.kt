@@ -190,27 +190,27 @@ data class ForgeMismatchDataMessage(
 ) : ForgeClientboundHandshakeMessage
 
 class ForgeClientboundHandshakePacket(
-    val message: ForgeClientboundHandshakeMessage,
+    val forgeClientboundHandshakeMessage: ForgeClientboundHandshakeMessage,
 ) : ClientboundPacket.Extension {
     override fun equals(other: Any?): Boolean =
-        other is ForgeClientboundHandshakePacket && message == other.message
+        other is ForgeClientboundHandshakePacket && forgeClientboundHandshakeMessage == other.forgeClientboundHandshakeMessage
 
-    override fun hashCode(): Int = message.hashCode()
+    override fun hashCode(): Int = forgeClientboundHandshakeMessage.hashCode()
 
     override fun toString(): String =
-        "ForgeClientboundHandshakePacket(message=$message)"
+        "ForgeClientboundHandshakePacket(message=$forgeClientboundHandshakeMessage)"
 }
 
 class ForgeServerboundHandshakePacket(
-    val message: ForgeServerboundHandshakeMessage,
+    val forgeServerboundHandshakeMessage: ForgeServerboundHandshakeMessage,
 ) : ServerboundPacket.Extension {
     override fun equals(other: Any?): Boolean =
-        other is ForgeServerboundHandshakePacket && message == other.message
+        other is ForgeServerboundHandshakePacket && forgeServerboundHandshakeMessage == other.forgeServerboundHandshakeMessage
 
-    override fun hashCode(): Int = message.hashCode()
+    override fun hashCode(): Int = forgeServerboundHandshakeMessage.hashCode()
 
     override fun toString(): String =
-        "ForgeServerboundHandshakePacket(message=$message)"
+        "ForgeServerboundHandshakePacket(message=$forgeServerboundHandshakeMessage)"
 }
 
 /** Raw selected-revision Forge messages 7+ carried by forge:handshake in Play. */

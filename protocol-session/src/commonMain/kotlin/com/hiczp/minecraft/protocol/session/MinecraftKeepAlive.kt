@@ -29,7 +29,7 @@ fun MinecraftServerPacketConnection.enablePlayKeepAlive(
 }
 
 internal class MinecraftServerKeepAliveController(
-    private val core: MinecraftPacketConnectionCore<ServerboundPacket, ClientboundPacket>,
+    private val minecraftPacketConnectionCore: MinecraftPacketConnectionCore<ServerboundPacket, ClientboundPacket>,
 ) {
     private val state = MutableStateFlow<KeepAliveState>(KeepAliveState.Disabled)
 
@@ -41,36 +41,36 @@ internal class MinecraftServerKeepAliveController(
         require(interval > Duration.ZERO) {
             "Minecraft KeepAlive interval must be positive"
         }
-        core.ensureOpen()
-        val run = KeepAliveRun(extractChallenge, createRequest, interval)
-        run.timerJob = core.launchTask(start = CoroutineStart.LAZY) {
-            runTimer(run)
+        minecraftPacketConnectionCore.ensureOpen()
+        val keepAliveRun = KeepAliveRun(extractChallenge, createRequest, interval)
+        keepAliveRun.timerJob = minecraftPacketConnectionCore.launchTask(coroutineStart = CoroutineStart.LAZY) {
+            runTimer(keepAliveRun)
         }
 
         var replacedRun: KeepAliveRun? = null
         while (true) {
             when (val current = state.value) {
                 KeepAliveState.Disabled -> if (
-                    state.compareAndSet(current, KeepAliveState.Active(run, pendingChallenge = null))
+                    state.compareAndSet(current, KeepAliveState.Active(keepAliveRun, pendingChallenge = null))
                 ) {
                     break
                 }
 
                 is KeepAliveState.Active -> if (
-                    state.compareAndSet(current, KeepAliveState.Active(run, pendingChallenge = null))
+                    state.compareAndSet(current, KeepAliveState.Active(keepAliveRun, pendingChallenge = null))
                 ) {
-                    replacedRun = current.run
+                    replacedRun = current.keepAliveRun
                     break
                 }
 
                 is KeepAliveState.Terminating -> {
-                    run.timerJob.cancel()
+                    keepAliveRun.timerJob.cancel()
                     throw current.failure
                 }
             }
         }
         replacedRun?.timerJob?.cancel()
-        run.timerJob.start()
+        keepAliveRun.timerJob.start()
     }
 
     fun disable() {
@@ -83,20 +83,20 @@ internal class MinecraftServerKeepAliveController(
                 is KeepAliveState.Active -> if (
                     state.compareAndSet(current, KeepAliveState.Disabled)
                 ) {
-                    current.run.timerJob.cancel()
+                    current.keepAliveRun.timerJob.cancel()
                     return
                 }
             }
         }
     }
 
-    fun handle(packet: ServerboundPacket): Boolean {
+    fun handle(serverboundPacket: ServerboundPacket): Boolean {
         while (true) {
             when (val current = state.value) {
                 KeepAliveState.Disabled -> return false
                 is KeepAliveState.Terminating -> throw current.failure
                 is KeepAliveState.Active -> {
-                    val challenge = current.run.extractChallenge(packet) ?: return false
+                    val challenge = current.keepAliveRun.extractChallenge(serverboundPacket) ?: return false
                     val pendingChallenge = current.pendingChallenge
                     if (pendingChallenge == challenge) {
                         if (state.compareAndSet(current, current.copy(pendingChallenge = null))) return true
@@ -118,30 +118,30 @@ internal class MinecraftServerKeepAliveController(
         }
     }
 
-    private suspend fun runTimer(run: KeepAliveRun) = coroutineScope {
+    private suspend fun runTimer(keepAliveRun: KeepAliveRun) = coroutineScope {
         try {
             while (true) {
-                delay(run.interval)
-                if (!checkAndScheduleRequest(run)) return@coroutineScope
+                delay(keepAliveRun.interval)
+                if (!checkAndScheduleRequest(keepAliveRun)) return@coroutineScope
             }
         } catch (cause: CancellationException) {
             throw cause
         } catch (cause: Throwable) {
-            core.fail(cause)
+            minecraftPacketConnectionCore.fail(cause)
         }
     }
 
-    private fun CoroutineScope.checkAndScheduleRequest(run: KeepAliveRun): Boolean {
+    private fun CoroutineScope.checkAndScheduleRequest(keepAliveRun: KeepAliveRun): Boolean {
         while (true) {
             val current = state.value
-            if (current !is KeepAliveState.Active || current.run !== run) return false
+            if (current !is KeepAliveState.Active || current.keepAliveRun !== keepAliveRun) return false
             val pendingChallenge = current.pendingChallenge
             if (pendingChallenge != null) {
                 val failure = MinecraftSessionException(
                     "Minecraft KeepAlive timed out with pending challenge $pendingChallenge",
                 )
                 if (state.compareAndSet(current, KeepAliveState.Terminating(failure))) {
-                    core.fail(failure)
+                    minecraftPacketConnectionCore.fail(failure)
                     return false
                 }
                 continue
@@ -151,11 +151,11 @@ internal class MinecraftServerKeepAliveController(
             if (!state.compareAndSet(current, current.copy(pendingChallenge = challenge))) continue
             launch(start = CoroutineStart.UNDISPATCHED) {
                 try {
-                    core.sendConnectionOwned(run.createRequest(challenge))
+                    minecraftPacketConnectionCore.sendConnectionOwned(keepAliveRun.createRequest(challenge))
                 } catch (cause: CancellationException) {
                     throw cause
                 } catch (cause: Throwable) {
-                    core.fail(cause)
+                    minecraftPacketConnectionCore.fail(cause)
                 }
             }
             return true
@@ -174,7 +174,7 @@ internal class MinecraftServerKeepAliveController(
         data object Disabled : KeepAliveState
 
         data class Active(
-            val run: KeepAliveRun,
+            val keepAliveRun: KeepAliveRun,
             val pendingChallenge: Long?,
         ) : KeepAliveState
 

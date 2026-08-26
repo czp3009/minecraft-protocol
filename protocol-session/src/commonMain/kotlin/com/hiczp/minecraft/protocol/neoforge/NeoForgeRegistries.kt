@@ -111,8 +111,8 @@ internal fun StaticRegistrySchema.requireNeoForgeCompatible(
             return@forEach
         }
         val local = localEntries.toSet()
-        val missing = remoteRegistry.entries.filter { entry ->
-            entry.id !in local && entry.aliases.none(local::contains)
+        val missing = remoteRegistry.entries.filter { remoteRegistryEntry ->
+            remoteRegistryEntry.id !in local && remoteRegistryEntry.aliases.none(local::contains)
         }
         if (missing.isNotEmpty()) {
             throw NeoForgeNegotiationException(

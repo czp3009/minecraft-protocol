@@ -52,39 +52,39 @@ class MicrosoftOAuthApiTest {
 
     @Test
     fun highLevelRequestToolsDeriveFixedProtocolValues() {
-        val authorizationCode = MicrosoftOAuthTools.authorizationCodeTokenRequest(
+        val microsoftAuthorizationCodeTokenRequest = MicrosoftOAuthTools.authorizationCodeTokenRequest(
             clientId = "client-id",
             authorizationCode = "authorization-code",
             redirectUri = "http://127.0.0.1:12345/oauth/callback",
             codeVerifier = "code-verifier",
         )
-        assertEquals(MicrosoftOAuthTools.AUTHORIZATION_CODE_GRANT_TYPE, authorizationCode.grantType)
-        assertEquals(MicrosoftOAuthTools.MINECRAFT_SCOPE, authorizationCode.scope)
-        assertEquals("authorization-code", authorizationCode.code)
+        assertEquals(MicrosoftOAuthTools.AUTHORIZATION_CODE_GRANT_TYPE, microsoftAuthorizationCodeTokenRequest.grantType)
+        assertEquals(MicrosoftOAuthTools.MINECRAFT_SCOPE, microsoftAuthorizationCodeTokenRequest.scope)
+        assertEquals("authorization-code", microsoftAuthorizationCodeTokenRequest.code)
 
-        val deviceAuthorization = MicrosoftOAuthTools.deviceAuthorizationRequest("client-id")
-        assertEquals("client-id", deviceAuthorization.clientId)
-        assertEquals(MicrosoftOAuthTools.MINECRAFT_SCOPE, deviceAuthorization.scope)
+        val microsoftDeviceAuthorizationRequest = MicrosoftOAuthTools.deviceAuthorizationRequest("client-id")
+        assertEquals("client-id", microsoftDeviceAuthorizationRequest.clientId)
+        assertEquals(MicrosoftOAuthTools.MINECRAFT_SCOPE, microsoftDeviceAuthorizationRequest.scope)
 
-        val deviceToken = MicrosoftOAuthTools.deviceCodeTokenRequest(
+        val microsoftDeviceCodeTokenRequest = MicrosoftOAuthTools.deviceCodeTokenRequest(
             clientId = "client-id",
             deviceCode = "device-code",
         )
-        assertEquals(MicrosoftOAuthTools.DEVICE_CODE_GRANT_TYPE, deviceToken.grantType)
-        assertEquals("device-code", deviceToken.deviceCode)
+        assertEquals(MicrosoftOAuthTools.DEVICE_CODE_GRANT_TYPE, microsoftDeviceCodeTokenRequest.grantType)
+        assertEquals("device-code", microsoftDeviceCodeTokenRequest.deviceCode)
 
-        val refresh = MicrosoftOAuthTools.refreshTokenRequest(
+        val microsoftRefreshTokenRequest = MicrosoftOAuthTools.refreshTokenRequest(
             clientId = "client-id",
             refreshToken = "refresh-token",
         )
-        assertEquals(MicrosoftOAuthTools.REFRESH_TOKEN_GRANT_TYPE, refresh.grantType)
-        assertEquals(MicrosoftOAuthTools.MINECRAFT_SCOPE, refresh.scope)
-        assertEquals("refresh-token", refresh.refreshToken)
+        assertEquals(MicrosoftOAuthTools.REFRESH_TOKEN_GRANT_TYPE, microsoftRefreshTokenRequest.grantType)
+        assertEquals(MicrosoftOAuthTools.MINECRAFT_SCOPE, microsoftRefreshTokenRequest.scope)
+        assertEquals("refresh-token", microsoftRefreshTokenRequest.refreshToken)
     }
 
     @Test
     fun deviceCodeSerializesTheRequestAndReturnsTheRawResponse() = runTest {
-        var form: FormDataContent? = null
+        var formDataContent: FormDataContent? = null
         val responseJson = buildJsonObject {
             put("user_code", "ABCD-EFGH")
             put("device_code", "device-secret")
@@ -95,36 +95,36 @@ class MicrosoftOAuthApiTest {
             put("future_field", "ignored")
         }
         HttpClient(
-            MockEngine { request ->
-                form = assertIs<FormDataContent>(request.body)
+            MockEngine { httpRequestData ->
+                formDataContent = assertIs<FormDataContent>(httpRequestData.body)
                 respondJson(responseJson)
             },
-        ).use { client ->
-            val response = MicrosoftOAuthApi(client).deviceCode(
+        ).use { httpClient ->
+            val microsoftDeviceAuthorizationResponse = MicrosoftOAuthApi(httpClient).deviceCode(
                 MicrosoftDeviceAuthorizationRequest(
                     clientId = "client-id",
                     scope = MICROSOFT_TEST_SCOPE,
                 ),
             )
 
-            assertEquals("device-secret", response.deviceCode)
-            assertEquals("ABCD-EFGH", response.userCode)
-            assertEquals("https://microsoft.com/devicelogin", response.verificationUri)
-            assertEquals(Long.MAX_VALUE, response.expiresIn)
-            assertEquals(0L, response.interval)
-            assertEquals("Follow the displayed instructions", response.message)
+            assertEquals("device-secret", microsoftDeviceAuthorizationResponse.deviceCode)
+            assertEquals("ABCD-EFGH", microsoftDeviceAuthorizationResponse.userCode)
+            assertEquals("https://microsoft.com/devicelogin", microsoftDeviceAuthorizationResponse.verificationUri)
+            assertEquals(Long.MAX_VALUE, microsoftDeviceAuthorizationResponse.expiresIn)
+            assertEquals(0L, microsoftDeviceAuthorizationResponse.interval)
+            assertEquals("Follow the displayed instructions", microsoftDeviceAuthorizationResponse.message)
         }
 
-        assertEquals("client-id", form?.formData?.get("client_id"))
-        assertEquals(MICROSOFT_TEST_SCOPE, form?.formData?.get("scope"))
+        assertEquals("client-id", formDataContent?.formData?.get("client_id"))
+        assertEquals(MICROSOFT_TEST_SCOPE, formDataContent?.formData?.get("scope"))
     }
 
     @Test
     fun tokenMethodsSerializeTheirRequestsAndReturnRawResponses() = runTest {
         val forms = mutableListOf<FormDataContent>()
         var requestIndex = 0
-        val engine = MockEngine { request ->
-            forms += assertIs<FormDataContent>(request.body)
+        val mockEngine = MockEngine { httpRequestData ->
+            forms += assertIs<FormDataContent>(httpRequestData.body)
             respondJson(
                 tokenResponse(
                     accessToken = "access-${requestIndex++}",
@@ -132,9 +132,9 @@ class MicrosoftOAuthApiTest {
                 ),
             )
         }
-        HttpClient(engine).use { client ->
-            val api = MicrosoftOAuthApi(client)
-            val authorizationCode = api.tokenWithAuthorizationCode(
+        HttpClient(mockEngine).use { httpClient ->
+            val microsoftOAuthApi = MicrosoftOAuthApi(httpClient)
+            val authorizationCode = microsoftOAuthApi.tokenWithAuthorizationCode(
                 MicrosoftAuthorizationCodeTokenRequest(
                     grantType = "authorization_code",
                     code = "authorization-code",
@@ -144,14 +144,14 @@ class MicrosoftOAuthApiTest {
                     scope = MICROSOFT_TEST_SCOPE,
                 ),
             )
-            val deviceCode = api.tokenWithDeviceCode(
+            val deviceCode = microsoftOAuthApi.tokenWithDeviceCode(
                 MicrosoftDeviceCodeTokenRequest(
                     grantType = "urn:ietf:params:oauth:grant-type:device_code",
                     clientId = "client-id",
                     deviceCode = "device-code",
                 ),
             )
-            val refresh = api.tokenWithRefreshToken(
+            val refresh = microsoftOAuthApi.tokenWithRefreshToken(
                 MicrosoftRefreshTokenRequest(
                     clientId = "client-id",
                     grantType = "refresh_token",
@@ -184,13 +184,13 @@ class MicrosoftOAuthApiTest {
     fun rawTokenRequestsOmitNullableFormFields() = runTest {
         val forms = mutableListOf<FormDataContent>()
         HttpClient(
-            MockEngine { request ->
-                forms += assertIs<FormDataContent>(request.body)
+            MockEngine { httpRequestData ->
+                forms += assertIs<FormDataContent>(httpRequestData.body)
                 respondJson(tokenResponse("access-token", null))
             },
-        ).use { client ->
-            val api = MicrosoftOAuthApi(client)
-            api.tokenWithAuthorizationCode(
+        ).use { httpClient ->
+            val microsoftOAuthApi = MicrosoftOAuthApi(httpClient)
+            microsoftOAuthApi.tokenWithAuthorizationCode(
                 MicrosoftAuthorizationCodeTokenRequest(
                     grantType = "authorization_code",
                     code = "authorization-code",
@@ -198,7 +198,7 @@ class MicrosoftOAuthApiTest {
                     redirectUri = "https://example.com/callback",
                 ),
             )
-            api.tokenWithRefreshToken(
+            microsoftOAuthApi.tokenWithRefreshToken(
                 MicrosoftRefreshTokenRequest(
                     clientId = "client-id",
                     grantType = "refresh_token",
@@ -222,9 +222,9 @@ class MicrosoftOAuthApiTest {
         )
 
         for (responseJson in malformedResponses) {
-            HttpClient(MockEngine { respondJson(responseJson) }).use { client ->
+            HttpClient(MockEngine { respondJson(responseJson) }).use { httpClient ->
                 assertFailsWith<SerializationException> {
-                    MicrosoftOAuthApi(client).deviceCode(
+                    MicrosoftOAuthApi(httpClient).deviceCode(
                         MicrosoftDeviceAuthorizationRequest(
                             clientId = "client-id",
                             scope = MICROSOFT_TEST_SCOPE,
@@ -244,9 +244,9 @@ class MicrosoftOAuthApiTest {
         }
         HttpClient(
             MockEngine { respondJson(errorJson, HttpStatusCode.BadRequest) },
-        ).use { client ->
+        ).use { httpClient ->
             val failure = assertFailsWith<MicrosoftOAuthResponseException> {
-                MicrosoftOAuthApi(client).tokenWithDeviceCode(
+                MicrosoftOAuthApi(httpClient).tokenWithDeviceCode(
                     MicrosoftDeviceCodeTokenRequest(
                         grantType = "urn:ietf:params:oauth:grant-type:device_code",
                         clientId = "client-id",
@@ -265,9 +265,9 @@ class MicrosoftOAuthApiTest {
     fun errorBodySerializationFailuresPropagateUnchanged() = runTest {
         HttpClient(
             MockEngine { respond("not-json", HttpStatusCode.BadGateway) },
-        ).use { client ->
+        ).use { httpClient ->
             assertFailsWith<SerializationException> {
-                MicrosoftOAuthApi(client).deviceCode(
+                MicrosoftOAuthApi(httpClient).deviceCode(
                     MicrosoftDeviceAuthorizationRequest(
                         clientId = "client-id",
                         scope = MICROSOFT_TEST_SCOPE,
@@ -304,10 +304,10 @@ private fun deviceAuthorizationResponse(
 
 private fun MockRequestHandleScope.respondJson(
     body: JsonObject,
-    status: HttpStatusCode = HttpStatusCode.OK,
+    httpStatusCode: HttpStatusCode = HttpStatusCode.OK,
 ) = respond(
     content = body.toString(),
-    status = status,
+    status = httpStatusCode,
     headers = headersOf(HttpHeaders.ContentType, "application/json"),
 )
 

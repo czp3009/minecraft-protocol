@@ -16,7 +16,7 @@ import kotlin.test.assertIs
 class WorldDataPackReaderTest {
     @Test
     fun inspectionExposesSizesBeforeUnrestrictedDetachedRead() {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val dataPackDirectory = "/world/datapacks/example".toPath()
         val dataPackMetadataJson = buildJsonObject {
             put(
@@ -32,12 +32,12 @@ class WorldDataPackReaderTest {
             )
         }
         val recipeJson = buildJsonObject { put("value", 42) }
-        fileSystem.writeJson(dataPackDirectory / "pack.mcmeta", dataPackMetadataJson)
-        fileSystem.writeJson(dataPackDirectory / "data/example/recipe/value.json", recipeJson)
+        fakeFileSystem.writeJson(dataPackDirectory / "pack.mcmeta", dataPackMetadataJson)
+        fakeFileSystem.writeJson(dataPackDirectory / "data/example/recipe/value.json", recipeJson)
         val binaryDataPackFilePath = dataPackDirectory / "data/example/custom/payload.bin"
-        fileSystem.createDirectories(requireNotNull(binaryDataPackFilePath.parent))
-        fileSystem.write(binaryDataPackFilePath) { write(byteArrayOf(1, 2, 3, 4)) }
-        val worldDataPackReader = WorldDataPackReader(fileSystem, "/world/datapacks".toPath())
+        fakeFileSystem.createDirectories(requireNotNull(binaryDataPackFilePath.parent))
+        fakeFileSystem.write(binaryDataPackFilePath) { write(byteArrayOf(1, 2, 3, 4)) }
+        val worldDataPackReader = WorldDataPackReader(fakeFileSystem, "/world/datapacks".toPath())
 
         val dataPackInspection = worldDataPackReader.inspectDataPack(
             dataPackDirectory,
@@ -64,14 +64,14 @@ class WorldDataPackReaderTest {
         assertIs<DataPackFileContent.BinaryFile>(
             dataPack.dataPackFileContent(DataPackFilePath("data/example/custom/payload.bin")),
         )
-        fileSystem.checkNoOpenFiles()
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
     fun enabledListRetainsNonFileReferencesForTheCaller() {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val dataPackDirectory = "/world/datapacks/example".toPath()
-        fileSystem.writeJson(
+        fakeFileSystem.writeJson(
             dataPackDirectory / "pack.mcmeta",
             buildJsonObject {
                 put(
@@ -83,7 +83,7 @@ class WorldDataPackReaderTest {
                 )
             },
         )
-        val worldDataPackReader = WorldDataPackReader(fileSystem, "/world/datapacks".toPath())
+        val worldDataPackReader = WorldDataPackReader(fakeFileSystem, "/world/datapacks".toPath())
 
         val worldDataPackLoadResult = worldDataPackReader.readEnabledDataPacks(
             listOf("vanilla", "file/example"),
@@ -94,12 +94,12 @@ class WorldDataPackReaderTest {
             listOf(DataPackId("file/example")),
             worldDataPackLoadResult.dataPackStack.dataPacks.map { it.dataPackId },
         )
-        fileSystem.checkNoOpenFiles()
+        fakeFileSystem.checkNoOpenFiles()
     }
 }
 
-private fun FileSystem.writeJson(path: Path, element: JsonElement) {
-    val bytes = Json.encodeToString(element).encodeToByteArray()
+private fun FileSystem.writeJson(path: Path, jsonElement: JsonElement) {
+    val byteArray = Json.encodeToString(jsonElement).encodeToByteArray()
     createDirectories(requireNotNull(path.parent))
-    write(path) { write(bytes) }
+    write(path) { write(byteArray) }
 }

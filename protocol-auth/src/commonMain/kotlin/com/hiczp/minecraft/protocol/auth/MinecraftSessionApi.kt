@@ -21,56 +21,56 @@ class MinecraftSessionApi(
     private val httpClient: HttpClient,
 ) {
     suspend fun join(
-        request: MinecraftSessionJoinRequest,
+        minecraftSessionJoinRequest: MinecraftSessionJoinRequest,
     ) {
-        val response = httpClient.post(MINECRAFT_SESSION_JOIN_ENDPOINT) {
+        val httpResponse = httpClient.post(MINECRAFT_SESSION_JOIN_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
             setBody(
                 TextContent(
-                    text = SessionJson.encodeToString(request),
+                    text = SessionJson.encodeToString(minecraftSessionJoinRequest),
                     contentType = ContentType.Application.Json,
                 ),
             )
         }
-        if (!response.status.isSuccess()) {
-            throw response.failure()
+        if (!httpResponse.status.isSuccess()) {
+            throw httpResponse.failure()
         }
     }
 
     suspend fun hasJoined(
-        request: MinecraftSessionHasJoinedRequest,
+        minecraftSessionHasJoinedRequest: MinecraftSessionHasJoinedRequest,
     ): MinecraftSessionHasJoinedResponse? {
         val endpoint = URLBuilder(MINECRAFT_SESSION_HAS_JOINED_ENDPOINT).apply {
-            parameters.appendAll(Properties.encodeToStringMap(request))
+            parameters.appendAll(Properties.encodeToStringMap(minecraftSessionHasJoinedRequest))
         }.build()
-        val response = httpClient.get(endpoint) {
+        val httpResponse = httpClient.get(endpoint) {
             expectSuccess = false
             accept(ContentType.Application.Json)
         }
-        return when (response.status) {
-            HttpStatusCode.OK -> SessionJson.decodeFromString(response.bodyAsText())
+        return when (httpResponse.status) {
+            HttpStatusCode.OK -> SessionJson.decodeFromString(httpResponse.bodyAsText())
             HttpStatusCode.NoContent -> null
-            else -> throw response.failure()
+            else -> throw httpResponse.failure()
         }
     }
 
     suspend fun fetchProfile(
         profileId: String,
-        request: MinecraftSessionProfileRequest,
+        minecraftSessionProfileRequest: MinecraftSessionProfileRequest,
     ): MinecraftSessionProfileResponse? {
         val endpoint = URLBuilder(MINECRAFT_SESSION_PROFILE_ENDPOINT).apply {
             appendPathSegments(profileId)
-            parameters.appendAll(Properties.encodeToStringMap(request))
+            parameters.appendAll(Properties.encodeToStringMap(minecraftSessionProfileRequest))
         }.build()
-        val response = httpClient.get(endpoint) {
+        val httpResponse = httpClient.get(endpoint) {
             expectSuccess = false
             accept(ContentType.Application.Json)
         }
-        return when (response.status) {
-            HttpStatusCode.OK -> SessionJson.decodeFromString(response.bodyAsText())
+        return when (httpResponse.status) {
+            HttpStatusCode.OK -> SessionJson.decodeFromString(httpResponse.bodyAsText())
             HttpStatusCode.NoContent -> null
-            else -> throw response.failure()
+            else -> throw httpResponse.failure()
         }
     }
 }
@@ -141,10 +141,10 @@ data class MinecraftSessionProfileResponse(
 }
 
 open class MinecraftSessionResponseException(
-    response: HttpResponse,
+    httpResponse: HttpResponse,
     val responseBody: String,
     val parsedErrorBody: MinecraftSessionErrorResponse,
-) : ResponseException(response, responseBody)
+) : ResponseException(httpResponse, responseBody)
 
 suspend fun MinecraftSessionApi.join(
     accessToken: String,
@@ -159,11 +159,11 @@ suspend fun MinecraftSessionApi.join(
 )
 
 suspend fun MinecraftSessionApi.join(
-    identity: MinecraftOnlineIdentity,
+    minecraftOnlineIdentity: MinecraftOnlineIdentity,
     serverId: MinecraftServerHash,
 ) = join(
-    accessToken = identity.accessToken,
-    selectedProfile = identity.id,
+    accessToken = minecraftOnlineIdentity.accessToken,
+    selectedProfile = minecraftOnlineIdentity.id,
     serverId = serverId,
 )
 
@@ -184,7 +184,7 @@ suspend fun MinecraftSessionApi.fetchProfile(
     requireSecure: Boolean,
 ): MinecraftSessionProfileResponse? = fetchProfile(
     profileId = profileId.toHexString(),
-    request = MinecraftSessionProfileRequest(unsigned = !requireSecure),
+    minecraftSessionProfileRequest = MinecraftSessionProfileRequest(unsigned = !requireSecure),
 )
 
 fun MinecraftSessionHasJoinedResponse.toGameProfile(
@@ -216,7 +216,7 @@ fun MinecraftSessionProfileResponse.toGameProfile(): GameProfile = GameProfile(
 private suspend fun HttpResponse.failure(): MinecraftSessionResponseException {
     val responseBody = bodyAsText()
     return MinecraftSessionResponseException(
-        response = this,
+        httpResponse = this,
         responseBody = responseBody,
         parsedErrorBody = SessionJson.decodeFromString(responseBody),
     )

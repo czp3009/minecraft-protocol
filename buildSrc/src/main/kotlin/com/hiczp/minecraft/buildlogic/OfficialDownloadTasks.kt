@@ -48,7 +48,7 @@ abstract class DownloadVersionManifestTask : DefaultTask() {
         val version = minecraftVersion.get()
         runBlocking {
             val url = manifestUrl.get()
-            val bytes = ProtocolHttp.getBytes(
+            val byteArray = ProtocolHttp.getBytes(
                 url = url,
                 offline = offline.get(),
             ) { downloaded ->
@@ -65,7 +65,7 @@ abstract class DownloadVersionManifestTask : DefaultTask() {
                 }
             }
             destination.parent.createDirectories()
-            destination.atomicWrite(bytes)
+            destination.atomicWrite(byteArray)
         }
         logger.lifecycle("Downloaded Mojang version manifest: $destination")
     }
@@ -110,7 +110,7 @@ abstract class DownloadVersionMetadataTask : DefaultTask() {
         val metadataUrl = entry.getValue("url").jsonPrimitive.content
         val destination = outputFile.asFile.get().toPath()
         runBlocking {
-            val bytes = ProtocolHttp.getBytes(
+            val byteArray = ProtocolHttp.getBytes(
                 url = metadataUrl,
                 offline = offline.get(),
             ) { downloaded ->
@@ -120,7 +120,7 @@ abstract class DownloadVersionMetadataTask : DefaultTask() {
                 }
             }
             destination.parent.createDirectories()
-            destination.atomicWrite(bytes)
+            destination.atomicWrite(byteArray)
         }
         logger.lifecycle(
             "Downloaded Mojang version metadata $version: $destination",
@@ -210,7 +210,7 @@ abstract class DownloadFabricLoaderProfileTask : DefaultTask() {
         val destination = outputFile.asFile.get().toPath()
         runBlocking {
             val url = profileUrl.get()
-            val bytes = ProtocolHttp.getBytes(
+            val byteArray = ProtocolHttp.getBytes(
                 url = url,
                 offline = offline.get(),
             ) { downloaded ->
@@ -238,7 +238,7 @@ abstract class DownloadFabricLoaderProfileTask : DefaultTask() {
                 }
             }
             destination.parent.createDirectories()
-            destination.atomicWrite(bytes)
+            destination.atomicWrite(byteArray)
         }
         logger.lifecycle(
             "Downloaded Fabric Loader ${fabricLoaderVersion.get()} profile for Minecraft ${minecraftVersion.get()}: $destination",
@@ -450,9 +450,9 @@ abstract class DownloadMinecraftClientLibrariesTask : DefaultTask() {
             putAll(collectClientLibraryArtifacts(metadata))
             collectFabricLibraryArtifacts(
                 protocolJson.decodeFromString<JsonObject>(fabricProfileFile.asFile.get().toPath().readText()),
-            ).forEach { (path, artifact) ->
-                val previous = put(path, artifact)
-                check(previous == null || previous == artifact) {
+            ).forEach { (path, clientArtifactSpec) ->
+                val previous = put(path, clientArtifactSpec)
+                check(previous == null || previous == clientArtifactSpec) {
                     "Minecraft and Fabric profiles map $path to different library artifacts"
                 }
             }
@@ -466,12 +466,12 @@ abstract class DownloadMinecraftClientLibrariesTask : DefaultTask() {
             runBlocking {
                 coroutineScope {
                     val semaphore = Semaphore(LIBRARY_CONCURRENCY)
-                    sorted.map { (relative, artifact) ->
+                    sorted.map { (relative, clientArtifactSpec) ->
                         async {
                             semaphore.acquire()
                             try {
                                 ProtocolHttp.download(
-                                    url = artifact.url,
+                                    url = clientArtifactSpec.url,
                                     destination = staging.resolve(relative),
                                     offline = offline.get(),
                                 )
@@ -482,9 +482,9 @@ abstract class DownloadMinecraftClientLibrariesTask : DefaultTask() {
                     }.awaitAll()
                 }
             }
-            fileSystemOperations.sync { sync ->
-                sync.from(staging)
-                sync.into(librariesDirectory)
+            fileSystemOperations.sync { syncSpec ->
+                syncSpec.from(staging)
+                syncSpec.into(librariesDirectory)
             }
         } finally {
             staging.deleteTree()
@@ -541,9 +541,9 @@ abstract class DownloadMinecraftClientAssetIndexTask : DefaultTask() {
                     offline = offline.get(),
                 )
             }
-            fileSystemOperations.sync { sync ->
-                sync.from(staging)
-                sync.into(assetIndexesDirectory)
+            fileSystemOperations.sync { syncSpec ->
+                syncSpec.from(staging)
+                syncSpec.into(assetIndexesDirectory)
             }
         } finally {
             staging.deleteTree()
@@ -561,8 +561,8 @@ private fun collectClientLibraryArtifacts(
     metadata: JsonObject,
 ): Map<String, ClientArtifactSpec> {
     val artifacts = linkedMapOf<String, ClientArtifactSpec>()
-    metadata.getValue("libraries").jsonArray.forEach { element ->
-        val library = element.jsonObject
+    metadata.getValue("libraries").jsonArray.forEach { jsonElement ->
+        val library = jsonElement.jsonObject
         val downloads = library["downloads"]?.jsonObject ?: return@forEach
         val candidates = buildList {
             downloads["artifact"]?.jsonObject?.let { add(it) }
@@ -570,13 +570,13 @@ private fun collectClientLibraryArtifacts(
                 add(it.jsonObject)
             }
         }
-        candidates.forEach { value ->
-            val artifact = ClientArtifactSpec(
-                url = value.getValue("url").jsonPrimitive.content,
+        candidates.forEach { jsonObject ->
+            val clientArtifactSpec = ClientArtifactSpec(
+                url = jsonObject.getValue("url").jsonPrimitive.content,
             )
-            val path = value.getValue("path").jsonPrimitive.content
-            val previous = artifacts.put(path, artifact)
-            check(previous == null || previous == artifact)
+            val path = jsonObject.getValue("path").jsonPrimitive.content
+            val previous = artifacts.put(path, clientArtifactSpec)
+            check(previous == null || previous == clientArtifactSpec)
         }
     }
     return artifacts
@@ -585,8 +585,8 @@ private fun collectClientLibraryArtifacts(
 private fun collectFabricLibraryArtifacts(
     profile: JsonObject,
 ): Map<String, ClientArtifactSpec> = profile.getValue("libraries").jsonArray
-    .associate { element ->
-        val library = element.jsonObject
+    .associate { jsonElement ->
+        val library = jsonElement.jsonObject
         val coordinate = library.getValue("name").jsonPrimitive.content
         val fields = coordinate.split(':')
         check(fields.size == 3 && fields.all(String::isNotBlank)) {
@@ -647,13 +647,13 @@ abstract class DownloadMinecraftClientAssetObjectsTask : DefaultTask() {
             runBlocking {
                 val semaphore = Semaphore(ASSET_CONCURRENCY)
                 coroutineScope {
-                    officialAssets.map { asset ->
+                    officialAssets.map { officialClientAsset ->
                         async {
                             semaphore.acquire()
                             try {
                                 ProtocolHttp.download(
-                                    url = "https://resources.download.minecraft.net/${asset.relativePath}",
-                                    destination = staging.resolve(asset.relativePath),
+                                    url = "https://resources.download.minecraft.net/${officialClientAsset.relativePath}",
+                                    destination = staging.resolve(officialClientAsset.relativePath),
                                     offline = offline.get(),
                                 )
                             } finally {
@@ -663,9 +663,9 @@ abstract class DownloadMinecraftClientAssetObjectsTask : DefaultTask() {
                     }.awaitAll()
                 }
             }
-            fileSystemOperations.sync { sync ->
-                sync.from(staging)
-                sync.into(outputDirectory)
+            fileSystemOperations.sync { syncSpec ->
+                syncSpec.from(staging)
+                syncSpec.into(outputDirectory)
             }
         } finally {
             staging.deleteTree()
@@ -730,20 +730,20 @@ abstract class AssembleHeadlessClientAssetsTask : DefaultTask() {
             "png" to dummyPngFile.asFile.get(),
             "json" to dummyJsonFile.asFile.get(),
         )
-        fileSystemOperations.sync { sync ->
-            sync.from(assetIndexesDirectory) { copy ->
-                copy.into("indexes")
+        fileSystemOperations.sync { syncSpec ->
+            syncSpec.from(assetIndexesDirectory) { copySpec ->
+                copySpec.into("indexes")
             }
-            sync.from(originalObjectsDirectory) { copy ->
-                copy.into("objects")
+            syncSpec.from(originalObjectsDirectory) { copySpec ->
+                copySpec.into("objects")
             }
-            assets.filter { it.dummyFormat != null }.forEach { asset ->
-                sync.from(replacements.getValue(asset.dummyFormat!!)) { copy ->
-                    copy.into("objects/${asset.hash.take(2)}")
-                    copy.rename { asset.hash }
+            assets.filter { it.dummyFormat != null }.forEach { officialClientAsset ->
+                syncSpec.from(replacements.getValue(officialClientAsset.dummyFormat!!)) { copySpec ->
+                    copySpec.into("objects/${officialClientAsset.hash.take(2)}")
+                    copySpec.rename { officialClientAsset.hash }
                 }
             }
-            sync.into(outputDirectory)
+            syncSpec.into(outputDirectory)
         }
         val indexFiles = Files.list(indexes).use { paths ->
             paths.filter { it.isRegularFile() && it.name.endsWith(".json") }
@@ -790,18 +790,18 @@ private fun readOfficialClientAssets(
     protocolJson.decodeFromString<JsonObject>(indexFiles.single().readText())
         .getValue("objects")
         .jsonObject
-        .forEach { (name, element) ->
-            val value = element.jsonObject
+        .forEach { (name, jsonElement) ->
+            val jsonObject = jsonElement.jsonObject
             val format = name.substringAfterLast('/')
                 .substringAfterLast('.', "")
                 .lowercase()
-            val asset = OfficialClientAsset(
-                hash = value.getValue("hash").jsonPrimitive.content.lowercase(),
+            val officialClientAsset = OfficialClientAsset(
+                hash = jsonObject.getValue("hash").jsonPrimitive.content.lowercase(),
                 dummyFormat = format.takeIf(dummyFormats::contains),
             )
-            val previous = assets.putIfAbsent(asset.hash, asset)
-            check(previous == null || previous == asset) {
-                "Asset index maps ${asset.hash} to incompatible formats"
+            val previous = assets.putIfAbsent(officialClientAsset.hash, officialClientAsset)
+            check(previous == null || previous == officialClientAsset) {
+                "Asset index maps ${officialClientAsset.hash} to incompatible formats"
             }
         }
     return assets.values.toList()

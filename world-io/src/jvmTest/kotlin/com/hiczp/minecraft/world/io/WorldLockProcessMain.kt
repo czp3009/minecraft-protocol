@@ -13,13 +13,13 @@ object WorldLockProcessMain {
         val directory = Path.of(arguments.single())
         java.nio.file.Files.createDirectories(directory)
         FileChannel.open(directory.resolve("session.lock"), CREATE, WRITE)
-            .use { channel ->
+            .use { fileChannel ->
                 val marker = ByteBuffer.wrap(
                     "☃".encodeToByteArray(),
                 )
-                channel.write(marker)
-                channel.force(true)
-                channel.lock().use {
+                fileChannel.write(marker)
+                fileChannel.force(true)
+                fileChannel.lock().use {
                     System.out.write("LOCKED\n".encodeToByteArray())
                     System.out.flush()
                     check(System.`in`.read() >= 0)

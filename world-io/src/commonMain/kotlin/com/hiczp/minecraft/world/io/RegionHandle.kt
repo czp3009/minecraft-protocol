@@ -26,14 +26,14 @@ class RegionHandle internal constructor(
     internal val entry: RegionState,
     private val afterRelease: suspend () -> Throwable? = { null },
 ) {
-    val position: RegionPosition
-        get() = entry.position
+    val regionPosition: RegionPosition
+        get() = entry.regionPosition
 
     val chunkNbtFormat: CompressedNbtFormat
         get() = owner.chunkNbtFormat
 
-    val configuration: RegionStorageConfiguration
-        get() = owner.configuration
+    val regionStorageConfiguration: RegionStorageConfiguration
+        get() = owner.regionStorageConfiguration
 
     private val state = Mutex()
     private var closed = false
@@ -46,11 +46,11 @@ class RegionHandle internal constructor(
         owner.hasRegion(entry)
     }
 
-    suspend fun readChunkInfo(local: LocalChunkPosition): RegionChunkInfo? = withOperation {
-        owner.readChunkInfo(entry, local)
+    suspend fun readChunkInfo(localChunkPosition: LocalChunkPosition): RegionChunkInfo? = withOperation {
+        owner.readChunkInfo(entry, localChunkPosition)
     }
 
-    suspend fun readChunkInfo(position: ChunkPosition): RegionChunkInfo? = readChunkInfo(local(position))
+    suspend fun readChunkInfo(chunkPosition: ChunkPosition): RegionChunkInfo? = readChunkInfo(local(chunkPosition))
 
     /** Reads detached stored metadata for every resolvable Chunk record in Region-local order. */
     suspend fun readChunkInfos(): List<RegionChunkInfo> = withOperation {
@@ -68,169 +68,169 @@ class RegionHandle internal constructor(
     }
 
     /** Reads occupied absolute Chunk positions in Region header order. */
-    suspend fun readChunkPositions(): List<ChunkPosition> = readLocalChunkPositions().map(position::chunk)
+    suspend fun readChunkPositions(): List<ChunkPosition> = readLocalChunkPositions().map(regionPosition::chunk)
 
-    /** Whether the Region index contains [local], without reading Chunk record metadata. */
-    suspend fun hasChunk(local: LocalChunkPosition): Boolean = withOperation {
-        owner.hasChunk(entry, local)
+    /** Whether the Region index contains [localChunkPosition], without reading Chunk record metadata. */
+    suspend fun hasChunk(localChunkPosition: LocalChunkPosition): Boolean = withOperation {
+        owner.hasChunk(entry, localChunkPosition)
     }
 
-    suspend fun hasChunk(position: ChunkPosition): Boolean = hasChunk(local(position))
+    suspend fun hasChunk(chunkPosition: ChunkPosition): Boolean = hasChunk(local(chunkPosition))
 
-    suspend fun hasChunk(position: BlockPosition): Boolean = hasChunk(position.chunk)
+    suspend fun hasChunk(blockPosition: BlockPosition): Boolean = hasChunk(blockPosition.chunkPosition)
 
     suspend fun <R> withCompressedChunkSource(
-        local: LocalChunkPosition,
+        localChunkPosition: LocalChunkPosition,
         block: (RegionChunkInfo, KotlinxSource) -> R,
     ): R? = withOperation {
-        owner.withCompressedChunkSource(entry, local, block)
+        owner.withCompressedChunkSource(entry, localChunkPosition, block)
     }
 
     suspend fun <R> withCompressedChunkSource(
-        position: ChunkPosition,
+        chunkPosition: ChunkPosition,
         block: (RegionChunkInfo, KotlinxSource) -> R,
-    ): R? = withCompressedChunkSource(local(position), block)
+    ): R? = withCompressedChunkSource(local(chunkPosition), block)
 
-    /** Copies one complete compressed Chunk payload without retaining it in memory or closing [sink]. */
-    suspend fun readCompressedChunkTo(local: LocalChunkPosition, sink: KotlinxSink): RegionChunkInfo? =
-        withCompressedChunkSource(local) { info, source ->
-            source.transferTo(sink)
-            info
+    /** Copies one complete compressed Chunk payload without retaining it in memory or closing [kotlinxSink]. */
+    suspend fun readCompressedChunkTo(localChunkPosition: LocalChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
+        withCompressedChunkSource(localChunkPosition) { regionChunkInfo, source ->
+            source.transferTo(kotlinxSink)
+            regionChunkInfo
         }
 
-    suspend fun readCompressedChunkTo(position: ChunkPosition, sink: KotlinxSink): RegionChunkInfo? =
-        readCompressedChunkTo(local(position), sink)
+    suspend fun readCompressedChunkTo(chunkPosition: ChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
+        readCompressedChunkTo(local(chunkPosition), kotlinxSink)
 
-    suspend fun readCompressedChunk(local: LocalChunkPosition): CompressedChunk? = withOperation {
-        owner.readCompressedChunk(entry, local)
+    suspend fun readCompressedChunk(localChunkPosition: LocalChunkPosition): CompressedChunk? = withOperation {
+        owner.readCompressedChunk(entry, localChunkPosition)
     }
 
-    suspend fun readCompressedChunk(position: ChunkPosition): CompressedChunk? = readCompressedChunk(local(position))
+    suspend fun readCompressedChunk(chunkPosition: ChunkPosition): CompressedChunk? = readCompressedChunk(local(chunkPosition))
 
     suspend fun writeCompressedChunk(
-        local: LocalChunkPosition,
-        chunk: CompressedChunkInput,
+        localChunkPosition: LocalChunkPosition,
+        compressedChunkInput: CompressedChunkInput,
     ) = withOperation {
-        owner.writeCompressedChunk(entry, local, chunk)
+        owner.writeCompressedChunk(entry, localChunkPosition, compressedChunkInput)
     }
 
     suspend fun writeCompressedChunk(
-        position: ChunkPosition,
-        chunk: CompressedChunkInput,
-    ) = writeCompressedChunk(local(position), chunk)
+        chunkPosition: ChunkPosition,
+        compressedChunkInput: CompressedChunkInput,
+    ) = writeCompressedChunk(local(chunkPosition), compressedChunkInput)
 
     /** Streams one already-compressed Chunk whose exact length is known before allocation. */
     suspend fun writeCompressedChunk(
-        local: LocalChunkPosition,
+        localChunkPosition: LocalChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
         block: (KotlinxSink) -> Unit,
     ) = withOperation {
-        owner.writeCompressedChunk(entry, local, compression, compressedByteCount, block)
+        owner.writeCompressedChunk(entry, localChunkPosition, compression, compressedByteCount, block)
     }
 
     suspend fun writeCompressedChunk(
-        position: ChunkPosition,
+        chunkPosition: ChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
         block: (KotlinxSink) -> Unit,
-    ) = writeCompressedChunk(local(position), compression, compressedByteCount, block)
+    ) = writeCompressedChunk(local(chunkPosition), compression, compressedByteCount, block)
 
-    suspend fun removeChunk(local: LocalChunkPosition): Boolean = withOperation {
-        owner.removeChunk(entry, local)
+    suspend fun removeChunk(localChunkPosition: LocalChunkPosition): Boolean = withOperation {
+        owner.removeChunk(entry, localChunkPosition)
     }
 
-    suspend fun removeChunk(position: ChunkPosition): Boolean = removeChunk(local(position))
+    suspend fun removeChunk(chunkPosition: ChunkPosition): Boolean = removeChunk(local(chunkPosition))
 
     suspend fun <R> withChunkNbtSource(
-        local: LocalChunkPosition,
+        localChunkPosition: LocalChunkPosition,
         block: (RegionChunkInfo, KotlinxSource) -> R,
     ): R? = withOperation {
-        owner.withChunkNbtSource(entry, local, block)
+        owner.withChunkNbtSource(entry, localChunkPosition, block)
     }
 
     suspend fun <R> withChunkNbtSource(
-        position: ChunkPosition,
+        chunkPosition: ChunkPosition,
         block: (RegionChunkInfo, KotlinxSource) -> R,
-    ): R? = withChunkNbtSource(local(position), block)
+    ): R? = withChunkNbtSource(local(chunkPosition), block)
 
-    /** Copies one complete decompressed unnamed-root Chunk NBT stream without closing [sink]. */
-    suspend fun readChunkNbtTo(local: LocalChunkPosition, sink: KotlinxSink): RegionChunkInfo? =
-        withChunkNbtSource(local) { info, source ->
-            source.transferTo(sink)
-            info
+    /** Copies one complete decompressed unnamed-root Chunk NBT stream without closing [kotlinxSink]. */
+    suspend fun readChunkNbtTo(localChunkPosition: LocalChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
+        withChunkNbtSource(localChunkPosition) { regionChunkInfo, source ->
+            source.transferTo(kotlinxSink)
+            regionChunkInfo
         }
 
-    suspend fun readChunkNbtTo(position: ChunkPosition, sink: KotlinxSink): RegionChunkInfo? =
-        readChunkNbtTo(local(position), sink)
+    suspend fun readChunkNbtTo(chunkPosition: ChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
+        readChunkNbtTo(local(chunkPosition), kotlinxSink)
 
-    suspend fun readChunkNbtDocument(local: LocalChunkPosition): NbtDocument? = withOperation {
-        owner.readChunkNbtDocument(entry, local)
+    suspend fun readChunkNbtDocument(localChunkPosition: LocalChunkPosition): NbtDocument? = withOperation {
+        owner.readChunkNbtDocument(entry, localChunkPosition)
     }
 
-    suspend fun readChunkNbtDocument(position: ChunkPosition): NbtDocument? =
-        readChunkNbtDocument(local(position))
+    suspend fun readChunkNbtDocument(chunkPosition: ChunkPosition): NbtDocument? =
+        readChunkNbtDocument(local(chunkPosition))
 
     suspend fun <T> readChunkNbt(
-        local: LocalChunkPosition,
-        deserializer: DeserializationStrategy<T>,
+        localChunkPosition: LocalChunkPosition,
+        deserializationStrategy: DeserializationStrategy<T>,
     ): T? = withOperation {
-        owner.readChunkNbt(entry, local, deserializer)
+        owner.readChunkNbt(entry, localChunkPosition, deserializationStrategy)
     }
 
     suspend fun <T> readChunkNbt(
-        position: ChunkPosition,
-        deserializer: DeserializationStrategy<T>,
-    ): T? = readChunkNbt(local(position), deserializer)
+        chunkPosition: ChunkPosition,
+        deserializationStrategy: DeserializationStrategy<T>,
+    ): T? = readChunkNbt(local(chunkPosition), deserializationStrategy)
 
-    suspend inline fun <reified T> readChunkNbt(local: LocalChunkPosition): T? =
-        readChunkNbt(local, chunkNbtFormat.nbt.serializersModule.serializer())
+    suspend inline fun <reified T> readChunkNbt(localChunkPosition: LocalChunkPosition): T? =
+        readChunkNbt(localChunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
 
-    suspend inline fun <reified T> readChunkNbt(position: ChunkPosition): T? =
-        readChunkNbt(position, chunkNbtFormat.nbt.serializersModule.serializer())
+    suspend inline fun <reified T> readChunkNbt(chunkPosition: ChunkPosition): T? =
+        readChunkNbt(chunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
 
     suspend fun <B : Any, M : Any> readChunk(
-        local: LocalChunkPosition,
-        codec: ChunkNbtCodec<B, M>,
+        localChunkPosition: LocalChunkPosition,
+        chunkNbtCodec: ChunkNbtCodec<B, M>,
     ): Chunk<B, M>? = withOperation {
-        owner.readChunk(entry, local, codec)
+        owner.readChunk(entry, localChunkPosition, chunkNbtCodec)
     }
 
     suspend fun <B : Any, M : Any> readChunk(
-        position: ChunkPosition,
-        codec: ChunkNbtCodec<B, M>,
-    ): Chunk<B, M>? = readChunk(local(position), codec)
+        chunkPosition: ChunkPosition,
+        chunkNbtCodec: ChunkNbtCodec<B, M>,
+    ): Chunk<B, M>? = readChunk(local(chunkPosition), chunkNbtCodec)
 
     suspend fun <B : Any, M : Any> readChunk(
-        position: BlockPosition,
-        codec: ChunkNbtCodec<B, M>,
-    ): Chunk<B, M>? = readChunk(position.chunk, codec)
+        blockPosition: BlockPosition,
+        chunkNbtCodec: ChunkNbtCodec<B, M>,
+    ): Chunk<B, M>? = readChunk(blockPosition.chunkPosition, chunkNbtCodec)
 
     suspend fun writeChunkNbtDocument(
-        local: LocalChunkPosition,
-        document: NbtDocument,
+        localChunkPosition: LocalChunkPosition,
+        nbtDocument: NbtDocument,
     ) = withOperation {
-        owner.writeChunkNbtDocument(entry, local, document, owner.configuration.writeCompression)
+        owner.writeChunkNbtDocument(entry, localChunkPosition, nbtDocument, owner.regionStorageConfiguration.writeCompression)
     }
 
     suspend fun writeChunkNbtDocument(
-        position: ChunkPosition,
-        document: NbtDocument,
-    ) = writeChunkNbtDocument(local(position), document)
+        chunkPosition: ChunkPosition,
+        nbtDocument: NbtDocument,
+    ) = writeChunkNbtDocument(local(chunkPosition), nbtDocument)
 
     suspend fun writeChunkNbtDocument(
-        local: LocalChunkPosition,
-        document: NbtDocument,
+        localChunkPosition: LocalChunkPosition,
+        nbtDocument: NbtDocument,
         compression: Compression,
     ) = withOperation {
-        owner.writeChunkNbtDocument(entry, local, document, compression)
+        owner.writeChunkNbtDocument(entry, localChunkPosition, nbtDocument, compression)
     }
 
     suspend fun writeChunkNbtDocument(
-        position: ChunkPosition,
-        document: NbtDocument,
+        chunkPosition: ChunkPosition,
+        nbtDocument: NbtDocument,
         compression: Compression,
-    ) = writeChunkNbtDocument(local(position), document, compression)
+    ) = writeChunkNbtDocument(local(chunkPosition), nbtDocument, compression)
 
     /**
      * Writes complete uncompressed unnamed-root Chunk NBT bytes supplied inside [block].
@@ -239,42 +239,42 @@ class RegionHandle internal constructor(
      * compressed length is known and the Region write can begin.
      */
     suspend fun writeChunkNbt(
-        local: LocalChunkPosition,
-        compression: Compression = configuration.writeCompression,
+        localChunkPosition: LocalChunkPosition,
+        compression: Compression = regionStorageConfiguration.writeCompression,
         block: (KotlinxSink) -> Unit,
     ) = withOperation {
-        owner.writeChunkNbt(entry, local, compression, block)
+        owner.writeChunkNbt(entry, localChunkPosition, compression, block)
     }
 
     suspend fun writeChunkNbt(
-        position: ChunkPosition,
-        compression: Compression = configuration.writeCompression,
+        chunkPosition: ChunkPosition,
+        compression: Compression = regionStorageConfiguration.writeCompression,
         block: (KotlinxSink) -> Unit,
-    ) = writeChunkNbt(local(position), compression, block)
+    ) = writeChunkNbt(local(chunkPosition), compression, block)
 
     suspend fun <T> writeChunkNbt(
-        local: LocalChunkPosition,
-        serializer: SerializationStrategy<T>,
+        localChunkPosition: LocalChunkPosition,
+        serializationStrategy: SerializationStrategy<T>,
         value: T,
-        compression: Compression = configuration.writeCompression,
+        compression: Compression = regionStorageConfiguration.writeCompression,
     ) = withOperation {
-        owner.writeChunkNbt(entry, local, serializer, value, compression)
+        owner.writeChunkNbt(entry, localChunkPosition, serializationStrategy, value, compression)
     }
 
     suspend fun <T> writeChunkNbt(
-        position: ChunkPosition,
-        serializer: SerializationStrategy<T>,
+        chunkPosition: ChunkPosition,
+        serializationStrategy: SerializationStrategy<T>,
         value: T,
-        compression: Compression = configuration.writeCompression,
-    ) = writeChunkNbt(local(position), serializer, value, compression)
+        compression: Compression = regionStorageConfiguration.writeCompression,
+    ) = writeChunkNbt(local(chunkPosition), serializationStrategy, value, compression)
 
     suspend inline fun <reified T> writeChunkNbt(
-        local: LocalChunkPosition,
+        localChunkPosition: LocalChunkPosition,
         value: T,
-        compression: Compression = configuration.writeCompression,
+        compression: Compression = regionStorageConfiguration.writeCompression,
     ) = writeChunkNbt(
-        local,
-        chunkNbtFormat.nbt.serializersModule.serializer(),
+        localChunkPosition,
+        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
         value,
         compression,
     )
@@ -282,19 +282,19 @@ class RegionHandle internal constructor(
     /** Writes [chunk] at its retained position after validating Region membership. */
     suspend fun <B : Any, M : Any> writeChunk(
         chunk: Chunk<B, M>,
-        codec: ChunkNbtCodec<B, M>,
-        compression: Compression = configuration.writeCompression,
+        chunkNbtCodec: ChunkNbtCodec<B, M>,
+        compression: Compression = regionStorageConfiguration.writeCompression,
     ) = withOperation {
-        owner.writeChunk(entry, position.local(chunk.position), chunk, codec, compression)
+        owner.writeChunk(entry, regionPosition.local(chunk.chunkPosition), chunk, chunkNbtCodec, compression)
     }
 
     suspend inline fun <reified T> writeChunkNbt(
-        position: ChunkPosition,
+        chunkPosition: ChunkPosition,
         value: T,
-        compression: Compression = configuration.writeCompression,
+        compression: Compression = regionStorageConfiguration.writeCompression,
     ) = writeChunkNbt(
-        position,
-        chunkNbtFormat.nbt.serializersModule.serializer(),
+        chunkPosition,
+        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
         value,
         compression,
     )
@@ -376,16 +376,16 @@ class RegionHandle internal constructor(
 
     private suspend fun acquireOperation() {
         state.withLock {
-            check(!closed) { "Region is closed: $position" }
+            check(!closed) { "Region is closed: $regionPosition" }
             activeOperations++
         }
     }
 
-    private fun local(position: ChunkPosition): LocalChunkPosition = this.position.local(position)
+    private fun local(chunkPosition: ChunkPosition): LocalChunkPosition = this.regionPosition.local(chunkPosition)
 
     private suspend fun releaseOperation(): Throwable? {
         val completion = state.withLock {
-            check(activeOperations > 0) { "Region operation is not active: $position" }
+            check(activeOperations > 0) { "Region operation is not active: $regionPosition" }
             activeOperations--
             if (closed && activeOperations == 0) drained else null
         }

@@ -15,11 +15,11 @@ import kotlinx.coroutines.launch
 import kotlin.uuid.Uuid
 
 internal data class LauncherState(
-    val destination: LauncherDestination = LauncherDestination.Home,
-    val manifest: VersionManifestState = VersionManifestState.Loading,
-    val installed: InstalledState = InstalledState(),
+    val launcherDestination: LauncherDestination = LauncherDestination.Home,
+    val versionManifestState: VersionManifestState = VersionManifestState.Loading,
+    val installedState: InstalledState = InstalledState(),
     val installedMetadata: Map<String, VersionMetadata> = emptyMap(),
-    val auth: AuthState? = null,
+    val authState: AuthState? = null,
     val accountCredentials: Map<Uuid, AccountCredentialState> = emptyMap(),
 )
 
@@ -30,13 +30,13 @@ internal enum class AccountCredentialState {
 
 internal sealed interface VersionManifestState {
     data object Loading : VersionManifestState
-    data class Ready(val manifest: VersionManifest) : VersionManifestState
+    data class Ready(val versionManifest: VersionManifest) : VersionManifestState
     data class Failed(val message: String) : VersionManifestState
 }
 
 internal sealed interface LauncherDestination {
     data class Loading(
-        val operation: LauncherOperation,
+        val launcherOperation: LauncherOperation,
         val subject: String? = null,
         val cancellable: Boolean = false,
     ) : LauncherDestination
@@ -44,9 +44,9 @@ internal sealed interface LauncherDestination {
     data class Error(val message: String, val returnTo: LauncherDestination) : LauncherDestination
     data object Home : LauncherDestination
     data object Versions : LauncherDestination
-    data class ConfirmInstall(val entry: VersionEntry) : LauncherDestination
-    data class PreparingInstall(val entry: VersionEntry) : LauncherDestination
-    data class Installing(val entry: VersionEntry) : LauncherDestination
+    data class ConfirmInstall(val versionEntry: VersionEntry) : LauncherDestination
+    data class PreparingInstall(val versionEntry: VersionEntry) : LauncherDestination
+    data class Installing(val versionEntry: VersionEntry) : LauncherDestination
     data object Installed : LauncherDestination
     data class VersionActions(val versionId: String) : LauncherDestination
     data class ConfirmDelete(val versionId: String) : LauncherDestination
@@ -55,11 +55,11 @@ internal sealed interface LauncherDestination {
     data class AccountActions(val identityId: Uuid) : LauncherDestination
     data class OfflineInput(val replacingIdentityId: Uuid? = null) : LauncherDestination
     data class MicrosoftLogin(
-        val stage: MicrosoftLoginStage,
+        val microsoftLoginStage: MicrosoftLoginStage,
         val replacingIdentityId: Uuid? = null,
     ) : LauncherDestination
 
-    data class GameOutput(val versionId: String, val output: GameOutputBuffer) : LauncherDestination
+    data class GameOutput(val versionId: String, val gameOutputBuffer: GameOutputBuffer) : LauncherDestination
 }
 
 internal enum class LauncherOperation {
@@ -73,14 +73,14 @@ internal enum class LauncherOperation {
 }
 
 internal class LauncherController(
-    private val scope: CoroutineScope,
-    private val store: LauncherStore,
+    private val coroutineScope: CoroutineScope,
+    private val launcherStore: LauncherStore,
     private val installationService: InstallationService,
     private val accountService: AccountService,
     private val processService: GameProcessRuntime,
-    private val platform: LauncherPlatform,
+    private val launcherPlatform: LauncherPlatform,
 ) {
-    private val _state = MutableStateFlow(LauncherState(auth = store.auth.read { this }))
+    private val _state = MutableStateFlow(LauncherState(authState = launcherStore.authMemory.read { this }))
     val state: StateFlow<LauncherState> = _state.asStateFlow()
     val installProgress: StateFlow<InstallProgress> = installationService.progress
 
@@ -101,19 +101,20 @@ internal class LauncherController(
     }
 
     fun availableVersions(type: String?): List<VersionEntry> {
-        val versions = (_state.value.manifest as? VersionManifestState.Ready)?.manifest?.versions.orEmpty()
+        val versions =
+            (_state.value.versionManifestState as? VersionManifestState.Ready)?.versionManifest?.versions.orEmpty()
         return if (type == null) versions else versions.filter { it.type == type }
     }
 
-    fun installedVersions(): List<InstalledVersion> = _state.value.installed.installations
-        .filter { it.platformKey == platform.platformKey }
+    fun installedVersions(): List<InstalledVersion> = _state.value.installedState.installations
+        .filter { it.platformKey == launcherPlatform.platformKey }
 
     fun showHome() = show(LauncherDestination.Home)
 
     fun showVersions() {
-        when (val manifest = _state.value.manifest) {
+        when (val versionManifestState = _state.value.versionManifestState) {
             VersionManifestState.Loading -> {
-                manifestReturnDestination = _state.value.destination
+                manifestReturnDestination = _state.value.launcherDestination
                 show(manifestLoadingDestination())
             }
 
@@ -123,11 +124,11 @@ internal class LauncherController(
     }
 
     fun dismissError() {
-        val error = _state.value.destination as? LauncherDestination.Error ?: return
+        val error = _state.value.launcherDestination as? LauncherDestination.Error ?: return
         show(error.returnTo)
     }
 
-    fun confirmInstall(entry: VersionEntry) = show(LauncherDestination.ConfirmInstall(entry))
+    fun confirmInstall(versionEntry: VersionEntry) = show(LauncherDestination.ConfirmInstall(versionEntry))
 
     fun showInstalled() = show(LauncherDestination.Installed)
 
@@ -139,10 +140,10 @@ internal class LauncherController(
 
     fun showAddAccount() = show(LauncherDestination.AddAccount)
 
-    fun showAccountActions(account: StoredAccount) = show(LauncherDestination.AccountActions(account.identity.id))
+    fun showAccountActions(storedAccount: StoredAccount) = show(LauncherDestination.AccountActions(storedAccount.minecraftIdentity.id))
 
-    fun showOfflineInput(account: StoredAccount? = null) =
-        show(LauncherDestination.OfflineInput(account?.identity?.id))
+    fun showOfflineInput(storedAccount: StoredAccount? = null) =
+        show(LauncherDestination.OfflineInput(storedAccount?.minecraftIdentity?.id))
 
     fun cancelInstallation() = cancelActive(LauncherDestination.Versions)
 
@@ -150,25 +151,25 @@ internal class LauncherController(
 
     fun cancelGamePreparation() = cancelActive(LauncherDestination.Installed)
 
-    fun install(entry: VersionEntry) {
-        runOperation(LauncherDestination.PreparingInstall(entry)) {
-            val completed = installationService.install(
-                entry = entry,
-                onDownloadsStarted = { installed ->
+    fun install(versionEntry: VersionEntry) {
+        runOperation(LauncherDestination.PreparingInstall(versionEntry)) {
+            val completedInstallation = installationService.install(
+                versionEntry = versionEntry,
+                onDownloadsStarted = { installedState ->
                     _state.update { current ->
                         current.copy(
-                            destination = LauncherDestination.Installing(entry),
-                            installed = installed,
-                            installedMetadata = current.installedMetadata - entry.id,
+                            launcherDestination = LauncherDestination.Installing(versionEntry),
+                            installedState = installedState,
+                            installedMetadata = current.installedMetadata - versionEntry.id,
                         )
                     }
                 },
             )
             _state.update { current ->
                 current.copy(
-                    destination = LauncherDestination.Installed,
-                    installed = completed.installed,
-                    installedMetadata = current.installedMetadata + (entry.id to completed.metadata),
+                    launcherDestination = LauncherDestination.Installed,
+                    installedState = completedInstallation.installedState,
+                    installedMetadata = current.installedMetadata + (versionEntry.id to completedInstallation.versionMetadata),
                 )
             }
         }
@@ -179,10 +180,10 @@ internal class LauncherController(
             installationService.delete(versionId)
             _state.update { current ->
                 current.copy(
-                    destination = LauncherDestination.Installed,
-                    installed = current.installed.copy(
-                        installations = current.installed.installations.filterNot {
-                            it.versionId == versionId && it.platformKey == platform.platformKey
+                    launcherDestination = LauncherDestination.Installed,
+                    installedState = current.installedState.copy(
+                        installations = current.installedState.installations.filterNot {
+                            it.versionId == versionId && it.platformKey == launcherPlatform.platformKey
                         },
                     ),
                     installedMetadata = current.installedMetadata - versionId,
@@ -191,38 +192,38 @@ internal class LauncherController(
         }
     }
 
-    fun selectAccount(account: StoredAccount) {
+    fun selectAccount(storedAccount: StoredAccount) {
         runOperation(LauncherDestination.Loading(LauncherOperation.SELECT_ACCOUNT)) {
-            accountService.select(account.identity.id)
+            accountService.select(storedAccount.minecraftIdentity.id)
             refreshAuth()
         }
     }
 
-    fun deleteAccount(account: StoredAccount) {
+    fun deleteAccount(storedAccount: StoredAccount) {
         runOperation(LauncherDestination.Loading(LauncherOperation.DELETE_ACCOUNT)) {
-            accountService.delete(account.identity.id)
-            refreshAuth(removeCredentialStates = setOf(account.identity.id))
+            accountService.delete(storedAccount.minecraftIdentity.id)
+            refreshAuth(removeCredentialStates = setOf(storedAccount.minecraftIdentity.id))
         }
     }
 
     fun saveOfflineIdentity(name: String, replacingIdentityId: Uuid? = null) {
         if (name.isBlank()) return
         runOperation(LauncherDestination.Loading(LauncherOperation.SAVE_OFFLINE_IDENTITY)) {
-            val account = if (replacingIdentityId == null) {
+            val storedAccount = if (replacingIdentityId == null) {
                 accountService.addOffline(name)
             } else {
                 accountService.updateOffline(replacingIdentityId, name)
             }
-            refreshAuth(removeCredentialStates = setOfNotNull(replacingIdentityId, account.identity.id))
+            refreshAuth(removeCredentialStates = setOfNotNull(replacingIdentityId, storedAccount.minecraftIdentity.id))
         }
     }
 
     fun loginMicrosoft(replacingIdentityId: Uuid? = null) {
         runOperation(LauncherDestination.MicrosoftLogin(MicrosoftLoginStage.STARTING_CALLBACK, replacingIdentityId)) {
-            val account = accountService.loginMicrosoft(replacingIdentityId) { stage ->
-                show(LauncherDestination.MicrosoftLogin(stage, replacingIdentityId))
+            val storedAccount = accountService.loginMicrosoft(replacingIdentityId) { microsoftLoginStage ->
+                show(LauncherDestination.MicrosoftLogin(microsoftLoginStage, replacingIdentityId))
             }
-            refreshAuth(removeCredentialStates = setOfNotNull(replacingIdentityId, account.identity.id))
+            refreshAuth(removeCredentialStates = setOfNotNull(replacingIdentityId, storedAccount.minecraftIdentity.id))
         }
     }
 
@@ -230,81 +231,81 @@ internal class LauncherController(
         runOperation(
             LauncherDestination.Loading(LauncherOperation.PREPARE_GAME, versionId, cancellable = true),
         ) {
-            val identity = launchIdentity()
+            val minecraftIdentity = launchIdentity()
             show(LauncherDestination.Loading(LauncherOperation.PREPARE_GAME, versionId, cancellable = true))
-            val metadata = loadInstalledMetadata(versionId)
-            val installPlan = installationService.validateInstallation(metadata)
-            val auth = store.auth.read { this }
-            _state.update { it.copy(auth = auth) }
+            val versionMetadata = loadInstalledMetadata(versionId)
+            val installPlan = installationService.validateInstallation(versionMetadata)
+            val authState = launcherStore.authMemory.read { this }
+            _state.update { it.copy(authState = authState) }
             val launchPlan = MetadataPlanner.createLaunchPlan(
                 installPlan,
-                store.gameRoot(versionId),
-                platform,
-                identity,
-                auth.installationId,
+                launcherStore.gameRoot(versionId),
+                launcherPlatform,
+                minecraftIdentity,
+                authState.installationId,
             )
-            val output = processService.outputBuffer(launchPlan)
-            val outputDestination = LauncherDestination.GameOutput(versionId, output)
+            val gameOutputBuffer = processService.outputBuffer(launchPlan)
+            val outputDestination = LauncherDestination.GameOutput(versionId, gameOutputBuffer)
             show(outputDestination)
             try {
-                processService.launch(launchPlan, output)
+                processService.launch(launchPlan, gameOutputBuffer)
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Throwable) {
-                output.append(OutputSource.SYSTEM, "Launch failed: ${safeMessage(failure)}")
-                output.finish(-1)
+                gameOutputBuffer.append(OutputSource.SYSTEM, "Launch failed: ${safeMessage(failure)}")
+                gameOutputBuffer.finish(-1)
                 show(LauncherDestination.Error(safeMessage(failure), outputDestination))
             }
         }
     }
 
     private suspend fun launchIdentity(): MinecraftIdentity {
-        val account = accountService.selectedAccount() ?: return accountService.selectedIdentity()
-        if (account.identity !is MinecraftOnlineIdentity) return account.identity
+        val storedAccount = accountService.selectedAccount() ?: return accountService.selectedIdentity()
+        if (storedAccount.minecraftIdentity !is MinecraftOnlineIdentity) return storedAccount.minecraftIdentity
 
-        val credentialState = _state.value.accountCredentials[account.identity.id]
-        when (credentialState) {
-            AccountCredentialState.LOGIN_EXPIRED -> throw AccountLoginExpiredException(account.identity.name)
+        val accountCredentialState = _state.value.accountCredentials[storedAccount.minecraftIdentity.id]
+        when (accountCredentialState) {
+            AccountCredentialState.LOGIN_EXPIRED -> throw AccountLoginExpiredException(storedAccount.minecraftIdentity.name)
             AccountCredentialState.REFRESHING, null -> Unit
         }
-        val wasRefreshing = credentialState == AccountCredentialState.REFRESHING
-        if (wasRefreshing || accountService.needsRefresh(account)) {
+        val wasRefreshing = accountCredentialState == AccountCredentialState.REFRESHING
+        if (wasRefreshing || accountService.needsRefresh(storedAccount)) {
             show(
                 LauncherDestination.Loading(
                     LauncherOperation.REFRESH_ACCOUNT,
-                    account.identity.name,
+                    storedAccount.minecraftIdentity.name,
                     cancellable = true,
                 ),
             )
             try {
-                return requireNotNull(refreshAccount(account.identity.id)).identity
+                return requireNotNull(refreshAccount(storedAccount.minecraftIdentity.id)).minecraftIdentity
             } catch (failure: CancellationException) {
-                if (!wasRefreshing) updateCredentialState(account.identity.id, null)
+                if (!wasRefreshing) updateCredentialState(storedAccount.minecraftIdentity.id, null)
                 throw failure
             }
         }
-        return account.identity
+        return storedAccount.minecraftIdentity
     }
 
     private suspend fun refreshAccount(identityId: Uuid): StoredAccount? {
         updateCredentialState(identityId, AccountCredentialState.REFRESHING)
         return try {
-            val account = accountService.refreshIfNeeded(identityId)
-            val auth = store.auth.read { this }
-            val identityIds = auth.accounts.mapTo(mutableSetOf()) { it.identity.id }
+            val storedAccount = accountService.refreshIfNeeded(identityId)
+            val authState = launcherStore.authMemory.read { this }
+            val identityIds = authState.accounts.mapTo(mutableSetOf()) { it.minecraftIdentity.id }
             _state.update { current ->
                 current.copy(
-                    auth = auth,
+                    authState = authState,
                     accountCredentials = current.accountCredentials.filterKeys { key ->
                         key != identityId && key in identityIds
                     },
                 )
             }
-            account
+            storedAccount
         } catch (failure: CancellationException) {
             throw failure
         } catch (failure: Throwable) {
-            if (store.auth.read { accounts.none { it.identity.id == identityId } }) {
+            if (launcherStore.authMemory.read { accounts.none { it.minecraftIdentity.id == identityId } }) {
                 updateCredentialState(identityId, null)
                 null
             } else {
@@ -314,13 +315,13 @@ internal class LauncherController(
         }
     }
 
-    private fun updateCredentialState(identityId: Uuid, credentialState: AccountCredentialState?) {
+    private fun updateCredentialState(identityId: Uuid, accountCredentialState: AccountCredentialState?) {
         _state.update { current ->
             current.copy(
-                accountCredentials = if (credentialState == null) {
+                accountCredentials = if (accountCredentialState == null) {
                     current.accountCredentials - identityId
                 } else {
-                    current.accountCredentials + (identityId to credentialState)
+                    current.accountCredentials + (identityId to accountCredentialState)
                 },
             )
         }
@@ -328,24 +329,24 @@ internal class LauncherController(
 
     private fun loadLocalState() {
         localStateJob?.cancel()
-        localStateJob = scope.launch {
+        localStateJob = coroutineScope.launch {
             try {
-                val auth = store.auth.read { this }
-                val installed = installationService.loadInstalled()
-                val expiredAccounts = auth.accounts.filter(accountService::needsRefresh)
+                val authState = launcherStore.authMemory.read { this }
+                val installedState = installationService.loadInstalled()
+                val expiredAccounts = authState.accounts.filter(accountService::needsRefresh)
                 _state.update { current ->
                     current.copy(
-                        auth = auth,
-                        installed = installed,
-                        accountCredentials = expiredAccounts.associate { account ->
-                            account.identity.id to AccountCredentialState.REFRESHING
+                        authState = authState,
+                        installedState = installedState,
+                        accountCredentials = expiredAccounts.associate { storedAccount ->
+                            storedAccount.minecraftIdentity.id to AccountCredentialState.REFRESHING
                         },
                     )
                 }
-                expiredAccounts.forEach { account ->
-                    scope.launch {
+                expiredAccounts.forEach { storedAccount ->
+                    coroutineScope.launch {
                         try {
-                            refreshAccount(account.identity.id)
+                            refreshAccount(storedAccount.minecraftIdentity.id)
                         } catch (failure: CancellationException) {
                             throw failure
                         } catch (_: Throwable) {
@@ -357,7 +358,7 @@ internal class LauncherController(
                 throw failure
             } catch (failure: Throwable) {
                 _state.update { current ->
-                    current.copy(destination = LauncherDestination.Error(safeMessage(failure), current.destination))
+                    current.copy(launcherDestination = LauncherDestination.Error(safeMessage(failure), current.launcherDestination))
                 }
             }
         }
@@ -365,23 +366,23 @@ internal class LauncherController(
 
     private fun loadManifest(waiting: Boolean = false) {
         manifestJob?.cancel()
-        if (waiting) manifestReturnDestination = _state.value.destination
+        if (waiting) manifestReturnDestination = _state.value.launcherDestination
         _state.update { current ->
             current.copy(
-                manifest = VersionManifestState.Loading,
-                destination = if (waiting) manifestLoadingDestination() else current.destination,
+                versionManifestState = VersionManifestState.Loading,
+                launcherDestination = if (waiting) manifestLoadingDestination() else current.launcherDestination,
             )
         }
-        manifestJob = scope.launch {
+        manifestJob = coroutineScope.launch {
             try {
-                val manifest = installationService.loadManifest()
+                val versionManifest = installationService.loadManifest()
                 _state.update { current ->
                     current.copy(
-                        manifest = VersionManifestState.Ready(manifest),
-                        destination = if (current.destination.isWaitingForManifest()) {
+                        versionManifestState = VersionManifestState.Ready(versionManifest),
+                        launcherDestination = if (current.launcherDestination.isWaitingForManifest()) {
                             LauncherDestination.Versions
                         } else {
-                            current.destination
+                            current.launcherDestination
                         },
                     )
                 }
@@ -391,11 +392,11 @@ internal class LauncherController(
                 val message = safeMessage(failure)
                 _state.update { current ->
                     current.copy(
-                        manifest = VersionManifestState.Failed(message),
-                        destination = if (current.destination.isWaitingForManifest()) {
+                        versionManifestState = VersionManifestState.Failed(message),
+                        launcherDestination = if (current.launcherDestination.isWaitingForManifest()) {
                             LauncherDestination.Error(message, manifestReturnDestination)
                         } else {
-                            current.destination
+                            current.launcherDestination
                         },
                     )
                 }
@@ -406,22 +407,22 @@ internal class LauncherController(
     private suspend fun loadInstalledMetadata(versionId: String): VersionMetadata {
         _state.value.installedMetadata[versionId]?.let { return it }
         manifestJob?.join()
-        val manifest = (_state.value.manifest as? VersionManifestState.Ready)?.manifest
+        val versionManifest = (_state.value.versionManifestState as? VersionManifestState.Ready)?.versionManifest
             ?: throw IllegalStateException("The official version manifest is unavailable")
-        val entry = manifest.versions.singleOrNull { it.id == versionId }
+        val versionEntry = versionManifest.versions.singleOrNull { it.id == versionId }
             ?: throw IllegalStateException("Version $versionId is absent from the official manifest")
-        val metadata = installationService.loadVersionMetadata(entry)
-        _state.update { it.copy(installedMetadata = it.installedMetadata + (versionId to metadata)) }
-        return metadata
+        val versionMetadata = installationService.loadVersionMetadata(versionEntry)
+        _state.update { it.copy(installedMetadata = it.installedMetadata + (versionId to versionMetadata)) }
+        return versionMetadata
     }
 
     private suspend fun refreshAuth(removeCredentialStates: Set<Uuid> = emptySet()) {
-        val auth = store.auth.read { this }
-        val identityIds = auth.accounts.mapTo(mutableSetOf()) { it.identity.id }
+        val authState = launcherStore.authMemory.read { this }
+        val identityIds = authState.accounts.mapTo(mutableSetOf()) { it.minecraftIdentity.id }
         _state.update { current ->
             current.copy(
-                destination = LauncherDestination.Accounts,
-                auth = auth,
+                launcherDestination = LauncherDestination.Accounts,
+                authState = authState,
                 accountCredentials = current.accountCredentials.filterKeys { identityId ->
                     identityId in identityIds && identityId !in removeCredentialStates
                 },
@@ -435,9 +436,9 @@ internal class LauncherController(
     ) {
         activeJob?.cancel()
         cancellationDestination = null
-        val returnDestination = _state.value.destination
+        val returnDestination = _state.value.launcherDestination
         show(initialDestination)
-        activeJob = scope.launch {
+        activeJob = coroutineScope.launch {
             try {
                 operation()
             } catch (failure: CancellationException) {
@@ -445,27 +446,27 @@ internal class LauncherController(
                 throw failure
             } catch (failure: Throwable) {
                 _state.update {
-                    it.copy(destination = LauncherDestination.Error(safeMessage(failure), returnDestination))
+                    it.copy(launcherDestination = LauncherDestination.Error(safeMessage(failure), returnDestination))
                 }
             }
         }
     }
 
-    private fun cancelActive(destination: LauncherDestination) {
-        cancellationDestination = destination
+    private fun cancelActive(launcherDestination: LauncherDestination) {
+        cancellationDestination = launcherDestination
         activeJob?.cancel()
     }
 
-    private fun show(destination: LauncherDestination) {
-        _state.update { it.copy(destination = destination) }
+    private fun show(launcherDestination: LauncherDestination) {
+        _state.update { it.copy(launcherDestination = launcherDestination) }
     }
 
     private fun safeMessage(failure: Throwable): String {
         val message = failure.toString().takeIf(String::isNotBlank) ?: "Operation failed"
-        val secrets = _state.value.auth?.accounts.orEmpty().flatMap { account ->
+        val secrets = _state.value.authState?.accounts.orEmpty().flatMap { storedAccount ->
             listOfNotNull(
-                account.microsoftRefreshToken,
-                (account.identity as? MinecraftOnlineIdentity)?.accessToken,
+                storedAccount.microsoftRefreshToken,
+                (storedAccount.minecraftIdentity as? MinecraftOnlineIdentity)?.accessToken,
             )
         }
         return redactSecrets(sanitizeTerminalText(message), secrets)
@@ -473,9 +474,9 @@ internal class LauncherController(
 }
 
 private fun manifestLoadingDestination() = LauncherDestination.Loading(
-    operation = LauncherOperation.VERSION_MANIFEST,
+    launcherOperation = LauncherOperation.VERSION_MANIFEST,
     cancellable = true,
 )
 
 private fun LauncherDestination.isWaitingForManifest(): Boolean =
-    this is LauncherDestination.Loading && operation == LauncherOperation.VERSION_MANIFEST
+    this is LauncherDestination.Loading && launcherOperation == LauncherOperation.VERSION_MANIFEST

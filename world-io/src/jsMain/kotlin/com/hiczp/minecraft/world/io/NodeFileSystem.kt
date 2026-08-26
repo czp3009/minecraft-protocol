@@ -15,7 +15,7 @@ internal external fun openSync(path: String, flags: Number): Double
 
 internal external fun fstatSync(
     fd: Number,
-    options: NodeFileStatisticsOptions,
+    nodeFileStatisticsOptions: NodeFileStatisticsOptions,
 ): NodeFileStatistics
 
 internal external interface NodeFileStatisticsOptions {

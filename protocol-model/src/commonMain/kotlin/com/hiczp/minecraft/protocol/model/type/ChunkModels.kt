@@ -191,12 +191,12 @@ internal object HeightmapTypeSerializer : KSerializer<HeightmapType> {
 
     override fun deserialize(decoder: Decoder): HeightmapType {
         val input = decoder.beginStructure(descriptor)
-        val value = HeightmapType.entries.getOrElse(
+        val heightmapType = HeightmapType.entries.getOrElse(
             input.decodeIntElement(descriptor, 0),
         ) {
             HeightmapType.WORLD_SURFACE_WG
         }
         input.endStructure(descriptor)
-        return value
+        return heightmapType
     }
 }

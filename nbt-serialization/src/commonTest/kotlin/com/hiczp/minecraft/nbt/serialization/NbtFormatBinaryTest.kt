@@ -17,19 +17,19 @@ import kotlin.test.*
 class NbtFormatBinaryTest {
     @Test
     fun rootFormsHaveExactBytesAndGenericFormatUsesConfiguredFraming() {
-        val value = NbtInt(42)
+        val nbtInt = NbtInt(42)
         val anyBytes = byteArrayOf(3, 0, 0, 0, 42)
         val unnamedBytes = byteArrayOf(3, 0, 0, 0, 0, 0, 42)
         val namedBytes = byteArrayOf(3, 0, 1, 'x'.code.toByte(), 0, 0, 0, 42)
 
-        assertContentEquals(anyBytes, NbtFormat.encodeAnyTagToByteArray(value))
+        assertContentEquals(anyBytes, NbtFormat.encodeAnyTagToByteArray(nbtInt))
         assertContentEquals(
             unnamedBytes,
-            NbtFormat.encodeUnnamedTagToByteArray(value),
+            NbtFormat.encodeUnnamedTagToByteArray(nbtInt),
         )
         assertContentEquals(
             namedBytes,
-            NbtFormat.encodeNamedTagToByteArray(NamedNbtTag("x", value)),
+            NbtFormat.encodeNamedTagToByteArray(NamedNbtTag("x", nbtInt)),
         )
         assertContentEquals(
             byteArrayOf(10, 0, 0, 0),
@@ -45,7 +45,7 @@ class NbtFormatBinaryTest {
             byteArrayOf(0),
             NbtFormat.encodeUnnamedTagToByteArray(NbtEnd),
         )
-        assertEquals(value, NbtFormat.decodeUnnamedTagFromByteArray(namedBytes))
+        assertEquals(nbtInt, NbtFormat.decodeUnnamedTagFromByteArray(namedBytes))
 
         assertContentEquals(
             byteArrayOf(3, 0, 0, 0, 42),
@@ -54,12 +54,12 @@ class NbtFormatBinaryTest {
         assertContentEquals(
             unnamedBytes,
             NbtFormat(
-                NbtFormatConfiguration(rootEncoding = NbtRootEncoding.UNNAMED),
+                NbtFormatConfiguration(nbtRootEncoding = NbtRootEncoding.UNNAMED),
             ).encodeToByteArray(42),
         )
         val namedFormat = NbtFormat(
             NbtFormatConfiguration(
-                rootEncoding = NbtRootEncoding.NAMED,
+                nbtRootEncoding = NbtRootEncoding.NAMED,
                 rootName = "x",
             ),
         )
@@ -68,7 +68,7 @@ class NbtFormatBinaryTest {
         assertFailsWith<NbtDecodingException> {
             NbtFormat(
                 NbtFormatConfiguration(
-                    rootEncoding = NbtRootEncoding.NAMED,
+                    nbtRootEncoding = NbtRootEncoding.NAMED,
                     rootName = "other",
                 ),
             ).decodeFromByteArray<Int>(namedBytes)
@@ -77,30 +77,30 @@ class NbtFormatBinaryTest {
 
     @Test
     fun genericBinaryFormatRoundTripsClassesAndRejectsNamedEndRoots() {
-        val format = NbtFormat(
+        val nbtFormat = NbtFormat(
             NbtFormatConfiguration(
-                rootEncoding = NbtRootEncoding.NAMED,
+                nbtRootEncoding = NbtRootEncoding.NAMED,
                 rootName = "sample",
             ),
         )
-        val value = BinaryFormatSample(
+        val binaryFormatSample = BinaryFormatSample(
             number = 42,
             names = listOf("first", "second"),
         )
 
-        val encoded = format.encodeToByteArray(
-            value,
+        val encoded = nbtFormat.encodeToByteArray(
+            binaryFormatSample,
         )
         assertEquals(
-            value,
-            format.decodeFromByteArray<BinaryFormatSample>(
+            binaryFormatSample,
+            nbtFormat.decodeFromByteArray<BinaryFormatSample>(
                 encoded,
             ),
         )
 
         val sink = Buffer()
         assertFailsWith<NbtEncodingException> {
-            format.encodeToSink(NbtEnd, sink)
+            nbtFormat.encodeToSink(NbtEnd, sink)
         }
         assertTrue(sink.exhausted())
     }
@@ -108,30 +108,30 @@ class NbtFormatBinaryTest {
     @Test
     fun genericStreamEncodingEmitsDuringSerializerTraversal() {
         val sink = Buffer()
-        val value = StreamingProbe(7, "after")
-        val serializer = StreamingProbeSerializer {
+        val streamingProbe = StreamingProbe(7, "after")
+        val streamingProbeSerializer = StreamingProbeSerializer {
             assertTrue(
                 sink.size > 0,
                 "The first field should reach the sink before the serializer emits the second field",
             )
         }
 
-        NbtFormat.encodeToSink(serializer, value, sink)
+        NbtFormat.encodeToSink(streamingProbeSerializer, streamingProbe, sink)
         val streamed = sink.readByteArray()
 
         assertContentEquals(
-            NbtFormat.encodeToByteArray(StreamingProbeSerializer {}, value),
+            NbtFormat.encodeToByteArray(StreamingProbeSerializer {}, streamingProbe),
             streamed,
         )
         assertEquals(
-            value,
-            NbtFormat.decodeFromByteArray(serializer, streamed),
+            streamingProbe,
+            NbtFormat.decodeFromByteArray(streamingProbeSerializer, streamed),
         )
     }
 
     @Test
     fun directBinaryMappingRoundTripsMapsArraysNullsAndMixedRawLists() {
-        val value = DirectBinarySample(
+        val directBinarySample = DirectBinarySample(
             mapping = linkedMapOf("first" to 1L, "second\u0000" to -2L),
             bytes = byteArrayOf(0, 1, -1),
             requiredNullable = null,
@@ -139,16 +139,16 @@ class NbtFormatBinaryTest {
         )
 
         val encoded = NbtFormat.encodeToByteArray(
-            value,
+            directBinarySample,
         )
         val decoded = NbtFormat.decodeFromByteArray<DirectBinarySample>(
             encoded,
         )
 
-        assertEquals(value.mapping, decoded.mapping)
-        assertContentEquals(value.bytes, decoded.bytes)
+        assertEquals(directBinarySample.mapping, decoded.mapping)
+        assertContentEquals(directBinarySample.bytes, decoded.bytes)
         assertNull(decoded.requiredNullable)
-        assertEquals(value.raw, decoded.raw)
+        assertEquals(directBinarySample.raw, decoded.raw)
     }
 
     @Test
@@ -161,19 +161,19 @@ class NbtFormatBinaryTest {
                 ),
             ),
         )
-        val format = NbtFormat(
+        val nbtFormat = NbtFormat(
             NbtFormatConfiguration(ignoreUnknownKeys = true),
         )
 
         assertEquals(
             KnownBinaryValue(42),
-            format.decodeFromByteArray<KnownBinaryValue>(encoded),
+            nbtFormat.decodeFromByteArray<KnownBinaryValue>(encoded),
         )
     }
 
     @Test
     fun roundTripsEveryTagKindInDocumentAndNamedRoot() {
-        val document = NbtDocument(
+        val nbtDocument = NbtDocument(
             root = NbtCompound(
                 linkedMapOf(
                     "byte" to NbtByte(-7),
@@ -195,15 +195,15 @@ class NbtFormatBinaryTest {
             ),
         )
 
-        val encoded = NbtFormat.encodeDocumentToByteArray(document)
+        val encoded = NbtFormat.encodeDocumentToByteArray(nbtDocument)
 
-        assertEquals(document, NbtFormat.decodeDocumentFromByteArray(encoded))
+        assertEquals(nbtDocument, NbtFormat.decodeDocumentFromByteArray(encoded))
 
-        val named = NamedNbtTag("root\u0000😀", document.root)
+        val namedNbtTag = NamedNbtTag("root\u0000😀", nbtDocument.root)
         assertEquals(
-            named,
+            namedNbtTag,
             NbtFormat.decodeNamedTagFromByteArray(
-                NbtFormat.encodeNamedTagToByteArray(named),
+                NbtFormat.encodeNamedTagToByteArray(namedNbtTag),
             ),
         )
     }
@@ -263,19 +263,19 @@ class NbtFormatBinaryTest {
 
     @Test
     fun streamMethodsLeaveCallerOwnedSourceAndSinkOpen() {
-        val rawSink = TrackingRawSink()
-        val sink = rawSink.buffered()
+        val trackingRawSink = TrackingRawSink()
+        val sink = trackingRawSink.buffered()
 
         NbtFormat.encodeAnyTagToSink(NbtInt(42), sink)
 
-        assertFalse(rawSink.closed)
+        assertFalse(trackingRawSink.closed)
         sink.flush()
-        val encoded = rawSink.storage.readByteArray()
+        val encoded = trackingRawSink.storage.readByteArray()
 
-        val rawSource = TrackingRawSource(encoded)
-        val source = rawSource.buffered()
+        val trackingRawSource = TrackingRawSource(encoded)
+        val source = trackingRawSource.buffered()
         assertEquals(NbtInt(42), NbtFormat.decodeAnyTagFromSource(source))
-        assertFalse(rawSource.closed)
+        assertFalse(trackingRawSource.closed)
     }
 
     @Test
@@ -333,7 +333,7 @@ class NbtFormatBinaryTest {
 
     @Test
     fun doesNotImposePolicyLimitsOnNestedValuesCollectionsStringsOrBytes() {
-        val value = NbtCompound(
+        val nbtCompound = NbtCompound(
             mapOf(
                 "nested" to NbtCompound(
                     mapOf(
@@ -344,9 +344,9 @@ class NbtFormatBinaryTest {
                 "string" to NbtString("value".repeat(1_024)),
             ),
         )
-        val encoded = NbtFormat.encodeAnyTagToByteArray(value)
+        val encoded = NbtFormat.encodeAnyTagToByteArray(nbtCompound)
 
-        assertEquals(value, NbtFormat.decodeAnyTagFromByteArray(encoded))
+        assertEquals(nbtCompound, NbtFormat.decodeAnyTagFromByteArray(encoded))
     }
 
     @Test
@@ -528,10 +528,10 @@ class NbtFormatBinaryTest {
         val random = Random(0x4E4254)
 
         repeat(250) {
-            val tag = randomTag(random, depth = 3)
-            val encoded = NbtFormat.encodeAnyTagToByteArray(tag)
+            val nbtTag = randomTag(random, depth = 3)
+            val encoded = NbtFormat.encodeAnyTagToByteArray(nbtTag)
             assertEquals(
-                tag,
+                nbtTag,
                 NbtFormat.decodeAnyTagFromByteArray(encoded),
                 "Random NBT sample $it failed",
             )
@@ -655,25 +655,25 @@ private class StreamingProbeSerializer(
         }
 
     override fun serialize(encoder: Encoder, value: StreamingProbe) {
-        val composite = encoder.beginStructure(descriptor)
-        composite.encodeIntElement(descriptor, 0, value.first)
+        val compositeEncoder = encoder.beginStructure(descriptor)
+        compositeEncoder.encodeIntElement(descriptor, 0, value.first)
         afterFirst()
-        composite.encodeStringElement(descriptor, 1, value.second)
-        composite.endStructure(descriptor)
+        compositeEncoder.encodeStringElement(descriptor, 1, value.second)
+        compositeEncoder.endStructure(descriptor)
     }
 
     override fun deserialize(decoder: Decoder): StreamingProbe {
-        val composite = decoder.beginStructure(descriptor)
+        val compositeDecoder = decoder.beginStructure(descriptor)
         var first = 0
         var second = ""
         while (true) {
-            when (val index = composite.decodeElementIndex(descriptor)) {
-                0 -> first = composite.decodeIntElement(descriptor, index)
-                1 -> second = composite.decodeStringElement(descriptor, index)
+            when (val index = compositeDecoder.decodeElementIndex(descriptor)) {
+                0 -> first = compositeDecoder.decodeIntElement(descriptor, index)
+                1 -> second = compositeDecoder.decodeStringElement(descriptor, index)
                 else -> break
             }
         }
-        composite.endStructure(descriptor)
+        compositeDecoder.endStructure(descriptor)
         return StreamingProbe(first, second)
     }
 }

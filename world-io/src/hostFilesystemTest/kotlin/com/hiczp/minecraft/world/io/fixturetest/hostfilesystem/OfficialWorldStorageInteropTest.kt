@@ -34,27 +34,27 @@ class OfficialWorldStorageInteropTest {
                 ),
             ),
         ).use { initialServer ->
-            var server = initialServer
+            var officialMinecraftServer = initialServer
             val workingDirectory = MinecraftTestSupport
-                .hostWorkingDirectory(server)
+                .hostWorkingDirectory(officialMinecraftServer)
                 .toPath()
             val worldDirectory = workingDirectory / WORLD_NAME
 
-            prepareOfficialWorld(server, worldDirectory)
+            prepareOfficialWorld(officialMinecraftServer, worldDirectory)
             val initial = auditWorld(worldDirectory)
             requireCompleteOfficialFixture(initial)
-            val structuredRewrite = exerciseStandalonePolicies(worldDirectory, initial)
+            val structuredPlayerRewrite = exerciseStandalonePolicies(worldDirectory, initial)
             exerciseCompressionMatrix(worldDirectory)
             val terrainMutation = exerciseTerrainMutation(worldDirectory)
 
-            server = MinecraftTestSupport.restartServer(server)
-            mutateAndStopOfficialServer(server, "platform_write")
+            officialMinecraftServer = MinecraftTestSupport.restartServer(officialMinecraftServer)
+            mutateAndStopOfficialServer(officialMinecraftServer, "platform_write")
             val afterExternal = auditWorld(worldDirectory)
             requireCompleteOfficialFixture(afterExternal)
             requireStructuredPlayerRewrite(
                 worldDirectory,
-                structuredRewrite,
-                minimumLeaveGame = structuredRewrite.leaveGameAfterRewrite + 1,
+                structuredPlayerRewrite,
+                minimumLeaveGame = structuredPlayerRewrite.leaveGameAfterRewrite + 1,
             )
 
             restoreInternalAndClearEntity(
@@ -65,17 +65,17 @@ class OfficialWorldStorageInteropTest {
                 ),
             )
 
-            server = MinecraftTestSupport.restartServer(server)
-            mutateAndStopOfficialServer(server, "official_resave")
+            officialMinecraftServer = MinecraftTestSupport.restartServer(officialMinecraftServer)
+            mutateAndStopOfficialServer(officialMinecraftServer, "official_resave")
             val final = auditWorld(worldDirectory)
             requireCompleteOfficialFixture(final)
             requireStructuredPlayerRewrite(
                 worldDirectory,
-                structuredRewrite,
-                minimumLeaveGame = structuredRewrite.leaveGameAfterRewrite + 2,
+                structuredPlayerRewrite,
+                minimumLeaveGame = structuredPlayerRewrite.leaveGameAfterRewrite + 2,
             )
 
-            MinecraftTestSupport.deleteWorkingDirectory(server)
+            MinecraftTestSupport.deleteWorkingDirectory(officialMinecraftServer)
             check(!systemFileSystem.exists(workingDirectory)) {
                 "Fixture Host working directory remained after deletion"
             }
@@ -83,38 +83,38 @@ class OfficialWorldStorageInteropTest {
     }
 
     private suspend fun prepareOfficialWorld(
-        server: OfficialMinecraftServer,
+        officialMinecraftServer: OfficialMinecraftServer,
         worldDirectory: Path,
     ) {
-        var client: HeadlessMinecraftClient? = null
+        var headlessMinecraftClient: HeadlessMinecraftClient? = null
         var failure: Throwable? = null
         try {
             assertOfficialLockIsHeld(worldDirectory)
-            generateWorldStorage(server)
-            client = MinecraftTestSupport.newHeadlessClient(
+            generateWorldStorage(officialMinecraftServer)
+            headlessMinecraftClient = MinecraftTestSupport.newHeadlessClient(
                 HeadlessMinecraftClientConfiguration(
                     playerName = PLAYER_NAME,
                 ),
             )
             MinecraftTestSupport.connectHeadlessClient(
-                client = client,
-                endpoint = server.endpoint,
+                headlessMinecraftClient = headlessMinecraftClient,
+                minecraftTestEndpoint = officialMinecraftServer.minecraftTestEndpoint,
             )
             MinecraftTestSupport.waitForLog(
-                server,
+                officialMinecraftServer,
                 "$PLAYER_NAME joined the game",
             )
             MinecraftTestSupport.sendCommand(
-                server,
+                officialMinecraftServer,
                 "advancement grant $PLAYER_NAME only minecraft:story/root",
             )
             MinecraftTestSupport.sendCommand(
-                server,
+                officialMinecraftServer,
                 "kick $PLAYER_NAME storage fixture complete",
                 expectedNewOutput = "$PLAYER_NAME left the game",
             )
-            MinecraftTestSupport.closeProcess(client)
-            saveAndStop(server)
+            MinecraftTestSupport.closeProcess(headlessMinecraftClient)
+            saveAndStop(officialMinecraftServer)
             assertOfficialLockIsReleased(worldDirectory)
         } catch (caught: CancellationException) {
             failure = caught
@@ -122,7 +122,7 @@ class OfficialWorldStorageInteropTest {
         } catch (caught: Throwable) {
             failure = caught
             val wrapped = try {
-                officialFailure(server, client, caught)
+                officialFailure(officialMinecraftServer, headlessMinecraftClient, caught)
             } catch (diagnosticCancellation: CancellationException) {
                 diagnosticCancellation.addSuppressed(caught)
                 failure = diagnosticCancellation
@@ -131,7 +131,7 @@ class OfficialWorldStorageInteropTest {
             failure = wrapped
             throw wrapped
         } finally {
-            client?.let { launched ->
+            headlessMinecraftClient?.let { launched ->
                 try {
                     MinecraftTestSupport.close(launched)
                 } catch (closeFailure: Throwable) {
@@ -143,44 +143,44 @@ class OfficialWorldStorageInteropTest {
     }
 
     private suspend fun mutateAndStopOfficialServer(
-        server: OfficialMinecraftServer,
+        officialMinecraftServer: OfficialMinecraftServer,
         verificationPhase: String,
     ) {
-        var client: HeadlessMinecraftClient? = null
+        var headlessMinecraftClient: HeadlessMinecraftClient? = null
         var failure: Throwable? = null
         try {
-            verifyOfficialCompressionMatrix(server, verificationPhase)
-            generateWorldStorage(server)
-            client = MinecraftTestSupport.newHeadlessClient(
+            verifyOfficialCompressionMatrix(officialMinecraftServer, verificationPhase)
+            generateWorldStorage(officialMinecraftServer)
+            headlessMinecraftClient = MinecraftTestSupport.newHeadlessClient(
                 HeadlessMinecraftClientConfiguration(
                     playerName = PLAYER_NAME,
                 ),
             )
             MinecraftTestSupport.connectHeadlessClient(
-                client = client,
-                endpoint = server.endpoint,
+                headlessMinecraftClient = headlessMinecraftClient,
+                minecraftTestEndpoint = officialMinecraftServer.minecraftTestEndpoint,
             )
-            MinecraftTestSupport.waitForLog(server, "$PLAYER_NAME joined the game")
+            MinecraftTestSupport.waitForLog(officialMinecraftServer, "$PLAYER_NAME joined the game")
             val advancementToken = "minecraft_protocol_${verificationPhase}_advancement_loaded"
             MinecraftTestSupport.sendCommand(
-                server,
+                officialMinecraftServer,
                 "execute if entity @a[advancements={minecraft:story/root=true}] run say $advancementToken",
                 expectedNewOutput = advancementToken,
             )
             MinecraftTestSupport.sendCommand(
-                server,
+                officialMinecraftServer,
                 "kick $PLAYER_NAME structured files loaded",
                 expectedNewOutput = "$PLAYER_NAME left the game",
             )
-            MinecraftTestSupport.closeProcess(client)
-            saveAndStop(server)
+            MinecraftTestSupport.closeProcess(headlessMinecraftClient)
+            saveAndStop(officialMinecraftServer)
         } catch (caught: CancellationException) {
             failure = caught
             throw caught
         } catch (caught: Throwable) {
             failure = caught
             val wrapped = try {
-                officialFailure(server, client, caught)
+                officialFailure(officialMinecraftServer, headlessMinecraftClient, caught)
             } catch (diagnosticCancellation: CancellationException) {
                 diagnosticCancellation.addSuppressed(caught)
                 failure = diagnosticCancellation
@@ -189,7 +189,7 @@ class OfficialWorldStorageInteropTest {
             failure = wrapped
             throw wrapped
         } finally {
-            client?.let { launched ->
+            headlessMinecraftClient?.let { launched ->
                 try {
                     MinecraftTestSupport.close(launched)
                 } catch (closeFailure: Throwable) {
@@ -200,66 +200,66 @@ class OfficialWorldStorageInteropTest {
         }
     }
 
-    private suspend fun generateWorldStorage(server: OfficialMinecraftServer) {
+    private suspend fun generateWorldStorage(officialMinecraftServer: OfficialMinecraftServer) {
         MinecraftTestSupport.sendCommand(
-            server,
+            officialMinecraftServer,
             "forceload add 0 0 $TERRAIN_MUTATION_BLOCK_X 0",
         )
         MinecraftTestSupport.sendCommand(
-            server,
+            officialMinecraftServer,
             "scoreboard objectives add storage_audit dummy",
         )
         MinecraftTestSupport.sendCommand(
-            server,
+            officialMinecraftServer,
             "data modify storage minecraft:storage_audit value set value 1",
         )
-        COMPRESSION_PROBES.forEach { probe ->
+        COMPRESSION_PROBES.forEach { compressionProbe ->
             MinecraftTestSupport.sendCommand(
-                server,
-                "setblock ${probe.blockX} 100 0 minecraft:lectern",
+                officialMinecraftServer,
+                "setblock ${compressionProbe.blockX} 100 0 minecraft:lectern",
             )
         }
         MinecraftTestSupport.sendCommand(
-            server,
+            officialMinecraftServer,
             "setblock $TERRAIN_MUTATION_BLOCK_X 100 0 minecraft:lectern",
         )
         MinecraftTestSupport.sendCommand(
-            server,
+            officialMinecraftServer,
             "setblock 1 100 0 minecraft:bell",
         )
         MinecraftTestSupport.sendCommand(
-            server,
+            officialMinecraftServer,
             "summon minecraft:pig 2 100 2 {NoAI:1b,NoGravity:1b,Invulnerable:1b,PersistenceRequired:1b}",
             expectedNewOutput = "Summoned new Pig",
         )
     }
 
     private suspend fun verifyOfficialCompressionMatrix(
-        server: OfficialMinecraftServer,
+        officialMinecraftServer: OfficialMinecraftServer,
         verificationPhase: String,
     ) {
         MinecraftTestSupport.sendCommand(
-            server,
+            officialMinecraftServer,
             "forceload add 0 0 ${COMPRESSION_PROBES.last().blockX} 0",
         )
-        COMPRESSION_PROBES.forEach { probe ->
-            val logToken = "minecraft_protocol_${verificationPhase}_${probe.name}"
+        COMPRESSION_PROBES.forEach { compressionProbe ->
+            val logToken = "minecraft_protocol_${verificationPhase}_${compressionProbe.name}"
             MinecraftTestSupport.sendCommand(
-                server,
-                "execute if block ${probe.blockX} 100 0 minecraft:lectern run say $logToken",
+                officialMinecraftServer,
+                "execute if block ${compressionProbe.blockX} 100 0 minecraft:lectern run say $logToken",
                 expectedNewOutput = logToken,
             )
         }
     }
 
-    private suspend fun saveAndStop(server: OfficialMinecraftServer) {
-        MinecraftTestSupport.sendCommand(server, "save-all flush")
+    private suspend fun saveAndStop(officialMinecraftServer: OfficialMinecraftServer) {
+        MinecraftTestSupport.sendCommand(officialMinecraftServer, "save-all flush")
         MinecraftTestSupport.sendCommand(
-            server,
+            officialMinecraftServer,
             "say $SAVE_COMPLETE_TOKEN",
             expectedNewOutput = SAVE_COMPLETE_TOKEN,
         )
-        val exitCode = MinecraftTestSupport.closeProcess(server)
+        val exitCode = MinecraftTestSupport.closeProcess(officialMinecraftServer)
         check(exitCode == 0) {
             "Official server exited with $exitCode"
         }
@@ -311,102 +311,102 @@ class OfficialWorldStorageInteropTest {
 
     private fun exerciseStandalonePolicies(
         worldDirectory: Path,
-        audit: AuditResult,
+        auditResult: AuditResult,
     ): StructuredPlayerRewrite {
-        val paths = MinecraftWorldPaths(worldDirectory)
-        val nbtFiles = NbtFileStore()
-        val fileSystem = nbtFiles.fileSystem
+        val minecraftWorldPaths = MinecraftWorldPaths(worldDirectory)
+        val nbtFileStore = NbtFileStore()
+        val fileSystem = nbtFileStore.fileSystem
 
-        val levelStore = LevelDataStore(paths, nbtFiles)
-        val level = levelStore.readDocument()
-        levelStore.writeDocument(level)
-        check(fileSystem.metadata(paths.previousLevelData).isRegularFile) {
+        val levelDataStore = LevelDataStore(minecraftWorldPaths, nbtFileStore)
+        val level = levelDataStore.readDocument()
+        levelDataStore.writeDocument(level)
+        check(fileSystem.metadata(minecraftWorldPaths.previousLevelData).isRegularFile) {
             "level.dat write did not create level.dat_old"
         }
-        fileSystem.writeRaw(paths.levelData, CORRUPTED_BYTES)
-        check(levelStore.readDocument() == level) {
+        fileSystem.writeRaw(minecraftWorldPaths.levelData, CORRUPTED_BYTES)
+        check(levelDataStore.readDocument() == level) {
             "level.dat fallback did not return level.dat_old"
         }
         check(
-            fileSystem.list(paths.root).any {
+            fileSystem.list(minecraftWorldPaths.root).any {
                 it.name.startsWith("level.dat_corrupted_")
             },
         ) {
             "level.dat fallback did not preserve the corrupted primary"
         }
-        levelStore.writeDocument(level)
+        levelDataStore.writeDocument(level)
 
-        val typedLevel = levelStore.read(LevelDat.serializer())
+        val typedLevel = levelDataStore.read(LevelDat.serializer())
         val renamedLevel = typedLevel.copy(
             data = typedLevel.data.copy(levelName = "typed-storage-fixture"),
         )
-        levelStore.write(LevelDat.serializer(), renamedLevel)
-        check(levelStore.read(LevelDat.serializer()).data.levelName == "typed-storage-fixture") {
+        levelDataStore.write(LevelDat.serializer(), renamedLevel)
+        check(levelDataStore.read(LevelDat.serializer()).data.levelName == "typed-storage-fixture") {
             "Typed level.dat rewrite did not retain the selected-release schema"
         }
 
-        val playerKey = audit.playerKeys.first()
-        val playerStore = PlayerDataStore(paths, nbtFiles)
-        val player = checkNotNull(playerStore.readDocument(playerKey))
-        playerStore.writeDocument(playerKey, player)
-        fileSystem.writeRaw(paths.playerData(playerKey), CORRUPTED_BYTES)
-        check(playerStore.readDocument(playerKey) == player) {
+        val playerKey = auditResult.playerKeys.first()
+        val playerDataStore = PlayerDataStore(minecraftWorldPaths, nbtFileStore)
+        val player = checkNotNull(playerDataStore.readDocument(playerKey))
+        playerDataStore.writeDocument(playerKey, player)
+        fileSystem.writeRaw(minecraftWorldPaths.playerData(playerKey), CORRUPTED_BYTES)
+        check(playerDataStore.readDocument(playerKey) == player) {
             "Player fallback did not return the old data"
         }
         check(
-            fileSystem.readFileBytes(paths.playerData(playerKey)).contentEquals(CORRUPTED_BYTES),
+            fileSystem.readFileBytes(minecraftWorldPaths.playerData(playerKey)).contentEquals(CORRUPTED_BYTES),
         ) {
             "Player fallback promoted old data over the corrupted primary"
         }
-        check(fileSystem.exists(paths.previousPlayerData(playerKey))) {
+        check(fileSystem.exists(minecraftWorldPaths.previousPlayerData(playerKey))) {
             "Player fallback removed the old data"
         }
-        val playerDirectory = checkNotNull(paths.playerData(playerKey).parent)
+        val playerDirectory = checkNotNull(minecraftWorldPaths.playerData(playerKey).parent)
         val playerFiles = fileSystem.list(playerDirectory)
         val playerDirectoryEntries = playerFiles.joinToString { it.name }
         check(
             playerFiles.any {
-                it.name.startsWith("${paths.playerData(playerKey).name}_corrupted_")
+                it.name.startsWith("${minecraftWorldPaths.playerData(playerKey).name}_corrupted_")
             },
         ) {
             "Player fallback did not preserve a corrupted copy; directory entries: $playerDirectoryEntries"
         }
-        nbtFiles.writeDocument(paths.playerData(playerKey), player)
+        nbtFileStore.writeDocument(minecraftWorldPaths.playerData(playerKey), player)
 
-        val savedIdentifier = audit.savedDataIdentifiers.first()
-        val savedStore = SavedDataFileStore(paths, nbtFiles = nbtFiles)
-        val savedData = checkNotNull(savedStore.readDocument(savedIdentifier))
-        savedStore.writeDocument(savedIdentifier, savedData)
-        check(savedStore.readDocument(savedIdentifier) == savedData) {
+        val savedIdentifier = auditResult.savedDataIdentifiers.first()
+        val savedDataFileStore = SavedDataFileStore(minecraftWorldPaths, nbtFileStore = nbtFileStore)
+        val savedData = checkNotNull(savedDataFileStore.readDocument(savedIdentifier))
+        savedDataFileStore.writeDocument(savedIdentifier, savedData)
+        check(savedDataFileStore.readDocument(savedIdentifier) == savedData) {
             "Saved data did not survive direct GZIP rewrite"
         }
 
-        val jsonStore = Utf8JsonFileStore(fileSystem)
-        val statisticsPath = paths.statistics(playerKey)
-        val statistics = jsonStore.readJson(statisticsPath, PlayerStatistics.serializer())
-        val customStatistics = statistics.stats[CUSTOM_STATISTICS].orEmpty()
+        val utf8JsonFileStore = Utf8JsonFileStore(fileSystem)
+        val statisticsPath = minecraftWorldPaths.statistics(playerKey)
+        val playerStatistics = utf8JsonFileStore.readJson(statisticsPath, PlayerStatistics.serializer())
+        val customStatistics = playerStatistics.stats[CUSTOM_STATISTICS].orEmpty()
         val leaveGame = customStatistics[LEAVE_GAME_STATISTIC] ?: 0
         check(leaveGame < Int.MAX_VALUE - 2) {
             "Official fixture leave_game statistic cannot survive two verification disconnects"
         }
         val leaveGameAfterRewrite = leaveGame + 1
-        val updatedStatistics = statistics.copy(
-            stats = statistics.stats + (
+        val updatedStatistics = playerStatistics.copy(
+            stats = playerStatistics.stats + (
                     CUSTOM_STATISTICS to (customStatistics + (LEAVE_GAME_STATISTIC to leaveGameAfterRewrite))
                     ),
         )
-        jsonStore.writeJson(statisticsPath, PlayerStatistics.serializer(), updatedStatistics)
-        check(jsonStore.readJson(statisticsPath, PlayerStatistics.serializer()) == updatedStatistics) {
+        utf8JsonFileStore.writeJson(statisticsPath, PlayerStatistics.serializer(), updatedStatistics)
+        check(utf8JsonFileStore.readJson(statisticsPath, PlayerStatistics.serializer()) == updatedStatistics) {
             "Typed player statistics did not survive direct JSON rewrite"
         }
 
-        val advancementPath = paths.advancement(playerKey)
-        val advancements = jsonStore.readJson(advancementPath, PlayerAdvancements.serializer())
-        check(advancements.advancements.isNotEmpty()) {
+        val advancementPath = minecraftWorldPaths.advancement(playerKey)
+        val playerAdvancements = utf8JsonFileStore.readJson(advancementPath, PlayerAdvancements.serializer())
+        check(playerAdvancements.advancements.isNotEmpty()) {
             "Official fixture generated no advancement progress"
         }
-        jsonStore.writeJson(advancementPath, PlayerAdvancements.serializer(), advancements)
-        check(jsonStore.readJson(advancementPath, PlayerAdvancements.serializer()) == advancements) {
+        utf8JsonFileStore.writeJson(advancementPath, PlayerAdvancements.serializer(), playerAdvancements)
+        check(utf8JsonFileStore.readJson(advancementPath, PlayerAdvancements.serializer()) == playerAdvancements) {
             "Typed player advancements did not survive direct JSON rewrite"
         }
         return StructuredPlayerRewrite(
@@ -416,15 +416,15 @@ class OfficialWorldStorageInteropTest {
     }
 
     private suspend fun exerciseCompressionMatrix(worldDirectory: Path) {
-        val paths = MinecraftWorldPaths(worldDirectory)
+        val minecraftWorldPaths = MinecraftWorldPaths(worldDirectory)
         val documents = linkedMapOf<ChunkPosition, NbtDocument>()
-        val readingStore = RegionStorage(paths)
+        val readingStore = RegionStorage(minecraftWorldPaths)
         try {
-            COMPRESSION_PROBES.forEach { probe ->
-                documents[probe.position] = checkNotNull(
-                    readingStore.readChunkNbtDocument(probe.position),
+            COMPRESSION_PROBES.forEach { compressionProbe ->
+                documents[compressionProbe.chunkPosition] = checkNotNull(
+                    readingStore.readChunkNbtDocument(compressionProbe.chunkPosition),
                 ) {
-                    "Official fixture generated no chunk ${probe.position}"
+                    "Official fixture generated no chunk ${compressionProbe.chunkPosition}"
                 }
             }
         } finally {
@@ -434,20 +434,20 @@ class OfficialWorldStorageInteropTest {
         // One mixed region makes the official server exercise every platform codec in one restart. The marker block
         // in each original NBT document proves that the server loaded our bytes instead of accepting only the MCA
         // header or silently regenerating a missing chunk.
-        val writingStore = RegionStorage(paths)
+        val writingStore = RegionStorage(minecraftWorldPaths)
         try {
-            COMPRESSION_PROBES.forEachIndexed { index, probe ->
-                val document = documents.getValue(probe.position)
+            COMPRESSION_PROBES.forEachIndexed { index, compressionProbe ->
+                val nbtDocument = documents.getValue(compressionProbe.chunkPosition)
                 if (index == 0) {
-                    val codec = strongChunkCodec(document)
-                    val chunk = codec.decodeDocument(document, probe.position)
-                    documents[probe.position] = codec.encodeDocument(chunk)
-                    writingStore.writeChunk(probe.position, chunk, codec, probe.compression)
+                    val chunkNbtCodec = strongChunkCodec(nbtDocument)
+                    val chunk = chunkNbtCodec.decodeDocument(nbtDocument, compressionProbe.chunkPosition)
+                    documents[compressionProbe.chunkPosition] = chunkNbtCodec.encodeDocument(chunk)
+                    writingStore.writeChunk(compressionProbe.chunkPosition, chunk, chunkNbtCodec, compressionProbe.compression)
                 } else {
                     writingStore.writeChunkNbtDocument(
-                        probe.position,
-                        document,
-                        probe.compression,
+                        compressionProbe.chunkPosition,
+                        nbtDocument,
+                        compressionProbe.compression,
                     )
                 }
             }
@@ -455,20 +455,20 @@ class OfficialWorldStorageInteropTest {
             writingStore.close()
         }
 
-        val verifyingStore = RegionStorage(paths)
+        val verifyingStore = RegionStorage(minecraftWorldPaths)
         try {
-            COMPRESSION_PROBES.forEach { probe ->
+            COMPRESSION_PROBES.forEach { compressionProbe ->
                 val stored = checkNotNull(
-                    verifyingStore.readCompressedChunk(probe.position),
+                    verifyingStore.readCompressedChunk(compressionProbe.chunkPosition),
                 )
-                check(stored.compression == probe.compression) {
-                    "Chunk ${probe.position} stored ${stored.compression}, expected ${probe.compression}"
+                check(stored.compression == compressionProbe.compression) {
+                    "Chunk ${compressionProbe.chunkPosition} stored ${stored.compression}, expected ${compressionProbe.compression}"
                 }
                 check(
                     verifyingStore.chunkNbtFormat.decodeDocument(stored) ==
-                            documents.getValue(probe.position),
+                            documents.getValue(compressionProbe.chunkPosition),
                 ) {
-                    "Chunk ${probe.position} changed while writing ${probe.compression}"
+                    "Chunk ${compressionProbe.chunkPosition} changed while writing ${compressionProbe.compression}"
                 }
             }
         } finally {
@@ -479,14 +479,14 @@ class OfficialWorldStorageInteropTest {
     private suspend fun exerciseTerrainMutation(
         worldDirectory: Path,
     ): TerrainMutation {
-        val paths = MinecraftWorldPaths(worldDirectory)
-        val directory = paths.regionDirectory()
+        val minecraftWorldPaths = MinecraftWorldPaths(worldDirectory)
+        val directory = minecraftWorldPaths.regionDirectory()
         val absolutePosition = TERRAIN_MUTATION_POSITION
-        val regionPosition = absolutePosition.region
-        val regionPath = paths.regionFile(regionPosition)
+        val regionPosition = absolutePosition.regionPosition
+        val regionPath = minecraftWorldPaths.regionFile(regionPosition)
         val originalChunk: CompressedChunk
         val originalDocument: NbtDocument
-        val readingStore = RegionStorage(paths)
+        val readingStore = RegionStorage(minecraftWorldPaths)
         try {
             originalChunk = checkNotNull(
                 readingStore.readCompressedChunk(absolutePosition),
@@ -502,7 +502,7 @@ class OfficialWorldStorageInteropTest {
 
         val oldSize = checkNotNull(systemFileSystem.metadata(regionPath).size)
         val oldLocation = checkNotNull(
-            readRegionHeader(regionPath).location(absolutePosition.local),
+            readRegionHeader(regionPath).location(absolutePosition.localChunkPosition),
         )
         val oldAllocation = readAtMost(
             regionPath,
@@ -511,7 +511,7 @@ class OfficialWorldStorageInteropTest {
         )
         check(oldAllocation.size == oldLocation.allocatedBytes)
 
-        val writingStore = RegionStorage(paths)
+        val writingStore = RegionStorage(minecraftWorldPaths)
         try {
             writingStore.writeCompressedChunk(absolutePosition, originalChunk)
         } finally {
@@ -519,7 +519,7 @@ class OfficialWorldStorageInteropTest {
         }
 
         val newLocation = checkNotNull(
-            readRegionHeader(regionPath).location(absolutePosition.local),
+            readRegionHeader(regionPath).location(absolutePosition.localChunkPosition),
         )
         check(newLocation != oldLocation) {
             "Region update overwrote its old allocation"
@@ -538,8 +538,8 @@ class OfficialWorldStorageInteropTest {
         }
         val fixtureDocument = externalFixture(originalDocument)
         val externalStore = RegionStorage(
-            paths = paths,
-            configuration = RegionStorageConfiguration(
+            minecraftWorldPaths = minecraftWorldPaths,
+            regionStorageConfiguration = RegionStorageConfiguration(
                 syncWrites = true,
                 writeCompression = Compression.NONE,
             ),
@@ -549,17 +549,17 @@ class OfficialWorldStorageInteropTest {
             val stored = checkNotNull(
                 externalStore.readCompressedChunk(absolutePosition),
             )
-            check(externalStore.readChunkInfo(absolutePosition)?.placement == AnvilChunkPlacement.EXTERNAL)
+            check(externalStore.readChunkInfo(absolutePosition)?.anvilChunkPlacement == AnvilChunkPlacement.EXTERNAL)
             check(externalStore.chunkNbtFormat.decodeDocument(stored) == fixtureDocument)
         } finally {
             externalStore.close()
         }
-        check(systemFileSystem.exists(paths.externalChunk(absolutePosition))) {
+        check(systemFileSystem.exists(minecraftWorldPaths.externalChunk(absolutePosition))) {
             "External chunk sidecar was not committed"
         }
 
         return TerrainMutation(
-            position = absolutePosition,
+            chunkPosition = absolutePosition,
             originalDocument = originalDocument,
         )
     }
@@ -569,26 +569,26 @@ class OfficialWorldStorageInteropTest {
         terrainMutation: TerrainMutation,
         entityPosition: ChunkPosition,
     ) {
-        val paths = MinecraftWorldPaths(worldDirectory)
-        val terrain = RegionStorage(paths)
+        val minecraftWorldPaths = MinecraftWorldPaths(worldDirectory)
+        val terrain = RegionStorage(minecraftWorldPaths)
         try {
             terrain.writeChunkNbtDocument(
-                terrainMutation.position,
+                terrainMutation.chunkPosition,
                 terrainMutation.originalDocument,
             )
             check(
-                terrain.readChunkInfo(terrainMutation.position)?.placement == AnvilChunkPlacement.INLINE,
+                terrain.readChunkInfo(terrainMutation.chunkPosition)?.anvilChunkPlacement == AnvilChunkPlacement.INLINE,
             )
         } finally {
             terrain.close()
         }
-        check(!systemFileSystem.exists(paths.externalChunk(terrainMutation.position))) {
+        check(!systemFileSystem.exists(minecraftWorldPaths.externalChunk(terrainMutation.chunkPosition))) {
             "Internal rewrite retained the external chunk sidecar"
         }
 
         val entities = RegionStorage(
-            paths,
-            storage = RegionStorageDirectory.ENTITIES,
+            minecraftWorldPaths,
+            regionStorageDirectory = RegionStorageDirectory.ENTITIES,
         )
         try {
             entities.removeChunk(entityPosition)
@@ -599,49 +599,49 @@ class OfficialWorldStorageInteropTest {
     }
 
     private suspend fun auditWorld(worldDirectory: Path): AuditResult {
-        val paths = MinecraftWorldPaths(worldDirectory)
+        val minecraftWorldPaths = MinecraftWorldPaths(worldDirectory)
         val fileSystem = systemFileSystem
-        val nbtFiles = NbtFileStore()
-        val levelStore = LevelDataStore(paths, nbtFiles)
-        val level = levelStore.readDocument()
+        val nbtFileStore = NbtFileStore()
+        val levelDataStore = LevelDataStore(minecraftWorldPaths, nbtFileStore)
+        val level = levelDataStore.readDocument()
         check(level.root.value["Data"] is NbtCompound) {
             "Official level.dat has no Data compound"
         }
-        val typedLevel = levelStore.read(LevelDat.serializer())
+        val typedLevel = levelDataStore.read(LevelDat.serializer())
         check(typedLevel.data.dataVersion == typedLevel.data.versionInfo.id) {
             "Official level.dat DataVersion and Version.Id disagree"
         }
 
-        val playerDirectory = checkNotNull(paths.playerData("probe").parent)
+        val playerDirectory = checkNotNull(minecraftWorldPaths.playerData("probe").parent)
         val playerKeys = regularFiles(playerDirectory, ".dat")
             .filterNot { it.name.endsWith(".dat_old") }
             .map { it.name.removeSuffix(".dat") }
-        val playerStore = PlayerDataStore(paths, nbtFiles)
+        val playerDataStore = PlayerDataStore(minecraftWorldPaths, nbtFileStore)
         playerKeys.forEach { playerKey ->
-            checkNotNull(playerStore.readDocument(playerKey))
+            checkNotNull(playerDataStore.readDocument(playerKey))
         }
 
-        val savedDirectory = paths.savedDataDirectory()
+        val savedDirectory = minecraftWorldPaths.savedDataDirectory()
         val savedDataIdentifiers = savedDataIdentifiers(savedDirectory)
-        val savedStore = SavedDataFileStore(paths, nbtFiles = nbtFiles)
+        val savedDataFileStore = SavedDataFileStore(minecraftWorldPaths, nbtFileStore = nbtFileStore)
         savedDataIdentifiers.forEach { identifier ->
-            checkNotNull(savedStore.readDocument(identifier))
+            checkNotNull(savedDataFileStore.readDocument(identifier))
         }
 
-        val statisticsDirectory = checkNotNull(paths.statistics("probe").parent)
-        val advancementDirectory = checkNotNull(paths.advancement("probe").parent)
-        val jsonStore = Utf8JsonFileStore(fileSystem)
+        val statisticsDirectory = checkNotNull(minecraftWorldPaths.statistics("probe").parent)
+        val advancementDirectory = checkNotNull(minecraftWorldPaths.advancement("probe").parent)
+        val utf8JsonFileStore = Utf8JsonFileStore(fileSystem)
         val statisticFiles = regularFiles(statisticsDirectory, ".json")
         val advancementFiles = regularFiles(advancementDirectory, ".json")
         statisticFiles.forEach { path ->
-            val statistics = jsonStore.readJson(path, PlayerStatistics.serializer())
-            check(statistics.dataVersion == typedLevel.data.dataVersion) {
+            val playerStatistics = utf8JsonFileStore.readJson(path, PlayerStatistics.serializer())
+            check(playerStatistics.dataVersion == typedLevel.data.dataVersion) {
                 "Statistics DataVersion does not match level.dat: $path"
             }
         }
         advancementFiles.forEach { path ->
-            val advancements = jsonStore.readJson(path, PlayerAdvancements.serializer())
-            check(advancements.dataVersion == typedLevel.data.dataVersion) {
+            val playerAdvancements = utf8JsonFileStore.readJson(path, PlayerAdvancements.serializer())
+            check(playerAdvancements.dataVersion == typedLevel.data.dataVersion) {
                 "Advancements DataVersion does not match level.dat: $path"
             }
         }
@@ -655,41 +655,42 @@ class OfficialWorldStorageInteropTest {
         val regionDiagnostics = RegionStorageDirectory.entries
             .associateWith { mutableListOf<String>() }
         val firstChunks = linkedMapOf<RegionStorageDirectory, ChunkPosition>()
-        RegionStorageDirectory.entries.forEach { storage ->
-            val directory = paths.regionDirectory(storage)
+        RegionStorageDirectory.entries.forEach { regionStorageDirectory ->
+            val directory = minecraftWorldPaths.regionDirectory(regionStorageDirectory)
             if (fileSystem.metadataOrNull(directory)?.isDirectory != true) {
                 return@forEach
             }
-            val store = RegionStorage(paths, storage)
+            val regionStorage = RegionStorage(minecraftWorldPaths, regionStorageDirectory)
             try {
                 regionPositions(directory).forEach { regionPosition ->
-                    val region = checkNotNull(store.readAnvilRegion(regionPosition))
-                    regionFiles[storage] = checkNotNull(regionFiles[storage]) + 1
+                    val positionedAnvilRegion = checkNotNull(regionStorage.readAnvilRegion(regionPosition))
+                    regionFiles[regionStorageDirectory] = checkNotNull(regionFiles[regionStorageDirectory]) + 1
                     val regionPath = directory / "r.${regionPosition.x}.${regionPosition.z}.mca"
                     val regionSize = fileSystem.metadata(regionPath).size
-                    regionDiagnostics.getValue(storage).add(
-                        "$regionPath(size=$regionSize, readableChunks=${region.chunks.size})",
+                    regionDiagnostics.getValue(regionStorageDirectory).add(
+                        "$regionPath(size=$regionSize, readableChunks=${positionedAnvilRegion.chunks.size})",
                     )
-                    region.chunks.forEach { (local, record) ->
-                        val chunkPosition = regionPosition.chunk(local)
-                        val document = store.chunkNbtFormat.decodeDocument(checkNotNull(record.content))
-                        if (storage == RegionStorageDirectory.ENTITIES) {
-                            val dataVersion = (document.root["DataVersion"] as? NbtInt)?.value
+                    positionedAnvilRegion.chunks.forEach { (localChunkPosition, anvilChunkRecord) ->
+                        val chunkPosition = regionPosition.chunk(localChunkPosition)
+                        val nbtDocument =
+                            regionStorage.chunkNbtFormat.decodeDocument(checkNotNull(anvilChunkRecord.content))
+                        if (regionStorageDirectory == RegionStorageDirectory.ENTITIES) {
+                            val dataVersion = (nbtDocument.root["DataVersion"] as? NbtInt)?.value
                                 ?: error("Official Entity Chunk has no DataVersion: $chunkPosition")
                             val entityChunk = EntityChunkNbtCodec(dataVersion, NbtEntityDataRegistry())
-                                .decodeDocument(document, chunkPosition)
+                                .decodeDocument(nbtDocument, chunkPosition)
                             check(!entityChunk.isEmpty) {
                                 "Official Entity storage retained an empty Chunk: $chunkPosition"
                             }
                         }
-                        chunks[storage] = checkNotNull(chunks[storage]) + 1
-                        if (!firstChunks.containsKey(storage)) {
-                            firstChunks[storage] = chunkPosition
+                        chunks[regionStorageDirectory] = checkNotNull(chunks[regionStorageDirectory]) + 1
+                        if (!firstChunks.containsKey(regionStorageDirectory)) {
+                            firstChunks[regionStorageDirectory] = chunkPosition
                         }
                     }
                 }
             } finally {
-                store.close()
+                regionStorage.close()
             }
         }
         return AuditResult(
@@ -704,29 +705,29 @@ class OfficialWorldStorageInteropTest {
         )
     }
 
-    private fun requireCompleteOfficialFixture(audit: AuditResult) {
-        RegionStorageDirectory.entries.forEach { storage ->
-            check(checkNotNull(audit.regionFiles[storage]) > 0) {
-                "Official fixture generated no ${storage.directoryName} MCA"
+    private fun requireCompleteOfficialFixture(auditResult: AuditResult) {
+        RegionStorageDirectory.entries.forEach { regionStorageDirectory ->
+            check(checkNotNull(auditResult.regionFiles[regionStorageDirectory]) > 0) {
+                "Official fixture generated no ${regionStorageDirectory.directoryName} MCA"
             }
-            check(checkNotNull(audit.chunks[storage]) > 0) {
-                "Official fixture generated no readable ${storage.directoryName} chunk: ${
-                    audit.regionDiagnostics.getValue(
-                        storage
+            check(checkNotNull(auditResult.chunks[regionStorageDirectory]) > 0) {
+                "Official fixture generated no readable ${regionStorageDirectory.directoryName} chunk: ${
+                    auditResult.regionDiagnostics.getValue(
+                        regionStorageDirectory
                     )
                 }"
             }
         }
-        check(audit.playerKeys.isNotEmpty()) {
+        check(auditResult.playerKeys.isNotEmpty()) {
             "Official fixture generated no player NBT"
         }
-        check(audit.savedDataIdentifiers.isNotEmpty()) {
+        check(auditResult.savedDataIdentifiers.isNotEmpty()) {
             "Official fixture generated no dimension saved-data"
         }
-        check(audit.statisticFiles.isNotEmpty()) {
+        check(auditResult.statisticFiles.isNotEmpty()) {
             "Official fixture generated no player statistics JSON"
         }
-        check(audit.advancementFiles.isNotEmpty()) {
+        check(auditResult.advancementFiles.isNotEmpty()) {
             "Official fixture generated no player advancements JSON"
         }
     }
@@ -734,10 +735,10 @@ class OfficialWorldStorageInteropTest {
     private fun regionPositions(directory: Path): List<RegionPosition> =
         systemFileSystem.list(directory)
             .mapNotNull { path ->
-                REGION_FILE_NAME.matchEntire(path.name)?.let { match ->
+                REGION_FILE_NAME.matchEntire(path.name)?.let { matchResult ->
                     RegionPosition(
-                        match.groupValues[1].toInt(),
-                        match.groupValues[2].toInt(),
+                        matchResult.groupValues[1].toInt(),
+                        matchResult.groupValues[2].toInt(),
                     )
                 }
             }
@@ -787,24 +788,24 @@ class OfficialWorldStorageInteropTest {
 
     private fun requireStructuredPlayerRewrite(
         worldDirectory: Path,
-        rewrite: StructuredPlayerRewrite,
+        structuredPlayerRewrite: StructuredPlayerRewrite,
         minimumLeaveGame: Int,
     ) {
-        val paths = MinecraftWorldPaths(worldDirectory)
-        val jsonStore = Utf8JsonFileStore(systemFileSystem)
-        val statistics = jsonStore.readJson(
-            paths.statistics(rewrite.playerKey),
+        val minecraftWorldPaths = MinecraftWorldPaths(worldDirectory)
+        val utf8JsonFileStore = Utf8JsonFileStore(systemFileSystem)
+        val playerStatistics = utf8JsonFileStore.readJson(
+            minecraftWorldPaths.statistics(structuredPlayerRewrite.playerKey),
             PlayerStatistics.serializer(),
         )
-        val leaveGame = statistics.stats[CUSTOM_STATISTICS]?.get(LEAVE_GAME_STATISTIC)
+        val leaveGame = playerStatistics.stats[CUSTOM_STATISTICS]?.get(LEAVE_GAME_STATISTIC)
         check(leaveGame != null && leaveGame >= minimumLeaveGame) {
             "Official server did not load and save the rewritten leave_game statistic: $leaveGame"
         }
-        val advancements = jsonStore.readJson(
-            paths.advancement(rewrite.playerKey),
+        val playerAdvancements = utf8JsonFileStore.readJson(
+            minecraftWorldPaths.advancement(structuredPlayerRewrite.playerKey),
             PlayerAdvancements.serializer(),
         )
-        check(advancements.advancements[ROOT_ADVANCEMENT]?.done == true) {
+        check(playerAdvancements.advancements[ROOT_ADVANCEMENT]?.done == true) {
             "Official server did not retain the rewritten root advancement"
         }
     }
@@ -817,13 +818,13 @@ class OfficialWorldStorageInteropTest {
         offset: Long,
         byteCount: Int,
     ): ByteArray {
-        val handle = systemFileSystem.openLiveReadOnly(path)
+        val fileHandle = systemFileSystem.openLiveReadOnly(path)
         var failure: Throwable? = null
         try {
             val result = ByteArray(byteCount)
             var total = 0
             while (total < result.size) {
-                val read = handle.read(
+                val read = fileHandle.read(
                     offset + total,
                     result,
                     total,
@@ -838,7 +839,7 @@ class OfficialWorldStorageInteropTest {
             failure = caught
             throw caught
         } finally {
-            closeAllPreserving(failure, handle::close)
+            closeAllPreserving(failure, fileHandle::close)
         }
     }
 
@@ -852,15 +853,15 @@ class OfficialWorldStorageInteropTest {
         return NbtDocument(NbtCompound(values))
     }
 
-    private fun strongChunkCodec(document: NbtDocument): ChunkNbtCodec<BlockStateDescriptor, String> {
-        val dataVersion = (document.root["DataVersion"] as? NbtInt)?.value
+    private fun strongChunkCodec(nbtDocument: NbtDocument): ChunkNbtCodec<BlockStateDescriptor, String> {
+        val dataVersion = (nbtDocument.root["DataVersion"] as? NbtInt)?.value
             ?: error("Official terrain Chunk has no integer DataVersion")
-        val minSectionY = (document.root["yPos"] as? NbtInt)?.value
+        val minSectionY = (nbtDocument.root["yPos"] as? NbtInt)?.value
             ?: error("Official terrain Chunk has no integer yPos")
-        val sections = document.root["sections"] as? NbtList
+        val sections = nbtDocument.root["sections"] as? NbtList
             ?: error("Official terrain Chunk has no Section list")
-        val maxSemanticSectionY = sections.value.mapNotNull { tag ->
-            val section = tag as? NbtCompound ?: return@mapNotNull null
+        val maxSemanticSectionY = sections.value.mapNotNull { nbtTag ->
+            val section = nbtTag as? NbtCompound ?: return@mapNotNull null
             if (section["block_states"] == null || section["biomes"] == null) return@mapNotNull null
             (section["Y"] as? NbtByte)?.value?.toInt()
         }.maxOrNull() ?: minSectionY
@@ -869,11 +870,11 @@ class OfficialWorldStorageInteropTest {
         }
         return ChunkNbtCodec(
             ChunkNbtContext(
-                layout = ChunkLayout(
+                chunkLayout = ChunkLayout(
                     minSectionY = minSectionY,
                     sectionCount = maxSemanticSectionY - minSectionY + 1,
                 ),
-                registries = ChunkDataRegistries(
+                chunkDataRegistries = ChunkDataRegistries(
                     blockStates = DescriptorBlockStateRegistry(),
                     biomes = NamedBiomeRegistry(),
                 ),
@@ -883,16 +884,16 @@ class OfficialWorldStorageInteropTest {
     }
 
     private suspend fun officialFailure(
-        server: OfficialMinecraftServer,
-        client: HeadlessMinecraftClient?,
+        officialMinecraftServer: OfficialMinecraftServer,
+        headlessMinecraftClient: HeadlessMinecraftClient?,
         failure: Throwable,
     ): AssertionError {
-        val clientLog = if (client == null) {
+        val clientLog = if (headlessMinecraftClient == null) {
             "<not launched>"
         } else {
-            diagnosticLog(client, failure, "official client")
+            diagnosticLog(headlessMinecraftClient, failure, "official client")
         }
-        val serverLog = diagnosticLog(server, failure, "official server")
+        val serverLog = diagnosticLog(officialMinecraftServer, failure, "official server")
         return AssertionError(
             """
             |Official world interoperability failed.
@@ -908,11 +909,11 @@ class OfficialWorldStorageInteropTest {
     }
 
     private suspend fun diagnosticLog(
-        resource: MinecraftTestResource,
+        minecraftTestResource: MinecraftTestResource,
         failure: Throwable,
         label: String,
     ): String = try {
-        MinecraftTestSupport.logText(resource)
+        MinecraftTestSupport.logText(minecraftTestResource)
     } catch (logFailure: CancellationException) {
         throw logFailure
     } catch (logFailure: Throwable) {
@@ -921,14 +922,14 @@ class OfficialWorldStorageInteropTest {
     }
 
     private data class TerrainMutation(
-        val position: ChunkPosition,
+        val chunkPosition: ChunkPosition,
         val originalDocument: NbtDocument,
     )
 
     private data class CompressionProbe(
         val name: String,
         val compression: Compression,
-        val position: ChunkPosition,
+        val chunkPosition: ChunkPosition,
         val blockX: Int,
     )
 
@@ -963,25 +964,25 @@ class OfficialWorldStorageInteropTest {
             CompressionProbe(
                 name = "gzip",
                 compression = Compression.GZIP,
-                position = ChunkPosition(0, 0),
+                chunkPosition = ChunkPosition(0, 0),
                 blockX = 0,
             ),
             CompressionProbe(
                 name = "zlib",
                 compression = Compression.ZLIB,
-                position = ChunkPosition(1, 0),
+                chunkPosition = ChunkPosition(1, 0),
                 blockX = 16,
             ),
             CompressionProbe(
                 name = "none",
                 compression = Compression.NONE,
-                position = ChunkPosition(2, 0),
+                chunkPosition = ChunkPosition(2, 0),
                 blockX = 32,
             ),
             CompressionProbe(
                 name = "lz4",
                 compression = Compression.LZ4,
-                position = ChunkPosition(3, 0),
+                chunkPosition = ChunkPosition(3, 0),
                 blockX = 48,
             ),
         )

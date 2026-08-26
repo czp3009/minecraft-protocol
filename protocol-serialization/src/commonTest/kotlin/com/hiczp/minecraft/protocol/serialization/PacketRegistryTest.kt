@@ -11,7 +11,7 @@ class PacketRegistryTest {
         assertTrue(MinecraftPacketRegistry.entries.isNotEmpty())
         assertEquals(
             MinecraftPacketRegistry.entries.size,
-            MinecraftPacketRegistry.entries.map { it.key }.toSet().size,
+            MinecraftPacketRegistry.entries.map { it.packetKey }.toSet().size,
         )
         assertEquals(
             MinecraftPacketRegistry.entries.size,
@@ -21,29 +21,29 @@ class PacketRegistryTest {
 
     @Test
     fun `registry encodes and decodes by protocol identity`() {
-        val packet = HandshakePacket(
+        val handshakePacket = HandshakePacket(
             protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
             serverAddress = "localhost",
             serverPort = 25_565,
             nextState = HandshakeNextState.STATUS,
         )
-        val encoded = MinecraftPacketRegistry.encodePayload(packet)
+        val encodedPacketPayload = MinecraftPacketRegistry.encodePayload(handshakePacket)
         assertEquals(
             PacketKey(
                 ConnectionState.HANDSHAKE,
                 PacketDirection.SERVERBOUND,
                 0x00,
             ),
-            encoded.key,
+            encodedPacketPayload.packetKey,
         )
-        assertEquals(PacketFraming.NORMAL, encoded.framing)
+        assertEquals(PacketFraming.NORMAL, encodedPacketPayload.packetFraming)
         assertEquals(
-            packet,
+            handshakePacket,
             MinecraftPacketRegistry.decodePayload(
-                encoded.key.state,
-                encoded.key.direction,
-                encoded.key.id,
-                encoded.payload,
+                encodedPacketPayload.packetKey.connectionState,
+                encodedPacketPayload.packetKey.packetDirection,
+                encodedPacketPayload.packetKey.id,
+                encodedPacketPayload.payload,
             ),
         )
 
@@ -59,36 +59,36 @@ class PacketRegistryTest {
 
     @Test
     fun `every registered normal packet has an executable binary round trip`() {
-        val format = MinecraftProtocolFormat(
+        val minecraftProtocolFormat = MinecraftProtocolFormat(
             MinecraftProtocolFormatConfiguration(
                 protocolRegistryContext = testProtocolRegistryContext(chunkSectionCount = 0),
             ),
         )
         val failures = buildList {
-            for (codec in MinecraftPacketRegistry.entries) {
-                if (codec.framing != PacketFraming.NORMAL) {
+            for (packetCodec in MinecraftPacketRegistry.entries) {
+                if (packetCodec.packetFraming != PacketFraming.NORMAL) {
                     continue
                 }
                 try {
                     @Suppress("UNCHECKED_CAST")
-                    val serializer = codec.serializer as KSerializer<Packet>
-                    val sample = serializer.protocolValue(ProtocolSampleProfile.MINIMAL)
-                    val encoded = MinecraftPacketRegistry.encodePayload(sample, format)
-                    assertEquals(codec.key, encoded.key)
+                    val kSerializer = packetCodec.kSerializer as KSerializer<Packet>
+                    val sample = kSerializer.protocolValue(ProtocolSampleProfile.MINIMAL)
+                    val encodedPacketPayload = MinecraftPacketRegistry.encodePayload(sample, minecraftProtocolFormat)
+                    assertEquals(packetCodec.packetKey, encodedPacketPayload.packetKey)
                     assertEquals(
                         sample,
                         MinecraftPacketRegistry.decodePayload(
-                            codec.key.state,
-                            codec.key.direction,
-                            codec.key.id,
-                            encoded.payload,
-                            format,
+                            packetCodec.packetKey.connectionState,
+                            packetCodec.packetKey.packetDirection,
+                            packetCodec.packetKey.id,
+                            encodedPacketPayload.payload,
+                            minecraftProtocolFormat,
                         ),
-                        codec.packetClass.simpleName,
+                        packetCodec.packetClass.simpleName,
                     )
                 } catch (cause: Throwable) {
                     add(
-                        "${codec.key} ${codec.packetClass.simpleName}: ${cause::class.simpleName}: ${cause.message}",
+                        "${packetCodec.packetKey} ${packetCodec.packetClass.simpleName}: ${cause::class.simpleName}: ${cause.message}",
                     )
                 }
             }
@@ -100,45 +100,45 @@ class PacketRegistryTest {
 
     @Test
     fun `generated branch profiles round trip whenever they form a valid packet`() {
-        val format = MinecraftProtocolFormat(
+        val minecraftProtocolFormat = MinecraftProtocolFormat(
             MinecraftProtocolFormatConfiguration(
                 protocolRegistryContext = testProtocolRegistryContext(chunkSectionCount = 0),
             ),
         )
         val coveredProfiles = mutableSetOf<ProtocolSampleProfile>()
         var successfulSamples = 0
-        for (codec in MinecraftPacketRegistry.entries) {
-            if (codec.framing != PacketFraming.NORMAL) {
+        for (packetCodec in MinecraftPacketRegistry.entries) {
+            if (packetCodec.packetFraming != PacketFraming.NORMAL) {
                 continue
             }
             @Suppress("UNCHECKED_CAST")
-            val serializer = codec.serializer as KSerializer<Packet>
-            for (profile in ProtocolSampleProfile.entries) {
+            val kSerializer = packetCodec.kSerializer as KSerializer<Packet>
+            for (protocolSampleProfile in ProtocolSampleProfile.entries) {
                 val sample = runCatching {
-                    serializer.protocolValue(profile)
+                    kSerializer.protocolValue(protocolSampleProfile)
                 }.getOrNull() ?: continue
-                val encoded = runCatching {
-                    MinecraftPacketRegistry.encodePayload(sample, format)
+                val encodedPacketPayload = runCatching {
+                    MinecraftPacketRegistry.encodePayload(sample, minecraftProtocolFormat)
                 }.getOrNull() ?: continue
 
                 assertEquals(
                     sample,
                     MinecraftPacketRegistry.decodePayload(
-                        codec.key.state,
-                        codec.key.direction,
-                        codec.key.id,
-                        encoded.payload,
-                        format,
+                        packetCodec.packetKey.connectionState,
+                        packetCodec.packetKey.packetDirection,
+                        packetCodec.packetKey.id,
+                        encodedPacketPayload.payload,
+                        minecraftProtocolFormat,
                     ),
-                    "${codec.packetClass.simpleName} $profile",
+                    "${packetCodec.packetClass.simpleName} $protocolSampleProfile",
                 )
                 successfulSamples++
-                coveredProfiles += profile
+                coveredProfiles += protocolSampleProfile
             }
         }
 
         val normalPacketCount = MinecraftPacketRegistry.entries.count {
-            it.framing == PacketFraming.NORMAL
+            it.packetFraming == PacketFraming.NORMAL
         }
         assertEquals(ProtocolSampleProfile.entries.toSet(), coveredProfiles)
         assertTrue(
@@ -149,10 +149,10 @@ class PacketRegistryTest {
 
     @Test
     fun `legacy packet is not marked as normally framed`() {
-        val encoded = MinecraftPacketRegistry.encodePayload(
+        val encodedPacketPayload = MinecraftPacketRegistry.encodePayload(
             LegacyServerListPingPacket(),
         )
-        assertEquals(PacketFraming.LEGACY_UNFRAMED, encoded.framing)
+        assertEquals(PacketFraming.LEGACY_UNFRAMED, encodedPacketPayload.packetFraming)
     }
 
     @Test

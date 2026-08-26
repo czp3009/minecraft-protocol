@@ -14,7 +14,7 @@ import java.nio.file.Path as NioPath
 
 internal actual fun acquireWorldDirectoryLock(path: Path): WorldDirectoryLock {
     val nioPath = NioPath.of(path.toString())
-    val channel = FileChannel.open(nioPath, CREATE, WRITE)
+    val fileChannel = FileChannel.open(nioPath, CREATE, WRITE)
     try {
         /*
          * This intentionally mirrors the official DirectoryLock.create.
@@ -26,10 +26,10 @@ internal actual fun acquireWorldDirectoryLock(path: Path): WorldDirectoryLock {
          * POSIX locks are advisory, so contention normally reaches tryLock and
          * its null result instead.
          */
-        channel.write(WORLD_LOCK_MARKER.duplicate())
-        channel.force(true)
-        val lock = try {
-            channel.tryLock()
+        fileChannel.write(WORLD_LOCK_MARKER.duplicate())
+        fileChannel.force(true)
+        val fileLock = try {
+            fileChannel.tryLock()
         } catch (failure: OverlappingFileLockException) {
             throw worldAlreadyLockedException(
                 nioPath.toAbsolutePath().toString(),
@@ -38,7 +38,7 @@ internal actual fun acquireWorldDirectoryLock(path: Path): WorldDirectoryLock {
         } ?: throw worldAlreadyLockedException(
             nioPath.toAbsolutePath().toString(),
         )
-        return JavaNioWorldDirectoryLock(channel, lock)
+        return JavaNioWorldDirectoryLock(fileChannel, fileLock)
     } catch (failure: IOException) {
         // A mandatory Windows byte lock can reject the marker write before
         // tryLock. Re-probe before classifying that otherwise ordinary I/O
@@ -55,7 +55,7 @@ internal actual fun acquireWorldDirectoryLock(path: Path): WorldDirectoryLock {
             )
         }
         try {
-            channel.close()
+            fileChannel.close()
         } catch (closeFailure: IOException) {
             mapped.addSuppressed(closeFailure)
         }
@@ -64,9 +64,9 @@ internal actual fun acquireWorldDirectoryLock(path: Path): WorldDirectoryLock {
 }
 
 internal actual fun isWorldDirectoryLocked(path: Path): Boolean = try {
-    FileChannel.open(NioPath.of(path.toString()), WRITE).use { channel ->
-        channel.tryLock().use { lock ->
-            lock == null
+    FileChannel.open(NioPath.of(path.toString()), WRITE).use { fileChannel ->
+        fileChannel.tryLock().use { fileLock ->
+            fileLock == null
         }
     }
 } catch (_: AccessDeniedException) {
@@ -84,17 +84,17 @@ private fun worldLockAppearsHeld(path: Path): Boolean = try {
 }
 
 private class JavaNioWorldDirectoryLock(
-    private val channel: FileChannel,
-    private val lock: FileLock,
+    private val fileChannel: FileChannel,
+    private val fileLock: FileLock,
 ) : WorldDirectoryLock {
     override val isValid: Boolean
-        get() = lock.isValid
+        get() = fileLock.isValid
 
     override fun close() {
         closeAllPreserving(
             null,
-            { if (lock.isValid) lock.release() },
-            { if (channel.isOpen) channel.close() },
+            { if (fileLock.isValid) fileLock.release() },
+            { if (fileChannel.isOpen) fileChannel.close() },
         )
     }
 }

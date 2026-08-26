@@ -85,7 +85,7 @@ class DataPackStack(dataPacks: List<DataPack>) {
                 resolvedDataPackResources.keys.filter(dataPackFilterPattern::matches)
                     .forEach(resolvedDataPackResources::remove)
             }
-            dataPack.effectiveDataPackFiles(dataPackFormatVersion).forEach { (dataPackResourcePath, dataPackFile) ->
+            dataPack.effectiveDataPackFiles(dataPackFormatVersion).forEach { (dataPackResourcePath, effectiveDataPackFile) ->
                 val previousResolvedDataPackResource = resolvedDataPackResources[dataPackResourcePath]
                 resolvedDataPackResources[dataPackResourcePath] = if (
                     previousResolvedDataPackResource != null &&
@@ -96,14 +96,14 @@ class DataPackStack(dataPacks: List<DataPack>) {
                         previousResolvedDataPackResource,
                         dataPack.dataPackId,
                         dataPackResourcePath,
-                        dataPackFile,
+                        effectiveDataPackFile,
                     )
                 } else {
                     ResolvedDataPackResource(
                         dataPackResourcePath = dataPackResourcePath,
-                        dataPackFileContent = dataPackFile.dataPackFileContent,
+                        dataPackFileContent = effectiveDataPackFile.dataPackFileContent,
                         sourceDataPackId = dataPack.dataPackId,
-                        sourceDataPackFilePath = dataPackFile.dataPackFilePath,
+                        sourceDataPackFilePath = effectiveDataPackFile.dataPackFilePath,
                     )
                 }
             }
@@ -159,9 +159,9 @@ private fun mergeTagFile(
     previousResolvedDataPackResource: ResolvedDataPackResource,
     sourceDataPackId: DataPackId,
     dataPackResourcePath: DataPackResourcePath,
-    dataPackFile: EffectiveDataPackFile,
+    effectiveDataPackFile: EffectiveDataPackFile,
 ): ResolvedDataPackResource {
-    val currentDataPackFileContent = dataPackFile.dataPackFileContent
+    val currentDataPackFileContent = effectiveDataPackFile.dataPackFileContent
     val previousDataPackFileContent = previousResolvedDataPackResource.dataPackFileContent
     if (
         currentDataPackFileContent !is DataPackFileContent.JsonFile ||
@@ -171,7 +171,7 @@ private fun mergeTagFile(
             dataPackResourcePath,
             currentDataPackFileContent,
             sourceDataPackId,
-            dataPackFile.dataPackFilePath,
+            effectiveDataPackFile.dataPackFilePath,
         )
     }
     val currentJsonObject = currentDataPackFileContent.jsonElement.jsonObject
@@ -180,7 +180,7 @@ private fun mergeTagFile(
             dataPackResourcePath,
             currentDataPackFileContent,
             sourceDataPackId,
-            dataPackFile.dataPackFilePath,
+            effectiveDataPackFile.dataPackFilePath,
         )
     }
     val previousJsonObject = previousDataPackFileContent.jsonElement.jsonObject
@@ -196,7 +196,7 @@ private fun mergeTagFile(
         dataPackResourcePath = dataPackResourcePath,
         dataPackFileContent = DataPackFileContent.JsonFile(mergedJsonObject),
         sourceDataPackId = sourceDataPackId,
-        sourceDataPackFilePath = dataPackFile.dataPackFilePath,
+        sourceDataPackFilePath = effectiveDataPackFile.dataPackFilePath,
         contributingDataPackIds = previousResolvedDataPackResource.contributingDataPackIds + sourceDataPackId,
     )
 }

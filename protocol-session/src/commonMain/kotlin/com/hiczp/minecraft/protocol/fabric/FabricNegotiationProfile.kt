@@ -22,47 +22,47 @@ class FabricClientProfile(
     )
     private val remoteConfigurationChannels = linkedSetOf<Identifier>()
     private val remotePlayChannels = linkedSetOf<Identifier>()
-    private val splitAssembler = FabricSplitAssembler(setOf(FabricChannels.RegistrySync))
+    private val fabricSplitAssembler = FabricSplitAssembler(setOf(FabricChannels.RegistrySync))
     private var commonVersion: Int? = null
     private var fabricRegistrySyncPacket: FabricRegistrySyncPacket? = null
     private var sentInitialRegistration = false
     private var begun = false
 
     override suspend fun begin(
-        connection: MinecraftClientPacketConnection,
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
     ) {
         check(!begun) { "A FabricClientProfile can negotiate only one connection" }
         begun = true
-        requireFabricCodecs(connection)
-        connection.activateExtensionRoutes(
-            connection.activeExtensionRoutes +
-                    initialRoutes(connection, PacketDirection.CLIENTBOUND),
+        requireFabricCodecs(minecraftClientPacketConnection)
+        minecraftClientPacketConnection.activateExtensionRoutes(
+            minecraftClientPacketConnection.activeExtensionRoutes +
+                    initialRoutes(minecraftClientPacketConnection, PacketDirection.CLIENTBOUND),
         )
     }
 
     override suspend fun handleConfigurationPacket(
-        connection: MinecraftClientPacketConnection,
-        packet: ClientboundPacket,
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
+        clientboundPacket: ClientboundPacket,
     ): Boolean {
-        if (splitAssembler.isCollecting && packet !is FabricSplitPacket) {
+        if (fabricSplitAssembler.isCollecting && clientboundPacket !is FabricSplitPacket) {
             throw FabricNegotiationException(
-                "Received ${packet::class.simpleName} inside a Fabric split stream",
+                "Received ${clientboundPacket::class.simpleName} inside a Fabric split stream",
             )
         }
-        return when (packet) {
+        return when (clientboundPacket) {
             is FabricRegisterChannelsPacket -> {
-                remoteConfigurationChannels += packet.channels
+                remoteConfigurationChannels += clientboundPacket.channels
                 activateAcceptedOutboundRoutes(
-                    connection,
+                    minecraftClientPacketConnection,
                     ConnectionState.CONFIGURATION,
                     PacketDirection.SERVERBOUND,
                     remoteConfigurationChannels,
                 )
                 if (!sentInitialRegistration) {
-                    connection.outgoing.send(
+                    minecraftClientPacketConnection.outgoing.send(
                         FabricRegisterChannelsPacket(
                             receivableChannels(
-                                connection,
+                                minecraftClientPacketConnection,
                                 ConnectionState.CONFIGURATION,
                                 PacketDirection.CLIENTBOUND,
                             ).toList(),
@@ -74,9 +74,9 @@ class FabricClientProfile(
             }
 
             is FabricUnregisterChannelsPacket -> {
-                remoteConfigurationChannels -= packet.channels.toSet()
+                remoteConfigurationChannels -= clientboundPacket.channels.toSet()
                 activateAcceptedOutboundRoutes(
-                    connection,
+                    minecraftClientPacketConnection,
                     ConnectionState.CONFIGURATION,
                     PacketDirection.SERVERBOUND,
                     remoteConfigurationChannels,
@@ -86,33 +86,33 @@ class FabricClientProfile(
 
             is FabricCommonVersionPacket -> {
                 val negotiated = highestCommonVersion(
-                    packet.versions,
+                    clientboundPacket.versions,
                     supportedCommonVersions,
                 )
                 commonVersion = negotiated
-                connection.outgoing.send(
+                minecraftClientPacketConnection.outgoing.send(
                     FabricCommonVersionPacket(listOf(negotiated)),
                 )
                 true
             }
 
             is FabricCommonRegisterPacket -> {
-                val negotiated = requireCommonVersion(packet.version)
-                when (packet.protocol) {
+                val negotiated = requireCommonVersion(clientboundPacket.version)
+                when (clientboundPacket.protocol) {
                     CONFIGURATION_PROTOCOL -> {
-                        remoteConfigurationChannels += packet.channels
+                        remoteConfigurationChannels += clientboundPacket.channels
                         activateAcceptedOutboundRoutes(
-                            connection,
+                            minecraftClientPacketConnection,
                             ConnectionState.CONFIGURATION,
                             PacketDirection.SERVERBOUND,
                             remoteConfigurationChannels,
                         )
-                        connection.outgoing.send(
+                        minecraftClientPacketConnection.outgoing.send(
                             FabricCommonRegisterPacket(
                                 negotiated,
                                 CONFIGURATION_PROTOCOL,
                                 receivableChannels(
-                                    connection,
+                                    minecraftClientPacketConnection,
                                     ConnectionState.CONFIGURATION,
                                     PacketDirection.CLIENTBOUND,
                                 ),
@@ -121,13 +121,13 @@ class FabricClientProfile(
                     }
 
                     PLAY_PROTOCOL -> {
-                        remotePlayChannels += packet.channels
-                        connection.outgoing.send(
+                        remotePlayChannels += clientboundPacket.channels
+                        minecraftClientPacketConnection.outgoing.send(
                             FabricCommonRegisterPacket(
                                 negotiated,
                                 PLAY_PROTOCOL,
                                 receivableChannels(
-                                    connection,
+                                    minecraftClientPacketConnection,
                                     ConnectionState.PLAY,
                                     PacketDirection.CLIENTBOUND,
                                 ),
@@ -136,28 +136,28 @@ class FabricClientProfile(
                     }
 
                     else -> throw FabricNegotiationException(
-                        "Unknown Fabric common protocol ${packet.protocol}",
+                        "Unknown Fabric common protocol ${clientboundPacket.protocol}",
                     )
                 }
                 true
             }
 
             is FabricRegistrySyncPacket -> {
-                applyRegistrySync(packet)
-                connection.outgoing.send(FabricRegistrySyncCompletePacket)
+                applyRegistrySync(clientboundPacket)
+                minecraftClientPacketConnection.outgoing.send(FabricRegistrySyncCompletePacket)
                 true
             }
 
             is FabricSplitPacket -> {
-                val payload = splitAssembler.accept(
+                val routedCustomPayload = fabricSplitAssembler.accept(
                     ConnectionState.CONFIGURATION,
                     PacketDirection.CLIENTBOUND,
-                    packet,
+                    clientboundPacket,
                 ) ?: return true
-                when (val decoded = connection.decodeCustomPayload(payload)) {
+                when (val decoded = minecraftClientPacketConnection.decodeCustomPayload(routedCustomPayload)) {
                     is FabricRegistrySyncPacket -> {
                         applyRegistrySync(decoded)
-                        connection.outgoing.send(
+                        minecraftClientPacketConnection.outgoing.send(
                             FabricRegistrySyncCompletePacket,
                         )
                     }
@@ -184,10 +184,10 @@ class FabricClientProfile(
     }
 
     override suspend fun preparePlay(
-        connection: MinecraftClientPacketConnection,
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
     ) {
         activatePlayRoutes(
-            connection,
+            minecraftClientPacketConnection,
             PacketDirection.CLIENTBOUND,
             PacketDirection.SERVERBOUND,
             remotePlayChannels,
@@ -196,39 +196,40 @@ class FabricClientProfile(
     }
 
     override suspend fun complete(
-        connection: MinecraftClientPacketConnection,
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
     ): NegotiationProfileResult = result()
 
-    private fun applyRegistrySync(packet: FabricRegistrySyncPacket) {
-        if (fabricRegistrySyncPacket != null) {
+    private fun applyRegistrySync(fabricRegistrySyncPacket: FabricRegistrySyncPacket) {
+        if (this.fabricRegistrySyncPacket != null) {
             throw FabricNegotiationException(
                 "Received more than one Fabric registry snapshot",
             )
         }
-        compatibleSnapshot(packet)
-        fabricRegistrySyncPacket = packet
+        compatibleSnapshot(fabricRegistrySyncPacket)
+        this.fabricRegistrySyncPacket = fabricRegistrySyncPacket
     }
 
     private fun compatibleSnapshot(
-        packet: FabricRegistrySyncPacket,
+        fabricRegistrySyncPacket: FabricRegistrySyncPacket,
     ): RemoteRegistrySnapshot {
-        val compatibleRegistries = packet.remoteRegistrySnapshot.registries.values.mapNotNull { registry ->
-            val localEntries = staticRegistrySchema.registries[registry.id]
+        val compatibleRegistries =
+            fabricRegistrySyncPacket.remoteRegistrySnapshot.registries.values.mapNotNull { remoteRegistry ->
+            val localEntries = staticRegistrySchema.registries[remoteRegistry.id]
             if (localEntries == null) {
-                if (registry.id in packet.optionalRegistryIds) return@mapNotNull null
+                if (remoteRegistry.id in fabricRegistrySyncPacket.optionalRegistryIds) return@mapNotNull null
                 throw FabricNegotiationException(
-                    "Fabric server synchronized unknown mandatory registry ${registry.id}",
+                    "Fabric server synchronized unknown mandatory registry ${remoteRegistry.id}",
                 )
             }
             val local = localEntries.toSet()
-            val missing = registry.entries.map(RemoteRegistryEntry::id)
+            val missing = remoteRegistry.entries.map(RemoteRegistryEntry::id)
                 .filterNot(local::contains)
             if (missing.isNotEmpty()) {
                 throw FabricNegotiationException(
-                    "Fabric registry ${registry.id} contains missing local entries: $missing",
+                    "Fabric registry ${remoteRegistry.id} contains missing local entries: $missing",
                 )
             }
-            registry
+            remoteRegistry
         }
         return RemoteRegistrySnapshot(compatibleRegistries)
     }
@@ -274,65 +275,65 @@ class FabricServerProfile(
     private var begun = false
 
     override suspend fun begin(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
         check(!begun) { "A FabricServerProfile can negotiate only one connection" }
         begun = true
-        requireFabricCodecs(connection)
-        connection.activateExtensionRoutes(
-            connection.activeExtensionRoutes +
-                    initialRoutes(connection, PacketDirection.SERVERBOUND),
+        requireFabricCodecs(minecraftServerPacketConnection)
+        minecraftServerPacketConnection.activateExtensionRoutes(
+            minecraftServerPacketConnection.activeExtensionRoutes +
+                    initialRoutes(minecraftServerPacketConnection, PacketDirection.SERVERBOUND),
         )
     }
 
     override suspend fun negotiateConfiguration(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
-        connection.outgoing.send(
+        minecraftServerPacketConnection.outgoing.send(
             FabricRegisterChannelsPacket(
                 receivableChannels(
-                    connection,
+                    minecraftServerPacketConnection,
                     ConnectionState.CONFIGURATION,
                     PacketDirection.SERVERBOUND,
                 ).toList(),
             ),
         )
-        connection.outgoing.send(ConfigurationPingPacket(FABRIC_PROBE_ID))
+        minecraftServerPacketConnection.outgoing.send(ConfigurationPingPacket(FABRIC_PROBE_ID))
         while (!receivedInitialRegistration && !receivedProbePong) {
-            connection.requestFlush()
-            val packet = connection.incoming.receive()
-            if (!handleConfigurationPacket(connection, packet)) {
+            minecraftServerPacketConnection.requestFlush()
+            val serverboundPacket = minecraftServerPacketConnection.incoming.receive()
+            if (!handleConfigurationPacket(minecraftServerPacketConnection, serverboundPacket)) {
                 throw FabricNegotiationException(
-                    "Expected Fabric channel registration or probe pong, received ${packet::class.simpleName}",
+                    "Expected Fabric channel registration or probe pong, received ${serverboundPacket::class.simpleName}",
                 )
             }
         }
         if (!receivedInitialRegistration) return
 
         if (FabricChannels.CommonVersion in remoteConfigurationChannels) {
-            connection.outgoing.send(
+            minecraftServerPacketConnection.outgoing.send(
                 FabricCommonVersionPacket(
                     supportedCommonVersions.sorted(),
                 ),
             )
-            awaitConfigurationPacket<FabricCommonVersionPacket>(connection)
+            awaitConfigurationPacket<FabricCommonVersionPacket>(minecraftServerPacketConnection)
         }
         if (
             commonVersion != null &&
             FabricChannels.CommonRegister in remoteConfigurationChannels
         ) {
-            connection.outgoing.send(
+            minecraftServerPacketConnection.outgoing.send(
                 FabricCommonRegisterPacket(
                     checkNotNull(commonVersion),
                     PLAY_PROTOCOL,
                     receivableChannels(
-                        connection,
+                        minecraftServerPacketConnection,
                         ConnectionState.PLAY,
                         PacketDirection.SERVERBOUND,
                     ),
                 ),
             )
-            awaitConfigurationPacket<FabricCommonRegisterPacket>(connection)
+            awaitConfigurationPacket<FabricCommonRegisterPacket>(minecraftServerPacketConnection)
         }
 
         val fabricRegistrySyncPacket = this.fabricRegistrySyncPacket ?: return
@@ -348,28 +349,28 @@ class FabricServerProfile(
             }
             return
         }
-        val routed = connection.encodeCustomPayload(fabricRegistrySyncPacket)
-        val encodedSize = FabricSplitPayloads.encodedPacketSize(routed)
+        val routedCustomPayload = minecraftServerPacketConnection.encodeCustomPayload(fabricRegistrySyncPacket)
+        val encodedSize = FabricSplitPayloads.encodedPacketSize(routedCustomPayload)
         if (encodedSize >= FabricSplitPayloads.CLIENTBOUND_CHUNK_SIZE) {
             FabricSplitPayloads.split(
-                routed,
+                routedCustomPayload,
                 FabricSplitPayloads.CLIENTBOUND_CHUNK_SIZE,
-            ).forEach { connection.outgoing.send(it) }
+            ).forEach { minecraftServerPacketConnection.outgoing.send(it) }
         } else {
-            connection.outgoing.send(fabricRegistrySyncPacket)
+            minecraftServerPacketConnection.outgoing.send(fabricRegistrySyncPacket)
         }
-        awaitConfigurationPacket<FabricRegistrySyncCompletePacket>(connection)
+        awaitConfigurationPacket<FabricRegistrySyncCompletePacket>(minecraftServerPacketConnection)
     }
 
     override suspend fun handleConfigurationPacket(
-        connection: MinecraftServerPacketConnection,
-        packet: ServerboundPacket,
-    ): Boolean = when (packet) {
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
+        serverboundPacket: ServerboundPacket,
+    ): Boolean = when (serverboundPacket) {
         is FabricRegisterChannelsPacket -> {
-            remoteConfigurationChannels += packet.channels
+            remoteConfigurationChannels += serverboundPacket.channels
             receivedInitialRegistration = true
             activateAcceptedOutboundRoutes(
-                connection,
+                minecraftServerPacketConnection,
                 ConnectionState.CONFIGURATION,
                 PacketDirection.CLIENTBOUND,
                 remoteConfigurationChannels,
@@ -378,9 +379,9 @@ class FabricServerProfile(
         }
 
         is FabricUnregisterChannelsPacket -> {
-            remoteConfigurationChannels -= packet.channels.toSet()
+            remoteConfigurationChannels -= serverboundPacket.channels.toSet()
             activateAcceptedOutboundRoutes(
-                connection,
+                minecraftServerPacketConnection,
                 ConnectionState.CONFIGURATION,
                 PacketDirection.CLIENTBOUND,
                 remoteConfigurationChannels,
@@ -389,28 +390,28 @@ class FabricServerProfile(
         }
 
         is ConfigurationPongPacket -> {
-            if (packet.id != FABRIC_PROBE_ID) return false
+            if (serverboundPacket.id != FABRIC_PROBE_ID) return false
             receivedProbePong = true
             true
         }
 
         is FabricCommonVersionPacket -> {
             commonVersion = highestCommonVersion(
-                packet.versions,
+                serverboundPacket.versions,
                 supportedCommonVersions,
             )
             true
         }
 
         is FabricCommonRegisterPacket -> {
-            requireCommonVersion(packet.version)
-            when (packet.protocol) {
-                PLAY_PROTOCOL -> remotePlayChannels += packet.channels
+            requireCommonVersion(serverboundPacket.version)
+            when (serverboundPacket.protocol) {
+                PLAY_PROTOCOL -> remotePlayChannels += serverboundPacket.channels
                 CONFIGURATION_PROTOCOL ->
-                    remoteConfigurationChannels += packet.channels
+                    remoteConfigurationChannels += serverboundPacket.channels
 
                 else -> throw FabricNegotiationException(
-                    "Unknown Fabric common protocol ${packet.protocol}",
+                    "Unknown Fabric common protocol ${serverboundPacket.protocol}",
                 )
             }
             true
@@ -437,10 +438,10 @@ class FabricServerProfile(
     }
 
     override suspend fun preparePlay(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
         activatePlayRoutes(
-            connection,
+            minecraftServerPacketConnection,
             PacketDirection.SERVERBOUND,
             PacketDirection.CLIENTBOUND,
             remotePlayChannels,
@@ -449,7 +450,7 @@ class FabricServerProfile(
     }
 
     override suspend fun complete(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ): NegotiationProfileResult = FabricNegotiationResult(
         commonVersion,
         remoteConfigurationChannels.toSet(),
@@ -459,16 +460,16 @@ class FabricServerProfile(
 
     private suspend inline fun <reified T : ServerboundPacket>
             awaitConfigurationPacket(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ): T {
         while (true) {
-            connection.requestFlush()
-            val packet = connection.incoming.receive()
+            minecraftServerPacketConnection.requestFlush()
+            val packet = minecraftServerPacketConnection.incoming.receive()
             if (packet is T) {
-                handleConfigurationPacket(connection, packet)
+                handleConfigurationPacket(minecraftServerPacketConnection, packet)
                 return packet
             }
-            if (!handleConfigurationPacket(connection, packet)) {
+            if (!handleConfigurationPacket(minecraftServerPacketConnection, packet)) {
                 throw FabricNegotiationException(
                     "Expected ${T::class.simpleName}, received ${packet::class.simpleName}",
                 )
@@ -491,7 +492,7 @@ class FabricServerProfile(
 
 private suspend fun <Incoming : Packet, Outgoing : Packet>
         activatePlayRoutes(
-    connection: MinecraftPacketConnection<Incoming, Outgoing>,
+    minecraftPacketConnection: MinecraftPacketConnection<Incoming, Outgoing>,
     incomingDirection: PacketDirection,
     outgoingDirection: PacketDirection,
     remoteChannels: Set<Identifier>,
@@ -499,88 +500,88 @@ private suspend fun <Incoming : Packet, Outgoing : Packet>
 ) {
     if (!fabricPeer) return
     val inbound = customRoutes(
-        connection,
+        minecraftPacketConnection,
         ConnectionState.PLAY,
         incomingDirection,
     )
     val outbound = customRoutes(
-        connection,
+        minecraftPacketConnection,
         ConnectionState.PLAY,
         outgoingDirection,
-    ).filter { route ->
-        route.channel in remoteChannels || route.channel in INFRASTRUCTURE_CHANNELS
+    ).filter { customPayload ->
+        customPayload.channel in remoteChannels || customPayload.channel in INFRASTRUCTURE_CHANNELS
     }
-    connection.activateExtensionRoutes(
-        connection.activeExtensionRoutes + inbound + outbound,
+    minecraftPacketConnection.activateExtensionRoutes(
+        minecraftPacketConnection.activeExtensionRoutes + inbound + outbound,
     )
 }
 
 private suspend fun <Incoming : Packet, Outgoing : Packet>
         activateAcceptedOutboundRoutes(
-    connection: MinecraftPacketConnection<Incoming, Outgoing>,
-    state: ConnectionState,
-    direction: PacketDirection,
+    minecraftPacketConnection: MinecraftPacketConnection<Incoming, Outgoing>,
+    connectionState: ConnectionState,
+    packetDirection: PacketDirection,
     remoteChannels: Set<Identifier>,
 ) {
-    val candidates = customRoutes(connection, state, direction)
-    val accepted = candidates.filter { route ->
-        route.channel in remoteChannels || route.channel in INFRASTRUCTURE_CHANNELS
+    val candidates = customRoutes(minecraftPacketConnection, connectionState, packetDirection)
+    val accepted = candidates.filter { customPayload ->
+        customPayload.channel in remoteChannels || customPayload.channel in INFRASTRUCTURE_CHANNELS
     }
-    connection.activateExtensionRoutes(
-        connection.activeExtensionRoutes - candidates.toSet() + accepted,
+    minecraftPacketConnection.activateExtensionRoutes(
+        minecraftPacketConnection.activeExtensionRoutes - candidates.toSet() + accepted,
     )
 }
 
 private fun <Incoming : Packet, Outgoing : Packet> initialRoutes(
-    connection: MinecraftPacketConnection<Incoming, Outgoing>,
+    minecraftPacketConnection: MinecraftPacketConnection<Incoming, Outgoing>,
     incomingDirection: PacketDirection,
 ): Set<PacketRouteKey> = buildSet {
     addAll(
-        connection.declaredExtensionRoutes.filter { route ->
-            route is PacketRouteKey.LoginQuery
+        minecraftPacketConnection.declaredExtensionRoutes.filter { packetRouteKey ->
+            packetRouteKey is PacketRouteKey.LoginQuery
         },
     )
     addAll(
         customRoutes(
-            connection,
+            minecraftPacketConnection,
             ConnectionState.CONFIGURATION,
             incomingDirection,
         ),
     )
     addAll(
-        connection.declaredExtensionRoutes.filter { route ->
-            route is PacketRouteKey.CustomPayload &&
-                    route.state == ConnectionState.CONFIGURATION &&
-                    route.channel in INFRASTRUCTURE_CHANNELS
+        minecraftPacketConnection.declaredExtensionRoutes.filter { packetRouteKey ->
+            packetRouteKey is PacketRouteKey.CustomPayload &&
+                    packetRouteKey.connectionState == ConnectionState.CONFIGURATION &&
+                    packetRouteKey.channel in INFRASTRUCTURE_CHANNELS
         },
     )
 }
 
 private fun <Incoming : Packet, Outgoing : Packet> receivableChannels(
-    connection: MinecraftPacketConnection<Incoming, Outgoing>,
-    state: ConnectionState,
-    direction: PacketDirection,
-): Set<Identifier> = customRoutes(connection, state, direction)
+    minecraftPacketConnection: MinecraftPacketConnection<Incoming, Outgoing>,
+    connectionState: ConnectionState,
+    packetDirection: PacketDirection,
+): Set<Identifier> = customRoutes(minecraftPacketConnection, connectionState, packetDirection)
     .map(PacketRouteKey.CustomPayload::channel)
     .filterNot(INFRASTRUCTURE_CHANNELS::contains)
     .toSet()
 
 private fun <Incoming : Packet, Outgoing : Packet> customRoutes(
-    connection: MinecraftPacketConnection<Incoming, Outgoing>,
-    state: ConnectionState,
-    direction: PacketDirection,
-): Set<PacketRouteKey.CustomPayload> = connection.declaredExtensionRoutes
+    minecraftPacketConnection: MinecraftPacketConnection<Incoming, Outgoing>,
+    connectionState: ConnectionState,
+    packetDirection: PacketDirection,
+): Set<PacketRouteKey.CustomPayload> = minecraftPacketConnection.declaredExtensionRoutes
     .filterIsInstance<PacketRouteKey.CustomPayload>()
     .filter { route ->
-        route.state == state && route.direction == direction
+        route.connectionState == connectionState && route.packetDirection == packetDirection
     }
     .toSet()
 
 private fun <Incoming : Packet, Outgoing : Packet> requireFabricCodecs(
-    connection: MinecraftPacketConnection<Incoming, Outgoing>,
+    minecraftPacketConnection: MinecraftPacketConnection<Incoming, Outgoing>,
 ) {
     val missing = REQUIRED_CONFIGURATION_ROUTES -
-            connection.declaredExtensionRoutes
+            minecraftPacketConnection.declaredExtensionRoutes
     require(missing.isEmpty()) {
         "Fabric profile requires FabricProtocol packet codecs; missing $missing"
     }
@@ -619,8 +620,8 @@ private val INFRASTRUCTURE_CHANNELS = setOf(
 )
 
 private val REQUIRED_CONFIGURATION_ROUTES: Set<PacketRouteKey> =
-    FabricProtocol.packetCodecs.map { registration -> registration.route }
-        .filter { route -> route.state == ConnectionState.CONFIGURATION }
+    FabricProtocol.packetCodecs.map { registration -> registration.packetRouteKey }
+        .filter { route -> route.connectionState == ConnectionState.CONFIGURATION }
         .toSet()
 
 class FabricNegotiationException(

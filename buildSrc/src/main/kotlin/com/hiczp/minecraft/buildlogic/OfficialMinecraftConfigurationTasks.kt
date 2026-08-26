@@ -36,7 +36,7 @@ abstract class AnalyzeOfficialMinecraftConfigurationTask :
         check(packetsReportPath.isRegularFile()) {
             "Official packets report is missing: $packetsReportPath"
         }
-        val packetIds = OfficialPacketIds.fromReport(
+        val officialPacketIds = OfficialPacketIds.fromReport(
             protocolJson.decodeFromString<JsonObject>(packetsReportPath.readText()),
         )
         val workDirectory = createIsolatedTemporaryDirectory("configuration")
@@ -44,8 +44,8 @@ abstract class AnalyzeOfficialMinecraftConfigurationTask :
             OfficialVanillaConfigurationCapture.capture(
                 serverJar = serverJarPath,
                 workDirectory = workDirectory,
-                target = minecraftProtocolTarget,
-                packetIds = packetIds,
+                minecraftProtocolTarget = minecraftProtocolTarget,
+                officialPacketIds = officialPacketIds,
             )
         } finally {
             workDirectory.deleteTree()
@@ -77,13 +77,14 @@ abstract class GenerateVanillaConfigurationPacketPayloadSourceTask : DefaultTask
 
     @TaskAction
     fun generate() {
-        val targetReport = targetFile.asFile.get().toPath()
+        val officialMinecraftTargetReport = targetFile.asFile.get().toPath()
             .readOfficialMinecraftTargetReport()
         val vanillaConfigurationCaptureResult = VanillaConfigurationCaptureResult.fromAnalysisJson(
             protocolJson.decodeFromString<JsonObject>(configurationFile.asFile.get().toPath().readText()),
-            expectedTarget = targetReport,
+            expectedTarget = officialMinecraftTargetReport,
         )
-        val generatedSource = vanillaConfigurationCaptureResult.renderKotlin(targetReport.target).toString()
+        val generatedSource =
+            vanillaConfigurationCaptureResult.renderKotlin(officialMinecraftTargetReport.minecraftProtocolTarget).toString()
         val outputFilePath = outputFile.asFile.get().toPath()
         outputFilePath.atomicWriteText(generatedSource)
         logger.lifecycle(

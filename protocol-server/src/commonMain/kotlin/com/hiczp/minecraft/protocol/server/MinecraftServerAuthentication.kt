@@ -8,7 +8,7 @@ sealed interface MinecraftServerAuthentication {
 
     data class Online(
         val sessionHttpClient: HttpClient,
-        val keyPair: MinecraftServerKeyPair,
+        val minecraftServerKeyPair: MinecraftServerKeyPair,
     ) : MinecraftServerAuthentication
 
     companion object {
@@ -16,7 +16,7 @@ sealed interface MinecraftServerAuthentication {
             sessionHttpClient: HttpClient,
         ): Online = Online(
             sessionHttpClient = sessionHttpClient,
-            keyPair = MinecraftServerKeyPair.generate(),
+            minecraftServerKeyPair = MinecraftServerKeyPair.generate(),
         )
     }
 }

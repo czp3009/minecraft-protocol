@@ -10,7 +10,7 @@ import kotlinx.rpc.withService
 internal actual fun openMinecraftTestSupportServiceConnection(
     rpcUrl: String,
 ): MinecraftTestSupportServiceConnection {
-    val client = HttpClient(CIO) {
+    val httpClient = HttpClient(CIO) {
         installKrpc {
             serialization {
                 json()
@@ -18,21 +18,21 @@ internal actual fun openMinecraftTestSupportServiceConnection(
         }
     }
     return try {
-        val rpcClient = client.rpc(rpcUrl)
+        val ktorRpcClient = httpClient.rpc(rpcUrl)
         object : MinecraftTestSupportServiceConnection {
-            override val service: MinecraftTestSupportService = rpcClient.withService()
+            override val minecraftTestSupportService: MinecraftTestSupportService = ktorRpcClient.withService()
 
             override fun close() {
                 closeServiceConnection(
                     closeActions = arrayOf(
-                        { rpcClient.close() },
-                        { client.close() },
+                        { ktorRpcClient.close() },
+                        { httpClient.close() },
                     ),
                 )
             }
         }
     } catch (failure: Throwable) {
-        closeServiceConnection(failure, client::close)
+        closeServiceConnection(failure, httpClient::close)
         throw failure
     }
 }

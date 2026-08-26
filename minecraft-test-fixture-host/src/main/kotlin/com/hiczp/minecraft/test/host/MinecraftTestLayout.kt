@@ -15,9 +15,9 @@ internal data class MinecraftTestLayout(
     val codecClassesDirectory: Path,
     val hostWorkRoot: Path,
 ) {
-    fun newRuntimeDirectory(kind: MinecraftRuntimeKind): Path =
+    fun newRuntimeDirectory(minecraftRuntimeKind: MinecraftRuntimeKind): Path =
         createUniqueDirectory(
-            hostWorkRoot.resolve("runtimes").resolve(kind.directoryName).resolve(minecraftVersion),
+            hostWorkRoot.resolve("runtimes").resolve(minecraftRuntimeKind.directoryName).resolve(minecraftVersion),
         )
 
     fun newScratchDirectory(): Path = createUniqueDirectory(
@@ -37,14 +37,14 @@ internal data class OfficialServerArtifact(
 )
 
 internal object OfficialArtifacts {
-    fun server(layout: MinecraftTestLayout): OfficialServerArtifact {
-        val directory = layout.officialServerRootDirectory
+    fun server(minecraftTestLayout: MinecraftTestLayout): OfficialServerArtifact {
+        val directory = minecraftTestLayout.officialServerRootDirectory
         val manifestFile = directory.resolve("manifest.json")
         check(directory.isDirectory() && manifestFile.isRegularFile()) {
             "The official server fixture is missing; run this test through its standard Gradle test task"
         }
         val manifest = testJson.decodeFromString<JsonObject>(manifestFile.readText())
-        check(manifest.getValue("minecraft_version").jsonPrimitive.content == layout.minecraftVersion) {
+        check(manifest.getValue("minecraft_version").jsonPrimitive.content == minecraftTestLayout.minecraftVersion) {
             "The official server fixture belongs to a different Minecraft version"
         }
         val runtimeDirectory = directory.safeResolve(

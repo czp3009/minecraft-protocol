@@ -83,7 +83,7 @@ class PlayServerboundCommandAndStructurePacketTest {
 
     @Test
     fun `structure block preserves field order and packs four flags`() {
-        val packet = ProgramStructureBlockPacket(
+        val programStructureBlockPacket = ProgramStructureBlockPacket(
             location = BlockPosition(0, 0, 0),
             action = StructureUpdateAction.SCAN_AREA,
             mode = StructureMode.DATA,
@@ -103,7 +103,7 @@ class PlayServerboundCommandAndStructurePacketTest {
             ),
         )
         assertPacketBytes(
-            packet,
+            programStructureBlockPacket,
             ProgramStructureBlockPacket.serializer(),
             "0000000000000000030300d00030000130020301783f000000ac020f",
         )
@@ -166,17 +166,17 @@ class PlayServerboundCommandAndStructurePacketTest {
 
     private fun <T> assertPacketBytes(
         packet: T,
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
         expectedHex: String,
     ) {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

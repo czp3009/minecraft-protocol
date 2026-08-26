@@ -16,47 +16,49 @@ class MicrosoftOAuthApi(
     private val httpClient: HttpClient,
 ) {
     suspend fun tokenWithAuthorizationCode(
-        request: MicrosoftAuthorizationCodeTokenRequest,
+        microsoftAuthorizationCodeTokenRequest: MicrosoftAuthorizationCodeTokenRequest,
     ): MicrosoftTokenResponse {
-        val response = httpClient.post(MICROSOFT_TOKEN_ENDPOINT) {
+        val httpResponse = httpClient.post(MICROSOFT_TOKEN_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
-            setBody(formDataContent(request))
+            setBody(formDataContent(microsoftAuthorizationCodeTokenRequest))
         }
-        return response.decodeAccountAuthResponse<MicrosoftTokenResponse, MicrosoftOAuthErrorResponse>(::MicrosoftOAuthResponseException)
+        return httpResponse.decodeAccountAuthResponse<MicrosoftTokenResponse, MicrosoftOAuthErrorResponse>(::MicrosoftOAuthResponseException)
     }
 
     suspend fun tokenWithRefreshToken(
-        request: MicrosoftRefreshTokenRequest,
+        microsoftRefreshTokenRequest: MicrosoftRefreshTokenRequest,
     ): MicrosoftTokenResponse {
-        val response = httpClient.post(MICROSOFT_TOKEN_ENDPOINT) {
+        val httpResponse = httpClient.post(MICROSOFT_TOKEN_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
-            setBody(formDataContent(request))
+            setBody(formDataContent(microsoftRefreshTokenRequest))
         }
-        return response.decodeAccountAuthResponse<MicrosoftTokenResponse, MicrosoftOAuthErrorResponse>(::MicrosoftOAuthResponseException)
+        return httpResponse.decodeAccountAuthResponse<MicrosoftTokenResponse, MicrosoftOAuthErrorResponse>(::MicrosoftOAuthResponseException)
     }
 
     suspend fun deviceCode(
-        request: MicrosoftDeviceAuthorizationRequest,
+        microsoftDeviceAuthorizationRequest: MicrosoftDeviceAuthorizationRequest,
     ): MicrosoftDeviceAuthorizationResponse {
-        val response = httpClient.post(MICROSOFT_DEVICE_CODE_ENDPOINT) {
+        val httpResponse = httpClient.post(MICROSOFT_DEVICE_CODE_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
-            setBody(formDataContent(request))
+            setBody(formDataContent(microsoftDeviceAuthorizationRequest))
         }
-        return response.decodeAccountAuthResponse<MicrosoftDeviceAuthorizationResponse, MicrosoftOAuthErrorResponse>(::MicrosoftOAuthResponseException)
+        return httpResponse.decodeAccountAuthResponse<MicrosoftDeviceAuthorizationResponse, MicrosoftOAuthErrorResponse>(
+            ::MicrosoftOAuthResponseException
+        )
     }
 
     suspend fun tokenWithDeviceCode(
-        request: MicrosoftDeviceCodeTokenRequest,
+        microsoftDeviceCodeTokenRequest: MicrosoftDeviceCodeTokenRequest,
     ): MicrosoftTokenResponse {
-        val response = httpClient.post(MICROSOFT_TOKEN_ENDPOINT) {
+        val httpResponse = httpClient.post(MICROSOFT_TOKEN_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
-            setBody(formDataContent(request))
+            setBody(formDataContent(microsoftDeviceCodeTokenRequest))
         }
-        return response.decodeAccountAuthResponse<MicrosoftTokenResponse, MicrosoftOAuthErrorResponse>(::MicrosoftOAuthResponseException)
+        return httpResponse.decodeAccountAuthResponse<MicrosoftTokenResponse, MicrosoftOAuthErrorResponse>(::MicrosoftOAuthResponseException)
     }
 }
 

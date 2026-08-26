@@ -67,8 +67,8 @@ private fun decodeConfigurationPacket(
     packetId: Int,
     packetPayloadChunks: List<String>,
 ): Packet = MinecraftPacketRegistry.decodePayload(
-    state = ConnectionState.CONFIGURATION,
-    direction = PacketDirection.CLIENTBOUND,
+    connectionState = ConnectionState.CONFIGURATION,
+    packetDirection = PacketDirection.CLIENTBOUND,
     id = packetId,
     payload = Base64.decode(packetPayloadChunks.joinToString(separator = "")),
 )

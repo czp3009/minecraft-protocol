@@ -25,11 +25,11 @@ internal actual fun acquireWorldDirectoryLock(
          */
         writeWorldLockMarker(handle, path)
         forceWorldLock(handle, path)
-        val key = tryAcquireWindowsFileLock(handle, path)
+        val windowsFileKey = tryAcquireWindowsFileLock(handle, path)
             ?: throw worldAlreadyLockedException(
                 absoluteWorldLockPath(path),
             )
-        return MingwWorldDirectoryLock(handle, path, key)
+        return MingwWorldDirectoryLock(handle, path, windowsFileKey)
     } catch (failure: Throwable) {
         // Cleanup is required for every failed acquisition; rethrow the
         // original failure unchanged after closing the native handle.
@@ -77,7 +77,7 @@ internal actual fun isWorldDirectoryLocked(path: Path): Boolean {
 private class MingwWorldDirectoryLock(
     handle: COpaquePointer,
     private val path: Path,
-    private val key: WindowsFileKey,
+    private val windowsFileKey: WindowsFileKey,
 ) : WorldDirectoryLock {
     private var handle: COpaquePointer? = handle
 
@@ -91,7 +91,7 @@ private class MingwWorldDirectoryLock(
             null,
             { unlockWindowsFile(openHandle, path) },
             { closeWindowsFile(openHandle, path) },
-            { removeInProcessLock(key) },
+            { removeInProcessLock(windowsFileKey) },
         )
     }
 }
@@ -162,20 +162,20 @@ private fun tryAcquireWindowsFileLock(
 ): WindowsFileKey? {
     // Keep the same in-process overlap contract as Java even if Win32's
     // response varies with handle sharing and filesystem implementation.
-    val key = windowsFileKey(handle, path)
+    val windowsFileKey = windowsFileKey(handle, path)
     return withInProcessLockRegistry {
-        if (!IN_PROCESS_LOCK_KEYS.add(key)) {
+        if (!IN_PROCESS_LOCK_KEYS.add(windowsFileKey)) {
             return@withInProcessLockRegistry null
         }
         when (val lockError = setWindowsFileLock(handle, lock = true)) {
-            null -> key
+            null -> windowsFileKey
             ERROR_LOCK_VIOLATION.toUInt() -> {
-                IN_PROCESS_LOCK_KEYS.remove(key)
+                IN_PROCESS_LOCK_KEYS.remove(windowsFileKey)
                 null
             }
 
             else -> {
-                IN_PROCESS_LOCK_KEYS.remove(key)
+                IN_PROCESS_LOCK_KEYS.remove(windowsFileKey)
                 throw windowsLockIoFailure("lock", path, lockError)
             }
         }
@@ -278,9 +278,9 @@ private inline fun <T> withInProcessLockRegistry(block: () -> T): T {
     }
 }
 
-private fun removeInProcessLock(key: WindowsFileKey) {
+private fun removeInProcessLock(windowsFileKey: WindowsFileKey) {
     withInProcessLockRegistry {
-        IN_PROCESS_LOCK_KEYS.remove(key)
+        IN_PROCESS_LOCK_KEYS.remove(windowsFileKey)
     }
 }
 

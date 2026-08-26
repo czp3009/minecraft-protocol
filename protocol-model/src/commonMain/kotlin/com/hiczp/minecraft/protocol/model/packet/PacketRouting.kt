@@ -5,12 +5,12 @@ import com.hiczp.minecraft.protocol.model.type.Identifier
 
 /** A declared extension route without per-exchange wire values. */
 sealed interface PacketRouteKey {
-    val state: ConnectionState
-    val direction: PacketDirection
+    val connectionState: ConnectionState
+    val packetDirection: PacketDirection
 
     data class TopLevel(
-        override val state: ConnectionState,
-        override val direction: PacketDirection,
+        override val connectionState: ConnectionState,
+        override val packetDirection: PacketDirection,
         val packetId: Int,
     ) : PacketRouteKey {
         init {
@@ -19,21 +19,21 @@ sealed interface PacketRouteKey {
     }
 
     data class LoginQuery(
-        override val direction: PacketDirection,
+        override val packetDirection: PacketDirection,
         val channel: Identifier,
     ) : PacketRouteKey {
-        override val state: ConnectionState = ConnectionState.LOGIN
+        override val connectionState: ConnectionState = ConnectionState.LOGIN
     }
 
     data class CustomPayload(
-        override val state: ConnectionState,
-        override val direction: PacketDirection,
+        override val connectionState: ConnectionState,
+        override val packetDirection: PacketDirection,
         val channel: Identifier,
     ) : PacketRouteKey {
         init {
             require(
-                state == ConnectionState.CONFIGURATION ||
-                        state == ConnectionState.PLAY,
+                connectionState == ConnectionState.CONFIGURATION ||
+                        connectionState == ConnectionState.PLAY,
             ) {
                 "Custom payload routes require Configuration or Play state"
             }
@@ -43,21 +43,21 @@ sealed interface PacketRouteKey {
 
 /**
  * The complete route of one packet after its validated outer header has been
- * removed. [key] is stable across exchanges and is used for codec activation.
+ * removed. [packetRouteKey] is stable across exchanges and is used for codec activation.
  */
 sealed interface PacketRoute {
-    val state: ConnectionState
-    val direction: PacketDirection
-    val key: PacketRouteKey
+    val connectionState: ConnectionState
+    val packetDirection: PacketDirection
+    val packetRouteKey: PacketRouteKey
 
     data class TopLevel(
-        override val state: ConnectionState,
-        override val direction: PacketDirection,
+        override val connectionState: ConnectionState,
+        override val packetDirection: PacketDirection,
         val packetId: Int,
     ) : PacketRoute {
-        override val key: PacketRouteKey = PacketRouteKey.TopLevel(
-            state,
-            direction,
+        override val packetRouteKey: PacketRouteKey = PacketRouteKey.TopLevel(
+            connectionState,
+            packetDirection,
             packetId,
         )
 
@@ -67,36 +67,36 @@ sealed interface PacketRoute {
     }
 
     data class LoginQuery(
-        override val direction: PacketDirection,
+        override val packetDirection: PacketDirection,
         val transactionId: Int,
         val channel: Identifier,
         /** Distinguishes an absent response body from an empty response body. */
         val hasPayload: Boolean = true,
     ) : PacketRoute {
-        override val state: ConnectionState = ConnectionState.LOGIN
-        override val key: PacketRouteKey = PacketRouteKey.LoginQuery(
-            direction,
+        override val connectionState: ConnectionState = ConnectionState.LOGIN
+        override val packetRouteKey: PacketRouteKey = PacketRouteKey.LoginQuery(
+            packetDirection,
             channel,
         )
     }
 
     data class CustomPayload(
-        override val state: ConnectionState,
-        override val direction: PacketDirection,
+        override val connectionState: ConnectionState,
+        override val packetDirection: PacketDirection,
         /** The validated vanilla outer packet ID used for lossless replay. */
         val packetId: Int,
         val channel: Identifier,
     ) : PacketRoute {
-        override val key: PacketRouteKey = PacketRouteKey.CustomPayload(
-            state,
-            direction,
+        override val packetRouteKey: PacketRouteKey = PacketRouteKey.CustomPayload(
+            connectionState,
+            packetDirection,
             channel,
         )
 
         init {
             require(
-                state == ConnectionState.CONFIGURATION ||
-                        state == ConnectionState.PLAY,
+                connectionState == ConnectionState.CONFIGURATION ||
+                        connectionState == ConnectionState.PLAY,
             ) {
                 "Custom payload routes require Configuration or Play state"
             }
@@ -107,26 +107,26 @@ sealed interface PacketRoute {
 
 /** A direction-preserving, lossless packet for a route with no active codec. */
 sealed interface UnknownPacket : Packet {
-    val route: PacketRoute
+    val packetRoute: PacketRoute
     val data: ByteString
 
     data class Clientbound(
-        override val route: PacketRoute,
+        override val packetRoute: PacketRoute,
         override val data: ByteString,
     ) : UnknownPacket, ClientboundPacket.Extension {
         init {
-            require(route.direction == PacketDirection.CLIENTBOUND) {
+            require(packetRoute.packetDirection == PacketDirection.CLIENTBOUND) {
                 "A clientbound unknown packet requires a clientbound route"
             }
         }
     }
 
     data class Serverbound(
-        override val route: PacketRoute,
+        override val packetRoute: PacketRoute,
         override val data: ByteString,
     ) : UnknownPacket, ServerboundPacket.Extension {
         init {
-            require(route.direction == PacketDirection.SERVERBOUND) {
+            require(packetRoute.packetDirection == PacketDirection.SERVERBOUND) {
                 "A serverbound unknown packet requires a serverbound route"
             }
         }

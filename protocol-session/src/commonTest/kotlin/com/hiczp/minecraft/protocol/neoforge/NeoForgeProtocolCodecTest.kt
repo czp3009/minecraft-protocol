@@ -18,7 +18,7 @@ import kotlinx.serialization.json.put
 import kotlin.test.*
 
 class NeoForgeProtocolCodecTest {
-    private val registry = PacketRegistry(
+    private val packetRegistry = PacketRegistry(
         MinecraftPacketRegistry.entries,
         NeoForgeProtocol.packetCodecs,
     )
@@ -53,22 +53,22 @@ class NeoForgeProtocolCodecTest {
 
     @Test
     fun registrationUsesTrailingNulAndIgnoresEmptySegments() {
-        val packet = NeoForgeRegisterChannelsPacket(
+        val neoForgeRegisterChannelsPacket = NeoForgeRegisterChannelsPacket(
             linkedSetOf(Identifier("a:b"), Identifier("c:d")),
         )
-        val bytes = encode(packet, PacketDirection.CLIENTBOUND)
+        val byteArray = encode(neoForgeRegisterChannelsPacket, PacketDirection.CLIENTBOUND)
 
-        assertContentEquals("a:b\u0000c:d\u0000".encodeToByteArray(), bytes)
+        assertContentEquals("a:b\u0000c:d\u0000".encodeToByteArray(), byteArray)
         assertEquals(
-            packet,
+            neoForgeRegisterChannelsPacket,
             decode(
                 NeoForgeChannels.Register,
-                bytes,
+                byteArray,
                 PacketDirection.CLIENTBOUND,
             ),
         )
         assertEquals(
-            packet,
+            neoForgeRegisterChannelsPacket,
             decode(
                 NeoForgeChannels.Register,
                 "\u0000a:b\u0000\u0000c:d\u0000".encodeToByteArray(),
@@ -79,16 +79,16 @@ class NeoForgeProtocolCodecTest {
 
     @Test
     fun protocolAndFlowOrdinalsMatchNeoForgeSource() {
-        val component = NeoForgeNetworkComponent(
+        val neoForgeNetworkComponent = NeoForgeNetworkComponent(
             Identifier("mod:query"),
             "1",
             NeoForgePacketFlow.CLIENTBOUND,
             optional = true,
         )
-        val bytes = encode(
+        val byteArray = encode(
             NeoForgeModdedNetworkQueryPacket(
                 mapOf(
-                    NeoForgeConnectionProtocol.CONFIGURATION to setOf(component),
+                    NeoForgeConnectionProtocol.CONFIGURATION to setOf(neoForgeNetworkComponent),
                 ),
             ),
             PacketDirection.SERVERBOUND,
@@ -108,17 +108,17 @@ class NeoForgeProtocolCodecTest {
                 1,
                 1,
             ),
-            bytes,
+            byteArray,
         )
         assertEquals(
             NeoForgeModdedNetworkQueryPacket(
                 mapOf(
-                    NeoForgeConnectionProtocol.CONFIGURATION to setOf(component),
+                    NeoForgeConnectionProtocol.CONFIGURATION to setOf(neoForgeNetworkComponent),
                 ),
             ),
             decode(
                 NeoForgeChannels.NetworkQuery,
-                bytes,
+                byteArray,
                 PacketDirection.SERVERBOUND,
             ),
         )
@@ -126,7 +126,7 @@ class NeoForgeProtocolCodecTest {
 
     @Test
     fun frozenRegistryAndJsonDataMapRoundTrip() {
-        val frozen = NeoForgeFrozenRegistryPacket(
+        val neoForgeFrozenRegistryPacket = NeoForgeFrozenRegistryPacket(
             Identifier("block"),
             NeoForgeRegistrySnapshot(
                 linkedMapOf(
@@ -137,15 +137,15 @@ class NeoForgeProtocolCodecTest {
             ),
         )
         assertEquals(
-            frozen,
+            neoForgeFrozenRegistryPacket,
             decode(
                 NeoForgeChannels.FrozenRegistry,
-                encode(frozen, PacketDirection.CLIENTBOUND),
+                encode(neoForgeFrozenRegistryPacket, PacketDirection.CLIENTBOUND),
                 PacketDirection.CLIENTBOUND,
             ),
         )
 
-        val dataMap = NeoForgeRegistryDataMapSyncPacket(
+        val neoForgeRegistryDataMapSyncPacket = NeoForgeRegistryDataMapSyncPacket(
             Identifier("item"),
             mapOf(
                 Identifier("mod:data") to mapOf(
@@ -157,11 +157,11 @@ class NeoForgeProtocolCodecTest {
             ),
         )
         assertEquals(
-            dataMap,
+            neoForgeRegistryDataMapSyncPacket,
             decode(
                 NeoForgeChannels.RegistryDataMapSync,
                 encode(
-                    dataMap,
+                    neoForgeRegistryDataMapSyncPacket,
                     PacketDirection.CLIENTBOUND,
                     ConnectionState.PLAY,
                 ),
@@ -198,7 +198,7 @@ class NeoForgeProtocolCodecTest {
 
     @Test
     fun splitEnvelopeReassemblesFullOuterPacket() {
-        val routed = RoutedCustomPayload(
+        val routedCustomPayload = RoutedCustomPayload(
             PacketRoute.CustomPayload(
                 ConnectionState.CONFIGURATION,
                 PacketDirection.CLIENTBOUND,
@@ -208,24 +208,24 @@ class NeoForgeProtocolCodecTest {
             ByteString(ByteArray(96) { it.toByte() }),
         )
         val fragments = NeoForgeSplitPayloads.split(
-            routed,
+            routedCustomPayload,
             maximumPartSize = 32,
         )
         assertTrue(fragments.size > 1)
-        val assembler = NeoForgeSplitAssembler()
-        var result: RoutedCustomPayload? = null
+        val neoForgeSplitAssembler = NeoForgeSplitAssembler()
+        var reassembledRoutedCustomPayload: RoutedCustomPayload? = null
         fragments.forEach { fragment ->
-            result = assembler.accept(
+            reassembledRoutedCustomPayload = neoForgeSplitAssembler.accept(
                 ConnectionState.CONFIGURATION,
                 PacketDirection.CLIENTBOUND,
                 fragment,
             )
         }
 
-        assertEquals(routed, result)
-        assertFalse(assembler.isCollecting)
+        assertEquals(routedCustomPayload, reassembledRoutedCustomPayload)
+        assertFalse(neoForgeSplitAssembler.isCollecting)
         assertFailsWith<MinecraftSerializationException> {
-            assembler.accept(
+            neoForgeSplitAssembler.accept(
                 ConnectionState.CONFIGURATION,
                 PacketDirection.CLIENTBOUND,
                 NeoForgeSplitPacket(ByteString(byteArrayOf(2, 1))),
@@ -235,14 +235,14 @@ class NeoForgeProtocolCodecTest {
 
     private fun encode(
         packet: Packet,
-        direction: PacketDirection,
-        state: ConnectionState = ConnectionState.CONFIGURATION,
+        packetDirection: PacketDirection,
+        connectionState: ConnectionState = ConnectionState.CONFIGURATION,
     ): ByteArray {
         val buffer = Buffer()
-        registry.encodeExtensionPayloadToSink(
+        packetRegistry.encodeExtensionPayloadToSink(
             packet,
-            state,
-            direction,
+            connectionState,
+            packetDirection,
             buffer,
         )
         return buffer.readByteArray()
@@ -251,14 +251,14 @@ class NeoForgeProtocolCodecTest {
     private fun decode(
         channel: Identifier,
         bytes: ByteArray,
-        direction: PacketDirection,
-        state: ConnectionState = ConnectionState.CONFIGURATION,
+        packetDirection: PacketDirection,
+        connectionState: ConnectionState = ConnectionState.CONFIGURATION,
     ): Packet {
         val buffer = Buffer().apply { write(bytes) }
-        return registry.decodeExtensionPayloadFromSource(
+        return packetRegistry.decodeExtensionPayloadFromSource(
             PacketRoute.CustomPayload(
-                state,
-                direction,
+                connectionState,
+                packetDirection,
                 packetId = 0,
                 channel = channel,
             ),

@@ -14,26 +14,26 @@ import kotlinx.coroutines.Dispatchers
 import kotlin.coroutines.ContinuationInterceptor
 
 class MinecraftClientConnection internal constructor(
-    private val connection: MinecraftClientPacketConnection,
+    private val minecraftClientPacketConnection: MinecraftClientPacketConnection,
     val serverAddress: String,
     val serverPort: Int,
-) : MinecraftClientPacketConnection by connection {
+) : MinecraftClientPacketConnection by minecraftClientPacketConnection {
     companion object {
         suspend fun connect(
             selectorManager: SelectorManager,
             host: String,
             port: Int = DEFAULT_PORT,
-            definition: MinecraftConnectionDefinition = MinecraftConnectionDefinition(),
-            transportConfiguration: MinecraftTransportConfiguration = MinecraftTransportConfiguration(),
+            minecraftConnectionDefinition: MinecraftConnectionDefinition = MinecraftConnectionDefinition(),
+            minecraftTransportConfiguration: MinecraftTransportConfiguration = MinecraftTransportConfiguration(),
             connectionDispatcher: CoroutineDispatcher = selectorManager.connectionDispatcher,
         ): MinecraftClientConnection {
             val socket = aSocket(selectorManager).tcp().connect(host, port)
-            val transport = MinecraftTransport(socket, transportConfiguration)
+            val minecraftTransport = MinecraftTransport(socket, minecraftTransportConfiguration)
             return MinecraftClientConnection(
-                connection = createMinecraftClientPacketConnection(
-                    frameStream = transport.frameStream,
-                    closeTransport = transport::close,
-                    definition = definition,
+                minecraftClientPacketConnection = createMinecraftClientPacketConnection(
+                    minecraftFrameStream = minecraftTransport.minecraftFrameStream,
+                    closeTransport = minecraftTransport::close,
+                    minecraftConnectionDefinition = minecraftConnectionDefinition,
                     connectionDispatcher = connectionDispatcher,
                 ),
                 serverAddress = host,

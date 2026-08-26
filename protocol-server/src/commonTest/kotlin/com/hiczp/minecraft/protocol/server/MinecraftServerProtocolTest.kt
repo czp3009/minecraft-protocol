@@ -41,13 +41,13 @@ class MinecraftServerProtocolTest {
 
     @Test
     fun buildsStructuredStatusJsonWithoutImposingServerPolicy() {
-        val options = MinecraftServerNegotiationOptions(
+        val minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(
             statusDescription = "Structured status",
             maximumPlayers = 12,
             enforcesSecureChat = true,
         )
         val offline = Json.parseToJsonElement(
-            options.statusJson(onlinePlayers = 3),
+            minecraftServerNegotiationOptions.statusJson(onlinePlayers = 3),
         ).jsonObject
         assertEquals(
             MinecraftProtocol.PROTOCOL_VERSION,
@@ -64,7 +64,7 @@ class MinecraftServerProtocolTest {
         )
 
         val sink = Buffer()
-        options.statusJsonToSink(
+        minecraftServerNegotiationOptions.statusJsonToSink(
             sink = sink,
             onlinePlayers = 3,
             onlineMode = true,
@@ -88,21 +88,23 @@ class MinecraftServerProtocolTest {
                 .getValue("online").jsonPrimitive.int,
         )
 
-        val profile = GameProfile(Uuid.fromLongs(1, 2), "Probe", emptyList())
-        val offlinePlayLoginPacket = options.createPlayLoginPacket(profile, onlineMode = false)
-        val onlinePlayLoginPacket = options.createPlayLoginPacket(profile, onlineMode = true)
+        val gameProfile = GameProfile(Uuid.fromLongs(1, 2), "Probe", emptyList())
+        val offlinePlayLoginPacket =
+            minecraftServerNegotiationOptions.createPlayLoginPacket(gameProfile, onlineMode = false)
+        val onlinePlayLoginPacket =
+            minecraftServerNegotiationOptions.createPlayLoginPacket(gameProfile, onlineMode = true)
         assertFalse(offlinePlayLoginPacket.enforcesSecureChat)
         assertTrue(onlinePlayLoginPacket.enforcesSecureChat)
     }
 
     @Test
     fun servesStatusThroughOnlyThePublicPacketChannels() = runTest {
-        val pair = connectionPair()
+        val connectionPair = connectionPair()
         val responseJson = buildJsonObject { put("test", "channel-first") }
             .toString()
-        val policy = object : MinecraftServerNegotiationPolicy {
+        val minecraftServerNegotiationPolicy = object : MinecraftServerNegotiationPolicy {
             override suspend fun statusJson(
-                options: MinecraftServerNegotiationOptions,
+                minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
                 onlineMode: Boolean,
             ): String {
                 assertFalse(onlineMode)
@@ -111,107 +113,109 @@ class MinecraftServerProtocolTest {
         }
         try {
             val negotiation = async {
-                pair.server.negotiate(policy = policy)
+                connectionPair.server.negotiate(minecraftServerNegotiationPolicy = minecraftServerNegotiationPolicy)
             }
-            pair.client.send(handshake(HandshakeNextState.STATUS))
-            pair.client.send(StatusRequestPacket)
+            connectionPair.client.send(handshake(HandshakeNextState.STATUS))
+            connectionPair.client.send(StatusRequestPacket)
             assertEquals(
                 StatusResponsePacket(responseJson),
-                pair.client.receive(),
+                connectionPair.client.receive(),
             )
-            pair.client.send(StatusPingRequestPacket(42))
-            assertEquals(StatusPongResponsePacket(42), pair.client.receive())
+            connectionPair.client.send(StatusPingRequestPacket(42))
+            assertEquals(StatusPongResponsePacket(42), connectionPair.client.receive())
             assertNull(negotiation.await())
-            assertFalse(pair.server.isOpen)
+            assertFalse(connectionPair.server.isOpen)
         } finally {
-            pair.close()
+            connectionPair.close()
         }
     }
 
     @Test
     fun offlineNegotiationInstallsOneSharedRegistryContextReference() = runTest {
-        val options = MinecraftServerNegotiationOptions(
+        val minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(
             compressionThreshold = null,
             gameMode = PlayerGameMode.CREATIVE,
         )
-        val identity = MinecraftOfflineIdentity("ChannelProbe")
-        val pair = connectionPair()
+        val minecraftOfflineIdentity = MinecraftOfflineIdentity("ChannelProbe")
+        val connectionPair = connectionPair()
         try {
-            val negotiation = async { pair.server.negotiate(options = options) }
-            pair.client.send(handshake(HandshakeNextState.LOGIN))
-            pair.client.send(LoginStartPacket(identity.name, identity.id))
-            val transcript = finishClientNegotiation(pair.client, options)
-            val result = assertNotNull(negotiation.await())
+            val negotiation =
+                async { connectionPair.server.negotiate(minecraftServerNegotiationOptions = minecraftServerNegotiationOptions) }
+            connectionPair.client.send(handshake(HandshakeNextState.LOGIN))
+            connectionPair.client.send(LoginStartPacket(minecraftOfflineIdentity.name, minecraftOfflineIdentity.id))
+            val clientNegotiationTranscript =
+                finishClientNegotiation(connectionPair.client, minecraftServerNegotiationOptions)
+            val minecraftServerNegotiationResult = assertNotNull(negotiation.await())
 
-            assertEquals(identity.id, result.gameProfile.id)
-            assertEquals(transcript.login, result.gameProfile)
-            assertEquals(transcript.playLogin, result.playLoginPacket)
+            assertEquals(minecraftOfflineIdentity.id, minecraftServerNegotiationResult.gameProfile.id)
+            assertEquals(clientNegotiationTranscript.login, minecraftServerNegotiationResult.gameProfile)
+            assertEquals(clientNegotiationTranscript.playLoginPacket, minecraftServerNegotiationResult.playLoginPacket)
             assertEquals(
                 PlayerGameMode.CREATIVE,
-                result.playLoginPacket.spawnInfo.gameMode,
+                minecraftServerNegotiationResult.playLoginPacket.spawnInfo.gameMode,
             )
             assertSame(
-                options.protocolData.completeProtocolRegistryContext.registries,
-                pair.server.protocolRegistryContext.registries,
+                minecraftServerNegotiationOptions.protocolData.completeProtocolRegistryContext.registries,
+                connectionPair.server.protocolRegistryContext.registries,
             )
             assertSame(
-                options.protocolData.completeProtocolRegistryContext.blockStates,
-                pair.server.protocolRegistryContext.blockStates,
+                minecraftServerNegotiationOptions.protocolData.completeProtocolRegistryContext.blockStates,
+                connectionPair.server.protocolRegistryContext.blockStates,
             )
         } finally {
-            pair.close()
+            connectionPair.close()
         }
     }
 
     @Test
     fun loginRejectionDoesNotSendAnythingUntilTheCallerChoosesTo() = runTest {
-        val pair = connectionPair()
+        val connectionPair = connectionPair()
         try {
             val negotiation = async {
                 try {
-                    pair.server.negotiate()
+                    connectionPair.server.negotiate()
                     null
                 } catch (failure: MinecraftLoginRejectedException) {
                     failure
                 }
             }
-            pair.client.send(
+            connectionPair.client.send(
                 handshake(
-                    nextState = HandshakeNextState.LOGIN,
+                    handshakeNextState = HandshakeNextState.LOGIN,
                     protocolVersion = MinecraftProtocol.PROTOCOL_VERSION + 1,
                 ),
             )
             val failure = assertNotNull(negotiation.await())
-            assertTrue(pair.server.isOpen)
+            assertTrue(connectionPair.server.isOpen)
             assertEquals(failure.reason, failure.failurePacket.reason)
 
             val callerReason = JsonTextComponent(
                 buildJsonObject { put("text", "caller-owned reply") }
                     .toString(),
             )
-            pair.server.outgoing.send(LoginDisconnectPacket(callerReason))
+            connectionPair.server.outgoing.send(LoginDisconnectPacket(callerReason))
             assertEquals(
                 LoginDisconnectPacket(callerReason),
-                pair.client.receive(),
+                connectionPair.client.receive(),
             )
             assertNotEquals(callerReason, failure.reason)
         } finally {
-            pair.close()
+            connectionPair.close()
         }
     }
 
     @Test
     fun unknownLoginPacketsRemainRawAndPolicyResponsesAreExplicit() = runTest {
-        val pair = connectionPair()
-        val options = MinecraftServerNegotiationOptions(
+        val connectionPair = connectionPair()
+        val minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(
             compressionThreshold = null,
         )
-        val identity = MinecraftOfflineIdentity("UnknownProbe")
+        val minecraftOfflineIdentity = MinecraftOfflineIdentity("UnknownProbe")
         val marker = JsonTextComponent(
             buildJsonObject { put("text", "policy response") }.toString(),
         )
         var observed: UnknownPacket.Serverbound? = null
-        val policy = object : MinecraftServerNegotiationPolicy {
+        val minecraftServerNegotiationPolicy = object : MinecraftServerNegotiationPolicy {
             override suspend fun onUnhandledQuery(
                 packet: UnknownPacket.Serverbound,
             ): ServerNegotiationQueryResult {
@@ -223,45 +227,48 @@ class MinecraftServerProtocolTest {
         }
         try {
             val negotiation = async {
-                pair.server.negotiate(options = options, policy = policy)
+                connectionPair.server.negotiate(
+                    minecraftServerNegotiationOptions = minecraftServerNegotiationOptions,
+                    minecraftServerNegotiationPolicy = minecraftServerNegotiationPolicy,
+                )
             }
-            pair.client.send(handshake(HandshakeNextState.LOGIN))
-            val route = PacketRoute.TopLevel(
-                state = ConnectionState.LOGIN,
-                direction = PacketDirection.SERVERBOUND,
+            connectionPair.client.send(handshake(HandshakeNextState.LOGIN))
+            val topLevel = PacketRoute.TopLevel(
+                connectionState = ConnectionState.LOGIN,
+                packetDirection = PacketDirection.SERVERBOUND,
                 packetId = 0x7E,
             )
             val data = ByteString(byteArrayOf(1, 2, 3))
-            pair.client.send(UnknownPacket.Serverbound(route, data))
-            assertEquals(LoginDisconnectPacket(marker), pair.client.receive())
-            assertEquals(route, assertNotNull(observed).route)
+            connectionPair.client.send(UnknownPacket.Serverbound(topLevel, data))
+            assertEquals(LoginDisconnectPacket(marker), connectionPair.client.receive())
+            assertEquals(topLevel, assertNotNull(observed).packetRoute)
             assertEquals(data, assertNotNull(observed).data)
 
-            pair.client.send(LoginStartPacket(identity.name, identity.id))
-            finishClientNegotiation(pair.client, options)
+            connectionPair.client.send(LoginStartPacket(minecraftOfflineIdentity.name, minecraftOfflineIdentity.id))
+            finishClientNegotiation(connectionPair.client, minecraftServerNegotiationOptions)
             assertNotNull(negotiation.await())
         } finally {
-            pair.close()
+            connectionPair.close()
         }
     }
 
     @Test
     fun configurationPacketsAndTasksUseTheSamePublicChannels() = runTest {
-        val pair = connectionPair()
-        val options = MinecraftServerNegotiationOptions(
+        val connectionPair = connectionPair()
+        val minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(
             compressionThreshold = null,
         )
-        val identity = MinecraftOfflineIdentity("TaskProbe")
+        val minecraftOfflineIdentity = MinecraftOfflineIdentity("TaskProbe")
         val brand = ConfigurationClientboundPluginMessagePacket(
             CustomPayload.Brand("task-profile"),
         )
-        val policy = object : MinecraftServerNegotiationPolicy {
+        val minecraftServerNegotiationPolicy = object : MinecraftServerNegotiationPolicy {
             override suspend fun configurationPackets(
                 gameProfile: GameProfile,
                 clientInformation: ClientInformation,
                 acceptedKnownPacks: List<KnownPack>,
                 transferred: Boolean,
-                options: MinecraftServerNegotiationOptions,
+                minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
             ): List<ClientboundPacket> = listOf(brand)
 
             override suspend fun configurationTasks(
@@ -269,27 +276,30 @@ class MinecraftServerProtocolTest {
                 clientInformation: ClientInformation,
                 acceptedKnownPacks: List<KnownPack>,
                 transferred: Boolean,
-                options: MinecraftServerNegotiationOptions,
+                minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
             ): List<MinecraftServerNegotiationTask> = listOf(
                 MinecraftServerNegotiationTask(
                     clientboundPackets = listOf(ConfigurationPingPacket(91)),
-                ) { packet -> packet == ConfigurationPongPacket(91) },
+                ) { serverboundPacket -> serverboundPacket == ConfigurationPongPacket(91) },
             )
         }
         try {
             val negotiation = async {
-                pair.server.negotiate(options = options, policy = policy)
+                connectionPair.server.negotiate(
+                    minecraftServerNegotiationOptions = minecraftServerNegotiationOptions,
+                    minecraftServerNegotiationPolicy = minecraftServerNegotiationPolicy,
+                )
             }
-            pair.client.send(handshake(HandshakeNextState.LOGIN))
-            pair.client.send(LoginStartPacket(identity.name, identity.id))
-            finishClientNegotiation(pair.client, options) { client ->
-                assertEquals(brand, client.receive())
-                assertEquals(ConfigurationPingPacket(91), client.receive())
-                client.send(ConfigurationPongPacket(91))
+            connectionPair.client.send(handshake(HandshakeNextState.LOGIN))
+            connectionPair.client.send(LoginStartPacket(minecraftOfflineIdentity.name, minecraftOfflineIdentity.id))
+            finishClientNegotiation(connectionPair.client, minecraftServerNegotiationOptions) { minecraftClientPacketSession ->
+                assertEquals(brand, minecraftClientPacketSession.receive())
+                assertEquals(ConfigurationPingPacket(91), minecraftClientPacketSession.receive())
+                minecraftClientPacketSession.send(ConfigurationPongPacket(91))
             }
             assertNotNull(negotiation.await())
         } finally {
-            pair.close()
+            connectionPair.close()
         }
     }
 
@@ -299,8 +309,8 @@ class MinecraftServerProtocolTest {
             val profileId = Uuid.fromLongs(0x1020, 0x3040)
             var requestedIp: String? = null
             val sessionHttpClient = HttpClient(
-                MockEngine { request ->
-                    requestedIp = request.url.parameters["ip"]
+                MockEngine { httpRequestData ->
+                    requestedIp = httpRequestData.url.parameters["ip"]
                     respond(
                         content = Json.encodeToString(
                             buildJsonObject {
@@ -321,47 +331,47 @@ class MinecraftServerProtocolTest {
             val authentication = MinecraftServerAuthentication.online(
                 sessionHttpClient,
             )
-            val options = MinecraftServerNegotiationOptions(
+            val minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(
                 compressionThreshold = null,
                 preventProxyConnections = true,
                 enforcesSecureChat = true,
             )
-            val pair = connectionPair(
-                authentication = authentication,
+            val connectionPair = connectionPair(
+                minecraftServerAuthentication = authentication,
                 clientIpAddress = "203.0.113.42",
             )
             try {
                 val negotiation = async {
-                    pair.server.negotiate(options = options)
+                    connectionPair.server.negotiate(minecraftServerNegotiationOptions = minecraftServerNegotiationOptions)
                 }
-                pair.client.send(handshake(HandshakeNextState.LOGIN))
-                pair.client.send(
+                connectionPair.client.send(handshake(HandshakeNextState.LOGIN))
+                connectionPair.client.send(
                     LoginStartPacket("OnlineProbe", profileId),
                 )
-                val request = assertIs<EncryptionRequestPacket>(
-                    pair.client.receive(),
+                val encryptionRequestPacket = assertIs<EncryptionRequestPacket>(
+                    connectionPair.client.receive(),
                 )
-                val exchange = MinecraftClientKeyExchange.respond(request)
-                val secret = exchange.sharedSecret
+                val minecraftClientKeyExchangeResult = MinecraftClientKeyExchange.respond(encryptionRequestPacket)
+                val secret = minecraftClientKeyExchangeResult.sharedSecret
                 try {
-                    pair.client.prepareOutboundEncryption(secret)
-                    pair.client.send(exchange.toEncryptionResponsePacket())
+                    connectionPair.client.prepareOutboundEncryption(secret)
+                    connectionPair.client.send(minecraftClientKeyExchangeResult.toEncryptionResponsePacket())
                 } finally {
                     secret.fill(0)
                 }
-                val transcript = finishClientNegotiation(
-                    pair.client,
-                    options,
+                val clientNegotiationTranscript = finishClientNegotiation(
+                    connectionPair.client,
+                    minecraftServerNegotiationOptions,
                 )
-                val result = assertNotNull(negotiation.await())
+                val minecraftServerNegotiationResult = assertNotNull(negotiation.await())
 
-                assertEquals(profileId, transcript.login.id)
-                assertEquals(profileId, result.gameProfile.id)
-                assertTrue(result.playLoginPacket.onlineMode)
-                assertTrue(result.playLoginPacket.enforcesSecureChat)
+                assertEquals(profileId, clientNegotiationTranscript.login.id)
+                assertEquals(profileId, minecraftServerNegotiationResult.gameProfile.id)
+                assertTrue(minecraftServerNegotiationResult.playLoginPacket.onlineMode)
+                assertTrue(minecraftServerNegotiationResult.playLoginPacket.enforcesSecureChat)
                 assertEquals("203.0.113.42", requestedIp)
             } finally {
-                pair.close()
+                connectionPair.close()
                 sessionHttpClient.close()
             }
         }
@@ -399,35 +409,35 @@ class MinecraftServerProtocolTest {
     }
 
     private suspend fun finishClientNegotiation(
-        client: MinecraftClientPacketSession,
-        options: MinecraftServerNegotiationOptions,
+        minecraftClientPacketSession: MinecraftClientPacketSession,
+        minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
         afterVanillaConfiguration: suspend (MinecraftClientPacketSession) -> Unit = {},
     ): ClientNegotiationTranscript {
-        options.compressionThreshold?.let { threshold ->
-            assertEquals(SetCompressionPacket(threshold), client.receive())
+        minecraftServerNegotiationOptions.compressionThreshold?.let { threshold ->
+            assertEquals(SetCompressionPacket(threshold), minecraftClientPacketSession.receive())
         }
-        val login = assertIs<LoginSuccessPacket>(client.receive()).profile
-        client.send(LoginAcknowledgedPacket)
-        client.send(ConfigurationClientInformationPacket(clientInformation()))
-        assertEquals(FeatureFlagsPacket(options.protocolData.enabledFeatureFlags), client.receive())
-        val knownPacks = assertIs<ConfigurationClientboundKnownPacksPacket>(
-            client.receive(),
+        val login = assertIs<LoginSuccessPacket>(minecraftClientPacketSession.receive()).profile
+        minecraftClientPacketSession.send(LoginAcknowledgedPacket)
+        minecraftClientPacketSession.send(ConfigurationClientInformationPacket(clientInformation()))
+        assertEquals(FeatureFlagsPacket(minecraftServerNegotiationOptions.protocolData.enabledFeatureFlags), minecraftClientPacketSession.receive())
+        val configurationClientboundKnownPacksPacket = assertIs<ConfigurationClientboundKnownPacksPacket>(
+            minecraftClientPacketSession.receive(),
         )
-        client.send(
-            ConfigurationServerboundKnownPacksPacket(knownPacks.knownPacks),
+        minecraftClientPacketSession.send(
+            ConfigurationServerboundKnownPacksPacket(configurationClientboundKnownPacksPacket.knownPacks),
         )
-        options.protocolData.synchronizedRegistryPackets(knownPacks.knownPacks)
-            .forEach { expected -> assertEquals(expected, client.receive()) }
-        assertEquals(ConfigurationUpdateTagsPacket(options.protocolData.registryTags), client.receive())
-        afterVanillaConfiguration(client)
-        assertEquals(FinishConfigurationPacket, client.receive())
-        client.send(AcknowledgeFinishConfigurationPacket)
-        val playLogin = assertIs<PlayLoginPacket>(client.receive())
-        return ClientNegotiationTranscript(login, playLogin)
+        minecraftServerNegotiationOptions.protocolData.synchronizedRegistryPackets(configurationClientboundKnownPacksPacket.knownPacks)
+            .forEach { expected -> assertEquals(expected, minecraftClientPacketSession.receive()) }
+        assertEquals(ConfigurationUpdateTagsPacket(minecraftServerNegotiationOptions.protocolData.registryTags), minecraftClientPacketSession.receive())
+        afterVanillaConfiguration(minecraftClientPacketSession)
+        assertEquals(FinishConfigurationPacket, minecraftClientPacketSession.receive())
+        minecraftClientPacketSession.send(AcknowledgeFinishConfigurationPacket)
+        val playLoginPacket = assertIs<PlayLoginPacket>(minecraftClientPacketSession.receive())
+        return ClientNegotiationTranscript(login, playLoginPacket)
     }
 
     private fun connectionPair(
-        authentication: MinecraftServerAuthentication =
+        minecraftServerAuthentication: MinecraftServerAuthentication =
             MinecraftServerAuthentication.Offline,
         clientIpAddress: String? = "127.0.0.1",
     ): ConnectionPair {
@@ -435,32 +445,32 @@ class MinecraftServerProtocolTest {
         val serverToClient = ByteChannel(autoFlush = true)
         val serverFrames = MinecraftFrameStream(clientToServer, serverToClient)
         val clientFrames = MinecraftFrameStream(serverToClient, clientToServer)
-        val connection = MinecraftServerConnection(
-            connection = createMinecraftServerPacketConnection(
-                frameStream = serverFrames,
+        val minecraftServerConnection = MinecraftServerConnection(
+            minecraftServerPacketConnection = createMinecraftServerPacketConnection(
+                minecraftFrameStream = serverFrames,
                 closeTransport = { serverFrames.cancel() },
-                definition = MinecraftConnectionDefinition(),
+                minecraftConnectionDefinition = MinecraftConnectionDefinition(),
             ),
-            authentication = authentication,
+            minecraftServerAuthentication = minecraftServerAuthentication,
             clientIpAddress = clientIpAddress,
         )
         return ConnectionPair(
-            server = connection,
+            server = minecraftServerConnection,
             client = MinecraftClientPacketSession(
-                frameStream = clientFrames,
+                minecraftFrameStream = clientFrames,
             ),
             clientFrames = clientFrames,
         )
     }
 
     private fun handshake(
-        nextState: HandshakeNextState,
+        handshakeNextState: HandshakeNextState,
         protocolVersion: Int = MinecraftProtocol.PROTOCOL_VERSION,
     ): HandshakePacket = HandshakePacket(
         protocolVersion = protocolVersion,
         serverAddress = "localhost",
         serverPort = MinecraftServerConnection.DEFAULT_PORT,
-        nextState = nextState,
+        nextState = handshakeNextState,
     )
 
     private fun clientInformation(): ClientInformation = ClientInformation(
@@ -478,7 +488,7 @@ class MinecraftServerProtocolTest {
 
 private data class ClientNegotiationTranscript(
     val login: GameProfile,
-    val playLogin: PlayLoginPacket,
+    val playLoginPacket: PlayLoginPacket,
 )
 
 private data class ConnectionPair(

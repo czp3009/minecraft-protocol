@@ -24,7 +24,7 @@ data class MinecraftInitialWorldBootstrap(
         playerPosition.position.x,
         playerPosition.position.y,
         playerPosition.position.z,
-    ).chunk,
+    ).chunkPosition,
 ) {
     /** Creates the fixed packets in their initial Play order. */
     fun packets(): List<ClientboundPacket> = listOf(
@@ -44,12 +44,12 @@ data class MinecraftInitialWorldBootstrap(
 
     companion object {
         /** Returns the vanilla player abilities associated with [gameMode]. */
-        fun vanillaPlayerAbilities(gameMode: PlayerGameMode): PlayerAbilities =
+        fun vanillaPlayerAbilities(playerGameMode: PlayerGameMode): PlayerAbilities =
             PlayerAbilities(
-                invulnerable = gameMode == PlayerGameMode.CREATIVE || gameMode == PlayerGameMode.SPECTATOR,
-                flying = gameMode == PlayerGameMode.SPECTATOR,
-                canFly = gameMode == PlayerGameMode.CREATIVE || gameMode == PlayerGameMode.SPECTATOR,
-                instantBuild = gameMode == PlayerGameMode.CREATIVE,
+                invulnerable = playerGameMode == PlayerGameMode.CREATIVE || playerGameMode == PlayerGameMode.SPECTATOR,
+                flying = playerGameMode == PlayerGameMode.SPECTATOR,
+                canFly = playerGameMode == PlayerGameMode.CREATIVE || playerGameMode == PlayerGameMode.SPECTATOR,
+                instantBuild = playerGameMode == PlayerGameMode.CREATIVE,
                 flyingSpeed = DEFAULT_FLYING_SPEED,
                 walkingSpeed = DEFAULT_WALKING_SPEED,
             )
@@ -60,7 +60,7 @@ data class MinecraftInitialWorldBootstrap(
          * supply each value independently.
          */
         fun vanilla(
-            options: MinecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(),
+            minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(),
             dimensionId: Identifier = Identifier("overworld"),
             defaultSpawnPosition: Vector3d = Vector3d(0.5, 65.0, 0.5),
             defaultSpawnYaw: Float = 0.0f,
@@ -73,19 +73,19 @@ data class MinecraftInitialWorldBootstrap(
                 playerPosition.x,
                 playerPosition.y,
                 playerPosition.z,
-            ).chunk,
+            ).chunkPosition,
             teleportId: Int = 1,
         ): MinecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap(
-            difficulty = options.difficulty,
-            difficultyLocked = options.difficultyLocked,
+            difficulty = minecraftServerNegotiationOptions.difficulty,
+            difficultyLocked = minecraftServerNegotiationOptions.difficultyLocked,
             defaultSpawn = RespawnData(
                 globalPosition = GlobalPosition(dimensionId, defaultSpawnPosition.toBlockPosition()),
                 yaw = defaultSpawnYaw,
                 pitch = defaultSpawnPitch,
             ),
-            playerAbilities = vanillaPlayerAbilities(options.gameMode),
-            viewDistance = options.viewDistance,
-            simulationDistance = options.simulationDistance,
+            playerAbilities = vanillaPlayerAbilities(minecraftServerNegotiationOptions.gameMode),
+            viewDistance = minecraftServerNegotiationOptions.viewDistance,
+            simulationDistance = minecraftServerNegotiationOptions.simulationDistance,
             playerPosition = PositionMoveRotation(
                 position = playerPosition,
                 deltaMovement = playerDeltaMovement,
@@ -100,35 +100,36 @@ data class MinecraftInitialWorldBootstrap(
 
 /** A finite one-shot initial projection for examples and simple servers. */
 data class MinecraftInitialWorld(
-    val bootstrap: MinecraftInitialWorldBootstrap,
+    val minecraftInitialWorldBootstrap: MinecraftInitialWorldBootstrap,
     val chunks: List<MinecraftChunkSnapshot>,
     val entities: List<MinecraftEntitySnapshot> = emptyList(),
 ) {
     companion object {
         /**
-         * Creates a vanilla flat-world projection around [bootstrap]'s Chunk
+         * Creates a vanilla flat-world projection around [minecraftInitialWorldBootstrap]'s Chunk
          * center. The radius is measured in Chunks.
          */
         fun flatVanilla(
-            options: MinecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(),
+            minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(),
             dimensionId: Identifier = Identifier("overworld"),
             groundY: Int = 64,
-            bootstrap: MinecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
-                options = options,
+            minecraftInitialWorldBootstrap: MinecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
+                minecraftServerNegotiationOptions = minecraftServerNegotiationOptions,
                 dimensionId = dimensionId,
                 defaultSpawnPosition = Vector3d(0.5, groundY + 1.0, 0.5),
             ),
-            chunkRadius: Int = options.viewDistance,
+            chunkRadius: Int = minecraftServerNegotiationOptions.viewDistance,
             surfaceBlockId: Identifier = Identifier("grass_block"),
             biomeId: Identifier = Identifier("plains"),
             entities: List<MinecraftEntitySnapshot> = emptyList(),
         ): MinecraftInitialWorld {
             val minecraftDimensionLayout = MinecraftDimensionLayout.from(
-                options.protocolData,
+                minecraftServerNegotiationOptions.protocolData,
                 dimensionId,
             )
-            val protocolRegistryContext = options.protocolData.completeProtocolRegistryContext
-            val chunks = MinecraftCoordinates.chunkPositionsAround(bootstrap.centerChunk, chunkRadius).map { position ->
+            val protocolRegistryContext = minecraftServerNegotiationOptions.protocolData.completeProtocolRegistryContext
+            val chunks =
+                MinecraftCoordinates.chunkPositionsAround(minecraftInitialWorldBootstrap.centerChunk, chunkRadius).map { position ->
                 MinecraftChunkSnapshot.flat(
                     protocolRegistryContext = protocolRegistryContext,
                     minecraftDimensionLayout = minecraftDimensionLayout,
@@ -140,7 +141,7 @@ data class MinecraftInitialWorld(
                 )
             }.toList()
             return MinecraftInitialWorld(
-                bootstrap = bootstrap,
+                minecraftInitialWorldBootstrap = minecraftInitialWorldBootstrap,
                 chunks = chunks,
                 entities = entities,
             )
@@ -153,19 +154,19 @@ data class MinecraftInitialWorld(
  * synchronization. This function does not flush the connection.
  */
 suspend fun MinecraftServerConnection.sendInitialWorldBootstrap(
-    bootstrap: MinecraftInitialWorldBootstrap,
-): Unit = bootstrap.packets().forEach { outgoing.send(it) }
+    minecraftInitialWorldBootstrap: MinecraftInitialWorldBootstrap,
+): Unit = minecraftInitialWorldBootstrap.packets().forEach { outgoing.send(it) }
 
 /**
  * Enqueues the bootstrap, one complete Chunk batch, and every Entity pairing
  * bundle. This function neither waits for acknowledgements nor flushes.
  */
-suspend fun MinecraftServerConnection.synchronizeInitialWorld(world: MinecraftInitialWorld) {
-    sendInitialWorldBootstrap(world.bootstrap)
+suspend fun MinecraftServerConnection.synchronizeInitialWorld(minecraftInitialWorld: MinecraftInitialWorld) {
+    sendInitialWorldBootstrap(minecraftInitialWorld.minecraftInitialWorldBootstrap)
     outgoing.send(ChunkBatchStartPacket)
-    world.chunks.forEach { outgoing.send(it.packet()) }
-    outgoing.send(ChunkBatchFinishedPacket(world.chunks.size))
-    world.entities.forEach { entity -> sendEntitySnapshot(entity) }
+    minecraftInitialWorld.chunks.forEach { outgoing.send(it.packet()) }
+    outgoing.send(ChunkBatchFinishedPacket(minecraftInitialWorld.chunks.size))
+    minecraftInitialWorld.entities.forEach { minecraftEntitySnapshot -> sendEntitySnapshot(minecraftEntitySnapshot) }
 }
 
 private fun Vector3d.toBlockPosition(): BlockPosition =

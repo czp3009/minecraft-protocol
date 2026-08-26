@@ -36,12 +36,12 @@ To start from an absolute Block position:
 
 ```kotlin
 suspend fun readBlock(
-    world: MinecraftWorldAccess,
-    position: BlockPosition,
-    codec: ChunkNbtCodec<BlockStateDescriptor, String>,
-): BlockStateDescriptor? = world.openRegion(position.region).use { region ->
-    val chunk = region.readChunk(position, codec) ?: return@use null
-    chunk.block(position)
+    minecraftWorldAccess: MinecraftWorldAccess,
+    blockPosition: BlockPosition,
+    chunkNbtCodec: ChunkNbtCodec<BlockStateDescriptor, String>,
+): BlockStateDescriptor? = minecraftWorldAccess.openRegion(blockPosition.regionPosition).use { regionHandle ->
+    val chunk = regionHandle.readChunk(blockPosition, chunkNbtCodec) ?: return@use null
+    chunk.block(blockPosition)
 }
 ```
 
@@ -62,12 +62,12 @@ Region handles expose several layers, so applications need not decode more than 
 
 ```kotlin
 suspend fun inspectChunk(
-    region: RegionHandle,
-    position: ChunkPosition,
+    regionHandle: RegionHandle,
+    chunkPosition: ChunkPosition,
 ): RegionChunkInfo? {
-    val info = region.readChunkInfo(position) ?: return null
-    check(info.position == position)
-    return info
+    val regionChunkInfo = regionHandle.readChunkInfo(chunkPosition) ?: return null
+    check(regionChunkInfo.chunkPosition == chunkPosition)
+    return regionChunkInfo
 }
 ```
 
@@ -77,10 +77,10 @@ Use a borrowed source when a custom incremental consumer is more appropriate:
 
 ```kotlin
 suspend fun <R> readChunkNbtStream(
-    region: RegionHandle,
-    position: ChunkPosition,
+    regionHandle: RegionHandle,
+    chunkPosition: ChunkPosition,
     decode: (RegionChunkInfo, Source) -> R,
-): R? = region.withChunkNbtSource(position, decode)
+): R? = regionHandle.withChunkNbtSource(chunkPosition, decode)
 ```
 
 Borrowed sources and sinks are valid only inside their callback and must be consumed completely where the method
@@ -92,16 +92,16 @@ The write API mirrors the same representations. To edit a semantic Chunk:
 
 ```kotlin
 suspend fun replaceBlock(
-    region: RegionHandle,
-    position: BlockPosition,
+    regionHandle: RegionHandle,
+    blockPosition: BlockPosition,
     replacement: BlockStateDescriptor,
-    codec: ChunkNbtCodec<BlockStateDescriptor, String>,
+    chunkNbtCodec: ChunkNbtCodec<BlockStateDescriptor, String>,
 ): Boolean {
-    val chunk = region.readChunk(position, codec) ?: return false
-    chunk.setBlock(position, replacement)
-    region.writeChunk(
+    val chunk = regionHandle.readChunk(blockPosition, chunkNbtCodec) ?: return false
+    chunk.setBlock(blockPosition, replacement)
+    regionHandle.writeChunk(
         chunk = chunk,
-        codec = codec,
+        chunkNbtCodec = chunkNbtCodec,
         compression = Compression.ZLIB,
     )
     return true
@@ -115,14 +115,14 @@ When a producer knows the exact compressed length, it can stream the record with
 
 ```kotlin
 suspend fun copyCompressedChunk(
-    region: RegionHandle,
-    position: ChunkPosition,
+    regionHandle: RegionHandle,
+    chunkPosition: ChunkPosition,
     compression: Compression,
     byteCount: Long,
     source: Source,
 ) {
-    region.writeCompressedChunk(
-        position = position,
+    regionHandle.writeCompressedChunk(
+        chunkPosition = chunkPosition,
         compression = compression,
         compressedByteCount = byteCount,
     ) { sink ->
@@ -134,9 +134,9 @@ suspend fun copyCompressedChunk(
 The callback must write exactly `byteCount` bytes. The store chooses the timestamp and whether the record is inline or
 external.
 
-`removeChunk(position)` removes one entry, `clear()` empties an existing Region, and `replaceRegion(...)` replaces the
-complete logical set. Omitted positions in a complete replacement are removed. Call `flush()` when the application needs
-an explicit durability boundary.
+`removeChunk(chunkPosition)` removes one entry, `clear()` empties an existing Region, and `replaceRegion(...)` replaces
+the complete logical set. Omitted positions in a complete replacement are removed. Call `flush()` when the application
+needs an explicit durability boundary.
 
 ## Reuse Region handles for batches
 
@@ -144,14 +144,14 @@ Do not open a world or Region inside every per-Chunk iteration. Group positions 
 
 ```kotlin
 suspend fun <B : Any, M : Any> loadChunks(
-    world: MinecraftWorldAccess,
-    positions: Iterable<ChunkPosition>,
-    codec: ChunkNbtCodec<B, M>,
+    minecraftWorldAccess: MinecraftWorldAccess,
+    chunkPositions: Iterable<ChunkPosition>,
+    chunkNbtCodec: ChunkNbtCodec<B, M>,
 ): Map<ChunkPosition, Chunk<B, M>> = buildMap {
-    for ((regionPosition, regionPositions) in positions.groupBy(ChunkPosition::region)) {
-        world.openRegion(regionPosition).use { region ->
-            for (position in regionPositions) {
-                region.readChunk(position, codec)?.let { chunk -> put(position, chunk) }
+    for ((regionPosition, regionChunkPositions) in chunkPositions.groupBy(ChunkPosition::regionPosition)) {
+        minecraftWorldAccess.openRegion(regionPosition).use { regionHandle ->
+            for (chunkPosition in regionChunkPositions) {
+                regionHandle.readChunk(chunkPosition, chunkNbtCodec)?.let { chunk -> put(chunkPosition, chunk) }
             }
         }
     }
@@ -174,13 +174,13 @@ Entity storage is parallel to Chunk storage and is addressed by the Entity's abs
 
 ```kotlin
 suspend fun readEntities(
-    world: MinecraftWorldAccess,
-    position: ChunkPosition,
+    minecraftWorldAccess: MinecraftWorldAccess,
+    chunkPosition: ChunkPosition,
     expectedDataVersion: Int,
 ): EntityChunk<NbtCompound>? {
     val entityChunkNbtCodec = EntityChunkNbtCodec(expectedDataVersion, NbtEntityDataRegistry())
-    return world.openEntityRegion(position.region).use { region ->
-        region.readChunk(position, entityChunkNbtCodec)
+    return minecraftWorldAccess.openEntityRegion(chunkPosition.regionPosition).use { entityRegionHandle ->
+        entityRegionHandle.readChunk(chunkPosition, entityChunkNbtCodec)
     }
 }
 ```
@@ -198,12 +198,12 @@ Use `LiveMinecraftWorldAccess` to observe a world owned by an official server or
 ```kotlin
 fun readLiveChunk(
     worldPath: Path,
-    position: ChunkPosition,
-    codec: ChunkNbtCodec<BlockStateDescriptor, String>,
+    chunkPosition: ChunkPosition,
+    chunkNbtCodec: ChunkNbtCodec<BlockStateDescriptor, String>,
 ): Chunk<BlockStateDescriptor, String>? {
     val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(worldPath)
-    val liveRegionHandle = liveMinecraftWorldAccess.openRegion(position.region)
-    return liveRegionHandle.readChunk(position, codec)
+    val liveRegionHandle = liveMinecraftWorldAccess.openRegion(chunkPosition.regionPosition)
+    return liveRegionHandle.readChunk(chunkPosition, chunkNbtCodec)
 }
 ```
 
@@ -221,12 +221,12 @@ from `level.dat`:
 
 ```kotlin
 suspend fun readApprovedDataPacks(
-    world: MinecraftWorldAccess,
+    minecraftWorldAccess: MinecraftWorldAccess,
     approve: (DataPackInspection) -> Boolean,
 ): WorldDataPackLoadResult? {
-    val dataPackInspections = world.inspectEnabledFileDataPacks()
+    val dataPackInspections = minecraftWorldAccess.inspectEnabledFileDataPacks()
     if (!dataPackInspections.all(approve)) return null
-    return world.readEnabledDataPacks()
+    return minecraftWorldAccess.readEnabledDataPacks()
 }
 ```
 
@@ -255,8 +255,8 @@ an explicitly selected directory or ZIP without opening a mutable world lease.
 For example, the built-in selected-release model can be read directly:
 
 ```kotlin
-suspend fun readLevelData(world: MinecraftWorldAccess): LevelDat =
-    world.readLevelData()
+suspend fun readLevelData(minecraftWorldAccess: MinecraftWorldAccess): LevelDat =
+    minecraftWorldAccess.readLevelData()
 ```
 
 The live access class exposes the corresponding read-only operations. Use `NbtDocument` or text/stream entry points when

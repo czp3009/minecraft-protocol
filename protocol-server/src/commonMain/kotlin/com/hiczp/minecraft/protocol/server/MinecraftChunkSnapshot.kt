@@ -14,14 +14,14 @@ data class MinecraftChunkSnapshot(
     val chunkX: Int,
     val chunkZ: Int,
     val chunkData: ChunkData,
-    val lightData: LightUpdateData,
+    val lightUpdateData: LightUpdateData,
 ) {
     fun packet(): ChunkDataAndUpdateLightPacket =
         ChunkDataAndUpdateLightPacket(
             chunkX = chunkX,
             chunkZ = chunkZ,
             chunkData = chunkData,
-            lightData = lightData,
+            lightData = lightUpdateData,
         )
 
     companion object {
@@ -112,7 +112,7 @@ data class MinecraftChunkSnapshot(
                     sections = sections,
                     blockEntities = emptyList(),
                 ),
-                lightData = LightUpdateData(
+                lightUpdateData = LightUpdateData(
                     skyYMask =
                         if (fullBrightSky) {
                             sectionMask(minecraftDimensionLayout.sectionCount)

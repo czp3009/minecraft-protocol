@@ -14,7 +14,7 @@ import kotlin.test.assertFailsWith
 class CommandPacketTest {
     @Test
     fun `command graph flags and parser properties match Wiki and vanilla`() {
-        val packet = CommandsPacket(
+        val commandsPacket = CommandsPacket(
             nodes = listOf(
                 CommandNode.Root(children = listOf(1)),
                 CommandNode.Argument(
@@ -35,10 +35,10 @@ class CommandPacketTest {
 
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(packet),
+            MinecraftProtocolFormat.encodeToByteArray(commandsPacket),
         )
         assertEquals(
-            expected = packet,
+            expected = commandsPacket,
             actual = MinecraftProtocolFormat.decodeFromByteArray<CommandsPacket>(expected),
         )
 
@@ -69,39 +69,39 @@ class CommandPacketTest {
             ) to "2c0f6d696e6563726166743a626c6f636b",
         )
 
-        for ((parser, hex) in cases) {
-            val value = ParserValue(parser)
-            val bytes = hex.hexToByteArray()
+        for ((commandParser, hex) in cases) {
+            val parserValue = ParserValue(commandParser)
+            val byteArray = hex.hexToByteArray()
             assertContentEquals(
-                bytes,
-                MinecraftProtocolFormat.encodeToByteArray(value),
-                parser.toString(),
+                byteArray,
+                MinecraftProtocolFormat.encodeToByteArray(parserValue),
+                commandParser.toString(),
             )
             assertEquals(
-                value,
-                MinecraftProtocolFormat.decodeFromByteArray<ParserValue>(bytes),
-                parser.toString(),
+                parserValue,
+                MinecraftProtocolFormat.decodeFromByteArray<ParserValue>(byteArray),
+                commandParser.toString(),
             )
         }
     }
 
     @Test
     fun `all no-property parser IDs round trip without assuming enum ordinals`() {
-        for (type in SimpleCommandParser.entries) {
-            val value = ParserValue(CommandParser.Simple(type))
-            val encoded = MinecraftProtocolFormat.encodeToByteArray(value)
-            assertContentEquals(byteArrayOf(type.protocolId.toByte()), encoded, type.name)
+        for (simpleCommandParser in SimpleCommandParser.entries) {
+            val parserValue = ParserValue(CommandParser.Simple(simpleCommandParser))
+            val encoded = MinecraftProtocolFormat.encodeToByteArray(parserValue)
+            assertContentEquals(byteArrayOf(simpleCommandParser.protocolId.toByte()), encoded, simpleCommandParser.name)
             assertEquals(
-                value,
+                parserValue,
                 MinecraftProtocolFormat.decodeFromByteArray<ParserValue>(encoded),
-                type.name,
+                simpleCommandParser.name,
             )
         }
     }
 
     @Test
     fun `numeric parser sentinel bounds canonicalize like vanilla`() {
-        val value = ParserValue(
+        val parserValue = ParserValue(
             CommandParser.IntegerRange(
                 minimum = Int.MIN_VALUE,
                 maximum = Int.MAX_VALUE,
@@ -109,7 +109,7 @@ class CommandPacketTest {
         )
         assertContentEquals(
             "0300".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(value),
+            MinecraftProtocolFormat.encodeToByteArray(parserValue),
         )
 
         val decoded = MinecraftProtocolFormat.decodeFromByteArray<ParserValue>(
@@ -153,5 +153,5 @@ class CommandPacketTest {
 
 @Serializable
 private data class ParserValue(
-    val parser: CommandParser,
+    val commandParser: CommandParser,
 )

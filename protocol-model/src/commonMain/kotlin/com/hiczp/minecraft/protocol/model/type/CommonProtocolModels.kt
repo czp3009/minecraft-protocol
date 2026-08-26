@@ -200,7 +200,7 @@ internal object ServerLinkLabelSerializer : KSerializer<ServerLinkLabel> {
     override fun deserialize(decoder: Decoder): ServerLinkLabel {
         val input = decoder.beginStructure(descriptor)
         if (input.decodeSequentially()) {
-            val result = if (input.decodeBooleanElement(descriptor, 0)) {
+            val serverLinkLabel = if (input.decodeBooleanElement(descriptor, 0)) {
                 ServerLinkLabel.BuiltIn(
                     input.decodeSerializableElement(
                         descriptor,
@@ -218,16 +218,16 @@ internal object ServerLinkLabelSerializer : KSerializer<ServerLinkLabel> {
                 )
             }
             input.endStructure(descriptor)
-            return result
+            return serverLinkLabel
         }
 
         var isBuiltIn: Boolean? = null
-        var builtIn: BuiltInServerLinkLabel? = null
+        var builtInServerLinkLabel: BuiltInServerLinkLabel? = null
         var custom: TextComponent? = null
         while (true) {
             when (val index = input.decodeElementIndex(descriptor)) {
                 0 -> isBuiltIn = input.decodeBooleanElement(descriptor, 0)
-                1 -> builtIn = input.decodeSerializableElement(
+                1 -> builtInServerLinkLabel = input.decodeSerializableElement(
                     descriptor,
                     1,
                     BuiltInServerLinkLabel.serializer(),
@@ -246,7 +246,7 @@ internal object ServerLinkLabelSerializer : KSerializer<ServerLinkLabel> {
         input.endStructure(descriptor)
         return when (isBuiltIn) {
             true -> ServerLinkLabel.BuiltIn(
-                builtIn ?: throw SerializationException("Missing builtIn label"),
+                builtInServerLinkLabel ?: throw SerializationException("Missing builtIn label"),
             )
 
             false -> ServerLinkLabel.Custom(

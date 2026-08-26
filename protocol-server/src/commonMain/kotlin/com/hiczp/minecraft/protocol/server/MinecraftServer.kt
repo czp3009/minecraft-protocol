@@ -15,36 +15,36 @@ import kotlinx.coroutines.Dispatchers
 import kotlin.coroutines.ContinuationInterceptor
 
 class MinecraftServer private constructor(
-    private val socket: ServerSocket,
-    private val definition: MinecraftConnectionDefinition,
-    private val authentication: MinecraftServerAuthentication,
-    private val transportConfiguration: MinecraftTransportConfiguration,
+    private val serverSocket: ServerSocket,
+    private val minecraftConnectionDefinition: MinecraftConnectionDefinition,
+    private val minecraftServerAuthentication: MinecraftServerAuthentication,
+    private val minecraftTransportConfiguration: MinecraftTransportConfiguration,
     private val connectionDispatcher: CoroutineDispatcher,
 ) : Closeable {
     val port: Int
-        get() = socket.port
+        get() = serverSocket.port
 
     val isOpen: Boolean
-        get() = !socket.isClosed
+        get() = !serverSocket.isClosed
 
     suspend fun accept(): MinecraftServerConnection {
-        val clientSocket = socket.accept()
-        val transport = MinecraftTransport(clientSocket, transportConfiguration)
+        val clientSocket = serverSocket.accept()
+        val minecraftTransport = MinecraftTransport(clientSocket, minecraftTransportConfiguration)
         return MinecraftServerConnection(
-            connection = createMinecraftServerPacketConnection(
-                frameStream = transport.frameStream,
-                closeTransport = transport::close,
-                definition = definition,
+            minecraftServerPacketConnection = createMinecraftServerPacketConnection(
+                minecraftFrameStream = minecraftTransport.minecraftFrameStream,
+                closeTransport = minecraftTransport::close,
+                minecraftConnectionDefinition = minecraftConnectionDefinition,
                 connectionDispatcher = connectionDispatcher,
             ),
-            authentication = authentication,
+            minecraftServerAuthentication = minecraftServerAuthentication,
             clientIpAddress = (clientSocket.remoteAddress as? InetSocketAddress)
                 ?.numericHostAddress(),
         )
     }
 
     override fun close() {
-        socket.close()
+        serverSocket.close()
     }
 
     companion object {
@@ -52,17 +52,17 @@ class MinecraftServer private constructor(
             selectorManager: SelectorManager,
             host: String = "0.0.0.0",
             port: Int = MinecraftServerConnection.DEFAULT_PORT,
-            definition: MinecraftConnectionDefinition = MinecraftConnectionDefinition(),
-            authentication: MinecraftServerAuthentication = MinecraftServerAuthentication.Offline,
-            transportConfiguration: MinecraftTransportConfiguration = MinecraftTransportConfiguration(
+            minecraftConnectionDefinition: MinecraftConnectionDefinition = MinecraftConnectionDefinition(),
+            minecraftServerAuthentication: MinecraftServerAuthentication = MinecraftServerAuthentication.Offline,
+            minecraftTransportConfiguration: MinecraftTransportConfiguration = MinecraftTransportConfiguration(
                 validateCompressionThreshold = true,
             ),
             connectionDispatcher: CoroutineDispatcher = selectorManager.connectionDispatcher,
         ): MinecraftServer = MinecraftServer(
-            socket = aSocket(selectorManager).tcp().bind(host, port),
-            definition = definition,
-            authentication = authentication,
-            transportConfiguration = transportConfiguration,
+            serverSocket = aSocket(selectorManager).tcp().bind(host, port),
+            minecraftConnectionDefinition = minecraftConnectionDefinition,
+            minecraftServerAuthentication = minecraftServerAuthentication,
+            minecraftTransportConfiguration = minecraftTransportConfiguration,
             connectionDispatcher = connectionDispatcher,
         )
     }
@@ -93,10 +93,10 @@ internal fun ByteArray.toNumericIpAddress(): String =
     }
 
 class MinecraftServerConnection internal constructor(
-    private val connection: MinecraftServerPacketConnection,
-    val authentication: MinecraftServerAuthentication,
+    private val minecraftServerPacketConnection: MinecraftServerPacketConnection,
+    val minecraftServerAuthentication: MinecraftServerAuthentication,
     val clientIpAddress: String?,
-) : MinecraftServerPacketConnection by connection {
+) : MinecraftServerPacketConnection by minecraftServerPacketConnection {
     companion object {
         const val DEFAULT_PORT: Int = 25565
     }

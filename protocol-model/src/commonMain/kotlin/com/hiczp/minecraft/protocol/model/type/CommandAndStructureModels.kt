@@ -148,11 +148,11 @@ internal object StructureOffsetSerializer : KSerializer<StructureOffset> {
     }
 
     override fun deserialize(decoder: Decoder): StructureOffset {
-        val vector = decodeByteVector(decoder, descriptor)
+        val byteVector = decodeByteVector(decoder, descriptor)
         return StructureOffset(
-            vector.x.coerceIn(-MAXIMUM, MAXIMUM),
-            vector.y.coerceIn(-MAXIMUM, MAXIMUM),
-            vector.z.coerceIn(-MAXIMUM, MAXIMUM),
+            byteVector.x.coerceIn(-MAXIMUM, MAXIMUM),
+            byteVector.y.coerceIn(-MAXIMUM, MAXIMUM),
+            byteVector.z.coerceIn(-MAXIMUM, MAXIMUM),
         )
     }
 
@@ -180,11 +180,11 @@ internal object StructureSizeSerializer : KSerializer<StructureSize> {
     }
 
     override fun deserialize(decoder: Decoder): StructureSize {
-        val vector = decodeByteVector(decoder, descriptor)
+        val byteVector = decodeByteVector(decoder, descriptor)
         return StructureSize(
-            vector.x.coerceIn(0, MAXIMUM),
-            vector.y.coerceIn(0, MAXIMUM),
-            vector.z.coerceIn(0, MAXIMUM),
+            byteVector.x.coerceIn(0, MAXIMUM),
+            byteVector.y.coerceIn(0, MAXIMUM),
+            byteVector.z.coerceIn(0, MAXIMUM),
         )
     }
 
@@ -329,28 +329,28 @@ private fun byteVectorDescriptor(name: String): SerialDescriptor =
 
 private fun decodeByteVector(
     decoder: Decoder,
-    descriptor: SerialDescriptor,
+    serialDescriptor: SerialDescriptor,
 ): ByteVector {
-    val input = decoder.beginStructure(descriptor)
+    val input = decoder.beginStructure(serialDescriptor)
     var x: Byte = 0
     var y: Byte = 0
     var z: Byte = 0
     if (input.decodeSequentially()) {
-        x = input.decodeByteElement(descriptor, X)
-        y = input.decodeByteElement(descriptor, Y)
-        z = input.decodeByteElement(descriptor, Z)
+        x = input.decodeByteElement(serialDescriptor, X)
+        y = input.decodeByteElement(serialDescriptor, Y)
+        z = input.decodeByteElement(serialDescriptor, Z)
     } else {
         while (true) {
-            when (val index = input.decodeElementIndex(descriptor)) {
-                X -> x = input.decodeByteElement(descriptor, X)
-                Y -> y = input.decodeByteElement(descriptor, Y)
-                Z -> z = input.decodeByteElement(descriptor, Z)
+            when (val index = input.decodeElementIndex(serialDescriptor)) {
+                X -> x = input.decodeByteElement(serialDescriptor, X)
+                Y -> y = input.decodeByteElement(serialDescriptor, Y)
+                Z -> z = input.decodeByteElement(serialDescriptor, Z)
                 -1 -> break
                 else -> error("Unexpected byte-vector field $index")
             }
         }
     }
-    input.endStructure(descriptor)
+    input.endStructure(serialDescriptor)
     return ByteVector(x.toInt(), y.toInt(), z.toInt())
 }
 

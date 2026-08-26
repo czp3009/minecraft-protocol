@@ -116,8 +116,8 @@ internal suspend fun throwFailureOrCancellation(failure: Throwable?) {
     var result = failure
     try {
         currentCoroutineContext().ensureActive()
-    } catch (cancellation: CancellationException) {
-        result = combineFailures(result, cancellation)
+    } catch (cancellationException: CancellationException) {
+        result = combineFailures(result, cancellationException)
     }
     result?.let { throw it }
 }

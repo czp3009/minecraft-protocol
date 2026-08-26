@@ -24,7 +24,7 @@ internal inline fun <reified T> formDataContent(request: T): FormDataContent =
 
 internal suspend inline fun <reified SuccessBody, reified ErrorBody> HttpResponse.decodeAccountAuthResponse(
     createResponseException: (
-        response: HttpResponse,
+        httpResponse: HttpResponse,
         responseBody: String,
         parsedErrorBody: ErrorBody,
     ) -> AccountAuthResponseException,

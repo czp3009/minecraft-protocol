@@ -16,7 +16,7 @@ import kotlin.uuid.Uuid
 class PlayClientboundWorldPacketTest {
     @Test
     fun `spawn entity follows the 26_2 field order and LpVec3 codec`() {
-        val packet = SpawnEntityPacket(
+        val spawnEntityPacket = SpawnEntityPacket(
             entityId = 1,
             entityUuid = ZERO_UUID,
             typeId = 2,
@@ -34,10 +34,10 @@ class PlayClientboundWorldPacketTest {
 
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(packet),
+            MinecraftProtocolFormat.encodeToByteArray(spawnEntityPacket),
         )
         assertEquals(
-            expected = packet,
+            expected = spawnEntityPacket,
             actual = MinecraftProtocolFormat.decodeFromByteArray<SpawnEntityPacket>(expected),
         )
     }
@@ -62,15 +62,15 @@ class PlayClientboundWorldPacketTest {
             BossBarAction.UpdateFlags(255) to "05ff",
         )
 
-        for ((action, actionHex) in actions) {
-            val packet = BossBarPacket(ZERO_UUID, action)
+        for ((bossBarAction, actionHex) in actions) {
+            val bossBarPacket = BossBarPacket(ZERO_UUID, bossBarAction)
             val expected = "00000000000000000000000000000000$actionHex".hexToByteArray()
             assertContentEquals(
                 expected,
-                MinecraftProtocolFormat.encodeToByteArray(packet),
+                MinecraftProtocolFormat.encodeToByteArray(bossBarPacket),
             )
             assertEquals(
-                expected = packet,
+                expected = bossBarPacket,
                 actual = MinecraftProtocolFormat.decodeFromByteArray<BossBarPacket>(expected),
             )
         }
@@ -78,15 +78,15 @@ class PlayClientboundWorldPacketTest {
 
     @Test
     fun `difficulty is VarInt and wraps out of range IDs like vanilla`() {
-        val packet = ClientboundChangeDifficultyPacket(Difficulty.HARD, locked = false)
+        val clientboundChangeDifficultyPacket = ClientboundChangeDifficultyPacket(Difficulty.HARD, locked = false)
         assertContentEquals(
             "0300".hexToByteArray(),
             MinecraftProtocolFormat.encodeToByteArray(
-                packet,
+                clientboundChangeDifficultyPacket,
             ),
         )
         assertEquals(
-            packet,
+            clientboundChangeDifficultyPacket,
             MinecraftProtocolFormat.decodeFromByteArray<ClientboundChangeDifficultyPacket>(
                 "ff0100".hexToByteArray(),
             ),
@@ -95,7 +95,7 @@ class PlayClientboundWorldPacketTest {
 
     @Test
     fun `chunk biome data uses packed Z then X and enforces vanilla byte limit`() {
-        val packet = ChunkBiomesPacket(
+        val chunkBiomesPacket = ChunkBiomesPacket(
             listOf(
                 ChunkBiomeData(
                     chunkZ = 2,
@@ -107,24 +107,24 @@ class PlayClientboundWorldPacketTest {
         val expected = "01000000020000000102aabb".hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(packet),
+            MinecraftProtocolFormat.encodeToByteArray(chunkBiomesPacket),
         )
         assertEquals(
-            expected = packet,
+            expected = chunkBiomesPacket,
             actual = MinecraftProtocolFormat.decodeFromByteArray<ChunkBiomesPacket>(expected),
         )
     }
 
     @Test
     fun `block entity requires the compound NBT used by the official codec`() {
-        val packet = BlockEntityDataPacket(
+        val blockEntityDataPacket = BlockEntityDataPacket(
             BlockPosition(0, 0, 0),
             typeId = 1,
             data = NbtCompound(mapOf("key" to NbtString("value"))),
         )
-        val encoded = MinecraftProtocolFormat.encodeToByteArray(packet)
+        val encoded = MinecraftProtocolFormat.encodeToByteArray(blockEntityDataPacket)
         assertEquals(
-            packet,
+            blockEntityDataPacket,
             MinecraftProtocolFormat.decodeFromByteArray<BlockEntityDataPacket>(encoded),
         )
         assertFailsWith<SerializationException> {

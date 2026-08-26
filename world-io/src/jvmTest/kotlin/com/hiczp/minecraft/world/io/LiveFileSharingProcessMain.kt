@@ -32,13 +32,13 @@ object LiveFileSharingProcessMain {
     }
 
     private fun holdDsync(path: Path) {
-        FileChannel.open(path, CREATE, READ, WRITE, DSYNC).use { channel ->
+        FileChannel.open(path, CREATE, READ, WRITE, DSYNC).use { fileChannel ->
             protocol("READY")
             while (true) {
                 when (readlnOrNull()) {
                     "WRITE" -> {
-                        channel.write(ByteBuffer.wrap(byteArrayOf(9)), 0L)
-                        channel.force(true)
+                        fileChannel.write(ByteBuffer.wrap(byteArrayOf(9)), 0L)
+                        fileChannel.force(true)
                         protocol("WRITE_OK")
                     }
 

@@ -20,14 +20,14 @@ class ProtocolModelProcessorProvider : SymbolProcessorProvider {
         environment: SymbolProcessorEnvironment,
     ): SymbolProcessor = ProtocolModelProcessor(
         codeGenerator = environment.codeGenerator,
-        logger = environment.logger,
+        kspLogger = environment.logger,
         options = environment.options,
     )
 }
 
 private class ProtocolModelProcessor(
     private val codeGenerator: CodeGenerator,
-    private val logger: KSPLogger,
+    private val kspLogger: KSPLogger,
     private val options: Map<String, String>,
 ) : SymbolProcessor {
     private var generated = false
@@ -38,18 +38,18 @@ private class ProtocolModelProcessor(
         val packetDeclarations = resolver
             .getSymbolsWithAnnotation(PACKET_INFO)
             .filterIsInstance<KSClassDeclaration>()
-            .mapNotNull { declaration ->
-                declaration.annotation(PACKET_INFO)?.let { annotation ->
-                    declaration to annotation
+            .mapNotNull { ksClassDeclaration ->
+                ksClassDeclaration.annotation(PACKET_INFO)?.let { ksAnnotation ->
+                    ksClassDeclaration to ksAnnotation
                 }
             }
             .toList()
         val componentDeclarations = resolver
             .getSymbolsWithAnnotation(DATA_COMPONENT_INFO)
             .filterIsInstance<KSClassDeclaration>()
-            .mapNotNull { declaration ->
-                declaration.annotation(DATA_COMPONENT_INFO)?.let {
-                    declaration to it
+            .mapNotNull { ksClassDeclaration ->
+                ksClassDeclaration.annotation(DATA_COMPONENT_INFO)?.let {
+                    ksClassDeclaration to it
                 }
             }
             .toList()
@@ -60,23 +60,23 @@ private class ProtocolModelProcessor(
             .filterNot(KSAnnotated::validate)
         if (invalid.isNotEmpty()) return invalid
         if (packetDeclarations.isEmpty()) {
-            logger.error(
+            kspLogger.error(
                 "No @$PACKET_INFO_SIMPLE_NAME declarations were visible from $PACKET_PACKAGE",
             )
             return emptyList()
         }
         if (componentDeclarations.isEmpty()) {
-            logger.error(
+            kspLogger.error(
                 "No @$DATA_COMPONENT_INFO_SIMPLE_NAME declarations were visible from $DATA_COMPONENT_PACKAGE",
             )
             return emptyList()
         }
 
-        val localPackets = packetDeclarations.map { (declaration, annotation) ->
-            annotation.toPacket(declaration)
+        val localPackets = packetDeclarations.map { (ksClassDeclaration, ksAnnotation) ->
+            ksAnnotation.toPacket(ksClassDeclaration)
         }
-        val dataComponents = componentDeclarations.map { (declaration, annotation) ->
-            annotation.toDataComponent(declaration)
+        val dataComponents = componentDeclarations.map { (ksClassDeclaration, ksAnnotation) ->
+            ksAnnotation.toDataComponent(ksClassDeclaration)
         }
         val officialPackets = loadOfficialPackets()
         if (
@@ -118,7 +118,7 @@ private class ProtocolModelProcessor(
             stateElement.jsonObject.entries.flatMap { (direction, directionElement) ->
                 directionElement.jsonObject.entries.map { (name, packetElement) ->
                     OfficialPacket(
-                        key = PacketKey(
+                        packetKey = PacketKey(
                             state = state.uppercase(),
                             direction = direction.uppercase(),
                             id = packetElement.jsonObject.getValue("protocol_id").jsonPrimitive.int,
@@ -135,20 +135,20 @@ private class ProtocolModelProcessor(
         official: List<OfficialPacket>,
     ): Boolean {
         var valid = true
-        val localByKey = local.groupBy(LocalPacket::key)
-        localByKey.filterValues { it.size > 1 }.forEach { (key, packets) ->
-            packets.forEach { packet ->
-                logger.error(
-                    "Duplicate packet key ${key.display()}",
-                    packet.declaration,
+        val localByKey = local.groupBy(LocalPacket::packetKey)
+        localByKey.filterValues { it.size > 1 }.forEach { (packetKey, packets) ->
+            packets.forEach { localPacket ->
+                kspLogger.error(
+                    "Duplicate packet key ${packetKey.display()}",
+                    localPacket.ksDeclaration,
                 )
             }
             valid = false
         }
-        val officialByKey = official.groupBy(OfficialPacket::key)
-        officialByKey.filterValues { it.size > 1 }.forEach { (key) ->
-            logger.error(
-                "Official packets report contains duplicate key ${key.display()}",
+        val officialByKey = official.groupBy(OfficialPacket::packetKey)
+        officialByKey.filterValues { it.size > 1 }.forEach { (packetKey) ->
+            kspLogger.error(
+                "Official packets report contains duplicate key ${packetKey.display()}",
             )
             valid = false
         }
@@ -161,7 +161,7 @@ private class ProtocolModelProcessor(
         }.filterValues { it != null }.mapValues { it.value!! }
         val missing = uniqueOfficial.keys - uniqueLocal.keys
         if (missing.isNotEmpty()) {
-            logger.error(
+            kspLogger.error(
                 "Packet models are missing official keys: ${
                     missing.sortedBy(PacketKey::sortKey).joinToString { it.display() }
                 }",
@@ -169,28 +169,28 @@ private class ProtocolModelProcessor(
             valid = false
         }
         val extra = uniqueLocal.keys - uniqueOfficial.keys - LEGACY_PACKET_KEY
-        extra.forEach { key ->
-            logger.error(
-                "Packet model has no official report entry at ${key.display()}",
-                uniqueLocal.getValue(key).declaration,
+        extra.forEach { packetKey ->
+            kspLogger.error(
+                "Packet model has no official report entry at ${packetKey.display()}",
+                uniqueLocal.getValue(packetKey).ksDeclaration,
             )
             valid = false
         }
-        uniqueOfficial.forEach { (key, officialPacket) ->
-            val localPacket = uniqueLocal[key] ?: return@forEach
+        uniqueOfficial.forEach { (packetKey, officialPacket) ->
+            val localPacket = uniqueLocal[packetKey] ?: return@forEach
             if (localPacket.officialName != officialPacket.name) {
-                logger.error(
+                kspLogger.error(
                     "${localPacket.className} identifies '${localPacket.officialName}', but the official report identifies '${officialPacket.name}'",
-                    localPacket.declaration,
+                    localPacket.ksDeclaration,
                 )
                 valid = false
             }
         }
         val legacy = uniqueLocal[LEGACY_PACKET_KEY]
         if (legacy?.officialName != LEGACY_PACKET_NAME) {
-            logger.error(
+            kspLogger.error(
                 "The sole non-report packet must be annotated as '$LEGACY_PACKET_NAME'",
-                legacy?.declaration,
+                legacy?.ksDeclaration,
             )
             valid = false
         }
@@ -208,32 +208,32 @@ private class ProtocolModelProcessor(
             .add("%M(\n", LIST_OF)
             .indent()
             .apply {
-                packets.sortedBy { it.key.sortKey() }.forEach { definition ->
+                packets.sortedBy { it.packetKey.sortKey() }.forEach { definition ->
                     val id = "0x${
-                        definition.key.id.toString(16)
+                        definition.packetKey.id.toString(16)
                             .uppercase()
                             .padStart(2, '0')
                     }"
                     add("%T(\n", packetDefinition)
                     indent()
-                    add("state = %T.%L,\n", connectionState, definition.key.state)
+                    add("connectionState = %T.%L,\n", connectionState, definition.packetKey.state)
                     add(
-                        "direction = %T.%L,\n",
+                        "packetDirection = %T.%L,\n",
                         packetDirection,
-                        definition.key.direction,
+                        definition.packetKey.direction,
                     )
                     add("id = %L,\n", id)
                     add(
-                        "framing = %T.%L,\n",
+                        "packetFraming = %T.%L,\n",
                         packetFraming,
-                        if (definition.key == LEGACY_PACKET_KEY) {
+                        if (definition.packetKey == LEGACY_PACKET_KEY) {
                             "LEGACY_UNFRAMED"
                         } else {
                             "NORMAL"
                         },
                     )
                     add("packetClass = %T::class,\n", definition.typeName)
-                    add("serializer = %T.serializer(),\n", definition.typeName)
+                    add("kSerializer = %T.serializer(),\n", definition.typeName)
                     unindent()
                     add("),\n")
                 }
@@ -260,7 +260,7 @@ private class ProtocolModelProcessor(
             fileName = REGISTRY_FILE,
             comment = "Generated from @PacketInfo declarations by KSP. Do not edit.",
             apiAnnotation = registryApi,
-            type = generatedRegistry,
+            typeSpec = generatedRegistry,
         )
     }
 
@@ -272,10 +272,10 @@ private class ProtocolModelProcessor(
         components.groupBy(LocalDataComponent::type)
             .filterValues { it.size > 1 }
             .forEach { (type, duplicates) ->
-                duplicates.forEach { component ->
-                    logger.error(
+                duplicates.forEach { localDataComponent ->
+                    kspLogger.error(
                         "Duplicate data-component type $type",
-                        component.declaration,
+                        localDataComponent.ksDeclaration,
                     )
                 }
                 valid = false
@@ -284,7 +284,7 @@ private class ProtocolModelProcessor(
             resolver.getKSNameFromString(DATA_COMPONENT_TYPE),
         )
         if (typeDeclaration == null) {
-            logger.error("Could not resolve $DATA_COMPONENT_TYPE")
+            kspLogger.error("Could not resolve $DATA_COMPONENT_TYPE")
             return false
         }
         val declaredTypes = typeDeclaration.declarations
@@ -295,16 +295,16 @@ private class ProtocolModelProcessor(
         val componentTypes = components.map(LocalDataComponent::type).toSet()
         val missing = declaredTypes - componentTypes
         if (missing.isNotEmpty()) {
-            logger.error(
+            kspLogger.error(
                 "Data-component models are missing types: ${missing.sorted().joinToString()}",
             )
             valid = false
         }
         val extra = componentTypes - declaredTypes
         extra.forEach { type ->
-            logger.error(
+            kspLogger.error(
                 "Unknown data-component type $type",
-                components.first { it.type == type }.declaration,
+                components.first { it.type == type }.ksDeclaration,
             )
             valid = false
         }
@@ -329,12 +329,12 @@ private class ProtocolModelProcessor(
             .add("return when (type) {\n")
             .indent()
             .apply {
-                sorted.forEach { component ->
+                sorted.forEach { localDataComponent ->
                     add(
                         "%T.%L -> %T.serializer()\n",
                         dataComponentType,
-                        component.type,
-                        component.typeName,
+                        localDataComponent.type,
+                        localDataComponent.typeName,
                     )
                 }
             }
@@ -345,12 +345,12 @@ private class ProtocolModelProcessor(
             .add("return when (value) {\n")
             .indent()
             .apply {
-                sorted.forEach { component ->
+                sorted.forEach { localDataComponent ->
                     add(
                         "is %T -> %T.%L\n",
-                        component.typeName,
+                        localDataComponent.typeName,
                         dataComponentType,
-                        component.type,
+                        localDataComponent.type,
                     )
                 }
             }
@@ -383,7 +383,7 @@ private class ProtocolModelProcessor(
             fileName = DATA_COMPONENT_REGISTRY_FILE,
             comment = "Generated from @DataComponentInfo declarations by KSP. Do not edit.",
             apiAnnotation = registryApi,
-            type = generatedRegistry,
+            typeSpec = generatedRegistry,
         )
     }
 
@@ -392,7 +392,7 @@ private class ProtocolModelProcessor(
         fileName: String,
         comment: String,
         apiAnnotation: ClassName,
-        type: TypeSpec,
+        typeSpec: TypeSpec,
     ): FileSpec = FileSpec.builder(packageName, fileName)
         .addFileComment("%L\n", comment)
         .addAnnotation(
@@ -401,7 +401,7 @@ private class ProtocolModelProcessor(
                 .addMember("%T::class", apiAnnotation)
                 .build(),
         )
-        .addType(type)
+        .addType(typeSpec)
         .build()
 
     private fun KSClassDeclaration.annotation(
@@ -414,40 +414,40 @@ private class ProtocolModelProcessor(
         }
 
     private fun KSAnnotation.toPacket(
-        declaration: KSClassDeclaration,
+        ksClassDeclaration: KSClassDeclaration,
     ): LocalPacket {
         val arguments = arguments.associateBy {
             it.name?.asString()
                 ?: error("@$PACKET_INFO_SIMPLE_NAME has an unnamed argument")
         }
-        checkNotNull(declaration.qualifiedName) {
+        checkNotNull(ksClassDeclaration.qualifiedName) {
             "@$PACKET_INFO_SIMPLE_NAME requires a named packet class"
         }
         return LocalPacket(
-            key = PacketKey(
-                state = arguments.getValue("state").enumName(),
-                direction = arguments.getValue("direction").enumName(),
+            packetKey = PacketKey(
+                state = arguments.getValue("connectionState").enumName(),
+                direction = arguments.getValue("packetDirection").enumName(),
                 id = arguments.getValue("id").value as Int,
             ),
-            className = declaration.simpleName.asString(),
-            typeName = declaration.toClassName(),
+            className = ksClassDeclaration.simpleName.asString(),
+            typeName = ksClassDeclaration.toClassName(),
             officialName = arguments.getValue("officialName").value as String,
-            declaration = declaration,
+            ksDeclaration = ksClassDeclaration,
         )
     }
 
     private fun KSAnnotation.toDataComponent(
-        declaration: KSClassDeclaration,
+        ksClassDeclaration: KSClassDeclaration,
     ): LocalDataComponent {
         val type = arguments.singleOrNull {
-            it.name?.asString() == "type"
+            it.name?.asString() == "dataComponentType"
         }?.enumName() ?: error(
             "@$DATA_COMPONENT_INFO_SIMPLE_NAME has no type argument",
         )
         return LocalDataComponent(
             type = type,
-            typeName = declaration.toClassName(),
-            declaration = declaration,
+            typeName = ksClassDeclaration.toClassName(),
+            ksDeclaration = ksClassDeclaration,
         )
     }
 
@@ -478,22 +478,22 @@ private class ProtocolModelProcessor(
     }
 
     private data class LocalPacket(
-        val key: PacketKey,
+        val packetKey: PacketKey,
         val className: String,
         val typeName: ClassName,
         val officialName: String,
-        val declaration: KSDeclaration,
+        val ksDeclaration: KSDeclaration,
     )
 
     private data class OfficialPacket(
-        val key: PacketKey,
+        val packetKey: PacketKey,
         val name: String,
     )
 
     private data class LocalDataComponent(
         val type: String,
         val typeName: ClassName,
-        val declaration: KSDeclaration,
+        val ksDeclaration: KSDeclaration,
     )
 
     private companion object {

@@ -31,11 +31,11 @@ internal class GameOutputBuffer(
     private val _state = MutableStateFlow(GameOutputSnapshot())
     val state: StateFlow<GameOutputSnapshot> = _state.asStateFlow()
 
-    suspend fun append(source: OutputSource, text: String) = mutex.withLock {
+    suspend fun append(outputSource: OutputSource, text: String) = mutex.withLock {
         val cleaned = redactSecrets(sanitizeTerminalText(text), secrets)
         val displayLines = if (cleaned.isEmpty()) listOf("") else cleaned.chunked(maximumLineLength)
         displayLines.forEach { line ->
-            lines += GameOutputLine(nextSequence++, source, line)
+            lines += GameOutputLine(nextSequence++, outputSource, line)
             while (lines.size > capacity) lines.removeFirst()
         }
         publish(running = true, exitCode = null)
@@ -82,9 +82,9 @@ internal class OutputChunkDecoder(
 internal interface GameProcessRuntime {
     fun cleanupStaleArgumentFiles()
 
-    fun outputBuffer(plan: LaunchPlan): GameOutputBuffer
+    fun outputBuffer(launchPlan: LaunchPlan): GameOutputBuffer
 
-    suspend fun launch(plan: LaunchPlan, output: GameOutputBuffer)
+    suspend fun launch(launchPlan: LaunchPlan, gameOutputBuffer: GameOutputBuffer)
 }
 
 internal class GameProcessService(
@@ -109,21 +109,21 @@ internal class GameProcessService(
         parseJavaMajor("${output.stdout.orEmpty()}\n${output.stderr.orEmpty()}")
     }
 
-    override fun outputBuffer(plan: LaunchPlan): GameOutputBuffer = GameOutputBuffer(
-        listOfNotNull(plan.sensitiveAccessToken),
+    override fun outputBuffer(launchPlan: LaunchPlan): GameOutputBuffer = GameOutputBuffer(
+        listOfNotNull(launchPlan.sensitiveAccessToken),
     )
 
-    override suspend fun launch(plan: LaunchPlan, output: GameOutputBuffer) {
+    override suspend fun launch(launchPlan: LaunchPlan, gameOutputBuffer: GameOutputBuffer) {
         val actualJavaMajor = probeJavaMajor()
-        plan.requiredJavaMajor?.let { required ->
+        launchPlan.requiredJavaMajor?.let { required ->
             require(actualJavaMajor >= required) {
                 "This version requires Java $required, but Java $actualJavaMajor was found on PATH"
             }
         }
         val argumentFile = launcherRoot /
                 "$JAVA_ARGUMENT_FILE_PREFIX${Random.nextLong().toULong().toString(16)}$JAVA_ARGUMENT_FILE_SUFFIX"
-        val argumentFileContent = encodeJavaArgumentFile(plan.javaArguments)
-        val secret = plan.sensitiveAccessToken
+        val argumentFileContent = encodeJavaArgumentFile(launchPlan.javaArguments)
+        val secret = launchPlan.sensitiveAccessToken
         require(secret == null || secret !in argumentFileContent) {
             "Access token must not enter the Java argument file"
         }
@@ -132,35 +132,35 @@ internal class GameProcessService(
             flush()
         }
         try {
-            runProcess(plan, argumentFile, output)
+            runProcess(launchPlan, argumentFile, gameOutputBuffer)
         } finally {
             fileSystem.delete(argumentFile, mustExist = false)
         }
     }
 
-    private suspend fun runProcess(plan: LaunchPlan, argumentFile: Path, output: GameOutputBuffer) = coroutineScope {
+    private suspend fun runProcess(launchPlan: LaunchPlan, argumentFile: Path, gameOutputBuffer: GameOutputBuffer) = coroutineScope {
         val child = Command("java")
             .args(buildList {
                 add("@${argumentFile}")
-                add(plan.mainClass)
-                addAll(plan.gameArguments)
+                add(launchPlan.mainClass)
+                addAll(launchPlan.gameArguments)
             })
-            .cwd(plan.workingDirectory)
+            .cwd(launchPlan.workingDirectory)
             .stdin(Stdio.Inherit)
             .stdout(Stdio.Pipe)
             .stderr(Stdio.Pipe)
             .spawn()
         try {
             val stdout = async(Dispatchers.Default) {
-                drain(checkNotNull(child.bufferedStdout()), OutputSource.STDOUT, output)
+                drain(checkNotNull(child.bufferedStdout()), OutputSource.STDOUT, gameOutputBuffer)
             }
             val stderr = async(Dispatchers.Default) {
-                drain(checkNotNull(child.bufferedStderr()), OutputSource.STDERR, output)
+                drain(checkNotNull(child.bufferedStderr()), OutputSource.STDERR, gameOutputBuffer)
             }
             val exitCode = withContext(Dispatchers.Default) { child.wait() }
             stdout.await()
             stderr.await()
-            output.finish(exitCode)
+            gameOutputBuffer.finish(exitCode)
         } catch (failure: Throwable) {
             withContext(NonCancellable + Dispatchers.Default) {
                 try {
@@ -173,13 +173,13 @@ internal class GameProcessService(
         }
     }
 
-    private suspend fun drain(reader: BufferedReader, source: OutputSource, output: GameOutputBuffer) {
-        val decoder = OutputChunkDecoder()
+    private suspend fun drain(bufferedReader: BufferedReader, outputSource: OutputSource, gameOutputBuffer: GameOutputBuffer) {
+        val outputChunkDecoder = OutputChunkDecoder()
         while (true) {
-            val line = reader.readLine() ?: break
-            decoder.feed(normalizeProcessLineEnding(line)).forEach { output.append(source, it) }
+            val line = bufferedReader.readLine() ?: break
+            outputChunkDecoder.feed(normalizeProcessLineEnding(line)).forEach { gameOutputBuffer.append(outputSource, it) }
         }
-        decoder.feed("", endOfInput = true).forEach { output.append(source, it) }
+        outputChunkDecoder.feed("", endOfInput = true).forEach { gameOutputBuffer.append(outputSource, it) }
     }
 }
 

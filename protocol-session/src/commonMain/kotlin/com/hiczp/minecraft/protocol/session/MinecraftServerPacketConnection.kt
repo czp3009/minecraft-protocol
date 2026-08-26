@@ -39,43 +39,43 @@ interface MinecraftServerPacketConnection : MinecraftPacketConnection<Serverboun
 /** Creates the low-level server endpoint used by server orchestration modules. */
 @InternalMinecraftConnectionApi
 fun createMinecraftServerPacketConnection(
-    frameStream: MinecraftFrameStream,
+    minecraftFrameStream: MinecraftFrameStream,
     closeTransport: () -> Unit,
-    definition: MinecraftConnectionDefinition,
+    minecraftConnectionDefinition: MinecraftConnectionDefinition,
     connectionDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ): MinecraftServerPacketConnection {
-    val serverSession = MinecraftServerPacketSession(
-        frameStream = frameStream,
-        packetRegistry = definition.packetRegistry,
-        format = definition.format,
+    val minecraftServerPacketSession = MinecraftServerPacketSession(
+        minecraftFrameStream = minecraftFrameStream,
+        packetRegistry = minecraftConnectionDefinition.packetRegistry,
+        minecraftProtocolFormat = minecraftConnectionDefinition.minecraftProtocolFormat,
     )
-    val core = MinecraftPacketConnectionCore(
-        session = serverSession,
+    val minecraftPacketConnectionCore = MinecraftPacketConnectionCore(
+        minecraftPacketSession = minecraftServerPacketSession,
         closeTransport = closeTransport,
-        definition = definition,
+        minecraftConnectionDefinition = minecraftConnectionDefinition,
         connectionDispatcher = connectionDispatcher,
     )
-    return MinecraftServerPacketConnectionImplementation(serverSession, core).also { connection ->
-        connection.start()
+    return MinecraftServerPacketConnectionImplementation(minecraftServerPacketSession, minecraftPacketConnectionCore).also { minecraftServerPacketConnectionImplementation ->
+        minecraftServerPacketConnectionImplementation.start()
     }
 }
 
 private class MinecraftServerPacketConnectionImplementation(
-    private val serverSession: MinecraftServerPacketSession,
-    private val core: MinecraftPacketConnectionCore<ServerboundPacket, ClientboundPacket>,
+    private val minecraftServerPacketSession: MinecraftServerPacketSession,
+    private val minecraftPacketConnectionCore: MinecraftPacketConnectionCore<ServerboundPacket, ClientboundPacket>,
 ) : MinecraftServerPacketConnection,
-    MinecraftPacketConnection<ServerboundPacket, ClientboundPacket> by core {
+    MinecraftPacketConnection<ServerboundPacket, ClientboundPacket> by minecraftPacketConnectionCore {
     private val inboundEncryptionActivation = CompletableDeferred<Unit>()
-    private val keepAliveController = MinecraftServerKeepAliveController(core)
+    private val minecraftServerKeepAliveController = MinecraftServerKeepAliveController(minecraftPacketConnectionCore)
 
     fun start() {
-        core.start(::handleIncoming)
+        minecraftPacketConnectionCore.start(::handleIncoming)
     }
 
-    private suspend fun handleIncoming(packet: ServerboundPacket) {
-        if (keepAliveController.handle(packet)) return
-        core.publishIncoming(packet)
-        if (packet is EncryptionResponsePacket) inboundEncryptionActivation.await()
+    private suspend fun handleIncoming(serverboundPacket: ServerboundPacket) {
+        if (minecraftServerKeepAliveController.handle(serverboundPacket)) return
+        minecraftPacketConnectionCore.publishIncoming(serverboundPacket)
+        if (serverboundPacket is EncryptionResponsePacket) inboundEncryptionActivation.await()
     }
 
     override fun enableKeepAlive(
@@ -83,16 +83,16 @@ private class MinecraftServerPacketConnectionImplementation(
         createRequest: (Long) -> ClientboundPacket,
         interval: Duration,
     ) {
-        keepAliveController.enable(extractChallenge, createRequest, interval)
+        minecraftServerKeepAliveController.enable(extractChallenge, createRequest, interval)
     }
 
     override fun disableKeepAlive() {
-        keepAliveController.disable()
+        minecraftServerKeepAliveController.disable()
     }
 
     override fun enableEncryption(sharedSecret: ByteArray) {
-        core.ensureOpen()
-        serverSession.enableEncryption(sharedSecret)
+        minecraftPacketConnectionCore.ensureOpen()
+        minecraftServerPacketSession.enableEncryption(sharedSecret)
         inboundEncryptionActivation.complete(Unit)
     }
 }

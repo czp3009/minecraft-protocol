@@ -42,7 +42,7 @@ enum class NeoForgePacketFlow {
 data class NeoForgeNetworkComponent(
     val id: Identifier,
     val version: String,
-    val flow: NeoForgePacketFlow? = null,
+    val neoForgePacketFlow: NeoForgePacketFlow? = null,
     val optional: Boolean = false,
 ) {
     init {
@@ -121,8 +121,8 @@ data class NeoForgeNetworkSetup(
         }
     }
 
-    fun channels(protocol: NeoForgeConnectionProtocol): Map<Identifier, NeoForgeNetworkChannel> =
-        channels[protocol].orEmpty()
+    fun channels(neoForgeConnectionProtocol: NeoForgeConnectionProtocol): Map<Identifier, NeoForgeNetworkChannel> =
+        channels[neoForgeConnectionProtocol].orEmpty()
 
     companion object {
         val Empty: NeoForgeNetworkSetup = NeoForgeNetworkSetup(emptyMap())
@@ -131,7 +131,7 @@ data class NeoForgeNetworkSetup(
 
 @Serializable
 data class NeoForgeModdedNetworkPacket(
-    val setup: NeoForgeNetworkSetup,
+    val neoForgeNetworkSetup: NeoForgeNetworkSetup,
 ) : NeoForgeBidirectionalPacket
 
 @Serializable
@@ -231,8 +231,8 @@ data class NeoForgeEnumExtensionData(
 @Serializable
 data class NeoForgeEnumEntry(
     val className: String,
-    val networkCheck: NeoForgeNetworkCheck,
-    val data: NeoForgeEnumExtensionData? = null,
+    val neoForgeNetworkCheck: NeoForgeNetworkCheck,
+    val neoForgeEnumExtensionData: NeoForgeEnumExtensionData? = null,
 )
 
 @Serializable

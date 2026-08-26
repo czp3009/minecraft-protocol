@@ -46,25 +46,25 @@ class TestResourceConfigurationTest {
 
     @Test
     fun serviceConfigurationAndResourceValuesRoundTripDirectly() {
-        val configuration = OfficialMinecraftServerConfiguration(
+        val officialMinecraftServerConfiguration = OfficialMinecraftServerConfiguration(
             properties = mapOf("level-name" to "round-trip"),
             startupTimeout = 1.nanoseconds,
         )
         assertEquals(
-            configuration,
+            officialMinecraftServerConfiguration,
             Json.decodeFromString(
-                Json.encodeToString(configuration),
+                Json.encodeToString(officialMinecraftServerConfiguration),
             ),
         )
 
-        val resource: MinecraftTestResource = OfficialMinecraftServer(
+        val minecraftTestResource: MinecraftTestResource = OfficialMinecraftServer(
             id = "server-id",
-            endpoint = MinecraftTestEndpoint("127.0.0.1", 25_565),
+            minecraftTestEndpoint = MinecraftTestEndpoint("127.0.0.1", 25_565),
         )
         assertEquals(
-            resource,
+            minecraftTestResource,
             Json.decodeFromString<MinecraftTestResource>(
-                Json.encodeToString(resource),
+                Json.encodeToString(minecraftTestResource),
             ),
         )
     }

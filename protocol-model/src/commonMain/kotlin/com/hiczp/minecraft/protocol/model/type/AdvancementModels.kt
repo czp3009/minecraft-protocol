@@ -123,7 +123,7 @@ internal object AdvancementDisplayInfoSerializer :
             ICON,
             ItemStackTemplate.serializer(),
         )
-        val type = input.decodeSerializableElement(
+        val advancementType = input.decodeSerializableElement(
             descriptor,
             TYPE,
             AdvancementType.serializer(),
@@ -145,7 +145,7 @@ internal object AdvancementDisplayInfoSerializer :
             title,
             description,
             icon,
-            type,
+            advancementType,
             background,
             flags and SHOW_TOAST != 0,
             flags and HIDDEN != 0,

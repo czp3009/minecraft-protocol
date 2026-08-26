@@ -66,19 +66,19 @@ internal object HeadlessClientEndToEndRunner {
     }
 
     suspend fun run() {
-        var client: HeadlessMinecraftClient? = null
+        var headlessMinecraftClient: HeadlessMinecraftClient? = null
         var primaryFailure: Throwable? = null
         try {
-            SelectorManager(Dispatchers.Default).use { selector ->
+            SelectorManager(Dispatchers.Default).use { selectorManager ->
                 val launched = MinecraftTestSupport.newHeadlessClient(
-                    configuration = HeadlessMinecraftClientConfiguration(
+                    headlessMinecraftClientConfiguration = HeadlessMinecraftClientConfiguration(
                         playerName = PLAYER_NAME,
                     ),
                 )
-                client = launched
-                val connected = connectOfficialClient(selector, launched)
-                connected.server.use {
-                    awaitPlayRoundTrip(connected.connection, launched)
+                headlessMinecraftClient = launched
+                val connectedOfficialClient = connectOfficialClient(selectorManager, launched)
+                connectedOfficialClient.minecraftServer.use {
+                    awaitPlayRoundTrip(connectedOfficialClient.minecraftServerConnection, launched)
                 }
             }
         } catch (failure: CancellationException) {
@@ -86,7 +86,7 @@ internal object HeadlessClientEndToEndRunner {
             throw failure
         } catch (failure: Throwable) {
             val clientLog = try {
-                client?.let { MinecraftTestSupport.logText(it) }.orEmpty()
+                headlessMinecraftClient?.let { MinecraftTestSupport.logText(it) }.orEmpty()
             } catch (logFailure: CancellationException) {
                 logFailure.addSuppressed(failure)
                 primaryFailure = logFailure
@@ -108,7 +108,7 @@ internal object HeadlessClientEndToEndRunner {
         } finally {
             withContext(NonCancellable) {
                 try {
-                    client?.let { launched ->
+                    headlessMinecraftClient?.let { launched ->
                         check(MinecraftTestSupport.closeAndAwait(launched) == 0) {
                             "Official client did not stop cleanly"
                         }
@@ -122,56 +122,56 @@ internal object HeadlessClientEndToEndRunner {
     }
 
     private suspend fun connectOfficialClient(
-        selector: SelectorManager,
-        client: HeadlessMinecraftClient,
+        selectorManager: SelectorManager,
+        headlessMinecraftClient: HeadlessMinecraftClient,
     ): ConnectedOfficialClient {
         val failures = mutableListOf<String>()
         repeat(MAXIMUM_CONNECTION_ATTEMPTS) { index ->
             val attempt = index + 1
-            val server = MinecraftServer.bind(
-                selectorManager = selector,
+            val minecraftServer = MinecraftServer.bind(
+                selectorManager = selectorManager,
                 host = LOOPBACK,
                 port = 0,
             )
             var accepted = false
             try {
-                val endpoint = MinecraftTestEndpoint(
+                val minecraftTestEndpoint = MinecraftTestEndpoint(
                     host = LOOPBACK,
-                    port = server.port,
+                    port = minecraftServer.port,
                 )
                 val commandState = MinecraftTestSupport.connectHeadlessClient(
-                    client = client,
-                    endpoint = endpoint,
+                    headlessMinecraftClient = headlessMinecraftClient,
+                    minecraftTestEndpoint = minecraftTestEndpoint,
                 )
                 if (commandState.isTerminalConnectionScreen()) {
                     failures += "attempt $attempt: connect command completed in ${commandState.description()}"
                 } else {
                     when (
-                        val result = awaitConnectionWithin(
-                            server = server,
-                            client = client,
+                        val deadlineResult = awaitConnectionWithin(
+                            minecraftServer = minecraftServer,
+                            headlessMinecraftClient = headlessMinecraftClient,
                         )
                     ) {
                         is DeadlineResult.Completed -> {
                             accepted = true
                             return ConnectedOfficialClient(
-                                server = server,
-                                connection = result.value,
+                                minecraftServer = minecraftServer,
+                                minecraftServerConnection = deadlineResult.value,
                             )
                         }
 
                         DeadlineResult.TimedOut -> {
-                            val finalState = MinecraftTestSupport.headlessClientState(client)
+                            val finalState = MinecraftTestSupport.headlessClientState(headlessMinecraftClient)
                             val stateChange = "${commandState.description()} -> ${finalState.description()}"
                             failures += "attempt $attempt: no TCP in $CONNECTION_ATTEMPT_TIMEOUT; GUI $stateChange"
                         }
                     }
                 }
             } finally {
-                if (!accepted) server.close()
+                if (!accepted) minecraftServer.close()
             }
             if (attempt < MAXIMUM_CONNECTION_ATTEMPTS) {
-                MinecraftTestSupport.disconnectHeadlessClient(client)
+                MinecraftTestSupport.disconnectHeadlessClient(headlessMinecraftClient)
             }
         }
         val details = failures.joinToString(separator = "\n- ", prefix = "- ")
@@ -179,34 +179,34 @@ internal object HeadlessClientEndToEndRunner {
     }
 
     private suspend fun awaitConnectionWithin(
-        server: MinecraftServer,
-        client: HeadlessMinecraftClient,
+        minecraftServer: MinecraftServer,
+        headlessMinecraftClient: HeadlessMinecraftClient,
     ): DeadlineResult<MinecraftServerConnection> = try {
-        awaitExternal(CONNECTION_ATTEMPT_TIMEOUT) { server.accept() }
+        awaitExternal(CONNECTION_ATTEMPT_TIMEOUT) { minecraftServer.accept() }
     } catch (failure: CancellationException) {
         throw failure
     } catch (failure: Throwable) {
-        if (!MinecraftTestSupport.isAlive(client)) {
+        if (!MinecraftTestSupport.isAlive(headlessMinecraftClient)) {
             error(
-                "Official client exited with ${MinecraftTestSupport.exitCode(client)} while connecting",
+                "Official client exited with ${MinecraftTestSupport.exitCode(headlessMinecraftClient)} while connecting",
             )
         }
         throw failure
     }
 
     private suspend fun awaitPlayRoundTrip(
-        connection: MinecraftServerConnection,
-        client: HeadlessMinecraftClient,
+        minecraftServerConnection: MinecraftServerConnection,
+        headlessMinecraftClient: HeadlessMinecraftClient,
     ) {
-        check(MinecraftTestSupport.isAlive(client)) {
-            "Official client exited with ${MinecraftTestSupport.exitCode(client)}"
+        check(MinecraftTestSupport.isAlive(headlessMinecraftClient)) {
+            "Official client exited with ${MinecraftTestSupport.exitCode(headlessMinecraftClient)}"
         }
         val ready = when (
-            val result = awaitExternal(PROTOCOL_STAGE_TIMEOUT) {
-                connection.negotiate(options = OPTIONS)
+            val deadlineResult = awaitExternal(PROTOCOL_STAGE_TIMEOUT) {
+                minecraftServerConnection.negotiate(minecraftServerNegotiationOptions = OPTIONS)
             }
         ) {
-            is DeadlineResult.Completed -> result.value
+            is DeadlineResult.Completed -> deadlineResult.value
             DeadlineResult.TimedOut -> error(
                 "Official client did not complete protocol negotiation within $PROTOCOL_STAGE_TIMEOUT",
             )
@@ -214,7 +214,7 @@ internal object HeadlessClientEndToEndRunner {
         checkNotNull(ready) {
             "Official client connection completed Status instead of entering Play"
         }
-        val keepAlive = connection.enableRecordingPlayKeepAlive(5.seconds)
+        val recordingKeepAlive = minecraftServerConnection.enableRecordingPlayKeepAlive(5.seconds)
         try {
             val pig = MinecraftEntitySnapshot(
                 entityId = 2,
@@ -241,16 +241,16 @@ internal object HeadlessClientEndToEndRunner {
                 type = Identifier("horse"),
                 position = Vector3d(5.5, 65.0, 5.5),
             )
-            val world = MinecraftInitialWorld.flatVanilla(
-                options = OPTIONS,
+            val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(
+                minecraftServerNegotiationOptions = OPTIONS,
                 entities = listOf(pig, arrow, minecart, horse),
             )
             runProtocolStage("managed Play KeepAlive request") {
-                keepAlive.requestCreated.await()
+                recordingKeepAlive.requestCreated.await()
             }
             runProtocolStage("initial-world synchronization") {
-                connection.synchronizeInitialWorld(world)
-                connection.requestFlush()
+                minecraftServerConnection.synchronizeInitialWorld(minecraftInitialWorld)
+                minecraftServerConnection.requestFlush()
             }
             val observed = mutableListOf<String>()
             var teleportAcknowledged = false
@@ -266,13 +266,13 @@ internal object HeadlessClientEndToEndRunner {
                         )
             ) {
                 val packet = receiveForStage(
-                    connection,
+                    minecraftServerConnection,
                     "waiting for initial-world acknowledgements",
                 )
                 observed += packet::class.simpleName ?: "<anonymous>"
                 when (packet) {
                     is ConfirmTeleportationPacket ->
-                        teleportAcknowledged = packet.teleportId == world.bootstrap.teleportId
+                        teleportAcknowledged = packet.teleportId == minecraftInitialWorld.minecraftInitialWorldBootstrap.teleportId
 
                     is ChunkBatchReceivedPacket -> chunkBatchAcknowledged = true
 
@@ -294,28 +294,28 @@ internal object HeadlessClientEndToEndRunner {
                 "Initial acknowledgements incomplete: $initialState; packets=${observed.joinToString()}"
             }
             runProtocolStage("managed Play KeepAlive round trip") {
-                keepAlive.roundTrip.await()
+                recordingKeepAlive.roundTrip.await()
             }
 
             runProtocolStage("Play packet coverage") {
                 exercisePlayPackets(
-                    connection = connection,
+                    minecraftServerConnection = minecraftServerConnection,
                     playerEntityId = ready.playLoginPacket.playerId,
-                    entity = pig,
+                    minecraftEntitySnapshot = pig,
                     projectile = arrow,
                     vehicle = minecart,
                     horse = horse,
-                    nextTeleportId = world.bootstrap.teleportId + 1,
+                    nextTeleportId = minecraftInitialWorld.minecraftInitialWorldBootstrap.teleportId + 1,
                     observed = observed,
                 )
             }
             runProtocolStage("Respawn coverage") {
                 exerciseRespawn(
-                    connection = connection,
-                    login = ready.playLoginPacket,
-                    world = world.copy(
-                        bootstrap = world.bootstrap.copy(
-                            teleportId = world.bootstrap.teleportId + 2,
+                    minecraftServerConnection = minecraftServerConnection,
+                    playLoginPacket = ready.playLoginPacket,
+                    minecraftInitialWorld = minecraftInitialWorld.copy(
+                        minecraftInitialWorldBootstrap = minecraftInitialWorld.minecraftInitialWorldBootstrap.copy(
+                            teleportId = minecraftInitialWorld.minecraftInitialWorldBootstrap.teleportId + 2,
                         ),
                     ),
                     observed = observed,
@@ -323,24 +323,24 @@ internal object HeadlessClientEndToEndRunner {
             }
             runProtocolStage("reconfiguration coverage") {
                 exerciseReconfiguration(
-                    connection = connection,
-                    login = ready.playLoginPacket,
-                    world = world,
+                    minecraftServerConnection = minecraftServerConnection,
+                    playLoginPacket = ready.playLoginPacket,
+                    minecraftInitialWorld = minecraftInitialWorld,
                     observedPlayPackets = observed,
                 )
             }
-            check(MinecraftTestSupport.isAlive(client)) {
+            check(MinecraftTestSupport.isAlive(headlessMinecraftClient)) {
                 "Official client exited after protocol round-trip probes"
             }
         } finally {
-            connection.close()
+            minecraftServerConnection.close()
         }
     }
 
     private suspend fun exercisePlayPackets(
-        connection: MinecraftServerConnection,
+        minecraftServerConnection: MinecraftServerConnection,
         playerEntityId: Int,
-        entity: MinecraftEntitySnapshot,
+        minecraftEntitySnapshot: MinecraftEntitySnapshot,
         projectile: MinecraftEntitySnapshot,
         vehicle: MinecraftEntitySnapshot,
         horse: MinecraftEntitySnapshot,
@@ -429,18 +429,18 @@ internal object HeadlessClientEndToEndRunner {
             ),
             GameRuleValuesPacket(emptyMap()),
             SetEntityVelocityPacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 velocity = Vector3d(0.01, 0.0, -0.01),
             ),
             UpdateEntityPositionPacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 deltaX = 64,
                 deltaY = 0,
                 deltaZ = -64,
                 onGround = true,
             ),
             TeleportEntityPacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 values = PositionMoveRotation(
                     position = Vector3d(3.75, 65.0, 3.25),
                     deltaMovement = Vector3d(0.0, 0.0, 0.0),
@@ -460,18 +460,18 @@ internal object HeadlessClientEndToEndRunner {
             PlayServerLinksPacket(emptyList()),
             ClearDialogPacket,
             EntityAnimationPacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 animationId = 0,
             ),
             AwardStatisticsPacket(emptyList()),
             AcknowledgeBlockChangePacket(sequenceId = 0),
             SetBlockDestroyStagePacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 location = BlockPosition(0, 64, 0),
                 destroyStage = 0,
             ),
             SetBlockDestroyStagePacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 location = BlockPosition(0, 64, 0),
                 destroyStage = 255,
             ),
@@ -557,7 +557,7 @@ internal object HeadlessClientEndToEndRunner {
                 CustomPayload.Brand("minecraft-protocol"),
             ),
             DamageEventPacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 sourceTypeId = 0,
                 sourceCauseEntityId = null,
                 sourceDirectEntityId = null,
@@ -579,7 +579,7 @@ internal object HeadlessClientEndToEndRunner {
                 ),
             ),
             DebugEntityValuePacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 update = DebugSubscriptionUpdate(
                     type = DebugSubscriptionType.BEE,
                     data = null,
@@ -605,7 +605,7 @@ internal object HeadlessClientEndToEndRunner {
                 ),
             ),
             EntityEventPacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 eventId = 2,
             ),
             ExplosionPacket(
@@ -624,7 +624,7 @@ internal object HeadlessClientEndToEndRunner {
                 relativePosition = BlockPosition(0, 0, 0),
             ),
             HurtAnimationPacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 yaw = 15.0f,
             ),
             InitializeWorldBorderPacket(
@@ -663,7 +663,7 @@ internal object HeadlessClientEndToEndRunner {
                 particle = simpleParticle,
             ),
             UpdateEntityPositionAndRotationPacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 deltaX = 16,
                 deltaY = 0,
                 deltaZ = 16,
@@ -672,7 +672,7 @@ internal object HeadlessClientEndToEndRunner {
                 onGround = true,
             ),
             UpdateEntityRotationPacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 yaw = Angle.fromDegrees(60.0f),
                 pitch = Angle.fromDegrees(0.0f),
                 onGround = true,
@@ -755,8 +755,8 @@ internal object HeadlessClientEndToEndRunner {
             LookAtPacket(
                 fromAnchor = EntityAnchor.EYES,
                 target = LookTarget.Entity(
-                    fallbackPosition = entity.position,
-                    entityId = entity.entityId,
+                    fallbackPosition = minecraftEntitySnapshot.position,
+                    entityId = minecraftEntitySnapshot.entityId,
                     anchor = EntityAnchor.EYES,
                 ),
             ),
@@ -777,12 +777,12 @@ internal object HeadlessClientEndToEndRunner {
             ),
             RemoveEntitiesPacket(emptyList()),
             RemoveEntityEffectPacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 effectTypeId = 0,
             ),
             PlayRemoveResourcePackPacket(id = null),
             SetHeadRotationPacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 headYaw = Angle.fromDegrees(75.0f),
             ),
             UpdateSectionBlocksPacket(
@@ -808,16 +808,16 @@ internal object HeadlessClientEndToEndRunner {
             SetBorderWarningDistancePacket(warningBlocks = 5),
             SetCameraPacket(cameraEntityId = playerEntityId),
             SetEntityMetadataPacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 metadata = EntityMetadata(emptyList()),
             ),
             LinkEntitiesPacket(
-                attachedEntityId = entity.entityId,
+                attachedEntityId = minecraftEntitySnapshot.entityId,
                 holdingEntityId = 0,
             ),
             SetPassengersPacket(
                 vehicleEntityId = vehicle.entityId,
-                passengerEntityIds = listOf(entity.entityId),
+                passengerEntityIds = listOf(minecraftEntitySnapshot.entityId),
             ),
             SetPassengersPacket(
                 vehicleEntityId = vehicle.entityId,
@@ -885,7 +885,7 @@ internal object HeadlessClientEndToEndRunner {
                 contents = ItemStack.Empty,
             ),
             SetEquipmentPacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 updates = EquipmentUpdates(
                     listOf(
                         EquipmentUpdate(
@@ -898,14 +898,14 @@ internal object HeadlessClientEndToEndRunner {
             EntitySoundEffectPacket(
                 sound = sound,
                 source = SoundSource.NEUTRAL,
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 volume = 0.1f,
                 pitch = 1.0f,
                 seed = 1,
             ),
             SoundEffectPacket.fromPosition(
-                sound = sound,
-                source = SoundSource.MASTER,
+                soundEventHolder = sound,
+                soundSource = SoundSource.MASTER,
                 x = 0.5,
                 y = 65.0,
                 z = 0.5,
@@ -947,7 +947,7 @@ internal object HeadlessClientEndToEndRunner {
                 stonecutterRecipes = emptyList(),
             ),
             UpdateAttributesPacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 attributes = emptyList(),
             ),
             ProjectilePowerPacket(
@@ -955,14 +955,14 @@ internal object HeadlessClientEndToEndRunner {
                 power = 1.0,
             ),
             EntityEffectPacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 effectTypeId = 0,
                 amplifier = 0,
                 durationTicks = 20,
                 flags = MobEffectFlags(0),
             ),
             RemoveEntityEffectPacket(
-                entityId = entity.entityId,
+                entityId = minecraftEntitySnapshot.entityId,
                 effectTypeId = 0,
             ),
             PlayUpdateTagsPacket(
@@ -1084,22 +1084,22 @@ internal object HeadlessClientEndToEndRunner {
             ),
         )
         packets.forEachIndexed { index, packet ->
-            connection.outgoing.send(packet)
+            minecraftServerConnection.outgoing.send(packet)
             awaitPlayBarrier(
-                connection = connection,
+                minecraftServerConnection = minecraftServerConnection,
                 label = packet::class.simpleName ?: "clientbound packet $index",
                 pingId = PLAY_PING_ID + index,
                 observed = observed,
             )
         }
 
-        connection.outgoing.send(
+        minecraftServerConnection.outgoing.send(
             PlayStoreCookiePacket(COOKIE_KEY, COOKIE_PAYLOAD),
         )
-        connection.outgoing.send(PlayCookieRequestPacket(COOKIE_KEY))
+        minecraftServerConnection.outgoing.send(PlayCookieRequestPacket(COOKIE_KEY))
         var cookieRoundTrip = false
         awaitPlayBarrier(
-            connection = connection,
+            minecraftServerConnection = minecraftServerConnection,
             label = "Play cookie store/request",
             pingId = PLAY_PING_ID + packets.size,
             observed = observed,
@@ -1117,7 +1117,7 @@ internal object HeadlessClientEndToEndRunner {
             },
         )
 
-        connection.outgoing.send(
+        minecraftServerConnection.outgoing.send(
             SynchronizePlayerPositionPacket(
                 teleportId = nextTeleportId,
                 change = PositionMoveRotation(
@@ -1131,7 +1131,7 @@ internal object HeadlessClientEndToEndRunner {
         )
         var teleportAcknowledged = false
         awaitPlayBarrier(
-            connection = connection,
+            minecraftServerConnection = minecraftServerConnection,
             label = "second player-position synchronization",
             pingId = PLAY_PING_ID + packets.size + 1,
             observed = observed,
@@ -1145,26 +1145,26 @@ internal object HeadlessClientEndToEndRunner {
                 }
             },
         )
-        check(playerEntityId != entity.entityId) {
+        check(playerEntityId != minecraftEntitySnapshot.entityId) {
             "Play probe entity unexpectedly reused the player entity ID"
         }
     }
 
     private suspend fun exerciseRespawn(
-        connection: MinecraftServerConnection,
-        login: PlayLoginPacket,
-        world: MinecraftInitialWorld,
+        minecraftServerConnection: MinecraftServerConnection,
+        playLoginPacket: PlayLoginPacket,
+        minecraftInitialWorld: MinecraftInitialWorld,
         observed: MutableList<String>,
     ) {
-        connection.outgoing.send(
+        minecraftServerConnection.outgoing.send(
             RespawnPacket(
-                spawnInfo = login.spawnInfo,
+                spawnInfo = playLoginPacket.spawnInfo,
                 dataToKeep = RespawnPacket.KEEP_ALL_DATA.toByte(),
             ),
         )
-        connection.synchronizeInitialWorld(world)
-        connection.outgoing.send(ClientboundPingPacket(RESPAWN_PING_ID))
-        connection.requestFlush()
+        minecraftServerConnection.synchronizeInitialWorld(minecraftInitialWorld)
+        minecraftServerConnection.outgoing.send(ClientboundPingPacket(RESPAWN_PING_ID))
+        minecraftServerConnection.requestFlush()
 
         var ping = false
         var tick = false
@@ -1183,7 +1183,7 @@ internal object HeadlessClientEndToEndRunner {
                     )
         ) {
             val packet = receiveForStage(
-                connection,
+                minecraftServerConnection,
                 "waiting for post-Respawn Play probes",
             )
             observed += packet::class.simpleName ?: "<anonymous>"
@@ -1192,7 +1192,7 @@ internal object HeadlessClientEndToEndRunner {
                     if (packet.id == RESPAWN_PING_ID) ping = true
 
                 is ConfirmTeleportationPacket ->
-                    if (packet.teleportId == world.bootstrap.teleportId) {
+                    if (packet.teleportId == minecraftInitialWorld.minecraftInitialWorldBootstrap.teleportId) {
                         teleport = true
                     }
 
@@ -1221,15 +1221,15 @@ internal object HeadlessClientEndToEndRunner {
     }
 
     private suspend fun awaitPlayBarrier(
-        connection: MinecraftServerConnection,
+        minecraftServerConnection: MinecraftServerConnection,
         label: String,
         pingId: Int,
         observed: MutableList<String>,
         additionalComplete: () -> Boolean = { true },
         onPacket: (Packet) -> Unit = {},
     ) {
-        connection.outgoing.send(ClientboundPingPacket(pingId))
-        connection.requestFlush()
+        minecraftServerConnection.outgoing.send(ClientboundPingPacket(pingId))
+        minecraftServerConnection.requestFlush()
         var pingRoundTrip = false
         var tickObserved = false
         var packetBudget = MAXIMUM_PACKETS_PER_STAGE
@@ -1248,7 +1248,7 @@ internal object HeadlessClientEndToEndRunner {
                         )
             ) {
                 val packet = receiveForStage(
-                    connection,
+                    minecraftServerConnection,
                     "processing the $label barrier",
                 )
                 observed += packet::class.simpleName ?: "<anonymous>"
@@ -1279,15 +1279,15 @@ internal object HeadlessClientEndToEndRunner {
     }
 
     private suspend fun exerciseReconfiguration(
-        connection: MinecraftServerConnection,
-        login: PlayLoginPacket,
-        world: MinecraftInitialWorld,
+        minecraftServerConnection: MinecraftServerConnection,
+        playLoginPacket: PlayLoginPacket,
+        minecraftInitialWorld: MinecraftInitialWorld,
         observedPlayPackets: MutableList<String>,
     ) {
         var playerLoaded = observedPlayPackets.any { it == "PlayerLoadedPacket" }
         if (!playerLoaded) {
             awaitPlayBarrier(
-                connection = connection,
+                minecraftServerConnection = minecraftServerConnection,
                 label = "Player Loaded readiness",
                 pingId = PRE_CONFIGURATION_PING_ID,
                 observed = observedPlayPackets,
@@ -1297,12 +1297,12 @@ internal object HeadlessClientEndToEndRunner {
                 },
             )
         }
-        connection.outgoing.send(StartConfigurationPacket)
+        minecraftServerConnection.outgoing.send(StartConfigurationPacket)
         var acknowledged = false
         var packetBudget = MAXIMUM_PACKETS_PER_STAGE
         while (packetBudget-- > 0 && !acknowledged) {
             val packet = receiveForStage(
-                connection,
+                minecraftServerConnection,
                 "waiting for the Play reconfiguration acknowledgement",
             )
             observedPlayPackets +=
@@ -1312,28 +1312,28 @@ internal object HeadlessClientEndToEndRunner {
         check(acknowledged) {
             "Official client did not acknowledge reconfiguration"
         }
-        check(connection.state == ConnectionState.CONFIGURATION) {
+        check(minecraftServerConnection.connectionState == ConnectionState.CONFIGURATION) {
             "Server session did not enter Configuration after acknowledgement"
         }
-        connection.disableKeepAlive()
-        val configurationKeepAlive = connection.enableRecordingConfigurationKeepAlive(5.seconds)
+        minecraftServerConnection.disableKeepAlive()
+        val configurationKeepAlive = minecraftServerConnection.enableRecordingConfigurationKeepAlive(5.seconds)
         configurationKeepAlive.requestCreated.await()
 
-        connection.outgoing.send(
+        minecraftServerConnection.outgoing.send(
             ConfigurationStoreCookiePacket(COOKIE_KEY, COOKIE_PAYLOAD),
         )
-        connection.outgoing.send(ConfigurationCookieRequestPacket(COOKIE_KEY))
-        connection.outgoing.send(
+        minecraftServerConnection.outgoing.send(ConfigurationCookieRequestPacket(COOKIE_KEY))
+        minecraftServerConnection.outgoing.send(
             ConfigurationPingPacket(CONFIGURATION_PING_ID),
         )
-        connection.outgoing.send(
+        minecraftServerConnection.outgoing.send(
             ConfigurationClientboundPluginMessagePacket(
                 CustomPayload.Brand("minecraft-protocol"),
             ),
         )
-        connection.outgoing.send(ConfigurationRemoveResourcePackPacket(null))
-        connection.outgoing.send(ResetChatPacket)
-        connection.outgoing.send(
+        minecraftServerConnection.outgoing.send(ConfigurationRemoveResourcePackPacket(null))
+        minecraftServerConnection.outgoing.send(ResetChatPacket)
+        minecraftServerConnection.outgoing.send(
             ConfigurationCustomReportDetailsPacket(
                 listOf(
                     ReportDetail(
@@ -1343,12 +1343,12 @@ internal object HeadlessClientEndToEndRunner {
                 ),
             ),
         )
-        connection.outgoing.send(ConfigurationServerLinksPacket(emptyList()))
-        connection.outgoing.send(ConfigurationClearDialogPacket)
-        connection.outgoing.send(
+        minecraftServerConnection.outgoing.send(ConfigurationServerLinksPacket(emptyList()))
+        minecraftServerConnection.outgoing.send(ConfigurationClearDialogPacket)
+        minecraftServerConnection.outgoing.send(
             FeatureFlagsPacket(OPTIONS.protocolData.enabledFeatureFlags),
         )
-        connection.outgoing.send(
+        minecraftServerConnection.outgoing.send(
             ConfigurationClientboundKnownPacksPacket(
                 OPTIONS.protocolData.offeredKnownPacks,
             ),
@@ -1356,18 +1356,18 @@ internal object HeadlessClientEndToEndRunner {
 
         var cookieRoundTrip = false
         var pingRoundTrip = false
-        var knownPacks: ConfigurationServerboundKnownPacksPacket? = null
+        var configurationServerboundKnownPacksPacket: ConfigurationServerboundKnownPacksPacket? = null
         packetBudget = MAXIMUM_PACKETS_PER_STAGE
         while (
             packetBudget-- > 0 &&
             !(
                     cookieRoundTrip &&
                             pingRoundTrip &&
-                            knownPacks != null
+                            configurationServerboundKnownPacksPacket != null
                     )
         ) {
             val packet = receiveForStage(
-                connection,
+                minecraftServerConnection,
                 "waiting for Configuration cookie/keepalive/ping/Known Packs",
             )
             when (packet) {
@@ -1385,7 +1385,7 @@ internal object HeadlessClientEndToEndRunner {
                     }
 
                 is ConfigurationServerboundKnownPacksPacket ->
-                    knownPacks = packet
+                    configurationServerboundKnownPacksPacket = packet
 
                 else -> Unit
             }
@@ -1393,30 +1393,30 @@ internal object HeadlessClientEndToEndRunner {
         val configurationState = listOf(
             "cookie=$cookieRoundTrip",
             "ping=$pingRoundTrip",
-            "knownPacks=${knownPacks != null}",
+            "knownPacks=${configurationServerboundKnownPacksPacket != null}",
         ).joinToString()
         check(
             cookieRoundTrip &&
                     pingRoundTrip &&
-                    knownPacks != null,
+                    configurationServerboundKnownPacksPacket != null,
         ) {
             "Configuration probes incomplete: $configurationState"
         }
         configurationKeepAlive.roundTrip.await()
-        val acceptedKnownPacks = knownPacks.knownPacks
+        val acceptedKnownPacks = configurationServerboundKnownPacksPacket.knownPacks
         OPTIONS.protocolData
             .synchronizedRegistryPackets(acceptedKnownPacks)
-            .forEach { registryDataPacket -> connection.outgoing.send(registryDataPacket) }
-        connection.outgoing.send(
+            .forEach { registryDataPacket -> minecraftServerConnection.outgoing.send(registryDataPacket) }
+        minecraftServerConnection.outgoing.send(
             ConfigurationUpdateTagsPacket(OPTIONS.protocolData.registryTags),
         )
-        connection.outgoing.send(FinishConfigurationPacket)
+        minecraftServerConnection.outgoing.send(FinishConfigurationPacket)
 
         var completed = false
         packetBudget = MAXIMUM_PACKETS_PER_STAGE
         while (packetBudget-- > 0 && !completed) {
             val packet = receiveForStage(
-                connection,
+                minecraftServerConnection,
                 "waiting for Finish Configuration acknowledgement",
             )
             completed = packet == AcknowledgeFinishConfigurationPacket
@@ -1424,24 +1424,24 @@ internal object HeadlessClientEndToEndRunner {
         check(completed) {
             "Official client did not finish reconfiguration"
         }
-        check(connection.state == ConnectionState.PLAY) {
+        check(minecraftServerConnection.connectionState == ConnectionState.PLAY) {
             "Server session did not return to Play after reconfiguration"
         }
-        connection.disableKeepAlive()
-        val playKeepAlive = connection.enableRecordingPlayKeepAlive(5.seconds)
+        minecraftServerConnection.disableKeepAlive()
+        val playKeepAlive = minecraftServerConnection.enableRecordingPlayKeepAlive(5.seconds)
         playKeepAlive.requestCreated.await()
 
-        connection.outgoing.send(login)
-        val reconfiguredWorld = world.copy(
-            bootstrap = world.bootstrap.copy(
-                teleportId = world.bootstrap.teleportId + 3,
+        minecraftServerConnection.outgoing.send(playLoginPacket)
+        val reconfiguredWorld = minecraftInitialWorld.copy(
+            minecraftInitialWorldBootstrap = minecraftInitialWorld.minecraftInitialWorldBootstrap.copy(
+                teleportId = minecraftInitialWorld.minecraftInitialWorldBootstrap.teleportId + 3,
             ),
         )
-        connection.synchronizeInitialWorld(reconfiguredWorld)
-        connection.outgoing.send(
+        minecraftServerConnection.synchronizeInitialWorld(reconfiguredWorld)
+        minecraftServerConnection.outgoing.send(
             ClientboundPingPacket(POST_CONFIGURATION_PING_ID),
         )
-        connection.requestFlush()
+        minecraftServerConnection.requestFlush()
         var postPing = false
         var postTick = false
         var postTeleport = false
@@ -1459,7 +1459,7 @@ internal object HeadlessClientEndToEndRunner {
                     )
         ) {
             val packet = receiveForStage(
-                connection,
+                minecraftServerConnection,
                 "waiting for post-Configuration Play probes",
             )
             observedPlayPackets +=
@@ -1471,7 +1471,7 @@ internal object HeadlessClientEndToEndRunner {
                     }
 
                 is ConfirmTeleportationPacket ->
-                    if (packet.teleportId == reconfiguredWorld.bootstrap.teleportId) {
+                    if (packet.teleportId == reconfiguredWorld.minecraftInitialWorldBootstrap.teleportId) {
                         postTeleport = true
                     }
 
@@ -1503,26 +1503,26 @@ internal object HeadlessClientEndToEndRunner {
     }
 
     private suspend fun receiveForStage(
-        connection: MinecraftServerConnection,
+        minecraftServerConnection: MinecraftServerConnection,
         stage: String,
     ): Packet {
-        connection.requestFlush()
-        val result = try {
+        minecraftServerConnection.requestFlush()
+        val deadlineResult = try {
             awaitExternal(PROTOCOL_STAGE_TIMEOUT) {
-                connection.incoming.receive()
+                minecraftServerConnection.incoming.receive()
             }
         } catch (failure: CancellationException) {
             throw failure
         } catch (failure: Throwable) {
             throw IllegalStateException(
-                "Official client disconnected while $stage (server state ${connection.state})",
+                "Official client disconnected while $stage (server state ${minecraftServerConnection.connectionState})",
                 failure,
             )
         }
-        return when (result) {
-            is DeadlineResult.Completed -> result.value
+        return when (deadlineResult) {
+            is DeadlineResult.Completed -> deadlineResult.value
             DeadlineResult.TimedOut -> error(
-                "No client packet in $PROTOCOL_STAGE_TIMEOUT: $stage; state=${connection.state}",
+                "No client packet in $PROTOCOL_STAGE_TIMEOUT: $stage; state=${minecraftServerConnection.connectionState}",
             )
         }
     }
@@ -1554,8 +1554,8 @@ internal object HeadlessClientEndToEndRunner {
         screenClassName ?: "no displayed GUI"
 
     private data class ConnectedOfficialClient(
-        val server: MinecraftServer,
-        val connection: MinecraftServerConnection,
+        val minecraftServer: MinecraftServer,
+        val minecraftServerConnection: MinecraftServerConnection,
     )
 
     private sealed interface DeadlineResult<out T> {

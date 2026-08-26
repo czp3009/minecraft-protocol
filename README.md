@@ -82,11 +82,11 @@ suspend fun runClient(
     host: String,
     handlePacket: suspend (ClientboundPacket) -> Unit,
 ) {
-    MinecraftClientConnection.connect(selectorManager, host).use { connection ->
-        connection.negotiate(MinecraftOfflineIdentity("Player"))
+    MinecraftClientConnection.connect(selectorManager, host).use { minecraftClientConnection ->
+        minecraftClientConnection.negotiate(MinecraftOfflineIdentity("Player"))
 
-        for (packet in connection.incoming) {
-            handlePacket(packet)
+        for (clientboundPacket in minecraftClientConnection.incoming) {
+            handlePacket(clientboundPacket)
         }
     }
 }
@@ -106,14 +106,14 @@ suspend fun runServer(
     selectorManager: SelectorManager,
     handlePacket: suspend (MinecraftServerConnection, ServerboundPacket) -> Unit,
 ) = coroutineScope {
-    MinecraftServer.bind(selectorManager).use { server ->
-        while (server.isOpen) {
-            val connection = server.accept()
+    MinecraftServer.bind(selectorManager).use { minecraftServer ->
+        while (minecraftServer.isOpen) {
+            val minecraftServerConnection = minecraftServer.accept()
             launch {
-                connection.use connectionUse@{
-                    connection.negotiate() ?: return@connectionUse
-                    for (packet in connection.incoming) {
-                        handlePacket(connection, packet)
+                minecraftServerConnection.use minecraftServerConnectionUse@{
+                    minecraftServerConnection.negotiate() ?: return@minecraftServerConnectionUse
+                    for (serverboundPacket in minecraftServerConnection.incoming) {
+                        handlePacket(minecraftServerConnection, serverboundPacket)
                     }
                 }
             }
@@ -136,10 +136,10 @@ Use `MinecraftWorldAccess` when your process owns the world directory:
 suspend fun readChunk(
     worldPath: Path,
     chunkPosition: ChunkPosition,
-    codec: ChunkNbtCodec<BlockStateDescriptor, String>,
-): Chunk<BlockStateDescriptor, String>? = MinecraftWorldAccess.open(worldPath).use { world ->
-    world.openRegion(chunkPosition.region).use { region ->
-        region.readChunk(chunkPosition, codec)
+    chunkNbtCodec: ChunkNbtCodec<BlockStateDescriptor, String>,
+): Chunk<BlockStateDescriptor, String>? = MinecraftWorldAccess.open(worldPath).use { minecraftWorldAccess ->
+    minecraftWorldAccess.openRegion(chunkPosition.regionPosition).use { regionHandle ->
+        regionHandle.readChunk(chunkPosition, chunkNbtCodec)
     }
 }
 ```

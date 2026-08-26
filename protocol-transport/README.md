@@ -21,33 +21,33 @@ without opening a socket:
 
 ```kotlin
 val packetData = byteArrayOf(0x01, 0x02, 0x03)
-val codec = MinecraftFrameCodec().apply {
+val minecraftFrameCodec = MinecraftFrameCodec().apply {
     configureCompression(threshold = 256)
 }
 
-val frame = codec.encodeFrame(packetData)
-check(codec.decodeFrame(frame).contentEquals(packetData))
+val frame = minecraftFrameCodec.encodeFrame(packetData)
+check(minecraftFrameCodec.decodeFrame(frame).contentEquals(packetData))
 ```
 
-`MinecraftTransport` owns one Ktor `Socket` and exposes its `frameStream`. A caller using this low-level API changes
-compression or encryption immediately after appending the complete transition packet frame. Here `socket` is a
+`MinecraftTransport` owns one Ktor `Socket` and exposes its `minecraftFrameStream`. A caller using this low-level API
+changes compression or encryption immediately after appending the complete transition packet frame. Here `socket` is a
 caller-connected Ktor socket, the two `...PacketData` values are already serialized packet payloads, and `sharedSecret`
 is the Login key-exchange result:
 
 ```kotlin
-val transport = MinecraftTransport(socket)
-val frameStream = transport.frameStream
+val minecraftTransport = MinecraftTransport(socket)
+val minecraftFrameStream = minecraftTransport.minecraftFrameStream
 
-frameStream.sendPacketData(setCompressionPacketData)
-frameStream.configureCompression(threshold = 256)
+minecraftFrameStream.sendPacketData(setCompressionPacketData)
+minecraftFrameStream.configureCompression(threshold = 256)
 
-frameStream.sendPacketData(encryptionResponsePacketData)
-frameStream.enableEncryption(sharedSecret)
+minecraftFrameStream.sendPacketData(encryptionResponsePacketData)
+minecraftFrameStream.enableEncryption(sharedSecret)
 
-val packetData = frameStream.receivePacketData()
-frameStream.sendPacketData(packetData)
-frameStream.flush()
-transport.close()
+val packetData = minecraftFrameStream.receivePacketData()
+minecraftFrameStream.sendPacketData(packetData)
+minecraftFrameStream.flush()
+minecraftTransport.close()
 ```
 
 Construct `MinecraftFrameStream` directly over any caller-owned `ByteReadChannel`/`ByteWriteChannel` pair when the
@@ -57,13 +57,13 @@ typed connections.
 ## Flush and socket backpressure
 
 `sendPacketData` writes one complete frame to the `ByteWriteChannel` without flushing its pending tail. This lets a
-caller encode several packets and publish them together. `frameStream` is the stream created in the preceding example;
-`firstPacketData` and `secondPacketData` are two caller-serialized packet payloads:
+caller encode several packets and publish them together. `minecraftFrameStream` is the stream created in the preceding
+example; `firstPacketData` and `secondPacketData` are two caller-serialized packet payloads:
 
 ```kotlin
-frameStream.sendPacketData(firstPacketData)
-frameStream.sendPacketData(secondPacketData)
-frameStream.flush()
+minecraftFrameStream.sendPacketData(firstPacketData)
+minecraftFrameStream.sendPacketData(secondPacketData)
+minecraftFrameStream.flush()
 ```
 
 For a Ktor `Socket`, `flush()` publishes the pending `ByteWriteChannel` bytes to the socket's writer coroutine. It may

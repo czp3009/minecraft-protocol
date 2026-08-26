@@ -200,9 +200,9 @@ class WorldDataPackReader(
         return when (dataPackInspection.dataPackContainerKind) {
             DataPackContainerKind.DIRECTORY -> {
                 val absoluteDataPackFilePath = dataPackFilePath.resolveBelow(dataPackInspection.dataPackContainerPath)
-                fileSystem.readFile(absoluteDataPackFilePath) { source, _ ->
+                fileSystem.readFile(absoluteDataPackFilePath) { bufferedSource, _ ->
                     withOkioIoExceptions("Cannot read data-pack file $absoluteDataPackFilePath") {
-                        val dataPackFileSource = source.asKotlinxIoRawSource().buffered()
+                        val dataPackFileSource = bufferedSource.asKotlinxIoRawSource().buffered()
                         val result = block(dataPackFileSource)
                         if (!dataPackFileSource.exhausted()) {
                             throw WorldIOException("Data-pack file $absoluteDataPackFilePath was not fully consumed")

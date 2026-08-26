@@ -16,45 +16,45 @@ class EntityChunkNbtFormatException(
 
 /** Selected-release conversion between unnamed-root Entity Chunk NBT and a positioned semantic [EntityChunk]. */
 class EntityChunkNbtCodec<E : Any>(
-    val context: EntityChunkNbtContext<E>,
-    val nbt: NbtFormat = NbtFormat(NbtFormatConfiguration(rootEncoding = NbtRootEncoding.UNNAMED)),
+    val entityChunkNbtContext: EntityChunkNbtContext<E>,
+    val nbtFormat: NbtFormat = NbtFormat(NbtFormatConfiguration(nbtRootEncoding = NbtRootEncoding.UNNAMED)),
 ) {
     constructor(
         expectedDataVersion: Int,
         entityDataRegistry: EntityDataRegistry<E>,
-        nbt: NbtFormat = NbtFormat(NbtFormatConfiguration(rootEncoding = NbtRootEncoding.UNNAMED)),
-    ) : this(EntityChunkNbtContext(entityDataRegistry, expectedDataVersion), nbt)
+        nbtFormat: NbtFormat = NbtFormat(NbtFormatConfiguration(nbtRootEncoding = NbtRootEncoding.UNNAMED)),
+    ) : this(EntityChunkNbtContext(entityDataRegistry, expectedDataVersion), nbtFormat)
 
     val expectedDataVersion: Int
-        get() = context.expectedDataVersion
+        get() = entityChunkNbtContext.expectedDataVersion
 
     init {
         require(expectedDataVersion >= 0) { "A Minecraft data version must be non-negative" }
-        require(nbt.configuration.rootEncoding == NbtRootEncoding.UNNAMED) {
+        require(nbtFormat.nbtFormatConfiguration.nbtRootEncoding == NbtRootEncoding.UNNAMED) {
             "Region Entity Chunk NBT requires NbtRootEncoding.UNNAMED"
         }
     }
 
     /** Decodes an Entity Chunk using the position carried by its NBT root. */
-    fun decodeFromSource(source: Source): EntityChunk<E> = decodeDocument(nbt.decodeDocumentFromSource(source))
+    fun decodeFromSource(source: Source): EntityChunk<E> = decodeDocument(nbtFormat.decodeDocumentFromSource(source))
 
     /** Decodes an Entity Chunk and validates its NBT position against its Region entry. */
     fun decodeFromSource(source: Source, expectedPosition: ChunkPosition): EntityChunk<E> =
-        decodeDocument(nbt.decodeDocumentFromSource(source), expectedPosition)
+        decodeDocument(nbtFormat.decodeDocumentFromSource(source), expectedPosition)
 
-    fun encodeToSink(chunk: EntityChunk<E>, sink: Sink) {
-        nbt.encodeDocumentToSink(encodeDocument(chunk), sink)
+    fun encodeToSink(entityChunk: EntityChunk<E>, sink: Sink) {
+        nbtFormat.encodeDocumentToSink(encodeDocument(entityChunk), sink)
     }
 
     /** Decodes an Entity Chunk using the position carried by its NBT root. */
-    fun decodeDocument(document: NbtDocument): EntityChunk<E> = decodeDocumentInternal(document, null)
+    fun decodeDocument(nbtDocument: NbtDocument): EntityChunk<E> = decodeDocumentInternal(nbtDocument, null)
 
     /** Decodes an Entity Chunk and validates its NBT position against its Region entry. */
-    fun decodeDocument(document: NbtDocument, expectedPosition: ChunkPosition): EntityChunk<E> =
-        decodeDocumentInternal(document, expectedPosition)
+    fun decodeDocument(nbtDocument: NbtDocument, expectedPosition: ChunkPosition): EntityChunk<E> =
+        decodeDocumentInternal(nbtDocument, expectedPosition)
 
-    private fun decodeDocumentInternal(document: NbtDocument, expectedPosition: ChunkPosition?): EntityChunk<E> {
-        val root = document.root
+    private fun decodeDocumentInternal(nbtDocument: NbtDocument, expectedPosition: ChunkPosition?): EntityChunk<E> {
+        val root = nbtDocument.root
         root.requireOnlyKeys(ENTITY_CHUNK_ROOT_FIELDS, "Entity Chunk")
         val dataVersion = root.requireInt(DATA_VERSION, "Entity Chunk")
         if (dataVersion != expectedDataVersion) {
@@ -68,8 +68,8 @@ class EntityChunkNbtCodec<E : Any>(
                 "Expected Entity Chunk position $expectedPosition, got $actualPosition",
             )
         }
-        val entities = root.requireList(ENTITIES, "Entity Chunk").value.mapIndexed { index, tag ->
-            decodeEntity(tag as? NbtCompound ?: wrongEntityType("Entity Chunk entry $index", "TAG_Compound", tag))
+        val entities = root.requireList(ENTITIES, "Entity Chunk").value.mapIndexed { index, nbtTag ->
+            decodeEntity(nbtTag as? NbtCompound ?: wrongEntityType("Entity Chunk entry $index", "TAG_Compound", nbtTag))
         }
         entities.firstOrNull { entity -> entity.chunkPosition != actualPosition }?.let { entity ->
             throw EntityChunkNbtFormatException(
@@ -83,40 +83,40 @@ class EntityChunkNbtCodec<E : Any>(
         }
     }
 
-    fun encodeDocument(chunk: EntityChunk<E>): NbtDocument {
-        if (chunk.dataVersion != expectedDataVersion) {
+    fun encodeDocument(entityChunk: EntityChunk<E>): NbtDocument {
+        if (entityChunk.dataVersion != expectedDataVersion) {
             throw EntityChunkNbtFormatException(
-                "Entity Chunk data version ${chunk.dataVersion} does not match $expectedDataVersion",
+                "Entity Chunk data version ${entityChunk.dataVersion} does not match $expectedDataVersion",
             )
         }
-        chunk.rootEntities.firstOrNull { entity -> entity.chunkPosition != chunk.position }?.let { entity ->
+        entityChunk.rootEntities.firstOrNull { entity -> entity.chunkPosition != entityChunk.chunkPosition }?.let { entity ->
             throw EntityChunkNbtFormatException(
-                "Root Entity ${entity.uuid} belongs to Chunk ${entity.chunkPosition}, expected ${chunk.position}",
+                "Root Entity ${entity.uuid} belongs to Chunk ${entity.chunkPosition}, expected ${entityChunk.chunkPosition}",
             )
         }
         val root = linkedMapOf<String, NbtTag>()
-        root[DATA_VERSION] = NbtInt(chunk.dataVersion)
-        root[ENTITIES] = NbtList(chunk.rootEntities.map(::encodeEntity))
-        root[POSITION] = NbtIntArray(intArrayOf(chunk.position.x, chunk.position.z))
+        root[DATA_VERSION] = NbtInt(entityChunk.dataVersion)
+        root[ENTITIES] = NbtList(entityChunk.rootEntities.map(::encodeEntity))
+        root[POSITION] = NbtIntArray(intArrayOf(entityChunk.chunkPosition.x, entityChunk.chunkPosition.z))
         return NbtDocument(NbtCompound(root))
     }
 
-    private fun decodeEntity(compound: NbtCompound): Entity<E> {
-        val type = compound.requireString(ID, "Entity")
+    private fun decodeEntity(nbtCompound: NbtCompound): Entity<E> {
+        val type = nbtCompound.requireString(ID, "Entity")
         if (type.isBlank()) throw EntityChunkNbtFormatException("Entity id must not be blank")
-        val uuid = compound.requireUuid(UUID)
-        val position = compound.requireDoubleVector(POS)
-        val velocity = compound.requireDoubleVector(MOTION)
-        val rotation = compound.requireRotation(ROTATION)
-        val passengers = compound.optionalList(PASSENGERS, "Entity")?.value.orEmpty().mapIndexed { index, tag ->
-            decodeEntity(tag as? NbtCompound ?: wrongEntityType("Entity passenger $index", "TAG_Compound", tag))
+        val uuid = nbtCompound.requireUuid(UUID)
+        val position = nbtCompound.requireDoubleVector(POS)
+        val velocity = nbtCompound.requireDoubleVector(MOTION)
+        val entityRotation = nbtCompound.requireRotation(ROTATION)
+        val passengers = nbtCompound.optionalList(PASSENGERS, "Entity")?.value.orEmpty().mapIndexed { index, nbtTag ->
+            decodeEntity(nbtTag as? NbtCompound ?: wrongEntityType("Entity passenger $index", "TAG_Compound", nbtTag))
         }
         val persistentData = linkedMapOf<String, NbtTag>()
-        compound.forEachEntry { name, tag ->
-            if (name !in ENTITY_STRUCTURE_FIELDS) persistentData[name] = tag
+        nbtCompound.forEachEntry { name, nbtTag ->
+            if (name !in ENTITY_STRUCTURE_FIELDS) persistentData[name] = nbtTag
         }
         val data = try {
-            context.entityDataRegistry.resolve(type, NbtCompound(persistentData))
+            entityChunkNbtContext.entityDataRegistry.resolve(type, NbtCompound(persistentData))
         } catch (failure: IllegalArgumentException) {
             throw EntityChunkNbtFormatException("Invalid Entity data for $type", failure)
         } ?: throw EntityChunkNbtFormatException("Unknown Entity data for $type")
@@ -127,7 +127,7 @@ class EntityChunkNbtCodec<E : Any>(
                 data = data,
                 position = position,
                 velocity = velocity,
-                rotation = rotation,
+                entityRotation = entityRotation,
                 passengers = passengers,
             )
         } catch (failure: IllegalArgumentException) {
@@ -140,13 +140,13 @@ class EntityChunkNbtCodec<E : Any>(
         value[ID] = NbtString(entity.type)
         value[POS] = entity.position.toDoubleList()
         value[MOTION] = entity.velocity.toDoubleList()
-        value[ROTATION] = NbtList(listOf(NbtFloat(entity.rotation.yaw), NbtFloat(entity.rotation.pitch)))
+        value[ROTATION] = NbtList(listOf(NbtFloat(entity.entityRotation.yaw), NbtFloat(entity.entityRotation.pitch)))
         val persistentData = try {
-            context.entityDataRegistry.describe(entity.type, entity.data)?.requireNoEntityStructureFields()
+            entityChunkNbtContext.entityDataRegistry.describe(entity.type, entity.data)?.requireNoEntityStructureFields()
         } catch (failure: IllegalArgumentException) {
             throw EntityChunkNbtFormatException("Invalid Entity data for ${entity.type}", failure)
         } ?: throw EntityChunkNbtFormatException("Unrepresentable Entity data for ${entity.type}")
-        persistentData.forEachEntry { name, tag -> value[name] = tag }
+        persistentData.forEachEntry { name, nbtTag -> value[name] = nbtTag }
         value[UUID] = entity.uuid.toNbtIntArray()
         if (entity.passengers.isNotEmpty()) value[PASSENGERS] = NbtList(entity.passengers.map(::encodeEntity))
         return NbtCompound(value)
@@ -171,8 +171,8 @@ private fun NbtCompound.requireList(name: String, description: String): NbtList 
     this[name] as? NbtList ?: wrongEntityFieldType(description, name, "TAG_List")
 
 private fun NbtCompound.optionalList(name: String, description: String): NbtList? {
-    val tag = this[name] ?: return null
-    return tag as? NbtList ?: wrongEntityFieldType(description, name, "TAG_List")
+    val nbtTag = this[name] ?: return null
+    return nbtTag as? NbtList ?: wrongEntityFieldType(description, name, "TAG_List")
 }
 
 private fun NbtCompound.requireChunkPosition(name: String): ChunkPosition {
@@ -211,34 +211,34 @@ private fun NbtCompound.requireUuid(name: String): Uuid {
     if (values.size != UUID_INT_COUNT) {
         throw EntityChunkNbtFormatException("Entity UUID must contain $UUID_INT_COUNT integers")
     }
-    val bytes = ByteArray(Uuid.SIZE_BYTES)
+    val byteArray = ByteArray(Uuid.SIZE_BYTES)
     repeat(UUID_INT_COUNT) { index ->
         val value = values[index]
         val offset = index * Int.SIZE_BYTES
-        bytes[offset] = (value ushr 24).toByte()
-        bytes[offset + 1] = (value ushr 16).toByte()
-        bytes[offset + 2] = (value ushr 8).toByte()
-        bytes[offset + 3] = value.toByte()
+        byteArray[offset] = (value ushr 24).toByte()
+        byteArray[offset + 1] = (value ushr 16).toByte()
+        byteArray[offset + 2] = (value ushr 8).toByte()
+        byteArray[offset + 3] = value.toByte()
     }
-    return Uuid.fromByteArray(bytes)
+    return Uuid.fromByteArray(byteArray)
 }
 
 private fun EntityVector3d.toDoubleList(): NbtList =
     NbtList(listOf(NbtDouble(x), NbtDouble(y), NbtDouble(z)))
 
 private fun Uuid.toNbtIntArray(): NbtIntArray {
-    val bytes = toByteArray()
+    val byteArray = toByteArray()
     return NbtIntArray(IntArray(UUID_INT_COUNT) { index ->
         val offset = index * Int.SIZE_BYTES
-        ((bytes[offset].toInt() and 0xFF) shl 24) or
-                ((bytes[offset + 1].toInt() and 0xFF) shl 16) or
-                ((bytes[offset + 2].toInt() and 0xFF) shl 8) or
-                (bytes[offset + 3].toInt() and 0xFF)
+        ((byteArray[offset].toInt() and 0xFF) shl 24) or
+                ((byteArray[offset + 1].toInt() and 0xFF) shl 16) or
+                ((byteArray[offset + 2].toInt() and 0xFF) shl 8) or
+                (byteArray[offset + 3].toInt() and 0xFF)
     })
 }
 
 private fun NbtCompound.wrongEntityFieldType(description: String, name: String, expected: String): Nothing {
-    val actual = this[name]?.let { tag -> tag::class.simpleName } ?: "missing"
+    val actual = this[name]?.let { nbtTag -> nbtTag::class.simpleName } ?: "missing"
     throw EntityChunkNbtFormatException("$description field $name must be $expected, got $actual")
 }
 

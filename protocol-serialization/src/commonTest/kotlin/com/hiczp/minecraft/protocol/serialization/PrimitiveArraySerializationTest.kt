@@ -12,7 +12,7 @@ import kotlin.test.assertFailsWith
 class PrimitiveArraySerializationTest {
     @Test
     fun `all primitive arrays retain their protocol representation`() {
-        val value = PrimitiveArrays(
+        val primitiveArrays = PrimitiveArrays(
             booleans = booleanArrayOf(false, true),
             bytes = byteArrayOf(-1, 0, 1),
             shorts = shortArrayOf(Short.MIN_VALUE, 0, Short.MAX_VALUE),
@@ -25,19 +25,19 @@ class PrimitiveArraySerializationTest {
             varLongs = longArrayOf(-1, 0, 128),
         )
 
-        val encoded = MinecraftProtocolFormat.encodeToByteArray(value)
+        val encoded = MinecraftProtocolFormat.encodeToByteArray(primitiveArrays)
         val decoded = MinecraftProtocolFormat.decodeFromByteArray<PrimitiveArrays>(encoded)
 
-        assertContentEquals(value.booleans, decoded.booleans)
-        assertContentEquals(value.bytes, decoded.bytes)
-        assertContentEquals(value.shorts, decoded.shorts)
-        assertContentEquals(value.ints, decoded.ints)
-        assertContentEquals(value.longs, decoded.longs)
-        assertContentEquals(value.floats, decoded.floats)
-        assertContentEquals(value.doubles, decoded.doubles)
-        assertContentEquals(value.chars, decoded.chars)
-        assertContentEquals(value.varInts, decoded.varInts)
-        assertContentEquals(value.varLongs, decoded.varLongs)
+        assertContentEquals(primitiveArrays.booleans, decoded.booleans)
+        assertContentEquals(primitiveArrays.bytes, decoded.bytes)
+        assertContentEquals(primitiveArrays.shorts, decoded.shorts)
+        assertContentEquals(primitiveArrays.ints, decoded.ints)
+        assertContentEquals(primitiveArrays.longs, decoded.longs)
+        assertContentEquals(primitiveArrays.floats, decoded.floats)
+        assertContentEquals(primitiveArrays.doubles, decoded.doubles)
+        assertContentEquals(primitiveArrays.chars, decoded.chars)
+        assertContentEquals(primitiveArrays.varInts, decoded.varInts)
+        assertContentEquals(primitiveArrays.varLongs, decoded.varLongs)
     }
 
     @Test

@@ -19,25 +19,25 @@ class MinecraftPacketSessionTest {
     @Test
     fun performsStatusHandshakeAndTypedDispatch() = runTest {
         val (client, server) = sessionPair()
-        val handshake = HandshakePacket(
+        val handshakePacket = HandshakePacket(
             protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
             serverAddress = "localhost",
             serverPort = 25_565,
             nextState = HandshakeNextState.STATUS,
         )
 
-        client.send(handshake)
-        assertEquals(handshake, server.receive())
-        assertEquals(ConnectionState.STATUS, client.state)
-        assertEquals(ConnectionState.STATUS, server.state)
+        client.send(handshakePacket)
+        assertEquals(handshakePacket, server.receive())
+        assertEquals(ConnectionState.STATUS, client.connectionState)
+        assertEquals(ConnectionState.STATUS, server.connectionState)
 
         client.send(StatusRequestPacket)
         assertEquals(StatusRequestPacket, server.receive())
-        val response = StatusResponsePacket(
+        val statusResponsePacket = StatusResponsePacket(
             """{"version":{"protocol":${MinecraftProtocol.PROTOCOL_VERSION}}}""",
         )
-        server.send(response)
-        assertEquals(response, client.receive())
+        server.send(statusResponsePacket)
+        assertEquals(statusResponsePacket, client.receive())
     }
 
     @Test
@@ -47,20 +47,20 @@ class MinecraftPacketSessionTest {
         val threshold = 32
 
         server.send(SetCompressionPacket(threshold))
-        assertEquals(threshold, server.frameStream.codec.compressionThreshold)
+        assertEquals(threshold, server.minecraftFrameStream.minecraftFrameCodec.compressionThreshold)
         assertEquals(SetCompressionPacket(threshold), client.receive())
-        assertEquals(threshold, client.frameStream.codec.compressionThreshold)
+        assertEquals(threshold, client.minecraftFrameStream.minecraftFrameCodec.compressionThreshold)
 
-        val success = LoginSuccessPacket(
+        val loginSuccessPacket = LoginSuccessPacket(
             GameProfile(Uuid.fromLongs(1, 2), "SessionProbe", emptyList()),
             sessionId = Uuid.fromLongs(3, 4),
         )
-        server.send(success)
-        assertEquals(success, client.receive())
+        server.send(loginSuccessPacket)
+        assertEquals(loginSuccessPacket, client.receive())
         client.send(LoginAcknowledgedPacket)
         assertEquals(LoginAcknowledgedPacket, server.receive())
-        assertEquals(ConnectionState.CONFIGURATION, client.state)
-        assertEquals(ConnectionState.CONFIGURATION, server.state)
+        assertEquals(ConnectionState.CONFIGURATION, client.connectionState)
+        assertEquals(ConnectionState.CONFIGURATION, server.connectionState)
     }
 
     @Test
@@ -70,13 +70,13 @@ class MinecraftPacketSessionTest {
 
         server.send(SetCompressionPacket(16))
         assertEquals(SetCompressionPacket(16), client.receive())
-        assertEquals(16, server.frameStream.codec.compressionThreshold)
-        assertEquals(16, client.frameStream.codec.compressionThreshold)
+        assertEquals(16, server.minecraftFrameStream.minecraftFrameCodec.compressionThreshold)
+        assertEquals(16, client.minecraftFrameStream.minecraftFrameCodec.compressionThreshold)
 
         server.send(SetCompressionPacket(-1))
         assertEquals(SetCompressionPacket(-1), client.receive())
-        assertNull(server.frameStream.codec.compressionThreshold)
-        assertNull(client.frameStream.codec.compressionThreshold)
+        assertNull(server.minecraftFrameStream.minecraftFrameCodec.compressionThreshold)
+        assertNull(client.minecraftFrameStream.minecraftFrameCodec.compressionThreshold)
     }
 
     @Test
@@ -95,12 +95,12 @@ class MinecraftPacketSessionTest {
 
         server.send(FinishConfigurationPacket)
         assertEquals(FinishConfigurationPacket, client.receive())
-        assertEquals(ConnectionState.CONFIGURATION, server.state)
-        assertEquals(ConnectionState.CONFIGURATION, client.state)
+        assertEquals(ConnectionState.CONFIGURATION, server.connectionState)
+        assertEquals(ConnectionState.CONFIGURATION, client.connectionState)
         client.send(AcknowledgeFinishConfigurationPacket)
         assertEquals(AcknowledgeFinishConfigurationPacket, server.receive())
-        assertEquals(ConnectionState.PLAY, server.state)
-        assertEquals(ConnectionState.PLAY, client.state)
+        assertEquals(ConnectionState.PLAY, server.connectionState)
+        assertEquals(ConnectionState.PLAY, client.connectionState)
     }
 
     @Test
@@ -132,7 +132,7 @@ class MinecraftPacketSessionTest {
     @Test
     fun appliesStateTransitionsOnlyAfterACompleteWireWrite() = runTest {
         val (client, _) = sessionPair()
-        client.frameStream.output.cancel(
+        client.minecraftFrameStream.output.cancel(
             CancellationException("Closed before the test write"),
         )
 
@@ -146,7 +146,7 @@ class MinecraftPacketSessionTest {
                 ),
             )
         }
-        assertEquals(ConnectionState.HANDSHAKE, client.state)
+        assertEquals(ConnectionState.HANDSHAKE, client.connectionState)
     }
 
     @Test
@@ -161,18 +161,18 @@ class MinecraftPacketSessionTest {
     @Test
     fun transferHandshakeUsesTheLoginState() = runTest {
         val (client, server) = sessionPair()
-        val handshake = HandshakePacket(
+        val handshakePacket = HandshakePacket(
             protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
             serverAddress = "localhost",
             serverPort = 25_565,
             nextState = HandshakeNextState.TRANSFER,
         )
 
-        client.send(handshake)
+        client.send(handshakePacket)
 
-        assertEquals(handshake, server.receive())
-        assertEquals(ConnectionState.LOGIN, client.state)
-        assertEquals(ConnectionState.LOGIN, server.state)
+        assertEquals(handshakePacket, server.receive())
+        assertEquals(ConnectionState.LOGIN, client.connectionState)
+        assertEquals(ConnectionState.LOGIN, server.connectionState)
     }
 
     @Test
@@ -183,18 +183,18 @@ class MinecraftPacketSessionTest {
 
             client.send(AcknowledgeConfigurationPacket)
 
-            assertEquals(ConnectionState.CONFIGURATION, client.state)
+            assertEquals(ConnectionState.CONFIGURATION, client.connectionState)
             assertEquals(AcknowledgeConfigurationPacket, server.receive())
-            assertEquals(ConnectionState.CONFIGURATION, server.state)
+            assertEquals(ConnectionState.CONFIGURATION, server.connectionState)
         }
 
     @Test
     fun preservesUnknownPacketIdsButRejectsMalformedPacketIds() = runTest {
         val (unknownClient, unknownServer) = sessionPair()
-        unknownClient.frameStream.sendPacketData(byteArrayOf(0x7F, 1, 2, 3))
+        unknownClient.minecraftFrameStream.sendPacketData(byteArrayOf(0x7F, 1, 2, 3))
         assertEquals(
             UnknownPacket.Serverbound(
-                route = PacketRoute.TopLevel(
+                packetRoute = PacketRoute.TopLevel(
                     ConnectionState.HANDSHAKE,
                     PacketDirection.SERVERBOUND,
                     0x7F,
@@ -206,7 +206,7 @@ class MinecraftPacketSessionTest {
 
         suspend fun reject(packetData: ByteArray) {
             val (client, server) = sessionPair()
-            client.frameStream.sendPacketData(packetData)
+            client.minecraftFrameStream.sendPacketData(packetData)
             assertFailsWith<MinecraftSessionException> {
                 server.receive()
             }
@@ -223,24 +223,24 @@ class MinecraftPacketSessionTest {
             val malformedHandshake = encodeVarInt(0) +
                     encodeVarInt(MinecraftProtocol.PROTOCOL_VERSION) +
                     byteArrayOf(1, 'x'.code.toByte(), 0x63, 0xDD.toByte(), 0)
-            client.frameStream.sendPacketData(malformedHandshake)
+            client.minecraftFrameStream.sendPacketData(malformedHandshake)
 
             assertFailsWith<IllegalArgumentException> {
                 server.receive()
             }
 
-            assertEquals(ConnectionState.HANDSHAKE, server.state)
+            assertEquals(ConnectionState.HANDSHAKE, server.connectionState)
         }
 
     @Test
     fun liftsActiveCustomPayloadsAndPreservesInactiveOnes() = runTest {
         val channel = Identifier("test:number")
-        val route = PacketRouteKey.CustomPayload(
+        val customPayload = PacketRouteKey.CustomPayload(
             ConnectionState.CONFIGURATION,
             PacketDirection.CLIENTBOUND,
             channel,
         )
-        val registry = PacketRegistry(
+        val packetRegistry = PacketRegistry(
             MinecraftPacketRegistry.entries,
             listOf(
                 PacketCodecRegistration.clientboundCustomPayload(
@@ -251,7 +251,7 @@ class MinecraftPacketSessionTest {
                 ),
             ),
         )
-        val (client, server) = sessionPair(registry)
+        val (client, server) = sessionPair(packetRegistry)
         enterConfiguration(client, server)
 
         server.send(
@@ -263,11 +263,11 @@ class MinecraftPacketSessionTest {
             ),
         )
         val unknown = assertIs<UnknownPacket.Clientbound>(client.receive())
-        assertEquals(route, unknown.route.key)
+        assertEquals(customPayload, unknown.packetRoute.packetRouteKey)
         assertEquals(ByteString(byteArrayOf(7)), unknown.data)
 
-        client.activateExtensionRoutes(setOf(route))
-        server.activateExtensionRoutes(setOf(route))
+        client.activateExtensionRoutes(setOf(customPayload))
+        server.activateExtensionRoutes(setOf(customPayload))
         server.send(SessionNumberPayload(300))
         assertEquals(SessionNumberPayload(300), client.receive())
     }
@@ -275,12 +275,12 @@ class MinecraftPacketSessionTest {
     @Test
     fun activeExtensionCodecPropagatesMalformedPayload() = runTest {
         val channel = Identifier("test:number")
-        val route = PacketRouteKey.CustomPayload(
+        val customPayload = PacketRouteKey.CustomPayload(
             ConnectionState.CONFIGURATION,
             PacketDirection.CLIENTBOUND,
             channel,
         )
-        val registry = PacketRegistry(
+        val packetRegistry = PacketRegistry(
             MinecraftPacketRegistry.entries,
             listOf(
                 PacketCodecRegistration.clientboundCustomPayload(
@@ -291,9 +291,9 @@ class MinecraftPacketSessionTest {
                 ),
             ),
         )
-        val (client, server) = sessionPair(registry)
+        val (client, server) = sessionPair(packetRegistry)
         enterConfiguration(client, server)
-        client.activateExtensionRoutes(setOf(route))
+        client.activateExtensionRoutes(setOf(customPayload))
 
         server.send(
             ConfigurationClientboundPluginMessagePacket(
@@ -320,7 +320,7 @@ class MinecraftPacketSessionTest {
             PacketDirection.SERVERBOUND,
             channel,
         )
-        val registry = PacketRegistry(
+        val packetRegistry = PacketRegistry(
             MinecraftPacketRegistry.entries,
             listOf(
                 PacketCodecRegistration.clientboundLoginQuery(
@@ -347,7 +347,7 @@ class MinecraftPacketSessionTest {
                 },
             ),
         )
-        val (client, server) = sessionPair(registry)
+        val (client, server) = sessionPair(packetRegistry)
         loginHandshake(client, server)
         client.activateExtensionRoutes(setOf(requestRoute, responseRoute))
         server.activateExtensionRoutes(setOf(requestRoute, responseRoute))
@@ -401,14 +401,14 @@ class MinecraftPacketSessionTest {
     fun preservesLoginResponsesWithoutAnObservedRequest() = runTest {
         val (client, server) = sessionPair()
         loginHandshake(client, server)
-        val response = LoginPluginResponsePacket(
+        val loginPluginResponsePacket = LoginPluginResponsePacket(
             messageId = 31,
             data = ByteString(byteArrayOf(1, 2, 3)),
         )
 
-        client.send(response)
+        client.send(loginPluginResponsePacket)
 
-        assertEquals(response, server.receive())
+        assertEquals(loginPluginResponsePacket, server.receive())
     }
 
     @Test
@@ -422,7 +422,7 @@ class MinecraftPacketSessionTest {
         )
 
         assertFailsWith<MinecraftSerializationException> { client.send(invalid) }
-        assertEquals(ConnectionState.HANDSHAKE, client.state)
+        assertEquals(ConnectionState.HANDSHAKE, client.connectionState)
         assertEquals(ConnectionState.HANDSHAKE, client.inboundState)
 
         val valid = invalid.copy(serverAddress = "localhost")
@@ -494,8 +494,8 @@ class MinecraftPacketSessionTest {
     fun unclosedClientboundBundleFailsTheReceivingSession() = runTest {
         val (client, server) = sessionPair()
         enterPlay(client, server)
-        server.frameStream.sendPacketData(byteArrayOf(0))
-        server.frameStream.output.flushAndClose()
+        server.minecraftFrameStream.sendPacketData(byteArrayOf(0))
+        server.minecraftFrameStream.output.flushAndClose()
 
         assertFails {
             client.receive()
@@ -526,10 +526,10 @@ class MinecraftPacketSessionTest {
     }
 
     private suspend fun loginHandshake(
-        client: MinecraftClientPacketSession,
-        server: MinecraftServerPacketSession,
+        minecraftClientPacketSession: MinecraftClientPacketSession,
+        minecraftServerPacketSession: MinecraftServerPacketSession,
     ) {
-        client.send(
+        minecraftClientPacketSession.send(
             HandshakePacket(
                 protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
                 serverAddress = "localhost",
@@ -537,49 +537,49 @@ class MinecraftPacketSessionTest {
                 nextState = HandshakeNextState.LOGIN,
             ),
         )
-        server.receive()
-        client.send(LoginStartPacket("SessionProbe", Uuid.fromLongs(1, 2)))
-        server.receive()
+        minecraftServerPacketSession.receive()
+        minecraftClientPacketSession.send(LoginStartPacket("SessionProbe", Uuid.fromLongs(1, 2)))
+        minecraftServerPacketSession.receive()
     }
 
     private suspend fun enterPlay(
-        client: MinecraftClientPacketSession,
-        server: MinecraftServerPacketSession,
+        minecraftClientPacketSession: MinecraftClientPacketSession,
+        minecraftServerPacketSession: MinecraftServerPacketSession,
     ) {
-        loginHandshake(client, server)
-        server.send(
+        loginHandshake(minecraftClientPacketSession, minecraftServerPacketSession)
+        minecraftServerPacketSession.send(
             LoginSuccessPacket(
                 GameProfile(Uuid.fromLongs(1, 2), "SessionProbe", emptyList()),
                 sessionId = Uuid.fromLongs(3, 4),
             ),
         )
-        client.receive()
-        client.send(LoginAcknowledgedPacket)
-        server.receive()
-        server.send(FinishConfigurationPacket)
-        client.receive()
-        client.send(AcknowledgeFinishConfigurationPacket)
-        server.receive()
-        assertEquals(ConnectionState.PLAY, client.state)
-        assertEquals(ConnectionState.PLAY, server.state)
+        minecraftClientPacketSession.receive()
+        minecraftClientPacketSession.send(LoginAcknowledgedPacket)
+        minecraftServerPacketSession.receive()
+        minecraftServerPacketSession.send(FinishConfigurationPacket)
+        minecraftClientPacketSession.receive()
+        minecraftClientPacketSession.send(AcknowledgeFinishConfigurationPacket)
+        minecraftServerPacketSession.receive()
+        assertEquals(ConnectionState.PLAY, minecraftClientPacketSession.connectionState)
+        assertEquals(ConnectionState.PLAY, minecraftServerPacketSession.connectionState)
     }
 
     private suspend fun enterConfiguration(
-        client: MinecraftClientPacketSession,
-        server: MinecraftServerPacketSession,
+        minecraftClientPacketSession: MinecraftClientPacketSession,
+        minecraftServerPacketSession: MinecraftServerPacketSession,
     ) {
-        loginHandshake(client, server)
-        server.send(
+        loginHandshake(minecraftClientPacketSession, minecraftServerPacketSession)
+        minecraftServerPacketSession.send(
             LoginSuccessPacket(
                 GameProfile(Uuid.fromLongs(1, 2), "SessionProbe", emptyList()),
                 sessionId = Uuid.fromLongs(3, 4),
             ),
         )
-        client.receive()
-        client.send(LoginAcknowledgedPacket)
-        server.receive()
-        assertEquals(ConnectionState.CONFIGURATION, client.state)
-        assertEquals(ConnectionState.CONFIGURATION, server.state)
+        minecraftClientPacketSession.receive()
+        minecraftClientPacketSession.send(LoginAcknowledgedPacket)
+        minecraftServerPacketSession.receive()
+        assertEquals(ConnectionState.CONFIGURATION, minecraftClientPacketSession.connectionState)
+        assertEquals(ConnectionState.CONFIGURATION, minecraftServerPacketSession.connectionState)
     }
 
     private fun sessionPair(
@@ -588,25 +588,25 @@ class MinecraftPacketSessionTest {
         val clientToServer = ByteChannel(autoFlush = true)
         val serverToClient = ByteChannel(autoFlush = true)
         return MinecraftClientPacketSession(
-            frameStream = MinecraftFrameStream(serverToClient, clientToServer),
+            minecraftFrameStream = MinecraftFrameStream(serverToClient, clientToServer),
             packetRegistry = packetRegistry,
         ) to MinecraftServerPacketSession(
-            frameStream = MinecraftFrameStream(clientToServer, serverToClient),
+            minecraftFrameStream = MinecraftFrameStream(clientToServer, serverToClient),
             packetRegistry = packetRegistry,
         )
     }
 
     private fun encodeVarInt(value: Int): ByteArray {
         var remaining = value
-        val bytes = ByteArray(5)
+        val byteArray = ByteArray(5)
         var size = 0
         do {
             var current = remaining and 0x7F
             remaining = remaining ushr 7
             if (remaining != 0) current = current or 0x80
-            bytes[size++] = current.toByte()
+            byteArray[size++] = current.toByte()
         } while (remaining != 0)
-        return bytes.copyOf(size)
+        return byteArray.copyOf(size)
     }
 }
 
@@ -617,7 +617,7 @@ private data class SessionNumberPayload(
 private data object SessionNumberPayloadCodec :
     PacketBodyCodec<SessionNumberPayload> {
     override fun encode(
-        format: MinecraftProtocolFormat,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
         packet: SessionNumberPayload,
         sink: Sink,
     ) {
@@ -631,8 +631,8 @@ private data object SessionNumberPayloadCodec :
     }
 
     override fun decode(
-        format: MinecraftProtocolFormat,
-        route: PacketRoute,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
+        packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
     ): SessionNumberPayload {
@@ -674,8 +674,8 @@ private data class SessionQueryBody(
 
 private val sessionQueryRequestCodec = MappedKotlinxPacketBodyCodec(
     SessionQueryBody.serializer(),
-    encodeBody = { packet: SessionQueryRequest ->
-        SessionQueryBody(packet.value.toByte())
+    encodeBody = { sessionQueryRequest: SessionQueryRequest ->
+        SessionQueryBody(sessionQueryRequest.value.toByte())
     },
     decodePacket = { route, body ->
         SessionQueryRequest(
@@ -687,8 +687,8 @@ private val sessionQueryRequestCodec = MappedKotlinxPacketBodyCodec(
 
 private val sessionQueryResponseCodec = MappedKotlinxPacketBodyCodec(
     SessionQueryBody.serializer(),
-    encodeBody = { packet: SessionQueryResponse ->
-        SessionQueryBody(packet.value.toByte())
+    encodeBody = { sessionQueryResponse: SessionQueryResponse ->
+        SessionQueryBody(sessionQueryResponse.value.toByte())
     },
     decodePacket = { route, body ->
         SessionQueryResponse(

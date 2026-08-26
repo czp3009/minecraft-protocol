@@ -8,78 +8,79 @@ import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationExceptio
 
 internal object PalettedContainerCodec {
     fun write(
-        writer: MinecraftWriter,
-        value: PalettedContainer,
-        kind: PaletteKind,
-        configuration: MinecraftProtocolFormatConfiguration,
+        minecraftWriter: MinecraftWriter,
+        palettedContainer: PalettedContainer,
+        paletteKind: PaletteKind,
+        minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration,
     ) {
-        val registrySize = kind.registrySize(configuration)
-        when (value) {
+        val registrySize = paletteKind.registrySize(minecraftProtocolFormatConfiguration)
+        when (palettedContainer) {
             is PalettedContainer.Single -> {
-                validateRegistryId(value.valueId, registrySize, kind)
-                writer.writeByte(0)
-                writer.writeVarInt(value.valueId)
+                validateRegistryId(palettedContainer.valueId, registrySize, paletteKind)
+                minecraftWriter.writeByte(0)
+                minecraftWriter.writeVarInt(palettedContainer.valueId)
             }
 
             is PalettedContainer.Indirect -> {
-                validateIndirectBits(value.bitsPerEntry, kind)
-                validatePalette(value.palette, value.bitsPerEntry, registrySize, kind)
-                validatePackedSize(value.data, value.bitsPerEntry, kind)
+                validateIndirectBits(palettedContainer.bitsPerEntry, paletteKind)
+                validatePalette(palettedContainer.palette, palettedContainer.bitsPerEntry, registrySize, paletteKind)
+                validatePackedSize(palettedContainer.data, palettedContainer.bitsPerEntry, paletteKind)
 
-                writer.writeByte(value.bitsPerEntry)
-                writer.writeVarInt(value.palette.size)
-                value.palette.forEach(writer::writeVarInt)
-                writePacked(writer, value.data)
+                minecraftWriter.writeByte(palettedContainer.bitsPerEntry)
+                minecraftWriter.writeVarInt(palettedContainer.palette.size)
+                palettedContainer.palette.forEach(minecraftWriter::writeVarInt)
+                writePacked(minecraftWriter, palettedContainer.data)
             }
 
             is PalettedContainer.Direct -> {
                 val bits = minimumBitsForDistinctValues(registrySize)
-                if (bits <= kind.maximumIndirectBits) {
-                    val maximumBits = kind.maximumIndirectBits
-                    val displayName = kind.displayName
+                if (bits <= paletteKind.maximumIndirectBits) {
+                    val maximumBits = paletteKind.maximumIndirectBits
+                    val displayName = paletteKind.displayName
                     throw MinecraftSerializationException(
                         "A direct $displayName palette requires more than $maximumBits bits for the global registry",
                     )
                 }
-                validatePackedSize(value.data, bits, kind)
+                validatePackedSize(palettedContainer.data, bits, paletteKind)
 
-                writer.writeByte(bits)
-                writePacked(writer, value.data)
+                minecraftWriter.writeByte(bits)
+                writePacked(minecraftWriter, palettedContainer.data)
             }
         }
     }
 
     fun read(
-        reader: MinecraftReader,
-        kind: PaletteKind,
-        configuration: MinecraftProtocolFormatConfiguration,
+        minecraftReader: MinecraftReader,
+        paletteKind: PaletteKind,
+        minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration,
     ): PalettedContainer {
-        val registrySize = kind.registrySize(configuration)
-        val wireBits = reader.readUnsignedByte()
+        val registrySize = paletteKind.registrySize(minecraftProtocolFormatConfiguration)
+        val wireBits = minecraftReader.readUnsignedByte()
         if (wireBits == 0) {
-            val valueId = reader.readVarInt(configuration.rejectNonMinimalVarNumbers)
-            validateRegistryId(valueId, registrySize, kind)
+            val valueId = minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
+            validateRegistryId(valueId, registrySize, paletteKind)
             return PalettedContainer.Single(valueId)
         }
 
-        val indirectBits = kind.normalizedIndirectBits(wireBits)
+        val indirectBits = paletteKind.normalizedIndirectBits(wireBits)
         if (indirectBits != null) {
             val capacity = 1 shl indirectBits
-            val paletteSize = reader.readVarInt(configuration.rejectNonMinimalVarNumbers)
+            val paletteSize =
+                minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
             if (paletteSize !in 0..capacity) {
                 throw MinecraftSerializationException(
-                    "Invalid ${kind.displayName} palette size $paletteSize; maximum is $capacity",
+                    "Invalid ${paletteKind.displayName} palette size $paletteSize; maximum is $capacity",
                 )
             }
             val palette = List(paletteSize) {
-                reader.readVarInt(configuration.rejectNonMinimalVarNumbers).also {
-                    validateRegistryId(it, registrySize, kind)
+                minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers).also {
+                    validateRegistryId(it, registrySize, paletteKind)
                 }
             }
             return PalettedContainer.Indirect(
                 indirectBits,
                 palette,
-                readPacked(reader, indirectBits, kind, configuration),
+                readPacked(minecraftReader, indirectBits, paletteKind, minecraftProtocolFormatConfiguration),
             )
         }
 
@@ -88,19 +89,19 @@ internal object PalettedContainerCodec {
         val globalBits = minimumBitsForDistinctValues(registrySize)
         if (globalBits == 0) {
             throw MinecraftSerializationException(
-                "The ${kind.displayName} global registry is too small for a direct palette",
+                "The ${paletteKind.displayName} global registry is too small for a direct palette",
             )
         }
         return PalettedContainer.Direct(
-            readPacked(reader, globalBits, kind, configuration),
+            readPacked(minecraftReader, globalBits, paletteKind, minecraftProtocolFormatConfiguration),
         )
     }
 
-    private fun validateIndirectBits(bits: Int, kind: PaletteKind) {
-        if (bits !in kind.minimumIndirectBits..kind.maximumIndirectBits) {
-            val allowedBits = "${kind.minimumIndirectBits}..${kind.maximumIndirectBits}"
+    private fun validateIndirectBits(bits: Int, paletteKind: PaletteKind) {
+        if (bits !in paletteKind.minimumIndirectBits..paletteKind.maximumIndirectBits) {
+            val allowedBits = "${paletteKind.minimumIndirectBits}..${paletteKind.maximumIndirectBits}"
             throw MinecraftSerializationException(
-                "${kind.displayName} indirect palettes require $allowedBits bits, got $bits",
+                "${paletteKind.displayName} indirect palettes require $allowedBits bits, got $bits",
             )
         }
     }
@@ -109,54 +110,54 @@ internal object PalettedContainerCodec {
         palette: List<Int>,
         bits: Int,
         registrySize: Int,
-        kind: PaletteKind,
+        paletteKind: PaletteKind,
     ) {
         val capacity = 1 shl bits
         if (palette.size > capacity) {
             throw MinecraftSerializationException(
-                "${kind.displayName} palette has ${palette.size} entries; capacity is $capacity",
+                "${paletteKind.displayName} palette has ${palette.size} entries; capacity is $capacity",
             )
         }
-        palette.forEach { validateRegistryId(it, registrySize, kind) }
+        palette.forEach { validateRegistryId(it, registrySize, paletteKind) }
     }
 
     private fun validateRegistryId(
         id: Int,
         registrySize: Int,
-        kind: PaletteKind,
+        paletteKind: PaletteKind,
     ) {
         if (id !in 0 until registrySize) {
             throw MinecraftSerializationException(
-                "Invalid ${kind.displayName} registry ID $id; size is $registrySize",
+                "Invalid ${paletteKind.displayName} registry ID $id; size is $registrySize",
             )
         }
     }
 
     private fun validatePackedSize(
-        data: PackedLongArray,
+        packedLongArray: PackedLongArray,
         bits: Int,
-        kind: PaletteKind,
+        paletteKind: PaletteKind,
     ) {
-        val expected = packedLongCount(kind.entryCount, bits)
-        if (data.size != expected) {
+        val expected = packedLongCount(paletteKind.entryCount, bits)
+        if (packedLongArray.size != expected) {
             throw MinecraftSerializationException(
-                "${kind.displayName} packed data has ${data.size} Longs; expected $expected for $bits bits per entry",
+                "${paletteKind.displayName} packed data has ${packedLongArray.size} Longs; expected $expected for $bits bits per entry",
             )
         }
     }
 
     private fun readPacked(
-        reader: MinecraftReader,
+        minecraftReader: MinecraftReader,
         bits: Int,
-        kind: PaletteKind,
-        configuration: MinecraftProtocolFormatConfiguration,
+        paletteKind: PaletteKind,
+        minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration,
     ): PackedLongArray {
-        val count = packedLongCount(kind.entryCount, bits)
-        return PackedLongArray(LongArray(count) { reader.readLong() })
+        val count = packedLongCount(paletteKind.entryCount, bits)
+        return PackedLongArray(LongArray(count) { minecraftReader.readLong() })
     }
 
-    private fun writePacked(writer: MinecraftWriter, data: PackedLongArray) {
-        repeat(data.size) { writer.writeLong(data[it]) }
+    private fun writePacked(minecraftWriter: MinecraftWriter, packedLongArray: PackedLongArray) {
+        repeat(packedLongArray.size) { minecraftWriter.writeLong(packedLongArray[it]) }
     }
 
     private fun packedLongCount(entryCount: Int, bits: Int): Int {
@@ -203,9 +204,9 @@ internal object PalettedContainerCodec {
         }
 
     private fun PaletteKind.registrySize(
-        configuration: MinecraftProtocolFormatConfiguration,
+        minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration,
     ): Int = when (this) {
-        PaletteKind.BLOCK_STATES -> configuration.requireBlockStateRegistrySize()
-        PaletteKind.BIOMES -> configuration.requireBiomeRegistrySize()
+        PaletteKind.BLOCK_STATES -> minecraftProtocolFormatConfiguration.requireBlockStateRegistrySize()
+        PaletteKind.BIOMES -> minecraftProtocolFormatConfiguration.requireBiomeRegistrySize()
     }
 }

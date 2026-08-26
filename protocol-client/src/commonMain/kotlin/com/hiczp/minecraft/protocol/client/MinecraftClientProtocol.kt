@@ -93,7 +93,7 @@ class MinecraftClientNegotiationOptions(
 suspend fun MinecraftClientConnection.queryStatus(
     pingPayload: Long = 0,
 ): MinecraftStatusExchange {
-    require(state == ConnectionState.HANDSHAKE) {
+    require(connectionState == ConnectionState.HANDSHAKE) {
         "Status requires a fresh Handshake connection"
     }
     outgoing.send(handshake(HandshakeNextState.STATUS))
@@ -133,21 +133,23 @@ suspend fun MinecraftClientConnection.queryStatus(
  * original exception with the connection already terminated; only closing remains.
  */
 suspend fun MinecraftClientConnection.negotiate(
-    identity: MinecraftIdentity,
+    minecraftIdentity: MinecraftIdentity,
     sessionHttpClient: HttpClient? = null,
-    profile: ClientNegotiationProfile = VanillaClient,
-    options: MinecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(),
+    clientNegotiationProfile: ClientNegotiationProfile = VanillaClient,
+    minecraftClientNegotiationOptions: MinecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(),
 ): MinecraftClientNegotiationResult {
-    require(state == ConnectionState.HANDSHAKE) {
+    require(connectionState == ConnectionState.HANDSHAKE) {
         "Login requires a fresh Handshake connection"
     }
-    val loginSuccessPacket = negotiateLogin(identity, sessionHttpClient, profile, options)
-    val minecraftClientConfigurationResult = negotiateConfiguration(profile, options)
+    val loginSuccessPacket =
+        negotiateLogin(minecraftIdentity, sessionHttpClient, clientNegotiationProfile, minecraftClientNegotiationOptions)
+    val minecraftClientConfigurationResult =
+        negotiateConfiguration(clientNegotiationProfile, minecraftClientNegotiationOptions)
     val minecraftClientPlayLogin = awaitPlayLogin(
         minecraftClientConfigurationResult.dataPackConfigurationSnapshot.synchronizedRegistryPackets,
-        options,
+        minecraftClientNegotiationOptions,
     )
-    val negotiationProfileResult = profile.complete(this)
+    val negotiationProfileResult = clientNegotiationProfile.complete(this)
     return MinecraftClientNegotiationResult(
         loginSuccessPacket = loginSuccessPacket,
         dataPackConfigurationSnapshot = minecraftClientConfigurationResult.dataPackConfigurationSnapshot,
@@ -159,35 +161,35 @@ suspend fun MinecraftClientConnection.negotiate(
 }
 
 private suspend fun MinecraftClientConnection.negotiateLogin(
-    identity: MinecraftIdentity,
+    minecraftIdentity: MinecraftIdentity,
     sessionHttpClient: HttpClient?,
-    profile: ClientNegotiationProfile,
-    options: MinecraftClientNegotiationOptions,
+    clientNegotiationProfile: ClientNegotiationProfile,
+    minecraftClientNegotiationOptions: MinecraftClientNegotiationOptions,
 ): LoginSuccessPacket {
-    profile.begin(this)
+    clientNegotiationProfile.begin(this)
     outgoing.send(
-        profile.prepareHandshake(handshake(HandshakeNextState.LOGIN)),
+        clientNegotiationProfile.prepareHandshake(handshake(HandshakeNextState.LOGIN)),
     )
-    outgoing.send(LoginStartPacket(identity.name, identity.id))
+    outgoing.send(LoginStartPacket(minecraftIdentity.name, minecraftIdentity.id))
     requestFlush()
 
     while (true) {
-        when (val packet = incoming.receive()) {
+        when (val clientboundPacket = incoming.receive()) {
             is LoginDisconnectPacket ->
                 throw MinecraftClientException(
-                    "Server rejected Login: ${packet.reason.json}",
+                    "Server rejected Login: ${clientboundPacket.reason.json}",
                 )
 
             is EncryptionRequestPacket -> answerEncryptionRequest(
-                packet,
-                identity,
+                clientboundPacket,
+                minecraftIdentity,
                 sessionHttpClient,
             )
 
             is LoginCookieRequestPacket -> outgoing.send(
                 LoginCookieResponsePacket(
-                    packet.key,
-                    options.loginCookies[packet.key],
+                    clientboundPacket.key,
+                    minecraftClientNegotiationOptions.loginCookies[clientboundPacket.key],
                 ),
             )
 
@@ -196,20 +198,20 @@ private suspend fun MinecraftClientConnection.negotiateLogin(
             is LoginSuccessPacket -> {
                 outgoing.send(LoginAcknowledgedPacket)
                 awaitState(ConnectionState.CONFIGURATION)
-                return packet
+                return clientboundPacket
             }
 
-            else -> handleLoginExtension(profile, packet, options)
+            else -> handleLoginExtension(clientNegotiationProfile, clientboundPacket, minecraftClientNegotiationOptions)
         }
         requestFlush()
     }
 }
 
 private suspend fun MinecraftClientConnection.negotiateConfiguration(
-    profile: ClientNegotiationProfile,
-    options: MinecraftClientNegotiationOptions,
+    clientNegotiationProfile: ClientNegotiationProfile,
+    minecraftClientNegotiationOptions: MinecraftClientNegotiationOptions,
 ): MinecraftClientConfigurationResult {
-    outgoing.send(ConfigurationClientInformationPacket(options.clientInformation))
+    outgoing.send(ConfigurationClientInformationPacket(minecraftClientNegotiationOptions.clientInformation))
     requestFlush()
     var configurationClientboundKnownPacksPacket: ConfigurationClientboundKnownPacksPacket? = null
     var featureFlagsPacket: FeatureFlagsPacket? = null
@@ -217,56 +219,56 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
     val synchronizedRegistryPackets = mutableListOf<RegistryDataPacket>()
     val storedConfigurationCookies = linkedMapOf<Identifier, ByteString>()
     while (true) {
-        when (val packet = incoming.receive()) {
+        when (val clientboundPacket = incoming.receive()) {
             is ConfigurationDisconnectPacket ->
                 throw MinecraftClientException(
-                    "Server rejected Configuration: ${packet.reason}",
+                    "Server rejected Configuration: ${clientboundPacket.reason}",
                 )
 
             is ConfigurationCookieRequestPacket -> outgoing.send(
                 ConfigurationCookieResponsePacket(
-                    packet.key,
-                    options.configurationCookies[packet.key],
+                    clientboundPacket.key,
+                    minecraftClientNegotiationOptions.configurationCookies[clientboundPacket.key],
                 ),
             )
 
             is ConfigurationPingPacket ->
-                outgoing.send(ConfigurationPongPacket(packet.id))
+                outgoing.send(ConfigurationPongPacket(clientboundPacket.id))
 
             is ConfigurationClientboundKnownPacksPacket -> {
-                configurationClientboundKnownPacksPacket = packet
+                configurationClientboundKnownPacksPacket = clientboundPacket
                 outgoing.send(
                     ConfigurationServerboundKnownPacksPacket(
-                        packet.knownPacks.filter(options.acceptedKnownPacks::contains),
+                        clientboundPacket.knownPacks.filter(minecraftClientNegotiationOptions.acceptedKnownPacks::contains),
                     ),
                 )
             }
 
-            is FeatureFlagsPacket -> featureFlagsPacket = packet
+            is FeatureFlagsPacket -> featureFlagsPacket = clientboundPacket
 
             is RegistryDataPacket -> {
-                if (synchronizedRegistryPackets.any { it.registryId == packet.registryId }) {
+                if (synchronizedRegistryPackets.any { it.registryId == clientboundPacket.registryId }) {
                     throw MinecraftClientException(
-                        "Server sent duplicate registry ${packet.registryId}",
+                        "Server sent duplicate registry ${clientboundPacket.registryId}",
                     )
                 }
-                synchronizedRegistryPackets += packet
+                synchronizedRegistryPackets += clientboundPacket
             }
 
-            is ConfigurationUpdateTagsPacket -> configurationUpdateTagsPacket = packet
+            is ConfigurationUpdateTagsPacket -> configurationUpdateTagsPacket = clientboundPacket
 
             is ConfigurationStoreCookiePacket ->
-                storedConfigurationCookies[packet.key] = packet.payload
+                storedConfigurationCookies[clientboundPacket.key] = clientboundPacket.payload
 
             is ConfigurationAddResourcePackPacket -> outgoing.send(
                 ConfigurationResourcePackResponsePacket(
-                    packet.uuid,
-                    options.resourcePackResult,
+                    clientboundPacket.uuid,
+                    minecraftClientNegotiationOptions.resourcePackResult,
                 ),
             )
 
             is CodeOfConductPacket -> {
-                if (!options.acceptCodeOfConduct) {
+                if (!minecraftClientNegotiationOptions.acceptCodeOfConduct) {
                     throw MinecraftClientException(
                         "Code of Conduct was not accepted",
                     )
@@ -275,18 +277,19 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
             }
 
             is ConfigurationTransferPacket ->
-                throw MinecraftClientTransferException(packet.host, packet.port)
+                throw MinecraftClientTransferException(clientboundPacket.host, clientboundPacket.port)
 
             is FinishConfigurationPacket -> {
                 val baseProtocolRegistryContext = registryContextOrClientFailure {
-                    options.protocolData.resolveSynchronizedRegistryContext(
+                    minecraftClientNegotiationOptions.protocolData.resolveSynchronizedRegistryContext(
                         synchronizedRegistryPackets = synchronizedRegistryPackets,
-                        staticRegistrySchema = options.staticRegistrySchema,
+                        staticRegistrySchema = minecraftClientNegotiationOptions.staticRegistrySchema,
                     )
                 }
-                val protocolRegistryContext = profile.resolveProtocolRegistryContext(baseProtocolRegistryContext)
+                val protocolRegistryContext =
+                    clientNegotiationProfile.resolveProtocolRegistryContext(baseProtocolRegistryContext)
                 installProtocolRegistryContext(protocolRegistryContext)
-                profile.preparePlay(this)
+                clientNegotiationProfile.preparePlay(this)
                 outgoing.send(AcknowledgeFinishConfigurationPacket)
                 requestFlush()
                 awaitState(ConnectionState.PLAY)
@@ -309,7 +312,7 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
             ResetChatPacket,
                 -> Unit
 
-            else -> handleConfigurationExtension(profile, packet, options)
+            else -> handleConfigurationExtension(clientNegotiationProfile, clientboundPacket, minecraftClientNegotiationOptions)
         }
         requestFlush()
     }
@@ -317,30 +320,30 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
 
 private suspend fun MinecraftClientConnection.awaitPlayLogin(
     synchronizedRegistryPackets: List<RegistryDataPacket>,
-    options: MinecraftClientNegotiationOptions,
+    minecraftClientNegotiationOptions: MinecraftClientNegotiationOptions,
 ): MinecraftClientPlayLogin {
     while (true) {
-        when (val packet = incoming.receive()) {
+        when (val clientboundPacket = incoming.receive()) {
             is PlayLoginPacket -> {
                 val minecraftDimensionLayout = registryContextOrClientFailure {
                     MinecraftDimensionLayout.from(
-                        playLoginPacket = packet,
+                        playLoginPacket = clientboundPacket,
                         synchronizedRegistryPackets = synchronizedRegistryPackets,
-                        protocolData = options.protocolData,
+                        protocolData = minecraftClientNegotiationOptions.protocolData,
                     )
                 }
                 val activeProtocolRegistryContext =
                     protocolRegistryContext.withChunkSectionCount(minecraftDimensionLayout.sectionCount)
                 installProtocolRegistryContext(activeProtocolRegistryContext)
-                return MinecraftClientPlayLogin(packet, minecraftDimensionLayout)
+                return MinecraftClientPlayLogin(clientboundPacket, minecraftDimensionLayout)
             }
 
             else -> {
-                if (packet is UnknownPacket.Clientbound) {
-                    handleUnknownQuery(packet, options)
+                if (clientboundPacket is UnknownPacket.Clientbound) {
+                    handleUnknownQuery(clientboundPacket, minecraftClientNegotiationOptions)
                 } else {
                     throw MinecraftClientException(
-                        "Expected Play Login, received ${packet::class.simpleName}",
+                        "Expected Play Login, received ${clientboundPacket::class.simpleName}",
                     )
                 }
             }
@@ -355,46 +358,46 @@ private data class MinecraftClientPlayLogin(
 )
 
 private suspend fun MinecraftClientConnection.handleLoginExtension(
-    profile: ClientNegotiationProfile,
-    packet: ClientboundPacket,
-    options: MinecraftClientNegotiationOptions,
+    clientNegotiationProfile: ClientNegotiationProfile,
+    clientboundPacket: ClientboundPacket,
+    minecraftClientNegotiationOptions: MinecraftClientNegotiationOptions,
 ) {
-    if (profile.handleLoginPacket(this, packet)) return
-    if (packet is UnknownPacket.Clientbound) {
-        handleUnknownQuery(packet, options)
+    if (clientNegotiationProfile.handleLoginPacket(this, clientboundPacket)) return
+    if (clientboundPacket is UnknownPacket.Clientbound) {
+        handleUnknownQuery(clientboundPacket, minecraftClientNegotiationOptions)
         return
     }
     throw MinecraftClientException(
-        "Unexpected Login packet ${packet::class.simpleName}",
+        "Unexpected Login packet ${clientboundPacket::class.simpleName}",
     )
 }
 
 private suspend fun MinecraftClientConnection.handleConfigurationExtension(
-    profile: ClientNegotiationProfile,
-    packet: ClientboundPacket,
-    options: MinecraftClientNegotiationOptions,
+    clientNegotiationProfile: ClientNegotiationProfile,
+    clientboundPacket: ClientboundPacket,
+    minecraftClientNegotiationOptions: MinecraftClientNegotiationOptions,
 ) {
-    if (profile.handleConfigurationPacket(this, packet)) return
-    if (packet is UnknownPacket.Clientbound) {
-        handleUnknownQuery(packet, options)
+    if (clientNegotiationProfile.handleConfigurationPacket(this, clientboundPacket)) return
+    if (clientboundPacket is UnknownPacket.Clientbound) {
+        handleUnknownQuery(clientboundPacket, minecraftClientNegotiationOptions)
         return
     }
     if (
-        packet is ConfigurationClientboundPluginMessagePacket &&
-        packet.payload is CustomPayload.Brand
+        clientboundPacket is ConfigurationClientboundPluginMessagePacket &&
+        clientboundPacket.payload is CustomPayload.Brand
     ) {
         return
     }
     throw MinecraftClientException(
-        "Unexpected Configuration packet ${packet::class.simpleName}",
+        "Unexpected Configuration packet ${clientboundPacket::class.simpleName}",
     )
 }
 
 private suspend fun MinecraftClientConnection.handleUnknownQuery(
     packet: UnknownPacket.Clientbound,
-    options: MinecraftClientNegotiationOptions,
+    minecraftClientNegotiationOptions: MinecraftClientNegotiationOptions,
 ) {
-    val decision = options.onUnhandledQuery?.invoke(packet)
+    val decision = minecraftClientNegotiationOptions.onUnhandledQuery?.invoke(packet)
         ?: defaultUnknownQueryResult(packet)
     when (decision) {
         ClientNegotiationQueryResult.Pass -> Unit
@@ -409,15 +412,15 @@ private suspend fun MinecraftClientConnection.handleUnknownQuery(
 private fun defaultUnknownQueryResult(
     packet: UnknownPacket.Clientbound,
 ): ClientNegotiationQueryResult {
-    val route = packet.route as? PacketRoute.LoginQuery
+    val loginQuery = packet.packetRoute as? PacketRoute.LoginQuery
         ?: return ClientNegotiationQueryResult.Pass
     return ClientNegotiationQueryResult.Respond(
         listOf(
             UnknownPacket.Serverbound(
                 PacketRoute.LoginQuery(
-                    direction = PacketDirection.SERVERBOUND,
-                    transactionId = route.transactionId,
-                    channel = route.channel,
+                    packetDirection = PacketDirection.SERVERBOUND,
+                    transactionId = loginQuery.transactionId,
+                    channel = loginQuery.channel,
                     hasPayload = false,
                 ),
                 ByteString(byteArrayOf()),
@@ -427,21 +430,21 @@ private fun defaultUnknownQueryResult(
 }
 
 private suspend fun MinecraftClientConnection.answerEncryptionRequest(
-    request: EncryptionRequestPacket,
-    identity: MinecraftIdentity,
+    encryptionRequestPacket: EncryptionRequestPacket,
+    minecraftIdentity: MinecraftIdentity,
     sessionHttpClient: HttpClient?,
 ) {
-    val onlineIdentity =
-        if (request.shouldAuthenticate) {
-            identity as? MinecraftOnlineIdentity
+    val minecraftOnlineIdentity =
+        if (encryptionRequestPacket.shouldAuthenticate) {
+            minecraftIdentity as? MinecraftOnlineIdentity
                 ?: throw MinecraftClientException(
                     "Server requested online authentication for an offline identity",
                 )
         } else {
             null
         }
-    val api =
-        if (request.shouldAuthenticate) {
+    val minecraftSessionApi =
+        if (encryptionRequestPacket.shouldAuthenticate) {
             MinecraftSessionApi(
                 sessionHttpClient ?: throw MinecraftClientException(
                     "Server requested online authentication, but no Session Server HttpClient was supplied",
@@ -450,14 +453,14 @@ private suspend fun MinecraftClientConnection.answerEncryptionRequest(
         } else {
             null
         }
-    val exchange = MinecraftClientKeyExchange.respond(request)
-    if (onlineIdentity != null && api != null) {
-        api.join(onlineIdentity, exchange.serverHash)
+    val minecraftClientKeyExchangeResult = MinecraftClientKeyExchange.respond(encryptionRequestPacket)
+    if (minecraftOnlineIdentity != null && minecraftSessionApi != null) {
+        minecraftSessionApi.join(minecraftOnlineIdentity, minecraftClientKeyExchangeResult.minecraftServerHash)
     }
-    val sharedSecret = exchange.sharedSecret
+    val sharedSecret = minecraftClientKeyExchangeResult.sharedSecret
     try {
         prepareOutboundEncryption(sharedSecret)
-        outgoing.send(exchange.toEncryptionResponsePacket())
+        outgoing.send(minecraftClientKeyExchangeResult.toEncryptionResponsePacket())
     } finally {
         sharedSecret.fill(0)
     }
@@ -475,12 +478,12 @@ private inline fun <T> registryContextOrClientFailure(
 }
 
 private fun MinecraftClientConnection.handshake(
-    nextState: HandshakeNextState,
+    handshakeNextState: HandshakeNextState,
 ): HandshakePacket = HandshakePacket(
     protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
     serverAddress = serverAddress,
     serverPort = serverPort,
-    nextState = nextState,
+    nextState = handshakeNextState,
 )
 
 /** Invalid client-side protocol orchestration or peer behavior. */

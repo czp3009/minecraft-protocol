@@ -15,7 +15,7 @@ import kotlin.uuid.Uuid
 class EntityRegionHandleTest {
     @Test
     fun randomAccessReadsWritesAndExternalPayloadsUseOneEntityRegion() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val worldRoot = "/world".toPath()
         val directory = MinecraftWorldPaths(worldRoot).regionDirectory(RegionStorageDirectory.ENTITIES)
         val regionPosition = RegionPosition(-1, 2)
@@ -24,7 +24,7 @@ class EntityRegionHandleTest {
         val removedPosition = regionPosition.chunk(LocalChunkPosition(7, 5))
         val typedLocal = LocalChunkPosition(8, 5)
         val typedNbt = testLevelDat(levelName = "entity-region-typed-nbt")
-        val codec = EntityChunkNbtCodec(EXPECTED_DATA_VERSION, NbtEntityDataRegistry())
+        val entityChunkNbtCodec = EntityChunkNbtCodec(EXPECTED_DATA_VERSION, NbtEntityDataRegistry())
         val entity = Entity(
             type = "minecraft:pig",
             uuid = Uuid.fromLongs(1, 2),
@@ -60,65 +60,66 @@ class EntityRegionHandleTest {
                 MinecraftCoordinates.blockCoordinate(removedPosition.z, 1) + 0.5,
             ),
         )
-        val storage = RegionStorage(
+        val regionStorage = RegionStorage(
             directory = directory,
-            fileSystem = fileSystem,
-            configuration = RegionStorageConfiguration(syncWrites = false),
+            fileSystem = fakeFileSystem,
+            regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
         )
-        val entityRegionHandle = EntityRegionHandle(storage.openRegion(regionPosition))
+        val entityRegionHandle = EntityRegionHandle(regionStorage.openRegion(regionPosition))
 
-        entityRegionHandle.writeChunk(entityChunk, codec, Compression.NONE)
-        entityRegionHandle.writeChunk(externalEntityChunk, codec, Compression.NONE)
+        entityRegionHandle.writeChunk(entityChunk, entityChunkNbtCodec, Compression.NONE)
+        entityRegionHandle.writeChunk(externalEntityChunk, entityChunkNbtCodec, Compression.NONE)
         entityRegionHandle.writeChunk(
             EntityChunk(removedPosition, EXPECTED_DATA_VERSION, listOf(removedEntity)),
-            codec,
+            entityChunkNbtCodec,
             Compression.NONE,
         )
         entityRegionHandle.writeChunk(
             EntityChunk<NbtCompound>(removedPosition, EXPECTED_DATA_VERSION),
-            codec,
+            entityChunkNbtCodec,
             Compression.NONE,
         )
 
         assertEquals(2, entityRegionHandle.readChunkCount())
         assertTrue(entityRegionHandle.hasChunk(chunkPosition))
         assertFalse(entityRegionHandle.hasChunk(removedPosition))
-        val decodedChunk = assertNotNull(entityRegionHandle.readChunk(chunkPosition, codec))
-        assertEquals(chunkPosition, decodedChunk.position)
+        val decodedChunk = assertNotNull(entityRegionHandle.readChunk(chunkPosition, entityChunkNbtCodec))
+        assertEquals(chunkPosition, decodedChunk.chunkPosition)
         assertEquals(entity.uuid, decodedChunk.rootEntities.single().uuid)
         val compressedBuffer = Buffer()
         val streamedInfo = assertNotNull(entityRegionHandle.readCompressedChunkTo(chunkPosition, compressedBuffer))
         val streamedChunk = CompressedChunk(streamedInfo.compression, compressedBuffer.readByteArray())
-            .toEntityChunk(chunkPosition, codec)
-        assertEquals(chunkPosition, streamedChunk.position)
+            .toEntityChunk(chunkPosition, entityChunkNbtCodec)
+        assertEquals(chunkPosition, streamedChunk.chunkPosition)
         assertEquals(entity.uuid, streamedChunk.rootEntities.single().uuid)
         assertEquals(
-            setOf(chunkPosition.local, externalPosition.local),
+            setOf(chunkPosition.localChunkPosition, externalPosition.localChunkPosition),
             entityRegionHandle.readLocalChunkPositions().toSet(),
         )
-        assertTrue(fileSystem.exists(directory / "r.-1.2.mca"))
-        assertTrue(fileSystem.exists(directory / "c.${externalPosition.x}.${externalPosition.z}.mcc"))
+        assertTrue(fakeFileSystem.exists(directory / "r.-1.2.mca"))
+        assertTrue(fakeFileSystem.exists(directory / "c.${externalPosition.x}.${externalPosition.z}.mcc"))
         entityRegionHandle.writeChunkNbt(
-            local = typedLocal,
+            localChunkPosition = typedLocal,
             value = typedNbt,
             compression = Compression.NONE,
         )
-        assertEquals(typedNbt, entityRegionHandle.readChunkNbt<LevelDat>(local = typedLocal))
+        assertEquals(typedNbt, entityRegionHandle.readChunkNbt<LevelDat>(localChunkPosition = typedLocal))
 
         entityRegionHandle.close()
-        storage.close()
+        regionStorage.close()
 
-        val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(worldRoot, fileSystem)
+        val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(worldRoot, fakeFileSystem)
         assertEquals(listOf(regionPosition), liveMinecraftWorldAccess.listEntityRegionPositions())
         val liveEntityRegionHandle = liveMinecraftWorldAccess.openEntityRegion(regionPosition)
-        val liveChunk = assertNotNull(liveEntityRegionHandle.readChunk(chunkPosition, codec))
-        assertEquals(chunkPosition, liveChunk.position)
+        val liveChunk = assertNotNull(liveEntityRegionHandle.readChunk(chunkPosition, entityChunkNbtCodec))
+        assertEquals(chunkPosition, liveChunk.chunkPosition)
         assertEquals(entity.uuid, liveChunk.rootEntities.single().uuid)
-        val decodedExternalEntity = liveEntityRegionHandle.readChunk(externalPosition, codec)?.rootEntities?.single()
+        val decodedExternalEntity =
+            liveEntityRegionHandle.readChunk(externalPosition, entityChunkNbtCodec)?.rootEntities?.single()
         assertNotNull(decodedExternalEntity)
         assertEquals(NbtByteArray(externalBytes), decodedExternalEntity.data["test:payload"])
-        assertEquals(typedNbt, liveEntityRegionHandle.readChunkNbt<LevelDat>(local = typedLocal))
-        fileSystem.checkNoOpenFiles()
+        assertEquals(typedNbt, liveEntityRegionHandle.readChunkNbt<LevelDat>(localChunkPosition = typedLocal))
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     private companion object {

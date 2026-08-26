@@ -15,12 +15,12 @@ Create a server inside the structured `use` helper:
 ```kotlin
 @Test
 fun officialServerStatus() = runTest {
-    MinecraftTestSupport.newOfficialServer().use { server ->
-        val endpoint = server.endpoint
-        val status = MinecraftTestSupport.status(server)
+    MinecraftTestSupport.newOfficialServer().use { officialMinecraftServer ->
+        val minecraftTestEndpoint = officialMinecraftServer.minecraftTestEndpoint
+        val minecraftTestResourceStatus = MinecraftTestSupport.status(officialMinecraftServer)
 
-        assertTrue(status.alive)
-        assertEquals("127.0.0.1", endpoint.host)
+        assertTrue(minecraftTestResourceStatus.alive)
+        assertEquals("127.0.0.1", minecraftTestEndpoint.host)
     }
 }
 ```
@@ -29,7 +29,7 @@ The default configuration starts from the prepared stopped template. Supplying a
 workspace from the prepared runtime:
 
 ```kotlin
-val server = MinecraftTestSupport.newOfficialServer(
+val officialMinecraftServer = MinecraftTestSupport.newOfficialServer(
     OfficialMinecraftServerConfiguration(
         properties = mapOf(
             "online-mode" to "false",
@@ -59,11 +59,12 @@ suspend fun connectOfficialClient(
 ) {
     MinecraftTestSupport.newHeadlessClient(
         HeadlessMinecraftClientConfiguration(playerName = "FixturePlayer"),
-    ).use { client ->
-        val endpoint = MinecraftTestEndpoint("127.0.0.1", testServerPort)
-        val state = MinecraftTestSupport.connectHeadlessClient(client, endpoint)
+    ).use { headlessMinecraftClient ->
+        val minecraftTestEndpoint = MinecraftTestEndpoint("127.0.0.1", testServerPort)
+        val headlessMinecraftClientState =
+            MinecraftTestSupport.connectHeadlessClient(headlessMinecraftClient, minecraftTestEndpoint)
 
-        recordControlState(state)
+        recordControlState(headlessMinecraftClientState)
         verifyPacketsObservedByTestServer()
     }
 }
@@ -83,17 +84,17 @@ client action.
 ## Stop a process but inspect its files
 
 The normal `use` helper schedules process and workspace cleanup. A filesystem interoperability test can instead separate
-the stages. The `server` value below is an `OfficialMinecraftServer` previously returned by `newOfficialServer()`, and
+the stages. The `officialMinecraftServer` value below was previously returned by `newOfficialServer()`, and
 `inspectStoppedWorld` is the test's same-host filesystem assertion:
 
 ```kotlin
-val exitCode = MinecraftTestSupport.closeProcess(server)
+val exitCode = MinecraftTestSupport.closeProcess(officialMinecraftServer)
 check(exitCode == 0)
 
-val hostPath = MinecraftTestSupport.hostWorkingDirectory(server)
+val hostPath = MinecraftTestSupport.hostWorkingDirectory(officialMinecraftServer)
 inspectStoppedWorld(hostPath)
 
-MinecraftTestSupport.deleteWorkingDirectory(server)
+MinecraftTestSupport.deleteWorkingDirectory(officialMinecraftServer)
 ```
 
 `hostWorkingDirectory` is intentionally non-portable. It is valid only when the test process and Fixture Host share a

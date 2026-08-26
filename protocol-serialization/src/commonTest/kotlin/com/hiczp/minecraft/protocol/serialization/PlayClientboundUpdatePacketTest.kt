@@ -19,7 +19,7 @@ class PlayClientboundUpdatePacketTest {
             PlayTransferPacket.serializer(),
             "0178ff01",
         )
-        val packet = UpdateAttributesPacket(
+        val updateAttributesPacket = UpdateAttributesPacket(
             entityId = 1,
             attributes = listOf(
                 AttributeSnapshot(
@@ -36,7 +36,7 @@ class PlayClientboundUpdatePacketTest {
             ),
         )
         assertPacketBytes(
-            packet,
+            updateAttributesPacket,
             UpdateAttributesPacket.serializer(),
             "0101ac023ff0000000000000010b6d696e6563726166743a78c00000000000000002",
         )
@@ -79,7 +79,7 @@ class PlayClientboundUpdatePacketTest {
 
     @Test
     fun `play tag update is nested prefixed registry and tag data`() {
-        val packet = PlayUpdateTagsPacket(
+        val playUpdateTagsPacket = PlayUpdateTagsPacket(
             linkedMapOf(
                 Identifier("minecraft:block") to listOf(
                     TagDefinition(
@@ -90,7 +90,7 @@ class PlayClientboundUpdatePacketTest {
             ),
         )
         assertPacketBytes(
-            packet,
+            playUpdateTagsPacket,
             PlayUpdateTagsPacket.serializer(),
             "010f6d696e6563726166743a626c6f636b010e6d696e6563726166743a746573740201ac02",
         )
@@ -160,17 +160,17 @@ class PlayClientboundUpdatePacketTest {
 
     private fun <T> assertPacketBytes(
         packet: T,
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
         expectedHex: String,
     ) {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

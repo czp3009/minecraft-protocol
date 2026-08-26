@@ -39,8 +39,8 @@ class MinecraftWorldChunkProjectionTest {
         val protocolRegistryContext = testProtocolRegistryContext()
         val minecraftChunkPacketEncoder = MinecraftChunkPacketEncoder(
             protocolRegistryContext = protocolRegistryContext,
-            isAir = { blockState -> blockState.block == Identifier("air") },
-            hasFluid = { blockState -> blockState.block == Identifier("water") },
+            isAir = { protocolBlockState -> protocolBlockState.block == Identifier("air") },
+            hasFluid = { protocolBlockState -> protocolBlockState.block == Identifier("water") },
             hasSkyLight = true,
         )
         val air = minecraftChunkPacketEncoder.chunkDataRegistries.blockStates.defaultValue
@@ -54,7 +54,7 @@ class MinecraftWorldChunkProjectionTest {
         val blockLight = ByteArray(com.hiczp.minecraft.world.format.SECTION_LIGHT_BYTE_COUNT).apply { this[0] = 4 }
         val skyLight = ByteArray(com.hiczp.minecraft.world.format.SECTION_LIGHT_BYTE_COUNT).apply { this[1] = -1 }
         val chunkPosition = ChunkPosition(-1, 2)
-        val metadata = ChunkMetadata(
+        val chunkMetadata = ChunkMetadata(
             dataVersion = 1,
             status = "full",
             heightmaps = NbtCompound(mapOf("WORLD_SURFACE" to NbtLongArray(longArrayOf(11L)))),
@@ -62,14 +62,14 @@ class MinecraftWorldChunkProjectionTest {
         )
         val blockEntity = BlockEntity(
             type = "minecraft:chest",
-            position = chunkPosition.block(ChunkBlockPosition(3, -1, 4)),
+            blockPosition = chunkPosition.block(ChunkBlockPosition(3, -1, 4)),
             persistentData = NbtCompound(mapOf("custom" to NbtInt(7))),
         )
         val chunkLayout = ChunkLayout(minSectionY = -1, sectionCount = 2)
         val chunk = Chunk(
-            position = chunkPosition,
-            metadata = metadata,
-            layout = chunkLayout,
+            chunkPosition = chunkPosition,
+            chunkMetadata = chunkMetadata,
+            chunkLayout = chunkLayout,
             sections = listOf(
                 ChunkSection(
                     sectionY = -1,
@@ -107,13 +107,13 @@ class MinecraftWorldChunkProjectionTest {
         assertEquals(air, decoded.block(ChunkBlockPosition(2, -16, 0)))
         assertEquals(plains, decoded.biome(0, -16, 0))
         assertEquals(NbtByteArray(blockLight), decoded.section(-1)?.blockLight)
-        assertEquals(NbtByteArray(skyLight), decoded.metadata.lightOnlySections[1]?.skyLight)
-        assertEquals(metadata.heightmaps, decoded.metadata.heightmaps)
-        assertEquals(blockEntity.type, decoded.blockEntity(blockEntity.position)?.type)
-        assertEquals(blockEntity.persistentData, decoded.blockEntity(blockEntity.position)?.persistentData)
+        assertEquals(NbtByteArray(skyLight), decoded.chunkMetadata.lightOnlySections[1]?.skyLight)
+        assertEquals(chunkMetadata.heightmaps, decoded.chunkMetadata.heightmaps)
+        assertEquals(blockEntity.type, decoded.blockEntity(blockEntity.blockPosition)?.type)
+        assertEquals(blockEntity.persistentData, decoded.blockEntity(blockEntity.blockPosition)?.persistentData)
 
         val minecraftProtocolFormat = MinecraftProtocolFormat(
-            MinecraftProtocolFormat.configuration.copy(protocolRegistryContext = protocolRegistryContext),
+            MinecraftProtocolFormat.minecraftProtocolFormatConfiguration.copy(protocolRegistryContext = protocolRegistryContext),
         )
         val originalBytes = minecraftProtocolFormat.encodeToByteArray(chunkDataAndUpdateLightPacket)
         val roundTripBytes = minecraftProtocolFormat.encodeToByteArray(
@@ -122,9 +122,9 @@ class MinecraftWorldChunkProjectionTest {
         assertContentEquals(originalBytes, roundTripBytes)
 
         chunkDataAndUpdateLightPacket.chunkData.heightmaps.getValue(HeightmapType.WORLD_SURFACE)[0] = 99L
-        assertEquals(NbtLongArray(longArrayOf(11L)), metadata.heightmaps["WORLD_SURFACE"])
+        assertEquals(NbtLongArray(longArrayOf(11L)), chunkMetadata.heightmaps["WORLD_SURFACE"])
         minecraftChunkSnapshot.chunkData.heightmaps.getValue(HeightmapType.WORLD_SURFACE)[0] = 100L
-        assertEquals(NbtLongArray(longArrayOf(11L)), metadata.heightmaps["WORLD_SURFACE"])
+        assertEquals(NbtLongArray(longArrayOf(11L)), chunkMetadata.heightmaps["WORLD_SURFACE"])
     }
 
     @Test
@@ -141,7 +141,7 @@ class MinecraftWorldChunkProjectionTest {
             registries = listOf(
                 ProtocolRegistry(
                     StaticRegistrySchema.BLOCK_REGISTRY,
-                    blockStates.map { blockState -> ProtocolRegistryEntry(blockState.block, blockState.id) },
+                    blockStates.map { protocolBlockState -> ProtocolRegistryEntry(protocolBlockState.block, protocolBlockState.id) },
                 ),
                 ProtocolRegistry(ProtocolRegistryContext.BIOME_REGISTRY, biomeEntries),
             ),
@@ -150,12 +150,12 @@ class MinecraftWorldChunkProjectionTest {
         )
         val minecraftChunkPacketEncoder = MinecraftChunkPacketEncoder(
             protocolRegistryContext = protocolRegistryContext,
-            isAir = { blockState -> blockState.id == 0 },
+            isAir = { protocolBlockState -> protocolBlockState.id == 0 },
             hasFluid = { false },
             hasSkyLight = false,
         )
         val chunkLayout = ChunkLayout(minSectionY = 0, sectionCount = 1)
-        val section = ChunkSection(
+        val chunkSection = ChunkSection(
             sectionY = 0,
             blockStates = PalettedContainer(
                 List(com.hiczp.minecraft.world.format.SECTION_BLOCK_COUNT) { index ->
@@ -169,10 +169,10 @@ class MinecraftWorldChunkProjectionTest {
             ),
         )
         val chunk = Chunk(
-            position = ChunkPosition(0, 0),
-            metadata = ChunkMetadata(dataVersion = 1, status = "full"),
-            layout = chunkLayout,
-            sections = listOf(section),
+            chunkPosition = ChunkPosition(0, 0),
+            chunkMetadata = ChunkMetadata(dataVersion = 1, status = "full"),
+            chunkLayout = chunkLayout,
+            sections = listOf(chunkSection),
             defaultBlockState = blockStates.first(),
             defaultBiome = biomeEntries.first(),
         )

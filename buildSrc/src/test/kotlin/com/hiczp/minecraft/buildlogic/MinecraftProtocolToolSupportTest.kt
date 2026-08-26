@@ -133,7 +133,7 @@ class MinecraftProtocolToolSupportTest {
         processPidFiles(pidFile).forEach { current ->
             assertTrue(
                 ProcessHandle.of(Files.readString(current).toLong())
-                    .map { process -> !process.isAlive }
+                    .map { processHandle -> !processHandle.isAlive }
                     .orElse(true),
             )
         }

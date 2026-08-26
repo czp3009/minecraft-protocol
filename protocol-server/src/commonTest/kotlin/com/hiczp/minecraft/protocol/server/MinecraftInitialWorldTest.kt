@@ -47,12 +47,12 @@ class MinecraftInitialWorldTest {
         val groundOffset = groundY - minecraftDimensionLayout.minY
         val groundSection = groundOffset / 16
         val localGroundY = groundOffset % 16
-        minecraftChunkSnapshot.chunkData.sections.forEachIndexed { index, section ->
-            assertEquals(if (index == groundSection) 256 else 0, section.nonAirBlockCount)
-            assertEquals(0, section.fluidCount)
+        minecraftChunkSnapshot.chunkData.sections.forEachIndexed { index, chunkSection ->
+            assertEquals(if (index == groundSection) 256 else 0, chunkSection.nonAirBlockCount)
+            assertEquals(0, chunkSection.fluidCount)
             if (index == groundSection) {
                 val palette = assertIs<PalettedContainer.Indirect>(
-                    section.blockStates,
+                    chunkSection.blockStates,
                 )
                 assertEquals(4, palette.bitsPerEntry)
                 assertEquals(
@@ -78,12 +78,12 @@ class MinecraftInitialWorldTest {
             } else {
                 assertEquals(
                     PalettedContainer.Single(airVanillaBlockState.rawId),
-                    section.blockStates,
+                    chunkSection.blockStates,
                 )
             }
             assertEquals(
                 PalettedContainer.Single(biomeRawId),
-                section.biomes,
+                chunkSection.biomes,
             )
         }
 
@@ -100,26 +100,26 @@ class MinecraftInitialWorldTest {
             groundY - minecraftDimensionLayout.minY + 1,
             packedEntry(heightmap, heightBits, 255),
         )
-        assertFalse(minecraftChunkSnapshot.lightData.skyYMask[0])
-        assertTrue(minecraftChunkSnapshot.lightData.skyYMask[1])
-        assertTrue(minecraftChunkSnapshot.lightData.skyYMask[minecraftDimensionLayout.sectionCount])
+        assertFalse(minecraftChunkSnapshot.lightUpdateData.skyYMask[0])
+        assertTrue(minecraftChunkSnapshot.lightUpdateData.skyYMask[1])
+        assertTrue(minecraftChunkSnapshot.lightUpdateData.skyYMask[minecraftDimensionLayout.sectionCount])
         assertFalse(
-            minecraftChunkSnapshot.lightData.skyYMask[minecraftDimensionLayout.sectionCount + 1],
+            minecraftChunkSnapshot.lightUpdateData.skyYMask[minecraftDimensionLayout.sectionCount + 1],
         )
         assertEquals(
             minecraftDimensionLayout.sectionCount,
-            minecraftChunkSnapshot.lightData.skyUpdates.size,
+            minecraftChunkSnapshot.lightUpdateData.skyUpdates.size,
         )
         assertTrue(
-            minecraftChunkSnapshot.lightData.skyUpdates.all {
+            minecraftChunkSnapshot.lightUpdateData.skyUpdates.all {
                 it.bytes.size == 2_048 &&
                         it.bytes.toByteArray().all { byte -> byte == (-1).toByte() }
             },
         )
-        assertTrue(minecraftChunkSnapshot.lightData.blockUpdates.isEmpty())
+        assertTrue(minecraftChunkSnapshot.lightUpdateData.blockUpdates.isEmpty())
 
         val minecraftProtocolFormat = MinecraftProtocolFormat(
-            MinecraftProtocolFormat.configuration.copy(
+            MinecraftProtocolFormat.minecraftProtocolFormatConfiguration.copy(
                 protocolRegistryContext = VanillaRegistryData.protocolRegistryContext
                     .withRegistrySize(
                         ProtocolRegistryContext.BIOME_REGISTRY,
@@ -220,21 +220,21 @@ class MinecraftInitialWorldTest {
 
     @Test
     fun entitySnapshotResolvesVanillaTypeAndBundlesMetadata() {
-        val entity = MinecraftEntitySnapshot(
+        val minecraftEntitySnapshot = MinecraftEntitySnapshot(
             entityId = 17,
             uuid = Uuid.fromLongs(1, 2),
             type = Identifier("pig"),
             position = Vector3d(1.5, 65.0, -2.5),
-            metadata = EntityMetadata(emptyList()),
+            entityMetadata = EntityMetadata(emptyList()),
         )
 
-        val clientboundPackets = entity.packets(VanillaProtocolData.completeProtocolRegistryContext)
+        val clientboundPackets = minecraftEntitySnapshot.packets(VanillaProtocolData.completeProtocolRegistryContext)
 
         assertEquals(3, clientboundPackets.size)
         val spawnEntityPacket = assertIs<SpawnEntityPacket>(clientboundPackets[1])
-        assertEquals(entity.entityId, spawnEntityPacket.entityId)
+        assertEquals(minecraftEntitySnapshot.entityId, spawnEntityPacket.entityId)
         assertEquals(
-            entity.typeId(VanillaProtocolData.completeProtocolRegistryContext),
+            minecraftEntitySnapshot.typeId(VanillaProtocolData.completeProtocolRegistryContext),
             spawnEntityPacket.typeId,
         )
 
@@ -247,10 +247,10 @@ class MinecraftInitialWorldTest {
             ),
             blockStates = emptyList(),
         )
-        assertEquals(42, entity.typeId(remappedProtocolRegistryContext))
+        assertEquals(42, minecraftEntitySnapshot.typeId(remappedProtocolRegistryContext))
         assertEquals(
             42,
-            assertIs<SpawnEntityPacket>(entity.packets(remappedProtocolRegistryContext)[1]).typeId,
+            assertIs<SpawnEntityPacket>(minecraftEntitySnapshot.packets(remappedProtocolRegistryContext)[1]).typeId,
         )
     }
 
@@ -260,12 +260,12 @@ class MinecraftInitialWorldTest {
         val type = Identifier("pig")
         val position = Vector3d(1.5, 65.0, -2.5)
         val velocity = Vector3d(0.125, -0.25, 0.5)
-        val metadata = EntityMetadata(listOf(EntityMetadataEntry(0, EntityDataValue.ByteValue(1))))
+        val entityMetadata = EntityMetadata(listOf(EntityMetadataEntry(0, EntityDataValue.ByteValue(1))))
         val attributes = listOf(AttributeSnapshot(3, 20.0, emptyList()))
         val equipment = listOf(EquipmentUpdate(EquipmentSlot.MAINHAND, ItemStack.of(4)))
         val passengerEntityIds = listOf(18)
         val vehiclePassengerRelation = MinecraftEntityPassengersSnapshot(16, listOf(17))
-        val entity = MinecraftEntitySnapshot(
+        val minecraftEntitySnapshot = MinecraftEntitySnapshot(
             17,
             uuid,
             type,
@@ -275,7 +275,7 @@ class MinecraftInitialWorldTest {
             20.0f,
             30.0f,
             41,
-            metadata,
+            entityMetadata,
             attributes,
             equipment,
             passengerEntityIds,
@@ -283,24 +283,25 @@ class MinecraftInitialWorldTest {
             19,
         )
 
-        val packets = entity.packets(VanillaProtocolData.completeProtocolRegistryContext)
-        val bundle = entity.bundle(VanillaProtocolData.completeProtocolRegistryContext)
+        val packets = minecraftEntitySnapshot.packets(VanillaProtocolData.completeProtocolRegistryContext)
+        val clientboundBundlePacket =
+            minecraftEntitySnapshot.bundle(VanillaProtocolData.completeProtocolRegistryContext)
 
         assertEquals(9, packets.size)
-        assertEquals(packets.drop(1).dropLast(1), bundle.subPackets)
+        assertEquals(packets.drop(1).dropLast(1), clientboundBundlePacket.subPackets)
         assertIs<BundleDelimiterPacket>(packets[0])
-        val spawn = assertIs<SpawnEntityPacket>(packets[1])
-        assertEquals(17, spawn.entityId)
-        assertEquals(uuid, spawn.entityUuid)
-        assertEquals(entity.typeId(VanillaProtocolData.completeProtocolRegistryContext), spawn.typeId)
-        assertEquals(position.x, spawn.x)
-        assertEquals(position.y, spawn.y)
-        assertEquals(position.z, spawn.z)
-        assertEquals(velocity, spawn.velocity)
-        assertEquals(Angle.fromDegrees(10.0f), spawn.pitch)
-        assertEquals(Angle.fromDegrees(20.0f), spawn.yaw)
-        assertEquals(Angle.fromDegrees(30.0f), spawn.headYaw)
-        assertEquals(41, spawn.data)
+        val spawnEntityPacket = assertIs<SpawnEntityPacket>(packets[1])
+        assertEquals(17, spawnEntityPacket.entityId)
+        assertEquals(uuid, spawnEntityPacket.entityUuid)
+        assertEquals(minecraftEntitySnapshot.typeId(VanillaProtocolData.completeProtocolRegistryContext), spawnEntityPacket.typeId)
+        assertEquals(position.x, spawnEntityPacket.x)
+        assertEquals(position.y, spawnEntityPacket.y)
+        assertEquals(position.z, spawnEntityPacket.z)
+        assertEquals(velocity, spawnEntityPacket.velocity)
+        assertEquals(Angle.fromDegrees(10.0f), spawnEntityPacket.pitch)
+        assertEquals(Angle.fromDegrees(20.0f), spawnEntityPacket.yaw)
+        assertEquals(Angle.fromDegrees(30.0f), spawnEntityPacket.headYaw)
+        assertEquals(41, spawnEntityPacket.data)
         assertIs<SetEntityMetadataPacket>(packets[2])
         assertIs<UpdateAttributesPacket>(packets[3])
         assertIs<SetEquipmentPacket>(packets[4])
@@ -321,7 +322,7 @@ class MinecraftInitialWorldTest {
             uuid = Uuid.fromLongs(1, 2),
             type = Identifier("pig"),
             position = Vector3d(1.5, 65.0, -2.5),
-            metadata = EntityMetadata(listOf(EntityMetadataEntry(0, EntityDataValue.ByteValue(1)))),
+            entityMetadata = EntityMetadata(listOf(EntityMetadataEntry(0, EntityDataValue.ByteValue(1)))),
         )
         val cow = MinecraftEntitySnapshot(
             entityId = 18,
@@ -331,12 +332,12 @@ class MinecraftInitialWorldTest {
             equipment = listOf(EquipmentUpdate(EquipmentSlot.MAINHAND, ItemStack.of(4))),
         )
 
-        val bundle = listOf(pig, cow).bundle(VanillaProtocolData.completeProtocolRegistryContext)
+        val clientboundBundlePacket = listOf(pig, cow).bundle(VanillaProtocolData.completeProtocolRegistryContext)
 
-        assertEquals(4, bundle.size)
-        assertEquals(listOf(17, 18), bundle.subPackets.filterIsInstance<SpawnEntityPacket>().map { it.entityId })
-        assertIs<SetEntityMetadataPacket>(bundle.subPackets[1])
-        assertIs<SetEquipmentPacket>(bundle.subPackets[3])
+        assertEquals(4, clientboundBundlePacket.size)
+        assertEquals(listOf(17, 18), clientboundBundlePacket.subPackets.filterIsInstance<SpawnEntityPacket>().map { it.entityId })
+        assertIs<SetEntityMetadataPacket>(clientboundBundlePacket.subPackets[1])
+        assertIs<SetEquipmentPacket>(clientboundBundlePacket.subPackets[3])
 
         val entities = listOf(
             Entity(
@@ -359,8 +360,8 @@ class MinecraftInitialWorldTest {
             entity.toMinecraftEntitySnapshot(entityIds.getValue(entity.uuid))
         }
 
-        assertEquals(listOf(17, 18), projectedBundle.subPackets.map { packet ->
-            assertIs<SpawnEntityPacket>(packet).entityId
+        assertEquals(listOf(17, 18), projectedBundle.subPackets.map { clientboundPacket ->
+            assertIs<SpawnEntityPacket>(clientboundPacket).entityId
         })
     }
 
@@ -379,9 +380,9 @@ class MinecraftInitialWorldTest {
         val passengerEntityIds = mutableListOf(18)
         val vehiclePassengerIds = mutableListOf(17)
 
-        val snapshot = entity.toMinecraftEntitySnapshot(
+        val minecraftEntitySnapshot = entity.toMinecraftEntitySnapshot(
             entityId = 17,
-            metadata = EntityMetadata(metadataEntries),
+            entityMetadata = EntityMetadata(metadataEntries),
             attributes = attributes,
             equipment = equipment,
             passengerEntityIds = passengerEntityIds,
@@ -395,11 +396,11 @@ class MinecraftInitialWorldTest {
         passengerEntityIds.clear()
         vehiclePassengerIds.clear()
 
-        val packets = snapshot.packets(typeId = 1)
-        val spawn = assertIs<SpawnEntityPacket>(packets[1])
-        assertEquals(1.5, spawn.x)
-        assertEquals(65.0, spawn.y)
-        assertEquals(-2.5, spawn.z)
+        val packets = minecraftEntitySnapshot.packets(typeId = 1)
+        val spawnEntityPacket = assertIs<SpawnEntityPacket>(packets[1])
+        assertEquals(1.5, spawnEntityPacket.x)
+        assertEquals(65.0, spawnEntityPacket.y)
+        assertEquals(-2.5, spawnEntityPacket.z)
         assertEquals(1, assertIs<SetEntityMetadataPacket>(packets[2]).metadata.entries.size)
         assertEquals(1, assertIs<UpdateAttributesPacket>(packets[3]).attributes.single().modifiers.size)
         assertEquals(1, assertIs<SetEquipmentPacket>(packets[4]).updates.entries.size)
@@ -480,19 +481,19 @@ class MinecraftInitialWorldTest {
                 groundY = groundY,
                 fullBrightSky = false,
             )
-            assertTrue(minecraftChunkSnapshot.lightData.skyYMask.words.isEmpty())
-            assertTrue(minecraftChunkSnapshot.lightData.skyUpdates.isEmpty())
+            assertTrue(minecraftChunkSnapshot.lightUpdateData.skyYMask.words.isEmpty())
+            assertTrue(minecraftChunkSnapshot.lightUpdateData.skyUpdates.isEmpty())
         }
     }
 
     @Test
     fun bootstrapKeepsDefaultSpawnPlayerPositionAndChunkCenterIndependent() {
-        val options = MinecraftServerNegotiationOptions(compressionThreshold = null)
+        val minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(compressionThreshold = null)
         val defaultSpawnPosition = Vector3d(32.0, 70.0, -48.0)
         val playerPosition = Vector3d(-17.5, 80.0, 25.5)
         val centerChunk = ChunkPosition(9, -4)
-        val bootstrap = MinecraftInitialWorldBootstrap.vanilla(
-            options = options,
+        val minecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
+            minecraftServerNegotiationOptions = minecraftServerNegotiationOptions,
             defaultSpawnPosition = defaultSpawnPosition,
             defaultSpawnYaw = 10.0f,
             defaultSpawnPitch = 20.0f,
@@ -502,7 +503,7 @@ class MinecraftInitialWorldTest {
             centerChunk = centerChunk,
         )
 
-        val packets = bootstrap.packets()
+        val packets = minecraftInitialWorldBootstrap.packets()
 
         assertEquals(8, packets.size)
         assertIs<ClientboundChangeDifficultyPacket>(packets[0])
@@ -513,34 +514,34 @@ class MinecraftInitialWorldTest {
         assertIs<ClientboundPlayerAbilitiesPacket>(packets[2])
         assertIs<SetRenderDistancePacket>(packets[3])
         assertIs<SetSimulationDistancePacket>(packets[4])
-        val position = assertIs<SynchronizePlayerPositionPacket>(packets[5])
-        assertEquals(playerPosition, position.change.position)
-        assertEquals(30.0f, position.change.yaw)
-        assertEquals(40.0f, position.change.pitch)
+        val synchronizePlayerPositionPacket = assertIs<SynchronizePlayerPositionPacket>(packets[5])
+        assertEquals(playerPosition, synchronizePlayerPositionPacket.change.position)
+        assertEquals(30.0f, synchronizePlayerPositionPacket.change.yaw)
+        assertEquals(40.0f, synchronizePlayerPositionPacket.change.pitch)
         assertIs<GameEventPacket>(packets[6])
-        val center = assertIs<SetCenterChunkPacket>(packets[7])
-        assertEquals(centerChunk.x, center.chunkX)
-        assertEquals(centerChunk.z, center.chunkZ)
+        val setCenterChunkPacket = assertIs<SetCenterChunkPacket>(packets[7])
+        assertEquals(centerChunk.x, setCenterChunkPacket.chunkX)
+        assertEquals(centerChunk.z, setCenterChunkPacket.chunkZ)
 
-        val world = MinecraftInitialWorld.flatVanilla(
-            options = options,
-            bootstrap = bootstrap,
+        val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(
+            minecraftServerNegotiationOptions = minecraftServerNegotiationOptions,
+            minecraftInitialWorldBootstrap = minecraftInitialWorldBootstrap,
             chunkRadius = 0,
         )
-        assertEquals(listOf(centerChunk.x to centerChunk.z), world.chunks.map { it.chunkX to it.chunkZ })
+        assertEquals(listOf(centerChunk.x to centerChunk.z), minecraftInitialWorld.chunks.map { it.chunkX to it.chunkZ })
     }
 
     @Test
     fun vanillaInitialWorldFactoriesNeedNoOptions() {
-        val bootstrap = MinecraftInitialWorldBootstrap.vanilla()
-        val world = MinecraftInitialWorld.flatVanilla(chunkRadius = 0)
+        val minecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla()
+        val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(chunkRadius = 0)
 
-        assertEquals(Difficulty.EASY, bootstrap.difficulty)
+        assertEquals(Difficulty.EASY, minecraftInitialWorldBootstrap.difficulty)
         assertEquals(
             MinecraftInitialWorldBootstrap.vanillaPlayerAbilities(PlayerGameMode.SURVIVAL),
-            world.bootstrap.playerAbilities,
+            minecraftInitialWorld.minecraftInitialWorldBootstrap.playerAbilities,
         )
-        assertEquals(1, world.chunks.size)
+        assertEquals(1, minecraftInitialWorld.chunks.size)
     }
 
     @Test
@@ -567,26 +568,26 @@ class MinecraftInitialWorldTest {
                 canFly = true,
             ),
         )
-        expected.forEach { (gameMode, abilities) ->
-            assertEquals(abilities, MinecraftInitialWorldBootstrap.vanillaPlayerAbilities(gameMode))
+        expected.forEach { (gameMode, playerAbilities) ->
+            assertEquals(playerAbilities, MinecraftInitialWorldBootstrap.vanillaPlayerAbilities(gameMode))
         }
 
-        val options = MinecraftServerNegotiationOptions(
+        val minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(
             compressionThreshold = null,
             gameMode = PlayerGameMode.SPECTATOR,
             difficulty = Difficulty.HARD,
             difficultyLocked = true,
         )
-        val world = MinecraftInitialWorld.flatVanilla(
-            options,
+        val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(
+            minecraftServerNegotiationOptions,
             chunkRadius = 0,
         )
 
-        assertEquals(Difficulty.HARD, world.bootstrap.difficulty)
-        assertTrue(world.bootstrap.difficultyLocked)
+        assertEquals(Difficulty.HARD, minecraftInitialWorld.minecraftInitialWorldBootstrap.difficulty)
+        assertTrue(minecraftInitialWorld.minecraftInitialWorldBootstrap.difficultyLocked)
         assertEquals(
             expected.getValue(PlayerGameMode.SPECTATOR),
-            world.bootstrap.playerAbilities,
+            minecraftInitialWorld.minecraftInitialWorldBootstrap.playerAbilities,
         )
     }
 

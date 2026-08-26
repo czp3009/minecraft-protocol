@@ -19,7 +19,7 @@ class ClientRegistryViewTest {
             registries = mapOf(blockRegistryId to listOf(firstBlockId, secondBlockId)),
             blocks = listOf(block(firstBlockId), block(secondBlockId)),
         )
-        val protocolData = ResolvedProtocolData(
+        val resolvedProtocolData = ResolvedProtocolData(
             minecraftVersion = "test",
             protocolVersion = 1,
             offeredKnownPacks = emptyList(),
@@ -33,7 +33,7 @@ class ClientRegistryViewTest {
         val dataPackConfigurationSnapshot = DataPackConfigurationSnapshot(
             offeredKnownPacks = emptyList(),
             enabledFeatureFlags = emptySet(),
-            synchronizedRegistryPackets = protocolData.synchronizedRegistryPackets(emptyList()),
+            synchronizedRegistryPackets = resolvedProtocolData.synchronizedRegistryPackets(emptyList()),
             registryTags = listOf(
                 RegistryTags(
                     blockRegistryId,
@@ -54,7 +54,7 @@ class ClientRegistryViewTest {
         )
 
         val clientRegistryView = dataPackConfigurationSnapshot.resolveClientRegistryView(
-            protocolData,
+            resolvedProtocolData,
             staticRegistrySchema,
             remoteRegistrySnapshot,
         )

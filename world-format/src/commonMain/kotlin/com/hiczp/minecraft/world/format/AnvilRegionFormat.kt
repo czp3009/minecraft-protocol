@@ -9,10 +9,10 @@ class AnvilFormatException(
 ) : Exception(message, cause)
 
 data class AnvilChunkRecordInfo(
-    val position: LocalChunkPosition,
+    val localChunkPosition: LocalChunkPosition,
     val compression: Compression,
     val compressedByteCount: Long,
-    val placement: AnvilChunkPlacement,
+    val anvilChunkPlacement: AnvilChunkPlacement,
     val timestampEpochSeconds: Int,
 )
 
@@ -29,17 +29,17 @@ sealed class AnvilRegionFormat {
     /** Reads one region without closing [source]. */
     fun decodeFromSource(source: Source): AnvilRegion {
         val chunks = linkedMapOf<LocalChunkPosition, AnvilChunkRecord>()
-        decodeRecordsFromSource(source) { info, payload ->
-            val content = if (info.placement == AnvilChunkPlacement.EXTERNAL) {
+        decodeRecordsFromSource(source) { anvilChunkRecordInfo, payload ->
+            val content = if (anvilChunkRecordInfo.anvilChunkPlacement == AnvilChunkPlacement.EXTERNAL) {
                 null
             } else {
-                CompressedChunk.takeOwnership(info.compression, payload.readByteArray())
+                CompressedChunk.takeOwnership(anvilChunkRecordInfo.compression, payload.readByteArray())
             }
-            chunks[info.position] = AnvilChunkRecord(
-                compression = info.compression,
+            chunks[anvilChunkRecordInfo.localChunkPosition] = AnvilChunkRecord(
+                compression = anvilChunkRecordInfo.compression,
                 content = content,
-                placement = info.placement,
-                timestampEpochSeconds = info.timestampEpochSeconds,
+                anvilChunkPlacement = anvilChunkRecordInfo.anvilChunkPlacement,
+                timestampEpochSeconds = anvilChunkRecordInfo.timestampEpochSeconds,
             )
         }
         return AnvilRegion(chunks)
@@ -53,8 +53,8 @@ sealed class AnvilRegionFormat {
         if (source.exhausted()) return
         try {
             decodeNonEmptyRecords(source, block)
-        } catch (failure: RecordCallbackFailure) {
-            throw failure.original
+        } catch (recordCallbackFailure: RecordCallbackFailure) {
+            throw recordCallbackFailure.original
         } catch (failure: EOFException) {
             throw AnvilFormatException("Truncated region file", failure)
         }
@@ -69,49 +69,49 @@ sealed class AnvilRegionFormat {
     /**
      * Writes one region without closing or flushing [sink].
      *
-     * The returned external sidecar values reuse [region]'s immutable compressed content without copying it.
+     * The returned external sidecar values reuse [anvilRegion]'s immutable compressed content without copying it.
      */
     fun encodeRecordsToSink(
-        region: AnvilRegion,
+        anvilRegion: AnvilRegion,
         sink: Sink,
     ): Map<LocalChunkPosition, CompressedChunk> {
-        val plans = plan(region)
-        val header = RegionHeader()
+        val plans = plan(anvilRegion)
+        val regionHeader = RegionHeader()
         val externalChunks = linkedMapOf<LocalChunkPosition, CompressedChunk>()
 
-        plans.forEach { plan ->
-            header.set(
-                position = plan.position,
-                location = RegionLocation(
-                    plan.sectorOffset,
-                    plan.allocatedSectors,
+        plans.forEach { chunkPlan ->
+            regionHeader.set(
+                localChunkPosition = chunkPlan.localChunkPosition,
+                regionLocation = RegionLocation(
+                    chunkPlan.sectorOffset,
+                    chunkPlan.allocatedSectors,
                 ),
-                timestamp = plan.record.timestampEpochSeconds,
+                timestamp = chunkPlan.anvilChunkRecord.timestampEpochSeconds,
             )
         }
-        sink.write(header.encode())
+        sink.write(regionHeader.encode())
 
-        plans.forEach { plan ->
-            val payloadLength = if (plan.external) 0 else plan.content.compressedByteCount.toInt()
+        plans.forEach { chunkPlan ->
+            val payloadLength = if (chunkPlan.external) 0 else chunkPlan.content.compressedByteCount.toInt()
             sink.writeInt(payloadLength + 1)
-            val version = RegionChunkRecordHeader.compressionId(plan.record.compression) or
-                    if (plan.external) REGION_EXTERNAL_STREAM_FLAG else 0
+            val version = RegionChunkRecordHeader.compressionId(chunkPlan.anvilChunkRecord.compression) or
+                    if (chunkPlan.external) REGION_EXTERNAL_STREAM_FLAG else 0
             sink.writeByte(version.toByte())
-            if (plan.external) {
-                externalChunks[plan.position] = plan.content
+            if (chunkPlan.external) {
+                externalChunks[chunkPlan.localChunkPosition] = chunkPlan.content
             } else {
-                plan.content.writeTo(sink)
+                chunkPlan.content.writeTo(sink)
             }
-            val padding = plan.allocatedSectors * REGION_SECTOR_BYTES -
+            val padding = chunkPlan.allocatedSectors * REGION_SECTOR_BYTES -
                     REGION_CHUNK_RECORD_HEADER_BYTES - payloadLength
             writeZeroes(sink, padding)
         }
         return externalChunks
     }
 
-    fun encodeToByteArray(region: AnvilRegion): EncodedAnvilRegion {
+    fun encodeToByteArray(anvilRegion: AnvilRegion): EncodedAnvilRegion {
         val buffer = Buffer()
-        val externalChunks = encodeRecordsToSink(region, buffer)
+        val externalChunks = encodeRecordsToSink(anvilRegion, buffer)
         return EncodedAnvilRegion.takeOwnership(
             bytes = buffer.readByteArray(),
             externalChunks = externalChunks.mapValues { (_, content) -> content.toByteArray() },
@@ -122,17 +122,17 @@ sealed class AnvilRegionFormat {
         source: Source,
         block: (AnvilChunkRecordInfo, Source) -> Unit,
     ) {
-        val header = RegionHeader.decode(source.readByteArray(REGION_HEADER_BYTES))
+        val regionHeader = RegionHeader.decode(source.readByteArray(REGION_HEADER_BYTES))
         val plans = ArrayList<DecodeChunkPlan>()
 
         for (index in 0 until REGION_CHUNK_COUNT) {
-            val position = LocalChunkPosition.fromIndex(index)
-            val location = header.location(position) ?: continue
-            val sectorOffset = location.sectorOffset
-            val allocatedSectors = location.sectorCount
+            val localChunkPosition = LocalChunkPosition.fromIndex(index)
+            val regionLocation = regionHeader.location(localChunkPosition) ?: continue
+            val sectorOffset = regionLocation.sectorOffset
+            val allocatedSectors = regionLocation.sectorCount
             if (sectorOffset < 2 || allocatedSectors == 0) {
                 throw AnvilFormatException(
-                    "Chunk $position has invalid sector location $sectorOffset+$allocatedSectors",
+                    "Chunk $localChunkPosition has invalid sector location $sectorOffset+$allocatedSectors",
                 )
             }
             val endSector = sectorOffset + allocatedSectors
@@ -142,28 +142,28 @@ sealed class AnvilRegionFormat {
             }
             if (overlap != null) {
                 throw AnvilFormatException(
-                    "Chunk $position overlaps chunk ${overlap.position}",
+                    "Chunk $localChunkPosition overlaps chunk ${overlap.localChunkPosition}",
                 )
             }
             plans += DecodeChunkPlan(
-                position = position,
-                timestamp = header.timestamp(position),
+                localChunkPosition = localChunkPosition,
+                timestamp = regionHeader.timestamp(localChunkPosition),
                 sectorOffset = sectorOffset,
                 allocatedSectors = allocatedSectors,
             )
         }
 
         var currentSector = 2
-        plans.sortedBy(DecodeChunkPlan::sectorOffset).forEach { plan ->
-            val gapSectors = plan.sectorOffset - currentSector
+        plans.sortedBy(DecodeChunkPlan::sectorOffset).forEach { decodeChunkPlan ->
+            val gapSectors = decodeChunkPlan.sectorOffset - currentSector
             source.skip(gapSectors.toLong() * REGION_SECTOR_BYTES)
 
             val length = source.readInt()
-            val allocatedPayloadBytes = plan.allocatedSectors * REGION_SECTOR_BYTES - Int.SIZE_BYTES
+            val allocatedPayloadBytes = decodeChunkPlan.allocatedSectors * REGION_SECTOR_BYTES - Int.SIZE_BYTES
             if (length !in 1..allocatedPayloadBytes) {
-                val sectors = plan.allocatedSectors
+                val sectors = decodeChunkPlan.allocatedSectors
                 throw AnvilFormatException(
-                    "Chunk ${plan.position} declares invalid record length $length for $sectors allocated sector(s)",
+                    "Chunk ${decodeChunkPlan.localChunkPosition} declares invalid record length $length for $sectors allocated sector(s)",
                 )
             }
             val versionByte = source.readByte().toInt() and 0xFF
@@ -172,47 +172,47 @@ sealed class AnvilRegionFormat {
             val compression =
                 RegionChunkRecordHeader.compressionFromId(compressionId)
                     ?: throw AnvilFormatException(
-                    "Chunk ${plan.position} uses unknown compression ID $compressionId",
+                    "Chunk ${decodeChunkPlan.localChunkPosition} uses unknown compression ID $compressionId",
                 )
             val compressedLength = length - 1
-            val info = AnvilChunkRecordInfo(
-                position = plan.position,
+            val anvilChunkRecordInfo = AnvilChunkRecordInfo(
+                localChunkPosition = decodeChunkPlan.localChunkPosition,
                 compression = compression,
                 compressedByteCount = compressedLength.toLong(),
-                placement = if (external) AnvilChunkPlacement.EXTERNAL else AnvilChunkPlacement.INLINE,
-                timestampEpochSeconds = plan.timestamp,
+                anvilChunkPlacement = if (external) AnvilChunkPlacement.EXTERNAL else AnvilChunkPlacement.INLINE,
+                timestampEpochSeconds = decodeChunkPlan.timestamp,
             )
             if (external) {
                 if (compressedLength != 0) {
                     throw AnvilFormatException(
-                        "External chunk ${plan.position} also contains an inline payload",
+                        "External chunk ${decodeChunkPlan.localChunkPosition} also contains an inline payload",
                     )
                 }
-                invokeRecordCallback(info, Buffer(), block)
+                invokeRecordCallback(anvilChunkRecordInfo, Buffer(), block)
             } else {
-                val bounded = BoundedRawSource(source, compressedLength.toLong())
-                val payload = bounded.buffered()
+                val boundedRawSource = BoundedRawSource(source, compressedLength.toLong())
+                val payload = boundedRawSource.buffered()
                 payload.use {
-                    invokeRecordCallback(info, payload, block)
+                    invokeRecordCallback(anvilChunkRecordInfo, payload, block)
                     if (!payload.exhausted()) {
                         throw AnvilFormatException(
-                            "Chunk ${plan.position} payload was not fully consumed",
+                            "Chunk ${decodeChunkPlan.localChunkPosition} payload was not fully consumed",
                         )
                     }
                 }
             }
             val padding = allocatedPayloadBytes - length
             source.skip(padding.toLong())
-            currentSector = plan.sectorOffset + plan.allocatedSectors
+            currentSector = decodeChunkPlan.sectorOffset + decodeChunkPlan.allocatedSectors
         }
 
         source.transferTo(discardingSink())
     }
 
-    private fun plan(region: AnvilRegion): List<ChunkPlan> {
-        val plans = region.chunks.entries
+    private fun plan(anvilRegion: AnvilRegion): List<ChunkPlan> {
+        val plans = anvilRegion.chunks.entries
             .sortedBy { it.key.index }
-            .map { (position, chunk) -> plan(position, chunk) }
+            .map { (localChunkPosition, anvilChunkRecord) -> plan(localChunkPosition, anvilChunkRecord) }
         var nextSector = 2
         plans.forEach {
             it.sectorOffset = nextSector
@@ -227,25 +227,25 @@ sealed class AnvilRegionFormat {
     }
 
     private fun plan(
-        position: LocalChunkPosition,
-        record: AnvilChunkRecord,
+        localChunkPosition: LocalChunkPosition,
+        anvilChunkRecord: AnvilChunkRecord,
     ): ChunkPlan {
-        val content = record.content
+        val content = anvilChunkRecord.content
             ?: throw AnvilFormatException(
-                "External chunk $position has not been resolved",
+                "External chunk $localChunkPosition has not been resolved",
             )
         val compressedByteCount = content.compressedByteCount
         if (compressedByteCount > Int.MAX_VALUE) {
-            throw AnvilFormatException("Chunk $position is too large for an Anvil record")
+            throw AnvilFormatException("Chunk $localChunkPosition is too large for an Anvil record")
         }
         val inlineSectors = regionSectorsForBytes(
             REGION_CHUNK_RECORD_HEADER_BYTES.toLong() + compressedByteCount,
         )
-        val external = record.placement == AnvilChunkPlacement.EXTERNAL ||
+        val external = anvilChunkRecord.anvilChunkPlacement == AnvilChunkPlacement.EXTERNAL ||
                 inlineSectors >= REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD
         return ChunkPlan(
-            position = position,
-            record = record,
+            localChunkPosition = localChunkPosition,
+            anvilChunkRecord = anvilChunkRecord,
             content = content,
             external = external,
             allocatedSectors = if (external) 1 else inlineSectors,
@@ -254,12 +254,12 @@ sealed class AnvilRegionFormat {
 }
 
 private fun invokeRecordCallback(
-    info: AnvilChunkRecordInfo,
+    anvilChunkRecordInfo: AnvilChunkRecordInfo,
     source: Source,
     block: (AnvilChunkRecordInfo, Source) -> Unit,
 ) {
     try {
-        block(info, source)
+        block(anvilChunkRecordInfo, source)
     } catch (failure: Throwable) {
         throw RecordCallbackFailure(failure)
     }
@@ -270,8 +270,8 @@ private class RecordCallbackFailure(
 ) : RuntimeException(original)
 
 private class ChunkPlan(
-    val position: LocalChunkPosition,
-    val record: AnvilChunkRecord,
+    val localChunkPosition: LocalChunkPosition,
+    val anvilChunkRecord: AnvilChunkRecord,
     val content: CompressedChunk,
     val external: Boolean,
     val allocatedSectors: Int,
@@ -279,7 +279,7 @@ private class ChunkPlan(
 )
 
 private data class DecodeChunkPlan(
-    val position: LocalChunkPosition,
+    val localChunkPosition: LocalChunkPosition,
     val timestamp: Int,
     val sectorOffset: Int,
     val allocatedSectors: Int,

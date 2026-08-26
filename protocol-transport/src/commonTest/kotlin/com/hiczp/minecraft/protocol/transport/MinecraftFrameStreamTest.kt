@@ -12,9 +12,9 @@ import kotlin.test.*
 class MinecraftFrameStreamTest {
     @Test
     fun streamingSendAndReceiveLeaveCallerBoundariesIntact() = runTest {
-        val channel = ByteChannel()
-        val sender = MinecraftFrameStream(ByteChannel(), channel)
-        val receiver = MinecraftFrameStream(channel, ByteChannel())
+        val byteChannel = ByteChannel()
+        val sender = MinecraftFrameStream(ByteChannel(), byteChannel)
+        val receiver = MinecraftFrameStream(byteChannel, ByteChannel())
         sender.configureCompression(0)
         receiver.configureCompression(0)
         val packet = ByteArray(32_768) { index -> (index * 17).toByte() }
@@ -39,10 +39,10 @@ class MinecraftFrameStreamTest {
     fun readsAFrameArrivingOneByteAtATime() = runTest {
         val input = ByteChannel()
         val output = ByteChannel()
-        val codec = MinecraftFrameCodec()
-        val stream = MinecraftFrameStream(input, output, codec)
+        val minecraftFrameCodec = MinecraftFrameCodec()
+        val minecraftFrameStream = MinecraftFrameStream(input, output, minecraftFrameCodec)
         val packetData = ByteArray(1_024) { (it * 13).toByte() }
-        val frame = codec.encodeFrame(packetData)
+        val frame = minecraftFrameCodec.encodeFrame(packetData)
 
         val writer = launch {
             frame.forEach { byte ->
@@ -52,7 +52,7 @@ class MinecraftFrameStreamTest {
             input.close()
         }
 
-        assertContentEquals(packetData, stream.receivePacketData())
+        assertContentEquals(packetData, minecraftFrameStream.receivePacketData())
         writer.join()
     }
 
@@ -113,36 +113,36 @@ class MinecraftFrameStreamTest {
     @Test
     fun rejectsInvalidLegacyArgumentsEmptyPayloadAndDuplicateEncryption() =
         runTest {
-            val stream = MinecraftFrameStream(ByteChannel(), ByteChannel())
+            val minecraftFrameStream = MinecraftFrameStream(ByteChannel(), ByteChannel())
             assertFailsWith<IllegalArgumentException> {
-                stream.receivePacketDataOrLegacy(-1, 1)
+                minecraftFrameStream.receivePacketDataOrLegacy(-1, 1)
             }
             assertFailsWith<IllegalArgumentException> {
-                stream.receivePacketDataOrLegacy(256, 1)
+                minecraftFrameStream.receivePacketDataOrLegacy(256, 1)
             }
             assertFailsWith<IllegalArgumentException> {
-                stream.receivePacketDataOrLegacy(0xFE, -1)
+                minecraftFrameStream.receivePacketDataOrLegacy(0xFE, -1)
             }
             assertFailsWith<MinecraftTransportException> {
-                stream.sendUnframedPacketData(byteArrayOf())
+                minecraftFrameStream.sendUnframedPacketData(byteArrayOf())
             }
 
             val secret = ByteArray(16)
-            stream.enableEncryption(secret)
+            minecraftFrameStream.enableEncryption(secret)
             assertFailsWith<IllegalStateException> {
-                stream.enableEncryption(secret)
+                minecraftFrameStream.enableEncryption(secret)
             }
         }
 
     @Test
     fun buffersOrdinaryFramesUntilExplicitlyFlushed() = runTest {
-        val channel = ByteChannel()
-        val sender = MinecraftFrameStream(ByteChannel(), channel)
-        val receiver = MinecraftFrameStream(channel, ByteChannel())
+        val byteChannel = ByteChannel()
+        val sender = MinecraftFrameStream(ByteChannel(), byteChannel)
+        val receiver = MinecraftFrameStream(byteChannel, ByteChannel())
         val packet = ByteArray(4_096) { 0x11 }
 
         sender.sendPacketData(packet)
-        assertEquals(0, channel.availableForRead)
+        assertEquals(0, byteChannel.availableForRead)
 
         sender.flush()
         assertContentEquals(packet, receiver.receivePacketData())

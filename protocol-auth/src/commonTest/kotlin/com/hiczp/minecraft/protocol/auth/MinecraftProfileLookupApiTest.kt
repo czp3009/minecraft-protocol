@@ -17,9 +17,9 @@ class MinecraftProfileLookupApiTest {
     fun sendsAndReceivesSingleAndBulkProfileLookups() = runTest {
         val requests = mutableListOf<HttpRequestData>()
         HttpClient(
-            MockEngine { request ->
-                requests += request
-                when (request.url.encodedPath) {
+            MockEngine { httpRequestData ->
+                requests += httpRequestData
+                when (httpRequestData.url.encodedPath) {
                     "/minecraft/profile/lookup/name/notch" -> respondLookupJson(
                         profileJson(NOTCH_ID, "Notch"),
                     )
@@ -31,13 +31,13 @@ class MinecraftProfileLookupApiTest {
                         },
                     )
 
-                    else -> error("Unexpected request ${request.url}")
+                    else -> error("Unexpected request ${httpRequestData.url}")
                 }
             },
-        ).use { client ->
-            val api = MinecraftProfileLookupApi(client)
-            val notch = assertNotNull(api.findProfileByName("NoTcH"))
-            val profiles = api.findProfilesByNames(
+        ).use { httpClient ->
+            val minecraftProfileLookupApi = MinecraftProfileLookupApi(httpClient)
+            val notch = assertNotNull(minecraftProfileLookupApi.findProfileByName("NoTcH"))
+            val profiles = minecraftProfileLookupApi.findProfilesByNames(
                 MinecraftProfileLookupRequest(listOf("Notch", "jeb_")),
             )
 
@@ -60,11 +60,11 @@ class MinecraftProfileLookupApiTest {
 
     @Test
     fun emptySuccessfulBodiesRepresentMissingProfiles() = runTest {
-        HttpClient(MockEngine { respond("", HttpStatusCode.NoContent) }).use { client ->
-            val api = MinecraftProfileLookupApi(client)
+        HttpClient(MockEngine { respond("", HttpStatusCode.NoContent) }).use { httpClient ->
+            val minecraftProfileLookupApi = MinecraftProfileLookupApi(httpClient)
 
-            assertNull(api.findProfileByName("missing"))
-            assertEquals(emptyList(), api.findProfilesByNames(MinecraftProfileLookupRequest(listOf("missing"))))
+            assertNull(minecraftProfileLookupApi.findProfileByName("missing"))
+            assertEquals(emptyList(), minecraftProfileLookupApi.findProfilesByNames(MinecraftProfileLookupRequest(listOf("missing"))))
         }
     }
 
@@ -83,9 +83,9 @@ class MinecraftProfileLookupApiTest {
                     headers = headersOf(HttpHeaders.ContentType, "application/json"),
                 )
             },
-        ).use { client ->
+        ).use { httpClient ->
             val failure = assertFailsWith<MinecraftProfileLookupResponseException> {
-                MinecraftProfileLookupApi(client).findProfileByName("missing")
+                MinecraftProfileLookupApi(httpClient).findProfileByName("missing")
             }
 
             assertEquals(HttpStatusCode.NotFound, failure.response.status)
@@ -97,15 +97,15 @@ class MinecraftProfileLookupApiTest {
 
     @Test
     fun decodingFailuresPropagateUnchanged() = runTest {
-        HttpClient(MockEngine { respond("not-json", HttpStatusCode.OK) }).use { client ->
+        HttpClient(MockEngine { respond("not-json", HttpStatusCode.OK) }).use { httpClient ->
             assertFailsWith<SerializationException> {
-                MinecraftProfileLookupApi(client).findProfileByName("Notch")
+                MinecraftProfileLookupApi(httpClient).findProfileByName("Notch")
             }
         }
 
-        HttpClient(MockEngine { respond("not-json", HttpStatusCode.BadGateway) }).use { client ->
+        HttpClient(MockEngine { respond("not-json", HttpStatusCode.BadGateway) }).use { httpClient ->
             assertFailsWith<SerializationException> {
-                MinecraftProfileLookupApi(client).findProfileByName("Notch")
+                MinecraftProfileLookupApi(httpClient).findProfileByName("Notch")
             }
         }
     }

@@ -99,7 +99,7 @@ internal object AttributeModifierDisplaySerializer :
                 "AttributeModifierDisplay requires ordered decoding",
             )
         }
-        val result = when (
+        val attributeModifierDisplay = when (
             input.decodeIntElement(descriptor, TYPE)
         ) {
             HIDDEN -> AttributeModifierDisplay.Hidden
@@ -112,7 +112,7 @@ internal object AttributeModifierDisplaySerializer :
             else -> AttributeModifierDisplay.Default
         }
         input.endStructure(descriptor)
-        return result
+        return attributeModifierDisplay
     }
 
     private const val TYPE: Int = 0

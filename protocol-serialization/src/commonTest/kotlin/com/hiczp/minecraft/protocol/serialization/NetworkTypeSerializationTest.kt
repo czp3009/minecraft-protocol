@@ -54,38 +54,38 @@ class NetworkTypeSerializationTest {
     @Test
     fun `entity metadata exercises every vanilla serializer id`() {
         val samples = entityDataValueSamples()
-        val serializerIds = samples.map { sample ->
+        val serializerIds = samples.map { namedNetworkTypeSample ->
             leadingVarInt(
                 MinecraftProtocolFormat.encodeToByteArray(
-                    sample.value,
+                    namedNetworkTypeSample.value,
                 ),
             )
         }.toSet()
         assertEquals((0..42).toSet(), serializerIds)
 
-        samples.forEach { sample ->
-            val bytes = MinecraftProtocolFormat.encodeToByteArray(
-                sample.value,
+        samples.forEach { namedNetworkTypeSample ->
+            val byteArray = MinecraftProtocolFormat.encodeToByteArray(
+                namedNetworkTypeSample.value,
             )
             assertEquals(
-                sample.value,
+                namedNetworkTypeSample.value,
                 MinecraftProtocolFormat.decodeFromByteArray<EntityDataValue>(
-                    bytes,
+                    byteArray,
                 ),
-                sample.name,
+                namedNetworkTypeSample.name,
             )
         }
     }
 
     private fun <T> assertSamplesRoundTrip(
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
         samples: List<T>,
     ) {
         samples.forEach { sample ->
-            val bytes = MinecraftProtocolFormat.encodeToByteArray(serializer, sample)
+            val byteArray = MinecraftProtocolFormat.encodeToByteArray(kSerializer, sample)
             assertEquals(
                 sample,
-                MinecraftProtocolFormat.decodeFromByteArray(serializer, bytes),
+                MinecraftProtocolFormat.decodeFromByteArray(kSerializer, byteArray),
             )
         }
     }

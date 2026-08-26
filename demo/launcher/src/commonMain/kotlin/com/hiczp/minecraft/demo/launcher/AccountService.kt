@@ -51,7 +51,7 @@ internal object SystemBrowserService : BrowserService {
 
 internal class AccountService(
     private val httpClient: HttpClient,
-    private val store: LauncherStore,
+    private val launcherStore: LauncherStore,
     private val browserService: BrowserService = SystemBrowserService,
 ) {
     private val refreshStateMutex = Mutex()
@@ -60,36 +60,36 @@ internal class AccountService(
 
     suspend fun addOffline(name: String): StoredAccount {
         val validatedName = name.trim()
-        val identity = MinecraftOfflineIdentity(validatedName)
-        val account = StoredAccount(identity = identity)
-        store.auth.update {
-            selectedIdentityId = identity.id
-            accounts = accounts.filterNot { it.identity.id == identity.id } + account
+        val minecraftOfflineIdentity = MinecraftOfflineIdentity(validatedName)
+        val storedAccount = StoredAccount(minecraftIdentity = minecraftOfflineIdentity)
+        launcherStore.authMemory.update {
+            selectedIdentityId = minecraftOfflineIdentity.id
+            accounts = accounts.filterNot { it.minecraftIdentity.id == minecraftOfflineIdentity.id } + storedAccount
         }
-        clearRefreshFailure(identity.id)
-        return account
+        clearRefreshFailure(minecraftOfflineIdentity.id)
+        return storedAccount
     }
 
     suspend fun updateOffline(identityId: Uuid, name: String): StoredAccount {
         val replacement = MinecraftOfflineIdentity(name.trim())
         return requireNotNull(
-            updateAccountIfPresent(identityId) { account ->
-                require(account.identity is MinecraftOfflineIdentity) { "Only offline identities can be renamed" }
-                account.copy(identity = replacement)
+            updateAccountIfPresent(identityId) { storedAccount ->
+                require(storedAccount.minecraftIdentity is MinecraftOfflineIdentity) { "Only offline identities can be renamed" }
+                storedAccount.copy(minecraftIdentity = replacement)
             },
         ) { "Account does not exist" }
     }
 
     suspend fun select(identityId: Uuid) {
-        store.auth.update {
-            require(accounts.any { it.identity.id == identityId }) { "Account does not exist" }
+        launcherStore.authMemory.update {
+            require(accounts.any { it.minecraftIdentity.id == identityId }) { "Account does not exist" }
             selectedIdentityId = identityId
         }
     }
 
     suspend fun delete(identityId: Uuid) {
-        store.auth.update {
-            accounts = accounts.filterNot { it.identity.id == identityId }
+        launcherStore.authMemory.update {
+            accounts = accounts.filterNot { it.minecraftIdentity.id == identityId }
             if (selectedIdentityId == identityId) selectedIdentityId = null
         }
         clearRefreshFailure(identityId)
@@ -100,104 +100,106 @@ internal class AccountService(
         onProgress: (MicrosoftLoginStage) -> Unit = {},
     ): StoredAccount {
         onProgress(MicrosoftLoginStage.STARTING_CALLBACK)
-        val microsoftToken = receiveAuthorizationCode(onProgress)
+        val microsoftTokenResponse = receiveAuthorizationCode(onProgress)
         onProgress(MicrosoftLoginStage.VERIFYING_ACCOUNT)
-        val result = completeMinecraftLogin(microsoftToken)
-        val refreshToken = requireNotNull(microsoftToken.refreshToken) {
+        val minecraftLoginResult = completeMinecraftLogin(microsoftTokenResponse)
+        val refreshToken = requireNotNull(microsoftTokenResponse.refreshToken) {
             "Microsoft did not return a refresh token; check the public client and offline_access configuration"
         }
-        val account = StoredAccount(
-            identity = result.identity,
+        val storedAccount = StoredAccount(
+            minecraftIdentity = minecraftLoginResult.minecraftOnlineIdentity,
             microsoftRefreshToken = refreshToken,
-            minecraftAccessTokenExpiresAtEpochSeconds = Clock.System.now().epochSeconds + result.expiresIn,
+            minecraftAccessTokenExpiresAtEpochSeconds = Clock.System.now().epochSeconds + minecraftLoginResult.expiresIn,
         )
-        val lockIdentityId = replacingIdentityId ?: account.identity.id
+        val lockIdentityId = replacingIdentityId ?: storedAccount.minecraftIdentity.id
         refreshLock(lockIdentityId).withLock {
-            store.auth.update {
+            launcherStore.authMemory.update {
                 if (replacingIdentityId == null) {
-                    selectedIdentityId = account.identity.id
-                    accounts = accounts.filterNot { it.identity.id == account.identity.id } + account
+                    selectedIdentityId = storedAccount.minecraftIdentity.id
+                    accounts = accounts.filterNot { it.minecraftIdentity.id == storedAccount.minecraftIdentity.id } + storedAccount
                 } else {
-                    val index = accounts.indexOfFirst { it.identity.id == replacingIdentityId }
+                    val index = accounts.indexOfFirst { it.minecraftIdentity.id == replacingIdentityId }
                     require(index >= 0) { "Account does not exist" }
-                    require(accounts[index].identity is MinecraftOnlineIdentity) {
+                    require(accounts[index].minecraftIdentity is MinecraftOnlineIdentity) {
                         "Only Microsoft accounts can be signed in again"
                     }
-                    require(account.identity.id == replacingIdentityId) {
+                    require(storedAccount.minecraftIdentity.id == replacingIdentityId) {
                         "The signed-in Minecraft profile does not match the account being updated"
                     }
-                    accounts = accounts.toMutableList().apply { this[index] = account }
+                    accounts = accounts.toMutableList().apply { this[index] = storedAccount }
                 }
             }
             clearRefreshFailure(lockIdentityId)
         }
         onProgress(MicrosoftLoginStage.COMPLETE)
-        return account
+        return storedAccount
     }
 
-    fun selectedAccount(): StoredAccount? = store.auth.read {
-        accounts.singleOrNull { it.identity.id == selectedIdentityId }
+    fun selectedAccount(): StoredAccount? = launcherStore.authMemory.read {
+        accounts.singleOrNull { it.minecraftIdentity.id == selectedIdentityId }
     }
 
     fun selectedIdentity(): MinecraftIdentity =
-        selectedAccount()?.identity ?: MinecraftOfflineIdentity(DEFAULT_OFFLINE_PLAYER_NAME)
+        selectedAccount()?.minecraftIdentity ?: MinecraftOfflineIdentity(DEFAULT_OFFLINE_PLAYER_NAME)
 
-    fun needsRefresh(account: StoredAccount, nowEpochSeconds: Long = Clock.System.now().epochSeconds): Boolean {
-        if (account.identity !is MinecraftOnlineIdentity) return false
-        val expiresAt = account.minecraftAccessTokenExpiresAtEpochSeconds ?: return true
+    fun needsRefresh(storedAccount: StoredAccount, nowEpochSeconds: Long = Clock.System.now().epochSeconds): Boolean {
+        if (storedAccount.minecraftIdentity !is MinecraftOnlineIdentity) return false
+        val expiresAt = storedAccount.minecraftAccessTokenExpiresAtEpochSeconds ?: return true
         return expiresAt <= nowEpochSeconds + TOKEN_REFRESH_SAFETY_SECONDS
     }
 
     suspend fun refreshIfNeeded(identityId: Uuid): StoredAccount? = refreshLock(identityId).withLock {
-        val account = store.auth.read { accounts.singleOrNull { it.identity.id == identityId } }
+        val storedAccount =
+            launcherStore.authMemory.read { accounts.singleOrNull { it.minecraftIdentity.id == identityId } }
             ?: return@withLock null
-        val identity = account.identity as? MinecraftOnlineIdentity ?: return@withLock account
-        if (!needsRefresh(account)) {
+        val minecraftOnlineIdentity =
+            storedAccount.minecraftIdentity as? MinecraftOnlineIdentity ?: return@withLock storedAccount
+        if (!needsRefresh(storedAccount)) {
             clearRefreshFailure(identityId)
-            return@withLock account
+            return@withLock storedAccount
         }
         if (refreshStateMutex.withLock { identityId in failedRefreshes }) {
-            throw AccountLoginExpiredException(identity.name)
+            throw AccountLoginExpiredException(minecraftOnlineIdentity.name)
         }
 
         try {
-            val refreshed = refreshOnlineAccount(account, identity)
+            val refreshed = refreshOnlineAccount(storedAccount, minecraftOnlineIdentity)
             clearRefreshFailure(identityId)
             refreshed
         } catch (failure: CancellationException) {
             throw failure
         } catch (failure: Throwable) {
-            if (store.auth.read { accounts.none { it.identity.id == identityId } }) {
+            if (launcherStore.authMemory.read { accounts.none { it.minecraftIdentity.id == identityId } }) {
                 clearRefreshFailure(identityId)
                 return@withLock null
             }
             refreshStateMutex.withLock { failedRefreshes += identityId }
-            throw AccountLoginExpiredException(identity.name, failure)
+            throw AccountLoginExpiredException(minecraftOnlineIdentity.name, failure)
         }
     }
 
     private suspend fun refreshOnlineAccount(
-        account: StoredAccount,
-        identity: MinecraftOnlineIdentity,
+        storedAccount: StoredAccount,
+        minecraftOnlineIdentity: MinecraftOnlineIdentity,
     ): StoredAccount? {
-        val refreshToken = requireNotNull(account.microsoftRefreshToken)
-        val microsoftToken = MicrosoftOAuthApi(httpClient).tokenWithRefreshToken(
+        val refreshToken = requireNotNull(storedAccount.microsoftRefreshToken)
+        val microsoftTokenResponse = MicrosoftOAuthApi(httpClient).tokenWithRefreshToken(
             MicrosoftOAuthTools.refreshTokenRequest(MICROSOFT_CLIENT_ID, refreshToken),
         )
-        val rotatedRefreshToken = microsoftToken.refreshToken ?: refreshToken
+        val rotatedRefreshToken = microsoftTokenResponse.refreshToken ?: refreshToken
         if (rotatedRefreshToken != refreshToken) {
-            updateAccountIfPresent(identity.id) { it.copy(microsoftRefreshToken = rotatedRefreshToken) }
+            updateAccountIfPresent(minecraftOnlineIdentity.id) { it.copy(microsoftRefreshToken = rotatedRefreshToken) }
                 ?: return null
         }
-        val login = completeMinecraftLogin(microsoftToken)
-        require(login.identity.id == identity.id) {
+        val minecraftLoginResult = completeMinecraftLogin(microsoftTokenResponse)
+        require(minecraftLoginResult.minecraftOnlineIdentity.id == minecraftOnlineIdentity.id) {
             "The refreshed Minecraft profile does not match the stored account"
         }
-        return updateAccountIfPresent(identity.id) {
+        return updateAccountIfPresent(minecraftOnlineIdentity.id) {
             it.copy(
-                identity = login.identity,
+                minecraftIdentity = minecraftLoginResult.minecraftOnlineIdentity,
                 microsoftRefreshToken = rotatedRefreshToken,
-                minecraftAccessTokenExpiresAtEpochSeconds = Clock.System.now().epochSeconds + login.expiresIn,
+                minecraftAccessTokenExpiresAtEpochSeconds = Clock.System.now().epochSeconds + minecraftLoginResult.expiresIn,
             )
         }
     }
@@ -207,12 +209,12 @@ internal class AccountService(
         transform: (StoredAccount) -> StoredAccount,
     ): StoredAccount? {
         var updated: StoredAccount? = null
-        store.auth.update {
-            val index = accounts.indexOfFirst { it.identity.id == identityId }
+        launcherStore.authMemory.update {
+            val index = accounts.indexOfFirst { it.minecraftIdentity.id == identityId }
             if (index < 0) return@update
             val replacement = transform(accounts[index])
             updated = replacement
-            if (selectedIdentityId == identityId) selectedIdentityId = replacement.identity.id
+            if (selectedIdentityId == identityId) selectedIdentityId = replacement.minecraftIdentity.id
             accounts = accounts.toMutableList().apply { this[index] = replacement }
         }
         return updated
@@ -226,19 +228,23 @@ internal class AccountService(
         failedRefreshes -= identityId
     }
 
-    private suspend fun completeMinecraftLogin(microsoftToken: MicrosoftTokenResponse): MinecraftLoginResult {
-        val xboxApi = XboxAuthenticationApi(httpClient)
-        val userToken = xboxApi.authenticateUser(XboxAuthenticationTools.userAuthenticationRequest(microsoftToken))
-        val xstsToken = xboxApi.authorizeXsts(XboxAuthenticationTools.xstsAuthorizationRequest(userToken))
-        val minecraftApi = MinecraftServicesApi(httpClient)
-        val login = minecraftApi.loginWithXbox(MinecraftServicesTools.xboxLoginRequest(xstsToken))
-        val entitlements = minecraftApi.getStoreEntitlements(login.accessToken)
-        require(MinecraftServicesTools.hasJavaEditionEntitlement(entitlements)) {
+    private suspend fun completeMinecraftLogin(microsoftTokenResponse: MicrosoftTokenResponse): MinecraftLoginResult {
+        val xboxAuthenticationApi = XboxAuthenticationApi(httpClient)
+        val userToken =
+            xboxAuthenticationApi.authenticateUser(XboxAuthenticationTools.userAuthenticationRequest(microsoftTokenResponse))
+        val xstsToken = xboxAuthenticationApi.authorizeXsts(XboxAuthenticationTools.xstsAuthorizationRequest(userToken))
+        val minecraftServicesApi = MinecraftServicesApi(httpClient)
+        val minecraftLoginResponse =
+            minecraftServicesApi.loginWithXbox(MinecraftServicesTools.xboxLoginRequest(xstsToken))
+        val minecraftEntitlementsResponse =
+            minecraftServicesApi.getStoreEntitlements(minecraftLoginResponse.accessToken)
+        require(MinecraftServicesTools.hasJavaEditionEntitlement(minecraftEntitlementsResponse)) {
             "This Microsoft account does not own Minecraft: Java Edition"
         }
-        val profile = minecraftApi.getMinecraftProfile(login.accessToken)
-        val identity = MinecraftOnlineIdentity(Uuid.parse(profile.id), profile.name, login.accessToken)
-        return MinecraftLoginResult(identity, login.expiresIn)
+        val minecraftProfileResponse = minecraftServicesApi.getMinecraftProfile(minecraftLoginResponse.accessToken)
+        val minecraftOnlineIdentity =
+            MinecraftOnlineIdentity(Uuid.parse(minecraftProfileResponse.id), minecraftProfileResponse.name, minecraftLoginResponse.accessToken)
+        return MinecraftLoginResult(minecraftOnlineIdentity, minecraftLoginResponse.expiresIn)
     }
 
     private suspend fun receiveAuthorizationCode(onProgress: (MicrosoftLoginStage) -> Unit): MicrosoftTokenResponse {
@@ -247,7 +253,7 @@ internal class AccountService(
         val terminal = CompletableDeferred<MicrosoftTokenResponse>()
         val terminalOwner = Mutex()
         var redirectUri = ""
-        val server = embeddedServer(CIO, host = OAUTH_REDIRECT_HOST, port = 0) {
+        val embeddedServer = embeddedServer(CIO, host = OAUTH_REDIRECT_HOST, port = 0) {
             routing {
                 get(OAUTH_REDIRECT_PATH) {
                     val states = call.request.queryParameters.getAll("state")
@@ -280,18 +286,19 @@ internal class AccountService(
                         return@get
                     }
                     try {
-                        val request = MicrosoftOAuthTools.authorizationCodeTokenRequest(
+                        val microsoftAuthorizationCodeTokenRequest = MicrosoftOAuthTools.authorizationCodeTokenRequest(
                             MICROSOFT_CLIENT_ID,
                             requireNotNull(codes?.singleOrNull()),
                             redirectUri,
                             verifier,
                         )
-                        val token = MicrosoftOAuthApi(httpClient).tokenWithAuthorizationCode(request)
+                        val microsoftTokenResponse =
+                            MicrosoftOAuthApi(httpClient).tokenWithAuthorizationCode(microsoftAuthorizationCodeTokenRequest)
                         call.respondText(
                             "Microsoft authorization is complete. Close this page and return to the launcher.",
                             ContentType.Text.Plain.withCharset(Charsets.UTF_8),
                         )
-                        terminal.complete(token)
+                        terminal.complete(microsoftTokenResponse)
                     } catch (failure: CancellationException) {
                         throw failure
                     } catch (_: Throwable) {
@@ -308,9 +315,9 @@ internal class AccountService(
             }
         }
         try {
-            server.startSuspend(wait = false)
-            val connector = server.engine.resolvedConnectors().single()
-            redirectUri = "http://$OAUTH_REDIRECT_HOST:${connector.port}$OAUTH_REDIRECT_PATH"
+            embeddedServer.startSuspend(wait = false)
+            val engineConnectorConfig = embeddedServer.engine.resolvedConnectors().single()
+            redirectUri = "http://$OAUTH_REDIRECT_HOST:${engineConnectorConfig.port}$OAUTH_REDIRECT_PATH"
             val authorizationUrl = MicrosoftOAuthTools.authorizationUrl(
                 MICROSOFT_CLIENT_ID,
                 redirectUri,
@@ -322,14 +329,14 @@ internal class AccountService(
             return terminal.await()
         } finally {
             withContext(NonCancellable) {
-                server.stopSuspend(gracePeriodMillis = 0, timeoutMillis = 1_000)
+                embeddedServer.stopSuspend(gracePeriodMillis = 0, timeoutMillis = 1_000)
             }
         }
     }
 }
 
 private data class MinecraftLoginResult(
-    val identity: MinecraftOnlineIdentity,
+    val minecraftOnlineIdentity: MinecraftOnlineIdentity,
     val expiresIn: Long,
 )
 

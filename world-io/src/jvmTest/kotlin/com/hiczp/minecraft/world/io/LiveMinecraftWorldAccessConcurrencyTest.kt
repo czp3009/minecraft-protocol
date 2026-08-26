@@ -14,32 +14,32 @@ class LiveMinecraftWorldAccessConcurrencyTest {
     @Test
     fun everyMetadataFileKindAllowsSameFileReadsToReachIoTogether() = runTest {
         val root = "/world".toPath()
-        val paths = MinecraftWorldPaths(root)
+        val minecraftWorldPaths = MinecraftWorldPaths(root)
         val player = "player"
-        val document = concurrencyDocument(7)
+        val nbtDocument = concurrencyDocument(7)
         val base = concurrencyFakeFileSystem()
         base.createDirectories(root)
-        val nbtFiles = NbtFileStore(base)
-        LevelDataStore(paths, nbtFiles).writeDocument(document)
-        PlayerDataStore(paths, nbtFiles).writeDocument(player, document)
-        SavedDataFileStore(paths, nbtFiles = nbtFiles).writeDocument("example:data", document)
-        val jsonFiles = Utf8JsonFileStore(base)
-        jsonFiles.writeText(paths.statistics(player), "statistics")
-        jsonFiles.writeText(paths.advancement(player), "advancements")
+        val nbtFileStore = NbtFileStore(base)
+        LevelDataStore(minecraftWorldPaths, nbtFileStore).writeDocument(nbtDocument)
+        PlayerDataStore(minecraftWorldPaths, nbtFileStore).writeDocument(player, nbtDocument)
+        SavedDataFileStore(minecraftWorldPaths, nbtFileStore = nbtFileStore).writeDocument("example:data", nbtDocument)
+        val utf8JsonFileStore = Utf8JsonFileStore(base)
+        utf8JsonFileStore.writeText(minecraftWorldPaths.statistics(player), "statistics")
+        utf8JsonFileStore.writeText(minecraftWorldPaths.advancement(player), "advancements")
 
-        assertConcurrentSourceReads(root, base, paths.levelData, document) {
+        assertConcurrentSourceReads(root, base, minecraftWorldPaths.levelData, nbtDocument) {
             readLevelDataDocument()
         }
-        assertConcurrentSourceReads(root, base, paths.playerData(player), document) {
+        assertConcurrentSourceReads(root, base, minecraftWorldPaths.playerData(player), nbtDocument) {
             readPlayerDataDocument(player)
         }
-        assertConcurrentSourceReads(root, base, paths.savedData("example:data"), document) {
+        assertConcurrentSourceReads(root, base, minecraftWorldPaths.savedData("example:data"), nbtDocument) {
             readSavedDataDocument("example:data")
         }
-        assertConcurrentSourceReads(root, base, paths.statistics(player), "statistics") {
+        assertConcurrentSourceReads(root, base, minecraftWorldPaths.statistics(player), "statistics") {
             readStatisticsText(player)
         }
-        assertConcurrentSourceReads(root, base, paths.advancement(player), "advancements") {
+        assertConcurrentSourceReads(root, base, minecraftWorldPaths.advancement(player), "advancements") {
             readAdvancementsText(player)
         }
         base.checkNoOpenFiles()
@@ -48,7 +48,7 @@ class LiveMinecraftWorldAccessConcurrencyTest {
     @Test
     fun mcaAndMccReadsOfTheSameFilesReachIoTogether() = runTest {
         val root = "/world".toPath()
-        val paths = MinecraftWorldPaths(root)
+        val minecraftWorldPaths = MinecraftWorldPaths(root)
         val inlinePosition = ChunkPosition(0, 0)
         val externalPosition = ChunkPosition(1, 0)
         val externalPayload = ByteArray(
@@ -56,7 +56,7 @@ class LiveMinecraftWorldAccessConcurrencyTest {
                     REGION_CHUNK_RECORD_HEADER_BYTES,
         ) { index -> index.toByte() }
         val base = concurrencyFakeFileSystem()
-        val setup = RegionStorage(paths, fileSystem = base)
+        val setup = RegionStorage(minecraftWorldPaths, fileSystem = base)
         try {
             setup.writeCompressedChunk(inlinePosition, concurrencyChunk(1))
             setup.writeCompressedChunk(
@@ -70,11 +70,11 @@ class LiveMinecraftWorldAccessConcurrencyTest {
             setup.close()
         }
 
-        val regionPath = paths.regionFile(inlinePosition.region)
+        val regionPath = minecraftWorldPaths.regionFile(inlinePosition.regionPosition)
         val mcaGate = BlockingGate(expectedEntrants = 2)
         val mcaFileSystem = GatedFileSystem(base, regionPath, readGate = mcaGate)
         val mcaReader = LiveMinecraftWorldAccess.open(root, mcaFileSystem)
-        val mcaRegion = mcaReader.openRegion(inlinePosition.region)
+        val mcaRegion = mcaReader.openRegion(inlinePosition.regionPosition)
         val mcaFirst = async(Dispatchers.Default) { mcaRegion.readCompressedChunk(inlinePosition) }
         val mcaSecond = async(Dispatchers.Default) { mcaRegion.readCompressedChunk(inlinePosition) }
         try {
@@ -92,11 +92,11 @@ class LiveMinecraftWorldAccessConcurrencyTest {
             }
         }
 
-        val sidecar = paths.externalChunk(externalPosition)
+        val sidecar = minecraftWorldPaths.externalChunk(externalPosition)
         val mccGate = BlockingGate(expectedEntrants = 2)
         val mccFileSystem = GatedFileSystem(base, sidecar, readGate = mccGate)
         val mccReader = LiveMinecraftWorldAccess.open(root, mccFileSystem)
-        val mccRegion = mccReader.openRegion(externalPosition.region)
+        val mccRegion = mccReader.openRegion(externalPosition.regionPosition)
         val mccFirst = async(Dispatchers.Default) { mccRegion.readCompressedChunk(externalPosition) }
         val mccSecond = async(Dispatchers.Default) { mccRegion.readCompressedChunk(externalPosition) }
         try {
@@ -118,15 +118,15 @@ class LiveMinecraftWorldAccessConcurrencyTest {
     @Test
     fun blockedLiveReadDoesNotDelayDirectServerStyleWrite() = runTest {
         val root = "/world".toPath()
-        val paths = MinecraftWorldPaths(root)
+        val minecraftWorldPaths = MinecraftWorldPaths(root)
         val player = "player"
-        val target = paths.statistics(player)
+        val target = minecraftWorldPaths.statistics(player)
         val base = concurrencyFakeFileSystem()
         base.createDirectories(checkNotNull(target.parent))
         base.write(target) { writeUtf8("old") }
         val sourceGate = BlockingGate()
-        val fileSystem = GatedFileSystem(base, target, readGate = sourceGate)
-        val reader = LiveMinecraftWorldAccess.open(root, fileSystem)
+        val gatedFileSystem = GatedFileSystem(base, target, readGate = sourceGate)
+        val reader = LiveMinecraftWorldAccess.open(root, gatedFileSystem)
         val jobs = mutableListOf<kotlinx.coroutines.Job>()
         try {
             val reading = async(Dispatchers.Default) { reader.readStatisticsText(player) }
@@ -134,7 +134,7 @@ class LiveMinecraftWorldAccessConcurrencyTest {
             sourceGate.awaitEntered()
 
             val writing = async(Dispatchers.Default) {
-                Utf8JsonFileStore(fileSystem).writeText(target, "replacement")
+                Utf8JsonFileStore(gatedFileSystem).writeText(target, "replacement")
             }
             jobs += writing
             writing.await()
@@ -161,8 +161,8 @@ class LiveMinecraftWorldAccessConcurrencyTest {
         val reader = LiveMinecraftWorldAccess.open(root, base)
         val firstLocalPosition = LocalChunkPosition(0, 0)
         repeat(2_048) { index ->
-            val position = RegionPosition(index, 0).chunk(firstLocalPosition)
-            assertEquals(null, reader.openRegion(position.region).readCompressedChunk(position))
+            val chunkPosition = RegionPosition(index, 0).chunk(firstLocalPosition)
+            assertEquals(null, reader.openRegion(chunkPosition.regionPosition).readCompressedChunk(chunkPosition))
         }
         base.checkNoOpenFiles()
     }
@@ -175,21 +175,21 @@ private suspend fun <T> CoroutineScope.assertConcurrentSourceReads(
     expected: T,
     operation: LiveMinecraftWorldAccess.() -> T,
 ) {
-    val gate = BlockingGate(expectedEntrants = 2)
-    val fileSystem = GatedFileSystem(base, target, readGate = gate)
-    val reader = LiveMinecraftWorldAccess.open(root, fileSystem)
+    val blockingGate = BlockingGate(expectedEntrants = 2)
+    val gatedFileSystem = GatedFileSystem(base, target, readGate = blockingGate)
+    val reader = LiveMinecraftWorldAccess.open(root, gatedFileSystem)
     val first = async(Dispatchers.Default) { reader.operation() }
     val second = async(Dispatchers.Default) { reader.operation() }
     try {
-        gate.awaitEntered()
+        blockingGate.awaitEntered()
         assertFalse(first.isCompleted)
         assertFalse(second.isCompleted)
-        gate.open()
+        blockingGate.open()
         assertEquals(expected, first.await())
         assertEquals(expected, second.await())
     } finally {
         withContext(NonCancellable) {
-            gate.open()
+            blockingGate.open()
             joinAll(first, second)
         }
     }

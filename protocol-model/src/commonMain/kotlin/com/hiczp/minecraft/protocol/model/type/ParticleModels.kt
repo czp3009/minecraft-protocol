@@ -431,7 +431,7 @@ internal object PositionSourceSerializer : KSerializer<PositionSource> {
 
     override fun deserialize(decoder: Decoder): PositionSource {
         val input = decoder.beginStructure(descriptor)
-        val result = when (val type = input.decodeIntElement(descriptor, TYPE)) {
+        val result = when (val particleType = input.decodeIntElement(descriptor, TYPE)) {
             0 -> PositionSource.Block(
                 input.decodeSerializableElement(
                     descriptor,
@@ -445,7 +445,7 @@ internal object PositionSourceSerializer : KSerializer<PositionSource> {
                 input.decodeFloatElement(descriptor, Y_OFFSET),
             )
 
-            else -> throw SerializationException("Unknown position-source type $type")
+            else -> throw SerializationException("Unknown position-source type $particleType")
         }
         input.endStructure(descriptor)
         return result
@@ -566,95 +566,95 @@ internal object ParticleOptionsSerializer : KSerializer<ParticleOptions> {
     override fun deserialize(decoder: Decoder): ParticleOptions {
         val input = decoder.beginStructure(descriptor)
         val id = input.decodeIntElement(descriptor, TYPE)
-        val type = ParticleType.entries.getOrNull(id)
+        val particleType = ParticleType.entries.getOrNull(id)
             ?: throw SerializationException("Unknown particle type $id")
-        val result = when (type) {
+        val result = when (particleType) {
             in ParticleOptions.BLOCK_PARTICLE_TYPES -> {
-                val payload = input.payload(BLOCK, BlockParticlePayload.serializer())
-                ParticleOptions.Block(type, payload.blockStateId)
+                val blockParticlePayload = input.payload(BLOCK, BlockParticlePayload.serializer())
+                ParticleOptions.Block(particleType, blockParticlePayload.blockStateId)
             }
 
             in ParticleOptions.GEYSER_PARTICLE_TYPES -> {
-                val payload = input.payload(GEYSER, GeyserParticlePayload.serializer())
-                ParticleOptions.Geyser(type, payload.waterBlocks)
+                val geyserParticlePayload = input.payload(GEYSER, GeyserParticlePayload.serializer())
+                ParticleOptions.Geyser(particleType, geyserParticlePayload.waterBlocks)
             }
 
             in ParticleOptions.GEYSER_BASE_PARTICLE_TYPES -> {
-                val payload = input.payload(
+                val geyserBaseParticlePayload = input.payload(
                     GEYSER_BASE,
                     GeyserBaseParticlePayload.serializer(),
                 )
                 ParticleOptions.GeyserBase(
-                    type,
-                    payload.waterBlocks,
-                    payload.burstImpulseBase,
+                    particleType,
+                    geyserBaseParticlePayload.waterBlocks,
+                    geyserBaseParticlePayload.burstImpulseBase,
                 )
             }
 
             ParticleType.DRAGON_BREATH -> {
-                val payload = input.payload(POWER, PowerParticlePayload.serializer())
-                ParticleOptions.Power(payload.power)
+                val powerParticlePayload = input.payload(POWER, PowerParticlePayload.serializer())
+                ParticleOptions.Power(powerParticlePayload.power)
             }
 
             ParticleType.DUST -> {
-                val payload = input.payload(DUST, DustParticlePayload.serializer())
-                ParticleOptions.Dust(payload.color, payload.scale)
+                val dustParticlePayload = input.payload(DUST, DustParticlePayload.serializer())
+                ParticleOptions.Dust(dustParticlePayload.color, dustParticlePayload.scale)
             }
 
             ParticleType.DUST_COLOR_TRANSITION -> {
-                val payload = input.payload(
+                val dustTransitionParticlePayload = input.payload(
                     DUST_TRANSITION,
                     DustTransitionParticlePayload.serializer(),
                 )
                 ParticleOptions.DustTransition(
-                    payload.fromColor,
-                    payload.toColor,
-                    payload.scale,
+                    dustTransitionParticlePayload.fromColor,
+                    dustTransitionParticlePayload.toColor,
+                    dustTransitionParticlePayload.scale,
                 )
             }
 
             ParticleType.EFFECT, ParticleType.INSTANT_EFFECT -> {
-                val payload = input.payload(SPELL, SpellParticlePayload.serializer())
-                ParticleOptions.Spell(type, payload.color, payload.power)
+                val spellParticlePayload = input.payload(SPELL, SpellParticlePayload.serializer())
+                ParticleOptions.Spell(particleType, spellParticlePayload.color, spellParticlePayload.power)
             }
 
             in ParticleOptions.COLOR_PARTICLE_TYPES -> {
-                val payload = input.payload(COLOR, ColorParticlePayload.serializer())
-                ParticleOptions.Color(type, payload.color)
+                val colorParticlePayload = input.payload(COLOR, ColorParticlePayload.serializer())
+                ParticleOptions.Color(particleType, colorParticlePayload.color)
             }
 
             ParticleType.SCULK_CHARGE -> {
-                val payload = input.payload(
+                val sculkChargeParticlePayload = input.payload(
                     SCULK_CHARGE,
                     SculkChargeParticlePayload.serializer(),
                 )
-                ParticleOptions.SculkCharge(payload.roll)
+                ParticleOptions.SculkCharge(sculkChargeParticlePayload.roll)
             }
 
             ParticleType.ITEM -> {
-                val payload = input.payload(ITEM, ItemParticlePayload.serializer())
-                ParticleOptions.Item(payload.item)
+                val itemParticlePayload = input.payload(ITEM, ItemParticlePayload.serializer())
+                ParticleOptions.Item(itemParticlePayload.item)
             }
 
             ParticleType.VIBRATION -> {
-                val payload = input.payload(
+                val vibrationParticlePayload = input.payload(
                     VIBRATION,
                     VibrationParticlePayload.serializer(),
                 )
-                ParticleOptions.Vibration(payload.destination, payload.arrivalInTicks)
+                ParticleOptions.Vibration(vibrationParticlePayload.destination, vibrationParticlePayload.arrivalInTicks)
             }
 
             ParticleType.TRAIL -> {
-                val payload = input.payload(TRAIL, TrailParticlePayload.serializer())
-                ParticleOptions.Trail(payload.target, payload.color, payload.duration)
+                val trailParticlePayload = input.payload(TRAIL, TrailParticlePayload.serializer())
+                ParticleOptions.Trail(trailParticlePayload.target, trailParticlePayload.color, trailParticlePayload.duration)
             }
 
             ParticleType.SHRIEK -> {
-                val payload = input.payload(SHRIEK, ShriekParticlePayload.serializer())
-                ParticleOptions.Shriek(payload.delay)
+                val shriekParticlePayload = input.payload(SHRIEK, ShriekParticlePayload.serializer())
+                ParticleOptions.Shriek(shriekParticlePayload.delay)
             }
 
-            else -> ParticleOptions.Simple(type)
+            else -> ParticleOptions.Simple(particleType)
         }
         input.endStructure(descriptor)
         return result
@@ -662,16 +662,16 @@ internal object ParticleOptionsSerializer : KSerializer<ParticleOptions> {
 
     private fun <T> CompositeEncoder.payload(
         index: Int,
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
         value: T,
     ) {
-        encodeSerializableElement(descriptor, index, serializer, value)
+        encodeSerializableElement(descriptor, index, kSerializer, value)
     }
 
     private fun <T> CompositeDecoder.payload(
         index: Int,
-        serializer: KSerializer<T>,
-    ): T = decodeSerializableElement(descriptor, index, serializer)
+        kSerializer: KSerializer<T>,
+    ): T = decodeSerializableElement(descriptor, index, kSerializer)
 
     private const val TYPE: Int = 0
     private const val BLOCK: Int = 1

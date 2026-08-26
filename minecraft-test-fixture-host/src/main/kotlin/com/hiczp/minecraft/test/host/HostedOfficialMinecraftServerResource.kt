@@ -26,24 +26,24 @@ import kotlin.time.TimeSource
 
 /** A ready official-server process and its isolated loopback endpoint. */
 internal class HostedOfficialMinecraftServerResource private constructor(
-    private val serverArtifact: OfficialServerArtifact,
+    private val officialServerArtifact: OfficialServerArtifact,
     val workDirectory: Path,
-    private val configuration: OfficialMinecraftServerConfiguration,
+    private val officialMinecraftServerConfiguration: OfficialMinecraftServerConfiguration,
     initialLaunch: LaunchedOfficialServer,
 ) : AutoCloseable {
     private val processMutex = Mutex()
-    private lateinit var managedResource: ManagedMinecraftTestResource
+    private lateinit var managedMinecraftTestResource: ManagedMinecraftTestResource
 
     @Volatile
-    private var launched = initialLaunch
+    private var launchedOfficialServer = initialLaunch
 
-    val endpoint: MinecraftTestEndpoint
-        get() = launched.endpoint
+    val minecraftTestEndpoint: MinecraftTestEndpoint
+        get() = launchedOfficialServer.minecraftTestEndpoint
 
-    fun logText(): String = launched.process.logText()
+    fun logText(): String = launchedOfficialServer.minecraftTestProcess.logText()
 
     fun status(): MinecraftTestResourceStatus {
-        val current = launched.process
+        val current = launchedOfficialServer.minecraftTestProcess
         val alive = current.isAlive
         return MinecraftTestResourceStatus(
             alive = alive,
@@ -55,7 +55,7 @@ internal class HostedOfficialMinecraftServerResource private constructor(
         marker: String,
         timeout: Duration,
     ) {
-        launched.process.waitForLog(marker, timeout)
+        launchedOfficialServer.minecraftTestProcess.waitForLog(marker, timeout)
     }
 
     suspend fun sendCommand(
@@ -64,65 +64,65 @@ internal class HostedOfficialMinecraftServerResource private constructor(
         timeout: Duration,
     ) {
         processMutex.withLock {
-            check(managedResource.isOpen) { "Official server is closing" }
-            val process = launched.process
+            check(managedMinecraftTestResource.isOpen) { "Official server is closing" }
+            val minecraftTestProcess = launchedOfficialServer.minecraftTestProcess
             if (expectedNewOutput == null) {
-                process.sendLine(command)
+                minecraftTestProcess.sendLine(command)
             } else {
-                process.sendLineAndWait(command, expectedNewOutput, timeout)
+                minecraftTestProcess.sendLineAndWait(command, expectedNewOutput, timeout)
             }
         }
     }
 
     /** Closes the process while retaining this resource's work directory. */
     suspend fun closeProcess(): Int = processMutex.withLock {
-        check(managedResource.isOpen) { "Official server is closing" }
+        check(managedMinecraftTestResource.isOpen) { "Official server is closing" }
         closeProcessLocked()
     }
 
-    suspend fun awaitExit(): Int = launched.process.awaitExit()
+    suspend fun awaitExit(): Int = launchedOfficialServer.minecraftTestProcess.awaitExit()
 
     /** Restarts the official server in the same isolated world directory. */
     suspend fun restart() {
         processMutex.withLock {
-            check(managedResource.isOpen) { "Official server is closing" }
-            val process = launched.process
-            if (process.isAlive) {
+            check(managedMinecraftTestResource.isOpen) { "Official server is closing" }
+            val minecraftTestProcess = launchedOfficialServer.minecraftTestProcess
+            if (minecraftTestProcess.isAlive) {
                 val exitCode = closeProcessLocked()
                 check(exitCode == 0) {
                     "Official server did not stop cleanly before restart: $exitCode"
                 }
             }
-            launched = launchOfficialServer(
-                artifact = serverArtifact,
+            launchedOfficialServer = launchOfficialServer(
+                officialServerArtifact = officialServerArtifact,
                 workDirectory = workDirectory,
-                configuration = configuration,
+                officialMinecraftServerConfiguration = officialMinecraftServerConfiguration,
             )
         }
     }
 
     override fun close() {
-        managedResource.close()
+        managedMinecraftTestResource.close()
     }
 
     fun invokeOnCleanupCompletion(handler: (Throwable?) -> Unit) {
-        managedResource.invokeOnCleanupCompletion(handler)
+        managedMinecraftTestResource.invokeOnCleanupCompletion(handler)
     }
 
     suspend fun beginWorkingDirectoryDeletion() {
         processMutex.withLock {
-            check(!launched.process.isAlive) {
+            check(!launchedOfficialServer.minecraftTestProcess.isAlive) {
                 "Official server must be stopped before deleting its working directory"
             }
-            managedResource.close()
+            managedMinecraftTestResource.close()
         }
     }
 
-    suspend fun awaitCleanup() = managedResource.awaitCleanup()
+    suspend fun awaitCleanup() = managedMinecraftTestResource.awaitCleanup()
 
-    internal fun attach(resource: ManagedMinecraftTestResource) {
-        check(!::managedResource.isInitialized)
-        managedResource = resource
+    internal fun attach(managedMinecraftTestResource: ManagedMinecraftTestResource) {
+        check(!::managedMinecraftTestResource.isInitialized)
+        this@HostedOfficialMinecraftServerResource.managedMinecraftTestResource = managedMinecraftTestResource
     }
 
     internal suspend fun cleanup() {
@@ -132,35 +132,35 @@ internal class HostedOfficialMinecraftServerResource private constructor(
     }
 
     private suspend fun closeProcessLocked(): Int {
-        val process = launched.process
-        if (!process.isAlive) return process.exitCode
-        return process.terminate(
-            gracefulTimeout = configuration.stopTimeout,
+        val minecraftTestProcess = launchedOfficialServer.minecraftTestProcess
+        if (!minecraftTestProcess.isAlive) return minecraftTestProcess.exitCode
+        return minecraftTestProcess.terminate(
+            gracefulTimeout = officialMinecraftServerConfiguration.stopTimeout,
         )
     }
 
     internal companion object {
         suspend fun start(
-            layout: MinecraftTestLayout,
+            minecraftTestLayout: MinecraftTestLayout,
             workDirectory: Path,
-            configuration: OfficialMinecraftServerConfiguration,
+            officialMinecraftServerConfiguration: OfficialMinecraftServerConfiguration,
         ): HostedOfficialMinecraftServerResource {
-            val artifact = prepareOfficialServerWorkspace(
-                preparedArtifact = OfficialArtifacts.server(layout),
+            val officialServerArtifact = prepareOfficialServerWorkspace(
+                preparedArtifact = OfficialArtifacts.server(minecraftTestLayout),
                 workDirectory = workDirectory,
-                configuration = configuration,
+                officialMinecraftServerConfiguration = officialMinecraftServerConfiguration,
             )
             workDirectory.resolve("eula.txt").writeText("eula=true\n")
-            val launched = launchOfficialServer(
-                artifact = artifact,
+            val launchedOfficialServer = launchOfficialServer(
+                officialServerArtifact = officialServerArtifact,
                 workDirectory = workDirectory,
-                configuration = configuration,
+                officialMinecraftServerConfiguration = officialMinecraftServerConfiguration,
             )
             return HostedOfficialMinecraftServerResource(
-                serverArtifact = artifact,
+                officialServerArtifact = officialServerArtifact,
                 workDirectory = workDirectory,
-                configuration = configuration,
-                initialLaunch = launched,
+                officialMinecraftServerConfiguration = officialMinecraftServerConfiguration,
+                initialLaunch = launchedOfficialServer,
             )
         }
     }
@@ -169,7 +169,7 @@ internal class HostedOfficialMinecraftServerResource private constructor(
 internal fun prepareOfficialServerWorkspace(
     preparedArtifact: OfficialServerArtifact,
     workDirectory: Path,
-    configuration: OfficialMinecraftServerConfiguration,
+    officialMinecraftServerConfiguration: OfficialMinecraftServerConfiguration,
 ): OfficialServerArtifact {
     workDirectory.createDirectories()
     preparedArtifact.runtimeDirectory.linkTreeTo(
@@ -181,14 +181,14 @@ internal fun prepareOfficialServerWorkspace(
             .linkDirectoryTo(workDirectory.safeResolve(relativePath))
     }
     val runtimeJar = workDirectory.resolve("server.jar")
-    if (!configuration.usesDefaultTemplate()) {
+    if (!officialMinecraftServerConfiguration.usesDefaultTemplate()) {
         return preparedArtifact.copy(
             runtimeDirectory = workDirectory,
             jar = runtimeJar,
         )
     }
     preparedArtifact.templateDirectory.copyTreeTo(workDirectory)
-    val levelName = configuration.properties["level-name"]
+    val levelName = officialMinecraftServerConfiguration.properties["level-name"]
         ?: DEFAULT_WORLD_NAME
     val targetWorld = workDirectory.safeResolve(levelName)
     val defaultWorld = workDirectory.resolve(DEFAULT_WORLD_NAME)
@@ -213,29 +213,29 @@ internal fun OfficialMinecraftServerConfiguration.usesDefaultTemplate(): Boolean
     this == OfficialMinecraftServerConfiguration()
 
 private data class LaunchedOfficialServer(
-    val endpoint: MinecraftTestEndpoint,
-    val process: MinecraftTestProcess,
+    val minecraftTestEndpoint: MinecraftTestEndpoint,
+    val minecraftTestProcess: MinecraftTestProcess,
 )
 
 private suspend fun launchOfficialServer(
-    artifact: OfficialServerArtifact,
+    officialServerArtifact: OfficialServerArtifact,
     workDirectory: Path,
-    configuration: OfficialMinecraftServerConfiguration,
+    officialMinecraftServerConfiguration: OfficialMinecraftServerConfiguration,
 ): LaunchedOfficialServer {
     var lastBindFailure: Throwable? = null
-    repeat(configuration.maximumBindAttempts) { attempt ->
+    repeat(officialMinecraftServerConfiguration.maximumBindAttempts) { attempt ->
         val port = selectAvailableLoopbackPort()
         writeProperties(
             workDirectory = workDirectory,
             port = port,
-            overrides = configuration.properties,
+            overrides = officialMinecraftServerConfiguration.properties,
         )
-        val process = MinecraftTestProcess.start(
+        val minecraftTestProcess = MinecraftTestProcess.start(
             command = fixtureJavaCommand(
                 "-Djava.awt.headless=true",
                 "-Djoml.nounsafe=true",
                 "-jar",
-                artifact.jar.toString(),
+                officialServerArtifact.jar.toString(),
                 "nogui",
             ),
             workingDirectory = workDirectory,
@@ -244,26 +244,26 @@ private suspend fun launchOfficialServer(
         )
         try {
             val startedAt = TimeSource.Monotonic.markNow()
-            process.waitForLog(
+            minecraftTestProcess.waitForLog(
                 OFFICIAL_SERVER_DONE_MARKER,
-                configuration.startupTimeout,
+                officialMinecraftServerConfiguration.startupTimeout,
             )
             awaitStatusResponse(
-                process = process,
+                minecraftTestProcess = minecraftTestProcess,
                 host = LOOPBACK,
                 port = port,
-                timeout = configuration.startupTimeout - startedAt.elapsedNow(),
+                timeout = officialMinecraftServerConfiguration.startupTimeout - startedAt.elapsedNow(),
             )
             return LaunchedOfficialServer(
-                endpoint = MinecraftTestEndpoint(LOOPBACK, port),
-                process = process,
+                minecraftTestEndpoint = MinecraftTestEndpoint(LOOPBACK, port),
+                minecraftTestProcess = minecraftTestProcess,
             )
         } catch (failure: Throwable) {
-            val diagnostic = process.logText()
-            terminateAfterFailure(process, failure)
+            val diagnostic = minecraftTestProcess.logText()
+            terminateAfterFailure(minecraftTestProcess, failure)
             if (failure is CancellationException) throw failure
             if (
-                attempt + 1 == configuration.maximumBindAttempts ||
+                attempt + 1 == officialMinecraftServerConfiguration.maximumBindAttempts ||
                 !diagnostic.isPortBindFailure()
             ) {
                 throw AssertionError(
@@ -279,26 +279,26 @@ private suspend fun launchOfficialServer(
         }
     }
     throw AssertionError(
-        "Official server could not acquire a loopback port after ${configuration.maximumBindAttempts} attempts",
+        "Official server could not acquire a loopback port after ${officialMinecraftServerConfiguration.maximumBindAttempts} attempts",
         lastBindFailure,
     )
 }
 
 private suspend fun awaitStatusResponse(
-    process: MinecraftTestProcess,
+    minecraftTestProcess: MinecraftTestProcess,
     host: String,
     port: Int,
     timeout: Duration,
 ) {
     val startedAt = TimeSource.Monotonic.markNow()
     var lastFailure: Throwable? = null
-    SelectorManager(Dispatchers.Default).use { selector ->
-        val probe = MinecraftStatusProbe(selector)
+    SelectorManager(Dispatchers.Default).use { selectorManager ->
+        val minecraftStatusProbe = MinecraftStatusProbe(selectorManager)
         while (startedAt.elapsedNow() < timeout) {
-            process.requireAlive("Official server during status polling")
+            minecraftTestProcess.requireAlive("Official server during status polling")
             val remaining = timeout - startedAt.elapsedNow()
             try {
-                probe.query(
+                minecraftStatusProbe.query(
                     host = host,
                     port = port,
                     socketTimeoutMillis = minOf(
@@ -314,7 +314,7 @@ private suspend fun awaitStatusResponse(
 
             val remainingAfterProbe = timeout - startedAt.elapsedNow()
             if (!remainingAfterProbe.isPositive()) break
-            val exitCode = process.awaitExitWithin(
+            val exitCode = minecraftTestProcess.awaitExitWithin(
                 minOf(remainingAfterProbe, STATUS_POLL_INTERVAL),
             )
             if (exitCode != null) {
@@ -401,27 +401,27 @@ internal suspend fun generateOfficialMinecraftServerTemplate(
     var published = false
     try {
         candidate.resolve("eula.txt").writeText("eula=true\n")
-        val configuration = OfficialMinecraftServerConfiguration(
+        val officialMinecraftServerConfiguration = OfficialMinecraftServerConfiguration(
         )
-        val launched = launchOfficialServer(
-            artifact = OfficialServerArtifact(
+        val launchedOfficialServer = launchOfficialServer(
+            officialServerArtifact = OfficialServerArtifact(
                 runtimeDirectory = candidate,
                 jar = serverJar,
                 templateDirectory = candidate.resolve("unused-template"),
             ),
             workDirectory = candidate,
-            configuration = configuration,
+            officialMinecraftServerConfiguration = officialMinecraftServerConfiguration,
         )
         val exitCode = try {
-            launched.process.terminate(
-                gracefulTimeout = configuration.stopTimeout,
+            launchedOfficialServer.minecraftTestProcess.terminate(
+                gracefulTimeout = officialMinecraftServerConfiguration.stopTimeout,
             )
         } catch (failure: Throwable) {
-            terminateAfterFailure(launched.process, failure)
+            terminateAfterFailure(launchedOfficialServer.minecraftTestProcess, failure)
             throw failure
         }
         check(exitCode == 0) {
-            "Official server template process exited with $exitCode:\n${launched.process.logText()}"
+            "Official server template process exited with $exitCode:\n${launchedOfficialServer.minecraftTestProcess.logText()}"
         }
         check(candidate.resolve(DEFAULT_WORLD_NAME).isDirectory()) {
             "Official server template did not generate the default world"
@@ -504,24 +504,24 @@ internal suspend fun generateOfficialMinecraftServerTemplate(
 }
 
 private suspend fun terminateAfterFailure(
-    process: MinecraftTestProcess,
+    minecraftTestProcess: MinecraftTestProcess,
     failure: Throwable,
 ) = withContext(NonCancellable) {
     try {
-        process.terminate()
+        minecraftTestProcess.terminate()
     } catch (cleanupFailure: Throwable) {
         failure.addSuppressed(cleanupFailure)
     }
 }
 
 internal suspend fun selectAvailableLoopbackPort(): Int =
-    SelectorManager(Dispatchers.Default).use { selector ->
-        val socket = aSocket(selector).tcp().bind(LOOPBACK, 0) {
+    SelectorManager(Dispatchers.Default).use { selectorManager ->
+        val serverSocket = aSocket(selectorManager).tcp().bind(LOOPBACK, 0) {
             reuseAddress = true
         }
-        val port = socket.port
-        socket.close()
-        socket.awaitClosed()
+        val port = serverSocket.port
+        serverSocket.close()
+        serverSocket.awaitClosed()
         port
     }
 

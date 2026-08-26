@@ -14,15 +14,15 @@ class MinecraftFrameCodecTest {
             (index * 29 + index / 7).toByte()
         }
         for (threshold in listOf<Int?>(null, 0, packetData.size + 1)) {
-            val codec = MinecraftFrameCodec()
-            codec.configureCompression(threshold)
+            val minecraftFrameCodec = MinecraftFrameCodec()
+            minecraftFrameCodec.configureCompression(threshold)
             val packetSource = Buffer().apply {
                 write(packetData)
                 writeByte(0x5A)
             }
             val frame = Buffer()
 
-            codec.encodeFrameToSink(
+            minecraftFrameCodec.encodeFrameToSink(
                 packetSource,
                 packetData.size,
                 frame,
@@ -34,7 +34,7 @@ class MinecraftFrameCodecTest {
                 writeByte(0x6B)
             }
             val decoded = Buffer()
-            codec.decodeFrameToSink(framedSource, decoded)
+            minecraftFrameCodec.decodeFrameToSink(framedSource, decoded)
             assertContentEquals(packetData, decoded.readByteArray())
             assertEquals(0x6B, framedSource.readByte().toInt() and 0xFF)
         }
@@ -42,40 +42,40 @@ class MinecraftFrameCodecTest {
 
     @Test
     fun compressiblePacketMayExceedTheCompressedFrameCeiling() = runTest {
-        val codec = MinecraftFrameCodec()
-        codec.configureCompression(0)
+        val minecraftFrameCodec = MinecraftFrameCodec()
+        minecraftFrameCodec.configureCompression(0)
         val packetData = ByteArray(
             MinecraftTransportConfiguration.MAXIMUM_FRAME_SIZE + 1,
         ) { index ->
             "minecraft"[index % "minecraft".length].code.toByte()
         }
 
-        val frame = codec.encodeFrame(packetData)
+        val frame = minecraftFrameCodec.encodeFrame(packetData)
 
         assertTrue(
             frame.size <
                     MinecraftTransportConfiguration.MAXIMUM_FRAME_SIZE,
         )
-        assertContentEquals(packetData, codec.decodeFrame(frame))
+        assertContentEquals(packetData, minecraftFrameCodec.decodeFrame(frame))
     }
 
     @Test
     fun roundTripsAnUncompressedFrame() = runTest {
-        val codec = MinecraftFrameCodec()
+        val minecraftFrameCodec = MinecraftFrameCodec()
         val packetData = byteArrayOf(0x01, 0x02, 0x7F)
 
-        assertContentEquals(packetData, codec.decodeFrame(codec.encodeFrame(packetData)))
+        assertContentEquals(packetData, minecraftFrameCodec.decodeFrame(minecraftFrameCodec.encodeFrame(packetData)))
     }
 
     @Test
     fun coversBothCompressionEnvelopeBranches() = runTest {
-        val codec = MinecraftFrameCodec()
-        codec.configureCompression(32)
+        val minecraftFrameCodec = MinecraftFrameCodec()
+        minecraftFrameCodec.configureCompression(32)
         val small = ByteArray(31) { it.toByte() }
         val large = ByteArray(8_192) { (it * 17).toByte() }
 
-        assertContentEquals(small, codec.decodeFrame(codec.encodeFrame(small)))
-        assertContentEquals(large, codec.decodeFrame(codec.encodeFrame(large)))
+        assertContentEquals(small, minecraftFrameCodec.decodeFrame(minecraftFrameCodec.encodeFrame(small)))
+        assertContentEquals(large, minecraftFrameCodec.decodeFrame(minecraftFrameCodec.encodeFrame(large)))
     }
 
     @Test
@@ -84,8 +84,8 @@ class MinecraftFrameCodecTest {
             val random = Random(0x2602_0776)
             val thresholds = listOf(null, 0, 1, 2, 32, 256)
             thresholds.forEach { threshold ->
-                val codec = MinecraftFrameCodec()
-                codec.configureCompression(threshold)
+                val minecraftFrameCodec = MinecraftFrameCodec()
+                minecraftFrameCodec.configureCompression(threshold)
                 val sizes = buildSet {
                     add(1)
                     threshold?.let {
@@ -100,7 +100,7 @@ class MinecraftFrameCodecTest {
                     random.nextBytes(packetData)
                     assertContentEquals(
                         packetData,
-                        codec.decodeFrame(codec.encodeFrame(packetData)),
+                        minecraftFrameCodec.decodeFrame(minecraftFrameCodec.encodeFrame(packetData)),
                         "threshold=$threshold size=$size",
                     )
                 }
@@ -109,8 +109,8 @@ class MinecraftFrameCodecTest {
 
     @Test
     fun roundTripsPayloadsAcrossCompressionBufferBoundaries() = runTest {
-        val codec = MinecraftFrameCodec()
-        codec.configureCompression(0)
+        val minecraftFrameCodec = MinecraftFrameCodec()
+        minecraftFrameCodec.configureCompression(0)
         val random = Random(0x3520_4001)
 
         listOf(32_767, 32_768, 32_769, 35_204, 65_535, 65_536, 65_537)
@@ -119,7 +119,7 @@ class MinecraftFrameCodecTest {
                 random.nextBytes(packetData)
                 assertContentEquals(
                     packetData,
-                    codec.decodeFrame(codec.encodeFrame(packetData)),
+                    minecraftFrameCodec.decodeFrame(minecraftFrameCodec.encodeFrame(packetData)),
                     "size=$size",
                 )
             }
@@ -127,11 +127,11 @@ class MinecraftFrameCodecTest {
 
     @Test
     fun decodesZlibMembersWhoseEpilogueCrossesAnInputBoundary() = runTest {
-        val bytes = ByteArray(4_201)
-        Random(0x5A4C_4942).nextBytes(bytes)
+        val byteArray = ByteArray(4_201)
+        Random(0x5A4C_4942).nextBytes(byteArray)
         var candidate: Pair<ByteArray, ByteArray>? = null
         for (size in 3_600..4_200) {
-            val packetData = bytes.copyOf(size)
+            val packetData = byteArray.copyOf(size)
             val member = Zlib.compress(packetData)
             if (member.size % 4_096 in 1..3) {
                 candidate = packetData to member
@@ -139,19 +139,19 @@ class MinecraftFrameCodecTest {
             }
         }
         val (packetData, member) = assertNotNull(candidate)
-        val codec = MinecraftFrameCodec()
-        codec.configureCompression(1)
+        val minecraftFrameCodec = MinecraftFrameCodec()
+        minecraftFrameCodec.configureCompression(1)
 
         assertContentEquals(
             packetData,
-            codec.decodeFrameBody(encodeVarInt(packetData.size) + member),
+            minecraftFrameCodec.decodeFrameBody(encodeVarInt(packetData.size) + member),
         )
     }
 
     @Test
     fun decodesStandardStoredFixedAndDynamicZlibStreams() = runTest {
-        val codec = MinecraftFrameCodec()
-        codec.configureCompression(1)
+        val minecraftFrameCodec = MinecraftFrameCodec()
+        minecraftFrameCodec.configureCompression(1)
         val hello = "hello world".encodeToByteArray()
         val dynamic =
             "The quick brown fox jumps over the lazy dog. "
@@ -166,28 +166,28 @@ class MinecraftFrameCodecTest {
         samples.forEach { (expected, zlib) ->
             assertContentEquals(
                 expected,
-                codec.decodeFrameBody(encodeVarInt(expected.size) + zlib),
+                minecraftFrameCodec.decodeFrameBody(encodeVarInt(expected.size) + zlib),
             )
         }
     }
 
     @Test
     fun rejectsMalformedAndInconsistentFrames() = runTest {
-        val codec = MinecraftFrameCodec()
+        val minecraftFrameCodec = MinecraftFrameCodec()
         assertFailsWith<MinecraftTransportException> {
-            codec.decodeFrame(byteArrayOf(0))
+            minecraftFrameCodec.decodeFrame(byteArrayOf(0))
         }
         assertFailsWith<MinecraftTransportException> {
-            codec.decodeFrame(byteArrayOf(2, 1))
+            minecraftFrameCodec.decodeFrame(byteArrayOf(2, 1))
         }
 
-        codec.configureCompression(8)
+        minecraftFrameCodec.configureCompression(8)
         assertContentEquals(
             byteArrayOf(1, 2, 3, 4, 5, 6, 7, 8),
-            codec.decodeFrameBody(byteArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8)),
+            minecraftFrameCodec.decodeFrameBody(byteArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8)),
         )
         assertFailsWith<IOException> {
-            codec.decodeFrameBody(
+            minecraftFrameCodec.decodeFrameBody(
                 byteArrayOf(11) +
                         "789ccb48cdc9c95728cf2fca4901001a0b045c".hexToByteArray(),
             )
@@ -196,12 +196,12 @@ class MinecraftFrameCodecTest {
 
     @Test
     fun rejectsEveryMalformedZlibEnvelopeClass() = runTest {
-        val codec = MinecraftFrameCodec()
-        codec.configureCompression(1)
+        val minecraftFrameCodec = MinecraftFrameCodec()
+        minecraftFrameCodec.configureCompression(1)
 
         suspend fun reject(zlib: ByteArray, declaredSize: Int = 1) {
             assertFailsWith<IOException> {
-                codec.decodeFrameBody(encodeVarInt(declaredSize) + zlib)
+                minecraftFrameCodec.decodeFrameBody(encodeVarInt(declaredSize) + zlib)
             }
         }
 
@@ -223,12 +223,12 @@ class MinecraftFrameCodecTest {
 
     @Test
     fun rejectsOversizedDeclaredPacketsBeforeInflation() = runTest {
-        val codec = MinecraftFrameCodec()
-        codec.configureCompression(1)
+        val minecraftFrameCodec = MinecraftFrameCodec()
+        minecraftFrameCodec.configureCompression(1)
         val oversizedLength = MinecraftTransportConfiguration.MAXIMUM_UNCOMPRESSED_PACKET_SIZE + 1
 
         assertFailsWith<MinecraftTransportException> {
-            codec.decodeFrameBody(
+            minecraftFrameCodec.decodeFrameBody(
                 encodeVarInt(oversizedLength) +
                         "789c030000000001".hexToByteArray(),
             )
@@ -253,39 +253,39 @@ class MinecraftFrameCodecTest {
             ).maximumUncompressedPacketSize,
         )
 
-        val codec = MinecraftFrameCodec(
+        val minecraftFrameCodec = MinecraftFrameCodec(
             MinecraftTransportConfiguration(
                 maximumFrameSize = 4,
                 maximumUncompressedPacketSize = 8,
             ),
         )
-        codec.configureCompression(-1)
-        assertNull(codec.compressionThreshold)
+        minecraftFrameCodec.configureCompression(-1)
+        assertNull(minecraftFrameCodec.compressionThreshold)
         assertFailsWith<MinecraftTransportException> {
-            codec.encodeFrame(byteArrayOf())
+            minecraftFrameCodec.encodeFrame(byteArrayOf())
         }
         assertFailsWith<MinecraftTransportException> {
-            codec.encodeFrame(ByteArray(9))
+            minecraftFrameCodec.encodeFrame(ByteArray(9))
         }
         assertFailsWith<MinecraftTransportException> {
-            codec.encodeFrame(ByteArray(5) { it.toByte() })
+            minecraftFrameCodec.encodeFrame(ByteArray(5) { it.toByte() })
         }
 
-        codec.configureCompression(0)
-        assertEquals(0, codec.compressionThreshold)
-        codec.configureCompression(null)
-        assertNull(codec.compressionThreshold)
+        minecraftFrameCodec.configureCompression(0)
+        assertEquals(0, minecraftFrameCodec.compressionThreshold)
+        minecraftFrameCodec.configureCompression(null)
+        assertNull(minecraftFrameCodec.compressionThreshold)
     }
 
     @Test
     fun rejectsMalformedVarIntsAndEmptyCompressionPayloads() = runTest {
-        val codec = MinecraftFrameCodec()
+        val minecraftFrameCodec = MinecraftFrameCodec()
         assertContentEquals(
             byteArrayOf(1),
-            codec.decodeFrame(byteArrayOf(0x81.toByte(), 0x00, 0x01)),
+            minecraftFrameCodec.decodeFrame(byteArrayOf(0x81.toByte(), 0x00, 0x01)),
         )
         assertFailsWith<MinecraftTransportException> {
-            codec.decodeFrame(
+            minecraftFrameCodec.decodeFrame(
                 byteArrayOf(
                     0x80.toByte(),
                     0x80.toByte(),
@@ -295,13 +295,13 @@ class MinecraftFrameCodecTest {
             )
         }
 
-        codec.configureCompression(8)
+        minecraftFrameCodec.configureCompression(8)
         assertFailsWith<MinecraftTransportException> {
-            codec.decodeFrameBody(byteArrayOf(0))
+            minecraftFrameCodec.decodeFrameBody(byteArrayOf(0))
         }
         assertContentEquals(
             ByteArray(7),
-            codec.decodeFrameBody(encodeVarInt(7) + Zlib.compress(ByteArray(7))),
+            minecraftFrameCodec.decodeFrameBody(encodeVarInt(7) + Zlib.compress(ByteArray(7))),
         )
 
         val strictVarInts = MinecraftFrameCodec(
@@ -322,18 +322,18 @@ class MinecraftFrameCodecTest {
     @Test
     fun officialDefaultsAcceptNoncanonicalCompressionThresholdBranches() =
         runTest {
-            val codec = MinecraftFrameCodec()
-            codec.configureCompression(8)
+            val minecraftFrameCodec = MinecraftFrameCodec()
+            minecraftFrameCodec.configureCompression(8)
             val atThreshold = ByteArray(8) { it.toByte() }
             assertContentEquals(
                 atThreshold,
-                codec.decodeFrameBody(byteArrayOf(0) + atThreshold),
+                minecraftFrameCodec.decodeFrameBody(byteArrayOf(0) + atThreshold),
             )
 
             val belowThreshold = byteArrayOf(1, 2, 3)
             assertContentEquals(
                 belowThreshold,
-                codec.decodeFrameBody(
+                minecraftFrameCodec.decodeFrameBody(
                     encodeVarInt(belowThreshold.size) +
                             Zlib.compress(belowThreshold),
                 ),

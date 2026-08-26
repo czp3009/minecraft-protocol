@@ -16,9 +16,9 @@ class MinecraftUserApiTest {
     fun fetchesAndUpdatesUserAttributesAndBlockList() = runTest {
         val requests = mutableListOf<HttpRequestData>()
         HttpClient(
-            MockEngine { request ->
-                requests += request
-                when (request.url.encodedPath) {
+            MockEngine { httpRequestData ->
+                requests += httpRequestData
+                when (httpRequestData.url.encodedPath) {
                     "/player/attributes" -> respondUserJson(userAttributesJson())
                     "/privacy/blocklist" -> respondUserJson(
                         buildJsonObject {
@@ -32,16 +32,16 @@ class MinecraftUserApiTest {
                         },
                     )
 
-                    else -> error("Unexpected request ${request.url}")
+                    else -> error("Unexpected request ${httpRequestData.url}")
                 }
             },
-        ).use { client ->
-            val api = MinecraftUserApi(client)
-            val attributes = assertNotNull(api.fetchAttributes("access-token"))
+        ).use { httpClient ->
+            val minecraftUserApi = MinecraftUserApi(httpClient)
+            val minecraftUserAttributesResponse = assertNotNull(minecraftUserApi.fetchAttributes("access-token"))
             val updated = assertNotNull(
-                api.updateAttributes(
+                minecraftUserApi.updateAttributes(
                     accessToken = "access-token",
-                    request = MinecraftUserAttributesRequest(
+                    minecraftUserAttributesRequest = MinecraftUserAttributesRequest(
                         friendsPreferences = MinecraftUserAttributesRequest.FriendsPreferences(
                             friends = MinecraftToggleValue.ENABLED,
                             acceptInvites = MinecraftToggleValue.DISABLED,
@@ -49,21 +49,21 @@ class MinecraftUserApiTest {
                     ),
                 ),
             )
-            val blockList = assertNotNull(api.fetchBlockList("access-token"))
+            val minecraftBlockListResponse = assertNotNull(minecraftUserApi.fetchBlockList("access-token"))
 
-            val privileges = assertNotNull(attributes.privileges)
+            val privileges = assertNotNull(minecraftUserAttributesResponse.privileges)
             assertTrue(privileges.onlineChat?.enabled == true)
             assertFalse(privileges.multiplayerServer?.enabled ?: true)
             assertNull(privileges.optionalTelemetry)
-            assertEquals(MinecraftChatToggleValue.FRIENDS_ONLY, attributes.chatPreferences?.textCommunication)
-            assertNull(attributes.banStatus?.bannedScopes?.get("MULTIPLAYER")?.expires)
+            assertEquals(MinecraftChatToggleValue.FRIENDS_ONLY, minecraftUserAttributesResponse.chatPreferences?.textCommunication)
+            assertNull(minecraftUserAttributesResponse.banStatus?.bannedScopes?.get("MULTIPLAYER")?.expires)
             assertEquals(MinecraftToggleValue.ENABLED, updated.friendsPreferences?.friends)
-            assertEquals(2, blockList.blockedProfiles?.size)
+            assertEquals(2, minecraftBlockListResponse.blockedProfiles?.size)
         }
 
         assertEquals(3, requests.size)
-        requests.forEach { request ->
-            assertEquals("Bearer access-token", request.headers[HttpHeaders.Authorization])
+        requests.forEach { httpRequestData ->
+            assertEquals("Bearer access-token", httpRequestData.headers[HttpHeaders.Authorization])
         }
         assertEquals(HttpMethod.Get, requests[0].method)
         assertEquals(HttpMethod.Post, requests[1].method)
@@ -77,36 +77,36 @@ class MinecraftUserApiTest {
 
     @Test
     fun identityConveniencesAndEmptySuccessfulBodiesRemainCallerVisible() = runTest {
-        val identity = MinecraftOnlineIdentity(
+        val minecraftOnlineIdentity = MinecraftOnlineIdentity(
             id = MinecraftOfflineIdentity.minecraftOfflineUuid("Player"),
             name = "Player",
             accessToken = "access-token",
         )
         val requests = mutableListOf<HttpRequestData>()
         HttpClient(
-            MockEngine { request ->
-                requests += request
+            MockEngine { httpRequestData ->
+                requests += httpRequestData
                 respond("", HttpStatusCode.NoContent)
             },
-        ).use { client ->
-            val api = MinecraftUserApi(client)
+        ).use { httpClient ->
+            val minecraftUserApi = MinecraftUserApi(httpClient)
 
-            assertNull(api.fetchAttributes(identity))
+            assertNull(minecraftUserApi.fetchAttributes(minecraftOnlineIdentity))
             assertNull(
-                api.updateAttributes(
-                    identity,
+                minecraftUserApi.updateAttributes(
+                    minecraftOnlineIdentity,
                     MinecraftUserAttributesRequest(
                         profanityFilterPreferences =
                             MinecraftUserAttributesRequest.ProfanityFilterPreferences(enabled = true),
                     ),
                 ),
             )
-            assertNull(api.fetchBlockList(identity))
+            assertNull(minecraftUserApi.fetchBlockList(minecraftOnlineIdentity))
         }
 
         assertEquals(3, requests.size)
-        requests.forEach { request ->
-            assertEquals("Bearer access-token", request.headers[HttpHeaders.Authorization])
+        requests.forEach { httpRequestData ->
+            assertEquals("Bearer access-token", httpRequestData.headers[HttpHeaders.Authorization])
         }
 
         val omittedBlockList = MinecraftServiceJson.decodeFromString<MinecraftBlockListResponse>(
@@ -130,9 +130,9 @@ class MinecraftUserApiTest {
                     headers = headersOf(HttpHeaders.ContentType, "application/json"),
                 )
             },
-        ).use { client ->
+        ).use { httpClient ->
             val failure = assertFailsWith<MinecraftUserResponseException> {
-                MinecraftUserApi(client).fetchAttributes("expired-token")
+                MinecraftUserApi(httpClient).fetchAttributes("expired-token")
             }
 
             assertEquals(HttpStatusCode.Unauthorized, failure.response.status)
@@ -144,9 +144,9 @@ class MinecraftUserApiTest {
 
     @Test
     fun decodingFailuresPropagateUnchanged() = runTest {
-        HttpClient(MockEngine { respond("not-json", HttpStatusCode.OK) }).use { client ->
+        HttpClient(MockEngine { respond("not-json", HttpStatusCode.OK) }).use { httpClient ->
             assertFailsWith<SerializationException> {
-                MinecraftUserApi(client).fetchBlockList("access-token")
+                MinecraftUserApi(httpClient).fetchBlockList("access-token")
             }
         }
     }

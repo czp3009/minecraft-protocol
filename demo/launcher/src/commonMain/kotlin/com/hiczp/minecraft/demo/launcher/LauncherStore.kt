@@ -23,7 +23,7 @@ internal class LauncherStore(
 ) {
     private val installedMutex = Mutex()
     private val installedPath = launcherRoot / "installed.json"
-    val auth = AuthMemory(fileSystem, launcherRoot / "auth.json")
+    val authMemory = AuthMemory(fileSystem, launcherRoot / "auth.json")
 
     suspend fun loadInstalled(): InstalledState = installedMutex.withLock {
         if (!fileSystem.exists(installedPath)) return@withLock InstalledState()
@@ -38,10 +38,10 @@ internal class LauncherStore(
             updated
         }
 
-    suspend fun reconcileInstalled(platform: LauncherPlatform): InstalledState = updateInstalled { state ->
-        state.copy(
-            installations = state.installations.filter { installation ->
-                installation.platformKey != platform.platformKey ||
+    suspend fun reconcileInstalled(launcherPlatform: LauncherPlatform): InstalledState = updateInstalled { installedState ->
+        installedState.copy(
+            installations = installedState.installations.filter { installation ->
+                installation.platformKey != launcherPlatform.platformKey ||
                         fileSystem.exists(gameRoot(installation.versionId))
             },
         )
@@ -53,9 +53,10 @@ internal class LauncherStore(
     fun root(): Path = launcherRoot
 
     private fun readInstalledUnlocked(): InstalledState {
-        val state = launcherJson.decodeFromString<InstalledState>(fileSystem.read(installedPath) { readUtf8() })
-        validateInstalled(state)
-        return state
+        val installedState =
+            launcherJson.decodeFromString<InstalledState>(fileSystem.read(installedPath) { readUtf8() })
+        validateInstalled(installedState)
+        return installedState
     }
 }
 
@@ -70,9 +71,9 @@ internal class AuthMemory(
 
     suspend fun <T> update(block: AuthUpdateScope.() -> T): T = mutex.withLock {
         val current = memory.value
-        val scope = AuthUpdateScope(current)
-        val result = scope.block()
-        val updated = scope.build().ownedCopy()
+        val authUpdateScope = AuthUpdateScope(current)
+        val result = authUpdateScope.block()
+        val updated = authUpdateScope.build().ownedCopy()
         validateAuth(updated)
         if (updated != current) {
             writeJsonAtomically(fileSystem, path, launcherJson.encodeToString(updated))
@@ -122,34 +123,34 @@ private fun writeJsonAtomically(fileSystem: FileSystem, path: Path, content: Str
     }
 }
 
-private fun validateAuth(state: AuthState) {
-    require(state.schemaVersion == 2) { "Unsupported auth.json schema: ${state.schemaVersion}" }
-    require(state.accounts.map { it.identity.id }.distinct().size == state.accounts.size) {
+private fun validateAuth(authState: AuthState) {
+    require(authState.schemaVersion == 2) { "Unsupported auth.json schema: ${authState.schemaVersion}" }
+    require(authState.accounts.map { it.minecraftIdentity.id }.distinct().size == authState.accounts.size) {
         "auth.json contains duplicate identities"
     }
-    require(state.selectedIdentityId == null || state.accounts.any { it.identity.id == state.selectedIdentityId }) {
+    require(authState.selectedIdentityId == null || authState.accounts.any { it.minecraftIdentity.id == authState.selectedIdentityId }) {
         "auth.json selected identity does not exist"
     }
-    state.accounts.forEach { account ->
-        when (account.identity) {
+    authState.accounts.forEach { storedAccount ->
+        when (storedAccount.minecraftIdentity) {
             is MinecraftOfflineIdentity -> require(
-                account.microsoftRefreshToken == null && account.minecraftAccessTokenExpiresAtEpochSeconds == null,
+                storedAccount.microsoftRefreshToken == null && storedAccount.minecraftAccessTokenExpiresAtEpochSeconds == null,
             ) { "Offline accounts cannot contain credentials" }
 
             is MinecraftOnlineIdentity -> require(
-                account.microsoftRefreshToken != null && account.minecraftAccessTokenExpiresAtEpochSeconds != null,
+                storedAccount.microsoftRefreshToken != null && storedAccount.minecraftAccessTokenExpiresAtEpochSeconds != null,
             ) { "Microsoft account is missing its refresh credentials" }
         }
     }
 }
 
-private fun validateInstalled(state: InstalledState) {
-    require(state.schemaVersion == 1) { "Unsupported installed.json schema: ${state.schemaVersion}" }
-    state.installations.forEach { installation ->
+private fun validateInstalled(installedState: InstalledState) {
+    require(installedState.schemaVersion == 1) { "Unsupported installed.json schema: ${installedState.schemaVersion}" }
+    installedState.installations.forEach { installation ->
         validateSinglePathComponent(installation.versionId, "version ID")
         require(installation.platformKey.isNotBlank()) { "installed.json has a blank platform key" }
     }
-    require(state.installations.distinct().size == state.installations.size) {
+    require(installedState.installations.distinct().size == installedState.installations.size) {
         "installed.json contains duplicate records"
     }
 }

@@ -106,7 +106,7 @@ class PlayServerboundInitialPacketTest {
 
     @Test
     fun `play client information reuses the complete common payload`() {
-        val packet = PlayClientInformationPacket(
+        val playClientInformationPacket = PlayClientInformationPacket(
             ClientInformation(
                 locale = "en_us",
                 viewDistance = 10,
@@ -120,7 +120,7 @@ class PlayServerboundInitialPacketTest {
             ),
         )
         assertPacketBytes(
-            packet,
+            playClientInformationPacket,
             PlayClientInformationPacket.serializer(),
             "05656e5f75730a0101ff01000102",
         )
@@ -147,17 +147,17 @@ class PlayServerboundInitialPacketTest {
 
     private fun <T> assertPacketBytes(
         packet: T,
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
         expectedHex: String,
     ) {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

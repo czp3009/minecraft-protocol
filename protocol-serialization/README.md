@@ -15,13 +15,14 @@ bundle, and the client session reconstructs the logical value after decoding the
 
 `MinecraftProtocolFormat` implements `BinaryFormat` and interprets the structural serializers and wire annotations from
 [`protocol-model`](../protocol-model/README.md). The caller-owned stream API is canonical; decoding takes the payload
-boundary established by framing. In the example, `handshake` is the `HandshakePacket` to encode, `payloadSink` is the
-caller's destination, and `payloadSource` plus `payloadByteCount` are the bounded payload supplied by the framing layer:
+boundary established by framing. In the example, `handshakePacket` is the `HandshakePacket` to encode, `payloadSink`
+is the caller's destination, and `payloadSource` plus `payloadByteCount` are the bounded payload supplied by the framing
+layer:
 
 ```kotlin
 MinecraftProtocolFormat.encodeToSink(
     HandshakePacket.serializer(),
-    handshake,
+    handshakePacket,
     payloadSink,
 )
 
@@ -40,13 +41,13 @@ connection-specific registry with application or loader packet codecs instead of
 
 ```kotlin
 val packetRegistry = PacketRegistry(MinecraftPacketRegistry.entries, myPacketCodecs)
-val encodedPacket = packetRegistry.encodePayload(packet)
+val encodedPacketPayload = packetRegistry.encodePayload(packet)
 
 val decodedPacket = packetRegistry.decodePayload(
-    state = encodedPacket.key.state,
-    direction = encodedPacket.key.direction,
-    id = encodedPacket.key.id,
-    payload = encodedPacket.payload,
+    connectionState = encodedPacketPayload.packetKey.connectionState,
+    packetDirection = encodedPacketPayload.packetKey.packetDirection,
+    id = encodedPacketPayload.packetKey.id,
+    payload = encodedPacketPayload.payload,
 )
 ```
 
@@ -56,10 +57,10 @@ genuinely physical rule such as nested discrimination. When the same extension c
 select its state and direction explicitly:
 
 ```kotlin
-val encodedPacket = packetRegistry.encodePayload(
+val encodedPacketPayload = packetRegistry.encodePayload(
     packet,
-    state = ConnectionState.PLAY,
-    direction = PacketDirection.CLIENTBOUND,
+    connectionState = ConnectionState.PLAY,
+    packetDirection = PacketDirection.CLIENTBOUND,
 )
 ```
 

@@ -58,31 +58,31 @@ class RegionHeader private constructor(
     val chunkCount: Int
         get() = locations.count { packed -> packed != 0 }
 
-    /** Whether the location table contains [position], without inspecting its Chunk record. */
-    fun hasChunk(position: LocalChunkPosition): Boolean = locations[position.index] != 0
+    /** Whether the location table contains [localChunkPosition], without inspecting its Chunk record. */
+    fun hasChunk(localChunkPosition: LocalChunkPosition): Boolean = locations[localChunkPosition.index] != 0
 
     /** Region-local positions in location-table order, without inspecting their Chunk records. */
     fun localChunkPositions(): Sequence<LocalChunkPosition> = locations.indices.asSequence()
         .filter { index -> locations[index] != 0 }
         .map(LocalChunkPosition::fromIndex)
 
-    fun location(position: LocalChunkPosition): RegionLocation? =
-        RegionLocation.fromPacked(locations[position.index])
+    fun location(localChunkPosition: LocalChunkPosition): RegionLocation? =
+        RegionLocation.fromPacked(locations[localChunkPosition.index])
 
-    fun timestamp(position: LocalChunkPosition): Int =
-        timestamps[position.index]
+    fun timestamp(localChunkPosition: LocalChunkPosition): Int =
+        timestamps[localChunkPosition.index]
 
     fun set(
-        position: LocalChunkPosition,
-        location: RegionLocation?,
+        localChunkPosition: LocalChunkPosition,
+        regionLocation: RegionLocation?,
         timestamp: Int,
     ) {
-        locations[position.index] = location?.packed ?: 0
-        timestamps[position.index] = timestamp
+        locations[localChunkPosition.index] = regionLocation?.packed ?: 0
+        timestamps[localChunkPosition.index] = timestamp
     }
 
-    fun clearLocation(position: LocalChunkPosition) {
-        locations[position.index] = 0
+    fun clearLocation(localChunkPosition: LocalChunkPosition) {
+        locations[localChunkPosition.index] = 0
     }
 
     fun copy(): RegionHeader = RegionHeader(
@@ -144,12 +144,12 @@ class RegionHeader private constructor(
 class RegionSectorAllocator {
     private var used = booleanArrayOf(true, true)
 
-    fun mark(location: RegionLocation) {
-        require(location.sectorCount > 0)
-        ensureCapacity(location.sectorOffset + location.sectorCount)
+    fun mark(regionLocation: RegionLocation) {
+        require(regionLocation.sectorCount > 0)
+        ensureCapacity(regionLocation.sectorOffset + regionLocation.sectorCount)
         for (
-        sector in location.sectorOffset until
-                location.sectorOffset + location.sectorCount
+        sector in regionLocation.sectorOffset until
+                regionLocation.sectorOffset + regionLocation.sectorCount
         ) {
             used[sector] = true
         }
@@ -174,18 +174,18 @@ class RegionSectorAllocator {
                     "Region allocation exceeds location-table range",
                 )
             }
-            val location = RegionLocation(start, sectorCount)
-            mark(location)
-            return location
+            val regionLocation = RegionLocation(start, sectorCount)
+            mark(regionLocation)
+            return regionLocation
         }
     }
 
-    fun free(location: RegionLocation?) {
-        if (location == null || location.sectorCount == 0) return
-        ensureCapacity(location.sectorOffset + location.sectorCount)
+    fun free(regionLocation: RegionLocation?) {
+        if (regionLocation == null || regionLocation.sectorCount == 0) return
+        ensureCapacity(regionLocation.sectorOffset + regionLocation.sectorCount)
         for (
-        sector in location.sectorOffset until
-                location.sectorOffset + location.sectorCount
+        sector in regionLocation.sectorOffset until
+                regionLocation.sectorOffset + regionLocation.sectorCount
         ) {
             used[sector] = false
         }
@@ -217,13 +217,13 @@ data class RegionChunkRecordHeader(
 
     fun encode(): ByteArray {
         require(length >= 1)
-        val bytes = ByteArray(REGION_CHUNK_RECORD_HEADER_BYTES)
-        writeRegionInt(bytes, 0, length)
-        bytes[Int.SIZE_BYTES] = (
+        val byteArray = ByteArray(REGION_CHUNK_RECORD_HEADER_BYTES)
+        writeRegionInt(byteArray, 0, length)
+        byteArray[Int.SIZE_BYTES] = (
                 compressionId(compression) or
                         if (external) REGION_EXTERNAL_STREAM_FLAG else 0
                 ).toByte()
-        return bytes
+        return byteArray
     }
 
     companion object {

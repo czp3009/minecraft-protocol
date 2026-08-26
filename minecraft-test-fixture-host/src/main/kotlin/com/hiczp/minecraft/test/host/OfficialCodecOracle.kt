@@ -22,10 +22,10 @@ internal object OfficialCodecOracle {
         loggingConfiguration: Path,
         methodName: String,
     ) {
-        val runtime = officialServerRuntime()
+        val officialServerRuntime = officialServerRuntime()
 
         // Pre-compiled bridge classes supplied by the codec-oracle gate.
-        val classes = HostedMinecraftTestSupport.layout.codecClassesDirectory
+        val classes = HostedMinecraftTestSupport.minecraftTestLayout.codecClassesDirectory
 
         check(classes.isDirectory()) {
             "Official codec bridge is not compiled: $classes; run the Gradle prepareOfficialMinecraftCodecOracle task first"
@@ -39,24 +39,24 @@ internal object OfficialCodecOracle {
 
         val urls = buildList {
             add(classes.toUri().toURL())
-            add(runtime.implementationJar.toUri().toURL())
+            add(officialServerRuntime.implementationJar.toUri().toURL())
             addAll(
-                runtime.libraries.map {
+                officialServerRuntime.libraries.map {
                     it.toUri().toURL()
                 },
             )
         }.toTypedArray()
         loggingConfiguration.writeText(log4jNullConfigurationXml())
         withOfficialCodecEnvironment(loggingConfiguration) {
-            URLClassLoader(urls, ClassLoader.getPlatformClassLoader()).use { loader ->
+            URLClassLoader(urls, ClassLoader.getPlatformClassLoader()).use { urlClassLoader ->
                 val previous = Thread.currentThread().contextClassLoader
-                Thread.currentThread().contextClassLoader = loader
+                Thread.currentThread().contextClassLoader = urlClassLoader
                 var failure: Throwable? = null
                 try {
                     val oracle = Class.forName(
                         "com.hiczp.minecraft.test.oracle.OfficialCodecOracle",
                         true,
-                        loader,
+                        urlClassLoader,
                     )
                     val method = oracle.getMethod(methodName, String::class.java)
                     try {

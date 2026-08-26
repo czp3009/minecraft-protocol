@@ -150,7 +150,7 @@ internal object HashedStackSerializer : KSerializer<HashedStack> {
                 "HashedStack requires ordered decoding",
             )
         }
-        val result = if (
+        val hashedStack = if (
             input.decodeBooleanElement(descriptor, PRESENT)
         ) {
             input.decodeSerializableElement(
@@ -162,7 +162,7 @@ internal object HashedStackSerializer : KSerializer<HashedStack> {
             HashedStack.Empty
         }
         input.endStructure(descriptor)
-        return result
+        return hashedStack
     }
 
     private const val PRESENT: Int = 0
@@ -213,12 +213,12 @@ internal object EquipmentUpdatesSerializer :
                 SLOT_AND_CONTINUATION,
             ).toInt() and 0xFF
             val slotId = slotAndContinuation and SLOT_MASK
-            val slot = EquipmentSlot.entries.getOrNull(slotId)
+            val equipmentSlot = EquipmentSlot.entries.getOrNull(slotId)
                 ?: throw SerializationException(
                     "Unknown equipment slot ID $slotId",
                 )
             entries += EquipmentUpdate(
-                slot,
+                equipmentSlot,
                 input.decodeSerializableElement(
                     descriptor,
                     ITEM,

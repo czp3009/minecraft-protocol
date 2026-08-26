@@ -21,7 +21,7 @@ data class MinecraftEntitySnapshot(
     val yaw: Float = 0.0f,
     val headYaw: Float = yaw,
     val data: Int = 0,
-    val metadata: EntityMetadata? = null,
+    val entityMetadata: EntityMetadata? = null,
     val attributes: List<AttributeSnapshot> = emptyList(),
     val equipment: List<EquipmentUpdate> = emptyList(),
     val passengerEntityIds: List<Int> = emptyList(),
@@ -74,14 +74,14 @@ private fun MutableList<ClientboundPacket>.addContentPackets(
                 data = data,
             ),
         )
-        metadata?.takeIf { it.entries.isNotEmpty() }?.let {
+        entityMetadata?.takeIf { it.entries.isNotEmpty() }?.let {
             add(SetEntityMetadataPacket(entityId, EntityMetadata(it.entries.toList())))
         }
         if (attributes.isNotEmpty()) {
             add(
                 UpdateAttributesPacket(
                     entityId,
-                    attributes.map { attribute -> attribute.copy(modifiers = attribute.modifiers.toList()) },
+                    attributes.map { attributeSnapshot -> attributeSnapshot.copy(modifiers = attributeSnapshot.modifiers.toList()) },
                 ),
             )
         }
@@ -146,9 +146,9 @@ data class MinecraftEntityPassengersSnapshot(
  */
 fun <E : Any> Entity<E>.toMinecraftEntitySnapshot(
     entityId: Int,
-    headYaw: Float = rotation.yaw,
+    headYaw: Float = entityRotation.yaw,
     data: Int = 0,
-    metadata: EntityMetadata? = null,
+    entityMetadata: EntityMetadata? = null,
     attributes: List<AttributeSnapshot> = emptyList(),
     equipment: List<EquipmentUpdate> = emptyList(),
     passengerEntityIds: List<Int> = emptyList(),
@@ -160,11 +160,11 @@ fun <E : Any> Entity<E>.toMinecraftEntitySnapshot(
     type = Identifier(type),
     position = Vector3d(position.x, position.y, position.z),
     velocity = Vector3d(velocity.x, velocity.y, velocity.z),
-    pitch = rotation.pitch,
-    yaw = rotation.yaw,
+    pitch = entityRotation.pitch,
+    yaw = entityRotation.yaw,
     headYaw = headYaw,
     data = data,
-    metadata = metadata?.let { value -> EntityMetadata(value.entries.toList()) },
+    entityMetadata = entityMetadata?.let { value -> EntityMetadata(value.entries.toList()) },
     attributes = attributes.map { attribute ->
         attribute.copy(modifiers = attribute.modifiers.toList())
     },

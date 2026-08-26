@@ -43,7 +43,7 @@ internal actual fun FileSystem.openLiveReadOnly(path: Path): FileHandle {
     if (this !== FileSystem.SYSTEM) return openReadOnly(path)
     return NioLiveReadOnlyFileHandle(
         path = path,
-        channel = FileChannel.open(path.toNioPath(), READ),
+        fileChannel = FileChannel.open(path.toNioPath(), READ),
     )
 }
 
@@ -51,14 +51,14 @@ internal actual fun syncSystemFilePath(path: Path) = Unit
 
 private class NioLiveReadOnlyFileHandle(
     private val path: Path,
-    private val channel: FileChannel,
+    private val fileChannel: FileChannel,
 ) : FileHandle(readWrite = false) {
     override fun protectedRead(
         fileOffset: Long,
         array: ByteArray,
         arrayOffset: Int,
         byteCount: Int,
-    ): Int = channel.read(
+    ): Int = fileChannel.read(
         ByteBuffer.wrap(array, arrayOffset, byteCount),
         fileOffset,
     )
@@ -75,9 +75,9 @@ private class NioLiveReadOnlyFileHandle(
     override fun protectedResize(size: Long): Nothing =
         readOnlyOperation("resize")
 
-    override fun protectedSize(): Long = channel.size()
+    override fun protectedSize(): Long = fileChannel.size()
 
-    override fun protectedClose() = channel.close()
+    override fun protectedClose() = fileChannel.close()
 
     private fun readOnlyOperation(operation: String): Nothing =
         throw IllegalStateException(

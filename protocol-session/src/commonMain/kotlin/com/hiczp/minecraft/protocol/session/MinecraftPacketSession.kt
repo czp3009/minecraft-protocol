@@ -27,29 +27,29 @@ data class RoutedCustomPayload(
  * endpoint sessions.
  */
 sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protected constructor(
-    internal val frameStream: MinecraftFrameStream,
+    internal val minecraftFrameStream: MinecraftFrameStream,
     protected val inboundDirection: PacketDirection,
     protected val outboundDirection: PacketDirection,
     private val packetRegistry: PacketRegistry,
-    format: MinecraftProtocolFormat,
+    minecraftProtocolFormat: MinecraftProtocolFormat,
 ) {
     private val stateValue = MutableStateFlow(ConnectionState.HANDSHAKE)
-    private val formatValue = MutableStateFlow(format)
+    private val formatValue = MutableStateFlow(minecraftProtocolFormat)
     private val activeRoutesValue = MutableStateFlow(emptySet<PacketRouteKey>())
     private val loginQueryMutex = Mutex()
     private val loginQueries = mutableMapOf<Int, Identifier>()
 
-    val state: ConnectionState
+    val connectionState: ConnectionState
         get() = stateValue.value
 
     internal val inboundState: ConnectionState
         get() = stateValue.value
 
-    val format: MinecraftProtocolFormat
+    val minecraftProtocolFormat: MinecraftProtocolFormat
         get() = formatValue.value
 
     val protocolRegistryContext: ProtocolRegistryContext
-        get() = formatValue.value.configuration.protocolRegistryContext
+        get() = formatValue.value.minecraftProtocolFormatConfiguration.protocolRegistryContext
 
     val declaredExtensionRoutes: Set<PacketRouteKey>
         get() = packetRegistry.declaredExtensionRoutes
@@ -60,7 +60,9 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
     fun installProtocolRegistryContext(protocolRegistryContext: ProtocolRegistryContext) {
         val current = formatValue.value
         formatValue.value = MinecraftProtocolFormat(
-            configuration = current.configuration.copy(protocolRegistryContext = protocolRegistryContext),
+            minecraftProtocolFormatConfiguration = current.minecraftProtocolFormatConfiguration.copy(
+                protocolRegistryContext = protocolRegistryContext,
+            ),
             serializersModule = current.serializersModule,
         )
     }
@@ -96,13 +98,13 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
                     inboundDirection == PacketDirection.SERVERBOUND
         val packetData = Buffer()
         if (legacyAware) {
-            frameStream.receivePacketDataOrLegacyToSink(
+            minecraftFrameStream.receivePacketDataOrLegacyToSink(
                 packetData,
                 legacyPacketId = LEGACY_SERVER_LIST_PING_ID,
                 legacyPayloadSize = LEGACY_SERVER_LIST_PING_PAYLOAD_SIZE,
             )
         } else {
-            frameStream.receivePacketDataToSink(packetData)
+            minecraftFrameStream.receivePacketDataToSink(packetData)
         }
         val inboundState = stateValue.value
         val legacy =
@@ -115,14 +117,14 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
             packetData.readPacketId()
         }
         val codec = packetRegistry.codec(
-            state = inboundState,
-            direction = inboundDirection,
+            connectionState = inboundState,
+            packetDirection = inboundDirection,
             id = id,
         )
         val expectedFraming = if (legacy) PacketFraming.LEGACY_UNFRAMED else PacketFraming.NORMAL
-        if (codec != null && codec.framing != expectedFraming) {
+        if (codec != null && codec.packetFraming != expectedFraming) {
             throw MinecraftSessionException(
-                "Packet 0x${id.toString(16)} used $expectedFraming framing but its codec requires ${codec.framing}",
+                "Packet 0x${id.toString(16)} used $expectedFraming framing but its codec requires ${codec.packetFraming}",
             )
         }
         if (
@@ -137,12 +139,12 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
             )
         }
         val packet = packetRegistry.decodePayloadFromSource(
-            state = inboundState,
-            direction = inboundDirection,
+            connectionState = inboundState,
+            packetDirection = inboundDirection,
             id = id,
             source = packetData,
             byteCount = packetData.size.toInt(),
-            format = formatValue.value,
+            minecraftProtocolFormat = formatValue.value,
         )
         val incoming = requireIncoming(liftIncoming(packet, id))
         applyInboundEffects(packet)
@@ -151,27 +153,27 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
 
     fun encodeCustomPayload(packet: Outgoing): RoutedCustomPayload {
         val outboundState = stateValue.value
-        val registration = packetRegistry.registration(
+        val packetCodecRegistration = packetRegistry.registration(
             packet,
             outboundState,
             outboundDirection,
         ) ?: throw MinecraftSessionException(
             "No extension codec for ${packet::class.simpleName}",
         )
-        val routeKey = registration.route as? PacketRouteKey.CustomPayload
+        val routeKey = packetCodecRegistration.packetRouteKey as? PacketRouteKey.CustomPayload
             ?: throw MinecraftSessionException(
                 "${packet::class.simpleName} is not a custom-payload extension in $outboundState $outboundDirection",
             )
         if (routeKey !in activeRoutesValue.value) {
             throw MinecraftSessionException("Extension route $routeKey is not active")
         }
-        val route = packetRegistry.extensionRoute(
+        val customPayload = packetRegistry.extensionRoute(
             packet,
             outboundState,
             outboundDirection,
             customPayloadPacketId(routeKey),
         ) as PacketRoute.CustomPayload
-        validateRoute(route, outboundDirection)
+        validateRoute(customPayload, outboundDirection)
         val body = Buffer()
         packetRegistry.encodeExtensionPayloadToSink(
             packet,
@@ -181,37 +183,37 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
             formatValue.value,
         )
         return RoutedCustomPayload(
-            route,
+            customPayload,
             ByteString(body.readByteArray()),
         )
     }
 
-    fun decodeCustomPayload(payload: RoutedCustomPayload): Incoming {
-        val route = payload.route
-        validateRoute(route, inboundDirection)
+    fun decodeCustomPayload(routedCustomPayload: RoutedCustomPayload): Incoming {
+        val customPayload = routedCustomPayload.route
+        validateRoute(customPayload, inboundDirection)
         val expectedPacketId = customPayloadPacketId(
-            route.key as PacketRouteKey.CustomPayload,
+            customPayload.packetRouteKey as PacketRouteKey.CustomPayload,
         )
-        if (route.packetId != expectedPacketId) {
-            val preservedRoute = "Custom payload route preserves outer ID ${route.packetId}"
+        if (customPayload.packetId != expectedPacketId) {
+            val preservedRoute = "Custom payload route preserves outer ID ${customPayload.packetId}"
             throw MinecraftSessionException(
                 "$preservedRoute, but the active registry uses $expectedPacketId",
             )
         }
-        return requireIncoming(liftRoute(route, payload.data))
+        return requireIncoming(liftRoute(customPayload, routedCustomPayload.data))
     }
 
-    private suspend fun sendUnknown(packet: UnknownPacket) {
-        validateRoute(packet.route, outboundDirection)
-        when (val route = packet.route) {
+    private suspend fun sendUnknown(unknownPacket: UnknownPacket) {
+        validateRoute(unknownPacket.packetRoute, outboundDirection)
+        when (val packetRoute = unknownPacket.packetRoute) {
             is PacketRoute.TopLevel -> {
-                sendRawTopLevel(route.packetId, packet.data)
+                sendRawTopLevel(packetRoute.packetId, unknownPacket.data)
             }
 
             is PacketRoute.CustomPayload,
             is PacketRoute.LoginQuery,
                 -> {
-                val wirePacket = routedWirePacket(route, packet.data)
+                val wirePacket = routedWirePacket(packetRoute, unknownPacket.data)
                 sendKnown(wirePacket)
             }
         }
@@ -219,7 +221,7 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
 
     private suspend fun sendExtension(packet: Outgoing) {
         val outboundState = stateValue.value
-        val registration = packetRegistry.registration(
+        val packetCodecRegistration = packetRegistry.registration(
             packet,
             outboundState,
             outboundDirection,
@@ -227,26 +229,26 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
             ?: throw MinecraftSessionException(
                 "No extension codec for ${packet::class.simpleName}",
             )
-        val declaredRoute = registration.route
+        val declaredRoute = packetCodecRegistration.packetRouteKey
         if (declaredRoute !in activeRoutesValue.value) {
             throw MinecraftSessionException(
                 "Extension route $declaredRoute is not active",
             )
         }
         if (declaredRoute is PacketRouteKey.CustomPayload) {
-            val payload = encodeCustomPayload(packet)
-            sendKnown(routedWirePacket(payload.route, payload.data))
+            val routedCustomPayload = encodeCustomPayload(packet)
+            sendKnown(routedWirePacket(routedCustomPayload.route, routedCustomPayload.data))
             return
         }
         val outerPacketId: Int? = null
-        val route = packetRegistry.extensionRoute(
+        val packetRoute = packetRegistry.extensionRoute(
             packet,
             outboundState,
             outboundDirection,
             outerPacketId,
         )
-        validateRoute(route, outboundDirection)
-        if (route is PacketRoute.TopLevel) {
+        validateRoute(packetRoute, outboundDirection)
+        if (packetRoute is PacketRoute.TopLevel) {
             sendKnown(packet)
             return
         }
@@ -260,21 +262,21 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
             formatValue.value,
         )
         val data = ByteString(body.readByteArray())
-        sendKnown(routedWirePacket(route, data))
+        sendKnown(routedWirePacket(packetRoute, data))
     }
 
     private suspend fun sendKnown(packet: Packet) {
         val outboundState = stateValue.value
-        val codec = packetRegistry.codec(packet, outboundState, outboundDirection)
+        val packetCodec = packetRegistry.codec(packet, outboundState, outboundDirection)
             ?: throw MinecraftSessionException(
                 "No packet codec for ${packet::class.simpleName}",
             )
         val nextState = transitionState(packet)
         val encryption = outboundEncryptionFor(packet)
         val packetData = Buffer()
-        when (codec.framing) {
-            PacketFraming.NORMAL -> packetData.writeVarInt(codec.key.id)
-            PacketFraming.LEGACY_UNFRAMED -> packetData.writeByte(codec.key.id.toByte())
+        when (packetCodec.packetFraming) {
+            PacketFraming.NORMAL -> packetData.writeVarInt(packetCodec.packetKey.id)
+            PacketFraming.LEGACY_UNFRAMED -> packetData.writeByte(packetCodec.packetKey.id.toByte())
         }
         try {
             packetRegistry.encodePayloadToSink(
@@ -293,14 +295,14 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
             throw cause
         }
         val packetDataBytes = packetData.size.toInt()
-        when (codec.framing) {
+        when (packetCodec.packetFraming) {
             PacketFraming.NORMAL -> {
                 if (requiresWireCommit(packet, nextState, encryption)) {
-                    frameStream.sendPacketDataAndCommit(packetData, packetDataBytes) {
+                    minecraftFrameStream.sendPacketDataAndCommit(packetData, packetDataBytes) {
                         commitOutboundEffects(packet, nextState, encryption)
                     }
                 } else {
-                    frameStream.sendPacketData(packetData, packetDataBytes)
+                    minecraftFrameStream.sendPacketData(packetData, packetDataBytes)
                 }
             }
 
@@ -308,7 +310,7 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
                 check(!requiresWireCommit(packet, nextState, encryption)) {
                     "Legacy unframed packets cannot commit wire effects"
                 }
-                frameStream.sendUnframedPacketData(packetData, packetDataBytes)
+                minecraftFrameStream.sendUnframedPacketData(packetData, packetDataBytes)
             }
         }
     }
@@ -320,7 +322,7 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
         val packetData = Buffer()
         packetData.writeVarInt(packetId)
         packetData.write(data.toByteArray())
-        frameStream.sendPacketData(packetData, packetData.size.toInt())
+        minecraftFrameStream.sendPacketData(packetData, packetData.size.toInt())
     }
 
     private suspend fun liftIncoming(
@@ -328,24 +330,24 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
         packetId: Int,
     ): Packet = when (packet) {
         is LoginPluginRequestPacket -> {
-            val route = PacketRoute.LoginQuery(
+            val loginQuery = PacketRoute.LoginQuery(
                 PacketDirection.CLIENTBOUND,
                 packet.messageId,
                 packet.channel,
             )
-            recordLoginQuery(route)
-            liftRoute(route, packet.data)
+            recordLoginQuery(loginQuery)
+            liftRoute(loginQuery, packet.data)
         }
 
         is LoginPluginResponsePacket -> {
             val channel = consumeLoginQuery(packet.messageId) ?: return packet
-            val route = PacketRoute.LoginQuery(
+            val loginQuery = PacketRoute.LoginQuery(
                 PacketDirection.SERVERBOUND,
                 packet.messageId,
                 channel,
                 hasPayload = packet.data != null,
             )
-            liftRoute(route, packet.data ?: ByteString(byteArrayOf()))
+            liftRoute(loginQuery, packet.data ?: ByteString(byteArrayOf()))
         }
 
         is ConfigurationClientboundPluginMessagePacket ->
@@ -364,50 +366,50 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
     }
 
     private fun liftCustomPayload(
-        payload: CustomPayload,
+        customPayload: CustomPayload,
         packetId: Int,
-        state: ConnectionState,
-        direction: PacketDirection,
-    ): Packet = when (payload) {
+        connectionState: ConnectionState,
+        packetDirection: PacketDirection,
+    ): Packet = when (customPayload) {
         is CustomPayload.Brand -> when {
-            state == ConnectionState.CONFIGURATION &&
-                    direction == PacketDirection.CLIENTBOUND ->
-                ConfigurationClientboundPluginMessagePacket(payload)
+            connectionState == ConnectionState.CONFIGURATION &&
+                    packetDirection == PacketDirection.CLIENTBOUND ->
+                ConfigurationClientboundPluginMessagePacket(customPayload)
 
-            state == ConnectionState.CONFIGURATION ->
-                ConfigurationServerboundPluginMessagePacket(payload)
+            connectionState == ConnectionState.CONFIGURATION ->
+                ConfigurationServerboundPluginMessagePacket(customPayload)
 
-            direction == PacketDirection.CLIENTBOUND ->
-                PlayClientboundPluginMessagePacket(payload)
+            packetDirection == PacketDirection.CLIENTBOUND ->
+                PlayClientboundPluginMessagePacket(customPayload)
 
-            else -> PlayServerboundPluginMessagePacket(payload)
+            else -> PlayServerboundPluginMessagePacket(customPayload)
         }
 
         is CustomPayload.Unknown -> liftRoute(
             PacketRoute.CustomPayload(
-                state,
-                direction,
+                connectionState,
+                packetDirection,
                 packetId,
-                payload.channel,
+                customPayload.channel,
             ),
-            payload.data,
+            customPayload.data,
         )
     }
 
     private fun liftRoute(
-        route: PacketRoute,
+        packetRoute: PacketRoute,
         data: ByteString,
     ): Packet {
-        val registration = packetRegistry.registration(route.key)
+        val packetCodecRegistration = packetRegistry.registration(packetRoute.packetRouteKey)
         if (
-            registration == null ||
-            route.key !in activeRoutesValue.value
+            packetCodecRegistration == null ||
+            packetRoute.packetRouteKey !in activeRoutesValue.value
         ) {
-            return unknownPacket(route, data)
+            return unknownPacket(packetRoute, data)
         }
         val source = Buffer().apply { write(data.toByteArray()) }
         return packetRegistry.decodeExtensionPayloadFromSource(
-            route,
+            packetRoute,
             source,
             data.size,
             formatValue.value,
@@ -415,45 +417,45 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
     }
 
     private fun routedWirePacket(
-        route: PacketRoute,
+        packetRoute: PacketRoute,
         data: ByteString,
-    ): Packet = when (route) {
+    ): Packet = when (packetRoute) {
         is PacketRoute.TopLevel -> error("Top-level routes do not have an outer packet")
-        is PacketRoute.LoginQuery -> when (route.direction) {
+        is PacketRoute.LoginQuery -> when (packetRoute.packetDirection) {
             PacketDirection.CLIENTBOUND -> {
-                require(route.hasPayload) {
+                require(packetRoute.hasPayload) {
                     "A Login query request always has a payload body"
                 }
                 LoginPluginRequestPacket(
-                    route.transactionId,
-                    route.channel,
+                    packetRoute.transactionId,
+                    packetRoute.channel,
                     data,
                 )
             }
 
             PacketDirection.SERVERBOUND -> LoginPluginResponsePacket(
-                route.transactionId,
-                data.takeIf { route.hasPayload },
+                packetRoute.transactionId,
+                data.takeIf { packetRoute.hasPayload },
             )
         }
 
         is PacketRoute.CustomPayload -> {
             val packet = customPayloadPacket(
-                route.state,
-                route.direction,
-                CustomPayload.Unknown(route.channel, data),
+                packetRoute.connectionState,
+                packetRoute.packetDirection,
+                CustomPayload.Unknown(packetRoute.channel, data),
             )
             val actualId = packetRegistry.codec(
                 packet,
-                route.state,
-                route.direction,
-            )?.key?.id
+                packetRoute.connectionState,
+                packetRoute.packetDirection,
+            )?.packetKey?.id
                 ?: throw MinecraftSessionException(
-                    "No vanilla outer custom-payload codec for ${route.state} ${route.direction}",
+                    "No vanilla outer custom-payload codec for ${packetRoute.connectionState} ${packetRoute.packetDirection}",
                 )
-            if (actualId != route.packetId) {
+            if (actualId != packetRoute.packetId) {
                 throw MinecraftSessionException(
-                    "Custom payload route preserves outer ID ${route.packetId}, but the active registry uses $actualId",
+                    "Custom payload route preserves outer ID ${packetRoute.packetId}, but the active registry uses $actualId",
                 )
             }
             packet
@@ -464,43 +466,43 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
         route: PacketRouteKey.CustomPayload,
     ): Int {
         val packet = customPayloadPacket(
-            route.state,
-            route.direction,
+            route.connectionState,
+            route.packetDirection,
             CustomPayload.Unknown(route.channel, ByteString(byteArrayOf())),
         )
         return packetRegistry.codec(
             packet,
-            route.state,
-            route.direction,
-        )?.key?.id
+            route.connectionState,
+            route.packetDirection,
+        )?.packetKey?.id
             ?: throw MinecraftSessionException(
-                "No vanilla outer custom-payload codec for ${route.state} ${route.direction}",
+                "No vanilla outer custom-payload codec for ${route.connectionState} ${route.packetDirection}",
             )
     }
 
     private fun customPayloadPacket(
-        state: ConnectionState,
-        direction: PacketDirection,
-        payload: CustomPayload,
+        connectionState: ConnectionState,
+        packetDirection: PacketDirection,
+        customPayload: CustomPayload,
     ): Packet = when {
-        state == ConnectionState.CONFIGURATION &&
-                direction == PacketDirection.CLIENTBOUND ->
-            ConfigurationClientboundPluginMessagePacket(payload)
+        connectionState == ConnectionState.CONFIGURATION &&
+                packetDirection == PacketDirection.CLIENTBOUND ->
+            ConfigurationClientboundPluginMessagePacket(customPayload)
 
-        state == ConnectionState.CONFIGURATION &&
-                direction == PacketDirection.SERVERBOUND ->
-            ConfigurationServerboundPluginMessagePacket(payload)
+        connectionState == ConnectionState.CONFIGURATION &&
+                packetDirection == PacketDirection.SERVERBOUND ->
+            ConfigurationServerboundPluginMessagePacket(customPayload)
 
-        state == ConnectionState.PLAY &&
-                direction == PacketDirection.CLIENTBOUND ->
-            PlayClientboundPluginMessagePacket(payload)
+        connectionState == ConnectionState.PLAY &&
+                packetDirection == PacketDirection.CLIENTBOUND ->
+            PlayClientboundPluginMessagePacket(customPayload)
 
-        state == ConnectionState.PLAY &&
-                direction == PacketDirection.SERVERBOUND ->
-            PlayServerboundPluginMessagePacket(payload)
+        connectionState == ConnectionState.PLAY &&
+                packetDirection == PacketDirection.SERVERBOUND ->
+            PlayServerboundPluginMessagePacket(customPayload)
 
         else -> throw MinecraftSessionException(
-            "Custom payloads are not valid in $state",
+            "Custom payloads are not valid in $connectionState",
         )
     }
 
@@ -516,33 +518,33 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
         }
 
     private fun validateRoute(
-        route: PacketRoute,
+        packetRoute: PacketRoute,
         expectedDirection: PacketDirection,
     ) {
         val expectedState = stateValue.value
-        if (route.state != expectedState) {
+        if (packetRoute.connectionState != expectedState) {
             throw MinecraftSessionException(
-                "Route ${route.key} belongs to ${route.state}, but the $expectedDirection session is in $expectedState",
+                "Route ${packetRoute.packetRouteKey} belongs to ${packetRoute.connectionState}, but the $expectedDirection session is in $expectedState",
             )
         }
-        if (route.direction != expectedDirection) {
+        if (packetRoute.packetDirection != expectedDirection) {
             throw MinecraftSessionException(
-                "Route ${route.key} is ${route.direction}, but this session sends $expectedDirection packets",
+                "Route ${packetRoute.packetRouteKey} is ${packetRoute.packetDirection}, but this session sends $expectedDirection packets",
             )
         }
     }
 
     private fun unknownPacket(
-        route: PacketRoute,
+        packetRoute: PacketRoute,
         data: ByteString,
-    ): UnknownPacket = when (route.direction) {
-        PacketDirection.CLIENTBOUND -> UnknownPacket.Clientbound(route, data)
-        PacketDirection.SERVERBOUND -> UnknownPacket.Serverbound(route, data)
+    ): UnknownPacket = when (packetRoute.packetDirection) {
+        PacketDirection.CLIENTBOUND -> UnknownPacket.Clientbound(packetRoute, data)
+        PacketDirection.SERVERBOUND -> UnknownPacket.Serverbound(packetRoute, data)
     }
 
     private fun applyInboundEffects(packet: Packet) {
         if (packet is SetCompressionPacket) {
-            frameStream.configureCompression(packet.threshold)
+            minecraftFrameStream.configureCompression(packet.threshold)
         }
         transitionState(packet)?.let { nextState ->
             stateValue.value = nextState
@@ -567,7 +569,7 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
         when (packet) {
             is LoginPluginRequestPacket -> recordLoginQuery(
                 PacketRoute.LoginQuery(
-                    direction = PacketDirection.CLIENTBOUND,
+                    packetDirection = PacketDirection.CLIENTBOUND,
                     transactionId = packet.messageId,
                     channel = packet.channel,
                 ),
@@ -577,14 +579,14 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
             else -> Unit
         }
         if (packet is SetCompressionPacket) {
-            frameStream.configureCompression(packet.threshold)
+            minecraftFrameStream.configureCompression(packet.threshold)
         }
         if (nextState != null) {
             stateValue.value = nextState
         }
         if (encryption != null) {
             try {
-                frameStream.enableEncryption(encryption)
+                minecraftFrameStream.enableEncryption(encryption)
             } finally {
                 try {
                     outboundEncryptionCommitted(encryption)

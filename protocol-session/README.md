@@ -22,15 +22,15 @@ Both expose ordinary coroutine channels:
 
 ```kotlin
 suspend fun handleClientConnection(
-    connection: MinecraftClientPacketConnection,
-    outgoingPacket: ServerboundPacket,
+    minecraftClientPacketConnection: MinecraftClientPacketConnection,
+    serverboundPacket: ServerboundPacket,
     handleIncoming: suspend (ClientboundPacket) -> Unit,
 ) {
-    connection.outgoing.send(outgoingPacket)
-    connection.requestFlush()
+    minecraftClientPacketConnection.outgoing.send(serverboundPacket)
+    minecraftClientPacketConnection.requestFlush()
 
-    for (packet in connection.incoming) {
-        handleIncoming(packet)
+    for (clientboundPacket in minecraftClientPacketConnection.incoming) {
+        handleIncoming(clientboundPacket)
     }
 }
 ```
@@ -55,13 +55,13 @@ The server endpoint owns challenge generation, pending-response validation, and 
 packet pair explicitly at the protocol lifecycle boundary:
 
 ```kotlin
-fun enterConfigurationKeepAlive(connection: MinecraftServerPacketConnection) {
-    connection.enableConfigurationKeepAlive()
+fun enterConfigurationKeepAlive(minecraftServerPacketConnection: MinecraftServerPacketConnection) {
+    minecraftServerPacketConnection.enableConfigurationKeepAlive()
 }
 
-fun replaceWithPlayKeepAlive(connection: MinecraftServerPacketConnection) {
-    connection.disableKeepAlive()
-    connection.enablePlayKeepAlive()
+fun replaceWithPlayKeepAlive(minecraftServerPacketConnection: MinecraftServerPacketConnection) {
+    minecraftServerPacketConnection.disableKeepAlive()
+    minecraftServerPacketConnection.enablePlayKeepAlive()
 }
 ```
 
@@ -97,14 +97,14 @@ fun createConnectionDefinition(
     extensionCodecs: List<PacketCodecRegistration<out Packet>>,
 ): MinecraftConnectionDefinition {
     val minecraftProtocolFormat = MinecraftProtocolFormat(
-        configuration = MinecraftProtocolFormat.configuration.copy(
+        minecraftProtocolFormatConfiguration = MinecraftProtocolFormat.minecraftProtocolFormatConfiguration.copy(
             protocolRegistryContext = protocolRegistryContext,
         ),
         serializersModule = serializersModule,
     )
     return MinecraftConnectionDefinition.compose(
         extensionCodecs = extensionCodecs,
-        format = minecraftProtocolFormat,
+        minecraftProtocolFormat = minecraftProtocolFormat,
     )
 }
 ```
@@ -123,13 +123,13 @@ writer to flush packets already accepted by `outgoing`:
 
 ```kotlin
 fun publishTick(
-    connection: MinecraftServerPacketConnection,
-    packets: Iterable<ClientboundPacket>,
+    minecraftServerPacketConnection: MinecraftServerPacketConnection,
+    clientboundPackets: Iterable<ClientboundPacket>,
 ): Boolean {
-    for (packet in packets) {
-        if (connection.outgoing.trySend(packet).isFailure) return false
+    for (clientboundPacket in clientboundPackets) {
+        if (minecraftServerPacketConnection.outgoing.trySend(clientboundPacket).isFailure) return false
     }
-    connection.requestFlush()
+    minecraftServerPacketConnection.requestFlush()
     return true
 }
 ```
@@ -144,11 +144,11 @@ prevents another channel value from interleaving with its delimiter-bounded wire
 
 ```kotlin
 suspend fun sendEntityPairing(
-    connection: MinecraftServerPacketConnection,
-    spawn: SpawnEntityPacket,
-    metadata: SetEntityMetadataPacket,
+    minecraftServerPacketConnection: MinecraftServerPacketConnection,
+    spawnEntityPacket: SpawnEntityPacket,
+    setEntityMetadataPacket: SetEntityMetadataPacket,
 ) {
-    connection.outgoing.sendBundle(listOf(spawn, metadata))
+    minecraftServerPacketConnection.outgoing.sendBundle(listOf(spawnEntityPacket, setEntityMetadataPacket))
 }
 ```
 
@@ -170,25 +170,25 @@ data class CounterPayload(
 ) : ClientboundPacket.Extension
 
 val counterCodec = PacketCodecRegistration.clientboundCustomPayload(
-    state = ConnectionState.PLAY,
+    connectionState = ConnectionState.PLAY,
     channel = Identifier("example:counter"),
     packetClass = CounterPayload::class,
-    codec = KotlinxPacketBodyCodec(CounterPayload.serializer()),
+    packetBodyCodec = KotlinxPacketBodyCodec(CounterPayload.serializer()),
 )
 ```
 
 Pass the registration to `MinecraftConnectionDefinition.compose()`. A route must also be active on the individual
-connection before the codec is used. Here `connection` is an already-open `MinecraftPacketConnection` whose negotiation
-accepted this route:
+connection before the codec is used. Here `minecraftPacketConnection` is an already-open `MinecraftPacketConnection`
+whose negotiation accepted this route:
 
 ```kotlin
 val counterRoute = PacketRouteKey.CustomPayload(
-    state = ConnectionState.PLAY,
-    direction = PacketDirection.CLIENTBOUND,
+    connectionState = ConnectionState.PLAY,
+    packetDirection = PacketDirection.CLIENTBOUND,
     channel = Identifier("example:counter"),
 )
 
-connection.activateExtensionRoutes(connection.activeExtensionRoutes + counterRoute)
+minecraftPacketConnection.activateExtensionRoutes(minecraftPacketConnection.activeExtensionRoutes + counterRoute)
 ```
 
 Factories also cover Login queries and top-level numeric packet IDs. Valid unregistered or inactive routes arrive as
@@ -216,6 +216,6 @@ negotiation accepts them and may resolve loader-supplied registry mappings into 
 EOF, framing failures, malformed known packets, invalid transitions, and pump failures close the connection and remain
 visible through channel operations or `awaitClosed()`.
 
-Closing `outgoing` drains values already accepted by that channel before closing the connection. `connection.close()` is
-the immediate idempotent cancellation path and may discard queued values. Cancelling an in-flight transition send does
-not commit its protocol state or Login-query correlation.
+Closing `outgoing` drains values already accepted by that channel before closing the connection. Calling `close()` is
+the immediate idempotent cancellation path and may discard queued values. Cancelling an in-flight transition send
+does not commit its protocol state or Login-query correlation.

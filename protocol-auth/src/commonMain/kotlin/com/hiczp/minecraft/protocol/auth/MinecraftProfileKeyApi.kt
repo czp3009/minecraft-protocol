@@ -17,29 +17,29 @@ class MinecraftProfileKeyApi(
 ) {
     /** Requests a fresh player profile key pair. The caller owns token refresh and request timing. */
     suspend fun fetchProfileKeyPair(accessToken: String): MinecraftProfileKeyPairResponse {
-        val response = httpClient.post(MINECRAFT_PROFILE_KEY_PAIR_ENDPOINT) {
+        val httpResponse = httpClient.post(MINECRAFT_PROFILE_KEY_PAIR_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
             bearerAuth(accessToken)
             // Official authlib sends this POST with a JSON content type and an explicitly empty body.
             setBody(ByteArrayContent(ByteArray(0), ContentType.Application.Json))
         }
-        if (!response.status.isSuccess()) {
-            throw response.profileKeyFailure()
+        if (!httpResponse.status.isSuccess()) {
+            throw httpResponse.profileKeyFailure()
         }
-        return ProfileKeyJson.decodeFromString(response.bodyAsText())
+        return ProfileKeyJson.decodeFromString(httpResponse.bodyAsText())
     }
 
     /** Fetches Mojang's current public keys. The API does not cache or schedule refreshes. */
     suspend fun fetchServicesPublicKeys(): MinecraftServicesPublicKeysResponse {
-        val response = httpClient.get(MINECRAFT_SERVICES_PUBLIC_KEYS_ENDPOINT) {
+        val httpResponse = httpClient.get(MINECRAFT_SERVICES_PUBLIC_KEYS_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
         }
-        if (!response.status.isSuccess()) {
-            throw response.profileKeyFailure()
+        if (!httpResponse.status.isSuccess()) {
+            throw httpResponse.profileKeyFailure()
         }
-        return ProfileKeyJson.decodeFromString(response.bodyAsText())
+        return ProfileKeyJson.decodeFromString(httpResponse.bodyAsText())
     }
 }
 
@@ -78,19 +78,19 @@ data class MinecraftProfileKeyErrorResponse(
 )
 
 open class MinecraftProfileKeyResponseException(
-    response: HttpResponse,
+    httpResponse: HttpResponse,
     val responseBody: String,
     val parsedErrorBody: MinecraftProfileKeyErrorResponse,
-) : ResponseException(response, responseBody)
+) : ResponseException(httpResponse, responseBody)
 
 suspend fun MinecraftProfileKeyApi.fetchProfileKeyPair(
-    identity: MinecraftOnlineIdentity,
-): MinecraftProfileKeyPairResponse = fetchProfileKeyPair(identity.accessToken)
+    minecraftOnlineIdentity: MinecraftOnlineIdentity,
+): MinecraftProfileKeyPairResponse = fetchProfileKeyPair(minecraftOnlineIdentity.accessToken)
 
 private suspend fun HttpResponse.profileKeyFailure(): MinecraftProfileKeyResponseException {
     val responseBody = bodyAsText()
     return MinecraftProfileKeyResponseException(
-        response = this,
+        httpResponse = this,
         responseBody = responseBody,
         parsedErrorBody = ProfileKeyJson.decodeFromString(responseBody),
     )

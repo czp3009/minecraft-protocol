@@ -10,13 +10,13 @@ import kotlin.test.assertFalse
 class LogicalFileAccessTest {
     @Test
     fun readersShareAccess() = runTest {
-        val access = LogicalFileAccess()
+        val logicalFileAccess = LogicalFileAccess()
         val release = CompletableDeferred<Unit>()
         val firstEntered = CompletableDeferred<Unit>()
         val secondEntered = CompletableDeferred<Unit>()
 
         val first = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 firstEntered.complete(Unit)
                 release.await()
                 1
@@ -24,7 +24,7 @@ class LogicalFileAccessTest {
         }
         firstEntered.await()
         val second = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 secondEntered.complete(Unit)
                 release.await()
                 2
@@ -39,19 +39,19 @@ class LogicalFileAccessTest {
 
     @Test
     fun writerWaitsForExistingReader() = runTest {
-        val access = LogicalFileAccess()
+        val logicalFileAccess = LogicalFileAccess()
         val releaseReader = CompletableDeferred<Unit>()
         val readerEntered = CompletableDeferred<Unit>()
         val writerEntered = CompletableDeferred<Unit>()
         val reader = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 readerEntered.complete(Unit)
                 releaseReader.await()
             }
         }
         readerEntered.await()
         val writer = async(start = CoroutineStart.UNDISPATCHED) {
-            access.write {
+            logicalFileAccess.write {
                 writerEntered.complete(Unit)
             }
         }
@@ -65,20 +65,20 @@ class LogicalFileAccessTest {
 
     @Test
     fun writerWaitsForEveryExistingReader() = runTest {
-        val access = LogicalFileAccess()
+        val logicalFileAccess = LogicalFileAccess()
         val releaseFirst = CompletableDeferred<Unit>()
         val releaseSecond = CompletableDeferred<Unit>()
         val firstEntered = CompletableDeferred<Unit>()
         val secondEntered = CompletableDeferred<Unit>()
         val writerEntered = CompletableDeferred<Unit>()
         val first = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 firstEntered.complete(Unit)
                 releaseFirst.await()
             }
         }
         val second = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 secondEntered.complete(Unit)
                 releaseSecond.await()
             }
@@ -86,7 +86,7 @@ class LogicalFileAccessTest {
         firstEntered.await()
         secondEntered.await()
         val writer = async(start = CoroutineStart.UNDISPATCHED) {
-            access.write {
+            logicalFileAccess.write {
                 writerEntered.complete(Unit)
             }
         }
@@ -102,27 +102,27 @@ class LogicalFileAccessTest {
 
     @Test
     fun readersResumeTogetherAfterWriter() = runTest {
-        val access = LogicalFileAccess()
+        val logicalFileAccess = LogicalFileAccess()
         val releaseWriter = CompletableDeferred<Unit>()
         val releaseReaders = CompletableDeferred<Unit>()
         val writerEntered = CompletableDeferred<Unit>()
         val firstReaderEntered = CompletableDeferred<Unit>()
         val secondReaderEntered = CompletableDeferred<Unit>()
         val writer = async(start = CoroutineStart.UNDISPATCHED) {
-            access.write {
+            logicalFileAccess.write {
                 writerEntered.complete(Unit)
                 releaseWriter.await()
             }
         }
         writerEntered.await()
         val firstReader = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 firstReaderEntered.complete(Unit)
                 releaseReaders.await()
             }
         }
         val secondReader = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 secondReaderEntered.complete(Unit)
                 releaseReaders.await()
             }
@@ -141,19 +141,19 @@ class LogicalFileAccessTest {
 
     @Test
     fun writersAreExclusive() = runTest {
-        val access = LogicalFileAccess()
+        val logicalFileAccess = LogicalFileAccess()
         val releaseFirst = CompletableDeferred<Unit>()
         val firstEntered = CompletableDeferred<Unit>()
         val secondEntered = CompletableDeferred<Unit>()
         val first = async(start = CoroutineStart.UNDISPATCHED) {
-            access.write {
+            logicalFileAccess.write {
                 firstEntered.complete(Unit)
                 releaseFirst.await()
             }
         }
         firstEntered.await()
         val second = async(start = CoroutineStart.UNDISPATCHED) {
-            access.write {
+            logicalFileAccess.write {
                 secondEntered.complete(Unit)
             }
         }
@@ -167,27 +167,27 @@ class LogicalFileAccessTest {
 
     @Test
     fun waitingWriterPrecedesLaterReader() = runTest {
-        val access = LogicalFileAccess()
+        val logicalFileAccess = LogicalFileAccess()
         val releaseFirstReader = CompletableDeferred<Unit>()
         val releaseWriter = CompletableDeferred<Unit>()
         val firstReaderEntered = CompletableDeferred<Unit>()
         val writerEntered = CompletableDeferred<Unit>()
         val laterReaderEntered = CompletableDeferred<Unit>()
         val firstReader = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 firstReaderEntered.complete(Unit)
                 releaseFirstReader.await()
             }
         }
         firstReaderEntered.await()
         val writer = async(start = CoroutineStart.UNDISPATCHED) {
-            access.write {
+            logicalFileAccess.write {
                 writerEntered.complete(Unit)
                 releaseWriter.await()
             }
         }
         val laterReader = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 laterReaderEntered.complete(Unit)
             }
         }
@@ -206,7 +206,7 @@ class LogicalFileAccessTest {
 
     @Test
     fun everyQueuedWriterPrecedesLaterReaders() = runTest {
-        val access = LogicalFileAccess()
+        val logicalFileAccess = LogicalFileAccess()
         val releaseInitialReader = CompletableDeferred<Unit>()
         val releaseWriters = CompletableDeferred<Unit>()
         val initialReaderEntered = CompletableDeferred<Unit>()
@@ -215,28 +215,28 @@ class LogicalFileAccessTest {
         val secondWriterEntered = CompletableDeferred<Unit>()
         val laterReaderEntered = CompletableDeferred<Unit>()
         val initialReader = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 initialReaderEntered.complete(Unit)
                 releaseInitialReader.await()
             }
         }
         initialReaderEntered.await()
         val firstWriter = async(start = CoroutineStart.UNDISPATCHED) {
-            access.write {
+            logicalFileAccess.write {
                 anyWriterEntered.complete(Unit)
                 firstWriterEntered.complete(Unit)
                 releaseWriters.await()
             }
         }
         val secondWriter = async(start = CoroutineStart.UNDISPATCHED) {
-            access.write {
+            logicalFileAccess.write {
                 anyWriterEntered.complete(Unit)
                 secondWriterEntered.complete(Unit)
                 releaseWriters.await()
             }
         }
         val laterReader = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 laterReaderEntered.complete(Unit)
             }
         }
@@ -256,22 +256,22 @@ class LogicalFileAccessTest {
 
     @Test
     fun cancellingWaitingWriterUnblocksReaders() = runTest {
-        val access = LogicalFileAccess()
+        val logicalFileAccess = LogicalFileAccess()
         val releaseReaders = CompletableDeferred<Unit>()
         val firstReaderEntered = CompletableDeferred<Unit>()
         val laterReaderEntered = CompletableDeferred<Unit>()
         val firstReader = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 firstReaderEntered.complete(Unit)
                 releaseReaders.await()
             }
         }
         firstReaderEntered.await()
         val writer = async(start = CoroutineStart.UNDISPATCHED) {
-            access.write { Unit }
+            logicalFileAccess.write { Unit }
         }
         val laterReader = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 laterReaderEntered.complete(Unit)
                 releaseReaders.await()
             }
@@ -287,30 +287,30 @@ class LogicalFileAccessTest {
 
     @Test
     fun cancellingOneWaitingWriterDoesNotBypassAnotherWriter() = runTest {
-        val access = LogicalFileAccess()
+        val logicalFileAccess = LogicalFileAccess()
         val releaseInitialReader = CompletableDeferred<Unit>()
         val releaseRemainingWriter = CompletableDeferred<Unit>()
         val initialReaderEntered = CompletableDeferred<Unit>()
         val remainingWriterEntered = CompletableDeferred<Unit>()
         val laterReaderEntered = CompletableDeferred<Unit>()
         val initialReader = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 initialReaderEntered.complete(Unit)
                 releaseInitialReader.await()
             }
         }
         initialReaderEntered.await()
         val remainingWriter = async(start = CoroutineStart.UNDISPATCHED) {
-            access.write {
+            logicalFileAccess.write {
                 remainingWriterEntered.complete(Unit)
                 releaseRemainingWriter.await()
             }
         }
         val cancelledWriter = async(start = CoroutineStart.UNDISPATCHED) {
-            access.write { Unit }
+            logicalFileAccess.write { Unit }
         }
         val laterReader = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 laterReaderEntered.complete(Unit)
             }
         }
@@ -329,25 +329,25 @@ class LogicalFileAccessTest {
 
     @Test
     fun cancellingAWaitingReaderDoesNotDelayLaterReaders() = runTest {
-        val access = LogicalFileAccess()
+        val logicalFileAccess = LogicalFileAccess()
         val releaseWriter = CompletableDeferred<Unit>()
         val writerEntered = CompletableDeferred<Unit>()
         val cancelledReaderEntered = CompletableDeferred<Unit>()
         val remainingReaderEntered = CompletableDeferred<Unit>()
         val writer = async(start = CoroutineStart.UNDISPATCHED) {
-            access.write {
+            logicalFileAccess.write {
                 writerEntered.complete(Unit)
                 releaseWriter.await()
             }
         }
         writerEntered.await()
         val cancelledReader = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 cancelledReaderEntered.complete(Unit)
             }
         }
         val remainingReader = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 remainingReaderEntered.complete(Unit)
             }
         }
@@ -365,12 +365,12 @@ class LogicalFileAccessTest {
     @Test
     fun readerFailureReleasesWaitingWriter() = runTest {
         supervisorScope {
-            val access = LogicalFileAccess()
+            val logicalFileAccess = LogicalFileAccess()
             val releaseReader = CompletableDeferred<Unit>()
             val readerEntered = CompletableDeferred<Unit>()
             val writerEntered = CompletableDeferred<Unit>()
             val reader = async(start = CoroutineStart.UNDISPATCHED) {
-                access.read {
+                logicalFileAccess.read {
                     readerEntered.complete(Unit)
                     releaseReader.await()
                     error("synthetic read failure")
@@ -378,7 +378,7 @@ class LogicalFileAccessTest {
             }
             readerEntered.await()
             val writer = async(start = CoroutineStart.UNDISPATCHED) {
-                access.write {
+                logicalFileAccess.write {
                     writerEntered.complete(Unit)
                 }
             }
@@ -393,13 +393,13 @@ class LogicalFileAccessTest {
     @Test
     fun writerFailureReleasesQueuedReadersTogether() = runTest {
         supervisorScope {
-            val access = LogicalFileAccess()
+            val logicalFileAccess = LogicalFileAccess()
             val releaseWriter = CompletableDeferred<Unit>()
             val writerEntered = CompletableDeferred<Unit>()
             val firstReaderEntered = CompletableDeferred<Unit>()
             val secondReaderEntered = CompletableDeferred<Unit>()
             val writer = async(start = CoroutineStart.UNDISPATCHED) {
-                access.write {
+                logicalFileAccess.write {
                     writerEntered.complete(Unit)
                     releaseWriter.await()
                     error("synthetic write failure")
@@ -407,12 +407,12 @@ class LogicalFileAccessTest {
             }
             writerEntered.await()
             val firstReader = async(start = CoroutineStart.UNDISPATCHED) {
-                access.read {
+                logicalFileAccess.read {
                     firstReaderEntered.complete(Unit)
                 }
             }
             val secondReader = async(start = CoroutineStart.UNDISPATCHED) {
-                access.read {
+                logicalFileAccess.read {
                     secondReaderEntered.complete(Unit)
                 }
             }
@@ -428,18 +428,18 @@ class LogicalFileAccessTest {
 
     @Test
     fun cancellingActiveReaderUnblocksWriter() = runTest {
-        val access = LogicalFileAccess()
+        val logicalFileAccess = LogicalFileAccess()
         val readerEntered = CompletableDeferred<Unit>()
         val writerEntered = CompletableDeferred<Unit>()
         val reader = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 readerEntered.complete(Unit)
                 awaitCancellation()
             }
         }
         readerEntered.await()
         val writer = async(start = CoroutineStart.UNDISPATCHED) {
-            access.write {
+            logicalFileAccess.write {
                 writerEntered.complete(Unit)
             }
         }
@@ -452,26 +452,26 @@ class LogicalFileAccessTest {
 
     @Test
     fun cancellingActiveWriterReleasesQueuedReadersTogether() = runTest {
-        val access = LogicalFileAccess()
+        val logicalFileAccess = LogicalFileAccess()
         val writerEntered = CompletableDeferred<Unit>()
         val firstReaderEntered = CompletableDeferred<Unit>()
         val secondReaderEntered = CompletableDeferred<Unit>()
         val releaseReaders = CompletableDeferred<Unit>()
         val writer = async(start = CoroutineStart.UNDISPATCHED) {
-            access.write {
+            logicalFileAccess.write {
                 writerEntered.complete(Unit)
                 awaitCancellation()
             }
         }
         writerEntered.await()
         val firstReader = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 firstReaderEntered.complete(Unit)
                 releaseReaders.await()
             }
         }
         val secondReader = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
+            logicalFileAccess.read {
                 secondReaderEntered.complete(Unit)
                 releaseReaders.await()
             }
@@ -489,41 +489,41 @@ class LogicalFileAccessTest {
 
     @Test
     fun cancellationRequestedInsideReaderIsObservedAfterReadStateIsReleased() = runTest {
-        val access = LogicalFileAccess()
+        val logicalFileAccess = LogicalFileAccess()
         val continued = CompletableDeferred<Unit>()
-        val cancellation = CancellationException("reader cancelled after synchronous work")
+        val cancellationException = CancellationException("reader cancelled after synchronous work")
 
         val reader = async(start = CoroutineStart.UNDISPATCHED) {
-            access.read {
-                currentCoroutineContext().cancel(cancellation)
+            logicalFileAccess.read {
+                currentCoroutineContext().cancel(cancellationException)
                 1
             }
             continued.complete(Unit)
         }
         val failure = assertFailsWith<CancellationException> { reader.await() }
 
-        assertEquals(cancellation.message, failure.message)
+        assertEquals(cancellationException.message, failure.message)
         assertFalse(continued.isCompleted)
-        assertEquals(2, access.write { 2 })
+        assertEquals(2, logicalFileAccess.write { 2 })
     }
 
     @Test
     fun cancellationRequestedInsideWriterIsObservedAfterWriteStateIsReleased() = runTest {
-        val access = LogicalFileAccess()
+        val logicalFileAccess = LogicalFileAccess()
         val continued = CompletableDeferred<Unit>()
-        val cancellation = CancellationException("writer cancelled after synchronous work")
+        val cancellationException = CancellationException("writer cancelled after synchronous work")
 
         val writer = async(start = CoroutineStart.UNDISPATCHED) {
-            access.write {
-                currentCoroutineContext().cancel(cancellation)
+            logicalFileAccess.write {
+                currentCoroutineContext().cancel(cancellationException)
                 1
             }
             continued.complete(Unit)
         }
         val failure = assertFailsWith<CancellationException> { writer.await() }
 
-        assertEquals(cancellation.message, failure.message)
+        assertEquals(cancellationException.message, failure.message)
         assertFalse(continued.isCompleted)
-        assertEquals(2, access.read { 2 })
+        assertEquals(2, logicalFileAccess.read { 2 })
     }
 }

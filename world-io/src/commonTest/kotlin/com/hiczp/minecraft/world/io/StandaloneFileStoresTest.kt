@@ -38,43 +38,43 @@ class StandaloneFileStoresTest {
 
     @Test
     fun physicalNbtFilesRoundTripEverySupportedWrapper() = runTest {
-        val fileSystem = FakeFileSystem()
-        val store = NbtFileStore(fileSystem)
-        val document = sampleDocument(1)
+        val fakeFileSystem = FakeFileSystem()
+        val nbtFileStore = NbtFileStore(fakeFileSystem)
+        val nbtDocument = sampleDocument(1)
 
         standaloneFileCompressions.forEach { compression ->
             val path = "/world/${compression.name}.dat".toPath()
-            store.writeDocument(path, document, compression)
-            assertEquals(document, store.readDocument(path, compression))
+            nbtFileStore.writeDocument(path, nbtDocument, compression)
+            assertEquals(nbtDocument, nbtFileStore.readDocument(path, compression))
         }
-        fileSystem.checkNoOpenFiles()
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
     fun physicalNbtFilesStreamBothDirectionsForEverySupportedWrapper() {
-        val fileSystem = FakeFileSystem()
-        val store = NbtFileStore(fileSystem)
-        val document = sampleDocument(7)
+        val fakeFileSystem = FakeFileSystem()
+        val nbtFileStore = NbtFileStore(fakeFileSystem)
+        val nbtDocument = sampleDocument(7)
 
         standaloneFileCompressions.forEach { compression ->
             val path = "/world/stream-${compression.name}.dat".toPath()
-            store.write(path, compression) { sink ->
-                store.nbt.encodeDocumentToSink(document, sink)
+            nbtFileStore.write(path, compression) { sink ->
+                nbtFileStore.nbtFormat.encodeDocumentToSink(nbtDocument, sink)
             }
             assertEquals(
-                document,
-                store.read(path, compression) { source ->
-                    store.nbt.decodeDocumentFromSource(source)
+                nbtDocument,
+                nbtFileStore.read(path, compression) { source ->
+                    nbtFileStore.nbtFormat.decodeDocumentFromSource(source)
                 },
             )
         }
-        fileSystem.checkNoOpenFiles()
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
     fun physicalNbtFilesDecodeCallerAndBuiltInTypesDirectlyFromTheCompressedStream() {
-        val fileSystem = FakeFileSystem()
-        val store = NbtFileStore(fileSystem)
+        val fakeFileSystem = FakeFileSystem()
+        val nbtFileStore = NbtFileStore(fakeFileSystem)
         val callerPath = "/world/caller.dat".toPath()
         val callerValue = CallerLevelData(
             marker = 7,
@@ -82,124 +82,124 @@ class StandaloneFileStoresTest {
         )
         val callerSerializer = CountingSerializer(CallerLevelData.serializer())
 
-        store.write(callerPath, callerSerializer, callerValue)
-        assertEquals(callerValue, store.read(callerPath, callerSerializer))
+        nbtFileStore.write(callerPath, callerSerializer, callerValue)
+        assertEquals(callerValue, nbtFileStore.read(callerPath, callerSerializer))
         assertEquals(1, callerSerializer.encodeCalls)
         assertEquals(1, callerSerializer.decodeCalls)
 
-        val paths = MinecraftWorldPaths("/world".toPath())
-        val level = testLevelDat(levelName = "world")
-        val levelStore = LevelDataStore(paths, store)
-        levelStore.write(LevelDat.serializer(), level)
-        assertEquals(level, levelStore.read(LevelDat.serializer()))
-        fileSystem.checkNoOpenFiles()
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
+        val levelDat = testLevelDat(levelName = "world")
+        val levelDataStore = LevelDataStore(minecraftWorldPaths, nbtFileStore)
+        levelDataStore.write(LevelDat.serializer(), levelDat)
+        assertEquals(levelDat, levelDataStore.read(LevelDat.serializer()))
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
     fun levelWritesBackUpAndFallbackPromotesTheOldFile() = runTest {
-        val fileSystem = FakeFileSystem()
-        val paths = MinecraftWorldPaths("/world".toPath())
-        val nbt = NbtFileStore(fileSystem)
-        val level = LevelDataStore(paths, nbt)
+        val fakeFileSystem = FakeFileSystem()
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
+        val nbtFileStore = NbtFileStore(fakeFileSystem)
+        val levelDataStore = LevelDataStore(minecraftWorldPaths, nbtFileStore)
         val first = sampleDocument(1)
         val second = sampleDocument(2)
 
-        level.writeDocument(first)
-        level.writeDocument(second)
-        assertEquals(second, nbt.readDocument(paths.levelData))
-        assertEquals(first, nbt.readDocument(paths.previousLevelData))
+        levelDataStore.writeDocument(first)
+        levelDataStore.writeDocument(second)
+        assertEquals(second, nbtFileStore.readDocument(minecraftWorldPaths.levelData))
+        assertEquals(first, nbtFileStore.readDocument(minecraftWorldPaths.previousLevelData))
 
-        fileSystem.writeRaw(paths.levelData, byteArrayOf(1, 2, 3))
-        assertEquals(first, level.readDocument())
-        assertEquals(first, nbt.readDocument(paths.levelData))
-        assertFalse(fileSystem.exists(paths.previousLevelData))
+        fakeFileSystem.writeRaw(minecraftWorldPaths.levelData, byteArrayOf(1, 2, 3))
+        assertEquals(first, levelDataStore.readDocument())
+        assertEquals(first, nbtFileStore.readDocument(minecraftWorldPaths.levelData))
+        assertFalse(fakeFileSystem.exists(minecraftWorldPaths.previousLevelData))
         assertTrue(
-            fileSystem.list(paths.root).any {
+            fakeFileSystem.list(minecraftWorldPaths.root).any {
                 it.name.startsWith("level.dat_corrupted_")
             },
         )
-        assertTrue(fileSystem.allPaths.none { it.name.startsWith(".tmp-") })
-        fileSystem.checkNoOpenFiles()
+        assertTrue(fakeFileSystem.allPaths.none { it.name.startsWith(".tmp-") })
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
     fun playerFallbackCopiesCorruptionButDoesNotPromoteOldData() = runTest {
-        val fileSystem = FakeFileSystem()
-        val paths = MinecraftWorldPaths("/world".toPath())
-        val nbt = NbtFileStore(fileSystem)
-        val players = PlayerDataStore(paths, nbt)
+        val fakeFileSystem = FakeFileSystem()
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
+        val nbtFileStore = NbtFileStore(fakeFileSystem)
+        val playerDataStore = PlayerDataStore(minecraftWorldPaths, nbtFileStore)
         val player = "00000000-0000-0000-0000-000000000000"
         val previous = sampleDocument(7)
 
-        nbt.writeDocument(paths.previousPlayerData(player), previous)
-        fileSystem.writeRaw(paths.playerData(player), byteArrayOf(1, 2, 3))
+        nbtFileStore.writeDocument(minecraftWorldPaths.previousPlayerData(player), previous)
+        fakeFileSystem.writeRaw(minecraftWorldPaths.playerData(player), byteArrayOf(1, 2, 3))
 
-        assertEquals(previous, players.readDocument(player))
+        assertEquals(previous, playerDataStore.readDocument(player))
         assertContentEquals(
             byteArrayOf(1, 2, 3),
-            fileSystem.readFileBytes(paths.playerData(player)),
+            fakeFileSystem.readFileBytes(minecraftWorldPaths.playerData(player)),
         )
-        assertEquals(previous, nbt.readDocument(paths.previousPlayerData(player)))
+        assertEquals(previous, nbtFileStore.readDocument(minecraftWorldPaths.previousPlayerData(player)))
         assertTrue(
-            fileSystem.list(checkNotNull(paths.playerData(player).parent)).any {
-                it.name.startsWith("${paths.playerData(player).name}_corrupted_")
+            fakeFileSystem.list(checkNotNull(minecraftWorldPaths.playerData(player).parent)).any {
+                it.name.startsWith("${minecraftWorldPaths.playerData(player).name}_corrupted_")
             },
         )
-        fileSystem.checkNoOpenFiles()
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
     fun savedDataDetectsLegacyUncompressedNbtAndWritesCurrentGzip() = runTest {
-        val fileSystem = FakeFileSystem()
-        val paths = MinecraftWorldPaths("/world".toPath())
-        val nbt = NbtFileStore(fileSystem)
-        val saved = SavedDataFileStore(paths, nbtFiles = nbt)
-        val path = paths.savedData("maps/map_1")
+        val fakeFileSystem = FakeFileSystem()
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
+        val nbtFileStore = NbtFileStore(fakeFileSystem)
+        val savedDataFileStore = SavedDataFileStore(minecraftWorldPaths, nbtFileStore = nbtFileStore)
+        val path = minecraftWorldPaths.savedData("maps/map_1")
         val legacy = sampleDocument(1)
         val current = sampleDocument(2)
 
-        nbt.writeDocument(path, legacy, Compression.NONE)
-        assertEquals(legacy, saved.readDocument("maps/map_1"))
-        saved.writeDocument("maps/map_1", current)
-        assertEquals(current, saved.readDocument("maps/map_1"))
+        nbtFileStore.writeDocument(path, legacy, Compression.NONE)
+        assertEquals(legacy, savedDataFileStore.readDocument("maps/map_1"))
+        savedDataFileStore.writeDocument("maps/map_1", current)
+        assertEquals(current, savedDataFileStore.readDocument("maps/map_1"))
         assertContentEquals(
             byteArrayOf(0x1F, 0x8B.toByte()),
-            fileSystem.readFileBytes(path).copyOfRange(0, 2),
+            fakeFileSystem.readFileBytes(path).copyOfRange(0, 2),
         )
     }
 
     @Test
     fun jsonWritesDirectlyTruncateWithoutBackupOrTemporaryFiles() {
-        val fileSystem = FakeFileSystem()
-        val store = Utf8JsonFileStore(fileSystem)
+        val fakeFileSystem = FakeFileSystem()
+        val utf8JsonFileStore = Utf8JsonFileStore(fakeFileSystem)
         val path = "/world/players/stats/player.json".toPath()
 
-        store.writeText(path, "{\"long\":true}")
-        store.writeText(path, "{}")
+        utf8JsonFileStore.writeText(path, "{\"long\":true}")
+        utf8JsonFileStore.writeText(path, "{}")
 
-        assertEquals("{}", store.readText(path))
-        assertEquals(setOf(path), fileSystem.allPaths.filter { fileSystem.metadata(it).isRegularFile }.toSet())
+        assertEquals("{}", utf8JsonFileStore.readText(path))
+        assertEquals(setOf(path), fakeFileSystem.allPaths.filter { fakeFileSystem.metadata(it).isRegularFile }.toSet())
     }
 
     @Test
     fun jsonSupportsStructuredAndRawStreamingWithoutPolicyLimits() {
-        val fileSystem = FakeFileSystem()
-        val store = Utf8JsonFileStore(fileSystem)
+        val fakeFileSystem = FakeFileSystem()
+        val utf8JsonFileStore = Utf8JsonFileStore(fakeFileSystem)
         val path = "/world/advancements/player.json".toPath()
-        val element = buildJsonObject {
+        val jsonObject = buildJsonObject {
             put("values", buildJsonArray { repeat(2_048) { add(JsonPrimitive(it)) } })
         }
 
-        store.writeJson(path, element)
-        assertEquals(element, store.readJson(path))
+        utf8JsonFileStore.writeJson(path, jsonObject)
+        assertEquals(jsonObject, utf8JsonFileStore.readJson(path))
 
-        val encoded = Json.encodeToString(element)
-        store.write(path) { sink ->
+        val encoded = Json.encodeToString(jsonObject)
+        utf8JsonFileStore.write(path) { sink ->
             encoded.chunked(257).forEach(sink::writeString)
         }
         val copied = kotlinx.io.Buffer()
         val reads = mutableListOf<Long>()
-        store.read(path) { source ->
+        utf8JsonFileStore.read(path) { source ->
             while (true) {
                 val read = source.readAtMostTo(copied, 257L)
                 if (read < 0L) break
@@ -214,27 +214,27 @@ class StandaloneFileStoresTest {
 
     @Test
     fun jsonFilesUseOneGenericSerializerPathForCallerCollectionsAndBuiltInModels() {
-        val fileSystem = FakeFileSystem()
-        val paths = MinecraftWorldPaths("/world".toPath())
-        val store = Utf8JsonFileStore(fileSystem)
+        val fakeFileSystem = FakeFileSystem()
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
+        val utf8JsonFileStore = Utf8JsonFileStore(fakeFileSystem)
         val player = "00000000-0000-0000-0000-000000000000"
         val mapSerializer = MapSerializer(String.serializer(), Int.serializer())
         val callerMap = mapOf("alpha" to 1, "beta" to 2)
 
-        store.writeJson(paths.statistics(player), mapSerializer, callerMap)
-        assertEquals(callerMap, store.readJson(paths.statistics(player), mapSerializer))
+        utf8JsonFileStore.writeJson(minecraftWorldPaths.statistics(player), mapSerializer, callerMap)
+        assertEquals(callerMap, utf8JsonFileStore.readJson(minecraftWorldPaths.statistics(player), mapSerializer))
 
-        val statistics = PlayerStatistics(
+        val playerStatistics = PlayerStatistics(
             stats = mapOf("minecraft:mined" to mapOf("minecraft:stone" to 42)),
             dataVersion = 4_903,
         )
-        store.writeJson(paths.statistics(player), PlayerStatistics.serializer(), statistics)
+        utf8JsonFileStore.writeJson(minecraftWorldPaths.statistics(player), PlayerStatistics.serializer(), playerStatistics)
         assertEquals(
-            statistics,
-            store.readJson(paths.statistics(player), PlayerStatistics.serializer()),
+            playerStatistics,
+            utf8JsonFileStore.readJson(minecraftWorldPaths.statistics(player), PlayerStatistics.serializer()),
         )
 
-        val advancements = PlayerAdvancements(
+        val playerAdvancements = PlayerAdvancements(
             dataVersion = 4_903,
             advancements = mapOf(
                 "minecraft:story/root" to PlayerAdvancements.Progress(
@@ -243,12 +243,12 @@ class StandaloneFileStoresTest {
                 ),
             ),
         )
-        store.writeJson(paths.advancement(player), PlayerAdvancements.serializer(), advancements)
+        utf8JsonFileStore.writeJson(minecraftWorldPaths.advancement(player), PlayerAdvancements.serializer(), playerAdvancements)
         assertEquals(
-            advancements,
-            store.readJson(paths.advancement(player), PlayerAdvancements.serializer()),
+            playerAdvancements,
+            utf8JsonFileStore.readJson(minecraftWorldPaths.advancement(player), PlayerAdvancements.serializer()),
         )
-        fileSystem.checkNoOpenFiles()
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
@@ -260,10 +260,10 @@ class StandaloneFileStoresTest {
             marker = 9,
             values = (0 until 2_048).associate { index -> "key_$index" to index },
         )
-        val nbtStore = NbtFileStore(segmented)
-        nbtStore.write(nbtPath, CallerLevelData.serializer(), nbtValue)
+        val nbtFileStore = NbtFileStore(segmented)
+        nbtFileStore.write(nbtPath, CallerLevelData.serializer(), nbtValue)
         assertTrue(segmented.writeCalls > 1)
-        assertEquals(nbtValue, nbtStore.read(nbtPath, CallerLevelData.serializer()))
+        assertEquals(nbtValue, nbtFileStore.read(nbtPath, CallerLevelData.serializer()))
         assertTrue(segmented.readCalls > 1)
 
         val jsonPath = "/world/segmented.json".toPath()
@@ -276,12 +276,12 @@ class StandaloneFileStoresTest {
                 )
             },
         )
-        val jsonStore = Utf8JsonFileStore(segmented)
+        val utf8JsonFileStore = Utf8JsonFileStore(segmented)
         val writesBeforeJson = segmented.writeCalls
-        jsonStore.writeJson(jsonPath, PlayerAdvancements.serializer(), jsonValue)
+        utf8JsonFileStore.writeJson(jsonPath, PlayerAdvancements.serializer(), jsonValue)
         assertTrue(segmented.writeCalls > writesBeforeJson + 1)
         val readsBeforeJson = segmented.readCalls
-        assertEquals(jsonValue, jsonStore.readJson(jsonPath, PlayerAdvancements.serializer()))
+        assertEquals(jsonValue, utf8JsonFileStore.readJson(jsonPath, PlayerAdvancements.serializer()))
         assertTrue(segmented.readCalls > readsBeforeJson + 1)
         base.checkNoOpenFiles()
     }
@@ -289,72 +289,72 @@ class StandaloneFileStoresTest {
     @Test
     fun failedFinalReplacementRestoresTheBackedUpLevelData() = runTest {
         val base = FakeFileSystem()
-        val paths = MinecraftWorldPaths("/world".toPath())
-        val initialStore = LevelDataStore(paths, NbtFileStore(base))
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
+        val initialStore = LevelDataStore(minecraftWorldPaths, NbtFileStore(base))
         val first = sampleDocument(1)
         initialStore.writeDocument(first)
-        val failing = ReplacementFailingFileSystem(base, paths.levelData)
-        val level = LevelDataStore(paths, NbtFileStore(failing))
+        val replacementFailingFileSystem = ReplacementFailingFileSystem(base, minecraftWorldPaths.levelData)
+        val levelDataStore = LevelDataStore(minecraftWorldPaths, NbtFileStore(replacementFailingFileSystem))
 
         assertFailsWith<WorldIOException> {
-            level.writeDocument(sampleDocument(2))
+            levelDataStore.writeDocument(sampleDocument(2))
         }
 
-        assertEquals(first, NbtFileStore(base).readDocument(paths.levelData))
-        assertEquals(10, failing.replacementAttempts)
-        assertFalse(base.exists(paths.previousLevelData))
+        assertEquals(first, NbtFileStore(base).readDocument(minecraftWorldPaths.levelData))
+        assertEquals(10, replacementFailingFileSystem.replacementAttempts)
+        assertFalse(base.exists(minecraftWorldPaths.previousLevelData))
         assertTrue(base.allPaths.none { it.name.startsWith(".tmp-") })
     }
 
     @Test
     fun failedBackupMovePreservesPrimaryAndCleansTheTemporaryFile() = runTest {
         val base = FakeFileSystem()
-        val paths = MinecraftWorldPaths("/world".toPath())
-        LevelDataStore(paths, NbtFileStore(base)).writeDocument(sampleDocument(1))
-        val failing = BackupMoveFailingFileSystem(
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
+        LevelDataStore(minecraftWorldPaths, NbtFileStore(base)).writeDocument(sampleDocument(1))
+        val backupMoveFailingFileSystem = BackupMoveFailingFileSystem(
             delegate = base,
-            primary = paths.levelData,
-            backup = paths.previousLevelData,
+            primary = minecraftWorldPaths.levelData,
+            backup = minecraftWorldPaths.previousLevelData,
         )
 
         assertFailsWith<WorldIOException> {
-            LevelDataStore(paths, NbtFileStore(failing))
+            LevelDataStore(minecraftWorldPaths, NbtFileStore(backupMoveFailingFileSystem))
                 .writeDocument(sampleDocument(2))
         }
 
         assertEquals(
             sampleDocument(1),
-            NbtFileStore(base).readDocument(paths.levelData),
+            NbtFileStore(base).readDocument(minecraftWorldPaths.levelData),
         )
-        assertEquals(10, failing.attempts)
-        assertFalse(base.exists(paths.previousLevelData))
+        assertEquals(10, backupMoveFailingFileSystem.attempts)
+        assertFalse(base.exists(minecraftWorldPaths.previousLevelData))
         assertTrue(base.allPaths.none { it.name.startsWith(".tmp-") })
     }
 
     @Test
     fun failedRollbackLeavesTheOfficialBackupBoundaryVisible() = runTest {
         val base = FakeFileSystem()
-        val paths = MinecraftWorldPaths("/world".toPath())
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val first = sampleDocument(1)
-        LevelDataStore(paths, NbtFileStore(base)).writeDocument(first)
-        val failing = ReplacementAndRollbackFailingFileSystem(
+        LevelDataStore(minecraftWorldPaths, NbtFileStore(base)).writeDocument(first)
+        val replacementAndRollbackFailingFileSystem = ReplacementAndRollbackFailingFileSystem(
             delegate = base,
-            primary = paths.levelData,
-            backup = paths.previousLevelData,
+            primary = minecraftWorldPaths.levelData,
+            backup = minecraftWorldPaths.previousLevelData,
         )
 
         val failure = assertFailsWith<WorldIOException> {
-            LevelDataStore(paths, NbtFileStore(failing))
+            LevelDataStore(minecraftWorldPaths, NbtFileStore(replacementAndRollbackFailingFileSystem))
                 .writeDocument(sampleDocument(2))
         }
 
-        assertFalse(base.exists(paths.levelData))
+        assertFalse(base.exists(minecraftWorldPaths.levelData))
         assertEquals(
             first,
-            NbtFileStore(base).readDocument(paths.previousLevelData),
+            NbtFileStore(base).readDocument(minecraftWorldPaths.previousLevelData),
         )
-        assertEquals(10, failing.replacementAttempts)
-        assertEquals(10, failing.rollbackAttempts)
+        assertEquals(10, replacementAndRollbackFailingFileSystem.replacementAttempts)
+        assertEquals(10, replacementAndRollbackFailingFileSystem.rollbackAttempts)
         assertTrue(failure.suppressedExceptions.isNotEmpty())
         assertTrue(base.allPaths.none { it.name.startsWith(".tmp-") })
     }
@@ -362,27 +362,27 @@ class StandaloneFileStoresTest {
     @Test
     fun streamingNbtFailureDoesNotReplaceThePrimaryFile() = runTest {
         val base = FakeFileSystem()
-        val paths = MinecraftWorldPaths("/world".toPath())
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val first = sampleDocument(1)
-        LevelDataStore(paths, NbtFileStore(base)).writeDocument(first)
+        LevelDataStore(minecraftWorldPaths, NbtFileStore(base)).writeDocument(first)
         val failure = WorldIOException("synthetic streaming failure")
 
-        assertSame(failure, assertFails { LevelDataStore(paths, NbtFileStore(base)).write { throw failure } })
+        assertSame(failure, assertFails { LevelDataStore(minecraftWorldPaths, NbtFileStore(base)).write { throw failure } })
 
-        assertEquals(first, NbtFileStore(base).readDocument(paths.levelData))
+        assertEquals(first, NbtFileStore(base).readDocument(minecraftWorldPaths.levelData))
         assertTrue(base.allPaths.none { it.name.startsWith(".tmp-") })
     }
 
     @Test
     fun jsonHasNoPolicyLimitAndInvalidSavedDataIdentifiersAreRejected() = runTest {
-        val fileSystem = FakeFileSystem()
-        val paths = MinecraftWorldPaths("/world".toPath())
+        val fakeFileSystem = FakeFileSystem()
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         assertFailsWith<IllegalArgumentException> {
-            paths.savedData("a/../b")
+            minecraftWorldPaths.savedData("a/../b")
         }
         val jsonPath = "/world/value.json".toPath()
-        Utf8JsonFileStore(fileSystem).writeText(jsonPath, "\u00E9")
-        assertEquals("\u00E9", Utf8JsonFileStore(fileSystem).readText(jsonPath))
+        Utf8JsonFileStore(fakeFileSystem).writeText(jsonPath, "\u00E9")
+        assertEquals("\u00E9", Utf8JsonFileStore(fakeFileSystem).readText(jsonPath))
         assertNotEquals(
             sampleDocument(1),
             sampleDocument(2),
@@ -493,14 +493,14 @@ private class SegmentingFileSystem(
         mustCreate: Boolean,
         mustExist: Boolean,
     ): FileHandle {
-        val handle = super.openReadWrite(file, mustCreate, mustExist)
+        val fileHandle = super.openReadWrite(file, mustCreate, mustExist)
         return object : FileHandle(readWrite = true) {
             override fun protectedRead(
                 fileOffset: Long,
                 array: ByteArray,
                 arrayOffset: Int,
                 byteCount: Int,
-            ): Int = handle.read(
+            ): Int = fileHandle.read(
                 fileOffset,
                 array,
                 arrayOffset,
@@ -517,7 +517,7 @@ private class SegmentingFileSystem(
                 var remaining = byteCount
                 while (remaining > 0) {
                     val segment = minOf(remaining.toLong(), maxSegmentBytes).toInt()
-                    handle.write(
+                    fileHandle.write(
                         fileOffset + (offset - arrayOffset).toLong(),
                         array,
                         offset,
@@ -529,13 +529,13 @@ private class SegmentingFileSystem(
                 }
             }
 
-            override fun protectedFlush() = handle.flush()
+            override fun protectedFlush() = fileHandle.flush()
 
-            override fun protectedResize(size: Long) = handle.resize(size)
+            override fun protectedResize(size: Long) = fileHandle.resize(size)
 
-            override fun protectedSize(): Long = handle.size()
+            override fun protectedSize(): Long = fileHandle.size()
 
-            override fun protectedClose() = handle.close()
+            override fun protectedClose() = fileHandle.close()
         }
     }
 }

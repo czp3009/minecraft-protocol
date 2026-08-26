@@ -41,7 +41,7 @@ class OfficialServerWorkspaceTest {
                     templateDirectory = templateDirectory,
                 ),
                 workDirectory = workDirectory,
-                configuration = OfficialMinecraftServerConfiguration(
+                officialMinecraftServerConfiguration = OfficialMinecraftServerConfiguration(
                     properties = mapOf("level-name" to "fresh"),
                 ),
             )

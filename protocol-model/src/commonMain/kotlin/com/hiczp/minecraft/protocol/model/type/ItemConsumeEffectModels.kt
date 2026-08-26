@@ -157,13 +157,13 @@ internal object ConsumeEffectSerializer : KSerializer<ConsumeEffect> {
         val typeId = input.decodeIntElement(descriptor, TYPE)
 
         @Suppress("UNCHECKED_CAST")
-        val value = input.decodeSerializableElement(
+        val consumeEffect = input.decodeSerializableElement(
             descriptor,
             VALUE,
             serializerFor(typeId) as DeserializationStrategy<ConsumeEffect>,
         )
         input.endStructure(descriptor)
-        return value
+        return consumeEffect
     }
 
     private fun typeId(value: ConsumeEffect): Int = when (value) {

@@ -27,12 +27,12 @@ class NeoForgeNegotiationProfileTest {
         )
         val serverToClient = Channel<ClientboundPacket>(Channel.UNLIMITED)
         val clientToServer = Channel<ServerboundPacket>(Channel.UNLIMITED)
-        val clientConnection = NeoForgeTestClientConnection(
+        val neoForgeTestClientConnection = NeoForgeTestClientConnection(
             serverToClient,
             clientToServer,
             packetRegistry,
         )
-        val serverConnection = NeoForgeTestServerConnection(
+        val neoForgeTestServerConnection = NeoForgeTestServerConnection(
             clientToServer,
             serverToClient,
             packetRegistry,
@@ -71,19 +71,19 @@ class NeoForgeNegotiationProfileTest {
             ),
         )
         val flags = setOf(Identifier("mod:feature"))
-        val network = testNetworkConfiguration()
-        val clientProfile = NeoForgeClientProfile(
+        val neoForgeNetworkConfiguration = testNetworkConfiguration()
+        val neoForgeClientProfile = NeoForgeClientProfile(
             NeoForgeClientProfileDefinition(
                 staticRegistrySchema = staticRegistrySchema,
-                network = network,
+                neoForgeNetworkConfiguration = neoForgeNetworkConfiguration,
                 knownDataMaps = knownDataMaps,
                 extensibleEnums = enums,
                 featureFlags = flags,
             ),
         )
-        val serverProfile = NeoForgeServerProfile(
+        val neoForgeServerProfile = NeoForgeServerProfile(
             NeoForgeServerProfileDefinition(
-                network = network,
+                neoForgeNetworkConfiguration = neoForgeNetworkConfiguration,
                 neoForgeFrozenRegistrySync = neoForgeFrozenRegistrySync,
                 protocolRegistryContext = sharedProtocolRegistryContext,
                 configFiles = listOf(
@@ -97,21 +97,21 @@ class NeoForgeNegotiationProfileTest {
                 featureFlags = flags,
             ),
         )
-        clientProfile.begin(clientConnection)
-        serverProfile.begin(serverConnection)
+        neoForgeClientProfile.begin(neoForgeTestClientConnection)
+        neoForgeServerProfile.begin(neoForgeTestServerConnection)
 
         val initial = async {
-            serverProfile.negotiateConfigurationStart(serverConnection)
+            neoForgeServerProfile.negotiateConfigurationStart(neoForgeTestServerConnection)
         }
         repeat(6) {
-            val packet = clientConnection.incoming.receive()
-            if (packet is ConfigurationPingPacket) {
-                clientConnection.outgoing.send(ConfigurationPongPacket(packet.id))
+            val clientboundPacket = neoForgeTestClientConnection.incoming.receive()
+            if (clientboundPacket is ConfigurationPingPacket) {
+                neoForgeTestClientConnection.outgoing.send(ConfigurationPongPacket(clientboundPacket.id))
             } else {
                 assertTrue(
-                    clientProfile.handleConfigurationPacket(
-                        clientConnection,
-                        packet,
+                    neoForgeClientProfile.handleConfigurationPacket(
+                        neoForgeTestClientConnection,
+                        clientboundPacket,
                     ),
                 )
             }
@@ -119,32 +119,32 @@ class NeoForgeNegotiationProfileTest {
         initial.await()
 
         val early = async {
-            serverProfile.negotiateEarlyConfiguration(serverConnection)
+            neoForgeServerProfile.negotiateEarlyConfiguration(neoForgeTestServerConnection)
         }
         repeat(3) {
             assertTrue(
-                clientProfile.handleConfigurationPacket(
-                    clientConnection,
-                    clientConnection.incoming.receive(),
+                neoForgeClientProfile.handleConfigurationPacket(
+                    neoForgeTestClientConnection,
+                    neoForgeTestClientConnection.incoming.receive(),
                 ),
             )
         }
         early.await()
 
         val late = async {
-            serverProfile.negotiateConfiguration(serverConnection)
+            neoForgeServerProfile.negotiateConfiguration(neoForgeTestServerConnection)
         }
         repeat(6) {
             assertTrue(
-                clientProfile.handleConfigurationPacket(
-                    clientConnection,
-                    clientConnection.incoming.receive(),
+                neoForgeClientProfile.handleConfigurationPacket(
+                    neoForgeTestClientConnection,
+                    neoForgeTestClientConnection.incoming.receive(),
                 ),
             )
         }
         late.await()
 
-        val clientProtocolRegistryContext = clientProfile.resolveProtocolRegistryContext(
+        val clientProtocolRegistryContext = neoForgeClientProfile.resolveProtocolRegistryContext(
             staticRegistrySchema.resolve().withRegistrySize(
                 ProtocolRegistryContext.BIOME_REGISTRY,
                 4,
@@ -157,26 +157,26 @@ class NeoForgeNegotiationProfileTest {
         assertEquals(4, clientProtocolRegistryContext.biomeRegistrySize)
         assertEquals(24, clientProtocolRegistryContext.chunkSectionCount)
 
-        val serverProtocolRegistryContext = serverProfile.resolveProtocolRegistryContext(
+        val serverProtocolRegistryContext = neoForgeServerProfile.resolveProtocolRegistryContext(
             ProtocolRegistryContext.Empty.withChunkSectionCount(24),
         )
         assertSame(sharedProtocolRegistryContext.registries, serverProtocolRegistryContext.registries)
         assertSame(sharedProtocolRegistryContext.blockStates, serverProtocolRegistryContext.blockStates)
 
-        clientProfile.preparePlay(clientConnection)
-        clientConnection.currentState = ConnectionState.PLAY
-        serverConnection.currentState = ConnectionState.PLAY
-        serverProfile.preparePlay(serverConnection)
+        neoForgeClientProfile.preparePlay(neoForgeTestClientConnection)
+        neoForgeTestClientConnection.currentState = ConnectionState.PLAY
+        neoForgeTestServerConnection.currentState = ConnectionState.PLAY
+        neoForgeServerProfile.preparePlay(neoForgeTestServerConnection)
 
-        val customRoutes = customCodecs.map(PacketCodecRegistration<out Packet>::route)
-        assertTrue(customRoutes.all(clientConnection.activeExtensionRoutes::contains))
-        assertTrue(customRoutes.all(serverConnection.activeExtensionRoutes::contains))
+        val customRoutes = customCodecs.map(PacketCodecRegistration<out Packet>::packetRouteKey)
+        assertTrue(customRoutes.all(neoForgeTestClientConnection.activeExtensionRoutes::contains))
+        assertTrue(customRoutes.all(neoForgeTestServerConnection.activeExtensionRoutes::contains))
 
         val clientResult = assertIs<NeoForgeNegotiationResult>(
-            clientProfile.complete(clientConnection),
+            neoForgeClientProfile.complete(neoForgeTestClientConnection),
         )
         val serverResult = assertIs<NeoForgeNegotiationResult>(
-            serverProfile.complete(serverConnection),
+            neoForgeServerProfile.complete(neoForgeTestServerConnection),
         )
         assertTrue(clientResult.neoForgePeer)
         assertTrue(serverResult.neoForgePeer)
@@ -204,20 +204,20 @@ class NeoForgeNegotiationProfileTest {
                 KotlinxPacketBodyCodec(RequiredNeoForgePacket.serializer()),
             ),
         )
-        val registry = PacketRegistry(
+        val packetRegistry = PacketRegistry(
             MinecraftPacketRegistry.entries,
             NeoForgeProtocol.packetCodecs + requiredPacketCodecs,
         )
         val incoming = Channel<ServerboundPacket>(Channel.UNLIMITED)
         val outgoing = Channel<ClientboundPacket>(Channel.UNLIMITED)
-        val connection = NeoForgeTestServerConnection(
+        val neoForgeTestServerConnection = NeoForgeTestServerConnection(
             incoming,
             outgoing,
-            registry,
+            packetRegistry,
         )
-        val profile = NeoForgeServerProfile(
+        val neoForgeServerProfile = NeoForgeServerProfile(
             NeoForgeServerProfileDefinition(
-                network = NeoForgeNetworkConfiguration(
+                neoForgeNetworkConfiguration = NeoForgeNetworkConfiguration(
                     configuration = listOf(
                         NeoForgeNetworkComponent(
                             requiredChannel,
@@ -228,13 +228,13 @@ class NeoForgeNegotiationProfileTest {
                 ),
             ),
         )
-        profile.begin(connection)
+        neoForgeServerProfile.begin(neoForgeTestServerConnection)
         val failure = supervisorScope {
             val negotiation = async {
-                profile.negotiateConfigurationStart(connection)
+                neoForgeServerProfile.negotiateConfigurationStart(neoForgeTestServerConnection)
             }
             repeat(4) { outgoing.receive() }
-            incoming.send(NeoForgeNetworkConfiguration().queryPacket)
+            incoming.send(NeoForgeNetworkConfiguration().neoForgeModdedNetworkQueryPacket)
             assertFailsWith<NeoForgeNetworkNegotiationException> {
                 negotiation.await()
             }
@@ -250,23 +250,23 @@ class NeoForgeNegotiationProfileTest {
     fun outOfOrderRegistryPacketThrowsWithoutReply() = runTest {
         val incoming = Channel<ClientboundPacket>(Channel.UNLIMITED)
         val outgoing = Channel<ServerboundPacket>(Channel.UNLIMITED)
-        val registry = PacketRegistry(
+        val packetRegistry = PacketRegistry(
             MinecraftPacketRegistry.entries,
             NeoForgeProtocol.packetCodecs,
         )
-        val connection = NeoForgeTestClientConnection(
+        val neoForgeTestClientConnection = NeoForgeTestClientConnection(
             incoming,
             outgoing,
-            registry,
+            packetRegistry,
         )
-        val profile = NeoForgeClientProfile(
+        val neoForgeClientProfile = NeoForgeClientProfile(
             NeoForgeClientProfileDefinition(testStaticSchema()),
         )
-        profile.begin(connection)
+        neoForgeClientProfile.begin(neoForgeTestClientConnection)
 
         assertFailsWith<NeoForgeNegotiationException> {
-            profile.handleConfigurationPacket(
-                connection,
+            neoForgeClientProfile.handleConfigurationPacket(
+                neoForgeTestClientConnection,
                 NeoForgeFrozenRegistryPacket(
                     Identifier("block"),
                     NeoForgeRegistrySnapshot(
@@ -368,7 +368,7 @@ private abstract class NeoForgeTestConnection<Incoming : Packet, Outgoing : Pack
     private var activeRoutes = emptySet<PacketRouteKey>()
     private val format = MinecraftProtocolFormat.Default
 
-    override val state: ConnectionState
+    override val connectionState: ConnectionState
         get() = currentState
 
     override val protocolRegistryContext: ProtocolRegistryContext
@@ -394,13 +394,13 @@ private abstract class NeoForgeTestConnection<Incoming : Packet, Outgoing : Pack
     }
 
     override fun encodeCustomPayload(packet: Outgoing): RoutedCustomPayload {
-        val route = packetRegistry.extensionRoute(
+        val customPayload = packetRegistry.extensionRoute(
             packet,
             currentState,
             outgoingDirection,
             outerPacketId = 0,
         ) as PacketRoute.CustomPayload
-        require(route.key in activeRoutes)
+        require(customPayload.packetRouteKey in activeRoutes)
         val buffer = Buffer()
         packetRegistry.encodeExtensionPayloadToSink(
             packet,
@@ -410,26 +410,26 @@ private abstract class NeoForgeTestConnection<Incoming : Packet, Outgoing : Pack
             format,
         )
         return RoutedCustomPayload(
-            route,
+            customPayload,
             ByteString(buffer.readByteArray()),
         )
     }
 
-    override fun decodeCustomPayload(payload: RoutedCustomPayload): Incoming {
-        require(payload.route.direction == incomingDirection)
-        require(payload.route.key in activeRoutes)
-        val bytes = payload.data.toByteArray()
-        val buffer = Buffer().apply { write(bytes) }
+    override fun decodeCustomPayload(routedCustomPayload: RoutedCustomPayload): Incoming {
+        require(routedCustomPayload.route.packetDirection == incomingDirection)
+        require(routedCustomPayload.route.packetRouteKey in activeRoutes)
+        val byteArray = routedCustomPayload.data.toByteArray()
+        val buffer = Buffer().apply { write(byteArray) }
         @Suppress("UNCHECKED_CAST")
         return packetRegistry.decodeExtensionPayloadFromSource(
-            payload.route,
+            routedCustomPayload.route,
             buffer,
-            bytes.size,
+            byteArray.size,
             format,
         ) as Incoming
     }
 
-    override suspend fun awaitState(state: ConnectionState) = Unit
+    override suspend fun awaitState(connectionState: ConnectionState) = Unit
 
     override suspend fun flush() = Unit
 

@@ -78,7 +78,7 @@ internal object LookTargetSerializer : KSerializer<LookTarget> {
                 input.decodeDoubleElement(descriptor, Y),
                 input.decodeDoubleElement(descriptor, Z),
             )
-            val result = if (input.decodeBooleanElement(descriptor, IS_ENTITY)) {
+            val lookTarget = if (input.decodeBooleanElement(descriptor, IS_ENTITY)) {
                 LookTarget.Entity(
                     position,
                     input.decodeIntElement(descriptor, ENTITY_ID),
@@ -92,7 +92,7 @@ internal object LookTargetSerializer : KSerializer<LookTarget> {
                 LookTarget.Position(position)
             }
             input.endStructure(descriptor)
-            return result
+            return lookTarget
         }
 
         var x: Double? = null
@@ -100,7 +100,7 @@ internal object LookTargetSerializer : KSerializer<LookTarget> {
         var z: Double? = null
         var isEntity: Boolean? = null
         var entityId: Int? = null
-        var anchor: EntityAnchor? = null
+        var entityAnchor: EntityAnchor? = null
         while (true) {
             when (val index = input.decodeElementIndex(descriptor)) {
                 X -> x = input.decodeDoubleElement(descriptor, X)
@@ -112,7 +112,7 @@ internal object LookTargetSerializer : KSerializer<LookTarget> {
                 ENTITY_ID -> entityId =
                     input.decodeIntElement(descriptor, ENTITY_ID)
 
-                ANCHOR -> anchor = input.decodeSerializableElement(
+                ANCHOR -> entityAnchor = input.decodeSerializableElement(
                     descriptor,
                     ANCHOR,
                     EntityAnchor.serializer(),
@@ -137,7 +137,7 @@ internal object LookTargetSerializer : KSerializer<LookTarget> {
                 entityId ?: throw SerializationException(
                     "Missing look target entity ID",
                 ),
-                anchor ?: throw SerializationException(
+                entityAnchor ?: throw SerializationException(
                     "Missing look target entity anchor",
                 ),
             )
@@ -180,8 +180,8 @@ internal object RelativeMovementsSerializer : KSerializer<RelativeMovements> {
 
     override fun serialize(encoder: Encoder, value: RelativeMovements) {
         var flags = 0
-        for (relative in value.values) {
-            flags = flags or (1 shl relative.ordinal)
+        for (relativeMovement in value.values) {
+            flags = flags or (1 shl relativeMovement.ordinal)
         }
         encoder.encodeInt(flags)
     }

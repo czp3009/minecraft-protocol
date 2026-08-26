@@ -224,7 +224,7 @@ internal object ProfileIdentitySerializer : KSerializer<ProfileIdentity> {
                 "ProfileIdentity requires ordered decoding",
             )
         }
-        val result = if (
+        val profileIdentity = if (
             input.decodeBooleanElement(descriptor, IS_FULL)
         ) {
             ProfileIdentity.Full(
@@ -244,7 +244,7 @@ internal object ProfileIdentitySerializer : KSerializer<ProfileIdentity> {
             )
         }
         input.endStructure(descriptor)
-        return result
+        return profileIdentity
     }
 
     private const val IS_FULL: Int = 0

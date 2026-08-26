@@ -82,7 +82,7 @@ private class MingwSystemFileHandle(
     readWrite: Boolean,
     private val handle: COpaquePointer,
 ) : FileHandle(readWrite = readWrite) {
-    private val synchronization = WindowsHandleSynchronization()
+    private val windowsHandleSynchronization = WindowsHandleSynchronization()
 
     override fun protectedRead(
         fileOffset: Long,
@@ -302,7 +302,7 @@ private class MingwSystemFileHandle(
     }
 
     override fun protectedClose() {
-        synchronization.withLock {
+        windowsHandleSynchronization.withLock {
             if (CloseHandle(handle) == 0) {
                 throw windowsFileFailure(
                     "close",
@@ -314,7 +314,7 @@ private class MingwSystemFileHandle(
     }
 
     private inline fun <T> withCriticalSection(block: () -> T): T =
-        synchronization.withLock(block)
+        windowsHandleSynchronization.withLock(block)
 }
 
 private const val ZERO_FILL_BUFFER_SIZE = 8192

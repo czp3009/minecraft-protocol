@@ -24,15 +24,15 @@ class ProtocolModelContractTest {
     @Test
     fun `byte string has content equality and defensive copies`() {
         val source = byteArrayOf(1, 2, 3)
-        val value = ByteString(source)
+        val byteString = ByteString(source)
         source[0] = 9
-        assertEquals(ByteString(byteArrayOf(1, 2, 3)), value)
-        assertEquals(ByteString(byteArrayOf(1, 2, 3)).hashCode(), value.hashCode())
+        assertEquals(ByteString(byteArrayOf(1, 2, 3)), byteString)
+        assertEquals(ByteString(byteArrayOf(1, 2, 3)).hashCode(), byteString.hashCode())
 
-        val exported = value.toByteArray()
+        val exported = byteString.toByteArray()
         exported[1] = 9
-        assertContentEquals(byteArrayOf(1, 2, 3), value.toByteArray())
-        assertNotEquals(ByteString(exported), value)
+        assertContentEquals(byteArrayOf(1, 2, 3), byteString.toByteArray())
+        assertNotEquals(ByteString(exported), byteString)
     }
 
     @Test
@@ -43,8 +43,8 @@ class ProtocolModelContractTest {
             BlockPosition(BlockPosition.MAX_XZ, BlockPosition.MAX_Y, BlockPosition.MAX_XZ),
             BlockPosition(-1, -1, -1),
         )
-        for (position in positions) {
-            assertEquals(position, BlockPosition.fromPacked(position.packed()))
+        for (blockPosition in positions) {
+            assertEquals(blockPosition, BlockPosition.fromPacked(blockPosition.packed()))
         }
         assertFailsWith<IllegalArgumentException> {
             BlockPosition(BlockPosition.MAX_XZ + 1, 0, 0)
@@ -55,7 +55,7 @@ class ProtocolModelContractTest {
 
         val random = Random(0x504F53)
         repeat(5_000) {
-            val position = BlockPosition(
+            val blockPosition = BlockPosition(
                 x = random.nextInt(
                     BlockPosition.MIN_XZ,
                     BlockPosition.MAX_XZ + 1,
@@ -70,8 +70,8 @@ class ProtocolModelContractTest {
                 ),
             )
             assertEquals(
-                position,
-                BlockPosition.fromPacked(position.packed()),
+                blockPosition,
+                BlockPosition.fromPacked(blockPosition.packed()),
             )
         }
     }
@@ -81,7 +81,7 @@ class ProtocolModelContractTest {
         val random = Random(0x534543)
 
         repeat(5_000) {
-            val section = SectionPosition(
+            val sectionPosition = SectionPosition(
                 x = random.nextInt(
                     SectionPosition.MIN_XZ,
                     SectionPosition.MAX_XZ + 1,
@@ -96,19 +96,19 @@ class ProtocolModelContractTest {
                 ),
             )
             assertEquals(
-                section,
-                SectionPosition.fromPacked(section.packed()),
+                sectionPosition,
+                SectionPosition.fromPacked(sectionPosition.packed()),
             )
 
-            val change = SectionBlockChange(
+            val sectionBlockChange = SectionBlockChange(
                 blockStateId = random.nextInt(Int.MAX_VALUE),
                 localX = random.nextInt(16),
                 localY = random.nextInt(16),
                 localZ = random.nextInt(16),
             )
             assertEquals(
-                change,
-                SectionBlockChange.fromPacked(change.packed()),
+                sectionBlockChange,
+                SectionBlockChange.fromPacked(sectionBlockChange.packed()),
             )
         }
     }

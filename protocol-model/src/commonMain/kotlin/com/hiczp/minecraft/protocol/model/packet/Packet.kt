@@ -54,8 +54,8 @@ enum class PacketFraming {
 @Retention(AnnotationRetention.SOURCE)
 internal annotation class PacketInfo(
     val id: Int,
-    val state: ConnectionState,
-    val direction: PacketDirection,
+    val connectionState: ConnectionState,
+    val packetDirection: PacketDirection,
     /**
      * The namespace-free packet name emitted by the vanilla data generator.
      *

@@ -27,27 +27,27 @@ import kotlin.uuid.Uuid
 class AccountServiceTest {
     @Test
     fun missingSelectionUsesDefaultOfflinePlayerWithoutPersistingAnAccount() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val root = "/launcher".toPath()
-        fileSystem.createDirectories(root)
-        val store = LauncherStore(fileSystem, root)
+        fakeFileSystem.createDirectories(root)
+        val launcherStore = LauncherStore(fakeFileSystem, root)
         val accountClient = HttpClient(MockEngine { error("Offline identity must not trigger HTTP") })
-        val service = AccountService(accountClient, store)
+        val accountService = AccountService(accountClient, launcherStore)
 
-        val identity = assertIs<MinecraftOfflineIdentity>(service.selectedIdentity())
+        val minecraftOfflineIdentity = assertIs<MinecraftOfflineIdentity>(accountService.selectedIdentity())
 
-        assertEquals(DEFAULT_OFFLINE_PLAYER_NAME, identity.name)
-        assertEquals(MinecraftOfflineIdentity(DEFAULT_OFFLINE_PLAYER_NAME).id, identity.id)
-        assertTrue(store.auth.read { accounts.isEmpty() })
+        assertEquals(DEFAULT_OFFLINE_PLAYER_NAME, minecraftOfflineIdentity.name)
+        assertEquals(MinecraftOfflineIdentity(DEFAULT_OFFLINE_PLAYER_NAME).id, minecraftOfflineIdentity.id)
+        assertTrue(launcherStore.authMemory.read { accounts.isEmpty() })
         accountClient.close()
     }
 
     @Test
     fun loopbackLoginIgnoresBadStateAndPersistsOnlyRequiredCredentials() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val root = "/launcher".toPath()
-        fileSystem.createDirectories(root)
-        val store = LauncherStore(fileSystem, root)
+        fakeFileSystem.createDirectories(root)
+        val launcherStore = LauncherStore(fakeFileSystem, root)
         val responses = authenticationResponses()
         val responseMutex = Mutex()
         var responseIndex = 0
@@ -61,7 +61,7 @@ class AccountServiceTest {
                 )
             },
         )
-        val browser = BrowserService { authorizationUrl ->
+        val browserService = BrowserService { authorizationUrl ->
             withContext(Dispatchers.Default) {
                 val authorization = Url(authorizationUrl)
                 val redirect = requireNotNull(authorization.parameters["redirect_uri"])
@@ -90,24 +90,24 @@ class AccountServiceTest {
                 }
             }
         }
-        val service = AccountService(accountClient, store, browser)
+        val accountService = AccountService(accountClient, launcherStore, browserService)
 
-        val account = service.loginMicrosoft()
+        val storedAccount = accountService.loginMicrosoft()
 
-        val identity = assertIs<MinecraftOnlineIdentity>(account.identity)
-        assertEquals("OnlinePlayer", identity.name)
-        assertEquals(Uuid.parse(TEST_PROFILE_ID), identity.id)
-        val storedText = fileSystem.read(root / "auth.json") { readUtf8() }
-        val storedAccount = launcherJson.parseToJsonElement(storedText)
+        val minecraftOnlineIdentity = assertIs<MinecraftOnlineIdentity>(storedAccount.minecraftIdentity)
+        assertEquals("OnlinePlayer", minecraftOnlineIdentity.name)
+        assertEquals(Uuid.parse(TEST_PROFILE_ID), minecraftOnlineIdentity.id)
+        val storedText = fakeFileSystem.read(root / "auth.json") { readUtf8() }
+        val storedAccountJsonObject = launcherJson.parseToJsonElement(storedText)
             .jsonObject
             .getValue("accounts")
             .jsonArray
             .single()
             .jsonObject
-        val storedIdentity = storedAccount.getValue("identity").jsonObject
-        assertEquals("refresh-token", storedAccount.getValue("microsoftRefreshToken").jsonPrimitive.content)
+        val storedIdentity = storedAccountJsonObject.getValue("minecraftIdentity").jsonObject
+        assertEquals("refresh-token", storedAccountJsonObject.getValue("microsoftRefreshToken").jsonPrimitive.content)
         assertTrue(
-            storedAccount.getValue("minecraftAccessTokenExpiresAtEpochSeconds").jsonPrimitive.content.toLong() > 0,
+            storedAccountJsonObject.getValue("minecraftAccessTokenExpiresAtEpochSeconds").jsonPrimitive.content.toLong() > 0,
         )
         assertEquals("minecraft-access", storedIdentity.getValue("accessToken").jsonPrimitive.content)
         assertFalse("microsoft-access" in storedText)
@@ -119,12 +119,12 @@ class AccountServiceTest {
 
     @Test
     fun validMinecraftTokenIsUsedWithoutRefresh() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val root = "/launcher".toPath()
-        fileSystem.createDirectories(root)
-        val store = LauncherStore(fileSystem, root)
-        val account = StoredAccount(
-            identity = MinecraftOnlineIdentity(
+        fakeFileSystem.createDirectories(root)
+        val launcherStore = LauncherStore(fakeFileSystem, root)
+        val storedAccount = StoredAccount(
+            minecraftIdentity = MinecraftOnlineIdentity(
                 id = Uuid.parse(CACHED_PROFILE_ID),
                 name = "CachedPlayer",
                 accessToken = "cached-minecraft-token",
@@ -132,30 +132,30 @@ class AccountServiceTest {
             microsoftRefreshToken = "refresh-token",
             minecraftAccessTokenExpiresAtEpochSeconds = Long.MAX_VALUE,
         )
-        store.auth.update {
-            selectedIdentityId = account.identity.id
-            accounts = listOf(account)
+        launcherStore.authMemory.update {
+            selectedIdentityId = storedAccount.minecraftIdentity.id
+            accounts = listOf(storedAccount)
         }
         val accountClient = HttpClient(MockEngine { error("A valid Minecraft token must not trigger HTTP") })
-        val service = AccountService(accountClient, store)
+        val accountService = AccountService(accountClient, launcherStore)
 
-        val refreshed = requireNotNull(service.refreshIfNeeded(account.identity.id))
-        val identity = assertIs<MinecraftOnlineIdentity>(refreshed.identity)
+        val refreshed = requireNotNull(accountService.refreshIfNeeded(storedAccount.minecraftIdentity.id))
+        val minecraftOnlineIdentity = assertIs<MinecraftOnlineIdentity>(refreshed.minecraftIdentity)
 
-        assertEquals("CachedPlayer", identity.name)
-        assertEquals(Uuid.parse(CACHED_PROFILE_ID), identity.id)
-        assertEquals("cached-minecraft-token", identity.accessToken)
+        assertEquals("CachedPlayer", minecraftOnlineIdentity.name)
+        assertEquals(Uuid.parse(CACHED_PROFILE_ID), minecraftOnlineIdentity.id)
+        assertEquals("cached-minecraft-token", minecraftOnlineIdentity.accessToken)
         accountClient.close()
     }
 
     @Test
     fun expiredMinecraftTokenRefreshesFullChainAndPersistsRotation() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val root = "/launcher".toPath()
-        fileSystem.createDirectories(root)
-        val store = LauncherStore(fileSystem, root)
-        val account = StoredAccount(
-            identity = MinecraftOnlineIdentity(
+        fakeFileSystem.createDirectories(root)
+        val launcherStore = LauncherStore(fakeFileSystem, root)
+        val storedAccount = StoredAccount(
+            minecraftIdentity = MinecraftOnlineIdentity(
                 id = Uuid.parse(TEST_PROFILE_ID),
                 name = "OldPlayer",
                 accessToken = "expired-minecraft-token",
@@ -163,9 +163,9 @@ class AccountServiceTest {
             microsoftRefreshToken = "old-refresh-token",
             minecraftAccessTokenExpiresAtEpochSeconds = 0,
         )
-        store.auth.update {
-            selectedIdentityId = account.identity.id
-            accounts = listOf(account)
+        launcherStore.authMemory.update {
+            selectedIdentityId = storedAccount.minecraftIdentity.id
+            accounts = listOf(storedAccount)
         }
         val responses = authenticationResponses()
         var responseIndex = 0
@@ -179,17 +179,17 @@ class AccountServiceTest {
                 )
             },
         )
-        val service = AccountService(accountClient, store)
+        val accountService = AccountService(accountClient, launcherStore)
 
-        val refreshed = requireNotNull(service.refreshIfNeeded(account.identity.id))
-        val identity = assertIs<MinecraftOnlineIdentity>(refreshed.identity)
+        val refreshed = requireNotNull(accountService.refreshIfNeeded(storedAccount.minecraftIdentity.id))
+        val minecraftOnlineIdentity = assertIs<MinecraftOnlineIdentity>(refreshed.minecraftIdentity)
 
-        assertEquals("OnlinePlayer", identity.name)
-        assertEquals(Uuid.parse(TEST_PROFILE_ID), identity.id)
-        assertEquals("minecraft-access", identity.accessToken)
-        val persisted = store.auth.read { accounts.single() }
+        assertEquals("OnlinePlayer", minecraftOnlineIdentity.name)
+        assertEquals(Uuid.parse(TEST_PROFILE_ID), minecraftOnlineIdentity.id)
+        assertEquals("minecraft-access", minecraftOnlineIdentity.accessToken)
+        val persisted = launcherStore.authMemory.read { accounts.single() }
         assertEquals("refresh-token", persisted.microsoftRefreshToken)
-        assertEquals("minecraft-access", assertIs<MinecraftOnlineIdentity>(persisted.identity).accessToken)
+        assertEquals("minecraft-access", assertIs<MinecraftOnlineIdentity>(persisted.minecraftIdentity).accessToken)
         assertTrue(requireNotNull(persisted.minecraftAccessTokenExpiresAtEpochSeconds) > 0)
         assertEquals(6, responseIndex)
         accountClient.close()
@@ -197,12 +197,12 @@ class AccountServiceTest {
 
     @Test
     fun refreshFinishingAfterDeletionDoesNotRestoreTheAccount() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val root = "/launcher".toPath()
-        fileSystem.createDirectories(root)
-        val store = LauncherStore(fileSystem, root)
-        val account = StoredAccount(
-            identity = MinecraftOnlineIdentity(
+        fakeFileSystem.createDirectories(root)
+        val launcherStore = LauncherStore(fakeFileSystem, root)
+        val storedAccount = StoredAccount(
+            minecraftIdentity = MinecraftOnlineIdentity(
                 id = Uuid.parse(TEST_PROFILE_ID),
                 name = "OldPlayer",
                 accessToken = "expired-minecraft-token",
@@ -210,9 +210,9 @@ class AccountServiceTest {
             microsoftRefreshToken = "old-refresh-token",
             minecraftAccessTokenExpiresAtEpochSeconds = 0,
         )
-        store.auth.update {
-            selectedIdentityId = account.identity.id
-            accounts = listOf(account)
+        launcherStore.authMemory.update {
+            selectedIdentityId = storedAccount.minecraftIdentity.id
+            accounts = listOf(storedAccount)
         }
         val refreshStarted = CompletableDeferred<Unit>()
         val releaseRefresh = CompletableDeferred<Unit>()
@@ -232,27 +232,27 @@ class AccountServiceTest {
                 )
             },
         )
-        val service = AccountService(accountClient, store)
+        val accountService = AccountService(accountClient, launcherStore)
 
-        val refresh = async { service.refreshIfNeeded(account.identity.id) }
+        val refresh = async { accountService.refreshIfNeeded(storedAccount.minecraftIdentity.id) }
         refreshStarted.await()
-        service.delete(account.identity.id)
+        accountService.delete(storedAccount.minecraftIdentity.id)
         releaseRefresh.complete(Unit)
 
         assertEquals(null, refresh.await())
-        assertTrue(store.auth.read { accounts.isEmpty() })
+        assertTrue(launcherStore.authMemory.read { accounts.isEmpty() })
         assertEquals(1, responseIndex)
         accountClient.close()
     }
 
     @Test
     fun failedRefreshIsRememberedForTheLauncherSession() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val root = "/launcher".toPath()
-        fileSystem.createDirectories(root)
-        val store = LauncherStore(fileSystem, root)
-        val account = StoredAccount(
-            identity = MinecraftOnlineIdentity(
+        fakeFileSystem.createDirectories(root)
+        val launcherStore = LauncherStore(fakeFileSystem, root)
+        val storedAccount = StoredAccount(
+            minecraftIdentity = MinecraftOnlineIdentity(
                 id = Uuid.parse(TEST_PROFILE_ID),
                 name = "OnlinePlayer",
                 accessToken = "expired-minecraft-token",
@@ -260,9 +260,9 @@ class AccountServiceTest {
             microsoftRefreshToken = "expired-refresh-token",
             minecraftAccessTokenExpiresAtEpochSeconds = 0,
         )
-        store.auth.update {
-            selectedIdentityId = account.identity.id
-            accounts = listOf(account)
+        launcherStore.authMemory.update {
+            selectedIdentityId = storedAccount.minecraftIdentity.id
+            accounts = listOf(storedAccount)
         }
         var requestCount = 0
         val accountClient = HttpClient(
@@ -271,10 +271,10 @@ class AccountServiceTest {
                 throw IllegalStateException("refresh rejected")
             },
         )
-        val service = AccountService(accountClient, store)
+        val accountService = AccountService(accountClient, launcherStore)
 
-        assertFailsWith<AccountLoginExpiredException> { service.refreshIfNeeded(account.identity.id) }
-        assertFailsWith<AccountLoginExpiredException> { service.refreshIfNeeded(account.identity.id) }
+        assertFailsWith<AccountLoginExpiredException> { accountService.refreshIfNeeded(storedAccount.minecraftIdentity.id) }
+        assertFailsWith<AccountLoginExpiredException> { accountService.refreshIfNeeded(storedAccount.minecraftIdentity.id) }
 
         assertEquals(1, requestCount)
         accountClient.close()
@@ -282,40 +282,40 @@ class AccountServiceTest {
 
     @Test
     fun editingAnOfflineIdentityReplacesItsDerivedIdentityAndSelection() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val root = "/launcher".toPath()
-        fileSystem.createDirectories(root)
-        val store = LauncherStore(fileSystem, root)
+        fakeFileSystem.createDirectories(root)
+        val launcherStore = LauncherStore(fakeFileSystem, root)
         val accountClient = HttpClient(MockEngine { error("Offline identity must not trigger HTTP") })
-        val service = AccountService(accountClient, store)
-        val original = service.addOffline("Before")
+        val accountService = AccountService(accountClient, launcherStore)
+        val original = accountService.addOffline("Before")
 
-        val replacement = service.updateOffline(original.identity.id, "After")
+        val replacement = accountService.updateOffline(original.minecraftIdentity.id, "After")
 
-        assertEquals(MinecraftOfflineIdentity("After"), replacement.identity)
-        val auth = store.auth.read { this }
-        assertEquals(replacement.identity.id, auth.selectedIdentityId)
-        assertEquals(listOf(replacement), auth.accounts)
+        assertEquals(MinecraftOfflineIdentity("After"), replacement.minecraftIdentity)
+        val authState = launcherStore.authMemory.read { this }
+        assertEquals(replacement.minecraftIdentity.id, authState.selectedIdentityId)
+        assertEquals(listOf(replacement), authState.accounts)
         accountClient.close()
     }
 
     @Test
     fun deletingTheSelectedAccountLeavesTheDefaultIdentityUnpersisted() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val root = "/launcher".toPath()
-        fileSystem.createDirectories(root)
-        val store = LauncherStore(fileSystem, root)
+        fakeFileSystem.createDirectories(root)
+        val launcherStore = LauncherStore(fakeFileSystem, root)
         val accountClient = HttpClient(MockEngine { error("Offline identity must not trigger HTTP") })
-        val service = AccountService(accountClient, store)
-        service.addOffline("First")
-        val selected = service.addOffline("Second")
+        val accountService = AccountService(accountClient, launcherStore)
+        accountService.addOffline("First")
+        val selected = accountService.addOffline("Second")
 
-        service.delete(selected.identity.id)
+        accountService.delete(selected.minecraftIdentity.id)
 
-        val auth = store.auth.read { this }
-        assertEquals(null, auth.selectedIdentityId)
-        assertEquals(listOf(MinecraftOfflineIdentity("First")), auth.accounts.map(StoredAccount::identity))
-        assertEquals(MinecraftOfflineIdentity(DEFAULT_OFFLINE_PLAYER_NAME), service.selectedIdentity())
+        val authState = launcherStore.authMemory.read { this }
+        assertEquals(null, authState.selectedIdentityId)
+        assertEquals(listOf(MinecraftOfflineIdentity("First")), authState.accounts.map(StoredAccount::minecraftIdentity))
+        assertEquals(MinecraftOfflineIdentity(DEFAULT_OFFLINE_PLAYER_NAME), accountService.selectedIdentity())
         accountClient.close()
     }
 }

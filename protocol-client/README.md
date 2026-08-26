@@ -27,8 +27,8 @@ suspend fun queryStatus(
 ): MinecraftStatusExchange = MinecraftClientConnection.connect(
     selectorManager = selectorManager,
     host = host,
-).use { connection ->
-    connection.queryStatus(pingPayload)
+).use { minecraftClientConnection ->
+    minecraftClientConnection.queryStatus(pingPayload)
 }
 ```
 
@@ -60,7 +60,7 @@ reached the transport's flush boundary.
 
 `MinecraftClientNegotiationOptions` controls the client information, protocol data, cookies, accepted Known Packs, Code
 of Conduct decision, resource-pack response, local static registries, and handling of unrecognized negotiation queries.
-Here `connection` is a fresh Handshake-state value returned by `MinecraftClientConnection.connect`:
+Here `minecraftClientConnection` is a fresh Handshake-state value returned by `MinecraftClientConnection.connect`:
 
 ```kotlin
 val minecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(
@@ -78,9 +78,9 @@ val minecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(
     resourcePackResult = ResourcePackResult.ACCEPTED,
 )
 
-val minecraftClientNegotiationResult = connection.negotiate(
-    identity = MinecraftOfflineIdentity("Player"),
-    options = minecraftClientNegotiationOptions,
+val minecraftClientNegotiationResult = minecraftClientConnection.negotiate(
+    minecraftIdentity = MinecraftOfflineIdentity("Player"),
+    minecraftClientNegotiationOptions = minecraftClientNegotiationOptions,
 )
 ```
 
@@ -95,7 +95,7 @@ Server `/join` request:
 
 ```kotlin
 suspend fun playOnline(
-    connection: MinecraftClientConnection,
+    minecraftClientConnection: MinecraftClientConnection,
     profileId: Uuid,
     profileName: String,
     minecraftAccessToken: String,
@@ -106,8 +106,8 @@ suspend fun playOnline(
         name = profileName,
         accessToken = minecraftAccessToken,
     )
-    return connection.negotiate(
-        identity = minecraftOnlineIdentity,
+    return minecraftClientConnection.negotiate(
+        minecraftIdentity = minecraftOnlineIdentity,
         sessionHttpClient = httpClient,
     )
 }
@@ -126,11 +126,11 @@ Convert both into a client registry view:
 
 ```kotlin
 suspend fun useClientRegistryView(
-    connection: MinecraftClientConnection,
+    minecraftClientConnection: MinecraftClientConnection,
     minecraftClientNegotiationResult: MinecraftClientNegotiationResult,
     consume: suspend (ClientRegistryView) -> Unit,
 ) {
-    val clientRegistryView = minecraftClientNegotiationResult.resolveClientRegistryView(connection)
+    val clientRegistryView = minecraftClientNegotiationResult.resolveClientRegistryView(minecraftClientConnection)
     consume(clientRegistryView)
 }
 ```
@@ -163,22 +163,23 @@ installed registry context to decode `ChunkDataAndUpdateLightPacket` into a sema
 
 ```kotlin
 fun createChunkDecoder(
-    connection: MinecraftClientConnection,
-    result: MinecraftClientNegotiationResult,
+    minecraftClientConnection: MinecraftClientConnection,
+    minecraftClientNegotiationResult: MinecraftClientNegotiationResult,
     expectedDataVersion: Int,
 ): MinecraftChunkPacketDecoder = MinecraftChunkPacketDecoder(
-    protocolRegistryContext = connection.protocolRegistryContext,
-    layout = result.chunkLayout,
-    metadata = ChunkMetadata(
+    protocolRegistryContext = minecraftClientConnection.protocolRegistryContext,
+    chunkLayout = minecraftClientNegotiationResult.chunkLayout,
+    chunkMetadata = ChunkMetadata(
         dataVersion = expectedDataVersion,
         status = ChunkMetadata.FULLY_GENERATED_STATUS,
     ),
 )
 
 fun decodeChunk(
-    packet: ChunkDataAndUpdateLightPacket,
-    decoder: MinecraftChunkPacketDecoder,
-): Chunk<ProtocolBlockState, ProtocolRegistryEntry> = packet.toChunk(decoder)
+    chunkDataAndUpdateLightPacket: ChunkDataAndUpdateLightPacket,
+    minecraftChunkPacketDecoder: MinecraftChunkPacketDecoder,
+): Chunk<ProtocolBlockState, ProtocolRegistryEntry> =
+    chunkDataAndUpdateLightPacket.toChunk(minecraftChunkPacketDecoder)
 ```
 
 The caller supplies the metadata template because network Chunk packets do not carry persistence-only fields such as
@@ -195,11 +196,11 @@ bundle can be converted to one or more semantic Entities:
 
 ```kotlin
 fun decodeEntities(
-    connection: MinecraftClientConnection,
-    bundle: ClientboundBundlePacket,
+    minecraftClientConnection: MinecraftClientConnection,
+    clientboundBundlePacket: ClientboundBundlePacket,
 ): List<Entity<NbtCompound>>? {
-    val minecraftEntityPacketDecoder = MinecraftEntityPacketDecoder(connection.protocolRegistryContext)
-    return bundle.toEntitiesOrNull(minecraftEntityPacketDecoder)
+    val minecraftEntityPacketDecoder = MinecraftEntityPacketDecoder(minecraftClientConnection.protocolRegistryContext)
+    return clientboundBundlePacket.toEntitiesOrNull(minecraftEntityPacketDecoder)
 }
 ```
 
@@ -220,7 +221,7 @@ example makes that lifetime explicit through a caller-supplied `play` block:
 suspend fun runFabric(
     selectorManager: SelectorManager,
     host: String,
-    identity: MinecraftOfflineIdentity,
+    minecraftOfflineIdentity: MinecraftOfflineIdentity,
     extensionCodecs: List<PacketCodecRegistration<out Packet>>,
     staticRegistrySchema: StaticRegistrySchema,
     play: suspend (MinecraftClientConnection, MinecraftClientNegotiationResult) -> Unit,
@@ -231,13 +232,13 @@ suspend fun runFabric(
     MinecraftClientConnection.connect(
         selectorManager = selectorManager,
         host = host,
-        definition = minecraftConnectionDefinition,
-    ).use { connection ->
-        val result = connection.negotiate(
-            identity = identity,
-            profile = FabricClientProfile(staticRegistrySchema),
+        minecraftConnectionDefinition = minecraftConnectionDefinition,
+    ).use { minecraftClientConnection ->
+        val minecraftClientNegotiationResult = minecraftClientConnection.negotiate(
+            minecraftIdentity = minecraftOfflineIdentity,
+            clientNegotiationProfile = FabricClientProfile(staticRegistrySchema),
         )
-        play(connection, result)
+        play(minecraftClientConnection, minecraftClientNegotiationResult)
     }
 }
 ```

@@ -10,13 +10,13 @@ private const val TEMPORARY_PREFIX = ".tmp-"
 private const val TEMPORARY_ATTEMPTS = 256
 
 internal fun FileSystem.readFileBytes(path: Path): ByteArray =
-    readFile(path) { source, size ->
-        source.readByteArray(size)
+    readFile(path) { bufferedSource, size ->
+        bufferedSource.readByteArray(size)
     }
 
 internal fun WorldFileAccess.readFileBytes(path: Path): ByteArray =
-    readFile(path) { source, size ->
-        source.readByteArray(size)
+    readFile(path) { bufferedSource, size ->
+        bufferedSource.readByteArray(size)
     }
 
 internal fun <T> FileSystem.readFile(
@@ -42,21 +42,21 @@ private fun <T> FileSystem.readFile(
     openSource: () -> Source,
     block: (BufferedSource, Long) -> T,
 ): T {
-    val metadata = metadataOrNull(path)
+    val fileMetadata = metadataOrNull(path)
         ?: throw WorldIOException("File does not exist: $path")
-    if (!metadata.isRegularFile) {
+    if (!fileMetadata.isRegularFile) {
         throw WorldIOException("Path is not a regular file: $path")
     }
-    val size = metadata.size
+    val size = fileMetadata.size
         ?: throw WorldIOException("Regular file has no size: $path")
     if (size < 0L) throw WorldIOException("File has a negative size: $path")
 
     val limitedSource = openSource()
         .limit(size, throwIfSourceIsLonger = true)
         .buffer()
-    return useResource(limitedSource, { it.close() }) { source ->
-        val value = block(source, size)
-        if (!source.exhausted()) {
+    return useResource(limitedSource, { it.close() }) { bufferedSource ->
+        val value = block(bufferedSource, size)
+        if (!bufferedSource.exhausted()) {
             throw WorldIOException("File $path was not fully consumed")
         }
         value
@@ -160,7 +160,7 @@ internal data class TemporaryFileSink(
 
 internal data class TemporaryFileHandle(
     val path: Path,
-    val handle: FileHandle,
+    val fileHandle: FileHandle,
 )
 
 internal fun FileSystem.replaceWithBackup(

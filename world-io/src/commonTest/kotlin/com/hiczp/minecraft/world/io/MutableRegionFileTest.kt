@@ -13,16 +13,16 @@ import kotlin.test.*
 class MutableRegionFileTest {
     @Test
     fun opensCanonicalNamesAndRejectsEverythingElse() {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val directory = "/world/region".toPath()
 
-        val store = MutableRegionFile.open(
+        val mutableRegionFile = MutableRegionFile.open(
             regionFile = directory / "r.3.-1.mca",
-            fileSystem = fileSystem,
+            fileSystem = fakeFileSystem,
         )
-        assertEquals(RegionPosition(3, -1), store.position)
-        assertEquals(directory / "r.3.-1.mca", store.path)
-        store.close()
+        assertEquals(RegionPosition(3, -1), mutableRegionFile.regionPosition)
+        assertEquals(directory / "r.3.-1.mca", mutableRegionFile.path)
+        mutableRegionFile.close()
 
         listOf(
             directory / "region.mca",
@@ -32,100 +32,100 @@ class MutableRegionFileTest {
             directory / "r.01.2.mca",
         ).forEach { path ->
             assertFailsWith<WorldIOException> {
-                MutableRegionFile.open(path, fileSystem)
+                MutableRegionFile.open(path, fakeFileSystem)
             }
         }
-        fileSystem.checkNoOpenFiles()
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
     fun readsAndWritesOneExactFileSharedWithDirectoryStores() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val path = "/world/region/r.0.0.mca".toPath()
-        val position = ChunkPosition(5, 7)
-        val document = NbtDocument(NbtCompound(mapOf("Value" to NbtInt(42))))
+        val chunkPosition = ChunkPosition(5, 7)
+        val nbtDocument = NbtDocument(NbtCompound(mapOf("Value" to NbtInt(42))))
         val chunkNbtFormat = CompressedNbtFormat()
 
-        val store = MutableRegionFile.open(path, fileSystem)
+        val mutableRegionFile = MutableRegionFile.open(path, fakeFileSystem)
         try {
-            assertNull(store.readCompressedChunk(position.local))
-            assertFalse(store.hasChunk(position.local))
+            assertNull(mutableRegionFile.readCompressedChunk(chunkPosition.localChunkPosition))
+            assertFalse(mutableRegionFile.hasChunk(chunkPosition.localChunkPosition))
 
-            store.writeCompressedChunk(
-                position.local,
-                chunkNbtFormat.encodeDocument(document, Compression.NONE),
+            mutableRegionFile.writeCompressedChunk(
+                chunkPosition.localChunkPosition,
+                chunkNbtFormat.encodeDocument(nbtDocument, Compression.NONE),
             )
-            val read = checkNotNull(store.readCompressedChunk(position.local))
-            assertEquals(document, chunkNbtFormat.decodeDocument(read))
-            assertTrue(store.hasChunk(position.local))
-            assertEquals(setOf(position.local), store.readAnvilRegion().chunks.keys)
+            val read = checkNotNull(mutableRegionFile.readCompressedChunk(chunkPosition.localChunkPosition))
+            assertEquals(nbtDocument, chunkNbtFormat.decodeDocument(read))
+            assertTrue(mutableRegionFile.hasChunk(chunkPosition.localChunkPosition))
+            assertEquals(setOf(chunkPosition.localChunkPosition), mutableRegionFile.readAnvilRegion().chunks.keys)
         } finally {
-            store.close()
+            mutableRegionFile.close()
         }
 
         // The directory store reads bytes produced by the file-level store.
-        val directoryStore = RegionStorage(path.parent!!, fileSystem)
+        val directoryStore = RegionStorage(path.parent!!, fakeFileSystem)
         try {
-            assertEquals(document, directoryStore.readChunkNbtDocument(position))
+            assertEquals(nbtDocument, directoryStore.readChunkNbtDocument(chunkPosition))
         } finally {
             directoryStore.close()
         }
-        fileSystem.checkNoOpenFiles()
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
     fun clearsExplicitlyAndKeepsRawChunks() = runTest {
-        val fileSystem = FakeFileSystem()
-        val store = MutableRegionFile.open("/w/r.0.0.mca".toPath(), fileSystem)
-        val position = ChunkPosition(31, 31)
+        val fakeFileSystem = FakeFileSystem()
+        val mutableRegionFile = MutableRegionFile.open("/w/r.0.0.mca".toPath(), fakeFileSystem)
+        val chunkPosition = ChunkPosition(31, 31)
         try {
-            store.writeCompressedChunk(
-                position.local,
+            mutableRegionFile.writeCompressedChunk(
+                chunkPosition.localChunkPosition,
                 CompressedChunk(
                     compression = Compression.NONE,
                     compressedBytes = byteArrayOf(7, 8, 9),
                 ),
             )
-            val read = store.readCompressedChunk(position.local)
+            val read = mutableRegionFile.readCompressedChunk(chunkPosition.localChunkPosition)
             assertNotNull(read)
             assertContentEquals(
                 byteArrayOf(7, 8, 9),
                 checkNotNull(read.toByteArray()),
             )
 
-            store.removeChunk(position.local)
-            assertFalse(store.hasChunk(position.local))
-            assertNull(store.readCompressedChunk(position.local))
+            mutableRegionFile.removeChunk(chunkPosition.localChunkPosition)
+            assertFalse(mutableRegionFile.hasChunk(chunkPosition.localChunkPosition))
+            assertNull(mutableRegionFile.readCompressedChunk(chunkPosition.localChunkPosition))
         } finally {
-            store.close()
+            mutableRegionFile.close()
         }
-        fileSystem.checkNoOpenFiles()
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
     fun localCoordinatesAreResolvedAgainstTheOpenedRegion() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val directory = "/w".toPath()
-        val store = MutableRegionFile.open(directory / "r.-2.3.mca", fileSystem)
-        val local = LocalChunkPosition(31, 1)
+        val mutableRegionFile = MutableRegionFile.open(directory / "r.-2.3.mca", fakeFileSystem)
+        val localChunkPosition = LocalChunkPosition(31, 1)
         try {
-            store.writeCompressedChunk(
-                local,
+            mutableRegionFile.writeCompressedChunk(
+                localChunkPosition,
                 CompressedChunk(Compression.NONE, byteArrayOf(4)),
             )
-            assertContentEquals(byteArrayOf(4), store.readCompressedChunk(local).bytesOrNull())
-            assertFalse(fileSystem.exists(directory / "c.31.1.mcc"))
+            assertContentEquals(byteArrayOf(4), mutableRegionFile.readCompressedChunk(localChunkPosition).bytesOrNull())
+            assertFalse(fakeFileSystem.exists(directory / "c.31.1.mcc"))
         } finally {
-            store.close()
+            mutableRegionFile.close()
         }
-        fileSystem.checkNoOpenFiles()
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
     fun knownLengthWritesStreamInlineAndExternalPayloads() {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val directory = "/world/region".toPath()
-        val store = MutableRegionFile.open(directory / "r.0.0.mca", fileSystem)
+        val mutableRegionFile = MutableRegionFile.open(directory / "r.0.0.mca", fakeFileSystem)
         val inlinePosition = LocalChunkPosition(0, 0)
         val externalPosition = LocalChunkPosition(1, 0)
         val inline = ByteArray(32 * 1_024) { it.toByte() }
@@ -135,91 +135,91 @@ class MutableRegionFileTest {
         ) { (it * 3).toByte() }
 
         try {
-            store.writeCompressedChunk(inlinePosition, Compression.NONE, inline.size.toLong()) { sink ->
+            mutableRegionFile.writeCompressedChunk(inlinePosition, Compression.NONE, inline.size.toLong()) { sink ->
                 sink.write(inline)
             }
-            store.writeCompressedChunk(
+            mutableRegionFile.writeCompressedChunk(
                 externalPosition,
                 Compression.ZLIB,
                 external.size.toLong(),
             ) { sink -> sink.write(external) }
 
-            store.withCompressedChunkSource(inlinePosition) { info, source ->
-                assertEquals(AnvilChunkPlacement.INLINE, info.placement)
-                assertEquals(inline.size.toLong(), info.compressedByteCount)
+            mutableRegionFile.withCompressedChunkSource(inlinePosition) { regionChunkInfo, source ->
+                assertEquals(AnvilChunkPlacement.INLINE, regionChunkInfo.anvilChunkPlacement)
+                assertEquals(inline.size.toLong(), regionChunkInfo.compressedByteCount)
                 assertContentEquals(inline, source.readByteArray())
             }
-            store.withCompressedChunkSource(externalPosition) { info, source ->
-                assertEquals(AnvilChunkPlacement.EXTERNAL, info.placement)
-                assertEquals(external.size.toLong(), info.compressedByteCount)
+            mutableRegionFile.withCompressedChunkSource(externalPosition) { regionChunkInfo, source ->
+                assertEquals(AnvilChunkPlacement.EXTERNAL, regionChunkInfo.anvilChunkPlacement)
+                assertEquals(external.size.toLong(), regionChunkInfo.compressedByteCount)
                 assertContentEquals(external, source.readByteArray())
             }
-            assertTrue(fileSystem.exists(directory / "c.1.0.mcc"))
+            assertTrue(fakeFileSystem.exists(directory / "c.1.0.mcc"))
         } finally {
-            store.close()
+            mutableRegionFile.close()
         }
-        fileSystem.checkNoOpenFiles()
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
     fun declaredLengthFailuresLeaveTheCommittedChunkAndCleanupExternalTemporaries() {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val directory = "/world/region".toPath()
-        val store = MutableRegionFile.open(directory / "r.0.0.mca", fileSystem, syncWrites = false)
-        val position = LocalChunkPosition(0, 0)
+        val mutableRegionFile = MutableRegionFile.open(directory / "r.0.0.mca", fakeFileSystem, syncWrites = false)
+        val localChunkPosition = LocalChunkPosition(0, 0)
         val original = byteArrayOf(1, 2, 3)
-        store.writeCompressedChunk(position, CompressedChunk(Compression.NONE, original))
+        mutableRegionFile.writeCompressedChunk(localChunkPosition, CompressedChunk(Compression.NONE, original))
 
         try {
             assertFailsWith<WorldIOException> {
-                store.writeCompressedChunk(position, Compression.NONE, compressedByteCount = 2) { sink ->
+                mutableRegionFile.writeCompressedChunk(localChunkPosition, Compression.NONE, compressedByteCount = 2) { sink ->
                     sink.writeByte(9)
                 }
             }
-            assertContentEquals(original, checkNotNull(store.readCompressedChunk(position)).toByteArray())
+            assertContentEquals(original, checkNotNull(mutableRegionFile.readCompressedChunk(localChunkPosition)).toByteArray())
 
             assertFailsWith<WorldIOException> {
-                store.writeCompressedChunk(position, Compression.NONE, compressedByteCount = 1) { sink ->
+                mutableRegionFile.writeCompressedChunk(localChunkPosition, Compression.NONE, compressedByteCount = 1) { sink ->
                     sink.write(byteArrayOf(8, 9))
                 }
             }
-            assertContentEquals(original, checkNotNull(store.readCompressedChunk(position)).toByteArray())
+            assertContentEquals(original, checkNotNull(mutableRegionFile.readCompressedChunk(localChunkPosition)).toByteArray())
 
             val firstExternalLength =
                 (REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD - 1L) * REGION_SECTOR_BYTES -
                         REGION_CHUNK_RECORD_HEADER_BYTES + 1L
             assertFailsWith<WorldIOException> {
-                store.writeCompressedChunk(position, Compression.NONE, firstExternalLength) { }
+                mutableRegionFile.writeCompressedChunk(localChunkPosition, Compression.NONE, firstExternalLength) { }
             }
-            assertContentEquals(original, checkNotNull(store.readCompressedChunk(position)).toByteArray())
-            assertTrue(fileSystem.list(directory).none { it.name.startsWith(".mcc-") })
+            assertContentEquals(original, checkNotNull(mutableRegionFile.readCompressedChunk(localChunkPosition)).toByteArray())
+            assertTrue(fakeFileSystem.list(directory).none { it.name.startsWith(".mcc-") })
         } finally {
-            store.close()
+            mutableRegionFile.close()
         }
-        fileSystem.checkNoOpenFiles()
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
     fun streamingReadsMustConsumeTheLentPayload() {
-        val fileSystem = FakeFileSystem()
-        val store = MutableRegionFile.open("/world/region/r.0.0.mca".toPath(), fileSystem)
-        val position = LocalChunkPosition(0, 0)
-        store.writeCompressedChunk(
-            position,
+        val fakeFileSystem = FakeFileSystem()
+        val mutableRegionFile = MutableRegionFile.open("/world/region/r.0.0.mca".toPath(), fakeFileSystem)
+        val localChunkPosition = LocalChunkPosition(0, 0)
+        mutableRegionFile.writeCompressedChunk(
+            localChunkPosition,
             CompressedChunk(Compression.NONE, byteArrayOf(1, 2, 3)),
         )
 
         try {
             assertFailsWith<WorldIOException> {
-                store.withCompressedChunkSource(position) { _, source -> source.readByte() }
+                mutableRegionFile.withCompressedChunkSource(localChunkPosition) { _, source -> source.readByte() }
             }
             assertContentEquals(
                 byteArrayOf(1, 2, 3),
-                checkNotNull(store.readCompressedChunk(position)).toByteArray(),
+                checkNotNull(mutableRegionFile.readCompressedChunk(localChunkPosition)).toByteArray(),
             )
         } finally {
-            store.close()
+            mutableRegionFile.close()
         }
-        fileSystem.checkNoOpenFiles()
+        fakeFileSystem.checkNoOpenFiles()
     }
 }

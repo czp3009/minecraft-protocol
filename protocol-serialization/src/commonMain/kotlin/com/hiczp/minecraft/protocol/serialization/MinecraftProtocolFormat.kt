@@ -22,7 +22,7 @@ import kotlinx.serialization.serializer
  * [BinaryFormat] are convenience adapters over caller-owned streams.
  */
 sealed class MinecraftProtocolFormat(
-    val configuration: MinecraftProtocolFormatConfiguration,
+    val minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration,
     override val serializersModule: SerializersModule,
 ) : BinaryFormat {
     companion object Default : MinecraftProtocolFormat(
@@ -31,9 +31,9 @@ sealed class MinecraftProtocolFormat(
     ) {
         /** Creates a format with connection- or application-specific configuration. */
         operator fun invoke(
-            configuration: MinecraftProtocolFormatConfiguration = MinecraftProtocolFormatConfiguration(),
+            minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration = MinecraftProtocolFormatConfiguration(),
             serializersModule: SerializersModule = EmptySerializersModule(),
-        ): MinecraftProtocolFormat = ConfiguredMinecraftProtocolFormat(configuration, serializersModule)
+        ): MinecraftProtocolFormat = ConfiguredMinecraftProtocolFormat(minecraftProtocolFormatConfiguration, serializersModule)
     }
 
     final override fun <T> encodeToByteArray(
@@ -60,12 +60,12 @@ sealed class MinecraftProtocolFormat(
      * The format neither flushes nor closes the caller-owned sink.
      */
     fun <T> encodeToSink(
-        serializer: SerializationStrategy<T>,
+        serializationStrategy: SerializationStrategy<T>,
         value: T,
         sink: Sink,
     ) {
-        val encoder = MinecraftEncoder(sink, configuration, serializersModule)
-        encoder.encodeSerializableValue(serializer, value)
+        val minecraftEncoder = MinecraftEncoder(sink, minecraftProtocolFormatConfiguration, serializersModule)
+        minecraftEncoder.encodeSerializableValue(serializationStrategy, value)
     }
 
     /**
@@ -76,19 +76,19 @@ sealed class MinecraftProtocolFormat(
      * closes nor reads beyond that caller-provided boundary.
      */
     fun <T> decodeFromSource(
-        deserializer: DeserializationStrategy<T>,
+        deserializationStrategy: DeserializationStrategy<T>,
         source: Source,
         byteCount: Int,
     ): T {
-        val decoder = MinecraftDecoder(
+        val minecraftDecoder = MinecraftDecoder(
             MinecraftReader(source, byteCount),
-            configuration,
+            minecraftProtocolFormatConfiguration,
             serializersModule,
         )
-        val value = decoder.decodeSerializableValue(deserializer)
-        if (decoder.remaining != 0) {
+        val value = minecraftDecoder.decodeSerializableValue(deserializationStrategy)
+        if (minecraftDecoder.remaining != 0) {
             throw MinecraftSerializationException(
-                "Payload has ${decoder.remaining} unread byte(s)",
+                "Payload has ${minecraftDecoder.remaining} unread byte(s)",
             )
         }
         return value
@@ -108,6 +108,6 @@ inline fun <reified T> MinecraftProtocolFormat.decodeFromSource(
 ): T = decodeFromSource(serializersModule.serializer(), source, byteCount)
 
 private class ConfiguredMinecraftProtocolFormat(
-    configuration: MinecraftProtocolFormatConfiguration,
+    minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration,
     serializersModule: SerializersModule,
-) : MinecraftProtocolFormat(configuration, serializersModule)
+) : MinecraftProtocolFormat(minecraftProtocolFormatConfiguration, serializersModule)

@@ -18,15 +18,15 @@ internal data class HeadlessClientInstallation(
 )
 
 internal object HeadlessClientPreparation {
-    fun prepare(layout: MinecraftTestLayout): HeadlessClientInstallation {
-        val root = layout.headlessClientRootDirectory
+    fun prepare(minecraftTestLayout: MinecraftTestLayout): HeadlessClientInstallation {
+        val root = minecraftTestLayout.headlessClientRootDirectory
         val manifestPath = root.resolve("manifest.json")
         check(root.isDirectory() && manifestPath.isRegularFile()) {
             "The HeadlessMC client fixture is missing; run this test through its standard Gradle test task"
         }
         val manifest = testJson.decodeFromString<JsonObject>(manifestPath.readText())
         val minecraftVersion = manifest.getValue("minecraft_version").jsonPrimitive.content
-        check(minecraftVersion == layout.minecraftVersion) {
+        check(minecraftVersion == minecraftTestLayout.minecraftVersion) {
             "The HeadlessMC client fixture belongs to a different Minecraft release"
         }
         val minecraftDirectory = root.safeResolve(

@@ -176,7 +176,7 @@ internal object MapDataPacketSerializer : KSerializer<MapDataPacket> {
     override fun deserialize(decoder: Decoder): MapDataPacket {
         val input = decoder.beginStructure(descriptor)
         if (input.decodeSequentially()) {
-            val value = MapDataPacket(
+            val mapDataPacket = MapDataPacket(
                 mapId = input.decodeIntElement(descriptor, MAP_ID),
                 scale = input.decodeByteElement(descriptor, SCALE),
                 locked = input.decodeBooleanElement(descriptor, LOCKED),
@@ -192,14 +192,14 @@ internal object MapDataPacketSerializer : KSerializer<MapDataPacket> {
                 ),
             )
             input.endStructure(descriptor)
-            return value
+            return mapDataPacket
         }
 
         var mapId: Int? = null
         var scale: Byte? = null
         var locked: Boolean? = null
         var decorations: List<MapDecoration>? = null
-        var colorPatch: MapColorPatch? = null
+        var mapColorPatch: MapColorPatch? = null
         var sawDecorations = false
         var sawColorPatch = false
         while (true) {
@@ -217,7 +217,7 @@ internal object MapDataPacketSerializer : KSerializer<MapDataPacket> {
                 }
 
                 COLOR_PATCH -> {
-                    colorPatch = input.decodeSerializableElement(
+                    mapColorPatch = input.decodeSerializableElement(
                         descriptor,
                         COLOR_PATCH,
                         NullableMapColorPatchSerializer,
@@ -243,7 +243,7 @@ internal object MapDataPacketSerializer : KSerializer<MapDataPacket> {
             scale = scale ?: throw SerializationException("Missing map scale"),
             locked = locked ?: throw SerializationException("Missing map lock state"),
             decorations = decorations,
-            colorPatch = colorPatch,
+            colorPatch = mapColorPatch,
         )
     }
 
@@ -414,8 +414,8 @@ data class SoundEffectPacket(
         private const val POSITION_SCALE: Double = 8.0
 
         fun fromPosition(
-            sound: SoundEventHolder,
-            source: SoundSource,
+            soundEventHolder: SoundEventHolder,
+            soundSource: SoundSource,
             x: Double,
             y: Double,
             z: Double,
@@ -423,8 +423,8 @@ data class SoundEffectPacket(
             pitch: Float,
             seed: Long,
         ): SoundEffectPacket = SoundEffectPacket(
-            sound,
-            source,
+            soundEventHolder,
+            soundSource,
             (x * POSITION_SCALE).toInt(),
             (y * POSITION_SCALE).toInt(),
             (z * POSITION_SCALE).toInt(),

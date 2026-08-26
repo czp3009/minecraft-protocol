@@ -25,206 +25,214 @@ class LauncherControllerTest {
         val requestStarted = CompletableDeferred<Unit>()
         val releaseResponse = CompletableDeferred<Unit>()
         val manifestBytes = emptyManifestBytes()
-        val client = HttpClient(
+        val httpClient = HttpClient(
             MockEngine {
                 requestStarted.complete(Unit)
                 releaseResponse.await()
                 respond(manifestBytes, headers = jsonHeaders())
             },
         ) { configureLauncherHttpClient() }
-        val fixture = ControllerFixture(backgroundScope, client)
+        val controllerFixture = ControllerFixture(backgroundScope, httpClient)
         try {
-            fixture.controller.start()
+            controllerFixture.launcherController.start()
             requestStarted.await()
 
-            assertEquals(LauncherDestination.Home, fixture.controller.state.value.destination)
-            fixture.controller.showVersions()
-            val loading = assertIs<LauncherDestination.Loading>(fixture.controller.state.value.destination)
-            assertEquals(LauncherOperation.VERSION_MANIFEST, loading.operation)
+            assertEquals(LauncherDestination.Home, controllerFixture.launcherController.state.value.launcherDestination)
+            controllerFixture.launcherController.showVersions()
+            val loading =
+                assertIs<LauncherDestination.Loading>(controllerFixture.launcherController.state.value.launcherDestination)
+            assertEquals(LauncherOperation.VERSION_MANIFEST, loading.launcherOperation)
 
             releaseResponse.complete(Unit)
-            val ready = fixture.controller.state.first { it.manifest is VersionManifestState.Ready }
+            val ready =
+                controllerFixture.launcherController.state.first { it.versionManifestState is VersionManifestState.Ready }
 
-            assertEquals(LauncherDestination.Versions, ready.destination)
+            assertEquals(LauncherDestination.Versions, ready.launcherDestination)
         } finally {
-            client.close()
+            httpClient.close()
         }
     }
 
     @Test
     fun manifestFailureStaysInBackgroundUntilVersionsAreOpened() = runTest {
         var requestCount = 0
-        val client = HttpClient(
+        val httpClient = HttpClient(
             MockEngine {
                 requestCount++
                 throw IllegalStateException("manifest failed")
             },
         ) { configureLauncherHttpClient() }
-        val fixture = ControllerFixture(backgroundScope, client)
+        val controllerFixture = ControllerFixture(backgroundScope, httpClient)
         try {
-            fixture.controller.start()
-            val failed = fixture.controller.state.first { it.manifest is VersionManifestState.Failed }
+            controllerFixture.launcherController.start()
+            val failed =
+                controllerFixture.launcherController.state.first { it.versionManifestState is VersionManifestState.Failed }
 
-            assertEquals(LauncherDestination.Home, failed.destination)
-            fixture.controller.showVersions()
-            val errorState = fixture.controller.state.first { it.destination is LauncherDestination.Error }
-            val error = assertIs<LauncherDestination.Error>(errorState.destination)
+            assertEquals(LauncherDestination.Home, failed.launcherDestination)
+            controllerFixture.launcherController.showVersions()
+            val errorState =
+                controllerFixture.launcherController.state.first { it.launcherDestination is LauncherDestination.Error }
+            val error = assertIs<LauncherDestination.Error>(errorState.launcherDestination)
             assertTrue("manifest failed" in error.message)
             assertEquals(LauncherDestination.Home, error.returnTo)
             assertEquals(2, requestCount)
 
-            fixture.controller.dismissError()
-            assertEquals(LauncherDestination.Home, fixture.controller.state.value.destination)
+            controllerFixture.launcherController.dismissError()
+            assertEquals(LauncherDestination.Home, controllerFixture.launcherController.state.value.launcherDestination)
         } finally {
-            client.close()
+            httpClient.close()
         }
     }
 
     @Test
     fun cancellingReinstallAfterContentDownloadsStartLeavesVersionUninstalled() = runTest {
-        val fixture = InstallFixture(blockContentDownloads = true)
-        fixture.recordInstalled()
-        val controller = createController(
-            scope = backgroundScope,
-            client = fixture.client,
-            fileSystem = fixture.fileSystem,
-            root = fixture.root,
-            store = fixture.store,
-            installationService = fixture.service,
-            platform = fixture.platform,
+        val installFixture = InstallFixture(blockContentDownloads = true)
+        installFixture.recordInstalled()
+        val launcherController = createController(
+            coroutineScope = backgroundScope,
+            httpClient = installFixture.httpClient,
+            fakeFileSystem = installFixture.fakeFileSystem,
+            root = installFixture.root,
+            launcherStore = installFixture.launcherStore,
+            installationService = installFixture.installationService,
+            launcherPlatform = installFixture.launcherPlatform,
         )
         try {
-            controller.start()
-            controller.state.first {
-                it.manifest is VersionManifestState.Ready && it.installed.installations.isNotEmpty()
+            launcherController.start()
+            launcherController.state.first {
+                it.versionManifestState is VersionManifestState.Ready && it.installedState.installations.isNotEmpty()
             }
-            controller.confirmInstall(fixture.entry)
-            controller.install(fixture.entry)
-            fixture.activeContentDownloads.first { it == 3 }
+            launcherController.confirmInstall(installFixture.versionEntry)
+            launcherController.install(installFixture.versionEntry)
+            installFixture.activeContentDownloads.first { it == 3 }
 
-            assertIs<LauncherDestination.Installing>(controller.state.value.destination)
-            assertTrue(controller.installedVersions().isEmpty())
-            assertTrue(fixture.store.loadInstalled().installations.isEmpty())
-            controller.cancelInstallation()
+            assertIs<LauncherDestination.Installing>(launcherController.state.value.launcherDestination)
+            assertTrue(launcherController.installedVersions().isEmpty())
+            assertTrue(installFixture.launcherStore.loadInstalled().installations.isEmpty())
+            launcherController.cancelInstallation()
 
-            controller.state.first { it.destination == LauncherDestination.Versions }
-            fixture.activeContentDownloads.first { it == 0 }
-            assertTrue(fixture.store.loadInstalled().installations.isEmpty())
-            assertEquals(LauncherDestination.Versions, controller.state.value.destination)
+            launcherController.state.first { it.launcherDestination == LauncherDestination.Versions }
+            installFixture.activeContentDownloads.first { it == 0 }
+            assertTrue(installFixture.launcherStore.loadInstalled().installations.isEmpty())
+            assertEquals(LauncherDestination.Versions, launcherController.state.value.launcherDestination)
         } finally {
-            fixture.close()
+            installFixture.close()
         }
     }
 
     @Test
     fun cancellingReinstallDuringAssetIndexDownloadKeepsInstalledRecord() = runTest {
-        val fixture = InstallFixture(blockAssetIndexDownload = true)
-        fixture.recordInstalled()
-        val controller = createController(
-            scope = backgroundScope,
-            client = fixture.client,
-            fileSystem = fixture.fileSystem,
-            root = fixture.root,
-            store = fixture.store,
-            installationService = fixture.service,
-            platform = fixture.platform,
+        val installFixture = InstallFixture(blockAssetIndexDownload = true)
+        installFixture.recordInstalled()
+        val launcherController = createController(
+            coroutineScope = backgroundScope,
+            httpClient = installFixture.httpClient,
+            fakeFileSystem = installFixture.fakeFileSystem,
+            root = installFixture.root,
+            launcherStore = installFixture.launcherStore,
+            installationService = installFixture.installationService,
+            launcherPlatform = installFixture.launcherPlatform,
         )
         try {
-            controller.start()
-            controller.state.first {
-                it.manifest is VersionManifestState.Ready && it.installed.installations.isNotEmpty()
+            launcherController.start()
+            launcherController.state.first {
+                it.versionManifestState is VersionManifestState.Ready && it.installedState.installations.isNotEmpty()
             }
-            controller.confirmInstall(fixture.entry)
-            controller.install(fixture.entry)
-            fixture.activeAssetIndexDownloads.first { it == 1 }
+            launcherController.confirmInstall(installFixture.versionEntry)
+            launcherController.install(installFixture.versionEntry)
+            installFixture.activeAssetIndexDownloads.first { it == 1 }
 
-            assertIs<LauncherDestination.PreparingInstall>(controller.state.value.destination)
-            val installed = InstalledVersion(fixture.entry.id, fixture.platform.platformKey)
-            assertEquals(listOf(installed), controller.installedVersions())
-            assertEquals(1, fixture.store.loadInstalled().installations.size)
-            controller.cancelInstallation()
+            assertIs<LauncherDestination.PreparingInstall>(launcherController.state.value.launcherDestination)
+            val installedVersion =
+                InstalledVersion(installFixture.versionEntry.id, installFixture.launcherPlatform.platformKey)
+            assertEquals(listOf(installedVersion), launcherController.installedVersions())
+            assertEquals(1, installFixture.launcherStore.loadInstalled().installations.size)
+            launcherController.cancelInstallation()
 
-            controller.state.first { it.destination == LauncherDestination.Versions }
-            fixture.activeAssetIndexDownloads.first { it == 0 }
-            assertEquals(1, fixture.store.loadInstalled().installations.size)
+            launcherController.state.first { it.launcherDestination == LauncherDestination.Versions }
+            installFixture.activeAssetIndexDownloads.first { it == 0 }
+            assertEquals(1, installFixture.launcherStore.loadInstalled().installations.size)
         } finally {
-            fixture.close()
+            installFixture.close()
         }
     }
 
     @Test
     fun loginFailureShowsErrorAndReturnsToAccounts() = runTest {
-        val client = HttpClient(MockEngine { error("Unexpected HTTP request") })
-        val fileSystem = FakeFileSystem()
+        val httpClient = HttpClient(MockEngine { error("Unexpected HTTP request") })
+        val fakeFileSystem = FakeFileSystem()
         val root = "/launcher root".toPath()
-        fileSystem.createDirectories(root)
-        val store = LauncherStore(fileSystem, root)
-        val platform = testPlatform()
-        val installationService = InstallationService(createMojangApi(client), fileSystem, store, platform)
-        val accountService = AccountService(client, store) {
+        fakeFileSystem.createDirectories(root)
+        val launcherStore = LauncherStore(fakeFileSystem, root)
+        val launcherPlatform = testPlatform()
+        val installationService =
+            InstallationService(createMojangApi(httpClient), fakeFileSystem, launcherStore, launcherPlatform)
+        val accountService = AccountService(httpClient, launcherStore) {
             throw IllegalStateException("browser failed")
         }
-        val controller = LauncherController(
+        val launcherController = LauncherController(
             backgroundScope,
-            store,
+            launcherStore,
             installationService,
             accountService,
-            GameProcessService(fileSystem, root),
-            platform,
+            GameProcessService(fakeFileSystem, root),
+            launcherPlatform,
         )
         try {
-            controller.showAccounts()
-            controller.loginMicrosoft()
+            launcherController.showAccounts()
+            launcherController.loginMicrosoft()
 
-            val errorState = controller.state.first { it.destination is LauncherDestination.Error }
-            val error = assertIs<LauncherDestination.Error>(errorState.destination)
+            val errorState = launcherController.state.first { it.launcherDestination is LauncherDestination.Error }
+            val error = assertIs<LauncherDestination.Error>(errorState.launcherDestination)
             assertTrue("browser failed" in error.message)
             assertEquals(LauncherDestination.Accounts, error.returnTo)
 
-            controller.dismissError()
-            assertEquals(LauncherDestination.Accounts, controller.state.value.destination)
+            launcherController.dismissError()
+            assertEquals(LauncherDestination.Accounts, launcherController.state.value.launcherDestination)
         } finally {
-            client.close()
+            httpClient.close()
         }
     }
 
     @Test
     fun addingOfflineIdentityReturnsToAccounts() = runTest {
-        val client = HttpClient(MockEngine { error("Offline identity must not trigger HTTP") })
-        val fixture = ControllerFixture(backgroundScope, client)
+        val httpClient = HttpClient(MockEngine { error("Offline identity must not trigger HTTP") })
+        val controllerFixture = ControllerFixture(backgroundScope, httpClient)
         try {
-            fixture.controller.showAddAccount()
-            fixture.controller.showOfflineInput()
-            fixture.controller.saveOfflineIdentity("OfflinePlayer")
+            controllerFixture.launcherController.showAddAccount()
+            controllerFixture.launcherController.showOfflineInput()
+            controllerFixture.launcherController.saveOfflineIdentity("OfflinePlayer")
 
-            val state = fixture.controller.state.first { it.destination == LauncherDestination.Accounts }
+            val launcherState = controllerFixture.launcherController.state.first {
+                it.launcherDestination == LauncherDestination.Accounts
+            }
 
-            assertEquals(listOf("OfflinePlayer"), state.auth?.accounts?.map { it.identity.name })
+            assertEquals(listOf("OfflinePlayer"), launcherState.authState?.accounts?.map { it.minecraftIdentity.name })
         } finally {
-            client.close()
+            httpClient.close()
         }
     }
 
     @Test
     fun backgroundRefreshFailureMarksLoginExpiredWithoutLeavingHomeAndBlocksLaunch() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val root = "/launcher root".toPath()
-        fileSystem.createDirectories(root)
-        val store = LauncherStore(fileSystem, root)
-        val identity = MinecraftOnlineIdentity(
+        fakeFileSystem.createDirectories(root)
+        val launcherStore = LauncherStore(fakeFileSystem, root)
+        val minecraftOnlineIdentity = MinecraftOnlineIdentity(
             id = Uuid.parse(TEST_PROFILE_ID),
             name = "OnlinePlayer",
             accessToken = "expired-minecraft-token",
         )
-        store.auth.update {
-            selectedIdentityId = identity.id
-            accounts = listOf(StoredAccount(identity, "expired-refresh-token", 0))
+        launcherStore.authMemory.update {
+            selectedIdentityId = minecraftOnlineIdentity.id
+            accounts = listOf(StoredAccount(minecraftOnlineIdentity, "expired-refresh-token", 0))
         }
         val refreshStarted = CompletableDeferred<Unit>()
         val releaseRefresh = CompletableDeferred<Unit>()
-        val client = HttpClient(
-            MockEngine { request ->
-                if ("version_manifest" in request.url.toString()) {
+        val httpClient = HttpClient(
+            MockEngine { httpRequestData ->
+                if ("version_manifest" in httpRequestData.url.toString()) {
                     respond(emptyManifestBytes(), headers = jsonHeaders())
                 } else {
                     refreshStarted.complete(Unit)
@@ -233,45 +241,45 @@ class LauncherControllerTest {
                 }
             },
         ) { configureLauncherHttpClient() }
-        val platform = testPlatform()
-        val controller = LauncherController(
+        val launcherPlatform = testPlatform()
+        val launcherController = LauncherController(
             backgroundScope,
-            store,
-            InstallationService(createMojangApi(client), fileSystem, store, platform),
-            AccountService(client, store, BrowserService {}),
-            GameProcessService(fileSystem, root),
-            platform,
+            launcherStore,
+            InstallationService(createMojangApi(httpClient), fakeFileSystem, launcherStore, launcherPlatform),
+            AccountService(httpClient, launcherStore, BrowserService {}),
+            GameProcessService(fakeFileSystem, root),
+            launcherPlatform,
         )
         try {
-            controller.start()
+            launcherController.start()
             refreshStarted.await()
-            val refreshing = controller.state.first {
-                it.accountCredentials[identity.id] == AccountCredentialState.REFRESHING
+            val refreshing = launcherController.state.first {
+                it.accountCredentials[minecraftOnlineIdentity.id] == AccountCredentialState.REFRESHING
             }
-            assertEquals(LauncherDestination.Home, refreshing.destination)
+            assertEquals(LauncherDestination.Home, refreshing.launcherDestination)
 
-            controller.showVersionActions("demo")
-            controller.launchGame("demo")
-            val loadingState = controller.state.first {
-                (it.destination as? LauncherDestination.Loading)?.operation == LauncherOperation.REFRESH_ACCOUNT
+            launcherController.showVersionActions("demo")
+            launcherController.launchGame("demo")
+            val loadingState = launcherController.state.first {
+                (it.launcherDestination as? LauncherDestination.Loading)?.launcherOperation == LauncherOperation.REFRESH_ACCOUNT
             }
-            val loading = assertIs<LauncherDestination.Loading>(loadingState.destination)
-            assertEquals(LauncherOperation.REFRESH_ACCOUNT, loading.operation)
+            val loading = assertIs<LauncherDestination.Loading>(loadingState.launcherDestination)
+            assertEquals(LauncherOperation.REFRESH_ACCOUNT, loading.launcherOperation)
             releaseRefresh.complete(Unit)
 
-            val failed = controller.state.first { it.destination is LauncherDestination.Error }
-            assertEquals(AccountCredentialState.LOGIN_EXPIRED, failed.accountCredentials[identity.id])
-            val error = assertIs<LauncherDestination.Error>(failed.destination)
+            val failed = launcherController.state.first { it.launcherDestination is LauncherDestination.Error }
+            assertEquals(AccountCredentialState.LOGIN_EXPIRED, failed.accountCredentials[minecraftOnlineIdentity.id])
+            val error = assertIs<LauncherDestination.Error>(failed.launcherDestination)
             assertTrue("Login expired" in error.message)
             assertEquals(LauncherDestination.VersionActions("demo"), error.returnTo)
         } finally {
-            client.close()
+            httpClient.close()
         }
     }
 
     @Test
     fun launchWaitsForBackgroundRefreshAndUsesTheNewMinecraftAccessToken() = runTest {
-        val fixture = InstallFixture()
+        val installFixture = InstallFixture()
         val responseMutex = Mutex()
         val refreshStarted = CompletableDeferred<Unit>()
         val releaseRefresh = CompletableDeferred<Unit>()
@@ -290,86 +298,87 @@ class LauncherControllerTest {
                 )
             },
         )
-        val identity = MinecraftOnlineIdentity(
+        val minecraftOnlineIdentity = MinecraftOnlineIdentity(
             id = Uuid.parse(TEST_PROFILE_ID),
             name = "OnlinePlayer",
             accessToken = "expired-minecraft-token",
         )
-        val processRuntime = RecordingGameProcessRuntime()
+        val recordingGameProcessRuntime = RecordingGameProcessRuntime()
         try {
-            fixture.service.install(fixture.entry)
-            fixture.store.auth.update {
-                selectedIdentityId = identity.id
-                accounts = listOf(StoredAccount(identity, "old-refresh-token", 0))
+            installFixture.installationService.install(installFixture.versionEntry)
+            installFixture.launcherStore.authMemory.update {
+                selectedIdentityId = minecraftOnlineIdentity.id
+                accounts = listOf(StoredAccount(minecraftOnlineIdentity, "old-refresh-token", 0))
             }
-            val controller = LauncherController(
+            val launcherController = LauncherController(
                 backgroundScope,
-                fixture.store,
-                fixture.service,
-                AccountService(accountClient, fixture.store, BrowserService {}),
-                processRuntime,
-                fixture.platform,
+                installFixture.launcherStore,
+                installFixture.installationService,
+                AccountService(accountClient, installFixture.launcherStore, BrowserService {}),
+                recordingGameProcessRuntime,
+                installFixture.launcherPlatform,
             )
-            controller.start()
+            launcherController.start()
             refreshStarted.await()
-            controller.state.first { it.accountCredentials[identity.id] == AccountCredentialState.REFRESHING }
+            launcherController.state.first { it.accountCredentials[minecraftOnlineIdentity.id] == AccountCredentialState.REFRESHING }
 
-            controller.showVersionActions(fixture.entry.id)
-            controller.launchGame(fixture.entry.id)
-            val loadingState = controller.state.first {
-                (it.destination as? LauncherDestination.Loading)?.operation == LauncherOperation.REFRESH_ACCOUNT
+            launcherController.showVersionActions(installFixture.versionEntry.id)
+            launcherController.launchGame(installFixture.versionEntry.id)
+            val loadingState = launcherController.state.first {
+                (it.launcherDestination as? LauncherDestination.Loading)?.launcherOperation == LauncherOperation.REFRESH_ACCOUNT
             }
-            val loading = assertIs<LauncherDestination.Loading>(loadingState.destination)
-            assertEquals(LauncherOperation.REFRESH_ACCOUNT, loading.operation)
+            val loading = assertIs<LauncherDestination.Loading>(loadingState.launcherDestination)
+            assertEquals(LauncherOperation.REFRESH_ACCOUNT, loading.launcherOperation)
             releaseRefresh.complete(Unit)
 
-            assertEquals("minecraft-access", processRuntime.launched.await().sensitiveAccessToken)
-            val launched = controller.state.first { it.destination is LauncherDestination.GameOutput }
-            assertTrue(identity.id !in launched.accountCredentials)
+            assertEquals("minecraft-access", recordingGameProcessRuntime.launched.await().sensitiveAccessToken)
+            val launched = launcherController.state.first { it.launcherDestination is LauncherDestination.GameOutput }
+            assertTrue(minecraftOnlineIdentity.id !in launched.accountCredentials)
             val persistedIdentity = assertIs<MinecraftOnlineIdentity>(
-                fixture.store.auth.read { accounts.single().identity },
+                installFixture.launcherStore.authMemory.read { accounts.single().minecraftIdentity },
             )
             assertEquals("minecraft-access", persistedIdentity.accessToken)
         } finally {
             accountClient.close()
-            fixture.close()
+            installFixture.close()
         }
     }
 
     @Test
     fun gameProcessFailureWithDefaultIdentityShowsErrorAndReturnsToGameOutput() = runTest {
-        val fixture = InstallFixture()
-        val processRuntime = FailingGameProcessRuntime()
+        val installFixture = InstallFixture()
+        val failingGameProcessRuntime = FailingGameProcessRuntime()
         try {
-            fixture.service.install(fixture.entry)
-            val accountService = AccountService(fixture.client, fixture.store, BrowserService {})
-            val controller = LauncherController(
+            installFixture.installationService.install(installFixture.versionEntry)
+            val accountService =
+                AccountService(installFixture.httpClient, installFixture.launcherStore, BrowserService {})
+            val launcherController = LauncherController(
                 backgroundScope,
-                fixture.store,
-                fixture.service,
+                installFixture.launcherStore,
+                installFixture.installationService,
                 accountService,
-                processRuntime,
-                fixture.platform,
+                failingGameProcessRuntime,
+                installFixture.launcherPlatform,
             )
-            controller.start()
-            controller.state.first {
-                it.manifest is VersionManifestState.Ready && it.installed.installations.isNotEmpty()
+            launcherController.start()
+            launcherController.state.first {
+                it.versionManifestState is VersionManifestState.Ready && it.installedState.installations.isNotEmpty()
             }
-            controller.showVersionActions(fixture.entry.id)
-            controller.launchGame(fixture.entry.id)
+            launcherController.showVersionActions(installFixture.versionEntry.id)
+            launcherController.launchGame(installFixture.versionEntry.id)
 
-            val errorState = controller.state.first { it.destination is LauncherDestination.Error }
-            val error = assertIs<LauncherDestination.Error>(errorState.destination)
+            val errorState = launcherController.state.first { it.launcherDestination is LauncherDestination.Error }
+            val error = assertIs<LauncherDestination.Error>(errorState.launcherDestination)
             assertTrue("process failed" in error.message)
             val outputDestination = assertIs<LauncherDestination.GameOutput>(error.returnTo)
-            val output = outputDestination.output.state.value
-            assertTrue(output.lines.any { "Launch failed" in it.text && "process failed" in it.text })
-            assertEquals(false, output.running)
+            val gameOutputSnapshot = outputDestination.gameOutputBuffer.state.value
+            assertTrue(gameOutputSnapshot.lines.any { "Launch failed" in it.text && "process failed" in it.text })
+            assertEquals(false, gameOutputSnapshot.running)
 
-            controller.dismissError()
-            assertEquals(outputDestination, controller.state.value.destination)
+            launcherController.dismissError()
+            assertEquals(outputDestination, launcherController.state.value.launcherDestination)
         } finally {
-            fixture.close()
+            installFixture.close()
         }
     }
 }
@@ -377,9 +386,10 @@ class LauncherControllerTest {
 private class FailingGameProcessRuntime : GameProcessRuntime {
     override fun cleanupStaleArgumentFiles() = Unit
 
-    override fun outputBuffer(plan: LaunchPlan) = GameOutputBuffer(listOfNotNull(plan.sensitiveAccessToken))
+    override fun outputBuffer(launchPlan: LaunchPlan) =
+        GameOutputBuffer(listOfNotNull(launchPlan.sensitiveAccessToken))
 
-    override suspend fun launch(plan: LaunchPlan, output: GameOutputBuffer): Nothing {
+    override suspend fun launch(launchPlan: LaunchPlan, gameOutputBuffer: GameOutputBuffer): Nothing {
         throw IllegalStateException("process failed")
     }
 }
@@ -389,50 +399,51 @@ private class RecordingGameProcessRuntime : GameProcessRuntime {
 
     override fun cleanupStaleArgumentFiles() = Unit
 
-    override fun outputBuffer(plan: LaunchPlan) = GameOutputBuffer(listOfNotNull(plan.sensitiveAccessToken))
+    override fun outputBuffer(launchPlan: LaunchPlan) =
+        GameOutputBuffer(listOfNotNull(launchPlan.sensitiveAccessToken))
 
-    override suspend fun launch(plan: LaunchPlan, output: GameOutputBuffer) {
-        launched.complete(plan)
-        output.finish(0)
+    override suspend fun launch(launchPlan: LaunchPlan, gameOutputBuffer: GameOutputBuffer) {
+        launched.complete(launchPlan)
+        gameOutputBuffer.finish(0)
     }
 }
 
-private class ControllerFixture(scope: CoroutineScope, client: HttpClient) {
-    private val fileSystem = FakeFileSystem()
+private class ControllerFixture(coroutineScope: CoroutineScope, httpClient: HttpClient) {
+    private val fakeFileSystem = FakeFileSystem()
     private val root = "/launcher root".toPath()
-    private val store = LauncherStore(fileSystem, root)
-    private val platform = testPlatform()
-    val controller: LauncherController
+    private val launcherStore = LauncherStore(fakeFileSystem, root)
+    private val launcherPlatform = testPlatform()
+    val launcherController: LauncherController
 
     init {
-        fileSystem.createDirectories(root)
-        controller = createController(
-            scope,
-            client,
-            fileSystem,
+        fakeFileSystem.createDirectories(root)
+        launcherController = createController(
+            coroutineScope,
+            httpClient,
+            fakeFileSystem,
             root,
-            store,
-            InstallationService(createMojangApi(client), fileSystem, store, platform),
-            platform,
+            launcherStore,
+            InstallationService(createMojangApi(httpClient), fakeFileSystem, launcherStore, launcherPlatform),
+            launcherPlatform,
         )
     }
 }
 
 private fun createController(
-    scope: CoroutineScope,
-    client: HttpClient,
-    fileSystem: FakeFileSystem,
+    coroutineScope: CoroutineScope,
+    httpClient: HttpClient,
+    fakeFileSystem: FakeFileSystem,
     root: Path,
-    store: LauncherStore,
+    launcherStore: LauncherStore,
     installationService: InstallationService,
-    platform: LauncherPlatform,
+    launcherPlatform: LauncherPlatform,
 ): LauncherController = LauncherController(
-    scope,
-    store,
+    coroutineScope,
+    launcherStore,
     installationService,
-    AccountService(client, store, BrowserService {}),
-    GameProcessService(fileSystem, root),
-    platform,
+    AccountService(httpClient, launcherStore, BrowserService {}),
+    GameProcessService(fakeFileSystem, root),
+    launcherPlatform,
 )
 
 private fun emptyManifestBytes(): ByteArray = launcherJson.encodeToString(

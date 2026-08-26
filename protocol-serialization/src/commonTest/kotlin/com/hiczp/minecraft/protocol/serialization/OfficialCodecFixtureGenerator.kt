@@ -23,39 +23,39 @@ import kotlin.uuid.Uuid
  */
 internal object OfficialCodecFixtureGenerator {
     fun generate(): JsonElement {
-        val format = MinecraftProtocolFormat(
+        val minecraftProtocolFormat = MinecraftProtocolFormat(
             MinecraftProtocolFormatConfiguration(
                 protocolRegistryContext = testProtocolRegistryContext(chunkSectionCount = 0),
             ),
         )
         val fixtures = buildJsonArray {
-            for (codec in MinecraftPacketRegistry.entries) {
-                if (codec.framing != PacketFraming.NORMAL) {
+            for (packetCodec in MinecraftPacketRegistry.entries) {
+                if (packetCodec.packetFraming != PacketFraming.NORMAL) {
                     continue
                 }
                 @Suppress("UNCHECKED_CAST")
-                val serializer = codec.serializer as KSerializer<Packet>
-                val packetName = serializer.descriptor.serialName
-                val samples = explicitSamples(codec.packetClass)
-                    ?: ProtocolSampleProfile.entries.mapNotNull { profile ->
+                val kSerializer = packetCodec.kSerializer as KSerializer<Packet>
+                val packetName = kSerializer.descriptor.serialName
+                val samples = explicitSamples(packetCodec.packetClass)
+                    ?: ProtocolSampleProfile.entries.mapNotNull { protocolSampleProfile ->
                         runCatching {
-                            profile.name.lowercase() to serializer.protocolValue(profile)
+                            protocolSampleProfile.name.lowercase() to kSerializer.protocolValue(protocolSampleProfile)
                         }.getOrNull()
                     }
                 val seenPayloads = mutableSetOf<String>()
-                for ((sampleName, sample) in samples) {
-                    val payload = runCatching {
-                        MinecraftPacketRegistry.encodePayload(sample, format)
+                for ((sampleName, samplePacket) in samples) {
+                    val encodedPacketPayload = runCatching {
+                        MinecraftPacketRegistry.encodePayload(samplePacket, minecraftProtocolFormat)
                     }.getOrNull() ?: continue
-                    val payloadHex = payload.payload.toHexString()
+                    val payloadHex = encodedPacketPayload.payload.toHexString()
                     if (!seenPayloads.add(payloadHex)) {
                         continue
                     }
                     add(
                         buildJsonObject {
-                            put("state", codec.key.state.name)
-                            put("direction", codec.key.direction.name)
-                            put("id", codec.key.id)
+                            put("state", packetCodec.packetKey.connectionState.name)
+                            put("direction", packetCodec.packetKey.packetDirection.name)
+                            put("id", packetCodec.packetKey.id)
                             put(
                                 "kotlinClass",
                                 packetName,
@@ -66,7 +66,7 @@ internal object OfficialCodecFixtureGenerator {
                     )
                 }
                 check(seenPayloads.isNotEmpty()) {
-                    "No protocol sample could be generated for ${codec.packetClass}"
+                    "No protocol sample could be generated for ${packetCodec.packetClass}"
                 }
             }
         }
@@ -102,8 +102,8 @@ internal object OfficialCodecFixtureGenerator {
 
             ParticlePacket::class ->
                 (particleRegistrySamples() + additionalParticleBranchSamples())
-                    .map { sample ->
-                        "particle-${sample.name}" to ParticlePacket(
+                    .map { namedNetworkTypeSample ->
+                        "particle-${namedNetworkTypeSample.name}" to ParticlePacket(
                             overrideLimiter = false,
                             alwaysShow = true,
                             x = 1.0,
@@ -114,18 +114,18 @@ internal object OfficialCodecFixtureGenerator {
                             offsetZ = 0.3f,
                             maxSpeed = 1.0f,
                             count = 1,
-                            particle = sample.value,
+                            particle = namedNetworkTypeSample.value,
                         )
                     }
 
             CommandsPacket::class ->
-                commandParserRegistrySamples().map { sample ->
-                    "parser-${sample.name}" to CommandsPacket(
+                commandParserRegistrySamples().map { namedNetworkTypeSample ->
+                    "parser-${namedNetworkTypeSample.name}" to CommandsPacket(
                         nodes = listOf(
                             CommandNode.Root(children = listOf(1)),
                             CommandNode.Argument(
                                 name = "value",
-                                parser = sample.value,
+                                parser = namedNetworkTypeSample.value,
                                 children = emptyList(),
                                 executable = true,
                             ),
@@ -142,9 +142,9 @@ internal object OfficialCodecFixtureGenerator {
                 )
 
             DebugEventPacket::class ->
-                debugSubscriptionDataSamples().map { sample ->
-                    "debug-${sample.name}" to DebugEventPacket(
-                        DebugSubscriptionEvent(sample.value),
+                debugSubscriptionDataSamples().map { namedNetworkTypeSample ->
+                    "debug-${namedNetworkTypeSample.name}" to DebugEventPacket(
+                        DebugSubscriptionEvent(namedNetworkTypeSample.value),
                     )
                 }
 
@@ -194,16 +194,16 @@ internal object OfficialCodecFixtureGenerator {
                 waypointSamples()
 
             PlaceGhostRecipePacket::class ->
-                recipeDisplayRegistrySamples().map { sample ->
-                    "recipe-${sample.name}" to PlaceGhostRecipePacket(
+                recipeDisplayRegistrySamples().map { namedNetworkTypeSample ->
+                    "recipe-${namedNetworkTypeSample.name}" to PlaceGhostRecipePacket(
                         containerId = 1,
-                        recipeDisplay = sample.value,
+                        recipeDisplay = namedNetworkTypeSample.value,
                     )
-                } + slotDisplayRegistrySamples().map { sample ->
-                    "slot-${sample.name}" to PlaceGhostRecipePacket(
+                } + slotDisplayRegistrySamples().map { namedNetworkTypeSample ->
+                    "slot-${namedNetworkTypeSample.name}" to PlaceGhostRecipePacket(
                         containerId = 1,
                         recipeDisplay = RecipeDisplay.Shapeless(
-                            ingredients = listOf(sample.value),
+                            ingredients = listOf(namedNetworkTypeSample.value),
                             result = SlotDisplay.Empty,
                             craftingStation = SlotDisplay.Empty,
                         ),
@@ -211,14 +211,14 @@ internal object OfficialCodecFixtureGenerator {
                 }
 
             SetEntityMetadataPacket::class ->
-                entityDataValueSamples().map { sample ->
-                    "entity-data-${sample.name}" to SetEntityMetadataPacket(
+                entityDataValueSamples().map { namedDataComponentSample ->
+                    "entity-data-${namedDataComponentSample.name}" to SetEntityMetadataPacket(
                         entityId = 1,
                         metadata = EntityMetadata(
                             listOf(
                                 EntityMetadataEntry(
                                     index = 0,
-                                    value = sample.value,
+                                    value = namedDataComponentSample.value,
                                 ),
                             ),
                         ),
@@ -228,12 +228,12 @@ internal object OfficialCodecFixtureGenerator {
             SetCursorItemPacket::class ->
                 listOf(
                     "empty_stack" to SetCursorItemPacket(ItemStack.Empty),
-                ) + officialDataComponentSamples().map { sample ->
-                    "component-${sample.name}" to SetCursorItemPacket(
+                ) + officialDataComponentSamples().map { namedDataComponentSample ->
+                    "component-${namedDataComponentSample.name}" to SetCursorItemPacket(
                         ItemStack.of(
                             itemId = 1,
                             components = DataComponentPatch(
-                                added = listOf(sample.value),
+                                added = listOf(namedDataComponentSample.value),
                             ),
                         ),
                     )
@@ -321,12 +321,12 @@ internal object OfficialCodecFixtureGenerator {
         val profileId = Uuid.fromLongs(1, 2)
         fun packet(
             name: String,
-            action: PlayerInfoAction,
-            entry: PlayerInfoEntry,
+            playerInfoAction: PlayerInfoAction,
+            playerInfoEntry: PlayerInfoEntry,
         ): Pair<String, Packet> = name to PlayerInfoUpdatePacket(
             PlayerInfoUpdatePayload(
-                actions = setOf(action),
-                entries = listOf(entry),
+                actions = setOf(playerInfoAction),
+                entries = listOf(playerInfoEntry),
             ),
         )
 
@@ -437,7 +437,7 @@ internal object OfficialCodecFixtureGenerator {
         )
 
     private fun teamUpdateSamples(): List<Pair<String, TeamUpdate>> {
-        val parameters = TeamParameters(
+        val teamParameters = TeamParameters(
             displayName = TextComponent.literal("team"),
             playerPrefix = TextComponent.literal("["),
             playerSuffix = TextComponent.literal("]"),
@@ -447,9 +447,9 @@ internal object OfficialCodecFixtureGenerator {
             options = 3,
         )
         return listOf(
-            "add" to TeamUpdate.Add(parameters, listOf("player")),
+            "add" to TeamUpdate.Add(teamParameters, listOf("player")),
             "remove" to TeamUpdate.Remove,
-            "change" to TeamUpdate.Change(parameters),
+            "change" to TeamUpdate.Change(teamParameters),
             "join" to TeamUpdate.Join(listOf("player")),
             "leave" to TeamUpdate.Leave(listOf("player")),
         )
@@ -498,13 +498,13 @@ internal object OfficialCodecFixtureGenerator {
     }
 
     private fun officialDataComponentSamples(): List<NamedDataComponentSample> {
-        val generic = dataComponentTestSamples().filterNot { sample ->
-            sample.name == "can_place_on-non_empty_collections" ||
-                    sample.name == "can_break-non_empty_collections" ||
-                    sample.name == "map_decorations-non_empty_collections" ||
-                    sample.name == "debug_stick_state-non_empty_collections" ||
-                    sample.name == "lock-non_empty_collections" ||
-                    sample.type == DataComponentType.CONTAINER_LOOT
+        val generic = dataComponentTestSamples().filterNot { namedDataComponentSample ->
+            namedDataComponentSample.name == "can_place_on-non_empty_collections" ||
+                    namedDataComponentSample.name == "can_break-non_empty_collections" ||
+                    namedDataComponentSample.name == "map_decorations-non_empty_collections" ||
+                    namedDataComponentSample.name == "debug_stick_state-non_empty_collections" ||
+                    namedDataComponentSample.name == "lock-non_empty_collections" ||
+                    namedDataComponentSample.dataComponentType == DataComponentType.CONTAINER_LOOT
         }
         val blockPredicate = BlockPredicate(
             blocks = RegistryHolderSet.Direct(listOf(1)),
@@ -512,21 +512,21 @@ internal object OfficialCodecFixtureGenerator {
         return generic + listOf(
             NamedDataComponentSample(
                 name = "can_place_on-explicit_predicate",
-                type = DataComponentType.CAN_PLACE_ON,
+                dataComponentType = DataComponentType.CAN_PLACE_ON,
                 value = DataComponent.CanPlaceOn(
                     AdventureModePredicate(listOf(blockPredicate)),
                 ),
             ),
             NamedDataComponentSample(
                 name = "can_break-explicit_predicate",
-                type = DataComponentType.CAN_BREAK,
+                dataComponentType = DataComponentType.CAN_BREAK,
                 value = DataComponent.CanBreak(
                     AdventureModePredicate(listOf(blockPredicate)),
                 ),
             ),
             NamedDataComponentSample(
                 name = "map_decorations-explicit_entry",
-                type = DataComponentType.MAP_DECORATIONS,
+                dataComponentType = DataComponentType.MAP_DECORATIONS,
                 value = DataComponent.MapDecorations(
                     NbtCompound(
                         mapOf(
@@ -544,7 +544,7 @@ internal object OfficialCodecFixtureGenerator {
             ),
             NamedDataComponentSample(
                 name = "debug_stick_state-explicit_entry",
-                type = DataComponentType.DEBUG_STICK_STATE,
+                dataComponentType = DataComponentType.DEBUG_STICK_STATE,
                 value = DataComponent.DebugStickState(
                     NbtCompound(
                         mapOf(
@@ -555,7 +555,7 @@ internal object OfficialCodecFixtureGenerator {
             ),
             NamedDataComponentSample(
                 name = "container_loot-explicit",
-                type = DataComponentType.CONTAINER_LOOT,
+                dataComponentType = DataComponentType.CONTAINER_LOOT,
                 value = DataComponent.ContainerLoot(
                     NbtCompound(
                         mapOf(
@@ -564,16 +564,16 @@ internal object OfficialCodecFixtureGenerator {
                     ),
                 ),
             ),
-        ) + consumeEffectRegistrySamples().map { sample ->
+        ) + consumeEffectRegistrySamples().map { namedNetworkTypeSample ->
             NamedDataComponentSample(
-                name = "consumable-effect-${sample.name}",
-                type = DataComponentType.CONSUMABLE,
+                name = "consumable-effect-${namedNetworkTypeSample.name}",
+                dataComponentType = DataComponentType.CONSUMABLE,
                 value = DataComponent.Consumable(
                     consumeSeconds = 1.0f,
                     animation = ItemUseAnimation.EAT,
                     sound = SoundEventHolder.Reference(0),
                     hasConsumeParticles = true,
-                    onConsumeEffects = listOf(sample.value),
+                    onConsumeEffects = listOf(namedNetworkTypeSample.value),
                 ),
             )
         }

@@ -88,7 +88,7 @@ object VanillaDataPacks {
         LazyThreadSafetyMode.PUBLICATION,
     ) {
         val dataPackPayloadDescriptors = VanillaDataPackPayload.dataPackPayloadDescriptors
-            .associateBy { dataPackPayloadDescriptor -> DataPackId(dataPackPayloadDescriptor.dataPackId) }
+            .associateBy { vanillaDataPackPayloadDescriptor -> DataPackId(vanillaDataPackPayloadDescriptor.dataPackId) }
         check(dataPackPayloadDescriptors.size == VanillaDataPackPayload.dataPackPayloadDescriptors.size) {
             "Bundled vanilla data packs contain duplicate identifiers"
         }
@@ -132,11 +132,11 @@ private data class VanillaDataPackPayloadBatch(
 
 @OptIn(ExperimentalEncodingApi::class)
 private fun decodedDataPackFileBytes(
-    dataPackPayloadDescriptor: VanillaDataPackPayloadDescriptor,
+    vanillaDataPackPayloadDescriptor: VanillaDataPackPayloadDescriptor,
 ): Sequence<Pair<DataPackFilePath, DataPackFileBytes>> = sequence {
-    repeat(dataPackPayloadDescriptor.batchCount) { batchIndex ->
+    repeat(vanillaDataPackPayloadDescriptor.batchCount) { batchIndex ->
         val encodedBatchChunks = VanillaDataPackPayload.loadDataPackBatch(
-            dataPackPayloadDescriptor.dataPackIndex,
+            vanillaDataPackPayloadDescriptor.dataPackIndex,
             batchIndex,
         )
         decodeDataPackPayloadBatch(encodedBatchChunks).encodedDataPackFileBytesByPath
@@ -147,10 +147,10 @@ private fun decodedDataPackFileBytes(
 }
 
 private fun decodeDataPackArchive(
-    dataPackPayloadDescriptor: VanillaDataPackPayloadDescriptor,
+    vanillaDataPackPayloadDescriptor: VanillaDataPackPayloadDescriptor,
 ): DataPackArchive = DataPackArchive(
-    dataPackId = DataPackId(dataPackPayloadDescriptor.dataPackId),
-    dataPackFileBytesByPath = decodedDataPackFileBytes(dataPackPayloadDescriptor).toMap(),
+    dataPackId = DataPackId(vanillaDataPackPayloadDescriptor.dataPackId),
+    dataPackFileBytesByPath = decodedDataPackFileBytes(vanillaDataPackPayloadDescriptor).toMap(),
 )
 
 @OptIn(ExperimentalEncodingApi::class)

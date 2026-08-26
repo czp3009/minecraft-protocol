@@ -18,7 +18,7 @@ import kotlin.test.assertIs
 class WorldDataPackZipTest {
     @Test
     fun portableZipAdapterInspectsStreamsAndParses() {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val dataPackZipPath = "/world/datapacks/example.zip".toPath()
         val dataPackMetadataJson = buildJsonObject {
             put("pack", buildJsonObject {
@@ -31,9 +31,9 @@ class WorldDataPackZipTest {
             "pack.mcmeta" to jsonBytes(dataPackMetadataJson),
             "data/example/recipe/value.json" to jsonBytes(recipeJson),
         )
-        fileSystem.createDirectories(requireNotNull(dataPackZipPath.parent))
-        fileSystem.write(dataPackZipPath) { write(zipBytes(dataPackFileBytesByPath)) }
-        val worldDataPackReader = WorldDataPackReader(fileSystem, "/world/datapacks".toPath())
+        fakeFileSystem.createDirectories(requireNotNull(dataPackZipPath.parent))
+        fakeFileSystem.write(dataPackZipPath) { write(zipBytes(dataPackFileBytesByPath)) }
+        val worldDataPackReader = WorldDataPackReader(fakeFileSystem, "/world/datapacks".toPath())
 
         val dataPackInspection = worldDataPackReader.inspectDataPack(dataPackZipPath)
         val dataPack = worldDataPackReader.readDataPack(dataPackZipPath)
@@ -56,7 +56,7 @@ class WorldDataPackZipTest {
                 DataPackFilePath("data/example/recipe/value.json"),
             ).toByteArray().toList(),
         )
-        fileSystem.checkNoOpenFiles()
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     private fun zipBytes(dataPackFileBytesByPath: Map<String, ByteArray>): ByteArray {
@@ -67,6 +67,6 @@ class WorldDataPackZipTest {
         return dataPackArchive.toBuffer().toExactByteArray()
     }
 
-    private fun jsonBytes(element: JsonElement): ByteArray =
-        Json.encodeToString(element).encodeToByteArray()
+    private fun jsonBytes(jsonElement: JsonElement): ByteArray =
+        Json.encodeToString(jsonElement).encodeToByteArray()
 }

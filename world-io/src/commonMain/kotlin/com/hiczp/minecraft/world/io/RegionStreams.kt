@@ -6,7 +6,7 @@ import kotlinx.io.Source
 
 /** A detached Anvil image paired with the Region position retained from its `.mca` path. */
 internal class PositionedAnvilRegion(
-    val position: RegionPosition,
+    val regionPosition: RegionPosition,
     val anvilRegion: AnvilRegion,
 ) {
     val chunks: Map<LocalChunkPosition, AnvilChunkRecord>
@@ -16,58 +16,58 @@ internal class PositionedAnvilRegion(
         get() = chunks.keys
 
     val chunkPositions: Set<ChunkPosition>
-        get() = localChunkPositions.mapTo(linkedSetOf(), position::chunk)
+        get() = localChunkPositions.mapTo(linkedSetOf(), regionPosition::chunk)
 
-    operator fun get(local: LocalChunkPosition): AnvilChunkRecord? = anvilRegion[local]
+    operator fun get(localChunkPosition: LocalChunkPosition): AnvilChunkRecord? = anvilRegion[localChunkPosition]
 
-    operator fun get(position: ChunkPosition): AnvilChunkRecord? = get(this.position.local(position))
+    operator fun get(chunkPosition: ChunkPosition): AnvilChunkRecord? = get(this.regionPosition.local(chunkPosition))
 
-    fun hasChunk(local: LocalChunkPosition): Boolean = local in chunks
+    fun hasChunk(localChunkPosition: LocalChunkPosition): Boolean = localChunkPosition in chunks
 
-    fun hasChunk(position: ChunkPosition): Boolean = hasChunk(this.position.local(position))
+    fun hasChunk(chunkPosition: ChunkPosition): Boolean = hasChunk(this.regionPosition.local(chunkPosition))
 
     override fun equals(other: Any?): Boolean =
-        other is PositionedAnvilRegion && position == other.position && anvilRegion == other.anvilRegion
+        other is PositionedAnvilRegion && regionPosition == other.regionPosition && anvilRegion == other.anvilRegion
 
-    override fun hashCode(): Int = 31 * position.hashCode() + anvilRegion.hashCode()
+    override fun hashCode(): Int = 31 * regionPosition.hashCode() + anvilRegion.hashCode()
 
-    override fun toString(): String = "PositionedAnvilRegion(position=$position, chunks=$chunks)"
+    override fun toString(): String = "PositionedAnvilRegion(regionPosition=$regionPosition, chunks=$chunks)"
 }
 
 /** Logical storage metadata for one Chunk in a Region. */
 class RegionChunkInfo internal constructor(
-    val region: RegionPosition,
-    val localPosition: LocalChunkPosition,
+    val regionPosition: RegionPosition,
+    val localChunkPosition: LocalChunkPosition,
     val compression: Compression,
     val compressedByteCount: Long,
-    internal val placement: AnvilChunkPlacement,
+    internal val anvilChunkPlacement: AnvilChunkPlacement,
     /** Raw signed 32-bit seconds-since-epoch value stored for this Chunk. */
     val timestampEpochSeconds: Int,
 ) {
-    val position: ChunkPosition
-        get() = region.chunk(localPosition)
+    val chunkPosition: ChunkPosition
+        get() = regionPosition.chunk(localChunkPosition)
 
     internal fun copy(compressedByteCount: Long = this.compressedByteCount): RegionChunkInfo =
         RegionChunkInfo(
-            region = region,
-            localPosition = localPosition,
+            regionPosition = regionPosition,
+            localChunkPosition = localChunkPosition,
             compression = compression,
             compressedByteCount = compressedByteCount,
-            placement = placement,
+            anvilChunkPlacement = anvilChunkPlacement,
             timestampEpochSeconds = timestampEpochSeconds,
         )
 
     override fun equals(other: Any?): Boolean =
         other is RegionChunkInfo &&
-                region == other.region &&
-                localPosition == other.localPosition &&
+                regionPosition == other.regionPosition &&
+                localChunkPosition == other.localChunkPosition &&
                 compression == other.compression &&
                 compressedByteCount == other.compressedByteCount &&
                 timestampEpochSeconds == other.timestampEpochSeconds
 
     override fun hashCode(): Int {
-        var result = region.hashCode()
-        result = 31 * result + localPosition.hashCode()
+        var result = regionPosition.hashCode()
+        result = 31 * result + localChunkPosition.hashCode()
         result = 31 * result + compression.hashCode()
         result = 31 * result + compressedByteCount.hashCode()
         result = 31 * result + timestampEpochSeconds
@@ -75,7 +75,7 @@ class RegionChunkInfo internal constructor(
     }
 
     override fun toString(): String =
-        "RegionChunkInfo(region=$region, localPosition=$localPosition, compression=$compression, compressedByteCount=$compressedByteCount, timestampEpochSeconds=$timestampEpochSeconds)"
+        "RegionChunkInfo(regionPosition=$regionPosition, localChunkPosition=$localChunkPosition, compression=$compression, compressedByteCount=$compressedByteCount, timestampEpochSeconds=$timestampEpochSeconds)"
 }
 
 /**
@@ -85,16 +85,13 @@ class RegionChunkInfo internal constructor(
  * Metadata is visited lazily in deterministic Region-local order.
  */
 class RegionReadScope private constructor(
-    private val file: MutableRegionFile?,
-    private val region: RegionPosition,
-    private val header: RegionHeader,
+    private val mutableRegionFile: MutableRegionFile?,
+    val regionPosition: RegionPosition,
+    private val regionHeader: RegionHeader,
 ) {
-    internal constructor(file: MutableRegionFile, header: RegionHeader) : this(file, file.position, header)
+    internal constructor(mutableRegionFile: MutableRegionFile, regionHeader: RegionHeader) : this(mutableRegionFile, mutableRegionFile.regionPosition, regionHeader)
 
     private var valid = true
-
-    val position: RegionPosition
-        get() = region
 
     val chunkInfos: Sequence<RegionChunkInfo>
         get() {
@@ -102,8 +99,8 @@ class RegionReadScope private constructor(
             return sequence {
                 for (index in 0 until REGION_CHUNK_COUNT) {
                     checkValid()
-                    val local = LocalChunkPosition.fromIndex(index)
-                    file?.readChunkInfo(local, header)?.let { yield(it) }
+                    val localChunkPosition = LocalChunkPosition.fromIndex(index)
+                    mutableRegionFile?.readChunkInfo(localChunkPosition, regionHeader)?.let { yield(it) }
                 }
             }
         }
@@ -111,56 +108,56 @@ class RegionReadScope private constructor(
     val localChunkPositions: Sequence<LocalChunkPosition>
         get() {
             checkValid()
-            return header.localChunkPositions().onEach { checkValid() }
+            return regionHeader.localChunkPositions().onEach { checkValid() }
         }
 
     val chunkPositions: Sequence<ChunkPosition>
-        get() = localChunkPositions.map(region::chunk)
+        get() = localChunkPositions.map(regionPosition::chunk)
 
-    fun hasChunk(local: LocalChunkPosition): Boolean {
+    fun hasChunk(localChunkPosition: LocalChunkPosition): Boolean {
         checkValid()
-        return file?.hasChunk(local, header) == true
+        return mutableRegionFile?.hasChunk(localChunkPosition, regionHeader) == true
     }
 
-    fun hasChunk(position: ChunkPosition): Boolean = hasChunk(region.local(position))
+    fun hasChunk(chunkPosition: ChunkPosition): Boolean = hasChunk(regionPosition.local(chunkPosition))
 
-    fun readChunkInfo(local: LocalChunkPosition): RegionChunkInfo? {
+    fun readChunkInfo(localChunkPosition: LocalChunkPosition): RegionChunkInfo? {
         checkValid()
-        return file?.readChunkInfo(local, header)
+        return mutableRegionFile?.readChunkInfo(localChunkPosition, regionHeader)
     }
 
-    fun readChunkInfo(position: ChunkPosition): RegionChunkInfo? = readChunkInfo(region.local(position))
+    fun readChunkInfo(chunkPosition: ChunkPosition): RegionChunkInfo? = readChunkInfo(regionPosition.local(chunkPosition))
 
     fun <R> withCompressedChunkSource(
-        local: LocalChunkPosition,
+        localChunkPosition: LocalChunkPosition,
         block: (RegionChunkInfo, Source) -> R,
     ): R? {
         checkValid()
-        return file?.withCompressedChunkSource(local, header, block)
+        return mutableRegionFile?.withCompressedChunkSource(localChunkPosition, regionHeader, block)
     }
 
     fun <R> withCompressedChunkSource(
-        position: ChunkPosition,
+        chunkPosition: ChunkPosition,
         block: (RegionChunkInfo, Source) -> R,
-    ): R? = withCompressedChunkSource(region.local(position), block)
+    ): R? = withCompressedChunkSource(regionPosition.local(chunkPosition), block)
 
     /** Copies one complete compressed Chunk payload without retaining it in memory or closing [sink]. */
-    fun readCompressedChunkTo(local: LocalChunkPosition, sink: Sink): RegionChunkInfo? =
-        withCompressedChunkSource(local) { info, source ->
+    fun readCompressedChunkTo(localChunkPosition: LocalChunkPosition, sink: Sink): RegionChunkInfo? =
+        withCompressedChunkSource(localChunkPosition) { regionChunkInfo, source ->
             source.transferTo(sink)
-            info
+            regionChunkInfo
         }
 
-    fun readCompressedChunkTo(position: ChunkPosition, sink: Sink): RegionChunkInfo? =
-        readCompressedChunkTo(region.local(position), sink)
+    fun readCompressedChunkTo(chunkPosition: ChunkPosition, sink: Sink): RegionChunkInfo? =
+        readCompressedChunkTo(regionPosition.local(chunkPosition), sink)
 
-    fun readCompressedChunk(local: LocalChunkPosition): CompressedChunk? =
-        withCompressedChunkSource(local) { info, source ->
-            CompressedChunk.readFromSource(source, info.compression)
+    fun readCompressedChunk(localChunkPosition: LocalChunkPosition): CompressedChunk? =
+        withCompressedChunkSource(localChunkPosition) { regionChunkInfo, source ->
+            CompressedChunk.readFromSource(source, regionChunkInfo.compression)
         }
 
-    fun readCompressedChunk(position: ChunkPosition): CompressedChunk? =
-        readCompressedChunk(region.local(position))
+    fun readCompressedChunk(chunkPosition: ChunkPosition): CompressedChunk? =
+        readCompressedChunk(regionPosition.local(chunkPosition))
 
     internal fun <R> use(block: RegionReadScope.() -> R): R = try {
         block()
@@ -173,11 +170,11 @@ class RegionReadScope private constructor(
     }
 
     private fun checkValid() {
-        check(valid) { "Region read scope is no longer valid: ${file?.path ?: region}" }
+        check(valid) { "Region read scope is no longer valid: ${mutableRegionFile?.path ?: regionPosition}" }
     }
 
     internal companion object {
-        fun empty(region: RegionPosition): RegionReadScope = RegionReadScope(null, region, RegionHeader())
+        fun empty(regionPosition: RegionPosition): RegionReadScope = RegionReadScope(null, regionPosition, RegionHeader())
     }
 }
 
@@ -188,7 +185,7 @@ class RegionReadScope private constructor(
  * Anvil allocation requires the exact compressed length before opening a sink.
  */
 class RegionReplacementScope internal constructor(
-    val position: RegionPosition,
+    val regionPosition: RegionPosition,
     private val streamChunk: (
         LocalChunkPosition,
         Compression,
@@ -198,63 +195,63 @@ class RegionReplacementScope internal constructor(
 ) {
     private var valid = true
 
-    fun writeCompressedChunk(local: LocalChunkPosition, chunk: CompressedChunkInput) {
+    fun writeCompressedChunk(localChunkPosition: LocalChunkPosition, compressedChunkInput: CompressedChunkInput) {
         checkValid()
-        writeCompressedChunk(local, chunk.compression, chunk.compressedByteCount, chunk::writeTo)
+        writeCompressedChunk(localChunkPosition, compressedChunkInput.compression, compressedChunkInput.compressedByteCount, compressedChunkInput::writeTo)
     }
 
-    fun writeCompressedChunk(position: ChunkPosition, chunk: CompressedChunkInput) =
-        writeCompressedChunk(this.position.local(position), chunk)
+    fun writeCompressedChunk(chunkPosition: ChunkPosition, compressedChunkInput: CompressedChunkInput) =
+        writeCompressedChunk(this.regionPosition.local(chunkPosition), compressedChunkInput)
 
     fun writeCompressedChunk(
-        local: LocalChunkPosition,
+        localChunkPosition: LocalChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
         block: (Sink) -> Unit,
     ) {
         checkValid()
-        streamChunk(local, compression, compressedByteCount, block)
+        streamChunk(localChunkPosition, compression, compressedByteCount, block)
     }
 
     fun writeCompressedChunk(
-        position: ChunkPosition,
+        chunkPosition: ChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
         block: (Sink) -> Unit,
-    ) = writeCompressedChunk(this.position.local(position), compression, compressedByteCount, block)
+    ) = writeCompressedChunk(this.regionPosition.local(chunkPosition), compression, compressedByteCount, block)
 
     internal fun invalidate() {
         valid = false
     }
 
     private fun checkValid() {
-        check(valid) { "Region replacement scope is no longer valid: $position" }
+        check(valid) { "Region replacement scope is no longer valid: $regionPosition" }
     }
 }
 
-internal fun MutableRegionFile.hasChunk(position: ChunkPosition): Boolean =
-    hasChunk(this.position.local(position))
+internal fun MutableRegionFile.hasChunk(chunkPosition: ChunkPosition): Boolean =
+    hasChunk(this.regionPosition.local(chunkPosition))
 
-internal fun MutableRegionFile.readChunkInfo(position: ChunkPosition): RegionChunkInfo? =
-    readChunkInfo(this.position.local(position))
+internal fun MutableRegionFile.readChunkInfo(chunkPosition: ChunkPosition): RegionChunkInfo? =
+    readChunkInfo(this.regionPosition.local(chunkPosition))
 
 internal fun <R> MutableRegionFile.withCompressedChunkSource(
-    position: ChunkPosition,
+    chunkPosition: ChunkPosition,
     block: (RegionChunkInfo, Source) -> R,
-): R? = withCompressedChunkSource(this.position.local(position), block)
+): R? = withCompressedChunkSource(this.regionPosition.local(chunkPosition), block)
 
-internal fun MutableRegionFile.readCompressedChunk(position: ChunkPosition): CompressedChunk? =
-    readCompressedChunk(this.position.local(position))
+internal fun MutableRegionFile.readCompressedChunk(chunkPosition: ChunkPosition): CompressedChunk? =
+    readCompressedChunk(this.regionPosition.local(chunkPosition))
 
-internal fun MutableRegionFile.writeCompressedChunk(position: ChunkPosition, chunk: CompressedChunkInput) =
-    writeCompressedChunk(this.position.local(position), chunk)
+internal fun MutableRegionFile.writeCompressedChunk(chunkPosition: ChunkPosition, compressedChunkInput: CompressedChunkInput) =
+    writeCompressedChunk(this.regionPosition.local(chunkPosition), compressedChunkInput)
 
 internal fun MutableRegionFile.writeCompressedChunk(
-    position: ChunkPosition,
+    chunkPosition: ChunkPosition,
     compression: Compression,
     compressedByteCount: Long,
     block: (Sink) -> Unit,
-) = writeCompressedChunk(this.position.local(position), compression, compressedByteCount, block)
+) = writeCompressedChunk(this.regionPosition.local(chunkPosition), compression, compressedByteCount, block)
 
-internal fun MutableRegionFile.removeChunk(position: ChunkPosition): Boolean =
-    removeChunk(this.position.local(position))
+internal fun MutableRegionFile.removeChunk(chunkPosition: ChunkPosition): Boolean =
+    removeChunk(this.regionPosition.local(chunkPosition))

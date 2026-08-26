@@ -44,30 +44,31 @@ class MinecraftChatChainTest {
     fun serverboundVerifierDerivesImplicitIndicesAndCommitsOnlyValidMessages() = runTest {
         val sender = Uuid.parse("10000000-0000-0000-0000-000000000001")
         val session = Uuid.parse("20000000-0000-0000-0000-000000000002")
-        val keyPair = fixtureKeyPair()
-        val signer = MinecraftChatChainSigner(sender, session, keyPair)
+        val minecraftProfileKeyPair = fixtureKeyPair()
+        val minecraftChatChainSigner = MinecraftChatChainSigner(sender, session, minecraftProfileKeyPair)
         val bodies = listOf(messageBody("first", 1_000), messageBody("second", 1_000))
-        val signed = signer.signAll(bodies)
-        val verifier = MinecraftServerboundChatChainVerifier(sender, session, keyPair.publicKey)
+        val signed = minecraftChatChainSigner.signAll(bodies)
+        val minecraftServerboundChatChainVerifier =
+            MinecraftServerboundChatChainVerifier(sender, session, minecraftProfileKeyPair.minecraftProfilePublicKey)
 
-        assertEquals(listOf(0, 1), signed.map { it.link.index })
+        assertEquals(listOf(0, 1), signed.map { it.signedMessageLink.index })
         assertIs<MinecraftChatVerificationResult.Valid>(
-            verifier.verifyNext(signed[0].body, signed[0].signature),
+            minecraftServerboundChatChainVerifier.verifyNext(signed[0].signedMessageBody, signed[0].signature),
         )
         val invalid = assertIs<MinecraftChatVerificationResult.Invalid>(
-            verifier.verifyNext(signed[1].body.copy(content = "tampered"), signed[1].signature),
+            minecraftServerboundChatChainVerifier.verifyNext(signed[1].signedMessageBody.copy(content = "tampered"), signed[1].signature),
         )
-        assertEquals(MinecraftChatChainFailure.INVALID_SIGNATURE, invalid.failure)
-        assertEquals(1, verifier.nextLink()?.index)
+        assertEquals(MinecraftChatChainFailure.INVALID_SIGNATURE, invalid.minecraftChatChainFailure)
+        assertEquals(1, minecraftServerboundChatChainVerifier.nextLink()?.index)
         assertIs<MinecraftChatVerificationResult.Valid>(
-            verifier.verifyNext(signed[1].body, signed[1].signature),
+            minecraftServerboundChatChainVerifier.verifyNext(signed[1].signedMessageBody, signed[1].signature),
         )
 
         val staleLink = assertIs<MinecraftChatVerificationResult.Invalid>(
-            verifier.verifyNext(messageBody("stale", 999), signed[1].signature),
+            minecraftServerboundChatChainVerifier.verifyNext(messageBody("stale", 999), signed[1].signature),
         )
-        assertEquals(MinecraftChatChainFailure.OUT_OF_ORDER_TIMESTAMP, staleLink.failure)
-        assertEquals(2, verifier.nextLink()?.index)
+        assertEquals(MinecraftChatChainFailure.OUT_OF_ORDER_TIMESTAMP, staleLink.minecraftChatChainFailure)
+        assertEquals(2, minecraftServerboundChatChainVerifier.nextLink()?.index)
     }
 
     @Test
@@ -75,115 +76,117 @@ class MinecraftChatChainTest {
         val sender = Uuid.parse("10000000-0000-0000-0000-000000000001")
         val session = Uuid.parse("20000000-0000-0000-0000-000000000002")
         var verifierCalled = false
-        val verifier = MinecraftServerboundChatChainVerifier(
+        val minecraftServerboundChatChainVerifier = MinecraftServerboundChatChainVerifier(
             sender = sender,
             sessionId = session,
-            signatureVerifier = MinecraftChatSignatureVerifier { _, _, _ ->
+            minecraftChatSignatureVerifier = MinecraftChatSignatureVerifier { _, _, _ ->
                 verifierCalled = true
                 true
             },
         )
 
         val invalid = assertIs<MinecraftChatVerificationResult.Invalid>(
-            verifier.verifyNext(messageBody("malformed", 1_000), ByteString(byteArrayOf(1))),
+            minecraftServerboundChatChainVerifier.verifyNext(messageBody("malformed", 1_000), ByteString(byteArrayOf(1))),
         )
 
-        assertEquals(MinecraftChatChainFailure.INVALID_SIGNATURE, invalid.failure)
+        assertEquals(MinecraftChatChainFailure.INVALID_SIGNATURE, invalid.minecraftChatChainFailure)
         assertTrue(!verifierCalled)
-        assertEquals(0, verifier.nextLink()?.index)
+        assertEquals(0, minecraftServerboundChatChainVerifier.nextLink()?.index)
     }
 
     @Test
     fun signerSerializesConcurrentIndicesAndRollsBackFailedBatches() = runTest {
         val sender = Uuid.parse("30000000-0000-0000-0000-000000000003")
         val session = Uuid.parse("40000000-0000-0000-0000-000000000004")
-        val expectedFailure = ExpectedSigningFailure()
-        val signatureSigner = MinecraftChatSignatureSigner { _, body ->
+        val expectedSigningFailure = ExpectedSigningFailure()
+        val minecraftChatSignatureSigner = MinecraftChatSignatureSigner { _, signedMessageBody ->
             yield()
-            if (body.content == "fail") {
-                throw expectedFailure
+            if (signedMessageBody.content == "fail") {
+                throw expectedSigningFailure
             }
             ByteString(ByteArray(256))
         }
-        val signer = MinecraftChatChainSigner(sender, session, signatureSigner)
+        val minecraftChatChainSigner = MinecraftChatChainSigner(sender, session, minecraftChatSignatureSigner)
 
-        val failure = assertFailsWith<ExpectedSigningFailure> {
-            signer.signAll(listOf(messageBody("ok", 0), messageBody("fail", 0)))
+        val thrownSigningFailure = assertFailsWith<ExpectedSigningFailure> {
+            minecraftChatChainSigner.signAll(listOf(messageBody("ok", 0), messageBody("fail", 0)))
         }
-        assertSame(expectedFailure, failure)
-        assertEquals(0, signer.nextLink()?.index)
+        assertSame(expectedSigningFailure, thrownSigningFailure)
+        assertEquals(0, minecraftChatChainSigner.nextLink()?.index)
 
         val messages = List(32) { index ->
-            async { signer.sign(messageBody(index.toString(), index.toLong())) }
+            async { minecraftChatChainSigner.sign(messageBody(index.toString(), index.toLong())) }
         }.awaitAll()
-        assertEquals((0 until 32).toList(), messages.map { it.link.index }.sorted())
-        assertEquals(32, signer.nextLink()?.index)
+        assertEquals((0 until 32).toList(), messages.map { it.signedMessageLink.index }.sorted())
+        assertEquals(32, minecraftChatChainSigner.nextLink()?.index)
     }
 
     @Test
     fun signedCommandShortcutAdvancesOncePerArgumentAndValidatesNames() = runTest {
         val sender = Uuid.parse("50000000-0000-0000-0000-000000000005")
         val session = Uuid.parse("60000000-0000-0000-0000-000000000006")
-        val keyPair = fixtureKeyPair()
-        val signer = MinecraftChatChainSigner(sender, session, keyPair)
-        val verifier = MinecraftServerboundChatChainVerifier(sender, session, keyPair.publicKey)
+        val minecraftProfileKeyPair = fixtureKeyPair()
+        val minecraftChatChainSigner = MinecraftChatChainSigner(sender, session, minecraftProfileKeyPair)
+        val minecraftServerboundChatChainVerifier =
+            MinecraftServerboundChatChainVerifier(sender, session, minecraftProfileKeyPair.minecraftProfilePublicKey)
         val arguments = listOf(
             SignableCommandArgument("target", "Player"),
             SignableCommandArgument("message", "hello"),
         )
         val lastSeen = emptyList<ByteString>()
-        val signedArguments = signer.signCommandArguments(
+        val signedCommandArguments = minecraftChatChainSigner.signCommandArguments(
             arguments = arguments,
             timestampEpochMillis = 2_000,
             salt = 42,
             lastSeen = lastSeen,
         )
-        val packet = SignedChatCommandPacket(
+        val signedChatCommandPacket = SignedChatCommandPacket(
             command = "msg Player hello",
             timestampEpochMillis = 2_000,
             salt = 42,
-            arguments = signedArguments,
+            arguments = signedCommandArguments,
             lastSeenMessages = emptyLastSeenUpdate(),
         )
 
         val valid = assertIs<MinecraftChatBatchVerificationResult.Valid>(
-            verifier.verify(packet, arguments, lastSeen),
+            minecraftServerboundChatChainVerifier.verify(signedChatCommandPacket, arguments, lastSeen),
         )
-        assertEquals(listOf(0, 1), valid.messages.map { it.link.index })
-        assertEquals(2, verifier.nextLink()?.index)
+        assertEquals(listOf(0, 1), valid.messages.map { it.signedMessageLink.index })
+        assertEquals(2, minecraftServerboundChatChainVerifier.nextLink()?.index)
 
         val mismatch = assertIs<MinecraftChatBatchVerificationResult.Invalid>(
-            MinecraftServerboundChatChainVerifier(sender, session, keyPair.publicKey).verify(
-                packet,
+            MinecraftServerboundChatChainVerifier(sender, session, minecraftProfileKeyPair.minecraftProfilePublicKey).verify(
+                signedChatCommandPacket,
                 listOf(SignableCommandArgument("different", "Player")),
                 lastSeen,
             ),
         )
-        assertEquals(MinecraftChatChainFailure.ARGUMENT_MISMATCH, mismatch.failure)
+        assertEquals(MinecraftChatChainFailure.ARGUMENT_MISMATCH, mismatch.minecraftChatChainFailure)
     }
 
     @Test
     fun clientboundVerifierAllowsGapsAndExactDuplicatesButRejectsOlderIndices() = runTest {
         val sender = Uuid.parse("70000000-0000-0000-0000-000000000007")
         val session = Uuid.parse("80000000-0000-0000-0000-000000000008")
-        val keyPair = fixtureKeyPair()
-        val verifier = MinecraftClientboundChatChainVerifier(sender, session, keyPair.publicKey)
-        val first = signedMessage(keyPair, SignedMessageLink(0, sender, session), "first")
-        val skipped = signedMessage(keyPair, SignedMessageLink(2, sender, session), "skipped")
-        val older = signedMessage(keyPair, SignedMessageLink(1, sender, session), "older")
+        val minecraftProfileKeyPair = fixtureKeyPair()
+        val minecraftClientboundChatChainVerifier =
+            MinecraftClientboundChatChainVerifier(sender, session, minecraftProfileKeyPair.minecraftProfilePublicKey)
+        val first = signedMessage(minecraftProfileKeyPair, SignedMessageLink(0, sender, session), "first")
+        val skipped = signedMessage(minecraftProfileKeyPair, SignedMessageLink(2, sender, session), "skipped")
+        val older = signedMessage(minecraftProfileKeyPair, SignedMessageLink(1, sender, session), "older")
 
-        assertIs<MinecraftChatVerificationResult.Valid>(verifier.verify(first.link, first.body, first.signature))
-        assertIs<MinecraftChatVerificationResult.Valid>(verifier.verify(skipped.link, skipped.body, skipped.signature))
-        assertIs<MinecraftChatVerificationResult.Valid>(verifier.verify(skipped.link, skipped.body, skipped.signature))
+        assertIs<MinecraftChatVerificationResult.Valid>(minecraftClientboundChatChainVerifier.verify(first.signedMessageLink, first.signedMessageBody, first.signature))
+        assertIs<MinecraftChatVerificationResult.Valid>(minecraftClientboundChatChainVerifier.verify(skipped.signedMessageLink, skipped.signedMessageBody, skipped.signature))
+        assertIs<MinecraftChatVerificationResult.Valid>(minecraftClientboundChatChainVerifier.verify(skipped.signedMessageLink, skipped.signedMessageBody, skipped.signature))
         val invalid = assertIs<MinecraftChatVerificationResult.Invalid>(
-            verifier.verify(older.link, older.body, older.signature),
+            minecraftClientboundChatChainVerifier.verify(older.signedMessageLink, older.signedMessageBody, older.signature),
         )
-        assertEquals(MinecraftChatChainFailure.OUT_OF_ORDER_INDEX, invalid.failure)
-        assertEquals(skipped, verifier.lastMessage())
+        assertEquals(MinecraftChatChainFailure.OUT_OF_ORDER_INDEX, invalid.minecraftChatChainFailure)
+        assertEquals(skipped, minecraftClientboundChatChainVerifier.lastMessage())
 
-        val packet = skipped.toPlayerChatMessagePacket(
+        val playerChatMessagePacket = skipped.toPlayerChatMessagePacket(
             globalIndex = 9,
-            chatType = BoundChatType(
+            boundChatType = BoundChatType(
                 chatType = ChatTypeHolder.Reference(0),
                 name = TextComponent.literal("sender"),
                 targetName = null,
@@ -191,10 +194,10 @@ class MinecraftChatChainTest {
             packedLastSeen = emptyList(),
             filterMask = FilterMask.PassThrough,
         )
-        assertEquals(2, packet.index)
-        assertEquals(9, packet.globalIndex)
-        assertNull(packet.unsignedContent)
-        assertTrue(packet.signature == skipped.signature)
+        assertEquals(2, playerChatMessagePacket.index)
+        assertEquals(9, playerChatMessagePacket.globalIndex)
+        assertNull(playerChatMessagePacket.unsignedContent)
+        assertTrue(playerChatMessagePacket.signature == skipped.signature)
     }
 }
 
@@ -209,12 +212,12 @@ private fun messageBody(
 )
 
 private fun signedMessage(
-    keyPair: MinecraftProfileKeyPair,
-    link: SignedMessageLink,
+    minecraftProfileKeyPair: MinecraftProfileKeyPair,
+    signedMessageLink: SignedMessageLink,
     content: String,
 ): MinecraftSignedMessage {
-    val body = messageBody(content, link.index.toLong())
-    return MinecraftSignedMessage(link, body, keyPair.signChatMessage(link, body))
+    val signedMessageBody = messageBody(content, signedMessageLink.index.toLong())
+    return MinecraftSignedMessage(signedMessageLink, signedMessageBody, minecraftProfileKeyPair.signChatMessage(signedMessageLink, signedMessageBody))
 }
 
 private fun emptyLastSeenUpdate(): LastSeenMessagesUpdate = LastSeenMessagesUpdate(

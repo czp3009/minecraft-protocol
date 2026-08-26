@@ -24,29 +24,29 @@ class KtorSocketTransportTest {
 }
 
 private suspend fun runKtorSocketTransportScenario() = coroutineScope {
-    SelectorManager(Dispatchers.Default).use { selector ->
-        aSocket(selector).tcp().bind("127.0.0.1", 0).use { listener ->
+    SelectorManager(Dispatchers.Default).use { selectorManager ->
+        aSocket(selectorManager).tcp().bind("127.0.0.1", 0).use { listener ->
             val server = async {
                 MinecraftTransport(listener.accept())
             }
             val client = MinecraftTransport(
-                aSocket(selector).tcp().connect("127.0.0.1", listener.port),
+                aSocket(selectorManager).tcp().connect("127.0.0.1", listener.port),
             )
             val accepted = server.await()
             val secret = ByteArray(16) { (it * 11).toByte() }
-            client.frameStream.configureCompression(32)
-            accepted.frameStream.configureCompression(32)
-            client.frameStream.enableEncryption(secret)
-            accepted.frameStream.enableEncryption(secret)
+            client.minecraftFrameStream.configureCompression(32)
+            accepted.minecraftFrameStream.configureCompression(32)
+            client.minecraftFrameStream.enableEncryption(secret)
+            accepted.minecraftFrameStream.enableEncryption(secret)
             val request = ByteArray(32_768) { (it * 23).toByte() }
             val response = "transport-ok".encodeToByteArray()
 
-            client.frameStream.sendPacketData(request)
-            client.frameStream.flush()
-            assertContentEquals(request, accepted.frameStream.receivePacketData())
-            accepted.frameStream.sendPacketData(response)
-            accepted.frameStream.flush()
-            assertContentEquals(response, client.frameStream.receivePacketData())
+            client.minecraftFrameStream.sendPacketData(request)
+            client.minecraftFrameStream.flush()
+            assertContentEquals(request, accepted.minecraftFrameStream.receivePacketData())
+            accepted.minecraftFrameStream.sendPacketData(response)
+            accepted.minecraftFrameStream.flush()
+            assertContentEquals(response, client.minecraftFrameStream.receivePacketData())
 
             client.close()
             accepted.close()

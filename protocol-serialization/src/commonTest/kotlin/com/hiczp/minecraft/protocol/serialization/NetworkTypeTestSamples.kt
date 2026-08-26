@@ -268,8 +268,8 @@ internal fun recipeDisplayRegistrySamples():
 
 internal fun entityDataValueSamples():
         List<NamedNetworkTypeSample<EntityDataValue>> {
-    val position = BlockPosition(1, 2, 3)
-    val component = TextComponent.literal("value")
+    val blockPosition = BlockPosition(1, 2, 3)
+    val textComponent = TextComponent.literal("value")
     return buildList {
         add(NamedNetworkTypeSample("byte", "byte", EntityDataValue.ByteValue(1)))
         add(NamedNetworkTypeSample("int", "int", EntityDataValue.IntValue(1)))
@@ -286,7 +286,7 @@ internal fun entityDataValueSamples():
             NamedNetworkTypeSample(
                 "component",
                 "component",
-                EntityDataValue.ComponentValue(component),
+                EntityDataValue.ComponentValue(textComponent),
             ),
         )
         add(
@@ -300,7 +300,7 @@ internal fun entityDataValueSamples():
             NamedNetworkTypeSample(
                 "optional_component-value",
                 "optional_component",
-                EntityDataValue.OptionalComponent(component),
+                EntityDataValue.OptionalComponent(textComponent),
             ),
         )
         add(
@@ -328,7 +328,7 @@ internal fun entityDataValueSamples():
             NamedNetworkTypeSample(
                 "block_position",
                 "block_position",
-                EntityDataValue.BlockPositionValue(position),
+                EntityDataValue.BlockPositionValue(blockPosition),
             ),
         )
         add(
@@ -342,7 +342,7 @@ internal fun entityDataValueSamples():
             NamedNetworkTypeSample(
                 "optional_block_position-value",
                 "optional_block_position",
-                EntityDataValue.OptionalBlockPosition(position),
+                EntityDataValue.OptionalBlockPosition(blockPosition),
             ),
         )
         add(
@@ -433,12 +433,12 @@ internal fun entityDataValueSamples():
                 EntityDataValue.Pose(EntityPose.STANDING),
             ),
         )
-        EntityVariantRegistry.entries.forEach { registry ->
+        EntityVariantRegistry.entries.forEach { entityVariantRegistry ->
             add(
                 NamedNetworkTypeSample(
-                    "registry_variant-${registry.name.lowercase()}",
+                    "registry_variant-${entityVariantRegistry.name.lowercase()}",
                     "registry_variant",
-                    EntityDataValue.RegistryVariant(registry, 0),
+                    EntityDataValue.RegistryVariant(entityVariantRegistry, 0),
                 ),
             )
         }
@@ -454,7 +454,7 @@ internal fun entityDataValueSamples():
                 "optional_global_position-value",
                 "optional_global_position",
                 EntityDataValue.OptionalGlobalPosition(
-                    GlobalPosition(Identifier("minecraft:overworld"), position),
+                    GlobalPosition(Identifier("minecraft:overworld"), blockPosition),
                 ),
             ),
         )
@@ -550,9 +550,9 @@ internal fun entityDataValueSamples():
 
 internal fun debugSubscriptionDataSamples():
         List<NamedNetworkTypeSample<DebugSubscriptionData>> {
-    val position = BlockPosition(0, 0, 0)
-    val boundingBox = DebugBoundingBox(position, position)
-    val pathNode = DebugPathNode(
+    val blockPosition = BlockPosition(0, 0, 0)
+    val debugBoundingBox = DebugBoundingBox(blockPosition, blockPosition)
+    val debugPathNode = DebugPathNode(
         x = 0,
         y = 0,
         z = 0,
@@ -612,9 +612,9 @@ internal fun debugSubscriptionDataSamples():
             value = DebugSubscriptionData.EntityPath(
                 reached = false,
                 nextNodeIndex = 0,
-                target = position,
-                nodes = listOf(pathNode),
-                targetNodes = setOf(pathNode),
+                target = blockPosition,
+                nodes = listOf(debugPathNode),
+                targetNodes = setOf(debugPathNode),
                 openSet = emptyList(),
                 closedSet = emptyList(),
                 maximumNodeDistance = 0.0f,
@@ -641,7 +641,7 @@ internal fun debugSubscriptionDataSamples():
             name = "point_of_interest",
             wireName = DebugSubscriptionType.POINT_OF_INTEREST.wireName,
             value = DebugSubscriptionData.PointOfInterest(
-                position = position,
+                position = blockPosition,
                 pointOfInterestTypeId = 0,
                 freeTicketCount = 0,
             ),
@@ -665,7 +665,7 @@ internal fun debugSubscriptionDataSamples():
             name = "structures",
             wireName = DebugSubscriptionType.STRUCTURE.wireName,
             value = DebugSubscriptionData.Structures(
-                listOf(DebugStructure(boundingBox, emptyList())),
+                listOf(DebugStructure(debugBoundingBox, emptyList())),
             ),
         ),
         NamedNetworkTypeSample(
@@ -676,7 +676,7 @@ internal fun debugSubscriptionDataSamples():
         NamedNetworkTypeSample(
             name = "neighbor_update",
             wireName = DebugSubscriptionType.NEIGHBOR_UPDATE.wireName,
-            value = DebugSubscriptionData.NeighborUpdate(position),
+            value = DebugSubscriptionData.NeighborUpdate(blockPosition),
         ),
         NamedNetworkTypeSample(
             name = "game_event",
@@ -689,21 +689,21 @@ internal fun debugSubscriptionDataSamples():
     )
 }
 
-private fun particleSample(type: ParticleType): ParticleOptions = when (type) {
+private fun particleSample(particleType: ParticleType): ParticleOptions = when (particleType) {
     ParticleType.BLOCK,
     ParticleType.BLOCK_MARKER,
     ParticleType.FALLING_DUST,
     ParticleType.DUST_PILLAR,
     ParticleType.BLOCK_CRUMBLE,
-        -> ParticleOptions.Block(type, 1)
+        -> ParticleOptions.Block(particleType, 1)
 
     ParticleType.GEYSER,
     ParticleType.GEYSER_PLUME,
-        -> ParticleOptions.Geyser(type, 1)
+        -> ParticleOptions.Geyser(particleType, 1)
 
     ParticleType.GEYSER_BASE,
     ParticleType.GEYSER_POOF,
-        -> ParticleOptions.GeyserBase(type, 1, 1.0f)
+        -> ParticleOptions.GeyserBase(particleType, 1, 1.0f)
 
     ParticleType.DRAGON_BREATH -> ParticleOptions.Power(1.0f)
     ParticleType.DUST -> ParticleOptions.Dust(0x112233, 1.0f)
@@ -712,12 +712,12 @@ private fun particleSample(type: ParticleType): ParticleOptions = when (type) {
 
     ParticleType.EFFECT,
     ParticleType.INSTANT_EFFECT,
-        -> ParticleOptions.Spell(type, 0x112233, 1.0f)
+        -> ParticleOptions.Spell(particleType, 0x112233, 1.0f)
 
     ParticleType.ENTITY_EFFECT,
     ParticleType.TINTED_LEAVES,
     ParticleType.FLASH,
-        -> ParticleOptions.Color(type, 0x112233)
+        -> ParticleOptions.Color(particleType, 0x112233)
 
     ParticleType.SCULK_CHARGE -> ParticleOptions.SculkCharge(1.0f)
     ParticleType.ITEM -> ParticleOptions.Item(ItemStackTemplate(1))
@@ -731,5 +731,5 @@ private fun particleSample(type: ParticleType): ParticleOptions = when (type) {
         ParticleOptions.Trail(Vector3d(1.0, 2.0, 3.0), 0x112233, 1)
 
     ParticleType.SHRIEK -> ParticleOptions.Shriek(1)
-    else -> ParticleOptions.Simple(type)
+    else -> ParticleOptions.Simple(particleType)
 }

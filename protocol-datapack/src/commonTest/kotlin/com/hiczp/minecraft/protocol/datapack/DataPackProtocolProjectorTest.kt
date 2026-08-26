@@ -102,11 +102,11 @@ class DataPackProtocolProjectorTest {
 
     @Test
     fun callerProjectorDoesNotInterceptCancellation() {
-        val cancellation = CancellationException("cancelled")
+        val cancellationException = CancellationException("cancelled")
         val dataPackProtocolProjector = DataPackProtocolProjector(
             baseProtocolData = baseProtocolData(),
             dataPackRegistryProjectors = listOf(
-                DataPackRegistryProjector(biomeRegistry) { _, _, _ -> throw cancellation },
+                DataPackRegistryProjector(biomeRegistry) { _, _, _ -> throw cancellationException },
             ),
         )
 
@@ -116,7 +116,7 @@ class DataPackProtocolProjectorTest {
             )
         }
 
-        assertSame(cancellation, thrown)
+        assertSame(cancellationException, thrown)
     }
 
     @Test

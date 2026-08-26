@@ -38,31 +38,32 @@ class NeoForgeNetworkConfiguration(
             NeoForgeConnectionProtocol.PLAY to playComponents.values.toSet(),
         )
 
-    val queryPacket: NeoForgeModdedNetworkQueryPacket = NeoForgeModdedNetworkQueryPacket(components)
+    val neoForgeModdedNetworkQueryPacket: NeoForgeModdedNetworkQueryPacket =
+        NeoForgeModdedNetworkQueryPacket(components)
 
     fun components(
-        protocol: NeoForgeConnectionProtocol,
-    ): Collection<NeoForgeNetworkComponent> = when (protocol) {
+        neoForgeConnectionProtocol: NeoForgeConnectionProtocol,
+    ): Collection<NeoForgeNetworkComponent> = when (neoForgeConnectionProtocol) {
         NeoForgeConnectionProtocol.CONFIGURATION -> configurationComponents.values
         NeoForgeConnectionProtocol.PLAY -> playComponents.values
         else -> emptyList()
     }
 
     fun component(
-        protocol: NeoForgeConnectionProtocol,
+        neoForgeConnectionProtocol: NeoForgeConnectionProtocol,
         channel: Identifier,
-    ): NeoForgeNetworkComponent? = when (protocol) {
+    ): NeoForgeNetworkComponent? = when (neoForgeConnectionProtocol) {
         NeoForgeConnectionProtocol.CONFIGURATION -> configurationComponents[channel]
         NeoForgeConnectionProtocol.PLAY -> playComponents[channel]
         else -> null
     }
 
     fun optionalChannels(
-        protocol: NeoForgeConnectionProtocol,
-        flow: NeoForgePacketFlow,
-    ): Set<Identifier> = components(protocol)
+        neoForgeConnectionProtocol: NeoForgeConnectionProtocol,
+        neoForgePacketFlow: NeoForgePacketFlow,
+    ): Set<Identifier> = components(neoForgeConnectionProtocol)
         .filter(NeoForgeNetworkComponent::optional)
-        .filter { component -> component.accepts(flow) }
+        .filter { component -> component.accepts(neoForgePacketFlow) }
         .mapTo(linkedSetOf(), NeoForgeNetworkComponent::id)
 
     override fun equals(other: Any?): Boolean =
@@ -75,7 +76,7 @@ class NeoForgeNetworkConfiguration(
 }
 
 internal data class NeoForgeNetworkNegotiation(
-    val setup: NeoForgeNetworkSetup,
+    val neoForgeNetworkSetup: NeoForgeNetworkSetup,
     val failureReasons: Map<Identifier, TextComponent>,
 ) {
     val successful: Boolean
@@ -91,14 +92,14 @@ internal fun negotiateNeoForgeNetwork(
             Map<Identifier, NeoForgeNetworkChannel>,
             >()
     val failures = linkedMapOf<Identifier, TextComponent>()
-    NEGOTIATED_PROTOCOLS.forEach { protocol ->
-        val localById = local.components(protocol)
+    NEGOTIATED_PROTOCOLS.forEach { neoForgeConnectionProtocol ->
+        val localById = local.components(neoForgeConnectionProtocol)
             .associateBy(NeoForgeNetworkComponent::id)
-        val remoteById = remote[protocol].orEmpty()
+        val remoteById = remote[neoForgeConnectionProtocol].orEmpty()
             .also { components ->
                 if (components.distinctBy(NeoForgeNetworkComponent::id).size != components.size) {
                     throw NeoForgeNegotiationException(
-                        "Remote NeoForge $protocol component query contains duplicate identifiers",
+                        "Remote NeoForge $neoForgeConnectionProtocol component query contains duplicate identifiers",
                     )
                 }
             }
@@ -115,7 +116,7 @@ internal fun negotiateNeoForgeNetwork(
                 ours == null -> {
                     if (theirs != null && !theirs.optional) {
                         failures[id] = TextComponent.literal(
-                            "Client requires NeoForge $protocol channel $id, but the server does not provide it",
+                            "Client requires NeoForge $neoForgeConnectionProtocol channel $id, but the server does not provide it",
                         )
                     }
                 }
@@ -123,19 +124,19 @@ internal fun negotiateNeoForgeNetwork(
                 theirs == null -> {
                     if (!ours.optional) {
                         failures[id] = TextComponent.literal(
-                            "Server requires NeoForge $protocol channel $id, but the client does not provide it",
+                            "Server requires NeoForge $neoForgeConnectionProtocol channel $id, but the client does not provide it",
                         )
                     }
                 }
 
                 ours.version != theirs.version -> failures[id] =
                     TextComponent.literal(
-                        "NeoForge $protocol channel $id has incompatible versions ${ours.version} and ${theirs.version}",
+                        "NeoForge $neoForgeConnectionProtocol channel $id has incompatible versions ${ours.version} and ${theirs.version}",
                     )
 
-                ours.flow != theirs.flow -> failures[id] =
+                ours.neoForgePacketFlow != theirs.neoForgePacketFlow -> failures[id] =
                     TextComponent.literal(
-                        "NeoForge $protocol channel $id has incompatible packet flows ${ours.flow} and ${theirs.flow}",
+                        "NeoForge $neoForgeConnectionProtocol channel $id has incompatible packet flows ${ours.neoForgePacketFlow} and ${theirs.neoForgePacketFlow}",
                     )
 
                 else -> negotiated[id] = NeoForgeNetworkChannel(
@@ -144,7 +145,7 @@ internal fun negotiateNeoForgeNetwork(
                 )
             }
         }
-        channels[protocol] = negotiated
+        channels[neoForgeConnectionProtocol] = negotiated
     }
     return NeoForgeNetworkNegotiation(
         NeoForgeNetworkSetup(channels),
@@ -153,35 +154,35 @@ internal fun negotiateNeoForgeNetwork(
 }
 
 internal fun NeoForgeNetworkConfiguration.validateSetup(
-    setup: NeoForgeNetworkSetup,
+    neoForgeNetworkSetup: NeoForgeNetworkSetup,
 ) {
-    NEGOTIATED_PROTOCOLS.forEach { protocol ->
-        val selected = setup.channels(protocol)
-        selected.forEach { (id, channel) ->
-            val local = component(protocol, id)
+    NEGOTIATED_PROTOCOLS.forEach { neoForgeConnectionProtocol ->
+        val selected = neoForgeNetworkSetup.channels(neoForgeConnectionProtocol)
+        selected.forEach { (id, neoForgeNetworkChannel) ->
+            val localNeoForgeNetworkComponent = component(neoForgeConnectionProtocol, id)
                 ?: throw NeoForgeNegotiationException(
-                    "Server selected unknown NeoForge $protocol channel $id",
+                    "Server selected unknown NeoForge $neoForgeConnectionProtocol channel $id",
                 )
-            if (channel.chosenVersion != local.version) {
+            if (neoForgeNetworkChannel.chosenVersion != localNeoForgeNetworkComponent.version) {
                 throw NeoForgeNegotiationException(
-                    "Server selected NeoForge $protocol channel $id version ${channel.chosenVersion}; local version is ${local.version}",
+                    "Server selected NeoForge $neoForgeConnectionProtocol channel $id version ${neoForgeNetworkChannel.chosenVersion}; local version is ${localNeoForgeNetworkComponent.version}",
                 )
             }
         }
-        val missing = components(protocol)
+        val missing = components(neoForgeConnectionProtocol)
             .filterNot(NeoForgeNetworkComponent::optional)
             .map(NeoForgeNetworkComponent::id)
             .filterNot(selected::containsKey)
         if (missing.isNotEmpty()) {
             throw NeoForgeNegotiationException(
-                "Server omitted mandatory NeoForge $protocol channels $missing",
+                "Server omitted mandatory NeoForge $neoForgeConnectionProtocol channels $missing",
             )
         }
     }
 }
 
-internal fun NeoForgeNetworkComponent.accepts(flow: NeoForgePacketFlow): Boolean =
-    this.flow == null || this.flow == flow
+internal fun NeoForgeNetworkComponent.accepts(neoForgePacketFlow: NeoForgePacketFlow): Boolean =
+    this.neoForgePacketFlow == null || this.neoForgePacketFlow == neoForgePacketFlow
 
 internal fun NeoForgeConnectionProtocol.toConnectionState(): ConnectionState =
     when (this) {
@@ -199,12 +200,12 @@ internal fun NeoForgePacketFlow.toPacketDirection(): PacketDirection = when (thi
 
 private fun componentMap(
     components: Collection<NeoForgeNetworkComponent>,
-    protocol: NeoForgeConnectionProtocol,
+    neoForgeConnectionProtocol: NeoForgeConnectionProtocol,
 ): Map<Identifier, NeoForgeNetworkComponent> {
     val snapshot = components.toList()
     val result = snapshot.associateBy(NeoForgeNetworkComponent::id)
     require(result.size == snapshot.size) {
-        "NeoForge $protocol components contain duplicate identifiers"
+        "NeoForge $neoForgeConnectionProtocol components contain duplicate identifiers"
     }
     require(result.keys.none { it.namespace == "minecraft" }) {
         "NeoForge components cannot use the minecraft namespace"
@@ -257,11 +258,11 @@ private val BUILT_IN_PLAY_COMPONENTS = listOf(
 
 private fun component(
     id: Identifier,
-    flow: NeoForgePacketFlow? = null,
+    neoForgePacketFlow: NeoForgePacketFlow? = null,
 ): NeoForgeNetworkComponent = NeoForgeNetworkComponent(
     id = id,
     version = "1",
-    flow = flow,
+    neoForgePacketFlow = neoForgePacketFlow,
     optional = true,
 )
 

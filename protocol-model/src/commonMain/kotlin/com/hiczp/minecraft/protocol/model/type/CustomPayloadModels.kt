@@ -103,7 +103,7 @@ internal abstract class CustomPayloadSerializer(
                 CHANNEL,
                 Identifier.serializer(),
             )
-            val result = if (channel == BRAND_CHANNEL) {
+            val customPayload = if (channel == BRAND_CHANNEL) {
                 CustomPayload.Brand(input.decodeStringElement(descriptor, BRAND))
             } else {
                 CustomPayload.Unknown(
@@ -116,7 +116,7 @@ internal abstract class CustomPayloadSerializer(
                 )
             }
             input.endStructure(descriptor)
-            return result
+            return customPayload
         }
 
         var channel: Identifier? = null

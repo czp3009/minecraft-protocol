@@ -202,14 +202,14 @@ class ConnectionStatePacketTest {
             ConfigurationUpdateTagsPacket.serializer(),
             "010f6d696e6563726166743a626c6f636b010e6d696e6563726166743a746573740201ac02",
         )
-        val pack = KnownPack("m", "c", "1")
+        val knownPack = KnownPack("m", "c", "1")
         assertPacketBytes(
-            ConfigurationClientboundKnownPacksPacket(listOf(pack)),
+            ConfigurationClientboundKnownPacksPacket(listOf(knownPack)),
             ConfigurationClientboundKnownPacksPacket.serializer(),
             "01016d01630131",
         )
         assertPacketBytes(
-            ConfigurationServerboundKnownPacksPacket(listOf(pack)),
+            ConfigurationServerboundKnownPacksPacket(listOf(knownPack)),
             ConfigurationServerboundKnownPacksPacket.serializer(),
             "01016d01630131",
         )
@@ -364,17 +364,17 @@ class ConnectionStatePacketTest {
 
     private fun <T> assertPacketBytes(
         value: T,
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
         expectedHex: String,
     ) {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(serializer, value),
+            MinecraftProtocolFormat.encodeToByteArray(kSerializer, value),
         )
         assertEquals(
             value,
-            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

@@ -7,44 +7,44 @@ Portable Java Edition binary NBT and stringified NBT (SNBT) formats over the sta
 
 `NbtFormat` converts serializable classes to NBT trees and reads or writes binary NBT. Generic serialization uses the
 configured `NbtRootEncoding`; explicit methods cover any-tag, named-tag, unnamed-tag, and compound-document roots. Its
-caller-owned `kotlinx.io` `Source`/`Sink` methods are the canonical binary path. Here `value` is a caller-provided
+caller-owned `kotlinx.io` `Source`/`Sink` methods are the canonical binary path. Here `myValue` is a caller-provided
 serializable `MyValue`, while `sink` and `source` are the caller-owned binary endpoints:
 
 ```kotlin
-val unnamedNbt = NbtFormat(
-    NbtFormatConfiguration(rootEncoding = NbtRootEncoding.UNNAMED),
+val unnamedNbtFormat = NbtFormat(
+    NbtFormatConfiguration(nbtRootEncoding = NbtRootEncoding.UNNAMED),
 )
 
 // Encode directly to a caller-owned stream; NbtFormat does not flush or close it.
-unnamedNbt.encodeToSink(value, sink)
+unnamedNbtFormat.encodeToSink(myValue, sink)
 sink.flush()
 
 // Decode directly from a caller-owned stream without first making a ByteArray.
-val decoded = unnamedNbt.decodeFromSource<MyValue>(source)
+val decodedMyValue = unnamedNbtFormat.decodeFromSource<MyValue>(source)
 ```
 
-The explicit tag and document entry points are streaming too. In this block, `tag` is a caller-constructed `NbtTag`,
-`document` is a caller-constructed `NbtDocument`, and each `...Source` or `...Sink` is the endpoint owned by the packet
-or world layer named in that variable:
+The explicit tag and document entry points are streaming too. In this block, `nbtTag` is a caller-constructed `NbtTag`
+and `nbtDocument` is a caller-constructed `NbtDocument`. Each `...Source` or `...Sink` is the endpoint owned by the
+packet or world layer named in that variable:
 
 ```kotlin
-NbtFormat.encodeAnyTagToSink(tag, packetSink)
-val packetTag = NbtFormat.decodeAnyTagFromSource(packetSource)
+NbtFormat.encodeAnyTagToSink(nbtTag, packetSink)
+val packetNbtTag = NbtFormat.decodeAnyTagFromSource(packetSource)
 
-NbtFormat.encodeDocumentToSink(document, worldSink)
-val worldDocument = NbtFormat.decodeDocumentFromSource(worldSource)
+NbtFormat.encodeDocumentToSink(nbtDocument, worldSink)
+val worldNbtDocument = NbtFormat.decodeDocumentFromSource(worldSource)
 
 // Use an in-memory adapter only when a complete byte value is actually needed.
-val worldBytes = NbtFormat.encodeDocumentToByteArray(document)
+val worldNbtBytes = NbtFormat.encodeDocumentToByteArray(nbtDocument)
 ```
 
 When a generic tree is already in hand, receiver extensions keep the next operations discoverable without moving the
-physical format into the logical `nbt` module. The `document` and `worldSink` values come from the preceding examples;
-tree decoding does not depend on binary root framing:
+physical format into the logical `nbt` module. The `nbtDocument` and `worldSink` values come from the preceding
+examples; tree decoding does not depend on binary root framing:
 
 ```kotlin
-document.writeTo(worldSink)
-val decodedDocumentValue = document.decodeNbt<MyValue>()
+nbtDocument.writeTo(worldSink)
+val decodedMyValue = nbtDocument.decodeNbt<MyValue>()
 ```
 
 The format does not impose policy-sized byte, collection, array, or nesting limits. Stream methods process binary input
@@ -63,18 +63,18 @@ are omitted.
 
 `SnbtFormat` uses the same `NbtTag` tree and Kotlin mapping. Its `Source` decoder reads UTF-8 incrementally and requires
 one complete value plus optional trailing whitespace. Its `Sink` writer traverses tags directly and never builds the
-complete output text, flushes, or closes the stream. The `tag`, `document`, `sink`, and `source` names refer to the
-caller-owned values and endpoints described in the binary examples above:
+complete output text, flushes, or closes the stream. The `nbtTag`, `nbtDocument`, `sink`, and `source` names refer to
+the caller-owned values and endpoints described in the binary examples above:
 
 ```kotlin
-SnbtFormat.encodeTagToSink(tag, sink)
-val streamedTag = SnbtFormat.decodeTagFromSource(source)
+SnbtFormat.encodeTagToSink(nbtTag, sink)
+val streamedNbtTag = SnbtFormat.decodeTagFromSource(source)
 
-val text = tag.toSnbtString()
-val parsedTag = text.toNbtTag()
+val snbtString = nbtTag.toSnbtString()
+val parsedNbtTag = snbtString.toNbtTag()
 
-val documentText = document.toSnbtString()
-val parsedDocument = documentText.toNbtDocument()
+val documentSnbt = nbtDocument.toSnbtString()
+val parsedNbtDocument = documentSnbt.toNbtDocument()
 ```
 
 Generic `encodeToString`/`decodeFromString` and `encodeToSink`/`decodeFromSource` calls reuse the module's existing NBT

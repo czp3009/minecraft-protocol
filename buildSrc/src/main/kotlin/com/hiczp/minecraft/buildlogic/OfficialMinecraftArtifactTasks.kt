@@ -65,8 +65,8 @@ abstract class DownloadOfficialMinecraftServerTask :
                 offline = offline.get(),
             )
 
-            val target = destination.readMinecraftProtocolTarget(version)
-            check(target.javaMajorVersion == javaMajor) {
+            val minecraftProtocolTarget = destination.readMinecraftProtocolTarget(version)
+            check(minecraftProtocolTarget.javaMajorVersion == javaMajor) {
                 "Official server version.json and Mojang metadata disagree on the required Java version"
             }
             metadataPath.writeJson(
@@ -102,7 +102,7 @@ abstract class AnalyzeOfficialMinecraftTargetTask :
     @TaskAction
     fun analyze() {
         val server = serverJar.asFile.get().toPath()
-        val target = server.readMinecraftProtocolTarget(
+        val minecraftProtocolTarget = server.readMinecraftProtocolTarget(
             minecraftVersion.get(),
         )
         val metadata = protocolJson.decodeFromString<JsonObject>(
@@ -110,20 +110,20 @@ abstract class AnalyzeOfficialMinecraftTargetTask :
         )
         check(
             metadata.getValue("minecraft_version").jsonPrimitive.content ==
-                    target.minecraftVersion,
+                    minecraftProtocolTarget.minecraftVersion,
         ) {
             "Official server metadata targets a different Minecraft release"
         }
         val report = buildJsonObject {
             put("schema_version", 1)
-            put("minecraft_version", target.minecraftVersion)
-            put("protocol_version", target.protocolVersion)
-            put("java_major_version", target.javaMajorVersion)
+            put("minecraft_version", minecraftProtocolTarget.minecraftVersion)
+            put("protocol_version", minecraftProtocolTarget.protocolVersion)
+            put("java_major_version", minecraftProtocolTarget.javaMajorVersion)
         }
         val output = outputFile.asFile.get().toPath()
         output.writeJson(report, sortKeys = true)
         logger.lifecycle(
-            "Analyzed Minecraft ${target.minecraftVersion} target: $output",
+            "Analyzed Minecraft ${minecraftProtocolTarget.minecraftVersion} target: $output",
         )
     }
 }
@@ -145,7 +145,7 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
     @TaskAction
     fun generate() {
         val serverJar = serverJar.asFile.get().toPath()
-        val target = serverJar.readMinecraftProtocolTarget(
+        val minecraftProtocolTarget = serverJar.readMinecraftProtocolTarget(
             minecraftVersion.get(),
         )
         val metadata = protocolJson.decodeFromString<JsonObject>(
@@ -156,14 +156,14 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
         }
         check(
             metadata.getValue("minecraft_version").jsonPrimitive.content ==
-                    target.minecraftVersion,
+                    minecraftProtocolTarget.minecraftVersion,
         ) {
             "Official server metadata targets a different Minecraft release"
         }
         val outputDirectory = outputDirectory.asFile.get().toPath()
         val workDirectory = createIsolatedTemporaryDirectory("reports")
         val reports = try {
-            generateReports(serverJar, target, workDirectory)
+            generateReports(serverJar, minecraftProtocolTarget, workDirectory)
         } finally {
             workDirectory.deleteTree()
         }
@@ -179,7 +179,7 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
 
     private fun generateReports(
         serverJar: Path,
-        target: MinecraftProtocolTarget,
+        minecraftProtocolTarget: MinecraftProtocolTarget,
         workDirectory: Path,
     ): Map<String, JsonObject> {
         val generatorOutput = workDirectory.resolve("generated")
@@ -198,11 +198,11 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
         logger.lifecycle(
             "Running vanilla data generator for protocol reports...",
         )
-        val result = runProcess(command, workDirectory)
-        check(result.exitCode == 0) {
+        val processResult = runProcess(command, workDirectory)
+        check(processResult.exitCode == 0) {
             """
-            Vanilla data generator exited with ${result.exitCode}:
-            ${result.output.lineSequence().toList().takeLast(80).joinToString("\n")}
+            Vanilla data generator exited with ${processResult.exitCode}:
+            ${processResult.output.lineSequence().toList().takeLast(80).joinToString("\n")}
             """.trimIndent()
         }
         check(packetsReport.isRegularFile()) {
@@ -353,8 +353,8 @@ abstract class ExtractOfficialServerRuntimeTask :
             // Extract libraries
             archive.getInputStream(
                 archive.getEntry("META-INF/libraries.list"),
-            ).use { input ->
-                input.readBytes().decodeToString()
+            ).use { inputStream ->
+                inputStream.readBytes().decodeToString()
                     .lineSequence()
                     .filter(String::isNotBlank)
                     .forEach { line ->

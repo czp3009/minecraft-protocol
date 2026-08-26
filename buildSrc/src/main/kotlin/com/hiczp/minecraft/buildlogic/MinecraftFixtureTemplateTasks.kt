@@ -136,7 +136,7 @@ private fun DefaultTask.runTemplateWorker(
     check(classpath.isNotEmpty()) {
         "Minecraft fixture template worker classpath is empty"
     }
-    val result = runProcess(
+    val processResult = runProcess(
         command = buildList {
             add("java")
             add(JvmProcessArguments.ENABLE_NATIVE_ACCESS_ALL_UNNAMED)
@@ -148,8 +148,8 @@ private fun DefaultTask.runTemplateWorker(
         workingDirectory = workDirectory,
         timeout = TEMPLATE_WORKER_TIMEOUT,
     )
-    check(result.exitCode == 0) {
-        "Minecraft fixture template worker exited with ${result.exitCode}:\n${result.output}"
+    check(processResult.exitCode == 0) {
+        "Minecraft fixture template worker exited with ${processResult.exitCode}:\n${processResult.output}"
     }
 }
 

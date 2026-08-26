@@ -62,10 +62,10 @@ abstract class MinecraftProtocolToolTask : DefaultTask() {
 }
 
 internal fun Path.writeJson(
-    value: JsonElement,
+    jsonElement: JsonElement,
     sortKeys: Boolean = false,
 ) {
-    val document = if (sortKeys) value.withSortedObjectKeys() else value
+    val document = if (sortKeys) jsonElement.withSortedObjectKeys() else jsonElement
     atomicWriteText("${protocolJson.encodeToString(document)}\n")
 }
 
@@ -144,18 +144,18 @@ internal object ProtocolHttp {
     private val retryableResponseBodyPlugin = createClientPlugin(
         "RetryableResponseBody",
     ) {
-        on(Send) { request ->
-            val responseBody = request.attributes.getOrNull(retryableResponseBodyKey)
-            responseBody?.attempts?.incrementAndGet()
-            val call: HttpClientCall = proceed(request)
-            responseBody?.consume?.invoke(call.response)
-            call
+        on(Send) { httpRequestBuilder ->
+            val retryableResponseBody = httpRequestBuilder.attributes.getOrNull(retryableResponseBodyKey)
+            retryableResponseBody?.attempts?.incrementAndGet()
+            val httpClientCall: HttpClientCall = proceed(httpRequestBuilder)
+            retryableResponseBody?.consume?.invoke(httpClientCall.response)
+            httpClientCall
         }
     }
 
     private val systemPropertyProxyAuthenticator = createSystemPropertyProxyAuthenticator()
 
-    private val client = HttpClient(Java) {
+    private val httpClient = HttpClient(Java) {
         // Keep engine.proxy unset so JDK HttpClient uses the default
         // ProxySelector and therefore the same JVM proxy properties as Gradle.
         systemPropertyProxyAuthenticator?.let { proxyAuthenticator ->
@@ -179,17 +179,17 @@ internal object ProtocolHttp {
             agent = USER_AGENT
         }
     }.also { httpClient ->
-        httpClient.monitor.subscribe(HttpRequestRetryEvent) { retry ->
-            val responseBody = retry.request.attributes
+        httpClient.monitor.subscribe(HttpRequestRetryEvent) { httpRetryEventData ->
+            val retryableResponseBody = httpRetryEventData.request.attributes
                 .getOrNull(retryableResponseBodyKey)
                 ?: return@subscribe
-            val reason = retry.cause?.friendlyDownloadReason()
-                ?: retry.response?.status?.let { status ->
-                    "HTTP ${status.value} ${status.description}"
+            val reason = httpRetryEventData.cause?.friendlyDownloadReason()
+                ?: httpRetryEventData.response?.status?.let { httpStatusCode ->
+                    "HTTP ${httpStatusCode.value} ${httpStatusCode.description}"
                 }
                 ?: "unknown HTTP failure"
             logger.warn(
-                "External download attempt ${retry.retryCount}/$MAX_ATTEMPTS failed; retrying ${responseBody.url}: $reason",
+                "External download attempt ${httpRetryEventData.retryCount}/$MAX_ATTEMPTS failed; retrying ${retryableResponseBody.url}: $reason",
             )
         }
     }
@@ -203,12 +203,12 @@ internal object ProtocolHttp {
         requireOnline(url, offline)
         var content: ByteArray? = null
         executeDownload(url, connectTimeout) { current ->
-            val bytes = current.bodyAsChannel()
+            val byteArray = current.bodyAsChannel()
                 .readRemaining()
                 .readByteArray()
             if (current.status.isSuccess()) {
-                validate(bytes)
-                content = bytes
+                validate(byteArray)
+                content = byteArray
             }
         }
         return checkNotNull(content) {
@@ -246,9 +246,9 @@ internal object ProtocolHttp {
                 SystemFileSystem.sink(IoPath(temporary.toString()))
                     .buffered()
                     .use { sink ->
-                        val channel = current.bodyAsChannel()
-                        while (!channel.exhausted()) {
-                            channel.readRemaining(STREAM_BUFFER_SIZE)
+                        val byteReadChannel = current.bodyAsChannel()
+                        while (!byteReadChannel.exhausted()) {
+                            byteReadChannel.readRemaining(STREAM_BUFFER_SIZE)
                                 .transferTo(sink)
                         }
                     }
@@ -269,16 +269,16 @@ internal object ProtocolHttp {
         connectTimeout: KotlinDuration,
         consume: suspend (HttpResponse) -> Unit,
     ) {
-        val responseBody = RetryableResponseBody(url, consume)
+        val retryableResponseBody = RetryableResponseBody(url, consume)
         try {
-            val response = client.get(url) {
+            val httpResponse = httpClient.get(url) {
                 configureDownloadTimeouts(connectTimeout)
-                attributes.put(retryableResponseBodyKey, responseBody)
+                attributes.put(retryableResponseBodyKey, retryableResponseBody)
             }
-            if (!response.status.isSuccess()) {
+            if (!httpResponse.status.isSuccess()) {
                 throw UnexpectedHttpStatusException(
-                    response.status.value,
-                    response.status.description,
+                    httpResponse.status.value,
+                    httpResponse.status.description,
                 )
             }
         } catch (failure: CancellationException) {
@@ -286,7 +286,7 @@ internal object ProtocolHttp {
         } catch (failure: Throwable) {
             throw GradleException(
                 buildString {
-                    val attempts = responseBody.attempts.get().coerceAtLeast(1)
+                    val attempts = retryableResponseBody.attempts.get().coerceAtLeast(1)
                     append("Could not download external resource after ")
                     append(attempts)
                     append(if (attempts == 1) " attempt.\n" else " attempts.\n")
@@ -546,8 +546,8 @@ internal fun observeProcessTree(
     if (process.isAlive) {
         runCatching {
             process.descendants().use { descendants ->
-                descendants.forEach { handle ->
-                    observedProcesses.putIfAbsent(handle.pid(), handle)
+                descendants.forEach { processHandle ->
+                    observedProcesses.putIfAbsent(processHandle.pid(), processHandle)
                 }
             }
         }
@@ -562,12 +562,12 @@ internal fun forceProcessTree(
 ) {
     val rootPid = process.pid()
     observedProcesses.values
-        .filter { handle -> handle.pid() != rootPid }
+        .filter { processHandle -> processHandle.pid() != rootPid }
         .asReversed()
         .plus(observedProcesses[rootPid])
         .filterNotNull()
         .filter(ProcessHandle::isAlive)
-        .forEach { handle -> runCatching { handle.destroyForcibly() } }
+        .forEach { processHandle -> runCatching { processHandle.destroyForcibly() } }
 }
 
 internal fun awaitProcessTreeExit(
@@ -589,10 +589,10 @@ internal fun awaitProcessTreeExit(
 }
 
 internal fun Path.readZipEntry(name: String): ByteArray =
-    ZipFile(toFile()).use { zip ->
-        val entry = zip.getEntry(name)
+    ZipFile(toFile()).use { zipFile ->
+        val zipEntry = zipFile.getEntry(name)
             ?: error("ZIP entry does not exist: $name")
-        zip.getInputStream(entry).use { it.readBytes() }
+        zipFile.getInputStream(zipEntry).use { it.readBytes() }
     }
 
 internal data class MinecraftProtocolTarget(
@@ -602,7 +602,7 @@ internal data class MinecraftProtocolTarget(
 )
 
 internal data class OfficialMinecraftTargetReport(
-    val target: MinecraftProtocolTarget,
+    val minecraftProtocolTarget: MinecraftProtocolTarget,
 )
 
 internal fun Path.readOfficialMinecraftTargetReport(): OfficialMinecraftTargetReport {
@@ -614,19 +614,19 @@ internal fun Path.readOfficialMinecraftTargetReport(): OfficialMinecraftTargetRe
         "Unsupported official Minecraft target schema"
     }
     return OfficialMinecraftTargetReport(
-        target = MinecraftProtocolTarget(
+        minecraftProtocolTarget = MinecraftProtocolTarget(
             minecraftVersion = report.getValue("minecraft_version").jsonPrimitive.content,
             protocolVersion = report.getValue("protocol_version").jsonPrimitive.int,
             javaMajorVersion = report.getValue("java_major_version").jsonPrimitive.int,
         ),
     ).also {
-        check(it.target.minecraftVersion.isNotBlank()) {
+        check(it.minecraftProtocolTarget.minecraftVersion.isNotBlank()) {
             "Official Minecraft target has an empty version"
         }
-        check(it.target.protocolVersion >= 0) {
+        check(it.minecraftProtocolTarget.protocolVersion >= 0) {
             "Official Minecraft target has a negative protocol version"
         }
-        check(it.target.javaMajorVersion > 0) {
+        check(it.minecraftProtocolTarget.javaMajorVersion > 0) {
             "Official Minecraft target has no Java requirement"
         }
     }

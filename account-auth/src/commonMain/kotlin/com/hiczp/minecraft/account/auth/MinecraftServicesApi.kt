@@ -11,48 +11,48 @@ class MinecraftServicesApi(
     private val httpClient: HttpClient,
 ) {
     suspend fun loginWithXbox(
-        request: MinecraftXboxLoginRequest,
+        minecraftXboxLoginRequest: MinecraftXboxLoginRequest,
     ): MinecraftLoginResponse {
-        val response = httpClient.post(MINECRAFT_XBOX_LOGIN_ENDPOINT) {
+        val httpResponse = httpClient.post(MINECRAFT_XBOX_LOGIN_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
             contentType(ContentType.Application.Json)
-            setBody(AccountAuthJson.encodeToString(request))
+            setBody(AccountAuthJson.encodeToString(minecraftXboxLoginRequest))
         }
-        return response.decodeAccountAuthResponse<MinecraftLoginResponse, MinecraftServicesErrorResponse>(::MinecraftServicesResponseException)
+        return httpResponse.decodeAccountAuthResponse<MinecraftLoginResponse, MinecraftServicesErrorResponse>(::MinecraftServicesResponseException)
     }
 
     suspend fun getStoreEntitlements(
         accessToken: String,
     ): MinecraftEntitlementsResponse {
-        val response = httpClient.get(MINECRAFT_STORE_ENTITLEMENTS_ENDPOINT) {
+        val httpResponse = httpClient.get(MINECRAFT_STORE_ENTITLEMENTS_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
             bearerAuth(accessToken)
         }
-        return response.decodeAccountAuthResponse<MinecraftEntitlementsResponse, MinecraftServicesErrorResponse>(::MinecraftServicesResponseException)
+        return httpResponse.decodeAccountAuthResponse<MinecraftEntitlementsResponse, MinecraftServicesErrorResponse>(::MinecraftServicesResponseException)
     }
 
     suspend fun getMinecraftProfile(
         accessToken: String,
     ): MinecraftProfileResponse {
-        val response = httpClient.get(MINECRAFT_PROFILE_ENDPOINT) {
+        val httpResponse = httpClient.get(MINECRAFT_PROFILE_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
             bearerAuth(accessToken)
         }
-        return response.decodeAccountAuthResponse<MinecraftProfileResponse, MinecraftServicesErrorResponse>(::MinecraftServicesResponseException)
+        return httpResponse.decodeAccountAuthResponse<MinecraftProfileResponse, MinecraftServicesErrorResponse>(::MinecraftServicesResponseException)
     }
 
     suspend fun getLicenseEntitlements(
         accessToken: String,
     ): MinecraftEntitlementsResponse {
-        val response = httpClient.get(MINECRAFT_LICENSE_ENTITLEMENTS_ENDPOINT) {
+        val httpResponse = httpClient.get(MINECRAFT_LICENSE_ENTITLEMENTS_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
             bearerAuth(accessToken)
         }
-        return response.decodeAccountAuthResponse<MinecraftEntitlementsResponse, MinecraftServicesErrorResponse>(::MinecraftServicesResponseException)
+        return httpResponse.decodeAccountAuthResponse<MinecraftEntitlementsResponse, MinecraftServicesErrorResponse>(::MinecraftServicesResponseException)
     }
 }
 
@@ -129,8 +129,8 @@ object MinecraftServicesTools {
     )
 
     fun hasJavaEditionEntitlement(
-        entitlements: MinecraftEntitlementsResponse,
-    ): Boolean = entitlements.items.any { it.name == JAVA_EDITION_ENTITLEMENT }
+        minecraftEntitlementsResponse: MinecraftEntitlementsResponse,
+    ): Boolean = minecraftEntitlementsResponse.items.any { it.name == JAVA_EDITION_ENTITLEMENT }
 }
 
 private val MINECRAFT_XBOX_LOGIN_ENDPOINT = Url("https://api.minecraftservices.com/authentication/login_with_xbox")

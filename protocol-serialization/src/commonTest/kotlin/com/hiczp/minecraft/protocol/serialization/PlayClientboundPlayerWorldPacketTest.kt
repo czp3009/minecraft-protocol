@@ -62,7 +62,7 @@ class PlayClientboundPlayerWorldPacketTest {
 
     @Test
     fun `player synchronization uses a fixed Int relative bit mask`() {
-        val packet = SynchronizePlayerPositionPacket(
+        val synchronizePlayerPositionPacket = SynchronizePlayerPositionPacket(
             teleportId = 1,
             change = PositionMoveRotation(
                 Vector3d(0.0, 0.0, 0.0),
@@ -79,7 +79,7 @@ class PlayClientboundPlayerWorldPacketTest {
             ),
         )
         assertPacketBytes(
-            packet,
+            synchronizePlayerPositionPacket,
             SynchronizePlayerPositionPacket.serializer(),
             "01${"00".repeat(56)}00000181",
         )
@@ -96,7 +96,7 @@ class PlayClientboundPlayerWorldPacketTest {
 
         val withUnknownBits = "01${"00".repeat(56)}ffffff81".hexToByteArray()
         assertEquals(
-            packet,
+            synchronizePlayerPositionPacket,
             MinecraftProtocolFormat.decodeFromByteArray<SynchronizePlayerPositionPacket>(
                 withUnknownBits,
             ),
@@ -121,14 +121,14 @@ class PlayClientboundPlayerWorldPacketTest {
             "01ac02",
         )
 
-        val settings = RecipeBookSettings(
+        val recipeBookSettings = RecipeBookSettings(
             crafting = RecipeBookTypeSettings(open = true, filtering = false),
             furnace = RecipeBookTypeSettings(open = false, filtering = true),
             blastFurnace = RecipeBookTypeSettings(open = true, filtering = false),
             smoker = RecipeBookTypeSettings(open = false, filtering = true),
         )
         assertPacketBytes(
-            RecipeBookSettingsPacket(settings),
+            RecipeBookSettingsPacket(recipeBookSettings),
             RecipeBookSettingsPacket.serializer(),
             "0100000101000001",
         )
@@ -171,7 +171,7 @@ class PlayClientboundPlayerWorldPacketTest {
 
     @Test
     fun `section block changes pack state and local coordinates into VarLongs`() {
-        val packet = UpdateSectionBlocksPacket(
+        val updateSectionBlocksPacket = UpdateSectionBlocksPacket(
             sectionPosition = SectionPosition(1, 2, 3),
             blocks = listOf(
                 SectionBlockChange(
@@ -183,7 +183,7 @@ class PlayClientboundPlayerWorldPacketTest {
             ),
         )
         assertPacketBytes(
-            packet,
+            updateSectionBlocksPacket,
             UpdateSectionBlocksPacket.serializer(),
             "000004000030000201b2824b",
         )
@@ -262,7 +262,7 @@ class PlayClientboundPlayerWorldPacketTest {
 
     @Test
     fun `default spawn includes dimension position yaw and pitch`() {
-        val packet = SetDefaultSpawnPositionPacket(
+        val setDefaultSpawnPositionPacket = SetDefaultSpawnPositionPacket(
             RespawnData(
                 GlobalPosition(
                     Identifier("minecraft:overworld"),
@@ -273,7 +273,7 @@ class PlayClientboundPlayerWorldPacketTest {
             ),
         )
         assertPacketBytes(
-            packet,
+            setDefaultSpawnPositionPacket,
             SetDefaultSpawnPositionPacket.serializer(),
             "136d696e6563726166743a6f766572776f726c64${ZERO_POSITION_HEX}3f800000c0000000",
         )
@@ -281,17 +281,17 @@ class PlayClientboundPlayerWorldPacketTest {
 
     private fun <T> assertPacketBytes(
         packet: T,
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
         expectedHex: String,
     ) {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 

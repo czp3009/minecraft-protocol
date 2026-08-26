@@ -18,22 +18,22 @@ import kotlinx.serialization.encodeToByteArray
 
 object NeoForgeSplitPayloads {
     fun <Incoming : Packet, Outgoing : Packet> split(
-        connection: MinecraftPacketConnection<Incoming, Outgoing>,
+        minecraftPacketConnection: MinecraftPacketConnection<Incoming, Outgoing>,
         packet: Outgoing,
         maximumPartSize: Int = NeoForgeProtocol.SPLIT_PART_SIZE,
     ): List<NeoForgeSplitPacket> = split(
-        connection.encodeCustomPayload(packet),
+        minecraftPacketConnection.encodeCustomPayload(packet),
         maximumPartSize,
     )
 
     fun split(
-        payload: RoutedCustomPayload,
+        routedCustomPayload: RoutedCustomPayload,
         maximumPartSize: Int = NeoForgeProtocol.SPLIT_PART_SIZE,
     ): List<NeoForgeSplitPacket> {
         require(maximumPartSize > 0) {
             "NeoForge split part size must be positive"
         }
-        val target = encodeTarget(payload)
+        val target = encodeTarget(routedCustomPayload)
         if (target.size <= maximumPartSize) {
             val targetSize = target.size
             throw MinecraftSerializationException(
@@ -63,15 +63,15 @@ object NeoForgeSplitPayloads {
         return result
     }
 
-    fun encodedPacketSize(payload: RoutedCustomPayload): Int =
-        encodeTarget(payload).size
+    fun encodedPacketSize(routedCustomPayload: RoutedCustomPayload): Int =
+        encodeTarget(routedCustomPayload).size
 
-    private fun encodeTarget(payload: RoutedCustomPayload): ByteArray =
+    private fun encodeTarget(routedCustomPayload: RoutedCustomPayload): ByteArray =
         MinecraftProtocolFormat.Default.encodeToByteArray(
             NeoForgeSplitTarget(
-                payload.route.packetId,
-                payload.route.channel,
-                payload.data,
+                routedCustomPayload.route.packetId,
+                routedCustomPayload.route.channel,
+                routedCustomPayload.data,
             ),
         )
 
@@ -89,17 +89,17 @@ class NeoForgeSplitAssembler {
         get() = fragments.isNotEmpty()
 
     fun accept(
-        state: ConnectionState,
-        direction: PacketDirection,
-        packet: NeoForgeSplitPacket,
+        connectionState: ConnectionState,
+        packetDirection: PacketDirection,
+        neoForgeSplitPacket: NeoForgeSplitPacket,
     ): RoutedCustomPayload? {
         require(
-            state == ConnectionState.CONFIGURATION ||
-                    state == ConnectionState.PLAY,
+            connectionState == ConnectionState.CONFIGURATION ||
+                    connectionState == ConnectionState.PLAY,
         ) {
-            "NeoForge split payloads are not valid in $state"
+            "NeoForge split payloads are not valid in $connectionState"
         }
-        val payload = packet.payload.toByteArray()
+        val payload = neoForgeSplitPacket.payload.toByteArray()
         if (payload.isEmpty()) {
             throw MinecraftSerializationException(
                 "NeoForge split fragment has no state byte",
@@ -140,17 +140,17 @@ class NeoForgeSplitAssembler {
             offset += fragment.size
         }
         clear()
-        val target = MinecraftProtocolFormat.Default.decodeFromByteArray<NeoForgeSplitTarget>(
+        val neoForgeSplitTarget = MinecraftProtocolFormat.Default.decodeFromByteArray<NeoForgeSplitTarget>(
             targetBytes,
         )
         return RoutedCustomPayload(
             PacketRoute.CustomPayload(
-                state,
-                direction,
-                target.packetId,
-                target.channel,
+                connectionState,
+                packetDirection,
+                neoForgeSplitTarget.packetId,
+                neoForgeSplitTarget.channel,
             ),
-            target.data,
+            neoForgeSplitTarget.data,
         )
     }
 

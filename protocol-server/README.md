@@ -25,11 +25,11 @@ or writers. The preset has no built-in admission timeout; apply the application'
 
 `MinecraftServerNegotiationOptions` contains protocol-visible choices such as compression, Status availability, player
 limits, view and simulation distance, game mode, difficulty, secure-chat claim, and the `ProtocolData` sent during
-Configuration. The `connection` parameter below is a value returned by `MinecraftServer.accept()`:
+Configuration. The `minecraftServerConnection` parameter below is a value returned by `MinecraftServer.accept()`:
 
 ```kotlin
 suspend fun negotiateConfigured(
-    connection: MinecraftServerConnection,
+    minecraftServerConnection: MinecraftServerConnection,
 ): MinecraftServerNegotiationResult? {
     val minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(
         statusDescription = "A Kotlin Minecraft server",
@@ -39,7 +39,9 @@ suspend fun negotiateConfigured(
         gameMode = GameMode.CREATIVE,
         difficulty = Difficulty.NORMAL,
     )
-    return connection.negotiate(options = minecraftServerNegotiationOptions)
+    return minecraftServerConnection.negotiate(
+        minecraftServerNegotiationOptions = minecraftServerNegotiationOptions,
+    )
 }
 ```
 
@@ -62,7 +64,7 @@ fun admissionPolicy(allowedNames: Set<String>): MinecraftServerNegotiationPolicy
         override suspend fun profileRejection(
             gameProfile: GameProfile,
             transferred: Boolean,
-            options: MinecraftServerNegotiationOptions,
+            minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
         ): JsonTextComponent? = if (gameProfile.name in allowedNames) {
             null
         } else {
@@ -74,8 +76,9 @@ fun admissionPolicy(allowedNames: Set<String>): MinecraftServerNegotiationPolicy
 ```
 
 Call `admissionPolicy(allowedNames)` with the application's current set, then pass the result to
-`connection.negotiate(options = options, policy = policy)`. The module does not read `server.properties` or provide a
-whitelist, operator, or permissions system.
+`minecraftServerConnection.negotiate(minecraftServerNegotiationOptions = minecraftServerNegotiationOptions,
+minecraftServerNegotiationPolicy = minecraftServerNegotiationPolicy)`. The module does not read `server.properties` or
+provide a whitelist, operator, or permissions system.
 
 If negotiation throws `MinecraftLoginRejectedException`, its `failurePacket` is ready to send. The library leaves the
 connection open so the application can decide whether to send that packet and when to close.
@@ -93,7 +96,7 @@ suspend fun bindOnlineServer(
     val minecraftServerAuthentication = MinecraftServerAuthentication.online(httpClient)
     return MinecraftServer.bind(
         selectorManager = selectorManager,
-        authentication = minecraftServerAuthentication,
+        minecraftServerAuthentication = minecraftServerAuthentication,
     )
 }
 ```
@@ -108,9 +111,9 @@ world file packs can combine [`world-io`](../world-io/README.md) with the vanill
 
 ```kotlin
 suspend fun optionsFromWorldPacks(
-    world: MinecraftWorldAccess,
+    minecraftWorldAccess: MinecraftWorldAccess,
 ): MinecraftServerNegotiationOptions {
-    val worldDataPackLoadResult = world.readEnabledDataPacks()
+    val worldDataPackLoadResult = minecraftWorldAccess.readEnabledDataPacks()
     val protocolData = worldDataPackLoadResult.dataPackStack.toVanillaProtocolData()
     return MinecraftServerNegotiationOptions(protocolData = protocolData)
 }
@@ -145,14 +148,14 @@ factory derives ordinary values from the server options:
 
 ```kotlin
 suspend fun sendBootstrap(
-    connection: MinecraftServerConnection,
+    minecraftServerConnection: MinecraftServerConnection,
     playerPosition: Vector3d,
 ) {
     val minecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
         playerPosition = playerPosition,
     )
-    connection.sendInitialWorldBootstrap(minecraftInitialWorldBootstrap)
-    connection.requestFlush()
+    minecraftServerConnection.sendInitialWorldBootstrap(minecraftInitialWorldBootstrap)
+    minecraftServerConnection.requestFlush()
 }
 ```
 
@@ -164,13 +167,13 @@ For tests, previews, and simple finite views, `MinecraftInitialWorld` adds compl
 
 ```kotlin
 suspend fun sendFlatWorld(
-    connection: MinecraftServerConnection,
+    minecraftServerConnection: MinecraftServerConnection,
 ) {
     val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(
         chunkRadius = 1,
     )
-    connection.synchronizeInitialWorld(minecraftInitialWorld)
-    connection.requestFlush()
+    minecraftServerConnection.synchronizeInitialWorld(minecraftInitialWorld)
+    minecraftServerConnection.requestFlush()
 }
 ```
 
@@ -184,14 +187,14 @@ Applications can load or construct `world-format` Chunks and project them with t
 
 ```kotlin
 fun encodeChunks(
-    connection: MinecraftServerConnection,
+    minecraftServerConnection: MinecraftServerConnection,
     minecraftDimensionLayout: MinecraftDimensionLayout,
     chunks: Iterable<Chunk<ProtocolBlockState, ProtocolRegistryEntry>>,
     isAir: (ProtocolBlockState) -> Boolean,
     hasFluid: (ProtocolBlockState) -> Boolean,
 ): List<MinecraftChunkSnapshot> {
     val minecraftChunkPacketEncoder = MinecraftChunkPacketEncoder(
-        protocolRegistryContext = connection.protocolRegistryContext,
+        protocolRegistryContext = minecraftServerConnection.protocolRegistryContext,
         isAir = isAir,
         hasFluid = hasFluid,
         hasSkyLight = minecraftDimensionLayout.hasSkyLight,
@@ -211,12 +214,12 @@ equipment, passengers, and leash relationship:
 
 ```kotlin
 suspend fun sendEntity(
-    connection: MinecraftServerConnection,
+    minecraftServerConnection: MinecraftServerConnection,
     entity: Entity<NbtCompound>,
     runtimeEntityId: Int,
 ) {
     val minecraftEntitySnapshot = entity.toMinecraftEntitySnapshot(entityId = runtimeEntityId)
-    connection.sendEntitySnapshot(minecraftEntitySnapshot)
+    minecraftServerConnection.sendEntitySnapshot(minecraftEntitySnapshot)
 }
 ```
 
@@ -237,11 +240,11 @@ suspend fun bindNeoForgeServer(
 ): MinecraftServer {
     val minecraftConnectionDefinition = NeoForgeProtocol.connectionDefinition(
         extensionCodecs = applicationPacketCodecs,
-        format = applicationProtocolFormat,
+        minecraftProtocolFormat = applicationProtocolFormat,
     )
     return MinecraftServer.bind(
         selectorManager = selectorManager,
-        definition = minecraftConnectionDefinition,
+        minecraftConnectionDefinition = minecraftConnectionDefinition,
     )
 }
 ```
@@ -250,14 +253,14 @@ For each connection accepted from that server, supply the prepared NeoForge prof
 
 ```kotlin
 suspend fun negotiateNeoForge(
-    connection: MinecraftServerConnection,
+    minecraftServerConnection: MinecraftServerConnection,
     neoForgeServerProfileDefinition: NeoForgeServerProfileDefinition,
-    options: MinecraftServerNegotiationOptions,
-    policy: MinecraftServerNegotiationPolicy,
-): MinecraftServerNegotiationResult? = connection.negotiate(
-    profile = NeoForgeServerProfile(neoForgeServerProfileDefinition),
-    options = options,
-    policy = policy,
+    minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
+    minecraftServerNegotiationPolicy: MinecraftServerNegotiationPolicy,
+): MinecraftServerNegotiationResult? = minecraftServerConnection.negotiate(
+    serverNegotiationProfile = NeoForgeServerProfile(neoForgeServerProfileDefinition),
+    minecraftServerNegotiationOptions = minecraftServerNegotiationOptions,
+    minecraftServerNegotiationPolicy = minecraftServerNegotiationPolicy,
 )
 ```
 
@@ -276,14 +279,14 @@ that run and call `enablePlayKeepAlive()` before sending the first Play packet. 
 switch after `AcknowledgeConfigurationPacket`, then restores Play after the next finish acknowledgement:
 
 ```kotlin
-fun beginReconfigurationKeepAlive(connection: MinecraftServerConnection) {
-    connection.disableKeepAlive()
-    connection.enableConfigurationKeepAlive()
+fun beginReconfigurationKeepAlive(minecraftServerConnection: MinecraftServerConnection) {
+    minecraftServerConnection.disableKeepAlive()
+    minecraftServerConnection.enableConfigurationKeepAlive()
 }
 
-fun finishReconfigurationKeepAlive(connection: MinecraftServerConnection) {
-    connection.disableKeepAlive()
-    connection.enablePlayKeepAlive()
+fun finishReconfigurationKeepAlive(minecraftServerConnection: MinecraftServerConnection) {
+    minecraftServerConnection.disableKeepAlive()
+    minecraftServerConnection.enablePlayKeepAlive()
 }
 ```
 

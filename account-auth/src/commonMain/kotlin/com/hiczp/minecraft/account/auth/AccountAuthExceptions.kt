@@ -4,24 +4,24 @@ import io.ktor.client.plugins.*
 import io.ktor.client.statement.*
 
 open class AccountAuthResponseException(
-    response: HttpResponse,
+    httpResponse: HttpResponse,
     val responseBody: String,
-) : ResponseException(response, responseBody)
+) : ResponseException(httpResponse, responseBody)
 
 class MicrosoftOAuthResponseException(
-    response: HttpResponse,
+    httpResponse: HttpResponse,
     responseBody: String,
     val parsedErrorBody: MicrosoftOAuthErrorResponse,
-) : AccountAuthResponseException(response, responseBody)
+) : AccountAuthResponseException(httpResponse, responseBody)
 
 class XboxAuthenticationResponseException(
-    response: HttpResponse,
+    httpResponse: HttpResponse,
     responseBody: String,
     val parsedErrorBody: XboxAuthenticationErrorResponse,
-) : AccountAuthResponseException(response, responseBody)
+) : AccountAuthResponseException(httpResponse, responseBody)
 
 class MinecraftServicesResponseException(
-    response: HttpResponse,
+    httpResponse: HttpResponse,
     responseBody: String,
     val parsedErrorBody: MinecraftServicesErrorResponse,
-) : AccountAuthResponseException(response, responseBody)
+) : AccountAuthResponseException(httpResponse, responseBody)
