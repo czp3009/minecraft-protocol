@@ -5,6 +5,7 @@ import com.hiczp.minecraft.buildlogic.officialMinecraftArtifactDirectory
 import com.hiczp.minecraft.buildlogic.officialMinecraftArtifactFile
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
+import org.jetbrains.kotlin.gradle.plugin.KotlinCompilation
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -43,6 +44,9 @@ val packetsReport = officialReportsDirectory.map {
 }
 
 ksp {
+    // This output is re-exposed to commonMain for downstream compilations. Do not let later KSP tasks observe it as
+    // source input again: that would create a producer/consumer feedback edge with kspCommonMainKotlinMetadata.
+    excludedSources.from(generatedPacketDefinitionsDirectory)
     arg(
         "minecraft.packetsReport",
         packetsReport.map { it.asFile.absolutePath },
@@ -105,10 +109,8 @@ kotlin {
                 files(generatedProtocolSourceDirectory)
                     .builtBy(generateMinecraftProtocolSource),
             )
-            // KSP does not wire the common-metadata processor output into
-            // downstream compilations. A plain srcDir plus explicit task
-            // dependencies is required: builtBy here would make the metadata
-            // KSP task (which reads this source set) depend on itself.
+            // KSP does not expose common-metadata output to downstream compilations. builtBy cannot express that edge
+            // because the metadata KSP task also observes commonMain and would depend on itself.
             kotlin.srcDir(generatedPacketDefinitionsDirectory)
             dependencies {
                 api(project(":nbt"))
@@ -122,7 +124,7 @@ kotlin {
     }
 
     targets.configureEach {
-        compilations.configureEach {
+        compilations.matching { it.name == KotlinCompilation.MAIN_COMPILATION_NAME }.configureEach {
             compileTaskProvider.configure {
                 dependsOn(generatePacketDefinitions)
             }
@@ -130,9 +132,11 @@ kotlin {
     }
 }
 
-tasks.withType<Jar>().configureEach {
-    dependsOn(generatePacketDefinitions)
-}
+tasks.withType<Jar>()
+    .matching { it.name.endsWith("SourcesJar", ignoreCase = true) }
+    .configureEach {
+        dependsOn(generatePacketDefinitions)
+    }
 
 // The KSP option alone is a plain string; track the report's content so the
 // processor reruns when the official analysis data changes.

@@ -1,10 +1,9 @@
 import com.hiczp.minecraft.buildlogic.applyMinecraftFixtureArtifactsConvention
 import com.hiczp.minecraft.buildlogic.applyMinecraftTestFixtureServiceConvention
-import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
-import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTargetWithTests
 import org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest
 import org.jetbrains.kotlin.gradle.targets.js.testing.karma.KotlinKarma
 import org.jetbrains.kotlin.gradle.targets.js.testing.mocha.KotlinMocha
+import org.jetbrains.kotlin.gradle.tasks.KotlinNativeLink
 import org.jetbrains.kotlin.konan.target.HostManager
 
 plugins {
@@ -35,15 +34,11 @@ subprojects {
     }
 
     pluginManager.withPlugin("org.jetbrains.kotlin.multiplatform") {
-        extensions.configure<KotlinMultiplatformExtension> {
-            // A disabled non-host test task still builds its link dependencies. Excluding the test task instead removes
-            // its target-specific compile and link chain from aggregate tasks such as allTests.
-            targets.withType<KotlinNativeTargetWithTests<*>>().all {
-                if (konanTarget != nativeHost) {
-                    gradle.startParameter.setExcludedTaskNames(
-                        gradle.startParameter.excludedTaskNames + "${name}Test",
-                    )
-                }
+        // Cross-host KLIB compilation is portable, but final linking can consume target-native libraries whose
+        // toolchains are incompatible with the current host. Final binaries are therefore built on their own host.
+        tasks.withType<KotlinNativeLink>().configureEach {
+            if (binary.target.konanTarget != nativeHost) {
+                onlyIf("the Kotlin/Native binary target matches the current host") { false }
             }
         }
 
