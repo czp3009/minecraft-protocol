@@ -25,11 +25,11 @@ import kotlinx.serialization.modules.SerializersModule
 import kotlin.uuid.Uuid
 
 internal class MinecraftEncoder(
-    private val writer: MinecraftWriter,
-    private val configuration: MinecraftProtocolFormatConfiguration,
+    private val minecraftWriter: MinecraftWriter,
+    private val minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration,
     override val serializersModule: SerializersModule,
 ) : AbstractEncoder(), NbtTagEncoder {
-    private val nbtCodec: NbtBinaryCodec = NbtBinaryCodec
+    private val nbtBinaryCodec: NbtBinaryCodec = NbtBinaryCodec
     private val frames: MutableList<Frame> = mutableListOf()
     private var pendingHints: List<Annotation> = emptyList()
 
@@ -69,48 +69,48 @@ internal class MinecraftEncoder(
     override fun endStructure(descriptor: SerialDescriptor) {
         val frame = frames.removeLastOrNull()
             ?: throw MinecraftSerializationException("Encoder structure stack underflow")
-        if (frame.descriptor != descriptor) {
+        if (frame.serialDescriptor != descriptor) {
             throw MinecraftSerializationException("Mismatched encoder structure")
         }
     }
 
-    override fun encodeBoolean(value: Boolean): Unit = writer.writeByte(if (value) 1 else 0)
+    override fun encodeBoolean(value: Boolean): Unit = minecraftWriter.writeByte(if (value) 1 else 0)
 
-    override fun encodeByte(value: Byte): Unit = writer.writeByte(value.toInt())
+    override fun encodeByte(value: Byte): Unit = minecraftWriter.writeByte(value.toInt())
 
-    override fun encodeShort(value: Short): Unit = writer.writeShort(value.toInt())
+    override fun encodeShort(value: Short): Unit = minecraftWriter.writeShort(value.toInt())
 
     override fun encodeInt(value: Int) {
         val hints = takePendingHints()
         when {
-            hints.any { it is VarInt || it is VarIntElements } -> writer.writeVarInt(value)
+            hints.any { it is VarInt || it is VarIntElements } -> minecraftWriter.writeVarInt(value)
             hints.any { it is UnsignedByte } -> {
                 require(value in 0..255) { "Unsigned byte is outside 0..255: $value" }
-                writer.writeByte(value)
+                minecraftWriter.writeByte(value)
             }
 
             hints.any { it is UnsignedShort } -> {
                 require(value in 0..65_535) { "Unsigned short is outside 0..65535: $value" }
-                writer.writeShort(value)
+                minecraftWriter.writeShort(value)
             }
 
-            else -> writer.writeInt(value)
+            else -> minecraftWriter.writeInt(value)
         }
     }
 
     override fun encodeLong(value: Long) {
         if (takePendingHints().any { it is VarLong || it is VarLongElements }) {
-            writer.writeVarLong(value)
+            minecraftWriter.writeVarLong(value)
         } else {
-            writer.writeLong(value)
+            minecraftWriter.writeLong(value)
         }
     }
 
-    override fun encodeFloat(value: Float): Unit = writer.writeInt(value.toBits())
+    override fun encodeFloat(value: Float): Unit = minecraftWriter.writeInt(value.toBits())
 
-    override fun encodeDouble(value: Double): Unit = writer.writeLong(value.toBits())
+    override fun encodeDouble(value: Double): Unit = minecraftWriter.writeLong(value.toBits())
 
-    override fun encodeChar(value: Char): Unit = writer.writeShort(value.code)
+    override fun encodeChar(value: Char): Unit = minecraftWriter.writeShort(value.code)
 
     override fun encodeString(value: String) {
         val maximum = takePendingHints().filterIsInstance<MaxLength>()
@@ -121,8 +121,8 @@ internal class MinecraftEncoder(
                 "String exceeds its protocol limit of $maximum UTF-16 code units",
             )
         }
-        writer.writeVarInt(byteCount.toInt())
-        writer.writeString(value)
+        minecraftWriter.writeVarInt(byteCount.toInt())
+        minecraftWriter.writeString(value)
     }
 
     override fun encodeEnum(enumDescriptor: SerialDescriptor, index: Int) {
@@ -132,10 +132,10 @@ internal class MinecraftEncoder(
         ) {
             EnumEncodingKind.BYTE,
             EnumEncodingKind.UNSIGNED_BYTE,
-                -> writer.writeByte(index)
+                -> minecraftWriter.writeByte(index)
 
-            EnumEncodingKind.VAR_INT -> writer.writeVarInt(index)
-            EnumEncodingKind.INT -> writer.writeInt(index)
+            EnumEncodingKind.VAR_INT -> minecraftWriter.writeVarInt(index)
+            EnumEncodingKind.INT -> minecraftWriter.writeInt(index)
         }
     }
 
@@ -145,8 +145,8 @@ internal class MinecraftEncoder(
 
     override fun encodeInline(descriptor: SerialDescriptor): Encoder = this
 
-    override fun encodeNbtTag(value: NbtTag) {
-        nbtCodec.writeAny(writer, value)
+    override fun encodeNbtTag(nbtTag: NbtTag) {
+        nbtBinaryCodec.writeAny(minecraftWriter, nbtTag)
     }
 
     override fun <T> encodeSerializableElement(
@@ -182,7 +182,7 @@ internal class MinecraftEncoder(
         when {
             encodePrimitiveArray(serializer, value) -> Unit
             serializer is NbtTagSerializer<*> -> serializer.serialize(this, value)
-            value is Uuid -> writer.write(value.toByteArray())
+            value is Uuid -> minecraftWriter.write(value.toByteArray())
             pendingHints.any { it is NetworkNbt } -> {
                 throw MinecraftSerializationException(
                     "@NetworkNbt can only be used with an NbtTag subtype",
@@ -195,7 +195,7 @@ internal class MinecraftEncoder(
                         "@LowPrecisionVector can only be used with Vector3d",
                     )
                 }
-                LowPrecisionVectorCodec.write(writer, value)
+                LowPrecisionVectorCodec.write(minecraftWriter, value)
             }
 
             pendingHints.any { it is Paletted } -> {
@@ -204,12 +204,12 @@ internal class MinecraftEncoder(
                         "@Paletted can only be used with PalettedContainer",
                     )
                 }
-                val annotation = pendingHints.filterIsInstance<Paletted>().single()
+                val paletted = pendingHints.filterIsInstance<Paletted>().single()
                 PalettedContainerCodec.write(
-                    writer,
+                    minecraftWriter,
                     value,
-                    annotation.kind,
-                    configuration,
+                    paletted.kind,
+                    minecraftProtocolFormatConfiguration,
                 )
             }
 
@@ -218,15 +218,15 @@ internal class MinecraftEncoder(
     }
 
     private fun <T> encodeSerializableWithHints(
-        serializer: SerializationStrategy<T>,
+        serializationStrategy: SerializationStrategy<T>,
         value: T,
         hints: List<Annotation>,
     ) {
-        val lengthPrefix = hints.filterIsInstance<ByteLengthPrefixed>().singleOrNull()
-        if (lengthPrefix != null) {
-            writeLengthPrefixed(lengthPrefix) { nested ->
+        val byteLengthPrefixed = hints.filterIsInstance<ByteLengthPrefixed>().singleOrNull()
+        if (byteLengthPrefixed != null) {
+            writeLengthPrefixed(byteLengthPrefixed) { nested ->
                 nested.encodeSerializableWithHints(
-                    serializer,
+                    serializationStrategy,
                     value,
                     hints.filterNot { it is ByteLengthPrefixed },
                 )
@@ -234,20 +234,20 @@ internal class MinecraftEncoder(
             return
         }
         withHints(hints) {
-            encodeSerializableValue(serializer, value)
+            encodeSerializableValue(serializationStrategy, value)
         }
     }
 
     private fun <T : Any> encodeNullableWithHints(
-        serializer: SerializationStrategy<T>,
+        serializationStrategy: SerializationStrategy<T>,
         value: T?,
         hints: List<Annotation>,
     ) {
-        val lengthPrefix = hints.filterIsInstance<ByteLengthPrefixed>().singleOrNull()
-        if (lengthPrefix != null) {
-            writeLengthPrefixed(lengthPrefix) { nested ->
+        val byteLengthPrefixed = hints.filterIsInstance<ByteLengthPrefixed>().singleOrNull()
+        if (byteLengthPrefixed != null) {
+            writeLengthPrefixed(byteLengthPrefixed) { nested ->
                 nested.encodeNullableWithHints(
-                    serializer,
+                    serializationStrategy,
                     value,
                     hints.filterNot { it is ByteLengthPrefixed },
                 )
@@ -255,13 +255,13 @@ internal class MinecraftEncoder(
             return
         }
         withHints(hints) {
-            val nullSentinel = hints.filterIsInstance<NullSentinelByte>().singleOrNull()
-            if (nullSentinel != null) {
-                validateNullSentinelByte(nullSentinel)
+            val nullSentinelByte = hints.filterIsInstance<NullSentinelByte>().singleOrNull()
+            if (nullSentinelByte != null) {
+                validateNullSentinelByte(nullSentinelByte)
                 if (value == null) {
-                    writer.writeByte(nullSentinel.value)
+                    minecraftWriter.writeByte(nullSentinelByte.value)
                 } else {
-                    encodeSerializableValue(serializer, value)
+                    encodeSerializableValue(serializationStrategy, value)
                 }
             } else if (hints.any { it is OptionalVarInt }) {
                 val id = value as? Int
@@ -270,94 +270,94 @@ internal class MinecraftEncoder(
                         "@OptionalVarInt value must be non-negative: $id",
                     )
                 }
-                writer.writeVarInt(id?.plus(1) ?: 0)
+                minecraftWriter.writeVarInt(id?.plus(1) ?: 0)
             } else if (hints.any { it is NbtEndOptional }) {
                 if (
-                    serializer !is NbtTagSerializer<*>
+                    serializationStrategy !is NbtTagSerializer<*>
                 ) {
                     throw MinecraftSerializationException(
                         "@NbtEndOptional can only be used with NbtTag",
                     )
                 }
                 if (value == null) {
-                    nbtCodec.writeAny(writer, NbtEnd)
+                    nbtBinaryCodec.writeAny(minecraftWriter, NbtEnd)
                 } else {
-                    encodeSerializableValue(serializer, value)
+                    encodeSerializableValue(serializationStrategy, value)
                 }
             } else if (value == null) {
                 encodeNull()
             } else {
                 encodeNotNullMark()
-                encodeSerializableValue(serializer, value)
+                encodeSerializableValue(serializationStrategy, value)
             }
         }
     }
 
-    private fun validateNullSentinelByte(annotation: NullSentinelByte) {
-        if (annotation.value !in Byte.MIN_VALUE..Byte.MAX_VALUE) {
+    private fun validateNullSentinelByte(nullSentinelByte: NullSentinelByte) {
+        if (nullSentinelByte.value !in Byte.MIN_VALUE..Byte.MAX_VALUE) {
             throw MinecraftSerializationException(
-                "@NullSentinelByte value must fit a signed byte: ${annotation.value}",
+                "@NullSentinelByte value must fit a signed byte: ${nullSentinelByte.value}",
             )
         }
     }
 
     private inline fun writeLengthPrefixed(
-        annotation: ByteLengthPrefixed,
+        byteLengthPrefixed: ByteLengthPrefixed,
         encode: (MinecraftEncoder) -> Unit,
     ) {
-        require(annotation.maxBytes >= 0) {
+        require(byteLengthPrefixed.maxBytes >= 0) {
             "ByteLengthPrefixed maxBytes must be non-negative"
         }
         val nestedWriter = Buffer()
         val nested = MinecraftEncoder(
             nestedWriter,
-            configuration,
+            minecraftProtocolFormatConfiguration,
             serializersModule,
         )
         encode(nested)
-        if (nestedWriter.size > annotation.maxBytes.toLong()) {
+        if (nestedWriter.size > byteLengthPrefixed.maxBytes.toLong()) {
             throw MinecraftSerializationException(
-                "Length-prefixed value has ${nestedWriter.size} bytes; maximum is ${annotation.maxBytes}",
+                "Length-prefixed value has ${nestedWriter.size} bytes; maximum is ${byteLengthPrefixed.maxBytes}",
             )
         }
-        writer.writeVarInt(nestedWriter.size.toInt())
-        nestedWriter.transferTo(writer)
+        minecraftWriter.writeVarInt(nestedWriter.size.toInt())
+        nestedWriter.transferTo(minecraftWriter)
     }
 
     private fun elementHints(
-        descriptor: SerialDescriptor,
+        serialDescriptor: SerialDescriptor,
         index: Int,
     ): List<Annotation> {
-        val descriptorIndex = when (descriptor.kind) {
+        val descriptorIndex = when (serialDescriptor.kind) {
             StructureKind.LIST -> 0
-            StructureKind.MAP -> index % descriptor.elementsCount
+            StructureKind.MAP -> index % serialDescriptor.elementsCount
             else -> index
         }
         return combineHints(
-            descriptor.getElementAnnotations(descriptorIndex),
+            serialDescriptor.getElementAnnotations(descriptorIndex),
             frames.lastOrNull()?.elementHints.orEmpty(),
         )
     }
 
     private fun writeCollectionHeader(
-        descriptor: SerialDescriptor,
+        serialDescriptor: SerialDescriptor,
         collectionSize: Int,
     ): List<Annotation> {
         val hints = takePendingHints()
         validateCollectionHints(collectionSize, hints)
-        val fixed = hints.filterIsInstance<FixedLength>().singleOrNull()
-        if (fixed != null && collectionSize != fixed.bytes) {
+        val fixedLength = hints.filterIsInstance<FixedLength>().singleOrNull()
+        if (fixedLength != null && collectionSize != fixedLength.bytes) {
             throw MinecraftSerializationException(
-                "Expected exactly ${fixed.bytes} elements, got $collectionSize",
+                "Expected exactly ${fixedLength.bytes} elements, got $collectionSize",
             )
         }
         if (hints.any { it is ChunkSectionCount }) {
-            if (descriptor.kind != StructureKind.LIST) {
+            if (serialDescriptor.kind != StructureKind.LIST) {
                 throw MinecraftSerializationException(
                     "@ChunkSectionCount can only be used with a List",
                 )
             }
-            val expected = configuration.chunkSectionCount
+            val expected = minecraftProtocolFormatConfiguration.chunkSectionCount
             if (expected != null && collectionSize != expected) {
                 throw MinecraftSerializationException(
                     "Chunk has $collectionSize sections; active dimension requires $expected",
@@ -372,7 +372,7 @@ internal class MinecraftEncoder(
                         it is ChunkSectionCount
             }
         ) {
-            writer.writeVarInt(collectionSize)
+            minecraftWriter.writeVarInt(collectionSize)
         }
         return hints.filter {
             it is VarIntElements ||
@@ -382,56 +382,56 @@ internal class MinecraftEncoder(
     }
 
     private fun <T> encodePrimitiveArray(
-        serializer: SerializationStrategy<T>,
+        serializationStrategy: SerializationStrategy<T>,
         value: T,
     ): Boolean {
-        if (!isPrimitiveArraySerializer(serializer)) return false
-        val descriptor = serializer.descriptor
+        if (!isPrimitiveArraySerializer(serializationStrategy)) return false
+        val serialDescriptor = serializationStrategy.descriptor
         val size = when {
-            descriptor.serialName == BYTE_ARRAY_SERIAL_NAME && value is ByteArray -> value.size
-            descriptor.serialName == BOOLEAN_ARRAY_SERIAL_NAME && value is BooleanArray -> value.size
-            descriptor.serialName == SHORT_ARRAY_SERIAL_NAME && value is ShortArray -> value.size
-            descriptor.serialName == INT_ARRAY_SERIAL_NAME && value is IntArray -> value.size
-            descriptor.serialName == LONG_ARRAY_SERIAL_NAME && value is LongArray -> value.size
-            descriptor.serialName == FLOAT_ARRAY_SERIAL_NAME && value is FloatArray -> value.size
-            descriptor.serialName == DOUBLE_ARRAY_SERIAL_NAME && value is DoubleArray -> value.size
-            descriptor.serialName == CHAR_ARRAY_SERIAL_NAME && value is CharArray -> value.size
+            serialDescriptor.serialName == BYTE_ARRAY_SERIAL_NAME && value is ByteArray -> value.size
+            serialDescriptor.serialName == BOOLEAN_ARRAY_SERIAL_NAME && value is BooleanArray -> value.size
+            serialDescriptor.serialName == SHORT_ARRAY_SERIAL_NAME && value is ShortArray -> value.size
+            serialDescriptor.serialName == INT_ARRAY_SERIAL_NAME && value is IntArray -> value.size
+            serialDescriptor.serialName == LONG_ARRAY_SERIAL_NAME && value is LongArray -> value.size
+            serialDescriptor.serialName == FLOAT_ARRAY_SERIAL_NAME && value is FloatArray -> value.size
+            serialDescriptor.serialName == DOUBLE_ARRAY_SERIAL_NAME && value is DoubleArray -> value.size
+            serialDescriptor.serialName == CHAR_ARRAY_SERIAL_NAME && value is CharArray -> value.size
             else -> return false
         }
-        val elementHints = writeCollectionHeader(descriptor, size)
+        val elementHints = writeCollectionHeader(serialDescriptor, size)
         when (value) {
-            is ByteArray -> writer.write(value)
-            is BooleanArray -> value.forEach { writer.writeByte(if (it) 1 else 0) }
-            is ShortArray -> value.forEach { writer.writeShort(it.toInt()) }
+            is ByteArray -> minecraftWriter.write(value)
+            is BooleanArray -> value.forEach { minecraftWriter.writeByte(if (it) 1 else 0) }
+            is ShortArray -> value.forEach { minecraftWriter.writeShort(it.toInt()) }
             is IntArray -> if (elementHints.any { it is VarIntElements }) {
-                value.forEach(writer::writeVarInt)
+                value.forEach(minecraftWriter::writeVarInt)
             } else {
-                value.forEach(writer::writeInt)
+                value.forEach(minecraftWriter::writeInt)
             }
 
             is LongArray -> if (elementHints.any { it is VarLongElements }) {
-                value.forEach(writer::writeVarLong)
+                value.forEach(minecraftWriter::writeVarLong)
             } else {
-                value.forEach(writer::writeLong)
+                value.forEach(minecraftWriter::writeLong)
             }
 
-            is FloatArray -> value.forEach { writer.writeInt(it.toBits()) }
-            is DoubleArray -> value.forEach { writer.writeLong(it.toBits()) }
-            is CharArray -> value.forEach { writer.writeShort(it.code) }
+            is FloatArray -> value.forEach { minecraftWriter.writeInt(it.toBits()) }
+            is DoubleArray -> value.forEach { minecraftWriter.writeLong(it.toBits()) }
+            is CharArray -> value.forEach { minecraftWriter.writeShort(it.code) }
         }
         return true
     }
 
-    private fun isPrimitiveArraySerializer(serializer: SerializationStrategy<*>): Boolean =
-        when (serializer.descriptor.serialName) {
-            BOOLEAN_ARRAY_SERIAL_NAME -> serializer === BooleanArraySerializer()
-            BYTE_ARRAY_SERIAL_NAME -> serializer === ByteArraySerializer()
-            CHAR_ARRAY_SERIAL_NAME -> serializer === CharArraySerializer()
-            DOUBLE_ARRAY_SERIAL_NAME -> serializer === DoubleArraySerializer()
-            FLOAT_ARRAY_SERIAL_NAME -> serializer === FloatArraySerializer()
-            INT_ARRAY_SERIAL_NAME -> serializer === IntArraySerializer()
-            LONG_ARRAY_SERIAL_NAME -> serializer === LongArraySerializer()
-            SHORT_ARRAY_SERIAL_NAME -> serializer === ShortArraySerializer()
+    private fun isPrimitiveArraySerializer(serializationStrategy: SerializationStrategy<*>): Boolean =
+        when (serializationStrategy.descriptor.serialName) {
+            BOOLEAN_ARRAY_SERIAL_NAME -> serializationStrategy === BooleanArraySerializer()
+            BYTE_ARRAY_SERIAL_NAME -> serializationStrategy === ByteArraySerializer()
+            CHAR_ARRAY_SERIAL_NAME -> serializationStrategy === CharArraySerializer()
+            DOUBLE_ARRAY_SERIAL_NAME -> serializationStrategy === DoubleArraySerializer()
+            FLOAT_ARRAY_SERIAL_NAME -> serializationStrategy === FloatArraySerializer()
+            INT_ARRAY_SERIAL_NAME -> serializationStrategy === IntArraySerializer()
+            LONG_ARRAY_SERIAL_NAME -> serializationStrategy === LongArraySerializer()
+            SHORT_ARRAY_SERIAL_NAME -> serializationStrategy === ShortArraySerializer()
             else -> false
         }
 
@@ -464,7 +464,7 @@ internal class MinecraftEncoder(
     }
 
     private data class Frame(
-        val descriptor: SerialDescriptor,
+        val serialDescriptor: SerialDescriptor,
         val elementHints: List<Annotation> = emptyList(),
     )
 }

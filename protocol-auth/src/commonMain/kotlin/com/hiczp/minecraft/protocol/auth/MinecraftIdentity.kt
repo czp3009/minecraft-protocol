@@ -32,13 +32,13 @@ data class MinecraftOfflineIdentity(
     companion object {
         fun minecraftOfflineUuid(name: String): Uuid {
             require(name.isNotEmpty()) { "Minecraft player name cannot be empty" }
-            val bytes = "OfflinePlayer:$name"
+            val byteArray = "OfflinePlayer:$name"
                 .encodeUtf8()
                 .md5()
                 .toByteArray()
-            bytes[6] = ((bytes[6].toInt() and 0x0F) or 0x30).toByte()
-            bytes[8] = ((bytes[8].toInt() and 0x3F) or 0x80).toByte()
-            return Uuid.fromByteArray(bytes)
+            byteArray[6] = ((byteArray[6].toInt() and 0x0F) or 0x30).toByte()
+            byteArray[8] = ((byteArray[8].toInt() and 0x3F) or 0x80).toByte()
+            return Uuid.fromByteArray(byteArray)
         }
     }
 }

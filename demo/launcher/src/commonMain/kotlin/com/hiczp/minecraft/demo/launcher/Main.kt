@@ -15,25 +15,25 @@ fun main() {
     val fileSystem = FileSystem.SYSTEM
     val launcherRoot = fileSystem.canonicalize(".".toPath())
     val httpClient = HttpClient { configureLauncherHttpClient() }
-    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val platform = LauncherPlatform.current()
-    val store = LauncherStore(fileSystem, launcherRoot)
+    val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val launcherPlatform = LauncherPlatform.current()
+    val launcherStore = LauncherStore(fileSystem, launcherRoot)
     val mojangApi = createMojangApi(httpClient)
-    val controller = LauncherController(
-        scope = scope,
-        store = store,
-        installationService = InstallationService(mojangApi, fileSystem, store, platform),
-        accountService = AccountService(httpClient, store),
+    val launcherController = LauncherController(
+        coroutineScope = coroutineScope,
+        launcherStore = launcherStore,
+        installationService = InstallationService(mojangApi, fileSystem, launcherStore, launcherPlatform),
+        accountService = AccountService(httpClient, launcherStore),
         processService = GameProcessService(fileSystem, launcherRoot),
-        platform = platform,
+        launcherPlatform = launcherPlatform,
     )
     try {
-        controller.start()
+        launcherController.start()
         runMosaicMain {
-            LauncherApplication(controller, platform)
+            LauncherApplication(launcherController, launcherPlatform)
         }
     } finally {
-        scope.cancel()
+        coroutineScope.cancel()
         httpClient.close()
     }
 }

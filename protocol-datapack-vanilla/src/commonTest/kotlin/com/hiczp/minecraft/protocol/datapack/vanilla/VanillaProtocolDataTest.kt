@@ -16,22 +16,22 @@ import kotlin.test.*
 class VanillaProtocolDataTest {
     @Test
     fun exposesACompleteOfficialConfigurationSnapshot() {
-        val protocolData = VanillaProtocolData
-        val completeSynchronizedRegistryPackets = protocolData.synchronizedRegistryPackets(emptyList())
+        val vanillaProtocolData = VanillaProtocolData
+        val completeSynchronizedRegistryPackets = vanillaProtocolData.synchronizedRegistryPackets(emptyList())
 
-        assertTrue(protocolData.offeredKnownPacks.isNotEmpty())
-        assertTrue(protocolData.enabledFeatureFlags.isNotEmpty())
+        assertTrue(vanillaProtocolData.offeredKnownPacks.isNotEmpty())
+        assertTrue(vanillaProtocolData.enabledFeatureFlags.isNotEmpty())
         assertTrue(completeSynchronizedRegistryPackets.isNotEmpty())
         assertTrue(completeSynchronizedRegistryPackets.all { registryDataPacket ->
             registryDataPacket.entries.all { it.data != null }
         })
-        assertTrue(protocolData.registryTags.isNotEmpty())
+        assertTrue(vanillaProtocolData.registryTags.isNotEmpty())
         val biomeRegistryPacket = completeSynchronizedRegistryPackets.single { registryDataPacket ->
             registryDataPacket.registryId == Identifier("worldgen/biome")
         }
         assertEquals(
             biomeRegistryPacket.entries.map { it.id },
-            protocolData.completeProtocolRegistryContext.requireRegistry(biomeRegistryPacket.registryId)
+            vanillaProtocolData.completeProtocolRegistryContext.requireRegistry(biomeRegistryPacket.registryId)
                 .entries
                 .sortedBy { it.rawId }
                 .map { it.id },
@@ -40,10 +40,10 @@ class VanillaProtocolDataTest {
 
     @Test
     fun exactKnownPacksSelectionUsesTheCompactOfficialBranch() {
-        val protocolData = VanillaProtocolData
-        val completeSynchronizedRegistryPackets = protocolData.synchronizedRegistryPackets(emptyList())
+        val vanillaProtocolData = VanillaProtocolData
+        val completeSynchronizedRegistryPackets = vanillaProtocolData.synchronizedRegistryPackets(emptyList())
         val knownPackSynchronizedRegistryPackets =
-            protocolData.synchronizedRegistryPackets(protocolData.offeredKnownPacks)
+            vanillaProtocolData.synchronizedRegistryPackets(vanillaProtocolData.offeredKnownPacks)
 
         assertEquals(
             completeSynchronizedRegistryPackets.map { it.registryId },
@@ -65,12 +65,12 @@ class VanillaProtocolDataTest {
 
     @Test
     fun anyNonExactKnownPacksSelectionUsesCompleteData() {
-        val protocolData = VanillaProtocolData
+        val vanillaProtocolData = VanillaProtocolData
         val unknownKnownPack = KnownPack("example", "not-vanilla", "1")
 
         assertEquals(
-            protocolData.synchronizedRegistryPackets(emptyList()),
-            protocolData.synchronizedRegistryPackets(protocolData.offeredKnownPacks + unknownKnownPack),
+            vanillaProtocolData.synchronizedRegistryPackets(emptyList()),
+            vanillaProtocolData.synchronizedRegistryPackets(vanillaProtocolData.offeredKnownPacks + unknownKnownPack),
         )
     }
 
@@ -164,9 +164,9 @@ class VanillaProtocolDataTest {
                 registrySize != null,
                 "No registry catalogue exists for ${registryTags.registry}",
             )
-            registryTags.tags.forEach { tag ->
-                assertEquals(tag.entries.size, tag.entries.distinct().size)
-                assertTrue(tag.entries.all { it in 0 until registrySize })
+            registryTags.tags.forEach { tagDefinition ->
+                assertEquals(tagDefinition.entries.size, tagDefinition.entries.distinct().size)
+                assertTrue(tagDefinition.entries.all { it in 0 until registrySize })
             }
         }
     }

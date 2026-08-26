@@ -82,11 +82,11 @@ class DataPackArchive(
 private fun Iterable<Pair<DataPackFilePath, ByteArray>>.toDataPackFileBytesMap(
     dataPackId: DataPackId,
 ): Map<DataPackFilePath, DataPackFileBytes> = buildMap {
-    this@toDataPackFileBytesMap.forEach { (dataPackFilePath, bytes) ->
+    this@toDataPackFileBytesMap.forEach { (dataPackFilePath, byteArray) ->
         require(dataPackFilePath !in this) {
             "Data pack $dataPackId contains duplicate path $dataPackFilePath"
         }
-        put(dataPackFilePath, DataPackFileBytes(bytes))
+        put(dataPackFilePath, DataPackFileBytes(byteArray))
     }
 }
 
@@ -94,9 +94,9 @@ private fun Iterable<Pair<DataPackFilePath, ByteArray>>.toDataPackFileBytesMap(
 interface DataPackFileContent {
     data class JsonFile(val jsonElement: JsonElement) : DataPackFileContent {
         fun <T> decode(
-            deserializer: DeserializationStrategy<T>,
+            deserializationStrategy: DeserializationStrategy<T>,
             json: Json = Json,
-        ): T = json.decodeFromJsonElement(deserializer, jsonElement)
+        ): T = json.decodeFromJsonElement(deserializationStrategy, jsonElement)
     }
 
     /**

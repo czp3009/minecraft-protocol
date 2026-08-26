@@ -69,12 +69,12 @@ internal expect fun FileSystem.openLiveReadOnly(
 internal fun FileSystem.openTruncatedReadWriteUsingResize(
     path: Path,
 ): FileHandle {
-    val handle = openReadWrite(path)
+    val fileHandle = openReadWrite(path)
     try {
-        handle.resize(0L)
-        return handle
+        fileHandle.resize(0L)
+        return fileHandle
     } catch (failure: Throwable) {
-        closeAllPreserving(failure, handle::close)
+        closeAllPreserving(failure, fileHandle::close)
         throw failure
     }
 }

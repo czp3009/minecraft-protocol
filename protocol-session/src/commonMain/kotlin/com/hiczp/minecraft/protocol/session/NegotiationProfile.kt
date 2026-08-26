@@ -16,20 +16,20 @@ data object VanillaNegotiationProfileResult : NegotiationProfileResult
  */
 interface ClientNegotiationProfile {
     suspend fun begin(
-        connection: MinecraftClientPacketConnection,
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
     ) = Unit
 
     /** Returns the Handshake packet to put on the ordinary outgoing channel. */
-    fun prepareHandshake(packet: HandshakePacket): HandshakePacket = packet
+    fun prepareHandshake(handshakePacket: HandshakePacket): HandshakePacket = handshakePacket
 
     suspend fun handleLoginPacket(
-        connection: MinecraftClientPacketConnection,
-        packet: ClientboundPacket,
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
+        clientboundPacket: ClientboundPacket,
     ): Boolean = false
 
     suspend fun handleConfigurationPacket(
-        connection: MinecraftClientPacketConnection,
-        packet: ClientboundPacket,
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
+        clientboundPacket: ClientboundPacket,
     ): Boolean = false
 
     suspend fun resolveProtocolRegistryContext(
@@ -38,11 +38,11 @@ interface ClientNegotiationProfile {
 
     /** Runs immediately before the client acknowledges Finish Configuration. */
     suspend fun preparePlay(
-        connection: MinecraftClientPacketConnection,
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
     ) = Unit
 
     suspend fun complete(
-        connection: MinecraftClientPacketConnection,
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
     ): NegotiationProfileResult = VanillaNegotiationProfileResult
 }
 
@@ -52,39 +52,39 @@ interface ClientNegotiationProfile {
  */
 interface ServerNegotiationProfile {
     suspend fun begin(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) = Unit
 
     /** Observes the already-decoded Handshake packet before Login orchestration. */
-    fun acceptHandshake(packet: HandshakePacket) = Unit
+    fun acceptHandshake(handshakePacket: HandshakePacket) = Unit
 
     suspend fun negotiateLogin(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) = Unit
 
     suspend fun handleLoginPacket(
-        connection: MinecraftServerPacketConnection,
-        packet: ServerboundPacket,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
+        serverboundPacket: ServerboundPacket,
     ): Boolean = false
 
     /** Runs after Client Information and before vanilla Feature Flags. */
     suspend fun negotiateConfigurationStart(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) = Unit
 
     /** Runs after vanilla Feature Flags and before Known Packs/registry/tag sync. */
     suspend fun negotiateEarlyConfiguration(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) = Unit
 
     /** Runs after vanilla registry/tag sync and before caller configuration tasks. */
     suspend fun negotiateConfiguration(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) = Unit
 
     suspend fun handleConfigurationPacket(
-        connection: MinecraftServerPacketConnection,
-        packet: ServerboundPacket,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
+        serverboundPacket: ServerboundPacket,
     ): Boolean = false
 
     suspend fun resolveProtocolRegistryContext(
@@ -93,11 +93,11 @@ interface ServerNegotiationProfile {
 
     /** Runs after the server observes Play state and before it sends Play Login. */
     suspend fun preparePlay(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) = Unit
 
     suspend fun complete(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ): NegotiationProfileResult = VanillaNegotiationProfileResult
 }
 

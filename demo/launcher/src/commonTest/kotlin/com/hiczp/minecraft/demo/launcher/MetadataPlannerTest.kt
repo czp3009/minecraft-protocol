@@ -53,10 +53,10 @@ class MetadataPlannerTest {
                 },
             )
         }
-        val arguments = launcherJson.decodeFromString<MojangArguments>(fixture.toString())
+        val mojangArguments = launcherJson.decodeFromString<MojangArguments>(fixture.toString())
 
-        assertEquals(2, arguments.game.size)
-        val conditional = arguments.jvm.single() as MojangArgument.Conditional
+        assertEquals(2, mojangArguments.game.size)
+        val conditional = mojangArguments.jvm.single() as MojangArgument.Conditional
         assertEquals(listOf("-Dfirst=true", "-Dpath=${'$'}{game_directory}"), conditional.values)
     }
 
@@ -74,7 +74,7 @@ class MetadataPlannerTest {
 
     @Test
     fun modernMetadataProducesIsolatedOrderedPlan() {
-        val metadata = metadata(
+        val versionMetadata = metadata(
             libraries = listOf(
                 library("first", "a/first.jar", 'a'),
                 MojangLibrary(
@@ -86,17 +86,17 @@ class MetadataPlannerTest {
             ),
         )
 
-        val plan = MetadataPlanner.createInstallPlan(metadata, windows)
+        val installPlan = MetadataPlanner.createInstallPlan(versionMetadata, windows)
 
-        assertEquals(listOf("libraries/a/first.jar", "libraries/c/second.jar", "client.jar"), plan.classpath)
-        assertTrue(plan.downloads.any { it.relativePath == "assets/indexes/assets-id.json" })
-        assertFalse(plan.downloads.any { "linux.jar" in it.relativePath })
+        assertEquals(listOf("libraries/a/first.jar", "libraries/c/second.jar", "client.jar"), installPlan.classpath)
+        assertTrue(installPlan.downloads.any { it.relativePath == "assets/indexes/assets-id.json" })
+        assertFalse(installPlan.downloads.any { "linux.jar" in it.relativePath })
     }
 
     @Test
     fun launchArgumentsExpandWithoutMergingValues() {
-        val metadata = metadata(
-            arguments = MojangArguments(
+        val versionMetadata = metadata(
+            mojangArguments = MojangArguments(
                 jvm = listOf(
                     MojangArgument.Literal("-Djava.library.path=${'$'}{natives_directory}"),
                     MojangArgument.Literal("-cp"),
@@ -110,27 +110,27 @@ class MetadataPlannerTest {
                 ),
             ),
         )
-        val install = MetadataPlanner.createInstallPlan(metadata, windows)
+        val installPlan = MetadataPlanner.createInstallPlan(versionMetadata, windows)
 
-        val launch = MetadataPlanner.createLaunchPlan(
-            install,
+        val launchPlan = MetadataPlanner.createLaunchPlan(
+            installPlan,
             "C:/Launcher Root/minecraft/demo".toPath(),
             windows,
             MinecraftOnlineIdentity(Uuid.parse("0123456789abcdef0123456789abcdef"), "Player", "secret"),
             Uuid.parse("11111111111111111111111111111111"),
         )
 
-        assertEquals("Player", launch.gameArguments[1])
-        assertEquals("secret", launch.gameArguments[3])
-        assertEquals("secret", launch.sensitiveAccessToken)
-        assertTrue(launch.javaArguments[2].contains(";"))
-        assertTrue(launch.workingDirectory.contains("Launcher Root"))
+        assertEquals("Player", launchPlan.gameArguments[1])
+        assertEquals("secret", launchPlan.gameArguments[3])
+        assertEquals("secret", launchPlan.sensitiveAccessToken)
+        assertTrue(launchPlan.javaArguments[2].contains(";"))
+        assertTrue(launchPlan.workingDirectory.contains("Launcher Root"))
     }
 
     @Test
     fun offlineLaunchUsesFreshCompactAccessToken() {
-        val metadata = metadata(
-            arguments = MojangArguments(
+        val versionMetadata = metadata(
+            mojangArguments = MojangArguments(
                 jvm = emptyList(),
                 game = listOf(
                     MojangArgument.Literal("--accessToken"),
@@ -138,13 +138,13 @@ class MetadataPlannerTest {
                 ),
             ),
         )
-        val install = MetadataPlanner.createInstallPlan(metadata, windows)
-        val identity = MinecraftOfflineIdentity("Player")
+        val installPlan = MetadataPlanner.createInstallPlan(versionMetadata, windows)
+        val minecraftOfflineIdentity = MinecraftOfflineIdentity("Player")
         fun createPlan() = MetadataPlanner.createLaunchPlan(
-            install,
+            installPlan,
             "C:/Launcher Root/minecraft/demo".toPath(),
             windows,
-            identity,
+            minecraftOfflineIdentity,
             Uuid.parse("11111111111111111111111111111111"),
         )
 
@@ -185,7 +185,7 @@ class MetadataPlannerTest {
 
     private fun metadata(
         libraries: List<MojangLibrary> = listOf(library("library", "lib/library.jar", 'b')),
-        arguments: MojangArguments = MojangArguments(
+        mojangArguments: MojangArguments = MojangArguments(
             game = listOf(MojangArgument.Literal("--username"), MojangArgument.Literal("${'$'}{auth_player_name}")),
             jvm = listOf(MojangArgument.Literal("-cp"), MojangArgument.Literal("${'$'}{classpath}")),
         ),
@@ -197,7 +197,7 @@ class MetadataPlannerTest {
         assetIndex = AssetIndexDownload("assets-id", "https://test/assets", sha('d'), 2),
         downloads = VersionDownloads(Download("https://test/client", sha('e'), 2)),
         libraries = libraries,
-        arguments = arguments,
+        arguments = mojangArguments,
         javaVersion = VersionMetadata.JavaVersion("java-runtime", 21),
     )
 

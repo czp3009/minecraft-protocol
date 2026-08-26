@@ -19,59 +19,59 @@ interface MinecraftClientPacketConnection : MinecraftPacketConnection<Clientboun
 /** Creates the low-level client endpoint used by client orchestration modules. */
 @InternalMinecraftConnectionApi
 fun createMinecraftClientPacketConnection(
-    frameStream: MinecraftFrameStream,
+    minecraftFrameStream: MinecraftFrameStream,
     closeTransport: () -> Unit,
-    definition: MinecraftConnectionDefinition,
+    minecraftConnectionDefinition: MinecraftConnectionDefinition,
     connectionDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ): MinecraftClientPacketConnection {
-    val clientSession = MinecraftClientPacketSession(
-        frameStream = frameStream,
-        packetRegistry = definition.packetRegistry,
-        format = definition.format,
+    val minecraftClientPacketSession = MinecraftClientPacketSession(
+        minecraftFrameStream = minecraftFrameStream,
+        packetRegistry = minecraftConnectionDefinition.packetRegistry,
+        minecraftProtocolFormat = minecraftConnectionDefinition.minecraftProtocolFormat,
     )
-    val core = MinecraftPacketConnectionCore(
-        session = clientSession,
+    val minecraftPacketConnectionCore = MinecraftPacketConnectionCore(
+        minecraftPacketSession = minecraftClientPacketSession,
         closeTransport = closeTransport,
-        definition = definition,
+        minecraftConnectionDefinition = minecraftConnectionDefinition,
         connectionDispatcher = connectionDispatcher,
     )
-    return MinecraftClientPacketConnectionImplementation(clientSession, core).also { connection ->
-        connection.start()
+    return MinecraftClientPacketConnectionImplementation(minecraftClientPacketSession, minecraftPacketConnectionCore).also { minecraftClientPacketConnectionImplementation ->
+        minecraftClientPacketConnectionImplementation.start()
     }
 }
 
 private class MinecraftClientPacketConnectionImplementation(
-    private val clientSession: MinecraftClientPacketSession,
-    private val core: MinecraftPacketConnectionCore<ClientboundPacket, ServerboundPacket>,
+    private val minecraftClientPacketSession: MinecraftClientPacketSession,
+    private val minecraftPacketConnectionCore: MinecraftPacketConnectionCore<ClientboundPacket, ServerboundPacket>,
 ) : MinecraftClientPacketConnection,
-    MinecraftPacketConnection<ClientboundPacket, ServerboundPacket> by core {
+    MinecraftPacketConnection<ClientboundPacket, ServerboundPacket> by minecraftPacketConnectionCore {
     private val initialPlayContext = CompletableDeferred<Unit>()
 
     fun start() {
-        core.start(::handleIncoming)
+        minecraftPacketConnectionCore.start(::handleIncoming)
     }
 
-    private suspend fun handleIncoming(packet: ClientboundPacket) {
-        val keepAliveResponse = when (packet) {
-            is ConfigurationClientboundKeepAlivePacket -> ConfigurationServerboundKeepAlivePacket(packet.id)
-            is PlayClientboundKeepAlivePacket -> PlayServerboundKeepAlivePacket(packet.id)
+    private suspend fun handleIncoming(clientboundPacket: ClientboundPacket) {
+        val keepAliveResponse = when (clientboundPacket) {
+            is ConfigurationClientboundKeepAlivePacket -> ConfigurationServerboundKeepAlivePacket(clientboundPacket.id)
+            is PlayClientboundKeepAlivePacket -> PlayServerboundKeepAlivePacket(clientboundPacket.id)
             else -> null
         }
         if (keepAliveResponse != null) {
-            core.sendConnectionOwned(keepAliveResponse)
+            minecraftPacketConnectionCore.sendConnectionOwned(keepAliveResponse)
             return
         }
-        core.publishIncoming(packet)
-        if (packet is PlayLoginPacket) initialPlayContext.await()
+        minecraftPacketConnectionCore.publishIncoming(clientboundPacket)
+        if (clientboundPacket is PlayLoginPacket) initialPlayContext.await()
     }
 
     override fun installProtocolRegistryContext(protocolRegistryContext: ProtocolRegistryContext) {
-        core.installProtocolRegistryContext(protocolRegistryContext)
+        minecraftPacketConnectionCore.installProtocolRegistryContext(protocolRegistryContext)
         if (protocolRegistryContext.chunkSectionCount != null) initialPlayContext.complete(Unit)
     }
 
     override fun prepareOutboundEncryption(sharedSecret: ByteArray) {
-        core.ensureOpen()
-        clientSession.prepareOutboundEncryption(sharedSecret)
+        minecraftPacketConnectionCore.ensureOpen()
+        minecraftClientPacketSession.prepareOutboundEncryption(sharedSecret)
     }
 }

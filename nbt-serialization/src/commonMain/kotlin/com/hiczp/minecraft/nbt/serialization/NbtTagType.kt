@@ -16,7 +16,7 @@ internal const val TAG_COMPOUND: Int = 10
 internal const val TAG_INT_ARRAY: Int = 11
 internal const val TAG_LONG_ARRAY: Int = 12
 
-internal fun typeOf(tag: NbtTag): Int = when (tag) {
+internal fun typeOf(nbtTag: NbtTag): Int = when (nbtTag) {
     NbtEnd -> TAG_END
     is NbtByte -> TAG_BYTE
     is NbtShort -> TAG_SHORT
@@ -45,10 +45,10 @@ internal fun rawListType(elements: List<NbtTag>): Int {
     return type
 }
 
-internal fun rawListType(elements: NbtList): Int {
+internal fun rawListType(nbtList: NbtList): Int {
     var type = TAG_END
-    for (index in 0 until elements.size) {
-        val element = elements[index]
+    for (index in 0 until nbtList.size) {
+        val element = nbtList[index]
         val next = typeOf(element)
         if (type == TAG_END) {
             type = next

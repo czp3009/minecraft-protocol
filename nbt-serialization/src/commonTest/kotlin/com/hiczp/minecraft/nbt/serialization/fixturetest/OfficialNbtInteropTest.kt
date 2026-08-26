@@ -298,7 +298,7 @@ private fun officialNbtFixtures() = buildJsonArray {
         mode = "UNNAMED",
         sample = "root-name-is-discarded",
         payload = NbtFormat.encodeNamedTagToByteArray(namedInt),
-        expected = NbtFormat.encodeUnnamedTagToByteArray(namedInt.tag),
+        expected = NbtFormat.encodeUnnamedTagToByteArray(namedInt.nbtTag),
     )
     addFixture(
         mode = "UNNAMED",
@@ -306,14 +306,14 @@ private fun officialNbtFixtures() = buildJsonArray {
         payload = NbtFormat.encodeUnnamedTagToByteArray(NbtEnd),
     )
 
-    val document = NbtDocument(everyTag)
+    val nbtDocument = NbtDocument(everyTag)
     addFixture(
         mode = "DOCUMENT",
         sample = "compound-root-name-is-discarded",
         payload = NbtFormat.encodeNamedTagToByteArray(
-            NamedNbtTag("level", document.root),
+            NamedNbtTag("level", nbtDocument.root),
         ),
-        expected = NbtFormat.encodeDocumentToByteArray(document),
+        expected = NbtFormat.encodeDocumentToByteArray(nbtDocument),
         exactBytes = false,
     )
     addRejected(
@@ -325,14 +325,14 @@ private fun officialNbtFixtures() = buildJsonArray {
 
 private fun nestedCompoundBytes(nestedCompounds: Int): ByteArray {
     require(nestedCompounds >= 0)
-    val bytes = ByteArray(1 + nestedCompounds * 3 + nestedCompounds + 1)
+    val byteArray = ByteArray(1 + nestedCompounds * 3 + nestedCompounds + 1)
     var index = 0
-    bytes[index++] = 10
+    byteArray[index++] = 10
     repeat(nestedCompounds) {
-        bytes[index++] = 10
-        bytes[index++] = 0
-        bytes[index++] = 0
+        byteArray[index++] = 10
+        byteArray[index++] = 0
+        byteArray[index++] = 0
     }
-    while (index < bytes.size) bytes[index++] = 0
-    return bytes
+    while (index < byteArray.size) byteArray[index++] = 0
+    return byteArray
 }

@@ -79,9 +79,9 @@ fun retainUnknownClientboundPayload(
     outerPacketId: Int,
     bodyBytes: ByteArray,
 ): UnknownPacket.Clientbound = UnknownPacket.Clientbound(
-    route = PacketRoute.CustomPayload(
-        state = ConnectionState.PLAY,
-        direction = PacketDirection.CLIENTBOUND,
+    packetRoute = PacketRoute.CustomPayload(
+        connectionState = ConnectionState.PLAY,
+        packetDirection = PacketDirection.CLIENTBOUND,
         packetId = outerPacketId,
         channel = Identifier("example:counter"),
     ),

@@ -11,17 +11,17 @@ import kotlinx.io.Source as KotlinxSource
 class LiveEntityRegionHandle internal constructor(
     private val delegate: LiveRegionHandle,
 ) {
-    val position: RegionPosition
-        get() = delegate.position
+    val regionPosition: RegionPosition
+        get() = delegate.regionPosition
 
     val chunkNbtFormat: CompressedNbtFormat
         get() = delegate.chunkNbtFormat
 
     fun hasRegion(): Boolean = delegate.hasRegion()
 
-    fun hasChunk(local: LocalChunkPosition): Boolean = delegate.hasChunk(local)
+    fun hasChunk(localChunkPosition: LocalChunkPosition): Boolean = delegate.hasChunk(localChunkPosition)
 
-    fun hasChunk(position: ChunkPosition): Boolean = delegate.hasChunk(position)
+    fun hasChunk(chunkPosition: ChunkPosition): Boolean = delegate.hasChunk(chunkPosition)
 
     fun readChunkCount(): Int = delegate.readChunkCount()
 
@@ -29,67 +29,67 @@ class LiveEntityRegionHandle internal constructor(
 
     fun readChunkPositions(): List<ChunkPosition> = delegate.readChunkPositions()
 
-    fun readChunkInfo(local: LocalChunkPosition): RegionChunkInfo? = delegate.readChunkInfo(local)
+    fun readChunkInfo(localChunkPosition: LocalChunkPosition): RegionChunkInfo? = delegate.readChunkInfo(localChunkPosition)
 
-    fun readChunkInfo(position: ChunkPosition): RegionChunkInfo? = delegate.readChunkInfo(position)
+    fun readChunkInfo(chunkPosition: ChunkPosition): RegionChunkInfo? = delegate.readChunkInfo(chunkPosition)
 
     fun readChunkInfos(): List<RegionChunkInfo> = delegate.readChunkInfos()
 
     fun <R> withCompressedChunkSource(
-        local: LocalChunkPosition,
+        localChunkPosition: LocalChunkPosition,
         block: (RegionChunkInfo, KotlinxSource) -> R,
-    ): R? = delegate.withCompressedChunkSource(local, block)
+    ): R? = delegate.withCompressedChunkSource(localChunkPosition, block)
 
     fun <R> withCompressedChunkSource(
-        position: ChunkPosition,
+        chunkPosition: ChunkPosition,
         block: (RegionChunkInfo, KotlinxSource) -> R,
-    ): R? = delegate.withCompressedChunkSource(position, block)
+    ): R? = delegate.withCompressedChunkSource(chunkPosition, block)
 
-    fun readCompressedChunkTo(local: LocalChunkPosition, sink: KotlinxSink): RegionChunkInfo? =
-        delegate.readCompressedChunkTo(local, sink)
+    fun readCompressedChunkTo(localChunkPosition: LocalChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
+        delegate.readCompressedChunkTo(localChunkPosition, kotlinxSink)
 
-    fun readCompressedChunkTo(position: ChunkPosition, sink: KotlinxSink): RegionChunkInfo? =
-        delegate.readCompressedChunkTo(position, sink)
+    fun readCompressedChunkTo(chunkPosition: ChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
+        delegate.readCompressedChunkTo(chunkPosition, kotlinxSink)
 
-    fun readCompressedChunk(local: LocalChunkPosition): CompressedChunk? = delegate.readCompressedChunk(local)
+    fun readCompressedChunk(localChunkPosition: LocalChunkPosition): CompressedChunk? = delegate.readCompressedChunk(localChunkPosition)
 
-    fun readCompressedChunk(position: ChunkPosition): CompressedChunk? = delegate.readCompressedChunk(position)
+    fun readCompressedChunk(chunkPosition: ChunkPosition): CompressedChunk? = delegate.readCompressedChunk(chunkPosition)
 
     fun <R> withChunkNbtSource(
-        local: LocalChunkPosition,
+        localChunkPosition: LocalChunkPosition,
         block: (RegionChunkInfo, KotlinxSource) -> R,
-    ): R? = delegate.withChunkNbtSource(local, block)
+    ): R? = delegate.withChunkNbtSource(localChunkPosition, block)
 
     fun <R> withChunkNbtSource(
-        position: ChunkPosition,
+        chunkPosition: ChunkPosition,
         block: (RegionChunkInfo, KotlinxSource) -> R,
-    ): R? = delegate.withChunkNbtSource(position, block)
+    ): R? = delegate.withChunkNbtSource(chunkPosition, block)
 
-    fun readChunkNbtTo(local: LocalChunkPosition, sink: KotlinxSink): RegionChunkInfo? =
-        delegate.readChunkNbtTo(local, sink)
+    fun readChunkNbtTo(localChunkPosition: LocalChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
+        delegate.readChunkNbtTo(localChunkPosition, kotlinxSink)
 
-    fun readChunkNbtTo(position: ChunkPosition, sink: KotlinxSink): RegionChunkInfo? =
-        delegate.readChunkNbtTo(position, sink)
+    fun readChunkNbtTo(chunkPosition: ChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
+        delegate.readChunkNbtTo(chunkPosition, kotlinxSink)
 
-    fun readChunkNbtDocument(local: LocalChunkPosition): NbtDocument? = delegate.readChunkNbtDocument(local)
+    fun readChunkNbtDocument(localChunkPosition: LocalChunkPosition): NbtDocument? = delegate.readChunkNbtDocument(localChunkPosition)
 
-    fun readChunkNbtDocument(position: ChunkPosition): NbtDocument? = delegate.readChunkNbtDocument(position)
+    fun readChunkNbtDocument(chunkPosition: ChunkPosition): NbtDocument? = delegate.readChunkNbtDocument(chunkPosition)
 
-    fun <T> readChunkNbt(local: LocalChunkPosition, deserializer: DeserializationStrategy<T>): T? =
-        delegate.readChunkNbt(local, deserializer)
+    fun <T> readChunkNbt(localChunkPosition: LocalChunkPosition, deserializationStrategy: DeserializationStrategy<T>): T? =
+        delegate.readChunkNbt(localChunkPosition, deserializationStrategy)
 
-    fun <T> readChunkNbt(position: ChunkPosition, deserializer: DeserializationStrategy<T>): T? =
-        delegate.readChunkNbt(position, deserializer)
+    fun <T> readChunkNbt(chunkPosition: ChunkPosition, deserializationStrategy: DeserializationStrategy<T>): T? =
+        delegate.readChunkNbt(chunkPosition, deserializationStrategy)
 
-    inline fun <reified T> readChunkNbt(local: LocalChunkPosition): T? =
-        readChunkNbt(local, chunkNbtFormat.nbt.serializersModule.serializer())
+    inline fun <reified T> readChunkNbt(localChunkPosition: LocalChunkPosition): T? =
+        readChunkNbt(localChunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
 
-    inline fun <reified T> readChunkNbt(position: ChunkPosition): T? =
-        readChunkNbt(position, chunkNbtFormat.nbt.serializersModule.serializer())
+    inline fun <reified T> readChunkNbt(chunkPosition: ChunkPosition): T? =
+        readChunkNbt(chunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
 
-    fun <E : Any> readChunk(local: LocalChunkPosition, codec: EntityChunkNbtCodec<E>): EntityChunk<E>? =
-        withChunkNbtSource(local) { _, source -> codec.decodeFromSource(source, position.chunk(local)) }
+    fun <E : Any> readChunk(localChunkPosition: LocalChunkPosition, entityChunkNbtCodec: EntityChunkNbtCodec<E>): EntityChunk<E>? =
+        withChunkNbtSource(localChunkPosition) { _, source -> entityChunkNbtCodec.decodeFromSource(source, regionPosition.chunk(localChunkPosition)) }
 
-    fun <E : Any> readChunk(position: ChunkPosition, codec: EntityChunkNbtCodec<E>): EntityChunk<E>? =
-        readChunk(this.position.local(position), codec)
+    fun <E : Any> readChunk(chunkPosition: ChunkPosition, entityChunkNbtCodec: EntityChunkNbtCodec<E>): EntityChunk<E>? =
+        readChunk(this.regionPosition.local(chunkPosition), entityChunkNbtCodec)
 }

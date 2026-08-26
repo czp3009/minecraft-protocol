@@ -13,12 +13,12 @@ class MinecraftUserApi(
     private val httpClient: HttpClient,
 ) {
     suspend fun fetchAttributes(accessToken: String): MinecraftUserAttributesResponse? {
-        val response = httpClient.get(MINECRAFT_USER_ATTRIBUTES_ENDPOINT) {
+        val httpResponse = httpClient.get(MINECRAFT_USER_ATTRIBUTES_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
             bearerAuth(accessToken)
         }
-        return response.decodeOptionalServiceResponse<
+        return httpResponse.decodeOptionalServiceResponse<
                 MinecraftUserAttributesResponse,
                 MinecraftUserErrorResponse
                 >(::MinecraftUserResponseException)
@@ -26,28 +26,28 @@ class MinecraftUserApi(
 
     suspend fun updateAttributes(
         accessToken: String,
-        request: MinecraftUserAttributesRequest,
+        minecraftUserAttributesRequest: MinecraftUserAttributesRequest,
     ): MinecraftUserAttributesResponse? {
-        val response = httpClient.post(MINECRAFT_USER_ATTRIBUTES_ENDPOINT) {
+        val httpResponse = httpClient.post(MINECRAFT_USER_ATTRIBUTES_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
             bearerAuth(accessToken)
             contentType(ContentType.Application.Json)
-            setBody(MinecraftServiceJson.encodeToString(request))
+            setBody(MinecraftServiceJson.encodeToString(minecraftUserAttributesRequest))
         }
-        return response.decodeOptionalServiceResponse<
+        return httpResponse.decodeOptionalServiceResponse<
                 MinecraftUserAttributesResponse,
                 MinecraftUserErrorResponse
                 >(::MinecraftUserResponseException)
     }
 
     suspend fun fetchBlockList(accessToken: String): MinecraftBlockListResponse? {
-        val response = httpClient.get(MINECRAFT_BLOCK_LIST_ENDPOINT) {
+        val httpResponse = httpClient.get(MINECRAFT_BLOCK_LIST_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
             bearerAuth(accessToken)
         }
-        return response.decodeOptionalServiceResponse<
+        return httpResponse.decodeOptionalServiceResponse<
                 MinecraftBlockListResponse,
                 MinecraftUserErrorResponse
                 >(::MinecraftUserResponseException)
@@ -150,23 +150,23 @@ data class MinecraftUserErrorResponse(
 )
 
 open class MinecraftUserResponseException(
-    response: HttpResponse,
+    httpResponse: HttpResponse,
     val responseBody: String,
     val parsedErrorBody: MinecraftUserErrorResponse,
-) : ResponseException(response, responseBody)
+) : ResponseException(httpResponse, responseBody)
 
 suspend fun MinecraftUserApi.fetchAttributes(
-    identity: MinecraftOnlineIdentity,
-): MinecraftUserAttributesResponse? = fetchAttributes(identity.accessToken)
+    minecraftOnlineIdentity: MinecraftOnlineIdentity,
+): MinecraftUserAttributesResponse? = fetchAttributes(minecraftOnlineIdentity.accessToken)
 
 suspend fun MinecraftUserApi.updateAttributes(
-    identity: MinecraftOnlineIdentity,
-    request: MinecraftUserAttributesRequest,
-): MinecraftUserAttributesResponse? = updateAttributes(identity.accessToken, request)
+    minecraftOnlineIdentity: MinecraftOnlineIdentity,
+    minecraftUserAttributesRequest: MinecraftUserAttributesRequest,
+): MinecraftUserAttributesResponse? = updateAttributes(minecraftOnlineIdentity.accessToken, minecraftUserAttributesRequest)
 
 suspend fun MinecraftUserApi.fetchBlockList(
-    identity: MinecraftOnlineIdentity,
-): MinecraftBlockListResponse? = fetchBlockList(identity.accessToken)
+    minecraftOnlineIdentity: MinecraftOnlineIdentity,
+): MinecraftBlockListResponse? = fetchBlockList(minecraftOnlineIdentity.accessToken)
 
 private val MINECRAFT_USER_ATTRIBUTES_ENDPOINT = Url("https://api.minecraftservices.com/player/attributes")
 private val MINECRAFT_BLOCK_LIST_ENDPOINT = Url("https://api.minecraftservices.com/privacy/blocklist")

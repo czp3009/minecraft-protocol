@@ -2,11 +2,11 @@ package com.hiczp.minecraft.test
 
 /** Lazily opened kRPC client initialized from the Gradle test environment. */
 internal class MinecraftTestSupportServiceClient private constructor(
-    private val connection: MinecraftTestSupportServiceConnection,
+    private val minecraftTestSupportServiceConnection: MinecraftTestSupportServiceConnection,
     val ownerId: String,
-) : MinecraftTestSupportService by connection.service, AutoCloseable {
+) : MinecraftTestSupportService by minecraftTestSupportServiceConnection.minecraftTestSupportService, AutoCloseable {
     override fun close() {
-        connection.close()
+        minecraftTestSupportServiceConnection.close()
     }
 
     companion object {
@@ -14,7 +14,7 @@ internal class MinecraftTestSupportServiceClient private constructor(
             val rpcUrl = requiredEnvironment(FIXTURE_RPC_URL_ENV)
             val ownerId = requiredEnvironment(FIXTURE_OWNER_ID_ENV)
             return MinecraftTestSupportServiceClient(
-                connection = openMinecraftTestSupportServiceConnection(
+                minecraftTestSupportServiceConnection = openMinecraftTestSupportServiceConnection(
                     rpcUrl,
                 ),
                 ownerId = ownerId,
@@ -33,7 +33,7 @@ internal class MinecraftTestSupportServiceClient private constructor(
 internal expect fun platformEnvironmentVariable(name: String): String?
 
 internal interface MinecraftTestSupportServiceConnection {
-    val service: MinecraftTestSupportService
+    val minecraftTestSupportService: MinecraftTestSupportService
 
     fun close()
 }

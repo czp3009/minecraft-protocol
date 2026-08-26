@@ -78,16 +78,16 @@ class MinecraftWorldChunkProjectionTest {
         val chunk = chunkDataAndUpdateLightPacket.toChunk(minecraftChunkPacketDecoder)
 
         assertEquals(ChunkPosition(-1, 2), chunkDataAndUpdateLightPacket.chunkPosition)
-        assertEquals(chunkDataAndUpdateLightPacket.chunkPosition, chunk.position)
+        assertEquals(chunkDataAndUpdateLightPacket.chunkPosition, chunk.chunkPosition)
         assertEquals(stoneProtocolBlockState, chunk.block(ChunkBlockPosition(0, -16, 0)))
         assertEquals(plainsProtocolRegistryEntry, chunk.biome(0, -16, 0))
         assertEquals(7.toByte(), chunk.section(-1)?.blockLight?.get(0))
         assertNull(chunk.section(-1)?.skyLight)
-        assertEquals(NbtLongArray(longArrayOf(3L)), chunk.metadata.heightmaps[HeightmapType.WORLD_SURFACE.name])
+        assertEquals(NbtLongArray(longArrayOf(3L)), chunk.chunkMetadata.heightmaps[HeightmapType.WORLD_SURFACE.name])
 
         val blockEntity = assertIs<BlockEntity>(chunk.blockEntity(ChunkBlockPosition(3, -1, 4)))
         assertEquals("minecraft:chest", blockEntity.type)
-        assertEquals(WorldBlockPosition(-13, -1, 36), blockEntity.position)
+        assertEquals(WorldBlockPosition(-13, -1, 36), blockEntity.blockPosition)
         assertEquals(NbtInt(9), blockEntity.persistentData["custom"])
         assertEquals(stoneProtocolBlockState, chunk.section(-1)?.block(LocalBlockPosition(15, 15, 15)))
     }

@@ -22,13 +22,13 @@ internal object LowPrecisionVectorCodec {
     private const val ABS_MAX_VALUE: Double = 17_179_869_183.0
     private const val ABS_MIN_VALUE: Double = 3.051944088384301E-5
 
-    fun write(writer: MinecraftWriter, value: Vector3d) {
-        val x = sanitize(value.x)
-        val y = sanitize(value.y)
-        val z = sanitize(value.z)
+    fun write(minecraftWriter: MinecraftWriter, vector3d: Vector3d) {
+        val x = sanitize(vector3d.x)
+        val y = sanitize(vector3d.y)
+        val z = sanitize(vector3d.z)
         val maximum = max(abs(x), max(abs(y), abs(z)))
         if (maximum < ABS_MIN_VALUE) {
-            writer.writeByte(0)
+            minecraftWriter.writeByte(0)
             return
         }
 
@@ -44,30 +44,30 @@ internal object LowPrecisionVectorCodec {
                 (pack(y / scale) shl Y_OFFSET) or
                 (pack(z / scale) shl Z_OFFSET)
 
-        writer.writeByte(buffer.toInt())
-        writer.writeByte((buffer shr 8).toInt())
-        writer.writeInt((buffer shr 16).toInt())
+        minecraftWriter.writeByte(buffer.toInt())
+        minecraftWriter.writeByte((buffer shr 8).toInt())
+        minecraftWriter.writeInt((buffer shr 16).toInt())
         if (hasContinuation) {
-            writer.writeVarInt((scale shr 2).toInt())
+            minecraftWriter.writeVarInt((scale shr 2).toInt())
         }
     }
 
     fun read(
-        reader: MinecraftReader,
-        configuration: MinecraftProtocolFormatConfiguration,
+        minecraftReader: MinecraftReader,
+        minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration,
     ): Vector3d {
-        val lowest = reader.readUnsignedByte()
+        val lowest = minecraftReader.readUnsignedByte()
         if (lowest == 0) {
             return Vector3d(0.0, 0.0, 0.0)
         }
 
-        val middle = reader.readUnsignedByte()
-        val highest = reader.readInt().toLong() and 0xFFFF_FFFFL
+        val middle = minecraftReader.readUnsignedByte()
+        val highest = minecraftReader.readInt().toLong() and 0xFFFF_FFFFL
         val buffer = (highest shl 16) or (middle.toLong() shl 8) or lowest.toLong()
         var scale = lowest.toLong() and SCALE_MASK
         if (lowest and CONTINUATION_FLAG.toInt() != 0) {
             scale = scale or (
-                    (reader.readVarInt(configuration.rejectNonMinimalVarNumbers)
+                    (minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
                         .toLong() and 0xFFFF_FFFFL) shl 2
                     )
         }

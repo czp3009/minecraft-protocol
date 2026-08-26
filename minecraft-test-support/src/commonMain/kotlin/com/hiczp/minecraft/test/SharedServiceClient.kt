@@ -17,16 +17,16 @@ internal class SharedServiceClient<C>(
         closeAfter: Boolean = false,
         block: suspend (C) -> T,
     ): T {
-        val state = acquire()
+        val clientState = acquire()
         var failure: Throwable? = null
         try {
-            return block(state.client)
+            return block(clientState.client)
         } catch (caught: Throwable) {
             failure = caught
             throw caught
         } finally {
             release(
-                state = state,
+                clientState = clientState,
                 requestClose = closeAfter || failure != null,
                 failure = failure,
             )
@@ -34,41 +34,41 @@ internal class SharedServiceClient<C>(
     }
 
     private suspend fun acquire(): ClientState<C> = mutex.withLock {
-        val state = current ?: ClientState(createClient()).also { current = it }
-        check(!state.closeWhenIdle) { "Closing service client remained current" }
-        state.activeUses += 1
-        state
+        val clientState = current ?: ClientState(createClient()).also { current = it }
+        check(!clientState.closeWhenIdle) { "Closing service client remained current" }
+        clientState.activeUses += 1
+        clientState
     }
 
     private suspend fun release(
-        state: ClientState<C>,
+        clientState: ClientState<C>,
         requestClose: Boolean,
         failure: Throwable?,
     ) = withContext(NonCancellable) {
-        val close = mutex.withLock {
-            check(state.activeUses > 0) { "Service client lease was released twice" }
+        val closeClient = mutex.withLock {
+            check(clientState.activeUses > 0) { "Service client lease was released twice" }
             if (requestClose) {
-                state.closeWhenIdle = true
-                if (state.failure == null) state.failure = failure
-                if (current === state) current = null
+                clientState.closeWhenIdle = true
+                if (clientState.failure == null) clientState.failure = failure
+                if (current === clientState) current = null
             }
-            state.activeUses -= 1
+            clientState.activeUses -= 1
             if (
-                state.activeUses == 0 &&
-                state.closeWhenIdle &&
-                !state.closed
+                clientState.activeUses == 0 &&
+                clientState.closeWhenIdle &&
+                !clientState.closed
             ) {
-                state.closed = true
-                CloseClient(state.client, state.failure)
+                clientState.closed = true
+                CloseClient(clientState.client, clientState.failure)
             } else {
                 null
             }
         }
-        if (close != null) {
+        if (closeClient != null) {
             try {
-                closeClient(close.client)
+                closeClient(closeClient.client)
             } catch (closeFailure: Throwable) {
-                close.failure?.addSuppressed(closeFailure) ?: throw closeFailure
+                closeClient.failure?.addSuppressed(closeFailure) ?: throw closeFailure
             }
         }
     }

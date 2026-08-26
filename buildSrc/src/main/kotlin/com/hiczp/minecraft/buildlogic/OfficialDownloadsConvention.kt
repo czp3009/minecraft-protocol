@@ -124,46 +124,46 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         it.dir("datapacks")
     }
 
-    tasks.register("minecraftVersion", PrintMinecraftVersionTask::class.java) { task ->
-        task.group = "help"
-        task.description = "Print the official Minecraft release."
-        task.minecraftVersion.set(minecraftVersion)
+    tasks.register("minecraftVersion", PrintMinecraftVersionTask::class.java) { printMinecraftVersionTask ->
+        printMinecraftVersionTask.group = "help"
+        printMinecraftVersionTask.description = "Print the official Minecraft release."
+        printMinecraftVersionTask.minecraftVersion.set(minecraftVersion)
     }
 
     val downloadManifest = tasks.register(
         "downloadVersionManifest",
         DownloadVersionManifestTask::class.java,
-    ) { task ->
-        task.group = FIXTURE_TASK_GROUP
-        task.description = "Download the Mojang version manifest."
-        task.offline.set(gradle.startParameter.isOffline)
-        task.minecraftVersion.set(minecraftVersion)
-        task.manifestUrl.set(VERSION_MANIFEST_URL)
-        task.outputFile.set(versionManifestFile)
+    ) { downloadVersionManifestTask ->
+        downloadVersionManifestTask.group = FIXTURE_TASK_GROUP
+        downloadVersionManifestTask.description = "Download the Mojang version manifest."
+        downloadVersionManifestTask.offline.set(gradle.startParameter.isOffline)
+        downloadVersionManifestTask.minecraftVersion.set(minecraftVersion)
+        downloadVersionManifestTask.manifestUrl.set(VERSION_MANIFEST_URL)
+        downloadVersionManifestTask.outputFile.set(versionManifestFile)
     }
     val downloadMetadata = tasks.register(
         "downloadVersionMetadata",
         DownloadVersionMetadataTask::class.java,
-    ) { task ->
-        task.group = FIXTURE_TASK_GROUP
-        task.description = "Download the selected Minecraft version metadata."
-        task.offline.set(gradle.startParameter.isOffline)
-        task.minecraftVersion.set(minecraftVersion)
-        task.manifestFile.set(downloadManifest.flatMap { it.outputFile })
-        task.outputFile.set(versionMetadataFile)
+    ) { downloadVersionMetadataTask ->
+        downloadVersionMetadataTask.group = FIXTURE_TASK_GROUP
+        downloadVersionMetadataTask.description = "Download the selected Minecraft version metadata."
+        downloadVersionMetadataTask.offline.set(gradle.startParameter.isOffline)
+        downloadVersionMetadataTask.minecraftVersion.set(minecraftVersion)
+        downloadVersionMetadataTask.manifestFile.set(downloadManifest.flatMap { it.outputFile })
+        downloadVersionMetadataTask.outputFile.set(versionMetadataFile)
     }
     val metadataOutput = downloadMetadata.flatMap { it.outputFile }
 
     val downloadServer = tasks.register(
         "downloadOfficialMinecraftServer",
         DownloadOfficialMinecraftServerTask::class.java,
-    ) { task ->
-        task.group = FIXTURE_TASK_GROUP
-        task.description = "Download the selected official server JAR."
-        task.offline.set(gradle.startParameter.isOffline)
-        task.versionMetadata.set(metadataOutput)
-        task.serverJar.set(serverJarFile)
-        task.metadataFile.set(serverMetadataFile)
+    ) { downloadOfficialMinecraftServerTask ->
+        downloadOfficialMinecraftServerTask.group = FIXTURE_TASK_GROUP
+        downloadOfficialMinecraftServerTask.description = "Download the selected official server JAR."
+        downloadOfficialMinecraftServerTask.offline.set(gradle.startParameter.isOffline)
+        downloadOfficialMinecraftServerTask.versionMetadata.set(metadataOutput)
+        downloadOfficialMinecraftServerTask.serverJar.set(serverJarFile)
+        downloadOfficialMinecraftServerTask.metadataFile.set(serverMetadataFile)
     }
 
     val templateWorkerRuntime = configurations.create(
@@ -187,13 +187,13 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
     val generateServerTemplate = tasks.register(
         "generateOfficialMinecraftServerTemplate",
         GenerateOfficialMinecraftServerTemplateTask::class.java,
-    ) { task ->
-        task.group = FIXTURE_TASK_GROUP
-        task.description = "Start, stop, sanitize, and publish the official server template."
-        task.minecraftVersion.set(minecraftVersion)
-        task.serverJar.set(downloadServer.flatMap { it.serverJar })
-        task.workerClasspath.from(templateWorkerRuntime)
-        task.outputDirectory.set(officialServerRoot)
+    ) { generateOfficialMinecraftServerTemplateTask ->
+        generateOfficialMinecraftServerTemplateTask.group = FIXTURE_TASK_GROUP
+        generateOfficialMinecraftServerTemplateTask.description = "Start, stop, sanitize, and publish the official server template."
+        generateOfficialMinecraftServerTemplateTask.minecraftVersion.set(minecraftVersion)
+        generateOfficialMinecraftServerTemplateTask.serverJar.set(downloadServer.flatMap { it.serverJar })
+        generateOfficialMinecraftServerTemplateTask.workerClasspath.from(templateWorkerRuntime)
+        generateOfficialMinecraftServerTemplateTask.outputDirectory.set(officialServerRoot)
     }
     val prepareServer = tasks.register("prepareOfficialMinecraftServer") { task ->
         task.group = FIXTURE_TASK_GROUP
@@ -204,192 +204,192 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
     val downloadClient = tasks.register(
         "downloadMinecraftClientJar",
         DownloadMinecraftClientJarTask::class.java,
-    ) { task ->
-        task.group = FIXTURE_TASK_GROUP
-        task.description = "Download the selected Mojang client JAR."
-        task.offline.set(gradle.startParameter.isOffline)
-        task.minecraftVersion.set(minecraftVersion)
-        task.metadataFile.set(metadataOutput)
-        task.clientJar.set(clientJarFile)
-        task.downloadMetadataFile.set(clientMetadataFile)
+    ) { downloadMinecraftClientJarTask ->
+        downloadMinecraftClientJarTask.group = FIXTURE_TASK_GROUP
+        downloadMinecraftClientJarTask.description = "Download the selected Mojang client JAR."
+        downloadMinecraftClientJarTask.offline.set(gradle.startParameter.isOffline)
+        downloadMinecraftClientJarTask.minecraftVersion.set(minecraftVersion)
+        downloadMinecraftClientJarTask.metadataFile.set(metadataOutput)
+        downloadMinecraftClientJarTask.clientJar.set(clientJarFile)
+        downloadMinecraftClientJarTask.downloadMetadataFile.set(clientMetadataFile)
     }
     val downloadFabricProfile = tasks.register(
         "downloadFabricLoaderProfile",
         DownloadFabricLoaderProfileTask::class.java,
-    ) { task ->
-        task.group = FIXTURE_TASK_GROUP
-        task.description = "Download the exact Fabric Loader client profile."
-        task.offline.set(gradle.startParameter.isOffline)
-        task.minecraftVersion.set(minecraftVersion)
-        task.fabricLoaderVersion.set(
+    ) { downloadFabricLoaderProfileTask ->
+        downloadFabricLoaderProfileTask.group = FIXTURE_TASK_GROUP
+        downloadFabricLoaderProfileTask.description = "Download the exact Fabric Loader client profile."
+        downloadFabricLoaderProfileTask.offline.set(gradle.startParameter.isOffline)
+        downloadFabricLoaderProfileTask.minecraftVersion.set(minecraftVersion)
+        downloadFabricLoaderProfileTask.fabricLoaderVersion.set(
             FabricLoaderTarget.FABRIC_LOADER_VERSION,
         )
-        task.profileUrl.set(FabricLoaderTarget.profileUrl(minecraftVersion))
-        task.outputFile.set(fabricProfileFile)
+        downloadFabricLoaderProfileTask.profileUrl.set(FabricLoaderTarget.profileUrl(minecraftVersion))
+        downloadFabricLoaderProfileTask.outputFile.set(fabricProfileFile)
     }
     val downloadLibraries = tasks.register(
         "downloadMinecraftClientLibraries",
         DownloadMinecraftClientLibrariesTask::class.java,
-    ) { task ->
-        task.group = FIXTURE_TASK_GROUP
-        task.description = "Download exact Mojang and Fabric client libraries."
-        task.offline.set(gradle.startParameter.isOffline)
-        task.minecraftVersion.set(minecraftVersion)
-        task.metadataFile.set(metadataOutput)
-        task.fabricProfileFile.set(
+    ) { downloadMinecraftClientLibrariesTask ->
+        downloadMinecraftClientLibrariesTask.group = FIXTURE_TASK_GROUP
+        downloadMinecraftClientLibrariesTask.description = "Download exact Mojang and Fabric client libraries."
+        downloadMinecraftClientLibrariesTask.offline.set(gradle.startParameter.isOffline)
+        downloadMinecraftClientLibrariesTask.minecraftVersion.set(minecraftVersion)
+        downloadMinecraftClientLibrariesTask.metadataFile.set(metadataOutput)
+        downloadMinecraftClientLibrariesTask.fabricProfileFile.set(
             downloadFabricProfile.flatMap { it.outputFile },
         )
-        task.librariesDirectory.set(minecraftLibrariesDirectory)
+        downloadMinecraftClientLibrariesTask.librariesDirectory.set(minecraftLibrariesDirectory)
     }
     val downloadAssetIndex = tasks.register(
         "downloadMinecraftClientAssetIndex",
         DownloadMinecraftClientAssetIndexTask::class.java,
-    ) { task ->
-        task.group = FIXTURE_TASK_GROUP
-        task.description = "Download the selected client asset index."
-        task.offline.set(gradle.startParameter.isOffline)
-        task.minecraftVersion.set(minecraftVersion)
-        task.metadataFile.set(metadataOutput)
-        task.assetIndexesDirectory.set(clientAssetIndexes)
+    ) { downloadMinecraftClientAssetIndexTask ->
+        downloadMinecraftClientAssetIndexTask.group = FIXTURE_TASK_GROUP
+        downloadMinecraftClientAssetIndexTask.description = "Download the selected client asset index."
+        downloadMinecraftClientAssetIndexTask.offline.set(gradle.startParameter.isOffline)
+        downloadMinecraftClientAssetIndexTask.minecraftVersion.set(minecraftVersion)
+        downloadMinecraftClientAssetIndexTask.metadataFile.set(metadataOutput)
+        downloadMinecraftClientAssetIndexTask.assetIndexesDirectory.set(clientAssetIndexes)
     }
     val downloadAssetObjects = tasks.register(
         "downloadMinecraftClientAssetObjects",
         DownloadMinecraftClientAssetObjectsTask::class.java,
-    ) { task ->
-        task.group = FIXTURE_TASK_GROUP
-        task.description = "Download original client objects not replaced by HeadlessMC."
-        task.offline.set(gradle.startParameter.isOffline)
-        task.assetIndexesDirectory.set(
+    ) { downloadMinecraftClientAssetObjectsTask ->
+        downloadMinecraftClientAssetObjectsTask.group = FIXTURE_TASK_GROUP
+        downloadMinecraftClientAssetObjectsTask.description = "Download original client objects not replaced by HeadlessMC."
+        downloadMinecraftClientAssetObjectsTask.offline.set(gradle.startParameter.isOffline)
+        downloadMinecraftClientAssetObjectsTask.assetIndexesDirectory.set(
             downloadAssetIndex.flatMap { it.assetIndexesDirectory },
         )
-        task.outputDirectory.set(clientOriginalAssetObjects)
+        downloadMinecraftClientAssetObjectsTask.outputDirectory.set(clientOriginalAssetObjects)
     }
     val downloadHeadlessLauncher = tasks.register(
         "downloadHeadlessMcLauncher",
         DownloadHeadlessMcLauncherTask::class.java,
-    ) { task ->
-        task.group = FIXTURE_TASK_GROUP
-        task.description = "Download the exact HeadlessMC launcher wrapper."
-        task.offline.set(gradle.startParameter.isOffline)
-        task.headlessMcVersion.set(HeadlessMcTarget.HEADLESS_MC_VERSION)
-        task.launcherFile.set(headlessLauncherFile)
+    ) { downloadHeadlessMcLauncherTask ->
+        downloadHeadlessMcLauncherTask.group = FIXTURE_TASK_GROUP
+        downloadHeadlessMcLauncherTask.description = "Download the exact HeadlessMC launcher wrapper."
+        downloadHeadlessMcLauncherTask.offline.set(gradle.startParameter.isOffline)
+        downloadHeadlessMcLauncherTask.headlessMcVersion.set(HeadlessMcTarget.HEADLESS_MC_VERSION)
+        downloadHeadlessMcLauncherTask.launcherFile.set(headlessLauncherFile)
     }
     val downloadAssetReplacements = tasks.register(
         "downloadHeadlessMcAssetReplacements",
         DownloadHeadlessMcAssetReplacementsTask::class.java,
-    ) { task ->
-        task.group = FIXTURE_TASK_GROUP
-        task.description = "Download HeadlessMC binary asset replacements."
-        task.offline.set(gradle.startParameter.isOffline)
-        task.headlessMcVersion.set(HeadlessMcTarget.HEADLESS_MC_VERSION)
-        task.dummyOggFile.set(dummyOggFile)
-        task.dummyPngFile.set(dummyPngFile)
+    ) { downloadHeadlessMcAssetReplacementsTask ->
+        downloadHeadlessMcAssetReplacementsTask.group = FIXTURE_TASK_GROUP
+        downloadHeadlessMcAssetReplacementsTask.description = "Download HeadlessMC binary asset replacements."
+        downloadHeadlessMcAssetReplacementsTask.offline.set(gradle.startParameter.isOffline)
+        downloadHeadlessMcAssetReplacementsTask.headlessMcVersion.set(HeadlessMcTarget.HEADLESS_MC_VERSION)
+        downloadHeadlessMcAssetReplacementsTask.dummyOggFile.set(dummyOggFile)
+        downloadHeadlessMcAssetReplacementsTask.dummyPngFile.set(dummyPngFile)
     }
     val generateJsonReplacement = tasks.register(
         "generateHeadlessMcJsonReplacement",
         GenerateHeadlessMcJsonReplacementTask::class.java,
-    ) { task ->
-        task.group = FIXTURE_TASK_GROUP
-        task.description = "Generate the deterministic HeadlessMC JSON replacement."
-        task.headlessMcVersion.set(HeadlessMcTarget.HEADLESS_MC_VERSION)
-        task.outputFile.set(dummyJsonFile)
+    ) { generateHeadlessMcJsonReplacementTask ->
+        generateHeadlessMcJsonReplacementTask.group = FIXTURE_TASK_GROUP
+        generateHeadlessMcJsonReplacementTask.description = "Generate the deterministic HeadlessMC JSON replacement."
+        generateHeadlessMcJsonReplacementTask.headlessMcVersion.set(HeadlessMcTarget.HEADLESS_MC_VERSION)
+        generateHeadlessMcJsonReplacementTask.outputFile.set(dummyJsonFile)
     }
     val downloadHmcSpecifics = tasks.register(
         "downloadHmcSpecifics",
         DownloadHmcSpecificsTask::class.java,
-    ) { task ->
-        task.group = FIXTURE_TASK_GROUP
-        task.description = "Download the selected HMC-Specifics Fabric asset."
-        task.offline.set(gradle.startParameter.isOffline)
-        task.releaseTag.set(HmcSpecificsTarget.RELEASE_TAG)
-        task.assetName.set(HmcSpecificsTarget.FABRIC_ASSET_NAME)
-        task.assetUrl.set(HmcSpecificsTarget.FABRIC_ASSET_URL)
-        task.minecraftVersion.set(minecraftVersion)
-        task.outputFile.set(hmcSpecificsFile)
+    ) { downloadHmcSpecificsTask ->
+        downloadHmcSpecificsTask.group = FIXTURE_TASK_GROUP
+        downloadHmcSpecificsTask.description = "Download the selected HMC-Specifics Fabric asset."
+        downloadHmcSpecificsTask.offline.set(gradle.startParameter.isOffline)
+        downloadHmcSpecificsTask.releaseTag.set(HmcSpecificsTarget.RELEASE_TAG)
+        downloadHmcSpecificsTask.assetName.set(HmcSpecificsTarget.FABRIC_ASSET_NAME)
+        downloadHmcSpecificsTask.assetUrl.set(HmcSpecificsTarget.FABRIC_ASSET_URL)
+        downloadHmcSpecificsTask.minecraftVersion.set(minecraftVersion)
+        downloadHmcSpecificsTask.outputFile.set(hmcSpecificsFile)
     }
 
     val assembleAssets = tasks.register(
         "assembleHeadlessClientAssets",
         AssembleHeadlessClientAssetsTask::class.java,
-    ) { task ->
-        task.group = FIXTURE_TASK_GROUP
-        task.description = "Assemble the filtered HeadlessMC asset store."
-        task.assetIndexesDirectory.set(
+    ) { assembleHeadlessClientAssetsTask ->
+        assembleHeadlessClientAssetsTask.group = FIXTURE_TASK_GROUP
+        assembleHeadlessClientAssetsTask.description = "Assemble the filtered HeadlessMC asset store."
+        assembleHeadlessClientAssetsTask.assetIndexesDirectory.set(
             downloadAssetIndex.flatMap { it.assetIndexesDirectory },
         )
-        task.originalObjectsDirectory.set(
+        assembleHeadlessClientAssetsTask.originalObjectsDirectory.set(
             downloadAssetObjects.flatMap { it.outputDirectory },
         )
-        task.dummyOggFile.set(
+        assembleHeadlessClientAssetsTask.dummyOggFile.set(
             downloadAssetReplacements.flatMap { it.dummyOggFile },
         )
-        task.dummyPngFile.set(
+        assembleHeadlessClientAssetsTask.dummyPngFile.set(
             downloadAssetReplacements.flatMap { it.dummyPngFile },
         )
-        task.dummyJsonFile.set(
+        assembleHeadlessClientAssetsTask.dummyJsonFile.set(
             generateJsonReplacement.flatMap { it.outputFile },
         )
-        task.outputDirectory.set(minecraftAssetsDirectory)
+        assembleHeadlessClientAssetsTask.outputDirectory.set(minecraftAssetsDirectory)
     }
     val assembleVersionLayout = tasks.register(
         "assembleHeadlessClientVersionLayout",
         Sync::class.java,
-    ) { task ->
-        task.group = FIXTURE_TASK_GROUP
-        task.description = "Assemble exact Mojang and Fabric version profiles."
-        task.from(downloadClient.flatMap { it.clientJar }) { copy ->
-            copy.into(minecraftVersion)
-            copy.rename { "$minecraftVersion.jar" }
+    ) { sync ->
+        sync.group = FIXTURE_TASK_GROUP
+        sync.description = "Assemble exact Mojang and Fabric version profiles."
+        sync.from(downloadClient.flatMap { it.clientJar }) { copySpec ->
+            copySpec.into(minecraftVersion)
+            copySpec.rename { "$minecraftVersion.jar" }
         }
-        task.from(metadataOutput) { copy ->
-            copy.into(minecraftVersion)
-            copy.rename { "$minecraftVersion.json" }
+        sync.from(metadataOutput) { copySpec ->
+            copySpec.into(minecraftVersion)
+            copySpec.rename { "$minecraftVersion.json" }
         }
         val fabricProfileId = FabricLoaderTarget.profileId(minecraftVersion)
-        task.from(downloadClient.flatMap { it.clientJar }) { copy ->
-            copy.into(fabricProfileId)
-            copy.rename { "$fabricProfileId.jar" }
+        sync.from(downloadClient.flatMap { it.clientJar }) { copySpec ->
+            copySpec.into(fabricProfileId)
+            copySpec.rename { "$fabricProfileId.jar" }
         }
-        task.from(downloadFabricProfile.flatMap { it.outputFile }) { copy ->
-            copy.into(fabricProfileId)
-            copy.rename { "$fabricProfileId.json" }
+        sync.from(downloadFabricProfile.flatMap { it.outputFile }) { copySpec ->
+            copySpec.into(fabricProfileId)
+            copySpec.rename { "$fabricProfileId.json" }
         }
-        task.into(minecraftVersionsDirectory)
+        sync.into(minecraftVersionsDirectory)
     }
     val assembleMods = tasks.register(
         "assembleHeadlessClientMods",
         Sync::class.java,
-    ) { task ->
-        task.group = FIXTURE_TASK_GROUP
-        task.description = "Assemble the selected upstream client mods."
-        task.from(downloadHmcSpecifics.flatMap { it.outputFile })
-        task.into(headlessModsDirectory)
+    ) { sync ->
+        sync.group = FIXTURE_TASK_GROUP
+        sync.description = "Assemble the selected upstream client mods."
+        sync.from(downloadHmcSpecifics.flatMap { it.outputFile })
+        sync.into(headlessModsDirectory)
     }
     val generateClientTemplate = tasks.register(
         "generateHeadlessClientTemplate",
         GenerateHeadlessClientTemplateTask::class.java,
-    ) { task ->
-        task.group = FIXTURE_TASK_GROUP
-        task.description = "Start, stop, sanitize, and publish the HeadlessMC client template."
-        task.dependsOn(
+    ) { generateHeadlessClientTemplateTask ->
+        generateHeadlessClientTemplateTask.group = FIXTURE_TASK_GROUP
+        generateHeadlessClientTemplateTask.description = "Start, stop, sanitize, and publish the HeadlessMC client template."
+        generateHeadlessClientTemplateTask.dependsOn(
             downloadHeadlessLauncher,
             downloadLibraries,
             assembleAssets,
             assembleVersionLayout,
             assembleMods,
         )
-        task.minecraftVersion.set(minecraftVersion)
-        task.headlessMcVersion.set(HeadlessMcTarget.HEADLESS_MC_VERSION)
-        task.fabricLoaderVersion.set(
+        generateHeadlessClientTemplateTask.minecraftVersion.set(minecraftVersion)
+        generateHeadlessClientTemplateTask.headlessMcVersion.set(HeadlessMcTarget.HEADLESS_MC_VERSION)
+        generateHeadlessClientTemplateTask.fabricLoaderVersion.set(
             FabricLoaderTarget.FABRIC_LOADER_VERSION,
         )
-        task.hmcSpecificsReleaseTag.set(HmcSpecificsTarget.RELEASE_TAG)
-        task.hmcSpecificsAssetName.set(HmcSpecificsTarget.FABRIC_ASSET_NAME)
-        task.hmcSpecificsAssetUrl.set(HmcSpecificsTarget.FABRIC_ASSET_URL)
-        task.runtimeDirectory.set(headlessRuntimeDirectory)
-        task.workerClasspath.from(templateWorkerRuntime)
-        task.templateDirectory.set(headlessTemplateDirectory)
-        task.manifestFile.set(headlessManifestFile)
+        generateHeadlessClientTemplateTask.hmcSpecificsReleaseTag.set(HmcSpecificsTarget.RELEASE_TAG)
+        generateHeadlessClientTemplateTask.hmcSpecificsAssetName.set(HmcSpecificsTarget.FABRIC_ASSET_NAME)
+        generateHeadlessClientTemplateTask.hmcSpecificsAssetUrl.set(HmcSpecificsTarget.FABRIC_ASSET_URL)
+        generateHeadlessClientTemplateTask.runtimeDirectory.set(headlessRuntimeDirectory)
+        generateHeadlessClientTemplateTask.workerClasspath.from(templateWorkerRuntime)
+        generateHeadlessClientTemplateTask.templateDirectory.set(headlessTemplateDirectory)
+        generateHeadlessClientTemplateTask.manifestFile.set(headlessManifestFile)
     }
     val prepareHeadlessClient = tasks.register("prepareHeadlessClient") { task ->
         task.group = FIXTURE_TASK_GROUP
@@ -400,11 +400,11 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
     val extractRuntime = tasks.register(
         "extractOfficialServerRuntime",
         ExtractOfficialServerRuntimeTask::class.java,
-    ) { task ->
-        task.group = OFFICIAL_DATA_TASK_GROUP
-        task.description = "Extract the official server implementation and libraries."
-        task.serverJar.set(downloadServer.flatMap { it.serverJar })
-        task.outputDirectory.set(serverRuntimeDirectory)
+    ) { extractOfficialServerRuntimeTask ->
+        extractOfficialServerRuntimeTask.group = OFFICIAL_DATA_TASK_GROUP
+        extractOfficialServerRuntimeTask.description = "Extract the official server implementation and libraries."
+        extractOfficialServerRuntimeTask.serverJar.set(downloadServer.flatMap { it.serverJar })
+        extractOfficialServerRuntimeTask.outputDirectory.set(serverRuntimeDirectory)
     }
     val codecOracleSource = configurations.create("codecOracleSource") {
         it.isCanBeConsumed = false
@@ -424,27 +424,27 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
     val runtimeFiles = files(extractRuntime.flatMap { it.outputDirectory })
     val codecCompileClasspath = files(
         extractRuntime.flatMap { it.outputDirectory.file("server.jar") },
-        runtimeFiles.asFileTree.matching { filter ->
-            filter.include("libraries/**/*.jar")
+        runtimeFiles.asFileTree.matching { patternFilterable ->
+            patternFilterable.include("libraries/**/*.jar")
         },
     )
-    val javaToolchains = extensions.getByType(JavaToolchainService::class.java)
+    val javaToolchainService = extensions.getByType(JavaToolchainService::class.java)
     val compileCodecOracle = tasks.register(
         "compileOfficialCodecOracle",
         JavaCompile::class.java,
-    ) { task ->
-        task.group = OFFICIAL_DATA_TASK_GROUP
-        task.description = "Compile the official codec bridge."
-        task.source(codecOracleSource)
-        task.classpath = codecCompileClasspath
-        task.destinationDirectory.set(codecClassesDirectory)
-        task.options.encoding = StandardCharsets.UTF_8.name()
-        task.options.release.set(BuildVersions.JAVA_VERSION)
-        task.sourceCompatibility = BuildVersions.JAVA_VERSION.toString()
-        task.targetCompatibility = BuildVersions.JAVA_VERSION.toString()
-        task.javaCompiler.set(
-            javaToolchains.compilerFor { spec ->
-                spec.languageVersion.set(
+    ) { javaCompile ->
+        javaCompile.group = OFFICIAL_DATA_TASK_GROUP
+        javaCompile.description = "Compile the official codec bridge."
+        javaCompile.source(codecOracleSource)
+        javaCompile.classpath = codecCompileClasspath
+        javaCompile.destinationDirectory.set(codecClassesDirectory)
+        javaCompile.options.encoding = StandardCharsets.UTF_8.name()
+        javaCompile.options.release.set(BuildVersions.JAVA_VERSION)
+        javaCompile.sourceCompatibility = BuildVersions.JAVA_VERSION.toString()
+        javaCompile.targetCompatibility = BuildVersions.JAVA_VERSION.toString()
+        javaCompile.javaCompiler.set(
+            javaToolchainService.compilerFor { javaToolchainSpec ->
+                javaToolchainSpec.languageVersion.set(
                     JavaLanguageVersion.of(BuildVersions.JAVA_VERSION),
                 )
             },
@@ -461,45 +461,45 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
     val analyzeTarget = tasks.register(
         "analyzeOfficialMinecraftTarget",
         AnalyzeOfficialMinecraftTargetTask::class.java,
-    ) { task ->
-        task.group = OFFICIAL_DATA_TASK_GROUP
-        task.description = "Analyze version and protocol facts."
-        task.serverJar.set(downloadServer.flatMap { it.serverJar })
-        task.downloadMetadata.set(downloadServer.flatMap { it.metadataFile })
-        task.outputFile.set(targetFile)
+    ) { analyzeOfficialMinecraftTargetTask ->
+        analyzeOfficialMinecraftTargetTask.group = OFFICIAL_DATA_TASK_GROUP
+        analyzeOfficialMinecraftTargetTask.description = "Analyze version and protocol facts."
+        analyzeOfficialMinecraftTargetTask.serverJar.set(downloadServer.flatMap { it.serverJar })
+        analyzeOfficialMinecraftTargetTask.downloadMetadata.set(downloadServer.flatMap { it.metadataFile })
+        analyzeOfficialMinecraftTargetTask.outputFile.set(targetFile)
     }
     val analyzeReports = tasks.register(
         "analyzeOfficialMinecraftReports",
         AnalyzeOfficialMinecraftReportsTask::class.java,
-    ) { task ->
-        task.group = OFFICIAL_DATA_TASK_GROUP
-        task.description = "Capture official packets, registries, and blocks reports."
-        task.serverJar.set(downloadServer.flatMap { it.serverJar })
-        task.downloadMetadata.set(downloadServer.flatMap { it.metadataFile })
-        task.outputDirectory.set(reportsDirectory)
+    ) { analyzeOfficialMinecraftReportsTask ->
+        analyzeOfficialMinecraftReportsTask.group = OFFICIAL_DATA_TASK_GROUP
+        analyzeOfficialMinecraftReportsTask.description = "Capture official packets, registries, and blocks reports."
+        analyzeOfficialMinecraftReportsTask.serverJar.set(downloadServer.flatMap { it.serverJar })
+        analyzeOfficialMinecraftReportsTask.downloadMetadata.set(downloadServer.flatMap { it.metadataFile })
+        analyzeOfficialMinecraftReportsTask.outputDirectory.set(reportsDirectory)
     }
     val analyzeConfiguration = tasks.register(
         "analyzeOfficialMinecraftConfiguration",
         AnalyzeOfficialMinecraftConfigurationTask::class.java,
-    ) { task ->
-        task.group = OFFICIAL_DATA_TASK_GROUP
-        task.description = "Capture official Configuration Known Packs branches."
-        task.serverJar.set(downloadServer.flatMap { it.serverJar })
-        task.packetsReport.set(
+    ) { analyzeOfficialMinecraftConfigurationTask ->
+        analyzeOfficialMinecraftConfigurationTask.group = OFFICIAL_DATA_TASK_GROUP
+        analyzeOfficialMinecraftConfigurationTask.description = "Capture official Configuration Known Packs branches."
+        analyzeOfficialMinecraftConfigurationTask.serverJar.set(downloadServer.flatMap { it.serverJar })
+        analyzeOfficialMinecraftConfigurationTask.packetsReport.set(
             analyzeReports.flatMap {
                 it.outputDirectory.file("reports/packets.json")
             },
         )
-        task.outputFile.set(configurationFile)
+        analyzeOfficialMinecraftConfigurationTask.outputFile.set(configurationFile)
     }
     val extractDataPacks = tasks.register(
         "extractOfficialMinecraftDataPacks",
         ExtractOfficialMinecraftDataPacksTask::class.java,
-    ) { task ->
-        task.group = OFFICIAL_DATA_TASK_GROUP
-        task.description = "Extract official core and built-in data packs."
-        task.implementationJar.set(extractRuntime.flatMap { it.outputDirectory.file("server.jar") })
-        task.outputDirectory.set(dataPacksDirectory)
+    ) { extractOfficialMinecraftDataPacksTask ->
+        extractOfficialMinecraftDataPacksTask.group = OFFICIAL_DATA_TASK_GROUP
+        extractOfficialMinecraftDataPacksTask.description = "Extract official core and built-in data packs."
+        extractOfficialMinecraftDataPacksTask.implementationJar.set(extractRuntime.flatMap { it.outputDirectory.file("server.jar") })
+        extractOfficialMinecraftDataPacksTask.outputDirectory.set(dataPacksDirectory)
     }
     tasks.register("prepareOfficialMinecraftData") { task ->
         task.group = OFFICIAL_DATA_TASK_GROUP
@@ -530,7 +530,7 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         directory = true,
     )
 
-    val outputs = MinecraftTestFixtureOutputs(
+    val minecraftTestFixtureOutputs = MinecraftTestFixtureOutputs(
         officialServer = files(officialServerRoot).builtBy(prepareServer),
         headlessClient = files(headlessClientRoot).builtBy(
             prepareHeadlessClient,
@@ -546,8 +546,8 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         serverRuntimeDirectory = serverRuntimeDirectory,
         codecClassesDirectory = codecClassesDirectory,
     )
-    extensions.add("minecraftTestFixtureOutputs", outputs)
-    return outputs
+    extensions.add("minecraftTestFixtureOutputs", minecraftTestFixtureOutputs)
+    return minecraftTestFixtureOutputs
 }
 
 private const val FIXTURE_TASK_GROUP = "minecraft fixtures"

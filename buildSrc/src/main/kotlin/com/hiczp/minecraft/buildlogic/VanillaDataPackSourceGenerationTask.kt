@@ -103,11 +103,11 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
 
     private fun encodeDataPackPayload(dataPackPayloadJson: JsonObject): String {
         val dataPackPayloadBytes = Json.encodeToString(dataPackPayloadJson).encodeToByteArray()
-        val compressedDataPackPayloadBytes = ByteArrayOutputStream().use { byteOutputStream ->
-            GZIPOutputStream(byteOutputStream).use { gzipOutputStream ->
+        val compressedDataPackPayloadBytes = ByteArrayOutputStream().use { byteArrayOutputStream ->
+            GZIPOutputStream(byteArrayOutputStream).use { gzipOutputStream ->
                 gzipOutputStream.write(dataPackPayloadBytes)
             }
-            byteOutputStream.toByteArray()
+            byteArrayOutputStream.toByteArray()
         }
         return Base64.getEncoder().encodeToString(compressedDataPackPayloadBytes)
     }

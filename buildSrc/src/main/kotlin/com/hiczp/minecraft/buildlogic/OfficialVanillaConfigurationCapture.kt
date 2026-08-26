@@ -62,9 +62,9 @@ internal class OfficialPacketIds private constructor(
                         check(id >= 0) {
                             "Official packet $state/$direction/$name has a negative protocol ID"
                         }
-                        val key = OfficialPacketKey(state, direction, name)
-                        check(entries.put(key, id) == null) {
-                            "Duplicate official packet $key"
+                        val officialPacketKey = OfficialPacketKey(state, direction, name)
+                        check(entries.put(officialPacketKey, id) == null) {
+                            "Duplicate official packet $officialPacketKey"
                         }
                         if (direction == CLIENTBOUND) {
                             check(
@@ -89,8 +89,8 @@ internal object OfficialVanillaConfigurationCapture {
     fun capture(
         serverJar: Path,
         workDirectory: Path,
-        target: MinecraftProtocolTarget,
-        packetIds: OfficialPacketIds,
+        minecraftProtocolTarget: MinecraftProtocolTarget,
+        officialPacketIds: OfficialPacketIds,
     ): VanillaConfigurationCaptureResult {
         require(serverJar.isRegularFile()) {
             "Official server does not exist: $serverJar"
@@ -109,8 +109,8 @@ internal object OfficialVanillaConfigurationCapture {
                     serverJar = serverJar,
                     workDirectory = attemptDirectory,
                     port = port,
-                    target = target,
-                    packetIds = packetIds,
+                    minecraftProtocolTarget = minecraftProtocolTarget,
+                    officialPacketIds = officialPacketIds,
                 )
             } catch (failure: Throwable) {
                 if (
@@ -132,8 +132,8 @@ internal object OfficialVanillaConfigurationCapture {
         serverJar: Path,
         workDirectory: Path,
         port: Int,
-        target: MinecraftProtocolTarget,
-        packetIds: OfficialPacketIds,
+        minecraftProtocolTarget: MinecraftProtocolTarget,
+        officialPacketIds: OfficialPacketIds,
     ): VanillaConfigurationCaptureResult {
         val process = ProcessBuilder(
             "java",
@@ -147,22 +147,22 @@ internal object OfficialVanillaConfigurationCapture {
             .directory(workDirectory.toFile())
             .redirectErrorStream(true)
             .start()
-        val log = BoundedProcessLog(process, "vanilla-data-capture-log")
+        val boundedProcessLog = BoundedProcessLog(process, "vanilla-data-capture-log")
         try {
-            waitForServer(process, log)
+            waitForServer(process, boundedProcessLog)
             val completeConfigurationCapture = captureConfiguration(
                 port = port,
                 name = "FullDataProbe",
                 acceptKnownPacks = false,
-                protocolVersion = target.protocolVersion,
-                packetIds = packetIds,
+                protocolVersion = minecraftProtocolTarget.protocolVersion,
+                officialPacketIds = officialPacketIds,
             ).canonicalize()
             val knownPackConfigurationCapture = captureConfiguration(
                 port = port,
                 name = "KnownPackProbe",
                 acceptKnownPacks = true,
-                protocolVersion = target.protocolVersion,
-                packetIds = packetIds,
+                protocolVersion = minecraftProtocolTarget.protocolVersion,
+                officialPacketIds = officialPacketIds,
             ).canonicalize()
             validateCaptures(completeConfigurationCapture, knownPackConfigurationCapture)
             return VanillaConfigurationCaptureResult(
@@ -176,7 +176,7 @@ internal object OfficialVanillaConfigurationCapture {
             )
         } catch (failure: Throwable) {
             throw AssertionError(
-                "Official vanilla-data capture failed.\n--- official server log ---\n${log.content()}",
+                "Official vanilla-data capture failed.\n--- official server log ---\n${boundedProcessLog.content()}",
                 failure,
             )
         } finally {
@@ -185,7 +185,7 @@ internal object OfficialVanillaConfigurationCapture {
                 process.destroyForcibly()
                 process.waitFor(10, TimeUnit.SECONDS)
             }
-            log.close()
+            boundedProcessLog.close()
         }
     }
 
@@ -204,12 +204,12 @@ internal object OfficialVanillaConfigurationCapture {
         name: String,
         acceptKnownPacks: Boolean,
         protocolVersion: Int,
-        packetIds: OfficialPacketIds,
+        officialPacketIds: OfficialPacketIds,
     ): ConfigurationCapture {
         Socket("127.0.0.1", port).use { socket ->
             socket.soTimeout = 30_000
-            val connection = CaptureConnection(socket, packetIds)
-            connection.send(
+            val captureConnection = CaptureConnection(socket, officialPacketIds)
+            captureConnection.send(
                 state = HANDSHAKE,
                 name = "intention",
                 payload = PacketOutput().apply {
@@ -219,7 +219,7 @@ internal object OfficialVanillaConfigurationCapture {
                     writeVarInt(2)
                 }.toByteArray(),
             )
-            connection.send(
+            captureConnection.send(
                 state = LOGIN,
                 name = "hello",
                 payload = PacketOutput().apply {
@@ -236,19 +236,19 @@ internal object OfficialVanillaConfigurationCapture {
             val synchronizedRegistryPayloads = mutableListOf<RegistryPayload>()
             val receivedPacketRoutes = mutableListOf<String>()
             repeat(MAXIMUM_PACKETS) {
-                val packet = connection.receive(state)
-                receivedPacketRoutes += "$state/clientbound/${packet.name}"
-                when (state to packet.name) {
+                val capturedPacket = captureConnection.receive(state)
+                receivedPacketRoutes += "$state/clientbound/${capturedPacket.name}"
+                when (state to capturedPacket.name) {
                     LOGIN to "login_disconnect" ->
                         error(
-                            "Official server rejected $name: ${packet.payload.toHexString()}",
+                            "Official server rejected $name: ${capturedPacket.payload.toHexString()}",
                         )
 
                     LOGIN to "cookie_request" -> {
-                        val input = packet.input()
-                        val key = input.readString()
-                        input.requireExhausted()
-                        connection.send(
+                        val packetInput = capturedPacket.input()
+                        val key = packetInput.readString()
+                        packetInput.requireExhausted()
+                        captureConnection.send(
                             LOGIN,
                             "cookie_response",
                             PacketOutput().apply {
@@ -259,9 +259,9 @@ internal object OfficialVanillaConfigurationCapture {
                     }
 
                     LOGIN to "custom_query" -> {
-                        val input = packet.input()
-                        val messageId = input.readVarInt()
-                        connection.send(
+                        val packetInput = capturedPacket.input()
+                        val messageId = packetInput.readVarInt()
+                        captureConnection.send(
                             LOGIN,
                             "custom_query_answer",
                             PacketOutput().apply {
@@ -272,20 +272,20 @@ internal object OfficialVanillaConfigurationCapture {
                     }
 
                     LOGIN to "login_compression" -> {
-                        val input = packet.input()
-                        val threshold = input.readVarInt()
-                        input.requireExhausted()
+                        val packetInput = capturedPacket.input()
+                        val threshold = packetInput.readVarInt()
+                        packetInput.requireExhausted()
                         val expectedThreshold = COMPRESSION_THRESHOLD
                         check(threshold == expectedThreshold) {
                             "Official server negotiated compression threshold $threshold, expected $expectedThreshold"
                         }
-                        connection.compressionThreshold = threshold
+                        captureConnection.compressionThreshold = threshold
                     }
 
                     LOGIN to "login_finished" -> {
-                        connection.send(LOGIN, "login_acknowledged")
+                        captureConnection.send(LOGIN, "login_acknowledged")
                         state = CONFIGURATION
-                        connection.send(
+                        captureConnection.send(
                             CONFIGURATION,
                             "client_information",
                             clientInformationPayload(),
@@ -294,14 +294,14 @@ internal object OfficialVanillaConfigurationCapture {
 
                     CONFIGURATION to "disconnect" ->
                         error(
-                            "Official server rejected $name: ${packet.payload.toHexString()}",
+                            "Official server rejected $name: ${capturedPacket.payload.toHexString()}",
                         )
 
                     CONFIGURATION to "cookie_request" -> {
-                        val input = packet.input()
-                        val key = input.readString()
-                        input.requireExhausted()
-                        connection.send(
+                        val packetInput = capturedPacket.input()
+                        val key = packetInput.readString()
+                        packetInput.requireExhausted()
+                        captureConnection.send(
                             CONFIGURATION,
                             "cookie_response",
                             PacketOutput().apply {
@@ -312,10 +312,10 @@ internal object OfficialVanillaConfigurationCapture {
                     }
 
                     CONFIGURATION to "keep_alive" -> {
-                        val input = packet.input()
-                        val id = input.readLong()
-                        input.requireExhausted()
-                        connection.send(
+                        val packetInput = capturedPacket.input()
+                        val id = packetInput.readLong()
+                        packetInput.requireExhausted()
+                        captureConnection.send(
                             CONFIGURATION,
                             "keep_alive",
                             PacketOutput().apply {
@@ -325,10 +325,10 @@ internal object OfficialVanillaConfigurationCapture {
                     }
 
                     CONFIGURATION to "ping" -> {
-                        val input = packet.input()
-                        val id = input.readInt()
-                        input.requireExhausted()
-                        connection.send(
+                        val packetInput = capturedPacket.input()
+                        val id = packetInput.readInt()
+                        packetInput.requireExhausted()
+                        captureConnection.send(
                             CONFIGURATION,
                             "pong",
                             PacketOutput().apply {
@@ -341,8 +341,8 @@ internal object OfficialVanillaConfigurationCapture {
                         check(offeredKnownPacksPayload == null) {
                             "Official server sent Known Packs more than once"
                         }
-                        offeredKnownPacksPayload = KnownPacksPayload.decode(packet.payload)
-                        connection.send(
+                        offeredKnownPacksPayload = KnownPacksPayload.decode(capturedPacket.payload)
+                        captureConnection.send(
                             CONFIGURATION,
                             "select_known_packs",
                             if (acceptKnownPacks) {
@@ -359,27 +359,27 @@ internal object OfficialVanillaConfigurationCapture {
                         check(enabledFeatureFlagsPayload == null) {
                             "Official server sent Feature Flags more than once"
                         }
-                        enabledFeatureFlagsPayload = FeatureFlagsPayload.decode(packet.payload)
+                        enabledFeatureFlagsPayload = FeatureFlagsPayload.decode(capturedPacket.payload)
                     }
 
                     CONFIGURATION to "registry_data" ->
-                        synchronizedRegistryPayloads += RegistryPayload.decode(packet.payload)
+                        synchronizedRegistryPayloads += RegistryPayload.decode(capturedPacket.payload)
 
                     CONFIGURATION to "update_tags" -> {
                         check(registryTagsPayload == null) {
                             "Official server sent Update Tags more than once"
                         }
-                        registryTagsPayload = TagsPayload.decode(packet.payload)
+                        registryTagsPayload = TagsPayload.decode(capturedPacket.payload)
                     }
 
                     CONFIGURATION to "code_of_conduct" ->
-                        connection.send(
+                        captureConnection.send(
                             CONFIGURATION,
                             "accept_code_of_conduct",
                         )
 
                     CONFIGURATION to "finish_configuration" -> {
-                        connection.send(
+                        captureConnection.send(
                             CONFIGURATION,
                             "finish_configuration",
                         )
@@ -491,9 +491,9 @@ internal object OfficialVanillaConfigurationCapture {
 
     private fun waitForServer(
         process: Process,
-        log: BoundedProcessLog,
+        boundedProcessLog: BoundedProcessLog,
     ) {
-        log.awaitContains(
+        boundedProcessLog.awaitContains(
             text = "[Server thread/INFO]: Done (",
             process = process,
             timeout = Duration.ofMinutes(2),
@@ -510,7 +510,7 @@ internal data class VanillaConfigurationCaptureResult(
     val completeConfigurationPacketSequence: List<String>,
     val knownPackConfigurationPacketSequence: List<String>,
 ) {
-    fun renderKotlin(target: MinecraftProtocolTarget): FileSpec {
+    fun renderKotlin(minecraftProtocolTarget: MinecraftProtocolTarget): FileSpec {
         val vanillaConfigurationPacketPayloads = TypeSpec.objectBuilder("VanillaConfigurationPacketPayloads")
             .addModifiers(INTERNAL)
             .addKdoc(
@@ -518,12 +518,12 @@ internal data class VanillaConfigurationCaptureResult(
             )
             .addProperty(
                 PropertySpec.builder("minecraftVersion", STRING, CONST)
-                    .initializer("%S", target.minecraftVersion)
+                    .initializer("%S", minecraftProtocolTarget.minecraftVersion)
                     .build(),
             )
             .addProperty(
                 PropertySpec.builder("protocolVersion", Int::class, CONST)
-                    .initializer("%L", target.protocolVersion)
+                    .initializer("%L", minecraftProtocolTarget.protocolVersion)
                     .build(),
             )
             .addPayload("offeredKnownPacksPayloadChunks", offeredKnownPacksPayload.encode())
@@ -546,7 +546,7 @@ internal data class VanillaConfigurationCaptureResult(
     }
 
     fun toAnalysisJson(
-        target: MinecraftProtocolTarget,
+        minecraftProtocolTarget: MinecraftProtocolTarget,
     ): JsonObject {
         val synchronizedRegistryPayloads =
             completeSynchronizedRegistryPayloads.zip(knownPackSynchronizedRegistryPayloads)
@@ -586,14 +586,14 @@ internal data class VanillaConfigurationCaptureResult(
         }
         return buildJsonObject {
             put("schema_version", 1)
-            put("minecraft_version", target.minecraftVersion)
-            put("protocol_version", target.protocolVersion)
+            put("minecraft_version", minecraftProtocolTarget.minecraftVersion)
+            put("protocol_version", minecraftProtocolTarget.protocolVersion)
             putJsonArray("known_packs") {
-                offeredKnownPacksPayload.knownPacks.forEach { knownPack ->
+                offeredKnownPacksPayload.knownPacks.forEach { knownPackPayload ->
                     addJsonObject {
-                        put("namespace", knownPack.namespace)
-                        put("id", knownPack.id)
-                        put("version", knownPack.version)
+                        put("namespace", knownPackPayload.namespace)
+                        put("id", knownPackPayload.id)
+                        put("version", knownPackPayload.version)
                     }
                 }
             }
@@ -627,18 +627,18 @@ internal data class VanillaConfigurationCaptureResult(
             check(document.getValue("schema_version").jsonPrimitive.int == 1) {
                 "Unsupported vanilla Configuration analysis schema"
             }
-            val minecraftTarget = expectedTarget.target
+            val minecraftProtocolTarget = expectedTarget.minecraftProtocolTarget
             check(
                 document.getValue("minecraft_version").jsonPrimitive.content ==
-                        minecraftTarget.minecraftVersion &&
+                        minecraftProtocolTarget.minecraftVersion &&
                         document.getValue("protocol_version").jsonPrimitive.int ==
-                        minecraftTarget.protocolVersion,
+                        minecraftProtocolTarget.protocolVersion,
             ) {
                 "Vanilla Configuration analysis targets a different release"
             }
             val describedOfferedKnownPacks = document.getValue("known_packs").jsonArray
-                .map { element ->
-                    val knownPack = element.jsonObject
+                .map { jsonElement ->
+                    val knownPack = jsonElement.jsonObject
                     KnownPackPayload(
                         namespace = knownPack.getValue("namespace").jsonPrimitive.content,
                         id = knownPack.getValue("id").jsonPrimitive.content,
@@ -677,8 +677,8 @@ internal data class VanillaConfigurationCaptureResult(
             val completeSynchronizedRegistryPayloads = mutableListOf<RegistryPayload>()
             val knownPackSynchronizedRegistryPayloads = mutableListOf<RegistryPayload>()
             document.getValue("registries").jsonArray
-                .forEach { element ->
-                    val registryIndexJson = element.jsonObject
+                .forEach { jsonElement ->
+                    val registryIndexJson = jsonElement.jsonObject
                     val registryId = registryIndexJson.getValue("id").jsonPrimitive.content
                     val registryEntryIds = registryIndexJson.getValue("entries").jsonArray
                         .map { it.jsonPrimitive.content }
@@ -719,8 +719,8 @@ internal data class VanillaConfigurationCaptureResult(
                 }
 
             val describedRegistryTags = TagsPayload(
-                document.getValue("tags").jsonArray.map { element ->
-                    val registryTagsIndexJson = element.jsonObject
+                document.getValue("tags").jsonArray.map { jsonElement ->
+                    val registryTagsIndexJson = jsonElement.jsonObject
                     RegistryTagsPayload(
                         registryId = registryTagsIndexJson.getValue("registry").jsonPrimitive.content,
                         tagPayloads = registryTagsIndexJson.getValue("tags").jsonArray
@@ -844,24 +844,24 @@ internal data class KnownPacksPayload(
 ) {
     fun encode(): ByteArray = PacketOutput().apply {
         writeVarInt(knownPacks.size)
-        knownPacks.forEach { knownPack ->
-            writeString(knownPack.namespace)
-            writeString(knownPack.id)
-            writeString(knownPack.version)
+        knownPacks.forEach { knownPackPayload ->
+            writeString(knownPackPayload.namespace)
+            writeString(knownPackPayload.id)
+            writeString(knownPackPayload.version)
         }
     }.toByteArray()
 
     companion object {
         fun decode(payload: ByteArray): KnownPacksPayload {
-            val input = PacketInput(payload)
-            val knownPacks = input.readList {
+            val packetInput = PacketInput(payload)
+            val knownPacks = packetInput.readList {
                 KnownPackPayload(
                     namespace = readString(),
                     id = readString(),
                     version = readString(),
                 )
             }
-            input.requireExhausted()
+            packetInput.requireExhausted()
             return KnownPacksPayload(knownPacks)
         }
     }
@@ -880,9 +880,9 @@ internal data class FeatureFlagsPayload(
 
     companion object {
         fun decode(payload: ByteArray): FeatureFlagsPayload {
-            val input = PacketInput(payload)
-            val enabledFeatureFlags = input.readList(PacketInput::readString)
-            input.requireExhausted()
+            val packetInput = PacketInput(payload)
+            val enabledFeatureFlags = packetInput.readList(PacketInput::readString)
+            packetInput.requireExhausted()
             check(enabledFeatureFlags.distinct().size == enabledFeatureFlags.size) {
                 "Official Feature Flags packet contains duplicates"
             }
@@ -920,15 +920,15 @@ internal data class RegistryPayload(
 
     companion object {
         fun decode(payload: ByteArray): RegistryPayload {
-            val input = PacketInput(payload)
-            val registryId = input.readString()
-            val registryEntryPayloads = input.readList {
+            val packetInput = PacketInput(payload)
+            val registryId = packetInput.readString()
+            val registryEntryPayloads = packetInput.readList {
                 RegistryEntryPayload(
                     registryEntryId = readString(),
                     registryEntryData = readNullableNbt(),
                 )
             }
-            input.requireExhausted()
+            packetInput.requireExhausted()
             check(
                 registryEntryPayloads.map(RegistryEntryPayload::registryEntryId).distinct().size ==
                         registryEntryPayloads.size
@@ -981,8 +981,8 @@ internal data class TagsPayload(
 
     companion object {
         fun decode(payload: ByteArray): TagsPayload {
-            val input = PacketInput(payload)
-            val registryTagsPayloads = input.readList {
+            val packetInput = PacketInput(payload)
+            val registryTagsPayloads = packetInput.readList {
                 val registryId = readString()
                 val tagPayloads = readList {
                     TagPayload(
@@ -992,7 +992,7 @@ internal data class TagsPayload(
                 }
                 RegistryTagsPayload(registryId, tagPayloads)
             }
-            input.requireExhausted()
+            packetInput.requireExhausted()
             return TagsPayload(registryTagsPayloads)
         }
     }
@@ -1022,10 +1022,10 @@ private class CapturedPacket(
 
 private class CaptureConnection(
     socket: Socket,
-    private val packetIds: OfficialPacketIds,
+    private val officialPacketIds: OfficialPacketIds,
 ) {
-    private val input = BufferedInputStream(socket.getInputStream())
-    private val output = BufferedOutputStream(socket.getOutputStream())
+    private val bufferedInputStream = BufferedInputStream(socket.getInputStream())
+    private val bufferedOutputStream = BufferedOutputStream(socket.getOutputStream())
 
     var compressionThreshold: Int? = null
 
@@ -1035,72 +1035,72 @@ private class CaptureConnection(
         payload: ByteArray = ByteArray(0),
     ) {
         val body = PacketOutput().apply {
-            writeVarInt(packetIds.id(state, SERVERBOUND, name))
+            writeVarInt(officialPacketIds.id(state, SERVERBOUND, name))
             writeBytes(payload)
         }.toByteArray()
         GradlePacketFraming.writeFrame(
-            output,
+            bufferedOutputStream,
             body,
             compressionThreshold,
         )
-        output.flush()
+        bufferedOutputStream.flush()
     }
 
     fun receive(state: String): CapturedPacket {
         val frame = GradlePacketFraming.readFrame(
-            input,
+            bufferedInputStream,
             compressionThreshold,
         )
-        val cursor = PacketInput(frame)
-        val packetId = cursor.readVarInt()
+        val packetInput = PacketInput(frame)
+        val packetId = packetInput.readVarInt()
         return CapturedPacket(
-            name = packetIds.clientboundName(state, packetId),
-            payload = cursor.remainingBytes(),
+            name = officialPacketIds.clientboundName(state, packetId),
+            payload = packetInput.remainingBytes(),
         )
     }
 }
 
 internal sealed interface CapturedNbt {
     fun canonicalize(): CapturedNbt = this
-    fun writePayload(output: PacketOutput)
+    fun writePayload(packetOutput: PacketOutput)
 }
 
 private data class NbtByteValue(val value: Byte) : CapturedNbt {
-    override fun writePayload(output: PacketOutput) = output.writeByte(value)
+    override fun writePayload(packetOutput: PacketOutput) = packetOutput.writeByte(value)
 }
 
 private data class NbtShortValue(val value: Short) : CapturedNbt {
-    override fun writePayload(output: PacketOutput) = output.writeShort(value)
+    override fun writePayload(packetOutput: PacketOutput) = packetOutput.writeShort(value)
 }
 
 private data class NbtIntValue(val value: Int) : CapturedNbt {
-    override fun writePayload(output: PacketOutput) = output.writeInt(value)
+    override fun writePayload(packetOutput: PacketOutput) = packetOutput.writeInt(value)
 }
 
 private data class NbtLongValue(val value: Long) : CapturedNbt {
-    override fun writePayload(output: PacketOutput) = output.writeLong(value)
+    override fun writePayload(packetOutput: PacketOutput) = packetOutput.writeLong(value)
 }
 
 private data class NbtFloatValue(val value: Float) : CapturedNbt {
-    override fun writePayload(output: PacketOutput) = output.writeFloat(value)
+    override fun writePayload(packetOutput: PacketOutput) = packetOutput.writeFloat(value)
 }
 
 private data class NbtDoubleValue(val value: Double) : CapturedNbt {
-    override fun writePayload(output: PacketOutput) = output.writeDouble(value)
+    override fun writePayload(packetOutput: PacketOutput) = packetOutput.writeDouble(value)
 }
 
 private data class NbtByteArrayValue(
     val value: List<Byte>,
 ) : CapturedNbt {
-    override fun writePayload(output: PacketOutput) {
-        output.writeInt(value.size)
-        value.forEach(output::writeByte)
+    override fun writePayload(packetOutput: PacketOutput) {
+        packetOutput.writeInt(value.size)
+        value.forEach(packetOutput::writeByte)
     }
 }
 
 private data class NbtStringValue(val value: String) : CapturedNbt {
-    override fun writePayload(output: PacketOutput) =
-        output.writeModifiedUtf(value)
+    override fun writePayload(packetOutput: PacketOutput) =
+        packetOutput.writeModifiedUtf(value)
 }
 
 private data class NbtListValue(
@@ -1110,10 +1110,10 @@ private data class NbtListValue(
     override fun canonicalize(): CapturedNbt =
         copy(value = value.map(CapturedNbt::canonicalize))
 
-    override fun writePayload(output: PacketOutput) {
-        output.writeByte(elementType)
-        output.writeInt(value.size)
-        value.forEach { it.writePayload(output) }
+    override fun writePayload(packetOutput: PacketOutput) {
+        packetOutput.writeByte(elementType)
+        packetOutput.writeInt(value.size)
+        value.forEach { it.writePayload(packetOutput) }
     }
 }
 
@@ -1128,31 +1128,31 @@ private data class NbtCompoundValue(
                 },
         )
 
-    override fun writePayload(output: PacketOutput) {
-        value.forEach { (name, tag) ->
-            output.writeByte(tag.typeId())
-            output.writeModifiedUtf(name)
-            tag.writePayload(output)
+    override fun writePayload(packetOutput: PacketOutput) {
+        value.forEach { (name, capturedNbt) ->
+            packetOutput.writeByte(capturedNbt.typeId())
+            packetOutput.writeModifiedUtf(name)
+            capturedNbt.writePayload(packetOutput)
         }
-        output.writeByte(NBT_END)
+        packetOutput.writeByte(NBT_END)
     }
 }
 
 private data class NbtIntArrayValue(
     val value: List<Int>,
 ) : CapturedNbt {
-    override fun writePayload(output: PacketOutput) {
-        output.writeInt(value.size)
-        value.forEach(output::writeInt)
+    override fun writePayload(packetOutput: PacketOutput) {
+        packetOutput.writeInt(value.size)
+        value.forEach(packetOutput::writeInt)
     }
 }
 
 private data class NbtLongArrayValue(
     val value: List<Long>,
 ) : CapturedNbt {
-    override fun writePayload(output: PacketOutput) {
-        output.writeInt(value.size)
-        value.forEach(output::writeLong)
+    override fun writePayload(packetOutput: PacketOutput) {
+        packetOutput.writeInt(value.size)
+        value.forEach(packetOutput::writeLong)
     }
 }
 
@@ -1228,11 +1228,11 @@ internal class PacketInput(
         require(length in 0..MAXIMUM_STRING_BYTES) {
             "Invalid protocol string byte length $length"
         }
-        val data = readBytes(length)
+        val byteArray = readBytes(length)
         return StandardCharsets.UTF_8.newDecoder()
             .onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT)
-            .decode(ByteBuffer.wrap(data))
+            .decode(ByteBuffer.wrap(byteArray))
             .toString()
     }
 
@@ -1361,44 +1361,44 @@ internal class PacketInput(
 }
 
 internal class PacketOutput {
-    private val output = ByteArrayOutputStream()
-    private val data = DataOutputStream(output)
+    private val byteArrayOutputStream = ByteArrayOutputStream()
+    private val dataOutputStream = DataOutputStream(byteArrayOutputStream)
 
     fun writeByte(value: Byte) {
-        data.writeByte(value.toInt())
+        dataOutputStream.writeByte(value.toInt())
     }
 
     fun writeByte(value: Int) {
-        data.writeByte(value)
+        dataOutputStream.writeByte(value)
     }
 
     fun writeShort(value: Short) {
-        data.writeShort(value.toInt())
+        dataOutputStream.writeShort(value.toInt())
     }
 
     fun writeUnsignedShort(value: Int) {
         require(value in 0..0xFFFF)
-        data.writeShort(value)
+        dataOutputStream.writeShort(value)
     }
 
     fun writeInt(value: Int) {
-        data.writeInt(value)
+        dataOutputStream.writeInt(value)
     }
 
     fun writeLong(value: Long) {
-        data.writeLong(value)
+        dataOutputStream.writeLong(value)
     }
 
     fun writeFloat(value: Float) {
-        data.writeFloat(value)
+        dataOutputStream.writeFloat(value)
     }
 
     fun writeDouble(value: Double) {
-        data.writeDouble(value)
+        dataOutputStream.writeDouble(value)
     }
 
     fun writeBoolean(value: Boolean) {
-        data.writeByte(if (value) 1 else 0)
+        dataOutputStream.writeByte(if (value) 1 else 0)
     }
 
     fun writeVarInt(value: Int) {
@@ -1407,7 +1407,7 @@ internal class PacketOutput {
             var current = remaining and 0x7F
             remaining = remaining ushr 7
             if (remaining != 0) current = current or 0x80
-            data.writeByte(current)
+            dataOutputStream.writeByte(current)
         } while (remaining != 0)
     }
 
@@ -1421,31 +1421,31 @@ internal class PacketOutput {
     }
 
     fun writeModifiedUtf(value: String) {
-        data.writeUTF(value)
+        dataOutputStream.writeUTF(value)
     }
 
     fun writeBytes(value: ByteArray) {
-        data.write(value)
+        dataOutputStream.write(value)
     }
 
-    fun writeNullableNbt(value: CapturedNbt?) {
-        if (value == null) {
+    fun writeNullableNbt(capturedNbt: CapturedNbt?) {
+        if (capturedNbt == null) {
             writeBoolean(false)
         } else {
             writeBoolean(true)
-            writeByte(value.typeId())
-            value.writePayload(this)
+            writeByte(capturedNbt.typeId())
+            capturedNbt.writePayload(this)
         }
     }
 
-    fun toByteArray(): ByteArray = output.toByteArray()
+    fun toByteArray(): ByteArray = byteArrayOutputStream.toByteArray()
 }
 
 private object GradlePacketFraming {
     private const val MAXIMUM_FRAME_SIZE = 16 * 1_048_576
 
     fun writeFrame(
-        output: OutputStream,
+        outputStream: OutputStream,
         packetData: ByteArray,
         compressionThreshold: Int?,
     ) {
@@ -1468,25 +1468,25 @@ private object GradlePacketFraming {
         PacketOutput().apply {
             writeVarInt(body.size)
             writeBytes(body)
-        }.toByteArray().let(output::write)
+        }.toByteArray().let(outputStream::write)
     }
 
     fun readFrame(
-        input: InputStream,
+        inputStream: InputStream,
         compressionThreshold: Int?,
     ): ByteArray {
-        val frameLength = readVarInt(input)
+        val frameLength = readVarInt(inputStream)
         require(frameLength in 1..MAXIMUM_FRAME_SIZE) {
             "Invalid incoming frame size $frameLength"
         }
-        val body = input.readNBytes(frameLength)
+        val body = inputStream.readNBytes(frameLength)
         if (body.size != frameLength) throw EOFException("Expected $frameLength bytes, received ${body.size}")
         if (compressionThreshold == null) return body
 
-        val cursor = PacketInput(body)
-        val uncompressedLength = cursor.readVarInt()
+        val packetInput = PacketInput(body)
+        val uncompressedLength = packetInput.readVarInt()
         if (uncompressedLength == 0) {
-            val packet = cursor.remainingBytes()
+            val packet = packetInput.remainingBytes()
             require(packet.size < compressionThreshold) {
                 "Uncompressed packet meets compression threshold"
             }
@@ -1498,7 +1498,7 @@ private object GradlePacketFraming {
             "Invalid declared uncompressed length $uncompressedLength"
         }
         return inflateExactly(
-            cursor.remainingBytes(),
+            packetInput.remainingBytes(),
             uncompressedLength,
         )
     }
@@ -1508,14 +1508,14 @@ private object GradlePacketFraming {
         return try {
             deflater.setInput(input)
             deflater.finish()
-            val output = ByteArrayOutputStream()
+            val byteArrayOutputStream = ByteArrayOutputStream()
             val buffer = ByteArray(8_192)
             while (!deflater.finished()) {
                 val count = deflater.deflate(buffer)
                 check(count > 0) { "Deflater made no progress" }
-                output.write(buffer, 0, count)
+                byteArrayOutputStream.write(buffer, 0, count)
             }
-            output.toByteArray()
+            byteArrayOutputStream.toByteArray()
         } finally {
             deflater.end()
         }
@@ -1565,12 +1565,12 @@ private object GradlePacketFraming {
         }
     }
 
-    private fun readVarInt(input: InputStream): Int {
+    private fun readVarInt(inputStream: InputStream): Int {
         var result = 0
         var shift = 0
         var count = 0
         while (shift < 35) {
-            val current = input.read()
+            val current = inputStream.read()
             if (current < 0) throw EOFException("EOF while reading VarInt")
             count++
             result = result or ((current and 0x7F) shl shift)
@@ -1591,14 +1591,14 @@ private class BoundedProcessLog(
     process: Process,
     threadName: String,
 ) : AutoCloseable {
-    private val lock = ReentrantLock()
-    private val changed = lock.newCondition()
+    private val reentrantLock = ReentrantLock()
+    private val changed = reentrantLock.newCondition()
     private val content = StringBuilder()
     private val thread = Thread.ofVirtual().name(threadName).start {
         try {
             process.inputStream.bufferedReader().useLines { lines ->
                 lines.forEach { line ->
-                    lock.withLock {
+                    reentrantLock.withLock {
                         content.appendLine(line)
                         if (content.length > 200_000) {
                             content.delete(
@@ -1613,7 +1613,7 @@ private class BoundedProcessLog(
         } catch (_: IOException) {
             // Expected when process teardown closes the diagnostic stream.
         } finally {
-            lock.withLock {
+            reentrantLock.withLock {
                 changed.signalAll()
             }
         }
@@ -1625,7 +1625,7 @@ private class BoundedProcessLog(
         timeout: Duration,
     ) {
         val deadline = System.nanoTime() + timeout.toNanos()
-        lock.withLock {
+        reentrantLock.withLock {
             while (text !in content) {
                 check(process.isAlive) {
                     "Official server exited with ${process.exitValue()}: $content"
@@ -1640,7 +1640,7 @@ private class BoundedProcessLog(
     }
 
     fun content(): String =
-        lock.withLock { content.toString() }
+        reentrantLock.withLock { content.toString() }
 
     override fun close() {
         thread.join(Duration.ofSeconds(5))

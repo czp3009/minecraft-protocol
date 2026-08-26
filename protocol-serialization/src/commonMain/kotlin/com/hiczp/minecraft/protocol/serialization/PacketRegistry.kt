@@ -14,8 +14,8 @@ import kotlinx.serialization.KSerializer
 import kotlin.reflect.KClass
 
 data class PacketKey(
-    val state: ConnectionState,
-    val direction: PacketDirection,
+    val connectionState: ConnectionState,
+    val packetDirection: PacketDirection,
     val id: Int,
 ) {
     init {
@@ -24,31 +24,31 @@ data class PacketKey(
 }
 
 data class EncodedPacketPayload(
-    val key: PacketKey,
-    val framing: PacketFraming,
+    val packetKey: PacketKey,
+    val packetFraming: PacketFraming,
     val payload: ByteArray,
 ) {
     override fun equals(other: Any?): Boolean =
         other is EncodedPacketPayload &&
-                key == other.key &&
-                framing == other.framing &&
+                packetKey == other.packetKey &&
+                packetFraming == other.packetFraming &&
                 payload.contentEquals(other.payload)
 
     override fun hashCode(): Int =
-        31 * (31 * key.hashCode() + framing.hashCode()) + payload.contentHashCode()
+        31 * (31 * packetKey.hashCode() + packetFraming.hashCode()) + payload.contentHashCode()
 }
 
 data class PacketPayloadEncoding(
-    val key: PacketKey,
-    val framing: PacketFraming,
+    val packetKey: PacketKey,
+    val packetFraming: PacketFraming,
 )
 
 class PacketCodec<T : Packet> internal constructor(
-    val key: PacketKey,
-    val framing: PacketFraming,
+    val packetKey: PacketKey,
+    val packetFraming: PacketFraming,
     val packetClass: KClass<T>,
-    val serializer: KSerializer<T>?,
-    private val bodyCodec: PacketBodyCodec<T>,
+    val kSerializer: KSerializer<T>?,
+    private val packetBodyCodec: PacketBodyCodec<T>,
     val extensionRoute: PacketRouteKey? = null,
 ) {
     /**
@@ -61,33 +61,33 @@ class PacketCodec<T : Packet> internal constructor(
             "Extension packet IDs are declared by PacketCodecRegistration"
         }
         return PacketCodec(
-            key = key.copy(id = packetId),
-            framing = framing,
+            packetKey = packetKey.copy(id = packetId),
+            packetFraming = packetFraming,
             packetClass = packetClass,
-            serializer = serializer,
-            bodyCodec = bodyCodec,
+            kSerializer = kSerializer,
+            packetBodyCodec = packetBodyCodec,
         )
     }
 
     internal fun encodeToSink(
-        format: MinecraftProtocolFormat,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
         packet: Packet,
         sink: Sink,
     ) {
         @Suppress("UNCHECKED_CAST")
-        bodyCodec.encode(format, packet as T, sink)
+        packetBodyCodec.encode(minecraftProtocolFormat, packet as T, sink)
     }
 
     internal fun decodeFromSource(
-        format: MinecraftProtocolFormat,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
         source: Source,
         byteCount: Int,
-    ): Packet = bodyCodec.decode(
-        format,
+    ): Packet = packetBodyCodec.decode(
+        minecraftProtocolFormat,
         PacketRoute.TopLevel(
-            key.state,
-            key.direction,
-            key.id,
+            packetKey.connectionState,
+            packetKey.packetDirection,
+            packetKey.id,
         ),
         source,
         byteCount,
@@ -107,7 +107,7 @@ class PacketRegistry(
 
     private val registrationsByRoute = uniqueIndex(
         this.registrations,
-        PacketCodecRegistration<out Packet>::route,
+        PacketCodecRegistration<out Packet>::packetRouteKey,
         "extension route",
     )
     private val registrationsByClass: Map<
@@ -121,7 +121,7 @@ class PacketRegistry(
 
     val entries: List<PacketCodec<out Packet>> = baseEntries.toList() + extensionTopLevelCodecs
 
-    private val byKey = uniqueIndex(this.entries, PacketCodec<out Packet>::key, "packet key")
+    private val byKey = uniqueIndex(this.entries, PacketCodec<out Packet>::packetKey, "packet key")
     private val byClass: Map<KClass<out Packet>, List<PacketCodec<out Packet>>> =
         this.entries.groupBy(PacketCodec<out Packet>::packetClass)
 
@@ -131,17 +131,17 @@ class PacketRegistry(
             require(packetClass !in baseClasses) {
                 "Extension packet class collides with a base packet class: ${packetClass.simpleName}"
             }
-            val phases = classRegistrations.map { registration ->
-                registration.route.state to registration.route.direction
+            val phases = classRegistrations.map { packetCodecRegistration ->
+                packetCodecRegistration.packetRouteKey.connectionState to packetCodecRegistration.packetRouteKey.packetDirection
             }
             require(phases.distinct().size == phases.size) {
                 "Extension packet class ${packetClass.simpleName} has multiple routes in one state and direction"
             }
         }
-        registrationsByRoute.keys.forEach { route ->
+        registrationsByRoute.keys.forEach { packetRouteKey ->
             if (
-                route is PacketRouteKey.CustomPayload &&
-                route.channel == BRAND_CHANNEL
+                packetRouteKey is PacketRouteKey.CustomPayload &&
+                packetRouteKey.channel == BRAND_CHANNEL
             ) {
                 throw IllegalArgumentException(
                     "minecraft:brand is a built-in custom payload route",
@@ -153,26 +153,26 @@ class PacketRegistry(
     val declaredExtensionRoutes: Set<PacketRouteKey> = registrationsByRoute.keys.toSet()
 
     fun codec(
-        state: ConnectionState,
-        direction: PacketDirection,
+        connectionState: ConnectionState,
+        packetDirection: PacketDirection,
         id: Int,
-    ): PacketCodec<out Packet>? = byKey[PacketKey(state, direction, id)]
+    ): PacketCodec<out Packet>? = byKey[PacketKey(connectionState, packetDirection, id)]
 
     fun codec(packet: Packet): PacketCodec<out Packet>? =
         singleClassValue(byClass[packet::class], packet::class, "packet codec")
 
     fun codec(
         packet: Packet,
-        state: ConnectionState,
-        direction: PacketDirection,
+        connectionState: ConnectionState,
+        packetDirection: PacketDirection,
     ): PacketCodec<out Packet>? = byClass[packet::class]
-        ?.singleOrNull { codec ->
-            codec.key.state == state && codec.key.direction == direction
+        ?.singleOrNull { packetCodec ->
+            packetCodec.packetKey.connectionState == connectionState && packetCodec.packetKey.packetDirection == packetDirection
         }
 
     fun registration(
-        route: PacketRouteKey,
-    ): PacketCodecRegistration<out Packet>? = registrationsByRoute[route]
+        packetRouteKey: PacketRouteKey,
+    ): PacketCodecRegistration<out Packet>? = registrationsByRoute[packetRouteKey]
 
     fun registration(
         packet: Packet,
@@ -184,44 +184,44 @@ class PacketRegistry(
 
     fun registration(
         packet: Packet,
-        state: ConnectionState,
-        direction: PacketDirection,
+        connectionState: ConnectionState,
+        packetDirection: PacketDirection,
     ): PacketCodecRegistration<out Packet>? = registrationsByClass[packet::class]
-        ?.singleOrNull { registration ->
-            registration.route.state == state &&
-                    registration.route.direction == direction
+        ?.singleOrNull { packetCodecRegistration ->
+            packetCodecRegistration.packetRouteKey.connectionState == connectionState &&
+                    packetCodecRegistration.packetRouteKey.packetDirection == packetDirection
         }
 
     fun encodePayload(
         packet: Packet,
-        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
     ): EncodedPacketPayload {
         val buffer = Buffer()
-        val encoding = encodePayloadToSink(packet, buffer, format)
+        val packetPayloadEncoding = encodePayloadToSink(packet, buffer, minecraftProtocolFormat)
         return EncodedPacketPayload(
-            encoding.key,
-            encoding.framing,
+            packetPayloadEncoding.packetKey,
+            packetPayloadEncoding.packetFraming,
             buffer.readByteArray(),
         )
     }
 
     fun encodePayload(
         packet: Packet,
-        state: ConnectionState,
-        direction: PacketDirection,
-        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        connectionState: ConnectionState,
+        packetDirection: PacketDirection,
+        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
     ): EncodedPacketPayload {
         val buffer = Buffer()
-        val encoding = encodePayloadToSink(
+        val packetPayloadEncoding = encodePayloadToSink(
             packet,
-            state,
-            direction,
+            connectionState,
+            packetDirection,
             buffer,
-            format,
+            minecraftProtocolFormat,
         )
         return EncodedPacketPayload(
-            encoding.key,
-            encoding.framing,
+            packetPayloadEncoding.packetKey,
+            packetPayloadEncoding.packetFraming,
             buffer.readByteArray(),
         )
     }
@@ -229,73 +229,73 @@ class PacketRegistry(
     fun encodePayloadToSink(
         packet: Packet,
         sink: Sink,
-        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
     ): PacketPayloadEncoding {
-        val codec = codec(packet)
+        val packetCodec = codec(packet)
             ?: throw MinecraftSerializationException(
                 "No packet codec is registered for ${packet::class.simpleName}",
             )
-        codec.encodeToSink(format, packet, sink)
-        return PacketPayloadEncoding(codec.key, codec.framing)
+        packetCodec.encodeToSink(minecraftProtocolFormat, packet, sink)
+        return PacketPayloadEncoding(packetCodec.packetKey, packetCodec.packetFraming)
     }
 
     fun encodePayloadToSink(
         packet: Packet,
-        state: ConnectionState,
-        direction: PacketDirection,
+        connectionState: ConnectionState,
+        packetDirection: PacketDirection,
         sink: Sink,
-        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
     ): PacketPayloadEncoding {
-        val codec = codec(packet, state, direction)
+        val packetCodec = codec(packet, connectionState, packetDirection)
             ?: throw MinecraftSerializationException(
-                "No packet codec is registered for ${packet::class.simpleName} in $state $direction",
+                "No packet codec is registered for ${packet::class.simpleName} in $connectionState $packetDirection",
             )
-        codec.encodeToSink(format, packet, sink)
-        return PacketPayloadEncoding(codec.key, codec.framing)
+        packetCodec.encodeToSink(minecraftProtocolFormat, packet, sink)
+        return PacketPayloadEncoding(packetCodec.packetKey, packetCodec.packetFraming)
     }
 
     fun decodePayload(
-        state: ConnectionState,
-        direction: PacketDirection,
+        connectionState: ConnectionState,
+        packetDirection: PacketDirection,
         id: Int,
         payload: ByteArray,
-        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
     ): Packet {
         val buffer = Buffer()
         buffer.write(payload)
         return decodePayloadFromSource(
-            state,
-            direction,
+            connectionState,
+            packetDirection,
             id,
             buffer,
             payload.size,
-            format,
+            minecraftProtocolFormat,
         )
     }
 
     fun decodePayloadFromSource(
-        state: ConnectionState,
-        direction: PacketDirection,
+        connectionState: ConnectionState,
+        packetDirection: PacketDirection,
         id: Int,
         source: Source,
         byteCount: Int,
-        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
     ): Packet {
-        val key = PacketKey(state, direction, id)
-        val codec = byKey[key]
+        val packetKey = PacketKey(connectionState, packetDirection, id)
+        val packetCodec = byKey[packetKey]
             ?: throw MinecraftSerializationException(
-                "No packet codec is registered for $key",
+                "No packet codec is registered for $packetKey",
             )
-        if (codec.extensionRoute == null) {
-            return codec.decodeFromSource(format, source, byteCount)
+        if (packetCodec.extensionRoute == null) {
+            return packetCodec.decodeFromSource(minecraftProtocolFormat, source, byteCount)
         }
-        val route = PacketRoute.TopLevel(state, direction, id)
+        val topLevel = PacketRoute.TopLevel(connectionState, packetDirection, id)
         val body = readBoundedPayload(source, byteCount)
         val decodedBody = body.copy()
         val packet = try {
-            codec.decodeFromSource(format, decodedBody, byteCount)
+            packetCodec.decodeFromSource(minecraftProtocolFormat, decodedBody, byteCount)
         } catch (_: UnknownExtensionPacketException) {
-            return unknownPacket(route, body.readByteArray())
+            return unknownPacket(topLevel, body.readByteArray())
         }
         requireExhausted(decodedBody, "Extension payload")
         return packet
@@ -304,50 +304,50 @@ class PacketRegistry(
     fun encodeExtensionPayloadToSink(
         packet: Packet,
         sink: Sink,
-        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
     ) {
-        val registration = registration(packet)
+        val packetCodecRegistration = registration(packet)
             ?: throw MinecraftSerializationException(
                 "No extension codec is registered for ${packet::class.simpleName}",
             )
-        registration.encodeBody(format, packet, sink)
+        packetCodecRegistration.encodeBody(minecraftProtocolFormat, packet, sink)
     }
 
     fun encodeExtensionPayloadToSink(
         packet: Packet,
-        state: ConnectionState,
-        direction: PacketDirection,
+        connectionState: ConnectionState,
+        packetDirection: PacketDirection,
         sink: Sink,
-        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
     ) {
-        val registration = registration(packet, state, direction)
+        val packetCodecRegistration = registration(packet, connectionState, packetDirection)
             ?: throw MinecraftSerializationException(
-                "No extension codec is registered for ${packet::class.simpleName} in $state $direction",
+                "No extension codec is registered for ${packet::class.simpleName} in $connectionState $packetDirection",
             )
-        registration.encodeBody(format, packet, sink)
+        packetCodecRegistration.encodeBody(minecraftProtocolFormat, packet, sink)
     }
 
     fun decodeExtensionPayloadFromSource(
-        route: PacketRoute,
+        packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
-        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
     ): Packet {
-        val registration = registration(route.key)
+        val packetCodecRegistration = registration(packetRoute.packetRouteKey)
             ?: throw MinecraftSerializationException(
-                "No extension codec is registered for ${route.key}",
+                "No extension codec is registered for ${packetRoute.packetRouteKey}",
             )
         val body = readBoundedPayload(source, byteCount)
         val decodedBody = body.copy()
         val packet = try {
-            registration.decodeBody(
-                format,
-                route,
+            packetCodecRegistration.decodeBody(
+                minecraftProtocolFormat,
+                packetRoute,
                 decodedBody,
                 byteCount,
             )
         } catch (_: UnknownExtensionPacketException) {
-            return unknownPacket(route, body.readByteArray())
+            return unknownPacket(packetRoute, body.readByteArray())
         }
         requireExhausted(decodedBody, "Extension payload")
         return packet
@@ -357,59 +357,59 @@ class PacketRegistry(
         packet: Packet,
         outerPacketId: Int? = null,
     ): PacketRoute {
-        val registration = registration(packet)
+        val packetCodecRegistration = registration(packet)
             ?: throw MinecraftSerializationException(
                 "No extension codec is registered for ${packet::class.simpleName}",
             )
-        return registration.routeForPacket(packet, outerPacketId)
+        return packetCodecRegistration.routeForPacket(packet, outerPacketId)
     }
 
     fun extensionRoute(
         packet: Packet,
-        state: ConnectionState,
-        direction: PacketDirection,
+        connectionState: ConnectionState,
+        packetDirection: PacketDirection,
         outerPacketId: Int? = null,
     ): PacketRoute {
-        val registration = registration(packet, state, direction)
+        val packetCodecRegistration = registration(packet, connectionState, packetDirection)
             ?: throw MinecraftSerializationException(
-                "No extension route is registered for ${packet::class.simpleName} in $state $direction",
+                "No extension route is registered for ${packet::class.simpleName} in $connectionState $packetDirection",
             )
-        return registration.routeForPacket(packet, outerPacketId)
+        return packetCodecRegistration.routeForPacket(packet, outerPacketId)
     }
 }
 
 val MinecraftPacketRegistry: PacketRegistry = PacketRegistry(
-    GeneratedPacketDefinitions.entries.map { definition ->
-        definition.toPacketCodec()
+    GeneratedPacketDefinitions.entries.map { packetDefinition ->
+        packetDefinition.toPacketCodec()
     },
 )
 
 private fun <T : Packet> PacketDefinition<T>.toPacketCodec(): PacketCodec<T> =
     PacketCodec(
-        key = PacketKey(state, direction, id),
-        framing = framing,
+        packetKey = PacketKey(connectionState, packetDirection, id),
+        packetFraming = packetFraming,
         packetClass = packetClass,
-        serializer = serializer,
-        bodyCodec = KotlinxPacketBodyCodec(serializer),
+        kSerializer = kSerializer,
+        packetBodyCodec = KotlinxPacketBodyCodec(kSerializer),
     )
 
 private fun PacketCodecRegistration<out Packet>.toTopLevelCodec(): PacketCodec<out Packet>? {
-    val topLevel = route as? PacketRouteKey.TopLevel ?: return null
+    val topLevel = packetRouteKey as? PacketRouteKey.TopLevel ?: return null
     return toTopLevelCodec(topLevel)
 }
 
 private fun <T : Packet> PacketCodecRegistration<T>.toTopLevelCodec(
     topLevel: PacketRouteKey.TopLevel,
 ): PacketCodec<T> = PacketCodec(
-    key = PacketKey(
-        topLevel.state,
-        topLevel.direction,
+    packetKey = PacketKey(
+        topLevel.connectionState,
+        topLevel.packetDirection,
         topLevel.packetId,
     ),
-    framing = PacketFraming.NORMAL,
+    packetFraming = PacketFraming.NORMAL,
     packetClass = packetClass,
-    serializer = null,
-    bodyCodec = codec,
+    kSerializer = null,
+    packetBodyCodec = packetBodyCodec,
     extensionRoute = topLevel,
 )
 
@@ -471,14 +471,14 @@ private fun requireExhausted(
 }
 
 private fun unknownPacket(
-    route: PacketRoute,
+    packetRoute: PacketRoute,
     data: ByteArray,
-): UnknownPacket = when (route.direction) {
+): UnknownPacket = when (packetRoute.packetDirection) {
     PacketDirection.CLIENTBOUND ->
-        UnknownPacket.Clientbound(route, ByteString(data))
+        UnknownPacket.Clientbound(packetRoute, ByteString(data))
 
     PacketDirection.SERVERBOUND ->
-        UnknownPacket.Serverbound(route, ByteString(data))
+        UnknownPacket.Serverbound(packetRoute, ByteString(data))
 }
 
 private val BRAND_CHANNEL = com.hiczp.minecraft.protocol.model.type.Identifier(

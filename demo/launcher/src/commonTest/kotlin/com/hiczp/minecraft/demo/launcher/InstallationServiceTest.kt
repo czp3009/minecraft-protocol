@@ -20,55 +20,55 @@ import kotlin.test.assertTrue
 class InstallationServiceTest {
     @Test
     fun loadsManifestThroughConfiguredKtorClient() = runTest {
-        val fixture = InstallFixture()
+        val installFixture = InstallFixture()
 
-        val manifest = fixture.service.loadManifest()
+        val versionManifest = installFixture.installationService.loadManifest()
 
-        assertEquals(listOf(fixture.entry), manifest.versions)
-        assertEquals(1, fixture.countRequests(fixture.manifestUrl))
-        fixture.close()
+        assertEquals(listOf(installFixture.versionEntry), versionManifest.versions)
+        assertEquals(1, installFixture.countRequests(installFixture.manifestUrl))
+        installFixture.close()
     }
 
     @Test
     fun miniatureInstallIsIsolatedIndexedLastAndOverwritten() = runTest {
-        val fixture = InstallFixture()
+        val installFixture = InstallFixture()
 
-        assertTrue(fixture.store.loadInstalled().installations.isEmpty())
-        fixture.service.install(fixture.entry)
-        assertEquals(InstallProgress(completedFiles = 3, totalFiles = 3), fixture.service.progress.value)
+        assertTrue(installFixture.launcherStore.loadInstalled().installations.isEmpty())
+        installFixture.installationService.install(installFixture.versionEntry)
+        assertEquals(InstallProgress(completedFiles = 3, totalFiles = 3), installFixture.installationService.progress.value)
 
         var stateWhenDownloadsStarted: InstalledState? = null
-        fixture.service.install(fixture.entry) { installed -> stateWhenDownloadsStarted = installed }
+        installFixture.installationService.install(installFixture.versionEntry) { installedState -> stateWhenDownloadsStarted = installedState }
 
-        val gameRoot = fixture.store.gameRoot("demo")
-        assertTrue(fixture.fileSystem.exists(gameRoot / "client.jar"))
-        assertTrue(fixture.fileSystem.exists(gameRoot / "libraries/example/library.jar"))
-        assertTrue(fixture.fileSystem.exists(gameRoot / "assets/indexes/assets-id.json"))
-        val assetPath = gameRoot / "assets/objects/${fixture.assetHash.take(2)}/${fixture.assetHash}"
-        assertTrue(fixture.fileSystem.exists(assetPath))
-        val expectedInstallations = listOf(InstalledVersion("demo", fixture.platform.platformKey))
+        val gameRoot = installFixture.launcherStore.gameRoot("demo")
+        assertTrue(installFixture.fakeFileSystem.exists(gameRoot / "client.jar"))
+        assertTrue(installFixture.fakeFileSystem.exists(gameRoot / "libraries/example/library.jar"))
+        assertTrue(installFixture.fakeFileSystem.exists(gameRoot / "assets/indexes/assets-id.json"))
+        val assetPath = gameRoot / "assets/objects/${installFixture.assetHash.take(2)}/${installFixture.assetHash}"
+        assertTrue(installFixture.fakeFileSystem.exists(assetPath))
+        val expectedInstallations = listOf(InstalledVersion("demo", installFixture.launcherPlatform.platformKey))
         assertTrue(stateWhenDownloadsStarted?.installations.orEmpty().isEmpty())
-        assertEquals(expectedInstallations, fixture.store.loadInstalled().installations)
-        assertEquals(2, fixture.countRequests(fixture.metadataUrl))
-        assertEquals(2, fixture.countRequests(fixture.clientUrl))
-        assertEquals(2, fixture.countRequests(fixture.libraryUrl))
-        assertEquals(2, fixture.countRequests(fixture.assetIndexUrl))
-        assertEquals(2, fixture.countRequests(fixture.assetUrl))
-        assertFalse(fixture.fileSystem.listRecursively(fixture.root).any { it.name.endsWith(".download") })
-        fixture.close()
+        assertEquals(expectedInstallations, installFixture.launcherStore.loadInstalled().installations)
+        assertEquals(2, installFixture.countRequests(installFixture.metadataUrl))
+        assertEquals(2, installFixture.countRequests(installFixture.clientUrl))
+        assertEquals(2, installFixture.countRequests(installFixture.libraryUrl))
+        assertEquals(2, installFixture.countRequests(installFixture.assetIndexUrl))
+        assertEquals(2, installFixture.countRequests(installFixture.assetUrl))
+        assertFalse(installFixture.fakeFileSystem.listRecursively(installFixture.root).any { it.name.endsWith(".download") })
+        installFixture.close()
     }
 
     @Test
     fun failedResourceDownloadRetriesUntilItSucceeds() = runTest {
-        val fixture = InstallFixture(corruptClientAttempts = 2)
+        val installFixture = InstallFixture(corruptClientAttempts = 2)
 
-        fixture.service.install(fixture.entry)
+        installFixture.installationService.install(installFixture.versionEntry)
 
-        assertEquals(3, fixture.countRequests(fixture.clientUrl))
-        assertEquals(InstallProgress(completedFiles = 3, totalFiles = 3), fixture.service.progress.value)
-        assertEquals(1, fixture.store.loadInstalled().installations.size)
-        assertFalse(fixture.fileSystem.listRecursively(fixture.root).any { it.name.endsWith(".download") })
-        fixture.close()
+        assertEquals(3, installFixture.countRequests(installFixture.clientUrl))
+        assertEquals(InstallProgress(completedFiles = 3, totalFiles = 3), installFixture.installationService.progress.value)
+        assertEquals(1, installFixture.launcherStore.loadInstalled().installations.size)
+        assertFalse(installFixture.fakeFileSystem.listRecursively(installFixture.root).any { it.name.endsWith(".download") })
+        installFixture.close()
     }
 }
 
@@ -78,9 +78,9 @@ internal class InstallFixture(
     private val blockAssetIndexDownload: Boolean = false,
 ) {
     val root = "/launcher root".toPath()
-    val fileSystem = FakeFileSystem().also { it.createDirectories(root) }
-    val store = LauncherStore(fileSystem, root)
-    val platform = LauncherPlatform("windows", "x86_64", ";", "windows-x86_64")
+    val fakeFileSystem = FakeFileSystem().also { it.createDirectories(root) }
+    val launcherStore = LauncherStore(fakeFileSystem, root)
+    val launcherPlatform = LauncherPlatform("windows", "x86_64", ";", "windows-x86_64")
     val manifestUrl = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
     val metadataUrl = "https://fixture/version.json"
     val clientUrl = "https://fixture/client.jar"
@@ -128,7 +128,7 @@ internal class InstallFixture(
             ),
         ),
     ).encodeToByteArray()
-    val entry = VersionEntry(
+    val versionEntry = VersionEntry(
         id = "demo",
         type = "release",
         url = metadataUrl,
@@ -138,8 +138,8 @@ internal class InstallFixture(
     )
     private val manifestBytes = launcherJson.encodeToString(
         VersionManifest(
-            latest = VersionManifest.Latest(release = entry.id, snapshot = entry.id),
-            versions = listOf(entry),
+            latest = VersionManifest.Latest(release = versionEntry.id, snapshot = versionEntry.id),
+            versions = listOf(versionEntry),
         ),
     ).encodeToByteArray()
     private val requestMutex = Mutex()
@@ -147,8 +147,8 @@ internal class InstallFixture(
     private var remainingCorruptClientAttempts = corruptClientAttempts
     val activeContentDownloads = MutableStateFlow(0)
     val activeAssetIndexDownloads = MutableStateFlow(0)
-    private val engine = MockEngine { request ->
-        val url = request.url.toString()
+    private val mockEngine = MockEngine { httpRequestData ->
+        val url = httpRequestData.url.toString()
         val corruptClient = requestMutex.withLock {
             requests += url
             if (url == clientUrl && remainingCorruptClientAttempts > 0) {
@@ -193,19 +193,20 @@ internal class InstallFixture(
             },
         )
     }
-    val client = HttpClient(engine) { configureLauncherHttpClient() }
-    val service = InstallationService(createMojangApi(client), fileSystem, store, platform)
+    val httpClient = HttpClient(mockEngine) { configureLauncherHttpClient() }
+    val installationService =
+        InstallationService(createMojangApi(httpClient), fakeFileSystem, launcherStore, launcherPlatform)
 
     suspend fun countRequests(url: String): Int = requestMutex.withLock { requests.count { it == url } }
 
     suspend fun recordInstalled() {
-        fileSystem.createDirectories(store.gameRoot(entry.id))
-        store.updateInstalled {
-            it.copy(installations = listOf(InstalledVersion(entry.id, platform.platformKey)))
+        fakeFileSystem.createDirectories(launcherStore.gameRoot(versionEntry.id))
+        launcherStore.updateInstalled {
+            it.copy(installations = listOf(InstalledVersion(versionEntry.id, launcherPlatform.platformKey)))
         }
     }
 
     fun close() {
-        client.close()
+        httpClient.close()
     }
 }

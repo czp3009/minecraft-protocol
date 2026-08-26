@@ -9,10 +9,10 @@ private val lz4Factory = LZ4Factory.fastestInstance()
 private val xxHashFactory = XXHashFactory.fastestInstance()
 
 internal actual fun platformRawLz4Compress(input: ByteArray): ByteArray {
-    val compressor = lz4Factory.fastCompressor()
-    val output = ByteArray(compressor.maxCompressedLength(input.size))
+    val lz4Compressor = lz4Factory.fastCompressor()
+    val output = ByteArray(lz4Compressor.maxCompressedLength(input.size))
     val size = try {
-        compressor.compress(
+        lz4Compressor.compress(
             input,
             0,
             input.size,

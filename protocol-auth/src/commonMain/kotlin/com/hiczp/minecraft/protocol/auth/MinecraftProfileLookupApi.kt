@@ -24,11 +24,11 @@ class MinecraftProfileLookupApi(
         val endpoint = URLBuilder(MINECRAFT_PROFILE_LOOKUP_BY_NAME_ENDPOINT).apply {
             appendPathSegments(name.lowercase())
         }.build()
-        val response = httpClient.get(endpoint) {
+        val httpResponse = httpClient.get(endpoint) {
             expectSuccess = false
             accept(ContentType.Application.Json)
         }
-        return response.decodeOptionalServiceResponse<
+        return httpResponse.decodeOptionalServiceResponse<
                 MinecraftProfileLookupResponse,
                 MinecraftProfileLookupErrorResponse
                 >(::MinecraftProfileLookupResponseException)
@@ -36,15 +36,15 @@ class MinecraftProfileLookupApi(
 
     /** Sends one bulk request. Official authlib batches two names; the caller owns batching, retry, and timing. */
     suspend fun findProfilesByNames(
-        request: MinecraftProfileLookupRequest,
+        minecraftProfileLookupRequest: MinecraftProfileLookupRequest,
     ): List<MinecraftProfileLookupResponse> {
-        val response = httpClient.post(MINECRAFT_PROFILE_LOOKUP_BY_NAME_BULK_ENDPOINT) {
+        val httpResponse = httpClient.post(MINECRAFT_PROFILE_LOOKUP_BY_NAME_BULK_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
             contentType(ContentType.Application.Json)
-            setBody(MinecraftServiceJson.encodeToString(request))
+            setBody(MinecraftServiceJson.encodeToString(minecraftProfileLookupRequest))
         }
-        return response.decodeOptionalServiceResponse<
+        return httpResponse.decodeOptionalServiceResponse<
                 List<MinecraftProfileLookupResponse>,
                 MinecraftProfileLookupErrorResponse
                 >(::MinecraftProfileLookupResponseException).orEmpty()
@@ -86,10 +86,10 @@ data class MinecraftProfileLookupErrorResponse(
 )
 
 open class MinecraftProfileLookupResponseException(
-    response: HttpResponse,
+    httpResponse: HttpResponse,
     val responseBody: String,
     val parsedErrorBody: MinecraftProfileLookupErrorResponse,
-) : ResponseException(response, responseBody)
+) : ResponseException(httpResponse, responseBody)
 
 fun MinecraftProfileLookupResponse.toGameProfile(): GameProfile = GameProfile(
     id = Uuid.parse(id),

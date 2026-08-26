@@ -30,14 +30,14 @@ class FabricNegotiationProfileTest {
             ),
         )
         val declared = FabricProtocol.packetCodecs
-            .map { registration -> registration.route }
+            .map { packetCodecRegistration -> packetCodecRegistration.packetRouteKey }
             .toSet() + customRoutes
-        val clientConnection = TestClientConnection(
+        val testClientConnection = TestClientConnection(
             serverToClient,
             clientToServer,
             declared,
         )
-        val serverConnection = TestServerConnection(
+        val testServerConnection = TestServerConnection(
             clientToServer,
             serverToClient,
             declared,
@@ -58,38 +58,38 @@ class FabricNegotiationProfileTest {
         )
         val sharedProtocolRegistryContext =
             staticRegistrySchema.resolve(fabricRegistrySyncPacket.remoteRegistrySnapshot)
-        val clientProfile = FabricClientProfile(staticRegistrySchema)
-        val serverProfile = FabricServerProfile(
+        val fabricClientProfile = FabricClientProfile(staticRegistrySchema)
+        val fabricServerProfile = FabricServerProfile(
             fabricRegistrySyncPacket = fabricRegistrySyncPacket,
             protocolRegistryContext = sharedProtocolRegistryContext,
         )
-        clientProfile.begin(clientConnection)
-        serverProfile.begin(serverConnection)
+        fabricClientProfile.begin(testClientConnection)
+        fabricServerProfile.begin(testServerConnection)
 
         val client = async {
             while (true) {
-                when (val packet = clientConnection.incoming.receive()) {
+                when (val clientboundPacket = testClientConnection.incoming.receive()) {
                     is ConfigurationPingPacket ->
-                        clientConnection.outgoing.send(
-                            ConfigurationPongPacket(packet.id),
+                        testClientConnection.outgoing.send(
+                            ConfigurationPongPacket(clientboundPacket.id),
                         )
 
                     else -> {
                         assertTrue(
-                            clientProfile.handleConfigurationPacket(
-                                clientConnection,
-                                packet,
+                            fabricClientProfile.handleConfigurationPacket(
+                                testClientConnection,
+                                clientboundPacket,
                             ),
                         )
-                        if (packet is FabricRegistrySyncPacket) return@async
+                        if (clientboundPacket is FabricRegistrySyncPacket) return@async
                     }
                 }
             }
         }
-        serverProfile.negotiateConfiguration(serverConnection)
+        fabricServerProfile.negotiateConfiguration(testServerConnection)
         client.await()
 
-        val clientProtocolRegistryContext = clientProfile.resolveProtocolRegistryContext(
+        val clientProtocolRegistryContext = fabricClientProfile.resolveProtocolRegistryContext(
             staticRegistrySchema.resolve().withRegistrySize(
                 ProtocolRegistryContext.BIOME_REGISTRY,
                 4,
@@ -97,42 +97,42 @@ class FabricNegotiationProfileTest {
         )
         assertEquals(Identifier("mod:block"), clientProtocolRegistryContext.blockStates.first().block)
         assertEquals(4, clientProtocolRegistryContext.biomeRegistrySize)
-        val serverProtocolRegistryContext = serverProfile.resolveProtocolRegistryContext(
+        val serverProtocolRegistryContext = fabricServerProfile.resolveProtocolRegistryContext(
             sharedProtocolRegistryContext.withChunkSectionCount(24),
         )
         assertSame(sharedProtocolRegistryContext.registries, serverProtocolRegistryContext.registries)
         assertSame(sharedProtocolRegistryContext.blockStates, serverProtocolRegistryContext.blockStates)
 
-        clientConnection.currentState = ConnectionState.PLAY
-        serverConnection.currentState = ConnectionState.PLAY
-        clientProfile.preparePlay(clientConnection)
-        serverProfile.preparePlay(serverConnection)
-        val clientResult = clientProfile.complete(clientConnection)
+        testClientConnection.currentState = ConnectionState.PLAY
+        testServerConnection.currentState = ConnectionState.PLAY
+        fabricClientProfile.preparePlay(testClientConnection)
+        fabricServerProfile.preparePlay(testServerConnection)
+        val clientResult = fabricClientProfile.complete(testClientConnection)
                 as FabricNegotiationResult
-        val serverResult = serverProfile.complete(serverConnection)
+        val serverResult = fabricServerProfile.complete(testServerConnection)
                 as FabricNegotiationResult
         assertEquals(1, clientResult.commonVersion)
         assertEquals(1, serverResult.commonVersion)
         assertTrue(clientResult.registriesSynchronized)
         assertTrue(serverResult.registriesSynchronized)
-        assertTrue(customRoutes.all(clientConnection.activeExtensionRoutes::contains))
-        assertTrue(customRoutes.all(serverConnection.activeExtensionRoutes::contains))
+        assertTrue(customRoutes.all(testClientConnection.activeExtensionRoutes::contains))
+        assertTrue(customRoutes.all(testServerConnection.activeExtensionRoutes::contains))
     }
 
     @Test
     fun incompatibleRegistryThrowsWithoutSendingAReply() = runTest {
         val incoming = Channel<ClientboundPacket>(Channel.UNLIMITED)
         val outgoing = Channel<ServerboundPacket>(Channel.UNLIMITED)
-        val connection = TestClientConnection(
+        val testClientConnection = TestClientConnection(
             incoming,
             outgoing,
             FabricProtocol.packetCodecs
-                .map { registration -> registration.route }
+                .map { packetCodecRegistration -> packetCodecRegistration.packetRouteKey }
                 .toSet(),
         )
-        val profile = FabricClientProfile(testStaticSchema())
-        profile.begin(connection)
-        val packet = FabricRegistrySyncPacket(
+        val fabricClientProfile = FabricClientProfile(testStaticSchema())
+        fabricClientProfile.begin(testClientConnection)
+        val fabricRegistrySyncPacket = FabricRegistrySyncPacket(
             RemoteRegistrySnapshot(
                 listOf(
                     RemoteRegistry(
@@ -145,7 +145,7 @@ class FabricNegotiationProfileTest {
             ),
         )
         assertFailsWith<FabricNegotiationException> {
-            profile.handleConfigurationPacket(connection, packet)
+            fabricClientProfile.handleConfigurationPacket(testClientConnection, fabricRegistrySyncPacket)
         }
         assertTrue(outgoing.tryReceive().isFailure)
     }
@@ -160,7 +160,7 @@ private abstract class TestConnection<Incoming : Packet, Outgoing : Packet>(
     private var mutableProtocolRegistryContext = ProtocolRegistryContext.Empty
     private var activeRoutes = emptySet<PacketRouteKey>()
 
-    override val state: ConnectionState
+    override val connectionState: ConnectionState
         get() = currentState
 
     override val protocolRegistryContext: ProtocolRegistryContext
@@ -183,7 +183,7 @@ private abstract class TestConnection<Incoming : Packet, Outgoing : Packet>(
     }
 
     override fun encodeCustomPayload(packet: Outgoing): RoutedCustomPayload {
-        val direction =
+        val packetDirection =
             if (packet is ClientboundPacket) {
                 PacketDirection.CLIENTBOUND
             } else {
@@ -196,7 +196,7 @@ private abstract class TestConnection<Incoming : Packet, Outgoing : Packet>(
         return RoutedCustomPayload(
             PacketRoute.CustomPayload(
                 currentState,
-                direction,
+                packetDirection,
                 packetId = 0,
                 channel = channel,
             ),
@@ -204,10 +204,10 @@ private abstract class TestConnection<Incoming : Packet, Outgoing : Packet>(
         )
     }
 
-    override fun decodeCustomPayload(payload: RoutedCustomPayload): Incoming =
+    override fun decodeCustomPayload(routedCustomPayload: RoutedCustomPayload): Incoming =
         error("This scripted peer does not merge packets")
 
-    override suspend fun awaitState(state: ConnectionState) = Unit
+    override suspend fun awaitState(connectionState: ConnectionState) = Unit
 
     override suspend fun flush() = Unit
 

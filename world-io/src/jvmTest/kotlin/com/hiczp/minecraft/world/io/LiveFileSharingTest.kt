@@ -26,16 +26,16 @@ class LiveFileSharingTest {
             "world-io-live-lock-",
         )
         val root = temporaryDirectory.toOkioPath()
-        val position = ChunkPosition(0, 0)
+        val chunkPosition = ChunkPosition(0, 0)
         try {
             MinecraftWorldAccess.open(root).use { minecraftWorldAccess ->
-                minecraftWorldAccess.openRegion(position.region).use { regionHandle ->
-                    regionHandle.writeCompressedChunk(position, sharingChunk(5))
+                minecraftWorldAccess.openRegion(chunkPosition.regionPosition).use { regionHandle ->
+                    regionHandle.writeCompressedChunk(chunkPosition, sharingChunk(5))
                 }
                 val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(root)
                 assertContentEquals(
                     byteArrayOf(5),
-                    liveMinecraftWorldAccess.openRegion(position.region).readCompressedChunk(position).bytesOrNull(),
+                    liveMinecraftWorldAccess.openRegion(chunkPosition.regionPosition).readCompressedChunk(chunkPosition).bytesOrNull(),
                 )
             }
             assertFalse(MinecraftWorldAccess.isLocked(root))
@@ -50,25 +50,25 @@ class LiveFileSharingTest {
             "world-io-live-header-",
         )
         val root = temporaryDirectory.toOkioPath()
-        val paths = MinecraftWorldPaths(root)
+        val minecraftWorldPaths = MinecraftWorldPaths(root)
         val first = ChunkPosition(0, 0)
         val second = ChunkPosition(1, 0)
         try {
-            val initial = RegionStorage(paths)
+            val initial = RegionStorage(minecraftWorldPaths)
             try {
                 initial.writeCompressedChunk(first, sharingChunk(1))
             } finally {
                 initial.close()
             }
 
-            val reader = LiveMinecraftWorldAccess.open(root)
-            val liveRegionHandle = reader.openRegion(first.region)
+            val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(root)
+            val liveRegionHandle = liveMinecraftWorldAccess.openRegion(first.regionPosition)
             assertContentEquals(
                 byteArrayOf(1),
                 liveRegionHandle.readCompressedChunk(first).bytesOrNull(),
             )
 
-            val updater = RegionStorage(paths)
+            val updater = RegionStorage(minecraftWorldPaths)
             try {
                 updater.writeCompressedChunk(first, sharingChunk(2))
                 updater.writeCompressedChunk(second, sharingChunk(3))
@@ -100,11 +100,11 @@ class LiveFileSharingTest {
             val serverFirst = HeldDsyncProcess.start(target)
             try {
                 FileSystem.SYSTEM.openLiveReadOnly(target.toOkioPath())
-                    .use { handle ->
+                    .use { fileHandle ->
                         serverFirst.writeAndForce()
                         assertContentEquals(
                             byteArrayOf(9),
-                            handle.readBytes(0L, 1),
+                            fileHandle.readBytes(0L, 1),
                         )
                     }
             } finally {
@@ -113,13 +113,13 @@ class LiveFileSharingTest {
 
             Files.write(target, byteArrayOf(2))
             FileSystem.SYSTEM.openLiveReadOnly(target.toOkioPath())
-                .use { handle ->
+                .use { fileHandle ->
                     val readerFirst = HeldDsyncProcess.start(target)
                     try {
                         readerFirst.writeAndForce()
                         assertContentEquals(
                             byteArrayOf(9),
-                            handle.readBytes(0L, 1),
+                            fileHandle.readBytes(0L, 1),
                         )
                     } finally {
                         readerFirst.close()
@@ -144,7 +144,7 @@ class LiveFileSharingTest {
             Files.write(target, byteArrayOf(4))
             Files.write(replacement, byteArrayOf(7))
             FileSystem.SYSTEM.openLiveReadOnly(target.toOkioPath())
-                .use { handle ->
+                .use { fileHandle ->
                     val process = ProcessBuilder(
                         "java",
                         "-cp",
@@ -159,7 +159,7 @@ class LiveFileSharingTest {
                     assertEquals(0, process.waitFor())
                     assertContentEquals(
                         byteArrayOf(4),
-                        handle.readBytes(0L, 1),
+                        fileHandle.readBytes(0L, 1),
                     )
                 }
             assertContentEquals(byteArrayOf(7), Files.readAllBytes(target))
@@ -174,8 +174,8 @@ class LiveFileSharingTest {
 
 private class HeldDsyncProcess private constructor(
     private val process: Process,
-    private val reader: BufferedReader,
-    private val writer: BufferedWriter,
+    private val bufferedReader: BufferedReader,
+    private val bufferedWriter: BufferedWriter,
 ) {
     fun writeAndForce() {
         command("WRITE", "WRITE_OK")
@@ -189,17 +189,17 @@ private class HeldDsyncProcess private constructor(
                 "DSYNC holder exited with ${process.exitValue()}"
             }
         } finally {
-            writer.close()
-            reader.close()
+            bufferedWriter.close()
+            bufferedReader.close()
             if (process.isAlive) process.destroyForcibly().waitFor()
         }
     }
 
     private fun command(command: String, expected: String) {
-        writer.write(command)
-        writer.newLine()
-        writer.flush()
-        val response = reader.readLine()
+        bufferedWriter.write(command)
+        bufferedWriter.newLine()
+        bufferedWriter.flush()
+        val response = bufferedReader.readLine()
         check(response == expected) {
             "Expected $expected from DSYNC holder, received $response"
         }
@@ -215,13 +215,13 @@ private class HeldDsyncProcess private constructor(
                 "HOLD_DSYNC",
                 target.toString(),
             ).redirectErrorStream(true).start()
-            val reader = process.inputReader().buffered()
-            val writer = process.outputWriter().buffered()
-            val readiness = reader.readLine()
+            val bufferedReader = process.inputReader().buffered()
+            val bufferedWriter = process.outputWriter().buffered()
+            val readiness = bufferedReader.readLine()
             check(readiness == "READY") {
                 "DSYNC holder failed before readiness: $readiness"
             }
-            return HeldDsyncProcess(process, reader, writer)
+            return HeldDsyncProcess(process, bufferedReader, bufferedWriter)
         }
     }
 }

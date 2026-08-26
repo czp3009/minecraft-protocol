@@ -42,8 +42,8 @@ class DeflateJavaCompatibilityTest {
     @Test
     fun javaZlibAndGzipEncodersAreReadableByPortableDecoders() = runTest {
         samples().forEachIndexed { index, input ->
-            val zlib = ByteArrayOutputStream().also { output ->
-                DeflaterOutputStream(output).use { it.write(input) }
+            val zlib = ByteArrayOutputStream().also { byteArrayOutputStream ->
+                DeflaterOutputStream(byteArrayOutputStream).use { it.write(input) }
             }.toByteArray()
             assertContentEquals(
                 input,
@@ -54,8 +54,8 @@ class DeflateJavaCompatibilityTest {
                 "zlib sample=$index",
             )
 
-            val gzip = ByteArrayOutputStream().also { output ->
-                GZIPOutputStream(output).use { it.write(input) }
+            val gzip = ByteArrayOutputStream().also { byteArrayOutputStream ->
+                GZIPOutputStream(byteArrayOutputStream).use { it.write(input) }
             }.toByteArray()
             assertContentEquals(
                 input,

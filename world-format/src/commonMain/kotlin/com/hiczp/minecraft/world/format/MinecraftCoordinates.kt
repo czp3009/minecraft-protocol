@@ -121,77 +121,77 @@ object MinecraftCoordinates {
         )
     }
 
-    fun chunk(position: BlockPosition): ChunkPosition =
-        ChunkPosition(chunkCoordinate(position.x), chunkCoordinate(position.z))
+    fun chunk(blockPosition: BlockPosition): ChunkPosition =
+        ChunkPosition(chunkCoordinate(blockPosition.x), chunkCoordinate(blockPosition.z))
 
-    fun chunk(position: SectionPosition): ChunkPosition = ChunkPosition(position.x, position.z)
+    fun chunk(sectionPosition: SectionPosition): ChunkPosition = ChunkPosition(sectionPosition.x, sectionPosition.z)
 
-    fun section(position: BlockPosition): SectionPosition =
+    fun section(blockPosition: BlockPosition): SectionPosition =
         SectionPosition(
-            x = sectionCoordinate(position.x),
-            y = sectionCoordinate(position.y),
-            z = sectionCoordinate(position.z),
+            x = sectionCoordinate(blockPosition.x),
+            y = sectionCoordinate(blockPosition.y),
+            z = sectionCoordinate(blockPosition.z),
         )
 
-    fun section(position: ChunkPosition, sectionY: Int): SectionPosition =
-        SectionPosition(position.x, sectionY, position.z)
+    fun section(chunkPosition: ChunkPosition, sectionY: Int): SectionPosition =
+        SectionPosition(chunkPosition.x, sectionY, chunkPosition.z)
 
-    fun region(position: BlockPosition): RegionPosition = region(chunk(position))
+    fun region(blockPosition: BlockPosition): RegionPosition = region(chunk(blockPosition))
 
-    fun region(position: SectionPosition): RegionPosition = region(chunk(position))
+    fun region(sectionPosition: SectionPosition): RegionPosition = region(chunk(sectionPosition))
 
-    fun region(position: ChunkPosition): RegionPosition =
-        RegionPosition(regionCoordinate(position.x), regionCoordinate(position.z))
+    fun region(chunkPosition: ChunkPosition): RegionPosition =
+        RegionPosition(regionCoordinate(chunkPosition.x), regionCoordinate(chunkPosition.z))
 
-    fun chunkBlock(position: BlockPosition): ChunkBlockPosition =
-        ChunkBlockPosition(blockCoordinateInChunk(position.x), position.y, blockCoordinateInChunk(position.z))
+    fun chunkBlock(blockPosition: BlockPosition): ChunkBlockPosition =
+        ChunkBlockPosition(blockCoordinateInChunk(blockPosition.x), blockPosition.y, blockCoordinateInChunk(blockPosition.z))
 
-    fun localBlock(position: BlockPosition): LocalBlockPosition =
+    fun localBlock(blockPosition: BlockPosition): LocalBlockPosition =
         LocalBlockPosition(
-            blockCoordinateInSection(position.x),
-            blockCoordinateInSection(position.y),
-            blockCoordinateInSection(position.z),
+            blockCoordinateInSection(blockPosition.x),
+            blockCoordinateInSection(blockPosition.y),
+            blockCoordinateInSection(blockPosition.z),
         )
 
-    fun localChunk(position: ChunkPosition): LocalChunkPosition =
-        LocalChunkPosition(chunkCoordinateInRegion(position.x), chunkCoordinateInRegion(position.z))
+    fun localChunk(chunkPosition: ChunkPosition): LocalChunkPosition =
+        LocalChunkPosition(chunkCoordinateInRegion(chunkPosition.x), chunkCoordinateInRegion(chunkPosition.z))
 
-    /** Converts [position] to local X/Z plus absolute Y after checking that it belongs to [chunk]. */
-    fun local(position: BlockPosition, chunk: ChunkPosition): ChunkBlockPosition {
-        require(chunk(position) == chunk) { "Block $position does not belong to Chunk $chunk" }
-        return chunkBlock(position)
+    /** Converts [blockPosition] to local X/Z plus absolute Y after checking that it belongs to [chunkPosition]. */
+    fun local(blockPosition: BlockPosition, chunkPosition: ChunkPosition): ChunkBlockPosition {
+        require(chunk(blockPosition) == chunkPosition) { "Block $blockPosition does not belong to Chunk $chunkPosition" }
+        return chunkBlock(blockPosition)
     }
 
-    /** Converts [position] to Section-local coordinates after checking that it belongs to [section]. */
-    fun local(position: BlockPosition, section: SectionPosition): LocalBlockPosition {
-        require(this.section(position) == section) { "Block $position does not belong to Section $section" }
-        return localBlock(position)
+    /** Converts [blockPosition] to Section-local coordinates after checking that it belongs to [sectionPosition]. */
+    fun local(blockPosition: BlockPosition, sectionPosition: SectionPosition): LocalBlockPosition {
+        require(this.section(blockPosition) == sectionPosition) { "Block $blockPosition does not belong to Section $sectionPosition" }
+        return localBlock(blockPosition)
     }
 
-    /** Converts [position] to Region-local coordinates after checking that it belongs to [region]. */
-    fun local(position: ChunkPosition, region: RegionPosition): LocalChunkPosition {
-        require(this.region(position) == region) { "Chunk $position does not belong to Region $region" }
-        return localChunk(position)
+    /** Converts [chunkPosition] to Region-local coordinates after checking that it belongs to [regionPosition]. */
+    fun local(chunkPosition: ChunkPosition, regionPosition: RegionPosition): LocalChunkPosition {
+        require(this.region(chunkPosition) == regionPosition) { "Chunk $chunkPosition does not belong to Region $regionPosition" }
+        return localChunk(chunkPosition)
     }
 
-    fun block(chunk: ChunkPosition, position: ChunkBlockPosition): BlockPosition =
+    fun block(chunkPosition: ChunkPosition, chunkBlockPosition: ChunkBlockPosition): BlockPosition =
         BlockPosition(
-            x = blockCoordinate(chunk.x, position.x),
-            y = position.y,
-            z = blockCoordinate(chunk.z, position.z),
+            x = blockCoordinate(chunkPosition.x, chunkBlockPosition.x),
+            y = chunkBlockPosition.y,
+            z = blockCoordinate(chunkPosition.z, chunkBlockPosition.z),
         )
 
-    fun block(section: SectionPosition, position: LocalBlockPosition): BlockPosition =
+    fun block(sectionPosition: SectionPosition, localBlockPosition: LocalBlockPosition): BlockPosition =
         BlockPosition(
-            x = sectionBlockCoordinate(section.x, position.x),
-            y = sectionBlockCoordinate(section.y, position.y),
-            z = sectionBlockCoordinate(section.z, position.z),
+            x = sectionBlockCoordinate(sectionPosition.x, localBlockPosition.x),
+            y = sectionBlockCoordinate(sectionPosition.y, localBlockPosition.y),
+            z = sectionBlockCoordinate(sectionPosition.z, localBlockPosition.z),
         )
 
-    fun chunk(region: RegionPosition, position: LocalChunkPosition): ChunkPosition =
+    fun chunk(regionPosition: RegionPosition, localChunkPosition: LocalChunkPosition): ChunkPosition =
         ChunkPosition(
-            x = chunkCoordinate(region.x, position.x),
-            z = chunkCoordinate(region.z, position.z),
+            x = chunkCoordinate(regionPosition.x, localChunkPosition.x),
+            z = chunkCoordinate(regionPosition.z, localChunkPosition.z),
         )
 
     /** Returns the Block height represented by [sectionCount] complete Sections. */
@@ -201,37 +201,37 @@ object MinecraftCoordinates {
     }
 
     /** Offsets an absolute Block position without silently wrapping an axis. */
-    fun offset(position: BlockPosition, x: Int, y: Int, z: Int): BlockPosition =
+    fun offset(blockPosition: BlockPosition, x: Int, y: Int, z: Int): BlockPosition =
         BlockPosition(
-            x = offsetBlockCoordinate(position.x, x),
-            y = offsetBlockCoordinate(position.y, y),
-            z = offsetBlockCoordinate(position.z, z),
+            x = offsetBlockCoordinate(blockPosition.x, x),
+            y = offsetBlockCoordinate(blockPosition.y, y),
+            z = offsetBlockCoordinate(blockPosition.z, z),
         )
 
     /** Offsets an absolute Section position without silently wrapping an axis. */
-    fun offset(position: SectionPosition, x: Int, y: Int, z: Int): SectionPosition =
+    fun offset(sectionPosition: SectionPosition, x: Int, y: Int, z: Int): SectionPosition =
         SectionPosition(
-            x = offsetSectionCoordinate(position.x, x),
-            y = offsetSectionCoordinate(position.y, y),
-            z = offsetSectionCoordinate(position.z, z),
+            x = offsetSectionCoordinate(sectionPosition.x, x),
+            y = offsetSectionCoordinate(sectionPosition.y, y),
+            z = offsetSectionCoordinate(sectionPosition.z, z),
         )
 
     /** Offsets an absolute Chunk position without silently wrapping an axis. */
-    fun offset(position: ChunkPosition, x: Int, z: Int): ChunkPosition =
+    fun offset(chunkPosition: ChunkPosition, x: Int, z: Int): ChunkPosition =
         ChunkPosition(
-            x = offsetChunkCoordinate(position.x, x),
-            z = offsetChunkCoordinate(position.z, z),
+            x = offsetChunkCoordinate(chunkPosition.x, x),
+            z = offsetChunkCoordinate(chunkPosition.z, z),
         )
 
     /** Offsets an absolute Region position without silently wrapping an axis. */
-    fun offset(position: RegionPosition, x: Int, z: Int): RegionPosition =
+    fun offset(regionPosition: RegionPosition, x: Int, z: Int): RegionPosition =
         RegionPosition(
-            x = offsetRegionCoordinate(position.x, x),
-            z = offsetRegionCoordinate(position.z, z),
+            x = offsetRegionCoordinate(regionPosition.x, x),
+            z = offsetRegionCoordinate(regionPosition.z, z),
         )
 
-    fun blockIndex(position: LocalBlockPosition): Int =
-        (position.y * SECTION_SIDE + position.z) * SECTION_SIDE + position.x
+    fun blockIndex(localBlockPosition: LocalBlockPosition): Int =
+        (localBlockPosition.y * SECTION_SIDE + localBlockPosition.z) * SECTION_SIDE + localBlockPosition.x
 
     /** Converts Section-local biome-quart coordinates to their palette index. */
     fun biomeIndex(quartX: Int, quartY: Int, quartZ: Int): Int {
@@ -256,7 +256,7 @@ object MinecraftCoordinates {
         )
     }
 
-    fun chunkIndex(position: LocalChunkPosition): Int = position.x + position.z * REGION_SIDE
+    fun chunkIndex(localChunkPosition: LocalChunkPosition): Int = localChunkPosition.x + localChunkPosition.z * REGION_SIDE
 
     fun localChunk(index: Int): LocalChunkPosition {
         require(index in 0 until REGION_CHUNK_COUNT) { "Region Chunk index must be in 0 until $REGION_CHUNK_COUNT" }
@@ -266,41 +266,41 @@ object MinecraftCoordinates {
         )
     }
 
-    fun blockXRange(position: ChunkPosition): IntRange = coordinateRange(position.x, CHUNK_SIDE, "Chunk Block X")
+    fun blockXRange(chunkPosition: ChunkPosition): IntRange = coordinateRange(chunkPosition.x, CHUNK_SIDE, "Chunk Block X")
 
-    fun blockZRange(position: ChunkPosition): IntRange = coordinateRange(position.z, CHUNK_SIDE, "Chunk Block Z")
+    fun blockZRange(chunkPosition: ChunkPosition): IntRange = coordinateRange(chunkPosition.z, CHUNK_SIDE, "Chunk Block Z")
 
-    fun blockXRange(position: SectionPosition): IntRange = coordinateRange(position.x, SECTION_SIDE, "Section Block X")
+    fun blockXRange(sectionPosition: SectionPosition): IntRange = coordinateRange(sectionPosition.x, SECTION_SIDE, "Section Block X")
 
-    fun blockYRange(position: SectionPosition): IntRange = coordinateRange(position.y, SECTION_SIDE, "Section Block Y")
+    fun blockYRange(sectionPosition: SectionPosition): IntRange = coordinateRange(sectionPosition.y, SECTION_SIDE, "Section Block Y")
 
-    fun blockZRange(position: SectionPosition): IntRange = coordinateRange(position.z, SECTION_SIDE, "Section Block Z")
+    fun blockZRange(sectionPosition: SectionPosition): IntRange = coordinateRange(sectionPosition.z, SECTION_SIDE, "Section Block Z")
 
-    fun chunkXRange(position: RegionPosition): IntRange = coordinateRange(position.x, REGION_SIDE, "Region Chunk X")
+    fun chunkXRange(regionPosition: RegionPosition): IntRange = coordinateRange(regionPosition.x, REGION_SIDE, "Region Chunk X")
 
-    fun chunkZRange(position: RegionPosition): IntRange = coordinateRange(position.z, REGION_SIDE, "Region Chunk Z")
+    fun chunkZRange(regionPosition: RegionPosition): IntRange = coordinateRange(regionPosition.z, REGION_SIDE, "Region Chunk Z")
 
-    fun blockXRange(position: RegionPosition): IntRange =
-        coordinateRange(position.x, REGION_SIDE * CHUNK_SIDE, "Region Block X")
+    fun blockXRange(regionPosition: RegionPosition): IntRange =
+        coordinateRange(regionPosition.x, REGION_SIDE * CHUNK_SIDE, "Region Block X")
 
-    fun blockZRange(position: RegionPosition): IntRange =
-        coordinateRange(position.z, REGION_SIDE * CHUNK_SIDE, "Region Block Z")
+    fun blockZRange(regionPosition: RegionPosition): IntRange =
+        coordinateRange(regionPosition.z, REGION_SIDE * CHUNK_SIDE, "Region Block Z")
 
     /** Every Section-local Block coordinate, in palette-index order. */
     fun localBlockPositions(): Sequence<LocalBlockPosition> =
         (0 until SECTION_BLOCK_COUNT).asSequence().map(::localBlock)
 
-    /** Every absolute Block position in [section], in palette-index order. */
-    fun blockPositions(section: SectionPosition): Sequence<BlockPosition> =
-        localBlockPositions().map { position -> block(section, position) }
+    /** Every absolute Block position in [sectionPosition], in palette-index order. */
+    fun blockPositions(sectionPosition: SectionPosition): Sequence<BlockPosition> =
+        localBlockPositions().map { position -> block(sectionPosition, position) }
 
     /** Every Region-local Chunk coordinate, in Anvil header-index order. */
     fun localChunkPositions(): Sequence<LocalChunkPosition> =
         (0 until REGION_CHUNK_COUNT).asSequence().map(::localChunk)
 
-    /** Every absolute Chunk position in [region], in Anvil header-index order. */
-    fun chunkPositions(region: RegionPosition): Sequence<ChunkPosition> =
-        localChunkPositions().map { position -> chunk(region, position) }
+    /** Every absolute Chunk position in [regionPosition], in Anvil header-index order. */
+    fun chunkPositions(regionPosition: RegionPosition): Sequence<ChunkPosition> =
+        localChunkPositions().map { position -> chunk(regionPosition, position) }
 
     /** Every Chunk in a square centered on [center], ordered by Z and then X. */
     fun chunkPositionsAround(center: ChunkPosition, horizontalRadius: Int): Sequence<ChunkPosition> {

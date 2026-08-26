@@ -107,11 +107,11 @@ class StaticRegistrySchema(
             } else {
                 remoteRegistry.entries
                     .filterNot(RemoteRegistryEntry::blocked)
-                    .map { entry ->
+                    .map { remoteRegistryEntry ->
                         ProtocolRegistryEntry(
-                            id = entry.overrideTarget ?: entry.id,
-                            rawId = entry.rawId,
-                            aliases = entry.aliases,
+                            id = remoteRegistryEntry.overrideTarget ?: remoteRegistryEntry.id,
+                            rawId = remoteRegistryEntry.rawId,
+                            aliases = remoteRegistryEntry.aliases,
                         )
                     }
             }
@@ -121,24 +121,28 @@ class StaticRegistrySchema(
         val blockRegistry = resolvedRegistries[BLOCK_REGISTRY]
         val resolvedBlocks = blockRegistry?.entries
             ?.sortedBy(ProtocolRegistryEntry::rawId)
-            ?.map { entry ->
-                entry to (blocksById[entry.id] ?: entry.aliases.firstNotNullOfOrNull(blocksById::get))
+            ?.map { protocolRegistryEntry ->
+                val staticBlockSchema = blocksById[protocolRegistryEntry.id] ?:
+                    protocolRegistryEntry.aliases.firstNotNullOfOrNull(blocksById::get)
+                protocolRegistryEntry to staticBlockSchema
             }
             .orEmpty()
-        val missingBlocks = resolvedBlocks.mapNotNull { (entry, schema) ->
-            if (schema == null) entry.id else null
+        val missingBlocks = resolvedBlocks.mapNotNull { (protocolRegistryEntry, staticBlockSchema) ->
+            if (staticBlockSchema == null) protocolRegistryEntry.id else null
         }
         if (missingBlocks.isNotEmpty()) throw MissingStaticBlockSchemas(missingBlocks)
         val blockStates = resolvedBlocks
-            .flatMap { (entry, schema) ->
-                requireNotNull(schema).states.map { state -> entry.id to state }
+            .flatMap { (protocolRegistryEntry, staticBlockSchema) ->
+                requireNotNull(staticBlockSchema).states.map { staticBlockState ->
+                    protocolRegistryEntry.id to staticBlockState
+                }
             }
-            .mapIndexed { globalId, (block, state) ->
+            .mapIndexed { globalId, (block, staticBlockState) ->
                 ProtocolBlockState(
                     id = globalId,
                     block = block,
-                    properties = state.properties,
-                    isDefault = state.isDefault,
+                    properties = staticBlockState.properties,
+                    isDefault = staticBlockState.isDefault,
                 )
             }
 
@@ -281,9 +285,9 @@ class ProtocolRegistry(
     private val byRawId: Map<Int, ProtocolRegistryEntry> = this.entries.associateBy(ProtocolRegistryEntry::rawId)
     private val byIdentifier: Map<Identifier, ProtocolRegistryEntry> =
         buildMap {
-            this@ProtocolRegistry.entries.forEach { entry ->
-                put(entry.id, entry)
-                entry.aliases.forEach { alias -> put(alias, entry) }
+            this@ProtocolRegistry.entries.forEach { protocolRegistryEntry ->
+                put(protocolRegistryEntry.id, protocolRegistryEntry)
+                protocolRegistryEntry.aliases.forEach { alias -> put(alias, protocolRegistryEntry) }
             }
         }
 
@@ -291,8 +295,8 @@ class ProtocolRegistry(
         require(byRawId.size == this.entries.size) {
             "$id has duplicate resolved raw IDs"
         }
-        val identifiers = this.entries.flatMap { entry ->
-            listOf(entry.id) + entry.aliases
+        val identifiers = this.entries.flatMap { protocolRegistryEntry ->
+            listOf(protocolRegistryEntry.id) + protocolRegistryEntry.aliases
         }
         require(identifiers.distinct().size == identifiers.size) {
             "$id has colliding resolved identifiers or aliases"
@@ -364,10 +368,10 @@ class ProtocolRegistryContext private constructor(
     )
 
     init {
-        require(registries.all { (id, registry) -> id == registry.id }) {
+        require(registries.all { (id, protocolRegistry) -> id == protocolRegistry.id }) {
             "Protocol registry context keys must match their registry identifiers"
         }
-        require(blockStates.withIndex().all { (index, state) -> state.id == index }) {
+        require(blockStates.withIndex().all { (index, protocolBlockState) -> protocolBlockState.id == index }) {
             "Protocol block-state IDs must be contiguous and ordered"
         }
         require(registrySizeOverrides.values.all { it > 0 }) {
@@ -404,7 +408,7 @@ class ProtocolRegistryContext private constructor(
             ?.entry(block)
             ?.id
             ?: block
-        return blockStates.filter { state -> state.block == resolved }
+        return blockStates.filter { protocolBlockState -> protocolBlockState.block == resolved }
     }
 
     fun defaultBlockState(block: Identifier): ProtocolBlockState? =
@@ -418,8 +422,8 @@ class ProtocolRegistryContext private constructor(
     fun blockState(
         block: Identifier,
         properties: Map<String, String>,
-    ): ProtocolBlockState? = blockStates(block).firstOrNull { state ->
-        state.properties == properties
+    ): ProtocolBlockState? = blockStates(block).firstOrNull { protocolBlockState ->
+        protocolBlockState.properties == properties
     }
 
     fun registrySize(id: Identifier): Int? =

@@ -17,7 +17,7 @@ import kotlin.test.*
 class NbtFormatTreeTest {
     @Test
     fun `maps every primitive array class enum and inline value`() {
-        val value = TreeSample(
+        val treeSample = TreeSample(
             boolean = true,
             byte = -1,
             short = -2,
@@ -35,57 +35,57 @@ class NbtFormatTreeTest {
             nested = NestedValue("value"),
         )
 
-        val tag = NbtFormat.encodeToNbtTag(value)
-        val compound = tag as NbtCompound
-        assertEquals(NbtByte(1), compound.value["boolean"])
-        assertEquals(NbtByteArray(byteArrayOf(1, 2)), compound.value["bytes"])
-        assertEquals(NbtIntArray(intArrayOf(3, 4)), compound.value["ints"])
-        assertEquals(NbtLongArray(longArrayOf(5, 6)), compound.value["longs"])
+        val nbtTag = NbtFormat.encodeToNbtTag(treeSample)
+        val nbtCompound = nbtTag as NbtCompound
+        assertEquals(NbtByte(1), nbtCompound.value["boolean"])
+        assertEquals(NbtByteArray(byteArrayOf(1, 2)), nbtCompound.value["bytes"])
+        assertEquals(NbtIntArray(intArrayOf(3, 4)), nbtCompound.value["ints"])
+        assertEquals(NbtLongArray(longArrayOf(5, 6)), nbtCompound.value["longs"])
         assertEquals(
             NbtList(listOf(NbtShort(7), NbtShort(8))),
-            compound.value["shorts"],
+            nbtCompound.value["shorts"],
         )
-        assertEquals(NbtString("second"), compound.value["mode"])
-        assertEquals(NbtInt(9), compound.value["inline"])
+        assertEquals(NbtString("second"), nbtCompound.value["mode"])
+        assertEquals(NbtInt(9), nbtCompound.value["inline"])
         assertEquals(
             NbtCompound(mapOf("renamed" to NbtString("value"))),
-            compound.value["nested"],
+            nbtCompound.value["nested"],
         )
 
-        val decoded = NbtFormat.decodeFromNbtTag<TreeSample>(tag)
+        val decoded = NbtFormat.decodeFromNbtTag<TreeSample>(nbtTag)
         assertEquals(
-            value,
+            treeSample,
             decoded.copy(
-                bytes = value.bytes,
-                ints = value.ints,
-                longs = value.longs,
-                shorts = value.shorts,
+                bytes = treeSample.bytes,
+                ints = treeSample.ints,
+                longs = treeSample.longs,
+                shorts = treeSample.shorts,
             ),
         )
-        assertContentEquals(value.bytes, decoded.bytes)
-        assertContentEquals(value.ints, decoded.ints)
-        assertContentEquals(value.longs, decoded.longs)
-        assertContentEquals(value.shorts, decoded.shorts)
+        assertContentEquals(treeSample.bytes, decoded.bytes)
+        assertContentEquals(treeSample.ints, decoded.ints)
+        assertContentEquals(treeSample.longs, decoded.longs)
+        assertContentEquals(treeSample.shorts, decoded.shorts)
     }
 
     @Test
     fun `classes lists and string maps round trip`() {
-        val value = CollectionSample(
+        val collectionSample = CollectionSample(
             values = listOf(1, 2, 3),
             mapping = linkedMapOf("first" to 1L, "second" to 2L),
             raw = NbtList(listOf(NbtInt(1), NbtString("two"))),
             concrete = NbtCompound(mapOf("value" to NbtInt(3))),
         )
-        val tag = NbtFormat.encodeToNbtTag(value)
+        val nbtTag = NbtFormat.encodeToNbtTag(collectionSample)
 
-        assertEquals(value, NbtFormat.decodeFromNbtTag<CollectionSample>(tag))
+        assertEquals(collectionSample, NbtFormat.decodeFromNbtTag<CollectionSample>(nbtTag))
         assertEquals(
-            value.raw,
-            NbtFormat.encodeToNbtTag(value.raw),
+            collectionSample.raw,
+            NbtFormat.encodeToNbtTag(collectionSample.raw),
         )
         assertEquals(
-            value.raw,
-            NbtFormat.decodeFromNbtTag<NbtTag>(value.raw),
+            collectionSample.raw,
+            NbtFormat.decodeFromNbtTag<NbtTag>(collectionSample.raw),
         )
     }
 
@@ -114,37 +114,37 @@ class NbtFormatTreeTest {
 
     @Test
     fun `other primitive arrays use lists while char arrays are rejected`() {
-        val value = PrimitiveArraySample(
+        val primitiveArraySample = PrimitiveArraySample(
             booleans = booleanArrayOf(true, false),
             shorts = shortArrayOf(1, -2),
             floats = floatArrayOf(1.25f, -2.5f),
             doubles = doubleArrayOf(3.5, -4.75),
         )
-        val tag = NbtFormat.encodeToNbtTag(value)
-        val compound = tag as NbtCompound
+        val nbtTag = NbtFormat.encodeToNbtTag(primitiveArraySample)
+        val nbtCompound = nbtTag as NbtCompound
 
         assertEquals(
             NbtList(listOf(NbtByte(1), NbtByte(0))),
-            compound.value["booleans"],
+            nbtCompound.value["booleans"],
         )
         assertEquals(
             NbtList(listOf(NbtShort(1), NbtShort(-2))),
-            compound.value["shorts"],
+            nbtCompound.value["shorts"],
         )
         assertEquals(
             NbtList(listOf(NbtFloat(1.25f), NbtFloat(-2.5f))),
-            compound.value["floats"],
+            nbtCompound.value["floats"],
         )
         assertEquals(
             NbtList(listOf(NbtDouble(3.5), NbtDouble(-4.75))),
-            compound.value["doubles"],
+            nbtCompound.value["doubles"],
         )
 
-        val decoded = NbtFormat.decodeFromNbtTag<PrimitiveArraySample>(tag)
-        assertContentEquals(value.booleans, decoded.booleans)
-        assertContentEquals(value.shorts, decoded.shorts)
-        assertContentEquals(value.floats, decoded.floats)
-        assertContentEquals(value.doubles, decoded.doubles)
+        val decoded = NbtFormat.decodeFromNbtTag<PrimitiveArraySample>(nbtTag)
+        assertContentEquals(primitiveArraySample.booleans, decoded.booleans)
+        assertContentEquals(primitiveArraySample.shorts, decoded.shorts)
+        assertContentEquals(primitiveArraySample.floats, decoded.floats)
+        assertContentEquals(primitiveArraySample.doubles, decoded.doubles)
 
         assertFailsWith<NbtEncodingException> {
             NbtFormat.encodeToNbtTag(CharArraySample(charArrayOf('x')))
@@ -249,12 +249,12 @@ class NbtFormatTreeTest {
     @Test
     fun `explicit serializers override specialized runtime array mappings`() {
         val value = byteArrayOf(0, 1, -1)
-        val tag = NbtFormat.encodeToNbtTag(ByteArrayAsStringSerializer, value)
+        val nbtTag = NbtFormat.encodeToNbtTag(ByteArrayAsStringSerializer, value)
 
-        assertEquals(NbtString("0001ff"), tag)
+        assertEquals(NbtString("0001ff"), nbtTag)
         assertContentEquals(
             value,
-            NbtFormat.decodeFromNbtTag(ByteArrayAsStringSerializer, tag),
+            NbtFormat.decodeFromNbtTag(ByteArrayAsStringSerializer, nbtTag),
         )
     }
 
@@ -281,23 +281,23 @@ class NbtFormatTreeTest {
 
     @Test
     fun `contextual serializers use the configured module`() {
-        val format = NbtFormat(
+        val nbtFormat = NbtFormat(
             NbtFormatConfiguration(
                 serializersModule = SerializersModule {
                     contextual(ContextValue::class, ContextValueSerializer)
                 },
             ),
         )
-        val value = ContextHolder(ContextValue("context"))
-        val tag = format.encodeToNbtTag(value)
+        val contextHolder = ContextHolder(ContextValue("context"))
+        val nbtTag = nbtFormat.encodeToNbtTag(contextHolder)
 
         assertEquals(
             NbtCompound(mapOf("value" to NbtString("context"))),
-            tag,
+            nbtTag,
         )
         assertEquals(
-            value,
-            format.decodeFromNbtTag<ContextHolder>(tag),
+            contextHolder,
+            nbtFormat.decodeFromNbtTag<ContextHolder>(nbtTag),
         )
     }
 }

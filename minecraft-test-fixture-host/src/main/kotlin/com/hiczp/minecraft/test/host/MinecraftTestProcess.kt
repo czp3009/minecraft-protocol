@@ -12,8 +12,8 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 internal class MinecraftTestProcess private constructor(
-    private val process: RunningProcess,
-    private val log: ProcessLog,
+    private val runningProcess: RunningProcess,
+    private val processLog: ProcessLog,
     private val exit: CompletableDeferred<Int>,
     private val shutdownCommand: String?,
 ) {
@@ -25,16 +25,16 @@ internal class MinecraftTestProcess private constructor(
         get() = !exit.isCompleted
 
     val exitCode: Int
-        get() = log.snapshot.value.exitCode
+        get() = processLog.snapshot.value.exitCode
             ?: error("Test process has not exited")
 
-    fun logText(): String = log.snapshot.value.text
+    fun logText(): String = processLog.snapshot.value.text
 
     val outputSequence: Long
-        get() = log.snapshot.value.outputSequence
+        get() = processLog.snapshot.value.outputSequence
 
     fun requireAlive(context: String = "Test process") {
-        val current = log.snapshot.value
+        val current = processLog.snapshot.value
         current.failure?.let { failure ->
             throw IllegalStateException(
                 "$context output reader failed:\n${current.text}",
@@ -77,10 +77,10 @@ internal class MinecraftTestProcess private constructor(
         }
         val observed = withContext(Dispatchers.Default) {
             withTimeoutOrNull(timeout) {
-                log.snapshot.first { snapshot ->
-                    snapshot.firstMatchingLineAfter(afterSequence, markers) != null ||
-                            snapshot.exitCode != null ||
-                            snapshot.failure != null
+                processLog.snapshot.first { processSnapshot ->
+                    processSnapshot.firstMatchingLineAfter(afterSequence, markers) != null ||
+                            processSnapshot.exitCode != null ||
+                            processSnapshot.failure != null
                 }
             }
         } ?: error(
@@ -120,7 +120,7 @@ internal class MinecraftTestProcess private constructor(
         }
         commandMutex.withLock {
             requireAlive()
-            process.sendLine(line)
+            runningProcess.sendLine(line)
         }
     }
 
@@ -145,7 +145,7 @@ internal class MinecraftTestProcess private constructor(
         commandMutex.withLock {
             requireAlive()
             val sequence = outputSequence
-            process.sendLine(line)
+            runningProcess.sendLine(line)
             return waitForAnyLogAfter(markers, sequence, timeout)
         }
     }
@@ -186,28 +186,28 @@ internal class MinecraftTestProcess private constructor(
 
     internal suspend fun requestStop() {
         shutdownMutex.withLock {
-            if (shutdownRequested || !process.isAlive) return
+            if (shutdownRequested || !runningProcess.isAlive) return
             shutdownRequested = true
             val command = shutdownCommand
             if (command == null) {
-                process.destroy()
+                runningProcess.destroy()
             } else {
                 try {
                     commandMutex.withLock {
-                        process.sendLine(command)
+                        runningProcess.sendLine(command)
                     }
                 } catch (failure: CancellationException) {
-                    process.destroy()
+                    runningProcess.destroy()
                     throw failure
                 } catch (_: Throwable) {
-                    process.destroy()
+                    runningProcess.destroy()
                 }
             }
         }
     }
 
     internal fun forceStop() {
-        process.destroyForcibly()
+        runningProcess.destroyForcibly()
     }
 
     companion object {
@@ -221,49 +221,49 @@ internal class MinecraftTestProcess private constructor(
             require(threadName.isNotBlank()) { "Process name is blank" }
             workingDirectory.createDirectories()
 
-            val log = ProcessLog()
-            val process = RunningProcess(
+            val processLog = ProcessLog()
+            val runningProcess = RunningProcess(
                 process = ProcessBuilder(command)
                     .directory(workingDirectory.toFile())
                     .redirectErrorStream(true)
                     .start(),
                 onOutput = { line ->
-                    log.append(line)
+                    processLog.append(line)
                 },
-                onOutputFailure = log::fail,
+                onOutputFailure = processLog::fail,
             )
-            val scope = CoroutineScope(
+            val coroutineScope = CoroutineScope(
                 SupervisorJob() + Dispatchers.Default + CoroutineName(threadName),
             )
             val exit = CompletableDeferred<Int>()
-            val testProcess = MinecraftTestProcess(
-                process = process,
-                log = log,
+            val minecraftTestProcess = MinecraftTestProcess(
+                runningProcess = runningProcess,
+                processLog = processLog,
                 exit = exit,
                 shutdownCommand = shutdownCommand,
             )
-            val shutdownState = MinecraftTestProcesses.register(testProcess)
-            scope.launch {
+            val shutdownState = MinecraftTestProcesses.register(minecraftTestProcess)
+            coroutineScope.launch {
                 try {
-                    val exitCode = process.awaitExit()
-                    log.exit(exitCode)
+                    val exitCode = runningProcess.awaitExit()
+                    processLog.exit(exitCode)
                     exit.complete(exitCode)
                 } catch (failure: CancellationException) {
-                    log.fail(failure)
+                    processLog.fail(failure)
                     exit.completeExceptionally(failure)
                     throw failure
                 } catch (failure: Throwable) {
-                    log.fail(failure)
+                    processLog.fail(failure)
                     exit.completeExceptionally(failure)
                 } finally {
-                    MinecraftTestProcesses.unregister(testProcess)
+                    MinecraftTestProcesses.unregister(minecraftTestProcess)
                 }
             }
             when (shutdownState) {
-                PROCESS_SHUTDOWN_REQUESTED -> testProcess.requestStop()
-                PROCESS_FORCE_REQUESTED -> testProcess.forceStop()
+                PROCESS_SHUTDOWN_REQUESTED -> minecraftTestProcess.requestStop()
+                PROCESS_FORCE_REQUESTED -> minecraftTestProcess.forceStop()
             }
-            return testProcess
+            return minecraftTestProcess
         }
     }
 }
@@ -274,17 +274,17 @@ internal object MinecraftTestProcesses {
     private val processCount = MutableStateFlow(0)
     private var shutdownState = PROCESS_RUNNING
 
-    fun register(process: MinecraftTestProcess): Int = synchronized(lock) {
-        check(processes.add(process)) {
+    fun register(minecraftTestProcess: MinecraftTestProcess): Int = synchronized(lock) {
+        check(processes.add(minecraftTestProcess)) {
             "Minecraft test process was registered twice"
         }
         processCount.value = processes.size
         shutdownState
     }
 
-    fun unregister(process: MinecraftTestProcess) {
+    fun unregister(minecraftTestProcess: MinecraftTestProcess) {
         synchronized(lock) {
-            processes.remove(process)
+            processes.remove(minecraftTestProcess)
             processCount.value = processes.size
         }
     }
@@ -297,8 +297,8 @@ internal object MinecraftTestProcesses {
             processes.toList()
         }
         coroutineScope {
-            snapshot.forEach { process ->
-                launch { process.requestStop() }
+            snapshot.forEach { minecraftTestProcess ->
+                launch { minecraftTestProcess.requestStop() }
             }
         }
     }
@@ -324,13 +324,13 @@ private class RunningProcess(
     val isAlive: Boolean
         get() = process.isAlive
 
-    private val scope = CoroutineScope(
+    private val coroutineScope = CoroutineScope(
         SupervisorJob() + Dispatchers.IO +
                 CoroutineName("minecraft-test-process-output"),
     )
     private val inputMutex = Mutex()
     private val input = process.outputStream.bufferedWriter()
-    private val outputReader = scope.launch {
+    private val outputReader = coroutineScope.launch {
         var failure: Throwable? = null
         try {
             process.inputStream.bufferedReader().useLines { lines ->
@@ -373,26 +373,26 @@ private class RunningProcess(
             runCatching { process.inputStream.close() }
             outputReader.join()
         }
-        scope.cancel()
+        coroutineScope.cancel()
         return exitCode
     }
 
     fun destroy() {
         runCatching { input.close() }
-        terminateTree { handle -> handle.destroy() }
+        terminateTree { processHandle -> processHandle.destroy() }
     }
 
     fun destroyForcibly() {
         runCatching { input.close() }
-        terminateTree { handle -> handle.destroyForcibly() }
+        terminateTree { processHandle -> processHandle.destroyForcibly() }
     }
 
     private fun terminateTree(terminate: (ProcessHandle) -> Boolean) {
         val descendants = runCatching {
             process.descendants().use { handles -> handles.toList() }
         }.getOrDefault(emptyList())
-        (descendants.asReversed() + process.toHandle()).forEach { handle ->
-            if (handle.isAlive) runCatching { terminate(handle) }
+        (descendants.asReversed() + process.toHandle()).forEach { processHandle ->
+            if (processHandle.isAlive) runCatching { terminate(processHandle) }
         }
     }
 }
@@ -450,8 +450,8 @@ private data class ProcessSnapshot(
     fun firstMatchingLineAfter(
         sequence: Long,
         markers: List<String>,
-    ): SequencedOutputLine? = lines.firstOrNull { line ->
-        line.sequence > sequence && markers.any { marker -> marker in line.text }
+    ): SequencedOutputLine? = lines.firstOrNull { sequencedOutputLine ->
+        sequencedOutputLine.sequence > sequence && markers.any { marker -> marker in sequencedOutputLine.text }
     }
 }
 

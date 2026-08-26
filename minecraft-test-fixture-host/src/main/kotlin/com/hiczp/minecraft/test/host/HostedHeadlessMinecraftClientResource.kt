@@ -22,61 +22,61 @@ import kotlin.time.TimeSource
 /** A title-ready HMC-Specifics client process in an isolated workspace. */
 internal class HostedHeadlessMinecraftClientResource private constructor(
     val workDirectory: Path,
-    private val configuration: HeadlessMinecraftClientConfiguration,
-    private val process: MinecraftTestProcess,
+    private val headlessMinecraftClientConfiguration: HeadlessMinecraftClientConfiguration,
+    private val minecraftTestProcess: MinecraftTestProcess,
 ) : AutoCloseable {
     private val processMutex = Mutex()
-    private lateinit var managedResource: ManagedMinecraftTestResource
+    private lateinit var managedMinecraftTestResource: ManagedMinecraftTestResource
 
-    fun logText(): String = process.logText()
+    fun logText(): String = minecraftTestProcess.logText()
 
     fun status(): MinecraftTestResourceStatus {
-        val alive = process.isAlive
+        val alive = minecraftTestProcess.isAlive
         return MinecraftTestResourceStatus(
             alive = alive,
-            exitCode = if (alive) null else process.exitCode,
+            exitCode = if (alive) null else minecraftTestProcess.exitCode,
         )
     }
 
     suspend fun waitForLog(marker: String, timeout: Duration) {
-        process.waitForLog(marker, timeout)
+        minecraftTestProcess.waitForLog(marker, timeout)
     }
 
-    suspend fun connect(endpoint: MinecraftTestEndpoint): HeadlessMinecraftClientState {
-        require(endpoint.host == LOOPBACK && endpoint.port in 1..0xFFFF) {
+    suspend fun connect(minecraftTestEndpoint: MinecraftTestEndpoint): HeadlessMinecraftClientState {
+        require(minecraftTestEndpoint.host == LOOPBACK && minecraftTestEndpoint.port in 1..0xFFFF) {
             "Headless client tests require a valid loopback endpoint"
         }
         return processMutex.withLock {
-            check(managedResource.isOpen) { "Headless client is closing" }
+            check(managedMinecraftTestResource.isOpen) { "Headless client is closing" }
             val startedAt = TimeSource.Monotonic.markNow()
-            process.sendLineAndWait(
-                line = "connect ${endpoint.host} ${endpoint.port}",
-                marker = "Connecting to server ${endpoint.host} at port ${endpoint.port}...",
+            minecraftTestProcess.sendLineAndWait(
+                line = "connect ${minecraftTestEndpoint.host} ${minecraftTestEndpoint.port}",
+                marker = "Connecting to server ${minecraftTestEndpoint.host} at port ${minecraftTestEndpoint.port}...",
                 timeout = COMMAND_TIMEOUT,
             )
             queryHeadlessClientState(
-                process = process,
+                minecraftTestProcess = minecraftTestProcess,
                 timeout = COMMAND_TIMEOUT - startedAt.elapsedNow(),
             )
         }
     }
 
     suspend fun state(): HeadlessMinecraftClientState = processMutex.withLock {
-        check(managedResource.isOpen) { "Headless client is closing" }
-        queryHeadlessClientState(process, COMMAND_TIMEOUT)
+        check(managedMinecraftTestResource.isOpen) { "Headless client is closing" }
+        queryHeadlessClientState(minecraftTestProcess, COMMAND_TIMEOUT)
     }
 
     suspend fun disconnect() {
         processMutex.withLock {
-            check(managedResource.isOpen) { "Headless client is closing" }
+            check(managedMinecraftTestResource.isOpen) { "Headless client is closing" }
             val startedAt = TimeSource.Monotonic.markNow()
-            process.sendLineAndWait(
+            minecraftTestProcess.sendLineAndWait(
                 line = "disconnect",
                 marker = DISCONNECT_MARKER,
                 timeout = COMMAND_TIMEOUT,
             )
             awaitTitleScreen(
-                process = process,
+                minecraftTestProcess = minecraftTestProcess,
                 timeout = COMMAND_TIMEOUT - startedAt.elapsedNow(),
             )
         }
@@ -89,44 +89,44 @@ internal class HostedHeadlessMinecraftClientResource private constructor(
     ) {
         validateHeadlessClientAction(command)
         processMutex.withLock {
-            check(managedResource.isOpen) { "Headless client is closing" }
+            check(managedMinecraftTestResource.isOpen) { "Headless client is closing" }
             if (expectedNewOutput == null) {
-                process.sendLine(command)
+                minecraftTestProcess.sendLine(command)
             } else {
-                process.sendLineAndWait(command, expectedNewOutput, timeout)
+                minecraftTestProcess.sendLineAndWait(command, expectedNewOutput, timeout)
             }
         }
     }
 
     suspend fun closeProcess(): Int = processMutex.withLock {
-        check(managedResource.isOpen) { "Headless client is closing" }
+        check(managedMinecraftTestResource.isOpen) { "Headless client is closing" }
         closeProcessLocked()
     }
 
-    suspend fun awaitExit(): Int = process.awaitExit()
+    suspend fun awaitExit(): Int = minecraftTestProcess.awaitExit()
 
     override fun close() {
-        managedResource.close()
+        managedMinecraftTestResource.close()
     }
 
     fun invokeOnCleanupCompletion(handler: (Throwable?) -> Unit) {
-        managedResource.invokeOnCleanupCompletion(handler)
+        managedMinecraftTestResource.invokeOnCleanupCompletion(handler)
     }
 
     suspend fun beginWorkingDirectoryDeletion() {
         processMutex.withLock {
-            check(!process.isAlive) {
+            check(!minecraftTestProcess.isAlive) {
                 "Headless client must be stopped before deleting its working directory"
             }
-            managedResource.close()
+            managedMinecraftTestResource.close()
         }
     }
 
-    suspend fun awaitCleanup() = managedResource.awaitCleanup()
+    suspend fun awaitCleanup() = managedMinecraftTestResource.awaitCleanup()
 
-    internal fun attach(resource: ManagedMinecraftTestResource) {
-        check(!::managedResource.isInitialized)
-        managedResource = resource
+    internal fun attach(managedMinecraftTestResource: ManagedMinecraftTestResource) {
+        check(!::managedMinecraftTestResource.isInitialized)
+        this@HostedHeadlessMinecraftClientResource.managedMinecraftTestResource = managedMinecraftTestResource
     }
 
     internal suspend fun cleanup() {
@@ -136,44 +136,44 @@ internal class HostedHeadlessMinecraftClientResource private constructor(
     }
 
     private suspend fun closeProcessLocked(): Int =
-        stopHeadlessClientProcess(process, configuration.stopTimeout)
+        stopHeadlessClientProcess(minecraftTestProcess, headlessMinecraftClientConfiguration.stopTimeout)
 
     internal companion object {
         suspend fun start(
-            layout: MinecraftTestLayout,
+            minecraftTestLayout: MinecraftTestLayout,
             workDirectory: Path,
-            configuration: HeadlessMinecraftClientConfiguration,
+            headlessMinecraftClientConfiguration: HeadlessMinecraftClientConfiguration,
         ): HostedHeadlessMinecraftClientResource {
-            val installation = HeadlessClientPreparation.prepare(layout)
-            val process = launchTitleReadyHeadlessClient(
-                installation = installation,
+            val headlessClientInstallation = HeadlessClientPreparation.prepare(minecraftTestLayout)
+            val minecraftTestProcess = launchTitleReadyHeadlessClient(
+                headlessClientInstallation = headlessClientInstallation,
                 workDirectory = workDirectory,
-                configuration = configuration,
-                useTemplate = configuration.usesDefaultTemplate(),
+                headlessMinecraftClientConfiguration = headlessMinecraftClientConfiguration,
+                useTemplate = headlessMinecraftClientConfiguration.usesDefaultTemplate(),
             )
             return HostedHeadlessMinecraftClientResource(
                 workDirectory = workDirectory,
-                configuration = configuration,
-                process = process,
+                headlessMinecraftClientConfiguration = headlessMinecraftClientConfiguration,
+                minecraftTestProcess = minecraftTestProcess,
             )
         }
     }
 }
 
 private suspend fun launchTitleReadyHeadlessClient(
-    installation: HeadlessClientInstallation,
+    headlessClientInstallation: HeadlessClientInstallation,
     workDirectory: Path,
-    configuration: HeadlessMinecraftClientConfiguration,
+    headlessMinecraftClientConfiguration: HeadlessMinecraftClientConfiguration,
     useTemplate: Boolean,
 ): MinecraftTestProcess {
     val privateInstallation = prepareHeadlessClientRuntime(
-        installation,
+        headlessClientInstallation,
         workDirectory,
     )
     val gameDirectory = workDirectory.resolve("game")
     val headlessMcHome = workDirectory.resolve("headlessmc-home")
     prepareHeadlessClientWorkspace(
-        installation = privateInstallation,
+        headlessClientInstallation = privateInstallation,
         gameDirectory = gameDirectory,
         useTemplate = useTemplate,
     )
@@ -185,36 +185,36 @@ private suspend fun launchTitleReadyHeadlessClient(
     } else {
         writeClientOptions(gameDirectory)
     }
-    val process = MinecraftTestProcess.start(
+    val minecraftTestProcess = MinecraftTestProcess.start(
         command = headlessClientCommand(
-            installation = privateInstallation,
+            headlessClientInstallation = privateInstallation,
             gameDirectory = gameDirectory,
             headlessMcHome = headlessMcHome,
-            playerName = configuration.playerName,
+            playerName = headlessMinecraftClientConfiguration.playerName,
         ),
         workingDirectory = workDirectory,
         threadName = "headless-minecraft-client",
     )
     try {
         val startedAt = TimeSource.Monotonic.markNow()
-        process.waitForLog(
+        minecraftTestProcess.waitForLog(
             HMC_SPECIFICS_READY_MARKER,
-            configuration.startupTimeout,
+            headlessMinecraftClientConfiguration.startupTimeout,
         )
         awaitTitleScreen(
-            process = process,
-            timeout = configuration.startupTimeout - startedAt.elapsedNow(),
+            minecraftTestProcess = minecraftTestProcess,
+            timeout = headlessMinecraftClientConfiguration.startupTimeout - startedAt.elapsedNow(),
         )
-        process.requireAlive("Headless client after title-screen readiness")
-        return process
+        minecraftTestProcess.requireAlive("Headless client after title-screen readiness")
+        return minecraftTestProcess
     } catch (failure: Throwable) {
-        forceStopAfterFailure(process, failure)
+        forceStopAfterFailure(minecraftTestProcess, failure)
         if (failure is CancellationException) throw failure
         throw AssertionError(
             """
             |Headless client failed to reach its title screen.
             |--- headless client log ---
-            |${process.logText()}
+            |${minecraftTestProcess.logText()}
             """.trimMargin(),
             failure,
         )
@@ -222,7 +222,7 @@ private suspend fun launchTitleReadyHeadlessClient(
 }
 
 private suspend fun awaitTitleScreen(
-    process: MinecraftTestProcess,
+    minecraftTestProcess: MinecraftTestProcess,
     timeout: Duration,
 ) {
     require(timeout.isPositive()) {
@@ -231,24 +231,24 @@ private suspend fun awaitTitleScreen(
     val startedAt = TimeSource.Monotonic.markNow()
     while (startedAt.elapsedNow() < timeout) {
         val remaining = timeout - startedAt.elapsedNow()
-        val state = queryHeadlessClientState(process, remaining)
-        if (state.screenClassName == TITLE_SCREEN_MARKER) {
+        val headlessMinecraftClientState = queryHeadlessClientState(minecraftTestProcess, remaining)
+        if (headlessMinecraftClientState.screenClassName == TITLE_SCREEN_MARKER) {
             return
         }
     }
     error(
-        "Headless client did not reach its title screen within $timeout:\n${process.logText()}",
+        "Headless client did not reach its title screen within $timeout:\n${minecraftTestProcess.logText()}",
     )
 }
 
 private suspend fun queryHeadlessClientState(
-    process: MinecraftTestProcess,
+    minecraftTestProcess: MinecraftTestProcess,
     timeout: Duration,
 ): HeadlessMinecraftClientState {
     require(timeout.isPositive() && timeout.isFinite()) {
         "Headless client state timeout must be positive and finite"
     }
-    val output = process.sendLineAndWaitForAny(
+    val output = minecraftTestProcess.sendLineAndWaitForAny(
         line = "gui",
         markers = listOf(SCREEN_MARKER, NO_GUI_MARKER),
         timeout = timeout,
@@ -270,40 +270,40 @@ internal fun parseHeadlessClientState(output: String): HeadlessMinecraftClientSt
 }
 
 internal fun prepareHeadlessClientRuntime(
-    installation: HeadlessClientInstallation,
+    headlessClientInstallation: HeadlessClientInstallation,
     workDirectory: Path,
 ): HeadlessClientInstallation {
     val runtime = workDirectory.resolve("runtime")
     val minecraft = runtime.resolve("minecraft")
     val launcher = runtime.resolve("headlessmc").resolve("headlessmc-launcher.jar")
-    installation.minecraftDirectory.linkDirectoryTo(minecraft)
-    installation.launcher.linkFileTo(launcher)
-    return installation.copy(
+    headlessClientInstallation.minecraftDirectory.linkDirectoryTo(minecraft)
+    headlessClientInstallation.launcher.linkFileTo(launcher)
+    return headlessClientInstallation.copy(
         minecraftDirectory = minecraft,
         launcher = launcher,
     )
 }
 
 internal fun prepareHeadlessClientWorkspace(
-    installation: HeadlessClientInstallation,
+    headlessClientInstallation: HeadlessClientInstallation,
     gameDirectory: Path,
     useTemplate: Boolean,
 ) {
     gameDirectory.createDirectories()
     if (useTemplate) {
-        installation.templateDirectory.copyTreeTo(
+        headlessClientInstallation.templateDirectory.copyTreeTo(
             destination = gameDirectory,
             excludedRelativePaths = CLIENT_TEMPLATE_IMMUTABLE_DIRECTORIES,
         )
     }
-    installation.modsDirectory.linkTreeTo(gameDirectory.resolve("mods"))
-    installation.processedModsDirectory?.linkTreeTo(
+    headlessClientInstallation.modsDirectory.linkTreeTo(gameDirectory.resolve("mods"))
+    headlessClientInstallation.processedModsDirectory?.linkTreeTo(
         gameDirectory.resolve(".fabric").resolve("processedMods"),
     )
 }
 
 private fun headlessClientCommand(
-    installation: HeadlessClientInstallation,
+    headlessClientInstallation: HeadlessClientInstallation,
     gameDirectory: Path,
     headlessMcHome: Path,
     playerName: String,
@@ -318,7 +318,7 @@ private fun headlessClientCommand(
         "-Djava.awt.headless=true",
         "-Djoml.nounsafe=true",
         "--sun-misc-unsafe-memory-access=allow",
-        "-Dhmc.mcdir=${installation.minecraftDirectory}",
+        "-Dhmc.mcdir=${headlessClientInstallation.minecraftDirectory}",
         "-Dhmc.gamedir=$gameDirectory",
         "-Dhmc.java.versions=java",
         "-Dhmc.no.auto.config=true",
@@ -351,10 +351,10 @@ private fun headlessClientCommand(
         "-Dhmc.crash.report.watcher=true",
         "-Dhmc.check.xvfb=false",
         "-jar",
-        installation.launcher.toString(),
+        headlessClientInstallation.launcher.toString(),
         "--command",
         "launch",
-        installation.fabricProfileId,
+        headlessClientInstallation.fabricProfileId,
         "-lwjgl",
         "-inmemory",
         "-offline",
@@ -362,46 +362,46 @@ private fun headlessClientCommand(
 }
 
 private suspend fun stopHeadlessClientProcess(
-    process: MinecraftTestProcess,
+    minecraftTestProcess: MinecraftTestProcess,
     timeout: Duration,
 ): Int {
-    if (!process.isAlive) {
-        return process.exitCode.also { exitCode ->
+    if (!minecraftTestProcess.isAlive) {
+        return minecraftTestProcess.exitCode.also { exitCode ->
             check(exitCode == 0) {
-                "Headless client exited abnormally with $exitCode:\n${process.logText()}"
+                "Headless client exited abnormally with $exitCode:\n${minecraftTestProcess.logText()}"
             }
         }
     }
     try {
         val startedAt = TimeSource.Monotonic.markNow()
-        process.sendLineAndWait(
+        minecraftTestProcess.sendLineAndWait(
             line = "quit",
             marker = QUIT_MARKER,
             timeout = timeout,
         )
         val remaining = timeout - startedAt.elapsedNow()
-        val exitCode = if (!process.isAlive) {
-            process.exitCode
+        val exitCode = if (!minecraftTestProcess.isAlive) {
+            minecraftTestProcess.exitCode
         } else {
             check(remaining.isPositive()) {
                 "Headless client exhausted its stop timeout after HMC-Specifics accepted quit"
             }
-            checkNotNull(process.awaitExitWithin(remaining)) {
+            checkNotNull(minecraftTestProcess.awaitExitWithin(remaining)) {
                 "Headless client did not exit after HMC-Specifics accepted quit"
             }
         }
         check(exitCode == 0) {
-            "Headless client exited abnormally with $exitCode:\n${process.logText()}"
+            "Headless client exited abnormally with $exitCode:\n${minecraftTestProcess.logText()}"
         }
         return exitCode
     } catch (failure: Throwable) {
-        forceStopAfterFailure(process, failure)
+        forceStopAfterFailure(minecraftTestProcess, failure)
         if (failure is CancellationException) throw failure
         throw AssertionError(
             """
             |Headless client did not stop cleanly.
             |--- headless client log ---
-            |${process.logText()}
+            |${minecraftTestProcess.logText()}
             """.trimMargin(),
             failure,
         )
@@ -409,13 +409,13 @@ private suspend fun stopHeadlessClientProcess(
 }
 
 private suspend fun forceStopAfterFailure(
-    process: MinecraftTestProcess,
+    minecraftTestProcess: MinecraftTestProcess,
     failure: Throwable,
 ) = withContext(NonCancellable) {
-    if (!process.isAlive) return@withContext
-    process.forceStop()
+    if (!minecraftTestProcess.isAlive) return@withContext
+    minecraftTestProcess.forceStop()
     try {
-        checkNotNull(process.awaitExitWithin(FORCED_STOP_TIMEOUT)) {
+        checkNotNull(minecraftTestProcess.awaitExitWithin(FORCED_STOP_TIMEOUT)) {
             "Headless client remained alive after forced termination"
         }
     } catch (cleanupFailure: Throwable) {
@@ -440,7 +440,7 @@ internal suspend fun generateHeadlessClientTemplate(
     val candidate = createUniqueDirectory(workRoot)
     var published = false
     try {
-        val installation = HeadlessClientInstallation(
+        val headlessClientInstallation = HeadlessClientInstallation(
             minecraftVersion = minecraftVersion,
             fabricProfileId = "fabric-loader-$fabricLoaderVersion-$minecraftVersion",
             minecraftDirectory = runtimeDirectory.resolve("minecraft"),
@@ -449,16 +449,16 @@ internal suspend fun generateHeadlessClientTemplate(
             processedModsDirectory = null,
             templateDirectory = templateDirectory,
         )
-        val configuration = HeadlessMinecraftClientConfiguration(
+        val headlessMinecraftClientConfiguration = HeadlessMinecraftClientConfiguration(
             playerName = TEMPLATE_PLAYER_NAME,
         )
-        val process = launchTitleReadyHeadlessClient(
-            installation = installation,
+        val minecraftTestProcess = launchTitleReadyHeadlessClient(
+            headlessClientInstallation = headlessClientInstallation,
             workDirectory = candidate,
-            configuration = configuration,
+            headlessMinecraftClientConfiguration = headlessMinecraftClientConfiguration,
             useTemplate = false,
         )
-        stopHeadlessClientProcess(process, configuration.stopTimeout)
+        stopHeadlessClientProcess(minecraftTestProcess, headlessMinecraftClientConfiguration.stopTimeout)
         val candidateGame = candidate.resolve("game")
         check(candidateGame.resolve("options.txt").isRegularFile()) {
             "Headless client template did not retain deterministic options"
@@ -483,7 +483,7 @@ internal suspend fun generateHeadlessClientTemplate(
             destination = templateDirectory,
             excludedRelativePaths = CLIENT_TEMPLATE_IMMUTABLE_DIRECTORIES,
         )
-        installation.modsDirectory.linkTreeTo(
+        headlessClientInstallation.modsDirectory.linkTreeTo(
             templateDirectory.resolve("mods"),
         )
         processedMods.linkTreeTo(
@@ -518,7 +518,7 @@ internal suspend fun generateHeadlessClientTemplate(
                 "headlessmc_version" to JsonPrimitive(headlessMcVersion),
                 "fabric_loader_version" to JsonPrimitive(fabricLoaderVersion),
                 "fabric_profile_id" to
-                        JsonPrimitive(installation.fabricProfileId),
+                        JsonPrimitive(headlessClientInstallation.fabricProfileId),
                 "hmc_specifics_release_tag" to
                         JsonPrimitive(hmcSpecificsReleaseTag),
                 "hmc_specifics_asset_name" to

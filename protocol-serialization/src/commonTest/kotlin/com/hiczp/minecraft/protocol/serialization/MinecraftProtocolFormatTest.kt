@@ -17,7 +17,7 @@ import kotlin.test.*
 class MinecraftProtocolFormatTest {
     @Test
     fun `stream APIs are canonical and honor the caller payload boundary`() {
-        val value = PrimitiveValue(
+        val primitiveValue = PrimitiveValue(
             byte = -1,
             short = 2,
             int = 3,
@@ -27,14 +27,14 @@ class MinecraftProtocolFormatTest {
         )
         val sink = Buffer()
         MinecraftProtocolFormat.encodeToSink(
-            value,
+            primitiveValue,
             sink,
         )
         val streamed = sink.readByteArray()
 
         assertContentEquals(
             MinecraftProtocolFormat.encodeToByteArray(
-                value,
+                primitiveValue,
             ),
             streamed,
         )
@@ -43,7 +43,7 @@ class MinecraftProtocolFormatTest {
         source.write(streamed)
         source.write(byteArrayOf(99, 100))
         assertEquals(
-            value,
+            primitiveValue,
             MinecraftProtocolFormat.decodeFromSource<PrimitiveValue>(
                 source,
                 streamed.size,
@@ -55,16 +55,16 @@ class MinecraftProtocolFormatTest {
     @Test
     fun `companion is the default format and factory creates configured instances`() {
         assertSame(MinecraftProtocolFormat, MinecraftProtocolFormat.Default)
-        assertEquals(MinecraftProtocolFormatConfiguration(), MinecraftProtocolFormat.configuration)
+        assertEquals(MinecraftProtocolFormatConfiguration(), MinecraftProtocolFormat.minecraftProtocolFormatConfiguration)
 
-        val configuration = MinecraftProtocolFormatConfiguration(
+        val minecraftProtocolFormatConfiguration = MinecraftProtocolFormatConfiguration(
             strictBooleans = false,
             protocolRegistryContext = testProtocolRegistryContext(chunkSectionCount = 24),
         )
-        val configured = MinecraftProtocolFormat(configuration)
+        val configured = MinecraftProtocolFormat(minecraftProtocolFormatConfiguration)
 
         assertTrue(configured !== MinecraftProtocolFormat.Default)
-        assertEquals(configuration, configured.configuration)
+        assertEquals(minecraftProtocolFormatConfiguration, configured.minecraftProtocolFormatConfiguration)
     }
 
     @Test
@@ -171,7 +171,7 @@ class MinecraftProtocolFormatTest {
 
     @Test
     fun `fixed primitives are big endian and unsigned hints are honored`() {
-        val value = PrimitiveValue(
+        val primitiveValue = PrimitiveValue(
             byte = 0xFE.toByte(),
             short = 0x1234,
             int = 0x12345678,
@@ -182,23 +182,23 @@ class MinecraftProtocolFormatTest {
         val expected = "fe1234123456780102030405060708ffffff".hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(value),
+            MinecraftProtocolFormat.encodeToByteArray(primitiveValue),
         )
         assertEquals(
-            expected = value,
+            expected = primitiveValue,
             actual = MinecraftProtocolFormat.decodeFromByteArray<PrimitiveValue>(expected),
         )
     }
 
     @Test
     fun `strings enforce UTF-16 and UTF-8 limits`() {
-        val value = LimitedString("éé")
+        val limitedString = LimitedString("éé")
         assertContentEquals(
             "04c3a9c3a9".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(value),
+            MinecraftProtocolFormat.encodeToByteArray(limitedString),
         )
         assertEquals(
-            value,
+            limitedString,
             MinecraftProtocolFormat.decodeFromByteArray<LimitedString>(
                 "04c3a9c3a9".hexToByteArray(),
             ),
@@ -217,14 +217,14 @@ class MinecraftProtocolFormatTest {
 
     @Test
     fun `collections maps nullable and byte shapes round trip`() {
-        val collection = CollectionValue(
+        val collectionValue = CollectionValue(
             values = listOf(1, 2, 300),
             map = linkedMapOf("a" to 1, "b" to 2),
             optional = 7,
         )
-        val encoded = MinecraftProtocolFormat.encodeToByteArray(collection)
+        val encoded = MinecraftProtocolFormat.encodeToByteArray(collectionValue)
         assertEquals(
-            collection,
+            collectionValue,
             MinecraftProtocolFormat.decodeFromByteArray<CollectionValue>(encoded),
         )
 
@@ -233,7 +233,7 @@ class MinecraftProtocolFormatTest {
             encoded,
         )
 
-        val bytes = ByteShapes(
+        val byteShapes = ByteShapes(
             prefixed = ByteString(byteArrayOf(1, 2, 3)),
             fixed = ByteString(byteArrayOf(4, 5)),
             remaining = ByteString(byteArrayOf(6, 7, 8)),
@@ -241,23 +241,23 @@ class MinecraftProtocolFormatTest {
         val byteEncoding = "030102030405060708".hexToByteArray()
         assertContentEquals(
             byteEncoding,
-            MinecraftProtocolFormat.encodeToByteArray(bytes),
+            MinecraftProtocolFormat.encodeToByteArray(byteShapes),
         )
         assertEquals(
-            bytes,
+            byteShapes,
             MinecraftProtocolFormat.decodeFromByteArray<ByteShapes>(byteEncoding),
         )
     }
 
     @Test
     fun `byte arrays and general collections have no shared policy budget`() {
-        val bytes = BytesValue(ByteString(ByteArray(257) { it.toByte() }))
+        val bytesValue = BytesValue(ByteString(ByteArray(257) { it.toByte() }))
         val values = IntListValue(List(257) { it })
 
         assertEquals(
-            bytes,
+            bytesValue,
             MinecraftProtocolFormat.decodeFromByteArray<BytesValue>(
-                MinecraftProtocolFormat.encodeToByteArray(bytes),
+                MinecraftProtocolFormat.encodeToByteArray(bytesValue),
             ),
         )
         assertEquals(
@@ -301,7 +301,7 @@ class MinecraftProtocolFormatTest {
 
     @Test
     fun `network NBT has exact unnamed encoding`() {
-        val value = NbtValue(
+        val nbtValue = NbtValue(
             NbtCompound(
                 linkedMapOf(
                     "name" to NbtString("value"),
@@ -309,9 +309,9 @@ class MinecraftProtocolFormatTest {
                 ),
             ),
         )
-        val encoded = MinecraftProtocolFormat.encodeToByteArray(value)
+        val encoded = MinecraftProtocolFormat.encodeToByteArray(nbtValue)
         assertEquals(
-            value,
+            nbtValue,
             MinecraftProtocolFormat.decodeFromByteArray<NbtValue>(encoded),
         )
         assertEquals(10, encoded.first().toInt())
@@ -320,15 +320,15 @@ class MinecraftProtocolFormatTest {
 
     @Test
     fun `network NBT strings use Java modified UTF`() {
-        val value = NbtValue(NbtString("\u0000Aé😀"))
+        val nbtValue = NbtValue(NbtString("\u0000Aé😀"))
         val expected = "08000bc08041c3a9eda0bdedb880".hexToByteArray()
 
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(value),
+            MinecraftProtocolFormat.encodeToByteArray(nbtValue),
         )
         assertEquals(
-            expected = value,
+            expected = nbtValue,
             actual = MinecraftProtocolFormat.decodeFromByteArray<NbtValue>(
                 expected,
             ),

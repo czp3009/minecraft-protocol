@@ -76,12 +76,12 @@ object FabricProtocol {
     /** Pure factory; callers may retain and share its result across connections. */
     fun connectionDefinition(
         extensionCodecs: List<PacketCodecRegistration<out Packet>> = emptyList(),
-        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
         incomingCapacity: Int = MinecraftConnectionDefinition.DEFAULT_CHANNEL_CAPACITY,
         outgoingCapacity: Int = MinecraftConnectionDefinition.DEFAULT_CHANNEL_CAPACITY,
     ): MinecraftConnectionDefinition = MinecraftConnectionDefinition.compose(
         extensionCodecs = packetCodecs + extensionCodecs,
-        format = format,
+        minecraftProtocolFormat = minecraftProtocolFormat,
         incomingCapacity = incomingCapacity,
         outgoingCapacity = outgoingCapacity,
     )
@@ -89,7 +89,7 @@ object FabricProtocol {
 
 private fun <T : FabricBidirectionalPacket> MutableList<PacketCodecRegistration<out Packet>>.addBidirectional(
     channel: Identifier,
-    codec: PacketBodyCodec<T>,
+    packetBodyCodec: PacketBodyCodec<T>,
     packetClass: kotlin.reflect.KClass<T>,
 ) {
     listOf(ConnectionState.CONFIGURATION, ConnectionState.PLAY).forEach { state ->
@@ -98,7 +98,7 @@ private fun <T : FabricBidirectionalPacket> MutableList<PacketCodecRegistration<
                 state,
                 channel,
                 packetClass,
-                codec,
+                packetBodyCodec,
             ),
         )
         add(
@@ -106,7 +106,7 @@ private fun <T : FabricBidirectionalPacket> MutableList<PacketCodecRegistration<
                 state,
                 channel,
                 packetClass,
-                codec,
+                packetBodyCodec,
             ),
         )
     }
@@ -123,7 +123,7 @@ private class FabricRegistrationCodec<T : FabricChannelRegistrationPacket>(
     private val factory: (List<Identifier>) -> T,
 ) : PacketBodyCodec<T> {
     override fun encode(
-        format: MinecraftProtocolFormat,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
         packet: T,
         sink: Sink,
     ) {
@@ -131,32 +131,32 @@ private class FabricRegistrationCodec<T : FabricChannelRegistrationPacket>(
             "Fabric registration has too many channels"
         }
         packet.channels.forEach(::validateChannelName)
-        val bytes = packet.channels
+        val byteArray = packet.channels
             .joinToString("\u0000", transform = Identifier::value)
             .encodeToByteArray()
-        format.encodeToSink(
-            RemainingBody(ByteString(bytes)),
+        minecraftProtocolFormat.encodeToSink(
+            RemainingBody(ByteString(byteArray)),
             sink,
         )
     }
 
     override fun decode(
-        format: MinecraftProtocolFormat,
-        route: PacketRoute,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
+        packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
     ): T {
-        val bytes = format.decodeFromSource<RemainingBody>(
+        val byteArray = minecraftProtocolFormat.decodeFromSource<RemainingBody>(
             source,
             byteCount,
         ).data.toByteArray()
-        if (bytes.isEmpty()) return factory(emptyList())
-        if (bytes.any { byte -> byte.toInt() and 0xFF > 0x7F }) {
+        if (byteArray.isEmpty()) return factory(emptyList())
+        if (byteArray.any { byte -> byte.toInt() and 0xFF > 0x7F }) {
             throw MinecraftSerializationException(
                 "Fabric channel registration is not US-ASCII",
             )
         }
-        val literals = bytes.decodeToString().split('\u0000')
+        val literals = byteArray.decodeToString().split('\u0000')
         if (literals.size > FabricProtocol.MAX_CHANNELS) {
             throw MinecraftSerializationException(
                 "Fabric channel registration exceeds ${FabricProtocol.MAX_CHANNELS} channels",
@@ -190,21 +190,21 @@ private fun validateChannelName(channel: Identifier) {
 
 private object FabricRegistrySyncBodyCodec : PacketBodyCodec<FabricRegistrySyncPacket> {
     override fun encode(
-        format: MinecraftProtocolFormat,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
         packet: FabricRegistrySyncPacket,
         sink: Sink,
-    ) = format.encodeToSink(
+    ) = minecraftProtocolFormat.encodeToSink(
         FabricRegistrySyncSerializer,
         packet,
         sink,
     )
 
     override fun decode(
-        format: MinecraftProtocolFormat,
-        route: PacketRoute,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
+        packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
-    ): FabricRegistrySyncPacket = format.decodeFromSource(
+    ): FabricRegistrySyncPacket = minecraftProtocolFormat.decodeFromSource(
         FabricRegistrySyncSerializer,
         source,
         byteCount,
@@ -225,29 +225,29 @@ private object FabricRegistrySyncSerializer : KSerializer<FabricRegistrySyncPack
         value: FabricRegistrySyncPacket,
     ) {
         val registriesByNamespace = linkedMapOf<String, MutableList<RemoteRegistry>>()
-        value.remoteRegistrySnapshot.registries.values.forEach { registry ->
-            registriesByNamespace.getOrPut(registry.id.namespace, ::mutableListOf)
-                .add(registry)
+        value.remoteRegistrySnapshot.registries.values.forEach { remoteRegistry ->
+            registriesByNamespace.getOrPut(remoteRegistry.id.namespace, ::mutableListOf)
+                .add(remoteRegistry)
         }
         val output = encoder.beginStructure(descriptor)
         output.encodeVarInt(registriesByNamespace.size)
         registriesByNamespace.forEach { (namespace, registries) ->
             output.encodeString(optimizeNamespace(namespace))
             output.encodeVarInt(registries.size)
-            registries.forEach { registry ->
-                require(registry.entries.isNotEmpty()) {
-                    "Fabric cannot encode an empty synchronized registry ${registry.id}"
+            registries.forEach { remoteRegistry ->
+                require(remoteRegistry.entries.isNotEmpty()) {
+                    "Fabric cannot encode an empty synchronized registry ${remoteRegistry.id}"
                 }
-                output.encodeString(registry.id.path)
+                output.encodeString(remoteRegistry.id.path)
                 output.encodeByte(
-                    if (registry.id in value.optionalRegistryIds) 1 else 0,
+                    if (remoteRegistry.id in value.optionalRegistryIds) 1 else 0,
                 )
                 val entriesByNamespace = linkedMapOf<String, MutableList<RemoteRegistryEntry>>()
-                registry.entries.forEach { entry ->
+                remoteRegistry.entries.forEach { remoteRegistryEntry ->
                     entriesByNamespace.getOrPut(
-                        entry.id.namespace,
+                        remoteRegistryEntry.id.namespace,
                         ::mutableListOf,
-                    ).add(entry)
+                    ).add(remoteRegistryEntry)
                 }
                 output.encodeVarInt(entriesByNamespace.size)
                 var lastBulkLastRawId = 0
@@ -258,9 +258,9 @@ private object FabricRegistrySyncSerializer : KSerializer<FabricRegistrySyncPack
                     bulks.forEach { bulk ->
                         output.encodeVarInt(bulk.first().rawId - lastBulkLastRawId)
                         output.encodeVarInt(bulk.size)
-                        bulk.forEach { entry ->
-                            output.encodeString(entry.id.path)
-                            lastBulkLastRawId = entry.rawId
+                        bulk.forEach { remoteRegistryEntry ->
+                            output.encodeString(remoteRegistryEntry.id.path)
+                            lastBulkLastRawId = remoteRegistryEntry.rawId
                         }
                     }
                 }
@@ -384,12 +384,12 @@ private fun consecutiveBulks(
 ): List<List<RemoteRegistryEntry>> {
     if (entries.isEmpty()) return emptyList()
     val bulks = mutableListOf<MutableList<RemoteRegistryEntry>>()
-    entries.forEach { entry ->
+    entries.forEach { remoteRegistryEntry ->
         val current = bulks.lastOrNull()
-        if (current == null || current.last().rawId + 1 != entry.rawId) {
-            bulks += mutableListOf(entry)
+        if (current == null || current.last().rawId + 1 != remoteRegistryEntry.rawId) {
+            bulks += mutableListOf(remoteRegistryEntry)
         } else {
-            current += entry
+            current += remoteRegistryEntry
         }
     }
     return bulks

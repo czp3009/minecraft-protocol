@@ -15,10 +15,10 @@ annotation class InternalPacketRegistryApi
 
 @InternalPacketRegistryApi
 class PacketDefinition<T : Packet> internal constructor(
-    val state: ConnectionState,
-    val direction: PacketDirection,
+    val connectionState: ConnectionState,
+    val packetDirection: PacketDirection,
     val id: Int,
-    val framing: PacketFraming,
+    val packetFraming: PacketFraming,
     val packetClass: KClass<T>,
-    val serializer: KSerializer<T>,
+    val kSerializer: KSerializer<T>,
 )

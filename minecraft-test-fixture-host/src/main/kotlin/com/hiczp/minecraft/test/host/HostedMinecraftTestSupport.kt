@@ -40,7 +40,7 @@ internal object HostedMinecraftTestSupport {
 
     private var configuredLayout: MinecraftTestLayout? = null
 
-    internal val layout: MinecraftTestLayout
+    internal val minecraftTestLayout: MinecraftTestLayout
         get() = synchronized(this) {
             checkNotNull(configuredLayout) {
                 "Minecraft test fixture host layout has not been configured"
@@ -63,31 +63,31 @@ internal object HostedMinecraftTestSupport {
 
     /** Starts a ready official server in a newly allocated work directory. */
     suspend fun newOfficialServer(
-        configuration: OfficialMinecraftServerConfiguration =
+        officialMinecraftServerConfiguration: OfficialMinecraftServerConfiguration =
             OfficialMinecraftServerConfiguration(),
     ): HostedOfficialMinecraftServerResource {
         beginResourceCreation()
         try {
-            val workDirectory = layout.newRuntimeDirectory(
+            val workDirectory = minecraftTestLayout.newRuntimeDirectory(
                 MinecraftRuntimeKind.OFFICIAL_SERVER,
             )
             var startedResource: HostedOfficialMinecraftServerResource? = null
             return try {
                 HostedOfficialMinecraftServerResource.start(
-                    layout = layout,
+                    minecraftTestLayout = minecraftTestLayout,
                     workDirectory = workDirectory,
-                    configuration = configuration,
-                ).also { resource ->
-                    startedResource = resource
-                    resource.attach(
-                        manage(workDirectory, resource::cleanup),
+                    officialMinecraftServerConfiguration = officialMinecraftServerConfiguration,
+                ).also { hostedOfficialMinecraftServerResource ->
+                    startedResource = hostedOfficialMinecraftServerResource
+                    hostedOfficialMinecraftServerResource.attach(
+                        manage(workDirectory, hostedOfficialMinecraftServerResource::cleanup),
                     )
                 }
             } catch (failure: Throwable) {
                 withContext(NonCancellable) {
-                    startedResource?.let { resource ->
+                    startedResource?.let { hostedOfficialMinecraftServerResource ->
                         try {
-                            resource.cleanup()
+                            hostedOfficialMinecraftServerResource.cleanup()
                         } catch (cleanupFailure: Throwable) {
                             failure.addSuppressed(cleanupFailure)
                         }
@@ -107,30 +107,30 @@ internal object HostedMinecraftTestSupport {
 
     /** Starts a title-ready HeadlessMC-backed client resource. */
     suspend fun newHeadlessClient(
-        configuration: HeadlessMinecraftClientConfiguration,
+        headlessMinecraftClientConfiguration: HeadlessMinecraftClientConfiguration,
     ): HostedHeadlessMinecraftClientResource {
         beginResourceCreation()
         try {
-            val workDirectory = layout.newRuntimeDirectory(
+            val workDirectory = minecraftTestLayout.newRuntimeDirectory(
                 MinecraftRuntimeKind.HEADLESS_CLIENT,
             )
             var startedResource: HostedHeadlessMinecraftClientResource? = null
             return try {
                 HostedHeadlessMinecraftClientResource.start(
-                    layout = layout,
+                    minecraftTestLayout = minecraftTestLayout,
                     workDirectory = workDirectory,
-                    configuration = configuration,
-                ).also { resource ->
-                    startedResource = resource
-                    resource.attach(
-                        manage(workDirectory, resource::cleanup),
+                    headlessMinecraftClientConfiguration = headlessMinecraftClientConfiguration,
+                ).also { hostedHeadlessMinecraftClientResource ->
+                    startedResource = hostedHeadlessMinecraftClientResource
+                    hostedHeadlessMinecraftClientResource.attach(
+                        manage(workDirectory, hostedHeadlessMinecraftClientResource::cleanup),
                     )
                 }
             } catch (failure: Throwable) {
                 withContext(NonCancellable) {
-                    startedResource?.let { resource ->
+                    startedResource?.let { hostedHeadlessMinecraftClientResource ->
                         try {
-                            resource.cleanup()
+                            hostedHeadlessMinecraftClientResource.cleanup()
                         } catch (cleanupFailure: Throwable) {
                             failure.addSuppressed(cleanupFailure)
                         }
@@ -195,7 +195,7 @@ internal object HostedMinecraftTestSupport {
         }
     }
 
-    internal fun newScratchDirectory(): Path = layout.newScratchDirectory()
+    internal fun newScratchDirectory(): Path = minecraftTestLayout.newScratchDirectory()
 
     internal suspend fun manageTestResource(
         workDirectory: Path,
@@ -210,7 +210,7 @@ internal object HostedMinecraftTestSupport {
         workDirectory: Path,
         cleanup: suspend () -> Unit,
     ): ManagedMinecraftTestResource {
-        val resource = ManagedMinecraftTestResource(
+        val managedMinecraftTestResource = ManagedMinecraftTestResource(
             workDirectory = workDirectory,
             cleanup = cleanup,
         )
@@ -218,12 +218,12 @@ internal object HostedMinecraftTestSupport {
             check(acceptingResourceCreations) {
                 "Minecraft test fixture host is shutting down"
             }
-            check(resources.add(resource)) {
+            check(resources.add(managedMinecraftTestResource)) {
                 "Minecraft test resource was registered twice"
             }
             resourceCount.value = resources.size
         }
-        return resource
+        return managedMinecraftTestResource
     }
 
     private suspend fun beginResourceCreation() {
@@ -252,36 +252,36 @@ internal object HostedMinecraftTestSupport {
             .forEach(ManagedMinecraftTestResource::close)
     }
 
-    internal fun scheduleCleanup(resource: ManagedMinecraftTestResource) {
+    internal fun scheduleCleanup(managedMinecraftTestResource: ManagedMinecraftTestResource) {
         cleanupScope.launch {
             var cleanupFailure: Throwable? = null
             try {
-                resource.cleanup()
+                managedMinecraftTestResource.cleanup()
             } catch (failure: Throwable) {
                 cleanupFailure = failure
             }
             withContext(NonCancellable) {
                 try {
-                    resource.workDirectory.deleteTree()
+                    managedMinecraftTestResource.workDirectory.deleteTree()
                 } catch (failure: Throwable) {
                     cleanupFailure?.addSuppressed(failure) ?: run {
                         cleanupFailure = failure
                     }
                 }
                 try {
-                    resource.markClosed(cleanupFailure)
+                    managedMinecraftTestResource.markClosed(cleanupFailure)
                 } finally {
                     registryMutex.withLock {
-                        resources.remove(resource)
+                        resources.remove(managedMinecraftTestResource)
                         resourceCount.value = resources.size
                     }
                 }
             }
-            val cancellation = cleanupFailure as? CancellationException
-            if (cancellation != null) throw cancellation
+            val cancellationException = cleanupFailure as? CancellationException
+            if (cancellationException != null) throw cancellationException
             cleanupFailure?.let { failure ->
                 minecraftTestSupportLogger.warn(failure) {
-                    "Could not completely clean Minecraft test resource ${resource.workDirectory}"
+                    "Could not completely clean Minecraft test resource ${managedMinecraftTestResource.workDirectory}"
                 }
             }
         }

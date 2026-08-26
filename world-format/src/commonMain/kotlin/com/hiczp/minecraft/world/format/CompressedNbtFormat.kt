@@ -25,13 +25,13 @@ import kotlinx.serialization.serializer
  * because those bytes are the value represented by that model.
  */
 class CompressedNbtFormat(
-    val nbt: NbtFormat = NbtFormat(
-        NbtFormatConfiguration(rootEncoding = NbtRootEncoding.UNNAMED),
+    val nbtFormat: NbtFormat = NbtFormat(
+        NbtFormatConfiguration(nbtRootEncoding = NbtRootEncoding.UNNAMED),
     ),
     val compressionRegistry: CompressionRegistry = CompressionRegistry,
 ) {
     init {
-        require(nbt.configuration.rootEncoding == NbtRootEncoding.UNNAMED) {
+        require(nbtFormat.nbtFormatConfiguration.nbtRootEncoding == NbtRootEncoding.UNNAMED) {
             "Region Chunk NBT requires NbtRootEncoding.UNNAMED"
         }
     }
@@ -43,15 +43,15 @@ class CompressedNbtFormat(
     fun decodeDocumentFromSource(
         source: Source,
         compression: Compression,
-    ): NbtDocument = decodeCompressed(source, compression, nbt::decodeDocumentFromSource)
+    ): NbtDocument = decodeCompressed(source, compression, nbtFormat::decodeDocumentFromSource)
 
     /** Decodes a caller-selected serializable value from one compressed Chunk stream. */
     fun <T> decodeFromSource(
-        deserializer: DeserializationStrategy<T>,
+        deserializationStrategy: DeserializationStrategy<T>,
         source: Source,
         compression: Compression,
     ): T = decodeCompressed(source, compression) {
-        nbt.decodeFromSource(deserializer, it)
+        nbtFormat.decodeFromSource(deserializationStrategy, it)
     }
 
     /**
@@ -59,38 +59,38 @@ class CompressedNbtFormat(
      * Compression and serialization exceptions propagate unchanged.
      */
     fun encodeDocumentToSink(
-        document: NbtDocument,
+        nbtDocument: NbtDocument,
         compression: Compression,
         sink: Sink,
     ) = encodeCompressed(compression, sink) {
-        nbt.encodeDocumentToSink(document, it)
+        nbtFormat.encodeDocumentToSink(nbtDocument, it)
     }
 
     /** Encodes a caller-selected serializable value into one compressed Chunk stream. */
     fun <T> encodeToSink(
-        serializer: SerializationStrategy<T>,
+        serializationStrategy: SerializationStrategy<T>,
         value: T,
         compression: Compression,
         sink: Sink,
     ) = encodeCompressed(compression, sink) {
-        nbt.encodeToSink(serializer, value, it)
+        nbtFormat.encodeToSink(serializationStrategy, value, it)
     }
 
     /** In-memory adapter over [decodeDocumentFromSource]. */
-    fun decodeDocument(chunk: CompressedChunk): NbtDocument {
+    fun decodeDocument(compressedChunk: CompressedChunk): NbtDocument {
         val source = Buffer()
-        chunk.writeTo(source)
-        return decodeDocumentFromSource(source, chunk.compression)
+        compressedChunk.writeTo(source)
+        return decodeDocumentFromSource(source, compressedChunk.compression)
     }
 
     /** In-memory adapter over the typed [decodeFromSource] path. */
     fun <T> decode(
-        deserializer: DeserializationStrategy<T>,
-        chunk: CompressedChunk,
+        deserializationStrategy: DeserializationStrategy<T>,
+        compressedChunk: CompressedChunk,
     ): T {
         val source = Buffer()
-        chunk.writeTo(source)
-        return decodeFromSource(deserializer, source, chunk.compression)
+        compressedChunk.writeTo(source)
+        return decodeFromSource(deserializationStrategy, source, compressedChunk.compression)
     }
 
     /**
@@ -98,22 +98,22 @@ class CompressedNbtFormat(
      * because they form the returned [CompressedChunk] payload.
      */
     fun encodeDocument(
-        document: NbtDocument,
+        nbtDocument: NbtDocument,
         compression: Compression = Compression.ZLIB,
     ): CompressedChunk {
         val compressed = Buffer()
-        encodeDocumentToSink(document, compression, compressed)
+        encodeDocumentToSink(nbtDocument, compression, compressed)
         return CompressedChunk.takeOwnership(compression, compressed.readByteArray())
     }
 
     /** In-memory adapter over the typed [encodeToSink] path. */
     fun <T> encode(
-        serializer: SerializationStrategy<T>,
+        serializationStrategy: SerializationStrategy<T>,
         value: T,
         compression: Compression = Compression.ZLIB,
     ): CompressedChunk {
         val compressed = Buffer()
-        encodeToSink(serializer, value, compression, compressed)
+        encodeToSink(serializationStrategy, value, compression, compressed)
         return CompressedChunk.takeOwnership(compression, compressed.readByteArray())
     }
 
@@ -143,18 +143,18 @@ class CompressedNbtFormat(
 inline fun <reified T> CompressedNbtFormat.decodeFromSource(
     source: Source,
     compression: Compression,
-): T = decodeFromSource(nbt.serializersModule.serializer(), source, compression)
+): T = decodeFromSource(nbtFormat.serializersModule.serializer(), source, compression)
 
 inline fun <reified T> CompressedNbtFormat.encodeToSink(
     value: T,
     compression: Compression,
     sink: Sink,
-) = encodeToSink(nbt.serializersModule.serializer(), value, compression, sink)
+) = encodeToSink(nbtFormat.serializersModule.serializer(), value, compression, sink)
 
-inline fun <reified T> CompressedNbtFormat.decode(chunk: CompressedChunk): T =
-    decode(nbt.serializersModule.serializer(), chunk)
+inline fun <reified T> CompressedNbtFormat.decode(compressedChunk: CompressedChunk): T =
+    decode(nbtFormat.serializersModule.serializer(), compressedChunk)
 
 inline fun <reified T> CompressedNbtFormat.encode(
     value: T,
     compression: Compression = Compression.ZLIB,
-): CompressedChunk = encode(nbt.serializersModule.serializer(), value, compression)
+): CompressedChunk = encode(nbtFormat.serializersModule.serializer(), value, compression)

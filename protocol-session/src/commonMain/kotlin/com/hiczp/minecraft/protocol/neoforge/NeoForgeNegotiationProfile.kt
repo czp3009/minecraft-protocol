@@ -9,7 +9,7 @@ import com.hiczp.minecraft.protocol.session.*
 
 class NeoForgeClientProfileDefinition(
     val staticRegistrySchema: StaticRegistrySchema,
-    val network: NeoForgeNetworkConfiguration = NeoForgeNetworkConfiguration(),
+    val neoForgeNetworkConfiguration: NeoForgeNetworkConfiguration = NeoForgeNetworkConfiguration(),
     knownDataMaps: Map<Identifier, List<NeoForgeKnownDataMap>> = emptyMap(),
     extensibleEnums: List<NeoForgeEnumEntry> = emptyList(),
     featureFlags: Set<Identifier> = emptySet(),
@@ -35,7 +35,7 @@ class NeoForgeClientProfileDefinition(
 }
 
 class NeoForgeServerProfileDefinition(
-    val network: NeoForgeNetworkConfiguration = NeoForgeNetworkConfiguration(),
+    val neoForgeNetworkConfiguration: NeoForgeNetworkConfiguration = NeoForgeNetworkConfiguration(),
     val neoForgeFrozenRegistrySync: NeoForgeFrozenRegistrySync? = null,
     /** Caller-built immutable context retained by reference across connections. */
     val protocolRegistryContext: ProtocolRegistryContext? = null,
@@ -67,7 +67,7 @@ class NeoForgeServerProfileDefinition(
 
 data class NeoForgeNegotiationResult(
     val neoForgePeer: Boolean,
-    val networkSetup: NeoForgeNetworkSetup,
+    val neoForgeNetworkSetup: NeoForgeNetworkSetup,
     val commonVersion: Int?,
     val remoteConfigurationChannels: Set<Identifier>,
     val remotePlayChannels: Set<Identifier>,
@@ -77,16 +77,16 @@ data class NeoForgeNegotiationResult(
 ) : NegotiationProfileResult
 
 class NeoForgeClientProfile(
-    val definition: NeoForgeClientProfileDefinition,
+    val neoForgeClientProfileDefinition: NeoForgeClientProfileDefinition,
 ) : ClientNegotiationProfile {
     private val remoteConfigurationChannels = linkedSetOf<Identifier>()
     private val remotePlayChannels = linkedSetOf<Identifier>()
     private val configFiles = mutableListOf<NeoForgeConfigFilePacket>()
     private val frozenRegistryPackets = linkedMapOf<Identifier, NeoForgeFrozenRegistryPacket>()
-    private val splitAssembler = NeoForgeSplitAssembler()
+    private val neoForgeSplitAssembler = NeoForgeSplitAssembler()
     private var expectedFrozenRegistryIds: Set<Identifier>? = null
     private var frozenRemoteRegistrySnapshot: RemoteRegistrySnapshot? = null
-    private var networkSetup: NeoForgeNetworkSetup? = null
+    private var neoForgeNetworkSetup: NeoForgeNetworkSetup? = null
     private var commonVersion: Int? = null
     private var remoteKnownDataMaps: Map<Identifier, List<Identifier>> = emptyMap()
     private var sentInitialRegistration = false
@@ -95,27 +95,27 @@ class NeoForgeClientProfile(
     private var begun = false
 
     override suspend fun begin(
-        connection: MinecraftClientPacketConnection,
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
     ) {
         check(!begun) { "A NeoForgeClientProfile can negotiate only one connection" }
         begun = true
-        requireNeoForgeCodecs(connection, definition.network)
+        requireNeoForgeCodecs(minecraftClientPacketConnection, neoForgeClientProfileDefinition.neoForgeNetworkConfiguration)
         activateInitialConfigurationRoutes(
-            connection,
+            minecraftClientPacketConnection,
             PacketDirection.CLIENTBOUND,
             PacketDirection.SERVERBOUND,
         )
     }
 
     override suspend fun handleConfigurationPacket(
-        connection: MinecraftClientPacketConnection,
-        packet: ClientboundPacket,
-    ): Boolean = when (packet) {
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
+        clientboundPacket: ClientboundPacket,
+    ): Boolean = when (clientboundPacket) {
         is NeoForgeRegisterChannelsPacket -> {
-            remoteConfigurationChannels += packet.channels
+            remoteConfigurationChannels += clientboundPacket.channels
             if (!sentInitialRegistration) {
                 sentInitialRegistration = true
-                connection.outgoing.send(
+                minecraftClientPacketConnection.outgoing.send(
                     NeoForgeRegisterChannelsPacket(INITIAL_CHANNELS),
                 )
             }
@@ -123,7 +123,7 @@ class NeoForgeClientProfile(
         }
 
         is NeoForgeUnregisterChannelsPacket -> {
-            remoteConfigurationChannels -= packet.channels
+            remoteConfigurationChannels -= clientboundPacket.channels
             true
         }
 
@@ -134,28 +134,28 @@ class NeoForgeClientProfile(
                 )
             }
             sentNetworkQuery = true
-            connection.outgoing.send(definition.network.queryPacket)
+            minecraftClientPacketConnection.outgoing.send(neoForgeClientProfileDefinition.neoForgeNetworkConfiguration.neoForgeModdedNetworkQueryPacket)
             true
         }
 
         is NeoForgeModdedNetworkPacket -> {
-            if (!sentNetworkQuery || networkSetup != null) {
+            if (!sentNetworkQuery || neoForgeNetworkSetup != null) {
                 throw NeoForgeNegotiationException(
                     "NeoForge network setup arrived out of order",
                 )
             }
-            definition.network.validateSetup(packet.setup)
-            networkSetup = packet.setup
+            neoForgeClientProfileDefinition.neoForgeNetworkConfiguration.validateSetup(clientboundPacket.neoForgeNetworkSetup)
+            neoForgeNetworkSetup = clientboundPacket.neoForgeNetworkSetup
             activateConfigurationSetupRoutes(
-                connection,
-                packet.setup,
+                minecraftClientPacketConnection,
+                clientboundPacket.neoForgeNetworkSetup,
                 PacketDirection.CLIENTBOUND,
                 PacketDirection.SERVERBOUND,
             )
-            connection.outgoing.send(
+            minecraftClientPacketConnection.outgoing.send(
                 NeoForgeRegisterChannelsPacket(
                     INITIAL_CHANNELS +
-                            packet.setup.channels(
+                            clientboundPacket.neoForgeNetworkSetup.channels(
                                 NeoForgeConnectionProtocol.CONFIGURATION,
                             ).keys,
                 ),
@@ -164,7 +164,7 @@ class NeoForgeClientProfile(
         }
 
         is NeoForgeModdedNetworkSetupFailedPacket ->
-            throw NeoForgeRemoteSetupFailedException(packet)
+            throw NeoForgeRemoteSetupFailedException(clientboundPacket)
 
         is NeoForgeFrozenRegistrySyncStartPacket -> {
             if (expectedFrozenRegistryIds != null || lateTaskRank != 0) {
@@ -172,12 +172,12 @@ class NeoForgeClientProfile(
                     "NeoForge frozen registry sync started out of order",
                 )
             }
-            if (packet.registryIds.distinct().size != packet.registryIds.size) {
+            if (clientboundPacket.registryIds.distinct().size != clientboundPacket.registryIds.size) {
                 throw NeoForgeNegotiationException(
                     "NeoForge frozen registry start contains duplicates",
                 )
             }
-            expectedFrozenRegistryIds = packet.registryIds.toSet()
+            expectedFrozenRegistryIds = clientboundPacket.registryIds.toSet()
             frozenRegistryPackets.clear()
             true
         }
@@ -187,14 +187,14 @@ class NeoForgeClientProfile(
                 ?: throw NeoForgeNegotiationException(
                     "NeoForge frozen registry arrived before sync start",
                 )
-            if (packet.registryId !in expected) {
+            if (clientboundPacket.registryId !in expected) {
                 throw NeoForgeNegotiationException(
-                    "Unexpected NeoForge frozen registry ${packet.registryId}",
+                    "Unexpected NeoForge frozen registry ${clientboundPacket.registryId}",
                 )
             }
-            if (frozenRegistryPackets.put(packet.registryId, packet) != null) {
+            if (frozenRegistryPackets.put(clientboundPacket.registryId, clientboundPacket) != null) {
                 throw NeoForgeNegotiationException(
-                    "Duplicate NeoForge frozen registry ${packet.registryId}",
+                    "Duplicate NeoForge frozen registry ${clientboundPacket.registryId}",
                 )
             }
             true
@@ -212,10 +212,10 @@ class NeoForgeClientProfile(
                 )
             }
             val remoteRegistrySnapshot = neoForgeRemoteRegistrySnapshot(frozenRegistryPackets.values)
-            definition.staticRegistrySchema.requireNeoForgeCompatible(remoteRegistrySnapshot)
+            neoForgeClientProfileDefinition.staticRegistrySchema.requireNeoForgeCompatible(remoteRegistrySnapshot)
             frozenRemoteRegistrySnapshot = remoteRegistrySnapshot
             expectedFrozenRegistryIds = null
-            connection.outgoing.send(
+            minecraftClientPacketConnection.outgoing.send(
                 NeoForgeFrozenRegistrySyncCompletedPacket,
             )
             true
@@ -224,11 +224,11 @@ class NeoForgeClientProfile(
         is NeoForgeCommonVersionPacket -> {
             advanceLateTask(COMMON_VERSION_TASK)
             val selected = highestCommonVersion(
-                packet.versions,
-                definition.supportedCommonVersions,
+                clientboundPacket.versions,
+                neoForgeClientProfileDefinition.supportedCommonVersions,
             )
             commonVersion = selected
-            connection.outgoing.send(
+            minecraftClientPacketConnection.outgoing.send(
                 NeoForgeCommonVersionPacket(listOf(selected)),
             )
             true
@@ -236,14 +236,14 @@ class NeoForgeClientProfile(
 
         is NeoForgeCommonRegisterPacket -> {
             advanceLateTask(COMMON_REGISTER_TASK)
-            requireCommonRegister(packet, commonVersion)
+            requireCommonRegister(clientboundPacket, commonVersion)
             remotePlayChannels.clear()
-            remotePlayChannels += packet.channels
-            connection.outgoing.send(
+            remotePlayChannels += clientboundPacket.channels
+            minecraftClientPacketConnection.outgoing.send(
                 NeoForgeCommonRegisterPacket(
                     checkNotNull(commonVersion),
                     NeoForgeConnectionProtocol.PLAY.id,
-                    definition.network.optionalChannels(
+                    neoForgeClientProfileDefinition.neoForgeNetworkConfiguration.optionalChannels(
                         NeoForgeConnectionProtocol.PLAY,
                         NeoForgePacketFlow.CLIENTBOUND,
                     ),
@@ -254,19 +254,19 @@ class NeoForgeClientProfile(
 
         is NeoForgeConfigFilePacket -> {
             advanceLateTask(CONFIG_TASK, repeated = true)
-            configFiles += packet
+            configFiles += clientboundPacket
             true
         }
 
         is NeoForgeKnownRegistryDataMapsPacket -> {
             advanceLateTask(DATA_MAP_TASK)
-            validateDataMaps(packet.dataMaps, definition.knownDataMaps)
-            remoteKnownDataMaps = packet.dataMaps.mapValues { (_, maps) ->
+            validateDataMaps(clientboundPacket.dataMaps, neoForgeClientProfileDefinition.knownDataMaps)
+            remoteKnownDataMaps = clientboundPacket.dataMaps.mapValues { (_, maps) ->
                 maps.map(NeoForgeKnownDataMap::id)
             }
-            connection.outgoing.send(
+            minecraftClientPacketConnection.outgoing.send(
                 NeoForgeKnownRegistryDataMapsReplyPacket(
-                    definition.knownDataMaps.mapValues { (_, maps) ->
+                    neoForgeClientProfileDefinition.knownDataMaps.mapValues { (_, maps) ->
                         maps.map(NeoForgeKnownDataMap::id)
                     },
                 ),
@@ -276,8 +276,8 @@ class NeoForgeClientProfile(
 
         is NeoForgeExtensibleEnumDataPacket -> {
             advanceLateTask(ENUM_TASK)
-            validateExtensibleEnums(packet.entries, definition.extensibleEnums)
-            connection.outgoing.send(
+            validateExtensibleEnums(clientboundPacket.entries, neoForgeClientProfileDefinition.extensibleEnums)
+            minecraftClientPacketConnection.outgoing.send(
                 NeoForgeExtensibleEnumAcknowledgePacket,
             )
             true
@@ -285,23 +285,23 @@ class NeoForgeClientProfile(
 
         is NeoForgeFeatureFlagDataPacket -> {
             advanceLateTask(FEATURE_FLAG_TASK)
-            if (packet.flags != definition.featureFlags) {
+            if (clientboundPacket.flags != neoForgeClientProfileDefinition.featureFlags) {
                 throw NeoForgeNegotiationException(
-                    "NeoForge feature flags differ: server=${packet.flags}, client=${definition.featureFlags}",
+                    "NeoForge feature flags differ: server=${clientboundPacket.flags}, client=${neoForgeClientProfileDefinition.featureFlags}",
                 )
             }
-            connection.outgoing.send(NeoForgeFeatureFlagAcknowledgePacket)
+            minecraftClientPacketConnection.outgoing.send(NeoForgeFeatureFlagAcknowledgePacket)
             true
         }
 
         is NeoForgeSplitPacket -> {
-            val routed = splitAssembler.accept(
+            val routedCustomPayload = neoForgeSplitAssembler.accept(
                 ConnectionState.CONFIGURATION,
                 PacketDirection.CLIENTBOUND,
-                packet,
+                clientboundPacket,
             ) ?: return true
-            val decoded = connection.decodeCustomPayload(routed)
-            if (!handleConfigurationPacket(connection, decoded)) {
+            val decoded = minecraftClientPacketConnection.decodeCustomPayload(routedCustomPayload)
+            if (!handleConfigurationPacket(minecraftClientPacketConnection, decoded)) {
                 throw NeoForgeNegotiationException(
                     "NeoForge split stream produced unexpected ${decoded::class.simpleName}",
                 )
@@ -323,38 +323,38 @@ class NeoForgeClientProfile(
         ensureNetworkSetupForOtherPeer()
         val remoteRegistrySnapshot = frozenRemoteRegistrySnapshot ?: return protocolRegistryContext
         return protocolRegistryContext.withStaticRegistryResolution(
-            definition.staticRegistrySchema.resolve(remoteRegistrySnapshot),
+            neoForgeClientProfileDefinition.staticRegistrySchema.resolve(remoteRegistrySnapshot),
         )
     }
 
     override suspend fun preparePlay(
-        connection: MinecraftClientPacketConnection,
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
     ) {
-        val setup = ensureNetworkSetupForOtherPeer()
+        val neoForgeNetworkSetup = ensureNetworkSetupForOtherPeer()
         activatePlayRoutes(
-            connection,
-            setup,
+            minecraftClientPacketConnection,
+            neoForgeNetworkSetup,
             PacketDirection.CLIENTBOUND,
             PacketDirection.SERVERBOUND,
             remotePlayChannels,
-            definition.network.optionalChannels(
+            neoForgeClientProfileDefinition.neoForgeNetworkConfiguration.optionalChannels(
                 NeoForgeConnectionProtocol.PLAY,
                 NeoForgePacketFlow.CLIENTBOUND,
             ),
             sentNetworkQuery,
         )
-        connection.outgoing.send(
+        minecraftClientPacketConnection.outgoing.send(
             NeoForgeUnregisterChannelsPacket(
                 INITIAL_CHANNELS +
-                        setup.channels(
+                        neoForgeNetworkSetup.channels(
                             NeoForgeConnectionProtocol.CONFIGURATION,
                         ).keys,
             ),
         )
-        connection.outgoing.send(
+        minecraftClientPacketConnection.outgoing.send(
             NeoForgeRegisterChannelsPacket(
                 playListeningChannels(
-                    definition.network,
+                    neoForgeClientProfileDefinition.neoForgeNetworkConfiguration,
                     NeoForgePacketFlow.CLIENTBOUND,
                     sentNetworkQuery,
                 ),
@@ -363,19 +363,19 @@ class NeoForgeClientProfile(
     }
 
     override suspend fun complete(
-        connection: MinecraftClientPacketConnection,
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
     ): NegotiationProfileResult = result()
 
     private fun ensureNetworkSetupForOtherPeer(): NeoForgeNetworkSetup {
-        networkSetup?.let { return it }
-        val mandatory = definition.network.components.values.flatten()
+        neoForgeNetworkSetup?.let { return it }
+        val mandatory = neoForgeClientProfileDefinition.neoForgeNetworkConfiguration.components.values.flatten()
             .filterNot(NeoForgeNetworkComponent::optional)
         if (mandatory.isNotEmpty()) {
             throw NeoForgeNegotiationException(
                 "Server did not negotiate mandatory NeoForge channels ${mandatory.map(NeoForgeNetworkComponent::id)}",
             )
         }
-        return NeoForgeNetworkSetup.Empty.also { networkSetup = it }
+        return NeoForgeNetworkSetup.Empty.also { neoForgeNetworkSetup = it }
     }
 
     private fun advanceLateTask(rank: Int, repeated: Boolean = false) {
@@ -389,7 +389,7 @@ class NeoForgeClientProfile(
 
     private fun result(): NeoForgeNegotiationResult = NeoForgeNegotiationResult(
         neoForgePeer = sentNetworkQuery,
-        networkSetup = networkSetup ?: NeoForgeNetworkSetup.Empty,
+        neoForgeNetworkSetup = neoForgeNetworkSetup ?: NeoForgeNetworkSetup.Empty,
         commonVersion = commonVersion,
         remoteConfigurationChannels = remoteConfigurationChannels.toSet(),
         remotePlayChannels = remotePlayChannels.toSet(),
@@ -400,134 +400,134 @@ class NeoForgeClientProfile(
 }
 
 class NeoForgeServerProfile(
-    val definition: NeoForgeServerProfileDefinition,
+    val neoForgeServerProfileDefinition: NeoForgeServerProfileDefinition,
 ) : ServerNegotiationProfile {
     private val remoteConfigurationChannels = linkedSetOf<Identifier>()
     private val remotePlayChannels = linkedSetOf<Identifier>()
-    private val splitAssembler = NeoForgeSplitAssembler()
-    private var setup: NeoForgeNetworkSetup? = null
+    private val neoForgeSplitAssembler = NeoForgeSplitAssembler()
+    private var neoForgeNetworkSetup: NeoForgeNetworkSetup? = null
     private var neoForgePeer = false
     private var receivedProbePong = false
     private var commonVersion: Int? = null
     private var registriesSynchronized = false
     private var remoteKnownDataMaps: Map<Identifier, List<Identifier>> = emptyMap()
     private var expectedResponse: ExpectedResponse? = null
-    private var stage = ServerStage.BEGIN
+    private var serverStage = ServerStage.BEGIN
     private var begun = false
 
     override suspend fun begin(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
         check(!begun) { "A NeoForgeServerProfile can negotiate only one connection" }
         begun = true
-        requireNeoForgeCodecs(connection, definition.network)
+        requireNeoForgeCodecs(minecraftServerPacketConnection, neoForgeServerProfileDefinition.neoForgeNetworkConfiguration)
         activateInitialConfigurationRoutes(
-            connection,
+            minecraftServerPacketConnection,
             PacketDirection.SERVERBOUND,
             PacketDirection.CLIENTBOUND,
         )
     }
 
     override suspend fun negotiateConfigurationStart(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
         requireStage(ServerStage.BEGIN)
-        stage = ServerStage.INITIAL
-        connection.outgoing.send(
+        serverStage = ServerStage.INITIAL
+        minecraftServerPacketConnection.outgoing.send(
             NeoForgeUnregisterChannelsPacket(
                 setOf(NeoForgeChannels.Register, NeoForgeChannels.Unregister) +
-                        definition.network.optionalChannels(
+                        neoForgeServerProfileDefinition.neoForgeNetworkConfiguration.optionalChannels(
                             NeoForgeConnectionProtocol.PLAY,
                             NeoForgePacketFlow.SERVERBOUND,
                         ),
             ),
         )
-        connection.outgoing.send(
+        minecraftServerPacketConnection.outgoing.send(
             NeoForgeRegisterChannelsPacket(INITIAL_CHANNELS),
         )
-        connection.outgoing.send(
+        minecraftServerPacketConnection.outgoing.send(
             NeoForgeModdedNetworkQueryPacket(emptyMap()),
         )
-        connection.outgoing.send(ConfigurationPingPacket(NEGOTIATION_PING_ID))
+        minecraftServerPacketConnection.outgoing.send(ConfigurationPingPacket(NEGOTIATION_PING_ID))
         while (!receivedProbePong) {
-            connection.requestFlush()
-            val packet = connection.incoming.receive()
-            if (!handleConfigurationPacket(connection, packet)) {
+            minecraftServerPacketConnection.requestFlush()
+            val serverboundPacket = minecraftServerPacketConnection.incoming.receive()
+            if (!handleConfigurationPacket(minecraftServerPacketConnection, serverboundPacket)) {
                 throw NeoForgeNegotiationException(
-                    "Unexpected packet during initial NeoForge negotiation: ${packet::class.simpleName}",
+                    "Unexpected packet during initial NeoForge negotiation: ${serverboundPacket::class.simpleName}",
                 )
             }
         }
-        if (setup == null) {
-            initializeOtherPeer(connection)
+        if (neoForgeNetworkSetup == null) {
+            initializeOtherPeer(minecraftServerPacketConnection)
         }
-        stage = ServerStage.NETWORK_READY
+        serverStage = ServerStage.NETWORK_READY
     }
 
     override suspend fun negotiateEarlyConfiguration(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
         requireStage(ServerStage.NETWORK_READY)
-        stage = ServerStage.EARLY
-        val neoForgeFrozenRegistrySync = definition.neoForgeFrozenRegistrySync
+        serverStage = ServerStage.EARLY
+        val neoForgeFrozenRegistrySync = neoForgeServerProfileDefinition.neoForgeFrozenRegistrySync
         if (neoForgeFrozenRegistrySync != null && FROZEN_CHANNELS.all(::configurationChannelNegotiated)) {
             expectedResponse = ExpectedResponse.FROZEN_REGISTRY
-            connection.outgoing.send(neoForgeFrozenRegistrySync.neoForgeFrozenRegistrySyncStartPacket)
-            neoForgeFrozenRegistrySync.frozenRegistryPackets.forEach { packet ->
-                sendPossiblySplit(connection, packet)
+            minecraftServerPacketConnection.outgoing.send(neoForgeFrozenRegistrySync.neoForgeFrozenRegistrySyncStartPacket)
+            neoForgeFrozenRegistrySync.frozenRegistryPackets.forEach { neoForgeFrozenRegistryPacket ->
+                sendPossiblySplit(minecraftServerPacketConnection, neoForgeFrozenRegistryPacket)
             }
-            connection.outgoing.send(
+            minecraftServerPacketConnection.outgoing.send(
                 NeoForgeFrozenRegistrySyncCompletedPacket,
             )
-            awaitExpected<NeoForgeFrozenRegistrySyncCompletedPacket>(connection)
+            awaitExpected<NeoForgeFrozenRegistrySyncCompletedPacket>(minecraftServerPacketConnection)
             registriesSynchronized = true
         }
-        stage = ServerStage.EARLY_COMPLETE
+        serverStage = ServerStage.EARLY_COMPLETE
     }
 
     override suspend fun negotiateConfiguration(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
         requireStage(ServerStage.EARLY_COMPLETE)
-        stage = ServerStage.LATE
-        negotiateCommonChannels(connection)
+        serverStage = ServerStage.LATE
+        negotiateCommonChannels(minecraftServerPacketConnection)
         if (configurationChannelNegotiated(NeoForgeChannels.ConfigFile)) {
-            definition.configFiles.forEach { packet ->
-                sendPossiblySplit(connection, packet)
+            neoForgeServerProfileDefinition.configFiles.forEach { neoForgeConfigFilePacket ->
+                sendPossiblySplit(minecraftServerPacketConnection, neoForgeConfigFilePacket)
             }
         }
-        negotiateDataMaps(connection)
-        negotiateEnums(connection)
-        negotiateFeatureFlags(connection)
-        stage = ServerStage.LATE_COMPLETE
+        negotiateDataMaps(minecraftServerPacketConnection)
+        negotiateEnums(minecraftServerPacketConnection)
+        negotiateFeatureFlags(minecraftServerPacketConnection)
+        serverStage = ServerStage.LATE_COMPLETE
     }
 
     override suspend fun handleConfigurationPacket(
-        connection: MinecraftServerPacketConnection,
-        packet: ServerboundPacket,
-    ): Boolean = when (packet) {
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
+        serverboundPacket: ServerboundPacket,
+    ): Boolean = when (serverboundPacket) {
         is NeoForgeRegisterChannelsPacket -> {
-            remoteConfigurationChannels += packet.channels
+            remoteConfigurationChannels += serverboundPacket.channels
             true
         }
 
         is NeoForgeUnregisterChannelsPacket -> {
-            remoteConfigurationChannels -= packet.channels
+            remoteConfigurationChannels -= serverboundPacket.channels
             true
         }
 
         is NeoForgeModdedNetworkQueryPacket -> {
-            if (stage != ServerStage.INITIAL || setup != null) {
+            if (serverStage != ServerStage.INITIAL || neoForgeNetworkSetup != null) {
                 throw NeoForgeNegotiationException(
                     "NeoForge client network query arrived out of order",
                 )
             }
-            initializeNeoForgePeer(connection, packet)
+            initializeNeoForgePeer(minecraftServerPacketConnection, serverboundPacket)
             true
         }
 
         is ConfigurationPongPacket -> {
-            if (stage != ServerStage.INITIAL || packet.id != NEGOTIATION_PING_ID) {
+            if (serverStage != ServerStage.INITIAL || serverboundPacket.id != NEGOTIATION_PING_ID) {
                 return false
             }
             receivedProbePong = true
@@ -537,17 +537,17 @@ class NeoForgeServerProfile(
         is NeoForgeCommonVersionPacket -> {
             requireExpected(ExpectedResponse.COMMON_VERSION)
             commonVersion = highestCommonVersion(
-                packet.versions,
-                definition.supportedCommonVersions,
+                serverboundPacket.versions,
+                neoForgeServerProfileDefinition.supportedCommonVersions,
             )
             true
         }
 
         is NeoForgeCommonRegisterPacket -> {
             requireExpected(ExpectedResponse.COMMON_REGISTER)
-            requireCommonRegister(packet, commonVersion)
+            requireCommonRegister(serverboundPacket, commonVersion)
             remotePlayChannels.clear()
-            remotePlayChannels += packet.channels
+            remotePlayChannels += serverboundPacket.channels
             true
         }
 
@@ -558,9 +558,9 @@ class NeoForgeServerProfile(
 
         is NeoForgeKnownRegistryDataMapsReplyPacket -> {
             requireExpected(ExpectedResponse.DATA_MAPS)
-            remoteKnownDataMaps = packet.dataMaps
-            val missing = mandatoryDataMaps(definition.knownDataMaps) -
-                    packet.dataMaps.flatMapTo(linkedSetOf()) { (registry, maps) ->
+            remoteKnownDataMaps = serverboundPacket.dataMaps
+            val missing = mandatoryDataMaps(neoForgeServerProfileDefinition.knownDataMaps) -
+                    serverboundPacket.dataMaps.flatMapTo(linkedSetOf()) { (registry, maps) ->
                         maps.map { id -> registry to id }
                     }
             if (missing.isNotEmpty()) {
@@ -582,13 +582,13 @@ class NeoForgeServerProfile(
         }
 
         is NeoForgeSplitPacket -> {
-            val routed = splitAssembler.accept(
+            val routedCustomPayload = neoForgeSplitAssembler.accept(
                 ConnectionState.CONFIGURATION,
                 PacketDirection.SERVERBOUND,
-                packet,
+                serverboundPacket,
             ) ?: return true
-            val decoded = connection.decodeCustomPayload(routed)
-            if (!handleConfigurationPacket(connection, decoded)) {
+            val decoded = minecraftServerPacketConnection.decodeCustomPayload(routedCustomPayload)
+            if (!handleConfigurationPacket(minecraftServerPacketConnection, decoded)) {
                 throw NeoForgeNegotiationException(
                     "NeoForge split stream produced unexpected ${decoded::class.simpleName}",
                 )
@@ -602,7 +602,8 @@ class NeoForgeServerProfile(
     override suspend fun resolveProtocolRegistryContext(
         protocolRegistryContext: ProtocolRegistryContext,
     ): ProtocolRegistryContext {
-        val sharedProtocolRegistryContext = definition.protocolRegistryContext ?: return protocolRegistryContext
+        val sharedProtocolRegistryContext =
+            neoForgeServerProfileDefinition.protocolRegistryContext ?: return protocolRegistryContext
         val sectionCount = protocolRegistryContext.chunkSectionCount ?: return sharedProtocolRegistryContext
         return if (sharedProtocolRegistryContext.chunkSectionCount == sectionCount) {
             sharedProtocolRegistryContext
@@ -612,24 +613,24 @@ class NeoForgeServerProfile(
     }
 
     override suspend fun preparePlay(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
         requireStage(ServerStage.LATE_COMPLETE)
-        stage = ServerStage.PLAY
-        val actualSetup = checkNotNull(setup)
+        serverStage = ServerStage.PLAY
+        val actualSetup = checkNotNull(neoForgeNetworkSetup)
         activatePlayRoutes(
-            connection,
+            minecraftServerPacketConnection,
             actualSetup,
             PacketDirection.SERVERBOUND,
             PacketDirection.CLIENTBOUND,
             remotePlayChannels,
-            definition.network.optionalChannels(
+            neoForgeServerProfileDefinition.neoForgeNetworkConfiguration.optionalChannels(
                 NeoForgeConnectionProtocol.PLAY,
                 NeoForgePacketFlow.SERVERBOUND,
             ),
             neoForgePeer,
         )
-        connection.outgoing.send(
+        minecraftServerPacketConnection.outgoing.send(
             NeoForgeUnregisterChannelsPacket(
                 INITIAL_CHANNELS +
                         actualSetup.channels(
@@ -637,10 +638,10 @@ class NeoForgeServerProfile(
                         ).keys,
             ),
         )
-        connection.outgoing.send(
+        minecraftServerPacketConnection.outgoing.send(
             NeoForgeRegisterChannelsPacket(
                 playListeningChannels(
-                    definition.network,
+                    neoForgeServerProfileDefinition.neoForgeNetworkConfiguration,
                     NeoForgePacketFlow.SERVERBOUND,
                     neoForgePeer,
                 ),
@@ -649,10 +650,10 @@ class NeoForgeServerProfile(
     }
 
     override suspend fun complete(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ): NegotiationProfileResult = NeoForgeNegotiationResult(
         neoForgePeer = neoForgePeer,
-        networkSetup = setup ?: NeoForgeNetworkSetup.Empty,
+        neoForgeNetworkSetup = neoForgeNetworkSetup ?: NeoForgeNetworkSetup.Empty,
         commonVersion = commonVersion,
         remoteConfigurationChannels = remoteConfigurationChannels.toSet(),
         remotePlayChannels = remotePlayChannels.toSet(),
@@ -662,28 +663,29 @@ class NeoForgeServerProfile(
     )
 
     private suspend fun initializeNeoForgePeer(
-        connection: MinecraftServerPacketConnection,
-        packet: NeoForgeModdedNetworkQueryPacket,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
+        neoForgeModdedNetworkQueryPacket: NeoForgeModdedNetworkQueryPacket,
     ) {
-        val result = negotiateNeoForgeNetwork(definition.network, packet.queries)
-        if (!result.successful) {
+        val neoForgeNetworkNegotiation =
+            negotiateNeoForgeNetwork(neoForgeServerProfileDefinition.neoForgeNetworkConfiguration, neoForgeModdedNetworkQueryPacket.queries)
+        if (!neoForgeNetworkNegotiation.successful) {
             throw NeoForgeNetworkNegotiationException(
-                NeoForgeModdedNetworkSetupFailedPacket(result.failureReasons),
+                NeoForgeModdedNetworkSetupFailedPacket(neoForgeNetworkNegotiation.failureReasons),
             )
         }
         neoForgePeer = true
-        setup = result.setup
+        neoForgeNetworkSetup = neoForgeNetworkNegotiation.neoForgeNetworkSetup
         activateConfigurationSetupRoutes(
-            connection,
-            result.setup,
+            minecraftServerPacketConnection,
+            neoForgeNetworkNegotiation.neoForgeNetworkSetup,
             PacketDirection.SERVERBOUND,
             PacketDirection.CLIENTBOUND,
         )
-        connection.outgoing.send(NeoForgeModdedNetworkPacket(result.setup))
-        connection.outgoing.send(
+        minecraftServerPacketConnection.outgoing.send(NeoForgeModdedNetworkPacket(neoForgeNetworkNegotiation.neoForgeNetworkSetup))
+        minecraftServerPacketConnection.outgoing.send(
             NeoForgeRegisterChannelsPacket(
                 INITIAL_CHANNELS +
-                        result.setup.channels(
+                        neoForgeNetworkNegotiation.neoForgeNetworkSetup.channels(
                             NeoForgeConnectionProtocol.CONFIGURATION,
                         ).keys,
             ),
@@ -691,33 +693,34 @@ class NeoForgeServerProfile(
     }
 
     private suspend fun initializeOtherPeer(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
-        val result = negotiateNeoForgeNetwork(definition.network, emptyMap())
-        if (!result.successful) {
+        val neoForgeNetworkNegotiation =
+            negotiateNeoForgeNetwork(neoForgeServerProfileDefinition.neoForgeNetworkConfiguration, emptyMap())
+        if (!neoForgeNetworkNegotiation.successful) {
             throw NeoForgeNetworkNegotiationException(
-                NeoForgeModdedNetworkSetupFailedPacket(result.failureReasons),
+                NeoForgeModdedNetworkSetupFailedPacket(neoForgeNetworkNegotiation.failureReasons),
             )
         }
-        setup = result.setup
-        val localListening = definition.network.optionalChannels(
+        neoForgeNetworkSetup = neoForgeNetworkNegotiation.neoForgeNetworkSetup
+        val localListening = neoForgeServerProfileDefinition.neoForgeNetworkConfiguration.optionalChannels(
             NeoForgeConnectionProtocol.CONFIGURATION,
             NeoForgePacketFlow.SERVERBOUND,
         )
         activateOtherConfigurationRoutes(
-            connection,
+            minecraftServerPacketConnection,
             remoteConfigurationChannels,
             localListening,
             PacketDirection.SERVERBOUND,
             PacketDirection.CLIENTBOUND,
         )
-        connection.outgoing.send(
+        minecraftServerPacketConnection.outgoing.send(
             NeoForgeRegisterChannelsPacket(INITIAL_CHANNELS + localListening),
         )
     }
 
     private suspend fun negotiateCommonChannels(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
         if (
             NeoForgeChannels.CommonVersion !in remoteConfigurationChannels ||
@@ -726,31 +729,31 @@ class NeoForgeServerProfile(
             return
         }
         expectedResponse = ExpectedResponse.COMMON_VERSION
-        connection.outgoing.send(
+        minecraftServerPacketConnection.outgoing.send(
             NeoForgeCommonVersionPacket(
-                definition.supportedCommonVersions.sorted(),
+                neoForgeServerProfileDefinition.supportedCommonVersions.sorted(),
             ),
         )
-        awaitExpected<NeoForgeCommonVersionPacket>(connection)
+        awaitExpected<NeoForgeCommonVersionPacket>(minecraftServerPacketConnection)
         expectedResponse = ExpectedResponse.COMMON_REGISTER
-        connection.outgoing.send(
+        minecraftServerPacketConnection.outgoing.send(
             NeoForgeCommonRegisterPacket(
                 checkNotNull(commonVersion),
                 NeoForgeConnectionProtocol.PLAY.id,
-                definition.network.optionalChannels(
+                neoForgeServerProfileDefinition.neoForgeNetworkConfiguration.optionalChannels(
                     NeoForgeConnectionProtocol.PLAY,
                     NeoForgePacketFlow.SERVERBOUND,
                 ),
             ),
         )
-        awaitExpected<NeoForgeCommonRegisterPacket>(connection)
+        awaitExpected<NeoForgeCommonRegisterPacket>(minecraftServerPacketConnection)
     }
 
     private suspend fun negotiateDataMaps(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
         if (!configurationChannelNegotiated(NeoForgeChannels.KnownRegistryDataMaps)) {
-            if (mandatoryDataMaps(definition.knownDataMaps).isNotEmpty()) {
+            if (mandatoryDataMaps(neoForgeServerProfileDefinition.knownDataMaps).isNotEmpty()) {
                 throw NeoForgeNegotiationException(
                     "Client cannot negotiate mandatory NeoForge registry data maps",
                 )
@@ -758,19 +761,19 @@ class NeoForgeServerProfile(
             return
         }
         expectedResponse = ExpectedResponse.DATA_MAPS
-        connection.outgoing.send(
-            NeoForgeKnownRegistryDataMapsPacket(definition.knownDataMaps),
+        minecraftServerPacketConnection.outgoing.send(
+            NeoForgeKnownRegistryDataMapsPacket(neoForgeServerProfileDefinition.knownDataMaps),
         )
-        awaitExpected<NeoForgeKnownRegistryDataMapsReplyPacket>(connection)
+        awaitExpected<NeoForgeKnownRegistryDataMapsReplyPacket>(minecraftServerPacketConnection)
     }
 
     private suspend fun negotiateEnums(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
         if (!configurationChannelNegotiated(NeoForgeChannels.ExtensibleEnumData)) {
-            val required = definition.extensibleEnums.filter { entry ->
-                entry.data != null &&
-                        entry.networkCheck != NeoForgeNetworkCheck.SERVERBOUND
+            val required = neoForgeServerProfileDefinition.extensibleEnums.filter { neoForgeEnumEntry ->
+                neoForgeEnumEntry.neoForgeEnumExtensionData != null &&
+                        neoForgeEnumEntry.neoForgeNetworkCheck != NeoForgeNetworkCheck.SERVERBOUND
             }
             if (required.isNotEmpty()) {
                 val classNames = required.map(NeoForgeEnumEntry::className)
@@ -781,17 +784,17 @@ class NeoForgeServerProfile(
             return
         }
         expectedResponse = ExpectedResponse.ENUMS
-        connection.outgoing.send(
-            NeoForgeExtensibleEnumDataPacket(definition.extensibleEnums),
+        minecraftServerPacketConnection.outgoing.send(
+            NeoForgeExtensibleEnumDataPacket(neoForgeServerProfileDefinition.extensibleEnums),
         )
-        awaitExpected<NeoForgeExtensibleEnumAcknowledgePacket>(connection)
+        awaitExpected<NeoForgeExtensibleEnumAcknowledgePacket>(minecraftServerPacketConnection)
     }
 
     private suspend fun negotiateFeatureFlags(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
         if (!configurationChannelNegotiated(NeoForgeChannels.FeatureFlagData)) {
-            if (definition.featureFlags.isNotEmpty()) {
+            if (neoForgeServerProfileDefinition.featureFlags.isNotEmpty()) {
                 throw NeoForgeNegotiationException(
                     "Client cannot validate custom NeoForge feature flags",
                 )
@@ -799,24 +802,24 @@ class NeoForgeServerProfile(
             return
         }
         expectedResponse = ExpectedResponse.FEATURE_FLAGS
-        connection.outgoing.send(
-            NeoForgeFeatureFlagDataPacket(definition.featureFlags),
+        minecraftServerPacketConnection.outgoing.send(
+            NeoForgeFeatureFlagDataPacket(neoForgeServerProfileDefinition.featureFlags),
         )
-        awaitExpected<NeoForgeFeatureFlagAcknowledgePacket>(connection)
+        awaitExpected<NeoForgeFeatureFlagAcknowledgePacket>(minecraftServerPacketConnection)
     }
 
     private suspend inline fun <reified T : ServerboundPacket> awaitExpected(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ): T {
         while (true) {
-            connection.requestFlush()
-            val packet = connection.incoming.receive()
+            minecraftServerPacketConnection.requestFlush()
+            val packet = minecraftServerPacketConnection.incoming.receive()
             if (packet is T) {
-                handleConfigurationPacket(connection, packet)
+                handleConfigurationPacket(minecraftServerPacketConnection, packet)
                 expectedResponse = null
                 return packet
             }
-            if (!handleConfigurationPacket(connection, packet)) {
+            if (!handleConfigurationPacket(minecraftServerPacketConnection, packet)) {
                 throw NeoForgeNegotiationException(
                     "Expected ${T::class.simpleName}, received ${packet::class.simpleName}",
                 )
@@ -825,43 +828,43 @@ class NeoForgeServerProfile(
     }
 
     private suspend fun sendPossiblySplit(
-        connection: MinecraftServerPacketConnection,
-        packet: ClientboundPacket,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
+        clientboundPacket: ClientboundPacket,
     ) {
-        val routed = connection.encodeCustomPayload(packet)
+        val routedCustomPayload = minecraftServerPacketConnection.encodeCustomPayload(clientboundPacket)
         if (
-            NeoForgeSplitPayloads.encodedPacketSize(routed) <=
+            NeoForgeSplitPayloads.encodedPacketSize(routedCustomPayload) <=
             NeoForgeProtocol.SPLIT_PART_SIZE
         ) {
-            connection.outgoing.send(packet)
+            minecraftServerPacketConnection.outgoing.send(clientboundPacket)
             return
         }
         if (!configurationChannelNegotiated(NeoForgeChannels.Split)) {
             throw NeoForgeNegotiationException(
-                "NeoForge payload ${routed.route.channel} requires splitting, but the split channel was not negotiated",
+                "NeoForge payload ${routedCustomPayload.route.channel} requires splitting, but the split channel was not negotiated",
             )
         }
         NeoForgeSplitPayloads.split(
-            routed,
-        ).forEach { fragment -> connection.outgoing.send(fragment) }
+            routedCustomPayload,
+        ).forEach { fragment -> minecraftServerPacketConnection.outgoing.send(fragment) }
     }
 
     private fun configurationChannelNegotiated(channel: Identifier): Boolean =
-        setup?.channels(NeoForgeConnectionProtocol.CONFIGURATION)
+        neoForgeNetworkSetup?.channels(NeoForgeConnectionProtocol.CONFIGURATION)
             ?.containsKey(channel) == true
 
-    private fun requireExpected(expected: ExpectedResponse) {
-        if (expectedResponse != expected) {
+    private fun requireExpected(expectedResponse: ExpectedResponse) {
+        if (expectedResponse != expectedResponse) {
             throw NeoForgeNegotiationException(
-                "NeoForge response $expected arrived while waiting for $expectedResponse",
+                "NeoForge response $expectedResponse arrived while waiting for $expectedResponse",
             )
         }
     }
 
     private fun requireStage(expected: ServerStage) {
-        if (stage != expected) {
+        if (serverStage != expected) {
             throw NeoForgeNegotiationException(
-                "NeoForge server profile is in $stage; expected $expected",
+                "NeoForge server profile is in $serverStage; expected $expected",
             )
         }
     }
@@ -881,148 +884,148 @@ class NeoForgeRemoteSetupFailedException(
 
 private suspend fun <Incoming : Packet, Outgoing : Packet>
         activateInitialConfigurationRoutes(
-    connection: MinecraftPacketConnection<Incoming, Outgoing>,
+    minecraftPacketConnection: MinecraftPacketConnection<Incoming, Outgoing>,
     incomingDirection: PacketDirection,
     outgoingDirection: PacketDirection,
 ) {
-    val configurationRoutes = customRoutes(connection, ConnectionState.CONFIGURATION)
-    val accepted = configurationRoutes.filter { route ->
-        route.channel in INITIAL_CHANNELS &&
-                (route.direction == incomingDirection ||
-                        route.direction == outgoingDirection)
+    val configurationRoutes = customRoutes(minecraftPacketConnection, ConnectionState.CONFIGURATION)
+    val accepted = configurationRoutes.filter { packetRouteKey ->
+        packetRouteKey.channel in INITIAL_CHANNELS &&
+                (packetRouteKey.packetDirection == incomingDirection ||
+                        packetRouteKey.packetDirection == outgoingDirection)
     }
-    val loginRoutes = connection.declaredExtensionRoutes.filter { route ->
-        route is PacketRouteKey.LoginQuery
+    val loginRoutes = minecraftPacketConnection.declaredExtensionRoutes.filter { packetRouteKey ->
+        packetRouteKey is PacketRouteKey.LoginQuery
     }
-    connection.activateExtensionRoutes((accepted + loginRoutes).toSet())
+    minecraftPacketConnection.activateExtensionRoutes((accepted + loginRoutes).toSet())
 }
 
 private suspend fun <Incoming : Packet, Outgoing : Packet>
         activateConfigurationSetupRoutes(
-    connection: MinecraftPacketConnection<Incoming, Outgoing>,
-    setup: NeoForgeNetworkSetup,
+    minecraftPacketConnection: MinecraftPacketConnection<Incoming, Outgoing>,
+    neoForgeNetworkSetup: NeoForgeNetworkSetup,
     incomingDirection: PacketDirection,
     outgoingDirection: PacketDirection,
 ) {
-    val setupChannels = setup.channels(
+    val setupChannels = neoForgeNetworkSetup.channels(
         NeoForgeConnectionProtocol.CONFIGURATION,
     ).keys
-    val candidates = customRoutes(connection, ConnectionState.CONFIGURATION)
-    val accepted = candidates.filter { route ->
-        (route.channel in INITIAL_CHANNELS || route.channel in setupChannels) &&
-                (route.direction == incomingDirection ||
-                        route.direction == outgoingDirection)
+    val candidates = customRoutes(minecraftPacketConnection, ConnectionState.CONFIGURATION)
+    val accepted = candidates.filter { customPayload ->
+        (customPayload.channel in INITIAL_CHANNELS || customPayload.channel in setupChannels) &&
+                (customPayload.packetDirection == incomingDirection ||
+                        customPayload.packetDirection == outgoingDirection)
     }
-    connection.activateExtensionRoutes(
-        connection.activeExtensionRoutes - candidates.toSet() + accepted,
+    minecraftPacketConnection.activateExtensionRoutes(
+        minecraftPacketConnection.activeExtensionRoutes - candidates.toSet() + accepted,
     )
 }
 
 private suspend fun <Incoming : Packet, Outgoing : Packet>
         activateOtherConfigurationRoutes(
-    connection: MinecraftPacketConnection<Incoming, Outgoing>,
+    minecraftPacketConnection: MinecraftPacketConnection<Incoming, Outgoing>,
     remoteChannels: Set<Identifier>,
     localListening: Set<Identifier>,
     incomingDirection: PacketDirection,
     outgoingDirection: PacketDirection,
 ) {
-    val candidates = customRoutes(connection, ConnectionState.CONFIGURATION)
-    val accepted = candidates.filter { route ->
-        route.channel in INITIAL_CHANNELS ||
+    val candidates = customRoutes(minecraftPacketConnection, ConnectionState.CONFIGURATION)
+    val accepted = candidates.filter { customPayload ->
+        customPayload.channel in INITIAL_CHANNELS ||
                 (
-                        route.direction == outgoingDirection &&
-                                route.channel in remoteChannels
+                        customPayload.packetDirection == outgoingDirection &&
+                                customPayload.channel in remoteChannels
                         ) ||
                 (
-                        route.direction == incomingDirection &&
-                                route.channel in localListening
+                        customPayload.packetDirection == incomingDirection &&
+                                customPayload.channel in localListening
                         )
     }
-    connection.activateExtensionRoutes(
-        connection.activeExtensionRoutes - candidates.toSet() + accepted,
+    minecraftPacketConnection.activateExtensionRoutes(
+        minecraftPacketConnection.activeExtensionRoutes - candidates.toSet() + accepted,
     )
 }
 
 private suspend fun <Incoming : Packet, Outgoing : Packet> activatePlayRoutes(
-    connection: MinecraftPacketConnection<Incoming, Outgoing>,
-    setup: NeoForgeNetworkSetup,
+    minecraftPacketConnection: MinecraftPacketConnection<Incoming, Outgoing>,
+    neoForgeNetworkSetup: NeoForgeNetworkSetup,
     incomingDirection: PacketDirection,
     outgoingDirection: PacketDirection,
     remoteCommonChannels: Set<Identifier>,
     localCommonChannels: Set<Identifier>,
     neoForgePeer: Boolean,
 ) {
-    val setupChannels = setup.channels(NeoForgeConnectionProtocol.PLAY).keys
+    val setupChannels = neoForgeNetworkSetup.channels(NeoForgeConnectionProtocol.PLAY).keys
     val infrastructure = buildSet {
         add(NeoForgeChannels.Register)
         add(NeoForgeChannels.Unregister)
         if (neoForgePeer) add(NeoForgeChannels.NetworkQuery)
     }
-    val candidates = customRoutes(connection, ConnectionState.PLAY)
-    val accepted = candidates.filter { route ->
-        route.channel in infrastructure ||
-                route.channel in setupChannels ||
+    val candidates = customRoutes(minecraftPacketConnection, ConnectionState.PLAY)
+    val accepted = candidates.filter { customPayload ->
+        customPayload.channel in infrastructure ||
+                customPayload.channel in setupChannels ||
                 (
-                        route.direction == outgoingDirection &&
-                                route.channel in remoteCommonChannels
+                        customPayload.packetDirection == outgoingDirection &&
+                                customPayload.channel in remoteCommonChannels
                         ) ||
                 (
-                        route.direction == incomingDirection &&
-                                route.channel in localCommonChannels
+                        customPayload.packetDirection == incomingDirection &&
+                                customPayload.channel in localCommonChannels
                         )
     }
-    connection.activateExtensionRoutes(
-        connection.activeExtensionRoutes - candidates.toSet() + accepted,
+    minecraftPacketConnection.activateExtensionRoutes(
+        minecraftPacketConnection.activeExtensionRoutes - candidates.toSet() + accepted,
     )
 }
 
 private fun <Incoming : Packet, Outgoing : Packet> customRoutes(
-    connection: MinecraftPacketConnection<Incoming, Outgoing>,
-    state: ConnectionState,
-): Set<PacketRouteKey.CustomPayload> = connection.declaredExtensionRoutes
+    minecraftPacketConnection: MinecraftPacketConnection<Incoming, Outgoing>,
+    connectionState: ConnectionState,
+): Set<PacketRouteKey.CustomPayload> = minecraftPacketConnection.declaredExtensionRoutes
     .filterIsInstance<PacketRouteKey.CustomPayload>()
-    .filter { route -> route.state == state }
+    .filter { route -> route.connectionState == connectionState }
     .toSet()
 
 private fun <Incoming : Packet, Outgoing : Packet> requireNeoForgeCodecs(
-    connection: MinecraftPacketConnection<Incoming, Outgoing>,
-    network: NeoForgeNetworkConfiguration,
+    minecraftPacketConnection: MinecraftPacketConnection<Incoming, Outgoing>,
+    neoForgeNetworkConfiguration: NeoForgeNetworkConfiguration,
 ) {
     val required = buildSet {
         addAll(
-            NeoForgeProtocol.packetCodecs.map { registration ->
-                registration.route
-            }.filter { route -> route.state == ConnectionState.CONFIGURATION },
+            NeoForgeProtocol.packetCodecs.map { packetCodecRegistration ->
+                packetCodecRegistration.packetRouteKey
+            }.filter { packetRouteKey -> packetRouteKey.connectionState == ConnectionState.CONFIGURATION },
         )
-        network.components.forEach { (protocol, components) ->
-            val state = protocol.toConnectionState()
-            components.forEach { component ->
-                val directions = component.flow
-                    ?.let { flow -> listOf(flow.toPacketDirection()) }
+        neoForgeNetworkConfiguration.components.forEach { (neoForgeConnectionProtocol, components) ->
+            val connectionState = neoForgeConnectionProtocol.toConnectionState()
+            components.forEach { neoForgeNetworkComponent ->
+                val directions = neoForgeNetworkComponent.neoForgePacketFlow
+                    ?.let { neoForgePacketFlow -> listOf(neoForgePacketFlow.toPacketDirection()) }
                     ?: listOf(
                         PacketDirection.CLIENTBOUND,
                         PacketDirection.SERVERBOUND,
                     )
-                directions.forEach { direction ->
+                directions.forEach { packetDirection ->
                     add(
                         PacketRouteKey.CustomPayload(
-                            state,
-                            direction,
-                            component.id,
+                            connectionState,
+                            packetDirection,
+                            neoForgeNetworkComponent.id,
                         ),
                     )
                 }
             }
         }
     }
-    val missing = required - connection.declaredExtensionRoutes
+    val missing = required - minecraftPacketConnection.declaredExtensionRoutes
     require(missing.isEmpty()) {
         "NeoForge profile is missing extension packet codecs $missing"
     }
 }
 
 private fun playListeningChannels(
-    network: NeoForgeNetworkConfiguration,
+    neoForgeNetworkConfiguration: NeoForgeNetworkConfiguration,
     incomingFlow: NeoForgePacketFlow,
     neoForgePeer: Boolean,
 ): Set<Identifier> = buildSet {
@@ -1032,7 +1035,7 @@ private fun playListeningChannels(
         add(NeoForgeChannels.NetworkQuery)
     } else {
         addAll(
-            network.optionalChannels(
+            neoForgeNetworkConfiguration.optionalChannels(
                 NeoForgeConnectionProtocol.PLAY,
                 incomingFlow,
             ),
@@ -1063,20 +1066,20 @@ private fun highestCommonVersion(
     )
 
 private fun requireCommonRegister(
-    packet: NeoForgeCommonRegisterPacket,
+    neoForgeCommonRegisterPacket: NeoForgeCommonRegisterPacket,
     commonVersion: Int?,
 ) {
     val selected = commonVersion ?: throw NeoForgeNegotiationException(
         "NeoForge common channels arrived before version negotiation",
     )
-    if (packet.version != selected) {
+    if (neoForgeCommonRegisterPacket.version != selected) {
         throw NeoForgeNegotiationException(
-            "NeoForge common channel version ${packet.version} does not match $selected",
+            "NeoForge common channel version ${neoForgeCommonRegisterPacket.version} does not match $selected",
         )
     }
-    if (packet.protocol != NeoForgeConnectionProtocol.PLAY.id) {
+    if (neoForgeCommonRegisterPacket.protocol != NeoForgeConnectionProtocol.PLAY.id) {
         throw NeoForgeNegotiationException(
-            "NeoForge common registration used unsupported protocol ${packet.protocol}",
+            "NeoForge common registration used unsupported protocol ${neoForgeCommonRegisterPacket.protocol}",
         )
     }
 }
@@ -1114,12 +1117,12 @@ private fun validateExtensibleEnums(
     val mismatched = names.filter { name ->
         val remoteEntry = remoteByName[name]
         val localEntry = localByName[name]
-        val remoteData = remoteEntry?.data
-        val localData = localEntry?.data
+        val remoteData = remoteEntry?.neoForgeEnumExtensionData
+        val localData = localEntry?.neoForgeEnumExtensionData
         when {
             remoteData == null && localData == null -> false
             remoteEntry == null || localEntry == null -> true
-            remoteEntry.networkCheck != localEntry.networkCheck -> true
+            remoteEntry.neoForgeNetworkCheck != localEntry.neoForgeNetworkCheck -> true
             remoteData == null || localData == null -> true
             else -> remoteData != localData
         }

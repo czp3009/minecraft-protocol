@@ -147,7 +147,7 @@ Passing this token to a game process is outside the module.
 ```kotlin
 val storeEntitlements = minecraftServicesApi.getStoreEntitlements(minecraftAccessToken)
 if (MinecraftServicesTools.hasJavaEditionEntitlement(storeEntitlements)) {
-    val profile = minecraftServicesApi.getMinecraftProfile(minecraftAccessToken)
+    val minecraftProfileResponse = minecraftServicesApi.getMinecraftProfile(minecraftAccessToken)
 }
 ```
 

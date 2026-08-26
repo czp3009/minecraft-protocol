@@ -30,45 +30,45 @@ inline fun KotlinMultiplatformExtension.useMinecraftTestFixtures(
         "At least one Minecraft fixture capability must be requested"
     }
     val owningProject = project
-    val fixtureOutputs = owningProject.rootProject.extensions.getByType(
+    val minecraftTestFixtureOutputs = owningProject.rootProject.extensions.getByType(
         MinecraftTestFixtureOutputs::class.java,
     )
-    val fixtureInfrastructure = owningProject.rootProject.extensions.getByType(
+    val minecraftTestFixtureInfrastructure = owningProject.rootProject.extensions.getByType(
         MinecraftTestFixtureInfrastructure::class.java,
     )
     val fixtureInputs = owningProject.files().apply {
-        if (requiresOfficialServer) from(fixtureOutputs.officialServer)
-        if (requiresHeadlessClient) from(fixtureOutputs.headlessClient)
-        if (requiresCodecOracle) from(fixtureOutputs.codecOracle)
+        if (requiresOfficialServer) from(minecraftTestFixtureOutputs.officialServer)
+        if (requiresHeadlessClient) from(minecraftTestFixtureOutputs.headlessClient)
+        if (requiresCodecOracle) from(minecraftTestFixtureOutputs.codecOracle)
     }
 
-    owningProject.tasks.withType(AbstractTestTask::class.java).configureEach { task ->
-        if (task.name in unsupportedMinecraftFixtureTestTasks) {
-            task.filter.excludeTestsMatching("*.fixturetest.*")
+    owningProject.tasks.withType(AbstractTestTask::class.java).configureEach { abstractTestTask ->
+        if (abstractTestTask.name in unsupportedMinecraftFixtureTestTasks) {
+            abstractTestTask.filter.excludeTestsMatching("*.fixturetest.*")
         } else {
-            registerMinecraftTestFixtures(task, fixtureInputs, fixtureInfrastructure)
+            registerMinecraftTestFixtures(abstractTestTask, fixtureInputs, minecraftTestFixtureInfrastructure)
         }
     }
 }
 
 @PublishedApi
 internal fun registerMinecraftTestFixtures(
-    task: AbstractTestTask,
+    abstractTestTask: AbstractTestTask,
     fixtureInputs: FileCollection,
-    fixtureInfrastructure: MinecraftTestFixtureInfrastructure,
+    minecraftTestFixtureInfrastructure: MinecraftTestFixtureInfrastructure,
 ) {
     // Provider provenance makes Gradle prepare these inputs before the host is
     // first requested by the executing test task.
-    task.inputs.files(fixtureInputs)
+    abstractTestTask.inputs.files(fixtureInputs)
         .withPropertyName("minecraftTestFixtures")
         .withPathSensitivity(PathSensitivity.RELATIVE)
-    task.inputs.files(fixtureInfrastructure.hostClasspath)
+    abstractTestTask.inputs.files(minecraftTestFixtureInfrastructure.hostClasspath)
         .withPropertyName("minecraftTestFixtureHostClasspath")
         .withNormalizer(ClasspathNormalizer::class.java)
-    task.usesService(fixtureInfrastructure.service)
-    val taskPath = task.path
-    task.doFirst { executingTask ->
-        val connection = fixtureInfrastructure.service.get().connectionFor(taskPath)
+    abstractTestTask.usesService(minecraftTestFixtureInfrastructure.service)
+    val taskPath = abstractTestTask.path
+    abstractTestTask.doFirst { executingTask ->
+        val minecraftTestFixtureConnection = minecraftTestFixtureInfrastructure.service.get().connectionFor(taskPath)
         val environmentPrefix =
             if (executingTask.isKotlinNativeSimulatorTest()) {
                 "SIMCTL_CHILD_"
@@ -78,8 +78,8 @@ internal fun registerMinecraftTestFixtures(
         setTestEnvironment(
             task = executingTask,
             environment = mapOf(
-                "$environmentPrefix$FIXTURE_RPC_URL_ENV" to connection.rpcUrl,
-                "$environmentPrefix$FIXTURE_OWNER_ID_ENV" to connection.ownerId,
+                "$environmentPrefix$FIXTURE_RPC_URL_ENV" to minecraftTestFixtureConnection.rpcUrl,
+                "$environmentPrefix$FIXTURE_OWNER_ID_ENV" to minecraftTestFixtureConnection.ownerId,
             ),
         )
     }

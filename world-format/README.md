@@ -33,10 +33,10 @@ If the application already has a codec, conversion is direct:
 ```kotlin
 fun <B : Any, M : Any> decodeStoredChunk(
     compressedChunk: CompressedChunk,
-    codec: ChunkNbtCodec<B, M>,
+    chunkNbtCodec: ChunkNbtCodec<B, M>,
 ): Chunk<B, M> {
     val nbtDocument = compressedChunk.toNbtDocument()
-    return nbtDocument.toChunk(codec)
+    return nbtDocument.toChunk(chunkNbtCodec)
 }
 ```
 
@@ -45,7 +45,7 @@ application wants:
 
 ```kotlin
 fun createDescriptorChunkCodec(
-    layout: ChunkLayout,
+    chunkLayout: ChunkLayout,
     expectedDataVersion: Int,
 ): ChunkNbtCodec<BlockStateDescriptor, String> {
     val chunkDataRegistries = ChunkDataRegistries(
@@ -54,8 +54,8 @@ fun createDescriptorChunkCodec(
     )
     return ChunkNbtCodec(
         ChunkNbtContext(
-            layout = layout,
-            registries = chunkDataRegistries,
+            chunkLayout = chunkLayout,
+            chunkDataRegistries = chunkDataRegistries,
             expectedDataVersion = expectedDataVersion,
         ),
     )
@@ -79,12 +79,12 @@ Semantic Chunks retain their absolute position and provide both local and common
 ```kotlin
 fun replaceBlock(
     chunk: Chunk<BlockStateDescriptor, String>,
-    position: BlockPosition,
+    blockPosition: BlockPosition,
     replacement: BlockStateDescriptor,
 ): BlockStateDescriptor {
-    require(position.chunk == chunk.position)
-    val previous = chunk.block(position)
-    chunk.setBlock(position, replacement)
+    require(blockPosition.chunkPosition == chunk.chunkPosition)
+    val previous = chunk.block(blockPosition)
+    chunk.setBlock(blockPosition, replacement)
     return previous
 }
 ```
@@ -119,8 +119,8 @@ fun decodeEntityChunk(
 }
 ```
 
-Each `Entity<E>` exposes its type, UUID, position, velocity, rotation, subtype data, recursive passengers, and derived
-Block/Section/Chunk/Region positions. `EntityChunk.rootEntities` preserves the stored passenger tree, while
+Each `Entity<E>` exposes its type, UUID, position, velocity, `entityRotation`, subtype data, recursive passengers, and
+derived Block/Section/Chunk/Region positions. `EntityChunk.rootEntities` preserves the stored passenger tree, while
 `allEntities()` traverses roots and passengers in load order.
 
 Applications that want a strong subtype value implement `EntityDataRegistry<E>` to map between persistent NBT and their
@@ -134,15 +134,15 @@ checked parent/child conversions:
 
 ```kotlin
 fun locatePosition(x: Double, y: Double, z: Double): RegionPosition {
-    val block = MinecraftCoordinates.block(x, y, z)
-    val chunk = block.chunk
-    val section = block.section
-    val region = chunk.region
+    val blockPosition = MinecraftCoordinates.block(x, y, z)
+    val chunkPosition = blockPosition.chunkPosition
+    val sectionPosition = blockPosition.sectionPosition
+    val regionPosition = chunkPosition.regionPosition
 
-    check(section.chunk == chunk)
-    check(block.region == region)
-    check(region.chunk(region.local(chunk)) == chunk)
-    return region
+    check(sectionPosition.chunkPosition == chunkPosition)
+    check(blockPosition.regionPosition == regionPosition)
+    check(regionPosition.chunk(regionPosition.local(chunkPosition)) == chunkPosition)
+    return regionPosition
 }
 ```
 
@@ -176,11 +176,11 @@ length is useful:
 
 ```kotlin
 fun writeCompressed(
-    document: NbtDocument,
+    nbtDocument: NbtDocument,
     compression: Compression,
     sink: Sink,
 ) {
-    document.toCompressedChunk(compression).writeTo(sink)
+    nbtDocument.toCompressedChunk(compression).writeTo(sink)
 }
 ```
 
@@ -206,8 +206,8 @@ fun inspectRecords(
     source: Source,
     inspect: (AnvilChunkRecordInfo, Source) -> Unit,
 ) {
-    AnvilRegionFormat.decodeRecordsFromSource(source) { info, payload ->
-        inspect(info, payload)
+    AnvilRegionFormat.decodeRecordsFromSource(source) { anvilChunkRecordInfo, inlinePayloadSource ->
+        inspect(anvilChunkRecordInfo, inlinePayloadSource)
     }
 }
 ```
@@ -219,10 +219,10 @@ Encoding writes the main Region and returns the external payloads that the calle
 
 ```kotlin
 fun writeRegion(
-    region: AnvilRegion,
+    anvilRegion: AnvilRegion,
     sink: Sink,
 ): Map<LocalChunkPosition, CompressedChunk> =
-    AnvilRegionFormat.encodeRecordsToSink(region, sink)
+    AnvilRegionFormat.encodeRecordsToSink(anvilRegion, sink)
 ```
 
 Unchanged compressed records can be inspected or repacked without decompression.

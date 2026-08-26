@@ -70,7 +70,7 @@ class PlayClientboundMovementPacketTest {
 
     @Test
     fun `minecart step uses doubles then two angles then weight`() {
-        val packet = MoveMinecartAlongTrackPacket(
+        val moveMinecartAlongTrackPacket = MoveMinecartAlongTrackPacket(
             entityId = 1,
             steps = listOf(
                 MinecartStep(
@@ -83,7 +83,7 @@ class PlayClientboundMovementPacketTest {
             ),
         )
         assertPacketBytes(
-            packet,
+            moveMinecartAlongTrackPacket,
             MoveMinecartAlongTrackPacket.serializer(),
             "01013ff000000000000040000000000000004008000000000000bff000000000000000000000000000003fe000000000000040c03f800000",
         )
@@ -137,7 +137,7 @@ class PlayClientboundMovementPacketTest {
 
     @Test
     fun `player abilities pack flags and discard unknown high bits like vanilla`() {
-        val packet = ClientboundPlayerAbilitiesPacket(
+        val clientboundPlayerAbilitiesPacket = ClientboundPlayerAbilitiesPacket(
             PlayerAbilities(
                 invulnerable = true,
                 flying = false,
@@ -151,11 +151,11 @@ class PlayClientboundMovementPacketTest {
         assertContentEquals(
             canonical,
             MinecraftProtocolFormat.encodeToByteArray(
-                packet,
+                clientboundPlayerAbilitiesPacket,
             ),
         )
         assertEquals(
-            packet,
+            clientboundPlayerAbilitiesPacket,
             MinecraftProtocolFormat.decodeFromByteArray<ClientboundPlayerAbilitiesPacket>(
                 "fd3d4ccccd3dcccccd".hexToByteArray(),
             ),
@@ -165,17 +165,17 @@ class PlayClientboundMovementPacketTest {
 
     private fun <T> assertPacketBytes(
         packet: T,
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
         expectedHex: String,
     ) {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 

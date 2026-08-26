@@ -13,7 +13,7 @@ import kotlin.test.*
 class MinecraftServicesApiTest {
     @Test
     fun highLevelToolsDeriveTheMinecraftLoginRequestAndEntitlementMeaning() {
-        val loginRequest = MinecraftServicesTools.xboxLoginRequest(
+        val minecraftXboxLoginRequest = MinecraftServicesTools.xboxLoginRequest(
             XboxTokenResponse(
                 issueInstant = "issue-instant",
                 notAfter = "not-after",
@@ -25,7 +25,7 @@ class MinecraftServicesApiTest {
                 ),
             ),
         )
-        assertEquals("XBL3.0 x=xsts-user-hash;xsts-token", loginRequest.identityToken)
+        assertEquals("XBL3.0 x=xsts-user-hash;xsts-token", minecraftXboxLoginRequest.identityToken)
 
         assertEquals(
             true,
@@ -51,32 +51,34 @@ class MinecraftServicesApiTest {
     @Test
     fun exposesEachEndpointWithRawSerializableBodies() = runTest {
         val requests = mutableListOf<HttpRequestData>()
-        val engine = MockEngine { request ->
-            requests += request
-            when (request.url.encodedPath) {
+        val mockEngine = MockEngine { httpRequestData ->
+            requests += httpRequestData
+            when (httpRequestData.url.encodedPath) {
                 "/authentication/login_with_xbox" -> respondJson(loginResponse())
                 "/entitlements/mcstore" -> respondJson(entitlementsResponse("game_minecraft"))
                 "/minecraft/profile" -> respondJson(profileResponse())
                 "/entitlements/license" -> respondJson(entitlementsResponse("product_minecraft"))
-                else -> error("Unexpected request ${request.url}")
+                else -> error("Unexpected request ${httpRequestData.url}")
             }
         }
-        HttpClient(engine).use { client ->
-            val api = MinecraftServicesApi(client)
-            val login = api.loginWithXbox(
+        HttpClient(mockEngine).use { httpClient ->
+            val minecraftServicesApi = MinecraftServicesApi(httpClient)
+            val minecraftLoginResponse = minecraftServicesApi.loginWithXbox(
                 MinecraftXboxLoginRequest("caller-supplied-identity-token"),
             )
-            val store = api.getStoreEntitlements(login.accessToken)
-            val profile = api.getMinecraftProfile(login.accessToken)
-            val license = api.getLicenseEntitlements(login.accessToken)
+            val storeEntitlementsResponse =
+                minecraftServicesApi.getStoreEntitlements(minecraftLoginResponse.accessToken)
+            val minecraftProfileResponse = minecraftServicesApi.getMinecraftProfile(minecraftLoginResponse.accessToken)
+            val licenseEntitlementsResponse =
+                minecraftServicesApi.getLicenseEntitlements(minecraftLoginResponse.accessToken)
 
-            assertEquals("", login.username)
-            assertEquals(Long.MAX_VALUE, login.expiresIn)
-            assertEquals("game_minecraft", store.items.single().name)
-            assertEquals("not-a-uuid", profile.id)
-            assertEquals("relative", profile.skins.single().url)
-            assertEquals("cape-alias", profile.capes.single().alias)
-            assertEquals("product_minecraft", license.items.single().name)
+            assertEquals("", minecraftLoginResponse.username)
+            assertEquals(Long.MAX_VALUE, minecraftLoginResponse.expiresIn)
+            assertEquals("game_minecraft", storeEntitlementsResponse.items.single().name)
+            assertEquals("not-a-uuid", minecraftProfileResponse.id)
+            assertEquals("relative", minecraftProfileResponse.skins.single().url)
+            assertEquals("cape-alias", minecraftProfileResponse.capes.single().alias)
+            assertEquals("product_minecraft", licenseEntitlementsResponse.items.single().name)
         }
 
         assertEquals(HttpMethod.Post, requests[0].method)
@@ -84,15 +86,15 @@ class MinecraftServicesApiTest {
             "caller-supplied-identity-token",
             requestJson(requests[0]).getValue("identityToken").jsonPrimitive.content,
         )
-        for (request in requests.drop(1)) {
-            assertEquals("Bearer raw-access-token", request.headers[HttpHeaders.Authorization])
+        for (httpRequestData in requests.drop(1)) {
+            assertEquals("Bearer raw-access-token", httpRequestData.headers[HttpHeaders.Authorization])
         }
     }
 
     @Test
     fun optionalFieldsFollowTheJsonPayloadDirectly() = runTest {
         var responseIndex = 0
-        val engine = MockEngine {
+        val mockEngine = MockEngine {
             when (responseIndex++) {
                 0 -> respondJson(
                     buildJsonObject {
@@ -130,15 +132,15 @@ class MinecraftServicesApiTest {
                 else -> error("Unexpected request")
             }
         }
-        HttpClient(engine).use { client ->
-            val api = MinecraftServicesApi(client)
-            val entitlements = api.getStoreEntitlements("token")
-            val profile = api.getMinecraftProfile("token")
+        HttpClient(mockEngine).use { httpClient ->
+            val minecraftServicesApi = MinecraftServicesApi(httpClient)
+            val minecraftEntitlementsResponse = minecraftServicesApi.getStoreEntitlements("token")
+            val minecraftProfileResponse = minecraftServicesApi.getMinecraftProfile("token")
 
-            assertNull(entitlements.items.single().signature)
-            assertNull(entitlements.signature)
-            assertNull(entitlements.keyId)
-            assertNull(profile.skins.single().alias)
+            assertNull(minecraftEntitlementsResponse.items.single().signature)
+            assertNull(minecraftEntitlementsResponse.signature)
+            assertNull(minecraftEntitlementsResponse.keyId)
+            assertNull(minecraftProfileResponse.skins.single().alias)
         }
     }
 
@@ -146,9 +148,9 @@ class MinecraftServicesApiTest {
     fun everyNonSuccessStatusThrowsAnEndpointException() = runTest {
         HttpClient(
             MockEngine { respondJson(buildJsonObject {}, HttpStatusCode.NotFound) },
-        ).use { client ->
+        ).use { httpClient ->
             val failure = assertFailsWith<MinecraftServicesResponseException> {
-                MinecraftServicesApi(client).getMinecraftProfile("token")
+                MinecraftServicesApi(httpClient).getMinecraftProfile("token")
             }
             assertEquals(HttpStatusCode.NotFound, failure.response.status)
         }
@@ -161,9 +163,9 @@ class MinecraftServicesApiTest {
         }
         HttpClient(
             MockEngine { respondJson(errorJson, HttpStatusCode.Forbidden) },
-        ).use { client ->
+        ).use { httpClient ->
             val failure = assertFailsWith<MinecraftServicesResponseException> {
-                MinecraftServicesApi(client).getMinecraftProfile("token")
+                MinecraftServicesApi(httpClient).getMinecraftProfile("token")
             }
             assertEquals(errorJson.toString(), failure.responseBody)
             assertEquals("/minecraft/profile", failure.parsedErrorBody.path)
@@ -180,9 +182,9 @@ class MinecraftServicesApiTest {
         )
 
         for (responseJson in malformedResponses) {
-            HttpClient(MockEngine { respondJson(responseJson) }).use { client ->
+            HttpClient(MockEngine { respondJson(responseJson) }).use { httpClient ->
                 assertFailsWith<SerializationException> {
-                    MinecraftServicesApi(client).getMinecraftProfile("token")
+                    MinecraftServicesApi(httpClient).getMinecraftProfile("token")
                 }
             }
         }
@@ -194,9 +196,9 @@ class MinecraftServicesApiTest {
             MockEngine {
                 respondJson(buildJsonObject {}, HttpStatusCode.BadGateway)
             },
-        ).use { client ->
+        ).use { httpClient ->
             val failure = assertFailsWith<MinecraftServicesResponseException> {
-                MinecraftServicesApi(client).getStoreEntitlements("token")
+                MinecraftServicesApi(httpClient).getStoreEntitlements("token")
             }
             assertNull(failure.parsedErrorBody.path)
             assertNull(failure.parsedErrorBody.error)
@@ -262,14 +264,14 @@ private fun profileResponse(
     )
 }
 
-private fun requestJson(request: HttpRequestData): JsonObject =
-    Json.parseToJsonElement(assertIs<TextContent>(request.body).text).jsonObject
+private fun requestJson(httpRequestData: HttpRequestData): JsonObject =
+    Json.parseToJsonElement(assertIs<TextContent>(httpRequestData.body).text).jsonObject
 
 private fun MockRequestHandleScope.respondJson(
     body: JsonObject,
-    status: HttpStatusCode = HttpStatusCode.OK,
+    httpStatusCode: HttpStatusCode = HttpStatusCode.OK,
 ) = respond(
     content = body.toString(),
-    status = status,
+    status = httpStatusCode,
     headers = headersOf(HttpHeaders.ContentType, "application/json"),
 )

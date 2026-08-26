@@ -16,22 +16,22 @@ import kotlinx.serialization.modules.SerializersModule
 
 /** Direct binary NBT event decoder; no intermediate tag tree is built. */
 internal class NbtBinaryDecoder(
-    private val reader: NbtBinaryReader,
-    private val configuration: NbtFormatConfiguration,
+    private val nbtBinaryReader: NbtBinaryReader,
+    private val nbtFormatConfiguration: NbtFormatConfiguration,
     private val path: String,
     private val type: Int?,
     private val unwrapListElement: Boolean = false,
 ) : Decoder, NbtTagDecoder {
     override val serializersModule: SerializersModule
-        get() = configuration.serializersModule
+        get() = nbtFormatConfiguration.serializersModule
 
     override fun decodeNbtTag(): NbtTag {
         val actualType = requirePresentType()
-        val tag = reader.readPayload(actualType)
+        val nbtTag = nbtBinaryReader.readPayload(actualType)
         return if (unwrapListElement && actualType == TAG_COMPOUND) {
-            (tag as com.hiczp.minecraft.nbt.NbtCompound).unwrapListElement()
+            (nbtTag as com.hiczp.minecraft.nbt.NbtCompound).unwrapListElement()
         } else {
-            tag
+            nbtTag
         }
     }
 
@@ -46,8 +46,8 @@ internal class NbtBinaryDecoder(
 
     override fun decodeBoolean(): Boolean {
         requireType(TAG_BYTE, "TAG_Byte")
-        val value = reader.readByte().toInt()
-        if (configuration.strictBooleans && value !in 0..1) {
+        val value = nbtBinaryReader.readByte().toInt()
+        if (nbtFormatConfiguration.strictBooleans && value !in 0..1) {
             throw NbtDecodingException(
                 "Invalid Boolean byte $value at $path",
             )
@@ -57,12 +57,12 @@ internal class NbtBinaryDecoder(
 
     override fun decodeByte(): Byte {
         requireType(TAG_BYTE, "TAG_Byte")
-        return reader.readByte()
+        return nbtBinaryReader.readByte()
     }
 
     override fun decodeShort(): Short {
         requireType(TAG_SHORT, "TAG_Short")
-        return reader.readShort()
+        return nbtBinaryReader.readShort()
     }
 
     override fun decodeChar(): Nothing =
@@ -72,27 +72,27 @@ internal class NbtBinaryDecoder(
 
     override fun decodeInt(): Int {
         requireType(TAG_INT, "TAG_Int")
-        return reader.readInt()
+        return nbtBinaryReader.readInt()
     }
 
     override fun decodeLong(): Long {
         requireType(TAG_LONG, "TAG_Long")
-        return reader.readLong()
+        return nbtBinaryReader.readLong()
     }
 
     override fun decodeFloat(): Float {
         requireType(TAG_FLOAT, "TAG_Float")
-        return Float.fromBits(reader.readInt())
+        return Float.fromBits(nbtBinaryReader.readInt())
     }
 
     override fun decodeDouble(): Double {
         requireType(TAG_DOUBLE, "TAG_Double")
-        return Double.fromBits(reader.readLong())
+        return Double.fromBits(nbtBinaryReader.readLong())
     }
 
     override fun decodeString(): String {
         requireType(TAG_STRING, "TAG_String")
-        return reader.readModifiedUtf()
+        return nbtBinaryReader.readModifiedUtf()
     }
 
     override fun decodeEnum(enumDescriptor: SerialDescriptor): Int {
@@ -116,8 +116,8 @@ internal class NbtBinaryDecoder(
                 -> {
                 requireType(TAG_COMPOUND, "TAG_Compound")
                 NbtBinaryClassDecoder(
-                    reader,
-                    configuration,
+                    nbtBinaryReader,
+                    nbtFormatConfiguration,
                     descriptor,
                     path,
                 )
@@ -125,9 +125,9 @@ internal class NbtBinaryDecoder(
 
             StructureKind.LIST -> {
                 requireType(TAG_LIST, "TAG_List")
-                val elementType = reader.readUnsignedByte()
-                val size = reader.checkedLength(
-                    reader.readInt(),
+                val elementType = nbtBinaryReader.readUnsignedByte()
+                val size = nbtBinaryReader.checkedLength(
+                    nbtBinaryReader.readInt(),
                     "NBT list",
                 )
                 if (size > 0) {
@@ -139,8 +139,8 @@ internal class NbtBinaryDecoder(
                     }
                 }
                 NbtBinaryListDecoder(
-                    reader,
-                    configuration,
+                    nbtBinaryReader,
+                    nbtFormatConfiguration,
                     descriptor,
                     path,
                     size,
@@ -156,8 +156,8 @@ internal class NbtBinaryDecoder(
                 }
                 requireType(TAG_COMPOUND, "TAG_Compound")
                 NbtBinaryMapDecoder(
-                    reader,
-                    configuration,
+                    nbtBinaryReader,
+                    nbtFormatConfiguration,
                     descriptor,
                     path,
                 )
@@ -179,29 +179,29 @@ internal class NbtBinaryDecoder(
         return when (deserializer.descriptor.serialName) {
             BYTE_ARRAY_SERIAL_NAME -> {
                 requireType(TAG_BYTE_ARRAY, "TAG_Byte_Array")
-                val length = reader.checkedLength(
-                    reader.readInt(),
+                val length = nbtBinaryReader.checkedLength(
+                    nbtBinaryReader.readInt(),
                     "NBT byte array",
                 )
-                reader.readBytes(length) as T
+                nbtBinaryReader.readBytes(length) as T
             }
 
             INT_ARRAY_SERIAL_NAME -> {
                 requireType(TAG_INT_ARRAY, "TAG_Int_Array")
-                val length = reader.checkedLength(
-                    reader.readInt(),
+                val length = nbtBinaryReader.checkedLength(
+                    nbtBinaryReader.readInt(),
                     "NBT int array",
                 )
-                IntArray(length) { reader.readInt() } as T
+                IntArray(length) { nbtBinaryReader.readInt() } as T
             }
 
             LONG_ARRAY_SERIAL_NAME -> {
                 requireType(TAG_LONG_ARRAY, "TAG_Long_Array")
-                val length = reader.checkedLength(
-                    reader.readInt(),
+                val length = nbtBinaryReader.checkedLength(
+                    nbtBinaryReader.readInt(),
                     "NBT long array",
                 )
-                LongArray(length) { reader.readLong() } as T
+                LongArray(length) { nbtBinaryReader.readLong() } as T
             }
 
             else -> deserializer.deserialize(this)
@@ -222,12 +222,12 @@ internal class NbtBinaryDecoder(
 }
 
 private abstract class NbtBinaryCompositeDecoder(
-    protected val configuration: NbtFormatConfiguration,
-    protected val descriptor: SerialDescriptor,
+    protected val nbtFormatConfiguration: NbtFormatConfiguration,
+    protected val serialDescriptor: SerialDescriptor,
     protected val path: String,
 ) : CompositeDecoder {
     override val serializersModule: SerializersModule
-        get() = configuration.serializersModule
+        get() = nbtFormatConfiguration.serializersModule
 
     override fun decodeBooleanElement(
         descriptor: SerialDescriptor,
@@ -296,19 +296,19 @@ private abstract class NbtBinaryCompositeDecoder(
     protected abstract fun child(index: Int): Decoder
 
     protected fun requireDescriptor(actual: SerialDescriptor) {
-        if (actual != descriptor) {
+        if (actual != serialDescriptor) {
             throw NbtDecodingException("Mismatched structure at $path")
         }
     }
 }
 
 private class NbtBinaryClassDecoder(
-    private val reader: NbtBinaryReader,
-    configuration: NbtFormatConfiguration,
-    descriptor: SerialDescriptor,
+    private val nbtBinaryReader: NbtBinaryReader,
+    nbtFormatConfiguration: NbtFormatConfiguration,
+    serialDescriptor: SerialDescriptor,
     path: String,
-) : NbtBinaryCompositeDecoder(configuration, descriptor, path) {
-    private val seen = BooleanArray(descriptor.elementsCount)
+) : NbtBinaryCompositeDecoder(nbtFormatConfiguration, serialDescriptor, path) {
+    private val seen = BooleanArray(serialDescriptor.elementsCount)
     private val missingNullable = ArrayDeque<Int>()
     private var currentIndex = CompositeDecoder.DECODE_DONE
     private var currentType: Int? = null
@@ -331,7 +331,7 @@ private class NbtBinaryClassDecoder(
         if (ended) return CompositeDecoder.DECODE_DONE
 
         while (true) {
-            val type = reader.readUnsignedByte()
+            val type = nbtBinaryReader.readUnsignedByte()
             if (type == TAG_END) {
                 ended = true
                 for (index in 0 until descriptor.elementsCount) {
@@ -352,15 +352,15 @@ private class NbtBinaryClassDecoder(
                 }
             }
             validateType(type)
-            val name = reader.readModifiedUtf()
+            val name = nbtBinaryReader.readModifiedUtf()
             val index = descriptor.getElementIndex(name)
             if (index == CompositeDecoder.UNKNOWN_NAME) {
-                if (!configuration.ignoreUnknownKeys) {
+                if (!nbtFormatConfiguration.ignoreUnknownKeys) {
                     throw NbtDecodingException(
                         "Unknown key '$name' for ${descriptor.serialName} at $path",
                     )
                 }
-                reader.skipPayload(type)
+                nbtBinaryReader.skipPayload(type)
                 continue
             }
             if (seen[index]) {
@@ -381,16 +381,16 @@ private class NbtBinaryClassDecoder(
                 "NBT compound requested unexpected index $index at $path",
             )
         }
-        val name = descriptor.getElementName(index)
-        val decoder = NbtBinaryDecoder(
-            reader,
-            configuration,
+        val name = serialDescriptor.getElementName(index)
+        val nbtBinaryDecoder = NbtBinaryDecoder(
+            nbtBinaryReader,
+            nbtFormatConfiguration,
             "$path.$name",
             currentType,
         )
         currentIndex = CompositeDecoder.DECODE_DONE
         currentType = null
-        return decoder
+        return nbtBinaryDecoder
     }
 
     override fun endStructure(descriptor: SerialDescriptor) {
@@ -402,13 +402,13 @@ private class NbtBinaryClassDecoder(
 }
 
 private class NbtBinaryListDecoder(
-    private val reader: NbtBinaryReader,
-    configuration: NbtFormatConfiguration,
-    descriptor: SerialDescriptor,
+    private val nbtBinaryReader: NbtBinaryReader,
+    nbtFormatConfiguration: NbtFormatConfiguration,
+    serialDescriptor: SerialDescriptor,
     path: String,
     private val size: Int,
     private val elementType: Int,
-) : NbtBinaryCompositeDecoder(configuration, descriptor, path) {
+) : NbtBinaryCompositeDecoder(nbtFormatConfiguration, serialDescriptor, path) {
     private var nextIndex = 0
 
     override fun decodeSequentially(): Boolean = true
@@ -432,8 +432,8 @@ private class NbtBinaryListDecoder(
         }
         nextIndex++
         return NbtBinaryDecoder(
-            reader,
-            configuration,
+            nbtBinaryReader,
+            nbtFormatConfiguration,
             "$path[$index]",
             elementType,
             unwrapListElement = true,
@@ -451,11 +451,11 @@ private class NbtBinaryListDecoder(
 }
 
 private class NbtBinaryMapDecoder(
-    private val reader: NbtBinaryReader,
-    configuration: NbtFormatConfiguration,
-    descriptor: SerialDescriptor,
+    private val nbtBinaryReader: NbtBinaryReader,
+    nbtFormatConfiguration: NbtFormatConfiguration,
+    serialDescriptor: SerialDescriptor,
     path: String,
-) : NbtBinaryCompositeDecoder(configuration, descriptor, path) {
+) : NbtBinaryCompositeDecoder(nbtFormatConfiguration, serialDescriptor, path) {
     private var nextIndex = 0
     private var currentName: String? = null
     private var currentType: Int? = null
@@ -471,14 +471,14 @@ private class NbtBinaryMapDecoder(
         if (ended) return CompositeDecoder.DECODE_DONE
         if (currentName != null) return nextIndex
 
-        val type = reader.readUnsignedByte()
+        val type = nbtBinaryReader.readUnsignedByte()
         if (type == TAG_END) {
             ended = true
             return CompositeDecoder.DECODE_DONE
         }
         validateType(type)
         currentType = type
-        currentName = reader.readModifiedUtf()
+        currentName = nbtBinaryReader.readModifiedUtf()
         return nextIndex
     }
 
@@ -492,18 +492,18 @@ private class NbtBinaryMapDecoder(
             ?: throw NbtDecodingException("NBT map has no current entry at $path")
         return if (index % 2 == 0) {
             nextIndex++
-            NbtTreeDecoder(NbtString(name), configuration, "$path.$name.key")
+            NbtTreeDecoder(NbtString(name), nbtFormatConfiguration, "$path.$name.key")
         } else {
-            val decoder = NbtBinaryDecoder(
-                reader,
-                configuration,
+            val nbtBinaryDecoder = NbtBinaryDecoder(
+                nbtBinaryReader,
+                nbtFormatConfiguration,
                 "$path.$name",
                 currentType,
             )
             nextIndex++
             currentName = null
             currentType = null
-            decoder
+            nbtBinaryDecoder
         }
     }
 
@@ -516,12 +516,12 @@ private class NbtBinaryMapDecoder(
 }
 
 private fun rejectBinaryPolymorphism(
-    descriptor: SerialDescriptor,
+    serialDescriptor: SerialDescriptor,
     path: String,
 ) {
-    if (descriptor.kind is PolymorphicKind) {
+    if (serialDescriptor.kind is PolymorphicKind) {
         throw NbtDecodingException(
-            "Polymorphic serializer ${descriptor.serialName} is unsupported at $path",
+            "Polymorphic serializer ${serialDescriptor.serialName} is unsupported at $path",
         )
     }
 }

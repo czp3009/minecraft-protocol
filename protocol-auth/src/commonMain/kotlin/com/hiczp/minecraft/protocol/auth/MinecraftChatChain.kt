@@ -8,22 +8,22 @@ import kotlin.uuid.Uuid
 
 fun interface MinecraftChatSignatureSigner {
     suspend fun sign(
-        link: SignedMessageLink,
-        body: SignedMessageBody,
+        signedMessageLink: SignedMessageLink,
+        signedMessageBody: SignedMessageBody,
     ): ByteString
 }
 
 fun interface MinecraftChatSignatureVerifier {
     suspend fun verify(
-        link: SignedMessageLink,
-        body: SignedMessageBody,
+        signedMessageLink: SignedMessageLink,
+        signedMessageBody: SignedMessageBody,
         signature: ByteString,
     ): Boolean
 }
 
 data class MinecraftSignedMessage(
-    val link: SignedMessageLink,
-    val body: SignedMessageBody,
+    val signedMessageLink: SignedMessageLink,
+    val signedMessageBody: SignedMessageBody,
     val signature: ByteString,
 ) {
     init {
@@ -34,7 +34,7 @@ data class MinecraftSignedMessage(
 }
 
 data class MinecraftChatSignatureInput(
-    val body: SignedMessageBody,
+    val signedMessageBody: SignedMessageBody,
     val signature: ByteString?,
 )
 
@@ -50,11 +50,11 @@ enum class MinecraftChatChainFailure {
 
 sealed interface MinecraftChatVerificationResult {
     data class Valid(
-        val message: MinecraftSignedMessage,
+        val minecraftSignedMessage: MinecraftSignedMessage,
     ) : MinecraftChatVerificationResult
 
     data class Invalid(
-        val failure: MinecraftChatChainFailure,
+        val minecraftChatChainFailure: MinecraftChatChainFailure,
     ) : MinecraftChatVerificationResult
 }
 
@@ -64,7 +64,7 @@ sealed interface MinecraftChatBatchVerificationResult {
     ) : MinecraftChatBatchVerificationResult
 
     data class Invalid(
-        val failure: MinecraftChatChainFailure,
+        val minecraftChatChainFailure: MinecraftChatChainFailure,
         val failedAt: Int,
     ) : MinecraftChatBatchVerificationResult
 }
@@ -77,7 +77,7 @@ class MinecraftChatChainExhaustedException : IllegalStateException("The Minecraf
 class MinecraftChatChainSigner(
     sender: Uuid,
     sessionId: Uuid,
-    private val signatureSigner: MinecraftChatSignatureSigner,
+    private val minecraftChatSignatureSigner: MinecraftChatSignatureSigner,
     initialIndex: Int = 0,
 ) {
     private val mutex = Mutex()
@@ -86,17 +86,17 @@ class MinecraftChatChainSigner(
     constructor(
         sender: Uuid,
         sessionId: Uuid,
-        keyPair: MinecraftProfileKeyPair,
+        minecraftProfileKeyPair: MinecraftProfileKeyPair,
         initialIndex: Int = 0,
     ) : this(
         sender = sender,
         sessionId = sessionId,
-        signatureSigner = keyPair.asChatSignatureSigner(),
+        minecraftChatSignatureSigner = minecraftProfileKeyPair.asChatSignatureSigner(),
         initialIndex = initialIndex,
     )
 
-    suspend fun sign(body: SignedMessageBody): MinecraftSignedMessage = mutex.withLock {
-        signAllLocked(listOf(body)).single()
+    suspend fun sign(signedMessageBody: SignedMessageBody): MinecraftSignedMessage = mutex.withLock {
+        signAllLocked(listOf(signedMessageBody)).single()
     }
 
     /** Signs one contiguous batch under a single lock, committing its indices only after every signature succeeds. */
@@ -108,15 +108,15 @@ class MinecraftChatChainSigner(
 
     private suspend fun signAllLocked(bodies: List<SignedMessageBody>): List<MinecraftSignedMessage> {
         var candidateLink = nextLink
-        val messages = bodies.map { body ->
-            val link = candidateLink ?: throw MinecraftChatChainExhaustedException()
-            val message = MinecraftSignedMessage(
-                link = link,
-                body = body,
-                signature = signatureSigner.sign(link, body),
+        val messages = bodies.map { signedMessageBody ->
+            val signedMessageLink = candidateLink ?: throw MinecraftChatChainExhaustedException()
+            val minecraftSignedMessage = MinecraftSignedMessage(
+                signedMessageLink = signedMessageLink,
+                signedMessageBody = signedMessageBody,
+                signature = minecraftChatSignatureSigner.sign(signedMessageLink, signedMessageBody),
             )
-            candidateLink = link.advance()
-            message
+            candidateLink = signedMessageLink.advance()
+            minecraftSignedMessage
         }
         nextLink = candidateLink
         return messages
@@ -130,7 +130,7 @@ class MinecraftChatChainSigner(
 class MinecraftServerboundChatChainVerifier(
     sender: Uuid,
     sessionId: Uuid,
-    private val signatureVerifier: MinecraftChatSignatureVerifier,
+    private val minecraftChatSignatureVerifier: MinecraftChatSignatureVerifier,
     initialIndex: Int = 0,
     initialTimestampEpochMillis: Long? = null,
 ) {
@@ -141,25 +141,26 @@ class MinecraftServerboundChatChainVerifier(
     constructor(
         sender: Uuid,
         sessionId: Uuid,
-        publicKey: MinecraftProfilePublicKey,
+        minecraftProfilePublicKey: MinecraftProfilePublicKey,
         initialIndex: Int = 0,
         initialTimestampEpochMillis: Long? = null,
     ) : this(
         sender = sender,
         sessionId = sessionId,
-        signatureVerifier = publicKey.asChatSignatureVerifier(),
+        minecraftChatSignatureVerifier = minecraftProfilePublicKey.asChatSignatureVerifier(),
         initialIndex = initialIndex,
         initialTimestampEpochMillis = initialTimestampEpochMillis,
     )
 
     suspend fun verifyNext(
-        body: SignedMessageBody,
+        signedMessageBody: SignedMessageBody,
         signature: ByteString?,
     ): MinecraftChatVerificationResult = when (
-        val result = verifyAll(listOf(MinecraftChatSignatureInput(body, signature)))
+        val minecraftChatBatchVerificationResult =
+            verifyAll(listOf(MinecraftChatSignatureInput(signedMessageBody, signature)))
     ) {
-        is MinecraftChatBatchVerificationResult.Valid -> MinecraftChatVerificationResult.Valid(result.messages.single())
-        is MinecraftChatBatchVerificationResult.Invalid -> MinecraftChatVerificationResult.Invalid(result.failure)
+        is MinecraftChatBatchVerificationResult.Valid -> MinecraftChatVerificationResult.Valid(minecraftChatBatchVerificationResult.messages.single())
+        is MinecraftChatBatchVerificationResult.Invalid -> MinecraftChatVerificationResult.Invalid(minecraftChatBatchVerificationResult.minecraftChatChainFailure)
     }
 
     /** Verifies and advances an entire contiguous batch atomically. */
@@ -168,36 +169,37 @@ class MinecraftServerboundChatChainVerifier(
             var candidateLink = nextLink
             var candidateTimestamp = lastTimestampEpochMillis
             val verified = ArrayList<MinecraftSignedMessage>(inputs.size)
-            inputs.forEachIndexed { index, input ->
-                val signature = input.signature ?: return@withLock MinecraftChatBatchVerificationResult.Invalid(
-                    failure = MinecraftChatChainFailure.MISSING_SIGNATURE,
+            inputs.forEachIndexed { index, minecraftChatSignatureInput ->
+                val signature =
+                    minecraftChatSignatureInput.signature ?: return@withLock MinecraftChatBatchVerificationResult.Invalid(
+                    minecraftChatChainFailure = MinecraftChatChainFailure.MISSING_SIGNATURE,
                     failedAt = index,
                 )
                 if (signature.size != PackedMessageSignature.SIGNATURE_BYTES) {
                     return@withLock MinecraftChatBatchVerificationResult.Invalid(
-                        failure = MinecraftChatChainFailure.INVALID_SIGNATURE,
+                        minecraftChatChainFailure = MinecraftChatChainFailure.INVALID_SIGNATURE,
                         failedAt = index,
                     )
                 }
-                val link = candidateLink ?: return@withLock MinecraftChatBatchVerificationResult.Invalid(
-                    failure = MinecraftChatChainFailure.CHAIN_EXHAUSTED,
+                val signedMessageLink = candidateLink ?: return@withLock MinecraftChatBatchVerificationResult.Invalid(
+                    minecraftChatChainFailure = MinecraftChatChainFailure.CHAIN_EXHAUSTED,
                     failedAt = index,
                 )
-                if (candidateTimestamp != null && input.body.timestampEpochMillis < candidateTimestamp) {
+                if (candidateTimestamp != null && minecraftChatSignatureInput.signedMessageBody.timestampEpochMillis < candidateTimestamp) {
                     return@withLock MinecraftChatBatchVerificationResult.Invalid(
-                        failure = MinecraftChatChainFailure.OUT_OF_ORDER_TIMESTAMP,
+                        minecraftChatChainFailure = MinecraftChatChainFailure.OUT_OF_ORDER_TIMESTAMP,
                         failedAt = index,
                     )
                 }
-                if (!signatureVerifier.verify(link, input.body, signature)) {
+                if (!minecraftChatSignatureVerifier.verify(signedMessageLink, minecraftChatSignatureInput.signedMessageBody, signature)) {
                     return@withLock MinecraftChatBatchVerificationResult.Invalid(
-                        failure = MinecraftChatChainFailure.INVALID_SIGNATURE,
+                        minecraftChatChainFailure = MinecraftChatChainFailure.INVALID_SIGNATURE,
                         failedAt = index,
                     )
                 }
-                verified += MinecraftSignedMessage(link, input.body, signature)
-                candidateLink = link.advance()
-                candidateTimestamp = input.body.timestampEpochMillis
+                verified += MinecraftSignedMessage(signedMessageLink, minecraftChatSignatureInput.signedMessageBody, signature)
+                candidateLink = signedMessageLink.advance()
+                candidateTimestamp = minecraftChatSignatureInput.signedMessageBody.timestampEpochMillis
             }
             nextLink = candidateLink
             lastTimestampEpochMillis = candidateTimestamp
@@ -213,7 +215,7 @@ class MinecraftServerboundChatChainVerifier(
 class MinecraftClientboundChatChainVerifier(
     private val sender: Uuid,
     private val sessionId: Uuid,
-    private val signatureVerifier: MinecraftChatSignatureVerifier,
+    private val minecraftChatSignatureVerifier: MinecraftChatSignatureVerifier,
 ) {
     private val mutex = Mutex()
     private var lastMessage: MinecraftSignedMessage? = null
@@ -221,12 +223,12 @@ class MinecraftClientboundChatChainVerifier(
     constructor(
         sender: Uuid,
         sessionId: Uuid,
-        publicKey: MinecraftProfilePublicKey,
-    ) : this(sender, sessionId, publicKey.asChatSignatureVerifier())
+        minecraftProfilePublicKey: MinecraftProfilePublicKey,
+    ) : this(sender, sessionId, minecraftProfilePublicKey.asChatSignatureVerifier())
 
     suspend fun verify(
-        link: SignedMessageLink,
-        body: SignedMessageBody,
+        signedMessageLink: SignedMessageLink,
+        signedMessageBody: SignedMessageBody,
         signature: ByteString?,
     ): MinecraftChatVerificationResult = mutex.withLock {
         if (signature == null) {
@@ -235,38 +237,42 @@ class MinecraftClientboundChatChainVerifier(
         if (signature.size != PackedMessageSignature.SIGNATURE_BYTES) {
             return@withLock MinecraftChatVerificationResult.Invalid(MinecraftChatChainFailure.INVALID_SIGNATURE)
         }
-        if (link.sender != sender || link.sessionId != sessionId) {
+        if (signedMessageLink.sender != sender || signedMessageLink.sessionId != sessionId) {
             return@withLock MinecraftChatVerificationResult.Invalid(MinecraftChatChainFailure.UNEXPECTED_LINK)
         }
-        val message = MinecraftSignedMessage(link, body, signature)
-        if (!signatureVerifier.verify(link, body, signature)) {
+        val minecraftSignedMessage = MinecraftSignedMessage(signedMessageLink, signedMessageBody, signature)
+        if (!minecraftChatSignatureVerifier.verify(signedMessageLink, signedMessageBody, signature)) {
             return@withLock MinecraftChatVerificationResult.Invalid(MinecraftChatChainFailure.INVALID_SIGNATURE)
         }
         val previous = lastMessage
-        if (message != previous && previous != null && !link.isDescendantOf(previous.link)) {
+        if (minecraftSignedMessage != previous && previous != null && !signedMessageLink.isDescendantOf(previous.signedMessageLink)) {
             return@withLock MinecraftChatVerificationResult.Invalid(MinecraftChatChainFailure.OUT_OF_ORDER_INDEX)
         }
-        lastMessage = message
-        MinecraftChatVerificationResult.Valid(message)
+        lastMessage = minecraftSignedMessage
+        MinecraftChatVerificationResult.Valid(minecraftSignedMessage)
     }
 
     suspend fun verify(
         index: Int,
         packetSender: Uuid,
-        body: SignedMessageBody,
+        signedMessageBody: SignedMessageBody,
         signature: ByteString?,
     ): MinecraftChatVerificationResult {
         if (index < 0) {
             return MinecraftChatVerificationResult.Invalid(MinecraftChatChainFailure.OUT_OF_ORDER_INDEX)
         }
-        return verify(SignedMessageLink(index, packetSender, sessionId), body, signature)
+        return verify(SignedMessageLink(index, packetSender, sessionId), signedMessageBody, signature)
     }
 
     suspend fun lastMessage(): MinecraftSignedMessage? = mutex.withLock { lastMessage }
 }
 
 fun MinecraftProfileKeyPair.asChatSignatureSigner(): MinecraftChatSignatureSigner =
-    MinecraftChatSignatureSigner { link, body -> signChatMessage(link, body) }
+    MinecraftChatSignatureSigner { signedMessageLink, signedMessageBody ->
+        signChatMessage(signedMessageLink, signedMessageBody)
+    }
 
 fun MinecraftProfilePublicKey.asChatSignatureVerifier(): MinecraftChatSignatureVerifier =
-    MinecraftChatSignatureVerifier { link, body, signature -> verifyChatMessage(link, body, signature) }
+    MinecraftChatSignatureVerifier { signedMessageLink, signedMessageBody, signature ->
+        verifyChatMessage(signedMessageLink, signedMessageBody, signature)
+    }

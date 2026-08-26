@@ -15,9 +15,9 @@ class MinecraftSessionApiTest {
     @Test
     fun sendsAndReceivesTheSerializableEndpointModels() = runTest {
         val requests = mutableListOf<HttpRequestData>()
-        val engine = MockEngine { request ->
-            requests += request
-            when (request.url.encodedPath) {
+        val mockEngine = MockEngine { httpRequestData ->
+            requests += httpRequestData
+            when (httpRequestData.url.encodedPath) {
                 "/session/minecraft/join" -> respond("", HttpStatusCode.NoContent)
                 "/session/minecraft/hasJoined" -> respondSessionJson(
                     buildJsonObject {
@@ -61,22 +61,22 @@ class MinecraftSessionApiTest {
                     },
                 )
 
-                else -> error("Unexpected request ${request.url}")
+                else -> error("Unexpected request ${httpRequestData.url}")
             }
         }
-        HttpClient(engine).use { client ->
-            val api = MinecraftSessionApi(client)
+        HttpClient(mockEngine).use { httpClient ->
+            val minecraftSessionApi = MinecraftSessionApi(httpClient)
             val profileId = MinecraftOfflineIdentity.minecraftOfflineUuid("Notch")
 
-            api.join(
+            minecraftSessionApi.join(
                 MinecraftSessionJoinRequest(
                     accessToken = "access-token",
                     selectedProfile = profileId.toHexString(),
                     serverId = "-server-hash",
                 ),
             )
-            val joined = assertNotNull(
-                api.hasJoined(
+            val minecraftSessionHasJoinedResponse = assertNotNull(
+                minecraftSessionApi.hasJoined(
                     MinecraftSessionHasJoinedRequest(
                         username = "Notch",
                         serverId = "-server-hash",
@@ -85,21 +85,21 @@ class MinecraftSessionApiTest {
                 ),
             )
 
-            assertEquals(profileId.toHexString(), joined.id)
-            assertEquals("texture-signature", joined.properties?.single()?.signature)
-            assertEquals("FUTURE_ACTION", joined.profileActions?.single()?.type)
-            assertEquals(profileId, joined.toGameProfile("Notch").id)
+            assertEquals(profileId.toHexString(), minecraftSessionHasJoinedResponse.id)
+            assertEquals("texture-signature", minecraftSessionHasJoinedResponse.properties?.single()?.signature)
+            assertEquals("FUTURE_ACTION", minecraftSessionHasJoinedResponse.profileActions?.single()?.type)
+            assertEquals(profileId, minecraftSessionHasJoinedResponse.toGameProfile("Notch").id)
 
-            val profile = assertNotNull(
-                api.fetchProfile(
+            val minecraftSessionProfileResponse = assertNotNull(
+                minecraftSessionApi.fetchProfile(
                     profileId = profileId.toHexString(),
-                    request = MinecraftSessionProfileRequest(unsigned = false),
+                    minecraftSessionProfileRequest = MinecraftSessionProfileRequest(unsigned = false),
                 ),
             )
-            assertEquals("Notch", profile.name)
-            assertEquals("profile-texture-value", profile.properties?.single()?.value)
-            assertNull(profile.properties?.single()?.signature)
-            assertEquals(profileId, profile.toGameProfile().id)
+            assertEquals("Notch", minecraftSessionProfileResponse.name)
+            assertEquals("profile-texture-value", minecraftSessionProfileResponse.properties?.single()?.value)
+            assertNull(minecraftSessionProfileResponse.properties?.single()?.signature)
+            assertEquals(profileId, minecraftSessionProfileResponse.toGameProfile().id)
         }
 
         assertEquals(HttpMethod.Post, requests[0].method)
@@ -123,25 +123,25 @@ class MinecraftSessionApiTest {
     fun convenienceExtensionsBuildEndpointRequests() = runTest {
         val requests = mutableListOf<HttpRequestData>()
         HttpClient(
-            MockEngine { request ->
-                requests += request
+            MockEngine { httpRequestData ->
+                requests += httpRequestData
                 respond("", HttpStatusCode.NoContent)
             },
-        ).use { client ->
-            val identity = MinecraftOnlineIdentity(
+        ).use { httpClient ->
+            val minecraftOnlineIdentity = MinecraftOnlineIdentity(
                 id = MinecraftOfflineIdentity.minecraftOfflineUuid("Player"),
                 name = "Player",
                 accessToken = "access-token",
             )
-            val api = MinecraftSessionApi(client)
-            api.join(identity, MinecraftServerHash("server-hash"))
+            val minecraftSessionApi = MinecraftSessionApi(httpClient)
+            minecraftSessionApi.join(minecraftOnlineIdentity, MinecraftServerHash("server-hash"))
             assertNull(
-                api.hasJoined(
-                    username = identity.name,
+                minecraftSessionApi.hasJoined(
+                    username = minecraftOnlineIdentity.name,
                     serverId = MinecraftServerHash("server-hash"),
                 ),
             )
-            assertNull(api.fetchProfile(identity.id, requireSecure = true))
+            assertNull(minecraftSessionApi.fetchProfile(minecraftOnlineIdentity.id, requireSecure = true))
         }
 
         assertEquals("Player", requests[1].url.parameters["username"])
@@ -156,9 +156,9 @@ class MinecraftSessionApiTest {
 
     @Test
     fun acceptsEverySuccessfulJoinStatusWithoutParsingABody() = runTest {
-        for (status in listOf(HttpStatusCode.OK, HttpStatusCode.NoContent)) {
-            HttpClient(MockEngine { respond("not-json", status) }).use { client ->
-                MinecraftSessionApi(client).join(
+        for (httpStatusCode in listOf(HttpStatusCode.OK, HttpStatusCode.NoContent)) {
+            HttpClient(MockEngine { respond("not-json", httpStatusCode) }).use { httpClient ->
+                MinecraftSessionApi(httpClient).join(
                     MinecraftSessionJoinRequest(
                         accessToken = "token",
                         selectedProfile = "b50ad385829d3141a2167e7d7539ba7f",
@@ -184,13 +184,13 @@ class MinecraftSessionApiTest {
                     },
                 )
             },
-        ).use { client ->
-            val api = MinecraftSessionApi(client)
+        ).use { httpClient ->
+            val minecraftSessionApi = MinecraftSessionApi(httpClient)
             val omitted = assertNotNull(
-                api.hasJoined(MinecraftSessionHasJoinedRequest("Player", "hash")),
+                minecraftSessionApi.hasJoined(MinecraftSessionHasJoinedRequest("Player", "hash")),
             )
             val explicitNull = assertNotNull(
-                api.hasJoined(MinecraftSessionHasJoinedRequest("Player", "hash")),
+                minecraftSessionApi.hasJoined(MinecraftSessionHasJoinedRequest("Player", "hash")),
             )
 
             assertNull(omitted.properties)
@@ -228,21 +228,21 @@ class MinecraftSessionApiTest {
                     },
                 )
             },
-        ).use { client ->
-            val response = assertNotNull(
-                MinecraftSessionApi(client).hasJoined(
+        ).use { httpClient ->
+            val minecraftSessionHasJoinedResponse = assertNotNull(
+                MinecraftSessionApi(httpClient).hasJoined(
                     MinecraftSessionHasJoinedRequest("Player", "hash"),
                 ),
             )
-            assertEquals("", response.properties?.single()?.name)
-            assertNull(response.properties?.single()?.signature)
-            assertEquals("FUTURE_ACTION", response.profileActions?.single()?.type)
+            assertEquals("", minecraftSessionHasJoinedResponse.properties?.single()?.name)
+            assertNull(minecraftSessionHasJoinedResponse.properties?.single()?.signature)
+            assertEquals("FUTURE_ACTION", minecraftSessionHasJoinedResponse.profileActions?.single()?.type)
         }
     }
 
     @Test
     fun structuredFailuresExposeTheRawAndParsedResponse() = runTest {
-        val client = HttpClient(
+        val httpClient = HttpClient(
             MockEngine {
                 respond(
                     content = buildJsonObject {
@@ -256,9 +256,9 @@ class MinecraftSessionApiTest {
         ) {
             expectSuccess = true
         }
-        client.use {
+        httpClient.use {
             val failure = assertFailsWith<MinecraftSessionResponseException> {
-                MinecraftSessionApi(client).join(
+                MinecraftSessionApi(httpClient).join(
                     MinecraftSessionJoinRequest(
                         accessToken = "token",
                         selectedProfile = "b50ad385829d3141a2167e7d7539ba7f",
@@ -272,7 +272,7 @@ class MinecraftSessionApiTest {
             assertIs<ResponseException>(failure)
 
             val reconstructed = MinecraftSessionResponseException(
-                response = failure.response,
+                httpResponse = failure.response,
                 responseBody = failure.responseBody,
                 parsedErrorBody = failure.parsedErrorBody,
             )
@@ -285,25 +285,25 @@ class MinecraftSessionApiTest {
     fun decodingFailuresPropagateUnchanged() = runTest {
         HttpClient(
             MockEngine { respond("not-json", HttpStatusCode.OK) },
-        ).use { client ->
+        ).use { httpClient ->
             assertFailsWith<SerializationException> {
-                MinecraftSessionApi(client).hasJoined(
+                MinecraftSessionApi(httpClient).hasJoined(
                     MinecraftSessionHasJoinedRequest("Player", "hash"),
                 )
             }
             assertFailsWith<SerializationException> {
-                MinecraftSessionApi(client).fetchProfile(
+                MinecraftSessionApi(httpClient).fetchProfile(
                     profileId = "b50ad385829d3141a2167e7d7539ba7f",
-                    request = MinecraftSessionProfileRequest(unsigned = true),
+                    minecraftSessionProfileRequest = MinecraftSessionProfileRequest(unsigned = true),
                 )
             }
         }
 
         HttpClient(
             MockEngine { respond("not-json", HttpStatusCode.BadGateway) },
-        ).use { client ->
+        ).use { httpClient ->
             assertFailsWith<SerializationException> {
-                MinecraftSessionApi(client).join(
+                MinecraftSessionApi(httpClient).join(
                     MinecraftSessionJoinRequest(
                         accessToken = "token",
                         selectedProfile = "profile",
@@ -313,22 +313,22 @@ class MinecraftSessionApiTest {
             }
         }
 
-        val response = MinecraftSessionHasJoinedResponse(id = "not-a-uuid")
+        val minecraftSessionHasJoinedResponse = MinecraftSessionHasJoinedResponse(id = "not-a-uuid")
         assertFailsWith<IllegalArgumentException> {
-            response.toGameProfile("Player")
+            minecraftSessionHasJoinedResponse.toGameProfile("Player")
         }
     }
 
     @Test
     fun transportFailuresPropagateUnchanged() = runTest {
-        val expected = ExpectedSessionTransportFailure()
-        HttpClient(MockEngine { throw expected }).use { client ->
+        val expectedSessionTransportFailure = ExpectedSessionTransportFailure()
+        HttpClient(MockEngine { throw expectedSessionTransportFailure }).use { httpClient ->
             val actual = assertFailsWith<ExpectedSessionTransportFailure> {
-                MinecraftSessionApi(client).hasJoined(
+                MinecraftSessionApi(httpClient).hasJoined(
                     MinecraftSessionHasJoinedRequest("Player", "hash"),
                 )
             }
-            assertSame(expected, actual)
+            assertSame(expectedSessionTransportFailure, actual)
         }
     }
 }

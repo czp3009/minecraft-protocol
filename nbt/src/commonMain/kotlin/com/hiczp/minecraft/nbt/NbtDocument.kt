@@ -3,10 +3,10 @@ package com.hiczp.minecraft.nbt
 /** A named NBT value in the traditional binary root representation. */
 data class NamedNbtTag(
     val name: String,
-    val tag: NbtTag,
+    val nbtTag: NbtTag,
 ) {
     init {
-        require(tag !== NbtEnd) { "A named NBT value cannot be TAG_End" }
+        require(nbtTag !== NbtEnd) { "A named NBT value cannot be TAG_End" }
     }
 }
 

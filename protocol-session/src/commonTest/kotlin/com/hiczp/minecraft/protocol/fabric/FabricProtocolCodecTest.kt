@@ -14,7 +14,7 @@ import kotlinx.io.readByteArray
 import kotlin.test.*
 
 class FabricProtocolCodecTest {
-    private val registry = PacketRegistry(
+    private val packetRegistry = PacketRegistry(
         MinecraftPacketRegistry.entries,
         FabricProtocol.packetCodecs,
     )
@@ -51,20 +51,20 @@ class FabricProtocolCodecTest {
 
     @Test
     fun legacyRegistrationIsUnprefixedNulSeparatedAscii() {
-        val packet = FabricRegisterChannelsPacket(
+        val fabricRegisterChannelsPacket = FabricRegisterChannelsPacket(
             listOf(Identifier("a:b"), Identifier("c:d")),
         )
-        val bytes = encode(
-            packet,
+        val byteArray = encode(
+            fabricRegisterChannelsPacket,
             ConnectionState.CONFIGURATION,
             PacketDirection.CLIENTBOUND,
         )
-        assertContentEquals("a:b\u0000c:d".encodeToByteArray(), bytes)
+        assertContentEquals("a:b\u0000c:d".encodeToByteArray(), byteArray)
         assertEquals(
-            packet,
+            fabricRegisterChannelsPacket,
             decode(
                 FabricChannels.Register,
-                bytes,
+                byteArray,
                 PacketDirection.CLIENTBOUND,
             ),
         )
@@ -79,7 +79,7 @@ class FabricProtocolCodecTest {
 
     @Test
     fun optimizedRegistrySnapshotRoundTripsExactGrouping() {
-        val packet = FabricRegistrySyncPacket(
+        val fabricRegistrySyncPacket = FabricRegistrySyncPacket(
             RemoteRegistrySnapshot(
                 listOf(
                     RemoteRegistry(
@@ -92,8 +92,8 @@ class FabricProtocolCodecTest {
                 ),
             ),
         )
-        val bytes = encode(
-            packet,
+        val byteArray = encode(
+            fabricRegistrySyncPacket,
             ConnectionState.CONFIGURATION,
             PacketDirection.CLIENTBOUND,
         )
@@ -119,13 +119,13 @@ class FabricProtocolCodecTest {
                 5, 'b'.code.toByte(), 'l'.code.toByte(), 'o'.code.toByte(),
                 'c'.code.toByte(), 'k'.code.toByte(),
             ),
-            bytes,
+            byteArray,
         )
         assertEquals(
-            packet,
+            fabricRegistrySyncPacket,
             decode(
                 FabricChannels.RegistrySync,
-                bytes,
+                byteArray,
                 PacketDirection.CLIENTBOUND,
             ),
         )
@@ -151,7 +151,7 @@ class FabricProtocolCodecTest {
 
     @Test
     fun splitEnvelopeReassemblesFullOuterPayload() {
-        val routed = RoutedCustomPayload(
+        val routedCustomPayload = RoutedCustomPayload(
             PacketRoute.CustomPayload(
                 ConnectionState.CONFIGURATION,
                 PacketDirection.CLIENTBOUND,
@@ -161,35 +161,35 @@ class FabricProtocolCodecTest {
             ByteString(ByteArray(96) { it.toByte() }),
         )
         val fragments = FabricSplitPayloads.split(
-            routed,
+            routedCustomPayload,
             maximumChunkSize = 32,
         )
         assertTrue(fragments.size > 1)
-        val assembler = FabricSplitAssembler(
+        val fabricSplitAssembler = FabricSplitAssembler(
             setOf(Identifier("mod:large")),
         )
-        var result: RoutedCustomPayload? = null
+        var reassembledRoutedCustomPayload: RoutedCustomPayload? = null
         fragments.forEach { fragment ->
-            result = assembler.accept(
+            reassembledRoutedCustomPayload = fabricSplitAssembler.accept(
                 ConnectionState.CONFIGURATION,
                 PacketDirection.CLIENTBOUND,
                 fragment,
             )
         }
-        assertEquals(routed, result)
-        assertFalse(assembler.isCollecting)
+        assertEquals(routedCustomPayload, reassembledRoutedCustomPayload)
+        assertFalse(fabricSplitAssembler.isCollecting)
     }
 
     private fun encode(
         packet: Packet,
-        state: ConnectionState,
-        direction: PacketDirection,
+        connectionState: ConnectionState,
+        packetDirection: PacketDirection,
     ): ByteArray {
         val buffer = Buffer()
-        registry.encodeExtensionPayloadToSink(
+        packetRegistry.encodeExtensionPayloadToSink(
             packet,
-            state,
-            direction,
+            connectionState,
+            packetDirection,
             buffer,
         )
         return buffer.readByteArray()
@@ -198,13 +198,13 @@ class FabricProtocolCodecTest {
     private fun decode(
         channel: Identifier,
         bytes: ByteArray,
-        direction: PacketDirection,
+        packetDirection: PacketDirection,
     ): Packet {
         val buffer = Buffer().apply { write(bytes) }
-        return registry.decodeExtensionPayloadFromSource(
+        return packetRegistry.decodeExtensionPayloadFromSource(
             PacketRoute.CustomPayload(
                 ConnectionState.CONFIGURATION,
-                direction,
+                packetDirection,
                 packetId = 0,
                 channel = channel,
             ),

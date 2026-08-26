@@ -25,10 +25,10 @@ import kotlin.uuid.Uuid
 class MinecraftClientProtocolFailureTest {
     @Test
     fun buildsOfflineIdentityInput() {
-        val offline = MinecraftOfflineIdentity("ClientProbe")
+        val minecraftOfflineIdentity = MinecraftOfflineIdentity("ClientProbe")
         assertEquals(
             MinecraftOfflineIdentity.minecraftOfflineUuid("ClientProbe"),
-            offline.id,
+            minecraftOfflineIdentity.id,
         )
     }
 
@@ -94,11 +94,11 @@ class MinecraftClientProtocolFailureTest {
 
         run {
             val (client, serverSession) = connectionPair()
-            val keyPair = MinecraftServerKeyPair.generate()
+            val minecraftServerKeyPair = MinecraftServerKeyPair.generate()
             val server = async {
                 serverSession.receive()
                 serverSession.receive()
-                serverSession.send(keyPair.createChallenge().toEncryptionRequestPacket())
+                serverSession.send(minecraftServerKeyPair.createChallenge().toEncryptionRequestPacket())
             }
             val failure = assertFailsWith<MinecraftClientException> {
                 client.negotiate(MinecraftOfflineIdentity("ClientProbe"))
@@ -110,15 +110,15 @@ class MinecraftClientProtocolFailureTest {
 
         run {
             val (client, serverSession) = connectionPair()
-            val identity = onlineIdentity()
-            val keyPair = MinecraftServerKeyPair.generate()
+            val minecraftOnlineIdentity = onlineIdentity()
+            val minecraftServerKeyPair = MinecraftServerKeyPair.generate()
             val server = async {
                 serverSession.receive()
                 serverSession.receive()
-                serverSession.send(keyPair.createChallenge().toEncryptionRequestPacket())
+                serverSession.send(minecraftServerKeyPair.createChallenge().toEncryptionRequestPacket())
             }
             val failure = assertFailsWith<MinecraftClientException> {
-                client.negotiate(identity)
+                client.negotiate(minecraftOnlineIdentity)
             }
             assertContains(
                 failure.message.orEmpty(),
@@ -133,33 +133,33 @@ class MinecraftClientProtocolFailureTest {
     fun completesOnlineJoinEncryptionCompressionAndPlayEntry() = runTest {
         var joinRequests = 0
         val httpClient = HttpClient(
-            MockEngine { request ->
-                assertEquals("/session/minecraft/join", request.url.encodedPath)
+            MockEngine { httpRequestData ->
+                assertEquals("/session/minecraft/join", httpRequestData.url.encodedPath)
                 joinRequests++
                 respond("", HttpStatusCode.NoContent)
             },
         ) {
             followRedirects = false
         }
-        val identity = onlineIdentity()
-        val keyPair = MinecraftServerKeyPair.generate()
+        val minecraftOnlineIdentity = onlineIdentity()
+        val minecraftServerKeyPair = MinecraftServerKeyPair.generate()
         val (client, serverSession) = connectionPair()
         val loginSuccessPacket = LoginSuccessPacket(
-            GameProfile(identity.id, identity.name, emptyList()),
+            GameProfile(minecraftOnlineIdentity.id, minecraftOnlineIdentity.name, emptyList()),
             Uuid.fromLongs(3, 4),
         )
         val playLoginPacket = createPlayLoginPacket(onlineMode = true)
         val server = async {
             assertIs<HandshakePacket>(serverSession.receive())
             assertEquals(
-                LoginStartPacket(identity.name, identity.id),
+                LoginStartPacket(minecraftOnlineIdentity.name, minecraftOnlineIdentity.id),
                 serverSession.receive(),
             )
-            val challenge = keyPair.createChallenge()
-            serverSession.send(challenge.toEncryptionRequestPacket())
-            val response = assertIs<EncryptionResponsePacket>(serverSession.receive())
-            val exchange = challenge.accept(response)
-            val secret = exchange.sharedSecret
+            val minecraftServerChallenge = minecraftServerKeyPair.createChallenge()
+            serverSession.send(minecraftServerChallenge.toEncryptionRequestPacket())
+            val encryptionResponsePacket = assertIs<EncryptionResponsePacket>(serverSession.receive())
+            val minecraftServerKeyExchangeResult = minecraftServerChallenge.accept(encryptionResponsePacket)
+            val secret = minecraftServerKeyExchangeResult.sharedSecret
             try {
                 serverSession.enableEncryption(secret)
                 serverSession.send(SetCompressionPacket(32))
@@ -180,11 +180,11 @@ class MinecraftClientProtocolFailureTest {
             }
         }
 
-        val result = client.negotiate(identity, httpClient)
+        val minecraftClientNegotiationResult = client.negotiate(minecraftOnlineIdentity, httpClient)
 
         assertEquals(1, joinRequests)
-        assertEquals(loginSuccessPacket, result.loginSuccessPacket)
-        assertEquals(playLoginPacket, result.playLoginPacket)
+        assertEquals(loginSuccessPacket, minecraftClientNegotiationResult.loginSuccessPacket)
+        assertEquals(playLoginPacket, minecraftClientNegotiationResult.playLoginPacket)
         server.await()
         client.close()
         httpClient.close()
@@ -192,7 +192,7 @@ class MinecraftClientProtocolFailureTest {
 
     @Test
     fun answersUnknownLoginQueriesWithoutClaimingUnderstanding() = runTest {
-        val identity = MinecraftOfflineIdentity("QueryProbe")
+        val minecraftOfflineIdentity = MinecraftOfflineIdentity("QueryProbe")
         val queryChannel = Identifier("mod:query")
         val (client, serverSession) = connectionPair()
         val server = async {
@@ -210,33 +210,33 @@ class MinecraftClientProtocolFailureTest {
             )
             assertEquals(
                 PacketRoute.LoginQuery(
-                    direction = PacketDirection.SERVERBOUND,
+                    packetDirection = PacketDirection.SERVERBOUND,
                     transactionId = 7,
                     channel = queryChannel,
                     hasPayload = false,
                 ),
-                response.route,
+                response.packetRoute,
             )
-            completeOfflineNegotiation(serverSession, identity)
+            completeOfflineNegotiation(serverSession, minecraftOfflineIdentity)
         }
 
-        val result = client.negotiate(identity)
+        val minecraftClientNegotiationResult = client.negotiate(minecraftOfflineIdentity)
 
-        assertEquals(identity.id, result.loginSuccessPacket.profile.id)
+        assertEquals(minecraftOfflineIdentity.id, minecraftClientNegotiationResult.loginSuccessPacket.profile.id)
         server.await()
         client.close()
     }
 
     @Test
     fun policyFailuresDoNotEmitImplicitPackets() = runTest {
-        val identity = MinecraftOfflineIdentity("PolicyProbe")
+        val minecraftOfflineIdentity = MinecraftOfflineIdentity("PolicyProbe")
         val (client, serverSession) = connectionPair()
         val server = async {
             serverSession.receive()
             serverSession.receive()
             serverSession.send(
                 LoginSuccessPacket(
-                    GameProfile(identity.id, identity.name, emptyList()),
+                    GameProfile(minecraftOfflineIdentity.id, minecraftOfflineIdentity.name, emptyList()),
                     Uuid.fromLongs(1, 2),
                 ),
             )
@@ -247,8 +247,8 @@ class MinecraftClientProtocolFailureTest {
 
         val failure = assertFailsWith<MinecraftClientException> {
             client.negotiate(
-                identity,
-                options = MinecraftClientNegotiationOptions(
+                minecraftOfflineIdentity,
+                minecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(
                     acceptCodeOfConduct = false,
                 ),
             )
@@ -264,8 +264,8 @@ class MinecraftClientProtocolFailureTest {
 
     @Test
     fun rejectsDuplicateDynamicRegistries() = runTest {
-        val identity = MinecraftOfflineIdentity("RegistryProbe")
-        val registry = RegistryDataPacket(
+        val minecraftOfflineIdentity = MinecraftOfflineIdentity("RegistryProbe")
+        val registryDataPacket = RegistryDataPacket(
             Identifier("worldgen/biome"),
             listOf(RegistryEntry(Identifier("test:biome"), null)),
         )
@@ -275,18 +275,18 @@ class MinecraftClientProtocolFailureTest {
             serverSession.receive()
             serverSession.send(
                 LoginSuccessPacket(
-                    GameProfile(identity.id, identity.name, emptyList()),
+                    GameProfile(minecraftOfflineIdentity.id, minecraftOfflineIdentity.name, emptyList()),
                     Uuid.fromLongs(1, 2),
                 ),
             )
             serverSession.receive()
             serverSession.receive()
-            serverSession.send(registry)
-            serverSession.send(registry)
+            serverSession.send(registryDataPacket)
+            serverSession.send(registryDataPacket)
         }
 
         val failure = assertFailsWith<MinecraftClientException> {
-            client.negotiate(identity)
+            client.negotiate(minecraftOfflineIdentity)
         }
 
         assertContains(failure.message.orEmpty(), "duplicate registry")
@@ -295,23 +295,23 @@ class MinecraftClientProtocolFailureTest {
     }
 
     private suspend fun completeOfflineNegotiation(
-        server: MinecraftServerPacketSession,
-        identity: MinecraftOfflineIdentity,
+        minecraftServerPacketSession: MinecraftServerPacketSession,
+        minecraftOfflineIdentity: MinecraftOfflineIdentity,
     ) {
-        server.send(
+        minecraftServerPacketSession.send(
             LoginSuccessPacket(
-                GameProfile(identity.id, identity.name, emptyList()),
+                GameProfile(minecraftOfflineIdentity.id, minecraftOfflineIdentity.name, emptyList()),
                 Uuid.fromLongs(1, 2),
             ),
         )
-        assertEquals(LoginAcknowledgedPacket, server.receive())
-        assertIs<ConfigurationClientInformationPacket>(server.receive())
+        assertEquals(LoginAcknowledgedPacket, minecraftServerPacketSession.receive())
+        assertIs<ConfigurationClientInformationPacket>(minecraftServerPacketSession.receive())
         VanillaProtocolData.synchronizedRegistryPackets(
             VanillaProtocolData.offeredKnownPacks,
-        ).forEach { registryDataPacket -> server.send(registryDataPacket) }
-        server.send(FinishConfigurationPacket)
-        assertEquals(AcknowledgeFinishConfigurationPacket, server.receive())
-        server.send(createPlayLoginPacket())
+        ).forEach { registryDataPacket -> minecraftServerPacketSession.send(registryDataPacket) }
+        minecraftServerPacketSession.send(FinishConfigurationPacket)
+        assertEquals(AcknowledgeFinishConfigurationPacket, minecraftServerPacketSession.receive())
+        minecraftServerPacketSession.send(createPlayLoginPacket())
     }
 
     private fun connectionPair(): Pair<MinecraftClientConnection, MinecraftServerPacketSession> {
@@ -319,10 +319,10 @@ class MinecraftClientProtocolFailureTest {
         val serverToClient = ByteChannel(autoFlush = true)
         val clientFrames = MinecraftFrameStream(serverToClient, clientToServer)
         val client = MinecraftClientConnection(
-            connection = createMinecraftClientPacketConnection(
-                frameStream = clientFrames,
+            minecraftClientPacketConnection = createMinecraftClientPacketConnection(
+                minecraftFrameStream = clientFrames,
                 closeTransport = { clientFrames.cancel() },
-                definition = MinecraftConnectionDefinition(),
+                minecraftConnectionDefinition = MinecraftConnectionDefinition(),
             ),
             serverAddress = "localhost",
             serverPort = 25_565,

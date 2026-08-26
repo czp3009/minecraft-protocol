@@ -12,15 +12,15 @@ class ProtocolModelInvariantTest {
     @Test
     fun `packed primitive values preserve boundaries and defensive copies`() {
         val packed = longArrayOf(Long.MIN_VALUE, 0, Long.MAX_VALUE)
-        val value = PackedLongArray(packed)
+        val packedLongArray = PackedLongArray(packed)
         packed[0] = 1
 
-        assertEquals(PackedLongArray(longArrayOf(Long.MIN_VALUE, 0, Long.MAX_VALUE)), value)
-        val exported = value.toLongArray()
+        assertEquals(PackedLongArray(longArrayOf(Long.MIN_VALUE, 0, Long.MAX_VALUE)), packedLongArray)
+        val exported = packedLongArray.toLongArray()
         exported[1] = 1
         assertContentEquals(
             longArrayOf(Long.MIN_VALUE, 0, Long.MAX_VALUE),
-            value.toLongArray(),
+            packedLongArray.toLongArray(),
         )
 
         val sectionPositions = listOf(
@@ -41,13 +41,13 @@ class ProtocolModelInvariantTest {
             assertEquals(it, SectionPosition.fromPacked(it.packed()))
         }
 
-        val change = SectionBlockChange(
+        val sectionBlockChange = SectionBlockChange(
             blockStateId = Int.MAX_VALUE ushr 12,
             localX = 15,
             localY = 15,
             localZ = 15,
         )
-        assertEquals(change, SectionBlockChange.fromPacked(change.packed()))
+        assertEquals(sectionBlockChange, SectionBlockChange.fromPacked(sectionBlockChange.packed()))
         val blockEntityInfo = BlockEntityInfo.fromLocalCoordinates(15, -64, 3, 4, null)
         assertEquals(15, blockEntityInfo.localX)
         assertEquals(3, blockEntityInfo.localZ)
@@ -218,13 +218,13 @@ class ProtocolModelInvariantTest {
 
         for (notification in listOf(false, true)) {
             for (highlight in listOf(false, true)) {
-                val book = RecipeBookEntry.of(
+                val recipeBookEntry = RecipeBookEntry.of(
                     entry(),
                     notification = notification,
                     highlight = highlight,
                 )
-                assertEquals(notification, book.notification)
-                assertEquals(highlight, book.highlight)
+                assertEquals(notification, recipeBookEntry.notification)
+                assertEquals(highlight, recipeBookEntry.highlight)
             }
         }
     }
@@ -443,14 +443,14 @@ class ProtocolModelInvariantTest {
     @Test
     fun `bit set exposes unsigned bit addressing without mutable storage`() {
         val words = longArrayOf(1L, Long.MIN_VALUE)
-        val bits = BitSet(words)
+        val bitSet = BitSet(words)
         words[0] = 0
 
-        assertTrue(bits[0])
-        assertTrue(bits[127])
-        assertFalse(bits[1])
-        assertFalse(bits[128])
-        assertFailsWith<IllegalArgumentException> { bits[-1] }
+        assertTrue(bitSet[0])
+        assertTrue(bitSet[127])
+        assertFalse(bitSet[1])
+        assertFalse(bitSet[128])
+        assertFailsWith<IllegalArgumentException> { bitSet[-1] }
     }
 
     private fun chunkSection(

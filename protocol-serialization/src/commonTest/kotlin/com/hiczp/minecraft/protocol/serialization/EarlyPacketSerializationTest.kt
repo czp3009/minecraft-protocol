@@ -16,7 +16,7 @@ import kotlin.test.assertEquals
 class EarlyPacketSerializationTest {
     @Test
     fun `handshake matches the selected protocol golden payload`() {
-        val packet = HandshakePacket(
+        val handshakePacket = HandshakePacket(
             protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
             serverAddress = "localhost",
             serverPort = 25_565,
@@ -25,25 +25,25 @@ class EarlyPacketSerializationTest {
         val expected = "8806096c6f63616c686f737463dd02".hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(packet),
+            MinecraftProtocolFormat.encodeToByteArray(handshakePacket),
         )
         assertEquals(
-            expected = packet,
+            expected = handshakePacket,
             actual = MinecraftProtocolFormat.decodeFromByteArray<HandshakePacket>(expected),
         )
     }
 
     @Test
     fun `legacy ping payload is exactly one byte`() {
-        val packet = LegacyServerListPingPacket()
+        val legacyServerListPingPacket = LegacyServerListPingPacket()
         assertContentEquals(
             byteArrayOf(1),
             MinecraftProtocolFormat.encodeToByteArray(
-                packet,
+                legacyServerListPingPacket,
             ),
         )
         assertEquals(
-            expected = packet,
+            expected = legacyServerListPingPacket,
             actual = MinecraftProtocolFormat.decodeFromByteArray<LegacyServerListPingPacket>(
                 byteArrayOf(1),
             ),
@@ -64,13 +64,13 @@ class EarlyPacketSerializationTest {
         )
 
         val present = absent.copy(payload = NbtString("ok"))
-        val bytes = MinecraftProtocolFormat.encodeToByteArray(
+        val byteArray = MinecraftProtocolFormat.encodeToByteArray(
             present,
         )
         assertEquals(
             present,
             MinecraftProtocolFormat.decodeFromByteArray<ConfigurationCustomClickActionPacket>(
-                bytes,
+                byteArray,
             ),
         )
     }

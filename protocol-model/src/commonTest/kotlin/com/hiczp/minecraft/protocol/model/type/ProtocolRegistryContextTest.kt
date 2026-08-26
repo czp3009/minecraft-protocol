@@ -10,7 +10,7 @@ class ProtocolRegistryContextTest {
     fun remoteBlockOrderDefinesGlobalStateIds() {
         val first = Identifier("test:first")
         val second = Identifier("test:second")
-        val schema = StaticRegistrySchema(
+        val staticRegistrySchema = StaticRegistrySchema(
             registries = mapOf(
                 StaticRegistrySchema.BLOCK_REGISTRY to listOf(first, second),
             ),
@@ -28,7 +28,7 @@ class ProtocolRegistryContextTest {
                 ),
             ),
         )
-        val context = schema.resolve(
+        val protocolRegistryContext = staticRegistrySchema.resolve(
             RemoteRegistrySnapshot(
                 listOf(
                     RemoteRegistry(
@@ -42,19 +42,19 @@ class ProtocolRegistryContextTest {
             ),
         )
 
-        assertEquals(listOf(second, first, first), context.blockStates.map { it.block })
-        assertEquals(listOf(0, 1, 2), context.blockStates.map { it.id })
+        assertEquals(listOf(second, first, first), protocolRegistryContext.blockStates.map { it.block })
+        assertEquals(listOf(0, 1, 2), protocolRegistryContext.blockStates.map { it.id })
         assertEquals(
             mapOf("kind" to "a"),
-            context.blockStates[1].properties,
+            protocolRegistryContext.blockStates[1].properties,
         )
     }
 
     @Test
     fun missingModBlockSchemasAreReportedTogether() {
-        val schema = StaticRegistrySchema(emptyMap(), emptyList())
-        val missing = assertFailsWith<MissingStaticBlockSchemas> {
-            schema.resolve(
+        val staticRegistrySchema = StaticRegistrySchema(emptyMap(), emptyList())
+        val missingStaticBlockSchemas = assertFailsWith<MissingStaticBlockSchemas> {
+            staticRegistrySchema.resolve(
                 RemoteRegistrySnapshot(
                     listOf(
                         RemoteRegistry(
@@ -71,13 +71,13 @@ class ProtocolRegistryContextTest {
 
         assertEquals(
             listOf(Identifier("mod:first"), Identifier("mod:second")),
-            missing.blockIds,
+            missingStaticBlockSchemas.blockIds,
         )
     }
 
     @Test
     fun derivedContextsShareCallerOwnedLargeSnapshots() {
-        val registry = ProtocolRegistry(
+        val protocolRegistry = ProtocolRegistry(
             Identifier("test:registry"),
             listOf(
                 ProtocolRegistryEntry(Identifier("test:entry"), 0),
@@ -91,7 +91,7 @@ class ProtocolRegistryContextTest {
                 isDefault = true,
             ),
         )
-        val base = ProtocolRegistryContext(listOf(registry), blockStates)
+        val base = ProtocolRegistryContext(listOf(protocolRegistry), blockStates)
         val dimension = base.withChunkSectionCount(24)
         val sized = dimension.withRegistrySize(
             ProtocolRegistryContext.BIOME_REGISTRY,
@@ -162,7 +162,7 @@ class ProtocolRegistryContextTest {
         val canonicalBlock = Identifier("mod:canonical")
         val aliasBlock = Identifier("mod:alias")
         val biome = Identifier("mod:biome")
-        val context = StaticRegistrySchema(
+        val protocolRegistryContext = StaticRegistrySchema(
             registries = mapOf(
                 StaticRegistrySchema.BLOCK_REGISTRY to listOf(canonicalBlock),
                 ProtocolRegistryContext.BIOME_REGISTRY to listOf(biome),
@@ -196,11 +196,11 @@ class ProtocolRegistryContextTest {
 
         assertEquals(
             canonicalBlock,
-            context.requireDefaultBlockState(aliasBlock).block,
+            protocolRegistryContext.requireDefaultBlockState(aliasBlock).block,
         )
         assertEquals(
             7,
-            context.requireRegistryEntry(
+            protocolRegistryContext.requireRegistryEntry(
                 ProtocolRegistryContext.BIOME_REGISTRY,
                 biome,
             ).rawId,

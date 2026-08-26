@@ -24,12 +24,12 @@ class FileIOTest {
                     exposed.cause === kotlinxFailure,
         )
 
-        val cancellation = CancellationException("boundary cancelled")
+        val cancellationException = CancellationException("boundary cancelled")
         assertSame(
-            cancellation,
+            cancellationException,
             assertFailsWith<CancellationException> {
                 withOkioIoExceptions("world-io boundary") {
-                    throw cancellation
+                    throw cancellationException
                 }
             },
         )
@@ -50,26 +50,26 @@ class FileIOTest {
 
     @Test
     fun snapshotReadsRejectMissingDirectoriesAndUnderConsumption() {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val path = "/world/value.dat".toPath()
 
         assertFailsWith<WorldIOException> {
-            fileSystem.readFileBytes(path)
+            fakeFileSystem.readFileBytes(path)
         }
-        fileSystem.createDirectories(path)
+        fakeFileSystem.createDirectories(path)
         assertFailsWith<WorldIOException> {
-            fileSystem.readFileBytes(path)
+            fakeFileSystem.readFileBytes(path)
         }
-        fileSystem.delete(path)
-        fileSystem.writeRaw(path, byteArrayOf(1, 2, 3))
+        fakeFileSystem.delete(path)
+        fakeFileSystem.writeRaw(path, byteArrayOf(1, 2, 3))
         assertContentEquals(
             byteArrayOf(1, 2, 3),
-            fileSystem.readFileBytes(path),
+            fakeFileSystem.readFileBytes(path),
         )
         assertFailsWith<WorldIOException> {
-            fileSystem.readFile(path) { _, _ -> }
+            fakeFileSystem.readFile(path) { _, _ -> }
         }
-        fileSystem.checkNoOpenFiles()
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
@@ -78,22 +78,22 @@ class FileIOTest {
         val path = "/world/value.dat".toPath()
         base.writeRaw(path, byteArrayOf(1))
         val closeFailure = IllegalArgumentException("close")
-        val fileSystem = CloseFailingSourceFileSystem(
+        val closeFailingSourceFileSystem = CloseFailingSourceFileSystem(
             base,
             closeFailure,
         )
         val original = IllegalStateException("block")
 
         val thrown = assertFailsWith<IllegalStateException> {
-            fileSystem.readFile(path) { _, _ -> throw original }
+            closeFailingSourceFileSystem.readFile(path) { _, _ -> throw original }
         }
 
         assertSame(original, thrown)
         assertSame(closeFailure, thrown.suppressedExceptions.single())
 
         val closeOnly = assertFailsWith<IllegalArgumentException> {
-            fileSystem.readFile(path) { source, _ ->
-                source.readByteArray(1)
+            closeFailingSourceFileSystem.readFile(path) { bufferedSource, _ ->
+                bufferedSource.readByteArray(1)
             }
         }
         assertSame(closeFailure, closeOnly)
@@ -136,7 +136,7 @@ class FileIOTest {
     @Test
     fun cleanupAggregationKeepsCancellationPrimaryAndRunsEveryCleanup() {
         val operationFailure = IllegalStateException("operation")
-        val cancellation = CancellationException("cleanup cancelled")
+        val cancellationException = CancellationException("cleanup cancelled")
         var finalCleanupRan = false
 
         val thrown = assertFailsWith<CancellationException> {
@@ -145,13 +145,13 @@ class FileIOTest {
             } finally {
                 closeAllPreserving(
                     operationFailure,
-                    { throw cancellation },
+                    { throw cancellationException },
                     { finalCleanupRan = true },
                 )
             }
         }
 
-        assertSame(cancellation, thrown)
+        assertSame(cancellationException, thrown)
         assertSame(operationFailure, thrown.suppressedExceptions.single())
         assertTrue(finalCleanupRan)
     }
@@ -159,28 +159,28 @@ class FileIOTest {
     @Test
     fun nonCancellableCleanupKeepsTheExactThrownCancellationAndItsDiagnostics() = runTest {
         val operationFailure = IllegalStateException("operation")
-        val cancellation = CancellationException("cleanup cancelled")
+        val cancellationException = CancellationException("cleanup cancelled")
 
         val result = collectCleanupFailure(operationFailure) {
-            throw cancellation
+            throw cancellationException
         }
 
-        assertSame(cancellation, result)
-        assertSame(operationFailure, cancellation.suppressedExceptions.single())
+        assertSame(cancellationException, result)
+        assertSame(operationFailure, cancellationException.suppressedExceptions.single())
     }
 
     @Test
     fun resourceCloseCancellationOverridesBlockFailureWithoutLosingIt() {
         val operationFailure = IllegalStateException("operation")
-        val cancellation = CancellationException("resource close cancelled")
+        val cancellationException = CancellationException("resource close cancelled")
 
         val thrown = assertFailsWith<CancellationException> {
-            useResource(Unit, { throw cancellation }) {
+            useResource(Unit, { throw cancellationException }) {
                 throw operationFailure
             }
         }
 
-        assertSame(cancellation, thrown)
+        assertSame(cancellationException, thrown)
         assertSame(operationFailure, thrown.suppressedExceptions.single())
     }
 
@@ -208,24 +208,24 @@ class FileIOTest {
     @Test
     fun countingSinkTracksCountsFlushAndCloseOwnership() {
         val delegate = RecordingSink()
-        val sink = CountingSink(
+        val countingSink = CountingSink(
             delegate = delegate,
             closeDelegate = true,
         )
         val source = Buffer().apply { write(byteArrayOf(1, 2, 3)) }
 
         assertFailsWith<IllegalArgumentException> {
-            sink.write(source, -1)
+            countingSink.write(source, -1)
         }
-        sink.write(source, 3)
-        sink.flush()
-        sink.close()
+        countingSink.write(source, 3)
+        countingSink.flush()
+        countingSink.close()
 
         assertContentEquals(
             byteArrayOf(1, 2, 3),
             delegate.buffer.readByteArray(),
         )
-        assertEquals(3, sink.bytesWritten)
+        assertEquals(3, countingSink.bytesWritten)
         assertEquals(1, delegate.flushes)
         assertTrue(delegate.closed)
 
@@ -236,42 +236,42 @@ class FileIOTest {
 
     @Test
     fun uniqueTemporaryFilesUseTheirDirectoryAndIndependentHandles() {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val directory = "/world/data".toPath()
-        val first = fileSystem.openUniqueTemporarySink(directory)
-        val second = fileSystem.openUniqueTemporaryHandle(directory)
+        val first = fakeFileSystem.openUniqueTemporarySink(directory)
+        val second = fakeFileSystem.openUniqueTemporaryHandle(directory)
 
         assertNotEquals(first.path, second.path)
         assertEquals(directory, first.path.parent)
         assertEquals(directory, second.path.parent)
         first.sink.close()
-        second.handle.close()
-        assertTrue(fileSystem.exists(first.path))
-        assertTrue(fileSystem.exists(second.path))
-        fileSystem.delete(first.path)
-        fileSystem.delete(second.path)
-        fileSystem.checkNoOpenFiles()
+        second.fileHandle.close()
+        assertTrue(fakeFileSystem.exists(first.path))
+        assertTrue(fakeFileSystem.exists(second.path))
+        fakeFileSystem.delete(first.path)
+        fakeFileSystem.delete(second.path)
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
     fun temporaryCreationRetriesCollisionsAndPropagatesUnrelatedIoFailures() {
         val base = FakeFileSystem()
-        val sinkFileSystem = TemporarySinkFileSystem(base, collisions = 2)
-        val sink = sinkFileSystem.openUniqueTemporarySink(
+        val temporarySinkFileSystem = TemporarySinkFileSystem(base, collisions = 2)
+        val temporaryFileSink = temporarySinkFileSystem.openUniqueTemporarySink(
             "/sink".toPath(),
         )
-        assertEquals(3, sinkFileSystem.attempts)
-        sink.sink.close()
+        assertEquals(3, temporarySinkFileSystem.attempts)
+        temporaryFileSink.sink.close()
 
-        val handleFileSystem = TemporaryHandleFileSystem(
+        val temporaryHandleFileSystem = TemporaryHandleFileSystem(
             base,
             collisions = 2,
         )
-        val handle = handleFileSystem.openUniqueTemporaryHandle(
+        val temporaryFileHandle = temporaryHandleFileSystem.openUniqueTemporaryHandle(
             "/handle".toPath(),
         )
-        assertEquals(3, handleFileSystem.attempts)
-        handle.handle.close()
+        assertEquals(3, temporaryHandleFileSystem.attempts)
+        temporaryFileHandle.fileHandle.close()
 
         val sinkFailure = IOException("synthetic sink open failure")
         val failingSink = TemporarySinkFileSystem(
@@ -308,70 +308,70 @@ class FileIOTest {
     @Test
     fun temporaryCreationReportsExhaustedCollisionBudgets() {
         val sinkBase = FakeFileSystem()
-        val sinkFileSystem = TemporarySinkFileSystem(
+        val temporarySinkFileSystem = TemporarySinkFileSystem(
             sinkBase,
             collisions = 256,
         )
         assertFailsWith<WorldIOException> {
-            sinkFileSystem.openUniqueTemporarySink("/sink".toPath())
+            temporarySinkFileSystem.openUniqueTemporarySink("/sink".toPath())
         }
-        assertEquals(256, sinkFileSystem.attempts)
+        assertEquals(256, temporarySinkFileSystem.attempts)
         sinkBase.checkNoOpenFiles()
 
         val handleBase = FakeFileSystem()
-        val handleFileSystem = TemporaryHandleFileSystem(
+        val temporaryHandleFileSystem = TemporaryHandleFileSystem(
             handleBase,
             collisions = 256,
         )
         assertFailsWith<WorldIOException> {
-            handleFileSystem.openUniqueTemporaryHandle("/handle".toPath())
+            temporaryHandleFileSystem.openUniqueTemporaryHandle("/handle".toPath())
         }
-        assertEquals(256, handleFileSystem.attempts)
+        assertEquals(256, temporaryHandleFileSystem.attempts)
         handleBase.checkNoOpenFiles()
     }
 
     @Test
     fun replacementWithoutAnExistingTargetMovesDirectlyAndCleanupSuppresses() {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val temporary = "/world/.tmp-value".toPath()
         val target = "/world/value.dat".toPath()
         val backup = "/world/value.dat_old".toPath()
-        fileSystem.writeRaw(temporary, byteArrayOf(4, 5))
+        fakeFileSystem.writeRaw(temporary, byteArrayOf(4, 5))
 
-        fileSystem.replaceWithBackup(temporary, target, backup)
+        fakeFileSystem.replaceWithBackup(temporary, target, backup)
 
-        assertFalse(fileSystem.exists(temporary))
-        assertFalse(fileSystem.exists(backup))
+        assertFalse(fakeFileSystem.exists(temporary))
+        assertFalse(fakeFileSystem.exists(backup))
         assertContentEquals(
             byteArrayOf(4, 5),
-            fileSystem.readFileBytes(target),
+            fakeFileSystem.readFileBytes(target),
         )
-        fileSystem.delete("/world/missing".toPath(), mustExist = false)
+        fakeFileSystem.delete("/world/missing".toPath(), mustExist = false)
 
         val original = IllegalStateException("original")
         val deleteFailure = IllegalArgumentException("delete")
-        DeleteFailingFileSystem(fileSystem, target, deleteFailure)
+        DeleteFailingFileSystem(fakeFileSystem, target, deleteFailure)
             .deleteIfExistsPreserving(target, original)
         assertSame(deleteFailure, original.suppressedExceptions.single())
-        assertTrue(fileSystem.exists(target))
+        assertTrue(fakeFileSystem.exists(target))
     }
 
     @Test
     fun temporaryCleanupDoesNotSuppressCancellation() {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val target = "/world/value.dat".toPath()
-        fileSystem.writeRaw(target, byteArrayOf(1))
+        fakeFileSystem.writeRaw(target, byteArrayOf(1))
         val operationFailure = IllegalStateException("operation")
-        val cancellation = CancellationException("delete cancelled")
+        val cancellationException = CancellationException("delete cancelled")
 
         val thrown = assertFailsWith<CancellationException> {
-            DeleteFailingFileSystem(fileSystem, target, cancellation)
+            DeleteFailingFileSystem(fakeFileSystem, target, cancellationException)
                 .deleteIfExistsPreserving(target, operationFailure)
         }
 
-        assertSame(cancellation, thrown)
+        assertSame(cancellationException, thrown)
         assertSame(operationFailure, thrown.suppressedExceptions.single())
-        assertTrue(fileSystem.exists(target))
+        assertTrue(fakeFileSystem.exists(target))
     }
 
     @Test
@@ -382,21 +382,21 @@ class FileIOTest {
         val backup = "/world/value.dat_old".toPath()
         base.writeRaw(temporary, byteArrayOf(2))
         base.writeRaw(target, byteArrayOf(1))
-        val cancellation = CancellationException("cancelled")
-        val fileSystem = TargetMoveFailingFileSystem(
+        val cancellationException = CancellationException("cancelled")
+        val targetMoveFailingFileSystem = TargetMoveFailingFileSystem(
             base,
             target,
-            cancellation,
+            cancellationException,
         )
 
         assertSame(
-            cancellation,
+            cancellationException,
             assertFailsWith<CancellationException> {
-                fileSystem.replaceWithBackup(temporary, target, backup)
+                targetMoveFailingFileSystem.replaceWithBackup(temporary, target, backup)
             },
         )
 
-        assertEquals(1, fileSystem.attempts)
+        assertEquals(1, targetMoveFailingFileSystem.attempts)
         assertContentEquals(byteArrayOf(1), base.readFileBytes(target))
         assertContentEquals(byteArrayOf(2), base.readFileBytes(temporary))
         assertFalse(base.exists(backup))
@@ -504,7 +504,7 @@ class FileIOTest {
             val backup = "/unexpected-$index/value.dat_old".toPath()
             base.writeRaw(temporary, byteArrayOf(2))
             base.writeRaw(target, byteArrayOf(1))
-            val fileSystem = MovePairThrowingFileSystem(
+            val movePairThrowingFileSystem = MovePairThrowingFileSystem(
                 base,
                 source = temporary,
                 target = target,
@@ -514,14 +514,14 @@ class FileIOTest {
             assertSame(
                 expected,
                 assertFails {
-                    fileSystem.replaceWithBackup(
+                    movePairThrowingFileSystem.replaceWithBackup(
                         temporary,
                         target,
                         backup,
                     )
                 },
             )
-            assertEquals(1, fileSystem.attempts)
+            assertEquals(1, movePairThrowingFileSystem.attempts)
             assertFalse(base.exists(target))
             assertContentEquals(byteArrayOf(1), base.readFileBytes(backup))
             assertContentEquals(byteArrayOf(2), base.readFileBytes(temporary))
@@ -536,7 +536,7 @@ class FileIOTest {
         val backup = "/rollback/value.dat_old".toPath()
         base.writeRaw(temporary, byteArrayOf(2))
         base.writeRaw(target, byteArrayOf(1))
-        val fileSystem = ReplacementAndTransientRollbackFileSystem(
+        val replacementAndTransientRollbackFileSystem = ReplacementAndTransientRollbackFileSystem(
             delegate = base,
             temporary = temporary,
             target = target,
@@ -545,11 +545,11 @@ class FileIOTest {
         )
 
         assertFailsWith<WorldIOException> {
-            fileSystem.replaceWithBackup(temporary, target, backup)
+            replacementAndTransientRollbackFileSystem.replaceWithBackup(temporary, target, backup)
         }
 
-        assertEquals(10, fileSystem.replacementAttempts)
-        assertEquals(3, fileSystem.rollbackAttempts)
+        assertEquals(10, replacementAndTransientRollbackFileSystem.replacementAttempts)
+        assertEquals(3, replacementAndTransientRollbackFileSystem.rollbackAttempts)
         assertContentEquals(byteArrayOf(1), base.readFileBytes(target))
         assertFalse(base.exists(backup))
         assertContentEquals(byteArrayOf(2), base.readFileBytes(temporary))
@@ -596,11 +596,11 @@ private class MetadataSizeFileSystem(
     private val reportedSize: Long?,
 ) : ForwardingFileSystem(delegate) {
     override fun metadataOrNull(path: Path): FileMetadata? {
-        val metadata = super.metadataOrNull(path) ?: return null
+        val fileMetadata = super.metadataOrNull(path) ?: return null
         return if (path == target) {
-            metadata.copy(size = reportedSize)
+            fileMetadata.copy(size = reportedSize)
         } else {
-            metadata
+            fileMetadata
         }
     }
 }

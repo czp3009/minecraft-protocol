@@ -45,24 +45,24 @@ class MinecraftWorldEntityProjectionTest {
         assertEquals(0.125, entity.velocity.x)
         assertEquals(-0.25, entity.velocity.y)
         assertEquals(0.5, entity.velocity.z)
-        assertEquals(spawnEntityPacket.yaw.degrees, entity.rotation.yaw)
-        assertEquals(spawnEntityPacket.pitch.degrees, entity.rotation.pitch)
+        assertEquals(spawnEntityPacket.yaw.degrees, entity.entityRotation.yaw)
+        assertEquals(spawnEntityPacket.pitch.degrees, entity.entityRotation.pitch)
         assertEquals(0, entity.data.size)
         assertTrue(entity.passengers.isEmpty())
 
-        val runtimeData = TestRuntimeEntityData(health = 10)
-        val bundle = ClientboundBundlePacket(
+        val testRuntimeEntityData = TestRuntimeEntityData(health = 10)
+        val clientboundBundlePacket = ClientboundBundlePacket(
             listOf(
                 spawnEntityPacket,
                 LinkEntitiesPacket(attachedEntityId = 42, holdingEntityId = 5),
                 SetPassengersPacket(vehicleEntityId = 5, passengerEntityIds = listOf(42)),
             ),
         )
-        val runtimeEntity = bundle.toEntity(minecraftEntityPacketDecoder, runtimeData)
-        assertSame(runtimeData, runtimeEntity.data)
-        assertTrue(bundle.isEntityPairingBundle)
-        assertSame(spawnEntityPacket, bundle.spawnEntityPacket())
-        assertSame(spawnEntityPacket, bundle.spawnEntityPacketOrNull())
+        val runtimeEntity = clientboundBundlePacket.toEntity(minecraftEntityPacketDecoder, testRuntimeEntityData)
+        assertSame(testRuntimeEntityData, runtimeEntity.data)
+        assertTrue(clientboundBundlePacket.isEntityPairingBundle)
+        assertSame(spawnEntityPacket, clientboundBundlePacket.spawnEntityPacket())
+        assertSame(spawnEntityPacket, clientboundBundlePacket.spawnEntityPacketOrNull())
 
         val nonEntityBundle = ClientboundBundlePacket(listOf(ChunkBatchStartPacket, spawnEntityPacket))
         assertFalse(nonEntityBundle.isEntityPairingBundle)
@@ -103,7 +103,7 @@ class MinecraftWorldEntityProjectionTest {
             headYaw = Angle.fromDegrees(90.0f),
             data = 12,
         )
-        val bundle = ClientboundBundlePacket(
+        val clientboundBundlePacket = ClientboundBundlePacket(
             listOf(
                 spawnEntityPacket,
                 LinkEntitiesPacket(attachedEntityId = 42, holdingEntityId = 5),
@@ -119,61 +119,61 @@ class MinecraftWorldEntityProjectionTest {
             ),
         )
         val entitiesById = mutableMapOf<Int, Entity<TestAdaptedEntityData>>()
-        val adapter = object : MinecraftEntityPacketAdapter<TestAdaptedEntityData> {
-            override fun createData(packet: SpawnEntityPacket, type: Identifier): TestAdaptedEntityData =
-                TestAdaptedEntityData(type, packet.data, packet.headYaw.degrees)
+        val minecraftEntityPacketAdapter = object : MinecraftEntityPacketAdapter<TestAdaptedEntityData> {
+            override fun createData(spawnEntityPacket: SpawnEntityPacket, type: Identifier): TestAdaptedEntityData =
+                TestAdaptedEntityData(type, spawnEntityPacket.data, spawnEntityPacket.headYaw.degrees)
 
             override fun registerEntity(
-                packet: SpawnEntityPacket,
+                spawnEntityPacket: SpawnEntityPacket,
                 entity: Entity<TestAdaptedEntityData>,
             ) {
-                entitiesById[packet.entityId] = entity
+                entitiesById[spawnEntityPacket.entityId] = entity
                 entity.data.appliedPackets += "registered"
             }
 
             override fun applyMetadata(
                 entity: Entity<TestAdaptedEntityData>,
-                packet: SetEntityMetadataPacket,
+                setEntityMetadataPacket: SetEntityMetadataPacket,
             ) {
-                assertSame(entitiesById[packet.entityId], entity)
+                assertSame(entitiesById[setEntityMetadataPacket.entityId], entity)
                 entity.data.appliedPackets += "metadata"
             }
 
             override fun applyAttributes(
                 entity: Entity<TestAdaptedEntityData>,
-                packet: UpdateAttributesPacket,
+                updateAttributesPacket: UpdateAttributesPacket,
             ) {
-                assertSame(entitiesById[packet.entityId], entity)
+                assertSame(entitiesById[updateAttributesPacket.entityId], entity)
                 entity.data.appliedPackets += "attributes"
             }
 
             override fun applyEquipment(
                 entity: Entity<TestAdaptedEntityData>,
-                packet: SetEquipmentPacket,
+                setEquipmentPacket: SetEquipmentPacket,
             ) {
-                assertSame(entitiesById[packet.entityId], entity)
+                assertSame(entitiesById[setEquipmentPacket.entityId], entity)
                 entity.data.appliedPackets += "equipment"
             }
 
             override fun applyPassengers(
                 entity: Entity<TestAdaptedEntityData>,
-                packet: SetPassengersPacket,
+                setPassengersPacket: SetPassengersPacket,
             ) {
                 assertSame(entitiesById[spawnEntityPacket.entityId], entity)
-                assertEquals(listOf(42), packet.passengerEntityIds)
+                assertEquals(listOf(42), setPassengersPacket.passengerEntityIds)
                 entity.data.appliedPackets += "passengers"
             }
 
             override fun applyLink(
                 entity: Entity<TestAdaptedEntityData>,
-                packet: LinkEntitiesPacket,
+                linkEntitiesPacket: LinkEntitiesPacket,
             ) {
-                assertSame(entitiesById[packet.attachedEntityId], entity)
+                assertSame(entitiesById[linkEntitiesPacket.attachedEntityId], entity)
                 entity.data.appliedPackets += "link"
             }
         }
 
-        val entity = bundle.toEntity(minecraftEntityPacketDecoder, adapter)
+        val entity = clientboundBundlePacket.toEntity(minecraftEntityPacketDecoder, minecraftEntityPacketAdapter)
 
         assertSame(entity, entitiesById[spawnEntityPacket.entityId])
         assertEquals(pig, entity.data.type)
@@ -228,7 +228,7 @@ class MinecraftWorldEntityProjectionTest {
             headYaw = Angle(0),
             data = 2,
         )
-        val bundle = ClientboundBundlePacket(
+        val clientboundBundlePacket = ClientboundBundlePacket(
             listOf(
                 pigSpawnPacket,
                 SetEntityMetadataPacket(entityId = 42, metadata = EntityMetadata(emptyList())),
@@ -243,48 +243,48 @@ class MinecraftWorldEntityProjectionTest {
             ),
         )
         val entitiesById = mutableMapOf<Int, Entity<TestAdaptedEntityData>>()
-        val adapter = object : MinecraftEntityPacketAdapter<TestAdaptedEntityData> {
-            override fun createData(packet: SpawnEntityPacket, type: Identifier): TestAdaptedEntityData =
-                TestAdaptedEntityData(type, packet.data, packet.headYaw.degrees)
+        val minecraftEntityPacketAdapter = object : MinecraftEntityPacketAdapter<TestAdaptedEntityData> {
+            override fun createData(spawnEntityPacket: SpawnEntityPacket, type: Identifier): TestAdaptedEntityData =
+                TestAdaptedEntityData(type, spawnEntityPacket.data, spawnEntityPacket.headYaw.degrees)
 
             override fun registerEntity(
-                packet: SpawnEntityPacket,
+                spawnEntityPacket: SpawnEntityPacket,
                 entity: Entity<TestAdaptedEntityData>,
             ) {
-                entitiesById[packet.entityId] = entity
+                entitiesById[spawnEntityPacket.entityId] = entity
                 entity.data.appliedPackets += "registered"
             }
 
             override fun applyMetadata(
                 entity: Entity<TestAdaptedEntityData>,
-                packet: SetEntityMetadataPacket,
+                setEntityMetadataPacket: SetEntityMetadataPacket,
             ) {
-                assertSame(entitiesById[packet.entityId], entity)
+                assertSame(entitiesById[setEntityMetadataPacket.entityId], entity)
                 entity.data.appliedPackets += "metadata"
             }
 
             override fun applyEquipment(
                 entity: Entity<TestAdaptedEntityData>,
-                packet: SetEquipmentPacket,
+                setEquipmentPacket: SetEquipmentPacket,
             ) {
-                assertSame(entitiesById[packet.entityId], entity)
+                assertSame(entitiesById[setEquipmentPacket.entityId], entity)
                 entity.data.appliedPackets += "equipment"
             }
         }
 
-        val entities = bundle.toEntities(minecraftEntityPacketDecoder, adapter)
+        val entities = clientboundBundlePacket.toEntities(minecraftEntityPacketDecoder, minecraftEntityPacketAdapter)
 
-        assertTrue(bundle.isEntityPairingBundle)
-        assertEquals(listOf(pigSpawnPacket, cowSpawnPacket), bundle.spawnEntityPackets().toList())
+        assertTrue(clientboundBundlePacket.isEntityPairingBundle)
+        assertEquals(listOf(pigSpawnPacket, cowSpawnPacket), clientboundBundlePacket.spawnEntityPackets().toList())
         assertEquals(listOf(pig, cow), entities.map { entity -> entity.data.type })
         assertEquals(listOf("registered", "metadata"), entities[0].data.appliedPackets)
         assertEquals(listOf("registered", "equipment", "metadata"), entities[1].data.appliedPackets)
-        assertNull(bundle.toEntityOrNull(minecraftEntityPacketDecoder))
+        assertNull(clientboundBundlePacket.toEntityOrNull(minecraftEntityPacketDecoder))
         assertFailsWith<IllegalArgumentException> {
-            bundle.toEntity(minecraftEntityPacketDecoder)
+            clientboundBundlePacket.toEntity(minecraftEntityPacketDecoder)
         }
 
-        val rawEntities = bundle.subPackets.toEntities(minecraftEntityPacketDecoder)
+        val rawEntities = clientboundBundlePacket.subPackets.toEntities(minecraftEntityPacketDecoder)
         assertEquals(listOf("minecraft:pig", "minecraft:cow"), rawEntities.map { entity -> entity.type })
     }
 

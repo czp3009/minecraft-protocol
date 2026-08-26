@@ -13,38 +13,38 @@ import kotlin.test.*
 class XboxAuthenticationApiTest {
     @Test
     fun highLevelToolsDeriveRequestsFromThePreviousTokenResponse() {
-        val userRequest = XboxAuthenticationTools.userAuthenticationRequest(
+        val xboxUserAuthenticationRequest = XboxAuthenticationTools.userAuthenticationRequest(
             MicrosoftTokenResponse(
                 tokenType = "Bearer",
                 expiresIn = 3600,
                 accessToken = "microsoft-access-token",
             ),
         )
-        assertEquals("RPS", userRequest.properties.authMethod)
-        assertEquals("user.auth.xboxlive.com", userRequest.properties.siteName)
-        assertEquals("d=microsoft-access-token", userRequest.properties.rpsTicket)
-        assertEquals("http://auth.xboxlive.com", userRequest.relyingParty)
-        assertEquals("JWT", userRequest.tokenType)
+        assertEquals("RPS", xboxUserAuthenticationRequest.properties.authMethod)
+        assertEquals("user.auth.xboxlive.com", xboxUserAuthenticationRequest.properties.siteName)
+        assertEquals("d=microsoft-access-token", xboxUserAuthenticationRequest.properties.rpsTicket)
+        assertEquals("http://auth.xboxlive.com", xboxUserAuthenticationRequest.relyingParty)
+        assertEquals("JWT", xboxUserAuthenticationRequest.tokenType)
 
-        val xstsRequest = XboxAuthenticationTools.xstsAuthorizationRequest(
+        val xboxXstsAuthorizationRequest = XboxAuthenticationTools.xstsAuthorizationRequest(
             xboxTokenResponse("xbox-user-token"),
         )
-        assertEquals("RETAIL", xstsRequest.properties.sandboxId)
-        assertEquals(listOf("xbox-user-token"), xstsRequest.properties.userTokens)
-        assertEquals("rp://api.minecraftservices.com/", xstsRequest.relyingParty)
-        assertEquals("JWT", xstsRequest.tokenType)
+        assertEquals("RETAIL", xboxXstsAuthorizationRequest.properties.sandboxId)
+        assertEquals(listOf("xbox-user-token"), xboxXstsAuthorizationRequest.properties.userTokens)
+        assertEquals("rp://api.minecraftservices.com/", xboxXstsAuthorizationRequest.relyingParty)
+        assertEquals("JWT", xboxXstsAuthorizationRequest.tokenType)
     }
 
     @Test
     fun sendsCallerSuppliedJsonRequestsAndReturnsRawTokenResponses() = runTest {
         val requests = mutableListOf<HttpRequestData>()
-        val engine = MockEngine { request ->
-            requests += request
+        val mockEngine = MockEngine { httpRequestData ->
+            requests += httpRequestData
             respondJson(xboxTokenBody("token-${requests.size}"))
         }
-        HttpClient(engine).use { client ->
-            val api = XboxAuthenticationApi(client)
-            val userToken = api.authenticateUser(
+        HttpClient(mockEngine).use { httpClient ->
+            val xboxAuthenticationApi = XboxAuthenticationApi(httpClient)
+            val userToken = xboxAuthenticationApi.authenticateUser(
                 XboxUserAuthenticationRequest(
                     properties = XboxUserAuthenticationRequest.Properties(
                         authMethod = "custom-method",
@@ -55,7 +55,7 @@ class XboxAuthenticationApiTest {
                     tokenType = "custom-token-type",
                 ),
             )
-            val xstsToken = api.authorizeXsts(
+            val xstsToken = xboxAuthenticationApi.authorizeXsts(
                 XboxXstsAuthorizationRequest(
                     properties = XboxXstsAuthorizationRequest.Properties(
                         sandboxId = "custom-sandbox",
@@ -104,9 +104,9 @@ class XboxAuthenticationApiTest {
         }
         HttpClient(
             MockEngine { respondJson(errorJson, HttpStatusCode.Unauthorized) },
-        ).use { client ->
+        ).use { httpClient ->
             val failure = assertFailsWith<XboxAuthenticationResponseException> {
-                XboxAuthenticationApi(client).authenticateUser(userRequest())
+                XboxAuthenticationApi(httpClient).authenticateUser(userRequest())
             }
             assertEquals(errorJson.toString(), failure.responseBody)
             assertEquals(-1L, failure.parsedErrorBody.xErr)
@@ -124,9 +124,9 @@ class XboxAuthenticationApiTest {
                     HttpStatusCode.Unauthorized,
                 )
             },
-        ).use { client ->
+        ).use { httpClient ->
             assertFailsWith<SerializationException> {
-                XboxAuthenticationApi(client).authorizeXsts(xstsRequest())
+                XboxAuthenticationApi(httpClient).authorizeXsts(xstsRequest())
             }
         }
     }
@@ -142,11 +142,11 @@ class XboxAuthenticationApiTest {
                 buildJsonObject { put("xui", buildJsonArray {}) },
             )
         }
-        HttpClient(MockEngine { respondJson(raw) }).use { client ->
-            val response = XboxAuthenticationApi(client).authenticateUser(userRequest())
-            assertEquals("", response.token)
-            assertEquals("invalid", response.notAfter)
-            assertEquals(emptyList(), response.displayClaims.xui)
+        HttpClient(MockEngine { respondJson(raw) }).use { httpClient ->
+            val xboxTokenResponse = XboxAuthenticationApi(httpClient).authenticateUser(userRequest())
+            assertEquals("", xboxTokenResponse.token)
+            assertEquals("invalid", xboxTokenResponse.notAfter)
+            assertEquals(emptyList(), xboxTokenResponse.displayClaims.xui)
         }
     }
 
@@ -200,14 +200,14 @@ private fun xboxTokenResponse(token: String) =
         ),
     )
 
-private fun requestJson(request: HttpRequestData): JsonObject =
-    Json.parseToJsonElement(assertIs<TextContent>(request.body).text).jsonObject
+private fun requestJson(httpRequestData: HttpRequestData): JsonObject =
+    Json.parseToJsonElement(assertIs<TextContent>(httpRequestData.body).text).jsonObject
 
 private fun MockRequestHandleScope.respondJson(
     body: JsonObject,
-    status: HttpStatusCode = HttpStatusCode.OK,
+    httpStatusCode: HttpStatusCode = HttpStatusCode.OK,
 ) = respond(
     content = body.toString(),
-    status = status,
+    status = httpStatusCode,
     headers = headersOf(HttpHeaders.ContentType, "application/json"),
 )

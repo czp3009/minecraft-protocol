@@ -87,12 +87,12 @@ object ForgeProtocol {
     /** Pure factory; callers may retain and share its result across connections. */
     fun connectionDefinition(
         extensionCodecs: List<PacketCodecRegistration<out Packet>> = emptyList(),
-        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
         incomingCapacity: Int = MinecraftConnectionDefinition.DEFAULT_CHANNEL_CAPACITY,
         outgoingCapacity: Int = MinecraftConnectionDefinition.DEFAULT_CHANNEL_CAPACITY,
     ): MinecraftConnectionDefinition = MinecraftConnectionDefinition.compose(
         extensionCodecs = packetCodecs + extensionCodecs,
-        format = format,
+        minecraftProtocolFormat = minecraftProtocolFormat,
         incomingCapacity = incomingCapacity,
         outgoingCapacity = outgoingCapacity,
     )
@@ -133,15 +133,15 @@ internal object ForgeRegistrySnapshotSerializer :
     }
 
     override fun deserialize(decoder: Decoder): ForgeRegistrySnapshot {
-        val wire = decoder.decodeSerializableValue(
+        val forgeRegistrySnapshotWire = decoder.decodeSerializableValue(
             ForgeRegistrySnapshotWire.serializer(),
         )
         return try {
             ForgeRegistrySnapshot(
-                wire.ids,
-                wire.aliases,
-                wire.overrides,
-                wire.blocked,
+                forgeRegistrySnapshotWire.ids,
+                forgeRegistrySnapshotWire.aliases,
+                forgeRegistrySnapshotWire.overrides,
+                forgeRegistrySnapshotWire.blocked,
             )
         } catch (cause: IllegalArgumentException) {
             throw MinecraftSerializationException(
@@ -155,157 +155,157 @@ internal object ForgeRegistrySnapshotSerializer :
 private object ForgeClientboundHandshakeCodec :
     PacketBodyCodec<ForgeClientboundHandshakePacket> {
     override fun encode(
-        format: MinecraftProtocolFormat,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
         packet: ForgeClientboundHandshakePacket,
         sink: Sink,
     ) {
-        val envelope = when (val message = packet.message) {
+        val forgeEnvelope = when (val forgeClientboundHandshakeMessage = packet.forgeClientboundHandshakeMessage) {
             is ForgeModVersionsMessage ->
-                format.envelope(MOD_VERSIONS, ForgeModVersionsMessage.serializer(), message)
+                minecraftProtocolFormat.envelope(MOD_VERSIONS, ForgeModVersionsMessage.serializer(), forgeClientboundHandshakeMessage)
 
             is ForgeChannelVersionsMessage ->
-                format.envelope(CHANNEL_VERSIONS, ForgeChannelVersionsMessage.serializer(), message)
+                minecraftProtocolFormat.envelope(CHANNEL_VERSIONS, ForgeChannelVersionsMessage.serializer(), forgeClientboundHandshakeMessage)
 
             is ForgeRegistryListMessage ->
-                format.envelope(REGISTRY_LIST, ForgeRegistryListMessage.serializer(), message)
+                minecraftProtocolFormat.envelope(REGISTRY_LIST, ForgeRegistryListMessage.serializer(), forgeClientboundHandshakeMessage)
 
             is ForgeRegistryDataMessage ->
-                format.envelope(REGISTRY_DATA, ForgeRegistryDataMessage.serializer(), message)
+                minecraftProtocolFormat.envelope(REGISTRY_DATA, ForgeRegistryDataMessage.serializer(), forgeClientboundHandshakeMessage)
 
             is ForgeConfigDataMessage ->
-                format.envelope(CONFIG_DATA, ForgeConfigDataMessage.serializer(), message)
+                minecraftProtocolFormat.envelope(CONFIG_DATA, ForgeConfigDataMessage.serializer(), forgeClientboundHandshakeMessage)
 
             is ForgeMismatchDataMessage ->
-                format.envelope(MISMATCH_DATA, ForgeMismatchDataMessage.serializer(), message)
+                minecraftProtocolFormat.envelope(MISMATCH_DATA, ForgeMismatchDataMessage.serializer(), forgeClientboundHandshakeMessage)
         }
-        format.encodeToSink(envelope, sink)
+        minecraftProtocolFormat.encodeToSink(forgeEnvelope, sink)
     }
 
     override fun decode(
-        format: MinecraftProtocolFormat,
-        route: PacketRoute,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
+        packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
     ): ForgeClientboundHandshakePacket {
-        val envelope = format.decodeFromSource<ForgeEnvelope>(
+        val forgeEnvelope = minecraftProtocolFormat.decodeFromSource<ForgeEnvelope>(
             source,
             byteCount,
         )
-        val message: ForgeClientboundHandshakeMessage = when (envelope.discriminator) {
+        val forgeClientboundHandshakeMessage: ForgeClientboundHandshakeMessage = when (forgeEnvelope.discriminator) {
             ACKNOWLEDGE -> throw MinecraftSerializationException(
                 "Forge acknowledgement is not clientbound",
             )
 
-            MOD_VERSIONS -> format.decodeBody(
+            MOD_VERSIONS -> minecraftProtocolFormat.decodeBody(
                 ForgeModVersionsMessage.serializer(),
-                envelope,
+                forgeEnvelope,
             )
 
-            CHANNEL_VERSIONS -> format.decodeBody(
+            CHANNEL_VERSIONS -> minecraftProtocolFormat.decodeBody(
                 ForgeChannelVersionsMessage.serializer(),
-                envelope,
+                forgeEnvelope,
             )
 
-            REGISTRY_LIST -> format.decodeBody(
+            REGISTRY_LIST -> minecraftProtocolFormat.decodeBody(
                 ForgeRegistryListMessage.serializer(),
-                envelope,
+                forgeEnvelope,
             )
 
-            REGISTRY_DATA -> format.decodeBody(
+            REGISTRY_DATA -> minecraftProtocolFormat.decodeBody(
                 ForgeRegistryDataMessage.serializer(),
-                envelope,
+                forgeEnvelope,
             )
 
-            CONFIG_DATA -> format.decodeBody(
+            CONFIG_DATA -> minecraftProtocolFormat.decodeBody(
                 ForgeConfigDataMessage.serializer(),
-                envelope,
+                forgeEnvelope,
             )
 
-            MISMATCH_DATA -> format.decodeBody(
+            MISMATCH_DATA -> minecraftProtocolFormat.decodeBody(
                 ForgeMismatchDataMessage.serializer(),
-                envelope,
+                forgeEnvelope,
             )
 
             else -> throw UnknownExtensionPacketException()
         }
-        return ForgeClientboundHandshakePacket(message)
+        return ForgeClientboundHandshakePacket(forgeClientboundHandshakeMessage)
     }
 }
 
 private object ForgeServerboundHandshakeCodec :
     PacketBodyCodec<ForgeServerboundHandshakePacket> {
     override fun encode(
-        format: MinecraftProtocolFormat,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
         packet: ForgeServerboundHandshakePacket,
         sink: Sink,
     ) {
-        val envelope = when (val message = packet.message) {
+        val forgeEnvelope = when (val forgeServerboundHandshakeMessage = packet.forgeServerboundHandshakeMessage) {
             is ForgeAcknowledgeMessage ->
-                format.envelope(ACKNOWLEDGE, ForgeAcknowledgeMessage.serializer(), message)
+                minecraftProtocolFormat.envelope(ACKNOWLEDGE, ForgeAcknowledgeMessage.serializer(), forgeServerboundHandshakeMessage)
 
             is ForgeModVersionsMessage ->
-                format.envelope(MOD_VERSIONS, ForgeModVersionsMessage.serializer(), message)
+                minecraftProtocolFormat.envelope(MOD_VERSIONS, ForgeModVersionsMessage.serializer(), forgeServerboundHandshakeMessage)
 
             is ForgeChannelVersionsMessage ->
-                format.envelope(CHANNEL_VERSIONS, ForgeChannelVersionsMessage.serializer(), message)
+                minecraftProtocolFormat.envelope(CHANNEL_VERSIONS, ForgeChannelVersionsMessage.serializer(), forgeServerboundHandshakeMessage)
         }
-        format.encodeToSink(envelope, sink)
+        minecraftProtocolFormat.encodeToSink(forgeEnvelope, sink)
     }
 
     override fun decode(
-        format: MinecraftProtocolFormat,
-        route: PacketRoute,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
+        packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
     ): ForgeServerboundHandshakePacket {
-        val envelope = format.decodeFromSource<ForgeEnvelope>(
+        val forgeEnvelope = minecraftProtocolFormat.decodeFromSource<ForgeEnvelope>(
             source,
             byteCount,
         )
-        val message: ForgeServerboundHandshakeMessage = when (envelope.discriminator) {
-            ACKNOWLEDGE -> format.decodeBody(
+        val forgeServerboundHandshakeMessage: ForgeServerboundHandshakeMessage = when (forgeEnvelope.discriminator) {
+            ACKNOWLEDGE -> minecraftProtocolFormat.decodeBody(
                 ForgeAcknowledgeMessage.serializer(),
-                envelope,
+                forgeEnvelope,
             )
 
-            MOD_VERSIONS -> format.decodeBody(
+            MOD_VERSIONS -> minecraftProtocolFormat.decodeBody(
                 ForgeModVersionsMessage.serializer(),
-                envelope,
+                forgeEnvelope,
             )
 
-            CHANNEL_VERSIONS -> format.decodeBody(
+            CHANNEL_VERSIONS -> minecraftProtocolFormat.decodeBody(
                 ForgeChannelVersionsMessage.serializer(),
-                envelope,
+                forgeEnvelope,
             )
 
             in REGISTRY_LIST..MISMATCH_DATA ->
                 throw MinecraftSerializationException(
-                    "Forge discriminator ${envelope.discriminator} is not serverbound",
+                    "Forge discriminator ${forgeEnvelope.discriminator} is not serverbound",
                 )
 
             else -> throw UnknownExtensionPacketException()
         }
-        return ForgeServerboundHandshakePacket(message)
+        return ForgeServerboundHandshakePacket(forgeServerboundHandshakeMessage)
     }
 }
 
 private object ForgeClientboundPlayHandshakeCodec :
     PacketBodyCodec<ForgeClientboundPlayHandshakePacket> {
     override fun encode(
-        format: MinecraftProtocolFormat,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
         packet: ForgeClientboundPlayHandshakePacket,
         sink: Sink,
-    ) = format.encodeToSink(
+    ) = minecraftProtocolFormat.encodeToSink(
         ForgeEnvelope(packet.discriminator, packet.data),
         sink,
     )
 
     override fun decode(
-        format: MinecraftProtocolFormat,
-        route: PacketRoute,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
+        packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
-    ): ForgeClientboundPlayHandshakePacket = format.decodeFromSource<ForgeEnvelope>(
+    ): ForgeClientboundPlayHandshakePacket = minecraftProtocolFormat.decodeFromSource<ForgeEnvelope>(
         source,
         byteCount,
     ).let { envelope ->
@@ -329,7 +329,7 @@ private class ForgeRegistrationCodec<T : ForgeChannelRegistrationPacket>(
     private val factory: (Set<Identifier>) -> T,
 ) : PacketBodyCodec<T> {
     override fun encode(
-        format: MinecraftProtocolFormat,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
         packet: T,
         sink: Sink,
     ) {
@@ -347,24 +347,24 @@ private class ForgeRegistrationCodec<T : ForgeChannelRegistrationPacket>(
             encoded.copyInto(output, destinationOffset = offset)
             offset += encoded.size + 1
         }
-        format.encodeToSink(
+        minecraftProtocolFormat.encodeToSink(
             ForgeRemainingBody(ByteString(output)),
             sink,
         )
     }
 
     override fun decode(
-        format: MinecraftProtocolFormat,
-        route: PacketRoute,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
+        packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
     ): T {
-        val bytes = format.decodeFromSource<ForgeRemainingBody>(
+        val byteArray = minecraftProtocolFormat.decodeFromSource<ForgeRemainingBody>(
             source,
             byteCount,
         ).data.toByteArray()
         val channels = linkedSetOf<Identifier>()
-        bytes.decodeToString().split('\u0000').forEach { literal ->
+        byteArray.decodeToString().split('\u0000').forEach { literal ->
             if (literal.isEmpty()) return@forEach
             try {
                 channels += Identifier(literal)
@@ -383,17 +383,17 @@ private class ForgeRegistrationCodec<T : ForgeChannelRegistrationPacket>(
 
 private fun <T> MinecraftProtocolFormat.envelope(
     discriminator: Int,
-    serializer: KSerializer<T>,
+    kSerializer: KSerializer<T>,
     value: T,
 ): ForgeEnvelope = ForgeEnvelope(
     discriminator,
-    ByteString(encodeToByteArray(serializer, value)),
+    ByteString(encodeToByteArray(kSerializer, value)),
 )
 
 private fun <T> MinecraftProtocolFormat.decodeBody(
-    serializer: KSerializer<T>,
-    envelope: ForgeEnvelope,
-): T = decodeFromByteArray(serializer, envelope.body.toByteArray())
+    kSerializer: KSerializer<T>,
+    forgeEnvelope: ForgeEnvelope,
+): T = decodeFromByteArray(kSerializer, forgeEnvelope.body.toByteArray())
 
 private const val ACKNOWLEDGE = 0
 private const val MOD_VERSIONS = 1

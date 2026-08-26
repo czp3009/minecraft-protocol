@@ -15,53 +15,53 @@ import kotlin.test.*
 class OpenMinecraftWorldConcurrencyTest {
     @Test
     fun repeatedMetadataAccessDoesNotRetainLogicalFileEntries() = runTest {
-        val paths = MinecraftWorldPaths("/world".toPath())
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val base = concurrencyFakeFileSystem()
-        val world = concurrencyWorld(paths, base)
+        val openMinecraftWorld = concurrencyWorld(minecraftWorldPaths, base)
         try {
             repeat(2_048) { index ->
-                assertNull(world.readPlayerDataDocument("player_$index"))
-                assertEquals(0, world.activeMetadataEntryCount())
+                assertNull(openMinecraftWorld.readPlayerDataDocument("player_$index"))
+                assertEquals(0, openMinecraftWorld.activeMetadataEntryCount())
             }
             base.checkNoOpenFiles()
         } finally {
-            world.close()
+            openMinecraftWorld.close()
             base.checkNoOpenFiles()
         }
     }
 
     @Test
     fun levelReadersShareUntilOfficialRecoveryNeedsExclusiveAccess() = runTest {
-        val paths = MinecraftWorldPaths("/world".toPath())
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val base = concurrencyFakeFileSystem()
-        val levelStore = LevelDataStore(paths, NbtFileStore(base))
+        val levelDataStore = LevelDataStore(minecraftWorldPaths, NbtFileStore(base))
         val fallback = concurrencyDocument(1)
-        levelStore.writeDocument(fallback)
-        levelStore.writeDocument(concurrencyDocument(2))
-        base.write(paths.levelData) { writeByte(0) }
+        levelDataStore.writeDocument(fallback)
+        levelDataStore.writeDocument(concurrencyDocument(2))
+        base.write(minecraftWorldPaths.levelData) { writeByte(0) }
         val sourceGate = BlockingGate(expectedEntrants = 2)
-        val fileSystem = GatedFileSystem(base, paths.levelData, sourceGate = sourceGate)
-        val world = concurrencyWorld(paths, fileSystem)
+        val gatedFileSystem = GatedFileSystem(base, minecraftWorldPaths.levelData, sourceGate = sourceGate)
+        val openMinecraftWorld = concurrencyWorld(minecraftWorldPaths, gatedFileSystem)
         val jobs = mutableListOf<Deferred<*>>()
         try {
-            val first = async(Dispatchers.Default) { world.readLevelDataDocument() }
-            val second = async(Dispatchers.Default) { world.readLevelDataDocument() }
+            val first = async(Dispatchers.Default) { openMinecraftWorld.readLevelDataDocument() }
+            val second = async(Dispatchers.Default) { openMinecraftWorld.readLevelDataDocument() }
             jobs += first
             jobs += second
             sourceGate.awaitEntered()
-            assertEquals(2, world.activeMetadataUsers())
+            assertEquals(2, openMinecraftWorld.activeMetadataUsers())
 
             sourceGate.open()
             assertEquals(fallback, first.await())
             assertEquals(fallback, second.await())
-            assertEquals(fallback, NbtFileStore(base).readDocument(paths.levelData))
-            assertEquals(0, world.activeMetadataEntryCount())
+            assertEquals(fallback, NbtFileStore(base).readDocument(minecraftWorldPaths.levelData))
+            assertEquals(0, openMinecraftWorld.activeMetadataEntryCount())
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
                 sourceGate.open()
                 jobs.joinAll()
-                world.close()
+                openMinecraftWorld.close()
                 base.checkNoOpenFiles()
             }
         }
@@ -69,33 +69,33 @@ class OpenMinecraftWorldConcurrencyTest {
 
     @Test
     fun healthyPlayerDataReadersShareLogicalFileAccess() = runTest {
-        val paths = MinecraftWorldPaths("/world".toPath())
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val player = "player"
-        val document = concurrencyDocument(3)
+        val nbtDocument = concurrencyDocument(3)
         val base = concurrencyFakeFileSystem()
-        PlayerDataStore(paths, NbtFileStore(base)).writeDocument(player, document)
+        PlayerDataStore(minecraftWorldPaths, NbtFileStore(base)).writeDocument(player, nbtDocument)
         val sourceGate = BlockingGate(expectedEntrants = 2)
-        val fileSystem = GatedFileSystem(base, paths.playerData(player), sourceGate = sourceGate)
-        val world = concurrencyWorld(paths, fileSystem)
+        val gatedFileSystem = GatedFileSystem(base, minecraftWorldPaths.playerData(player), sourceGate = sourceGate)
+        val openMinecraftWorld = concurrencyWorld(minecraftWorldPaths, gatedFileSystem)
         val jobs = mutableListOf<Deferred<*>>()
         try {
-            val first = async(Dispatchers.Default) { world.readPlayerDataDocument(player) }
-            val second = async(Dispatchers.Default) { world.readPlayerDataDocument(player) }
+            val first = async(Dispatchers.Default) { openMinecraftWorld.readPlayerDataDocument(player) }
+            val second = async(Dispatchers.Default) { openMinecraftWorld.readPlayerDataDocument(player) }
             jobs += first
             jobs += second
             sourceGate.awaitEntered()
-            assertEquals(2, world.activeMetadataUsers())
+            assertEquals(2, openMinecraftWorld.activeMetadataUsers())
 
             sourceGate.open()
-            assertEquals(document, first.await())
-            assertEquals(document, second.await())
-            assertEquals(0, world.activeMetadataEntryCount())
+            assertEquals(nbtDocument, first.await())
+            assertEquals(nbtDocument, second.await())
+            assertEquals(0, openMinecraftWorld.activeMetadataEntryCount())
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
                 sourceGate.open()
                 jobs.joinAll()
-                world.close()
+                openMinecraftWorld.close()
                 base.checkNoOpenFiles()
             }
         }
@@ -103,72 +103,72 @@ class OpenMinecraftWorldConcurrencyTest {
 
     @Test
     fun advancementReadersShareLogicalFileAccess() = runTest {
-        val paths = MinecraftWorldPaths("/world".toPath())
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val player = "player"
-        val target = paths.advancement(player)
+        val target = minecraftWorldPaths.advancement(player)
         val base = concurrencyFakeFileSystem()
         base.createDirectories(checkNotNull(target.parent))
         base.write(target) { writeUtf8("{\"value\":1}") }
         val sourceGate = BlockingGate(expectedEntrants = 2)
-        val fileSystem = GatedFileSystem(base, target, sourceGate = sourceGate)
-        val lock = RecordingWorldDirectoryLock()
-        val world = concurrencyWorld(paths, fileSystem, lock)
+        val gatedFileSystem = GatedFileSystem(base, target, sourceGate = sourceGate)
+        val recordingWorldDirectoryLock = RecordingWorldDirectoryLock()
+        val openMinecraftWorld = concurrencyWorld(minecraftWorldPaths, gatedFileSystem, recordingWorldDirectoryLock)
         val jobs = mutableListOf<Deferred<*>>()
         try {
-            val first = async(Dispatchers.Default) { world.readAdvancementsText(player) }
-            val second = async(Dispatchers.Default) { world.readAdvancementsText(player) }
+            val first = async(Dispatchers.Default) { openMinecraftWorld.readAdvancementsText(player) }
+            val second = async(Dispatchers.Default) { openMinecraftWorld.readAdvancementsText(player) }
             jobs += first
             jobs += second
             sourceGate.awaitEntered()
-            assertEquals(1, world.activeMetadataEntryCount())
-            assertEquals(2, world.activeMetadataUsers())
+            assertEquals(1, openMinecraftWorld.activeMetadataEntryCount())
+            assertEquals(2, openMinecraftWorld.activeMetadataUsers())
 
             sourceGate.open()
             assertEquals("{\"value\":1}", first.await())
             assertEquals("{\"value\":1}", second.await())
-            assertEquals(0, world.activeMetadataEntryCount())
+            assertEquals(0, openMinecraftWorld.activeMetadataEntryCount())
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
                 sourceGate.open()
                 jobs.joinAll()
-                world.close()
+                openMinecraftWorld.close()
                 base.checkNoOpenFiles()
             }
         }
-        assertEquals(1, lock.closeAttempts.get())
+        assertEquals(1, recordingWorldDirectoryLock.closeAttempts.get())
     }
 
     @Test
     fun statisticsReadersShareLogicalFileAccess() = runTest {
-        val paths = MinecraftWorldPaths("/world".toPath())
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val player = "player"
-        val target = paths.statistics(player)
+        val target = minecraftWorldPaths.statistics(player)
         val base = concurrencyFakeFileSystem()
         base.createDirectories(checkNotNull(target.parent))
         base.write(target) { writeUtf8("{\"value\":2}") }
         val sourceGate = BlockingGate(expectedEntrants = 2)
-        val fileSystem = GatedFileSystem(base, target, sourceGate = sourceGate)
-        val world = concurrencyWorld(paths, fileSystem)
+        val gatedFileSystem = GatedFileSystem(base, target, sourceGate = sourceGate)
+        val openMinecraftWorld = concurrencyWorld(minecraftWorldPaths, gatedFileSystem)
         val jobs = mutableListOf<Deferred<*>>()
         try {
-            val first = async(Dispatchers.Default) { world.readStatisticsText(player) }
-            val second = async(Dispatchers.Default) { world.readStatisticsText(player) }
+            val first = async(Dispatchers.Default) { openMinecraftWorld.readStatisticsText(player) }
+            val second = async(Dispatchers.Default) { openMinecraftWorld.readStatisticsText(player) }
             jobs += first
             jobs += second
             sourceGate.awaitEntered()
-            assertEquals(2, world.activeMetadataUsers())
+            assertEquals(2, openMinecraftWorld.activeMetadataUsers())
 
             sourceGate.open()
             assertEquals("{\"value\":2}", first.await())
             assertEquals("{\"value\":2}", second.await())
-            assertEquals(0, world.activeMetadataEntryCount())
+            assertEquals(0, openMinecraftWorld.activeMetadataEntryCount())
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
                 sourceGate.open()
                 jobs.joinAll()
-                world.close()
+                openMinecraftWorld.close()
                 base.checkNoOpenFiles()
             }
         }
@@ -176,9 +176,9 @@ class OpenMinecraftWorldConcurrencyTest {
 
     @Test
     fun typedTreeTextAndRawStatisticsShareOneWriterPreferringBoundary() = runTest {
-        val paths = MinecraftWorldPaths("/world".toPath())
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val player = "typed-player"
-        val target = paths.statistics(player)
+        val target = minecraftWorldPaths.statistics(player)
         val initial = PlayerStatistics(
             stats = mapOf("minecraft:custom" to mapOf("minecraft:play_time" to 1)),
             dataVersion = 4_903,
@@ -190,36 +190,36 @@ class OpenMinecraftWorldConcurrencyTest {
         Utf8JsonFileStore(base).writeJson(target, PlayerStatistics.serializer(), initial)
         val sourceGate = BlockingGate(expectedEntrants = 3)
         val sinkGate = BlockingGate()
-        val fileSystem = GatedFileSystem(
+        val gatedFileSystem = GatedFileSystem(
             base = base,
             target = target,
             sourceGate = sourceGate,
             sinkGate = sinkGate,
         )
-        val world = concurrencyWorld(paths, fileSystem)
+        val openMinecraftWorld = concurrencyWorld(minecraftWorldPaths, gatedFileSystem)
         val jobs = mutableListOf<Deferred<*>>()
         try {
             val typed = async(Dispatchers.Default) {
-                world.readStatistics(player, PlayerStatistics.serializer())
+                openMinecraftWorld.readStatistics(player, PlayerStatistics.serializer())
             }
             val tree = async(Dispatchers.Default) {
-                world.readStatistics(player, JsonElement.serializer())
+                openMinecraftWorld.readStatistics(player, JsonElement.serializer())
             }
             val raw = async(Dispatchers.Default) {
-                world.readStatistics(player) { source -> source.readString() }
+                openMinecraftWorld.readStatistics(player) { source -> source.readString() }
             }
             jobs += typed
             jobs += tree
             jobs += raw
             sourceGate.awaitEntered()
-            assertEquals(3, world.activeMetadataUsers())
+            assertEquals(3, openMinecraftWorld.activeMetadataUsers())
 
             val writer = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-                world.writeStatistics(player, PlayerStatistics.serializer(), replacement)
+                openMinecraftWorld.writeStatistics(player, PlayerStatistics.serializer(), replacement)
             }
             jobs += writer
             assertFalse(writer.isCompleted)
-            assertEquals(4, world.activeMetadataUsers())
+            assertEquals(4, openMinecraftWorld.activeMetadataUsers())
 
             sourceGate.open()
             assertEquals(initial, typed.await())
@@ -228,21 +228,21 @@ class OpenMinecraftWorldConcurrencyTest {
             sinkGate.awaitEntered()
 
             val text = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-                world.readStatisticsText(player)
+                openMinecraftWorld.readStatisticsText(player)
             }
             jobs += text
             assertFalse(text.isCompleted)
             sinkGate.open()
             writer.await()
             assertEquals(replacement, Json.decodeFromString<PlayerStatistics>(text.await()))
-            assertEquals(0, world.activeMetadataEntryCount())
+            assertEquals(0, openMinecraftWorld.activeMetadataEntryCount())
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
                 sourceGate.open()
                 sinkGate.open()
                 jobs.joinAll()
-                world.close()
+                openMinecraftWorld.close()
                 base.checkNoOpenFiles()
             }
         }
@@ -250,33 +250,33 @@ class OpenMinecraftWorldConcurrencyTest {
 
     @Test
     fun statisticsWriterIsExclusiveWithoutBlockingAnotherLogicalFile() = runTest {
-        val paths = MinecraftWorldPaths("/world".toPath())
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val player = "player"
-        val statistics = paths.statistics(player)
-        val advancements = paths.advancement(player)
+        val statistics = minecraftWorldPaths.statistics(player)
+        val advancements = minecraftWorldPaths.advancement(player)
         val base = concurrencyFakeFileSystem()
         base.createDirectories(checkNotNull(statistics.parent))
         base.createDirectories(checkNotNull(advancements.parent))
         base.write(statistics) { writeUtf8("old") }
         base.write(advancements) { writeUtf8("old-advancement") }
         val sinkGate = BlockingGate()
-        val fileSystem = GatedFileSystem(base, statistics, sinkGate = sinkGate)
-        val world = concurrencyWorld(paths, fileSystem)
+        val gatedFileSystem = GatedFileSystem(base, statistics, sinkGate = sinkGate)
+        val openMinecraftWorld = concurrencyWorld(minecraftWorldPaths, gatedFileSystem)
         val jobs = mutableListOf<Deferred<*>>()
         try {
             val writer = async(Dispatchers.Default) {
-                world.writeStatisticsText(player, "new")
+                openMinecraftWorld.writeStatisticsText(player, "new")
             }
             jobs += writer
             sinkGate.awaitEntered()
             val sameFileReader = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-                world.readStatisticsText(player)
+                openMinecraftWorld.readStatisticsText(player)
             }
             jobs += sameFileReader
             assertFalse(sameFileReader.isCompleted)
 
             val independent = async(Dispatchers.Default) {
-                world.writeAdvancementsText(player, "new-advancement")
+                openMinecraftWorld.writeAdvancementsText(player, "new-advancement")
             }
             jobs += independent
             independent.await()
@@ -286,14 +286,14 @@ class OpenMinecraftWorldConcurrencyTest {
             sinkGate.open()
             writer.await()
             assertEquals("new", sameFileReader.await())
-            assertEquals(0, world.activeMetadataEntryCount())
+            assertEquals(0, openMinecraftWorld.activeMetadataEntryCount())
             assertTrue(base.allPaths.none { it.name.startsWith(".tmp-") })
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
                 sinkGate.open()
                 jobs.joinAll()
-                world.close()
+                openMinecraftWorld.close()
                 base.checkNoOpenFiles()
             }
         }
@@ -301,41 +301,41 @@ class OpenMinecraftWorldConcurrencyTest {
 
     @Test
     fun canonicalSavedDataAliasesShareOneExclusiveBoundary() = runTest {
-        val paths = MinecraftWorldPaths("/world".toPath())
-        val target = paths.savedData("minecraft:foo")
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
+        val target = minecraftWorldPaths.savedData("minecraft:foo")
         val base = concurrencyFakeFileSystem()
         val initial = concurrencyDocument(1)
         val replacement = concurrencyDocument(2)
-        SavedDataFileStore(paths, nbtFiles = NbtFileStore(base)).writeDocument("foo", initial)
+        SavedDataFileStore(minecraftWorldPaths, nbtFileStore = NbtFileStore(base)).writeDocument("foo", initial)
         val sourceGate = BlockingGate()
-        val fileSystem = GatedFileSystem(base, target, sourceGate = sourceGate)
-        val world = concurrencyWorld(paths, fileSystem)
+        val gatedFileSystem = GatedFileSystem(base, target, sourceGate = sourceGate)
+        val openMinecraftWorld = concurrencyWorld(minecraftWorldPaths, gatedFileSystem)
         val jobs = mutableListOf<Deferred<*>>()
         try {
             val reader = async(Dispatchers.Default) {
-                world.readSavedDataDocument("foo", DimensionDirectory.Overworld)
+                openMinecraftWorld.readSavedDataDocument("foo", DimensionDirectory.Overworld)
             }
             jobs += reader
             sourceGate.awaitEntered()
             val writer = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-                world.writeSavedDataDocument("minecraft:foo", replacement, DimensionDirectory.Overworld)
+                openMinecraftWorld.writeSavedDataDocument("minecraft:foo", replacement, DimensionDirectory.Overworld)
             }
             jobs += writer
             assertFalse(writer.isCompleted)
-            assertEquals(1, world.activeMetadataEntryCount())
-            assertEquals(2, world.activeMetadataUsers())
+            assertEquals(1, openMinecraftWorld.activeMetadataEntryCount())
+            assertEquals(2, openMinecraftWorld.activeMetadataUsers())
 
             sourceGate.open()
             assertEquals(initial, reader.await())
             writer.await()
-            assertEquals(replacement, world.readSavedDataDocument("foo", DimensionDirectory.Overworld))
-            assertEquals(0, world.activeMetadataEntryCount())
+            assertEquals(replacement, openMinecraftWorld.readSavedDataDocument("foo", DimensionDirectory.Overworld))
+            assertEquals(0, openMinecraftWorld.activeMetadataEntryCount())
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
                 sourceGate.open()
                 jobs.joinAll()
-                world.close()
+                openMinecraftWorld.close()
                 base.checkNoOpenFiles()
             }
         }
@@ -343,50 +343,52 @@ class OpenMinecraftWorldConcurrencyTest {
 
     @Test
     fun closeWaitsForMetadataReaderAndQueuedWriterThenReleasesDirectoryLock() = runTest {
-        val paths = MinecraftWorldPaths("/world".toPath())
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val player = "player"
-        val target = paths.statistics(player)
+        val target = minecraftWorldPaths.statistics(player)
         val base = concurrencyFakeFileSystem()
         base.createDirectories(checkNotNull(target.parent))
         base.write(target) { writeUtf8("value") }
         val sourceGate = BlockingGate()
-        val fileSystem = GatedFileSystem(base, target, sourceGate = sourceGate)
-        val lock = RecordingWorldDirectoryLock()
-        val world = concurrencyWorld(paths, fileSystem, lock)
+        val gatedFileSystem = GatedFileSystem(base, target, sourceGate = sourceGate)
+        val recordingWorldDirectoryLock = RecordingWorldDirectoryLock()
+        val openMinecraftWorld = concurrencyWorld(minecraftWorldPaths, gatedFileSystem, recordingWorldDirectoryLock)
         val jobs = mutableListOf<Deferred<*>>()
         try {
-            val reader = async(Dispatchers.Default) { world.readStatisticsText(player) }
+            val reader = async(Dispatchers.Default) { openMinecraftWorld.readStatisticsText(player) }
             jobs += reader
             sourceGate.awaitEntered()
             val writer = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-                world.writeStatisticsText(player, "replacement")
+                openMinecraftWorld.writeStatisticsText(player, "replacement")
             }
             jobs += writer
-            assertEquals(2, world.activeMetadataUsers())
-            val firstClose = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) { world.close() }
-            val secondClose = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) { world.close() }
+            assertEquals(2, openMinecraftWorld.activeMetadataUsers())
+            val firstClose =
+                async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) { openMinecraftWorld.close() }
+            val secondClose =
+                async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) { openMinecraftWorld.close() }
             jobs += firstClose
             jobs += secondClose
             assertFalse(firstClose.isCompleted)
             assertFalse(secondClose.isCompleted)
-            assertTrue(lock.isValid)
-            assertEquals(0, lock.closeAttempts.get())
-            assertFailsWith<IllegalStateException> { world.readStatisticsText(player) }
+            assertTrue(recordingWorldDirectoryLock.isValid)
+            assertEquals(0, recordingWorldDirectoryLock.closeAttempts.get())
+            assertFailsWith<IllegalStateException> { openMinecraftWorld.readStatisticsText(player) }
 
             sourceGate.open()
             assertEquals("value", reader.await())
             writer.await()
             firstClose.await()
             secondClose.await()
-            assertFalse(lock.isValid)
-            assertEquals(1, lock.closeAttempts.get())
+            assertFalse(recordingWorldDirectoryLock.isValid)
+            assertEquals(1, recordingWorldDirectoryLock.closeAttempts.get())
             assertEquals("replacement", base.read(target) { readUtf8() })
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
                 sourceGate.open()
                 jobs.joinAll()
-                world.close()
+                openMinecraftWorld.close()
                 base.checkNoOpenFiles()
             }
         }
@@ -394,18 +396,18 @@ class OpenMinecraftWorldConcurrencyTest {
 
     @Test
     fun directoryLockDoesNotSerializeDifferentRegionFiles() = runTest {
-        val paths = MinecraftWorldPaths("/world".toPath())
-        val target = paths.regionFile(ChunkPosition(0, 0).region)
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
+        val target = minecraftWorldPaths.regionFile(ChunkPosition(0, 0).regionPosition)
         val base = concurrencyFakeFileSystem()
         seedConcurrencyRegion(base, checkNotNull(target.parent))
         val readGate = BlockingGate()
-        val fileSystem = GatedFileSystem(base, target, readGate = readGate)
-        val lock = RecordingWorldDirectoryLock()
-        val world = concurrencyWorld(paths, fileSystem, lock)
+        val gatedFileSystem = GatedFileSystem(base, target, readGate = readGate)
+        val recordingWorldDirectoryLock = RecordingWorldDirectoryLock()
+        val openMinecraftWorld = concurrencyWorld(minecraftWorldPaths, gatedFileSystem, recordingWorldDirectoryLock)
         val jobs = mutableListOf<Deferred<*>>()
         try {
             val reader = async(Dispatchers.Default) {
-                world.readCompressedChunk(
+                openMinecraftWorld.readCompressedChunk(
                     ChunkPosition(0, 0),
                     RegionStorageDirectory.CHUNKS,
                     DimensionDirectory.Overworld,
@@ -414,7 +416,7 @@ class OpenMinecraftWorldConcurrencyTest {
             jobs += reader
             readGate.awaitEntered()
             val sameFileWriter = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-                world.writeCompressedChunk(
+                openMinecraftWorld.writeCompressedChunk(
                     ChunkPosition(1, 0),
                     concurrencyChunk(1),
                     RegionStorageDirectory.CHUNKS,
@@ -423,7 +425,7 @@ class OpenMinecraftWorldConcurrencyTest {
             }
             jobs += sameFileWriter
             val otherFileWriter = async(Dispatchers.Default) {
-                world.writeCompressedChunk(
+                openMinecraftWorld.writeCompressedChunk(
                     ChunkPosition(32, 0),
                     concurrencyChunk(2),
                     RegionStorageDirectory.CHUNKS,
@@ -433,67 +435,67 @@ class OpenMinecraftWorldConcurrencyTest {
             jobs += otherFileWriter
             otherFileWriter.await()
             assertFalse(sameFileWriter.isCompleted)
-            assertTrue(lock.isValid)
-            assertEquals(1, world.activeRegionStorageCount())
+            assertTrue(recordingWorldDirectoryLock.isValid)
+            assertEquals(1, openMinecraftWorld.activeRegionStorageCount())
 
             readGate.open()
             reader.await()
             sameFileWriter.await()
-            assertEquals(0, world.activeRegionStorageCount())
-            assertTrue(lock.isValid)
+            assertEquals(0, openMinecraftWorld.activeRegionStorageCount())
+            assertTrue(recordingWorldDirectoryLock.isValid)
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
                 readGate.open()
                 jobs.joinAll()
-                world.close()
+                openMinecraftWorld.close()
                 base.checkNoOpenFiles()
             }
         }
-        assertFalse(lock.isValid)
-        assertEquals(1, lock.closeAttempts.get())
+        assertFalse(recordingWorldDirectoryLock.isValid)
+        assertEquals(1, recordingWorldDirectoryLock.closeAttempts.get())
     }
 
     @Test
     fun worldCloseWaitsForAnExplicitRegionAndReleasesTheDirectoryLockLast() = runTest {
-        val paths = MinecraftWorldPaths("/world".toPath())
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val base = concurrencyFakeFileSystem()
-        val lock = RecordingWorldDirectoryLock()
-        val world = concurrencyWorld(paths, base, lock)
-        val region = world.openRegion(
+        val recordingWorldDirectoryLock = RecordingWorldDirectoryLock()
+        val openMinecraftWorld = concurrencyWorld(minecraftWorldPaths, base, recordingWorldDirectoryLock)
+        val regionHandle = openMinecraftWorld.openRegion(
             RegionPosition(0, 0),
             RegionStorageDirectory.CHUNKS,
             DimensionDirectory.Overworld,
         )
         val jobs = mutableListOf<Deferred<*>>()
         try {
-            region.writeCompressedChunk(LocalChunkPosition(0, 0), concurrencyChunk(1))
-            assertEquals(1, world.activeRegionStorageUsers())
+            regionHandle.writeCompressedChunk(LocalChunkPosition(0, 0), concurrencyChunk(1))
+            assertEquals(1, openMinecraftWorld.activeRegionStorageUsers())
 
-            val closing = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) { world.close() }
+            val closing = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) { openMinecraftWorld.close() }
             jobs += closing
             assertFalse(closing.isCompleted)
-            assertTrue(lock.isValid)
-            assertEquals(0, lock.closeAttempts.get())
+            assertTrue(recordingWorldDirectoryLock.isValid)
+            assertEquals(0, recordingWorldDirectoryLock.closeAttempts.get())
             assertFailsWith<IllegalStateException> {
-                world.readCompressedChunk(
+                openMinecraftWorld.readCompressedChunk(
                     ChunkPosition(0, 0),
                     RegionStorageDirectory.CHUNKS,
                     DimensionDirectory.Overworld,
                 )
             }
 
-            region.close()
+            regionHandle.close()
             closing.await()
-            assertFalse(lock.isValid)
-            assertEquals(1, lock.closeAttempts.get())
-            assertEquals(0, world.activeRegionStorageCount())
+            assertFalse(recordingWorldDirectoryLock.isValid)
+            assertEquals(1, recordingWorldDirectoryLock.closeAttempts.get())
+            assertEquals(0, openMinecraftWorld.activeRegionStorageCount())
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
-                region.close()
+                regionHandle.close()
                 jobs.joinAll()
-                world.close()
+                openMinecraftWorld.close()
                 base.checkNoOpenFiles()
             }
         }
@@ -501,23 +503,23 @@ class OpenMinecraftWorldConcurrencyTest {
 
     @Test
     fun cancellationDuringMetadataWriteCompletesTheFileBeforeReleasingItsEntry() = runTest {
-        val paths = MinecraftWorldPaths("/world".toPath())
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val playerUuid = "cancelled-writer"
-        val target = paths.statistics(playerUuid)
-        val statistics = PlayerStatistics(
+        val target = minecraftWorldPaths.statistics(playerUuid)
+        val playerStatistics = PlayerStatistics(
             stats = mapOf("minecraft:custom" to mapOf("minecraft:play_time" to 7)),
             dataVersion = 4_903,
         )
         val base = concurrencyFakeFileSystem()
         val sinkGate = BlockingGate()
-        val fileSystem = GatedFileSystem(base, target, sinkGate = sinkGate)
-        val lock = RecordingWorldDirectoryLock()
-        val world = concurrencyWorld(paths, fileSystem, lock)
+        val gatedFileSystem = GatedFileSystem(base, target, sinkGate = sinkGate)
+        val recordingWorldDirectoryLock = RecordingWorldDirectoryLock()
+        val openMinecraftWorld = concurrencyWorld(minecraftWorldPaths, gatedFileSystem, recordingWorldDirectoryLock)
         val jobs = mutableListOf<Deferred<*>>()
         try {
             val returned = CompletableDeferred<Unit>()
             val writing = async(Dispatchers.Default) {
-                world.writeStatistics(playerUuid, PlayerStatistics.serializer(), statistics)
+                openMinecraftWorld.writeStatistics(playerUuid, PlayerStatistics.serializer(), playerStatistics)
                 returned.complete(Unit)
             }
             jobs += writing
@@ -525,33 +527,33 @@ class OpenMinecraftWorldConcurrencyTest {
 
             val readerReturned = CompletableDeferred<Unit>()
             val reading = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-                world.readStatistics(playerUuid, PlayerStatistics.serializer()).also {
+                openMinecraftWorld.readStatistics(playerUuid, PlayerStatistics.serializer()).also {
                     readerReturned.complete(Unit)
                 }
             }
             jobs += reading
             assertFalse(readerReturned.isCompleted)
-            assertEquals(1, world.activeMetadataEntryCount())
-            assertEquals(2, world.activeMetadataUsers())
+            assertEquals(1, openMinecraftWorld.activeMetadataEntryCount())
+            assertEquals(2, openMinecraftWorld.activeMetadataUsers())
 
-            val cancellation = CancellationException("cancelled during metadata write")
-            writing.cancel(cancellation)
+            val cancellationException = CancellationException("cancelled during metadata write")
+            writing.cancel(cancellationException)
             sinkGate.open()
             val failure = assertFailsWith<CancellationException> { writing.await() }
 
-            assertEquals(cancellation.message, failure.message)
+            assertEquals(cancellationException.message, failure.message)
             assertFalse(returned.isCompleted)
-            assertEquals(statistics, reading.await())
-            assertEquals(0, world.activeMetadataEntryCount())
-            assertEquals(statistics, world.readStatistics(playerUuid, PlayerStatistics.serializer()))
-            assertEquals(0, world.activeMetadataEntryCount())
+            assertEquals(playerStatistics, reading.await())
+            assertEquals(0, openMinecraftWorld.activeMetadataEntryCount())
+            assertEquals(playerStatistics, openMinecraftWorld.readStatistics(playerUuid, PlayerStatistics.serializer()))
+            assertEquals(0, openMinecraftWorld.activeMetadataEntryCount())
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
                 sinkGate.open()
                 jobs.joinAll()
-                world.close()
-                assertFalse(lock.isValid)
+                openMinecraftWorld.close()
+                assertFalse(recordingWorldDirectoryLock.isValid)
                 base.checkNoOpenFiles()
             }
         }
@@ -559,20 +561,20 @@ class OpenMinecraftWorldConcurrencyTest {
 
     @Test
     fun cancellationDuringNestedRegionWriteCompletesAValidCommitAndReleasesBothStateLayers() = runTest {
-        val paths = MinecraftWorldPaths("/world".toPath())
-        val position = ChunkPosition(0, 0)
-        val target = paths.regionFile(position.region)
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
+        val chunkPosition = ChunkPosition(0, 0)
+        val target = minecraftWorldPaths.regionFile(chunkPosition.regionPosition)
         val base = concurrencyFakeFileSystem()
         val writeGate = BlockingGate()
-        val fileSystem = GatedFileSystem(base, target, writeGate = writeGate)
-        val lock = RecordingWorldDirectoryLock()
-        val world = concurrencyWorld(paths, fileSystem, lock)
+        val gatedFileSystem = GatedFileSystem(base, target, writeGate = writeGate)
+        val recordingWorldDirectoryLock = RecordingWorldDirectoryLock()
+        val openMinecraftWorld = concurrencyWorld(minecraftWorldPaths, gatedFileSystem, recordingWorldDirectoryLock)
         val jobs = mutableListOf<Deferred<*>>()
         try {
             val returned = CompletableDeferred<Unit>()
             val writing = async(Dispatchers.Default) {
-                world.writeCompressedChunk(
-                    position,
+                openMinecraftWorld.writeCompressedChunk(
+                    chunkPosition,
                     concurrencyChunk(5),
                     RegionStorageDirectory.CHUNKS,
                     DimensionDirectory.Overworld,
@@ -584,45 +586,45 @@ class OpenMinecraftWorldConcurrencyTest {
 
             val readerReturned = CompletableDeferred<Unit>()
             val reading = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-                world.readCompressedChunk(
-                    position,
+                openMinecraftWorld.readCompressedChunk(
+                    chunkPosition,
                     RegionStorageDirectory.CHUNKS,
                     DimensionDirectory.Overworld,
                 ).also { readerReturned.complete(Unit) }
             }
             jobs += reading
             assertFalse(readerReturned.isCompleted)
-            assertEquals(1, world.activeRegionStorageCount())
-            assertEquals(2, world.activeRegionStorageUsers())
+            assertEquals(1, openMinecraftWorld.activeRegionStorageCount())
+            assertEquals(2, openMinecraftWorld.activeRegionStorageUsers())
 
-            val cancellation = CancellationException("cancelled during nested region write")
-            writing.cancel(cancellation)
+            val cancellationException = CancellationException("cancelled during nested region write")
+            writing.cancel(cancellationException)
             writeGate.open()
             val failure = assertFailsWith<CancellationException> { writing.await() }
 
-            assertEquals(cancellation.message, failure.message)
+            assertEquals(cancellationException.message, failure.message)
             assertFalse(returned.isCompleted)
             assertContentEquals(
                 byteArrayOf(5),
                 reading.await().bytesOrNull(),
             )
-            assertEquals(0, world.activeRegionStorageCount())
+            assertEquals(0, openMinecraftWorld.activeRegionStorageCount())
             assertContentEquals(
                 byteArrayOf(5),
-                world.readCompressedChunk(
-                    position,
+                openMinecraftWorld.readCompressedChunk(
+                    chunkPosition,
                     RegionStorageDirectory.CHUNKS,
                     DimensionDirectory.Overworld,
                 ).bytesOrNull(),
             )
-            assertEquals(0, world.activeRegionStorageCount())
+            assertEquals(0, openMinecraftWorld.activeRegionStorageCount())
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
                 writeGate.open()
                 jobs.joinAll()
-                world.close()
-                assertFalse(lock.isValid)
+                openMinecraftWorld.close()
+                assertFalse(recordingWorldDirectoryLock.isValid)
                 base.checkNoOpenFiles()
             }
         }
@@ -630,39 +632,39 @@ class OpenMinecraftWorldConcurrencyTest {
 
     @Test
     fun cancelledCloseOwnerFinishesDirectoryLockCleanupAndPublishesSuccess() = runTest {
-        val paths = MinecraftWorldPaths("/world".toPath())
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val base = concurrencyFakeFileSystem()
         val closeGate = BlockingGate()
-        val lock = RecordingWorldDirectoryLock(closeGate)
-        val world = concurrencyWorld(paths, base, lock)
+        val recordingWorldDirectoryLock = RecordingWorldDirectoryLock(closeGate)
+        val openMinecraftWorld = concurrencyWorld(minecraftWorldPaths, base, recordingWorldDirectoryLock)
         val jobs = mutableListOf<Deferred<*>>()
         try {
             val returned = CompletableDeferred<Unit>()
             val closing = async(Dispatchers.Default) {
-                world.close()
+                openMinecraftWorld.close()
                 returned.complete(Unit)
             }
             jobs += closing
             closeGate.awaitEntered()
 
-            val cancellation = CancellationException("world close owner cancelled")
-            closing.cancel(cancellation)
+            val cancellationException = CancellationException("world close owner cancelled")
+            closing.cancel(cancellationException)
             closeGate.open()
             val failure = assertFailsWith<CancellationException> { closing.await() }
 
-            assertEquals(cancellation.message, failure.message)
+            assertEquals(cancellationException.message, failure.message)
             assertFalse(returned.isCompleted)
-            assertFalse(lock.isValid)
-            assertEquals(1, lock.closeAttempts.get())
+            assertFalse(recordingWorldDirectoryLock.isValid)
+            assertEquals(1, recordingWorldDirectoryLock.closeAttempts.get())
             base.checkNoOpenFiles()
 
-            world.close()
-            assertEquals(1, lock.closeAttempts.get())
+            openMinecraftWorld.close()
+            assertEquals(1, recordingWorldDirectoryLock.closeAttempts.get())
         } finally {
             withContext(NonCancellable) {
                 closeGate.open()
                 jobs.joinAll()
-                world.close()
+                openMinecraftWorld.close()
                 base.checkNoOpenFiles()
             }
         }
@@ -670,45 +672,45 @@ class OpenMinecraftWorldConcurrencyTest {
 
     @Test
     fun flushKeepsCancellationPrimaryAcrossRegionStoragesAndOnlyReleasesRemainingPins() = runTest {
-        val paths = MinecraftWorldPaths("/world".toPath())
-        val position = ChunkPosition(0, 0)
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
+        val chunkPosition = ChunkPosition(0, 0)
         val storageDirectories = RegionStorageDirectory.entries
         val base = concurrencyFakeFileSystem()
-        storageDirectories.forEachIndexed { index, storage ->
+        storageDirectories.forEachIndexed { index, regionStorageDirectory ->
             val setup = RegionStorage(
-                paths = paths,
-                storage = storage,
+                minecraftWorldPaths = minecraftWorldPaths,
+                regionStorageDirectory = regionStorageDirectory,
                 fileSystem = base,
-                configuration = RegionStorageConfiguration(syncWrites = false),
+                regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
             )
-            setup.writeChunkNbtDocument(position, concurrencyDocument(index), Compression.NONE)
+            setup.writeChunkNbtDocument(chunkPosition, concurrencyDocument(index), Compression.NONE)
             setup.close()
         }
 
         val earlierFailure = IOException("synthetic world flush failure before cancellation")
-        val cancellation = CancellationException("synthetic world flush cancellation")
-        val fileSystem = SequencedFlushFailureFileSystem(
+        val cancellationException = CancellationException("synthetic world flush cancellation")
+        val sequencedFlushFailureFileSystem = SequencedFlushFailureFileSystem(
             delegate = threadSafeFakeFileSystem(base),
-            failures = listOf(earlierFailure, cancellation),
+            failures = listOf(earlierFailure, cancellationException),
         )
         val readGate = BlockingGate(expectedEntrants = storageDirectories.size)
         val encodeGate = BlockingGate(expectedEntrants = storageDirectories.size)
-        val lock = RecordingWorldDirectoryLock()
-        val world = OpenMinecraftWorld(
-            paths = paths,
-            files = WorldFileAccess.mutable(fileSystem),
+        val recordingWorldDirectoryLock = RecordingWorldDirectoryLock()
+        val openMinecraftWorld = OpenMinecraftWorld(
+            minecraftWorldPaths = minecraftWorldPaths,
+            worldFileAccess = WorldFileAccess.mutable(sequencedFlushFailureFileSystem),
             chunkNbtFormat = gatedNbtFormat(encodeGate),
             regionStorageConfiguration = RegionStorageConfiguration(
                 syncWrites = false,
                 writeCompression = Compression.NONE,
             ),
-            directoryLock = lock,
+            worldDirectoryLock = recordingWorldDirectoryLock,
         )
         val jobs = mutableListOf<Deferred<*>>()
         try {
-            val reading = storageDirectories.map { storage ->
+            val reading = storageDirectories.map { regionStorageDirectory ->
                 async(Dispatchers.Default) {
-                    world.withCompressedChunkSource(position, storage, DimensionDirectory.Overworld) { _, source ->
+                    openMinecraftWorld.withCompressedChunkSource(chunkPosition, regionStorageDirectory, DimensionDirectory.Overworld) { _, source ->
                         readGate.awaitRelease()
                         source.readByteArray()
                     }
@@ -716,12 +718,12 @@ class OpenMinecraftWorldConcurrencyTest {
             }
             jobs += reading
             readGate.awaitEntered()
-            val encoding = storageDirectories.mapIndexed { index, storage ->
+            val encoding = storageDirectories.mapIndexed { index, regionStorageDirectory ->
                 async(Dispatchers.Default) {
-                    world.writeChunkNbtDocument(
-                        position,
+                    openMinecraftWorld.writeChunkNbtDocument(
+                        chunkPosition,
                         concurrencyDocument(index + 10),
-                        storage,
+                        regionStorageDirectory,
                         DimensionDirectory.Overworld,
                     )
                 }
@@ -731,25 +733,25 @@ class OpenMinecraftWorldConcurrencyTest {
             readGate.open()
             reading.awaitAll()
 
-            val failure = assertFailsWith<CancellationException> { world.flush() }
+            val failure = assertFailsWith<CancellationException> { openMinecraftWorld.flush() }
 
-            assertSame(cancellation, failure)
+            assertSame(cancellationException, failure)
             assertSame(earlierFailure, failure.suppressedExceptions.single())
-            assertEquals(2, fileSystem.flushAttempts.get())
-            assertEquals(storageDirectories.size, world.activeRegionStorageCount())
+            assertEquals(2, sequencedFlushFailureFileSystem.flushAttempts.get())
+            assertEquals(storageDirectories.size, openMinecraftWorld.activeRegionStorageCount())
 
             encodeGate.open()
             encoding.awaitAll()
-            assertEquals(0, world.activeRegionStorageCount())
-            world.close()
-            assertFalse(lock.isValid)
+            assertEquals(0, openMinecraftWorld.activeRegionStorageCount())
+            openMinecraftWorld.close()
+            assertFalse(recordingWorldDirectoryLock.isValid)
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
                 readGate.open()
                 encodeGate.open()
                 jobs.joinAll()
-                world.close()
+                openMinecraftWorld.close()
                 base.checkNoOpenFiles()
             }
         }
@@ -757,11 +759,11 @@ class OpenMinecraftWorldConcurrencyTest {
 
     @Test
     fun completedCloseFailureIsReportedToLaterCloseCallers() = runTest {
-        val paths = MinecraftWorldPaths("/world".toPath())
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val base = concurrencyFakeFileSystem()
         val expected = IOException("synthetic directory lock close failure")
         var closeAttempts = 0
-        val lock = object : WorldDirectoryLock {
+        val worldDirectoryLock = object : WorldDirectoryLock {
             private var valid = true
 
             override val isValid: Boolean
@@ -773,52 +775,52 @@ class OpenMinecraftWorldConcurrencyTest {
                 throw expected
             }
         }
-        val world = concurrencyWorld(paths, base, lock)
+        val openMinecraftWorld = concurrencyWorld(minecraftWorldPaths, base, worldDirectoryLock)
 
-        val first = assertFailsWith<IOException> { world.close() }
-        val later = assertFailsWith<IOException> { world.close() }
+        val first = assertFailsWith<IOException> { openMinecraftWorld.close() }
+        val later = assertFailsWith<IOException> { openMinecraftWorld.close() }
 
         assertSame(expected, first)
         assertSame(first, later)
         assertEquals(1, closeAttempts)
-        assertFalse(lock.isValid)
+        assertFalse(worldDirectoryLock.isValid)
         base.checkNoOpenFiles()
     }
 
     @Test
     fun completedRegionCleanupFailureDoesNotPoisonLaterWorldClose() = runTest {
-        val paths = MinecraftWorldPaths("/world".toPath())
-        val position = ChunkPosition(0, 0)
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
+        val chunkPosition = ChunkPosition(0, 0)
         val base = concurrencyFakeFileSystem()
-        seedConcurrencyRegion(base, checkNotNull(paths.regionFile(position.region).parent), position)
-        val fileSystem = GatedFileSystem(
+        seedConcurrencyRegion(base, checkNotNull(minecraftWorldPaths.regionFile(chunkPosition.regionPosition).parent), chunkPosition)
+        val gatedFileSystem = GatedFileSystem(
             base = base,
-            target = paths.regionFile(position.region),
+            target = minecraftWorldPaths.regionFile(chunkPosition.regionPosition),
             closeFailures = 1,
         )
-        val lock = RecordingWorldDirectoryLock()
-        val world = concurrencyWorld(paths, fileSystem, lock)
+        val recordingWorldDirectoryLock = RecordingWorldDirectoryLock()
+        val openMinecraftWorld = concurrencyWorld(minecraftWorldPaths, gatedFileSystem, recordingWorldDirectoryLock)
         try {
             val operationFailure = assertFailsWith<IOException> {
-                world.readCompressedChunk(
-                    position,
+                openMinecraftWorld.readCompressedChunk(
+                    chunkPosition,
                     RegionStorageDirectory.CHUNKS,
                     DimensionDirectory.Overworld,
                 )
             }
             assertEquals("synthetic gated close failure", operationFailure.message)
-            assertEquals(0, world.activeRegionStorageCount())
-            assertTrue(lock.isValid)
+            assertEquals(0, openMinecraftWorld.activeRegionStorageCount())
+            assertTrue(recordingWorldDirectoryLock.isValid)
 
-            world.close()
+            openMinecraftWorld.close()
 
-            assertFalse(lock.isValid)
-            assertEquals(1, lock.closeAttempts.get())
-            assertEquals(1, fileSystem.closes.get())
+            assertFalse(recordingWorldDirectoryLock.isValid)
+            assertEquals(1, recordingWorldDirectoryLock.closeAttempts.get())
+            assertEquals(1, gatedFileSystem.closes.get())
             base.checkNoOpenFiles()
         } finally {
             withContext(NonCancellable) {
-                world.close()
+                openMinecraftWorld.close()
                 base.checkNoOpenFiles()
             }
         }
@@ -826,12 +828,12 @@ class OpenMinecraftWorldConcurrencyTest {
 }
 
 private fun concurrencyWorld(
-    paths: MinecraftWorldPaths,
+    minecraftWorldPaths: MinecraftWorldPaths,
     fileSystem: okio.FileSystem,
-    lock: WorldDirectoryLock = RecordingWorldDirectoryLock(),
+    worldDirectoryLock: WorldDirectoryLock = RecordingWorldDirectoryLock(),
 ): OpenMinecraftWorld = OpenMinecraftWorld(
-    paths = paths,
-    files = WorldFileAccess.mutable(
+    minecraftWorldPaths = minecraftWorldPaths,
+    worldFileAccess = WorldFileAccess.mutable(
         if (fileSystem is okio.fakefilesystem.FakeFileSystem) {
             threadSafeFakeFileSystem(fileSystem)
         } else {
@@ -839,5 +841,5 @@ private fun concurrencyWorld(
         },
     ),
     regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
-    directoryLock = lock,
+    worldDirectoryLock = worldDirectoryLock,
 )

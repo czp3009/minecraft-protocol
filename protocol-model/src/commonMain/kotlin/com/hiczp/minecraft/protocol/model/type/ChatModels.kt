@@ -77,7 +77,7 @@ internal object PackedMessageSignatureSerializer :
         val input = decoder.beginStructure(descriptor)
         if (input.decodeSequentially()) {
             val messageId = input.decodeIntElement(descriptor, MESSAGE_ID)
-            val result = if (messageId == 0) {
+            val packedMessageSignature = if (messageId == 0) {
                 PackedMessageSignature.Full(
                     input.decodeSerializableElement(
                         descriptor,
@@ -89,7 +89,7 @@ internal object PackedMessageSignatureSerializer :
                 PackedMessageSignature.Cached(messageId - 1)
             }
             input.endStructure(descriptor)
-            return result
+            return packedMessageSignature
         }
 
         var messageId: Int? = null

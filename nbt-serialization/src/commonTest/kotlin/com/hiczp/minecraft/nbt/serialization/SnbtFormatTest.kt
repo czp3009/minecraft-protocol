@@ -11,7 +11,7 @@ import kotlin.test.*
 class SnbtFormatTest {
     @Test
     fun `compact writer covers every representable tag and sorts compounds`() {
-        val tag = NbtCompound(
+        val nbtCompound = NbtCompound(
             linkedMapOf(
                 "z" to NbtList(listOf(NbtInt(1), NbtString("two"))),
                 "byte" to NbtByte(-1),
@@ -36,7 +36,7 @@ class SnbtFormatTest {
             ),
         )
 
-        val encoded = SnbtFormat.encodeTagToString(tag)
+        val encoded = SnbtFormat.encodeTagToString(nbtCompound)
 
         assertTrue(encoded.startsWith("{\"a key\":"))
         assertTrue(encoded.contains("bytes:[B;1B,-1B]"))
@@ -44,8 +44,8 @@ class SnbtFormatTest {
         assertTrue(encoded.contains("longs:[L;-9223372036854775808L,3L,9223372036854775807L]"))
         assertTrue(encoded.contains("z:[1,\"two\"]"))
         val decoded = SnbtFormat.decodeTagFromString(encoded) as NbtCompound
-        assertEquals(tag.size, decoded.size)
-        tag.forEachEntry { name, expected ->
+        assertEquals(nbtCompound.size, decoded.size)
+        nbtCompound.forEachEntry { name, expected ->
             assertEquals(expected, decoded[name], name)
         }
     }
@@ -102,7 +102,7 @@ class SnbtFormatTest {
         }
         val withNames = SnbtFormat(
             SnbtFormatConfiguration(
-                unicodeNameResolver = SnbtUnicodeNameResolver { name ->
+                snbtUnicodeNameResolver = SnbtUnicodeNameResolver { name ->
                     if (name.trim().equals("LATIN CAPITAL LETTER A", ignoreCase = true)) 0x41 else null
                 },
             ),
@@ -114,7 +114,7 @@ class SnbtFormatTest {
 
         val cause = IllegalStateException("resolver failed")
         val failing = SnbtFormat(
-            SnbtFormatConfiguration(unicodeNameResolver = SnbtUnicodeNameResolver { throw cause }),
+            SnbtFormatConfiguration(snbtUnicodeNameResolver = SnbtUnicodeNameResolver { throw cause }),
         )
         val failure = assertFailsWith<NbtDecodingException> {
             failing.decodeTagFromString("\"\\N{LATIN CAPITAL LETTER A}\"")
@@ -123,55 +123,55 @@ class SnbtFormatTest {
         assertContains(failure.message.orEmpty(), "character")
         assertSame(cause, failure.cause)
 
-        val cancellation = CancellationException("cancelled")
+        val cancellationException = CancellationException("cancelled")
         val cancelling = SnbtFormat(
-            SnbtFormatConfiguration(unicodeNameResolver = SnbtUnicodeNameResolver { throw cancellation }),
+            SnbtFormatConfiguration(snbtUnicodeNameResolver = SnbtUnicodeNameResolver { throw cancellationException }),
         )
         val thrown = assertFailsWith<CancellationException> {
             cancelling.decodeTagFromString("\"\\N{LATIN CAPITAL LETTER A}\"")
         }
-        assertSame(cancellation, thrown)
+        assertSame(cancellationException, thrown)
     }
 
     @Test
     fun `generic format document and tag shortcuts round trip`() {
-        val value = SnbtSample(42, "hello", listOf(1L, 2L))
-        val encoded = SnbtFormat.encodeToString(value)
+        val snbtSample = SnbtSample(42, "hello", listOf(1L, 2L))
+        val encoded = SnbtFormat.encodeToString(snbtSample)
 
-        assertEquals(value, SnbtFormat.decodeFromString<SnbtSample>(encoded))
+        assertEquals(snbtSample, SnbtFormat.decodeFromString<SnbtSample>(encoded))
         val stream = Buffer()
-        SnbtFormat.encodeToSink(value, stream)
-        assertEquals(value, SnbtFormat.decodeFromSource<SnbtSample>(stream))
+        SnbtFormat.encodeToSink(snbtSample, stream)
+        assertEquals(snbtSample, SnbtFormat.decodeFromSource<SnbtSample>(stream))
 
-        val tag = NbtCompound(mapOf("value" to NbtInt(42)))
-        assertEquals(tag, tag.toSnbtString().toNbtTag())
-        val document = NbtDocument(tag)
-        assertEquals(document, document.toSnbtString().toNbtDocument())
+        val nbtCompound = NbtCompound(mapOf("value" to NbtInt(42)))
+        assertEquals(nbtCompound, nbtCompound.toSnbtString().toNbtTag())
+        val nbtDocument = NbtDocument(nbtCompound)
+        assertEquals(nbtDocument, nbtDocument.toSnbtString().toNbtDocument())
     }
 
     @Test
     fun `stream methods process UTF-8 incrementally and retain caller ownership`() {
-        val rawSink = SnbtTrackingRawSink()
-        val sink = rawSink.buffered()
-        val tag = NbtCompound(mapOf("emoji" to NbtString("😀"), "value" to NbtInt(42)))
+        val snbtTrackingRawSink = SnbtTrackingRawSink()
+        val sink = snbtTrackingRawSink.buffered()
+        val nbtCompound = NbtCompound(mapOf("emoji" to NbtString("😀"), "value" to NbtInt(42)))
 
-        SnbtFormat.encodeTagToSink(tag, sink)
-        assertFalse(rawSink.closed)
+        SnbtFormat.encodeTagToSink(nbtCompound, sink)
+        assertFalse(snbtTrackingRawSink.closed)
         sink.flush()
 
-        val bytes = rawSink.storage.readByteArray()
-        val rawSource = SnbtTrackingRawSource(bytes)
-        val source = rawSource.buffered()
-        assertEquals(tag, SnbtFormat.decodeTagFromSource(source))
-        assertFalse(rawSource.closed)
+        val byteArray = snbtTrackingRawSink.storage.readByteArray()
+        val snbtTrackingRawSource = SnbtTrackingRawSource(byteArray)
+        val source = snbtTrackingRawSource.buffered()
+        assertEquals(nbtCompound, SnbtFormat.decodeTagFromSource(source))
+        assertFalse(snbtTrackingRawSource.closed)
     }
 
     @Test
     fun `writer can retain compound insertion order`() {
-        val format = SnbtFormat(SnbtFormatConfiguration(sortCompoundKeys = false))
-        val tag = NbtCompound(linkedMapOf("z" to NbtInt(1), "a" to NbtInt(2)))
+        val snbtFormat = SnbtFormat(SnbtFormatConfiguration(sortCompoundKeys = false))
+        val nbtCompound = NbtCompound(linkedMapOf("z" to NbtInt(1), "a" to NbtInt(2)))
 
-        assertEquals("{z:1,a:2}", format.encodeTagToString(tag))
+        assertEquals("{z:1,a:2}", snbtFormat.encodeTagToString(nbtCompound))
     }
 
     @Test
@@ -203,11 +203,11 @@ class SnbtFormatTest {
 
     @Test
     fun `stream and string adapters use the same text`() {
-        val tag = NbtString("streamed")
+        val nbtString = NbtString("streamed")
         val sink = Buffer()
-        SnbtFormat.encodeTagToSink(tag, sink)
+        SnbtFormat.encodeTagToSink(nbtString, sink)
 
-        assertEquals(SnbtFormat.encodeTagToString(tag), sink.readString())
+        assertEquals(SnbtFormat.encodeTagToString(nbtString), sink.readString())
 
         val source = Buffer()
         source.writeString("[1,2,3]")

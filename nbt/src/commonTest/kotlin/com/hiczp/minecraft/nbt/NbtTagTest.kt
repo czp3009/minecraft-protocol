@@ -26,48 +26,48 @@ class NbtTagTest {
 
     @Test
     fun `containers and arrays take immutable snapshots`() {
-        val bytes = byteArrayOf(1, 2)
-        val ints = intArrayOf(3, 4)
-        val longs = longArrayOf(5, 6)
-        val list = mutableListOf<NbtTag>(NbtInt(7), NbtString("eight"))
-        val compound = linkedMapOf<String, NbtTag>("value" to NbtInt(8))
+        val byteArray = byteArrayOf(1, 2)
+        val intArray = intArrayOf(3, 4)
+        val longArray = longArrayOf(5, 6)
+        val mutableList = mutableListOf<NbtTag>(NbtInt(7), NbtString("eight"))
+        val linkedHashMap = linkedMapOf<String, NbtTag>("value" to NbtInt(8))
 
-        val byteTag = NbtByteArray(bytes)
-        val intTag = NbtIntArray(ints)
-        val longTag = NbtLongArray(longs)
-        val listTag = NbtList(list)
-        val compoundTag = NbtCompound(compound)
+        val nbtByteArray = NbtByteArray(byteArray)
+        val nbtIntArray = NbtIntArray(intArray)
+        val nbtLongArray = NbtLongArray(longArray)
+        val nbtList = NbtList(mutableList)
+        val nbtCompound = NbtCompound(linkedHashMap)
 
-        bytes[0] = 9
-        ints[0] = 9
-        longs[0] = 9
-        list[0] = NbtInt(9)
-        compound["value"] = NbtInt(9)
+        byteArray[0] = 9
+        intArray[0] = 9
+        longArray[0] = 9
+        mutableList[0] = NbtInt(9)
+        linkedHashMap["value"] = NbtInt(9)
 
-        assertContentEquals(byteArrayOf(1, 2), byteTag.value)
-        assertContentEquals(intArrayOf(3, 4), intTag.value)
-        assertContentEquals(longArrayOf(5, 6), longTag.value)
-        assertEquals(listOf(NbtInt(7), NbtString("eight")), listTag.value)
-        assertEquals(mapOf("value" to NbtInt(8)), compoundTag.value)
+        assertContentEquals(byteArrayOf(1, 2), nbtByteArray.value)
+        assertContentEquals(intArrayOf(3, 4), nbtIntArray.value)
+        assertContentEquals(longArrayOf(5, 6), nbtLongArray.value)
+        assertEquals(listOf(NbtInt(7), NbtString("eight")), nbtList.value)
+        assertEquals(mapOf("value" to NbtInt(8)), nbtCompound.value)
 
-        byteTag.value[0] = 10
-        intTag.value[0] = 10
-        longTag.value[0] = 10
-        val returnedList = listTag.value
+        nbtByteArray.value[0] = 10
+        nbtIntArray.value[0] = 10
+        nbtLongArray.value[0] = 10
+        val returnedList = nbtList.value
         if (returnedList is MutableList<*>) {
             @Suppress("UNCHECKED_CAST")
             (returnedList as MutableList<NbtTag>)[0] = NbtInt(10)
         }
-        val returnedCompound = compoundTag.value
+        val returnedCompound = nbtCompound.value
         if (returnedCompound is MutableMap<*, *>) {
             @Suppress("UNCHECKED_CAST")
             (returnedCompound as MutableMap<String, NbtTag>)["value"] =
                 NbtInt(10)
         }
-        assertContentEquals(byteArrayOf(1, 2), byteTag.value)
-        assertContentEquals(intArrayOf(3, 4), intTag.value)
-        assertContentEquals(longArrayOf(5, 6), longTag.value)
-        assertEquals(listOf(NbtInt(7), NbtString("eight")), listTag.value)
-        assertEquals(mapOf("value" to NbtInt(8)), compoundTag.value)
+        assertContentEquals(byteArrayOf(1, 2), nbtByteArray.value)
+        assertContentEquals(intArrayOf(3, 4), nbtIntArray.value)
+        assertContentEquals(longArrayOf(5, 6), nbtLongArray.value)
+        assertEquals(listOf(NbtInt(7), NbtString("eight")), nbtList.value)
+        assertEquals(mapOf("value" to NbtInt(8)), nbtCompound.value)
     }
 }

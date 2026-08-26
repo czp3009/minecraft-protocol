@@ -16,22 +16,22 @@ class TestFilesTest {
 
     @Test
     fun runtimeDirectoriesUseVersionAndUuidLayers() {
-        val layout = HostedMinecraftTestSupport.layout
-        val first = layout.newRuntimeDirectory(
+        val minecraftTestLayout = HostedMinecraftTestSupport.minecraftTestLayout
+        val first = minecraftTestLayout.newRuntimeDirectory(
             MinecraftRuntimeKind.OFFICIAL_SERVER,
         )
-        val second = layout.newRuntimeDirectory(
+        val second = minecraftTestLayout.newRuntimeDirectory(
             MinecraftRuntimeKind.OFFICIAL_SERVER,
         )
         try {
             assertNotEquals(first, second)
-            assertEquals(layout.minecraftVersion, first.parent?.fileName?.toString())
+            assertEquals(minecraftTestLayout.minecraftVersion, first.parent?.fileName?.toString())
             assertEquals("official-server", first.parent?.parent?.fileName?.toString())
             assertEquals("runtimes", first.parent?.parent?.parent?.fileName?.toString())
             assertTrue(first.fileName.toString().startsWith("run-"))
             assertTrue(second.fileName.toString().startsWith("run-"))
-            assertTrue(first.isBelow(layout.hostWorkRoot))
-            assertTrue(second.isBelow(layout.hostWorkRoot))
+            assertTrue(first.isBelow(minecraftTestLayout.hostWorkRoot))
+            assertTrue(second.isBelow(minecraftTestLayout.hostWorkRoot))
         } finally {
             first.deleteTree()
             second.deleteTree()
@@ -139,18 +139,18 @@ class TestFilesTest {
         val cleanupStarted = CompletableDeferred<Unit>()
         val allowCleanup = CompletableDeferred<Unit>()
         val cleanupCompleted = CompletableDeferred<Unit>()
-        val resource = HostedMinecraftTestSupport.manageTestResource(directory) {
+        val managedMinecraftTestResource = HostedMinecraftTestSupport.manageTestResource(directory) {
             cleanupStarted.complete(Unit)
             allowCleanup.await()
         }
-        resource.invokeOnCleanupCompletion {
+        managedMinecraftTestResource.invokeOnCleanupCompletion {
             cleanupCompleted.complete(Unit)
         }
 
-        resource.close()
-        resource.close()
+        managedMinecraftTestResource.close()
+        managedMinecraftTestResource.close()
         val cleanup = async(start = CoroutineStart.UNDISPATCHED) {
-            resource.awaitCleanup()
+            managedMinecraftTestResource.awaitCleanup()
         }
         cleanupStarted.await()
         assertTrue(directory.isDirectory())
@@ -168,13 +168,13 @@ class TestFilesTest {
     fun resourceDirectoryIsDeletedWhenCleanupFails() = runTest {
         val directory = HostedMinecraftTestSupport.newScratchDirectory()
         val expectedFailure = IllegalStateException("cleanup failed")
-        val resource = HostedMinecraftTestSupport.manageTestResource(directory) {
+        val managedMinecraftTestResource = HostedMinecraftTestSupport.manageTestResource(directory) {
             throw expectedFailure
         }
 
-        resource.close()
+        managedMinecraftTestResource.close()
         val actualFailure = assertFailsWith<IllegalStateException> {
-            resource.awaitCleanup()
+            managedMinecraftTestResource.awaitCleanup()
         }
         HostedMinecraftTestSupport.awaitCleanup()
 

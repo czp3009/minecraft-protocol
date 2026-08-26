@@ -20,9 +20,9 @@ abstract class GenerateMinecraftProtocolSourceTask :
 
     @TaskAction
     fun generate() {
-        val target = targetFile.asFile.get().toPath()
+        val minecraftProtocolTarget = targetFile.asFile.get().toPath()
             .readOfficialMinecraftTargetReport()
-            .target
+            .minecraftProtocolTarget
         val source = FileSpec.builder(
             "com.hiczp.minecraft.protocol.model",
             "MinecraftProtocol",
@@ -33,12 +33,12 @@ abstract class GenerateMinecraftProtocolSourceTask :
                 )
                 .addProperty(
                     PropertySpec.builder("MINECRAFT_VERSION", String::class, CONST)
-                        .initializer("%S", target.minecraftVersion)
+                        .initializer("%S", minecraftProtocolTarget.minecraftVersion)
                         .build(),
                 )
                 .addProperty(
                     PropertySpec.builder("PROTOCOL_VERSION", Int::class, CONST)
-                        .initializer("%L", target.protocolVersion)
+                        .initializer("%L", minecraftProtocolTarget.protocolVersion)
                         .build(),
                 )
                 .build(),
@@ -46,7 +46,7 @@ abstract class GenerateMinecraftProtocolSourceTask :
         val output = outputFile.asFile.get().toPath()
         output.atomicWriteText(source)
         logger.lifecycle(
-            "Generated Minecraft ${target.minecraftVersion} protocol ${target.protocolVersion}: $output",
+            "Generated Minecraft ${minecraftProtocolTarget.minecraftVersion} protocol ${minecraftProtocolTarget.protocolVersion}: $output",
         )
     }
 

@@ -73,7 +73,7 @@ class PlayClientboundStatePacketTest {
 
     @Test
     fun `current time packet uses clock map introduced by 26_2`() {
-        val packet = UpdateTimePacket(
+        val updateTimePacket = UpdateTimePacket(
             gameTime = 1,
             clocks = linkedMapOf(
                 300 to ClockNetworkState(
@@ -84,7 +84,7 @@ class PlayClientboundStatePacketTest {
             ),
         )
         assertPacketBytes(
-            packet,
+            updateTimePacket,
             UpdateTimePacket.serializer(),
             "000000000000000101ac02f4033f0000003f800000",
         )
@@ -125,9 +125,9 @@ class PlayClientboundStatePacketTest {
             StopSound(SoundSource.MUSIC, sound) to
                     "03010b6d696e6563726166743a78",
         )
-        for ((value, expected) in cases) {
+        for ((stopSound, expected) in cases) {
             assertPacketBytes(
-                StopSoundPacket(value),
+                StopSoundPacket(stopSound),
                 StopSoundPacket.serializer(),
                 expected,
             )
@@ -244,17 +244,17 @@ class PlayClientboundStatePacketTest {
 
     private fun <T> assertPacketBytes(
         packet: T,
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
         expectedHex: String,
     ) {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 

@@ -12,9 +12,9 @@ import kotlin.test.assertTrue
 class JvmProcessStdioTest {
     @Test
     fun javaProbeStartsWithoutAnInvalidInputRedirect() = runTest {
-        val service = GameProcessService(FakeFileSystem(), "/launcher".toPath())
+        val gameProcessService = GameProcessService(FakeFileSystem(), "/launcher".toPath())
 
-        assertTrue(service.probeJavaMajor() > 0)
+        assertTrue(gameProcessService.probeJavaMajor() > 0)
     }
 
     @Test

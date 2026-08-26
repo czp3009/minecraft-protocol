@@ -40,24 +40,24 @@ class MinecraftChunkPacketEncoder(
 
     /** Encodes [chunk] directly into the packet accepted by the connection's outgoing channel. */
     fun encodePacket(chunk: Chunk<ProtocolBlockState, ProtocolRegistryEntry>): ChunkDataAndUpdateLightPacket {
-        val metadata = chunk.metadata
+        val chunkMetadata = chunk.chunkMetadata
         val sectionsByY = chunk.sections.associateBy(ChunkSection<ProtocolBlockState, ProtocolRegistryEntry>::sectionY)
-        val packetSections = chunk.layout.sectionYRange.map { sectionY ->
+        val packetSections = chunk.chunkLayout.sectionYRange.map { sectionY ->
             encodeSection(sectionsByY[sectionY], chunk.defaultBlockState, chunk.defaultBiome)
         }
         val packetLight = encodeLight(
-            chunk.layout.minSectionY,
-            chunk.layout.sectionCount,
+            chunk.chunkLayout.minSectionY,
+            chunk.chunkLayout.sectionCount,
             sectionsByY,
-            metadata.lightOnlySections,
+            chunkMetadata.lightOnlySections,
         )
         return ChunkDataAndUpdateLightPacket(
-            chunkX = chunk.position.x,
-            chunkZ = chunk.position.z,
+            chunkX = chunk.chunkPosition.x,
+            chunkZ = chunk.chunkPosition.z,
             chunkData = NetworkChunkData(
-                heightmaps = encodeHeightmaps(metadata.heightmaps),
+                heightmaps = encodeHeightmaps(chunkMetadata.heightmaps),
                 sections = packetSections,
-                blockEntities = encodeBlockEntities(chunk.position, chunk.blockEntities),
+                blockEntities = encodeBlockEntities(chunk.chunkPosition, chunk.blockEntities),
             ),
             lightData = packetLight,
         )
@@ -68,11 +68,11 @@ class MinecraftChunkPacketEncoder(
         encodePacket(chunk).toMinecraftChunkSnapshot()
 
     private fun encodeSection(
-        section: ChunkSection<ProtocolBlockState, ProtocolRegistryEntry>?,
+        chunkSection: ChunkSection<ProtocolBlockState, ProtocolRegistryEntry>?,
         defaultBlockState: ProtocolBlockState,
         defaultBiome: ProtocolRegistryEntry,
     ): NetworkChunkSection {
-        if (section == null) {
+        if (chunkSection == null) {
             return NetworkChunkSection(
                 nonAirBlockCount = if (isAir(defaultBlockState)) 0 else SECTION_BLOCK_COUNT,
                 fluidCount = if (hasFluid(defaultBlockState)) SECTION_BLOCK_COUNT else 0,
@@ -83,22 +83,22 @@ class MinecraftChunkPacketEncoder(
 
         var nonAirBlockCount = 0
         var fluidCount = 0
-        section.blockStates.forEach { blockState ->
-            if (!isAir(blockState)) nonAirBlockCount++
-            if (hasFluid(blockState)) fluidCount++
+        chunkSection.blockStates.forEach { protocolBlockState ->
+            if (!isAir(protocolBlockState)) nonAirBlockCount++
+            if (hasFluid(protocolBlockState)) fluidCount++
         }
         return NetworkChunkSection(
             nonAirBlockCount = nonAirBlockCount,
             fluidCount = fluidCount,
             blockStates = encodePalette(
-                container = section.blockStates,
+                palettedContainer = chunkSection.blockStates,
                 registrySize = protocolRegistryContext.blockStateRegistrySize,
                 minimumIndirectBits = BLOCK_MINIMUM_INDIRECT_BITS,
                 maximumIndirectBits = BLOCK_MAXIMUM_INDIRECT_BITS,
                 id = ProtocolBlockState::id,
             ),
             biomes = encodePalette(
-                container = section.biomes,
+                palettedContainer = chunkSection.biomes,
                 registrySize = biomeRegistrySize,
                 minimumIndirectBits = BIOME_MINIMUM_INDIRECT_BITS,
                 maximumIndirectBits = BIOME_MAXIMUM_INDIRECT_BITS,
@@ -108,14 +108,14 @@ class MinecraftChunkPacketEncoder(
     }
 
     private fun <T : Any> encodePalette(
-        container: com.hiczp.minecraft.world.format.PalettedContainer<T>,
+        palettedContainer: com.hiczp.minecraft.world.format.PalettedContainer<T>,
         registrySize: Int,
         minimumIndirectBits: Int,
         maximumIndirectBits: Int,
         id: (T) -> Int,
     ): NetworkPalettedContainer {
-        val compact = container.compactSnapshot()
-        val registryIds = compact.values.map(id)
+        val compactPalette = palettedContainer.compactSnapshot()
+        val registryIds = compactPalette.values.map(id)
         if (registryIds.size == 1) return NetworkPalettedContainer.Single(registryIds.single())
 
         val logicalBits = minimumBitsForDistinctValues(registryIds.size)
@@ -124,22 +124,22 @@ class MinecraftChunkPacketEncoder(
             NetworkPalettedContainer.Indirect(
                 bitsPerEntry = bits,
                 palette = registryIds,
-                data = packValues(bits, compact.entryCount) { index -> compact.ids[index] },
+                data = packValues(bits, compactPalette.entryCount) { index -> compactPalette.ids[index] },
             )
         } else {
             val bits = minimumBitsForDistinctValues(registrySize)
             NetworkPalettedContainer.Direct(
-                packValues(bits, compact.entryCount) { index -> registryIds[compact.ids[index]] },
+                packValues(bits, compactPalette.entryCount) { index -> registryIds[compactPalette.ids[index]] },
             )
         }
     }
 
     private fun encodeHeightmaps(heightmaps: NbtCompound): Map<HeightmapType, LongArray> = buildMap {
-        heightmaps.forEachEntry { name, tag ->
-            val type = CLIENT_HEIGHTMAP_TYPES_BY_NAME[name] ?: return@forEachEntry
-            val values = tag as? NbtLongArray
+        heightmaps.forEachEntry { name, nbtTag ->
+            val heightmapType = CLIENT_HEIGHTMAP_TYPES_BY_NAME[name] ?: return@forEachEntry
+            val values = nbtTag as? NbtLongArray
                 ?: throw IllegalArgumentException("Chunk heightmap $name is not a TAG_Long_Array")
-            put(type, values.value)
+            put(heightmapType, values.value)
         }
     }
 
@@ -150,18 +150,18 @@ class MinecraftChunkPacketEncoder(
         if (blockEntities.isEmpty()) return emptyList()
         val blockEntityTypeProtocolRegistry = protocolRegistryContext.requireRegistry(BLOCK_ENTITY_TYPE_REGISTRY)
         return blockEntities.map { blockEntity ->
-            val localPosition = chunkPosition.local(blockEntity.position)
+            val chunkBlockPosition = chunkPosition.local(blockEntity.blockPosition)
             val typeId = blockEntityTypeProtocolRegistry.entry(Identifier(blockEntity.type))?.rawId
                 ?: throw IllegalArgumentException(
                     "Block entity type ${blockEntity.type} is absent from the active registry",
                 )
-            val compound = blockEntity.persistedData()
+            val nbtCompound = blockEntity.persistedData()
             BlockEntityInfo.fromLocalCoordinates(
-                localX = localPosition.x,
-                y = blockEntity.position.y,
-                localZ = localPosition.z,
+                localX = chunkBlockPosition.x,
+                y = blockEntity.blockPosition.y,
+                localZ = chunkBlockPosition.z,
                 typeId = typeId,
-                tag = blockEntityUpdateTag(compound),
+                tag = blockEntityUpdateTag(nbtCompound),
             )
         }
     }
@@ -178,10 +178,10 @@ class MinecraftChunkPacketEncoder(
         val firstSectionY = MinecraftCoordinates.offsetSectionCoordinate(minSectionY, -1)
         repeat(bitCount) { bit ->
             val sectionY = MinecraftCoordinates.offsetSectionCoordinate(firstSectionY, bit)
-            val section = sections[sectionY]
-            val lighting = lightOnlySections[sectionY]
-            blockLight.add(bit, section?.blockLight ?: lighting?.blockLight)
-            if (hasSkyLight) skyLight.add(bit, section?.skyLight ?: lighting?.skyLight)
+            val chunkSection = sections[sectionY]
+            val sectionLighting = lightOnlySections[sectionY]
+            blockLight.add(bit, chunkSection?.blockLight ?: sectionLighting?.blockLight)
+            if (hasSkyLight) skyLight.add(bit, chunkSection?.skyLight ?: sectionLighting?.skyLight)
         }
         return LightUpdateData(
             skyYMask = skyLight.updateMask(),
@@ -235,13 +235,13 @@ class MinecraftChunkPacketEncoder(
 
 /** Fluent projection from a strong world Chunk to an initial-world snapshot. */
 fun Chunk<ProtocolBlockState, ProtocolRegistryEntry>.toMinecraftChunkSnapshot(
-    encoder: MinecraftChunkPacketEncoder,
-): MinecraftChunkSnapshot = encoder.encode(this)
+    minecraftChunkPacketEncoder: MinecraftChunkPacketEncoder,
+): MinecraftChunkSnapshot = minecraftChunkPacketEncoder.encode(this)
 
 /** Fluent projection from a strong world Chunk directly to its clientbound packet. */
 fun Chunk<ProtocolBlockState, ProtocolRegistryEntry>.toChunkDataAndUpdateLightPacket(
-    encoder: MinecraftChunkPacketEncoder,
-): ChunkDataAndUpdateLightPacket = encoder.encodePacket(this)
+    minecraftChunkPacketEncoder: MinecraftChunkPacketEncoder,
+): ChunkDataAndUpdateLightPacket = minecraftChunkPacketEncoder.encodePacket(this)
 
 /** Adapts an already-created packet to the server's initial-world snapshot without copying its payloads. */
 fun ChunkDataAndUpdateLightPacket.toMinecraftChunkSnapshot(): MinecraftChunkSnapshot =
@@ -249,7 +249,7 @@ fun ChunkDataAndUpdateLightPacket.toMinecraftChunkSnapshot(): MinecraftChunkSnap
         chunkX = chunkX,
         chunkZ = chunkZ,
         chunkData = chunkData,
-        lightData = lightData,
+        lightUpdateData = lightData,
     )
 
 private fun protocolChunkDataRegistries(
@@ -261,9 +261,9 @@ private fun protocolChunkDataRegistries(
         blockStates = object : BlockStateRegistry<ProtocolBlockState> {
             override val defaultValue = protocolRegistryContext.requireDefaultBlockState(defaultBlock)
 
-            override fun resolve(descriptor: BlockStateDescriptor): ProtocolBlockState? =
-                descriptor.identifierOrNull()?.let { block ->
-                    protocolRegistryContext.blockState(block, descriptor.properties)
+            override fun resolve(blockStateDescriptor: BlockStateDescriptor): ProtocolBlockState? =
+                blockStateDescriptor.identifierOrNull()?.let { block ->
+                    protocolRegistryContext.blockState(block, blockStateDescriptor.properties)
                 }
 
             override fun describe(value: ProtocolBlockState): BlockStateDescriptor? =
@@ -315,17 +315,17 @@ private fun minimumBitsForDistinctValues(count: Int): Int {
     return if (count == 1) 0 else Int.SIZE_BITS - (count - 1).countLeadingZeroBits()
 }
 
-private fun defaultBlockEntityUpdateTag(compound: NbtCompound): NbtCompound? {
-    val updateValues = compound.value - setOf("id", "x", "y", "z")
+private fun defaultBlockEntityUpdateTag(nbtCompound: NbtCompound): NbtCompound? {
+    val updateValues = nbtCompound.value - setOf("id", "x", "y", "z")
     return updateValues.takeIf { values -> values.isNotEmpty() }?.let(::NbtCompound)
 }
 
 private fun BlockEntity.persistedData(): NbtCompound {
     val value = linkedMapOf<String, NbtTag>()
     value["id"] = NbtString(type)
-    value["x"] = NbtInt(position.x)
-    value["y"] = NbtInt(position.y)
-    value["z"] = NbtInt(position.z)
-    persistentData.forEachEntry { name, tag -> value[name] = tag }
+    value["x"] = NbtInt(blockPosition.x)
+    value["y"] = NbtInt(blockPosition.y)
+    value["z"] = NbtInt(blockPosition.z)
+    persistentData.forEachEntry { name, nbtTag -> value[name] = nbtTag }
     return NbtCompound(value)
 }

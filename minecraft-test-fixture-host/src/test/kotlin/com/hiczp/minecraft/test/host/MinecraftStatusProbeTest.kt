@@ -18,13 +18,13 @@ import kotlin.test.assertNotNull
 class MinecraftStatusProbeTest {
     @Test
     fun completesTheStatusAndPongExchange() = runTest {
-        SelectorManager(Dispatchers.Default).use { selector ->
-            aSocket(selector).tcp().bind(LOOPBACK, 0).use { listener ->
+        SelectorManager(Dispatchers.Default).use { selectorManager ->
+            aSocket(selectorManager).tcp().bind(LOOPBACK, 0).use { listener ->
                 val server = launch(start = CoroutineStart.UNDISPATCHED) {
                     serveStatusOnce(listener)
                 }
 
-                val status = MinecraftStatusProbe(selector).query(
+                val status = MinecraftStatusProbe(selectorManager).query(
                     host = LOOPBACK,
                     port = listener.port,
                     socketTimeoutMillis = 2_000,
@@ -45,8 +45,8 @@ class MinecraftStatusProbeTest {
 
     @Test
     fun rejectsAConnectionClosedBeforeStatusIsPublished() = runTest {
-        SelectorManager(Dispatchers.Default).use { selector ->
-            aSocket(selector).tcp().bind(LOOPBACK, 0).use { listener ->
+        SelectorManager(Dispatchers.Default).use { selectorManager ->
+            aSocket(selectorManager).tcp().bind(LOOPBACK, 0).use { listener ->
                 val server = launch(start = CoroutineStart.UNDISPATCHED) {
                     listener.accept().use { socket ->
                         val input = socket.openReadChannel()
@@ -56,7 +56,7 @@ class MinecraftStatusProbeTest {
                 }
 
                 val failure = try {
-                    MinecraftStatusProbe(selector).query(
+                    MinecraftStatusProbe(selectorManager).query(
                         host = LOOPBACK,
                         port = listener.port,
                         socketTimeoutMillis = 2_000,

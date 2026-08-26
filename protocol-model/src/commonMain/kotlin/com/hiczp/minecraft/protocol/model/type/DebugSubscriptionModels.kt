@@ -284,51 +284,51 @@ internal object DebugSubscriptionEventSerializer :
     }
 
     override fun serialize(encoder: Encoder, value: DebugSubscriptionEvent) {
-        val type = debugType(value.data)
-        val serializer = debugSerializer(type)
+        val debugSubscriptionType = debugType(value.data)
+        val kSerializer = debugSerializer(debugSubscriptionType)
         val output = encoder.beginStructure(descriptor)
         output.encodeSerializableElement(
             descriptor,
             TYPE,
             DebugSubscriptionType.serializer(),
-            type,
+            debugSubscriptionType,
         )
-        output.encodeSerializableElement(descriptor, DATA, serializer, value.data)
+        output.encodeSerializableElement(descriptor, DATA, kSerializer, value.data)
         output.endStructure(descriptor)
     }
 
     override fun deserialize(decoder: Decoder): DebugSubscriptionEvent {
         val input = decoder.beginStructure(descriptor)
         if (input.decodeSequentially()) {
-            val type = input.decodeSerializableElement(
+            val debugSubscriptionType = input.decodeSerializableElement(
                 descriptor,
                 TYPE,
                 DebugSubscriptionType.serializer(),
             )
-            val data = input.decodeSerializableElement(
+            val debugSubscriptionData = input.decodeSerializableElement(
                 descriptor,
                 DATA,
-                debugSerializer(type),
+                debugSerializer(debugSubscriptionType),
             )
             input.endStructure(descriptor)
-            return DebugSubscriptionEvent(data)
+            return DebugSubscriptionEvent(debugSubscriptionData)
         }
 
-        var type: DebugSubscriptionType? = null
-        var data: DebugSubscriptionData? = null
+        var debugSubscriptionType: DebugSubscriptionType? = null
+        var debugSubscriptionData: DebugSubscriptionData? = null
         while (true) {
             when (val index = input.decodeElementIndex(descriptor)) {
-                TYPE -> type = input.decodeSerializableElement(
+                TYPE -> debugSubscriptionType = input.decodeSerializableElement(
                     descriptor,
                     TYPE,
                     DebugSubscriptionType.serializer(),
                 )
 
-                DATA -> data = input.decodeSerializableElement(
+                DATA -> debugSubscriptionData = input.decodeSerializableElement(
                     descriptor,
                     DATA,
                     debugSerializer(
-                        type ?: throw SerializationException(
+                        debugSubscriptionType ?: throw SerializationException(
                             "Debug event type must precede its data",
                         ),
                     ),
@@ -342,7 +342,7 @@ internal object DebugSubscriptionEventSerializer :
         }
         input.endStructure(descriptor)
         return DebugSubscriptionEvent(
-            data ?: throw SerializationException("Missing debug event data"),
+            debugSubscriptionData ?: throw SerializationException("Missing debug event data"),
         )
     }
 }
@@ -357,7 +357,7 @@ internal object DebugSubscriptionUpdateSerializer :
     }
 
     override fun serialize(encoder: Encoder, value: DebugSubscriptionUpdate) {
-        val serializer = debugSerializer(value.type)
+        val kSerializer = debugSerializer(value.type)
         if (value.data != null && debugType(value.data) != value.type) {
             throw SerializationException(
                 "Debug update type ${value.type} does not match ${debugType(value.data)}",
@@ -373,7 +373,7 @@ internal object DebugSubscriptionUpdateSerializer :
         output.encodeNullableSerializableElement(
             descriptor,
             DATA,
-            serializer,
+            kSerializer,
             value.data,
         )
         output.endStructure(descriptor)
@@ -382,36 +382,36 @@ internal object DebugSubscriptionUpdateSerializer :
     override fun deserialize(decoder: Decoder): DebugSubscriptionUpdate {
         val input = decoder.beginStructure(descriptor)
         if (input.decodeSequentially()) {
-            val type = input.decodeSerializableElement(
+            val debugSubscriptionType = input.decodeSerializableElement(
                 descriptor,
                 TYPE,
                 DebugSubscriptionType.serializer(),
             )
-            val data = input.decodeNullableSerializableElement(
+            val debugSubscriptionData = input.decodeNullableSerializableElement(
                 descriptor,
                 DATA,
-                debugSerializer(type).nullable,
+                debugSerializer(debugSubscriptionType).nullable,
             )
             input.endStructure(descriptor)
-            return DebugSubscriptionUpdate(type, data)
+            return DebugSubscriptionUpdate(debugSubscriptionType, debugSubscriptionData)
         }
 
-        var type: DebugSubscriptionType? = null
-        var data: DebugSubscriptionData? = null
+        var debugSubscriptionType: DebugSubscriptionType? = null
+        var debugSubscriptionData: DebugSubscriptionData? = null
         var sawData = false
         while (true) {
             when (val index = input.decodeElementIndex(descriptor)) {
-                TYPE -> type = input.decodeSerializableElement(
+                TYPE -> debugSubscriptionType = input.decodeSerializableElement(
                     descriptor,
                     TYPE,
                     DebugSubscriptionType.serializer(),
                 )
 
                 DATA -> {
-                    val actualType = type ?: throw SerializationException(
+                    val actualType = debugSubscriptionType ?: throw SerializationException(
                         "Debug update type must precede its data",
                     )
-                    data = input.decodeNullableSerializableElement(
+                    debugSubscriptionData = input.decodeNullableSerializableElement(
                         descriptor,
                         DATA,
                         debugSerializer(actualType).nullable,
@@ -426,18 +426,18 @@ internal object DebugSubscriptionUpdateSerializer :
             }
         }
         input.endStructure(descriptor)
-        val actualType = type ?: throw SerializationException(
+        val actualType = debugSubscriptionType ?: throw SerializationException(
             "Missing debug update type",
         )
         if (!sawData) {
             throw SerializationException("Missing debug update optional data field")
         }
-        return DebugSubscriptionUpdate(actualType, data)
+        return DebugSubscriptionUpdate(actualType, debugSubscriptionData)
     }
 }
 
-private fun debugType(data: DebugSubscriptionData): DebugSubscriptionType =
-    when (data) {
+private fun debugType(debugSubscriptionData: DebugSubscriptionData): DebugSubscriptionType =
+    when (debugSubscriptionData) {
         is DebugSubscriptionData.Bee -> DebugSubscriptionType.BEE
         is DebugSubscriptionData.VillagerBrain ->
             DebugSubscriptionType.VILLAGER_BRAIN
@@ -473,8 +473,8 @@ private fun debugType(data: DebugSubscriptionData): DebugSubscriptionType =
 
 @Suppress("UNCHECKED_CAST")
 private fun debugSerializer(
-    type: DebugSubscriptionType,
-): KSerializer<DebugSubscriptionData> = when (type) {
+    debugSubscriptionType: DebugSubscriptionType,
+): KSerializer<DebugSubscriptionData> = when (debugSubscriptionType) {
     DebugSubscriptionType.DEDICATED_SERVER_TICK_TIME ->
         throw SerializationException(
             "Vanilla has no value codec for dedicated_server_tick_time",

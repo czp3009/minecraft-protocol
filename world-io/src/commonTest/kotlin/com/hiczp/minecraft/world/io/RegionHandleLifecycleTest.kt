@@ -14,11 +14,11 @@ import kotlin.test.*
 class RegionHandleLifecycleTest {
     @Test
     fun useClosesARegionHandle() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val regionStorage = RegionStorage(
             directory = "/world/region".toPath(),
-            fileSystem = fileSystem,
-            configuration = RegionStorageConfiguration(syncWrites = false),
+            fileSystem = fakeFileSystem,
+            regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
         )
         val regionHandle = regionStorage.openRegion(RegionPosition(0, 0))
 
@@ -41,158 +41,158 @@ class RegionHandleLifecycleTest {
         assertFailsWith<IllegalStateException> { failingRegionHandle.hasRegion() }
 
         regionStorage.close()
-        fileSystem.checkNoOpenFiles()
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
     fun syncWritesFlushAtRecordHeaderExplicitFlushAndCloseBoundaries() = runTest {
         val base = FakeFileSystem()
-        val fileSystem = FlushRecordingFileSystem(base)
+        val flushRecordingFileSystem = FlushRecordingFileSystem(base)
         val directory = "/world/region".toPath()
-        val store = RegionStorage(
+        val regionStorage = RegionStorage(
             directory = directory,
-            fileSystem = fileSystem,
-            configuration = RegionStorageConfiguration(syncWrites = true),
+            fileSystem = flushRecordingFileSystem,
+            regionStorageConfiguration = RegionStorageConfiguration(syncWrites = true),
         )
 
-        store.writeCompressedChunk(ChunkPosition(0, 0), lifecycleChunk(1))
-        assertEquals(3, fileSystem.flushes)
-        store.flush()
-        assertEquals(3, fileSystem.flushes)
-        store.close()
-        assertEquals(3, fileSystem.flushes)
+        regionStorage.writeCompressedChunk(ChunkPosition(0, 0), lifecycleChunk(1))
+        assertEquals(3, flushRecordingFileSystem.flushes)
+        regionStorage.flush()
+        assertEquals(3, flushRecordingFileSystem.flushes)
+        regionStorage.close()
+        assertEquals(3, flushRecordingFileSystem.flushes)
         base.checkNoOpenFiles()
     }
 
     @Test
     fun nonSyncWriteFlushesOnceWhenItsLastEntryUserReleases() = runTest {
         val base = FakeFileSystem()
-        val fileSystem = FlushRecordingFileSystem(base)
-        val store = RegionStorage(
+        val flushRecordingFileSystem = FlushRecordingFileSystem(base)
+        val regionStorage = RegionStorage(
             directory = "/world/region".toPath(),
-            fileSystem = fileSystem,
-            configuration = RegionStorageConfiguration(syncWrites = false),
+            fileSystem = flushRecordingFileSystem,
+            regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
         )
 
-        store.writeCompressedChunk(ChunkPosition(0, 0), lifecycleChunk(1))
-        assertEquals(1, fileSystem.flushes)
-        store.flush()
-        assertEquals(1, fileSystem.flushes)
-        store.close()
-        assertEquals(1, fileSystem.flushes)
+        regionStorage.writeCompressedChunk(ChunkPosition(0, 0), lifecycleChunk(1))
+        assertEquals(1, flushRecordingFileSystem.flushes)
+        regionStorage.flush()
+        assertEquals(1, flushRecordingFileSystem.flushes)
+        regionStorage.close()
+        assertEquals(1, flushRecordingFileSystem.flushes)
         base.checkNoOpenFiles()
     }
 
     @Test
     fun missingReadsCreateNeitherFilesNorIdleEntries() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val firstDirectory = "/world/region".toPath()
         val first = RegionStorage(
             directory = firstDirectory,
-            fileSystem = fileSystem,
-            configuration = RegionStorageConfiguration(syncWrites = false),
+            fileSystem = fakeFileSystem,
+            regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
         )
         first.readAnvilRegion(RegionPosition(0, 0))
         first.readAnvilRegion(RegionPosition(1, 0))
         first.readAnvilRegion(RegionPosition(0, 0))
         first.readAnvilRegion(RegionPosition(2, 0))
 
-        assertFalse(firstDirectory / "r.0.0.mca" in fileSystem.allPaths)
-        assertFalse(firstDirectory / "r.2.0.mca" in fileSystem.allPaths)
-        assertTrue(fileSystem.openPaths.isEmpty())
+        assertFalse(firstDirectory / "r.0.0.mca" in fakeFileSystem.allPaths)
+        assertFalse(firstDirectory / "r.2.0.mca" in fakeFileSystem.allPaths)
+        assertTrue(fakeFileSystem.openPaths.isEmpty())
 
         val secondDirectory = "/world/entities".toPath()
         val second = RegionStorage(
             directory = secondDirectory,
-            fileSystem = fileSystem,
-            configuration = RegionStorageConfiguration(syncWrites = false),
+            fileSystem = fakeFileSystem,
+            regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
         )
         second.readAnvilRegion(RegionPosition(9, 9))
-        assertFalse(secondDirectory / "r.9.9.mca" in fileSystem.allPaths)
-        assertTrue(fileSystem.openPaths.isEmpty())
+        assertFalse(secondDirectory / "r.9.9.mca" in fakeFileSystem.allPaths)
+        assertTrue(fakeFileSystem.openPaths.isEmpty())
 
         first.close()
-        assertEquals(0, fileSystem.openPaths.size)
+        assertEquals(0, fakeFileSystem.openPaths.size)
         second.close()
-        fileSystem.checkNoOpenFiles()
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
     fun lastReleaseCloseFailureAllowsSameRegionReopenWithoutPoisoningLaterClose() = runTest {
         val base = FakeFileSystem()
-        val fileSystem = FiniteCloseFailingFileSystem(base, failures = 1)
+        val finiteCloseFailingFileSystem = FiniteCloseFailingFileSystem(base, failures = 1)
         val directory = "/world/region".toPath()
         base.createEmptyRegion(directory, RegionPosition(0, 0))
-        val store = RegionStorage(
+        val regionStorage = RegionStorage(
             directory = directory,
-            fileSystem = fileSystem,
-            configuration = RegionStorageConfiguration(syncWrites = false),
+            fileSystem = finiteCloseFailingFileSystem,
+            regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
         )
 
         val operationFailure = assertFailsWith<IOException> {
-            store.readAnvilRegion(RegionPosition(0, 0))
+            regionStorage.readAnvilRegion(RegionPosition(0, 0))
         }
 
         assertEquals("synthetic finite close failure", operationFailure.message)
-        assertEquals(1, fileSystem.closeAttempts)
-        assertEquals(0, store.activeRegionCount())
+        assertEquals(1, finiteCloseFailingFileSystem.closeAttempts)
+        assertEquals(0, regionStorage.activeRegionCount())
         base.checkNoOpenFiles()
         assertTrue(base.exists(directory / "r.0.0.mca"))
 
-        store.readAnvilRegion(RegionPosition(0, 0))
-        assertEquals(2, fileSystem.closeAttempts)
-        assertEquals(0, store.activeRegionCount())
+        regionStorage.readAnvilRegion(RegionPosition(0, 0))
+        assertEquals(2, finiteCloseFailingFileSystem.closeAttempts)
+        assertEquals(0, regionStorage.activeRegionCount())
         assertTrue(base.openPaths.isEmpty())
-        store.close()
+        regionStorage.close()
         base.checkNoOpenFiles()
     }
 
     @Test
     fun eachLastReleaseReportsItsFlushAndCloseFailuresWithoutPoisoningStoreClose() = runTest {
         val base = FakeFileSystem()
-        val fileSystem = ClosingFailingFileSystem(base)
+        val closingFailingFileSystem = ClosingFailingFileSystem(base)
         val directory = "/world/region".toPath()
         base.createEmptyRegion(directory, RegionPosition(0, 0))
         base.createEmptyRegion(directory, RegionPosition(1, 0))
-        val store = RegionStorage(
+        val regionStorage = RegionStorage(
             directory = directory,
-            fileSystem = fileSystem,
-            configuration = RegionStorageConfiguration(syncWrites = false),
+            fileSystem = closingFailingFileSystem,
+            regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
         )
-        val first = assertFailsWith<IOException> { store.readAnvilRegion(RegionPosition(0, 0)) }
-        val second = assertFailsWith<IOException> { store.readAnvilRegion(RegionPosition(1, 0)) }
+        val first = assertFailsWith<IOException> { regionStorage.readAnvilRegion(RegionPosition(0, 0)) }
+        val second = assertFailsWith<IOException> { regionStorage.readAnvilRegion(RegionPosition(1, 0)) }
 
-        store.close()
+        regionStorage.close()
 
-        assertEquals(2, fileSystem.flushAttempts)
-        assertEquals(2, fileSystem.closeAttempts)
+        assertEquals(2, closingFailingFileSystem.flushAttempts)
+        assertEquals(2, closingFailingFileSystem.closeAttempts)
         assertEquals("synthetic flush failure", first.message)
         assertEquals("synthetic flush failure", second.message)
         assertEquals("synthetic close failure", first.suppressedExceptions.single().message)
         assertEquals("synthetic close failure", second.suppressedExceptions.single().message)
         base.checkNoOpenFiles()
-        store.close()
-        assertFailsWith<IllegalStateException> { store.flush() }
+        regionStorage.close()
+        assertFailsWith<IllegalStateException> { regionStorage.flush() }
     }
 
     @Test
     fun lastReleaseStillFlushesAndClosesAfterPaddingFailure() = runTest {
         val base = FakeFileSystem()
-        val fileSystem = ResizeFailingFileSystem(base)
-        val store = RegionStorage(
+        val resizeFailingFileSystem = ResizeFailingFileSystem(base)
+        val regionStorage = RegionStorage(
             directory = "/world/region".toPath(),
-            fileSystem = fileSystem,
-            configuration = RegionStorageConfiguration(syncWrites = false),
+            fileSystem = resizeFailingFileSystem,
+            regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
         )
         assertFailsWith<IOException> {
-            store.writeCompressedChunk(ChunkPosition(0, 0), lifecycleChunk(1))
+            regionStorage.writeCompressedChunk(ChunkPosition(0, 0), lifecycleChunk(1))
         }
 
-        store.close()
+        regionStorage.close()
 
-        assertTrue(fileSystem.resizeAttempted)
-        assertTrue(fileSystem.flushAttempted)
-        assertTrue(fileSystem.closeAttempted)
+        assertTrue(resizeFailingFileSystem.resizeAttempted)
+        assertTrue(resizeFailingFileSystem.flushAttempted)
+        assertTrue(resizeFailingFileSystem.closeAttempted)
         base.checkNoOpenFiles()
     }
 
@@ -201,20 +201,20 @@ class RegionHandleLifecycleTest {
         val base = FakeFileSystem()
         val directory = "/world/region".toPath()
         base.createEmptyRegion(directory, RegionPosition(0, 0))
-        val fileSystem = SizeFailingFileSystem(base, failureCall = 1)
-        val store = RegionStorage(
+        val sizeFailingFileSystem = SizeFailingFileSystem(base, failureCall = 1)
+        val regionStorage = RegionStorage(
             directory = directory,
-            fileSystem = fileSystem,
-            configuration = RegionStorageConfiguration(syncWrites = false),
+            fileSystem = sizeFailingFileSystem,
+            regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
         )
 
         assertFailsWith<IOException> {
-            store.readAnvilRegion(RegionPosition(0, 0))
+            regionStorage.readAnvilRegion(RegionPosition(0, 0))
         }
 
-        assertTrue(fileSystem.closeAttempted)
+        assertTrue(sizeFailingFileSystem.closeAttempted)
         base.checkNoOpenFiles()
-        store.close()
+        regionStorage.close()
     }
 
     @Test
@@ -222,18 +222,18 @@ class RegionHandleLifecycleTest {
         val base = FakeFileSystem()
         val directory = "/world/region".toPath()
         base.createEmptyRegion(directory, RegionPosition(0, 0))
-        val fileSystem = SizeFailingFileSystem(base, failureCall = 2)
-        val store = RegionStorage(
+        val sizeFailingFileSystem = SizeFailingFileSystem(base, failureCall = 2)
+        val regionStorage = RegionStorage(
             directory = directory,
-            fileSystem = fileSystem,
-            configuration = RegionStorageConfiguration(syncWrites = false),
+            fileSystem = sizeFailingFileSystem,
+            regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
         )
-        assertFailsWith<IOException> { store.readAnvilRegion(RegionPosition(0, 0)) }
+        assertFailsWith<IOException> { regionStorage.readAnvilRegion(RegionPosition(0, 0)) }
 
-        store.close()
+        regionStorage.close()
 
-        assertTrue(fileSystem.flushAttempted)
-        assertTrue(fileSystem.closeAttempted)
+        assertTrue(sizeFailingFileSystem.flushAttempted)
+        assertTrue(sizeFailingFileSystem.closeAttempted)
         base.checkNoOpenFiles()
     }
 
@@ -243,18 +243,18 @@ class RegionHandleLifecycleTest {
         val directory = "/world/region".toPath()
         base.createEmptyRegion(directory, RegionPosition(0, 0))
         base.createEmptyRegion(directory, RegionPosition(1, 0))
-        val fileSystem = FiniteFlushFailingFileSystem(base, failures = 2)
-        val store = RegionStorage(
+        val finiteFlushFailingFileSystem = FiniteFlushFailingFileSystem(base, failures = 2)
+        val regionStorage = RegionStorage(
             directory = directory,
-            fileSystem = fileSystem,
-            configuration = RegionStorageConfiguration(syncWrites = false),
+            fileSystem = finiteFlushFailingFileSystem,
+            regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
         )
-        val first = assertFailsWith<IOException> { store.readAnvilRegion(RegionPosition(0, 0)) }
-        val second = assertFailsWith<IOException> { store.readAnvilRegion(RegionPosition(1, 0)) }
+        val first = assertFailsWith<IOException> { regionStorage.readAnvilRegion(RegionPosition(0, 0)) }
+        val second = assertFailsWith<IOException> { regionStorage.readAnvilRegion(RegionPosition(1, 0)) }
 
-        store.close()
+        regionStorage.close()
 
-        assertEquals(2, fileSystem.flushAttempts)
+        assertEquals(2, finiteFlushFailingFileSystem.flushAttempts)
         assertEquals("synthetic finite flush failure", first.message)
         assertEquals("synthetic finite flush failure", second.message)
         base.checkNoOpenFiles()
@@ -391,9 +391,9 @@ private class SizeFailingFileSystem(
         mustCreate: Boolean,
         mustExist: Boolean,
     ): FileHandle {
-        val handle = super.openReadWrite(file, mustCreate, mustExist)
+        val fileHandle = super.openReadWrite(file, mustCreate, mustExist)
         return wrapHandle(
-            handle,
+            fileHandle,
             flush = {
                 flushAttempted = true
                 it.flush()
@@ -453,8 +453,8 @@ private fun lifecycleChunk(value: Int): CompressedChunk =
 
 private fun FileSystem.createEmptyRegion(
     directory: Path,
-    position: RegionPosition,
+    regionPosition: RegionPosition,
 ) {
     createDirectories(directory)
-    write(directory / "r.${position.x}.${position.z}.mca") {}
+    write(directory / "r.${regionPosition.x}.${regionPosition.z}.mca") {}
 }

@@ -15,15 +15,15 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
     actual override suspend fun generateRsaKeyPair(keySizeBits: Int): MinecraftRsaKeyPair {
         require(keySizeBits >= 1_024)
         requireStrongWebRandom()
-        val keyPair = generateForgeRsaKeyPair(keySizeBits)
+        val forgeRsaKeyPair = generateForgeRsaKeyPair(keySizeBits)
         val publicKey = forgeAsn1.toDer(
             forgePki.publicKeyToSubjectPublicKeyInfo(
-                keyPair.publicKey,
+                forgeRsaKeyPair.publicKey,
             ),
         ).getBytes().decodeForgeBytes()
         return MinecraftRsaKeyPair(
             publicKey = publicKey,
-            privateKey = ForgeRsaPrivateKey(keyPair.privateKey),
+            minecraftRsaPrivateKey = ForgeRsaPrivateKey(forgeRsaKeyPair.privateKey),
         )
     }
 
@@ -32,24 +32,24 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
         plaintext: ByteArray,
     ): ByteArray {
         requireStrongWebRandom()
-        val publicKey = forgePki.publicKeyFromAsn1(
+        val forgePublicKey = forgePki.publicKeyFromAsn1(
             forgeAsn1.fromDer(encodedPublicKey.encodeForgeBytes()),
         )
-        return publicKey.encrypt(
+        return forgePublicKey.encrypt(
             plaintext.encodeForgeBytes(),
             RSAES_PKCS1_V1_5,
         ).decodeForgeBytes()
     }
 
     actual override fun rsaDecrypt(
-        privateKey: MinecraftRsaPrivateKey,
+        minecraftRsaPrivateKey: MinecraftRsaPrivateKey,
         ciphertext: ByteArray,
     ): ByteArray {
         requireStrongWebRandom()
-        require(privateKey is ForgeRsaPrivateKey) {
+        require(minecraftRsaPrivateKey is ForgeRsaPrivateKey) {
             "The RSA private key was not created by this platform backend"
         }
-        return privateKey.key.decrypt(
+        return minecraftRsaPrivateKey.forgePrivateKey.decrypt(
             ciphertext.encodeForgeBytes(),
             RSAES_PKCS1_V1_5,
         ).decodeForgeBytes()
@@ -65,41 +65,41 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
 
     actual override fun decodePublicKey(
         encodedPublicKey: ByteArray,
-        signatureAlgorithm: MinecraftRsaSignatureAlgorithm,
+        minecraftRsaSignatureAlgorithm: MinecraftRsaSignatureAlgorithm,
     ): MinecraftRsaPublicKey = ForgeRsaPublicKey(
-        key = forgePki.publicKeyFromAsn1(
+        forgePublicKey = forgePki.publicKeyFromAsn1(
             forgeAsn1.fromDer(encodedPublicKey.encodeForgeBytes()),
         ),
-        signatureAlgorithm = signatureAlgorithm,
+        minecraftRsaSignatureAlgorithm = minecraftRsaSignatureAlgorithm,
     )
 
     actual override fun rsaSha256Sign(
-        privateKey: MinecraftRsaPrivateKey,
+        minecraftRsaPrivateKey: MinecraftRsaPrivateKey,
         payload: ByteArray,
     ): ByteArray {
         requireStrongWebRandom()
-        require(privateKey is ForgeRsaPrivateKey) {
+        require(minecraftRsaPrivateKey is ForgeRsaPrivateKey) {
             "The RSA private key was not created by this platform backend"
         }
-        val digest = forgeMd.sha256.create().apply {
+        val forgeMessageDigest = forgeMd.sha256.create().apply {
             update(payload.encodeForgeBytes())
         }
-        return privateKey.key.sign(digest).decodeForgeBytes()
+        return minecraftRsaPrivateKey.forgePrivateKey.sign(forgeMessageDigest).decodeForgeBytes()
     }
 
     actual override fun rsaVerify(
-        publicKey: MinecraftRsaPublicKey,
+        minecraftRsaPublicKey: MinecraftRsaPublicKey,
         payload: ByteArray,
         signature: ByteArray,
     ): Boolean {
-        require(publicKey is ForgeRsaPublicKey) {
+        require(minecraftRsaPublicKey is ForgeRsaPublicKey) {
             "The RSA public key was not created by this platform backend"
         }
-        val digest = publicKey.signatureAlgorithm.createForgeDigest().apply {
+        val digest = minecraftRsaPublicKey.minecraftRsaSignatureAlgorithm.createForgeDigest().apply {
             update(payload.encodeForgeBytes())
         }.digest().getBytes()
         return try {
-            publicKey.key.verify(digest, signature.encodeForgeBytes())
+            minecraftRsaPublicKey.forgePublicKey.verify(digest, signature.encodeForgeBytes())
         } catch (_: Throwable) {
             false
         }
@@ -110,16 +110,16 @@ private suspend fun generateForgeRsaKeyPair(
     keySizeBits: Int,
 ): ForgeRsaKeyPair {
     forgeOptions.usePureJavaScript = true
-    val state = forgePki.rsa.createKeyPairGenerationState(
+    val forgeRsaKeyPairGenerationState = forgePki.rsa.createKeyPairGenerationState(
         keySizeBits,
         RSA_PUBLIC_EXPONENT,
     )
-    while (!forgePki.rsa.stepKeyPairGenerationState(state, KEY_GENERATION_SLICE_MILLIS)) {
+    while (!forgePki.rsa.stepKeyPairGenerationState(forgeRsaKeyPairGenerationState, KEY_GENERATION_SLICE_MILLIS)) {
         // node-forge's callback API implicitly starts prime.worker.js in browsers. Driving its documented incremental
         // state API keeps the published artifact self-contained and yields between bounded main-thread slices.
         yield()
     }
-    return state.keys
+    return forgeRsaKeyPairGenerationState.keys
 }
 
 private fun requireStrongWebRandom() {
@@ -139,12 +139,12 @@ private fun String.decodeForgeBytes(): ByteArray =
         .asByteArray()
 
 private class ForgeRsaPrivateKey(
-    val key: ForgePrivateKey,
+    val forgePrivateKey: ForgePrivateKey,
 ) : MinecraftRsaPrivateKey
 
 private class ForgeRsaPublicKey(
-    val key: ForgePublicKey,
-    val signatureAlgorithm: MinecraftRsaSignatureAlgorithm,
+    val forgePublicKey: ForgePublicKey,
+    val minecraftRsaSignatureAlgorithm: MinecraftRsaSignatureAlgorithm,
 ) : MinecraftRsaPublicKey
 
 private fun MinecraftRsaSignatureAlgorithm.createForgeDigest(): ForgeMessageDigest = when (this) {
@@ -167,11 +167,11 @@ internal external interface ForgeOptions : JsAny {
 internal external interface ForgePki : JsAny {
     val rsa: ForgeRsa
 
-    fun publicKeyToSubjectPublicKeyInfo(publicKey: ForgePublicKey): ForgeAsn1Object
+    fun publicKeyToSubjectPublicKeyInfo(forgePublicKey: ForgePublicKey): ForgeAsn1Object
 
-    fun publicKeyFromAsn1(value: ForgeAsn1Object): ForgePublicKey
+    fun publicKeyFromAsn1(forgeAsn1Object: ForgeAsn1Object): ForgePublicKey
 
-    fun privateKeyFromAsn1(value: ForgeAsn1Object): ForgePrivateKey
+    fun privateKeyFromAsn1(forgeAsn1Object: ForgeAsn1Object): ForgePrivateKey
 }
 
 internal external interface ForgeRsa : JsAny {
@@ -181,7 +181,7 @@ internal external interface ForgeRsa : JsAny {
     ): ForgeRsaKeyPairGenerationState
 
     fun stepKeyPairGenerationState(
-        state: ForgeRsaKeyPairGenerationState,
+        forgeRsaKeyPairGenerationState: ForgeRsaKeyPairGenerationState,
         milliseconds: Int,
     ): Boolean
 }
@@ -204,7 +204,7 @@ internal external interface ForgePublicKey : JsAny {
 internal external interface ForgePrivateKey : JsAny {
     fun decrypt(data: String, scheme: String): String
 
-    fun sign(digest: ForgeMessageDigest): String
+    fun sign(forgeMessageDigest: ForgeMessageDigest): String
 }
 
 internal external interface ForgeMessageDigests : JsAny {
@@ -223,7 +223,7 @@ internal external interface ForgeMessageDigest : JsAny {
 }
 
 internal external interface ForgeAsn1 : JsAny {
-    fun toDer(value: ForgeAsn1Object): ForgeByteBuffer
+    fun toDer(forgeAsn1Object: ForgeAsn1Object): ForgeByteBuffer
 
     fun fromDer(value: String): ForgeAsn1Object
 }
@@ -243,7 +243,7 @@ internal external interface ForgeBinary : JsAny {
 }
 
 internal external interface ForgeBinaryRaw : JsAny {
-    fun encode(bytes: Uint8Array): String
+    fun encode(uint8Array: Uint8Array): String
 
     fun decode(value: String): Uint8Array
 }

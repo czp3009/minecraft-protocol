@@ -26,37 +26,37 @@ internal object ClientboundBundleCodec {
 
         val subPackets = mutableListOf<ClientboundPacket>()
         while (true) {
-            val packet = receivePacket()
-            if (packet === BundleDelimiterPacket) return ClientboundBundlePacket(subPackets)
-            requireSubPacket(packet)
+            val clientboundPacket = receivePacket()
+            if (clientboundPacket === BundleDelimiterPacket) return ClientboundBundlePacket(subPackets)
+            requireSubPacket(clientboundPacket)
             if (subPackets.size == ClientboundBundlePacket.MAX_SUB_PACKET_COUNT) {
                 val maximum = ClientboundBundlePacket.MAX_SUB_PACKET_COUNT
                 throw MinecraftSessionException("A clientbound bundle exceeds $maximum packets")
             }
-            subPackets += packet
+            subPackets += clientboundPacket
         }
     }
 
     suspend fun send(
-        bundle: ClientboundBundlePacket,
+        clientboundBundlePacket: ClientboundBundlePacket,
         sendPacket: suspend (ClientboundPacket) -> Unit,
     ) {
-        bundle.forEach(::requireSubPacket)
+        clientboundBundlePacket.forEach(::requireSubPacket)
         sendPacket(BundleDelimiterPacket)
-        bundle.forEach { packet -> sendPacket(packet) }
+        clientboundBundlePacket.forEach { clientboundPacket -> sendPacket(clientboundPacket) }
         sendPacket(BundleDelimiterPacket)
     }
 
-    fun rejectStandaloneDelimiter(packet: ClientboundPacket) {
-        if (packet === BundleDelimiterPacket) {
+    fun rejectStandaloneDelimiter(clientboundPacket: ClientboundPacket) {
+        if (clientboundPacket === BundleDelimiterPacket) {
             throw MinecraftSessionException(
                 "Bundle delimiters are session-owned; send a ClientboundBundlePacket instead",
             )
         }
     }
 
-    private fun requireSubPacket(packet: ClientboundPacket) {
-        if (packet === BundleDelimiterPacket || packet is ClientboundBundlePacket) {
+    private fun requireSubPacket(clientboundPacket: ClientboundPacket) {
+        if (clientboundPacket === BundleDelimiterPacket || clientboundPacket is ClientboundBundlePacket) {
             throw MinecraftSessionException("A clientbound bundle cannot contain delimiters or nested bundles")
         }
     }

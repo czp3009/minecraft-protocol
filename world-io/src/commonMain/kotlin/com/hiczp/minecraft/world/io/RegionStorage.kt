@@ -43,56 +43,56 @@ data class RegionStorageConfiguration(
  */
 internal class RegionStorage internal constructor(
     val directory: Path,
-    internal val files: WorldFileAccess,
+    internal val worldFileAccess: WorldFileAccess,
     val chunkNbtFormat: CompressedNbtFormat,
-    val configuration: RegionStorageConfiguration,
+    val regionStorageConfiguration: RegionStorageConfiguration,
 ) {
     init {
-        require(!files.liveReadOnly) { "RegionStorage requires mutable file access" }
+        require(!worldFileAccess.liveReadOnly) { "RegionStorage requires mutable file access" }
     }
 
     constructor(
         directory: Path,
         fileSystem: FileSystem = systemFileSystem,
         chunkNbtFormat: CompressedNbtFormat = CompressedNbtFormat(),
-        configuration: RegionStorageConfiguration = RegionStorageConfiguration(),
+        regionStorageConfiguration: RegionStorageConfiguration = RegionStorageConfiguration(),
     ) : this(
         directory = directory,
-        files = WorldFileAccess.mutable(fileSystem),
+        worldFileAccess = WorldFileAccess.mutable(fileSystem),
         chunkNbtFormat = chunkNbtFormat,
-        configuration = configuration,
+        regionStorageConfiguration = regionStorageConfiguration,
     )
 
     constructor(
-        paths: MinecraftWorldPaths,
-        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
-        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+        minecraftWorldPaths: MinecraftWorldPaths,
+        regionStorageDirectory: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
         fileSystem: FileSystem = systemFileSystem,
         chunkNbtFormat: CompressedNbtFormat = CompressedNbtFormat(),
-        configuration: RegionStorageConfiguration = RegionStorageConfiguration(),
+        regionStorageConfiguration: RegionStorageConfiguration = RegionStorageConfiguration(),
     ) : this(
-        directory = paths.regionDirectory(storage, dimension),
-        files = WorldFileAccess.mutable(fileSystem),
+        directory = minecraftWorldPaths.regionDirectory(regionStorageDirectory, dimensionDirectory),
+        worldFileAccess = WorldFileAccess.mutable(fileSystem),
         chunkNbtFormat = chunkNbtFormat,
-        configuration = configuration,
+        regionStorageConfiguration = regionStorageConfiguration,
     )
 
     internal constructor(
-        paths: MinecraftWorldPaths,
-        storage: RegionStorageDirectory,
-        dimension: DimensionDirectory,
-        files: WorldFileAccess,
+        minecraftWorldPaths: MinecraftWorldPaths,
+        regionStorageDirectory: RegionStorageDirectory,
+        dimensionDirectory: DimensionDirectory,
+        worldFileAccess: WorldFileAccess,
         chunkNbtFormat: CompressedNbtFormat = CompressedNbtFormat(),
-        configuration: RegionStorageConfiguration = RegionStorageConfiguration(),
+        regionStorageConfiguration: RegionStorageConfiguration = RegionStorageConfiguration(),
     ) : this(
-        directory = paths.regionDirectory(storage, dimension),
-        files = files,
+        directory = minecraftWorldPaths.regionDirectory(regionStorageDirectory, dimensionDirectory),
+        worldFileAccess = worldFileAccess,
         chunkNbtFormat = chunkNbtFormat,
-        configuration = configuration,
+        regionStorageConfiguration = regionStorageConfiguration,
     )
 
     val fileSystem: FileSystem
-        get() = files.fileSystem
+        get() = worldFileAccess.fileSystem
 
     private val bookkeeping = Mutex()
     private val regions = mutableMapOf<RegionPosition, RegionState>()
@@ -105,299 +105,299 @@ internal class RegionStorage internal constructor(
         bookkeeping.withLock {
             check(!closed) { "Region storage is closed: $directory" }
         }
-        return snapshotRegionPositions(files.fileSystem, directory)
+        return snapshotRegionPositions(worldFileAccess.fileSystem, directory)
     }
 
     /** Opens a caller-owned resource that keeps one Region entry alive between operations. */
-    suspend fun openRegion(position: RegionPosition): RegionHandle = openRegion(position) { null }
+    suspend fun openRegion(regionPosition: RegionPosition): RegionHandle = openRegion(regionPosition) { null }
 
     internal suspend fun openRegion(
-        position: RegionPosition,
+        regionPosition: RegionPosition,
         afterRelease: suspend () -> Throwable?,
-    ): RegionHandle = RegionHandle(this, acquire(position), afterRelease)
+    ): RegionHandle = RegionHandle(this, acquire(regionPosition), afterRelease)
 
     /** Reads one complete in-memory snapshot without creating a missing Region file. */
-    suspend fun readAnvilRegion(position: RegionPosition): PositionedAnvilRegion? =
-        withRegionState(position, ::readAnvilRegion)
+    suspend fun readAnvilRegion(regionPosition: RegionPosition): PositionedAnvilRegion? =
+        withRegionState(regionPosition, ::readAnvilRegion)
 
-    suspend fun <R> withReadScope(position: RegionPosition, block: RegionReadScope.() -> R): R =
-        withRegionState(position) { entry -> withReadScope(entry, block) }
+    suspend fun <R> withReadScope(regionPosition: RegionPosition, block: RegionReadScope.() -> R): R =
+        withRegionState(regionPosition) { entry -> withReadScope(entry, block) }
 
     /** Replaces the complete logical Region with one batch header commit. */
     suspend fun replaceRegion(
-        position: RegionPosition,
-        region: AnvilRegion,
-    ) = withRegionState(position) { entry ->
-        replaceRegion(entry, region)
+        regionPosition: RegionPosition,
+        anvilRegion: AnvilRegion,
+    ) = withRegionState(regionPosition) { entry ->
+        replaceRegion(entry, anvilRegion)
     }
 
     suspend fun replaceRegion(
-        position: RegionPosition,
+        regionPosition: RegionPosition,
         chunks: Collection<RegionChunkInput>,
-    ) = withRegionState(position) { entry ->
+    ) = withRegionState(regionPosition) { entry ->
         replaceRegion(entry, chunks)
     }
 
     suspend fun replaceRegion(
-        position: RegionPosition,
+        regionPosition: RegionPosition,
         block: RegionReplacementScope.() -> Unit,
-    ) = withRegionState(position) { entry ->
+    ) = withRegionState(regionPosition) { entry ->
         replaceRegion(entry, block)
     }
 
-    suspend fun clear(position: RegionPosition) = withRegionState(position) { entry ->
+    suspend fun clear(regionPosition: RegionPosition) = withRegionState(regionPosition) { entry ->
         clear(entry)
     }
 
-    suspend fun hasRegion(position: RegionPosition): Boolean = withRegionState(position) { entry ->
+    suspend fun hasRegion(regionPosition: RegionPosition): Boolean = withRegionState(regionPosition) { entry ->
         hasRegion(entry)
     }
 
-    suspend fun readChunkInfo(position: ChunkPosition): RegionChunkInfo? =
-        readChunkInfo(position.region, position.local)
+    suspend fun readChunkInfo(chunkPosition: ChunkPosition): RegionChunkInfo? =
+        readChunkInfo(chunkPosition.regionPosition, chunkPosition.localChunkPosition)
 
     suspend fun readChunkInfo(
-        region: RegionPosition,
-        local: LocalChunkPosition,
-    ): RegionChunkInfo? = withRegionState(region) { entry -> readChunkInfo(entry, local) }
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
+    ): RegionChunkInfo? = withRegionState(regionPosition) { entry -> readChunkInfo(entry, localChunkPosition) }
 
-    suspend fun readChunkInfos(position: RegionPosition): List<RegionChunkInfo> =
-        withRegionState(position, ::readChunkInfos)
+    suspend fun readChunkInfos(regionPosition: RegionPosition): List<RegionChunkInfo> =
+        withRegionState(regionPosition, ::readChunkInfos)
 
-    suspend fun readChunkCount(position: RegionPosition): Int =
-        withRegionState(position, ::readChunkCount)
+    suspend fun readChunkCount(regionPosition: RegionPosition): Int =
+        withRegionState(regionPosition, ::readChunkCount)
 
-    suspend fun readLocalChunkPositions(position: RegionPosition): List<LocalChunkPosition> =
-        withRegionState(position, ::readLocalChunkPositions)
+    suspend fun readLocalChunkPositions(regionPosition: RegionPosition): List<LocalChunkPosition> =
+        withRegionState(regionPosition, ::readLocalChunkPositions)
 
-    suspend fun hasChunk(position: ChunkPosition): Boolean = hasChunk(position.region, position.local)
+    suspend fun hasChunk(chunkPosition: ChunkPosition): Boolean = hasChunk(chunkPosition.regionPosition, chunkPosition.localChunkPosition)
 
     suspend fun hasChunk(
-        region: RegionPosition,
-        local: LocalChunkPosition,
-    ): Boolean = withRegionState(region) { entry -> hasChunk(entry, local) }
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
+    ): Boolean = withRegionState(regionPosition) { entry -> hasChunk(entry, localChunkPosition) }
 
     suspend fun <R> withCompressedChunkSource(
-        position: ChunkPosition,
+        chunkPosition: ChunkPosition,
         block: (RegionChunkInfo, KotlinxSource) -> R,
-    ): R? = withCompressedChunkSource(position.region, position.local, block)
+    ): R? = withCompressedChunkSource(chunkPosition.regionPosition, chunkPosition.localChunkPosition, block)
 
     suspend fun <R> withCompressedChunkSource(
-        region: RegionPosition,
-        local: LocalChunkPosition,
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
         block: (RegionChunkInfo, KotlinxSource) -> R,
-    ): R? = withRegionState(region) { entry -> withCompressedChunkSource(entry, local, block) }
+    ): R? = withRegionState(regionPosition) { entry -> withCompressedChunkSource(entry, localChunkPosition, block) }
 
-    suspend fun readCompressedChunk(position: ChunkPosition): CompressedChunk? =
-        readCompressedChunk(position.region, position.local)
+    suspend fun readCompressedChunk(chunkPosition: ChunkPosition): CompressedChunk? =
+        readCompressedChunk(chunkPosition.regionPosition, chunkPosition.localChunkPosition)
 
     suspend fun readCompressedChunk(
-        region: RegionPosition,
-        local: LocalChunkPosition,
-    ): CompressedChunk? = withRegionState(region) { entry -> readCompressedChunk(entry, local) }
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
+    ): CompressedChunk? = withRegionState(regionPosition) { entry -> readCompressedChunk(entry, localChunkPosition) }
 
     /** Writes compressed content with automatic timestamp and inline/external selection. */
     suspend fun writeCompressedChunk(
-        position: ChunkPosition,
-        chunk: CompressedChunkInput,
-    ) = writeCompressedChunk(position.region, position.local, chunk)
+        chunkPosition: ChunkPosition,
+        compressedChunkInput: CompressedChunkInput,
+    ) = writeCompressedChunk(chunkPosition.regionPosition, chunkPosition.localChunkPosition, compressedChunkInput)
 
     suspend fun writeCompressedChunk(
-        region: RegionPosition,
-        local: LocalChunkPosition,
-        chunk: CompressedChunkInput,
-    ) = withRegionState(region) { entry -> writeCompressedChunk(entry, local, chunk) }
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
+        compressedChunkInput: CompressedChunkInput,
+    ) = withRegionState(regionPosition) { entry -> writeCompressedChunk(entry, localChunkPosition, compressedChunkInput) }
 
     /** Streams one already-compressed Chunk whose exact length is known before allocation. */
     suspend fun writeCompressedChunk(
-        position: ChunkPosition,
+        chunkPosition: ChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
         block: (KotlinxSink) -> Unit,
-    ) = writeCompressedChunk(position.region, position.local, compression, compressedByteCount, block)
+    ) = writeCompressedChunk(chunkPosition.regionPosition, chunkPosition.localChunkPosition, compression, compressedByteCount, block)
 
     suspend fun writeCompressedChunk(
-        region: RegionPosition,
-        local: LocalChunkPosition,
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
         block: (KotlinxSink) -> Unit,
-    ) = withRegionState(region) { entry ->
-        writeCompressedChunk(entry, local, compression, compressedByteCount, block)
+    ) = withRegionState(regionPosition) { entry ->
+        writeCompressedChunk(entry, localChunkPosition, compression, compressedByteCount, block)
     }
 
-    suspend fun removeChunk(position: ChunkPosition): Boolean = removeChunk(position.region, position.local)
+    suspend fun removeChunk(chunkPosition: ChunkPosition): Boolean = removeChunk(chunkPosition.regionPosition, chunkPosition.localChunkPosition)
 
     suspend fun removeChunk(
-        region: RegionPosition,
-        local: LocalChunkPosition,
-    ): Boolean = withRegionState(region) { entry -> removeChunk(entry, local) }
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
+    ): Boolean = withRegionState(regionPosition) { entry -> removeChunk(entry, localChunkPosition) }
 
     suspend fun <R> withChunkNbtSource(
-        position: ChunkPosition,
+        chunkPosition: ChunkPosition,
         block: (RegionChunkInfo, KotlinxSource) -> R,
-    ): R? = withChunkNbtSource(position.region, position.local, block)
+    ): R? = withChunkNbtSource(chunkPosition.regionPosition, chunkPosition.localChunkPosition, block)
 
     suspend fun <R> withChunkNbtSource(
-        region: RegionPosition,
-        local: LocalChunkPosition,
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
         block: (RegionChunkInfo, KotlinxSource) -> R,
-    ): R? = withRegionState(region) { entry -> withChunkNbtSource(entry, local, block) }
+    ): R? = withRegionState(regionPosition) { entry -> withChunkNbtSource(entry, localChunkPosition, block) }
 
-    suspend fun readChunkNbtDocument(position: ChunkPosition): NbtDocument? =
-        readChunkNbtDocument(position.region, position.local)
+    suspend fun readChunkNbtDocument(chunkPosition: ChunkPosition): NbtDocument? =
+        readChunkNbtDocument(chunkPosition.regionPosition, chunkPosition.localChunkPosition)
 
     suspend fun readChunkNbtDocument(
-        region: RegionPosition,
-        local: LocalChunkPosition,
-    ): NbtDocument? = withRegionState(region) { entry -> readChunkNbtDocument(entry, local) }
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
+    ): NbtDocument? = withRegionState(regionPosition) { entry -> readChunkNbtDocument(entry, localChunkPosition) }
 
     suspend fun <T> readChunkNbt(
-        position: ChunkPosition,
-        deserializer: DeserializationStrategy<T>,
-    ): T? = readChunkNbt(position.region, position.local, deserializer)
+        chunkPosition: ChunkPosition,
+        deserializationStrategy: DeserializationStrategy<T>,
+    ): T? = readChunkNbt(chunkPosition.regionPosition, chunkPosition.localChunkPosition, deserializationStrategy)
 
     suspend fun <T> readChunkNbt(
-        region: RegionPosition,
-        local: LocalChunkPosition,
-        deserializer: DeserializationStrategy<T>,
-    ): T? = withRegionState(region) { entry -> readChunkNbt(entry, local, deserializer) }
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
+        deserializationStrategy: DeserializationStrategy<T>,
+    ): T? = withRegionState(regionPosition) { entry -> readChunkNbt(entry, localChunkPosition, deserializationStrategy) }
 
-    suspend inline fun <reified T> readChunkNbt(position: ChunkPosition): T? =
-        readChunkNbt(position, chunkNbtFormat.nbt.serializersModule.serializer())
+    suspend inline fun <reified T> readChunkNbt(chunkPosition: ChunkPosition): T? =
+        readChunkNbt(chunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
 
     suspend inline fun <reified T> readChunkNbt(
-        region: RegionPosition,
-        local: LocalChunkPosition,
-    ): T? = readChunkNbt(region, local, chunkNbtFormat.nbt.serializersModule.serializer())
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
+    ): T? = readChunkNbt(regionPosition, localChunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
 
     suspend fun <B : Any, M : Any> readChunk(
-        position: ChunkPosition,
-        codec: ChunkNbtCodec<B, M>,
-    ): Chunk<B, M>? = readChunk(position.region, position.local, codec)
+        chunkPosition: ChunkPosition,
+        chunkNbtCodec: ChunkNbtCodec<B, M>,
+    ): Chunk<B, M>? = readChunk(chunkPosition.regionPosition, chunkPosition.localChunkPosition, chunkNbtCodec)
 
     suspend fun <B : Any, M : Any> readChunk(
-        region: RegionPosition,
-        local: LocalChunkPosition,
-        codec: ChunkNbtCodec<B, M>,
-    ): Chunk<B, M>? = withRegionState(region) { entry -> readChunk(entry, local, codec) }
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
+        chunkNbtCodec: ChunkNbtCodec<B, M>,
+    ): Chunk<B, M>? = withRegionState(regionPosition) { entry -> readChunk(entry, localChunkPosition, chunkNbtCodec) }
 
     suspend fun writeChunkNbtDocument(
-        position: ChunkPosition,
-        document: NbtDocument,
+        chunkPosition: ChunkPosition,
+        nbtDocument: NbtDocument,
     ) = writeChunkNbtDocument(
-        position = position,
-        document = document,
-        compression = configuration.writeCompression,
+        chunkPosition = chunkPosition,
+        nbtDocument = nbtDocument,
+        compression = regionStorageConfiguration.writeCompression,
     )
 
     suspend fun writeChunkNbtDocument(
-        region: RegionPosition,
-        local: LocalChunkPosition,
-        document: NbtDocument,
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
+        nbtDocument: NbtDocument,
     ) = writeChunkNbtDocument(
-        region = region,
-        local = local,
-        document = document,
-        compression = configuration.writeCompression,
+        regionPosition = regionPosition,
+        localChunkPosition = localChunkPosition,
+        nbtDocument = nbtDocument,
+        compression = regionStorageConfiguration.writeCompression,
     )
 
     /** Encodes and writes one chunk with a per-write compression selection. */
     suspend fun writeChunkNbtDocument(
-        position: ChunkPosition,
-        document: NbtDocument,
+        chunkPosition: ChunkPosition,
+        nbtDocument: NbtDocument,
         compression: Compression,
-    ) = writeChunkNbtDocument(position.region, position.local, document, compression)
+    ) = writeChunkNbtDocument(chunkPosition.regionPosition, chunkPosition.localChunkPosition, nbtDocument, compression)
 
     suspend fun writeChunkNbtDocument(
-        region: RegionPosition,
-        local: LocalChunkPosition,
-        document: NbtDocument,
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
+        nbtDocument: NbtDocument,
         compression: Compression,
-    ) = withRegionState(region) { entry -> writeChunkNbtDocument(entry, local, document, compression) }
+    ) = withRegionState(regionPosition) { entry -> writeChunkNbtDocument(entry, localChunkPosition, nbtDocument, compression) }
 
     suspend fun <T> writeChunkNbt(
-        position: ChunkPosition,
-        serializer: SerializationStrategy<T>,
+        chunkPosition: ChunkPosition,
+        serializationStrategy: SerializationStrategy<T>,
         value: T,
-        compression: Compression = configuration.writeCompression,
-    ) = writeChunkNbt(position.region, position.local, serializer, value, compression)
+        compression: Compression = regionStorageConfiguration.writeCompression,
+    ) = writeChunkNbt(chunkPosition.regionPosition, chunkPosition.localChunkPosition, serializationStrategy, value, compression)
 
     suspend fun <T> writeChunkNbt(
-        region: RegionPosition,
-        local: LocalChunkPosition,
-        serializer: SerializationStrategy<T>,
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
+        serializationStrategy: SerializationStrategy<T>,
         value: T,
-        compression: Compression = configuration.writeCompression,
-    ) = withRegionState(region) { entry -> writeChunkNbt(entry, local, serializer, value, compression) }
+        compression: Compression = regionStorageConfiguration.writeCompression,
+    ) = withRegionState(regionPosition) { entry -> writeChunkNbt(entry, localChunkPosition, serializationStrategy, value, compression) }
 
     suspend inline fun <reified T> writeChunkNbt(
-        position: ChunkPosition,
+        chunkPosition: ChunkPosition,
         value: T,
-        compression: Compression = configuration.writeCompression,
+        compression: Compression = regionStorageConfiguration.writeCompression,
     ) = writeChunkNbt(
-        position,
-        chunkNbtFormat.nbt.serializersModule.serializer(),
+        chunkPosition,
+        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
         value,
         compression,
     )
 
     suspend inline fun <reified T> writeChunkNbt(
-        region: RegionPosition,
-        local: LocalChunkPosition,
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
         value: T,
-        compression: Compression = configuration.writeCompression,
+        compression: Compression = regionStorageConfiguration.writeCompression,
     ) = writeChunkNbt(
-        region,
-        local,
-        chunkNbtFormat.nbt.serializersModule.serializer(),
+        regionPosition,
+        localChunkPosition,
+        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
         value,
         compression,
     )
 
     suspend fun <B : Any, M : Any> writeChunk(
-        position: ChunkPosition,
+        chunkPosition: ChunkPosition,
         chunk: Chunk<B, M>,
-        codec: ChunkNbtCodec<B, M>,
-        compression: Compression = configuration.writeCompression,
-    ) = writeChunk(position.region, position.local, chunk, codec, compression)
+        chunkNbtCodec: ChunkNbtCodec<B, M>,
+        compression: Compression = regionStorageConfiguration.writeCompression,
+    ) = writeChunk(chunkPosition.regionPosition, chunkPosition.localChunkPosition, chunk, chunkNbtCodec, compression)
 
     suspend fun <B : Any, M : Any> writeChunk(
-        region: RegionPosition,
-        local: LocalChunkPosition,
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
         chunk: Chunk<B, M>,
-        codec: ChunkNbtCodec<B, M>,
-        compression: Compression = configuration.writeCompression,
-    ) = withRegionState(region) { entry -> writeChunk(entry, local, chunk, codec, compression) }
+        chunkNbtCodec: ChunkNbtCodec<B, M>,
+        compression: Compression = regionStorageConfiguration.writeCompression,
+    ) = withRegionState(regionPosition) { entry -> writeChunk(entry, localChunkPosition, chunk, chunkNbtCodec, compression) }
 
     internal suspend fun readAnvilRegion(entry: RegionState): PositionedAnvilRegion? = withReadAccess(entry) {
-        openedFileForRead(entry)?.readAnvilRegion()?.let { region -> PositionedAnvilRegion(entry.position, region) }
+        openedFileForRead(entry)?.readAnvilRegion()?.let { anvilRegion -> PositionedAnvilRegion(entry.regionPosition, anvilRegion) }
     }
 
     internal suspend fun <R> withReadScope(
         entry: RegionState,
         block: RegionReadScope.() -> R,
     ): R = withReadAccess(entry) {
-        val file = openedFileForRead(entry)
-        if (file == null) {
-            RegionReadScope.empty(entry.position).use(block)
+        val mutableRegionFile = openedFileForRead(entry)
+        if (mutableRegionFile == null) {
+            RegionReadScope.empty(entry.regionPosition).use(block)
         } else {
-            file.withReadScope(block)
+            mutableRegionFile.withReadScope(block)
         }
     }
 
     internal suspend fun replaceRegion(
         entry: RegionState,
-        region: AnvilRegion,
+        anvilRegion: AnvilRegion,
     ) {
-        files.requireWritable()
-        region.chunks.forEach { (local, record) ->
-            if (record.content == null) {
-                throw AnvilFormatException("External Chunk ${entry.position.chunk(local)} has not been resolved")
+        worldFileAccess.requireWritable()
+        anvilRegion.chunks.forEach { (localChunkPosition, anvilChunkRecord) ->
+            if (anvilChunkRecord.content == null) {
+                throw AnvilFormatException("External Chunk ${entry.regionPosition.chunk(localChunkPosition)} has not been resolved")
             }
         }
-        entry.fileAccess.write {
-            openedFileForWrite(entry).replaceRegion(region)
+        entry.logicalFileAccess.write {
+            openedFileForWrite(entry).replaceRegion(anvilRegion)
         }
     }
 
@@ -405,8 +405,8 @@ internal class RegionStorage internal constructor(
         entry: RegionState,
         chunks: Collection<RegionChunkInput>,
     ) {
-        files.requireWritable()
-        entry.fileAccess.write {
+        worldFileAccess.requireWritable()
+        entry.logicalFileAccess.write {
             openedFileForWrite(entry).replaceRegion(chunks)
         }
     }
@@ -415,23 +415,23 @@ internal class RegionStorage internal constructor(
         entry: RegionState,
         block: RegionReplacementScope.() -> Unit,
     ) {
-        files.requireWritable()
-        entry.fileAccess.write {
+        worldFileAccess.requireWritable()
+        entry.logicalFileAccess.write {
             openedFileForWrite(entry).replaceRegion(block)
         }
     }
 
     internal suspend fun clear(entry: RegionState) {
-        files.requireWritable()
-        entry.fileAccess.write {
+        worldFileAccess.requireWritable()
+        entry.logicalFileAccess.write {
             openedFileForRead(entry)?.clear()
         }
     }
 
     internal suspend fun hasRegion(entry: RegionState): Boolean = withReadAccess(entry) {
-        val path = regionPath(entry.position)
-        val metadata = files.fileSystem.metadataOrNull(path) ?: return@withReadAccess false
-        if (!metadata.isRegularFile) {
+        val path = regionPath(entry.regionPosition)
+        val fileMetadata = worldFileAccess.fileSystem.metadataOrNull(path) ?: return@withReadAccess false
+        if (!fileMetadata.isRegularFile) {
             throw WorldIOException("Path is not a regular file: $path")
         }
         true
@@ -439,9 +439,9 @@ internal class RegionStorage internal constructor(
 
     internal suspend fun readChunkInfo(
         entry: RegionState,
-        local: LocalChunkPosition,
+        localChunkPosition: LocalChunkPosition,
     ): RegionChunkInfo? = withReadAccess(entry) {
-        openedFileForRead(entry)?.readChunkInfo(local)
+        openedFileForRead(entry)?.readChunkInfo(localChunkPosition)
     }
 
     internal suspend fun readChunkInfos(entry: RegionState): List<RegionChunkInfo> = withReadAccess(entry) {
@@ -458,189 +458,189 @@ internal class RegionStorage internal constructor(
 
     internal suspend fun readCompressedChunk(
         entry: RegionState,
-        local: LocalChunkPosition,
+        localChunkPosition: LocalChunkPosition,
     ): CompressedChunk? = withReadAccess(entry) {
-        openedFileForRead(entry)?.readCompressedChunk(local)
+        openedFileForRead(entry)?.readCompressedChunk(localChunkPosition)
     }
 
     internal suspend fun <R> withCompressedChunkSource(
         entry: RegionState,
-        local: LocalChunkPosition,
+        localChunkPosition: LocalChunkPosition,
         block: (RegionChunkInfo, KotlinxSource) -> R,
     ): R? = withReadAccess(entry) {
-        openedFileForRead(entry)?.withCompressedChunkSource(local, block)
+        openedFileForRead(entry)?.withCompressedChunkSource(localChunkPosition, block)
     }
 
     internal suspend fun hasChunk(
         entry: RegionState,
-        local: LocalChunkPosition,
+        localChunkPosition: LocalChunkPosition,
     ): Boolean = withReadAccess(entry) {
-        openedFileForRead(entry)?.hasChunk(local) == true
+        openedFileForRead(entry)?.hasChunk(localChunkPosition) == true
     }
 
     internal suspend fun writeCompressedChunk(
         entry: RegionState,
-        local: LocalChunkPosition,
-        chunk: CompressedChunkInput,
+        localChunkPosition: LocalChunkPosition,
+        compressedChunkInput: CompressedChunkInput,
     ) {
-        files.requireWritable()
-        entry.fileAccess.write {
-            openedFileForWrite(entry).writeCompressedChunk(local, chunk)
+        worldFileAccess.requireWritable()
+        entry.logicalFileAccess.write {
+            openedFileForWrite(entry).writeCompressedChunk(localChunkPosition, compressedChunkInput)
         }
     }
 
     internal suspend fun writeCompressedChunk(
         entry: RegionState,
-        local: LocalChunkPosition,
+        localChunkPosition: LocalChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
         block: (KotlinxSink) -> Unit,
     ) {
-        files.requireWritable()
-        entry.fileAccess.write {
-            openedFileForWrite(entry).writeCompressedChunk(local, compression, compressedByteCount, block)
+        worldFileAccess.requireWritable()
+        entry.logicalFileAccess.write {
+            openedFileForWrite(entry).writeCompressedChunk(localChunkPosition, compression, compressedByteCount, block)
         }
     }
 
     internal suspend fun removeChunk(
         entry: RegionState,
-        local: LocalChunkPosition,
+        localChunkPosition: LocalChunkPosition,
     ): Boolean {
-        files.requireWritable()
-        return entry.fileAccess.write {
-            openedFileForRead(entry)?.removeChunk(local) == true
+        worldFileAccess.requireWritable()
+        return entry.logicalFileAccess.write {
+            openedFileForRead(entry)?.removeChunk(localChunkPosition) == true
         }
     }
 
     internal suspend fun <R> withChunkNbtSource(
         entry: RegionState,
-        local: LocalChunkPosition,
+        localChunkPosition: LocalChunkPosition,
         block: (RegionChunkInfo, KotlinxSource) -> R,
     ): R? = withReadAccess(entry) {
-        openedFileForRead(entry)?.withCompressedChunkSource(local) { info, source ->
-            withDecompressedChunkSource(info, source, block)
+        openedFileForRead(entry)?.withCompressedChunkSource(localChunkPosition) { regionChunkInfo, source ->
+            withDecompressedChunkSource(regionChunkInfo, source, block)
         }
     }
 
     internal suspend fun readChunkNbtDocument(
         entry: RegionState,
-        local: LocalChunkPosition,
-    ): NbtDocument? = withChunkNbtSource(entry, local) { _, source ->
-        chunkNbtFormat.nbt.decodeDocumentFromSource(source)
+        localChunkPosition: LocalChunkPosition,
+    ): NbtDocument? = withChunkNbtSource(entry, localChunkPosition) { _, source ->
+        chunkNbtFormat.nbtFormat.decodeDocumentFromSource(source)
     }
 
     internal suspend fun <T> readChunkNbt(
         entry: RegionState,
-        local: LocalChunkPosition,
-        deserializer: DeserializationStrategy<T>,
-    ): T? = withChunkNbtSource(entry, local) { _, source ->
-        chunkNbtFormat.nbt.decodeFromSource(deserializer, source)
+        localChunkPosition: LocalChunkPosition,
+        deserializationStrategy: DeserializationStrategy<T>,
+    ): T? = withChunkNbtSource(entry, localChunkPosition) { _, source ->
+        chunkNbtFormat.nbtFormat.decodeFromSource(deserializationStrategy, source)
     }
 
     internal suspend fun <B : Any, M : Any> readChunk(
         entry: RegionState,
-        local: LocalChunkPosition,
-        codec: ChunkNbtCodec<B, M>,
-    ): Chunk<B, M>? = withChunkNbtSource(entry, local) { _, source ->
-        codec.decodeFromSource(source, entry.position.chunk(local))
+        localChunkPosition: LocalChunkPosition,
+        chunkNbtCodec: ChunkNbtCodec<B, M>,
+    ): Chunk<B, M>? = withChunkNbtSource(entry, localChunkPosition) { _, source ->
+        chunkNbtCodec.decodeFromSource(source, entry.regionPosition.chunk(localChunkPosition))
     }
 
     internal suspend fun writeChunkNbtDocument(
         entry: RegionState,
-        local: LocalChunkPosition,
-        document: NbtDocument,
+        localChunkPosition: LocalChunkPosition,
+        nbtDocument: NbtDocument,
         compression: Compression,
     ) {
-        files.requireWritable()
-        val absolute = entry.position.chunk(local)
-        val chunk = withOkioIoExceptions("Cannot encode chunk $absolute") {
-            chunkNbtFormat.encodeDocument(document, compression)
+        worldFileAccess.requireWritable()
+        val absolute = entry.regionPosition.chunk(localChunkPosition)
+        val compressedChunk = withOkioIoExceptions("Cannot encode chunk $absolute") {
+            chunkNbtFormat.encodeDocument(nbtDocument, compression)
         }
-        entry.fileAccess.write {
-            openedFileForWrite(entry).writeCompressedChunk(local, chunk)
+        entry.logicalFileAccess.write {
+            openedFileForWrite(entry).writeCompressedChunk(localChunkPosition, compressedChunk)
         }
     }
 
     internal suspend fun writeChunkNbt(
         entry: RegionState,
-        local: LocalChunkPosition,
+        localChunkPosition: LocalChunkPosition,
         compression: Compression,
         block: (KotlinxSink) -> Unit,
     ) {
-        files.requireWritable()
-        val absolute = entry.position.chunk(local)
-        val chunk = withOkioIoExceptions("Cannot encode chunk $absolute") {
+        worldFileAccess.requireWritable()
+        val absolute = entry.regionPosition.chunk(localChunkPosition)
+        val compressedChunk = withOkioIoExceptions("Cannot encode chunk $absolute") {
             val compressed = Buffer()
             val compressing = chunkNbtFormat.compressionRegistry.compressingSink(compression, compressed).buffered()
             compressing.use(block)
             CompressedChunk.readFromSource(compressed, compression)
         }
-        entry.fileAccess.write {
-            openedFileForWrite(entry).writeCompressedChunk(local, chunk)
+        entry.logicalFileAccess.write {
+            openedFileForWrite(entry).writeCompressedChunk(localChunkPosition, compressedChunk)
         }
     }
 
     internal suspend fun <T> writeChunkNbt(
         entry: RegionState,
-        local: LocalChunkPosition,
-        serializer: SerializationStrategy<T>,
+        localChunkPosition: LocalChunkPosition,
+        serializationStrategy: SerializationStrategy<T>,
         value: T,
         compression: Compression,
     ) {
-        files.requireWritable()
-        val absolute = entry.position.chunk(local)
-        val chunk = withOkioIoExceptions("Cannot encode chunk $absolute") {
-            chunkNbtFormat.encode(serializer, value, compression)
+        worldFileAccess.requireWritable()
+        val absolute = entry.regionPosition.chunk(localChunkPosition)
+        val compressedChunk = withOkioIoExceptions("Cannot encode chunk $absolute") {
+            chunkNbtFormat.encode(serializationStrategy, value, compression)
         }
-        entry.fileAccess.write {
-            openedFileForWrite(entry).writeCompressedChunk(local, chunk)
+        entry.logicalFileAccess.write {
+            openedFileForWrite(entry).writeCompressedChunk(localChunkPosition, compressedChunk)
         }
     }
 
     internal suspend fun <B : Any, M : Any> writeChunk(
         entry: RegionState,
-        local: LocalChunkPosition,
+        localChunkPosition: LocalChunkPosition,
         chunk: Chunk<B, M>,
-        codec: ChunkNbtCodec<B, M>,
+        chunkNbtCodec: ChunkNbtCodec<B, M>,
         compression: Compression,
     ) {
-        files.requireWritable()
-        val absolute = entry.position.chunk(local)
-        require(chunk.position == absolute) {
-            "Chunk position ${chunk.position} does not match Region entry $absolute"
+        worldFileAccess.requireWritable()
+        val absolute = entry.regionPosition.chunk(localChunkPosition)
+        require(chunk.chunkPosition == absolute) {
+            "Chunk position ${chunk.chunkPosition} does not match Region entry $absolute"
         }
-        val compressed = withOkioIoExceptions("Cannot encode chunk $absolute") {
+        val compressedChunk = withOkioIoExceptions("Cannot encode chunk $absolute") {
             val bytes = kotlinx.io.Buffer()
             val compressing = chunkNbtFormat.compressionRegistry.compressingSink(compression, bytes).buffered()
-            compressing.use { codec.encodeToSink(chunk, compressing) }
+            compressing.use { chunkNbtCodec.encodeToSink(chunk, compressing) }
             CompressedChunk.readFromSource(bytes, compression)
         }
-        entry.fileAccess.write {
-            openedFileForWrite(entry).writeCompressedChunk(local, compressed)
+        entry.logicalFileAccess.write {
+            openedFileForWrite(entry).writeCompressedChunk(localChunkPosition, compressedChunk)
         }
     }
 
     private fun <R> withDecompressedChunkSource(
-        info: RegionChunkInfo,
-        source: KotlinxSource,
+        regionChunkInfo: RegionChunkInfo,
+        kotlinxSource: KotlinxSource,
         block: (RegionChunkInfo, KotlinxSource) -> R,
     ): R {
         val decompressed = chunkNbtFormat.compressionRegistry
-            .decompressingSource(info.compression, source)
+            .decompressingSource(regionChunkInfo.compression, kotlinxSource)
             .buffered()
         return decompressed.use {
-            val result = block(info, decompressed)
+            val result = block(regionChunkInfo, decompressed)
             if (!decompressed.exhausted()) {
-                throw WorldIOException("Chunk ${info.position} NBT source was not fully consumed")
+                throw WorldIOException("Chunk ${regionChunkInfo.chunkPosition} NBT source was not fully consumed")
             }
             result
         }
     }
 
     internal suspend fun flush(entry: RegionState) {
-        entry.fileAccess.write {
+        entry.logicalFileAccess.write {
             entry.openMutex.withLock {
-                entry.file?.flush()
+                entry.mutableRegionFile?.flush()
             }
         }
     }
@@ -659,9 +659,9 @@ internal class RegionStorage internal constructor(
             // but still release every pin through non-cancellable cleanup.
             if (failure !is CancellationException) {
                 try {
-                    entry.fileAccess.write {
+                    entry.logicalFileAccess.write {
                         entry.openMutex.withLock {
-                            entry.file?.flush()
+                            entry.mutableRegionFile?.flush()
                         }
                     }
                 } catch (caught: Throwable) {
@@ -712,8 +712,8 @@ internal class RegionStorage internal constructor(
         regions.size
     }
 
-    internal suspend fun activeRegionUsers(position: RegionPosition): Int = bookkeeping.withLock {
-        regions[position]?.users ?: 0
+    internal suspend fun activeRegionUsers(regionPosition: RegionPosition): Int = bookkeeping.withLock {
+        regions[regionPosition]?.users ?: 0
     }
 
     private suspend fun firstClose(completion: CompletableDeferred<Unit>) {
@@ -737,14 +737,14 @@ internal class RegionStorage internal constructor(
         throwFailureOrCancellation(failure)
     }
 
-    private suspend fun acquire(position: RegionPosition): RegionState {
+    private suspend fun acquire(regionPosition: RegionPosition): RegionState {
         while (true) {
             val closing = bookkeeping.withLock {
                 checkOpen()
-                val entry = regions[position]
+                val entry = regions[regionPosition]
                 if (entry == null) {
-                    val created = RegionState(position)
-                    regions[position] = created
+                    val created = RegionState(regionPosition)
+                    regions[regionPosition] = created
                     return created
                 }
                 if (!entry.closing) {
@@ -758,10 +758,10 @@ internal class RegionStorage internal constructor(
     }
 
     private suspend fun <T> withRegionState(
-        position: RegionPosition,
+        regionPosition: RegionPosition,
         block: suspend (RegionState) -> T,
     ): T {
-        val entry = acquire(position)
+        val entry = acquire(regionPosition)
         return withCleanup(
             cleanup = { releaseRegion(entry) },
         ) {
@@ -771,8 +771,8 @@ internal class RegionStorage internal constructor(
 
     internal suspend fun releaseRegion(entry: RegionState): Throwable? {
         val shouldClose = bookkeeping.withLock {
-            check(entry.users > 0) { "Region entry is not in use: ${entry.position}" }
-            check(!entry.closing) { "Region entry is already closing: ${entry.position}" }
+            check(entry.users > 0) { "Region entry is not in use: ${entry.regionPosition}" }
+            check(!entry.closing) { "Region entry is already closing: ${entry.regionPosition}" }
             entry.users--
             if (entry.users > 0) return@withLock false
             entry.closing = true
@@ -780,7 +780,7 @@ internal class RegionStorage internal constructor(
         }
         if (!shouldClose) return null
         val fileToClose = entry.openMutex.withLock {
-            entry.file.also { entry.file = null }
+            entry.mutableRegionFile.also { entry.mutableRegionFile = null }
         }
         var closeFailure: Throwable? = null
         if (fileToClose != null) {
@@ -791,8 +791,8 @@ internal class RegionStorage internal constructor(
             }
         }
         bookkeeping.withLock {
-            if (regions[entry.position] === entry) {
-                regions.remove(entry.position)
+            if (regions[entry.regionPosition] === entry) {
+                regions.remove(entry.regionPosition)
             }
             entry.closed.complete(Unit)
             closeFailure?.let {
@@ -803,26 +803,26 @@ internal class RegionStorage internal constructor(
     }
 
     private suspend fun openedFileForRead(entry: RegionState): MutableRegionFile? = entry.openMutex.withLock {
-        entry.file?.let { return@withLock it }
+        entry.mutableRegionFile?.let { return@withLock it }
         val opened = MutableRegionFile.openExistingMutable(
-            files = files,
+            worldFileAccess = worldFileAccess,
             directory = directory,
-            position = entry.position,
-            syncWrites = configuration.syncWrites,
+            regionPosition = entry.regionPosition,
+            syncWrites = regionStorageConfiguration.syncWrites,
         ) ?: return@withLock null
-        entry.file = opened
+        entry.mutableRegionFile = opened
         opened
     }
 
     private suspend fun openedFileForWrite(entry: RegionState): MutableRegionFile = entry.openMutex.withLock {
-        entry.file?.let { return@withLock it }
+        entry.mutableRegionFile?.let { return@withLock it }
         val opened = MutableRegionFile.openMutable(
-            files = files,
+            worldFileAccess = worldFileAccess,
             directory = directory,
-            position = entry.position,
-            syncWrites = configuration.syncWrites,
+            regionPosition = entry.regionPosition,
+            syncWrites = regionStorageConfiguration.syncWrites,
         )
-        entry.file = opened
+        entry.mutableRegionFile = opened
         opened
     }
 
@@ -830,29 +830,29 @@ internal class RegionStorage internal constructor(
         entry: RegionState,
         block: suspend () -> T,
     ): T {
-        return entry.fileAccess.read(block)
+        return entry.logicalFileAccess.read(block)
     }
 
     private fun checkOpen() {
         check(!closed) { "Region storage is closed: $directory" }
     }
 
-    private fun regionPath(position: RegionPosition): Path =
-        directory / "r.${position.x}.${position.z}.mca"
+    private fun regionPath(regionPosition: RegionPosition): Path =
+        directory / "r.${regionPosition.x}.${regionPosition.z}.mca"
 
 }
 
 /**
- * A runtime path that needs both locks acquires [fileAccess] before [openMutex]. Final cleanup is
- * the only path that takes [openMutex] without [fileAccess]; it may do so only after bookkeeping
+ * A runtime path that needs both locks acquires [logicalFileAccess] before [openMutex]. Final cleanup is
+ * the only path that takes [openMutex] without [logicalFileAccess]; it may do so only after bookkeeping
  * atomically moves [users] to zero and sets [closing]. Zero users excludes admitted runtime paths,
- * while closing redirects new acquisition to [closed]. Never acquire [fileAccess] while holding
+ * while closing redirects new acquisition to [closed]. Never acquire [logicalFileAccess] while holding
  * [openMutex].
  */
-internal class RegionState(val position: RegionPosition) {
-    var file: MutableRegionFile? = null
+internal class RegionState(val regionPosition: RegionPosition) {
+    var mutableRegionFile: MutableRegionFile? = null
     val openMutex = Mutex()
-    val fileAccess = LogicalFileAccess()
+    val logicalFileAccess = LogicalFileAccess()
     var users = 1
     var closing = false
     val closed = CompletableDeferred<Unit>()

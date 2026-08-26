@@ -18,8 +18,8 @@ internal data class OfficialServerRuntime(
  * happens at test time; this is pure disk I/O.
  */
 internal fun officialServerRuntime(): OfficialServerRuntime {
-    val layout = HostedMinecraftTestSupport.layout
-    val output = layout.serverRuntimeDirectory
+    val minecraftTestLayout = HostedMinecraftTestSupport.minecraftTestLayout
+    val output = minecraftTestLayout.serverRuntimeDirectory
     check(output.isDirectory()) {
         "Official runtime is absent: $output; run the Gradle prepareOfficialMinecraftCodecOracle task first"
     }

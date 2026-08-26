@@ -20,13 +20,13 @@ internal actual fun platformZlibDecompressingSource(
     // Okio's inflater may read ahead into RFC 1950's four-byte Adler trailer.
     // Retaining that trailer until raw DEFLATE completion keeps Okio in charge
     // of inflation while still making exact framed-stream validation possible.
-    val zlibSource = ZlibTrailerRetainingSource(
+    val zlibTrailerRetainingSource = ZlibTrailerRetainingSource(
         source.callerOwned().asOkioSource(),
     )
-    val inflaterSource = zlibSource.inflate(Inflater())
+    val inflaterSource = zlibTrailerRetainingSource.inflate(Inflater())
     return ExactZlibRawSource(
         inflaterSource.asKotlinxIoRawSource(),
-        zlibSource,
+        zlibTrailerRetainingSource,
     )
 }
 

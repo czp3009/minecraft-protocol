@@ -90,7 +90,7 @@ class MinecraftWorldPaths(
     val sessionLock: Path
         get() = root / "session.lock"
 
-    fun dimension(dimension: DimensionDirectory): Path = when (dimension) {
+    fun dimension(dimensionDirectory: DimensionDirectory): Path = when (dimensionDirectory) {
         DimensionDirectory.Overworld ->
             root / "dimensions" / "minecraft" / "overworld"
 
@@ -103,29 +103,29 @@ class MinecraftWorldPaths(
         DimensionDirectory.LegacyOverworld -> root
         DimensionDirectory.LegacyNether -> root / "DIM-1"
         DimensionDirectory.LegacyEnd -> root / "DIM1"
-        is DimensionDirectory.Custom -> dimension.pathSegments.fold(
-            root / "dimensions" / dimension.namespace,
+        is DimensionDirectory.Custom -> dimensionDirectory.pathSegments.fold(
+            root / "dimensions" / dimensionDirectory.namespace,
         ) { path, segment -> path / segment }
     }
 
     internal fun regionDirectory(
-        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
-        dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ): Path = dimension(dimension) / storage.directoryName
+        regionStorageDirectory: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
+    ): Path = dimension(dimensionDirectory) / regionStorageDirectory.directoryName
 
     internal fun regionFile(
-        position: RegionPosition,
-        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
-        dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ): Path = regionDirectory(storage, dimension) /
-            "r.${position.x}.${position.z}.mca"
+        regionPosition: RegionPosition,
+        regionStorageDirectory: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
+    ): Path = regionDirectory(regionStorageDirectory, dimensionDirectory) /
+            "r.${regionPosition.x}.${regionPosition.z}.mca"
 
     internal fun externalChunk(
-        position: ChunkPosition,
-        storage: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
-        dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ): Path = regionDirectory(storage, dimension) /
-            "c.${position.x}.${position.z}.mcc"
+        chunkPosition: ChunkPosition,
+        regionStorageDirectory: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
+        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
+    ): Path = regionDirectory(regionStorageDirectory, dimensionDirectory) /
+            "c.${chunkPosition.x}.${chunkPosition.z}.mcc"
 
     fun playerData(playerUuid: String): Path =
         root / "players" / "data" /
@@ -154,16 +154,16 @@ class MinecraftWorldPaths(
         root / "stats" / "${validatePlayerStorageKey(playerUuid)}.json"
 
     fun savedDataDirectory(
-        dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    ): Path = dimension(dimension) / "data"
+        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
+    ): Path = dimension(dimensionDirectory) / "data"
 
     fun savedData(
         identifier: String,
-        dimension: DimensionDirectory = DimensionDirectory.Overworld,
+        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
     ): Path {
         val storedIdentifier = parseStoredIdentifier(identifier)
         val parent = storedIdentifier.pathSegments.dropLast(1).fold(
-            savedDataDirectory(dimension) / storedIdentifier.namespace,
+            savedDataDirectory(dimensionDirectory) / storedIdentifier.namespace,
         ) { path, segment -> path / segment }
         return parent / "${storedIdentifier.pathSegments.last()}.dat"
     }

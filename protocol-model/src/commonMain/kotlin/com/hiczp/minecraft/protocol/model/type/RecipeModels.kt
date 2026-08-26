@@ -364,17 +364,17 @@ internal object SlotDisplaySerializer : KSerializer<SlotDisplay> {
     private fun <T> CompositeEncoder.payload(
         type: Int,
         index: Int,
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
         value: T,
     ) {
         type(type)
-        encodeSerializableElement(descriptor, index, serializer, value)
+        encodeSerializableElement(descriptor, index, kSerializer, value)
     }
 
     private fun <T> CompositeDecoder.payload(
         index: Int,
-        serializer: KSerializer<T>,
-    ): T = decodeSerializableElement(descriptor, index, serializer)
+        kSerializer: KSerializer<T>,
+    ): T = decodeSerializableElement(descriptor, index, kSerializer)
 
     private const val TYPE: Int = 0
     private const val SINGLE: Int = 1
@@ -580,17 +580,17 @@ internal object RecipeDisplaySerializer : KSerializer<RecipeDisplay> {
     private fun <T> CompositeEncoder.payload(
         type: Int,
         index: Int,
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
         value: T,
     ) {
         encodeIntElement(descriptor, TYPE, type)
-        encodeSerializableElement(descriptor, index, serializer, value)
+        encodeSerializableElement(descriptor, index, kSerializer, value)
     }
 
     private fun <T> CompositeDecoder.payload(
         index: Int,
-        serializer: KSerializer<T>,
-    ): T = decodeSerializableElement(descriptor, index, serializer)
+        kSerializer: KSerializer<T>,
+    ): T = decodeSerializableElement(descriptor, index, kSerializer)
 
     private const val TYPE: Int = 0
     private const val SHAPELESS: Int = 1

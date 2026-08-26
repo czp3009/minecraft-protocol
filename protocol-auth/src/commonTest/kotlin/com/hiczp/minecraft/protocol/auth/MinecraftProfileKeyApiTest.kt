@@ -21,27 +21,27 @@ class MinecraftProfileKeyApiTest {
     fun fetchesProfilePairAndServicesKeysWithoutOwningTheirTiming() = runTest {
         val requests = mutableListOf<HttpRequestData>()
         HttpClient(
-            MockEngine { request ->
-                requests += request
-                when (request.url.encodedPath) {
+            MockEngine { httpRequestData ->
+                requests += httpRequestData
+                when (httpRequestData.url.encodedPath) {
                     "/player/certificates" -> respondProfileKeyJson(profileKeyPairJson())
                     "/publickeys" -> respondProfileKeyJson(servicesPublicKeysJson())
-                    else -> error("Unexpected request ${request.url}")
+                    else -> error("Unexpected request ${httpRequestData.url}")
                 }
             },
-        ).use { client ->
-            val api = MinecraftProfileKeyApi(client)
-            val pairResponse = api.fetchProfileKeyPair("access-token")
-            val servicesResponse = api.fetchServicesPublicKeys()
-            val pair = pairResponse.toMinecraftProfileKeyPair()
-            val servicesKeys = servicesResponse.toMinecraftServicesPublicKeySet()
+        ).use { httpClient ->
+            val minecraftProfileKeyApi = MinecraftProfileKeyApi(httpClient)
+            val minecraftProfileKeyPairResponse = minecraftProfileKeyApi.fetchProfileKeyPair("access-token")
+            val minecraftServicesPublicKeysResponse = minecraftProfileKeyApi.fetchServicesPublicKeys()
+            val minecraftProfileKeyPair = minecraftProfileKeyPairResponse.toMinecraftProfileKeyPair()
+            val minecraftServicesPublicKeySet = minecraftServicesPublicKeysResponse.toMinecraftServicesPublicKeySet()
 
-            assertContentEquals(MinecraftChatCryptoFixtures.publicKey(), pair.publicKey.encodedKey)
-            assertEquals(PROFILE_KEY_EXPIRY, pair.publicKeyData.expiresAtEpochMillis)
-            assertEquals(PROFILE_KEY_REFRESH, pair.refreshedAfterEpochMillis)
-            assertTrue(servicesKeys.verifyProfilePublicKey(PROFILE_ID, pair.publicKeyData))
-            assertEquals(1, servicesKeys.profilePropertyKeys.size)
-            assertEquals(1, servicesKeys.playerCertificateKeys.size)
+            assertContentEquals(MinecraftChatCryptoFixtures.publicKey(), minecraftProfileKeyPair.minecraftProfilePublicKey.encodedKey)
+            assertEquals(PROFILE_KEY_EXPIRY, minecraftProfileKeyPair.profilePublicKeyData.expiresAtEpochMillis)
+            assertEquals(PROFILE_KEY_REFRESH, minecraftProfileKeyPair.refreshedAfterEpochMillis)
+            assertTrue(minecraftServicesPublicKeySet.verifyProfilePublicKey(PROFILE_ID, minecraftProfileKeyPair.profilePublicKeyData))
+            assertEquals(1, minecraftServicesPublicKeySet.profilePropertyKeys.size)
+            assertEquals(1, minecraftServicesPublicKeySet.playerCertificateKeys.size)
         }
 
         assertEquals(HttpMethod.Post, requests[0].method)
@@ -63,12 +63,12 @@ class MinecraftProfileKeyApiTest {
                     },
                 )
             },
-        ).use { client ->
-            val response = MinecraftProfileKeyApi(client).fetchServicesPublicKeys()
+        ).use { httpClient ->
+            val minecraftServicesPublicKeysResponse = MinecraftProfileKeyApi(httpClient).fetchServicesPublicKeys()
 
-            assertNull(response.profilePropertyKeys)
-            assertNull(response.playerCertificateKeys)
-            assertTrue(response.toMinecraftServicesPublicKeySet().playerCertificateKeys.isEmpty())
+            assertNull(minecraftServicesPublicKeysResponse.profilePropertyKeys)
+            assertNull(minecraftServicesPublicKeysResponse.playerCertificateKeys)
+            assertTrue(minecraftServicesPublicKeysResponse.toMinecraftServicesPublicKeySet().playerCertificateKeys.isEmpty())
         }
     }
 
@@ -87,9 +87,9 @@ class MinecraftProfileKeyApiTest {
                     headers = headersOf(HttpHeaders.ContentType, "application/json"),
                 )
             },
-        ).use { client ->
+        ).use { httpClient ->
             val failure = assertFailsWith<MinecraftProfileKeyResponseException> {
-                MinecraftProfileKeyApi(client).fetchProfileKeyPair("expired-token")
+                MinecraftProfileKeyApi(httpClient).fetchProfileKeyPair("expired-token")
             }
 
             assertEquals(HttpStatusCode.Unauthorized, failure.response.status)
@@ -103,9 +103,9 @@ class MinecraftProfileKeyApiTest {
     fun decodingFailuresPropagateUnchanged() = runTest {
         HttpClient(
             MockEngine { respond("not-json", HttpStatusCode.OK) },
-        ).use { client ->
+        ).use { httpClient ->
             assertFailsWith<SerializationException> {
-                MinecraftProfileKeyApi(client).fetchServicesPublicKeys()
+                MinecraftProfileKeyApi(httpClient).fetchServicesPublicKeys()
             }
         }
     }

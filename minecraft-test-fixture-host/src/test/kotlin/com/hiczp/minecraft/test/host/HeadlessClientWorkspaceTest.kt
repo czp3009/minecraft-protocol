@@ -43,7 +43,7 @@ class HeadlessClientWorkspaceTest {
                 directoryProbeDestination,
             )
 
-            val installation = HeadlessClientInstallation(
+            val headlessClientInstallation = HeadlessClientInstallation(
                 minecraftVersion = "test",
                 fabricProfileId = "fabric-loader-test",
                 minecraftDirectory = minecraftDirectory,
@@ -54,12 +54,12 @@ class HeadlessClientWorkspaceTest {
             )
             val workDirectory = root.resolve("default-work")
             val privateInstallation = prepareHeadlessClientRuntime(
-                installation = installation,
+                headlessClientInstallation = headlessClientInstallation,
                 workDirectory = workDirectory,
             )
             val gameDirectory = workDirectory.resolve("game")
             prepareHeadlessClientWorkspace(
-                installation = privateInstallation,
+                headlessClientInstallation = privateInstallation,
                 gameDirectory = gameDirectory,
                 useTemplate = true,
             )
@@ -121,7 +121,7 @@ class HeadlessClientWorkspaceTest {
 
             val freshGameDirectory = root.resolve("fresh-game")
             prepareHeadlessClientWorkspace(
-                installation = privateInstallation,
+                headlessClientInstallation = privateInstallation,
                 gameDirectory = freshGameDirectory,
                 useTemplate = false,
             )

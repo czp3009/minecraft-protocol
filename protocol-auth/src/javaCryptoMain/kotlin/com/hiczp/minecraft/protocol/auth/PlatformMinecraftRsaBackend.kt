@@ -10,12 +10,12 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
 
     actual override suspend fun generateRsaKeyPair(keySizeBits: Int): MinecraftRsaKeyPair {
         require(keySizeBits >= 1_024)
-        val generator = KeyPairGenerator.getInstance("RSA")
-        generator.initialize(keySizeBits, secureRandom)
-        val pair = generator.generateKeyPair()
+        val keyPairGenerator = KeyPairGenerator.getInstance("RSA")
+        keyPairGenerator.initialize(keySizeBits, secureRandom)
+        val keyPair = keyPairGenerator.generateKeyPair()
         return MinecraftRsaKeyPair(
-            publicKey = pair.public.encoded,
-            privateKey = JavaRsaPrivateKey(pair.private),
+            publicKey = keyPair.public.encoded,
+            minecraftRsaPrivateKey = JavaRsaPrivateKey(keyPair.private),
         )
     }
 
@@ -32,14 +32,14 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
     }
 
     actual override fun rsaDecrypt(
-        privateKey: MinecraftRsaPrivateKey,
+        minecraftRsaPrivateKey: MinecraftRsaPrivateKey,
         ciphertext: ByteArray,
     ): ByteArray {
-        require(privateKey is JavaRsaPrivateKey) {
+        require(minecraftRsaPrivateKey is JavaRsaPrivateKey) {
             "The RSA private key was not created by this platform backend"
         }
         return Cipher.getInstance(RSA_TRANSFORMATION).run {
-            init(Cipher.DECRYPT_MODE, privateKey.key)
+            init(Cipher.DECRYPT_MODE, minecraftRsaPrivateKey.privateKey)
             doFinal(ciphertext.copyOf())
         }
     }
@@ -54,39 +54,39 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
 
     actual override fun decodePublicKey(
         encodedPublicKey: ByteArray,
-        signatureAlgorithm: MinecraftRsaSignatureAlgorithm,
+        minecraftRsaSignatureAlgorithm: MinecraftRsaSignatureAlgorithm,
     ): MinecraftRsaPublicKey = JavaRsaPublicKey(
-        key = KeyFactory.getInstance("RSA").generatePublic(
+        publicKey = KeyFactory.getInstance("RSA").generatePublic(
             X509EncodedKeySpec(encodedPublicKey.copyOf()),
         ),
-        signatureAlgorithm = signatureAlgorithm,
+        minecraftRsaSignatureAlgorithm = minecraftRsaSignatureAlgorithm,
     )
 
     actual override fun rsaSha256Sign(
-        privateKey: MinecraftRsaPrivateKey,
+        minecraftRsaPrivateKey: MinecraftRsaPrivateKey,
         payload: ByteArray,
     ): ByteArray {
-        require(privateKey is JavaRsaPrivateKey) {
+        require(minecraftRsaPrivateKey is JavaRsaPrivateKey) {
             "The RSA private key was not created by this platform backend"
         }
         return Signature.getInstance(SHA256_WITH_RSA).run {
-            initSign(privateKey.key, secureRandom)
+            initSign(minecraftRsaPrivateKey.privateKey, secureRandom)
             update(payload.copyOf())
             sign()
         }
     }
 
     actual override fun rsaVerify(
-        publicKey: MinecraftRsaPublicKey,
+        minecraftRsaPublicKey: MinecraftRsaPublicKey,
         payload: ByteArray,
         signature: ByteArray,
     ): Boolean {
-        require(publicKey is JavaRsaPublicKey) {
+        require(minecraftRsaPublicKey is JavaRsaPublicKey) {
             "The RSA public key was not created by this platform backend"
         }
         return try {
-            Signature.getInstance(publicKey.signatureAlgorithm.jcaName).run {
-                initVerify(publicKey.key)
+            Signature.getInstance(minecraftRsaPublicKey.minecraftRsaSignatureAlgorithm.jcaName).run {
+                initVerify(minecraftRsaPublicKey.publicKey)
                 update(payload.copyOf())
                 verify(signature.copyOf())
             }
@@ -100,12 +100,12 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
 }
 
 private class JavaRsaPrivateKey(
-    val key: PrivateKey,
+    val privateKey: PrivateKey,
 ) : MinecraftRsaPrivateKey
 
 private class JavaRsaPublicKey(
-    val key: PublicKey,
-    val signatureAlgorithm: MinecraftRsaSignatureAlgorithm,
+    val publicKey: PublicKey,
+    val minecraftRsaSignatureAlgorithm: MinecraftRsaSignatureAlgorithm,
 ) : MinecraftRsaPublicKey
 
 private val MinecraftRsaSignatureAlgorithm.jcaName: String

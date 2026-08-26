@@ -26,10 +26,10 @@ class GameProcessSupportTest {
 
     @Test
     fun decoderHandlesCarriageReturnAndLongLines() {
-        val decoder = OutputChunkDecoder(maximumLineLength = 4)
+        val outputChunkDecoder = OutputChunkDecoder(maximumLineLength = 4)
 
-        assertEquals(listOf("abcd"), decoder.feed("abcdef"))
-        assertEquals(listOf("Zx"), decoder.feed("\rxy\rZx\n"))
+        assertEquals(listOf("abcd"), outputChunkDecoder.feed("abcdef"))
+        assertEquals(listOf("Zx"), outputChunkDecoder.feed("\rxy\rZx\n"))
     }
 
     @Test
@@ -41,13 +41,13 @@ class GameProcessSupportTest {
 
     @Test
     fun outputIsSanitizedRedactedAndBounded() = runTest {
-        val buffer = GameOutputBuffer(listOf("secret"), capacity = 3, maximumLineLength = 20)
-        buffer.append(OutputSource.STDOUT, "\u001B[31msecret\u001B[0m")
-        buffer.append(OutputSource.STDERR, "two")
-        buffer.append(OutputSource.STDOUT, "three")
-        buffer.append(OutputSource.STDOUT, "four")
+        val gameOutputBuffer = GameOutputBuffer(listOf("secret"), capacity = 3, maximumLineLength = 20)
+        gameOutputBuffer.append(OutputSource.STDOUT, "\u001B[31msecret\u001B[0m")
+        gameOutputBuffer.append(OutputSource.STDERR, "two")
+        gameOutputBuffer.append(OutputSource.STDOUT, "three")
+        gameOutputBuffer.append(OutputSource.STDOUT, "four")
 
-        val lines = buffer.state.value.lines
+        val lines = gameOutputBuffer.state.value.lines
         assertEquals(3, lines.size)
         assertFalse(lines.any { "secret" in it.text || '\u001B' in it.text })
         assertEquals(listOf("two", "three", "four"), lines.map(GameOutputLine::text))
@@ -55,8 +55,8 @@ class GameProcessSupportTest {
 
     @Test
     fun launchWithoutSensitiveTokenDoesNotRedactOrdinaryOutput() = runTest {
-        val service = GameProcessService(FakeFileSystem(), "/launcher".toPath())
-        val plan = LaunchPlan(
+        val gameProcessService = GameProcessService(FakeFileSystem(), "/launcher".toPath())
+        val launchPlan = LaunchPlan(
             javaArguments = emptyList(),
             mainClass = "example.Main",
             gameArguments = emptyList(),
@@ -64,10 +64,10 @@ class GameProcessSupportTest {
             workingDirectory = "/game",
             requiredJavaMajor = null,
         )
-        val buffer = service.outputBuffer(plan)
+        val gameOutputBuffer = gameProcessService.outputBuffer(launchPlan)
 
-        buffer.append(OutputSource.STDOUT, "Java 21.0")
+        gameOutputBuffer.append(OutputSource.STDOUT, "Java 21.0")
 
-        assertEquals("Java 21.0", buffer.state.value.lines.single().text)
+        assertEquals("Java 21.0", gameOutputBuffer.state.value.lines.single().text)
     }
 }

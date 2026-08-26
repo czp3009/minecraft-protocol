@@ -15,8 +15,8 @@ import kotlin.test.assertFailsWith
 class ItemStackSerializationTest {
     @Test
     fun `data component protocol ids are ordinal and reversible`() {
-        DataComponentType.entries.forEachIndexed { protocolId, type ->
-            assertEquals(type, DataComponentType.fromProtocolId(protocolId))
+        DataComponentType.entries.forEachIndexed { protocolId, dataComponentType ->
+            assertEquals(dataComponentType, DataComponentType.fromProtocolId(protocolId))
         }
         assertEquals(null, DataComponentType.fromProtocolId(-1))
         assertEquals(
@@ -58,7 +58,7 @@ class ItemStackSerializationTest {
 
     @Test
     fun `patch uses the last operation for duplicate component types`() {
-        val stack = ItemStack.of(
+        val itemStack = ItemStack.of(
             itemId = 1,
             components = DataComponentPatch(
                 added = listOf(
@@ -69,7 +69,7 @@ class ItemStackSerializationTest {
         )
         assertContentEquals(
             "0101010002ac02".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(stack),
+            MinecraftProtocolFormat.encodeToByteArray(itemStack),
         )
 
         val removalWins = ItemStack.of(
@@ -360,7 +360,7 @@ class ItemStackSerializationTest {
 
     @Test
     fun `lore enforces the official maximum`() {
-        val stack = ItemStack.of(
+        val itemStack = ItemStack.of(
             itemId = 1,
             components = DataComponentPatch(
                 added = listOf(
@@ -371,18 +371,18 @@ class ItemStackSerializationTest {
             ),
         )
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftProtocolFormat.encodeToByteArray(stack)
+            MinecraftProtocolFormat.encodeToByteArray(itemStack)
         }
     }
 
-    private fun assertStackBytes(stack: ItemStack, expectedHex: String) {
+    private fun assertStackBytes(itemStack: ItemStack, expectedHex: String) {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(stack),
+            MinecraftProtocolFormat.encodeToByteArray(itemStack),
         )
         assertEquals(
-            expected = stack,
+            expected = itemStack,
             actual = MinecraftProtocolFormat.decodeFromByteArray<ItemStack>(expected),
         )
     }

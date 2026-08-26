@@ -8,159 +8,159 @@ import kotlin.test.*
 class MinecraftLoginKeyExchangeContractTest {
     @Test
     fun cryptographyFailureMappingDoesNotWrapCancellation() {
-        val cancellation = CancellationException("cancel cryptography")
+        val cancellationException = CancellationException("cancel cryptography")
 
         val failure = assertFailsWith<CancellationException> {
             mapCryptographyFailure("synthetic cryptography failure") {
-                throw cancellation
+                throw cancellationException
             }
         }
 
-        assertSame(cancellation, failure)
+        assertSame(cancellationException, failure)
     }
 
     @Test
     fun createsVanillaChallengeWithDefensiveContextValues() = runTest {
-        val keyPair = MinecraftServerKeyPair.generate()
-        val encodedPublicKey = keyPair.encodedPublicKey
-        val challenge = keyPair.createChallenge(
+        val minecraftServerKeyPair = MinecraftServerKeyPair.generate()
+        val encodedPublicKey = minecraftServerKeyPair.encodedPublicKey
+        val minecraftServerChallenge = minecraftServerKeyPair.createChallenge(
             shouldAuthenticate = false,
         )
 
         assertTrue(encodedPublicKey.size > 128)
         encodedPublicKey.fill(0)
-        assertFalse(keyPair.encodedPublicKey.all { it == 0.toByte() })
-        assertEquals("", challenge.serverId)
-        assertFalse(challenge.shouldAuthenticate)
-        assertEquals(4, challenge.verifyToken.size)
+        assertFalse(minecraftServerKeyPair.encodedPublicKey.all { it == 0.toByte() })
+        assertEquals("", minecraftServerChallenge.serverId)
+        assertFalse(minecraftServerChallenge.shouldAuthenticate)
+        assertEquals(4, minecraftServerChallenge.verifyToken.size)
         assertContentEquals(
-            keyPair.encodedPublicKey,
-            challenge.encodedPublicKey,
+            minecraftServerKeyPair.encodedPublicKey,
+            minecraftServerChallenge.encodedPublicKey,
         )
 
-        val request = challenge.toEncryptionRequestPacket()
-        assertEquals(challenge.serverId, request.serverId)
-        assertContentEquals(challenge.encodedPublicKey, request.publicKey.toByteArray())
-        assertContentEquals(challenge.verifyToken, request.verifyToken.toByteArray())
-        assertEquals(challenge.shouldAuthenticate, request.shouldAuthenticate)
+        val encryptionRequestPacket = minecraftServerChallenge.toEncryptionRequestPacket()
+        assertEquals(minecraftServerChallenge.serverId, encryptionRequestPacket.serverId)
+        assertContentEquals(minecraftServerChallenge.encodedPublicKey, encryptionRequestPacket.publicKey.toByteArray())
+        assertContentEquals(minecraftServerChallenge.verifyToken, encryptionRequestPacket.verifyToken.toByteArray())
+        assertEquals(minecraftServerChallenge.shouldAuthenticate, encryptionRequestPacket.shouldAuthenticate)
     }
 
     @Test
     fun answersAndAcceptsAPlatformEncryptedChallenge() = runTest {
-        val keyPair = MinecraftServerKeyPair.generate()
-        val challenge = keyPair.createChallenge()
+        val minecraftServerKeyPair = MinecraftServerKeyPair.generate()
+        val minecraftServerChallenge = minecraftServerKeyPair.createChallenge()
 
-        val answer = MinecraftClientKeyExchange.respond(
-            serverId = challenge.serverId,
-            encodedPublicKey = challenge.encodedPublicKey,
-            verifyToken = challenge.verifyToken,
+        val minecraftClientKeyExchangeResult = MinecraftClientKeyExchange.respond(
+            serverId = minecraftServerChallenge.serverId,
+            encodedPublicKey = minecraftServerChallenge.encodedPublicKey,
+            verifyToken = minecraftServerChallenge.verifyToken,
         )
-        val accepted = challenge.accept(
-            encryptedSharedSecret = answer.encryptedSharedSecret,
-            encryptedVerifyToken = answer.encryptedVerifyToken,
+        val accepted = minecraftServerChallenge.accept(
+            encryptedSharedSecret = minecraftClientKeyExchangeResult.encryptedSharedSecret,
+            encryptedVerifyToken = minecraftClientKeyExchangeResult.encryptedVerifyToken,
         )
 
         assertEquals(16, accepted.sharedSecret.size)
-        assertContentEquals(answer.sharedSecret, accepted.sharedSecret)
-        assertEquals(answer.serverHash, accepted.serverHash)
-        val exported = answer.sharedSecret.copyOf()
+        assertContentEquals(minecraftClientKeyExchangeResult.sharedSecret, accepted.sharedSecret)
+        assertEquals(minecraftClientKeyExchangeResult.minecraftServerHash, accepted.minecraftServerHash)
+        val exported = minecraftClientKeyExchangeResult.sharedSecret.copyOf()
         val expectedSecret = exported.copyOf()
         exported.fill(0)
-        assertContentEquals(expectedSecret, answer.sharedSecret)
+        assertContentEquals(expectedSecret, minecraftClientKeyExchangeResult.sharedSecret)
 
         val packetAnswer = MinecraftClientKeyExchange.respond(
-            challenge.toEncryptionRequestPacket(),
+            minecraftServerChallenge.toEncryptionRequestPacket(),
         )
-        val packetAccepted = challenge.accept(packetAnswer.toEncryptionResponsePacket())
+        val packetAccepted = minecraftServerChallenge.accept(packetAnswer.toEncryptionResponsePacket())
         assertContentEquals(packetAnswer.sharedSecret, packetAccepted.sharedSecret)
     }
 
     @Test
     fun keyExchangeResultsUseByteArrayContentEquality() {
-        val hash = MinecraftServerHash("server-hash")
-        val clientResult = MinecraftClientKeyExchangeResult(
+        val minecraftServerHash = MinecraftServerHash("server-hash")
+        val minecraftClientKeyExchangeResult = MinecraftClientKeyExchangeResult(
             encryptedSharedSecret = byteArrayOf(1, 2),
             encryptedVerifyToken = byteArrayOf(3, 4),
             sharedSecret = byteArrayOf(5, 6),
-            serverHash = hash,
+            minecraftServerHash = minecraftServerHash,
         )
-        val equalClientResult = clientResult.copy(
-            encryptedSharedSecret = clientResult.encryptedSharedSecret.copyOf(),
-            encryptedVerifyToken = clientResult.encryptedVerifyToken.copyOf(),
-            sharedSecret = clientResult.sharedSecret.copyOf(),
+        val equalClientResult = minecraftClientKeyExchangeResult.copy(
+            encryptedSharedSecret = minecraftClientKeyExchangeResult.encryptedSharedSecret.copyOf(),
+            encryptedVerifyToken = minecraftClientKeyExchangeResult.encryptedVerifyToken.copyOf(),
+            sharedSecret = minecraftClientKeyExchangeResult.sharedSecret.copyOf(),
         )
-        assertEquals(clientResult, equalClientResult)
-        assertEquals(clientResult.hashCode(), equalClientResult.hashCode())
+        assertEquals(minecraftClientKeyExchangeResult, equalClientResult)
+        assertEquals(minecraftClientKeyExchangeResult.hashCode(), equalClientResult.hashCode())
         assertNotEquals(
-            clientResult,
+            minecraftClientKeyExchangeResult,
             equalClientResult.copy(sharedSecret = byteArrayOf(5, 7)),
         )
 
-        val serverResult = MinecraftServerKeyExchangeResult(
+        val minecraftServerKeyExchangeResult = MinecraftServerKeyExchangeResult(
             sharedSecret = byteArrayOf(7, 8),
-            serverHash = hash,
+            minecraftServerHash = minecraftServerHash,
         )
-        val equalServerResult = serverResult.copy(
-            sharedSecret = serverResult.sharedSecret.copyOf(),
+        val equalServerResult = minecraftServerKeyExchangeResult.copy(
+            sharedSecret = minecraftServerKeyExchangeResult.sharedSecret.copyOf(),
         )
-        assertEquals(serverResult, equalServerResult)
-        assertEquals(serverResult.hashCode(), equalServerResult.hashCode())
+        assertEquals(minecraftServerKeyExchangeResult, equalServerResult)
+        assertEquals(minecraftServerKeyExchangeResult.hashCode(), equalServerResult.hashCode())
         assertNotEquals(
-            serverResult,
+            minecraftServerKeyExchangeResult,
             equalServerResult.copy(sharedSecret = byteArrayOf(7, 9)),
         )
     }
 
     @Test
     fun importsAnEncodedServerKeyPairThroughThePublicConstructor() {
-        val keyPair = MinecraftServerKeyPair(
+        val minecraftServerKeyPair = MinecraftServerKeyPair(
             encodedPublicKey = Base64.Default.decode(FIXTURE_PUBLIC_KEY),
             encodedPrivateKey = Base64.Default.decode(FIXTURE_PRIVATE_KEY),
         )
-        val challenge = keyPair.createChallenge()
-        val answer = MinecraftClientKeyExchange.respond(
-            serverId = challenge.serverId,
-            encodedPublicKey = challenge.encodedPublicKey,
-            verifyToken = challenge.verifyToken,
+        val minecraftServerChallenge = minecraftServerKeyPair.createChallenge()
+        val minecraftClientKeyExchangeResult = MinecraftClientKeyExchange.respond(
+            serverId = minecraftServerChallenge.serverId,
+            encodedPublicKey = minecraftServerChallenge.encodedPublicKey,
+            verifyToken = minecraftServerChallenge.verifyToken,
         )
 
         assertContentEquals(
-            answer.sharedSecret,
-            challenge.accept(
-                encryptedSharedSecret = answer.encryptedSharedSecret,
-                encryptedVerifyToken = answer.encryptedVerifyToken,
+            minecraftClientKeyExchangeResult.sharedSecret,
+            minecraftServerChallenge.accept(
+                encryptedSharedSecret = minecraftClientKeyExchangeResult.encryptedSharedSecret,
+                encryptedVerifyToken = minecraftClientKeyExchangeResult.encryptedVerifyToken,
             ).sharedSecret,
         )
     }
 
     @Test
     fun rejectsWrongTokenAndNonAesSharedSecretLengths() = runTest {
-        val keyPair = MinecraftServerKeyPair.generate()
-        val challenge = keyPair.createChallenge()
-        val otherChallenge = keyPair.createChallenge()
-        val answer = MinecraftClientKeyExchange.respond(
+        val minecraftServerKeyPair = MinecraftServerKeyPair.generate()
+        val minecraftServerChallenge = minecraftServerKeyPair.createChallenge()
+        val otherChallenge = minecraftServerKeyPair.createChallenge()
+        val minecraftClientKeyExchangeResult = MinecraftClientKeyExchange.respond(
             serverId = otherChallenge.serverId,
             encodedPublicKey = otherChallenge.encodedPublicKey,
             verifyToken = otherChallenge.verifyToken,
         )
 
         assertFailsWith<MinecraftKeyExchangeException> {
-            challenge.accept(
-                encryptedSharedSecret = answer.encryptedSharedSecret,
-                encryptedVerifyToken = answer.encryptedVerifyToken,
+            minecraftServerChallenge.accept(
+                encryptedSharedSecret = minecraftClientKeyExchangeResult.encryptedSharedSecret,
+                encryptedVerifyToken = minecraftClientKeyExchangeResult.encryptedVerifyToken,
             )
         }
 
         val encryptedShortSecret = PlatformMinecraftRsaBackend.rsaEncrypt(
-            keyPair.encodedPublicKey,
+            minecraftServerKeyPair.encodedPublicKey,
             ByteArray(15),
         )
         val encryptedVerifyToken = PlatformMinecraftRsaBackend.rsaEncrypt(
-            keyPair.encodedPublicKey,
-            challenge.verifyToken,
+            minecraftServerKeyPair.encodedPublicKey,
+            minecraftServerChallenge.verifyToken,
         )
         assertFailsWith<MinecraftKeyExchangeException> {
-            challenge.accept(encryptedShortSecret, encryptedVerifyToken)
+            minecraftServerChallenge.accept(encryptedShortSecret, encryptedVerifyToken)
         }
     }
 
@@ -177,31 +177,31 @@ class MinecraftLoginKeyExchangeContractTest {
 
     @Test
     fun serverHashMatchesAnIndependentJavaSha1BigIntegerVector() {
-        val hash = MinecraftServerHash.compute(
+        val minecraftServerHash = MinecraftServerHash.compute(
             serverId = "",
             sharedSecret = ByteArray(16) { it.toByte() },
             encodedPublicKey = byteArrayOf(0x30, 0x01, 0x00),
         )
 
-        assertEquals("-76855881f71fd8cdb670af2928d9b62ef1043d49", hash.value)
+        assertEquals("-76855881f71fd8cdb670af2928d9b62ef1043d49", minecraftServerHash.value)
     }
 
     @Test
     fun validatesPublicKeyExchangeInputBoundaries() = runTest {
-        val keyPair = MinecraftServerKeyPair.generate()
+        val minecraftServerKeyPair = MinecraftServerKeyPair.generate()
         assertFailsWith<IllegalArgumentException> {
-            keyPair.createChallenge(serverId = "x".repeat(21))
+            minecraftServerKeyPair.createChallenge(serverId = "x".repeat(21))
         }
         assertEquals(
             "x".repeat(20),
-            keyPair.createChallenge(serverId = "x".repeat(20)).serverId,
+            minecraftServerKeyPair.createChallenge(serverId = "x".repeat(20)).serverId,
         )
     }
 
     @Test
     fun interoperatesWithAnIndependentOpenSslPkcs1Fixture() {
         val publicKey = Base64.Default.decode(FIXTURE_PUBLIC_KEY)
-        val privateKey = PlatformMinecraftRsaBackend.decodePrivateKey(
+        val minecraftRsaPrivateKey = PlatformMinecraftRsaBackend.decodePrivateKey(
             Base64.Default.decode(FIXTURE_PRIVATE_KEY),
         )
         val ciphertext = Base64.Default.decode(FIXTURE_CIPHERTEXT)
@@ -210,7 +210,7 @@ class MinecraftLoginKeyExchangeContractTest {
 
         assertContentEquals(
             plaintext,
-            PlatformMinecraftRsaBackend.rsaDecrypt(privateKey, ciphertext),
+            PlatformMinecraftRsaBackend.rsaDecrypt(minecraftRsaPrivateKey, ciphertext),
         )
         val providerCiphertext = PlatformMinecraftRsaBackend.rsaEncrypt(
             publicKey,
@@ -220,7 +220,7 @@ class MinecraftLoginKeyExchangeContractTest {
         assertContentEquals(
             plaintext,
             PlatformMinecraftRsaBackend.rsaDecrypt(
-                privateKey,
+                minecraftRsaPrivateKey,
                 providerCiphertext,
             ),
         )
@@ -256,10 +256,10 @@ class MinecraftLoginKeyExchangeContractTest {
         }
         assertNotNull(malformedKey.cause)
 
-        val keyPair = MinecraftServerKeyPair.generate()
-        val challenge = keyPair.createChallenge()
+        val minecraftServerKeyPair = MinecraftServerKeyPair.generate()
+        val minecraftServerChallenge = minecraftServerKeyPair.createChallenge()
         assertFailsWith<MinecraftKeyExchangeException> {
-            challenge.accept(ByteArray(1), ByteArray(1))
+            minecraftServerChallenge.accept(ByteArray(1), ByteArray(1))
         }
     }
 

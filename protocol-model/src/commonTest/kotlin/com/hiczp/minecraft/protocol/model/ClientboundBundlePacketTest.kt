@@ -9,15 +9,15 @@ class ClientboundBundlePacketTest {
     @Test
     fun bundleSnapshotsSubPacketsAndRejectsWireStructure() {
         val source = mutableListOf<ClientboundPacket>(ChunkBatchStartPacket)
-        val bundle = ClientboundBundlePacket(source)
+        val clientboundBundlePacket = ClientboundBundlePacket(source)
         source += ChunkBatchFinishedPacket(1)
 
-        assertEquals(listOf(ChunkBatchStartPacket), bundle.subPackets)
+        assertEquals(listOf(ChunkBatchStartPacket), clientboundBundlePacket.subPackets)
         assertFailsWith<IllegalArgumentException> {
             ClientboundBundlePacket(listOf(BundleDelimiterPacket))
         }
         assertFailsWith<IllegalArgumentException> {
-            ClientboundBundlePacket(listOf(bundle))
+            ClientboundBundlePacket(listOf(clientboundBundlePacket))
         }
     }
 

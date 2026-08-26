@@ -17,8 +17,8 @@ class MinecraftFriendsApiTest {
     fun exposesFriendAndPresenceConditionalRequestMetadata() = runTest {
         val requests = mutableListOf<HttpRequestData>()
         HttpClient(
-            MockEngine { request ->
-                requests += request
+            MockEngine { httpRequestData ->
+                requests += httpRequestData
                 when (requests.size) {
                     1 -> respondFriendsJson(
                         friendsJson(),
@@ -46,29 +46,29 @@ class MinecraftFriendsApiTest {
                         },
                     )
 
-                    else -> error("Unexpected request ${request.url}")
+                    else -> error("Unexpected request ${httpRequestData.url}")
                 }
             },
-        ).use { client ->
-            val api = MinecraftFriendsApi(client)
-            val initial = api.fetchFriends("access-token")
-            val unchanged = api.fetchFriends("access-token", etag = initial.etag)
+        ).use { httpClient ->
+            val minecraftFriendsApi = MinecraftFriendsApi(httpClient)
+            val initial = minecraftFriendsApi.fetchFriends("access-token")
+            val unchanged = minecraftFriendsApi.fetchFriends("access-token", etag = initial.etag)
             val updated = assertNotNull(
-                api.updateFriend(
+                minecraftFriendsApi.updateFriend(
                     accessToken = "access-token",
-                    request = MinecraftFriendActionRequest.byProfileId(
+                    minecraftFriendActionRequest = MinecraftFriendActionRequest.byProfileId(
                         Uuid.parse(FRIEND_ID),
                         MinecraftFriendUpdateType.REMOVE,
                     ),
                 ),
             )
-            val emptyUpdate = api.updateFriend(
+            val emptyUpdate = minecraftFriendsApi.updateFriend(
                 accessToken = "access-token",
-                request = MinecraftFriendActionRequest.byName("Notch", MinecraftFriendUpdateType.ADD),
+                minecraftFriendActionRequest = MinecraftFriendActionRequest.byName("Notch", MinecraftFriendUpdateType.ADD),
             )
-            val presence = api.updatePresence(
+            val presence = minecraftFriendsApi.updatePresence(
                 accessToken = "access-token",
-                request = MinecraftPresenceRequest(MinecraftPresenceStatus.PLAYING_SERVER),
+                minecraftPresenceRequest = MinecraftPresenceRequest(MinecraftPresenceStatus.PLAYING_SERVER),
                 etag = "presence-v1",
             )
 
@@ -88,8 +88,8 @@ class MinecraftFriendsApiTest {
         }
 
         assertEquals(5, requests.size)
-        requests.forEach { request ->
-            assertEquals("Bearer access-token", request.headers[HttpHeaders.Authorization])
+        requests.forEach { httpRequestData ->
+            assertEquals("Bearer access-token", httpRequestData.headers[HttpHeaders.Authorization])
         }
         assertEquals(HttpMethod.Get, requests[0].method)
         assertEquals("/friends", requests[0].url.encodedPath)
@@ -112,38 +112,38 @@ class MinecraftFriendsApiTest {
 
     @Test
     fun identityConveniencesPassTheMinecraftAccessToken() = runTest {
-        val identity = MinecraftOnlineIdentity(
+        val minecraftOnlineIdentity = MinecraftOnlineIdentity(
             id = MinecraftOfflineIdentity.minecraftOfflineUuid("Player"),
             name = "Player",
             accessToken = "access-token",
         )
         val requests = mutableListOf<HttpRequestData>()
         HttpClient(
-            MockEngine { request ->
-                requests += request
+            MockEngine { httpRequestData ->
+                requests += httpRequestData
                 respond("", HttpStatusCode.NoContent)
             },
-        ).use { client ->
-            val api = MinecraftFriendsApi(client)
+        ).use { httpClient ->
+            val minecraftFriendsApi = MinecraftFriendsApi(httpClient)
 
-            assertNull(api.fetchFriends(identity).body)
+            assertNull(minecraftFriendsApi.fetchFriends(minecraftOnlineIdentity).body)
             assertNull(
-                api.updateFriend(
-                    identity,
+                minecraftFriendsApi.updateFriend(
+                    minecraftOnlineIdentity,
                     MinecraftFriendActionRequest.byName("Notch", MinecraftFriendUpdateType.ADD),
                 ),
             )
             assertNull(
-                api.updatePresence(
-                    identity,
+                minecraftFriendsApi.updatePresence(
+                    minecraftOnlineIdentity,
                     MinecraftPresenceRequest(MinecraftPresenceStatus.ONLINE),
                 ).body,
             )
         }
 
         assertEquals(3, requests.size)
-        requests.forEach { request ->
-            assertEquals("Bearer access-token", request.headers[HttpHeaders.Authorization])
+        requests.forEach { httpRequestData ->
+            assertEquals("Bearer access-token", httpRequestData.headers[HttpHeaders.Authorization])
         }
     }
 
@@ -165,11 +165,11 @@ class MinecraftFriendsApiTest {
                     },
                 )
             },
-        ).use { client ->
+        ).use { httpClient ->
             val failure = assertFailsWith<MinecraftFriendsResponseException> {
-                MinecraftFriendsApi(client).updateFriend(
+                MinecraftFriendsApi(httpClient).updateFriend(
                     accessToken = "access-token",
-                    request = MinecraftFriendActionRequest.byName("missing", MinecraftFriendUpdateType.ADD),
+                    minecraftFriendActionRequest = MinecraftFriendActionRequest.byName("missing", MinecraftFriendUpdateType.ADD),
                 )
             }
 
@@ -183,9 +183,9 @@ class MinecraftFriendsApiTest {
 
     @Test
     fun decodingFailuresPropagateUnchanged() = runTest {
-        HttpClient(MockEngine { respond("not-json", HttpStatusCode.OK) }).use { client ->
+        HttpClient(MockEngine { respond("not-json", HttpStatusCode.OK) }).use { httpClient ->
             assertFailsWith<SerializationException> {
-                MinecraftFriendsApi(client).fetchFriends("access-token")
+                MinecraftFriendsApi(httpClient).fetchFriends("access-token")
             }
         }
     }

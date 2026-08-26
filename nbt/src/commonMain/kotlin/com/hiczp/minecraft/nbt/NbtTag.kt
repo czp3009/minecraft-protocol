@@ -21,7 +21,7 @@ sealed interface NbtTag
 
 /** Logical serializer handoff for formats that encode an NBT tree directly. */
 interface NbtTagEncoder {
-    fun encodeNbtTag(value: NbtTag)
+    fun encodeNbtTag(nbtTag: NbtTag)
 }
 
 /** Logical deserializer handoff for formats that decode an NBT tree directly. */
@@ -39,28 +39,28 @@ abstract class NbtTagSerializer<T : NbtTag>(
     final override val descriptor: SerialDescriptor = buildClassSerialDescriptor(serialName)
 
     final override fun serialize(encoder: Encoder, value: T) {
-        val tagEncoder = encoder as? NbtTagEncoder
+        val nbtTagEncoder = encoder as? NbtTagEncoder
             ?: throw SerializationException(
                 "${encoder::class.simpleName ?: "Encoder"} cannot encode raw NBT tags",
             )
-        tagEncoder.encodeNbtTag(value)
+        nbtTagEncoder.encodeNbtTag(value)
     }
 
     final override fun deserialize(decoder: Decoder): T {
-        val tagDecoder = decoder as? NbtTagDecoder
+        val nbtTagDecoder = decoder as? NbtTagDecoder
             ?: throw SerializationException(
                 "${decoder::class.simpleName ?: "Decoder"} cannot decode raw NBT tags",
             )
-        return deserializeTag(tagDecoder.decodeNbtTag())
+        return deserializeTag(nbtTagDecoder.decodeNbtTag())
     }
 
-    fun deserializeTag(tag: NbtTag): T = cast(tag)
+    fun deserializeTag(nbtTag: NbtTag): T = cast(nbtTag)
 
-    protected abstract fun cast(tag: NbtTag): T
+    protected abstract fun cast(nbtTag: NbtTag): T
 
-    protected fun wrongType(expected: String, tag: NbtTag): Nothing =
+    protected fun wrongType(expected: String, nbtTag: NbtTag): Nothing =
         throw SerializationException(
-            "Expected $expected, got ${tag::class.simpleName ?: "an unknown NBT tag"}",
+            "Expected $expected, got ${nbtTag::class.simpleName ?: "an unknown NBT tag"}",
         )
 }
 
@@ -170,7 +170,7 @@ class NbtCompound(value: Map<String, NbtTag>) : NbtTag {
 
     /** Visits entries in insertion order without creating a map copy. */
     fun forEachEntry(action: (String, NbtTag) -> Unit) {
-        snapshot.forEach { (name, tag) -> action(name, tag) }
+        snapshot.forEach { (name, nbtTag) -> action(name, nbtTag) }
     }
 
     init {
@@ -240,70 +240,70 @@ class NbtLongArray(value: LongArray) : NbtTag {
 }
 
 object NbtTagTreeSerializer : NbtTagSerializer<NbtTag>("com.hiczp.minecraft.nbt.NbtTag") {
-    override fun cast(tag: NbtTag): NbtTag = tag
+    override fun cast(nbtTag: NbtTag): NbtTag = nbtTag
 }
 
 object NbtEndSerializer : NbtTagSerializer<NbtEnd>("com.hiczp.minecraft.nbt.NbtEnd") {
-    override fun cast(tag: NbtTag): NbtEnd =
-        tag as? NbtEnd ?: wrongType("TAG_End", tag)
+    override fun cast(nbtTag: NbtTag): NbtEnd =
+        nbtTag as? NbtEnd ?: wrongType("TAG_End", nbtTag)
 }
 
 object NbtByteSerializer : NbtTagSerializer<NbtByte>("com.hiczp.minecraft.nbt.NbtByte") {
-    override fun cast(tag: NbtTag): NbtByte =
-        tag as? NbtByte ?: wrongType("TAG_Byte", tag)
+    override fun cast(nbtTag: NbtTag): NbtByte =
+        nbtTag as? NbtByte ?: wrongType("TAG_Byte", nbtTag)
 }
 
 object NbtShortSerializer : NbtTagSerializer<NbtShort>("com.hiczp.minecraft.nbt.NbtShort") {
-    override fun cast(tag: NbtTag): NbtShort =
-        tag as? NbtShort ?: wrongType("TAG_Short", tag)
+    override fun cast(nbtTag: NbtTag): NbtShort =
+        nbtTag as? NbtShort ?: wrongType("TAG_Short", nbtTag)
 }
 
 object NbtIntSerializer : NbtTagSerializer<NbtInt>("com.hiczp.minecraft.nbt.NbtInt") {
-    override fun cast(tag: NbtTag): NbtInt =
-        tag as? NbtInt ?: wrongType("TAG_Int", tag)
+    override fun cast(nbtTag: NbtTag): NbtInt =
+        nbtTag as? NbtInt ?: wrongType("TAG_Int", nbtTag)
 }
 
 object NbtLongSerializer : NbtTagSerializer<NbtLong>("com.hiczp.minecraft.nbt.NbtLong") {
-    override fun cast(tag: NbtTag): NbtLong =
-        tag as? NbtLong ?: wrongType("TAG_Long", tag)
+    override fun cast(nbtTag: NbtTag): NbtLong =
+        nbtTag as? NbtLong ?: wrongType("TAG_Long", nbtTag)
 }
 
 object NbtFloatSerializer : NbtTagSerializer<NbtFloat>("com.hiczp.minecraft.nbt.NbtFloat") {
-    override fun cast(tag: NbtTag): NbtFloat =
-        tag as? NbtFloat ?: wrongType("TAG_Float", tag)
+    override fun cast(nbtTag: NbtTag): NbtFloat =
+        nbtTag as? NbtFloat ?: wrongType("TAG_Float", nbtTag)
 }
 
 object NbtDoubleSerializer : NbtTagSerializer<NbtDouble>("com.hiczp.minecraft.nbt.NbtDouble") {
-    override fun cast(tag: NbtTag): NbtDouble =
-        tag as? NbtDouble ?: wrongType("TAG_Double", tag)
+    override fun cast(nbtTag: NbtTag): NbtDouble =
+        nbtTag as? NbtDouble ?: wrongType("TAG_Double", nbtTag)
 }
 
 object NbtByteArraySerializer : NbtTagSerializer<NbtByteArray>("com.hiczp.minecraft.nbt.NbtByteArray") {
-    override fun cast(tag: NbtTag): NbtByteArray =
-        tag as? NbtByteArray ?: wrongType("TAG_Byte_Array", tag)
+    override fun cast(nbtTag: NbtTag): NbtByteArray =
+        nbtTag as? NbtByteArray ?: wrongType("TAG_Byte_Array", nbtTag)
 }
 
 object NbtStringSerializer : NbtTagSerializer<NbtString>("com.hiczp.minecraft.nbt.NbtString") {
-    override fun cast(tag: NbtTag): NbtString =
-        tag as? NbtString ?: wrongType("TAG_String", tag)
+    override fun cast(nbtTag: NbtTag): NbtString =
+        nbtTag as? NbtString ?: wrongType("TAG_String", nbtTag)
 }
 
 object NbtListSerializer : NbtTagSerializer<NbtList>("com.hiczp.minecraft.nbt.NbtList") {
-    override fun cast(tag: NbtTag): NbtList =
-        tag as? NbtList ?: wrongType("TAG_List", tag)
+    override fun cast(nbtTag: NbtTag): NbtList =
+        nbtTag as? NbtList ?: wrongType("TAG_List", nbtTag)
 }
 
 object NbtCompoundSerializer : NbtTagSerializer<NbtCompound>("com.hiczp.minecraft.nbt.NbtCompound") {
-    override fun cast(tag: NbtTag): NbtCompound =
-        tag as? NbtCompound ?: wrongType("TAG_Compound", tag)
+    override fun cast(nbtTag: NbtTag): NbtCompound =
+        nbtTag as? NbtCompound ?: wrongType("TAG_Compound", nbtTag)
 }
 
 object NbtIntArraySerializer : NbtTagSerializer<NbtIntArray>("com.hiczp.minecraft.nbt.NbtIntArray") {
-    override fun cast(tag: NbtTag): NbtIntArray =
-        tag as? NbtIntArray ?: wrongType("TAG_Int_Array", tag)
+    override fun cast(nbtTag: NbtTag): NbtIntArray =
+        nbtTag as? NbtIntArray ?: wrongType("TAG_Int_Array", nbtTag)
 }
 
 object NbtLongArraySerializer : NbtTagSerializer<NbtLongArray>("com.hiczp.minecraft.nbt.NbtLongArray") {
-    override fun cast(tag: NbtTag): NbtLongArray =
-        tag as? NbtLongArray ?: wrongType("TAG_Long_Array", tag)
+    override fun cast(nbtTag: NbtTag): NbtLongArray =
+        nbtTag as? NbtLongArray ?: wrongType("TAG_Long_Array", nbtTag)
 }

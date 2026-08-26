@@ -53,7 +53,7 @@ class PlayServerboundInteractionPacketTest {
 
     @Test
     fun `test instance data combines three distinct enum fallback policies`() {
-        val packet = TestInstanceBlockActionPacket(
+        val testInstanceBlockActionPacket = TestInstanceBlockActionPacket(
             position = BlockPosition(0, 0, 0),
             action = TestInstanceAction.RUN,
             data = TestInstanceData(
@@ -66,7 +66,7 @@ class PlayServerboundInteractionPacketTest {
             ),
         )
         assertPacketBytes(
-            packet,
+            testInstanceBlockActionPacket,
             TestInstanceBlockActionPacket.serializer(),
             "0000000000000000060001ac02000301020108000178",
         )
@@ -131,17 +131,17 @@ class PlayServerboundInteractionPacketTest {
 
     private fun <T> assertPacketBytes(
         packet: T,
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
         expectedHex: String,
     ) {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

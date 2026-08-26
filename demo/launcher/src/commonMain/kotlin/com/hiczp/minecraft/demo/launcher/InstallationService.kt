@@ -12,105 +12,107 @@ import okio.FileSystem
 import okio.Path
 
 internal class InstallationService(
-    private val api: MojangApi,
+    private val mojangApi: MojangApi,
     private val fileSystem: FileSystem,
-    private val store: LauncherStore,
-    private val platform: LauncherPlatform,
+    private val launcherStore: LauncherStore,
+    private val launcherPlatform: LauncherPlatform,
 ) {
-    private val downloader = ResourceDownloader(api, fileSystem)
+    private val resourceDownloader = ResourceDownloader(mojangApi, fileSystem)
     private val progressMutex = Mutex()
     private val _progress = MutableStateFlow(InstallProgress())
     val progress: StateFlow<InstallProgress> = _progress.asStateFlow()
 
-    suspend fun loadManifest(): VersionManifest = api.versionManifest()
+    suspend fun loadManifest(): VersionManifest = mojangApi.versionManifest()
 
-    suspend fun loadInstalled(): InstalledState = store.reconcileInstalled(platform)
+    suspend fun loadInstalled(): InstalledState = launcherStore.reconcileInstalled(launcherPlatform)
 
     suspend fun install(
-        entry: VersionEntry,
+        versionEntry: VersionEntry,
         onDownloadsStarted: (InstalledState) -> Unit = {},
     ): CompletedInstallation {
-        val prepared = prepareInstallation(entry)
-        val downloadingState = store.updateInstalled { installed ->
-            installed.copy(
-                installations = installed.installations.filterNot {
-                    it.versionId == entry.id && it.platformKey == platform.platformKey
+        val preparedInstallation = prepareInstallation(versionEntry)
+        val downloadingState = launcherStore.updateInstalled { installedState ->
+            installedState.copy(
+                installations = installedState.installations.filterNot {
+                    it.versionId == versionEntry.id && it.platformKey == launcherPlatform.platformKey
                 },
             )
         }
         onDownloadsStarted(downloadingState)
-        downloadAll(prepared.downloads, prepared.gameRoot)
+        downloadAll(preparedInstallation.downloads, preparedInstallation.gameRoot)
 
-        val completedState = store.updateInstalled { installed ->
-            val record = InstalledVersion(prepared.metadata.id, platform.platformKey)
-            installed.copy(installations = installed.installations.filterNot { it == record } + record)
+        val completedState = launcherStore.updateInstalled { installedState ->
+            val installedVersion =
+                InstalledVersion(preparedInstallation.versionMetadata.id, launcherPlatform.platformKey)
+            installedState.copy(installations = installedState.installations.filterNot { it == installedVersion } + installedVersion)
         }
-        return CompletedInstallation(prepared.metadata, completedState)
+        return CompletedInstallation(preparedInstallation.versionMetadata, completedState)
     }
 
-    private suspend fun prepareInstallation(entry: VersionEntry): PreparedInstallation {
-        val metadata = loadVersionMetadata(entry)
-        val plan = MetadataPlanner.createInstallPlan(metadata, platform)
-        val gameRoot = store.gameRoot(entry.id)
+    private suspend fun prepareInstallation(versionEntry: VersionEntry): PreparedInstallation {
+        val versionMetadata = loadVersionMetadata(versionEntry)
+        val installPlan = MetadataPlanner.createInstallPlan(versionMetadata, launcherPlatform)
+        val gameRoot = launcherStore.gameRoot(versionEntry.id)
         fileSystem.createDirectories(gameRoot)
-        fileSystem.createDirectories(gameRoot / plan.nativeDirectory)
+        fileSystem.createDirectories(gameRoot / installPlan.nativeDirectory)
 
-        downloader.download(plan.assetIndex, resolveSafe(gameRoot, plan.assetIndex.relativePath))
+        resourceDownloader.download(installPlan.assetIndex, resolveSafe(gameRoot, installPlan.assetIndex.relativePath))
 
         val assetIndex = launcherJson.decodeFromString<AssetIndex>(
-            fileSystem.read(resolveSafe(gameRoot, plan.assetIndex.relativePath)) { readUtf8() },
+            fileSystem.read(resolveSafe(gameRoot, installPlan.assetIndex.relativePath)) { readUtf8() },
         )
-        val contentDownloads = plan.downloads.filterNot { it.relativePath == plan.assetIndex.relativePath }
+        val contentDownloads =
+            installPlan.downloads.filterNot { it.relativePath == installPlan.assetIndex.relativePath }
         val downloads = (contentDownloads + MetadataPlanner.createAssetDownloads(assetIndex))
             .distinctBy(DownloadSpec::relativePath)
         progressMutex.withLock {
             _progress.value = InstallProgress(totalFiles = downloads.size)
         }
-        return PreparedInstallation(metadata, gameRoot, downloads)
+        return PreparedInstallation(versionMetadata, gameRoot, downloads)
     }
 
-    suspend fun validateInstallation(metadata: VersionMetadata): InstallPlan {
-        val plan = MetadataPlanner.createInstallPlan(metadata, platform)
-        val gameRoot = store.gameRoot(metadata.id)
+    suspend fun validateInstallation(versionMetadata: VersionMetadata): InstallPlan {
+        val installPlan = MetadataPlanner.createInstallPlan(versionMetadata, launcherPlatform)
+        val gameRoot = launcherStore.gameRoot(versionMetadata.id)
         val assetIndex = launcherJson.decodeFromString<AssetIndex>(
-            fileSystem.read(resolveSafe(gameRoot, plan.assetIndex.relativePath)) { readUtf8() },
+            fileSystem.read(resolveSafe(gameRoot, installPlan.assetIndex.relativePath)) { readUtf8() },
         )
-        val required = plan.downloads + MetadataPlanner.createAssetDownloads(assetIndex)
-        required.forEach { spec ->
-            require(downloader.isValid(resolveSafe(gameRoot, spec.relativePath), spec)) {
-                "Installed resource is missing or corrupt: ${spec.relativePath}"
+        val required = installPlan.downloads + MetadataPlanner.createAssetDownloads(assetIndex)
+        required.forEach { downloadSpec ->
+            require(resourceDownloader.isValid(resolveSafe(gameRoot, downloadSpec.relativePath), downloadSpec)) {
+                "Installed resource is missing or corrupt: ${downloadSpec.relativePath}"
             }
         }
-        return plan
+        return installPlan
     }
 
     suspend fun delete(versionId: String) {
-        val gameRoot = store.gameRoot(versionId)
+        val gameRoot = launcherStore.gameRoot(versionId)
         if (fileSystem.exists(gameRoot)) fileSystem.deleteRecursively(gameRoot)
-        store.updateInstalled { installed ->
-            installed.copy(
-                installations = installed.installations.filterNot {
-                    it.versionId == versionId && it.platformKey == platform.platformKey
+        launcherStore.updateInstalled { installedState ->
+            installedState.copy(
+                installations = installedState.installations.filterNot {
+                    it.versionId == versionId && it.platformKey == launcherPlatform.platformKey
                 },
             )
         }
     }
 
-    suspend fun loadVersionMetadata(entry: VersionEntry): VersionMetadata {
-        val metadata = api.versionMetadata(entry.url)
-        require(metadata.id == entry.id) { "Version metadata ID does not match ${entry.id}" }
-        return metadata
+    suspend fun loadVersionMetadata(versionEntry: VersionEntry): VersionMetadata {
+        val versionMetadata = mojangApi.versionMetadata(versionEntry.url)
+        require(versionMetadata.id == versionEntry.id) { "Version metadata ID does not match ${versionEntry.id}" }
+        return versionMetadata
     }
 
     private suspend fun downloadAll(specs: List<DownloadSpec>, gameRoot: Path) = coroutineScope {
         val semaphore = Semaphore(DOWNLOAD_CONCURRENCY)
-        specs.map { spec ->
+        specs.map { downloadSpec ->
             async {
-                val target = resolveSafe(gameRoot, spec.relativePath)
+                val target = resolveSafe(gameRoot, downloadSpec.relativePath)
                 while (true) {
                     try {
                         semaphore.withPermit {
-                            downloader.download(spec, target)
+                            resourceDownloader.download(downloadSpec, target)
                         }
                         break
                     } catch (failure: CancellationException) {
@@ -130,14 +132,14 @@ internal class InstallationService(
 }
 
 private data class PreparedInstallation(
-    val metadata: VersionMetadata,
+    val versionMetadata: VersionMetadata,
     val gameRoot: Path,
     val downloads: List<DownloadSpec>,
 )
 
 internal data class CompletedInstallation(
-    val metadata: VersionMetadata,
-    val installed: InstalledState,
+    val versionMetadata: VersionMetadata,
+    val installedState: InstalledState,
 )
 
 private const val DOWNLOAD_CONCURRENCY = 16

@@ -69,19 +69,19 @@ internal class MinecraftStatusProbe(
         check(jsonLength in 1..MAXIMUM_STATUS_JSON_BYTES) {
             "Official status JSON has invalid length $jsonLength"
         }
-        val json = packet.readByteArray(jsonLength)
+        val jsonObject = packet.readByteArray(jsonLength)
             .decodeToString()
             .let(testJson::parseToJsonElement)
             .jsonObject
         check(packet.exhausted()) {
             "Official status response has trailing bytes"
         }
-        json.getValue("version")
+        jsonObject.getValue("version")
             .jsonObject
             .getValue("protocol")
             .jsonPrimitive
             .int
-        return json
+        return jsonObject
     }
 
     private suspend fun readPong(

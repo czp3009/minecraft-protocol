@@ -26,43 +26,43 @@ import kotlinx.io.Source as KotlinxSource
  * a caller-owned choice rather than an official file policy.
  */
 class NbtFileStore internal constructor(
-    internal val files: WorldFileAccess,
-    val nbt: NbtFormat = minecraftWorldNbtFormat(),
+    internal val worldFileAccess: WorldFileAccess,
+    val nbtFormat: NbtFormat = minecraftWorldNbtFormat(),
     val compressionCodecs: CompressionRegistry = CompressionRegistry,
 ) {
     init {
-        nbt.requireStandaloneWorldRoot()
+        nbtFormat.requireStandaloneWorldRoot()
     }
 
     constructor(
         fileSystem: FileSystem = systemFileSystem,
-        nbt: NbtFormat = minecraftWorldNbtFormat(),
+        nbtFormat: NbtFormat = minecraftWorldNbtFormat(),
         compressionCodecs: CompressionRegistry = CompressionRegistry,
     ) : this(
-        files = WorldFileAccess.mutable(fileSystem),
-        nbt = nbt,
+        worldFileAccess = WorldFileAccess.mutable(fileSystem),
+        nbtFormat = nbtFormat,
         compressionCodecs = compressionCodecs,
     )
 
     val fileSystem: FileSystem
-        get() = files.fileSystem
+        get() = worldFileAccess.fileSystem
 
     internal val liveReadOnly: Boolean
-        get() = files.liveReadOnly
+        get() = worldFileAccess.liveReadOnly
 
     fun readDocument(
         path: Path,
         compression: Compression = Compression.GZIP,
     ): NbtDocument = read(path, compression) { source ->
-        nbt.decodeDocumentFromSource(source)
+        nbtFormat.decodeDocumentFromSource(source)
     }
 
     fun <T> read(
         path: Path,
-        deserializer: DeserializationStrategy<T>,
+        deserializationStrategy: DeserializationStrategy<T>,
         compression: Compression = Compression.GZIP,
     ): T = read(path, compression) { source ->
-        nbt.decodeFromSource(deserializer, source)
+        nbtFormat.decodeFromSource(deserializationStrategy, source)
     }
 
     /** Lends the decompressed file stream for the duration of [block]. */
@@ -70,9 +70,9 @@ class NbtFileStore internal constructor(
         path: Path,
         compression: Compression = Compression.GZIP,
         block: (KotlinxSource) -> T,
-    ): T = files.readFile(path) { source, _ ->
+    ): T = worldFileAccess.readFile(path) { bufferedSource, _ ->
         withOkioIoExceptions("Cannot read NBT file $path") {
-            val converted = source.asKotlinxIoRawSource().buffered()
+            val converted = bufferedSource.asKotlinxIoRawSource().buffered()
             val opened = compressionCodecs.decompressingSource(compression, converted).buffered()
             useResource(opened, { it.close() }) { source ->
                 val value = block(source)
@@ -89,19 +89,19 @@ class NbtFileStore internal constructor(
     /** Directly truncates, writes, and durably syncs the final file. */
     fun writeDocument(
         path: Path,
-        document: NbtDocument,
+        nbtDocument: NbtDocument,
         compression: Compression = Compression.GZIP,
     ) = write(path, compression) { sink ->
-        nbt.encodeDocumentToSink(document, sink)
+        nbtFormat.encodeDocumentToSink(nbtDocument, sink)
     }
 
     fun <T> write(
         path: Path,
-        serializer: SerializationStrategy<T>,
+        serializationStrategy: SerializationStrategy<T>,
         value: T,
         compression: Compression = Compression.GZIP,
     ) = write(path, compression) { sink ->
-        nbt.encodeToSink(serializer, value, sink)
+        nbtFormat.encodeToSink(serializationStrategy, value, sink)
     }
 
     /** Directly truncates, streams, and durably syncs the final file. */
@@ -110,22 +110,22 @@ class NbtFileStore internal constructor(
         compression: Compression = Compression.GZIP,
         block: (KotlinxSink) -> Unit,
     ) {
-        files.requireWritable()
+        worldFileAccess.requireWritable()
         val parent = path.parent
             ?: throw WorldIOException("File has no parent directory: $path")
         fileSystem.createDirectories(parent)
-        val handle = fileSystem.openTruncatedReadWrite(path)
-        useResource(handle, { it.close() }) {
-            writeHandle(path, handle, compression, block)
+        val fileHandle = fileSystem.openTruncatedReadWrite(path)
+        useResource(fileHandle, { it.close() }) {
+            writeHandle(path, fileHandle, compression, block)
         }
     }
 
     internal fun writeSyncedTemporary(
         directory: Path,
-        document: NbtDocument,
+        nbtDocument: NbtDocument,
         compression: Compression = Compression.GZIP,
     ): Path = writeSyncedTemporary(directory, compression) { sink ->
-        nbt.encodeDocumentToSink(document, sink)
+        nbtFormat.encodeDocumentToSink(nbtDocument, sink)
     }
 
     internal fun writeSyncedTemporary(
@@ -133,34 +133,34 @@ class NbtFileStore internal constructor(
         compression: Compression = Compression.GZIP,
         block: (KotlinxSink) -> Unit,
     ): Path {
-        files.requireWritable()
-        val temporary = fileSystem.openUniqueTemporaryHandle(directory)
+        worldFileAccess.requireWritable()
+        val temporaryFileHandle = fileSystem.openUniqueTemporaryHandle(directory)
         try {
-            useResource(temporary.handle, { it.close() }) { handle ->
+            useResource(temporaryFileHandle.fileHandle, { it.close() }) { fileHandle ->
                 writeHandle(
-                    temporary.path,
-                    handle,
+                    temporaryFileHandle.path,
+                    fileHandle,
                     compression,
                     block,
                 )
             }
-            return temporary.path
+            return temporaryFileHandle.path
         } catch (failure: Throwable) {
-            fileSystem.deleteIfExistsPreserving(temporary.path, failure)
+            fileSystem.deleteIfExistsPreserving(temporaryFileHandle.path, failure)
             throw failure
         }
     }
 
-    internal fun openSource(path: Path): Source = files.openSource(path)
+    internal fun openSource(path: Path): Source = worldFileAccess.openSource(path)
 
     private fun writeHandle(
         path: Path,
-        handle: FileHandle,
+        fileHandle: FileHandle,
         compression: Compression,
         block: (KotlinxSink) -> Unit,
     ) {
         val countingFileSink = CountingSink(
-            handle.sink(),
+            fileHandle.sink(),
             closeDelegate = true,
         )
         val fileSink = countingFileSink.buffer()
@@ -168,8 +168,8 @@ class NbtFileStore internal constructor(
             encode(compression, fileSink, block)
             fileSink.flush()
         }
-        handle.resize(countingFileSink.bytesWritten)
-        handle.flushDurably(fileSystem, path)
+        fileHandle.resize(countingFileSink.bytesWritten)
+        fileHandle.flushDurably(fileSystem, path)
     }
 
     private fun encode(
@@ -192,7 +192,7 @@ class NbtFileStore internal constructor(
 }
 
 internal fun NbtFormat.requireStandaloneWorldRoot() {
-    require(configuration.rootEncoding == NbtRootEncoding.UNNAMED) {
+    require(nbtFormatConfiguration.nbtRootEncoding == NbtRootEncoding.UNNAMED) {
         "Standalone world NBT requires NbtRootEncoding.UNNAMED"
     }
 }
@@ -203,6 +203,6 @@ fun minecraftWorldNbtFormat(
 ): NbtFormat = NbtFormat(
     NbtFormatConfiguration(
         serializersModule = serializersModule,
-        rootEncoding = NbtRootEncoding.UNNAMED,
+        nbtRootEncoding = NbtRootEncoding.UNNAMED,
     ),
 )

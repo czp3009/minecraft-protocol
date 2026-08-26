@@ -27,7 +27,7 @@ enum class NbtRootEncoding {
  */
 data class NbtFormatConfiguration(
     val serializersModule: SerializersModule = EmptySerializersModule(),
-    val rootEncoding: NbtRootEncoding = NbtRootEncoding.ANY,
+    val nbtRootEncoding: NbtRootEncoding = NbtRootEncoding.ANY,
     val rootName: String = "",
     val encodeDefaults: Boolean = false,
     val ignoreUnknownKeys: Boolean = false,

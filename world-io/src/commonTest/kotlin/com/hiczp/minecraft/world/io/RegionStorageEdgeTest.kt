@@ -29,63 +29,63 @@ class RegionStorageEdgeTest {
 
     @Test
     fun missingReadsDoNotCreateFilesAndShortRegionsUseVanillaEmptyHeaders() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val directory = "/world/region".toPath()
         val path = directory / "r.0.0.mca"
-        val position = ChunkPosition(0, 0)
-        val store = edgeStore(fileSystem, directory)
+        val chunkPosition = ChunkPosition(0, 0)
+        val regionStorage = edgeStore(fakeFileSystem, directory)
 
-        assertNull(store.readCompressedChunk(position))
-        assertFalse(fileSystem.exists(path))
-        store.close()
+        assertNull(regionStorage.readCompressedChunk(chunkPosition))
+        assertFalse(fakeFileSystem.exists(path))
+        regionStorage.close()
 
-        fileSystem.writeRaw(path, byteArrayOf(1))
-        val short = edgeStore(fileSystem, directory)
-        assertNull(short.readCompressedChunk(position))
+        fakeFileSystem.writeRaw(path, byteArrayOf(1))
+        val short = edgeStore(fakeFileSystem, directory)
+        assertNull(short.readCompressedChunk(chunkPosition))
         short.close()
         assertEquals(
             REGION_SECTOR_BYTES.toLong(),
-            fileSystem.metadata(path).size,
+            fakeFileSystem.metadata(path).size,
         )
-        assertContentEquals(byteArrayOf(1), fileSystem.readFileBytes(path).copyOf(1))
+        assertContentEquals(byteArrayOf(1), fakeFileSystem.readFileBytes(path).copyOf(1))
     }
 
     @Test
     fun clearingMissingChunkLeavesOrphanSidecarAndTimestampUntouched() = runTest {
-        val fileSystem = FakeFileSystem().apply {
+        val fakeFileSystem = FakeFileSystem().apply {
             allowReadsWhileWriting = true
         }
         val directory = "/world/region".toPath()
         val regionPath = directory / "r.0.0.mca"
         val sidecarPath = directory / "c.0.0.mcc"
         val sidecarBytes = byteArrayOf(7, 8, 9)
-        val position = LocalChunkPosition(0, 0)
+        val localChunkPosition = LocalChunkPosition(0, 0)
         val originalHeader = RegionHeader().apply {
-            set(position, location = null, timestamp = 42)
+            set(localChunkPosition, regionLocation = null, timestamp = 42)
         }.encode()
-        fileSystem.writeRaw(regionPath, originalHeader)
-        fileSystem.writeRaw(sidecarPath, sidecarBytes)
-        val store = RegionStorage(
+        fakeFileSystem.writeRaw(regionPath, originalHeader)
+        fakeFileSystem.writeRaw(sidecarPath, sidecarBytes)
+        val regionStorage = RegionStorage(
             directory = directory,
-            fileSystem = fileSystem,
-            configuration = RegionStorageConfiguration(
+            fileSystem = fakeFileSystem,
+            regionStorageConfiguration = RegionStorageConfiguration(
                 syncWrites = false,
             ),
         )
 
-        store.removeChunk(ChunkPosition(0, 0))
+        regionStorage.removeChunk(ChunkPosition(0, 0))
 
-        assertTrue(fileSystem.exists(regionPath))
-        assertContentEquals(originalHeader, fileSystem.readFileBytes(regionPath))
-        assertContentEquals(sidecarBytes, fileSystem.readFileBytes(sidecarPath))
-        store.close()
-        assertContentEquals(originalHeader, fileSystem.readFileBytes(regionPath))
-        fileSystem.checkNoOpenFiles()
+        assertTrue(fakeFileSystem.exists(regionPath))
+        assertContentEquals(originalHeader, fakeFileSystem.readFileBytes(regionPath))
+        assertContentEquals(sidecarBytes, fakeFileSystem.readFileBytes(sidecarPath))
+        regionStorage.close()
+        assertContentEquals(originalHeader, fakeFileSystem.readFileBytes(regionPath))
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
     fun invalidLocationsAreClearedOnlyInMemory() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val directory = "/world/region".toPath()
         val path = directory / "r.0.0.mca"
         val first = LocalChunkPosition(0, 0)
@@ -94,15 +94,15 @@ class RegionStorageEdgeTest {
             set(first, RegionLocation(1, 1), 1)
             set(second, RegionLocation(3, 1), 2)
         }
-        fileSystem.writeRaw(path, originalHeader.encode())
-        val store = edgeStore(fileSystem, directory)
+        fakeFileSystem.writeRaw(path, originalHeader.encode())
+        val regionStorage = edgeStore(fakeFileSystem, directory)
 
-        assertNull(store.readCompressedChunk(ChunkPosition(0, 0)))
-        assertNull(store.readCompressedChunk(ChunkPosition(1, 0)))
-        store.close()
+        assertNull(regionStorage.readCompressedChunk(ChunkPosition(0, 0)))
+        assertNull(regionStorage.readCompressedChunk(ChunkPosition(1, 0)))
+        regionStorage.close()
 
         val storedHeader = RegionHeader.decode(
-            fileSystem.readFileBytes(path).copyOfRange(0, REGION_HEADER_BYTES),
+            fakeFileSystem.readFileBytes(path).copyOfRange(0, REGION_HEADER_BYTES),
         )
         assertEquals(RegionLocation(1, 1), storedHeader.location(first))
         assertEquals(RegionLocation(3, 1), storedHeader.location(second))
@@ -153,7 +153,7 @@ class RegionStorageEdgeTest {
                     version = RegionChunkRecordHeader.compressionId(Compression.NONE) or
                             REGION_EXTERNAL_STREAM_FLAG,
                 ),
-                external = ExternalFileKind.MISSING,
+                externalFileKind = ExternalFileKind.MISSING,
             ),
         )
         assertTrue(
@@ -163,7 +163,7 @@ class RegionStorageEdgeTest {
                     version = RegionChunkRecordHeader.compressionId(Compression.NONE) or
                             REGION_EXTERNAL_STREAM_FLAG,
                 ),
-                external = ExternalFileKind.DIRECTORY,
+                externalFileKind = ExternalFileKind.DIRECTORY,
             ),
         )
         assertTrue(
@@ -173,7 +173,7 @@ class RegionStorageEdgeTest {
                     version = RegionChunkRecordHeader.compressionId(Compression.NONE) or
                             REGION_EXTERNAL_STREAM_FLAG,
                 ),
-                external = ExternalFileKind.REGULAR,
+                externalFileKind = ExternalFileKind.REGULAR,
             ),
         )
         assertTrue(
@@ -183,7 +183,7 @@ class RegionStorageEdgeTest {
                     version = RegionChunkRecordHeader.compressionId(Compression.NONE) or
                             REGION_EXTERNAL_STREAM_FLAG,
                 ),
-                external = ExternalFileKind.REGULAR,
+                externalFileKind = ExternalFileKind.REGULAR,
             ),
         )
     }
@@ -240,32 +240,32 @@ class RegionStorageEdgeTest {
             length = 1,
             version = RegionChunkRecordHeader.compressionId(Compression.LZ4) or REGION_EXTERNAL_STREAM_FLAG,
         )
-        val chunk = readRecord(
+        val compressedChunk = readRecord(
             bytes = validRecord,
             externalPayload = externalPayload,
         )
 
-        assertEquals(Compression.LZ4, chunk.compression)
-        assertEquals(AnvilChunkPlacement.EXTERNAL, readRecordInfo(validRecord, externalPayload).placement)
-        assertContentEquals(externalPayload, chunk.toByteArray())
+        assertEquals(Compression.LZ4, compressedChunk.compression)
+        assertEquals(AnvilChunkPlacement.EXTERNAL, readRecordInfo(validRecord, externalPayload).anvilChunkPlacement)
+        assertContentEquals(externalPayload, compressedChunk.toByteArray())
     }
 
     @Test
     fun rawChunkWritesGenerateTimestampAndPlacementMetadata() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val directory = "/world/region".toPath()
-        val position = ChunkPosition(-33, 65)
+        val chunkPosition = ChunkPosition(-33, 65)
         val beforeWrite = Clock.System.now().epochSeconds.toInt()
-        val store = RegionStorage(
+        val regionStorage = RegionStorage(
             directory = directory,
-            fileSystem = fileSystem,
-            configuration = RegionStorageConfiguration(
+            fileSystem = fakeFileSystem,
+            regionStorageConfiguration = RegionStorageConfiguration(
                 syncWrites = false,
             ),
         )
 
-        store.writeCompressedChunk(
-            position,
+        regionStorage.writeCompressedChunk(
+            chunkPosition,
             CompressedChunk(
                 compression = Compression.NONE,
                 compressedBytes = byteArrayOf(4),
@@ -273,22 +273,22 @@ class RegionStorageEdgeTest {
         )
         val afterWrite = Clock.System.now().epochSeconds.toInt()
 
-        val stored = checkNotNull(store.readCompressedChunk(position))
-        val info = checkNotNull(store.readChunkInfo(position))
-        assertEquals(AnvilChunkPlacement.INLINE, info.placement)
+        val stored = checkNotNull(regionStorage.readCompressedChunk(chunkPosition))
+        val regionChunkInfo = checkNotNull(regionStorage.readChunkInfo(chunkPosition))
+        assertEquals(AnvilChunkPlacement.INLINE, regionChunkInfo.anvilChunkPlacement)
         assertTrue(
-            info.timestampEpochSeconds in
+            regionChunkInfo.timestampEpochSeconds in
                     minOf(beforeWrite, afterWrite)..maxOf(beforeWrite, afterWrite),
         )
         assertContentEquals(byteArrayOf(4), stored.toByteArray())
-        assertFalse(fileSystem.exists(directory / "c.-33.65.mcc"))
-        store.close()
+        assertFalse(fakeFileSystem.exists(directory / "c.-33.65.mcc"))
+        regionStorage.close()
     }
 
     @Test
     fun configuredMutableAndLiveNbtModesRoundTrip() = runTest {
-        val fileSystem = FakeFileSystem()
-        val document = NbtDocument(
+        val fakeFileSystem = FakeFileSystem()
+        val nbtDocument = NbtDocument(
             NbtCompound(mapOf("value" to NbtInt(42))),
         )
         val configuredChunkNbtFormat = CompressedNbtFormat(
@@ -298,11 +298,11 @@ class RegionStorageEdgeTest {
                 ),
             ),
         )
-        val store = RegionStorage(
-            paths = MinecraftWorldPaths("/world".toPath()),
-            fileSystem = fileSystem,
+        val regionStorage = RegionStorage(
+            minecraftWorldPaths = MinecraftWorldPaths("/world".toPath()),
+            fileSystem = fakeFileSystem,
             chunkNbtFormat = configuredChunkNbtFormat,
-            configuration = RegionStorageConfiguration(
+            regionStorageConfiguration = RegionStorageConfiguration(
                 syncWrites = false,
                 writeCompression = Compression.LZ4,
             ),
@@ -310,90 +310,90 @@ class RegionStorageEdgeTest {
 
         try {
             Compression.entries.forEachIndexed { index, compression ->
-                val position = ChunkPosition(index, -index)
+                val chunkPosition = ChunkPosition(index, -index)
 
-                if (compression == store.configuration.writeCompression) {
-                    store.writeChunkNbtDocument(position, document)
+                if (compression == regionStorage.regionStorageConfiguration.writeCompression) {
+                    regionStorage.writeChunkNbtDocument(chunkPosition, nbtDocument)
                 } else {
-                    store.writeChunkNbtDocument(position, document, compression)
+                    regionStorage.writeChunkNbtDocument(chunkPosition, nbtDocument, compression)
                 }
 
-                assertEquals(document, store.readChunkNbtDocument(position))
-                assertEquals(compression, store.readCompressedChunk(position)?.compression)
+                assertEquals(nbtDocument, regionStorage.readChunkNbtDocument(chunkPosition))
+                assertEquals(compression, regionStorage.readCompressedChunk(chunkPosition)?.compression)
             }
         } finally {
-            store.close()
+            regionStorage.close()
         }
 
-        val liveConfiguration = LiveMinecraftWorldAccessConfiguration(
+        val liveMinecraftWorldAccessConfiguration = LiveMinecraftWorldAccessConfiguration(
             chunkNbtFormat = configuredChunkNbtFormat,
         )
         val reader = LiveMinecraftWorldAccess.open(
             root = "/world".toPath(),
-            fileSystem = fileSystem,
-            configuration = liveConfiguration,
+            fileSystem = fakeFileSystem,
+            liveMinecraftWorldAccessConfiguration = liveMinecraftWorldAccessConfiguration,
         )
-        assertSame(liveConfiguration, reader.configuration)
+        assertSame(liveMinecraftWorldAccessConfiguration, reader.liveMinecraftWorldAccessConfiguration)
         assertSame(configuredChunkNbtFormat, reader.chunkNbtFormat)
         Compression.entries.forEachIndexed { index, compression ->
-            val position = ChunkPosition(index, -index)
+            val chunkPosition = ChunkPosition(index, -index)
             assertEquals(
-                expected = document,
-                actual = reader.openRegion(position.region).readChunkNbtDocument(position),
+                expected = nbtDocument,
+                actual = reader.openRegion(chunkPosition.regionPosition).readChunkNbtDocument(chunkPosition),
                 message = "Live reader did not preserve $compression chunk NBT",
             )
         }
         val customPosition = ChunkPosition(Compression.CUSTOM.ordinal, -Compression.CUSTOM.ordinal)
-        val liveRegionHandle = reader.openRegion(customPosition.region)
+        val liveRegionHandle = reader.openRegion(customPosition.regionPosition)
         assertSame(configuredChunkNbtFormat, liveRegionHandle.chunkNbtFormat)
-        assertEquals(document, liveRegionHandle.readChunkNbtDocument(customPosition))
-        fileSystem.checkNoOpenFiles()
+        assertEquals(nbtDocument, liveRegionHandle.readChunkNbtDocument(customPosition))
+        fakeFileSystem.checkNoOpenFiles()
     }
 
     @Test
     fun regionSnapshotsPreserveEveryUnrelatedEntryAndClearIsIdempotent() = runTest {
-        val fileSystem = FakeFileSystem()
+        val fakeFileSystem = FakeFileSystem()
         val directory = "/world/region".toPath()
-        val store = edgeStore(fileSystem, directory)
+        val regionStorage = edgeStore(fakeFileSystem, directory)
         val first = ChunkPosition(0, 0)
         val second = ChunkPosition(31, 31)
-        store.writeCompressedChunk(first, edgeChunk(byteArrayOf(1)))
-        store.writeCompressedChunk(second, edgeChunk(byteArrayOf(2)))
+        regionStorage.writeCompressedChunk(first, edgeChunk(byteArrayOf(1)))
+        regionStorage.writeCompressedChunk(second, edgeChunk(byteArrayOf(2)))
 
-        assertEquals(2, checkNotNull(store.readAnvilRegion(first.region)).chunks.size)
-        store.removeChunk(first)
-        store.removeChunk(first)
+        assertEquals(2, checkNotNull(regionStorage.readAnvilRegion(first.regionPosition)).chunks.size)
+        regionStorage.removeChunk(first)
+        regionStorage.removeChunk(first)
 
-        assertNull(store.readCompressedChunk(first))
+        assertNull(regionStorage.readCompressedChunk(first))
         assertContentEquals(
             byteArrayOf(2),
-            store.readCompressedChunk(second).bytesOrNull(),
+            regionStorage.readCompressedChunk(second).bytesOrNull(),
         )
-        store.close()
+        regionStorage.close()
     }
 }
 
 private suspend fun existsForRecord(
     bytes: ByteArray,
-    external: ExternalFileKind? = null,
+    externalFileKind: ExternalFileKind? = null,
 ): Boolean {
-    val fileSystem = FakeFileSystem()
+    val fakeFileSystem = FakeFileSystem()
     val directory = "/world/region".toPath()
     val path = directory / "r.0.0.mca"
-    fileSystem.writeRaw(path, singleAllocatedRecord(bytes))
-    when (external) {
+    fakeFileSystem.writeRaw(path, singleAllocatedRecord(bytes))
+    when (externalFileKind) {
         ExternalFileKind.MISSING, null -> Unit
         ExternalFileKind.DIRECTORY ->
-            fileSystem.createDirectories(directory / "c.0.0.mcc")
+            fakeFileSystem.createDirectories(directory / "c.0.0.mcc")
 
         ExternalFileKind.REGULAR ->
-            fileSystem.writeRaw(directory / "c.0.0.mcc", byteArrayOf(1))
+            fakeFileSystem.writeRaw(directory / "c.0.0.mcc", byteArrayOf(1))
     }
-    val store = edgeStore(fileSystem, directory)
+    val regionStorage = edgeStore(fakeFileSystem, directory)
     return try {
-        store.hasChunk(ChunkPosition(0, 0))
+        regionStorage.hasChunk(ChunkPosition(0, 0))
     } finally {
-        store.close()
+        regionStorage.close()
     }
 }
 
@@ -405,15 +405,15 @@ private suspend fun readRecordInfo(
     bytes: ByteArray,
     externalPayload: ByteArray? = null,
 ): RegionChunkInfo {
-    val fileSystem = FakeFileSystem()
+    val fakeFileSystem = FakeFileSystem()
     val directory = "/world/region".toPath()
-    fileSystem.writeRaw(directory / "r.0.0.mca", singleAllocatedRecord(bytes))
-    externalPayload?.let { fileSystem.writeRaw(directory / "c.0.0.mcc", it) }
-    val store = edgeStore(fileSystem, directory)
+    fakeFileSystem.writeRaw(directory / "r.0.0.mca", singleAllocatedRecord(bytes))
+    externalPayload?.let { fakeFileSystem.writeRaw(directory / "c.0.0.mcc", it) }
+    val regionStorage = edgeStore(fakeFileSystem, directory)
     return try {
-        checkNotNull(store.readChunkInfo(ChunkPosition(0, 0)))
+        checkNotNull(regionStorage.readChunkInfo(ChunkPosition(0, 0)))
     } finally {
-        store.close()
+        regionStorage.close()
     }
 }
 
@@ -421,32 +421,32 @@ private suspend fun readRecord(
     bytes: ByteArray,
     externalPayload: ByteArray? = null,
 ): CompressedChunk {
-    val fileSystem = FakeFileSystem()
+    val fakeFileSystem = FakeFileSystem()
     val directory = "/world/region".toPath()
-    fileSystem.writeRaw(
+    fakeFileSystem.writeRaw(
         directory / "r.0.0.mca",
         singleAllocatedRecord(bytes),
     )
     externalPayload?.let {
-        fileSystem.writeRaw(directory / "c.0.0.mcc", it)
+        fakeFileSystem.writeRaw(directory / "c.0.0.mcc", it)
     }
-    val store = edgeStore(fileSystem, directory)
+    val regionStorage = edgeStore(fakeFileSystem, directory)
     return try {
-        checkNotNull(store.readCompressedChunk(ChunkPosition(0, 0)))
+        checkNotNull(regionStorage.readCompressedChunk(ChunkPosition(0, 0)))
     } finally {
-        store.close()
+        regionStorage.close()
     }
 }
 
 private fun singleAllocatedRecord(record: ByteArray): ByteArray {
-    val position = LocalChunkPosition(0, 0)
-    val header = RegionHeader().apply {
-        set(position, RegionLocation(2, 1), timestamp = 37)
+    val localChunkPosition = LocalChunkPosition(0, 0)
+    val regionHeader = RegionHeader().apply {
+        set(localChunkPosition, RegionLocation(2, 1), timestamp = 37)
     }
-    val bytes = ByteArray(REGION_HEADER_BYTES + record.size)
-    header.encode().copyInto(bytes)
-    record.copyInto(bytes, destinationOffset = REGION_HEADER_BYTES)
-    return bytes
+    val byteArray = ByteArray(REGION_HEADER_BYTES + record.size)
+    regionHeader.encode().copyInto(byteArray)
+    record.copyInto(byteArray, destinationOffset = REGION_HEADER_BYTES)
+    return byteArray
 }
 
 private fun record(
@@ -472,7 +472,7 @@ private fun edgeStore(
 ): RegionStorage = RegionStorage(
     directory = directory,
     fileSystem = fileSystem,
-    configuration = RegionStorageConfiguration(syncWrites = false),
+    regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
 )
 
 private fun edgeChunk(bytes: ByteArray): CompressedChunk = CompressedChunk(

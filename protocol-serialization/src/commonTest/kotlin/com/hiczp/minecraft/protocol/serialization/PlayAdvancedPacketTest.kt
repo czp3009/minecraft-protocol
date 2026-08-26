@@ -64,7 +64,7 @@ class PlayAdvancedPacketTest {
 
     @Test
     fun `recipe displays recursively dispatch through built in type IDs`() {
-        val packet = PlaceGhostRecipePacket(
+        val placeGhostRecipePacket = PlaceGhostRecipePacket(
             containerId = 1,
             recipeDisplay = RecipeDisplay.Shapeless(
                 ingredients = listOf(SlotDisplay.Empty),
@@ -73,7 +73,7 @@ class PlayAdvancedPacketTest {
             ),
         )
         assertBytes(
-            packet,
+            placeGhostRecipePacket,
             PlaceGhostRecipePacket.serializer(),
             "01000100040201",
         )
@@ -81,7 +81,7 @@ class PlayAdvancedPacketTest {
 
     @Test
     fun `player info action mask controls entry fields`() {
-        val packet = PlayerInfoUpdatePacket(
+        val playerInfoUpdatePacket = PlayerInfoUpdatePacket(
             PlayerInfoUpdatePayload(
                 actions = setOf(
                     PlayerInfoAction.ADD_PLAYER,
@@ -97,7 +97,7 @@ class PlayAdvancedPacketTest {
             ),
         )
         assertBytes(
-            packet,
+            playerInfoUpdatePacket,
             PlayerInfoUpdatePacket.serializer(),
             "110100000000000000000000000000000000016100ac02",
         )
@@ -105,7 +105,7 @@ class PlayAdvancedPacketTest {
 
     @Test
     fun `objective action owns all conditionally present fields`() {
-        val packet = SetObjectivePacket(
+        val setObjectivePacket = SetObjectivePacket(
             objectiveName = "x",
             update = ObjectiveUpdate.Add(
                 displayName = TextComponent(NbtString("x")),
@@ -114,7 +114,7 @@ class PlayAdvancedPacketTest {
             ),
         )
         assertBytes(
-            packet,
+            setObjectivePacket,
             SetObjectivePacket.serializer(),
             "01780008000178010100",
         )
@@ -128,7 +128,7 @@ class PlayAdvancedPacketTest {
             "02010000000000000005",
         )
 
-        val packet = WaypointPacket(
+        val waypointPacket = WaypointPacket(
             operation = WaypointOperation.UPDATE,
             waypoint = TrackedWaypoint.Chunk(
                 identifier = WaypointIdentifier.Entity(Uuid.fromLongs(0, 0)),
@@ -138,10 +138,10 @@ class PlayAdvancedPacketTest {
             ),
         )
         val encoded = MinecraftProtocolFormat.encodeToByteArray(
-            packet,
+            waypointPacket,
         )
         assertEquals(
-            packet,
+            waypointPacket,
             MinecraftProtocolFormat.decodeFromByteArray<WaypointPacket>(
                 encoded,
             ),
@@ -198,17 +198,17 @@ class PlayAdvancedPacketTest {
 
     private fun <T> assertBytes(
         value: T,
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
         expectedHex: String,
     ) {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(serializer, value),
+            MinecraftProtocolFormat.encodeToByteArray(kSerializer, value),
         )
         assertEquals(
             value,
-            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

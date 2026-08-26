@@ -68,7 +68,7 @@ class Entity<E : Any>(
     data: E,
     position: EntityVector3d,
     velocity: EntityVector3d = EntityVector3d.ZERO,
-    rotation: EntityRotation = EntityRotation.ZERO,
+    entityRotation: EntityRotation = EntityRotation.ZERO,
     passengers: Collection<Entity<E>> = emptyList(),
 ) {
     private val storedPassengers = passengers.toMutableList()
@@ -89,7 +89,7 @@ class Entity<E : Any>(
 
     var velocity: EntityVector3d = velocity
 
-    var rotation: EntityRotation = rotation
+    var entityRotation: EntityRotation = entityRotation
 
     val passengers: List<Entity<E>>
         get() = storedPassengers.toList()
@@ -98,13 +98,13 @@ class Entity<E : Any>(
         get() = MinecraftCoordinates.block(position.x, position.y, position.z)
 
     val sectionPosition: SectionPosition
-        get() = blockPosition.section
+        get() = blockPosition.sectionPosition
 
     val chunkPosition: ChunkPosition
-        get() = blockPosition.chunk
+        get() = blockPosition.chunkPosition
 
     val regionPosition: RegionPosition
-        get() = blockPosition.region
+        get() = blockPosition.regionPosition
 
     fun isIn(sectionPosition: SectionPosition): Boolean = this.sectionPosition == sectionPosition
 
@@ -154,14 +154,14 @@ class Entity<E : Any>(
         data = copyData(data),
         position = position,
         velocity = velocity,
-        rotation = rotation,
+        entityRotation = entityRotation,
         passengers = storedPassengers.map { passenger -> passenger.snapshot(copyData) },
     )
 }
 
 /** A mutable Entity Chunk at one absolute X/Z position. It deliberately has no Section ownership layer. */
 class EntityChunk<E : Any>(
-    val position: ChunkPosition,
+    val chunkPosition: ChunkPosition,
     val dataVersion: Int,
     rootEntities: Collection<Entity<E>> = emptyList(),
 ) {
@@ -170,8 +170,8 @@ class EntityChunk<E : Any>(
     init {
         require(dataVersion >= 0) { "A Minecraft data version must be non-negative" }
         requireUniqueEntityUuids(storedRootEntities)
-        require(storedRootEntities.all { entity -> entity.chunkPosition == position }) {
-            "An Entity Chunk contains a root Entity outside $position"
+        require(storedRootEntities.all { entity -> entity.chunkPosition == chunkPosition }) {
+            "An Entity Chunk contains a root Entity outside $chunkPosition"
         }
     }
 
@@ -196,21 +196,21 @@ class EntityChunk<E : Any>(
     /** Every root Entity and recursively nested passenger in persisted order. */
     fun allEntities(): Sequence<Entity<E>> = storedRootEntities.asSequence().flatMap { entity -> entity.allEntities() }
 
-    /** Every Entity whose current position belongs to [position], including nested passengers. */
-    fun entitiesIn(position: ChunkPosition): Sequence<Entity<E>> =
-        allEntities().filter { entity -> entity.isIn(position) }
+    /** Every Entity whose current position belongs to [chunkPosition], including nested passengers. */
+    fun entitiesIn(chunkPosition: ChunkPosition): Sequence<Entity<E>> =
+        allEntities().filter { entity -> entity.isIn(chunkPosition) }
 
-    /** Every Entity whose current position belongs to [position], including nested passengers. */
-    fun entitiesIn(position: SectionPosition): Sequence<Entity<E>> =
-        allEntities().filter { entity -> entity.isIn(position) }
+    /** Every Entity whose current position belongs to [sectionPosition], including nested passengers. */
+    fun entitiesIn(sectionPosition: SectionPosition): Sequence<Entity<E>> =
+        allEntities().filter { entity -> entity.isIn(sectionPosition) }
 
-    /** Every Entity whose current position belongs to [position], including nested passengers. */
-    fun entitiesIn(position: RegionPosition): Sequence<Entity<E>> =
-        allEntities().filter { entity -> entity.isIn(position) }
+    /** Every Entity whose current position belongs to [regionPosition], including nested passengers. */
+    fun entitiesIn(regionPosition: RegionPosition): Sequence<Entity<E>> =
+        allEntities().filter { entity -> entity.isIn(regionPosition) }
 
     fun addEntity(entity: Entity<E>) {
-        require(entity.chunkPosition == position) {
-            "Root Entity ${entity.uuid} belongs to Chunk ${entity.chunkPosition}, expected $position"
+        require(entity.chunkPosition == chunkPosition) {
+            "Root Entity ${entity.uuid} belongs to Chunk ${entity.chunkPosition}, expected $chunkPosition"
         }
         val existingUuids = allEntities().map { existing -> existing.uuid }.toSet()
         val addedUuids = entity.allEntities().map { added -> added.uuid }.toList()
@@ -234,11 +234,11 @@ class EntityChunk<E : Any>(
 
     /** Creates a detached recursive snapshot while retaining caller-owned subtype values. */
     fun snapshot(): EntityChunk<E> =
-        EntityChunk(position, dataVersion, storedRootEntities.map { entity -> entity.snapshot() })
+        EntityChunk(chunkPosition, dataVersion, storedRootEntities.map { entity -> entity.snapshot() })
 
     /** Creates a detached recursive snapshot and lets the caller copy subtype values. */
     fun snapshot(copyData: (E) -> E): EntityChunk<E> =
-        EntityChunk(position, dataVersion, storedRootEntities.map { entity -> entity.snapshot(copyData) })
+        EntityChunk(chunkPosition, dataVersion, storedRootEntities.map { entity -> entity.snapshot(copyData) })
 }
 
 private fun <E : Any> requireUniqueEntityUuids(entities: Collection<Entity<E>>) {

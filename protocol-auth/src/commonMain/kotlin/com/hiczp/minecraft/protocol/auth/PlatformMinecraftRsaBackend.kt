@@ -10,7 +10,7 @@ internal enum class MinecraftRsaSignatureAlgorithm {
 
 internal class MinecraftRsaKeyPair(
     publicKey: ByteArray,
-    val privateKey: MinecraftRsaPrivateKey,
+    val minecraftRsaPrivateKey: MinecraftRsaPrivateKey,
 ) {
     private val encodedPublicKey = publicKey.copyOf()
 
@@ -33,21 +33,21 @@ internal interface MinecraftRsaBackend {
 
     fun decodePublicKey(
         encodedPublicKey: ByteArray,
-        signatureAlgorithm: MinecraftRsaSignatureAlgorithm,
+        minecraftRsaSignatureAlgorithm: MinecraftRsaSignatureAlgorithm,
     ): MinecraftRsaPublicKey
 
     fun rsaDecrypt(
-        privateKey: MinecraftRsaPrivateKey,
+        minecraftRsaPrivateKey: MinecraftRsaPrivateKey,
         ciphertext: ByteArray,
     ): ByteArray
 
     fun rsaSha256Sign(
-        privateKey: MinecraftRsaPrivateKey,
+        minecraftRsaPrivateKey: MinecraftRsaPrivateKey,
         payload: ByteArray,
     ): ByteArray
 
     fun rsaVerify(
-        publicKey: MinecraftRsaPublicKey,
+        minecraftRsaPublicKey: MinecraftRsaPublicKey,
         payload: ByteArray,
         signature: ByteArray,
     ): Boolean
@@ -67,21 +67,21 @@ internal expect object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
 
     override fun decodePublicKey(
         encodedPublicKey: ByteArray,
-        signatureAlgorithm: MinecraftRsaSignatureAlgorithm,
+        minecraftRsaSignatureAlgorithm: MinecraftRsaSignatureAlgorithm,
     ): MinecraftRsaPublicKey
 
     override fun rsaDecrypt(
-        privateKey: MinecraftRsaPrivateKey,
+        minecraftRsaPrivateKey: MinecraftRsaPrivateKey,
         ciphertext: ByteArray,
     ): ByteArray
 
     override fun rsaSha256Sign(
-        privateKey: MinecraftRsaPrivateKey,
+        minecraftRsaPrivateKey: MinecraftRsaPrivateKey,
         payload: ByteArray,
     ): ByteArray
 
     override fun rsaVerify(
-        publicKey: MinecraftRsaPublicKey,
+        minecraftRsaPublicKey: MinecraftRsaPublicKey,
         payload: ByteArray,
         signature: ByteArray,
     ): Boolean

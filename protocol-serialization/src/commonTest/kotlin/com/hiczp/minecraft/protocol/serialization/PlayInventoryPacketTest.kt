@@ -112,7 +112,7 @@ class PlayInventoryPacketTest {
 
     @Test
     fun `creative slot delimits every untrusted component value`() {
-        val packet = SetCreativeModeSlotPacket(
+        val setCreativeModeSlotPacket = SetCreativeModeSlotPacket(
             slot = 1,
             item = ItemStack.of(
                 itemId = 1,
@@ -122,7 +122,7 @@ class PlayInventoryPacketTest {
             ),
         )
         assertPacketBytes(
-            packet,
+            setCreativeModeSlotPacket,
             SetCreativeModeSlotPacket.serializer(),
             "0001010101000202ac02",
         )
@@ -135,17 +135,17 @@ class PlayInventoryPacketTest {
 
     private fun <T> assertPacketBytes(
         packet: T,
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
         expectedHex: String,
     ) {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

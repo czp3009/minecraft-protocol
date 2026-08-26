@@ -14,8 +14,8 @@ import kotlinx.serialization.modules.SerializersModule
 
 /** Direct kotlinx.serialization event encoder for the binary NBT grammar. */
 internal class NbtBinaryEncoder(
-    private val writer: NbtBinaryWriter,
-    private val configuration: NbtFormatConfiguration,
+    private val nbtBinaryWriter: NbtBinaryWriter,
+    private val nbtFormatConfiguration: NbtFormatConfiguration,
     private val path: String,
     private val writeHeader: (Int) -> Unit,
 ) : Encoder, NbtTagEncoder {
@@ -23,7 +23,7 @@ internal class NbtBinaryEncoder(
     private var preparedRawListType: Int? = null
 
     override val serializersModule: SerializersModule
-        get() = configuration.serializersModule
+        get() = nbtFormatConfiguration.serializersModule
 
     fun requireValue() {
         if (!emitted) {
@@ -31,9 +31,9 @@ internal class NbtBinaryEncoder(
         }
     }
 
-    override fun encodeNbtTag(value: NbtTag) {
-        beginValue(typeOf(value))
-        writer.writePayload(value)
+    override fun encodeNbtTag(nbtTag: NbtTag) {
+        beginValue(typeOf(nbtTag))
+        nbtBinaryWriter.writePayload(nbtTag)
     }
 
     override fun encodeNull(): Nothing =
@@ -41,17 +41,17 @@ internal class NbtBinaryEncoder(
 
     override fun encodeBoolean(value: Boolean) {
         beginValue(TAG_BYTE)
-        writer.writeByte(if (value) 1 else 0)
+        nbtBinaryWriter.writeByte(if (value) 1 else 0)
     }
 
     override fun encodeByte(value: Byte) {
         beginValue(TAG_BYTE)
-        writer.writeByte(value.toInt())
+        nbtBinaryWriter.writeByte(value.toInt())
     }
 
     override fun encodeShort(value: Short) {
         beginValue(TAG_SHORT)
-        writer.writeShort(value.toInt())
+        nbtBinaryWriter.writeShort(value.toInt())
     }
 
     override fun encodeChar(value: Char): Nothing =
@@ -61,27 +61,27 @@ internal class NbtBinaryEncoder(
 
     override fun encodeInt(value: Int) {
         beginValue(TAG_INT)
-        writer.writeInt(value)
+        nbtBinaryWriter.writeInt(value)
     }
 
     override fun encodeLong(value: Long) {
         beginValue(TAG_LONG)
-        writer.writeLong(value)
+        nbtBinaryWriter.writeLong(value)
     }
 
     override fun encodeFloat(value: Float) {
         beginValue(TAG_FLOAT)
-        writer.writeInt(value.toBits())
+        nbtBinaryWriter.writeInt(value.toBits())
     }
 
     override fun encodeDouble(value: Double) {
         beginValue(TAG_DOUBLE)
-        writer.writeLong(value.toBits())
+        nbtBinaryWriter.writeLong(value.toBits())
     }
 
     override fun encodeString(value: String) {
         beginValue(TAG_STRING)
-        writer.writeModifiedUtf(value)
+        nbtBinaryWriter.writeModifiedUtf(value)
     }
 
     override fun encodeEnum(enumDescriptor: SerialDescriptor, index: Int) {
@@ -98,8 +98,8 @@ internal class NbtBinaryEncoder(
                 -> {
                 beginValue(TAG_COMPOUND)
                 NbtBinaryClassEncoder(
-                    writer,
-                    configuration,
+                    nbtBinaryWriter,
+                    nbtFormatConfiguration,
                     descriptor,
                     path,
                 )
@@ -126,11 +126,11 @@ internal class NbtBinaryEncoder(
                     )
                 }
                 beginValue(TAG_LIST)
-                writer.writeByte(elementType)
-                writer.writeInt(collectionSize)
+                nbtBinaryWriter.writeByte(elementType)
+                nbtBinaryWriter.writeInt(collectionSize)
                 NbtBinaryListEncoder(
-                    writer,
-                    configuration,
+                    nbtBinaryWriter,
+                    nbtFormatConfiguration,
                     descriptor,
                     path,
                     collectionSize,
@@ -146,8 +146,8 @@ internal class NbtBinaryEncoder(
                 }
                 beginValue(TAG_COMPOUND)
                 NbtBinaryMapEncoder(
-                    writer,
-                    configuration,
+                    nbtBinaryWriter,
+                    nbtFormatConfiguration,
                     descriptor,
                     path,
                     collectionSize,
@@ -170,22 +170,22 @@ internal class NbtBinaryEncoder(
             value is ByteArray &&
                     serializer.descriptor.serialName == BYTE_ARRAY_SERIAL_NAME -> {
                 beginValue(TAG_BYTE_ARRAY)
-                writer.writeInt(value.size)
-                writer.writeBytes(value)
+                nbtBinaryWriter.writeInt(value.size)
+                nbtBinaryWriter.writeBytes(value)
             }
 
             value is IntArray &&
                     serializer.descriptor.serialName == INT_ARRAY_SERIAL_NAME -> {
                 beginValue(TAG_INT_ARRAY)
-                writer.writeInt(value.size)
-                value.forEach(writer::writeInt)
+                nbtBinaryWriter.writeInt(value.size)
+                value.forEach(nbtBinaryWriter::writeInt)
             }
 
             value is LongArray &&
                     serializer.descriptor.serialName == LONG_ARRAY_SERIAL_NAME -> {
                 beginValue(TAG_LONG_ARRAY)
-                writer.writeInt(value.size)
-                value.forEach(writer::writeLong)
+                nbtBinaryWriter.writeInt(value.size)
+                value.forEach(nbtBinaryWriter::writeLong)
             }
 
             else -> {
@@ -212,18 +212,18 @@ internal class NbtBinaryEncoder(
 }
 
 private abstract class NbtBinaryCompositeEncoder(
-    protected val writer: NbtBinaryWriter,
-    protected val configuration: NbtFormatConfiguration,
-    protected val descriptor: SerialDescriptor,
+    protected val nbtBinaryWriter: NbtBinaryWriter,
+    protected val nbtFormatConfiguration: NbtFormatConfiguration,
+    protected val serialDescriptor: SerialDescriptor,
     protected val path: String,
 ) : CompositeEncoder {
     override val serializersModule: SerializersModule
-        get() = configuration.serializersModule
+        get() = nbtFormatConfiguration.serializersModule
 
     override fun shouldEncodeElementDefault(
         descriptor: SerialDescriptor,
         index: Int,
-    ): Boolean = configuration.encodeDefaults
+    ): Boolean = nbtFormatConfiguration.encodeDefaults
 
     override fun encodeBooleanElement(
         descriptor: SerialDescriptor,
@@ -326,16 +326,16 @@ private abstract class NbtBinaryCompositeEncoder(
 }
 
 private class NbtBinaryClassEncoder(
-    writer: NbtBinaryWriter,
-    configuration: NbtFormatConfiguration,
-    descriptor: SerialDescriptor,
+    nbtBinaryWriter: NbtBinaryWriter,
+    nbtFormatConfiguration: NbtFormatConfiguration,
+    serialDescriptor: SerialDescriptor,
     path: String,
-) : NbtBinaryCompositeEncoder(writer, configuration, descriptor, path) {
+) : NbtBinaryCompositeEncoder(nbtBinaryWriter, nbtFormatConfiguration, serialDescriptor, path) {
     override fun elementEncoder(index: Int): Encoder {
-        val name = descriptor.getElementName(index)
+        val name = serialDescriptor.getElementName(index)
         return NbtBinaryEncoder(
-            writer,
-            configuration,
+            nbtBinaryWriter,
+            nbtFormatConfiguration,
             "$path.$name",
         ) { type ->
             if (type == TAG_END) {
@@ -343,37 +343,37 @@ private class NbtBinaryClassEncoder(
                     "NBT compound property '$name' cannot be TAG_End at $path",
                 )
             }
-            writer.writeByte(type)
-            writer.writeModifiedUtf(name)
+            nbtBinaryWriter.writeByte(type)
+            nbtBinaryWriter.writeModifiedUtf(name)
         }
     }
 
     override fun encodeNull(index: Int) = Unit
 
     override fun elementPath(index: Int): String =
-        "$path.${descriptor.getElementName(index)}"
+        "$path.${serialDescriptor.getElementName(index)}"
 
     override fun endStructure(descriptor: SerialDescriptor) {
-        requireDescriptor(descriptor, this.descriptor, path)
-        writer.writeByte(TAG_END)
+        requireDescriptor(descriptor, serialDescriptor, path)
+        nbtBinaryWriter.writeByte(TAG_END)
     }
 }
 
 private class NbtBinaryListEncoder(
-    writer: NbtBinaryWriter,
-    configuration: NbtFormatConfiguration,
-    descriptor: SerialDescriptor,
+    nbtBinaryWriter: NbtBinaryWriter,
+    nbtFormatConfiguration: NbtFormatConfiguration,
+    serialDescriptor: SerialDescriptor,
     path: String,
     private val expectedSize: Int,
     private val elementType: Int,
-) : NbtBinaryCompositeEncoder(writer, configuration, descriptor, path) {
+) : NbtBinaryCompositeEncoder(nbtBinaryWriter, nbtFormatConfiguration, serialDescriptor, path) {
     private var nextIndex = 0
 
     override fun elementEncoder(index: Int): Encoder {
         requireIndex(index)
         return NbtBinaryEncoder(
-            writer,
-            configuration,
+            nbtBinaryWriter,
+            nbtFormatConfiguration,
             "$path[$index]",
         ) { actualType ->
             if (actualType != elementType) {
@@ -405,7 +405,7 @@ private class NbtBinaryListEncoder(
     }
 
     override fun endStructure(descriptor: SerialDescriptor) {
-        requireDescriptor(descriptor, this.descriptor, path)
+        requireDescriptor(descriptor, serialDescriptor, path)
         if (nextIndex != expectedSize) {
             throw NbtEncodingException(
                 "NBT list at $path emitted $nextIndex element(s); expected $expectedSize",
@@ -421,34 +421,34 @@ private class NbtBinaryListEncoder(
         }
     }
 
-    private fun writeRawElement(value: NbtTag) {
-        val actualType = typeOf(value)
+    private fun writeRawElement(nbtTag: NbtTag) {
+        val actualType = typeOf(nbtTag)
         if (actualType == TAG_END) {
             throw NbtEncodingException("NBT lists cannot contain TAG_End at $path")
         }
         if (
             elementType == TAG_COMPOUND &&
-            (value !is NbtCompound || value.isListWrapper())
+            (nbtTag !is NbtCompound || nbtTag.isListWrapper())
         ) {
-            writer.writeListWrapper(value)
+            nbtBinaryWriter.writeListWrapper(nbtTag)
         } else {
             if (actualType != elementType) {
                 throw NbtEncodingException(
                     "NBT list element at $path[$nextIndex] has tag type $actualType; expected $elementType",
                 )
             }
-            writer.writePayload(value)
+            nbtBinaryWriter.writePayload(nbtTag)
         }
     }
 }
 
 private class NbtBinaryMapEncoder(
-    writer: NbtBinaryWriter,
-    configuration: NbtFormatConfiguration,
-    descriptor: SerialDescriptor,
+    nbtBinaryWriter: NbtBinaryWriter,
+    nbtFormatConfiguration: NbtFormatConfiguration,
+    serialDescriptor: SerialDescriptor,
     path: String,
     private val expectedSize: Int,
-) : NbtBinaryCompositeEncoder(writer, configuration, descriptor, path) {
+) : NbtBinaryCompositeEncoder(nbtBinaryWriter, nbtFormatConfiguration, serialDescriptor, path) {
     private var nextIndex = 0
     private var pendingKey: String? = null
     private val keys = mutableSetOf<String>()
@@ -456,13 +456,13 @@ private class NbtBinaryMapEncoder(
     override fun elementEncoder(index: Int): Encoder {
         requireIndex(index)
         return if (index % 2 == 0) {
-            NbtStringCaptureEncoder(configuration, "$path[${index / 2}].key")
+            NbtStringCaptureEncoder(nbtFormatConfiguration, "$path[${index / 2}].key")
         } else {
             val key = pendingKey
                 ?: throw NbtEncodingException("NBT map value has no key at $path")
             NbtBinaryEncoder(
-                writer,
-                configuration,
+                nbtBinaryWriter,
+                nbtFormatConfiguration,
                 "$path.$key",
             ) { type ->
                 if (type == TAG_END) {
@@ -470,8 +470,8 @@ private class NbtBinaryMapEncoder(
                         "NBT map value for '$key' cannot be TAG_End at $path",
                     )
                 }
-                writer.writeByte(type)
-                writer.writeModifiedUtf(key)
+                nbtBinaryWriter.writeByte(type)
+                nbtBinaryWriter.writeModifiedUtf(key)
             }
         }
     }
@@ -496,13 +496,13 @@ private class NbtBinaryMapEncoder(
     }
 
     override fun endStructure(descriptor: SerialDescriptor) {
-        requireDescriptor(descriptor, this.descriptor, path)
+        requireDescriptor(descriptor, serialDescriptor, path)
         if (pendingKey != null || nextIndex != expectedSize * 2) {
             throw NbtEncodingException(
                 "NBT map at $path emitted ${nextIndex / 2} complete entry/entries; expected $expectedSize",
             )
         }
-        writer.writeByte(TAG_END)
+        nbtBinaryWriter.writeByte(TAG_END)
     }
 
     private fun requireIndex(index: Int) {
@@ -515,11 +515,11 @@ private class NbtBinaryMapEncoder(
 }
 
 private class NbtStringCaptureEncoder(
-    private val configuration: NbtFormatConfiguration,
+    private val nbtFormatConfiguration: NbtFormatConfiguration,
     private val path: String,
 ) : Encoder {
     override val serializersModule: SerializersModule
-        get() = configuration.serializersModule
+        get() = nbtFormatConfiguration.serializersModule
 
     var value: String? = null
         private set
@@ -557,10 +557,10 @@ private class NbtStringCaptureEncoder(
         )
 }
 
-private fun rejectPolymorphism(descriptor: SerialDescriptor) {
-    if (descriptor.kind is PolymorphicKind) {
+private fun rejectPolymorphism(serialDescriptor: SerialDescriptor) {
+    if (serialDescriptor.kind is PolymorphicKind) {
         throw NbtEncodingException(
-            "Polymorphic serializer ${descriptor.serialName} is unsupported",
+            "Polymorphic serializer ${serialDescriptor.serialName} is unsupported",
         )
     }
 }
@@ -575,16 +575,16 @@ private fun requireDescriptor(
     }
 }
 
-private fun nbtTypeOf(descriptor: SerialDescriptor, path: String): Int {
-    when (descriptor.serialName) {
+private fun nbtTypeOf(serialDescriptor: SerialDescriptor, path: String): Int {
+    when (serialDescriptor.serialName) {
         BYTE_ARRAY_SERIAL_NAME -> return TAG_BYTE_ARRAY
         INT_ARRAY_SERIAL_NAME -> return TAG_INT_ARRAY
         LONG_ARRAY_SERIAL_NAME -> return TAG_LONG_ARRAY
     }
-    if (descriptor.isInline) {
-        return nbtTypeOf(descriptor.getElementDescriptor(0), path)
+    if (serialDescriptor.isInline) {
+        return nbtTypeOf(serialDescriptor.getElementDescriptor(0), path)
     }
-    return when (val kind = descriptor.kind) {
+    return when (val serialKind = serialDescriptor.kind) {
         PrimitiveKind.BOOLEAN,
         PrimitiveKind.BYTE,
             -> TAG_BYTE
@@ -603,23 +603,23 @@ private fun nbtTypeOf(descriptor: SerialDescriptor, path: String): Int {
             -> TAG_COMPOUND
 
         is PolymorphicKind -> throw NbtEncodingException(
-            "Polymorphic serializer ${descriptor.serialName} is unsupported at $path",
+            "Polymorphic serializer ${serialDescriptor.serialName} is unsupported at $path",
         )
 
         else -> throw NbtEncodingException(
-            "Cannot determine the NBT list element type for ${descriptor.serialName} ($kind) at $path",
+            "Cannot determine the NBT list element type for ${serialDescriptor.serialName} ($serialKind) at $path",
         )
     }
 }
 
-private fun rawListTypeOf(value: Any?, descriptor: SerialDescriptor): Int? {
-    if (descriptor.kind != StructureKind.LIST || value !is List<*>) return null
-    val elementDescriptor = descriptor.getElementDescriptor(0)
+private fun rawListTypeOf(value: Any?, serialDescriptor: SerialDescriptor): Int? {
+    if (serialDescriptor.kind != StructureKind.LIST || value !is List<*>) return null
+    val elementDescriptor = serialDescriptor.getElementDescriptor(0)
     if (!elementDescriptor.serialName.startsWith(NBT_SERIAL_NAME_PREFIX)) return null
     var type = TAG_END
     for (element in value) {
-        val tag = element as? NbtTag ?: return null
-        val next = typeOf(tag)
+        val nbtTag = element as? NbtTag ?: return null
+        val next = typeOf(nbtTag)
         type = when {
             type == TAG_END -> next
             type == next -> type

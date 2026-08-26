@@ -15,7 +15,7 @@ import kotlin.test.*
 class AccountAuthResponseContractTest {
     @Test
     fun stageFailuresUseTheSharedPublicResponseExceptionHierarchy() = runTest {
-        val client = HttpClient(
+        val httpClient = HttpClient(
             MockEngine {
                 respond(
                     content = buildJsonObject {
@@ -27,9 +27,9 @@ class AccountAuthResponseContractTest {
         ) {
             expectSuccess = true
         }
-        client.use {
+        httpClient.use {
             val failure = assertFailsWith<MicrosoftOAuthResponseException> {
-                MicrosoftOAuthApi(client).deviceCode(contractDeviceAuthorizationRequest())
+                MicrosoftOAuthApi(httpClient).deviceCode(contractDeviceAuthorizationRequest())
             }
 
             assertIs<ResponseException>(failure)
@@ -37,7 +37,7 @@ class AccountAuthResponseContractTest {
             assertEquals("invalid_request", failure.parsedErrorBody.error)
 
             val reconstructed = MicrosoftOAuthResponseException(
-                response = failure.response,
+                httpResponse = failure.response,
                 responseBody = failure.responseBody,
                 parsedErrorBody = failure.parsedErrorBody,
             )
@@ -48,7 +48,7 @@ class AccountAuthResponseContractTest {
 
     @Test
     fun everyEndpointOverridesCallerDefaultResponseValidation() = runTest {
-        val client = HttpClient(
+        val httpClient = HttpClient(
             MockEngine {
                 respond(
                     content = buildJsonObject {
@@ -63,26 +63,26 @@ class AccountAuthResponseContractTest {
         ) {
             expectSuccess = true
         }
-        client.use {
-            val microsoftOAuth = MicrosoftOAuthApi(client)
+        httpClient.use {
+            val microsoftOAuthApi = MicrosoftOAuthApi(httpClient)
             assertFailsWith<MicrosoftOAuthResponseException> {
-                microsoftOAuth.deviceCode(contractDeviceAuthorizationRequest())
+                microsoftOAuthApi.deviceCode(contractDeviceAuthorizationRequest())
             }
             assertFailsWith<MicrosoftOAuthResponseException> {
-                microsoftOAuth.tokenWithAuthorizationCode(
+                microsoftOAuthApi.tokenWithAuthorizationCode(
                     contractAuthorizationCodeTokenRequest(),
                 )
             }
             assertFailsWith<MicrosoftOAuthResponseException> {
-                microsoftOAuth.tokenWithDeviceCode(contractDeviceCodeTokenRequest())
+                microsoftOAuthApi.tokenWithDeviceCode(contractDeviceCodeTokenRequest())
             }
             assertFailsWith<MicrosoftOAuthResponseException> {
-                microsoftOAuth.tokenWithRefreshToken(contractRefreshTokenRequest())
+                microsoftOAuthApi.tokenWithRefreshToken(contractRefreshTokenRequest())
             }
 
-            val xboxAuthentication = XboxAuthenticationApi(client)
+            val xboxAuthenticationApi = XboxAuthenticationApi(httpClient)
             assertFailsWith<XboxAuthenticationResponseException> {
-                xboxAuthentication.authenticateUser(
+                xboxAuthenticationApi.authenticateUser(
                     XboxUserAuthenticationRequest(
                         properties = XboxUserAuthenticationRequest.Properties(
                             authMethod = "RPS",
@@ -95,7 +95,7 @@ class AccountAuthResponseContractTest {
                 )
             }
             assertFailsWith<XboxAuthenticationResponseException> {
-                xboxAuthentication.authorizeXsts(
+                xboxAuthenticationApi.authorizeXsts(
                     XboxXstsAuthorizationRequest(
                         properties = XboxXstsAuthorizationRequest.Properties(
                             sandboxId = "RETAIL",
@@ -107,20 +107,20 @@ class AccountAuthResponseContractTest {
                 )
             }
 
-            val minecraftServices = MinecraftServicesApi(client)
+            val minecraftServicesApi = MinecraftServicesApi(httpClient)
             assertFailsWith<MinecraftServicesResponseException> {
-                minecraftServices.loginWithXbox(
+                minecraftServicesApi.loginWithXbox(
                     MinecraftXboxLoginRequest("identity-token"),
                 )
             }
             assertFailsWith<MinecraftServicesResponseException> {
-                minecraftServices.getStoreEntitlements("minecraft-access-token")
+                minecraftServicesApi.getStoreEntitlements("minecraft-access-token")
             }
             assertFailsWith<MinecraftServicesResponseException> {
-                minecraftServices.getMinecraftProfile("minecraft-access-token")
+                minecraftServicesApi.getMinecraftProfile("minecraft-access-token")
             }
             assertFailsWith<MinecraftServicesResponseException> {
-                minecraftServices.getLicenseEntitlements("minecraft-access-token")
+                minecraftServicesApi.getLicenseEntitlements("minecraft-access-token")
             }
         }
     }
@@ -128,9 +128,9 @@ class AccountAuthResponseContractTest {
     @Test
     fun transportFailuresPropagateUnchanged() = runTest {
         val expected = ExpectedTransportFailure()
-        HttpClient(MockEngine { throw expected }).use { client ->
+        HttpClient(MockEngine { throw expected }).use { httpClient ->
             val actual = assertFailsWith<ExpectedTransportFailure> {
-                MinecraftServicesApi(client).getMinecraftProfile("token")
+                MinecraftServicesApi(httpClient).getMinecraftProfile("token")
             }
             assertSame(expected, actual)
         }
@@ -138,9 +138,9 @@ class AccountAuthResponseContractTest {
 
     @Test
     fun successfulBodySerializationFailuresPropagateUnchanged() = runTest {
-        HttpClient(MockEngine { respond(buildJsonObject {}.toString()) }).use { client ->
+        HttpClient(MockEngine { respond(buildJsonObject {}.toString()) }).use { httpClient ->
             assertFailsWith<SerializationException> {
-                MicrosoftOAuthApi(client).deviceCode(contractDeviceAuthorizationRequest())
+                MicrosoftOAuthApi(httpClient).deviceCode(contractDeviceAuthorizationRequest())
             }
         }
     }
@@ -148,7 +148,7 @@ class AccountAuthResponseContractTest {
     @Test
     fun apiObjectsNeverCloseTheCallerHttpClient() = runTest {
         var requestIndex = 0
-        val client = HttpClient(
+        val httpClient = HttpClient(
             MockEngine {
                 if (requestIndex++ == 0) {
                     respond(
@@ -167,13 +167,13 @@ class AccountAuthResponseContractTest {
             },
         )
         try {
-            MicrosoftOAuthApi(client).deviceCode(contractDeviceAuthorizationRequest())
+            MicrosoftOAuthApi(httpClient).deviceCode(contractDeviceAuthorizationRequest())
             assertEquals(
                 "caller-request",
-                client.get("https://example.invalid/caller").bodyAsText(),
+                httpClient.get("https://example.invalid/caller").bodyAsText(),
             )
         } finally {
-            client.close()
+            httpClient.close()
         }
     }
 }

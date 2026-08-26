@@ -8,15 +8,15 @@ import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 
 /** Sequential client endpoint: receives clientbound packets and sends serverbound packets. */
 class MinecraftClientPacketSession(
-    frameStream: MinecraftFrameStream,
+    minecraftFrameStream: MinecraftFrameStream,
     packetRegistry: PacketRegistry = MinecraftPacketRegistry,
-    format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+    minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
 ) : MinecraftPacketSession<ClientboundPacket, ServerboundPacket>(
-    frameStream = frameStream,
+    minecraftFrameStream = minecraftFrameStream,
     inboundDirection = PacketDirection.CLIENTBOUND,
     outboundDirection = PacketDirection.SERVERBOUND,
     packetRegistry = packetRegistry,
-    format = format,
+    minecraftProtocolFormat = minecraftProtocolFormat,
 ) {
     private var pendingEncryption: ByteArray? = null
 

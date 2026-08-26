@@ -31,10 +31,10 @@ object ForgeHandshake {
     }
 
     fun enhance(
-        packet: HandshakePacket,
+        handshakePacket: HandshakePacket,
         networkVersion: Int = ForgeProtocol.NETWORK_VERSION,
-    ): HandshakePacket = packet.copy(
-        serverAddress = enhanceHostName(packet.serverAddress, networkVersion),
+    ): HandshakePacket = handshakePacket.copy(
+        serverAddress = enhanceHostName(handshakePacket.serverAddress, networkVersion),
     )
 
     fun inspect(hostName: String): ForgeHandshakeIntent {
@@ -63,7 +63,7 @@ object ForgeHandshake {
 
 class ForgeClientProfileDefinition(
     val staticRegistrySchema: StaticRegistrySchema,
-    val network: ForgeNetworkConfiguration = ForgeNetworkConfiguration(),
+    val forgeNetworkConfiguration: ForgeNetworkConfiguration = ForgeNetworkConfiguration(),
     mods: Map<String, ForgeModInfo> = emptyMap(),
     dataPackRegistryIds: Set<Identifier> = emptySet(),
     val networkVersion: Int = ForgeProtocol.NETWORK_VERSION,
@@ -79,7 +79,7 @@ class ForgeClientProfileDefinition(
 }
 
 class ForgeServerProfileDefinition(
-    val network: ForgeNetworkConfiguration = ForgeNetworkConfiguration(),
+    val forgeNetworkConfiguration: ForgeNetworkConfiguration = ForgeNetworkConfiguration(),
     mods: Map<String, ForgeModInfo> = emptyMap(),
     val forgeRegistrySync: ForgeRegistrySync? = null,
     /** Caller-built immutable context retained by reference across connections. */
@@ -108,7 +108,7 @@ data class ForgeNegotiationResult(
 ) : NegotiationProfileResult
 
 class ForgeClientProfile(
-    val definition: ForgeClientProfileDefinition,
+    val forgeClientProfileDefinition: ForgeClientProfileDefinition,
 ) : ClientNegotiationProfile {
     private val remoteChannels = linkedSetOf<Identifier>()
     private val remoteMods = linkedMapOf<String, ForgeModInfo>()
@@ -124,14 +124,14 @@ class ForgeClientProfile(
     private var begun = false
 
     override suspend fun begin(
-        connection: MinecraftClientPacketConnection,
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
     ) {
         check(!begun) { "A ForgeClientProfile can negotiate only one connection" }
         begun = true
-        requireForgeCodecs(connection)
+        requireForgeCodecs(minecraftClientPacketConnection)
         updateForgeRoutes(
-            connection,
-            definition.network.payloadChannels,
+            minecraftClientPacketConnection,
+            forgeClientProfileDefinition.forgeNetworkConfiguration.payloadChannels,
             remoteChannels,
             ConnectionState.CONFIGURATION,
             PacketDirection.CLIENTBOUND,
@@ -139,18 +139,18 @@ class ForgeClientProfile(
         )
     }
 
-    override fun prepareHandshake(packet: HandshakePacket): HandshakePacket =
-        ForgeHandshake.enhance(packet, definition.networkVersion)
+    override fun prepareHandshake(handshakePacket: HandshakePacket): HandshakePacket =
+        ForgeHandshake.enhance(handshakePacket, forgeClientProfileDefinition.networkVersion)
 
     override suspend fun handleConfigurationPacket(
-        connection: MinecraftClientPacketConnection,
-        packet: ClientboundPacket,
-    ): Boolean = when (packet) {
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
+        clientboundPacket: ClientboundPacket,
+    ): Boolean = when (clientboundPacket) {
         is ForgeRegisterChannelsPacket -> {
-            remoteChannels += packet.channels
+            remoteChannels += clientboundPacket.channels
             updateForgeRoutes(
-                connection,
-                definition.network.payloadChannels,
+                minecraftClientPacketConnection,
+                forgeClientProfileDefinition.forgeNetworkConfiguration.payloadChannels,
                 remoteChannels,
                 ConnectionState.CONFIGURATION,
                 PacketDirection.CLIENTBOUND,
@@ -158,9 +158,9 @@ class ForgeClientProfile(
             )
             if (!sentRegistration) {
                 sentRegistration = true
-                connection.outgoing.send(
+                minecraftClientPacketConnection.outgoing.send(
                     ForgeRegisterChannelsPacket(
-                        definition.network.payloadChannels,
+                        forgeClientProfileDefinition.forgeNetworkConfiguration.payloadChannels,
                     ),
                 )
             }
@@ -168,10 +168,10 @@ class ForgeClientProfile(
         }
 
         is ForgeUnregisterChannelsPacket -> {
-            remoteChannels -= packet.channels
+            remoteChannels -= clientboundPacket.channels
             updateForgeRoutes(
-                connection,
-                definition.network.payloadChannels,
+                minecraftClientPacketConnection,
+                forgeClientProfileDefinition.forgeNetworkConfiguration.payloadChannels,
                 remoteChannels,
                 ConnectionState.CONFIGURATION,
                 PacketDirection.CLIENTBOUND,
@@ -181,7 +181,7 @@ class ForgeClientProfile(
         }
 
         is ForgeClientboundHandshakePacket -> {
-            handleHandshakeMessage(connection, packet.message)
+            handleHandshakeMessage(minecraftClientPacketConnection, clientboundPacket.forgeClientboundHandshakeMessage)
             true
         }
 
@@ -200,19 +200,20 @@ class ForgeClientProfile(
         }
         if (!receivedRegistryList) return protocolRegistryContext
         val remoteRegistrySnapshot = forgeRemoteRegistrySnapshot(forgeRegistrySnapshots)
-        requireForgeCompatible(definition.staticRegistrySchema, remoteRegistrySnapshot)
-        val resolvedProtocolRegistryContext = definition.staticRegistrySchema.resolve(remoteRegistrySnapshot)
+        requireForgeCompatible(forgeClientProfileDefinition.staticRegistrySchema, remoteRegistrySnapshot)
+        val resolvedProtocolRegistryContext =
+            forgeClientProfileDefinition.staticRegistrySchema.resolve(remoteRegistrySnapshot)
             .withForgeRegistrySizes(forgeRegistrySnapshots)
         return protocolRegistryContext.withStaticRegistryResolution(resolvedProtocolRegistryContext)
     }
 
     override suspend fun preparePlay(
-        connection: MinecraftClientPacketConnection,
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
     ) {
         ensureCompatiblePeer()
         updateForgeRoutes(
-            connection,
-            definition.network.payloadChannels,
+            minecraftClientPacketConnection,
+            forgeClientProfileDefinition.forgeNetworkConfiguration.payloadChannels,
             remoteChannels,
             ConnectionState.PLAY,
             PacketDirection.CLIENTBOUND,
@@ -221,10 +222,10 @@ class ForgeClientProfile(
     }
 
     override suspend fun complete(
-        connection: MinecraftClientPacketConnection,
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
     ): NegotiationProfileResult = ForgeNegotiationResult(
         forgePeer,
-        definition.networkVersion.takeIf { forgePeer },
+        forgeClientProfileDefinition.networkVersion.takeIf { forgePeer },
         remoteChannels.toSet(),
         remoteMods.toMap(),
         remoteChannelVersions.toMap(),
@@ -233,10 +234,10 @@ class ForgeClientProfile(
     )
 
     private suspend fun handleHandshakeMessage(
-        connection: MinecraftClientPacketConnection,
-        message: ForgeClientboundHandshakeMessage,
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
+        forgeClientboundHandshakeMessage: ForgeClientboundHandshakeMessage,
     ) {
-        when (message) {
+        when (forgeClientboundHandshakeMessage) {
             is ForgeModVersionsMessage -> {
                 if (receivedModVersions) {
                     throw ForgeNegotiationException(
@@ -245,10 +246,10 @@ class ForgeClientProfile(
                 }
                 receivedModVersions = true
                 forgePeer = true
-                remoteMods.putAll(message.mods)
-                connection.outgoing.send(
+                remoteMods.putAll(forgeClientboundHandshakeMessage.mods)
+                minecraftClientPacketConnection.outgoing.send(
                     ForgeServerboundHandshakePacket(
-                        ForgeModVersionsMessage(definition.mods),
+                        ForgeModVersionsMessage(forgeClientProfileDefinition.mods),
                     ),
                 )
             }
@@ -259,17 +260,18 @@ class ForgeClientProfile(
                         "Forge channel-version list arrived out of order",
                     )
                 }
-                val validation = definition.network.validateServer(message.channels)
-                if (!validation.successful) {
+                val forgeChannelValidation =
+                    forgeClientProfileDefinition.forgeNetworkConfiguration.validateServer(forgeClientboundHandshakeMessage.channels)
+                if (!forgeChannelValidation.successful) {
                     throw ForgeChannelNegotiationException(
-                        validation.toFailureMessage(),
+                        forgeChannelValidation.toFailureMessage(),
                     )
                 }
                 receivedChannelVersions = true
-                remoteChannelVersions.putAll(message.channels)
-                connection.outgoing.send(
+                remoteChannelVersions.putAll(forgeClientboundHandshakeMessage.channels)
+                minecraftClientPacketConnection.outgoing.send(
                     ForgeServerboundHandshakePacket(
-                        definition.network.versionsPacket,
+                        forgeClientProfileDefinition.forgeNetworkConfiguration.versionsPacket,
                     ),
                 )
             }
@@ -280,16 +282,17 @@ class ForgeClientProfile(
                         "Forge registry list arrived out of order",
                     )
                 }
-                val missingDataPackRegistryIds = message.dataPackRegistryIds.toSet() - definition.dataPackRegistryIds
+                val missingDataPackRegistryIds =
+                    forgeClientboundHandshakeMessage.dataPackRegistryIds.toSet() - forgeClientProfileDefinition.dataPackRegistryIds
                 if (missingDataPackRegistryIds.isNotEmpty()) {
                     throw ForgeMissingDataPackRegistryIdsException(
                         missingDataPackRegistryIds,
                     )
                 }
                 receivedRegistryList = true
-                expectedRegistryIds = message.registryIds.toMutableSet()
+                expectedRegistryIds = forgeClientboundHandshakeMessage.registryIds.toMutableSet()
                 forgeRegistrySnapshots.clear()
-                acknowledge(connection, message.token)
+                acknowledge(minecraftClientPacketConnection, forgeClientboundHandshakeMessage.token)
             }
 
             is ForgeRegistryDataMessage -> {
@@ -297,13 +300,13 @@ class ForgeClientProfile(
                     ?: throw ForgeNegotiationException(
                         "Forge registry data arrived before its registry list",
                     )
-                if (!expected.remove(message.registryId)) {
+                if (!expected.remove(forgeClientboundHandshakeMessage.registryId)) {
                     throw ForgeNegotiationException(
-                        "Unexpected Forge registry data ${message.registryId}",
+                        "Unexpected Forge registry data ${forgeClientboundHandshakeMessage.registryId}",
                     )
                 }
-                forgeRegistrySnapshots[message.registryId] = message.forgeRegistrySnapshot
-                acknowledge(connection, message.token)
+                forgeRegistrySnapshots[forgeClientboundHandshakeMessage.registryId] = forgeClientboundHandshakeMessage.forgeRegistrySnapshot
+                acknowledge(minecraftClientPacketConnection, forgeClientboundHandshakeMessage.token)
             }
 
             is ForgeConfigDataMessage -> {
@@ -312,19 +315,19 @@ class ForgeClientProfile(
                         "Forge config data arrived before registry synchronization completed",
                     )
                 }
-                configFiles += message
+                configFiles += forgeClientboundHandshakeMessage
             }
 
             is ForgeMismatchDataMessage ->
-                throw ForgeRemoteMismatchException(message)
+                throw ForgeRemoteMismatchException(forgeClientboundHandshakeMessage)
         }
     }
 
     private suspend fun acknowledge(
-        connection: MinecraftClientPacketConnection,
+        minecraftClientPacketConnection: MinecraftClientPacketConnection,
         token: Int,
     ) {
-        connection.outgoing.send(
+        minecraftClientPacketConnection.outgoing.send(
             ForgeServerboundHandshakePacket(
                 ForgeAcknowledgeMessage(token),
             ),
@@ -332,7 +335,7 @@ class ForgeClientProfile(
     }
 
     private fun ensureCompatiblePeer() {
-        if (!forgePeer && !definition.network.canConnectToVanillaServer()) {
+        if (!forgePeer && !forgeClientProfileDefinition.forgeNetworkConfiguration.canConnectToVanillaServer()) {
             throw ForgeVanillaPeerRejectedException(
                 "Local Forge channels require a Forge server",
             )
@@ -341,27 +344,27 @@ class ForgeClientProfile(
 }
 
 class ForgeServerProfile(
-    val definition: ForgeServerProfileDefinition,
+    val forgeServerProfileDefinition: ForgeServerProfileDefinition,
 ) : ServerNegotiationProfile {
     private val remoteChannels = linkedSetOf<Identifier>()
     private val remoteMods = linkedMapOf<String, ForgeModInfo>()
     private val remoteChannelVersions = linkedMapOf<Identifier, Int>()
-    private var handshakeIntent: ForgeHandshakeIntent? = null
+    private var forgeHandshakeIntent: ForgeHandshakeIntent? = null
     private var expectedResponse: ForgeExpectedResponse? = null
     private var expectedAck: Int? = null
     private var registriesSynchronized = false
-    private var stage = ForgeServerStage.BEGIN
+    private var forgeServerStage = ForgeServerStage.BEGIN
     private var begun = false
 
     override suspend fun begin(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
         check(!begun) { "A ForgeServerProfile can negotiate only one connection" }
         begun = true
-        requireForgeCodecs(connection)
+        requireForgeCodecs(minecraftServerPacketConnection)
         updateForgeRoutes(
-            connection,
-            definition.network.payloadChannels,
+            minecraftServerPacketConnection,
+            forgeServerProfileDefinition.forgeNetworkConfiguration.payloadChannels,
             remoteChannels,
             ConnectionState.CONFIGURATION,
             PacketDirection.SERVERBOUND,
@@ -369,80 +372,81 @@ class ForgeServerProfile(
         )
     }
 
-    override fun acceptHandshake(packet: HandshakePacket) {
-        check(handshakeIntent == null) {
+    override fun acceptHandshake(handshakePacket: HandshakePacket) {
+        check(forgeHandshakeIntent == null) {
             "A Forge server profile received more than one Handshake"
         }
-        val intent = ForgeHandshake.inspect(packet.serverAddress)
+        val inspectedForgeHandshakeIntent = ForgeHandshake.inspect(handshakePacket.serverAddress)
         if (
-            intent.forgePeer &&
-            intent.networkVersion != definition.networkVersion
+            inspectedForgeHandshakeIntent.forgePeer &&
+            inspectedForgeHandshakeIntent.networkVersion != forgeServerProfileDefinition.networkVersion
         ) {
             throw ForgeNetworkVersionException(
-                intent.networkVersion,
-                definition.networkVersion,
+                inspectedForgeHandshakeIntent.networkVersion,
+                forgeServerProfileDefinition.networkVersion,
             )
         }
-        handshakeIntent = intent
+        forgeHandshakeIntent = inspectedForgeHandshakeIntent
     }
 
     override suspend fun negotiateConfigurationStart(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
         requireStage(ForgeServerStage.BEGIN)
-        val intent = handshakeIntent
+        val forgeHandshakeIntent = forgeHandshakeIntent
             ?: throw ForgeNegotiationException(
                 "Forge profile did not observe the Handshake packet",
             )
-        if (!intent.forgePeer) {
-            val hasDataPackRegistryIds = definition.forgeRegistrySync?.dataPackRegistryIds?.isNotEmpty() == true
-            if (!definition.network.acceptsVanillaClient() || hasDataPackRegistryIds) {
+        if (!forgeHandshakeIntent.forgePeer) {
+            val hasDataPackRegistryIds =
+                forgeServerProfileDefinition.forgeRegistrySync?.dataPackRegistryIds?.isNotEmpty() == true
+            if (!forgeServerProfileDefinition.forgeNetworkConfiguration.acceptsVanillaClient() || hasDataPackRegistryIds) {
                 throw ForgeVanillaPeerRejectedException(
                     "Server Forge channels or data-pack registries require a Forge client",
                 )
             }
-            stage = ForgeServerStage.COMPLETE
+            forgeServerStage = ForgeServerStage.COMPLETE
             return
         }
-        stage = ForgeServerStage.NEGOTIATING
-        connection.outgoing.send(
-            ForgeRegisterChannelsPacket(definition.network.payloadChannels),
+        forgeServerStage = ForgeServerStage.NEGOTIATING
+        minecraftServerPacketConnection.outgoing.send(
+            ForgeRegisterChannelsPacket(forgeServerProfileDefinition.forgeNetworkConfiguration.payloadChannels),
         )
 
         expectedResponse = ForgeExpectedResponse.MOD_VERSIONS
-        connection.outgoing.send(
+        minecraftServerPacketConnection.outgoing.send(
             ForgeClientboundHandshakePacket(
-                ForgeModVersionsMessage(definition.mods),
+                ForgeModVersionsMessage(forgeServerProfileDefinition.mods),
             ),
         )
-        awaitExpected(connection)
+        awaitExpected(minecraftServerPacketConnection)
 
         expectedResponse = ForgeExpectedResponse.CHANNEL_VERSIONS
-        connection.outgoing.send(
+        minecraftServerPacketConnection.outgoing.send(
             ForgeClientboundHandshakePacket(
-                definition.network.versionsPacket,
+                forgeServerProfileDefinition.forgeNetworkConfiguration.versionsPacket,
             ),
         )
-        awaitExpected(connection)
+        awaitExpected(minecraftServerPacketConnection)
 
-        synchronizeRegistries(connection)
-        definition.configFiles.forEach { config ->
-            connection.outgoing.send(
-                ForgeClientboundHandshakePacket(config),
+        synchronizeRegistries(minecraftServerPacketConnection)
+        forgeServerProfileDefinition.configFiles.forEach { forgeConfigDataMessage ->
+            minecraftServerPacketConnection.outgoing.send(
+                ForgeClientboundHandshakePacket(forgeConfigDataMessage),
             )
         }
-        stage = ForgeServerStage.COMPLETE
+        forgeServerStage = ForgeServerStage.COMPLETE
     }
 
     override suspend fun handleConfigurationPacket(
-        connection: MinecraftServerPacketConnection,
-        packet: ServerboundPacket,
-    ): Boolean = when (packet) {
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
+        serverboundPacket: ServerboundPacket,
+    ): Boolean = when (serverboundPacket) {
         is ForgeRegisterChannelsPacket -> {
-            remoteChannels += packet.channels
+            remoteChannels += serverboundPacket.channels
             updateForgeRoutes(
-                connection,
-                definition.network.payloadChannels,
+                minecraftServerPacketConnection,
+                forgeServerProfileDefinition.forgeNetworkConfiguration.payloadChannels,
                 remoteChannels,
                 ConnectionState.CONFIGURATION,
                 PacketDirection.SERVERBOUND,
@@ -452,10 +456,10 @@ class ForgeServerProfile(
         }
 
         is ForgeUnregisterChannelsPacket -> {
-            remoteChannels -= packet.channels
+            remoteChannels -= serverboundPacket.channels
             updateForgeRoutes(
-                connection,
-                definition.network.payloadChannels,
+                minecraftServerPacketConnection,
+                forgeServerProfileDefinition.forgeNetworkConfiguration.payloadChannels,
                 remoteChannels,
                 ConnectionState.CONFIGURATION,
                 PacketDirection.SERVERBOUND,
@@ -465,7 +469,7 @@ class ForgeServerProfile(
         }
 
         is ForgeServerboundHandshakePacket -> {
-            handleHandshakeMessage(packet.message)
+            handleHandshakeMessage(serverboundPacket.forgeServerboundHandshakeMessage)
             true
         }
 
@@ -475,7 +479,8 @@ class ForgeServerProfile(
     override suspend fun resolveProtocolRegistryContext(
         protocolRegistryContext: ProtocolRegistryContext,
     ): ProtocolRegistryContext {
-        val sharedProtocolRegistryContext = definition.protocolRegistryContext ?: return protocolRegistryContext
+        val sharedProtocolRegistryContext =
+            forgeServerProfileDefinition.protocolRegistryContext ?: return protocolRegistryContext
         val sectionCount = protocolRegistryContext.chunkSectionCount ?: return sharedProtocolRegistryContext
         return if (sharedProtocolRegistryContext.chunkSectionCount == sectionCount) {
             sharedProtocolRegistryContext
@@ -485,12 +490,12 @@ class ForgeServerProfile(
     }
 
     override suspend fun preparePlay(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
         requireStage(ForgeServerStage.COMPLETE)
         updateForgeRoutes(
-            connection,
-            definition.network.payloadChannels,
+            minecraftServerPacketConnection,
+            forgeServerProfileDefinition.forgeNetworkConfiguration.payloadChannels,
             remoteChannels,
             ConnectionState.PLAY,
             PacketDirection.SERVERBOUND,
@@ -499,12 +504,12 @@ class ForgeServerProfile(
     }
 
     override suspend fun complete(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ): NegotiationProfileResult {
-        val intent = checkNotNull(handshakeIntent)
+        val forgeHandshakeIntent = checkNotNull(forgeHandshakeIntent)
         return ForgeNegotiationResult(
-            intent.forgePeer,
-            intent.networkVersion.takeIf { intent.forgePeer },
+            forgeHandshakeIntent.forgePeer,
+            forgeHandshakeIntent.networkVersion.takeIf { forgeHandshakeIntent.forgePeer },
             remoteChannels.toSet(),
             remoteMods.toMap(),
             remoteChannelVersions.toMap(),
@@ -513,36 +518,37 @@ class ForgeServerProfile(
         )
     }
 
-    private fun handleHandshakeMessage(message: ForgeServerboundHandshakeMessage) {
-        when (message) {
+    private fun handleHandshakeMessage(forgeServerboundHandshakeMessage: ForgeServerboundHandshakeMessage) {
+        when (forgeServerboundHandshakeMessage) {
             is ForgeModVersionsMessage -> {
                 requireExpected(ForgeExpectedResponse.MOD_VERSIONS)
                 remoteMods.clear()
-                remoteMods.putAll(message.mods)
+                remoteMods.putAll(forgeServerboundHandshakeMessage.mods)
                 expectedResponse = null
             }
 
             is ForgeChannelVersionsMessage -> {
                 requireExpected(ForgeExpectedResponse.CHANNEL_VERSIONS)
-                val validation = definition.network.validateClient(message.channels)
-                if (!validation.successful) {
+                val forgeChannelValidation =
+                    forgeServerProfileDefinition.forgeNetworkConfiguration.validateClient(forgeServerboundHandshakeMessage.channels)
+                if (!forgeChannelValidation.successful) {
                     throw ForgeChannelNegotiationException(
-                        validation.toFailureMessage(),
+                        forgeChannelValidation.toFailureMessage(),
                     )
                 }
                 remoteChannelVersions.clear()
-                remoteChannelVersions.putAll(message.channels)
+                remoteChannelVersions.putAll(forgeServerboundHandshakeMessage.channels)
                 expectedResponse = null
             }
 
             is ForgeAcknowledgeMessage -> {
                 val expected = expectedAck
                     ?: throw ForgeNegotiationException(
-                        "Unexpected Forge acknowledgement ${message.token}",
+                        "Unexpected Forge acknowledgement ${forgeServerboundHandshakeMessage.token}",
                     )
-                if (message.token != expected) {
+                if (forgeServerboundHandshakeMessage.token != expected) {
                     throw ForgeNegotiationException(
-                        "Forge acknowledgement ${message.token} does not match $expected",
+                        "Forge acknowledgement ${forgeServerboundHandshakeMessage.token} does not match $expected",
                     )
                 }
                 expectedAck = null
@@ -551,12 +557,12 @@ class ForgeServerProfile(
     }
 
     private suspend fun synchronizeRegistries(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
-        val forgeRegistrySync = definition.forgeRegistrySync
+        val forgeRegistrySync = forgeServerProfileDefinition.forgeRegistrySync
         var token = 0
         expectedAck = token
-        connection.outgoing.send(
+        minecraftServerPacketConnection.outgoing.send(
             ForgeClientboundHandshakePacket(
                 ForgeRegistryListMessage(
                     token,
@@ -565,46 +571,46 @@ class ForgeServerProfile(
                 ),
             ),
         )
-        awaitExpected(connection)
+        awaitExpected(minecraftServerPacketConnection)
         forgeRegistrySync?.forgeRegistrySnapshots?.forEach { (registryId, forgeRegistrySnapshot) ->
             token++
             expectedAck = token
-            connection.outgoing.send(
+            minecraftServerPacketConnection.outgoing.send(
                 ForgeClientboundHandshakePacket(
                     ForgeRegistryDataMessage(token, registryId, forgeRegistrySnapshot),
                 ),
             )
-            awaitExpected(connection)
+            awaitExpected(minecraftServerPacketConnection)
         }
         registriesSynchronized = true
     }
 
     private suspend fun awaitExpected(
-        connection: MinecraftServerPacketConnection,
+        minecraftServerPacketConnection: MinecraftServerPacketConnection,
     ) {
         while (expectedResponse != null || expectedAck != null) {
-            connection.requestFlush()
-            val packet = connection.incoming.receive()
-            if (!handleConfigurationPacket(connection, packet)) {
+            minecraftServerPacketConnection.requestFlush()
+            val serverboundPacket = minecraftServerPacketConnection.incoming.receive()
+            if (!handleConfigurationPacket(minecraftServerPacketConnection, serverboundPacket)) {
                 throw ForgeNegotiationException(
-                    "Unexpected packet during Forge negotiation: ${packet::class.simpleName}",
+                    "Unexpected packet during Forge negotiation: ${serverboundPacket::class.simpleName}",
                 )
             }
         }
     }
 
-    private fun requireExpected(expected: ForgeExpectedResponse) {
-        if (expectedResponse != expected || expectedAck != null) {
+    private fun requireExpected(forgeExpectedResponse: ForgeExpectedResponse) {
+        if (expectedResponse != forgeExpectedResponse || expectedAck != null) {
             throw ForgeNegotiationException(
-                "Forge response $expected arrived while waiting for $expectedResponse and ack $expectedAck",
+                "Forge response $forgeExpectedResponse arrived while waiting for $expectedResponse and ack $expectedAck",
             )
         }
     }
 
     private fun requireStage(expected: ForgeServerStage) {
-        if (stage != expected) {
+        if (forgeServerStage != expected) {
             throw ForgeNegotiationException(
-                "Forge server profile is in $stage; expected $expected",
+                "Forge server profile is in $forgeServerStage; expected $expected",
             )
         }
     }
@@ -640,48 +646,48 @@ class ForgeVanillaPeerRejectedException(
 ) : ForgeNegotiationException(message)
 
 private suspend fun <Incoming : Packet, Outgoing : Packet> updateForgeRoutes(
-    connection: MinecraftPacketConnection<Incoming, Outgoing>,
+    minecraftPacketConnection: MinecraftPacketConnection<Incoming, Outgoing>,
     localChannels: Set<Identifier>,
     remoteChannels: Set<Identifier>,
-    state: ConnectionState,
+    connectionState: ConnectionState,
     incomingDirection: PacketDirection,
     outgoingDirection: PacketDirection,
 ) {
-    val candidates = connection.declaredExtensionRoutes
+    val candidates = minecraftPacketConnection.declaredExtensionRoutes
         .filterIsInstance<PacketRouteKey.CustomPayload>()
-        .filter { route -> route.state == state }
+        .filter { packetRouteKey -> packetRouteKey.connectionState == connectionState }
         .toSet()
-    val accepted = candidates.filter { route ->
-        route.channel == ForgeChannels.Register ||
-                route.channel == ForgeChannels.Unregister ||
+    val accepted = candidates.filter { packetRouteKey ->
+        packetRouteKey.channel == ForgeChannels.Register ||
+                packetRouteKey.channel == ForgeChannels.Unregister ||
                 (
-                        state == ConnectionState.CONFIGURATION &&
-                                route.channel == ForgeChannels.Handshake
+                        connectionState == ConnectionState.CONFIGURATION &&
+                                packetRouteKey.channel == ForgeChannels.Handshake
                         ) ||
                 (
-                        route.direction == incomingDirection &&
-                                route.channel in localChannels
+                        packetRouteKey.packetDirection == incomingDirection &&
+                                packetRouteKey.channel in localChannels
                         ) ||
                 (
-                        route.direction == outgoingDirection &&
-                                route.channel in remoteChannels
+                        packetRouteKey.packetDirection == outgoingDirection &&
+                                packetRouteKey.channel in remoteChannels
                         )
     }
-    val loginRoutes = connection.declaredExtensionRoutes.filter { route ->
-        route is PacketRouteKey.LoginQuery
+    val loginRoutes = minecraftPacketConnection.declaredExtensionRoutes.filter { packetRouteKey ->
+        packetRouteKey is PacketRouteKey.LoginQuery
     }
-    connection.activateExtensionRoutes(
-        connection.activeExtensionRoutes - candidates + accepted + loginRoutes,
+    minecraftPacketConnection.activateExtensionRoutes(
+        minecraftPacketConnection.activeExtensionRoutes - candidates + accepted + loginRoutes,
     )
 }
 
 private fun <Incoming : Packet, Outgoing : Packet> requireForgeCodecs(
-    connection: MinecraftPacketConnection<Incoming, Outgoing>,
+    minecraftPacketConnection: MinecraftPacketConnection<Incoming, Outgoing>,
 ) {
-    val required = ForgeProtocol.packetCodecs.mapTo(linkedSetOf()) { registration ->
-        registration.route
+    val required = ForgeProtocol.packetCodecs.mapTo(linkedSetOf()) { packetCodecRegistration ->
+        packetCodecRegistration.packetRouteKey
     }
-    val missing = required - connection.declaredExtensionRoutes
+    val missing = required - minecraftPacketConnection.declaredExtensionRoutes
     require(missing.isEmpty()) {
         "Forge profile is missing extension packet codecs $missing"
     }

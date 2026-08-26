@@ -38,7 +38,7 @@ abstract class GenerateVanillaRegistryDataSourceTask :
     fun generate() {
         val minecraftProtocolTarget = targetFile.asFile.get().toPath()
             .readOfficialMinecraftTargetReport()
-            .target
+            .minecraftProtocolTarget
         val registryReportPath = registriesFile.asFile.get().toPath()
         val blockReportPath = blocksFile.asFile.get().toPath()
         check(registryReportPath.isRegularFile()) {

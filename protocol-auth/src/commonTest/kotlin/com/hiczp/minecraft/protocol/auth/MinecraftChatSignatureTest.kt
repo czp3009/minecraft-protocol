@@ -12,23 +12,23 @@ import kotlin.uuid.Uuid
 class MinecraftChatSignatureTest {
     @Test
     fun matchesIndependentSha256WithRsaChatVector() {
-        val keyPair = fixtureKeyPair()
-        val link = fixtureLink()
-        val body = fixtureBody()
-        val payload = MinecraftChatSignatures.signedPayload(link, body)
+        val minecraftProfileKeyPair = fixtureKeyPair()
+        val signedMessageLink = fixtureLink()
+        val signedMessageBody = fixtureBody()
+        val payload = MinecraftChatSignatures.signedPayload(signedMessageLink, signedMessageBody)
 
         assertTrue(payload.size == 582)
         assertTrue(payload.toByteString().sha256().hex() == MinecraftChatCryptoFixtures.CHAT_PAYLOAD_SHA256)
-        val signature = keyPair.signChatMessage(link, body)
+        val signature = minecraftProfileKeyPair.signChatMessage(signedMessageLink, signedMessageBody)
         assertContentEquals(MinecraftChatCryptoFixtures.chatSignature(), signature.toByteArray())
-        assertTrue(keyPair.publicKey.verifyChatMessage(link, body, signature))
+        assertTrue(minecraftProfileKeyPair.minecraftProfilePublicKey.verifyChatMessage(signedMessageLink, signedMessageBody, signature))
 
-        val tampered = body.copy(content = "Hi?")
-        assertFalse(keyPair.publicKey.verifyChatMessage(link, tampered, signature))
+        val tampered = signedMessageBody.copy(content = "Hi?")
+        assertFalse(minecraftProfileKeyPair.minecraftProfilePublicKey.verifyChatMessage(signedMessageLink, tampered, signature))
         assertFalse(
-            keyPair.publicKey.verifyChatMessage(
-                link,
-                body,
+            minecraftProfileKeyPair.minecraftProfilePublicKey.verifyChatMessage(
+                signedMessageLink,
+                signedMessageBody,
                 ByteString(ByteArray(255)),
             ),
         )
@@ -36,46 +36,46 @@ class MinecraftChatSignatureTest {
 
     @Test
     fun matchesIndependentSha1WithRsaProfileCredentialVector() {
-        val publicKeyData = fixturePublicKeyData()
+        val profilePublicKeyData = fixturePublicKeyData()
         val profileId = Uuid.parse("12345678-1234-5678-9abc-def012345678")
-        val payload = MinecraftProfileKeySignatures.signedPayload(profileId, publicKeyData)
-        val servicesKey = MinecraftServicesPublicKey(MinecraftChatCryptoFixtures.publicKey())
-        val keySet = MinecraftServicesPublicKeySet(
+        val payload = MinecraftProfileKeySignatures.signedPayload(profileId, profilePublicKeyData)
+        val minecraftServicesPublicKey = MinecraftServicesPublicKey(MinecraftChatCryptoFixtures.publicKey())
+        val minecraftServicesPublicKeySet = MinecraftServicesPublicKeySet(
             profilePropertyKeys = emptyList(),
-            playerCertificateKeys = listOf(servicesKey),
+            playerCertificateKeys = listOf(minecraftServicesPublicKey),
         )
 
         assertTrue(payload.toByteString().sha256().hex() == MinecraftChatCryptoFixtures.CREDENTIAL_PAYLOAD_SHA256)
-        assertTrue(MinecraftProfileKeySignatures.verify(servicesKey, profileId, publicKeyData))
-        assertTrue(keySet.verifyProfilePublicKey(profileId, publicKeyData))
+        assertTrue(MinecraftProfileKeySignatures.verify(minecraftServicesPublicKey, profileId, profilePublicKeyData))
+        assertTrue(minecraftServicesPublicKeySet.verifyProfilePublicKey(profileId, profilePublicKeyData))
         assertFalse(
-            keySet.verifyProfilePublicKey(
+            minecraftServicesPublicKeySet.verifyProfilePublicKey(
                 Uuid.parse("12345678-1234-5678-9abc-def012345679"),
-                publicKeyData,
+                profilePublicKeyData,
             ),
         )
         assertFalse(
-            keySet.verifyProfilePublicKey(
+            minecraftServicesPublicKeySet.verifyProfilePublicKey(
                 profileId,
-                publicKeyData.copy(keySignature = ByteString(byteArrayOf(1))),
+                profilePublicKeyData.copy(keySignature = ByteString(byteArrayOf(1))),
             ),
         )
     }
 
     @Test
     fun exposesCallerDrivenExpiryAndRefreshChecks() {
-        val keyPair = fixtureKeyPair()
+        val minecraftProfileKeyPair = fixtureKeyPair()
 
-        assertFalse(keyPair.publicKey.hasExpiredAt(1_800_000_000_123))
-        assertTrue(keyPair.publicKey.hasExpiredAt(1_800_000_000_124))
-        assertFalse(keyPair.needsRefreshAt(1_700_000_000_000))
-        assertTrue(keyPair.needsRefreshAt(1_700_000_000_001))
+        assertFalse(minecraftProfileKeyPair.minecraftProfilePublicKey.hasExpiredAt(1_800_000_000_123))
+        assertTrue(minecraftProfileKeyPair.minecraftProfilePublicKey.hasExpiredAt(1_800_000_000_124))
+        assertFalse(minecraftProfileKeyPair.needsRefreshAt(1_700_000_000_000))
+        assertTrue(minecraftProfileKeyPair.needsRefreshAt(1_700_000_000_001))
     }
 }
 
 internal fun fixtureKeyPair(): MinecraftProfileKeyPair = MinecraftProfileKeyPair(
     encodedPrivateKey = MinecraftChatCryptoFixtures.privateKey(),
-    publicKeyData = fixturePublicKeyData(),
+    profilePublicKeyData = fixturePublicKeyData(),
     refreshedAfterEpochMillis = 1_700_000_000_000,
 )
 

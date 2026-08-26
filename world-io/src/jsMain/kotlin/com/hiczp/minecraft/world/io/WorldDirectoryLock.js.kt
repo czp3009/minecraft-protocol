@@ -14,11 +14,11 @@ internal actual fun acquireWorldDirectoryLock(
     try {
         writeWorldLockMarker(descriptor, path)
         syncWorldLock(descriptor, path)
-        val key = tryAcquireWorldLock(descriptor, path)
+        val nodeFileKey = tryAcquireWorldLock(descriptor, path)
             ?: throw worldAlreadyLockedException(
                 absoluteWorldLockPath(path),
             )
-        return NodeWorldDirectoryLock(descriptor, path, key)
+        return NodeWorldDirectoryLock(descriptor, path, nodeFileKey)
     } catch (failure: Throwable) {
         // Cleanup is required for every failed acquisition; the original
         // failure, including cancellation, is then rethrown unchanged.
@@ -67,7 +67,7 @@ internal actual fun isWorldDirectoryLocked(path: Path): Boolean {
 private class NodeWorldDirectoryLock(
     descriptor: Number,
     private val path: Path,
-    private val key: NodeFileKey,
+    private val nodeFileKey: NodeFileKey,
 ) : WorldDirectoryLock {
     private var descriptor: Number? = descriptor
 
@@ -81,7 +81,7 @@ private class NodeWorldDirectoryLock(
             null,
             { unlockWorldLock(openDescriptor, path) },
             { closeWorldLock(openDescriptor, path) },
-            { IN_PROCESS_LOCK_KEYS.remove(key) },
+            { IN_PROCESS_LOCK_KEYS.remove(nodeFileKey) },
         )
     }
 }
@@ -132,8 +132,8 @@ private fun tryAcquireWorldLock(
     // POSIX record locks are process-scoped, so a second descriptor in this
     // Node process may otherwise appear to acquire the same file. Track the
     // stable device/inode key to match Java's overlapping-lock behavior.
-    val key = nodeFileKey(descriptor, path)
-    if (!IN_PROCESS_LOCK_KEYS.add(key)) {
+    val nodeFileKey = nodeFileKey(descriptor, path)
+    if (!IN_PROCESS_LOCK_KEYS.add(nodeFileKey)) {
         return null
     }
 
@@ -148,16 +148,16 @@ private fun tryAcquireWorldLock(
                 -> false
 
             else -> {
-                IN_PROCESS_LOCK_KEYS.remove(key)
+                IN_PROCESS_LOCK_KEYS.remove(nodeFileKey)
                 throw failure.toWorldLockIoFailure("lock", path)
             }
         }
     }
     if (!acquired) {
-        IN_PROCESS_LOCK_KEYS.remove(key)
+        IN_PROCESS_LOCK_KEYS.remove(nodeFileKey)
         return null
     }
-    return key
+    return nodeFileKey
 }
 
 private fun unlockWorldLock(
@@ -180,14 +180,14 @@ private fun closeWorldLock(descriptor: Number, path: Path) {
 }
 
 private fun nodeFileKey(descriptor: Number, path: Path): NodeFileKey {
-    val statistics = try {
+    val nodeFileStatistics = try {
         fstatSync(descriptor, NODE_BIGINT_STATISTICS_OPTIONS)
     } catch (failure: Throwable) {
         throw failure.toWorldLockIoFailure("inspect", path)
     }
     return NodeFileKey(
-        device = statistics.dev.toString(),
-        inode = statistics.ino.toString(),
+        device = nodeFileStatistics.dev.toString(),
+        inode = nodeFileStatistics.ino.toString(),
     )
 }
 

@@ -19,7 +19,7 @@ internal class NbtBinaryReader(
         validateType(type)
         return NamedNbtTag(
             name = readModifiedUtf(),
-            tag = readPayload(type),
+            nbtTag = readPayload(type),
         )
     }
 
@@ -265,58 +265,58 @@ internal class NbtBinaryReader(
 internal class NbtBinaryWriter(
     private val sink: Sink,
 ) {
-    fun writeAnyTag(tag: NbtTag) {
-        writeByte(typeOf(tag))
-        writePayload(tag)
+    fun writeAnyTag(nbtTag: NbtTag) {
+        writeByte(typeOf(nbtTag))
+        writePayload(nbtTag)
     }
 
-    fun writeNamedTag(value: NamedNbtTag) {
-        writeByte(typeOf(value.tag))
-        writeModifiedUtf(value.name)
-        writePayload(value.tag)
+    fun writeNamedTag(namedNbtTag: NamedNbtTag) {
+        writeByte(typeOf(namedNbtTag.nbtTag))
+        writeModifiedUtf(namedNbtTag.name)
+        writePayload(namedNbtTag.nbtTag)
     }
 
-    fun writeUnnamedTag(tag: NbtTag) {
-        writeByte(typeOf(tag))
-        if (tag === NbtEnd) return
+    fun writeUnnamedTag(nbtTag: NbtTag) {
+        writeByte(typeOf(nbtTag))
+        if (nbtTag === NbtEnd) return
         writeModifiedUtf("")
-        writePayload(tag)
+        writePayload(nbtTag)
     }
 
-    internal fun writePayload(tag: NbtTag) {
-        when (tag) {
+    internal fun writePayload(nbtTag: NbtTag) {
+        when (nbtTag) {
             NbtEnd -> Unit
-            is NbtByte -> writeByte(tag.value.toInt())
-            is NbtShort -> writeShort(tag.value.toInt())
-            is NbtInt -> writeInt(tag.value)
-            is NbtLong -> writeLong(tag.value)
-            is NbtFloat -> writeInt(tag.value.toBits())
-            is NbtDouble -> writeLong(tag.value.toBits())
+            is NbtByte -> writeByte(nbtTag.value.toInt())
+            is NbtShort -> writeShort(nbtTag.value.toInt())
+            is NbtInt -> writeInt(nbtTag.value)
+            is NbtLong -> writeLong(nbtTag.value)
+            is NbtFloat -> writeInt(nbtTag.value.toBits())
+            is NbtDouble -> writeLong(nbtTag.value.toBits())
             is NbtByteArray -> {
-                writeInt(tag.size)
-                tag.forEach { writeByte(it.toInt()) }
+                writeInt(nbtTag.size)
+                nbtTag.forEach { writeByte(it.toInt()) }
             }
 
-            is NbtString -> writeModifiedUtf(tag.value)
-            is NbtList -> writeList(tag)
-            is NbtCompound -> writeCompound(tag)
+            is NbtString -> writeModifiedUtf(nbtTag.value)
+            is NbtList -> writeList(nbtTag)
+            is NbtCompound -> writeCompound(nbtTag)
             is NbtIntArray -> {
-                writeInt(tag.size)
-                tag.forEach(::writeInt)
+                writeInt(nbtTag.size)
+                nbtTag.forEach(::writeInt)
             }
 
             is NbtLongArray -> {
-                writeInt(tag.size)
-                tag.forEach(::writeLong)
+                writeInt(nbtTag.size)
+                nbtTag.forEach(::writeLong)
             }
         }
     }
 
-    private fun writeList(tag: NbtList) {
-        val rawType = rawListType(tag)
+    private fun writeList(nbtList: NbtList) {
+        val rawType = rawListType(nbtList)
         writeByte(rawType)
-        writeInt(tag.size)
-        tag.forEach { element ->
+        writeInt(nbtList.size)
+        nbtList.forEach { element ->
             if (
                 rawType == TAG_COMPOUND &&
                 (element !is NbtCompound || element.isListWrapper())
@@ -335,8 +335,8 @@ internal class NbtBinaryWriter(
         writeByte(TAG_END)
     }
 
-    private fun writeCompound(tag: NbtCompound) {
-        tag.forEachEntry { name, value ->
+    private fun writeCompound(nbtCompound: NbtCompound) {
+        nbtCompound.forEachEntry { name, value ->
             writeByte(typeOf(value))
             writeModifiedUtf(name)
             writePayload(value)

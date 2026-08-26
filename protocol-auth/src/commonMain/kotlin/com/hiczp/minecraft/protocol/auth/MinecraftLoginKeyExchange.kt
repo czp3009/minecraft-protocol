@@ -47,42 +47,42 @@ data class MinecraftClientKeyExchangeResult(
     val encryptedSharedSecret: ByteArray,
     val encryptedVerifyToken: ByteArray,
     val sharedSecret: ByteArray,
-    val serverHash: MinecraftServerHash,
+    val minecraftServerHash: MinecraftServerHash,
 ) {
     override fun equals(other: Any?): Boolean =
         other is MinecraftClientKeyExchangeResult &&
                 encryptedSharedSecret.contentEquals(other.encryptedSharedSecret) &&
                 encryptedVerifyToken.contentEquals(other.encryptedVerifyToken) &&
                 sharedSecret.contentEquals(other.sharedSecret) &&
-                serverHash == other.serverHash
+                minecraftServerHash == other.minecraftServerHash
 
     override fun hashCode(): Int {
         var result = encryptedSharedSecret.contentHashCode()
         result = 31 * result + encryptedVerifyToken.contentHashCode()
         result = 31 * result + sharedSecret.contentHashCode()
-        result = 31 * result + serverHash.hashCode()
+        result = 31 * result + minecraftServerHash.hashCode()
         return result
     }
 }
 
 data class MinecraftServerKeyExchangeResult(
     val sharedSecret: ByteArray,
-    val serverHash: MinecraftServerHash,
+    val minecraftServerHash: MinecraftServerHash,
 ) {
     override fun equals(other: Any?): Boolean =
         other is MinecraftServerKeyExchangeResult &&
                 sharedSecret.contentEquals(other.sharedSecret) &&
-                serverHash == other.serverHash
+                minecraftServerHash == other.minecraftServerHash
 
     override fun hashCode(): Int {
         var result = sharedSecret.contentHashCode()
-        result = 31 * result + serverHash.hashCode()
+        result = 31 * result + minecraftServerHash.hashCode()
         return result
     }
 }
 
 class MinecraftServerKeyPair private constructor(
-    internal val keyPair: MinecraftRsaKeyPair,
+    internal val minecraftRsaKeyPair: MinecraftRsaKeyPair,
 ) {
     /**
      * Creates a key pair from a DER-encoded X.509 SubjectPublicKeyInfo public key and PKCS#8 private key.
@@ -94,13 +94,13 @@ class MinecraftServerKeyPair private constructor(
         mapCryptographyFailure("Cannot decode the Minecraft RSA key pair") {
             MinecraftRsaKeyPair(
                 publicKey = encodedPublicKey,
-                privateKey = PlatformMinecraftRsaBackend.decodePrivateKey(encodedPrivateKey),
+                minecraftRsaPrivateKey = PlatformMinecraftRsaBackend.decodePrivateKey(encodedPrivateKey),
             )
         },
     )
 
     val encodedPublicKey: ByteArray
-        get() = keyPair.publicKey
+        get() = minecraftRsaKeyPair.publicKey
 
     fun createChallenge(
         serverId: String = "",
@@ -113,7 +113,7 @@ class MinecraftServerKeyPair private constructor(
         return MinecraftServerChallenge(
             serverId = serverId,
             shouldAuthenticate = shouldAuthenticate,
-            keyPair = this,
+            minecraftServerKeyPair = this,
             expectedVerifyToken = verifyToken,
         )
     }
@@ -133,13 +133,13 @@ class MinecraftServerKeyPair private constructor(
 class MinecraftServerChallenge internal constructor(
     val serverId: String,
     val shouldAuthenticate: Boolean,
-    private val keyPair: MinecraftServerKeyPair,
+    private val minecraftServerKeyPair: MinecraftServerKeyPair,
     expectedVerifyToken: ByteArray,
 ) {
     private val expectedVerifyToken = expectedVerifyToken.copyOf()
 
     val encodedPublicKey: ByteArray
-        get() = keyPair.encodedPublicKey
+        get() = minecraftServerKeyPair.encodedPublicKey
 
     val verifyToken: ByteArray
         get() = expectedVerifyToken.copyOf()
@@ -152,7 +152,7 @@ class MinecraftServerChallenge internal constructor(
             "Cannot decrypt the Minecraft verify token",
         ) {
             PlatformMinecraftRsaBackend.rsaDecrypt(
-                keyPair.keyPair.privateKey,
+                minecraftServerKeyPair.minecraftRsaKeyPair.minecraftRsaPrivateKey,
                 encryptedVerifyToken,
             )
         }
@@ -174,7 +174,7 @@ class MinecraftServerChallenge internal constructor(
             "Cannot decrypt the Minecraft shared secret",
         ) {
             PlatformMinecraftRsaBackend.rsaDecrypt(
-                keyPair.keyPair.privateKey,
+                minecraftServerKeyPair.minecraftRsaKeyPair.minecraftRsaPrivateKey,
                 encryptedSharedSecret,
             )
         }
@@ -186,7 +186,7 @@ class MinecraftServerChallenge internal constructor(
             }
             return MinecraftServerKeyExchangeResult(
                 sharedSecret = decryptedSecret.copyOf(),
-                serverHash = MinecraftServerHash.compute(
+                minecraftServerHash = MinecraftServerHash.compute(
                     serverId = serverId,
                     sharedSecret = decryptedSecret,
                     encodedPublicKey = encodedPublicKey,
@@ -226,7 +226,7 @@ object MinecraftClientKeyExchange {
                 encryptedSharedSecret = encryptedSharedSecret,
                 encryptedVerifyToken = encryptedVerifyToken,
                 sharedSecret = rawSecret.copyOf(),
-                serverHash = MinecraftServerHash.compute(
+                minecraftServerHash = MinecraftServerHash.compute(
                     serverId = serverId,
                     sharedSecret = rawSecret,
                     encodedPublicKey = encodedPublicKey,
@@ -239,11 +239,11 @@ object MinecraftClientKeyExchange {
 }
 
 fun MinecraftClientKeyExchange.respond(
-    request: EncryptionRequestPacket,
+    encryptionRequestPacket: EncryptionRequestPacket,
 ): MinecraftClientKeyExchangeResult = respond(
-    serverId = request.serverId,
-    encodedPublicKey = request.publicKey.toByteArray(),
-    verifyToken = request.verifyToken.toByteArray(),
+    serverId = encryptionRequestPacket.serverId,
+    encodedPublicKey = encryptionRequestPacket.publicKey.toByteArray(),
+    verifyToken = encryptionRequestPacket.verifyToken.toByteArray(),
 )
 
 fun MinecraftClientKeyExchangeResult.toEncryptionResponsePacket(): EncryptionResponsePacket =
@@ -261,10 +261,10 @@ fun MinecraftServerChallenge.toEncryptionRequestPacket(): EncryptionRequestPacke
     )
 
 fun MinecraftServerChallenge.accept(
-    response: EncryptionResponsePacket,
+    encryptionResponsePacket: EncryptionResponsePacket,
 ): MinecraftServerKeyExchangeResult = accept(
-    encryptedSharedSecret = response.sharedSecret.toByteArray(),
-    encryptedVerifyToken = response.verifyToken.toByteArray(),
+    encryptedSharedSecret = encryptionResponsePacket.sharedSecret.toByteArray(),
+    encryptedVerifyToken = encryptionResponsePacket.verifyToken.toByteArray(),
 )
 
 class MinecraftCryptographyException(

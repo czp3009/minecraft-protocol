@@ -150,7 +150,7 @@ enum class DataComponentType(
 
 @Target(AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.SOURCE)
-internal annotation class DataComponentInfo(val type: DataComponentType)
+internal annotation class DataComponentInfo(val dataComponentType: DataComponentType)
 
 @RequiresOptIn(
     message = "Generated data-component serializer dispatch is an internal protocol implementation API.",
@@ -1066,10 +1066,10 @@ internal abstract class DataComponentSerializerBase(
     }
 
     final override fun serialize(encoder: Encoder, value: DataComponent) {
-        val type = GeneratedDataComponentSerializers.type(value)
-        val valueSerializer = GeneratedDataComponentSerializers.serializer(type)
+        val dataComponentType = GeneratedDataComponentSerializers.type(value)
+        val valueSerializer = GeneratedDataComponentSerializers.serializer(dataComponentType)
         val output = encoder.beginStructure(descriptor)
-        output.encodeIntElement(descriptor, TYPE, type.protocolId)
+        output.encodeIntElement(descriptor, TYPE, dataComponentType.protocolId)
         @Suppress("UNCHECKED_CAST")
         output.encodeSerializableElement(
             descriptor,
@@ -1082,13 +1082,13 @@ internal abstract class DataComponentSerializerBase(
 
     final override fun deserialize(decoder: Decoder): DataComponent {
         val input = decoder.beginStructure(descriptor)
-        var type: DataComponentType? = null
-        var value: DataComponent? = null
+        var dataComponentType: DataComponentType? = null
+        var dataComponent: DataComponent? = null
         if (input.decodeSequentially()) {
-            type = decodeType(input.decodeIntElement(descriptor, TYPE))
-            val valueSerializer = GeneratedDataComponentSerializers.serializer(type)
+            dataComponentType = decodeType(input.decodeIntElement(descriptor, TYPE))
+            val valueSerializer = GeneratedDataComponentSerializers.serializer(dataComponentType)
             @Suppress("UNCHECKED_CAST")
-            value = input.decodeSerializableElement(
+            dataComponent = input.decodeSerializableElement(
                 descriptor,
                 VALUE,
                 valueSerializer as DeserializationStrategy<DataComponent>,
@@ -1096,13 +1096,13 @@ internal abstract class DataComponentSerializerBase(
         } else {
             while (true) {
                 when (val index = input.decodeElementIndex(descriptor)) {
-                    TYPE -> type = decodeType(input.decodeIntElement(descriptor, TYPE))
+                    TYPE -> dataComponentType = decodeType(input.decodeIntElement(descriptor, TYPE))
                     VALUE -> {
-                        val actualType = type ?: throw SerializationException(
+                        val actualType = dataComponentType ?: throw SerializationException(
                             "Data component type must precede its value",
                         )
                         @Suppress("UNCHECKED_CAST")
-                        value = input.decodeSerializableElement(
+                        dataComponent = input.decodeSerializableElement(
                             descriptor,
                             VALUE,
                             GeneratedDataComponentSerializers.serializer(
@@ -1120,10 +1120,10 @@ internal abstract class DataComponentSerializerBase(
             }
         }
         input.endStructure(descriptor)
-        val result = value ?: throw SerializationException(
-            "Missing data component value for ${type?.wireName ?: "unknown type"}",
+        val result = dataComponent ?: throw SerializationException(
+            "Missing data component value for ${dataComponentType?.wireName ?: "unknown type"}",
         )
-        if (GeneratedDataComponentSerializers.type(result) != type) {
+        if (GeneratedDataComponentSerializers.type(result) != dataComponentType) {
             throw SerializationException("Data component type/value mismatch")
         }
         return result
@@ -1169,16 +1169,16 @@ internal abstract class DataComponentPatchSerializerBase(
         val output = encoder.beginStructure(descriptor)
         output.encodeIntElement(descriptor, ADDED_COUNT, normalized.added.size)
         output.encodeIntElement(descriptor, REMOVED_COUNT, normalized.removed.size)
-        normalized.added.forEach { component ->
+        normalized.added.forEach { dataComponent ->
             output.encodeSerializableElement(
                 descriptor,
                 ADDED,
                 componentSerializer,
-                component,
+                dataComponent,
             )
         }
-        normalized.removed.forEach { type ->
-            output.encodeIntElement(descriptor, REMOVED, type.protocolId)
+        normalized.removed.forEach { dataComponentType ->
+            output.encodeIntElement(descriptor, REMOVED, dataComponentType.protocolId)
         }
         output.endStructure(descriptor)
     }
@@ -1199,20 +1199,20 @@ internal abstract class DataComponentPatchSerializerBase(
         }
         val entries = linkedMapOf<DataComponentType, DataComponent?>()
         repeat(addedCount) {
-            val component = input.decodeSerializableElement(
+            val dataComponent = input.decodeSerializableElement(
                 descriptor,
                 ADDED,
                 componentSerializer,
             )
-            entries[componentType(component)] = component
+            entries[componentType(dataComponent)] = dataComponent
         }
         repeat(removedCount) {
             val protocolId = input.decodeIntElement(descriptor, REMOVED)
-            val type = DataComponentType.fromProtocolId(protocolId)
+            val dataComponentType = DataComponentType.fromProtocolId(protocolId)
                 ?: throw SerializationException(
                     "Unknown removed data component type ID $protocolId",
                 )
-            entries[type] = null
+            entries[dataComponentType] = null
         }
         input.endStructure(descriptor)
         return DataComponentPatch(

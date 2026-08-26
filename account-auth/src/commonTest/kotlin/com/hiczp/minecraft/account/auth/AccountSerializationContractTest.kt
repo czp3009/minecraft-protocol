@@ -70,7 +70,7 @@ class AccountSerializationContractTest {
 
     @Test
     fun publicJsonModelsExposeKotlinxSerializersAndWireFieldNames() {
-        val xboxRequest = XboxUserAuthenticationRequest(
+        val xboxUserAuthenticationRequest = XboxUserAuthenticationRequest(
             properties = XboxUserAuthenticationRequest.Properties(
                 authMethod = "RPS",
                 siteName = "user.auth.xboxlive.com",
@@ -80,7 +80,7 @@ class AccountSerializationContractTest {
             tokenType = "JWT",
         )
         val xboxJson = Json.parseToJsonElement(
-            Json.encodeToString(xboxRequest),
+            Json.encodeToString(xboxUserAuthenticationRequest),
         ).jsonObject
         assertEquals(
             "d=token",
@@ -92,9 +92,9 @@ class AccountSerializationContractTest {
             xboxJson.getValue("RelyingParty").jsonPrimitive.content,
         )
 
-        val minecraftRequest = MinecraftXboxLoginRequest("XBL3.0 x=uhs;token")
+        val minecraftXboxLoginRequest = MinecraftXboxLoginRequest("XBL3.0 x=uhs;token")
         val minecraftJson = Json.parseToJsonElement(
-            Json.encodeToString(minecraftRequest),
+            Json.encodeToString(minecraftXboxLoginRequest),
         ).jsonObject
         assertEquals(
             "XBL3.0 x=uhs;token",
@@ -104,18 +104,18 @@ class AccountSerializationContractTest {
 
     @Test
     fun responseModelsPreserveRawValuesWithoutSemanticValidation() {
-        val microsoft = Json.decodeFromString<MicrosoftTokenResponse>(
+        val microsoftTokenResponse = Json.decodeFromString<MicrosoftTokenResponse>(
             buildJsonObject {
                 put("token_type", "unexpected")
                 put("expires_in", Long.MAX_VALUE)
                 put("access_token", "")
             }.toString(),
         )
-        assertEquals("unexpected", microsoft.tokenType)
-        assertEquals(Long.MAX_VALUE, microsoft.expiresIn)
-        assertEquals("", microsoft.accessToken)
+        assertEquals("unexpected", microsoftTokenResponse.tokenType)
+        assertEquals(Long.MAX_VALUE, microsoftTokenResponse.expiresIn)
+        assertEquals("", microsoftTokenResponse.accessToken)
 
-        val xbox = Json.decodeFromString<XboxTokenResponse>(
+        val xboxTokenResponse = Json.decodeFromString<XboxTokenResponse>(
             buildJsonObject {
                 put("IssueInstant", "not-an-instant")
                 put("NotAfter", "also-not-an-instant")
@@ -126,11 +126,11 @@ class AccountSerializationContractTest {
                 )
             }.toString(),
         )
-        assertEquals("not-an-instant", xbox.issueInstant)
-        assertEquals("", xbox.token)
-        assertEquals(emptyList(), xbox.displayClaims.xui)
+        assertEquals("not-an-instant", xboxTokenResponse.issueInstant)
+        assertEquals("", xboxTokenResponse.token)
+        assertEquals(emptyList(), xboxTokenResponse.displayClaims.xui)
 
-        val profile = Json.decodeFromString<MinecraftProfileResponse>(
+        val minecraftProfileResponse = Json.decodeFromString<MinecraftProfileResponse>(
             buildJsonObject {
                 put("id", "not-a-uuid")
                 put("name", "")
@@ -150,24 +150,24 @@ class AccountSerializationContractTest {
                 put("capes", buildJsonArray {})
             }.toString(),
         )
-        assertEquals("not-a-uuid", profile.id)
-        assertEquals("relative", profile.skins.single().url)
+        assertEquals("not-a-uuid", minecraftProfileResponse.id)
+        assertEquals("relative", minecraftProfileResponse.skins.single().url)
     }
 
     @Test
     fun documentedOptionalFieldsRemainNullable() {
-        val token = Json.decodeFromString<MicrosoftTokenResponse>(
+        val microsoftTokenResponse = Json.decodeFromString<MicrosoftTokenResponse>(
             buildJsonObject {
                 put("token_type", "Bearer")
                 put("expires_in", 3600)
                 put("access_token", "token")
             }.toString(),
         )
-        assertNull(token.scope)
-        assertNull(token.extExpiresIn)
-        assertNull(token.refreshToken)
+        assertNull(microsoftTokenResponse.scope)
+        assertNull(microsoftTokenResponse.extExpiresIn)
+        assertNull(microsoftTokenResponse.refreshToken)
 
-        val entitlements = Json.decodeFromString<MinecraftEntitlementsResponse>(
+        val minecraftEntitlementsResponse = Json.decodeFromString<MinecraftEntitlementsResponse>(
             buildJsonObject {
                 put(
                     "items",
@@ -177,8 +177,8 @@ class AccountSerializationContractTest {
                 )
             }.toString(),
         )
-        assertNull(entitlements.items.single().signature)
-        assertNull(entitlements.signature)
-        assertNull(entitlements.keyId)
+        assertNull(minecraftEntitlementsResponse.items.single().signature)
+        assertNull(minecraftEntitlementsResponse.signature)
+        assertNull(minecraftEntitlementsResponse.keyId)
     }
 }

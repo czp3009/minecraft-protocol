@@ -26,27 +26,27 @@ import kotlinx.io.Sink as KotlinxSink
 import kotlinx.io.Source as KotlinxSource
 
 class LevelDataStore(
-    val paths: MinecraftWorldPaths,
-    val nbtFiles: NbtFileStore = NbtFileStore(),
+    val minecraftWorldPaths: MinecraftWorldPaths,
+    val nbtFileStore: NbtFileStore = NbtFileStore(),
 ) {
     init {
-        require(paths.root == paths.levelData.parent)
+        require(minecraftWorldPaths.root == minecraftWorldPaths.levelData.parent)
     }
 
-    fun readDocument(): NbtDocument = read(nbtFiles.nbt::decodeDocumentFromSource)
+    fun readDocument(): NbtDocument = read(nbtFileStore.nbtFormat::decodeDocumentFromSource)
 
-    fun <T> read(deserializer: DeserializationStrategy<T>): T =
-        read { source -> nbtFiles.nbt.decodeFromSource(deserializer, source) }
+    fun <T> read(deserializationStrategy: DeserializationStrategy<T>): T =
+        read { source -> nbtFileStore.nbtFormat.decodeFromSource(deserializationStrategy, source) }
 
     fun <T> read(block: (KotlinxSource) -> T): T {
         val primaryFailure = try {
-            return nbtFiles.read(paths.levelData, block = block)
+            return nbtFileStore.read(minecraftWorldPaths.levelData, block = block)
         } catch (failure: Throwable) {
             if (!failure.isRecoverableNbtReadFailure()) throw failure
             failure
         }
         val fallback = try {
-            nbtFiles.read(paths.previousLevelData, block = block)
+            nbtFileStore.read(minecraftWorldPaths.previousLevelData, block = block)
         } catch (fallbackFailure: Throwable) {
             if (!fallbackFailure.isRecoverableNbtReadFailure()) {
                 throw fallbackFailure
@@ -54,57 +54,57 @@ class LevelDataStore(
             primaryFailure.addSuppressed(fallbackFailure)
             throw primaryFailure
         }
-        if (!nbtFiles.liveReadOnly) promotePrevious(primaryFailure)
+        if (!nbtFileStore.liveReadOnly) promotePrevious(primaryFailure)
         return fallback
     }
 
     internal fun readDocumentForSharedAccess(): CoordinatedRead<NbtDocument> =
-        readForSharedAccess(nbtFiles.nbt::decodeDocumentFromSource)
+        readForSharedAccess(nbtFileStore.nbtFormat::decodeDocumentFromSource)
 
     internal fun <T> readForSharedAccess(
-        deserializer: DeserializationStrategy<T>,
-    ): CoordinatedRead<T> = readForSharedAccess { source -> nbtFiles.nbt.decodeFromSource(deserializer, source) }
+        deserializationStrategy: DeserializationStrategy<T>,
+    ): CoordinatedRead<T> = readForSharedAccess { source -> nbtFileStore.nbtFormat.decodeFromSource(deserializationStrategy, source) }
 
     internal fun <T> readForSharedAccess(block: (KotlinxSource) -> T): CoordinatedRead<T> = try {
-        CoordinatedRead.Complete(nbtFiles.read(paths.levelData, block = block))
+        CoordinatedRead.Complete(nbtFileStore.read(minecraftWorldPaths.levelData, block = block))
     } catch (failure: Throwable) {
         if (!failure.isRecoverableNbtReadFailure()) throw failure
         CoordinatedRead.RequiresExclusive
     }
 
-    fun writeDocument(document: NbtDocument) {
-        write { sink -> nbtFiles.nbt.encodeDocumentToSink(document, sink) }
+    fun writeDocument(nbtDocument: NbtDocument) {
+        write { sink -> nbtFileStore.nbtFormat.encodeDocumentToSink(nbtDocument, sink) }
     }
 
     fun <T> write(
-        serializer: SerializationStrategy<T>,
+        serializationStrategy: SerializationStrategy<T>,
         value: T,
-    ) = write { sink -> nbtFiles.nbt.encodeToSink(serializer, value, sink) }
+    ) = write { sink -> nbtFileStore.nbtFormat.encodeToSink(serializationStrategy, value, sink) }
 
     fun write(block: (KotlinxSink) -> Unit) {
-        val temporary = nbtFiles.writeSyncedTemporary(paths.root, block = block)
+        val temporary = nbtFileStore.writeSyncedTemporary(minecraftWorldPaths.root, block = block)
         try {
-            nbtFiles.fileSystem.replaceWithBackup(
+            nbtFileStore.fileSystem.replaceWithBackup(
                 temporary = temporary,
-                target = paths.levelData,
-                backup = paths.previousLevelData,
+                target = minecraftWorldPaths.levelData,
+                backup = minecraftWorldPaths.previousLevelData,
             )
         } catch (failure: Throwable) {
-            nbtFiles.fileSystem.deleteIfExistsPreserving(temporary, failure)
+            nbtFileStore.fileSystem.deleteIfExistsPreserving(temporary, failure)
             throw failure
         }
     }
 
     private fun promotePrevious(primaryFailure: Throwable) {
-        val fileSystem = nbtFiles.fileSystem
-        val corrupted = paths.root / temporaryFileName(
+        val fileSystem = nbtFileStore.fileSystem
+        val corrupted = minecraftWorldPaths.root / temporaryFileName(
             random = Random.nextLong().toULong(),
-            prefix = "${paths.levelData.name}_corrupted_",
+            prefix = "${minecraftWorldPaths.levelData.name}_corrupted_",
         )
         try {
             fileSystem.replaceWithoutRollback(
-                replacement = paths.previousLevelData,
-                target = paths.levelData,
+                replacement = minecraftWorldPaths.previousLevelData,
+                target = minecraftWorldPaths.levelData,
                 displaced = corrupted,
             )
         } catch (failure: Throwable) {
@@ -114,31 +114,31 @@ class LevelDataStore(
 }
 
 class PlayerDataStore(
-    val paths: MinecraftWorldPaths,
-    val nbtFiles: NbtFileStore = NbtFileStore(),
+    val minecraftWorldPaths: MinecraftWorldPaths,
+    val nbtFileStore: NbtFileStore = NbtFileStore(),
 ) {
     fun readDocument(playerUuid: String): NbtDocument? =
-        read(playerUuid, nbtFiles.nbt::decodeDocumentFromSource)
+        read(playerUuid, nbtFileStore.nbtFormat::decodeDocumentFromSource)
 
     fun <T> read(
         playerUuid: String,
-        deserializer: DeserializationStrategy<T>,
+        deserializationStrategy: DeserializationStrategy<T>,
     ): T? = read(playerUuid) { source ->
-        nbtFiles.nbt.decodeFromSource(deserializer, source)
+        nbtFileStore.nbtFormat.decodeFromSource(deserializationStrategy, source)
     }
 
     fun <T> read(playerUuid: String, block: (KotlinxSource) -> T): T? {
-        val primary = paths.playerData(playerUuid)
-        val previous = paths.previousPlayerData(playerUuid)
-        val primaryExists = nbtFiles.fileSystem.metadataOrNull(primary)?.isRegularFile == true
+        val primary = minecraftWorldPaths.playerData(playerUuid)
+        val previous = minecraftWorldPaths.previousPlayerData(playerUuid)
+        val primaryExists = nbtFileStore.fileSystem.metadataOrNull(primary)?.isRegularFile == true
         if (primaryExists) {
             val primaryFailure = try {
-                return nbtFiles.read(primary, block = block)
+                return nbtFileStore.read(primary, block = block)
             } catch (failure: Throwable) {
                 if (!failure.isRecoverableNbtReadFailure()) throw failure
                 failure
             }
-            if (!nbtFiles.liveReadOnly) {
+            if (!nbtFileStore.liveReadOnly) {
                 try {
                     copyCorrupted(primary)
                 } catch (copyFailure: Throwable) {
@@ -148,12 +148,12 @@ class PlayerDataStore(
             }
             return try {
                 if (
-                    nbtFiles.fileSystem.metadataOrNull(previous)
+                    nbtFileStore.fileSystem.metadataOrNull(previous)
                         ?.isRegularFile != true
                 ) {
                     throw primaryFailure
                 }
-                nbtFiles.read(previous, block = block)
+                nbtFileStore.read(previous, block = block)
             } catch (fallbackFailure: Throwable) {
                 if (!fallbackFailure.isRecoverableNbtReadFailure()) {
                     throw fallbackFailure
@@ -165,69 +165,69 @@ class PlayerDataStore(
             }
         }
         if (
-            nbtFiles.fileSystem.metadataOrNull(previous)
+            nbtFileStore.fileSystem.metadataOrNull(previous)
                 ?.isRegularFile != true
         ) {
             return null
         }
-        return nbtFiles.read(previous, block = block)
+        return nbtFileStore.read(previous, block = block)
     }
 
     internal fun readDocumentForSharedAccess(playerUuid: String): CoordinatedRead<NbtDocument?> =
-        readForSharedAccess(playerUuid, nbtFiles.nbt::decodeDocumentFromSource)
+        readForSharedAccess(playerUuid, nbtFileStore.nbtFormat::decodeDocumentFromSource)
 
     internal fun <T> readForSharedAccess(
         playerUuid: String,
         block: (KotlinxSource) -> T,
     ): CoordinatedRead<T?> {
-        val primary = paths.playerData(playerUuid)
-        val previous = paths.previousPlayerData(playerUuid)
-        if (nbtFiles.fileSystem.metadataOrNull(primary)?.isRegularFile == true) {
+        val primary = minecraftWorldPaths.playerData(playerUuid)
+        val previous = minecraftWorldPaths.previousPlayerData(playerUuid)
+        if (nbtFileStore.fileSystem.metadataOrNull(primary)?.isRegularFile == true) {
             return try {
-                CoordinatedRead.Complete(nbtFiles.read(primary, block = block))
+                CoordinatedRead.Complete(nbtFileStore.read(primary, block = block))
             } catch (failure: Throwable) {
                 if (!failure.isRecoverableNbtReadFailure()) throw failure
                 CoordinatedRead.RequiresExclusive
             }
         }
-        if (nbtFiles.fileSystem.metadataOrNull(previous)?.isRegularFile != true) {
+        if (nbtFileStore.fileSystem.metadataOrNull(previous)?.isRegularFile != true) {
             return CoordinatedRead.Complete(null)
         }
-        return CoordinatedRead.Complete(nbtFiles.read(previous, block = block))
+        return CoordinatedRead.Complete(nbtFileStore.read(previous, block = block))
     }
 
-    fun writeDocument(playerUuid: String, document: NbtDocument) {
-        write(playerUuid) { sink -> nbtFiles.nbt.encodeDocumentToSink(document, sink) }
+    fun writeDocument(playerUuid: String, nbtDocument: NbtDocument) {
+        write(playerUuid) { sink -> nbtFileStore.nbtFormat.encodeDocumentToSink(nbtDocument, sink) }
     }
 
     fun <T> write(
         playerUuid: String,
-        serializer: SerializationStrategy<T>,
+        serializationStrategy: SerializationStrategy<T>,
         value: T,
     ) = write(playerUuid) { sink ->
-        nbtFiles.nbt.encodeToSink(serializer, value, sink)
+        nbtFileStore.nbtFormat.encodeToSink(serializationStrategy, value, sink)
     }
 
     fun write(playerUuid: String, block: (KotlinxSink) -> Unit) {
-        val target = paths.playerData(playerUuid)
+        val target = minecraftWorldPaths.playerData(playerUuid)
         val parent = checkNotNull(target.parent)
-        val temporary = nbtFiles.writeSyncedTemporary(parent, block = block)
+        val temporary = nbtFileStore.writeSyncedTemporary(parent, block = block)
         try {
-            nbtFiles.fileSystem.replaceWithBackup(
+            nbtFileStore.fileSystem.replaceWithBackup(
                 temporary = temporary,
                 target = target,
-                backup = paths.previousPlayerData(playerUuid),
+                backup = minecraftWorldPaths.previousPlayerData(playerUuid),
             )
         } catch (failure: Throwable) {
-            nbtFiles.fileSystem.deleteIfExistsPreserving(temporary, failure)
+            nbtFileStore.fileSystem.deleteIfExistsPreserving(temporary, failure)
             throw failure
         }
     }
 
     private fun copyCorrupted(primary: Path) {
-        val fileSystem = nbtFiles.fileSystem
+        val fileSystem = nbtFileStore.fileSystem
         val parent = checkNotNull(primary.parent)
-        var temporary: TemporaryFileSink? = null
+        var temporaryFileSink: TemporaryFileSink? = null
         try {
             val source = fileSystem.source(primary)
             useResource(source, { it.close() }) {
@@ -235,14 +235,14 @@ class PlayerDataStore(
                     directory = parent,
                     prefix = "${primary.name}_corrupted_",
                 )
-                temporary = destination
-                val sink = destination.sink.buffer()
-                useResource(sink, { it.close() }) {
-                    sink.writeAll(source)
+                temporaryFileSink = destination
+                val bufferedSink = destination.sink.buffer()
+                useResource(bufferedSink, { it.close() }) {
+                    bufferedSink.writeAll(source)
                 }
             }
         } catch (failure: Throwable) {
-            temporary?.let { opened ->
+            temporaryFileSink?.let { opened ->
                 fileSystem.deleteIfExistsPreserving(opened.path, failure)
             }
             throw failure
@@ -251,52 +251,52 @@ class PlayerDataStore(
 }
 
 class SavedDataFileStore(
-    val paths: MinecraftWorldPaths,
-    val dimension: DimensionDirectory = DimensionDirectory.Overworld,
-    val nbtFiles: NbtFileStore = NbtFileStore(),
+    val minecraftWorldPaths: MinecraftWorldPaths,
+    val dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
+    val nbtFileStore: NbtFileStore = NbtFileStore(),
 ) {
     fun readDocument(identifier: String): NbtDocument? =
-        read(identifier, nbtFiles.nbt::decodeDocumentFromSource)
+        read(identifier, nbtFileStore.nbtFormat::decodeDocumentFromSource)
 
     fun <T> read(
         identifier: String,
-        deserializer: DeserializationStrategy<T>,
+        deserializationStrategy: DeserializationStrategy<T>,
     ): T? = read(identifier) { source ->
-        nbtFiles.nbt.decodeFromSource(deserializer, source)
+        nbtFileStore.nbtFormat.decodeFromSource(deserializationStrategy, source)
     }
 
     fun <T> read(identifier: String, block: (KotlinxSource) -> T): T? {
-        val path = paths.savedData(identifier, dimension)
-        if (nbtFiles.fileSystem.metadataOrNull(path)?.isRegularFile != true) {
+        val path = minecraftWorldPaths.savedData(identifier, dimensionDirectory)
+        if (nbtFileStore.fileSystem.metadataOrNull(path)?.isRegularFile != true) {
             return null
         }
         val compression = detectSavedDataCompression(path)
-        return nbtFiles.read(path, compression, block)
+        return nbtFileStore.read(path, compression, block)
     }
 
-    fun writeDocument(identifier: String, document: NbtDocument) {
-        write(identifier) { sink -> nbtFiles.nbt.encodeDocumentToSink(document, sink) }
+    fun writeDocument(identifier: String, nbtDocument: NbtDocument) {
+        write(identifier) { sink -> nbtFileStore.nbtFormat.encodeDocumentToSink(nbtDocument, sink) }
     }
 
     fun <T> write(
         identifier: String,
-        serializer: SerializationStrategy<T>,
+        serializationStrategy: SerializationStrategy<T>,
         value: T,
     ) = write(identifier) { sink ->
-        nbtFiles.nbt.encodeToSink(serializer, value, sink)
+        nbtFileStore.nbtFormat.encodeToSink(serializationStrategy, value, sink)
     }
 
     fun write(identifier: String, block: (KotlinxSink) -> Unit) {
-        nbtFiles.write(paths.savedData(identifier, dimension), block = block)
+        nbtFileStore.write(minecraftWorldPaths.savedData(identifier, dimensionDirectory), block = block)
     }
 
     private fun detectSavedDataCompression(path: Path): Compression {
-        val source = nbtFiles.openSource(path).buffer()
-        return useResource(source, { it.close() }) {
+        val bufferedSource = nbtFileStore.openSource(path).buffer()
+        return useResource(bufferedSource, { it.close() }) {
             if (
-                source.request(2L) &&
-                source.buffer[0L] == GZIP_MAGIC_FIRST &&
-                source.buffer[1L] == GZIP_MAGIC_SECOND
+                bufferedSource.request(2L) &&
+                bufferedSource.buffer[0L] == GZIP_MAGIC_FIRST &&
+                bufferedSource.buffer[1L] == GZIP_MAGIC_SECOND
             ) {
                 Compression.GZIP
             } else {
@@ -306,21 +306,21 @@ class SavedDataFileStore(
     }
 }
 
-class Utf8JsonFileStore internal constructor(internal val files: WorldFileAccess) {
+class Utf8JsonFileStore internal constructor(internal val worldFileAccess: WorldFileAccess) {
     constructor(fileSystem: FileSystem = systemFileSystem) : this(
-        files = WorldFileAccess.mutable(fileSystem),
+        worldFileAccess = WorldFileAccess.mutable(fileSystem),
     )
 
     val fileSystem: FileSystem
-        get() = files.fileSystem
+        get() = worldFileAccess.fileSystem
 
     fun readText(path: Path): String = read(path) { source -> source.readString() }
 
     /** Lends the UTF-8 file source for the duration of [block]. */
     fun <T> read(path: Path, block: (KotlinxSource) -> T): T =
-        files.readFile(path) { source, _ ->
+        worldFileAccess.readFile(path) { bufferedSource, _ ->
             withOkioIoExceptions("Cannot read UTF-8 file $path") {
-                block(source.asKotlinxIoRawSource().buffered())
+                block(bufferedSource.asKotlinxIoRawSource().buffered())
             }
         }
 
@@ -329,15 +329,15 @@ class Utf8JsonFileStore internal constructor(internal val files: WorldFileAccess
 
     fun <T> readJson(
         path: Path,
-        deserializer: DeserializationStrategy<T>,
+        deserializationStrategy: DeserializationStrategy<T>,
         json: Json = Json,
-    ): T = read(path) { source -> json.decodeFromSource(deserializer, source) }
+    ): T = read(path) { source -> json.decodeFromSource(deserializationStrategy, source) }
 
     fun writeText(path: Path, text: String) = write(path) { sink -> sink.writeString(text) }
 
     /** Directly truncates and streams the final file. */
     fun write(path: Path, block: (KotlinxSink) -> Unit) {
-        files.requireWritable()
+        worldFileAccess.requireWritable()
         val parent = path.parent
             ?: throw WorldIOException("File has no parent directory: $path")
         fileSystem.createDirectories(parent)
@@ -350,15 +350,15 @@ class Utf8JsonFileStore internal constructor(internal val files: WorldFileAccess
         }
     }
 
-    fun writeJson(path: Path, element: JsonElement, json: Json = Json) =
-        writeJson(path, JsonElement.serializer(), element, json)
+    fun writeJson(path: Path, jsonElement: JsonElement, json: Json = Json) =
+        writeJson(path, JsonElement.serializer(), jsonElement, json)
 
     fun <T> writeJson(
         path: Path,
-        serializer: SerializationStrategy<T>,
+        serializationStrategy: SerializationStrategy<T>,
         value: T,
         json: Json = Json,
-    ) = write(path) { sink -> json.encodeToSink(serializer, value, sink) }
+    ) = write(path) { sink -> json.encodeToSink(serializationStrategy, value, sink) }
 }
 
 private fun Throwable.isRecoverableNbtReadFailure(): Boolean {

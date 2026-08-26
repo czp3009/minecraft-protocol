@@ -11,19 +11,19 @@ import kotlinx.serialization.json.*
 import kotlin.test.*
 
 class StructuredWorldFilesTest {
-    private val nbt = NbtFormat(
-        NbtFormatConfiguration(rootEncoding = NbtRootEncoding.UNNAMED),
+    private val nbtFormat = NbtFormat(
+        NbtFormatConfiguration(nbtRootEncoding = NbtRootEncoding.UNNAMED),
     )
 
     @Test
     fun levelDatUsesTheSelectedReleaseNbtShape() {
         val expected = sampleLevelDat()
-        val bytes = nbt.encodeToByteArray(expected)
-        val actual = nbt.decodeFromByteArray<LevelDat>(bytes)
+        val byteArray = nbtFormat.encodeToByteArray(expected)
+        val actual = nbtFormat.decodeFromByteArray<LevelDat>(byteArray)
 
         assertEquals(expected, actual)
         assertEquals(expected.hashCode(), actual.hashCode())
-        val root = assertIs<NbtCompound>(nbt.encodeToNbtTag(expected))
+        val root = assertIs<NbtCompound>(nbtFormat.encodeToNbtTag(expected))
         val data = assertIs<NbtCompound>(root["Data"])
         assertIs<NbtIntArray>(assertIs<NbtCompound>(data["spawn"])["pos"])
         assertFalse("enabled_features" in data.value)
@@ -34,28 +34,28 @@ class StructuredWorldFilesTest {
 
     @Test
     fun levelDatRoundTripsEveryConditionalSelectedReleaseField() {
-        val expected = sampleLevelDat().let { level ->
-            level.copy(
-                data = level.data.copy(
+        val expected = sampleLevelDat().let { levelDat ->
+            levelDat.copy(
+                data = levelDat.data.copy(
                     enabledFeatures = listOf("minecraft:vanilla", "example:feature"),
                     removedFeatures = listOf("example:removed_feature"),
                     singleplayerUuid = NbtIntArray(intArrayOf(1, 2, 3, 4)),
                 ),
             )
         }
-        val tag = assertIs<NbtCompound>(nbt.encodeToNbtTag(expected))
-        val data = assertIs<NbtCompound>(tag["Data"])
+        val nbtCompound = assertIs<NbtCompound>(nbtFormat.encodeToNbtTag(expected))
+        val data = assertIs<NbtCompound>(nbtCompound["Data"])
 
         assertTrue("enabled_features" in data.value)
         assertTrue("removed_features" in data.value)
         assertIs<NbtIntArray>(data["singleplayer_uuid"])
-        assertEquals(expected, nbt.decodeFromNbtTag<LevelDat>(tag))
+        assertEquals(expected, nbtFormat.decodeFromNbtTag<LevelDat>(nbtCompound))
     }
 
     @Test
     fun levelDatRequiresEveryUnconditionalOfficialField() {
         val encoded = assertIs<NbtCompound>(
-            nbt.encodeToNbtTag(sampleLevelDat()),
+            nbtFormat.encodeToNbtTag(sampleLevelDat()),
         )
         val data = assertIs<NbtCompound>(encoded["Data"])
         val requiredDataFields = setOf(
@@ -76,40 +76,40 @@ class StructuredWorldFilesTest {
 
         requiredDataFields.forEach { field ->
             assertFailsWith<SerializationException>("Missing Data.$field must fail") {
-                nbt.decodeFromNbtTag<LevelDat>(
+                nbtFormat.decodeFromNbtTag<LevelDat>(
                     NbtCompound(encoded.value + ("Data" to NbtCompound(data.value - field))),
                 )
             }
         }
-        assertRequiredNestedFieldsFail(nbt, encoded, data, "Version", setOf("Id", "Name", "Series", "Snapshot"))
+        assertRequiredNestedFieldsFail(nbtFormat, encoded, data, "Version", setOf("Id", "Name", "Series", "Snapshot"))
         assertRequiredNestedFieldsFail(
-            nbt,
+            nbtFormat,
             encoded,
             data,
             "difficulty_settings",
             setOf("difficulty", "hardcore", "locked"),
         )
         assertRequiredNestedFieldsFail(
-            nbt,
+            nbtFormat,
             encoded,
             data,
             "spawn",
             setOf("dimension", "pos", "yaw", "pitch"),
         )
-        assertRequiredNestedFieldsFail(nbt, encoded, data, "DataPacks", setOf("Enabled", "Disabled"))
+        assertRequiredNestedFieldsFail(nbtFormat, encoded, data, "DataPacks", setOf("Enabled", "Disabled"))
 
         val withUnknownData = NbtCompound(
             encoded.value + ("Data" to NbtCompound(data.value + ("future" to NbtInt(1)))),
         )
 
         assertFailsWith<SerializationException> {
-            nbt.decodeFromNbtTag<LevelDat>(NbtCompound(encoded.value - "Data"))
+            nbtFormat.decodeFromNbtTag<LevelDat>(NbtCompound(encoded.value - "Data"))
         }
         assertFailsWith<SerializationException> {
-            nbt.decodeFromNbtTag<LevelDat>(withUnknownData)
+            nbtFormat.decodeFromNbtTag<LevelDat>(withUnknownData)
         }
         assertFailsWith<SerializationException> {
-            nbt.decodeFromNbtTag<LevelDat>(NbtInt(1))
+            nbtFormat.decodeFromNbtTag<LevelDat>(NbtInt(1))
         }
     }
 
@@ -213,7 +213,7 @@ class StructuredWorldFilesTest {
 }
 
 private fun assertRequiredNestedFieldsFail(
-    nbt: NbtFormat,
+    nbtFormat: NbtFormat,
     root: NbtCompound,
     data: NbtCompound,
     structureName: String,
@@ -226,7 +226,7 @@ private fun assertRequiredNestedFieldsFail(
         )
         val withoutField = NbtCompound(root.value + ("Data" to updatedData))
         assertFailsWith<SerializationException>("Missing Data.$structureName.$field must fail") {
-            nbt.decodeFromNbtTag<LevelDat>(withoutField)
+            nbtFormat.decodeFromNbtTag<LevelDat>(withoutField)
         }
     }
 }

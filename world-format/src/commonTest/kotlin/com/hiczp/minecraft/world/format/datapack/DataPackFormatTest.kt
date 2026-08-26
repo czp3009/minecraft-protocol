@@ -146,12 +146,12 @@ class DataPackFormatTest {
         assertContains(failure.message.orEmpty(), dataPackFilePath.value)
         assertContains(failure.message.orEmpty(), dataPackId.value)
 
-        val cancellation = CancellationException("cancelled")
+        val cancellationException = CancellationException("cancelled")
         val thrown = assertFailsWith<CancellationException> {
-            DataPackFormat(dataPackFileDecoders = listOf(DataPackFileDecoder { _, _, _ -> throw cancellation }))
+            DataPackFormat(dataPackFileDecoders = listOf(DataPackFileDecoder { _, _, _ -> throw cancellationException }))
                 .decode(dataPackId, sequenceOf(dataPackFilePath to dataPackFileBytes))
         }
-        assertSame(cancellation, thrown)
+        assertSame(cancellationException, thrown)
     }
 
     @Test
@@ -271,8 +271,8 @@ class DataPackFormatTest {
         put("values", buildJsonArray { add(value) })
     }
 
-    private fun jsonBytes(element: JsonElement): ByteArray =
-        Json.encodeToString(element).encodeToByteArray()
+    private fun jsonBytes(jsonElement: JsonElement): ByteArray =
+        Json.encodeToString(jsonElement).encodeToByteArray()
 
     private data class ModFile(
         val dataPackId: DataPackId,

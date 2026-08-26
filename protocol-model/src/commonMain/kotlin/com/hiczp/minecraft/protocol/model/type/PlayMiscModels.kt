@@ -142,7 +142,7 @@ internal object StopSoundSerializer : KSerializer<StopSound> {
         val input = decoder.beginStructure(descriptor)
         if (input.decodeSequentially()) {
             val flags = input.decodeByteElement(descriptor, FLAGS).toInt()
-            val source = if (flags and HAS_SOURCE != 0) {
+            val soundSource = if (flags and HAS_SOURCE != 0) {
                 input.decodeSerializableElement(
                     descriptor,
                     SOURCE,
@@ -161,18 +161,18 @@ internal object StopSoundSerializer : KSerializer<StopSound> {
                 null
             }
             input.endStructure(descriptor)
-            return StopSound(source, sound)
+            return StopSound(soundSource, sound)
         }
 
         var flags: Int? = null
-        var source: SoundSource? = null
+        var soundSource: SoundSource? = null
         var sound: Identifier? = null
         while (true) {
             when (val index = input.decodeElementIndex(descriptor)) {
                 FLAGS -> flags =
                     input.decodeByteElement(descriptor, FLAGS).toInt()
 
-                SOURCE -> source = input.decodeSerializableElement(
+                SOURCE -> soundSource = input.decodeSerializableElement(
                     descriptor,
                     SOURCE,
                     SoundSource.serializer(),
@@ -194,14 +194,14 @@ internal object StopSoundSerializer : KSerializer<StopSound> {
         val actualFlags = flags ?: throw SerializationException(
             "Missing StopSound flags",
         )
-        if (actualFlags and HAS_SOURCE != 0 && source == null) {
+        if (actualFlags and HAS_SOURCE != 0 && soundSource == null) {
             throw SerializationException("Missing StopSound source")
         }
         if (actualFlags and HAS_SOUND != 0 && sound == null) {
             throw SerializationException("Missing StopSound identifier")
         }
         return StopSound(
-            source = source.takeIf { actualFlags and HAS_SOURCE != 0 },
+            source = soundSource.takeIf { actualFlags and HAS_SOURCE != 0 },
             sound = sound.takeIf { actualFlags and HAS_SOUND != 0 },
         )
     }

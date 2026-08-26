@@ -17,13 +17,13 @@ class MinecraftFriendsApi(
         accessToken: String,
         etag: String? = null,
     ): MinecraftConditionalResponse<MinecraftFriendsListResponse> {
-        val response = httpClient.get(MINECRAFT_FRIENDS_ENDPOINT) {
+        val httpResponse = httpClient.get(MINECRAFT_FRIENDS_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
             bearerAuth(accessToken)
             etag?.let { header(HttpHeaders.IfNoneMatch, it) }
         }
-        return response.decodeConditionalServiceResponse<
+        return httpResponse.decodeConditionalServiceResponse<
                 MinecraftFriendsListResponse,
                 MinecraftFriendsErrorResponse
                 >(etag, ::MinecraftFriendsResponseException)
@@ -31,16 +31,16 @@ class MinecraftFriendsApi(
 
     suspend fun updateFriend(
         accessToken: String,
-        request: MinecraftFriendActionRequest,
+        minecraftFriendActionRequest: MinecraftFriendActionRequest,
     ): MinecraftFriendsListResponse? {
-        val response = httpClient.put(MINECRAFT_FRIENDS_ENDPOINT) {
+        val httpResponse = httpClient.put(MINECRAFT_FRIENDS_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
             bearerAuth(accessToken)
             contentType(ContentType.Application.Json)
-            setBody(MinecraftServiceJson.encodeToString(request))
+            setBody(MinecraftServiceJson.encodeToString(minecraftFriendActionRequest))
         }
-        return response.decodeOptionalServiceResponse<
+        return httpResponse.decodeOptionalServiceResponse<
                 MinecraftFriendsListResponse,
                 MinecraftFriendsErrorResponse
                 >(::MinecraftFriendsResponseException)
@@ -48,18 +48,18 @@ class MinecraftFriendsApi(
 
     suspend fun updatePresence(
         accessToken: String,
-        request: MinecraftPresenceRequest,
+        minecraftPresenceRequest: MinecraftPresenceRequest,
         etag: String? = null,
     ): MinecraftConditionalResponse<MinecraftPresenceResponse> {
-        val response = httpClient.post(MINECRAFT_PRESENCE_ENDPOINT) {
+        val httpResponse = httpClient.post(MINECRAFT_PRESENCE_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
             bearerAuth(accessToken)
             etag?.let { header(HttpHeaders.IfNoneMatch, it) }
             contentType(ContentType.Application.Json)
-            setBody(MinecraftServiceJson.encodeToString(request))
+            setBody(MinecraftServiceJson.encodeToString(minecraftPresenceRequest))
         }
-        return response.decodeConditionalServiceResponse<
+        return httpResponse.decodeConditionalServiceResponse<
                 MinecraftPresenceResponse,
                 MinecraftFriendsErrorResponse
                 >(etag, ::MinecraftFriendsResponseException)
@@ -79,18 +79,18 @@ data class MinecraftFriendActionRequest(
     companion object {
         fun byName(
             name: String,
-            updateType: MinecraftFriendUpdateType,
+            minecraftFriendUpdateType: MinecraftFriendUpdateType,
         ): MinecraftFriendActionRequest = MinecraftFriendActionRequest(
             name = name,
-            updateType = updateType,
+            updateType = minecraftFriendUpdateType,
         )
 
         fun byProfileId(
             profileId: Uuid,
-            updateType: MinecraftFriendUpdateType,
+            minecraftFriendUpdateType: MinecraftFriendUpdateType,
         ): MinecraftFriendActionRequest = MinecraftFriendActionRequest(
             profileId = profileId.toHexString(),
-            updateType = updateType,
+            updateType = minecraftFriendUpdateType,
         )
     }
 }
@@ -151,26 +151,26 @@ data class MinecraftFriendsErrorResponse(
 )
 
 open class MinecraftFriendsResponseException(
-    response: HttpResponse,
+    httpResponse: HttpResponse,
     val responseBody: String,
     val parsedErrorBody: MinecraftFriendsErrorResponse,
-) : ResponseException(response, responseBody)
+) : ResponseException(httpResponse, responseBody)
 
 suspend fun MinecraftFriendsApi.fetchFriends(
-    identity: MinecraftOnlineIdentity,
+    minecraftOnlineIdentity: MinecraftOnlineIdentity,
     etag: String? = null,
-): MinecraftConditionalResponse<MinecraftFriendsListResponse> = fetchFriends(identity.accessToken, etag)
+): MinecraftConditionalResponse<MinecraftFriendsListResponse> = fetchFriends(minecraftOnlineIdentity.accessToken, etag)
 
 suspend fun MinecraftFriendsApi.updateFriend(
-    identity: MinecraftOnlineIdentity,
-    request: MinecraftFriendActionRequest,
-): MinecraftFriendsListResponse? = updateFriend(identity.accessToken, request)
+    minecraftOnlineIdentity: MinecraftOnlineIdentity,
+    minecraftFriendActionRequest: MinecraftFriendActionRequest,
+): MinecraftFriendsListResponse? = updateFriend(minecraftOnlineIdentity.accessToken, minecraftFriendActionRequest)
 
 suspend fun MinecraftFriendsApi.updatePresence(
-    identity: MinecraftOnlineIdentity,
-    request: MinecraftPresenceRequest,
+    minecraftOnlineIdentity: MinecraftOnlineIdentity,
+    minecraftPresenceRequest: MinecraftPresenceRequest,
     etag: String? = null,
-): MinecraftConditionalResponse<MinecraftPresenceResponse> = updatePresence(identity.accessToken, request, etag)
+): MinecraftConditionalResponse<MinecraftPresenceResponse> = updatePresence(minecraftOnlineIdentity.accessToken, minecraftPresenceRequest, etag)
 
 private val MINECRAFT_FRIENDS_ENDPOINT = Url("https://api.minecraftservices.com/friends")
 private val MINECRAFT_PRESENCE_ENDPOINT = Url("https://api.minecraftservices.com/presence")

@@ -599,7 +599,7 @@ internal object EntityDataValueSerializer : KSerializer<EntityDataValue> {
 
     override fun deserialize(decoder: Decoder): EntityDataValue {
         val input = decoder.beginStructure(descriptor)
-        val value = when (val type = input.decodeIntElement(descriptor, SERIALIZER_ID)) {
+        val entityDataValue = when (val type = input.decodeIntElement(descriptor, SERIALIZER_ID)) {
             0 -> EntityDataValue.ByteValue(
                 input.decodeByteElement(descriptor, BYTE),
             )
@@ -754,7 +754,7 @@ internal object EntityDataValueSerializer : KSerializer<EntityDataValue> {
             )
         }
         input.endStructure(descriptor)
-        return value
+        return entityDataValue
     }
 
     private inline fun CompositeEncoder.primitive(
@@ -769,40 +769,40 @@ internal object EntityDataValueSerializer : KSerializer<EntityDataValue> {
     private fun <T> CompositeEncoder.serializable(
         serializerId: Int,
         index: Int,
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
         value: T,
     ) {
         encodeIntElement(descriptor, SERIALIZER_ID, serializerId)
-        encodeSerializableElement(descriptor, index, serializer, value)
+        encodeSerializableElement(descriptor, index, kSerializer, value)
     }
 
     private fun <T : Any> CompositeEncoder.nullable(
         serializerId: Int,
         index: Int,
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
         value: T?,
     ) {
         encodeIntElement(descriptor, SERIALIZER_ID, serializerId)
         encodeNullableSerializableElement(
             descriptor,
             index,
-            serializer,
+            kSerializer,
             value,
         )
     }
 
     private fun <T> CompositeDecoder.serializable(
         index: Int,
-        serializer: KSerializer<T>,
-    ): T = decodeSerializableElement(descriptor, index, serializer)
+        kSerializer: KSerializer<T>,
+    ): T = decodeSerializableElement(descriptor, index, kSerializer)
 
     private fun <T : Any> CompositeDecoder.nullable(
         index: Int,
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
     ): T? = decodeNullableSerializableElement(
         descriptor,
         index,
-        serializer.nullable,
+        kSerializer.nullable,
     )
 
     private val EntityVariantRegistry.serializerId: Int

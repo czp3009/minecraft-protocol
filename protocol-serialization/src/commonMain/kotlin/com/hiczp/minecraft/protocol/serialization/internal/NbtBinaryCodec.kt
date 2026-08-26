@@ -15,16 +15,16 @@ import kotlinx.io.buffered
  * [kotlinx.serialization.SerializationException] hierarchy without wrapping.
  */
 internal object NbtBinaryCodec {
-    fun writeAny(writer: MinecraftWriter, tag: NbtTag) {
-        NbtFormat.encodeAnyTagToSink(tag, writer)
+    fun writeAny(minecraftWriter: MinecraftWriter, nbtTag: NbtTag) {
+        NbtFormat.encodeAnyTagToSink(nbtTag, minecraftWriter)
     }
 
-    fun readAny(reader: MinecraftReader): NbtTag {
-        val counting = OneByteCountingSource(reader.peekSource())
-        val source = counting.buffered()
-        val tag = NbtFormat.decodeAnyTagFromSource(source)
-        reader.skip(counting.bytesRead)
-        return tag
+    fun readAny(minecraftReader: MinecraftReader): NbtTag {
+        val oneByteCountingSource = OneByteCountingSource(minecraftReader.peekSource())
+        val source = oneByteCountingSource.buffered()
+        val nbtTag = NbtFormat.decodeAnyTagFromSource(source)
+        minecraftReader.skip(oneByteCountingSource.bytesRead)
+        return nbtTag
     }
 }
 

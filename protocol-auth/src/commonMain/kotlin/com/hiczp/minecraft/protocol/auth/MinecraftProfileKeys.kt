@@ -10,41 +10,41 @@ import kotlin.uuid.Uuid
 
 /** A parsed RSA profile public key. Parsing does not imply that its Mojang credential was trusted. */
 class MinecraftProfilePublicKey(
-    val data: ProfilePublicKeyData,
+    val profilePublicKeyData: ProfilePublicKeyData,
 ) {
-    internal val rsaPublicKey = mapCryptographyFailure("Cannot decode the Minecraft profile public key") {
+    internal val minecraftRsaPublicKey = mapCryptographyFailure("Cannot decode the Minecraft profile public key") {
         PlatformMinecraftRsaBackend.decodePublicKey(
-            encodedPublicKey = data.encodedKey.toByteArray(),
-            signatureAlgorithm = MinecraftRsaSignatureAlgorithm.SHA256,
+            encodedPublicKey = profilePublicKeyData.encodedKey.toByteArray(),
+            minecraftRsaSignatureAlgorithm = MinecraftRsaSignatureAlgorithm.SHA256,
         )
     }
 
     val encodedKey: ByteArray
-        get() = data.encodedKey.toByteArray()
+        get() = profilePublicKeyData.encodedKey.toByteArray()
 
-    fun hasExpiredAt(epochMillis: Long): Boolean = data.expiresAtEpochMillis < epochMillis
+    fun hasExpiredAt(epochMillis: Long): Boolean = profilePublicKeyData.expiresAtEpochMillis < epochMillis
 }
 
 /** A caller-owned player key pair obtained from Minecraft Services or imported from equivalent DER material. */
 class MinecraftProfileKeyPair private constructor(
-    internal val rsaPrivateKey: MinecraftRsaPrivateKey,
-    val publicKey: MinecraftProfilePublicKey,
+    internal val minecraftRsaPrivateKey: MinecraftRsaPrivateKey,
+    val minecraftProfilePublicKey: MinecraftProfilePublicKey,
     val refreshedAfterEpochMillis: Long,
 ) {
     constructor(
         encodedPrivateKey: ByteArray,
-        publicKeyData: ProfilePublicKeyData,
+        profilePublicKeyData: ProfilePublicKeyData,
         refreshedAfterEpochMillis: Long,
     ) : this(
-        rsaPrivateKey = mapCryptographyFailure("Cannot decode the Minecraft profile private key") {
+        minecraftRsaPrivateKey = mapCryptographyFailure("Cannot decode the Minecraft profile private key") {
             PlatformMinecraftRsaBackend.decodePrivateKey(encodedPrivateKey.copyOf())
         },
-        publicKey = MinecraftProfilePublicKey(publicKeyData),
+        minecraftProfilePublicKey = MinecraftProfilePublicKey(profilePublicKeyData),
         refreshedAfterEpochMillis = refreshedAfterEpochMillis,
     )
 
-    val publicKeyData: ProfilePublicKeyData
-        get() = publicKey.data
+    val profilePublicKeyData: ProfilePublicKeyData
+        get() = minecraftProfilePublicKey.profilePublicKeyData
 
     fun needsRefreshAt(epochMillis: Long): Boolean = refreshedAfterEpochMillis < epochMillis
 }
@@ -54,10 +54,10 @@ class MinecraftServicesPublicKey(
     encodedPublicKey: ByteArray,
 ) {
     private val encoded = encodedPublicKey.copyOf()
-    internal val rsaPublicKey = mapCryptographyFailure("Cannot decode a Minecraft Services public key") {
+    internal val minecraftRsaPublicKey = mapCryptographyFailure("Cannot decode a Minecraft Services public key") {
         PlatformMinecraftRsaBackend.decodePublicKey(
             encodedPublicKey = encoded,
-            signatureAlgorithm = MinecraftRsaSignatureAlgorithm.SHA1,
+            minecraftRsaSignatureAlgorithm = MinecraftRsaSignatureAlgorithm.SHA1,
         )
     }
 
@@ -74,9 +74,9 @@ class MinecraftServicesPublicKeySet(
 
     fun verifyProfilePublicKey(
         profileId: Uuid,
-        publicKeyData: ProfilePublicKeyData,
+        profilePublicKeyData: ProfilePublicKeyData,
     ): Boolean = playerCertificateKeys.any { key ->
-        MinecraftProfileKeySignatures.verify(key, profileId, publicKeyData)
+        MinecraftProfileKeySignatures.verify(key, profileId, profilePublicKeyData)
     }
 }
 
@@ -84,22 +84,22 @@ class MinecraftServicesPublicKeySet(
 object MinecraftProfileKeySignatures {
     fun signedPayload(
         profileId: Uuid,
-        publicKeyData: ProfilePublicKeyData,
+        profilePublicKeyData: ProfilePublicKeyData,
     ): ByteArray = Buffer().apply {
         write(profileId.toByteArray())
-        writeLong(publicKeyData.expiresAtEpochMillis)
-        write(publicKeyData.encodedKey.toByteArray())
+        writeLong(profilePublicKeyData.expiresAtEpochMillis)
+        write(profilePublicKeyData.encodedKey.toByteArray())
     }.readByteArray()
 
     fun verify(
-        servicesPublicKey: MinecraftServicesPublicKey,
+        minecraftServicesPublicKey: MinecraftServicesPublicKey,
         profileId: Uuid,
-        publicKeyData: ProfilePublicKeyData,
+        profilePublicKeyData: ProfilePublicKeyData,
     ): Boolean = mapCryptographyFailure("Cannot verify the Minecraft profile public-key credential") {
         PlatformMinecraftRsaBackend.rsaVerify(
-            publicKey = servicesPublicKey.rsaPublicKey,
-            payload = signedPayload(profileId, publicKeyData),
-            signature = publicKeyData.keySignature.toByteArray(),
+            minecraftRsaPublicKey = minecraftServicesPublicKey.minecraftRsaPublicKey,
+            payload = signedPayload(profileId, profilePublicKeyData),
+            signature = profilePublicKeyData.keySignature.toByteArray(),
         )
     }
 }
@@ -107,35 +107,35 @@ object MinecraftProfileKeySignatures {
 /** Stateless composition, signing, and verification of a chained player chat message. */
 object MinecraftChatSignatures {
     fun signedPayload(
-        link: SignedMessageLink,
-        body: SignedMessageBody,
+        signedMessageLink: SignedMessageLink,
+        signedMessageBody: SignedMessageBody,
     ): ByteArray {
-        val content = body.content.encodeToByteArray()
+        val content = signedMessageBody.content.encodeToByteArray()
         return Buffer().apply {
             writeInt(SIGNATURE_VERSION)
-            write(link.sender.toByteArray())
-            write(link.sessionId.toByteArray())
-            writeInt(link.index)
-            writeLong(body.salt)
-            writeLong(Instant.fromEpochMilliseconds(body.timestampEpochMillis).epochSeconds)
+            write(signedMessageLink.sender.toByteArray())
+            write(signedMessageLink.sessionId.toByteArray())
+            writeInt(signedMessageLink.index)
+            writeLong(signedMessageBody.salt)
+            writeLong(Instant.fromEpochMilliseconds(signedMessageBody.timestampEpochMillis).epochSeconds)
             writeInt(content.size)
             write(content)
-            writeInt(body.lastSeen.size)
-            body.lastSeen.forEach { signature ->
+            writeInt(signedMessageBody.lastSeen.size)
+            signedMessageBody.lastSeen.forEach { signature ->
                 write(signature.toByteArray())
             }
         }.readByteArray()
     }
 
     fun sign(
-        keyPair: MinecraftProfileKeyPair,
-        link: SignedMessageLink,
-        body: SignedMessageBody,
+        minecraftProfileKeyPair: MinecraftProfileKeyPair,
+        signedMessageLink: SignedMessageLink,
+        signedMessageBody: SignedMessageBody,
     ): ByteString {
         val signature = mapCryptographyFailure("Cannot sign the Minecraft chat message") {
             PlatformMinecraftRsaBackend.rsaSha256Sign(
-                privateKey = keyPair.rsaPrivateKey,
-                payload = signedPayload(link, body),
+                minecraftRsaPrivateKey = minecraftProfileKeyPair.minecraftRsaPrivateKey,
+                payload = signedPayload(signedMessageLink, signedMessageBody),
             )
         }
         if (signature.size != PackedMessageSignature.SIGNATURE_BYTES) {
@@ -145,9 +145,9 @@ object MinecraftChatSignatures {
     }
 
     fun verify(
-        publicKey: MinecraftProfilePublicKey,
-        link: SignedMessageLink,
-        body: SignedMessageBody,
+        minecraftProfilePublicKey: MinecraftProfilePublicKey,
+        signedMessageLink: SignedMessageLink,
+        signedMessageBody: SignedMessageBody,
         signature: ByteString,
     ): Boolean {
         if (signature.size != PackedMessageSignature.SIGNATURE_BYTES) {
@@ -155,8 +155,8 @@ object MinecraftChatSignatures {
         }
         return mapCryptographyFailure("Cannot verify the Minecraft chat signature") {
             PlatformMinecraftRsaBackend.rsaVerify(
-                publicKey = publicKey.rsaPublicKey,
-                payload = signedPayload(link, body),
+                minecraftRsaPublicKey = minecraftProfilePublicKey.minecraftRsaPublicKey,
+                payload = signedPayload(signedMessageLink, signedMessageBody),
                 signature = signature.toByteArray(),
             )
         }
@@ -166,15 +166,15 @@ object MinecraftChatSignatures {
 }
 
 fun MinecraftProfileKeyPair.signChatMessage(
-    link: SignedMessageLink,
-    body: SignedMessageBody,
-): ByteString = MinecraftChatSignatures.sign(this, link, body)
+    signedMessageLink: SignedMessageLink,
+    signedMessageBody: SignedMessageBody,
+): ByteString = MinecraftChatSignatures.sign(this, signedMessageLink, signedMessageBody)
 
 fun MinecraftProfilePublicKey.verifyChatMessage(
-    link: SignedMessageLink,
-    body: SignedMessageBody,
+    signedMessageLink: SignedMessageLink,
+    signedMessageBody: SignedMessageBody,
     signature: ByteString,
-): Boolean = MinecraftChatSignatures.verify(this, link, body, signature)
+): Boolean = MinecraftChatSignatures.verify(this, signedMessageLink, signedMessageBody, signature)
 
 fun MinecraftProfileKeyPairResponse.toMinecraftProfileKeyPair(): MinecraftProfileKeyPair {
     val encodedPrivateKey = decodeMinecraftPem(
@@ -190,7 +190,7 @@ fun MinecraftProfileKeyPairResponse.toMinecraftProfileKeyPair(): MinecraftProfil
         )
         MinecraftProfileKeyPair(
             encodedPrivateKey = encodedPrivateKey,
-            publicKeyData = ProfilePublicKeyData(
+            profilePublicKeyData = ProfilePublicKeyData(
                 expiresAtEpochMillis = Instant.parse(expiresAt).toEpochMilliseconds(),
                 encodedKey = ByteString(encodedPublicKey),
                 keySignature = ByteString(Base64.Default.decode(publicKeySignatureV2)),

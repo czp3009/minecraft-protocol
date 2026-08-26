@@ -13,26 +13,26 @@ class ExtensionPacketCodecTest {
     @Test
     fun kotlinxSerializerDrivesARegisteredCustomPayloadBody() {
         val channel = Identifier("test:number")
-        val registration = PacketCodecRegistration.clientboundCustomPayload(
-            state = ConnectionState.CONFIGURATION,
+        val packetCodecRegistration = PacketCodecRegistration.clientboundCustomPayload(
+            connectionState = ConnectionState.CONFIGURATION,
             channel = channel,
             packetClass = TestNumberPayload::class,
-            codec = KotlinxPacketBodyCodec(TestNumberPayload.serializer()),
+            packetBodyCodec = KotlinxPacketBodyCodec(TestNumberPayload.serializer()),
         )
-        val registry = PacketRegistry(MinecraftPacketRegistry.entries, listOf(registration))
-        val packet = TestNumberPayload(300)
+        val packetRegistry = PacketRegistry(MinecraftPacketRegistry.entries, listOf(packetCodecRegistration))
+        val testNumberPayload = TestNumberPayload(300)
         val body = Buffer()
 
-        registry.encodeExtensionPayloadToSink(packet, body)
+        packetRegistry.encodeExtensionPayloadToSink(testNumberPayload, body)
         assertContentEquals(byteArrayOf(0xAC.toByte(), 0x02), body.readByteArray())
 
         val source = Buffer().apply { write(byteArrayOf(0xAC.toByte(), 0x02)) }
         assertEquals(
-            packet,
-            registry.decodeExtensionPayloadFromSource(
-                route = PacketRoute.CustomPayload(
-                    state = ConnectionState.CONFIGURATION,
-                    direction = PacketDirection.CLIENTBOUND,
+            testNumberPayload,
+            packetRegistry.decodeExtensionPayloadFromSource(
+                packetRoute = PacketRoute.CustomPayload(
+                    connectionState = ConnectionState.CONFIGURATION,
+                    packetDirection = PacketDirection.CLIENTBOUND,
                     packetId = 1,
                     channel = channel,
                 ),
@@ -45,7 +45,7 @@ class ExtensionPacketCodecTest {
     @Test
     fun aKnownExtensionNeverDowngradesMalformedBytesToUnknown() {
         val channel = Identifier("test:number")
-        val registry = PacketRegistry(
+        val packetRegistry = PacketRegistry(
             MinecraftPacketRegistry.entries,
             listOf(
                 PacketCodecRegistration.clientboundCustomPayload(
@@ -56,7 +56,7 @@ class ExtensionPacketCodecTest {
                 ),
             ),
         )
-        val route = PacketRoute.CustomPayload(
+        val customPayload = PacketRoute.CustomPayload(
             ConnectionState.CONFIGURATION,
             PacketDirection.CLIENTBOUND,
             packetId = 1,
@@ -64,15 +64,15 @@ class ExtensionPacketCodecTest {
         )
 
         assertFailsWith<MinecraftSerializationException> {
-            registry.decodeExtensionPayloadFromSource(
-                route,
+            packetRegistry.decodeExtensionPayloadFromSource(
+                customPayload,
                 Buffer().apply { writeByte(0x80.toByte()) },
                 byteCount = 1,
             )
         }
         assertFailsWith<MinecraftSerializationException> {
-            registry.decodeExtensionPayloadFromSource(
-                route,
+            packetRegistry.decodeExtensionPayloadFromSource(
+                customPayload,
                 Buffer().apply { write(byteArrayOf(1, 2)) },
                 byteCount = 2,
             )
@@ -119,14 +119,14 @@ class ExtensionPacketCodecTest {
             ),
         )
         val remappedId = 0x3FFD
-        val registry = PacketRegistry(
-            MinecraftPacketRegistry.entries.map { codec ->
-                if (codec === original) codec.withPacketId(remappedId) else codec
+        val packetRegistry = PacketRegistry(
+            MinecraftPacketRegistry.entries.map { packetCodec ->
+                if (packetCodec === original) packetCodec.withPacketId(remappedId) else packetCodec
             },
         )
 
         assertNull(
-            registry.codec(
+            packetRegistry.codec(
                 ConnectionState.STATUS,
                 PacketDirection.SERVERBOUND,
                 0,
@@ -134,15 +134,15 @@ class ExtensionPacketCodecTest {
         )
         assertEquals(
             remappedId,
-            registry.encodePayload(
+            packetRegistry.encodePayload(
                 com.hiczp.minecraft.protocol.model.packet.StatusRequestPacket,
                 ConnectionState.STATUS,
                 PacketDirection.SERVERBOUND,
-            ).key.id,
+            ).packetKey.id,
         )
         assertEquals(
             com.hiczp.minecraft.protocol.model.packet.StatusRequestPacket,
-            registry.decodePayload(
+            packetRegistry.decodePayload(
                 ConnectionState.STATUS,
                 PacketDirection.SERVERBOUND,
                 remappedId,
@@ -155,7 +155,7 @@ class ExtensionPacketCodecTest {
     fun topLevelExtensionsSelectTheirStateAndPreserveIntentionalUnknownBodies() {
         val statusId = 0x3FFE
         val configurationId = 0x3FFF
-        val registry = PacketRegistry(
+        val packetRegistry = PacketRegistry(
             MinecraftPacketRegistry.entries,
             listOf(
                 PacketCodecRegistration.clientboundTopLevel(
@@ -175,19 +175,19 @@ class ExtensionPacketCodecTest {
 
         assertEquals(
             statusId,
-            registry.encodePayload(
+            packetRegistry.encodePayload(
                 TopLevelNumberPacket(2),
                 ConnectionState.STATUS,
                 PacketDirection.CLIENTBOUND,
-            ).key.id,
+            ).packetKey.id,
         )
         assertEquals(
             configurationId,
-            registry.encodePayload(
+            packetRegistry.encodePayload(
                 TopLevelNumberPacket(2),
                 ConnectionState.CONFIGURATION,
                 PacketDirection.CLIENTBOUND,
-            ).key.id,
+            ).packetKey.id,
         )
 
         assertEquals(
@@ -199,7 +199,7 @@ class ExtensionPacketCodecTest {
                 ),
                 ByteString(byteArrayOf(0x7F, 4)),
             ),
-            registry.decodePayload(
+            packetRegistry.decodePayload(
                 ConnectionState.STATUS,
                 PacketDirection.CLIENTBOUND,
                 statusId,
@@ -207,7 +207,7 @@ class ExtensionPacketCodecTest {
             ),
         )
         assertFailsWith<MinecraftSerializationException> {
-            registry.decodePayload(
+            packetRegistry.decodePayload(
                 ConnectionState.STATUS,
                 PacketDirection.CLIENTBOUND,
                 statusId,
@@ -234,7 +234,7 @@ private data class TopLevelNumberPacket(
 private data object TopLevelNumberPacketCodec :
     PacketBodyCodec<TopLevelNumberPacket> {
     override fun encode(
-        format: MinecraftProtocolFormat,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
         packet: TopLevelNumberPacket,
         sink: kotlinx.io.Sink,
     ) {
@@ -242,8 +242,8 @@ private data object TopLevelNumberPacketCodec :
     }
 
     override fun decode(
-        format: MinecraftProtocolFormat,
-        route: PacketRoute,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
+        packetRoute: PacketRoute,
         source: kotlinx.io.Source,
         byteCount: Int,
     ): TopLevelNumberPacket {

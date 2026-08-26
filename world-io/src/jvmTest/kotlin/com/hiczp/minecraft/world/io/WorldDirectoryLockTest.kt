@@ -27,7 +27,7 @@ class WorldDirectoryLockTest {
                 assertFailsWith<WorldLockException> {
                     MinecraftWorldAccess.open(root)
                 }
-                assertEquals(root, minecraftWorldAccess.paths.root)
+                assertEquals(root, minecraftWorldAccess.minecraftWorldPaths.root)
             }
 
             assertFalse(MinecraftWorldAccess.isLocked(root))
@@ -114,7 +114,7 @@ class WorldDirectoryLockTest {
             }
 
             MinecraftWorldAccess.open(root).use { minecraftWorldAccess ->
-                assertEquals(root, minecraftWorldAccess.paths.root)
+                assertEquals(root, minecraftWorldAccess.minecraftWorldPaths.root)
             }
             assertFalse(MinecraftWorldAccess.isLocked(root))
         } finally {

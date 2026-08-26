@@ -72,6 +72,10 @@ Keep physical byte encoding out of models, socket and framing behavior out of se
 
 ## Kotlin Multiplatform implementation
 
+- Name variables, properties, and parameters after the full visible nominal type in lower camel case when they do not
+  carry an additional domain role or need a distinguishing qualifier; for example, use
+  `localPosition: LocalPosition`. Preserve role-based names for meaningful distinctions such as `client`/`server`,
+  `input`/`output`, lifecycle state, external overrides, and official wire or serialized schema fields.
 - Prefer maintained Kotlin, Kotlinx, Ktor, Gradle, and other multiplatform APIs to project-specific helpers or `expect`/
   `actual`. When a platform boundary is unavoidable, expose the smallest reusable primitive.
 - Keep shared models free of buffers and I/O. Physical stream formats use `kotlinx.io.Source` and `Sink`;

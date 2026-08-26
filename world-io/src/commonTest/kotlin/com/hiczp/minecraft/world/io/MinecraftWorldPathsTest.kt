@@ -8,18 +8,18 @@ import kotlin.test.*
 class MinecraftWorldPathsTest {
     @Test
     fun constructsCurrentAndExplicitLegacyPaths() {
-        val paths = MinecraftWorldPaths("world".toPath())
+        val minecraftWorldPaths = MinecraftWorldPaths("world".toPath())
 
-        assertEquals("world/level.dat", paths.levelData.portableString())
-        assertEquals("world/level.dat_old", paths.previousLevelData.portableString())
-        assertEquals("world/session.lock", paths.sessionLock.portableString())
+        assertEquals("world/level.dat", minecraftWorldPaths.levelData.portableString())
+        assertEquals("world/level.dat_old", minecraftWorldPaths.previousLevelData.portableString())
+        assertEquals("world/session.lock", minecraftWorldPaths.sessionLock.portableString())
         assertEquals(
             "world/dimensions/minecraft/overworld/region/r.-1.2.mca",
-            paths.regionFile(RegionPosition(-1, 2)).portableString(),
+            minecraftWorldPaths.regionFile(RegionPosition(-1, 2)).portableString(),
         )
         assertEquals(
             "world/dimensions/minecraft/the_nether/entities/c.-33.65.mcc",
-            paths.externalChunk(
+            minecraftWorldPaths.externalChunk(
                 ChunkPosition(-33, 65),
                 RegionStorageDirectory.ENTITIES,
                 DimensionDirectory.Nether,
@@ -27,15 +27,15 @@ class MinecraftWorldPathsTest {
         )
         assertEquals(
             "world/DIM-1/region",
-            paths.regionDirectory(
-                dimension = DimensionDirectory.LegacyNether,
+            minecraftWorldPaths.regionDirectory(
+                dimensionDirectory = DimensionDirectory.LegacyNether,
             ).portableString(),
         )
         assertEquals(
             "world/dimensions/example/moons/blue/data/minecraft/maps/map_1.dat",
-            paths.savedData(
+            minecraftWorldPaths.savedData(
                 identifier = "maps/map_1",
-                dimension = DimensionDirectory.Custom(
+                dimensionDirectory = DimensionDirectory.Custom(
                     namespace = "example",
                     path = "moons/blue",
                 ),
@@ -43,11 +43,11 @@ class MinecraftWorldPathsTest {
         )
         assertEquals(
             "world/dimensions/minecraft/overworld/data/example/state/value.dat",
-            paths.savedData("example:state/value").portableString(),
+            minecraftWorldPaths.savedData("example:state/value").portableString(),
         )
         assertEquals(
             "world/dimensions/minecraft/the_end/poi/r.1.-2.mca",
-            paths.regionFile(
+            minecraftWorldPaths.regionFile(
                 RegionPosition(1, -2),
                 RegionStorageDirectory.POINTS_OF_INTEREST,
                 DimensionDirectory.End,
@@ -55,36 +55,36 @@ class MinecraftWorldPathsTest {
         )
         assertEquals(
             "world/region",
-            paths.regionDirectory(dimension = DimensionDirectory.LegacyOverworld).portableString()
+            minecraftWorldPaths.regionDirectory(dimensionDirectory = DimensionDirectory.LegacyOverworld).portableString()
         )
-        assertEquals("world/DIM1", paths.dimension(DimensionDirectory.LegacyEnd).portableString())
-        assertEquals("world/players/data/player.dat", paths.playerData("player").portableString())
-        assertEquals("world/players/data/player.dat_old", paths.previousPlayerData("player").portableString())
-        assertEquals("world/players/advancements/player.json", paths.advancement("player").portableString())
-        assertEquals("world/players/stats/player.json", paths.statistics("player").portableString())
-        assertEquals("world/playerdata/player.dat", paths.legacyPlayerData("player").portableString())
-        assertEquals("world/advancements/player.json", paths.legacyAdvancement("player").portableString())
-        assertEquals("world/stats/player.json", paths.legacyStatistics("player").portableString())
+        assertEquals("world/DIM1", minecraftWorldPaths.dimension(DimensionDirectory.LegacyEnd).portableString())
+        assertEquals("world/players/data/player.dat", minecraftWorldPaths.playerData("player").portableString())
+        assertEquals("world/players/data/player.dat_old", minecraftWorldPaths.previousPlayerData("player").portableString())
+        assertEquals("world/players/advancements/player.json", minecraftWorldPaths.advancement("player").portableString())
+        assertEquals("world/players/stats/player.json", minecraftWorldPaths.statistics("player").portableString())
+        assertEquals("world/playerdata/player.dat", minecraftWorldPaths.legacyPlayerData("player").portableString())
+        assertEquals("world/advancements/player.json", minecraftWorldPaths.legacyAdvancement("player").portableString())
+        assertEquals("world/stats/player.json", minecraftWorldPaths.legacyStatistics("player").portableString())
     }
 
     @Test
     fun customDimensionsAreValuesAndDefensivelyOwnTheirSegments() {
         val input = mutableListOf("moons", "blue")
-        val dimension = DimensionDirectory.Custom("example", input)
+        val dimensionDirectory = DimensionDirectory.Custom("example", input)
         input[0] = "changed"
-        val firstView = dimension.pathSegments
-        val secondView = dimension.pathSegments
+        val firstView = dimensionDirectory.pathSegments
+        val secondView = dimensionDirectory.pathSegments
 
         assertEquals(listOf("moons", "blue"), firstView)
         assertNotSame(firstView, secondView)
         assertEquals(
-            dimension,
+            dimensionDirectory,
             DimensionDirectory.Custom("example", "moons/blue"),
         )
-        assertEquals(dimension.hashCode(), dimension.copy().hashCode())
-        assertEquals("example", dimension.component1())
-        assertEquals(listOf("moons", "blue"), dimension.component2())
-        assertTrue(dimension.toString().contains("example"))
+        assertEquals(dimensionDirectory.hashCode(), dimensionDirectory.copy().hashCode())
+        assertEquals("example", dimensionDirectory.component1())
+        assertEquals(listOf("moons", "blue"), dimensionDirectory.component2())
+        assertTrue(dimensionDirectory.toString().contains("example"))
     }
 
     @Test

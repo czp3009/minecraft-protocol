@@ -24,71 +24,72 @@ fun PackedSignedMessageBody.toSignedMessageBody(
 )
 
 fun SignedChatCommandPacket.toSignedMessageBody(
-    argument: SignableCommandArgument,
+    signableCommandArgument: SignableCommandArgument,
     lastSeen: List<ByteString>,
 ): SignedMessageBody = SignedMessageBody(
-    content = argument.value,
+    content = signableCommandArgument.value,
     timestampEpochMillis = timestampEpochMillis,
     salt = salt,
     lastSeen = lastSeen,
 )
 
 suspend fun MinecraftServerboundChatChainVerifier.verify(
-    packet: ChatMessagePacket,
+    chatMessagePacket: ChatMessagePacket,
     lastSeen: List<ByteString>,
 ): MinecraftChatVerificationResult = verifyNext(
-    body = packet.toSignedMessageBody(lastSeen),
-    signature = packet.signature,
+    signedMessageBody = chatMessagePacket.toSignedMessageBody(lastSeen),
+    signature = chatMessagePacket.signature,
 )
 
 /** The supplied arguments are the caller's Brigadier-derived signable name/value pairs. */
 suspend fun MinecraftServerboundChatChainVerifier.verify(
-    packet: SignedChatCommandPacket,
+    signedChatCommandPacket: SignedChatCommandPacket,
     signableArguments: List<SignableCommandArgument>,
     lastSeen: List<ByteString>,
 ): MinecraftChatBatchVerificationResult {
     val argumentsByName = signableArguments.associateBy { it.name }
     if (argumentsByName.size != signableArguments.size) {
         return MinecraftChatBatchVerificationResult.Invalid(
-            failure = MinecraftChatChainFailure.ARGUMENT_MISMATCH,
+            minecraftChatChainFailure = MinecraftChatChainFailure.ARGUMENT_MISMATCH,
             failedAt = 0,
         )
     }
-    if (packet.arguments.entries.isEmpty() && signableArguments.isNotEmpty()) {
+    if (signedChatCommandPacket.arguments.entries.isEmpty() && signableArguments.isNotEmpty()) {
         return MinecraftChatBatchVerificationResult.Invalid(
-            failure = MinecraftChatChainFailure.MISSING_SIGNATURE,
+            minecraftChatChainFailure = MinecraftChatChainFailure.MISSING_SIGNATURE,
             failedAt = 0,
         )
     }
     val seenNames = mutableSetOf<String>()
-    val inputs = packet.arguments.entries.mapIndexed { index, entry ->
-        val argument = argumentsByName[entry.name] ?: return MinecraftChatBatchVerificationResult.Invalid(
-            failure = MinecraftChatChainFailure.ARGUMENT_MISMATCH,
+    val inputs = signedChatCommandPacket.arguments.entries.mapIndexed { index, entry ->
+        val signableCommandArgument =
+            argumentsByName[entry.name] ?: return MinecraftChatBatchVerificationResult.Invalid(
+            minecraftChatChainFailure = MinecraftChatChainFailure.ARGUMENT_MISMATCH,
             failedAt = index,
         )
         seenNames += entry.name
         MinecraftChatSignatureInput(
-            body = packet.toSignedMessageBody(argument, lastSeen),
+            signedMessageBody = signedChatCommandPacket.toSignedMessageBody(signableCommandArgument, lastSeen),
             signature = entry.signature,
         )
     }
     if (!seenNames.containsAll(argumentsByName.keys)) {
         return MinecraftChatBatchVerificationResult.Invalid(
-            failure = MinecraftChatChainFailure.ARGUMENT_MISMATCH,
-            failedAt = packet.arguments.entries.size,
+            minecraftChatChainFailure = MinecraftChatChainFailure.ARGUMENT_MISMATCH,
+            failedAt = signedChatCommandPacket.arguments.entries.size,
         )
     }
     return verifyAll(inputs)
 }
 
 suspend fun MinecraftClientboundChatChainVerifier.verify(
-    packet: PlayerChatMessagePacket,
+    playerChatMessagePacket: PlayerChatMessagePacket,
     lastSeen: List<ByteString>,
 ): MinecraftChatVerificationResult = verify(
-    index = packet.index,
-    packetSender = packet.sender,
-    body = packet.body.toSignedMessageBody(lastSeen),
-    signature = packet.signature,
+    index = playerChatMessagePacket.index,
+    packetSender = playerChatMessagePacket.sender,
+    signedMessageBody = playerChatMessagePacket.body.toSignedMessageBody(lastSeen),
+    signature = playerChatMessagePacket.signature,
 )
 
 suspend fun MinecraftChatChainSigner.signChatMessagePacket(
@@ -96,7 +97,7 @@ suspend fun MinecraftChatChainSigner.signChatMessagePacket(
     timestampEpochMillis: Long,
     salt: Long,
     lastSeen: List<ByteString>,
-    lastSeenMessages: LastSeenMessagesUpdate,
+    lastSeenMessagesUpdate: LastSeenMessagesUpdate,
 ): ChatMessagePacket = sign(
     SignedMessageBody(
         content = message,
@@ -104,7 +105,7 @@ suspend fun MinecraftChatChainSigner.signChatMessagePacket(
         salt = salt,
         lastSeen = lastSeen,
     ),
-).toChatMessagePacket(lastSeenMessages)
+).toChatMessagePacket(lastSeenMessagesUpdate)
 
 suspend fun MinecraftChatChainSigner.signCommandArguments(
     arguments: List<SignableCommandArgument>,
@@ -116,9 +117,9 @@ suspend fun MinecraftChatChainSigner.signCommandArguments(
         "A signed command cannot contain more than $MAX_SIGNED_COMMAND_ARGUMENTS arguments"
     }
     val messages = signAll(
-        arguments.map { argument ->
+        arguments.map { signableCommandArgument ->
             SignedMessageBody(
-                content = argument.value,
+                content = signableCommandArgument.value,
                 timestampEpochMillis = timestampEpochMillis,
                 salt = salt,
                 lastSeen = lastSeen,
@@ -126,47 +127,47 @@ suspend fun MinecraftChatChainSigner.signCommandArguments(
         },
     )
     return SignedCommandArguments(
-        arguments.zip(messages) { argument, message ->
-            ArgumentSignature(argument.name, message.signature)
+        arguments.zip(messages) { signableCommandArgument, minecraftSignedMessage ->
+            ArgumentSignature(signableCommandArgument.name, minecraftSignedMessage.signature)
         },
     )
 }
 
 fun MinecraftSignedMessage.toChatMessagePacket(
-    lastSeenMessages: LastSeenMessagesUpdate,
+    lastSeenMessagesUpdate: LastSeenMessagesUpdate,
 ): ChatMessagePacket = ChatMessagePacket(
-    message = body.content,
-    timestampEpochMillis = body.timestampEpochMillis,
-    salt = body.salt,
+    message = signedMessageBody.content,
+    timestampEpochMillis = signedMessageBody.timestampEpochMillis,
+    salt = signedMessageBody.salt,
     signature = signature,
-    lastSeenMessages = lastSeenMessages,
+    lastSeenMessages = lastSeenMessagesUpdate,
 )
 
 /** Builds the recipient-specific clientbound packet after the caller packs its last-seen signature cache. */
 fun MinecraftSignedMessage.toPlayerChatMessagePacket(
     globalIndex: Int,
-    chatType: BoundChatType,
+    boundChatType: BoundChatType,
     packedLastSeen: List<PackedMessageSignature>,
     unsignedContent: TextComponent? = null,
     filterMask: FilterMask = FilterMask.PassThrough,
 ): PlayerChatMessagePacket {
-    require(packedLastSeen.size == body.lastSeen.size) {
+    require(packedLastSeen.size == signedMessageBody.lastSeen.size) {
         "Packed last-seen signatures must preserve the signed body's entry count"
     }
     return PlayerChatMessagePacket(
         globalIndex = globalIndex,
-        sender = link.sender,
-        index = link.index,
+        sender = signedMessageLink.sender,
+        index = signedMessageLink.index,
         signature = signature,
         body = PackedSignedMessageBody(
-            content = body.content,
-            timestampEpochMillis = body.timestampEpochMillis,
-            salt = body.salt,
+            content = signedMessageBody.content,
+            timestampEpochMillis = signedMessageBody.timestampEpochMillis,
+            salt = signedMessageBody.salt,
             lastSeen = packedLastSeen,
         ),
         unsignedContent = unsignedContent,
         filterMask = filterMask,
-        chatType = chatType,
+        chatType = boundChatType,
     )
 }
 

@@ -16,7 +16,7 @@ import kotlin.test.assertEquals
 class DamageAndSignaturePacketTest {
     @Test
     fun `damage optional IDs use value plus one without a boolean prefix`() {
-        val packet = DamageEventPacket(
+        val damageEventPacket = DamageEventPacket(
             entityId = 1,
             sourceTypeId = 2,
             sourceCauseEntityId = null,
@@ -26,27 +26,27 @@ class DamageAndSignaturePacketTest {
         val expected = "01020005013ff000000000000040000000000000004008000000000000".hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(packet),
+            MinecraftProtocolFormat.encodeToByteArray(damageEventPacket),
         )
         assertEquals(
-            expected = packet,
+            expected = damageEventPacket,
             actual = MinecraftProtocolFormat.decodeFromByteArray<DamageEventPacket>(expected),
         )
     }
 
     @Test
     fun `debug sample contains prefixed fixed-width longs then a VarInt enum`() {
-        val packet = DebugSamplePacket(
+        val debugSamplePacket = DebugSamplePacket(
             listOf(1, 2, 3, 4),
             DebugSampleType.TICK_TIME,
         )
         val expected = "04000000000000000100000000000000020000000000000003000000000000000400".hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(packet),
+            MinecraftProtocolFormat.encodeToByteArray(debugSamplePacket),
         )
         assertEquals(
-            expected = packet,
+            expected = debugSamplePacket,
             actual = MinecraftProtocolFormat.decodeFromByteArray<DebugSamplePacket>(expected),
         )
     }

@@ -18,16 +18,16 @@ internal actual fun platformAesCfb8Cipher(
     // transform.
     val keyBytes = key.asUByteArray().toUint8Array()
     val ivBytes = initializationVector.asUByteArray().toUint8Array()
-    val cipher = if (decrypting) {
+    val nodeCipher = if (decrypting) {
         createDecipheriv(AES_128_CFB8, keyBytes, ivBytes)
     } else {
         createCipheriv(AES_128_CFB8, keyBytes, ivBytes)
     }
-    return NodeAesCfb8Cipher(cipher)
+    return NodeAesCfb8Cipher(nodeCipher)
 }
 
 private class NodeAesCfb8Cipher(
-    private val cipher: NodeCipher,
+    private val nodeCipher: NodeCipher,
 ) : MinecraftStreamCipher {
     // Keep the Node Cipher instance alive and call update only; finalizing at a
     // packet boundary would reset Minecraft's continuous CFB8 feedback stream.
@@ -43,7 +43,7 @@ private class NodeAesCfb8Cipher(
         } else {
             input.copyOfRange(startIndex, endIndex)
         }
-        val transformed = cipher.update(selected.asUByteArray().toUint8Array())
+        val transformed = nodeCipher.update(selected.asUByteArray().toUint8Array())
             .toUByteArray()
             .asByteArray()
         transformed.copyInto(output, outputStartIndex)

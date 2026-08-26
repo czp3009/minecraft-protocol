@@ -12,20 +12,20 @@ import kotlinx.serialization.SerializationException
 import kotlin.test.*
 
 class ForgeProtocolCodecTest {
-    private val registry = PacketRegistry(
+    private val packetRegistry = PacketRegistry(
         MinecraftPacketRegistry.entries,
         ForgeProtocol.packetCodecs,
     )
 
     @Test
     fun hostnameMarkerMatchesSelectedForgeRevision() {
-        val packet = HandshakePacket(
+        val handshakePacket = HandshakePacket(
             1,
             "example.test",
             25_565,
             HandshakeNextState.LOGIN,
         )
-        val enhanced = ForgeHandshake.enhance(packet)
+        val enhanced = ForgeHandshake.enhance(handshakePacket)
 
         assertEquals("example.test\u0000FORGE", enhanced.serverAddress)
         assertEquals(
@@ -43,17 +43,17 @@ class ForgeProtocolCodecTest {
 
     @Test
     fun registrationIsTrailingNulSeparatedUtf8() {
-        val packet = ForgeRegisterChannelsPacket(
+        val forgeRegisterChannelsPacket = ForgeRegisterChannelsPacket(
             linkedSetOf(Identifier("a:b"), Identifier("mod:channel")),
         )
-        val bytes = encode(packet, PacketDirection.CLIENTBOUND)
+        val byteArray = encode(forgeRegisterChannelsPacket, PacketDirection.CLIENTBOUND)
 
-        assertContentEquals("a:b\u0000mod:channel\u0000".encodeToByteArray(), bytes)
+        assertContentEquals("a:b\u0000mod:channel\u0000".encodeToByteArray(), byteArray)
         assertEquals(
-            packet,
+            forgeRegisterChannelsPacket,
             decode(
                 ForgeChannels.Register,
-                bytes,
+                byteArray,
                 PacketDirection.CLIENTBOUND,
             ),
         )
@@ -117,7 +117,7 @@ class ForgeProtocolCodecTest {
 
     @Test
     fun registrySnapshotPreservesAliasesOverridesBlockedAndVarInts() {
-        val packet = ForgeClientboundHandshakePacket(
+        val forgeClientboundHandshakePacket = ForgeClientboundHandshakePacket(
             ForgeRegistryDataMessage(
                 2,
                 Identifier("block"),
@@ -134,16 +134,16 @@ class ForgeProtocolCodecTest {
                 ),
             ),
         )
-        val bytes = encode(packet, PacketDirection.CLIENTBOUND)
+        val byteArray = encode(forgeClientboundHandshakePacket, PacketDirection.CLIENTBOUND)
         val decoded = decode(
             ForgeChannels.Handshake,
-            bytes,
+            byteArray,
             PacketDirection.CLIENTBOUND,
         )
 
-        assertEquals(packet, decoded)
+        assertEquals(forgeClientboundHandshakePacket, decoded)
         assertTrue(
-            bytes.asList().windowed(2).any { pair ->
+            byteArray.asList().windowed(2).any { pair ->
                 pair == listOf(0xAC.toByte(), 0x02.toByte())
             },
         )
@@ -151,19 +151,19 @@ class ForgeProtocolCodecTest {
 
     @Test
     fun unknownInnerDiscriminatorBecomesDirectionCorrectUnknownPacket() {
-        val bytes = byteArrayOf(42, 1, 2, 3)
+        val byteArray = byteArrayOf(42, 1, 2, 3)
         val decoded = assertIs<UnknownPacket.Clientbound>(
             decode(
                 ForgeChannels.Handshake,
-                bytes,
+                byteArray,
                 PacketDirection.CLIENTBOUND,
             ),
         )
 
-        assertContentEquals(bytes, decoded.data.toByteArray())
+        assertContentEquals(byteArray, decoded.data.toByteArray())
         assertEquals(
             ForgeChannels.Handshake,
-            assertIs<PacketRoute.CustomPayload>(decoded.route).channel,
+            assertIs<PacketRoute.CustomPayload>(decoded.packetRoute).channel,
         )
     }
 
@@ -205,13 +205,13 @@ class ForgeProtocolCodecTest {
 
     private fun encode(
         packet: Packet,
-        direction: PacketDirection,
+        packetDirection: PacketDirection,
     ): ByteArray {
         val buffer = Buffer()
-        registry.encodeExtensionPayloadToSink(
+        packetRegistry.encodeExtensionPayloadToSink(
             packet,
             ConnectionState.CONFIGURATION,
-            direction,
+            packetDirection,
             buffer,
         )
         return buffer.readByteArray()
@@ -220,13 +220,13 @@ class ForgeProtocolCodecTest {
     private fun decode(
         channel: Identifier,
         bytes: ByteArray,
-        direction: PacketDirection,
+        packetDirection: PacketDirection,
     ): Packet {
         val buffer = Buffer().apply { write(bytes) }
-        return registry.decodeExtensionPayloadFromSource(
+        return packetRegistry.decodeExtensionPayloadFromSource(
             PacketRoute.CustomPayload(
                 ConnectionState.CONFIGURATION,
-                direction,
+                packetDirection,
                 packetId = 0,
                 channel = channel,
             ),

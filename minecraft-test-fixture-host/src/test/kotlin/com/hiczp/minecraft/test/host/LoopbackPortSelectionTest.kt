@@ -18,8 +18,8 @@ class LoopbackPortSelectionTest {
             assertTrue(selectedPort in 1..65_535)
 
             try {
-                SelectorManager(Dispatchers.Default).use { selector ->
-                    aSocket(selector).tcp().bind(
+                SelectorManager(Dispatchers.Default).use { selectorManager ->
+                    aSocket(selectorManager).tcp().bind(
                         hostname = "127.0.0.1",
                         port = selectedPort,
                     ).use { listener ->

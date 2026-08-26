@@ -11,29 +11,29 @@ class XboxAuthenticationApi(
     private val httpClient: HttpClient,
 ) {
     suspend fun authenticateUser(
-        request: XboxUserAuthenticationRequest,
+        xboxUserAuthenticationRequest: XboxUserAuthenticationRequest,
     ): XboxTokenResponse {
-        val response = httpClient.post(XBOX_USER_AUTHENTICATE_ENDPOINT) {
+        val httpResponse = httpClient.post(XBOX_USER_AUTHENTICATE_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
             contentType(ContentType.Application.Json)
             header(XBOX_CONTRACT_VERSION_HEADER, XBOX_CONTRACT_VERSION)
-            setBody(AccountAuthJson.encodeToString(request))
+            setBody(AccountAuthJson.encodeToString(xboxUserAuthenticationRequest))
         }
-        return response.decodeAccountAuthResponse<XboxTokenResponse, XboxAuthenticationErrorResponse>(::XboxAuthenticationResponseException)
+        return httpResponse.decodeAccountAuthResponse<XboxTokenResponse, XboxAuthenticationErrorResponse>(::XboxAuthenticationResponseException)
     }
 
     suspend fun authorizeXsts(
-        request: XboxXstsAuthorizationRequest,
+        xboxXstsAuthorizationRequest: XboxXstsAuthorizationRequest,
     ): XboxTokenResponse {
-        val response = httpClient.post(XBOX_XSTS_AUTHORIZE_ENDPOINT) {
+        val httpResponse = httpClient.post(XBOX_XSTS_AUTHORIZE_ENDPOINT) {
             expectSuccess = false
             accept(ContentType.Application.Json)
             contentType(ContentType.Application.Json)
             header(XBOX_CONTRACT_VERSION_HEADER, XBOX_CONTRACT_VERSION)
-            setBody(AccountAuthJson.encodeToString(request))
+            setBody(AccountAuthJson.encodeToString(xboxXstsAuthorizationRequest))
         }
-        return response.decodeAccountAuthResponse<XboxTokenResponse, XboxAuthenticationErrorResponse>(::XboxAuthenticationResponseException)
+        return httpResponse.decodeAccountAuthResponse<XboxTokenResponse, XboxAuthenticationErrorResponse>(::XboxAuthenticationResponseException)
     }
 }
 
@@ -112,12 +112,12 @@ data class XboxAuthenticationErrorResponse(
 
 object XboxAuthenticationTools {
     fun userAuthenticationRequest(
-        microsoftToken: MicrosoftTokenResponse,
+        microsoftTokenResponse: MicrosoftTokenResponse,
     ): XboxUserAuthenticationRequest = XboxUserAuthenticationRequest(
         properties = XboxUserAuthenticationRequest.Properties(
             authMethod = "RPS",
             siteName = "user.auth.xboxlive.com",
-            rpsTicket = "d=${microsoftToken.accessToken}",
+            rpsTicket = "d=${microsoftTokenResponse.accessToken}",
         ),
         relyingParty = "http://auth.xboxlive.com",
         tokenType = "JWT",

@@ -14,7 +14,7 @@ import kotlin.test.*
 class DebugSubscriptionPacketTest {
     @Test
     fun `every official debug subscription value has its exact wire shape`() {
-        val node = DebugPathNode(
+        val debugPathNode = DebugPathNode(
             x = 1,
             y = -1,
             z = 2,
@@ -60,8 +60,8 @@ class DebugSubscriptionPacketTest {
                 reached = true,
                 nextNodeIndex = 2,
                 target = ZERO_POSITION,
-                nodes = listOf(node),
-                targetNodes = setOf(node),
+                nodes = listOf(debugPathNode),
+                targetNodes = setOf(debugPathNode),
                 openSet = emptyList(),
                 closedSet = emptyList(),
                 maximumNodeDistance = 1.0f,
@@ -101,29 +101,29 @@ class DebugSubscriptionPacketTest {
             ) to "0f023ff0000000000000c0000000000000004008000000000000",
         )
 
-        for ((data, expectedHex) in cases) {
-            val event = DebugSubscriptionEvent(data)
+        for ((debugSubscriptionData, expectedHex) in cases) {
+            val debugSubscriptionEvent = DebugSubscriptionEvent(debugSubscriptionData)
             val expected = expectedHex.hexToByteArray()
             assertContentEquals(
                 expected,
                 MinecraftProtocolFormat.encodeToByteArray(
-                    event,
+                    debugSubscriptionEvent,
                 ),
-                data.toString(),
+                debugSubscriptionData.toString(),
             )
             assertEquals(
-                expected = event,
+                expected = debugSubscriptionEvent,
                 actual = MinecraftProtocolFormat.decodeFromByteArray<DebugSubscriptionEvent>(
                     expected,
                 ),
-                message = data.toString(),
+                message = debugSubscriptionData.toString(),
             )
         }
     }
 
     @Test
     fun `debug packet wrappers preserve vanilla field ordering`() {
-        val block = DebugBlockValuePacket(
+        val debugBlockValuePacket = DebugBlockValuePacket(
             ZERO_POSITION,
             DebugSubscriptionUpdate(
                 DebugSubscriptionType.VILLAGE_SECTION,
@@ -131,12 +131,12 @@ class DebugSubscriptionPacketTest {
             ),
         )
         assertPacketBytes(
-            block,
+            debugBlockValuePacket,
             DebugBlockValuePacket.serializer(),
             "${ZERO_POSITION_HEX}0a01",
         )
 
-        val chunk = DebugChunkValuePacket(
+        val debugChunkValuePacket = DebugChunkValuePacket(
             chunkZ = 2,
             chunkX = 1,
             update = DebugSubscriptionUpdate(
@@ -145,12 +145,12 @@ class DebugSubscriptionPacketTest {
             ),
         )
         assertPacketBytes(
-            chunk,
+            debugChunkValuePacket,
             DebugChunkValuePacket.serializer(),
             "00000002000000010b00",
         )
 
-        val entity = DebugEntityValuePacket(
+        val debugEntityValuePacket = DebugEntityValuePacket(
             entityId = 300,
             update = DebugSubscriptionUpdate(
                 DebugSubscriptionType.NEIGHBOR_UPDATE,
@@ -158,17 +158,17 @@ class DebugSubscriptionPacketTest {
             ),
         )
         assertPacketBytes(
-            entity,
+            debugEntityValuePacket,
             DebugEntityValuePacket.serializer(),
             "ac020e01$ZERO_POSITION_HEX",
         )
 
-        val event = DebugEventPacket(
+        val debugEventPacket = DebugEventPacket(
             DebugSubscriptionEvent(
                 DebugSubscriptionData.GameEventListener(2),
             ),
         )
-        assertPacketBytes(event, DebugEventPacket.serializer(), "0d02")
+        assertPacketBytes(debugEventPacket, DebugEventPacket.serializer(), "0d02")
     }
 
     @Test
@@ -278,17 +278,17 @@ class DebugSubscriptionPacketTest {
 
     private fun <T> assertPacketBytes(
         packet: T,
-        serializer: KSerializer<T>,
+        kSerializer: KSerializer<T>,
         expectedHex: String,
     ) {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(serializer, packet),
+            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(serializer, expected),
+            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 

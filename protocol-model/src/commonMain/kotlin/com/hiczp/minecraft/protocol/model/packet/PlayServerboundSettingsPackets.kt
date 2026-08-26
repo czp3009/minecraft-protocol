@@ -124,15 +124,15 @@ internal object SeenAdvancementsActionSerializer : KSerializer<SeenAdvancementsA
 
     override fun deserialize(decoder: Decoder): SeenAdvancementsAction {
         val input = decoder.beginStructure(descriptor)
-        var action: SeenAdvancementsActionType? = null
+        var seenAdvancementsActionType: SeenAdvancementsActionType? = null
         var tab: Identifier? = null
         if (input.decodeSequentially()) {
-            action = input.decodeSerializableElement(
+            seenAdvancementsActionType = input.decodeSerializableElement(
                 descriptor,
                 ACTION,
                 SeenAdvancementsActionType.serializer(),
             )
-            if (action == SeenAdvancementsActionType.OPENED_TAB) {
+            if (seenAdvancementsActionType == SeenAdvancementsActionType.OPENED_TAB) {
                 tab = input.decodeSerializableElement(
                     descriptor,
                     TAB,
@@ -142,7 +142,7 @@ internal object SeenAdvancementsActionSerializer : KSerializer<SeenAdvancementsA
         } else {
             while (true) {
                 when (val index = input.decodeElementIndex(descriptor)) {
-                    ACTION -> action = input.decodeSerializableElement(
+                    ACTION -> seenAdvancementsActionType = input.decodeSerializableElement(
                         descriptor,
                         ACTION,
                         SeenAdvancementsActionType.serializer(),
@@ -163,7 +163,7 @@ internal object SeenAdvancementsActionSerializer : KSerializer<SeenAdvancementsA
         }
         input.endStructure(descriptor)
         return when (
-            action ?: throw SerializationException(
+            seenAdvancementsActionType ?: throw SerializationException(
                 "Missing SeenAdvancementsAction action",
             )
         ) {

@@ -14,7 +14,7 @@ new values instead of mutating existing ones. In the example, `dataVersion`, `x`
 supplied by the application from the world state it is representing:
 
 ```kotlin
-val root = NbtCompound(
+val nbtCompound = NbtCompound(
     mapOf(
         "DataVersion" to NbtInt(dataVersion),
         "LevelName" to NbtString("New name"),
@@ -23,14 +23,14 @@ val root = NbtCompound(
     ),
 )
 
-val document = NbtDocument(root)
-val namedRoot = NamedNbtTag("", root)
+val nbtDocument = NbtDocument(nbtCompound)
+val namedNbtTag = NamedNbtTag("", nbtCompound)
 
-val version = (root["DataVersion"] as NbtInt).value
-root.forEachEntry { name, tag ->
+val decodedDataVersion = (nbtCompound["DataVersion"] as NbtInt).value
+nbtCompound.forEachEntry { name, nbtTag ->
     // Visits entries in insertion order without copying the compound
 }
-val editable = root.value // Defensive copy for further composition
+val editableEntries = nbtCompound.value // Defensive copy for further composition
 ```
 
 `size`, indexed access, and iteration read the immutable snapshot without copying, while `value` returns a defensive

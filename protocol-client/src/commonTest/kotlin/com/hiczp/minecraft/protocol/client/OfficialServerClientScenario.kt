@@ -29,9 +29,9 @@ internal object OfficialServerClientScenario {
         phaseChanged: (String) -> Unit = {},
     ): MinecraftClientNegotiationResult {
         phaseChanged("status query")
-        return SelectorManager(Dispatchers.Default).use { selector ->
+        return SelectorManager(Dispatchers.Default).use { selectorManager ->
             MinecraftClientConnection.connect(
-                selectorManager = selector,
+                selectorManager = selectorManager,
                 host = host,
                 port = port,
             ).use { statusClient ->
@@ -54,14 +54,14 @@ internal object OfficialServerClientScenario {
 
             phaseChanged("preset login")
             val presetResult = MinecraftClientConnection.connect(
-                selectorManager = selector,
+                selectorManager = selectorManager,
                 host = host,
                 port = port,
             ).use { loginClient ->
                 val defaults = MinecraftClientNegotiationOptions()
                 val login = loginClient.negotiate(
                     MinecraftOfflineIdentity("KmpClientProbe"),
-                    options = MinecraftClientNegotiationOptions(
+                    minecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(
                         clientInformation = defaults.clientInformation.copy(
                             viewDistance = 2,
                         ),
@@ -74,19 +74,19 @@ internal object OfficialServerClientScenario {
 
             phaseChanged("public API login")
             MinecraftClientConnection.connect(
-                selectorManager = selector,
+                selectorManager = selectorManager,
                 host = host,
                 port = port,
             ).use { loginClient ->
                 val defaults = MinecraftClientNegotiationOptions()
                 val login = negotiateOffline(
-                    connection = loginClient,
-                    identity = MinecraftOfflineIdentity("KmpProtocolProbe"),
-                    options = MinecraftClientNegotiationOptions(
+                    minecraftClientConnection = loginClient,
+                    minecraftOfflineIdentity = MinecraftOfflineIdentity("KmpProtocolProbe"),
+                    minecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(
                         clientInformation = defaults.clientInformation.copy(viewDistance = 2),
                     ),
                 )
-                check(loginClient.state == ConnectionState.PLAY) {
+                check(loginClient.connectionState == ConnectionState.PLAY) {
                     "Official-server client did not reach Play"
                 }
                 check(loginClient.protocolRegistryContext.chunkSectionCount != null) {
@@ -99,52 +99,52 @@ internal object OfficialServerClientScenario {
     }
 
     private suspend fun negotiateOffline(
-        connection: MinecraftClientConnection,
-        identity: MinecraftOfflineIdentity,
-        options: MinecraftClientNegotiationOptions,
+        minecraftClientConnection: MinecraftClientConnection,
+        minecraftOfflineIdentity: MinecraftOfflineIdentity,
+        minecraftClientNegotiationOptions: MinecraftClientNegotiationOptions,
     ): MinecraftClientNegotiationResult {
         val profile = VanillaClient
-        profile.begin(connection)
-        connection.outgoing.send(
+        profile.begin(minecraftClientConnection)
+        minecraftClientConnection.outgoing.send(
             profile.prepareHandshake(
                 HandshakePacket(
                     protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
-                    serverAddress = connection.serverAddress,
-                    serverPort = connection.serverPort,
+                    serverAddress = minecraftClientConnection.serverAddress,
+                    serverPort = minecraftClientConnection.serverPort,
                     nextState = HandshakeNextState.LOGIN,
                 ),
             ),
         )
-        connection.outgoing.send(LoginStartPacket(identity.name, identity.id))
-        connection.requestFlush()
+        minecraftClientConnection.outgoing.send(LoginStartPacket(minecraftOfflineIdentity.name, minecraftOfflineIdentity.id))
+        minecraftClientConnection.requestFlush()
 
-        var login: LoginSuccessPacket? = null
+        var loginSuccessPacket: LoginSuccessPacket? = null
         var loginPackets = 0
-        while (login == null) {
+        while (loginSuccessPacket == null) {
             check(++loginPackets <= MAXIMUM_PACKETS_PER_STAGE) {
                 "Login packet limit exceeded"
             }
-            when (val packet = connection.incoming.receive()) {
+            when (val clientboundPacket = minecraftClientConnection.incoming.receive()) {
                 is SetCompressionPacket -> Unit
-                is LoginCookieRequestPacket -> connection.outgoing.send(
-                    LoginCookieResponsePacket(packet.key, options.loginCookies[packet.key]),
+                is LoginCookieRequestPacket -> minecraftClientConnection.outgoing.send(
+                    LoginCookieResponsePacket(clientboundPacket.key, minecraftClientNegotiationOptions.loginCookies[clientboundPacket.key]),
                 )
 
                 is LoginSuccessPacket -> {
-                    login = packet
-                    connection.outgoing.send(LoginAcknowledgedPacket)
-                    connection.awaitState(ConnectionState.CONFIGURATION)
+                    loginSuccessPacket = clientboundPacket
+                    minecraftClientConnection.outgoing.send(LoginAcknowledgedPacket)
+                    minecraftClientConnection.awaitState(ConnectionState.CONFIGURATION)
                 }
 
-                is LoginDisconnectPacket -> error("Official server rejected Login: ${packet.reason.json}")
-                else -> error("Unexpected Login packet ${packet::class.simpleName}")
+                is LoginDisconnectPacket -> error("Official server rejected Login: ${clientboundPacket.reason.json}")
+                else -> error("Unexpected Login packet ${clientboundPacket::class.simpleName}")
             }
-            connection.requestFlush()
+            minecraftClientConnection.requestFlush()
         }
-        val actualLogin = checkNotNull(login)
+        val actualLogin = checkNotNull(loginSuccessPacket)
 
-        connection.outgoing.send(ConfigurationClientInformationPacket(options.clientInformation))
-        connection.requestFlush()
+        minecraftClientConnection.outgoing.send(ConfigurationClientInformationPacket(minecraftClientNegotiationOptions.clientInformation))
+        minecraftClientConnection.requestFlush()
         var configurationClientboundKnownPacksPacket: ConfigurationClientboundKnownPacksPacket? = null
         var featureFlagsPacket: FeatureFlagsPacket? = null
         var configurationUpdateTagsPacket: ConfigurationUpdateTagsPacket? = null
@@ -156,64 +156,65 @@ internal object OfficialServerClientScenario {
             check(++configurationPackets <= MAXIMUM_PACKETS_PER_STAGE) {
                 "Configuration packet limit exceeded"
             }
-            when (val packet = connection.incoming.receive()) {
+            when (val clientboundPacket = minecraftClientConnection.incoming.receive()) {
                 is ConfigurationClientboundKnownPacksPacket -> {
-                    configurationClientboundKnownPacksPacket = packet
-                    connection.outgoing.send(
+                    configurationClientboundKnownPacksPacket = clientboundPacket
+                    minecraftClientConnection.outgoing.send(
                         ConfigurationServerboundKnownPacksPacket(
-                            packet.knownPacks.filter(options.acceptedKnownPacks::contains),
+                            clientboundPacket.knownPacks.filter(minecraftClientNegotiationOptions.acceptedKnownPacks::contains),
                         ),
                     )
                 }
 
-                is FeatureFlagsPacket -> featureFlagsPacket = packet
+                is FeatureFlagsPacket -> featureFlagsPacket = clientboundPacket
                 is RegistryDataPacket -> {
-                    check(synchronizedRegistryPackets.none { it.registryId == packet.registryId }) {
-                        "Official server sent duplicate registry ${packet.registryId}"
+                    check(synchronizedRegistryPackets.none { it.registryId == clientboundPacket.registryId }) {
+                        "Official server sent duplicate registry ${clientboundPacket.registryId}"
                     }
-                    synchronizedRegistryPackets += packet
+                    synchronizedRegistryPackets += clientboundPacket
                 }
 
-                is ConfigurationUpdateTagsPacket -> configurationUpdateTagsPacket = packet
-                is ConfigurationCookieRequestPacket -> connection.outgoing.send(
+                is ConfigurationUpdateTagsPacket -> configurationUpdateTagsPacket = clientboundPacket
+                is ConfigurationCookieRequestPacket -> minecraftClientConnection.outgoing.send(
                     ConfigurationCookieResponsePacket(
-                        packet.key,
-                        options.configurationCookies[packet.key],
+                        clientboundPacket.key,
+                        minecraftClientNegotiationOptions.configurationCookies[clientboundPacket.key],
                     ),
                 )
 
-                is ConfigurationStoreCookiePacket -> storedConfigurationCookies[packet.key] = packet.payload
-                is ConfigurationPingPacket -> connection.outgoing.send(ConfigurationPongPacket(packet.id))
-                is ConfigurationAddResourcePackPacket -> connection.outgoing.send(
-                    ConfigurationResourcePackResponsePacket(packet.uuid, options.resourcePackResult),
+                is ConfigurationStoreCookiePacket -> storedConfigurationCookies[clientboundPacket.key] = clientboundPacket.payload
+                is ConfigurationPingPacket -> minecraftClientConnection.outgoing.send(ConfigurationPongPacket(clientboundPacket.id))
+                is ConfigurationAddResourcePackPacket -> minecraftClientConnection.outgoing.send(
+                    ConfigurationResourcePackResponsePacket(clientboundPacket.uuid, minecraftClientNegotiationOptions.resourcePackResult),
                 )
 
                 is CodeOfConductPacket -> {
-                    check(options.acceptCodeOfConduct) {
+                    check(minecraftClientNegotiationOptions.acceptCodeOfConduct) {
                         "Official server required an unaccepted Code of Conduct"
                     }
-                    connection.outgoing.send(AcceptCodeOfConductPacket)
+                    minecraftClientConnection.outgoing.send(AcceptCodeOfConductPacket)
                 }
 
                 is FinishConfigurationPacket -> {
-                    val resolvedProtocolRegistryContext = options.protocolData.resolveSynchronizedRegistryContext(
+                    val resolvedProtocolRegistryContext =
+                        minecraftClientNegotiationOptions.protocolData.resolveSynchronizedRegistryContext(
                         synchronizedRegistryPackets = synchronizedRegistryPackets,
-                        staticRegistrySchema = options.staticRegistrySchema,
+                        staticRegistrySchema = minecraftClientNegotiationOptions.staticRegistrySchema,
                     )
                     val profileProtocolRegistryContext =
                         profile.resolveProtocolRegistryContext(resolvedProtocolRegistryContext)
-                    connection.installProtocolRegistryContext(profileProtocolRegistryContext)
-                    profile.preparePlay(connection)
-                    connection.outgoing.send(AcknowledgeFinishConfigurationPacket)
-                    connection.requestFlush()
-                    connection.awaitState(ConnectionState.PLAY)
+                    minecraftClientConnection.installProtocolRegistryContext(profileProtocolRegistryContext)
+                    profile.preparePlay(minecraftClientConnection)
+                    minecraftClientConnection.outgoing.send(AcknowledgeFinishConfigurationPacket)
+                    minecraftClientConnection.requestFlush()
+                    minecraftClientConnection.awaitState(ConnectionState.PLAY)
                     configurationFinished = true
                 }
 
                 is ConfigurationClientboundPluginMessagePacket -> check(
-                    packet.payload is CustomPayload.Brand,
+                    clientboundPacket.payload is CustomPayload.Brand,
                 ) {
-                    "Unexpected official Configuration payload ${packet.payload}"
+                    "Unexpected official Configuration payload ${clientboundPacket.payload}"
                 }
 
                 is ConfigurationRemoveResourcePackPacket,
@@ -225,29 +226,29 @@ internal object OfficialServerClientScenario {
                     -> Unit
 
                 is ConfigurationDisconnectPacket -> error(
-                    "Official server rejected Configuration: ${packet.reason}",
+                    "Official server rejected Configuration: ${clientboundPacket.reason}",
                 )
 
                 is ConfigurationTransferPacket -> error(
-                    "Official server unexpectedly transferred the client to ${packet.host}:${packet.port}",
+                    "Official server unexpectedly transferred the client to ${clientboundPacket.host}:${clientboundPacket.port}",
                 )
 
-                else -> error("Unexpected Configuration packet ${packet::class.simpleName}")
+                else -> error("Unexpected Configuration packet ${clientboundPacket::class.simpleName}")
             }
-            connection.requestFlush()
+            minecraftClientConnection.requestFlush()
         }
 
-        val playLoginPacket = connection.incoming.receive() as? PlayLoginPacket
+        val playLoginPacket = minecraftClientConnection.incoming.receive() as? PlayLoginPacket
             ?: error("Official server did not send Play Login first")
         val minecraftDimensionLayout = MinecraftDimensionLayout.from(
             playLoginPacket = playLoginPacket,
             synchronizedRegistryPackets = synchronizedRegistryPackets,
-            protocolData = options.protocolData,
+            protocolData = minecraftClientNegotiationOptions.protocolData,
         )
-        connection.installProtocolRegistryContext(
-            connection.protocolRegistryContext.withChunkSectionCount(minecraftDimensionLayout.sectionCount),
+        minecraftClientConnection.installProtocolRegistryContext(
+            minecraftClientConnection.protocolRegistryContext.withChunkSectionCount(minecraftDimensionLayout.sectionCount),
         )
-        val negotiationProfileResult = profile.complete(connection)
+        val negotiationProfileResult = profile.complete(minecraftClientConnection)
         return MinecraftClientNegotiationResult(
             loginSuccessPacket = actualLogin,
             dataPackConfigurationSnapshot = DataPackConfigurationSnapshot(
@@ -264,9 +265,9 @@ internal object OfficialServerClientScenario {
     }
 
     private fun verifyVanillaConfiguration(
-        result: MinecraftClientNegotiationResult,
+        minecraftClientNegotiationResult: MinecraftClientNegotiationResult,
     ) {
-        val dataPackConfigurationSnapshot = result.dataPackConfigurationSnapshot
+        val dataPackConfigurationSnapshot = minecraftClientNegotiationResult.dataPackConfigurationSnapshot
         check(
             dataPackConfigurationSnapshot.offeredKnownPacks == VanillaProtocolData.offeredKnownPacks,
         ) {

@@ -9,108 +9,108 @@ import kotlinx.io.writeString
  * SNBT grammar. kotlinx-io owns UTF-8 encoding for the streaming output.
  */
 internal class SnbtWriter(
-    private val output: SnbtOutput,
-    private val configuration: SnbtFormatConfiguration,
+    private val snbtOutput: SnbtOutput,
+    private val snbtFormatConfiguration: SnbtFormatConfiguration,
 ) {
-    fun writeTag(tag: NbtTag) {
-        when (tag) {
+    fun writeTag(nbtTag: NbtTag) {
+        when (nbtTag) {
             NbtEnd -> throw NbtEncodingException("TAG_End has no round-trippable SNBT representation")
-            is NbtByte -> writeNumber(tag.value.toString(), 'b')
-            is NbtShort -> writeNumber(tag.value.toString(), 's')
-            is NbtInt -> output.write(tag.value.toString())
-            is NbtLong -> writeNumber(tag.value.toString(), 'L')
+            is NbtByte -> writeNumber(nbtTag.value.toString(), 'b')
+            is NbtShort -> writeNumber(nbtTag.value.toString(), 's')
+            is NbtInt -> snbtOutput.write(nbtTag.value.toString())
+            is NbtLong -> writeNumber(nbtTag.value.toString(), 'L')
             is NbtFloat -> {
-                if (!tag.value.isFinite()) throw NbtEncodingException("SNBT cannot represent a non-finite TAG_Float")
-                writeNumber(tag.value.toSnbtString(), 'f')
+                if (!nbtTag.value.isFinite()) throw NbtEncodingException("SNBT cannot represent a non-finite TAG_Float")
+                writeNumber(nbtTag.value.toSnbtString(), 'f')
             }
 
             is NbtDouble -> {
-                if (!tag.value.isFinite()) throw NbtEncodingException("SNBT cannot represent a non-finite TAG_Double")
-                writeNumber(tag.value.toSnbtString(), 'd')
+                if (!nbtTag.value.isFinite()) throw NbtEncodingException("SNBT cannot represent a non-finite TAG_Double")
+                writeNumber(nbtTag.value.toSnbtString(), 'd')
             }
 
-            is NbtByteArray -> writeByteArray(tag)
-            is NbtString -> writeQuoted(tag.value)
-            is NbtList -> writeList(tag)
-            is NbtCompound -> writeCompound(tag)
-            is NbtIntArray -> writeIntArray(tag)
-            is NbtLongArray -> writeLongArray(tag)
+            is NbtByteArray -> writeByteArray(nbtTag)
+            is NbtString -> writeQuoted(nbtTag.value)
+            is NbtList -> writeList(nbtTag)
+            is NbtCompound -> writeCompound(nbtTag)
+            is NbtIntArray -> writeIntArray(nbtTag)
+            is NbtLongArray -> writeLongArray(nbtTag)
         }
     }
 
-    private fun writeByteArray(tag: NbtByteArray) {
-        output.write("[B;")
+    private fun writeByteArray(nbtByteArray: NbtByteArray) {
+        snbtOutput.write("[B;")
         var index = 0
-        tag.forEach { value ->
-            if (index != 0) output.writeAscii(',')
+        nbtByteArray.forEach { value ->
+            if (index != 0) snbtOutput.writeAscii(',')
             writeNumber(value.toString(), 'B')
             index++
         }
-        output.writeAscii(']')
+        snbtOutput.writeAscii(']')
     }
 
-    private fun writeIntArray(tag: NbtIntArray) {
-        output.write("[I;")
+    private fun writeIntArray(nbtIntArray: NbtIntArray) {
+        snbtOutput.write("[I;")
         var index = 0
-        tag.forEach { value ->
-            if (index != 0) output.writeAscii(',')
-            output.write(value.toString())
+        nbtIntArray.forEach { value ->
+            if (index != 0) snbtOutput.writeAscii(',')
+            snbtOutput.write(value.toString())
             index++
         }
-        output.writeAscii(']')
+        snbtOutput.writeAscii(']')
     }
 
-    private fun writeLongArray(tag: NbtLongArray) {
-        output.write("[L;")
+    private fun writeLongArray(nbtLongArray: NbtLongArray) {
+        snbtOutput.write("[L;")
         var index = 0
-        tag.forEach { value ->
-            if (index != 0) output.writeAscii(',')
+        nbtLongArray.forEach { value ->
+            if (index != 0) snbtOutput.writeAscii(',')
             writeNumber(value.toString(), 'L')
             index++
         }
-        output.writeAscii(']')
+        snbtOutput.writeAscii(']')
     }
 
-    private fun writeList(tag: NbtList) {
-        output.writeAscii('[')
-        repeat(tag.size) { index ->
-            if (index != 0) output.writeAscii(',')
-            writeTag(tag[index])
+    private fun writeList(nbtList: NbtList) {
+        snbtOutput.writeAscii('[')
+        repeat(nbtList.size) { index ->
+            if (index != 0) snbtOutput.writeAscii(',')
+            writeTag(nbtList[index])
         }
-        output.writeAscii(']')
+        snbtOutput.writeAscii(']')
     }
 
-    private fun writeCompound(tag: NbtCompound) {
-        output.writeAscii('{')
+    private fun writeCompound(nbtCompound: NbtCompound) {
+        snbtOutput.writeAscii('{')
         var index = 0
-        if (configuration.sortCompoundKeys) {
-            val names = ArrayList<String>(tag.size)
-            tag.forEachEntry { name, _ -> names += name }
+        if (snbtFormatConfiguration.sortCompoundKeys) {
+            val names = ArrayList<String>(nbtCompound.size)
+            nbtCompound.forEachEntry { name, _ -> names += name }
             names.sort()
             for (name in names) {
-                if (index != 0) output.writeAscii(',')
+                if (index != 0) snbtOutput.writeAscii(',')
                 writeKey(name)
-                output.writeAscii(':')
-                writeTag(tag[name] ?: error("NBT compound changed while writing"))
+                snbtOutput.writeAscii(':')
+                writeTag(nbtCompound[name] ?: error("NBT compound changed while writing"))
                 index++
             }
         } else {
-            tag.forEachEntry { name, value ->
-                if (index != 0) output.writeAscii(',')
+            nbtCompound.forEachEntry { name, value ->
+                if (index != 0) snbtOutput.writeAscii(',')
                 writeKey(name)
-                output.writeAscii(':')
+                snbtOutput.writeAscii(':')
                 writeTag(value)
                 index++
             }
         }
-        output.writeAscii('}')
+        snbtOutput.writeAscii('}')
     }
 
     private fun writeKey(value: String) {
         if (value.isEmpty()) {
             throw NbtEncodingException("Empty compound keys have no round-trippable SNBT representation")
         }
-        if (value.isUnquotedKey()) output.write(value) else writeQuoted(value)
+        if (value.isUnquotedKey()) snbtOutput.write(value) else writeQuoted(value)
     }
 
     private fun writeQuoted(value: String) {
@@ -121,7 +121,7 @@ internal class SnbtWriter(
                 else -> null
             }
         } ?: '"'
-        output.writeAscii(quote)
+        snbtOutput.writeAscii(quote)
         var plainStart = 0
         for (index in value.indices) {
             val character = value[index]
@@ -136,23 +136,23 @@ internal class SnbtWriter(
                 character < ' ' -> null
                 else -> continue
             }
-            output.write(value, plainStart, index)
+            snbtOutput.write(value, plainStart, index)
             if (escape == null) {
-                output.write("\\x")
-                output.writeAscii(HEX_DIGITS[(character.code shr 4) and 0xF])
-                output.writeAscii(HEX_DIGITS[character.code and 0xF])
+                snbtOutput.write("\\x")
+                snbtOutput.writeAscii(HEX_DIGITS[(character.code shr 4) and 0xF])
+                snbtOutput.writeAscii(HEX_DIGITS[character.code and 0xF])
             } else {
-                output.write(escape)
+                snbtOutput.write(escape)
             }
             plainStart = index + 1
         }
-        output.write(value, plainStart, value.length)
-        output.writeAscii(quote)
+        snbtOutput.write(value, plainStart, value.length)
+        snbtOutput.writeAscii(quote)
     }
 
     private fun writeNumber(value: String, suffix: Char) {
-        output.write(value)
-        output.writeAscii(suffix)
+        snbtOutput.write(value)
+        snbtOutput.writeAscii(suffix)
     }
 }
 
@@ -163,17 +163,17 @@ internal interface SnbtOutput {
 }
 
 internal class StringSnbtOutput : SnbtOutput {
-    private val builder = StringBuilder()
+    private val stringBuilder = StringBuilder()
 
     override fun writeAscii(value: Char) {
-        builder.append(value)
+        stringBuilder.append(value)
     }
 
     override fun write(value: String, startIndex: Int, endIndex: Int) {
-        for (index in startIndex until endIndex) builder.append(value[index])
+        for (index in startIndex until endIndex) stringBuilder.append(value[index])
     }
 
-    override fun toString(): String = builder.toString()
+    override fun toString(): String = stringBuilder.toString()
 }
 
 internal class SinkSnbtOutput(

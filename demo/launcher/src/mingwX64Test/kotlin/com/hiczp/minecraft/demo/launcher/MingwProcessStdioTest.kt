@@ -15,8 +15,8 @@ class MingwProcessStdioTest {
             .stdout(Stdio.Pipe)
             .stderr(Stdio.Null)
             .spawn()
-        val reader = assertNotNull(child.bufferedStdout())
-        val line = assertNotNull(reader.readLine())
+        val bufferedReader = assertNotNull(child.bufferedStdout())
+        val line = assertNotNull(bufferedReader.readLine())
 
         val decoded = OutputChunkDecoder().feed(normalizeProcessLineEnding(line))
 

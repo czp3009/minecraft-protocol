@@ -57,7 +57,7 @@ internal object CommandsPacketSerializer : KSerializer<CommandsPacket> {
 
     override fun deserialize(decoder: Decoder): CommandsPacket {
         val input = decoder.beginStructure(descriptor)
-        val result = if (input.decodeSequentially()) {
+        val commandsPacket = if (input.decodeSequentially()) {
             CommandsPacket(
                 nodes = input.decodeSerializableElement(
                     descriptor,
@@ -92,16 +92,16 @@ internal object CommandsPacketSerializer : KSerializer<CommandsPacket> {
             )
         }
         input.endStructure(descriptor)
-        validateGraph(result.nodes)
-        return result
+        validateGraph(commandsPacket.nodes)
+        return commandsPacket
     }
 
     private fun validateGraph(nodes: List<CommandNode>) {
-        validateDependencies(nodes, "redirect") { node, unresolved ->
-            node.redirect == null || node.redirect !in unresolved
+        validateDependencies(nodes, "redirect") { commandNode, unresolved ->
+            commandNode.redirect == null || commandNode.redirect !in unresolved
         }
-        validateDependencies(nodes, "child") { node, unresolved ->
-            node.children.none { it in unresolved }
+        validateDependencies(nodes, "child") { commandNode, unresolved ->
+            commandNode.children.none { it in unresolved }
         }
     }
 

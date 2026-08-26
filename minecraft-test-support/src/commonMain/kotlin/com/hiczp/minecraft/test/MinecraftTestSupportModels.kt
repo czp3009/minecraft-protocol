@@ -59,7 +59,7 @@ sealed interface MinecraftTestResource {
 @Serializable
 data class OfficialMinecraftServer(
     override val id: String,
-    val endpoint: MinecraftTestEndpoint,
+    val minecraftTestEndpoint: MinecraftTestEndpoint,
 ) : MinecraftTestResource
 
 /** Serializable reference to a headless client owned by the Fixture Host. */

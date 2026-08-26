@@ -15,14 +15,14 @@ import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.modules.SerializersModule
 
 internal class NbtTreeEncoder(
-    private val configuration: NbtFormatConfiguration,
+    private val nbtFormatConfiguration: NbtFormatConfiguration,
     private val path: String,
     private val emit: (NbtTag) -> Unit,
 ) : Encoder, NbtTagEncoder {
     override val serializersModule: SerializersModule
-        get() = configuration.serializersModule
+        get() = nbtFormatConfiguration.serializersModule
 
-    override fun encodeNbtTag(value: NbtTag) = emit(value)
+    override fun encodeNbtTag(nbtTag: NbtTag) = emit(nbtTag)
 
     override fun encodeNull(): Nothing =
         throw NbtEncodingException("NBT has no null value at $path")
@@ -86,41 +86,41 @@ internal class NbtTreeEncoder(
     }
 
     private fun compositeEncoder(
-        descriptor: SerialDescriptor,
+        serialDescriptor: SerialDescriptor,
         collectionSize: Int?,
     ): CompositeEncoder {
-        if (descriptor.kind is PolymorphicKind) {
+        if (serialDescriptor.kind is PolymorphicKind) {
             throw NbtEncodingException(
-                "Polymorphic serializer ${descriptor.serialName} is unsupported at $path",
+                "Polymorphic serializer ${serialDescriptor.serialName} is unsupported at $path",
             )
         }
-        return when (descriptor.kind) {
+        return when (serialDescriptor.kind) {
             StructureKind.CLASS,
             StructureKind.OBJECT,
                 -> NbtClassEncoder(
-                configuration,
-                descriptor,
+                nbtFormatConfiguration,
+                serialDescriptor,
                 path,
                 emit,
             )
 
             StructureKind.LIST -> NbtListEncoder(
-                configuration,
-                descriptor,
+                nbtFormatConfiguration,
+                serialDescriptor,
                 path,
                 emit,
                 collectionSize,
             )
 
             StructureKind.MAP -> {
-                if (!descriptor.hasStringMapKey()) {
+                if (!serialDescriptor.hasStringMapKey()) {
                     throw NbtEncodingException(
                         "NBT maps require Kotlin String keys at $path",
                     )
                 }
                 NbtMapEncoder(
-                    configuration,
-                    descriptor,
+                    nbtFormatConfiguration,
+                    serialDescriptor,
                     path,
                     emit,
                     collectionSize,
@@ -128,24 +128,24 @@ internal class NbtTreeEncoder(
             }
 
             else -> throw NbtEncodingException(
-                "Unsupported structure ${descriptor.serialName} at $path",
+                "Unsupported structure ${serialDescriptor.serialName} at $path",
             )
         }
     }
 }
 
 private abstract class NbtCompositeEncoder(
-    protected val configuration: NbtFormatConfiguration,
-    protected val descriptor: SerialDescriptor,
+    protected val nbtFormatConfiguration: NbtFormatConfiguration,
+    protected val serialDescriptor: SerialDescriptor,
     protected val path: String,
 ) : CompositeEncoder {
     override val serializersModule: SerializersModule
-        get() = configuration.serializersModule
+        get() = nbtFormatConfiguration.serializersModule
 
     override fun shouldEncodeElementDefault(
         descriptor: SerialDescriptor,
         index: Int,
-    ): Boolean = configuration.encodeDefaults
+    ): Boolean = nbtFormatConfiguration.encodeDefaults
 
     override fun encodeBooleanElement(
         descriptor: SerialDescriptor,
@@ -230,7 +230,7 @@ private abstract class NbtCompositeEncoder(
         }
     }
 
-    protected abstract fun accept(index: Int, value: NbtTag)
+    protected abstract fun accept(index: Int, nbtTag: NbtTag)
 
     protected open fun acceptNull(index: Int) {
         throw NbtEncodingException(
@@ -241,21 +241,21 @@ private abstract class NbtCompositeEncoder(
     protected open fun elementPath(index: Int): String = "$path[$index]"
 
     private fun child(index: Int): NbtTreeEncoder =
-        NbtTreeEncoder(configuration, elementPath(index)) {
+        NbtTreeEncoder(nbtFormatConfiguration, elementPath(index)) {
             accept(index, it)
         }
 }
 
 private class NbtClassEncoder(
-    configuration: NbtFormatConfiguration,
-    descriptor: SerialDescriptor,
+    nbtFormatConfiguration: NbtFormatConfiguration,
+    serialDescriptor: SerialDescriptor,
     path: String,
     private val emit: (NbtTag) -> Unit,
-) : NbtCompositeEncoder(configuration, descriptor, path) {
+) : NbtCompositeEncoder(nbtFormatConfiguration, serialDescriptor, path) {
     private val values = linkedMapOf<String, NbtTag>()
 
-    override fun accept(index: Int, value: NbtTag) {
-        values[descriptor.getElementName(index)] = value
+    override fun accept(index: Int, nbtTag: NbtTag) {
+        values[serialDescriptor.getElementName(index)] = nbtTag
     }
 
     override fun acceptNull(index: Int) {
@@ -263,7 +263,7 @@ private class NbtClassEncoder(
     }
 
     override fun elementPath(index: Int): String =
-        "$path.${descriptor.getElementName(index)}"
+        "$path.${serialDescriptor.getElementName(index)}"
 
     override fun endStructure(descriptor: SerialDescriptor) {
         requireMatchingDescriptor(descriptor)
@@ -271,32 +271,32 @@ private class NbtClassEncoder(
     }
 
     private fun requireMatchingDescriptor(actual: SerialDescriptor) {
-        if (actual != descriptor) {
+        if (actual != serialDescriptor) {
             throw NbtEncodingException("Mismatched structure at $path")
         }
     }
 }
 
 private class NbtListEncoder(
-    configuration: NbtFormatConfiguration,
-    descriptor: SerialDescriptor,
+    nbtFormatConfiguration: NbtFormatConfiguration,
+    serialDescriptor: SerialDescriptor,
     path: String,
     private val emit: (NbtTag) -> Unit,
     expectedSize: Int?,
-) : NbtCompositeEncoder(configuration, descriptor, path) {
+) : NbtCompositeEncoder(nbtFormatConfiguration, serialDescriptor, path) {
     private val values = ArrayList<NbtTag>(expectedSize ?: 0)
 
-    override fun accept(index: Int, value: NbtTag) {
+    override fun accept(index: Int, nbtTag: NbtTag) {
         if (index != values.size) {
             throw NbtEncodingException(
                 "NBT list index $index is out of sequence at $path",
             )
         }
-        values += value
+        values += nbtTag
     }
 
     override fun endStructure(descriptor: SerialDescriptor) {
-        if (descriptor != this.descriptor) {
+        if (descriptor != serialDescriptor) {
             throw NbtEncodingException("Mismatched list structure at $path")
         }
         emit(NbtList(values))
@@ -304,17 +304,17 @@ private class NbtListEncoder(
 }
 
 private class NbtMapEncoder(
-    configuration: NbtFormatConfiguration,
-    descriptor: SerialDescriptor,
+    nbtFormatConfiguration: NbtFormatConfiguration,
+    serialDescriptor: SerialDescriptor,
     path: String,
     private val emit: (NbtTag) -> Unit,
     expectedSize: Int?,
-) : NbtCompositeEncoder(configuration, descriptor, path) {
+) : NbtCompositeEncoder(nbtFormatConfiguration, serialDescriptor, path) {
     private val values = LinkedHashMap<String, NbtTag>(expectedSize ?: 0)
     private var pendingKey: String? = null
     private var nextIndex = 0
 
-    override fun accept(index: Int, value: NbtTag) {
+    override fun accept(index: Int, nbtTag: NbtTag) {
         if (index != nextIndex) {
             throw NbtEncodingException(
                 "NBT map index $index is out of sequence at $path",
@@ -322,7 +322,7 @@ private class NbtMapEncoder(
         }
         nextIndex++
         if (index % 2 == 0) {
-            val key = (value as? NbtString)?.value
+            val key = (nbtTag as? NbtString)?.value
                 ?: throw NbtEncodingException(
                     "NBT map keys must serialize as strings at $path",
                 )
@@ -330,7 +330,7 @@ private class NbtMapEncoder(
         } else {
             val key = pendingKey
                 ?: throw NbtEncodingException("NBT map value has no key at $path")
-            if (values.put(key, value) != null) {
+            if (values.put(key, nbtTag) != null) {
                 throw NbtEncodingException(
                     "NBT map contains duplicate encoded key '$key' at $path",
                 )
@@ -340,7 +340,7 @@ private class NbtMapEncoder(
     }
 
     override fun endStructure(descriptor: SerialDescriptor) {
-        if (descriptor != this.descriptor) {
+        if (descriptor != serialDescriptor) {
             throw NbtEncodingException("Mismatched map structure at $path")
         }
         if (pendingKey != null) {
@@ -351,20 +351,20 @@ private class NbtMapEncoder(
 }
 
 internal class NbtTreeDecoder(
-    private val tag: NbtTag?,
-    private val configuration: NbtFormatConfiguration,
+    private val nbtTag: NbtTag?,
+    private val nbtFormatConfiguration: NbtFormatConfiguration,
     private val path: String,
 ) : Decoder, NbtTagDecoder {
     override val serializersModule: SerializersModule
-        get() = configuration.serializersModule
+        get() = nbtFormatConfiguration.serializersModule
 
     override fun decodeNbtTag(): NbtTag =
-        tag ?: throw NbtDecodingException("Missing raw NBT tag at $path")
+        nbtTag ?: throw NbtDecodingException("Missing raw NBT tag at $path")
 
-    override fun decodeNotNullMark(): Boolean = tag != null
+    override fun decodeNotNullMark(): Boolean = nbtTag != null
 
     override fun decodeNull(): Nothing? {
-        if (tag != null) {
+        if (nbtTag != null) {
             throw NbtDecodingException("Expected null at $path")
         }
         return null
@@ -372,7 +372,7 @@ internal class NbtTreeDecoder(
 
     override fun decodeBoolean(): Boolean {
         val value = requireTag<NbtByte>("TAG_Byte").value.toInt()
-        if (configuration.strictBooleans && value !in 0..1) {
+        if (nbtFormatConfiguration.strictBooleans && value !in 0..1) {
             throw NbtDecodingException(
                 "Invalid Boolean byte $value at $path",
             )
@@ -425,14 +425,14 @@ internal class NbtTreeDecoder(
             StructureKind.OBJECT,
                 -> NbtClassDecoder(
                 requireTag("TAG_Compound"),
-                configuration,
+                nbtFormatConfiguration,
                 descriptor,
                 path,
             )
 
             StructureKind.LIST -> NbtListDecoder(
                 requireTag("TAG_List"),
-                configuration,
+                nbtFormatConfiguration,
                 descriptor,
                 path,
             )
@@ -445,7 +445,7 @@ internal class NbtTreeDecoder(
                 }
                 NbtMapDecoder(
                     requireTag("TAG_Compound"),
-                    configuration,
+                    nbtFormatConfiguration,
                     descriptor,
                     path,
                 )
@@ -460,7 +460,7 @@ internal class NbtTreeDecoder(
     override fun <T : Any?> decodeSerializableValue(
         deserializer: DeserializationStrategy<T>,
     ): T {
-        if (tag != null) {
+        if (nbtTag != null) {
             @Suppress("UNCHECKED_CAST")
             when (deserializer.descriptor.serialName) {
                 BYTE_ARRAY_SERIAL_NAME -> return requireTag<NbtByteArray>(
@@ -480,18 +480,18 @@ internal class NbtTreeDecoder(
     }
 
     private inline fun <reified T : NbtTag> requireTag(expected: String): T =
-        tag as? T ?: throw NbtDecodingException(
-            "Expected $expected at $path, got ${tag?.let { it::class.simpleName } ?: "a missing value"}",
+        nbtTag as? T ?: throw NbtDecodingException(
+            "Expected $expected at $path, got ${nbtTag?.let { it::class.simpleName } ?: "a missing value"}",
         )
 }
 
 private abstract class NbtCompositeDecoder(
-    protected val configuration: NbtFormatConfiguration,
-    protected val descriptor: SerialDescriptor,
+    protected val nbtFormatConfiguration: NbtFormatConfiguration,
+    protected val serialDescriptor: SerialDescriptor,
     protected val path: String,
 ) : CompositeDecoder {
     override val serializersModule: SerializersModule
-        get() = configuration.serializersModule
+        get() = nbtFormatConfiguration.serializersModule
 
     override fun decodeBooleanElement(
         descriptor: SerialDescriptor,
@@ -558,7 +558,7 @@ private abstract class NbtCompositeDecoder(
     ): T? = child(index).decodeNullableSerializableValue(deserializer)
 
     override fun endStructure(descriptor: SerialDescriptor) {
-        if (descriptor != this.descriptor) {
+        if (descriptor != serialDescriptor) {
             throw NbtDecodingException("Mismatched structure at $path")
         }
     }
@@ -568,38 +568,38 @@ private abstract class NbtCompositeDecoder(
     protected open fun elementPath(index: Int): String = "$path[$index]"
 
     private fun child(index: Int): NbtTreeDecoder =
-        NbtTreeDecoder(tagAt(index), configuration, elementPath(index))
+        NbtTreeDecoder(tagAt(index), nbtFormatConfiguration, elementPath(index))
 }
 
 private class NbtClassDecoder(
-    compound: NbtCompound,
-    configuration: NbtFormatConfiguration,
-    descriptor: SerialDescriptor,
+    nbtCompound: NbtCompound,
+    nbtFormatConfiguration: NbtFormatConfiguration,
+    serialDescriptor: SerialDescriptor,
     path: String,
-) : NbtCompositeDecoder(configuration, descriptor, path) {
-    private val values = compound.value
+) : NbtCompositeDecoder(nbtFormatConfiguration, serialDescriptor, path) {
+    private val values = nbtCompound.value
     private val indexes: List<Int>
     private var nextIndex = 0
 
     init {
         val present = linkedSetOf<Int>()
         for (name in values.keys) {
-            val index = descriptor.getElementIndex(name)
+            val index = serialDescriptor.getElementIndex(name)
             if (index == CompositeDecoder.UNKNOWN_NAME) {
-                if (!configuration.ignoreUnknownKeys) {
+                if (!nbtFormatConfiguration.ignoreUnknownKeys) {
                     throw NbtDecodingException(
-                        "Unknown key '$name' for ${descriptor.serialName} at $path",
+                        "Unknown key '$name' for ${serialDescriptor.serialName} at $path",
                     )
                 }
             } else {
                 present += index
             }
         }
-        for (index in 0 until descriptor.elementsCount) {
+        for (index in 0 until serialDescriptor.elementsCount) {
             if (
                 index !in present &&
-                descriptor.getElementDescriptor(index).isNullable &&
-                !descriptor.isElementOptional(index)
+                serialDescriptor.getElementDescriptor(index).isNullable &&
+                !serialDescriptor.isElementOptional(index)
             ) {
                 present += index
             }
@@ -614,19 +614,19 @@ private class NbtClassDecoder(
         else CompositeDecoder.DECODE_DONE
 
     override fun tagAt(index: Int): NbtTag? =
-        values[descriptor.getElementName(index)]
+        values[serialDescriptor.getElementName(index)]
 
     override fun elementPath(index: Int): String =
-        "$path.${descriptor.getElementName(index)}"
+        "$path.${serialDescriptor.getElementName(index)}"
 }
 
 private class NbtListDecoder(
-    list: NbtList,
-    configuration: NbtFormatConfiguration,
-    descriptor: SerialDescriptor,
+    nbtList: NbtList,
+    nbtFormatConfiguration: NbtFormatConfiguration,
+    serialDescriptor: SerialDescriptor,
     path: String,
-) : NbtCompositeDecoder(configuration, descriptor, path) {
-    private val values = list.value
+) : NbtCompositeDecoder(nbtFormatConfiguration, serialDescriptor, path) {
+    private val values = nbtList.value
     private var nextIndex = 0
 
     override fun decodeSequentially(): Boolean = true
@@ -642,12 +642,12 @@ private class NbtListDecoder(
 }
 
 private class NbtMapDecoder(
-    compound: NbtCompound,
-    configuration: NbtFormatConfiguration,
-    descriptor: SerialDescriptor,
+    nbtCompound: NbtCompound,
+    nbtFormatConfiguration: NbtFormatConfiguration,
+    serialDescriptor: SerialDescriptor,
     path: String,
-) : NbtCompositeDecoder(configuration, descriptor, path) {
-    private val elements: List<NbtTag> = compound.value.let { values ->
+) : NbtCompositeDecoder(nbtFormatConfiguration, serialDescriptor, path) {
+    private val elements: List<NbtTag> = nbtCompound.value.let { values ->
         buildList(values.size * 2) {
             for ((name, value) in values) {
                 add(NbtString(name))

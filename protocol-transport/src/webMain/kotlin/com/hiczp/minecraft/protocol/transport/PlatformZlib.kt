@@ -22,22 +22,22 @@ internal actual fun platformZlibDecompressingSource(
     // compressed frame body, so provide that complete member in one input;
     // Kompress still owns ZLIB validation and the DEFLATE implementation.
     val member = source.readByteArray()
-    val decompressor = ZlibDecompressor()
+    val zlibDecompressor = ZlibDecompressor()
     return try {
         mapKompressFailure("Cannot create zlib decompression stream") {
-            decompressor.setInput(member)
-            decompressor.finish()
-            ExactKompressZlibRawSource(decompressor)
+            zlibDecompressor.setInput(member)
+            zlibDecompressor.finish()
+            ExactKompressZlibRawSource(zlibDecompressor)
                 .withKotlinxIoExceptions("Invalid zlib stream")
         }
     } catch (failure: Throwable) {
-        decompressor.close()
+        zlibDecompressor.close()
         throw failure
     }
 }
 
 private class ExactKompressZlibRawSource(
-    private val decompressor: ZlibDecompressor,
+    private val zlibDecompressor: ZlibDecompressor,
 ) : RawSource {
     private var closed = false
     private var finished = false
@@ -53,14 +53,14 @@ private class ExactKompressZlibRawSource(
         }
         if (finished) return -1
 
-        val read = decompressor.decompress(output)
+        val read = zlibDecompressor.decompress(output)
         if (read > 0) {
             pending.write(output, endIndex = read)
             return pending.readAtMostTo(sink, byteCount)
         }
-        if (decompressor.finished) {
+        if (zlibDecompressor.finished) {
             finished = true
-            if (decompressor.remaining != 0) {
+            if (zlibDecompressor.remaining != 0) {
                 throw kotlinx.io.IOException("Trailing bytes after zlib stream")
             }
             return -1
@@ -70,7 +70,7 @@ private class ExactKompressZlibRawSource(
 
     override fun close() {
         if (closed) return
-        decompressor.close()
+        zlibDecompressor.close()
         closed = true
     }
 }

@@ -478,7 +478,7 @@ internal object ObjectiveUpdateSerializer : KSerializer<ObjectiveUpdate> {
     private fun encodeObjectivePayload(
         output: CompositeEncoder,
         displayName: TextComponent,
-        renderType: ObjectiveRenderType,
+        objectiveRenderType: ObjectiveRenderType,
         numberFormat: NumberFormat?,
     ) {
         output.encodeSerializableElement(
@@ -491,7 +491,7 @@ internal object ObjectiveUpdateSerializer : KSerializer<ObjectiveUpdate> {
             descriptor,
             RENDER_TYPE,
             ObjectiveRenderType.serializer(),
-            renderType,
+            objectiveRenderType,
         )
         output.encodeNullableSerializableElement(
             descriptor,
@@ -510,7 +510,7 @@ internal object ObjectiveUpdateSerializer : KSerializer<ObjectiveUpdate> {
             DISPLAY_NAME,
             TextComponent.serializer(),
         )
-        val renderType = input.decodeSerializableElement(
+        val objectiveRenderType = input.decodeSerializableElement(
             descriptor,
             RENDER_TYPE,
             ObjectiveRenderType.serializer(),
@@ -521,9 +521,9 @@ internal object ObjectiveUpdateSerializer : KSerializer<ObjectiveUpdate> {
             NumberFormat.serializer().nullable,
         )
         return if (add) {
-            ObjectiveUpdate.Add(displayName, renderType, numberFormat)
+            ObjectiveUpdate.Add(displayName, objectiveRenderType, numberFormat)
         } else {
-            ObjectiveUpdate.Change(displayName, renderType, numberFormat)
+            ObjectiveUpdate.Change(displayName, objectiveRenderType, numberFormat)
         }
     }
 

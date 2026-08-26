@@ -335,7 +335,7 @@ internal object CommandNodeSerializer : KSerializer<CommandNode> {
         var children: List<Int>? = null
         var redirect: Int? = null
         var name: String? = null
-        var parser: CommandParser? = null
+        var commandParser: CommandParser? = null
         var suggestionsType: Identifier? = null
         while (true) {
             when (val index = input.decodeElementIndex(descriptor)) {
@@ -348,7 +348,7 @@ internal object CommandNodeSerializer : KSerializer<CommandNode> {
 
                 REDIRECT -> redirect = input.decodeIntElement(descriptor, REDIRECT)
                 NAME -> name = input.decodeStringElement(descriptor, NAME)
-                PARSER -> parser = input.decodeSerializableElement(
+                PARSER -> commandParser = input.decodeSerializableElement(
                     descriptor,
                     PARSER,
                     CommandParserSerializer,
@@ -388,7 +388,7 @@ internal object CommandNodeSerializer : KSerializer<CommandNode> {
 
             TYPE_ARGUMENT -> CommandNode.Argument(
                 required(name, "name"),
-                required(parser, "parser"),
+                required(commandParser, "parser"),
                 if (actualFlags and FLAG_SUGGESTIONS != 0) {
                     required(suggestionsType, "suggestionsType")
                 } else {
@@ -701,7 +701,7 @@ internal object CommandParserSerializer : KSerializer<CommandParser> {
         var integerMaximum: Int? = null
         var longMinimum: Long? = null
         var longMaximum: Long? = null
-        var stringBehavior: CommandStringBehavior? = null
+        var commandStringBehavior: CommandStringBehavior? = null
         var entityFlags: Int? = null
         var scoreHolderFlags: Int? = null
         var timeMinimum: Int? = null
@@ -736,7 +736,7 @@ internal object CommandParserSerializer : KSerializer<CommandParser> {
                 LONG_MAXIMUM -> longMaximum =
                     input.decodeLongElement(descriptor, LONG_MAXIMUM)
 
-                STRING_BEHAVIOR -> stringBehavior =
+                STRING_BEHAVIOR -> commandStringBehavior =
                     input.decodeSerializableElement(
                         descriptor,
                         STRING_BEHAVIOR,
@@ -843,7 +843,7 @@ internal object CommandParserSerializer : KSerializer<CommandParser> {
             )
 
             STRING_ID -> CommandParser.StringValue(
-                required(stringBehavior, "stringBehavior"),
+                required(commandStringBehavior, "stringBehavior"),
             )
 
             ENTITY_ID -> {
@@ -882,12 +882,12 @@ internal object CommandParserSerializer : KSerializer<CommandParser> {
     }
 
     private fun simpleParser(id: Int): CommandParser.Simple {
-        val parser = SimpleCommandParser.entries.firstOrNull {
+        val simpleCommandParser = SimpleCommandParser.entries.firstOrNull {
             it.protocolId == id
         } ?: throw SerializationException(
             "Unknown command argument parser ID $id; its property length is unknowable",
         )
-        return CommandParser.Simple(parser)
+        return CommandParser.Simple(simpleCommandParser)
     }
 
     private fun numberFlags(minimum: Any?, maximum: Any?): Int =

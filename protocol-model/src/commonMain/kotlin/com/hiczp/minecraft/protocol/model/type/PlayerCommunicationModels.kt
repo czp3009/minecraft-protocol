@@ -195,8 +195,8 @@ internal object PlayerInfoUpdatePayloadSerializer :
         output.encodeByteElement(
             descriptor,
             ACTIONS,
-            value.actions.fold(0) { mask, action ->
-                mask or (1 shl action.ordinal)
+            value.actions.fold(0) { mask, playerInfoAction ->
+                mask or (1 shl playerInfoAction.ordinal)
             }.toByte(),
         )
         output.encodeSerializableElement(
@@ -264,8 +264,8 @@ private class PlayerInfoEntrySerializer(
             Uuid.serializer(),
             value.profileId,
         )
-        for (action in actions.sortedBy { it.ordinal }) {
-            when (action) {
+        for (playerInfoAction in actions.sortedBy { it.ordinal }) {
+            when (playerInfoAction) {
                 PlayerInfoAction.ADD_PLAYER -> output.encodeSerializableElement(
                     descriptor,
                     PROFILE,
@@ -322,24 +322,24 @@ private class PlayerInfoEntrySerializer(
             PROFILE_ID,
             Uuid.serializer(),
         )
-        var profile: PlayerListProfile? = null
-        var chatSession: ChatSessionData? = null
+        var playerListProfile: PlayerListProfile? = null
+        var chatSessionData: ChatSessionData? = null
         var gameMode = GameMode.SURVIVAL
         var listed = false
         var latency = 0
         var displayName: TextComponent? = null
         var listOrder = 0
         var showHat = false
-        for (action in actions.sortedBy { it.ordinal }) {
-            when (action) {
-                PlayerInfoAction.ADD_PLAYER -> profile =
+        for (playerInfoAction in actions.sortedBy { it.ordinal }) {
+            when (playerInfoAction) {
+                PlayerInfoAction.ADD_PLAYER -> playerListProfile =
                     input.decodeSerializableElement(
                         descriptor,
                         PROFILE,
                         PlayerListProfile.serializer(),
                     )
 
-                PlayerInfoAction.INITIALIZE_CHAT -> chatSession =
+                PlayerInfoAction.INITIALIZE_CHAT -> chatSessionData =
                     input.decodeNullableSerializableElement(
                         descriptor,
                         CHAT_SESSION,
@@ -376,8 +376,8 @@ private class PlayerInfoEntrySerializer(
         input.endStructure(descriptor)
         return PlayerInfoEntry(
             profileId,
-            profile,
-            chatSession,
+            playerListProfile,
+            chatSessionData,
             gameMode,
             listed,
             latency,
@@ -539,36 +539,36 @@ internal object TrackedWaypointSerializer : KSerializer<TrackedWaypoint> {
 
     override fun deserialize(decoder: Decoder): TrackedWaypoint {
         val input = decoder.beginStructure(descriptor)
-        val identifier = input.decodeSerializableElement(
+        val waypointIdentifier = input.decodeSerializableElement(
             descriptor,
             IDENTIFIER,
             WaypointIdentifier.serializer(),
         )
-        val icon = input.decodeSerializableElement(
+        val waypointIcon = input.decodeSerializableElement(
             descriptor,
             ICON,
             WaypointIcon.serializer(),
         )
         val value = when (val type = input.decodeIntElement(descriptor, TYPE)) {
-            0 -> TrackedWaypoint.Empty(identifier, icon)
+            0 -> TrackedWaypoint.Empty(waypointIdentifier, waypointIcon)
             1 -> TrackedWaypoint.Position(
-                identifier,
-                icon,
+                waypointIdentifier,
+                waypointIcon,
                 input.decodeIntElement(descriptor, X),
                 input.decodeIntElement(descriptor, Y),
                 input.decodeIntElement(descriptor, Z),
             )
 
             2 -> TrackedWaypoint.Chunk(
-                identifier,
-                icon,
+                waypointIdentifier,
+                waypointIcon,
                 input.decodeIntElement(descriptor, X),
                 input.decodeIntElement(descriptor, Z),
             )
 
             3 -> TrackedWaypoint.Azimuth(
-                identifier,
-                icon,
+                waypointIdentifier,
+                waypointIcon,
                 input.decodeFloatElement(descriptor, ANGLE),
             )
 

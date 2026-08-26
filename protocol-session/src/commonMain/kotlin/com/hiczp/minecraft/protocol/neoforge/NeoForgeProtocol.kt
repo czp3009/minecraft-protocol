@@ -160,12 +160,12 @@ object NeoForgeProtocol {
     /** Pure factory; callers may retain and share its result across connections. */
     fun connectionDefinition(
         extensionCodecs: List<PacketCodecRegistration<out Packet>> = emptyList(),
-        format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
         incomingCapacity: Int = MinecraftConnectionDefinition.DEFAULT_CHANNEL_CAPACITY,
         outgoingCapacity: Int = MinecraftConnectionDefinition.DEFAULT_CHANNEL_CAPACITY,
     ): MinecraftConnectionDefinition = MinecraftConnectionDefinition.compose(
         extensionCodecs = packetCodecs + extensionCodecs,
-        format = format,
+        minecraftProtocolFormat = minecraftProtocolFormat,
         incomingCapacity = incomingCapacity,
         outgoingCapacity = outgoingCapacity,
     )
@@ -183,11 +183,11 @@ internal object NeoForgeRegistrySnapshotSerializer :
     }
 
     override fun deserialize(decoder: Decoder): NeoForgeRegistrySnapshot {
-        val wire = decoder.decodeSerializableValue(
+        val neoForgeRegistrySnapshotWire = decoder.decodeSerializableValue(
             NeoForgeRegistrySnapshotWire.serializer(),
         )
         return try {
-            NeoForgeRegistrySnapshot(wire.ids, wire.aliases)
+            NeoForgeRegistrySnapshot(neoForgeRegistrySnapshotWire.ids, neoForgeRegistrySnapshotWire.aliases)
         } catch (cause: IllegalArgumentException) {
             throw MinecraftSerializationException(
                 "Invalid NeoForge registry snapshot",
@@ -218,8 +218,8 @@ internal object NeoForgeRegistryDataMapSyncSerializer :
             NeoForgeRegistryDataMapSyncWire(
                 value.registry,
                 value.dataMaps.mapValues { (_, entries) ->
-                    entries.mapValues { (_, element) ->
-                        json.encodeToString(element)
+                    entries.mapValues { (_, jsonElement) ->
+                        json.encodeToString(jsonElement)
                     }
                 },
             ),
@@ -227,11 +227,11 @@ internal object NeoForgeRegistryDataMapSyncSerializer :
     }
 
     override fun deserialize(decoder: Decoder): NeoForgeRegistryDataMapSyncPacket {
-        val wire = decoder.decodeSerializableValue(
+        val neoForgeRegistryDataMapSyncWire = decoder.decodeSerializableValue(
             NeoForgeRegistryDataMapSyncWire.serializer(),
         )
         val dataMaps = try {
-            wire.dataMaps.mapValues { (_, entries) ->
+            neoForgeRegistryDataMapSyncWire.dataMaps.mapValues { (_, entries) ->
                 entries.mapValues { (_, encoded) ->
                     json.parseToJsonElement(encoded)
                 }
@@ -242,7 +242,7 @@ internal object NeoForgeRegistryDataMapSyncSerializer :
                 cause,
             )
         }
-        return NeoForgeRegistryDataMapSyncPacket(wire.registry, dataMaps)
+        return NeoForgeRegistryDataMapSyncPacket(neoForgeRegistryDataMapSyncWire.registry, dataMaps)
     }
 }
 
@@ -262,7 +262,7 @@ private class NeoForgeRegistrationCodec<T : NeoForgeChannelRegistrationPacket>(
     private val factory: (Set<Identifier>) -> T,
 ) : PacketBodyCodec<T> {
     override fun encode(
-        format: MinecraftProtocolFormat,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
         packet: T,
         sink: Sink,
     ) {
@@ -271,8 +271,8 @@ private class NeoForgeRegistrationCodec<T : NeoForgeChannelRegistrationPacket>(
         }
         val encodedChannels = packet.channels.map { channel ->
             validateChannel(channel)
-            channel.value.encodeToByteArray().also { bytes ->
-                require(bytes.all { byte -> byte.toInt() and 0xFF <= 0x7F }) {
+            channel.value.encodeToByteArray().also { byteArray ->
+                require(byteArray.all { byte -> byte.toInt() and 0xFF <= 0x7F }) {
                     "NeoForge channel names must be US-ASCII: $channel"
                 }
             }
@@ -281,32 +281,32 @@ private class NeoForgeRegistrationCodec<T : NeoForgeChannelRegistrationPacket>(
             encodedChannels.sumOf(ByteArray::size) + encodedChannels.size,
         )
         var offset = 0
-        encodedChannels.forEach { bytes ->
-            bytes.copyInto(output, destinationOffset = offset)
-            offset += bytes.size + 1
+        encodedChannels.forEach { byteArray ->
+            byteArray.copyInto(output, destinationOffset = offset)
+            offset += byteArray.size + 1
         }
-        format.encodeToSink(
+        minecraftProtocolFormat.encodeToSink(
             RemainingRegistrationBody(ByteString(output)),
             sink,
         )
     }
 
     override fun decode(
-        format: MinecraftProtocolFormat,
-        route: PacketRoute,
+        minecraftProtocolFormat: MinecraftProtocolFormat,
+        packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
     ): T {
-        val bytes = format.decodeFromSource<RemainingRegistrationBody>(
+        val byteArray = minecraftProtocolFormat.decodeFromSource<RemainingRegistrationBody>(
             source,
             byteCount,
         ).bytes.toByteArray()
-        if (bytes.any { byte -> byte.toInt() and 0xFF > 0x7F }) {
+        if (byteArray.any { byte -> byte.toInt() and 0xFF > 0x7F }) {
             throw MinecraftSerializationException(
                 "NeoForge channel registration is not US-ASCII",
             )
         }
-        val literals = bytes.decodeToString().split('\u0000')
+        val literals = byteArray.decodeToString().split('\u0000')
             .filter(String::isNotEmpty)
         if (literals.size > NeoForgeProtocol.MAX_CHANNELS) {
             throw MinecraftSerializationException(
@@ -336,7 +336,7 @@ private fun validateChannel(channel: Identifier) {
 private fun <T : NeoForgeBidirectionalPacket>
         MutableList<PacketCodecRegistration<out Packet>>.addBidirectional(
     channel: Identifier,
-    codec: PacketBodyCodec<T>,
+    packetBodyCodec: PacketBodyCodec<T>,
     packetClass: kotlin.reflect.KClass<T>,
 ) {
     CONFIGURATION_AND_PLAY.forEach { state ->
@@ -345,7 +345,7 @@ private fun <T : NeoForgeBidirectionalPacket>
                 state,
                 channel,
                 packetClass,
-                codec,
+                packetBodyCodec,
             ),
         )
         add(
@@ -353,7 +353,7 @@ private fun <T : NeoForgeBidirectionalPacket>
                 state,
                 channel,
                 packetClass,
-                codec,
+                packetBodyCodec,
             ),
         )
     }
@@ -362,7 +362,7 @@ private fun <T : NeoForgeBidirectionalPacket>
 private fun <T : com.hiczp.minecraft.protocol.model.packet.ClientboundPacket.Extension>
         MutableList<PacketCodecRegistration<out Packet>>.addClientbound(
     channel: Identifier,
-    codec: PacketBodyCodec<T>,
+    packetBodyCodec: PacketBodyCodec<T>,
     packetClass: kotlin.reflect.KClass<T>,
     states: List<ConnectionState> = listOf(ConnectionState.CONFIGURATION),
 ) {
@@ -372,7 +372,7 @@ private fun <T : com.hiczp.minecraft.protocol.model.packet.ClientboundPacket.Ext
                 state,
                 channel,
                 packetClass,
-                codec,
+                packetBodyCodec,
             ),
         )
     }
@@ -381,7 +381,7 @@ private fun <T : com.hiczp.minecraft.protocol.model.packet.ClientboundPacket.Ext
 private fun <T : com.hiczp.minecraft.protocol.model.packet.ServerboundPacket.Extension>
         MutableList<PacketCodecRegistration<out Packet>>.addServerbound(
     channel: Identifier,
-    codec: PacketBodyCodec<T>,
+    packetBodyCodec: PacketBodyCodec<T>,
     packetClass: kotlin.reflect.KClass<T>,
     states: List<ConnectionState> = listOf(ConnectionState.CONFIGURATION),
 ) {
@@ -391,7 +391,7 @@ private fun <T : com.hiczp.minecraft.protocol.model.packet.ServerboundPacket.Ext
                 state,
                 channel,
                 packetClass,
-                codec,
+                packetBodyCodec,
             ),
         )
     }

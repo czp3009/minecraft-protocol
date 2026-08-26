@@ -227,7 +227,7 @@ internal object BossBarActionSerializer : KSerializer<BossBarAction> {
     override fun deserialize(decoder: Decoder): BossBarAction {
         val input = decoder.beginStructure(descriptor)
         if (input.decodeSequentially()) {
-            val result = when (
+            val bossBarAction = when (
                 input.decodeSerializableElement(
                     descriptor,
                     0,
@@ -285,18 +285,18 @@ internal object BossBarActionSerializer : KSerializer<BossBarAction> {
                 )
             }
             input.endStructure(descriptor)
-            return result
+            return bossBarAction
         }
 
-        var type: BossBarActionType? = null
+        var bossBarActionType: BossBarActionType? = null
         var title: TextComponent? = null
         var health: Float? = null
-        var color: BossBarColor? = null
-        var division: BossBarDivision? = null
+        var bossBarColor: BossBarColor? = null
+        var bossBarDivision: BossBarDivision? = null
         var flags: Int? = null
         while (true) {
             when (val index = input.decodeElementIndex(descriptor)) {
-                0 -> type = input.decodeSerializableElement(
+                0 -> bossBarActionType = input.decodeSerializableElement(
                     descriptor,
                     0,
                     BossBarActionType.serializer(),
@@ -309,13 +309,13 @@ internal object BossBarActionSerializer : KSerializer<BossBarAction> {
                 )
 
                 2 -> health = input.decodeFloatElement(descriptor, 2)
-                3 -> color = input.decodeSerializableElement(
+                3 -> bossBarColor = input.decodeSerializableElement(
                     descriptor,
                     3,
                     BossBarColor.serializer(),
                 )
 
-                4 -> division = input.decodeSerializableElement(
+                4 -> bossBarDivision = input.decodeSerializableElement(
                     descriptor,
                     4,
                     BossBarDivision.serializer(),
@@ -327,12 +327,12 @@ internal object BossBarActionSerializer : KSerializer<BossBarAction> {
             }
         }
         input.endStructure(descriptor)
-        return when (type) {
+        return when (bossBarActionType) {
             BossBarActionType.ADD -> BossBarAction.Add(
                 required(title, "title"),
                 required(health, "health"),
-                required(color, "color"),
-                required(division, "division"),
+                required(bossBarColor, "color"),
+                required(bossBarDivision, "division"),
                 required(flags, "flags"),
             )
 
@@ -344,8 +344,8 @@ internal object BossBarActionSerializer : KSerializer<BossBarAction> {
                 BossBarAction.UpdateTitle(required(title, "title"))
 
             BossBarActionType.UPDATE_STYLE -> BossBarAction.UpdateStyle(
-                required(color, "color"),
-                required(division, "division"),
+                required(bossBarColor, "color"),
+                required(bossBarDivision, "division"),
             )
 
             BossBarActionType.UPDATE_FLAGS ->

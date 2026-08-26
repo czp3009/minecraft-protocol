@@ -9,158 +9,159 @@ import com.jakewharton.mosaic.LocalTerminalState
 import kotlinx.coroutines.awaitCancellation
 
 @Composable
-internal fun LauncherApplication(controller: LauncherController, platform: LauncherPlatform) {
+internal fun LauncherApplication(launcherController: LauncherController, launcherPlatform: LauncherPlatform) {
     var running by remember { mutableStateOf(true) }
     if (!running) return
 
-    val state by controller.state.collectAsState()
-    val progress by controller.installProgress.collectAsState()
+    val launcherState by launcherController.state.collectAsState()
+    val installProgress by launcherController.installProgress.collectAsState()
     val terminal = LocalTerminalState.current.size
     val visibleRows = (terminal.rows - MENU_RESERVED_ROWS).coerceAtLeast(1)
     val exit = { running = false }
-    when (val destination = state.destination) {
+    when (val launcherDestination = launcherState.launcherDestination) {
         is LauncherDestination.Loading -> LoadingScreen(
-            destination = destination,
-            platform = platform.platformKey,
-            onCancel = when (destination.operation) {
+            destination = launcherDestination,
+            platform = launcherPlatform.platformKey,
+            onCancel = when (launcherDestination.launcherOperation) {
                 LauncherOperation.PREPARE_GAME, LauncherOperation.REFRESH_ACCOUNT ->
-                    controller::cancelGamePreparation
+                    launcherController::cancelGamePreparation
 
-                LauncherOperation.VERSION_MANIFEST -> controller::showHome
+                LauncherOperation.VERSION_MANIFEST -> launcherController::showHome
                 else -> null
             },
         )
 
         is LauncherDestination.Error -> ErrorScreen(
-            destination,
-            platform.platformKey,
-            controller::dismissError,
+            launcherDestination,
+            launcherPlatform.platformKey,
+            launcherController::dismissError,
             exit,
         )
 
         LauncherDestination.Home -> HomeScreen(
-            state.auth,
-            platform.platformKey,
+            launcherState.authState,
+            launcherPlatform.platformKey,
             visibleRows,
-            controller::showVersions,
-            controller::showInstalled,
-            controller::showAccounts,
+            launcherController::showVersions,
+            launcherController::showInstalled,
+            launcherController::showAccounts,
             exit,
         )
 
         LauncherDestination.Versions -> VersionsScreen(
-            platform.platformKey,
+            launcherPlatform.platformKey,
             visibleRows,
-            controller::availableVersions,
-            state.installed.installations
-                .filter { it.platformKey == platform.platformKey }
+            launcherController::availableVersions,
+            launcherState.installedState.installations
+                .filter { it.platformKey == launcherPlatform.platformKey }
                 .mapTo(mutableSetOf()) { it.versionId },
-            controller::confirmInstall,
-            controller::showHome,
+            launcherController::confirmInstall,
+            launcherController::showHome,
         )
 
         is LauncherDestination.ConfirmInstall -> ConfirmInstallScreen(
-            destination.entry,
-            state.installed.installations.any {
-                it.versionId == destination.entry.id && it.platformKey == platform.platformKey
+            launcherDestination.versionEntry,
+            launcherState.installedState.installations.any {
+                it.versionId == launcherDestination.versionEntry.id && it.platformKey == launcherPlatform.platformKey
             },
-            platform.platformKey,
-            onInstall = { controller.install(destination.entry) },
-            onBack = controller::showVersions,
+            launcherPlatform.platformKey,
+            onInstall = { launcherController.install(launcherDestination.versionEntry) },
+            onBack = launcherController::showVersions,
         )
 
         is LauncherDestination.PreparingInstall -> PreparingInstallScreen(
-            destination.entry,
-            platform.platformKey,
-            controller::cancelInstallation,
+            launcherDestination.versionEntry,
+            launcherPlatform.platformKey,
+            launcherController::cancelInstallation,
         )
 
         is LauncherDestination.Installing -> InstallingScreen(
-            destination.entry,
-            progress,
-            platform.platformKey,
-            controller::cancelInstallation,
+            launcherDestination.versionEntry,
+            installProgress,
+            launcherPlatform.platformKey,
+            launcherController::cancelInstallation,
         )
 
         LauncherDestination.Installed -> InstalledScreen(
-            controller.installedVersions(),
-            platform.platformKey,
+            launcherController.installedVersions(),
+            launcherPlatform.platformKey,
             visibleRows,
-            onOpen = { controller.showVersionActions(it.versionId) },
-            onBack = controller::showHome,
+            onOpen = { launcherController.showVersionActions(it.versionId) },
+            onBack = launcherController::showHome,
         )
 
         is LauncherDestination.VersionActions -> VersionActionsScreen(
-            destination.versionId,
-            platform.platformKey,
+            launcherDestination.versionId,
+            launcherPlatform.platformKey,
             visibleRows,
-            onLaunch = { controller.launchGame(destination.versionId) },
-            onDelete = { controller.confirmDelete(destination.versionId) },
-            onBack = controller::showInstalled,
+            onLaunch = { launcherController.launchGame(launcherDestination.versionId) },
+            onDelete = { launcherController.confirmDelete(launcherDestination.versionId) },
+            onBack = launcherController::showInstalled,
         )
 
         is LauncherDestination.ConfirmDelete -> ConfirmDeleteScreen(
-            destination.versionId,
-            platform.platformKey,
-            onDelete = { controller.deleteVersion(destination.versionId) },
-            onBack = { controller.showVersionActions(destination.versionId) },
+            launcherDestination.versionId,
+            launcherPlatform.platformKey,
+            onDelete = { launcherController.deleteVersion(launcherDestination.versionId) },
+            onBack = { launcherController.showVersionActions(launcherDestination.versionId) },
         )
 
         LauncherDestination.Accounts -> AccountsScreen(
-            state.auth,
-            state.accountCredentials,
-            platform.platformKey,
+            launcherState.authState,
+            launcherState.accountCredentials,
+            launcherPlatform.platformKey,
             visibleRows,
-            controller::showAddAccount,
-            controller::showAccountActions,
-            controller::showHome,
+            launcherController::showAddAccount,
+            launcherController::showAccountActions,
+            launcherController::showHome,
         )
 
         LauncherDestination.AddAccount -> AddAccountScreen(
-            platform.platformKey,
+            launcherPlatform.platformKey,
             visibleRows,
-            onAddMicrosoft = { controller.loginMicrosoft() },
-            onAddOffline = { controller.showOfflineInput() },
-            onBack = controller::showAccounts,
+            onAddMicrosoft = { launcherController.loginMicrosoft() },
+            onAddOffline = { launcherController.showOfflineInput() },
+            onBack = launcherController::showAccounts,
         )
 
         is LauncherDestination.AccountActions -> AccountActionsScreen(
-            account = state.auth?.accounts?.singleOrNull { it.identity.id == destination.identityId },
-            credentialState = state.accountCredentials[destination.identityId],
-            selectedIdentityId = state.auth?.selectedIdentityId,
-            platform = platform.platformKey,
+            storedAccount = launcherState.authState?.accounts?.singleOrNull { it.minecraftIdentity.id == launcherDestination.identityId },
+            accountCredentialState = launcherState.accountCredentials[launcherDestination.identityId],
+            selectedIdentityId = launcherState.authState?.selectedIdentityId,
+            platform = launcherPlatform.platformKey,
             visibleRows = visibleRows,
-            onSelect = controller::selectAccount,
-            onEditOffline = controller::showOfflineInput,
-            onSignInAgain = { controller.loginMicrosoft(destination.identityId) },
-            onDelete = controller::deleteAccount,
-            onBack = controller::showAccounts,
+            onSelect = launcherController::selectAccount,
+            onEditOffline = launcherController::showOfflineInput,
+            onSignInAgain = { launcherController.loginMicrosoft(launcherDestination.identityId) },
+            onDelete = launcherController::deleteAccount,
+            onBack = launcherController::showAccounts,
         )
 
         is LauncherDestination.OfflineInput -> {
-            val account = state.auth?.accounts?.singleOrNull { it.identity.id == destination.replacingIdentityId }
+            val storedAccount =
+                launcherState.authState?.accounts?.singleOrNull { it.minecraftIdentity.id == launcherDestination.replacingIdentityId }
             OfflineInputScreen(
-                platform = platform.platformKey,
-                initialName = account?.identity?.name.orEmpty(),
-                editing = destination.replacingIdentityId != null,
-                onSave = { name -> controller.saveOfflineIdentity(name, destination.replacingIdentityId) },
-                onBack = controller::showAccounts,
+                platform = launcherPlatform.platformKey,
+                initialName = storedAccount?.minecraftIdentity?.name.orEmpty(),
+                editing = launcherDestination.replacingIdentityId != null,
+                onSave = { name -> launcherController.saveOfflineIdentity(name, launcherDestination.replacingIdentityId) },
+                onBack = launcherController::showAccounts,
             )
         }
 
         is LauncherDestination.MicrosoftLogin -> MicrosoftLoginScreen(
-            destination.stage,
-            platform.platformKey,
-            controller::cancelMicrosoftLogin,
+            launcherDestination.microsoftLoginStage,
+            launcherPlatform.platformKey,
+            launcherController::cancelMicrosoftLogin,
         )
 
         is LauncherDestination.GameOutput -> GameOutputScreen(
-            destination.versionId,
-            destination.output,
-            platform.platformKey,
+            launcherDestination.versionId,
+            launcherDestination.gameOutputBuffer,
+            launcherPlatform.platformKey,
             terminal.rows,
             terminal.columns,
-            controller::showInstalled,
+            launcherController::showInstalled,
         )
     }
 

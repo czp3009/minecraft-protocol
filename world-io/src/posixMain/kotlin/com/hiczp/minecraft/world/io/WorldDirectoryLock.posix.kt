@@ -23,11 +23,11 @@ internal actual fun acquireWorldDirectoryLock(
          */
         writeWorldLockMarker(descriptor, path)
         syncWorldLock(descriptor, path)
-        val key = tryAcquirePosixFileLock(descriptor, path)
+        val posixFileKey = tryAcquirePosixFileLock(descriptor, path)
             ?: throw worldAlreadyLockedException(
                 absoluteWorldLockPath(path),
             )
-        return PosixWorldDirectoryLock(descriptor, path, key)
+        return PosixWorldDirectoryLock(descriptor, path, posixFileKey)
     } catch (failure: Throwable) {
         // Cleanup is required for every failed acquisition; rethrow the
         // original failure unchanged after closing the descriptor.
@@ -67,8 +67,8 @@ internal actual fun isWorldDirectoryLocked(path: Path): Boolean {
             },
             { closePosixFile(descriptor, path) },
             {
-                acquiredKey?.let { key ->
-                    removeInProcessLock(path, key)
+                acquiredKey?.let { posixFileKey ->
+                    removeInProcessLock(path, posixFileKey)
                 }
             },
         )
@@ -78,7 +78,7 @@ internal actual fun isWorldDirectoryLocked(path: Path): Boolean {
 private class PosixWorldDirectoryLock(
     private var descriptor: Int,
     private val path: Path,
-    private val key: PosixFileKey,
+    private val posixFileKey: PosixFileKey,
 ) : WorldDirectoryLock {
     private var valid = true
 
@@ -97,7 +97,7 @@ private class PosixWorldDirectoryLock(
             { closePosixFile(openDescriptor, path) },
             {
                 valid = false
-                removeInProcessLock(path, key)
+                removeInProcessLock(path, posixFileKey)
             },
         )
     }
@@ -129,20 +129,20 @@ private fun tryAcquirePosixFileLock(
     // fcntl locks are process-scoped rather than descriptor-scoped. The
     // synchronized device/inode registry reproduces FileChannel's refusal of
     // an overlapping lock held elsewhere in this process.
-    val key = posixFileKey(descriptor, path)
+    val posixFileKey = posixFileKey(descriptor, path)
     return withInProcessLockRegistry(path) {
-        if (!IN_PROCESS_LOCK_KEYS.add(key)) {
+        if (!IN_PROCESS_LOCK_KEYS.add(posixFileKey)) {
             return@withInProcessLockRegistry null
         }
         when (val lockError = setPosixLock(descriptor, F_WRLCK)) {
-            0 -> key
+            0 -> posixFileKey
             EACCES, EAGAIN -> {
-                IN_PROCESS_LOCK_KEYS.remove(key)
+                IN_PROCESS_LOCK_KEYS.remove(posixFileKey)
                 null
             }
 
             else -> {
-                IN_PROCESS_LOCK_KEYS.remove(key)
+                IN_PROCESS_LOCK_KEYS.remove(posixFileKey)
                 throw posixLockIoFailure("lock", path, lockError)
             }
         }
@@ -259,9 +259,9 @@ private inline fun <T> withInProcessLockRegistry(
     }
 }
 
-private fun removeInProcessLock(path: Path, key: PosixFileKey) {
+private fun removeInProcessLock(path: Path, posixFileKey: PosixFileKey) {
     withInProcessLockRegistry(path) {
-        IN_PROCESS_LOCK_KEYS.remove(key)
+        IN_PROCESS_LOCK_KEYS.remove(posixFileKey)
     }
 }
 

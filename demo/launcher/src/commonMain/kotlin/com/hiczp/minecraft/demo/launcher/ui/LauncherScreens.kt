@@ -22,8 +22,8 @@ internal fun LoadingScreen(
     LauncherScaffold(
         platform = platform,
         hints = if (destination.cancellable) listOf(KeyHint("Esc", "Cancel")) else emptyList(),
-        onKeyEvent = { event ->
-            if (event.key == "Escape" && destination.cancellable) {
+        onKeyEvent = { keyEvent ->
+            if (keyEvent.key == "Escape" && destination.cancellable) {
                 onCancel?.invoke()
                 true
             } else {
@@ -45,8 +45,8 @@ internal fun ErrorScreen(
     LauncherScaffold(
         platform = platform,
         hints = listOf(KeyHint("Enter / Esc", "Back"), KeyHint("q", "Exit")),
-        onKeyEvent = { event ->
-            when (event.key) {
+        onKeyEvent = { keyEvent ->
+            when (keyEvent.key) {
                 "Enter" -> {
                     onDismiss()
                     true
@@ -74,15 +74,15 @@ internal fun ErrorScreen(
 
 @Composable
 internal fun PreparingInstallScreen(
-    entry: VersionEntry,
+    versionEntry: VersionEntry,
     platform: String,
     onCancel: () -> Unit,
 ) {
     LauncherScaffold(
         platform = platform,
         hints = listOf(KeyHint("Esc", "Cancel")),
-        onKeyEvent = { event ->
-            if (event.key == "Escape") {
+        onKeyEvent = { keyEvent ->
+            if (keyEvent.key == "Escape") {
                 onCancel()
                 true
             } else {
@@ -90,14 +90,14 @@ internal fun PreparingInstallScreen(
             }
         },
     ) {
-        SectionHeading("Installing ${entry.id}")
+        SectionHeading("Installing ${versionEntry.id}")
         Status("Loading resource manifests...")
     }
 }
 
 @Composable
 internal fun HomeScreen(
-    auth: AuthState?,
+    authState: AuthState?,
     platform: String,
     visibleRows: Int,
     onShowVersions: () -> Unit,
@@ -105,35 +105,35 @@ internal fun HomeScreen(
     onShowAccounts: () -> Unit,
     onExit: () -> Unit,
 ) {
-    val selection = rememberSelectionState()
+    val selectionState = rememberSelectionState()
     val items = listOf(
         ActionItem("Install version", onShowVersions),
         ActionItem("Installed versions", onShowInstalled),
         ActionItem("Accounts", onShowAccounts),
         ActionItem("Exit", onExit),
     )
-    val selectedAccount = auth?.accounts?.singleOrNull { it.identity.id == auth.selectedIdentityId }
-    val accountLabel = selectedAccount?.let { account ->
-        val kind = if (account.identity is MinecraftOnlineIdentity) "Microsoft" else "Offline"
-        "${account.identity.name} | $kind"
+    val selectedAccount = authState?.accounts?.singleOrNull { it.minecraftIdentity.id == authState.selectedIdentityId }
+    val accountLabel = selectedAccount?.let { storedAccount ->
+        val kind = if (storedAccount.minecraftIdentity is MinecraftOnlineIdentity) "Microsoft" else "Offline"
+        "${storedAccount.minecraftIdentity.name} | $kind"
     } ?: "$DEFAULT_OFFLINE_PLAYER_NAME | Offline default"
 
     LauncherScaffold(
         platform = platform,
         hints = listOf(KeyHint("Up/Down", "Select"), KeyHint("Enter", "Open"), KeyHint("Esc", "Exit")),
-        onKeyEvent = { event ->
-            if (event.key == "Escape") {
+        onKeyEvent = { keyEvent ->
+            if (keyEvent.key == "Escape") {
                 onExit()
                 true
             } else {
-                handleMenuKey(event, items, selection)
+                handleMenuKey(keyEvent, items, selectionState)
             }
         },
     ) {
         SectionHeading("Home")
         PropertyRow("Account", accountLabel)
         Spacer(Modifier.height(1))
-        ActionMenu(items, selection, visibleRows, Modifier.weight(1f))
+        ActionMenu(items, selectionState, visibleRows, Modifier.weight(1f))
     }
 }
 
@@ -146,51 +146,51 @@ internal fun VersionsScreen(
     onInstall: (VersionEntry) -> Unit,
     onBack: () -> Unit,
 ) {
-    var filter by remember { mutableStateOf(VersionFilter.STABLE) }
-    val selection = rememberSelectionState()
-    val items = versionsFor(filter.type).map { entry ->
+    var versionFilter by remember { mutableStateOf(VersionFilter.STABLE) }
+    val selectionState = rememberSelectionState()
+    val items = versionsFor(versionFilter.type).map { versionEntry ->
         ActionItem(
-            label = entry.id,
-            onActivate = { onInstall(entry) },
-            trailingText = if (entry.id in installedVersionIds) "Installed" else null,
+            label = versionEntry.id,
+            onActivate = { onInstall(versionEntry) },
+            trailingText = if (versionEntry.id in installedVersionIds) "Installed" else null,
         )
     }
 
     LauncherScaffold(
         platform = platform,
         hints = listOf(
-            KeyHint("s", if (filter == VersionFilter.STABLE) "Show all" else "Stable only"),
+            KeyHint("s", if (versionFilter == VersionFilter.STABLE) "Show all" else "Stable only"),
             KeyHint("Up/Down", "Select"),
             KeyHint("Enter", "Install"),
             KeyHint("Esc", "Back"),
         ),
-        onKeyEvent = { event ->
-            when (event.key) {
+        onKeyEvent = { keyEvent ->
+            when (keyEvent.key) {
                 "Escape" -> {
                     onBack()
                     true
                 }
 
                 "s" -> {
-                    filter = filter.toggle()
-                    selection.reset()
+                    versionFilter = versionFilter.toggle()
+                    selectionState.reset()
                     true
                 }
 
-                else -> handleMenuKey(event, items, selection)
+                else -> handleMenuKey(keyEvent, items, selectionState)
             }
         },
     ) {
-        SectionHeading("Install an official version", filter.label)
+        SectionHeading("Install an official version", versionFilter.label)
         WrappedText("Manifest availability does not guarantee launcher compatibility.")
         Spacer(Modifier.height(1))
-        ActionMenu(items, selection, visibleRows, Modifier.weight(1f))
+        ActionMenu(items, selectionState, visibleRows, Modifier.weight(1f))
     }
 }
 
 @Composable
 internal fun ConfirmInstallScreen(
-    entry: VersionEntry,
+    versionEntry: VersionEntry,
     installed: Boolean,
     platform: String,
     onInstall: () -> Unit,
@@ -199,11 +199,11 @@ internal fun ConfirmInstallScreen(
     LauncherScaffold(
         platform = platform,
         hints = listOf(KeyHint("Enter", if (installed) "Reinstall" else "Install"), KeyHint("Esc", "Back")),
-        onKeyEvent = { event -> handleConfirmationKey(event, onInstall, onBack) },
+        onKeyEvent = { keyEvent -> handleConfirmationKey(keyEvent, onInstall, onBack) },
     ) {
-        SectionHeading(if (installed) "Reinstall ${entry.id}" else "Install ${entry.id}")
-        PropertyRow("Type", entry.type)
-        PropertyRow("Directory", "minecraft/${entry.id}/")
+        SectionHeading(if (installed) "Reinstall ${versionEntry.id}" else "Install ${versionEntry.id}")
+        PropertyRow("Type", versionEntry.type)
+        PropertyRow("Directory", "minecraft/${versionEntry.id}/")
         Spacer(Modifier.height(1))
         if (installed) {
             Status("Already installed. Continuing will overwrite this version.")
@@ -215,21 +215,21 @@ internal fun ConfirmInstallScreen(
 
 @Composable
 internal fun InstallingScreen(
-    entry: VersionEntry,
-    progress: InstallProgress,
+    versionEntry: VersionEntry,
+    installProgress: InstallProgress,
     platform: String,
     onCancel: () -> Unit,
 ) {
-    val fraction = if (progress.totalFiles > 0) {
-        progress.completedFiles.toFloat() / progress.totalFiles
+    val fraction = if (installProgress.totalFiles > 0) {
+        installProgress.completedFiles.toFloat() / installProgress.totalFiles
     } else {
         0f
     }
     LauncherScaffold(
         platform = platform,
         hints = listOf(KeyHint("Esc", "Cancel")),
-        onKeyEvent = { event ->
-            if (event.key == "Escape") {
+        onKeyEvent = { keyEvent ->
+            if (keyEvent.key == "Escape") {
                 onCancel()
                 true
             } else {
@@ -237,10 +237,10 @@ internal fun InstallingScreen(
             }
         },
     ) {
-        SectionHeading("Installing ${entry.id}")
+        SectionHeading("Installing ${versionEntry.id}")
         ProgressBar(fraction)
         Spacer(Modifier.height(1))
-        PropertyRow("Files", "${progress.completedFiles} / ${progress.totalFiles}")
+        PropertyRow("Files", "${installProgress.completedFiles} / ${installProgress.totalFiles}")
     }
 }
 
@@ -252,24 +252,24 @@ internal fun InstalledScreen(
     onOpen: (InstalledVersion) -> Unit,
     onBack: () -> Unit,
 ) {
-    val selection = rememberSelectionState()
-    val items = versions.map { version ->
-        ActionItem(version.versionId, onActivate = { onOpen(version) })
+    val selectionState = rememberSelectionState()
+    val items = versions.map { installedVersion ->
+        ActionItem(installedVersion.versionId, onActivate = { onOpen(installedVersion) })
     }
     LauncherScaffold(
         platform = platform,
         hints = listOf(KeyHint("Up/Down", "Select"), KeyHint("Enter", "Actions"), KeyHint("Esc", "Back")),
-        onKeyEvent = { event ->
-            if (event.key == "Escape") {
+        onKeyEvent = { keyEvent ->
+            if (keyEvent.key == "Escape") {
                 onBack()
                 true
             } else {
-                handleMenuKey(event, items, selection)
+                handleMenuKey(keyEvent, items, selectionState)
             }
         },
     ) {
         SectionHeading("Installed versions")
-        ActionMenu(items, selection, visibleRows, Modifier.weight(1f))
+        ActionMenu(items, selectionState, visibleRows, Modifier.weight(1f))
     }
 }
 
@@ -282,7 +282,7 @@ internal fun VersionActionsScreen(
     onDelete: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val selection = rememberSelectionState()
+    val selectionState = rememberSelectionState()
     val items = listOf(
         ActionItem("Launch", onLaunch),
         ActionItem("Delete", onDelete),
@@ -291,17 +291,17 @@ internal fun VersionActionsScreen(
     LauncherScaffold(
         platform = platform,
         hints = listOf(KeyHint("Up/Down", "Select"), KeyHint("Enter", "Confirm"), KeyHint("Esc", "Back")),
-        onKeyEvent = { event ->
-            if (event.key == "Escape") {
+        onKeyEvent = { keyEvent ->
+            if (keyEvent.key == "Escape") {
                 onBack()
                 true
             } else {
-                handleMenuKey(event, items, selection)
+                handleMenuKey(keyEvent, items, selectionState)
             }
         },
     ) {
         SectionHeading(versionId)
-        ActionMenu(items, selection, visibleRows, Modifier.weight(1f))
+        ActionMenu(items, selectionState, visibleRows, Modifier.weight(1f))
     }
 }
 
@@ -315,7 +315,7 @@ internal fun ConfirmDeleteScreen(
     LauncherScaffold(
         platform = platform,
         hints = listOf(KeyHint("Enter", "Delete"), KeyHint("Esc", "Cancel")),
-        onKeyEvent = { event -> handleConfirmationKey(event, onDelete, onBack) },
+        onKeyEvent = { keyEvent -> handleConfirmationKey(keyEvent, onDelete, onBack) },
     ) {
         SectionHeading("Delete $versionId")
         Status("This cannot be undone")
@@ -328,7 +328,7 @@ internal fun ConfirmDeleteScreen(
 
 @Composable
 internal fun AccountsScreen(
-    auth: AuthState?,
+    authState: AuthState?,
     accountCredentials: Map<Uuid, AccountCredentialState>,
     platform: String,
     visibleRows: Int,
@@ -336,13 +336,13 @@ internal fun AccountsScreen(
     onOpen: (StoredAccount) -> Unit,
     onBack: () -> Unit,
 ) {
-    val selection = rememberSelectionState()
-    val items = auth?.accounts.orEmpty().map { account ->
-        val selected = account.identity.id == auth?.selectedIdentityId
+    val selectionState = rememberSelectionState()
+    val items = authState?.accounts.orEmpty().map { storedAccount ->
+        val selected = storedAccount.minecraftIdentity.id == authState?.selectedIdentityId
         ActionItem(
-            label = "${if (selected) "* " else ""}${account.identity.name}",
-            onActivate = { onOpen(account) },
-            trailingText = accountCredentials[account.identity.id].displayText(),
+            label = "${if (selected) "* " else ""}${storedAccount.minecraftIdentity.name}",
+            onActivate = { onOpen(storedAccount) },
+            trailingText = accountCredentials[storedAccount.minecraftIdentity.id].displayText(),
         )
     }
     LauncherScaffold(
@@ -353,8 +353,8 @@ internal fun AccountsScreen(
             KeyHint("a", "Add account"),
             KeyHint("Esc", "Back"),
         ),
-        onKeyEvent = { event ->
-            when (event.key) {
+        onKeyEvent = { keyEvent ->
+            when (keyEvent.key) {
                 "a" -> {
                     onAdd()
                     true
@@ -365,12 +365,12 @@ internal fun AccountsScreen(
                     true
                 }
 
-                else -> handleMenuKey(event, items, selection)
+                else -> handleMenuKey(keyEvent, items, selectionState)
             }
         },
     ) {
         SectionHeading("Accounts")
-        ActionMenu(items, selection, visibleRows, Modifier.weight(1f))
+        ActionMenu(items, selectionState, visibleRows, Modifier.weight(1f))
     }
 }
 
@@ -382,7 +382,7 @@ internal fun AddAccountScreen(
     onAddOffline: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val selection = rememberSelectionState()
+    val selectionState = rememberSelectionState()
     val items = listOf(
         ActionItem("Microsoft account", onAddMicrosoft),
         ActionItem("Offline identity", onAddOffline),
@@ -391,24 +391,24 @@ internal fun AddAccountScreen(
     LauncherScaffold(
         platform = platform,
         hints = listOf(KeyHint("Up/Down", "Select"), KeyHint("Enter", "Open"), KeyHint("Esc", "Back")),
-        onKeyEvent = { event ->
-            if (event.key == "Escape") {
+        onKeyEvent = { keyEvent ->
+            if (keyEvent.key == "Escape") {
                 onBack()
                 true
             } else {
-                handleMenuKey(event, items, selection)
+                handleMenuKey(keyEvent, items, selectionState)
             }
         },
     ) {
         SectionHeading("Add account")
-        ActionMenu(items, selection, visibleRows, Modifier.weight(1f))
+        ActionMenu(items, selectionState, visibleRows, Modifier.weight(1f))
     }
 }
 
 @Composable
 internal fun AccountActionsScreen(
-    account: StoredAccount?,
-    credentialState: AccountCredentialState?,
+    storedAccount: StoredAccount?,
+    accountCredentialState: AccountCredentialState?,
     selectedIdentityId: Uuid?,
     platform: String,
     visibleRows: Int,
@@ -418,39 +418,39 @@ internal fun AccountActionsScreen(
     onDelete: (StoredAccount) -> Unit,
     onBack: () -> Unit,
 ) {
-    val selection = rememberSelectionState()
-    val items = if (account == null) {
+    val selectionState = rememberSelectionState()
+    val items = if (storedAccount == null) {
         listOf(ActionItem("Back", onBack))
     } else {
         buildList {
-            if (account.identity.id != selectedIdentityId) add(ActionItem("Select", { onSelect(account) }))
-            when (account.identity) {
-                is MinecraftOfflineIdentity -> add(ActionItem("Edit name", { onEditOffline(account) }))
+            if (storedAccount.minecraftIdentity.id != selectedIdentityId) add(ActionItem("Select", { onSelect(storedAccount) }))
+            when (storedAccount.minecraftIdentity) {
+                is MinecraftOfflineIdentity -> add(ActionItem("Edit name", { onEditOffline(storedAccount) }))
                 is MinecraftOnlineIdentity -> add(ActionItem("Sign in again", onSignInAgain))
             }
-            add(ActionItem("Delete", { onDelete(account) }))
+            add(ActionItem("Delete", { onDelete(storedAccount) }))
             add(ActionItem("Back", onBack))
         }
     }
     LauncherScaffold(
         platform = platform,
         hints = listOf(KeyHint("Up/Down", "Select"), KeyHint("Enter", "Confirm"), KeyHint("Esc", "Back")),
-        onKeyEvent = { event ->
-            if (event.key == "Escape") {
+        onKeyEvent = { keyEvent ->
+            if (keyEvent.key == "Escape") {
                 onBack()
                 true
             } else {
-                handleMenuKey(event, items, selection)
+                handleMenuKey(keyEvent, items, selectionState)
             }
         },
     ) {
-        SectionHeading(account?.identity?.name ?: "Account not found")
-        account?.let {
-            PropertyRow("Type", if (it.identity is MinecraftOnlineIdentity) "Microsoft" else "Offline")
-            credentialState.displayText()?.let { status -> PropertyRow("Status", status) }
+        SectionHeading(storedAccount?.minecraftIdentity?.name ?: "Account not found")
+        storedAccount?.let {
+            PropertyRow("Type", if (it.minecraftIdentity is MinecraftOnlineIdentity) "Microsoft" else "Offline")
+            accountCredentialState.displayText()?.let { status -> PropertyRow("Status", status) }
             Spacer(Modifier.height(1))
         }
-        ActionMenu(items, selection, visibleRows, Modifier.weight(1f))
+        ActionMenu(items, selectionState, visibleRows, Modifier.weight(1f))
     }
 }
 
@@ -471,8 +471,8 @@ internal fun OfflineInputScreen(
             KeyHint("Enter", "Save"),
             KeyHint("Esc", "Cancel"),
         ),
-        onKeyEvent = { event ->
-            when (event.key) {
+        onKeyEvent = { keyEvent ->
+            when (keyEvent.key) {
                 "Escape" -> {
                     onBack()
                     true
@@ -489,7 +489,7 @@ internal fun OfflineInputScreen(
                 }
 
                 else -> {
-                    val character = event.key.singleOrNull()
+                    val character = keyEvent.key.singleOrNull()
                     if (character == null || character.code < 32 || character.code == 127 ||
                         name.length >= MAXIMUM_ACCOUNT_NAME_LENGTH
                     ) {
@@ -517,15 +517,15 @@ private fun AccountCredentialState?.displayText(): String? = when (this) {
 
 @Composable
 internal fun MicrosoftLoginScreen(
-    stage: MicrosoftLoginStage,
+    microsoftLoginStage: MicrosoftLoginStage,
     platform: String,
     onCancel: () -> Unit,
 ) {
     LauncherScaffold(
         platform = platform,
         hints = listOf(KeyHint("Esc", "Cancel")),
-        onKeyEvent = { event ->
-            if (event.key == "Escape") {
+        onKeyEvent = { keyEvent ->
+            if (keyEvent.key == "Escape") {
                 onCancel()
                 true
             } else {
@@ -534,7 +534,7 @@ internal fun MicrosoftLoginScreen(
         },
     ) {
         SectionHeading("Microsoft sign-in")
-        Status(stage.message())
+        Status(microsoftLoginStage.message())
         Spacer(Modifier.height(1))
         WrappedText("Tokens are never displayed in the terminal.")
     }
@@ -543,26 +543,26 @@ internal fun MicrosoftLoginScreen(
 @Composable
 internal fun GameOutputScreen(
     versionId: String,
-    output: GameOutputBuffer,
+    gameOutputBuffer: GameOutputBuffer,
     platform: String,
     terminalRows: Int,
     terminalColumns: Int,
     onBack: () -> Unit,
 ) {
-    val snapshot by output.state.collectAsState()
+    val gameOutputSnapshot by gameOutputBuffer.state.collectAsState()
     var scrollFromBottom by remember { mutableIntStateOf(0) }
     val viewportHeight = (terminalRows - GAME_OUTPUT_RESERVED_ROWS).coerceAtLeast(1)
-    val outputLines = snapshot.lines.flatMap { line ->
-        val marker = when (line.source) {
+    val outputLines = gameOutputSnapshot.lines.flatMap { gameOutputLine ->
+        val marker = when (gameOutputLine.outputSource) {
             OutputSource.STDOUT -> "  "
             OutputSource.STDERR -> "! "
             OutputSource.SYSTEM -> "* "
         }
-        wrappedTextLines("$marker${line.text}", contentWidth(terminalColumns))
+        wrappedTextLines("$marker${gameOutputLine.text}", contentWidth(terminalColumns))
     }
     val endExclusive = (outputLines.size - scrollFromBottom).coerceIn(0, outputLines.size)
     val start = (endExclusive - viewportHeight).coerceAtLeast(0)
-    val stateLabel = if (snapshot.running) "Running" else "Exited | code ${snapshot.exitCode}"
+    val stateLabel = if (gameOutputSnapshot.running) "Running" else "Exited | code ${gameOutputSnapshot.exitCode}"
     val followLabel = if (scrollFromBottom == 0) "Following output" else "$scrollFromBottom lines from latest"
 
     LauncherScaffold(
@@ -570,10 +570,10 @@ internal fun GameOutputScreen(
         hints = buildList {
             add(KeyHint("Up/Down", "Scroll"))
             add(KeyHint("PgUp/PgDn", "Page"))
-            if (!snapshot.running) add(KeyHint("Esc", "Back"))
+            if (!gameOutputSnapshot.running) add(KeyHint("Esc", "Back"))
         },
-        onKeyEvent = { event ->
-            when (event.key) {
+        onKeyEvent = { keyEvent ->
+            when (keyEvent.key) {
                 "ArrowUp" -> {
                     scrollFromBottom = (scrollFromBottom + 1).coerceAtMost(outputLines.size)
                     true
@@ -594,7 +594,7 @@ internal fun GameOutputScreen(
                     true
                 }
 
-                "Escape" -> if (!snapshot.running) {
+                "Escape" -> if (!gameOutputSnapshot.running) {
                     onBack()
                     true
                 } else {
@@ -612,13 +612,13 @@ internal fun GameOutputScreen(
             if (outputLines.isEmpty()) {
                 WrappedText("Waiting for game output...")
             } else {
-                outputLines.subList(start, endExclusive).forEach { line -> Text(line) }
+                outputLines.subList(start, endExclusive).forEach { gameOutputLine -> Text(gameOutputLine) }
             }
         }
     }
 }
 
-private fun LauncherDestination.Loading.message(): String = when (operation) {
+private fun LauncherDestination.Loading.message(): String = when (launcherOperation) {
     LauncherOperation.VERSION_MANIFEST -> "Loading version manifest..."
     LauncherOperation.DELETE_VERSION -> "Deleting ${subject ?: "version"}..."
     LauncherOperation.SELECT_ACCOUNT -> "Selecting account..."
@@ -635,28 +635,28 @@ private fun MicrosoftLoginStage.message(): String = when (this) {
     MicrosoftLoginStage.COMPLETE -> "Sign-in complete"
 }
 
-private fun handleMenuKey(event: KeyEvent, items: List<ActionItem>, selection: SelectionState): Boolean =
-    when (event.key) {
+private fun handleMenuKey(keyEvent: KeyEvent, items: List<ActionItem>, selectionState: SelectionState): Boolean =
+    when (keyEvent.key) {
         "ArrowUp" -> {
-            selection.moveBy(-1, items.size)
+            selectionState.moveBy(-1, items.size)
             true
         }
 
         "ArrowDown" -> {
-            selection.moveBy(1, items.size)
+            selectionState.moveBy(1, items.size)
             true
         }
 
         "Enter" -> {
-            selection.selected(items)?.onActivate?.invoke()
+            selectionState.selected(items)?.onActivate?.invoke()
             true
         }
 
         else -> false
     }
 
-private fun handleConfirmationKey(event: KeyEvent, onConfirm: () -> Unit, onBack: () -> Unit): Boolean {
-    when (event.key) {
+private fun handleConfirmationKey(keyEvent: KeyEvent, onConfirm: () -> Unit, onBack: () -> Unit): Boolean {
+    when (keyEvent.key) {
         "Enter" -> onConfirm()
         "Escape" -> onBack()
         else -> return false

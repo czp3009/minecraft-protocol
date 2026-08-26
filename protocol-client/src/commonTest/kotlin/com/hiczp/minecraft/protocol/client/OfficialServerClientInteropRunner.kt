@@ -8,29 +8,29 @@ import kotlinx.coroutines.CancellationException
 internal object OfficialServerClientInteropRunner {
     suspend fun run() {
         MinecraftTestSupport.newOfficialServer(
-            configuration = OfficialMinecraftServerConfiguration(
+            officialMinecraftServerConfiguration = OfficialMinecraftServerConfiguration(
                 properties = mapOf(
                     "level-name" to "client-interop-world",
                     "motd" to "minecraft-protocol production client interop",
                 ),
             ),
-        ).use { server ->
+        ).use { officialMinecraftServer ->
             var phase = "status query"
             try {
                 OfficialServerClientScenario.run(
-                    host = server.endpoint.host,
-                    port = server.endpoint.port,
+                    host = officialMinecraftServer.minecraftTestEndpoint.host,
+                    port = officialMinecraftServer.minecraftTestEndpoint.port,
                 ) { currentPhase ->
                     phase = currentPhase
                 }
-                check(MinecraftTestSupport.closeProcess(server) == 0) {
+                check(MinecraftTestSupport.closeProcess(officialMinecraftServer) == 0) {
                     "Official server did not stop cleanly"
                 }
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Throwable) {
                 val serverLog = try {
-                    MinecraftTestSupport.logText(server)
+                    MinecraftTestSupport.logText(officialMinecraftServer)
                 } catch (logFailure: CancellationException) {
                     logFailure.addSuppressed(failure)
                     throw logFailure

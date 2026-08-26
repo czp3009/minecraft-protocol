@@ -16,55 +16,55 @@ object MinecraftTestSupport {
     )
 
     suspend fun newOfficialServer(
-        configuration: OfficialMinecraftServerConfiguration =
+        officialMinecraftServerConfiguration: OfficialMinecraftServerConfiguration =
             OfficialMinecraftServerConfiguration(),
     ): OfficialMinecraftServer {
-        return withServiceClient { client ->
-            client.newOfficialServer(
-                ownerId = client.ownerId,
-                configuration = configuration,
+        return withServiceClient { minecraftTestSupportServiceClient ->
+            minecraftTestSupportServiceClient.newOfficialServer(
+                ownerId = minecraftTestSupportServiceClient.ownerId,
+                officialMinecraftServerConfiguration = officialMinecraftServerConfiguration,
             )
         }
     }
 
     suspend fun newHeadlessClient(
-        configuration: HeadlessMinecraftClientConfiguration,
+        headlessMinecraftClientConfiguration: HeadlessMinecraftClientConfiguration,
     ): HeadlessMinecraftClient {
-        return withServiceClient { client ->
-            client.newHeadlessClient(
-                ownerId = client.ownerId,
-                configuration = configuration,
+        return withServiceClient { minecraftTestSupportServiceClient ->
+            minecraftTestSupportServiceClient.newHeadlessClient(
+                ownerId = minecraftTestSupportServiceClient.ownerId,
+                headlessMinecraftClientConfiguration = headlessMinecraftClientConfiguration,
             )
         }
     }
 
     suspend fun connectHeadlessClient(
-        client: HeadlessMinecraftClient,
-        endpoint: MinecraftTestEndpoint,
+        headlessMinecraftClient: HeadlessMinecraftClient,
+        minecraftTestEndpoint: MinecraftTestEndpoint,
     ): HeadlessMinecraftClientState {
-        require(endpoint.host == LOOPBACK && endpoint.port in 1..0xFFFF) {
+        require(minecraftTestEndpoint.host == LOOPBACK && minecraftTestEndpoint.port in 1..0xFFFF) {
             "Headless client tests require a valid loopback endpoint"
         }
-        return withServiceClient { service ->
-            service.connectHeadlessClient(client, endpoint)
+        return withServiceClient { minecraftTestSupportServiceClient ->
+            minecraftTestSupportServiceClient.connectHeadlessClient(headlessMinecraftClient, minecraftTestEndpoint)
         }
     }
 
     /** Returns a correlated GUI-state snapshot without claiming protocol state. */
     suspend fun headlessClientState(
-        client: HeadlessMinecraftClient,
-    ): HeadlessMinecraftClientState = withServiceClient { service ->
-        service.headlessClientState(client)
+        headlessMinecraftClient: HeadlessMinecraftClient,
+    ): HeadlessMinecraftClientState = withServiceClient { minecraftTestSupportServiceClient ->
+        minecraftTestSupportServiceClient.headlessClientState(headlessMinecraftClient)
     }
 
-    suspend fun disconnectHeadlessClient(client: HeadlessMinecraftClient) {
-        withServiceClient { service ->
-            service.disconnectHeadlessClient(client)
+    suspend fun disconnectHeadlessClient(headlessMinecraftClient: HeadlessMinecraftClient) {
+        withServiceClient { minecraftTestSupportServiceClient ->
+            minecraftTestSupportServiceClient.disconnectHeadlessClient(headlessMinecraftClient)
         }
     }
 
     suspend fun sendHeadlessClientCommand(
-        client: HeadlessMinecraftClient,
+        headlessMinecraftClient: HeadlessMinecraftClient,
         command: String,
         expectedNewOutput: String? = null,
         timeout: Duration = EVENT_TIMEOUT,
@@ -72,9 +72,9 @@ object MinecraftTestSupport {
         require(timeout.isPositive() && timeout.isFinite()) {
             "Command timeout must be positive and finite"
         }
-        withServiceClient { service ->
-            service.sendHeadlessClientCommand(
-                client = client,
+        withServiceClient { minecraftTestSupportServiceClient ->
+            minecraftTestSupportServiceClient.sendHeadlessClientCommand(
+                headlessMinecraftClient = headlessMinecraftClient,
                 command = command,
                 expectedNewOutput = expectedNewOutput,
                 timeout = timeout,
@@ -83,35 +83,35 @@ object MinecraftTestSupport {
     }
 
     suspend fun status(
-        resource: MinecraftTestResource,
-    ): MinecraftTestResourceStatus = withServiceClient { service ->
-        service.status(resource)
+        minecraftTestResource: MinecraftTestResource,
+    ): MinecraftTestResourceStatus = withServiceClient { minecraftTestSupportServiceClient ->
+        minecraftTestSupportServiceClient.status(minecraftTestResource)
     }
 
-    suspend fun isAlive(resource: MinecraftTestResource): Boolean =
-        status(resource).alive
+    suspend fun isAlive(minecraftTestResource: MinecraftTestResource): Boolean =
+        status(minecraftTestResource).alive
 
-    suspend fun exitCode(resource: MinecraftTestResource): Int? =
-        status(resource).exitCode
+    suspend fun exitCode(minecraftTestResource: MinecraftTestResource): Int? =
+        status(minecraftTestResource).exitCode
 
-    suspend fun logText(resource: MinecraftTestResource): String =
-        withServiceClient { service -> service.logText(resource) }
+    suspend fun logText(minecraftTestResource: MinecraftTestResource): String =
+        withServiceClient { minecraftTestSupportServiceClient -> minecraftTestSupportServiceClient.logText(minecraftTestResource) }
 
     suspend fun waitForLog(
-        resource: MinecraftTestResource,
+        minecraftTestResource: MinecraftTestResource,
         marker: String,
         timeout: Duration = EVENT_TIMEOUT,
     ) {
         require(timeout.isPositive() && timeout.isFinite()) {
             "Log timeout must be positive and finite"
         }
-        withServiceClient { service ->
-            service.waitForLog(resource, marker, timeout)
+        withServiceClient { minecraftTestSupportServiceClient ->
+            minecraftTestSupportServiceClient.waitForLog(minecraftTestResource, marker, timeout)
         }
     }
 
     suspend fun sendCommand(
-        server: OfficialMinecraftServer,
+        officialMinecraftServer: OfficialMinecraftServer,
         command: String,
         expectedNewOutput: String? = null,
         timeout: Duration = EVENT_TIMEOUT,
@@ -119,9 +119,9 @@ object MinecraftTestSupport {
         require(timeout.isPositive() && timeout.isFinite()) {
             "Command timeout must be positive and finite"
         }
-        withServiceClient { service ->
-            service.sendCommand(
-                server = server,
+        withServiceClient { minecraftTestSupportServiceClient ->
+            minecraftTestSupportServiceClient.sendCommand(
+                officialMinecraftServer = officialMinecraftServer,
                 command = command,
                 expectedNewOutput = expectedNewOutput,
                 timeout = timeout,
@@ -130,21 +130,21 @@ object MinecraftTestSupport {
     }
 
     suspend fun restartServer(
-        server: OfficialMinecraftServer,
-    ): OfficialMinecraftServer = withServiceClient { service ->
-        service.restartServer(server)
+        officialMinecraftServer: OfficialMinecraftServer,
+    ): OfficialMinecraftServer = withServiceClient { minecraftTestSupportServiceClient ->
+        minecraftTestSupportServiceClient.restartServer(officialMinecraftServer)
     }
 
     /**
      * Closes the process and waits until it has exited while retaining its
      * working directory and Fixture Host slot.
      */
-    suspend fun closeProcess(resource: MinecraftTestResource): Int =
-        withServiceClient { service -> service.closeProcess(resource) }
+    suspend fun closeProcess(minecraftTestResource: MinecraftTestResource): Int =
+        withServiceClient { minecraftTestSupportServiceClient -> minecraftTestSupportServiceClient.closeProcess(minecraftTestResource) }
 
     /** Waits for the current process to exit without requesting shutdown. */
-    suspend fun awaitExit(resource: MinecraftTestResource): Int =
-        withServiceClient { service -> service.awaitExit(resource) }
+    suspend fun awaitExit(minecraftTestResource: MinecraftTestResource): Int =
+        withServiceClient { minecraftTestSupportServiceClient -> minecraftTestSupportServiceClient.awaitExit(minecraftTestResource) }
 
     /**
      * Returns an absolute path in the Fixture Host's filesystem namespace.
@@ -158,38 +158,38 @@ object MinecraftTestSupport {
      * on-disk state.
      */
     suspend fun hostWorkingDirectory(
-        resource: MinecraftTestResource,
-    ): String = withServiceClient { service ->
-        service.hostWorkingDirectory(resource)
+        minecraftTestResource: MinecraftTestResource,
+    ): String = withServiceClient { minecraftTestSupportServiceClient ->
+        minecraftTestSupportServiceClient.hostWorkingDirectory(minecraftTestResource)
     }
 
     /**
      * Deletes a stopped resource's working directory and waits until its slot
      * has been released. The resource is invalid after this returns.
      */
-    suspend fun deleteWorkingDirectory(resource: MinecraftTestResource) {
-        withServiceClient(closeAfter = true) { client ->
-            client.deleteWorkingDirectory(resource)
+    suspend fun deleteWorkingDirectory(minecraftTestResource: MinecraftTestResource) {
+        withServiceClient(closeAfter = true) { minecraftTestSupportServiceClient ->
+            minecraftTestSupportServiceClient.deleteWorkingDirectory(minecraftTestResource)
         }
     }
 
     /** Schedules process shutdown and directory cleanup, then returns. */
-    suspend fun close(resource: MinecraftTestResource) {
+    suspend fun close(minecraftTestResource: MinecraftTestResource) {
         withContext(NonCancellable + Dispatchers.Default) {
             withTimeout(EVENT_TIMEOUT) {
-                withServiceClient(closeAfter = true) { client ->
-                    client.close(resource)
+                withServiceClient(closeAfter = true) { minecraftTestSupportServiceClient ->
+                    minecraftTestSupportServiceClient.close(minecraftTestResource)
                 }
             }
         }
     }
 
     /** Stops a resource, deletes its workspace, and releases its Host slot. */
-    suspend fun closeAndAwait(resource: MinecraftTestResource): Int {
+    suspend fun closeAndAwait(minecraftTestResource: MinecraftTestResource): Int {
         var exitCode: Int? = null
         var failure: Throwable? = null
         try {
-            exitCode = closeProcess(resource)
+            exitCode = closeProcess(minecraftTestResource)
         } catch (caught: Throwable) {
             failure = caught
             throw caught
@@ -197,11 +197,11 @@ object MinecraftTestSupport {
             withContext(NonCancellable) {
                 var cleanupFailure: Throwable? = null
                 try {
-                    deleteWorkingDirectory(resource)
+                    deleteWorkingDirectory(minecraftTestResource)
                 } catch (caught: Throwable) {
                     cleanupFailure = caught
                     try {
-                        close(resource)
+                        close(minecraftTestResource)
                     } catch (fallbackFailure: Throwable) {
                         caught.addSuppressed(fallbackFailure)
                     }
@@ -215,20 +215,20 @@ object MinecraftTestSupport {
     }
 
     suspend fun verifyOfficialCodec(fixtures: JsonElement) {
-        withServiceClient(closeAfter = true) { client ->
-            client.verifyOfficialCodec(fixtures)
+        withServiceClient(closeAfter = true) { minecraftTestSupportServiceClient ->
+            minecraftTestSupportServiceClient.verifyOfficialCodec(fixtures)
         }
     }
 
     suspend fun verifyOfficialNbt(fixtures: JsonElement) {
-        withServiceClient(closeAfter = true) { client ->
-            client.verifyOfficialNbt(fixtures)
+        withServiceClient(closeAfter = true) { minecraftTestSupportServiceClient ->
+            minecraftTestSupportServiceClient.verifyOfficialNbt(fixtures)
         }
     }
 
     suspend fun verifyOfficialSnbt(fixtures: JsonElement) {
-        withServiceClient(closeAfter = true) { client ->
-            client.verifyOfficialSnbt(fixtures)
+        withServiceClient(closeAfter = true) { minecraftTestSupportServiceClient ->
+            minecraftTestSupportServiceClient.verifyOfficialSnbt(fixtures)
         }
     }
 

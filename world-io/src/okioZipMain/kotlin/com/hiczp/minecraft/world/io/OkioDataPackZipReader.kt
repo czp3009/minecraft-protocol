@@ -73,9 +73,9 @@ private class OkioDataPackZipReader(
         block: (Source) -> T,
     ): T {
         val zipEntryPath = dataPackFilePath.resolveBelow(ZIP_ROOT)
-        return zipFileSystem.readFile(zipEntryPath) { source, _ ->
+        return zipFileSystem.readFile(zipEntryPath) { bufferedSource, _ ->
             withOkioIoExceptions("Cannot read data-pack ZIP entry $zipEntryPath") {
-                val dataPackFileSource = source.asKotlinxIoRawSource().buffered()
+                val dataPackFileSource = bufferedSource.asKotlinxIoRawSource().buffered()
                 val result = block(dataPackFileSource)
                 if (!dataPackFileSource.exhausted()) {
                     throw WorldIOException("Data-pack ZIP entry $zipEntryPath was not fully consumed")

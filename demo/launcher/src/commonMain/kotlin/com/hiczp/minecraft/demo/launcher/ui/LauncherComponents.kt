@@ -50,7 +50,7 @@ internal fun LauncherScaffold(
     Column(
         modifier = Modifier
             .size(terminal.columns.coerceAtLeast(1), canvasRows)
-            .onKeyEvent { event -> if (event.ctrl || event.alt) false else onKeyEvent(event) },
+            .onKeyEvent { keyEvent -> if (keyEvent.ctrl || keyEvent.alt) false else onKeyEvent(keyEvent) },
     ) {
         WrappedText("$LAUNCHER_TITLE  $platform", Modifier.padding(horizontal = 2))
         Spacer(Modifier.height(1))
@@ -60,7 +60,7 @@ internal fun LauncherScaffold(
         )
         Spacer(Modifier.height(1))
         WrappedText(
-            value = hints.joinToString(separator = "  |  ") { hint -> "${hint.key} ${hint.action}" },
+            value = hints.joinToString(separator = "  |  ") { keyHint -> "${keyHint.key} ${keyHint.action}" },
             modifier = Modifier.padding(horizontal = 2),
         )
     }
@@ -86,7 +86,7 @@ internal fun Status(text: String) {
 @Composable
 internal fun ActionMenu(
     items: List<ActionItem>,
-    selection: SelectionState,
+    selectionState: SelectionState,
     visibleRows: Int,
     modifier: Modifier = Modifier,
     emptyText: String = "<empty>",
@@ -97,7 +97,7 @@ internal fun ActionMenu(
             return@Column
         }
 
-        val selectedIndex = selection.normalizedIndex(items.size)
+        val selectedIndex = selectionState.normalizedIndex(items.size)
         val rowCount = visibleRows.coerceAtLeast(1)
         val start = (selectedIndex - rowCount / 2).coerceIn(0, (items.size - rowCount).coerceAtLeast(0))
         val end = (start + rowCount).coerceAtMost(items.size)
@@ -108,12 +108,12 @@ internal fun ActionMenu(
 }
 
 @Composable
-private fun ActionRow(item: ActionItem, selected: Boolean) {
+private fun ActionRow(actionItem: ActionItem, selected: Boolean) {
     val prefix = if (selected) "> " else "  "
     Row(Modifier.fillMaxWidth()) {
         Text(prefix)
-        Text(item.label, Modifier.weight(1f))
-        item.trailingText?.let { Text("($it)") }
+        Text(actionItem.label, Modifier.weight(1f))
+        actionItem.trailingText?.let { Text("($it)") }
     }
 }
 

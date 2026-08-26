@@ -8,15 +8,15 @@ import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 
 /** Sequential server endpoint: receives serverbound packets and sends clientbound packets. */
 class MinecraftServerPacketSession(
-    frameStream: MinecraftFrameStream,
+    minecraftFrameStream: MinecraftFrameStream,
     packetRegistry: PacketRegistry = MinecraftPacketRegistry,
-    format: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+    minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
 ) : MinecraftPacketSession<ServerboundPacket, ClientboundPacket>(
-    frameStream = frameStream,
+    minecraftFrameStream = minecraftFrameStream,
     inboundDirection = PacketDirection.SERVERBOUND,
     outboundDirection = PacketDirection.CLIENTBOUND,
     packetRegistry = packetRegistry,
-    format = format,
+    minecraftProtocolFormat = minecraftProtocolFormat,
 ) {
     override suspend fun send(packet: ClientboundPacket) {
         ClientboundBundleCodec.rejectStandaloneDelimiter(packet)
@@ -30,16 +30,16 @@ class MinecraftServerPacketSession(
     /** Enables the stream cipher after a complete Encryption Response was received. */
     fun enableEncryption(sharedSecret: ByteArray) {
         requireMinecraftEncryptionKey(sharedSecret)
-        frameStream.enableEncryption(sharedSecret)
+        minecraftFrameStream.enableEncryption(sharedSecret)
     }
 
     override fun requireIncoming(packet: Packet): ServerboundPacket =
         packet as? ServerboundPacket
             ?: throw MinecraftSessionException("Decoded ${packet::class.simpleName} on the serverbound session")
 
-    private suspend fun sendClientboundPacket(packet: ClientboundPacket) {
+    private suspend fun sendClientboundPacket(clientboundPacket: ClientboundPacket) {
         try {
-            super.send(packet)
+            super.send(clientboundPacket)
         } catch (_: SkippablePacketEncodingException) {
             // Vanilla omits this small, explicit packet set when payload encoding fails.
         }

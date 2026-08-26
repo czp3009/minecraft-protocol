@@ -82,26 +82,26 @@ internal class GatedFileSystem(
         mustCreate: Boolean,
         mustExist: Boolean,
     ): FileHandle {
-        val handle = super.openReadWrite(file, mustCreate, mustExist)
+        val fileHandle = super.openReadWrite(file, mustCreate, mustExist)
         val selectedWriteGate = if (file == target) writeGate else additionalWriteGates[file]
-        if (file != target && selectedWriteGate == null) return handle
+        if (file != target && selectedWriteGate == null) return fileHandle
         return trackedHandle(
             file = file,
-            handle = handle,
+            fileHandle = fileHandle,
             readWrite = true,
             selectedWriteGate = selectedWriteGate,
         )
     }
 
     override fun openReadOnly(file: Path): FileHandle {
-        val handle = super.openReadOnly(file)
-        if (file != target) return handle
-        return trackedHandle(file, handle, readWrite = false, selectedWriteGate = null)
+        val fileHandle = super.openReadOnly(file)
+        if (file != target) return fileHandle
+        return trackedHandle(file, fileHandle, readWrite = false, selectedWriteGate = null)
     }
 
     private fun trackedHandle(
         file: Path,
-        handle: FileHandle,
+        fileHandle: FileHandle,
         readWrite: Boolean,
         selectedWriteGate: BlockingGate?,
     ): FileHandle {
@@ -120,7 +120,7 @@ internal class GatedFileSystem(
                 maximumConcurrentReads.accumulateAndGet(active, ::maxOf)
                 try {
                     if (file == target && gateReads.get()) readGate?.awaitRelease()
-                    return handle.read(fileOffset, array, arrayOffset, byteCount)
+                    return fileHandle.read(fileOffset, array, arrayOffset, byteCount)
                 } finally {
                     activeReads.decrementAndGet()
                 }
@@ -136,7 +136,7 @@ internal class GatedFileSystem(
                 maximumConcurrentWrites.accumulateAndGet(active, ::maxOf)
                 try {
                     selectedWriteGate?.awaitRelease()
-                    handle.write(fileOffset, array, arrayOffset, byteCount)
+                    fileHandle.write(fileOffset, array, arrayOffset, byteCount)
                 } finally {
                     activeWrites.decrementAndGet()
                 }
@@ -145,24 +145,24 @@ internal class GatedFileSystem(
             override fun protectedFlush() {
                 if (file == target) flushes.incrementAndGet()
                 if (file == target) flushGate?.awaitRelease()
-                handle.flush()
+                fileHandle.flush()
             }
 
-            override fun protectedResize(size: Long) = handle.resize(size)
+            override fun protectedResize(size: Long) = fileHandle.resize(size)
 
-            override fun protectedSize(): Long = handle.size()
+            override fun protectedSize(): Long = fileHandle.size()
 
             override fun protectedClose() {
                 if (file != target) {
-                    handle.close()
+                    fileHandle.close()
                 } else if (closeGate != null) {
                     events += "close-start"
                     closeGate.awaitRelease()
-                    handle.close()
+                    fileHandle.close()
                     closes.incrementAndGet()
                     events += "close-end"
                 } else {
-                    handle.close()
+                    fileHandle.close()
                     closes.incrementAndGet()
                 }
                 if (file == target && remainingCloseFailures.getAndUpdate { maxOf(0, it - 1) } > 0) {
@@ -211,32 +211,32 @@ internal class SequencedFlushFailureFileSystem(
         mustCreate: Boolean,
         mustExist: Boolean,
     ): FileHandle {
-        val handle = super.openReadWrite(file, mustCreate, mustExist)
+        val fileHandle = super.openReadWrite(file, mustCreate, mustExist)
         return object : FileHandle(readWrite = true) {
             override fun protectedRead(
                 fileOffset: Long,
                 array: ByteArray,
                 arrayOffset: Int,
                 byteCount: Int,
-            ): Int = handle.read(fileOffset, array, arrayOffset, byteCount)
+            ): Int = fileHandle.read(fileOffset, array, arrayOffset, byteCount)
 
             override fun protectedWrite(
                 fileOffset: Long,
                 array: ByteArray,
                 arrayOffset: Int,
                 byteCount: Int,
-            ) = handle.write(fileOffset, array, arrayOffset, byteCount)
+            ) = fileHandle.write(fileOffset, array, arrayOffset, byteCount)
 
             override fun protectedFlush() {
-                handle.flush()
+                fileHandle.flush()
                 failures.getOrNull(flushAttempts.getAndIncrement())?.let { throw it }
             }
 
-            override fun protectedResize(size: Long) = handle.resize(size)
+            override fun protectedResize(size: Long) = fileHandle.resize(size)
 
-            override fun protectedSize(): Long = handle.size()
+            override fun protectedSize(): Long = fileHandle.size()
 
-            override fun protectedClose() = handle.close()
+            override fun protectedClose() = fileHandle.close()
         }
     }
 }
@@ -320,7 +320,7 @@ private class ThreadSafeFakeFileSystem(
     }
 
     private fun synchronizedHandle(
-        handle: FileHandle,
+        fileHandle: FileHandle,
         readWrite: Boolean,
     ): FileHandle = object : FileHandle(readWrite) {
         override fun protectedRead(
@@ -329,7 +329,7 @@ private class ThreadSafeFakeFileSystem(
             arrayOffset: Int,
             byteCount: Int,
         ): Int = access.withLock {
-            handle.read(fileOffset, array, arrayOffset, byteCount)
+            fileHandle.read(fileOffset, array, arrayOffset, byteCount)
         }
 
         override fun protectedWrite(
@@ -338,23 +338,23 @@ private class ThreadSafeFakeFileSystem(
             arrayOffset: Int,
             byteCount: Int,
         ) = access.withLock {
-            handle.write(fileOffset, array, arrayOffset, byteCount)
+            fileHandle.write(fileOffset, array, arrayOffset, byteCount)
         }
 
         override fun protectedFlush() = access.withLock {
-            handle.flush()
+            fileHandle.flush()
         }
 
         override fun protectedResize(size: Long) = access.withLock {
-            handle.resize(size)
+            fileHandle.resize(size)
         }
 
         override fun protectedSize(): Long = access.withLock {
-            handle.size()
+            fileHandle.size()
         }
 
         override fun protectedClose() = access.withLock {
-            handle.close()
+            fileHandle.close()
         }
     }
 
@@ -409,17 +409,17 @@ internal fun concurrencyChunk(value: Byte): CompressedChunk = CompressedChunk(
 internal suspend fun seedConcurrencyRegion(
     fileSystem: FileSystem,
     directory: Path,
-    position: ChunkPosition = ChunkPosition(0, 0),
+    chunkPosition: ChunkPosition = ChunkPosition(0, 0),
 ) {
-    val store = RegionStorage(
+    val regionStorage = RegionStorage(
         directory = directory,
         fileSystem = fileSystem,
-        configuration = RegionStorageConfiguration(syncWrites = false),
+        regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
     )
     try {
-        store.writeCompressedChunk(position, concurrencyChunk(0))
+        regionStorage.writeCompressedChunk(chunkPosition, concurrencyChunk(0))
     } finally {
-        store.close()
+        regionStorage.close()
     }
 }
 
@@ -432,21 +432,21 @@ internal fun concurrencyDocument(value: Int): NbtDocument = NbtDocument(
     NbtCompound(mapOf("value" to NbtInt(value))),
 )
 
-internal fun gatedNbtFormat(gate: BlockingGate): CompressedNbtFormat = CompressedNbtFormat(
+internal fun gatedNbtFormat(blockingGate: BlockingGate): CompressedNbtFormat = CompressedNbtFormat(
     compressionRegistry = CompressionRegistry(
-        mapOf(Compression.NONE to GatedIdentityCompressionCodec(gate)),
+        mapOf(Compression.NONE to GatedIdentityCompressionCodec(blockingGate)),
     ),
 )
 
 private class GatedIdentityCompressionCodec(
-    private val gate: BlockingGate,
+    private val blockingGate: BlockingGate,
 ) : CompressionCodec {
     override fun compressingSink(sink: KotlinxSink): KotlinxRawSink = object : KotlinxRawSink {
         override fun write(
             source: KotlinxBuffer,
             byteCount: Long,
         ) {
-            gate.awaitRelease()
+            blockingGate.awaitRelease()
             sink.write(source, byteCount)
         }
 
@@ -461,7 +461,7 @@ private class GatedIdentityCompressionCodec(
                 sink: KotlinxBuffer,
                 byteCount: Long,
             ): Long {
-                gate.awaitRelease()
+                blockingGate.awaitRelease()
                 return source.readAtMostTo(sink, byteCount)
             }
 
