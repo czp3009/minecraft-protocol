@@ -1,6 +1,6 @@
 ---
 name: minecraft-protocol-flow
-description: Implement, update, test, or audit handwritten Minecraft connection lifecycle code in protocol-session, protocol-client, and protocol-server for the selected release. Use for packet direction and state transitions, Status, Login, transfer, authentication invocation, encryption or compression activation timing, cookies and custom queries, Configuration and Known Packs negotiation, code-of-conduct or other configuration tasks, transition to Play, reconfiguration, dynamic serialization context, initial world synchronization, or official client/server interoperability. Do not use for the byte-level transport codec itself.
+description: Implement, update, test, or audit handwritten Minecraft connection lifecycle code in protocol-session, protocol-client, and protocol-server for the selected release. Use for packet direction and state transitions, Status, Login, transfer, authentication invocation, encryption or compression activation timing, cookies and custom queries, Configuration and Known Packs negotiation, code-of-conduct or other configuration tasks, managed KeepAlive, transition to Play, reconfiguration, dynamic serialization context, initial world synchronization, or official client/server interoperability. Do not use for the byte-level transport codec itself.
 ---
 
 # Minecraft protocol flow

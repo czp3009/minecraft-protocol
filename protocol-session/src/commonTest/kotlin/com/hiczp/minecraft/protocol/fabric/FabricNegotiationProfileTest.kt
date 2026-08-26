@@ -10,6 +10,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.test.runTest
 import kotlin.test.*
+import kotlin.time.Duration
 
 class FabricNegotiationProfileTest {
     @Test
@@ -231,6 +232,14 @@ private class TestServerConnection(
 ) : TestConnection<ServerboundPacket, ClientboundPacket>(incoming, outgoing, declaredExtensionRoutes),
     MinecraftServerPacketConnection {
     override fun enableEncryption(sharedSecret: ByteArray) = Unit
+
+    override fun enableKeepAlive(
+        extractChallenge: (ServerboundPacket) -> Long?,
+        createRequest: (Long) -> ClientboundPacket,
+        interval: Duration,
+    ) = Unit
+
+    override fun disableKeepAlive() = Unit
 }
 
 private fun testStaticSchema(): StaticRegistrySchema = StaticRegistrySchema(

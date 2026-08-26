@@ -91,12 +91,12 @@ class MinecraftConnectionDefinition(
 )
 annotation class InternalMinecraftConnectionApi
 
-/** Shared channel, lifetime, and flush machinery for the two fixed endpoints. */
-internal abstract class MinecraftConnectionEngine<
+/** Packet-agnostic channel, lifetime, writer, and flush core shared by the two fixed endpoints. */
+internal class MinecraftPacketConnectionCore<
         Incoming : Packet,
         Outgoing : Packet,
         >(
-    protected val session: MinecraftPacketSession<Incoming, Outgoing>,
+    private val session: MinecraftPacketSession<Incoming, Outgoing>,
     private val closeTransport: () -> Unit,
     definition: MinecraftConnectionDefinition,
     connectionDispatcher: CoroutineDispatcher,
@@ -107,14 +107,15 @@ internal abstract class MinecraftConnectionEngine<
     private val backgroundFlushPending = MutableStateFlow(false)
     private val flushRequests = Channel<FlushRequest>(Channel.UNLIMITED)
     private val completionValue = CompletableDeferred<Unit>()
-    private val incomingChannel = Channel<Incoming>(definition.incomingCapacity)
-    private val outgoingChannel = Channel<Outgoing>(definition.outgoingCapacity)
+    private val connectionOwnedOutgoingChannel = Channel<Outgoing>(Channel.RENDEZVOUS)
+    private var started = false
+    private lateinit var incomingHandler: suspend (Incoming) -> Unit
 
     override val incoming: ReceiveChannel<Incoming>
-        get() = incomingChannel
+        field = Channel<Incoming>(definition.incomingCapacity)
 
     override val outgoing: SendChannel<Outgoing>
-        get() = outgoingChannel
+        field = Channel<Outgoing>(definition.outgoingCapacity)
 
     override val state: ConnectionState
         get() = session.state
@@ -131,15 +132,47 @@ internal abstract class MinecraftConnectionEngine<
     override val isOpen: Boolean
         get() = termination.value == null
 
-    protected fun start() {
+    internal fun start(incomingHandler: suspend (Incoming) -> Unit) {
+        check(!started) {
+            "Minecraft packet connection core is already started"
+        }
+        started = true
+        this.incomingHandler = incomingHandler
         connectionScope.launch { runReader() }
         connectionScope.launch { runWriter() }
+    }
+
+    internal suspend fun publishIncoming(packet: Incoming) {
+        incoming.send(packet)
+    }
+
+    internal suspend fun sendConnectionOwned(packet: Outgoing) {
+        ensureOpen()
+        try {
+            connectionOwnedOutgoingChannel.send(packet)
+        } catch (cause: CancellationException) {
+            throw cause
+        } catch (cause: Throwable) {
+            ensureOpen()
+            throw cause
+        }
+    }
+
+    internal fun launchTask(
+        start: CoroutineStart = CoroutineStart.DEFAULT,
+        block: suspend CoroutineScope.() -> Unit,
+    ): Job {
+        ensureOpen()
+        return connectionScope.launch(start = start, block = block)
+    }
+
+    internal fun fail(cause: Throwable) {
+        terminate(ConnectionTermination.Failed(cause))
     }
 
     override fun installProtocolRegistryContext(protocolRegistryContext: ProtocolRegistryContext) {
         ensureOpen()
         session.installProtocolRegistryContext(protocolRegistryContext)
-        protocolRegistryContextInstalled(protocolRegistryContext)
     }
 
     override suspend fun awaitClosed() {
@@ -213,9 +246,7 @@ internal abstract class MinecraftConnectionEngine<
     private suspend fun runReader() {
         try {
             while (currentCoroutineContext().isActive) {
-                val packet = receiveIncomingPacket()
-                incomingChannel.send(packet)
-                afterIncomingPacket(packet)
+                incomingHandler(session.receive())
             }
         } catch (cause: CancellationException) {
             handlePumpFailure(cause)
@@ -228,21 +259,32 @@ internal abstract class MinecraftConnectionEngine<
     private suspend fun runWriter() {
         try {
             while (currentCoroutineContext().isActive) {
+                if (writePendingConnectionOwnedPacket()) continue
                 when (val action = select {
+                    connectionOwnedOutgoingChannel.onReceiveCatching { result ->
+                        val packet = result.getOrNull()
+                        if (packet == null) {
+                            WriterAction.Stop
+                        } else {
+                            writeConnectionOwnedPacket(packet)
+                            WriterAction.Continue
+                        }
+                    }
                     flushRequests.onReceive { request ->
                         processFlushRequest(request)
                     }
-                    outgoingChannel.onReceiveCatching { result ->
+                    outgoing.onReceiveCatching { result ->
                         val packet = result.getOrNull()
                         if (packet == null) {
                             WriterAction.Close(result.exceptionOrNull(), flushRequired = true)
                         } else {
-                            writeOutgoingPacket(packet)
+                            session.send(packet)
                             WriterAction.Continue
                         }
                     }
                 }) {
                     WriterAction.Continue -> Unit
+                    WriterAction.Stop -> return
                     is WriterAction.Close -> {
                         finishWriter(action.cause, action.flushRequired)
                         return
@@ -262,10 +304,11 @@ internal abstract class MinecraftConnectionEngine<
         try {
             recordFlushRequest(first, waiters)
             while (true) {
-                val result = outgoingChannel.tryReceive()
+                if (writePendingConnectionOwnedPacket()) continue
+                val result = outgoing.tryReceive()
                 val packet = result.getOrNull()
                 if (packet != null) {
-                    writeOutgoingPacket(packet)
+                    session.send(packet)
                     continue
                 }
                 val closeCause = result.exceptionOrNull()
@@ -273,6 +316,7 @@ internal abstract class MinecraftConnectionEngine<
                     val request = flushRequests.tryReceive().getOrNull() ?: break
                     recordFlushRequest(request, waiters)
                 }
+                if (writePendingConnectionOwnedPacket()) continue
                 if (result.isClosed && closeCause != null) {
                     try {
                         session.frameStream.flush()
@@ -312,18 +356,15 @@ internal abstract class MinecraftConnectionEngine<
         terminate(failure?.let(ConnectionTermination::Failed) ?: ConnectionTermination.Normal)
     }
 
-    protected open suspend fun receiveIncomingPacket(): Incoming = session.receive()
-
-    protected open suspend fun afterIncomingPacket(packet: Incoming) = Unit
-
-    protected open fun protocolRegistryContextInstalled(protocolRegistryContext: ProtocolRegistryContext) = Unit
-
-    protected open suspend fun writeOutgoingPacket(packet: Outgoing) {
-        sendPacket(packet)
+    private suspend fun writeConnectionOwnedPacket(packet: Outgoing) {
+        session.send(packet)
+        session.frameStream.flush()
     }
 
-    protected suspend fun sendPacket(packet: Outgoing) {
-        session.send(packet)
+    private suspend fun writePendingConnectionOwnedPacket(): Boolean {
+        val packet = connectionOwnedOutgoingChannel.tryReceive().getOrNull() ?: return false
+        writeConnectionOwnedPacket(packet)
+        return true
     }
 
     private fun recordFlushRequest(
@@ -364,11 +405,13 @@ internal abstract class MinecraftConnectionEngine<
         }
         val finalValue = failure?.let(ConnectionTermination::Failed) ?: ConnectionTermination.Normal
         termination.value = finalValue
-        incomingChannel.close(failure)
-        outgoingChannel.close(failure)
+        incoming.close(failure)
+        outgoing.close(failure)
+        connectionOwnedOutgoingChannel.close(failure)
         flushRequests.close(failure)
-        drainChannel(incomingChannel)
-        drainChannel(outgoingChannel)
+        drainChannel(incoming)
+        drainChannel(outgoing)
+        drainChannel(connectionOwnedOutgoingChannel)
         failQueuedFlushRequests(failure)
         if (failure == null) {
             completionValue.complete(Unit)
@@ -396,7 +439,7 @@ internal abstract class MinecraftConnectionEngine<
         completeQueuedFlushRequests(cause)
     }
 
-    protected fun ensureOpen() {
+    internal fun ensureOpen() {
         when (val terminal = termination.value) {
             null -> Unit
             is ConnectionTermination.Closing ->
@@ -428,6 +471,8 @@ internal abstract class MinecraftConnectionEngine<
 
     private sealed interface WriterAction {
         data object Continue : WriterAction
+
+        data object Stop : WriterAction
 
         data class Close(
             val cause: Throwable?,

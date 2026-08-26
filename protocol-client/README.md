@@ -8,6 +8,7 @@ Login, Configuration, and entry into Play.
 - `incoming: ReceiveChannel<ClientboundPacket>`;
 - `outgoing: SendChannel<ServerboundPacket>`;
 - committed protocol state and the active registry context;
+- automatic replies to direct official Configuration and Play KeepAlive requests;
 - optional vanilla, Fabric API, NeoForge, or Forge negotiation;
 - helpers for turning received registry, Chunk, and Entity packets into useful runtime values.
 
@@ -45,6 +46,11 @@ and results beyond that path.
 `negotiate()` runs in the calling coroutine and exclusively uses both packet channels until it returns. Do not read from
 `incoming` or send to `outgoing` from another coroutine during that call. The preset has no built-in admission timeout;
 wrap it in the deadline appropriate for the application.
+
+Direct official Configuration and Play KeepAlive requests are answered automatically by the connection endpoint and do
+not appear on `incoming`. The reply uses the connection's writer and is flushed immediately, so application packet loops
+must neither send a second reply nor call `requestFlush()` for it. KeepAlive inside a logical clientbound bundle is not
+extracted from that bundle.
 
 After Play begins, send packets through `outgoing` and publish queued data with `requestFlush()` at the application's
 normal tick boundary. Use the suspending `flush()` only when the caller must wait until all earlier queued packets have
@@ -245,7 +251,8 @@ NeoForge and Forge definitions and profiles are documented in
 Applications may implement their own Handshake/Login/Configuration flow using `incoming`, `outgoing`, `awaitState`,
 `installProtocolRegistryContext`, `activateExtensionRoutes`, authentication helpers, and profile hooks. The maintained
 [`negotiate` implementation](src/commonMain/kotlin/com/hiczp/minecraft/protocol/client/MinecraftClientProtocol.kt) is
-the complete source-level ordering reference.
+the complete source-level ordering reference. Endpoint-managed direct KeepAlive replies remain active in a hand-written
+flow and must not be duplicated there.
 
 Closing a connection closes its packet pumps and transport. Protocol rejection and transfer exceptions leave a usable
 lifetime decision to the caller; framing, transport, and packet-pump failures terminate the connection and remain

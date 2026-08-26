@@ -79,7 +79,7 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
         stateValue.first { it == expected }
     }
 
-    suspend fun send(packet: Outgoing) {
+    open suspend fun send(packet: Outgoing) {
         when (packet) {
             is UnknownPacket -> sendUnknown(packet)
             is ClientboundPacket.Extension,
@@ -90,7 +90,7 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
         }
     }
 
-    suspend fun receive(): Incoming {
+    open suspend fun receive(): Incoming {
         val legacyAware =
             stateValue.value == ConnectionState.HANDSHAKE &&
                     inboundDirection == PacketDirection.SERVERBOUND

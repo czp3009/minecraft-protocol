@@ -20,7 +20,8 @@ authoritative world state, and application persistence policy remain application
 
 - Typed packet models and `kotlinx.serialization` codecs for the repository-selected Minecraft release.
 - Ktor-based TCP transport with Minecraft framing, compression, and encryption.
-- Typed client and server connections for Status, Login, Configuration, and entry into Play.
+- Typed client and server connections for Status, Login, Configuration, and entry into Play, with official
+  Configuration/Play KeepAlive handling.
 - Vanilla, Fabric API, NeoForge, and Forge negotiation profiles with composable custom packet registrations.
 - Offline and online game authentication, profile-key verification, and signed-chat primitives.
 - Separate launcher APIs for Microsoft OAuth, Xbox/XSTS, Minecraft Services tokens, entitlements, and profiles.
@@ -92,7 +93,8 @@ suspend fun runClient(
 ```
 
 The caller owns the packet loop after negotiation returns. See [`protocol-client`](protocol-client/README.md) for custom
-Configuration data, status queries, chunk/entity projection, loader profiles, and online Login.
+Configuration data, status queries, chunk/entity projection, loader profiles, and online Login. Direct official
+KeepAlive requests are answered by the client endpoint and do not appear in this application packet loop.
 
 ### Accept clients on a server
 
@@ -123,7 +125,8 @@ suspend fun runServer(
 `bind()` and `negotiate()` default to the vanilla packet definition, transport behavior, offline authentication,
 negotiation profile, Configuration data, and application policy. [`protocol-server`](protocol-server/README.md) shows
 online authentication, policy overrides, custom data packs, loader profiles, and finite initial Chunk/entity
-synchronization.
+synchronization. Preset negotiation also starts the official server KeepAlive service; matching replies are validated
+and consumed before the application packet loop.
 
 ### Read a world
 

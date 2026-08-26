@@ -23,10 +23,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertIs
-import kotlin.test.assertSame
+import kotlin.test.*
 import kotlin.uuid.Uuid
 
 @OptIn(InternalMinecraftConnectionApi::class)
@@ -151,6 +148,11 @@ class MinecraftClientProtocolTest {
                 serverSession.receive(),
             )
             serverSession.send(playLoginPacket)
+            serverSession.send(PlayClientboundKeepAlivePacket(43))
+            assertEquals(
+                PlayServerboundKeepAlivePacket(43),
+                serverSession.receive(),
+            )
         }
 
         val minecraftClientNegotiationResult = client.negotiate(identity)
@@ -182,6 +184,7 @@ class MinecraftClientProtocolTest {
             client.protocolRegistryContext.biomeRegistrySize,
         )
         server.await()
+        assertTrue(client.incoming.tryReceive().isFailure)
         client.close()
     }
 

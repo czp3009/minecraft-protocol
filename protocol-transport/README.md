@@ -74,4 +74,5 @@ boundary. The transport's 8192-byte scratch arrays only bound encryption/decrypt
 
 One coroutine owns sequential reads and one coroutine owns sequential writes. The two directions may run concurrently;
 callers do not issue concurrent operations within one direction. The typed connection in `protocol-session` provides
-these two pumps for ordinary use.
+these two pumps and arbitrates public and endpoint-generated packets through one writer for ordinary use. Logical Bundle
+handling and KeepAlive policy remain above this transport layer.

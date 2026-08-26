@@ -9,6 +9,8 @@ This module owns client-side Status, Login, Configuration, and entry into Play.
 - High-level negotiation handles cookies, custom Login queries, compression, online encryption, client information,
   Known Packs, Configuration tasks, registry context, and the selected loader profile. It borrows the public channels
   exclusively until it returns.
+- The low-level client endpoint consumes and answers direct official Configuration and Play KeepAlive requests. Do not
+  duplicate that reply in negotiation or application packet loops.
 - Preserve the zero-configuration vanilla path: `connect` defaults the connection definition and transport, while
   `negotiate` requires only the caller's identity and defaults the vanilla profile, protocol data, Known Packs, and
   client settings. Loader or mod behavior is an explicit override.

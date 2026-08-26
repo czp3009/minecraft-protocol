@@ -23,6 +23,8 @@ a finite initial Chunk/entity view; it does not run gameplay.
   reference.
 - Negotiation, codec, and state failures propagate. Do not add automatic disconnect packets or loader-failure replies;
   the caller chooses the response and lifetime.
+- Preset negotiation owns the Configuration-to-Play KeepAlive switch. Custom negotiation and reconfiguration explicitly
+  disable the old run before enabling the new state-specific run at the acknowledgement boundary.
 
 ## Initial world projection
 

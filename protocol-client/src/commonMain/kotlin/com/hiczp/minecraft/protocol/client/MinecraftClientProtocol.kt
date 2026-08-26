@@ -230,10 +230,6 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
                 ),
             )
 
-            is ConfigurationClientboundKeepAlivePacket -> outgoing.send(
-                ConfigurationServerboundKeepAlivePacket(packet.id),
-            )
-
             is ConfigurationPingPacket ->
                 outgoing.send(ConfigurationPongPacket(packet.id))
 

@@ -12,7 +12,9 @@ Trace:
 4. Configuration client information, feature flags, Known Packs offer/response, synchronized registries, tags, optional
    tasks, code of conduct, finish, and acknowledgement;
 5. Play Login, connection-specific registry and dimension context, required initial packets and acknowledgements;
-6. Play-to-Configuration reconfiguration and return to Play when implemented.
+6. Play-to-Configuration reconfiguration and return to Play when implemented;
+7. Configuration/Play KeepAlive producers and consumers, including pending-challenge validation, terminal-listener
+   behavior, and the event that resets server-side timing state.
 
 For every optional branch, identify who initiates it, which replies are required, whether unrelated packets may be
 handled while waiting, and the exact event that changes protocol state.
@@ -33,6 +35,10 @@ handled while waiting, and the exact event that changes protocol state.
 The high-level vanilla path defaults the connection definition, transport configuration, vanilla profile, and
 release-matched protocol data. Do not require callers to construct those values merely to connect or accept an ordinary
 official peer; loader profiles and custom protocol data are explicit opt-ins.
+
+Keep the shared connection pump free of endpoint packet behavior. Bundle assembly/expansion belongs at the
+packet-session boundary; client replies and server timers belong to their direction-specific endpoints. High-level
+server flows choose the Configuration or Play KeepAlive mapping explicitly when listener-equivalent lifecycles change.
 
 `account-auth` ends at caller-managed Minecraft account data and access tokens. It does not participate in this
 connection state machine and has no dependency relationship with `protocol-auth`.
@@ -59,8 +65,9 @@ Do not expand the initial projection into gameplay or an authoritative world.
 ## Test failure paths
 
 Cover wrong packet state/direction, rejection and disconnect paths, duplicate registries, unsupported transfers,
-authentication branch failures, phase budget exhaustion, state changes after failed I/O, and reconfiguration ordering.
-Official-peer success complements rather than replaces deterministic in-memory tests.
+authentication branch failures, phase budget exhaustion, state changes after failed I/O, KeepAlive timeout/mismatch and
+run replacement, and reconfiguration ordering. Official-peer success complements rather than replaces deterministic
+in-memory tests.
 
 ## Route fixture failures
 

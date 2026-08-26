@@ -40,7 +40,46 @@ and Play transitions in wire order. Compression and encryption changes are commi
 packet boundary.
 
 Keep one logical consumer of `incoming`. Enqueue outgoing packets in protocol order; the connection's writer preserves
-the order accepted by its non-dropping channel.
+the relative order accepted by its non-dropping public channel. Endpoint-generated packets may be inserted only between
+complete logical packets.
+
+## Managed KeepAlive
+
+The client endpoint automatically answers direct official Configuration and Play KeepAlive requests with the same ID.
+Those requests are consumed by the endpoint, flushed through the connection's writer without a caller
+`requestFlush()`, and do not appear on `incoming`. A KeepAlive nested inside a logical `ClientboundBundlePacket` remains
+part of that bundle; the official server sends KeepAlive directly, so the endpoint does not inspect bundle contents for
+this behavior.
+
+The server endpoint owns challenge generation, pending-response validation, and timeout handling. Select the official
+packet pair explicitly at the protocol lifecycle boundary:
+
+```kotlin
+fun enterConfigurationKeepAlive(connection: MinecraftServerPacketConnection) {
+    connection.enableConfigurationKeepAlive()
+}
+
+fun replaceWithPlayKeepAlive(connection: MinecraftServerPacketConnection) {
+    connection.disableKeepAlive()
+    connection.enablePlayKeepAlive()
+}
+```
+
+Each enable call starts a fresh timer and clears any pending challenge. The default interval is 15 seconds. At each
+interval boundary, an existing pending challenge terminates the connection; otherwise the endpoint records and sends a
+new monotonic-time challenge. A matching reply clears the pending challenge without resetting that timer, while an
+unsolicited or mismatched reply terminates the connection. If KeepAlive is disabled, an otherwise valid reply remains an
+ordinary `incoming` packet.
+
+The preset `protocol-server` negotiation performs the Configuration-to-Play switch automatically. A hand-written flow
+must disable the old run and enable the new one at the corresponding acknowledgement boundary. Closing the connection
+cancels the active run. While a managed run is active, do not manually send KeepAlive requests from the same protocol
+state. Mods with another packet pair can call the lower-level
+`enableKeepAlive(extractChallenge, createRequest, interval)`; that mapping does not infer a protocol state.
+
+Connection-generated KeepAlive packets and client replies share the connection's only writer with public `outgoing`
+traffic. They take priority at the next logical packet boundary and flush immediately, but never interrupt a frame or a
+logical bundle already being written.
 
 ## Definitions and registry context
 
@@ -114,7 +153,11 @@ suspend fun sendEntityPairing(
 ```
 
 The client side performs the inverse operation and publishes one complete `ClientboundBundlePacket`; ordinary callers do
-not see partial bundles or delimiter packets.
+not see partial bundles or delimiter packets. A bundle may contain at most 4,096 packets and cannot contain another
+bundle or a delimiter. Do not put `StartConfigurationPacket` or another terminal state-transition packet in a bundle;
+the official protocol expects it to stand alone. The library intentionally leaves this semantic rule to callers instead
+of inspecting bundle members. Send only `ClientboundBundlePacket`; raw delimiter packets are owned by the server packet
+session and are rejected at its public send boundary.
 
 ## Register custom packets
 

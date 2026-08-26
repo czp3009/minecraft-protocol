@@ -7,7 +7,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 
-/** Client endpoint contract: receives clientbound packets and sends serverbound packets. */
+/**
+ * Client endpoint contract: receives clientbound packets and sends serverbound packets.
+ * Direct official Configuration and Play KeepAlive requests are answered and consumed internally.
+ */
 interface MinecraftClientPacketConnection : MinecraftPacketConnection<ClientboundPacket, ServerboundPacket> {
     /** Arms encryption for the wire boundary immediately after Encryption Response. */
     fun prepareOutboundEncryption(sharedSecret: ByteArray)
@@ -20,69 +23,55 @@ fun createMinecraftClientPacketConnection(
     closeTransport: () -> Unit,
     definition: MinecraftConnectionDefinition,
     connectionDispatcher: CoroutineDispatcher = Dispatchers.Default,
-): MinecraftClientPacketConnection = MinecraftClientConnectionEngine(
-    clientSession = MinecraftClientPacketSession(
+): MinecraftClientPacketConnection {
+    val clientSession = MinecraftClientPacketSession(
         frameStream = frameStream,
         packetRegistry = definition.packetRegistry,
         format = definition.format,
-    ),
-    closeTransport = closeTransport,
-    definition = definition,
-    connectionDispatcher = connectionDispatcher,
-)
+    )
+    val core = MinecraftPacketConnectionCore(
+        session = clientSession,
+        closeTransport = closeTransport,
+        definition = definition,
+        connectionDispatcher = connectionDispatcher,
+    )
+    return MinecraftClientPacketConnectionImplementation(clientSession, core).also { connection ->
+        connection.start()
+    }
+}
 
-private class MinecraftClientConnectionEngine(
+private class MinecraftClientPacketConnectionImplementation(
     private val clientSession: MinecraftClientPacketSession,
-    closeTransport: () -> Unit,
-    definition: MinecraftConnectionDefinition,
-    connectionDispatcher: CoroutineDispatcher,
-) : MinecraftConnectionEngine<ClientboundPacket, ServerboundPacket>(
-    session = clientSession,
-    closeTransport = closeTransport,
-    definition = definition,
-    connectionDispatcher = connectionDispatcher,
-), MinecraftClientPacketConnection {
+    private val core: MinecraftPacketConnectionCore<ClientboundPacket, ServerboundPacket>,
+) : MinecraftClientPacketConnection,
+    MinecraftPacketConnection<ClientboundPacket, ServerboundPacket> by core {
     private val initialPlayContext = CompletableDeferred<Unit>()
-    private var bundledPackets: MutableList<ClientboundPacket>? = null
 
-    init {
-        start()
+    fun start() {
+        core.start(::handleIncoming)
     }
 
-    override suspend fun receiveIncomingPacket(): ClientboundPacket {
-        while (true) {
-            val packet = clientSession.receive()
-            val currentBundle = bundledPackets
-            when {
-                packet === BundleDelimiterPacket && currentBundle == null -> bundledPackets = mutableListOf()
-                packet === BundleDelimiterPacket -> {
-                    bundledPackets = null
-                    return ClientboundBundlePacket(checkNotNull(currentBundle))
-                }
-
-                currentBundle != null -> {
-                    if (currentBundle.size == ClientboundBundlePacket.MAX_SUB_PACKET_COUNT) {
-                        val maximum = ClientboundBundlePacket.MAX_SUB_PACKET_COUNT
-                        throw MinecraftSessionException("A clientbound bundle exceeds $maximum packets")
-                    }
-                    currentBundle += packet
-                }
-
-                else -> return packet
-            }
+    private suspend fun handleIncoming(packet: ClientboundPacket) {
+        val keepAliveResponse = when (packet) {
+            is ConfigurationClientboundKeepAlivePacket -> ConfigurationServerboundKeepAlivePacket(packet.id)
+            is PlayClientboundKeepAlivePacket -> PlayServerboundKeepAlivePacket(packet.id)
+            else -> null
         }
-    }
-
-    override suspend fun afterIncomingPacket(packet: ClientboundPacket) {
+        if (keepAliveResponse != null) {
+            core.sendConnectionOwned(keepAliveResponse)
+            return
+        }
+        core.publishIncoming(packet)
         if (packet is PlayLoginPacket) initialPlayContext.await()
     }
 
-    override fun protocolRegistryContextInstalled(protocolRegistryContext: ProtocolRegistryContext) {
+    override fun installProtocolRegistryContext(protocolRegistryContext: ProtocolRegistryContext) {
+        core.installProtocolRegistryContext(protocolRegistryContext)
         if (protocolRegistryContext.chunkSectionCount != null) initialPlayContext.complete(Unit)
     }
 
     override fun prepareOutboundEncryption(sharedSecret: ByteArray) {
-        ensureOpen()
+        core.ensureOpen()
         clientSession.prepareOutboundEncryption(sharedSecret)
     }
 }

@@ -2,10 +2,7 @@ package com.hiczp.minecraft.protocol.session
 
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
-import com.hiczp.minecraft.protocol.model.type.ByteString
-import com.hiczp.minecraft.protocol.model.type.CustomPayload
-import com.hiczp.minecraft.protocol.model.type.GameProfile
-import com.hiczp.minecraft.protocol.model.type.Identifier
+import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.serialization.*
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import io.ktor.utils.io.*
@@ -431,6 +428,101 @@ class MinecraftPacketSessionTest {
         val valid = invalid.copy(serverAddress = "localhost")
         client.send(valid)
         assertEquals(valid, server.receive())
+    }
+
+    @Test
+    fun clientboundBundlesAreAssembledAndExpandedByPacketSessions() = runTest {
+        val (client, server) = sessionPair()
+        enterPlay(client, server)
+        val subPackets = listOf<ClientboundPacket>(
+            ChunkBatchStartPacket,
+            ChunkBatchFinishedPacket(2),
+        )
+
+        server.send(ClientboundBundlePacket(subPackets))
+        assertEquals(subPackets, assertIs<ClientboundBundlePacket>(client.receive()).subPackets)
+
+        server.send(ClientboundBundlePacket(emptyList()))
+        assertTrue(assertIs<ClientboundBundlePacket>(client.receive()).isEmpty)
+    }
+
+    @Test
+    fun clientboundBundleCodecEnforcesSizeNestingAndDelimiterOwnership() = runTest {
+        var packetIndex = 0
+        val maximumBundle = ClientboundBundleCodec.receive {
+            when (packetIndex++) {
+                0,
+                ClientboundBundlePacket.MAX_SUB_PACKET_COUNT + 1,
+                    -> BundleDelimiterPacket
+
+                else -> ChunkBatchStartPacket
+            }
+        }
+        assertEquals(
+            ClientboundBundlePacket.MAX_SUB_PACKET_COUNT,
+            assertIs<ClientboundBundlePacket>(maximumBundle).size,
+        )
+
+        packetIndex = 0
+        assertFailsWith<MinecraftSessionException> {
+            ClientboundBundleCodec.receive {
+                when (packetIndex++) {
+                    0 -> BundleDelimiterPacket
+                    else -> ChunkBatchStartPacket
+                }
+            }
+        }
+
+        var nestedPacketIndex = 0
+        assertFailsWith<MinecraftSessionException> {
+            ClientboundBundleCodec.receive {
+                when (nestedPacketIndex++) {
+                    0 -> BundleDelimiterPacket
+                    else -> ClientboundBundlePacket(emptyList())
+                }
+            }
+        }
+
+        val (client, server) = sessionPair()
+        enterPlay(client, server)
+        assertFailsWith<MinecraftSessionException> {
+            server.send(BundleDelimiterPacket)
+        }
+    }
+
+    @Test
+    fun unclosedClientboundBundleFailsTheReceivingSession() = runTest {
+        val (client, server) = sessionPair()
+        enterPlay(client, server)
+        server.frameStream.sendPacketData(byteArrayOf(0))
+        server.frameStream.output.flushAndClose()
+
+        assertFails {
+            client.receive()
+        }
+    }
+
+    @Test
+    fun skippableClientboundBundleMembersDoNotStopLaterPacketWrites() = runTest {
+        val (client, server) = sessionPair()
+        enterPlay(client, server)
+        val oversizedText = TextComponent.literal("x".repeat(65_536))
+
+        server.send(
+            ClientboundBundlePacket(
+                listOf(
+                    SystemChatMessagePacket(oversizedText, overlay = false),
+                    ChunkBatchStartPacket,
+                ),
+            ),
+        )
+        assertEquals(
+            listOf(ChunkBatchStartPacket),
+            assertIs<ClientboundBundlePacket>(client.receive()).subPackets,
+        )
+
+        server.send(ChunkBatchFinishedPacket(1))
+        assertEquals(ChunkBatchFinishedPacket(1), client.receive())
     }
 
     private suspend fun loginHandshake(

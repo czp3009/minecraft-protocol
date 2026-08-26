@@ -4,16 +4,23 @@ import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.GameProfile
 import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
-import com.hiczp.minecraft.protocol.model.type.TextComponent
 import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import io.ktor.utils.io.*
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.*
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
-@OptIn(InternalMinecraftConnectionApi::class)
+@OptIn(InternalMinecraftConnectionApi::class, ExperimentalCoroutinesApi::class)
 class MinecraftPacketConnectionTest {
     @Test
     fun channelsCommitPacketsAndStateInWireOrder() = runTest {
@@ -107,7 +114,8 @@ class MinecraftPacketConnectionTest {
 
     @Test
     fun closingOutgoingDrainsAcceptedPacketsBeforeClosingTheConnection() = runTest {
-        val (client, server) = enginePair()
+        val harness = drainingClient(StandardTestDispatcher(testScheduler))
+        val client = harness.client
         val handshake = HandshakePacket(
             protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
             serverAddress = "localhost",
@@ -118,10 +126,10 @@ class MinecraftPacketConnectionTest {
         client.outgoing.send(handshake)
         client.outgoing.close()
 
-        assertEquals(handshake, server.incoming.receive())
         client.awaitClosed()
+        assertEquals(handshake, harness.server.receive())
         assertFalse(client.isOpen)
-        server.close()
+        harness.close()
     }
 
     @Test
@@ -145,7 +153,8 @@ class MinecraftPacketConnectionTest {
 
     @Test
     fun closingOutgoingWithACauseDrainsAcceptedPacketsAndPreservesTheCause() = runTest {
-        val (client, server) = enginePair()
+        val harness = drainingClient(StandardTestDispatcher(testScheduler))
+        val client = harness.client
         val failure = IllegalStateException("caller closed outgoing")
         val handshake = HandshakePacket(
             protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
@@ -157,12 +166,12 @@ class MinecraftPacketConnectionTest {
         client.outgoing.send(handshake)
         client.outgoing.close(failure)
 
-        assertEquals(handshake, server.incoming.receive())
         val completionFailure = assertIs<IllegalStateException>(assertFails { client.awaitClosed() })
         val incomingFailure = assertIs<IllegalStateException>(assertFails { client.incoming.receive() })
+        assertEquals(handshake, harness.server.receive())
         assertEquals(failure.message, completionFailure.message)
         assertEquals(failure.message, incomingFailure.message)
-        server.close()
+        harness.close()
     }
 
     @Test
@@ -250,48 +259,250 @@ class MinecraftPacketConnectionTest {
     }
 
     @Test
-    fun clientboundBundlesAreAtomicAtThePublicChannelBoundary() = runTest {
+    fun clientAutomaticallyAnswersDirectConfigurationAndPlayKeepAlives() = runTest {
         val (client, server) = enginePair()
-        enterPlay(client, server)
-        val subPackets = listOf<ClientboundPacket>(
-            ChunkBatchStartPacket,
-            ChunkBatchFinishedPacket(2),
-        )
+        enterConfiguration(client, server)
 
-        server.outgoing.sendBundle(subPackets)
+        server.outgoing.send(ConfigurationClientboundKeepAlivePacket(41))
         server.requestFlush()
-
-        val bundle = assertIs<ClientboundBundlePacket>(client.incoming.receive())
-        assertEquals(subPackets, bundle.subPackets)
+        assertEquals(ConfigurationServerboundKeepAlivePacket(41), server.incoming.receive())
         assertTrue(client.incoming.tryReceive().isFailure)
 
-        server.outgoing.send(BundleDelimiterPacket)
-        server.outgoing.send(BundleDelimiterPacket)
+        enterPlayFromConfiguration(client, server)
+        server.outgoing.send(PlayClientboundKeepAlivePacket(42))
         server.requestFlush()
-        assertTrue(assertIs<ClientboundBundlePacket>(client.incoming.receive()).isEmpty)
+        assertEquals(PlayServerboundKeepAlivePacket(42), server.incoming.receive())
+        assertTrue(client.incoming.tryReceive().isFailure)
 
         client.close()
         server.close()
     }
 
     @Test
-    fun officialSkippablePacketEncodingFailureDoesNotStopTheWriter() = runTest {
+    fun serverKeepAliveKeepsItsSendBaselineAndConsumesMatchingReplies() = runTest {
+        val pair = controlledServerPair(StandardTestDispatcher(testScheduler))
+        enterConfiguration(pair.client, pair.server)
+        pair.server.enableConfigurationKeepAlive(1.seconds)
+
+        advanceTimeBy(1_000)
+        runCurrent()
+        val firstRequest = assertIs<ConfigurationClientboundKeepAlivePacket>(pair.client.receive())
+
+        advanceTimeBy(500)
+        pair.client.send(ConfigurationServerboundKeepAlivePacket(firstRequest.id))
+        runCurrent()
+        assertTrue(pair.server.incoming.tryReceive().isFailure)
+
+        advanceTimeBy(499)
+        runCurrent()
+        assertEquals(0, pair.clientFrames.input.availableForRead)
+        advanceTimeBy(1)
+        runCurrent()
+        assertIs<ConfigurationClientboundKeepAlivePacket>(pair.client.receive())
+
+        pair.close()
+    }
+
+    @Test
+    fun serverKeepAliveRequiresAPositiveInterval() = runTest {
         val (client, server) = enginePair()
-        enterPlay(client, server)
-        val oversizedText = TextComponent.literal("x".repeat(65_536))
 
-        server.outgoing.send(SystemChatMessagePacket(oversizedText, overlay = false))
-        server.outgoing.send(ChunkBatchStartPacket)
-        server.requestFlush()
-
-        assertEquals(ChunkBatchStartPacket, client.incoming.receive())
-        assertTrue(server.isOpen)
+        assertFailsWith<IllegalArgumentException> {
+            server.enableConfigurationKeepAlive(Duration.ZERO)
+        }
 
         client.close()
         server.close()
     }
 
+    @Test
+    fun disabledServerKeepAliveLeavesRepliesOnThePublicIncomingChannel() = runTest {
+        val pair = controlledServerPair(StandardTestDispatcher(testScheduler))
+        enterConfiguration(pair.client, pair.server)
+
+        pair.client.send(ConfigurationServerboundKeepAlivePacket(7))
+        runCurrent()
+
+        assertEquals(ConfigurationServerboundKeepAlivePacket(7), pair.server.incoming.receive())
+        assertTrue(pair.server.isOpen)
+        pair.close()
+    }
+
+    @Test
+    fun serverKeepAliveTimesOutAndRejectsMissingOrMismatchedChallenges() = runTest {
+        val timeoutPair = controlledServerPair(StandardTestDispatcher(testScheduler))
+        enterConfiguration(timeoutPair.client, timeoutPair.server)
+        timeoutPair.server.enableConfigurationKeepAlive(1.seconds)
+        advanceTimeBy(1_000)
+        runCurrent()
+        timeoutPair.client.receive()
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertContains(
+            assertFailsWith<MinecraftSessionException> { timeoutPair.server.awaitClosed() }.message.orEmpty(),
+            "timed out",
+        )
+
+        val missingPair = controlledServerPair(StandardTestDispatcher(testScheduler))
+        enterConfiguration(missingPair.client, missingPair.server)
+        missingPair.server.enableConfigurationKeepAlive(1.seconds)
+        missingPair.client.send(ConfigurationServerboundKeepAlivePacket(7))
+        runCurrent()
+        assertContains(
+            assertFailsWith<MinecraftSessionException> { missingPair.server.awaitClosed() }.message.orEmpty(),
+            "without a pending challenge",
+        )
+
+        val mismatchPair = controlledServerPair(StandardTestDispatcher(testScheduler))
+        enterConfiguration(mismatchPair.client, mismatchPair.server)
+        mismatchPair.server.enableConfigurationKeepAlive(1.seconds)
+        advanceTimeBy(1_000)
+        runCurrent()
+        val request = assertIs<ConfigurationClientboundKeepAlivePacket>(mismatchPair.client.receive())
+        mismatchPair.client.send(ConfigurationServerboundKeepAlivePacket(request.id + 1))
+        runCurrent()
+        assertContains(
+            assertFailsWith<MinecraftSessionException> { mismatchPair.server.awaitClosed() }.message.orEmpty(),
+            "did not match",
+        )
+    }
+
+    @Test
+    fun replacingAndSwitchingKeepAliveRunsResetTheirTimerAndPendingChallenge() = runTest {
+        val replacementPair = controlledServerPair(StandardTestDispatcher(testScheduler))
+        enterConfiguration(replacementPair.client, replacementPair.server)
+        replacementPair.server.enableConfigurationKeepAlive(1.seconds)
+        advanceTimeBy(500)
+        replacementPair.server.enableConfigurationKeepAlive(1.seconds)
+        advanceTimeBy(500)
+        runCurrent()
+        assertEquals(0, replacementPair.clientFrames.input.availableForRead)
+        advanceTimeBy(500)
+        runCurrent()
+        assertIs<ConfigurationClientboundKeepAlivePacket>(replacementPair.client.receive())
+        replacementPair.close()
+
+        val switchPair = controlledServerPair(StandardTestDispatcher(testScheduler))
+        enterConfiguration(switchPair.client, switchPair.server)
+        switchPair.server.enableConfigurationKeepAlive(1.seconds)
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertIs<ConfigurationClientboundKeepAlivePacket>(switchPair.client.receive())
+        switchPair.server.disableKeepAlive()
+
+        switchPair.server.outgoing.send(FinishConfigurationPacket)
+        switchPair.server.requestFlush()
+        assertEquals(FinishConfigurationPacket, switchPair.client.receive())
+        switchPair.client.send(AcknowledgeFinishConfigurationPacket)
+        assertEquals(AcknowledgeFinishConfigurationPacket, switchPair.server.incoming.receive())
+        switchPair.server.awaitState(ConnectionState.PLAY)
+        switchPair.server.enablePlayKeepAlive(1.seconds)
+
+        advanceTimeBy(999)
+        runCurrent()
+        assertEquals(0, switchPair.clientFrames.input.availableForRead)
+        advanceTimeBy(1)
+        runCurrent()
+        assertIs<PlayClientboundKeepAlivePacket>(switchPair.client.receive())
+        switchPair.close()
+    }
+
+    @Test
+    fun connectionOwnedPacketsPrecedeReadyPublicPacketsAtTheNextBoundary() = runTest {
+        val pair = controlledServerPair(
+            dispatcher = StandardTestDispatcher(testScheduler),
+            gateFlushes = true,
+        )
+        enterConfiguration(pair.client, pair.server)
+        val gatedOutput = checkNotNull(pair.gatedOutput)
+        val flushStarted = gatedOutput.blockNextFlush()
+        val flush = async { pair.server.flush() }
+        flushStarted.await()
+        pair.server.enableConfigurationKeepAlive(1.seconds)
+
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertTrue(pair.server.outgoing.trySend(FeatureFlagsPacket(emptySet())).isSuccess)
+        gatedOutput.releaseFlush()
+        runCurrent()
+        flush.await()
+
+        assertIs<ConfigurationClientboundKeepAlivePacket>(pair.client.receive())
+        assertEquals(FeatureFlagsPacket(emptySet()), pair.client.receive())
+        pair.close()
+    }
+
+    @Test
+    fun disablingKeepAliveCancelsARequestThatHasNotRendezvousedWithTheWriter() = runTest {
+        val pair = controlledServerPair(
+            dispatcher = StandardTestDispatcher(testScheduler),
+            gateFlushes = true,
+        )
+        enterConfiguration(pair.client, pair.server)
+        val gatedOutput = checkNotNull(pair.gatedOutput)
+        val flushStarted = gatedOutput.blockNextFlush()
+        val flush = async { pair.server.flush() }
+        flushStarted.await()
+
+        pair.server.enableConfigurationKeepAlive(1.seconds)
+        advanceTimeBy(1_000)
+        runCurrent()
+        pair.server.disableKeepAlive()
+        gatedOutput.releaseFlush()
+        runCurrent()
+        flush.await()
+
+        assertEquals(0, pair.clientFrames.input.availableForRead)
+        pair.server.outgoing.send(FeatureFlagsPacket(emptySet()))
+        pair.server.requestFlush()
+        assertEquals(FeatureFlagsPacket(emptySet()), pair.client.receive())
+        pair.close()
+    }
+
+    @Test
+    fun disablingKeepAliveAllowsARequestAlreadyAcceptedByTheWriterToComplete() = runTest {
+        val pair = controlledServerPair(
+            dispatcher = StandardTestDispatcher(testScheduler),
+            gateFlushes = true,
+        )
+        enterConfiguration(pair.client, pair.server)
+        val gatedOutput = checkNotNull(pair.gatedOutput)
+        val flushStarted = gatedOutput.blockNextFlush()
+
+        pair.server.enableConfigurationKeepAlive(1.seconds)
+        advanceTimeBy(1_000)
+        runCurrent()
+        flushStarted.await()
+        pair.server.disableKeepAlive()
+        gatedOutput.releaseFlush()
+        runCurrent()
+
+        assertIs<ConfigurationClientboundKeepAlivePacket>(pair.client.receive())
+        pair.close()
+    }
+
+    @Test
+    fun closingTheConnectionCancelsItsKeepAliveRun() = runTest {
+        val pair = controlledServerPair(StandardTestDispatcher(testScheduler))
+        enterConfiguration(pair.client, pair.server)
+        pair.server.enableConfigurationKeepAlive(1.seconds)
+
+        pair.server.close()
+        pair.server.awaitClosed()
+        advanceTimeBy(2_000)
+        runCurrent()
+        assertFalse(pair.server.isOpen)
+    }
+
     private suspend fun enterPlay(
+        client: MinecraftClientPacketConnection,
+        server: MinecraftServerPacketConnection,
+    ) {
+        enterConfiguration(client, server)
+        enterPlayFromConfiguration(client, server)
+    }
+
+    private suspend fun enterConfiguration(
         client: MinecraftClientPacketConnection,
         server: MinecraftServerPacketConnection,
     ) {
@@ -319,6 +530,14 @@ class MinecraftPacketConnectionTest {
         client.outgoing.send(LoginAcknowledgedPacket)
         client.requestFlush()
         server.incoming.receive()
+        client.awaitState(ConnectionState.CONFIGURATION)
+        server.awaitState(ConnectionState.CONFIGURATION)
+    }
+
+    private suspend fun enterPlayFromConfiguration(
+        client: MinecraftClientPacketConnection,
+        server: MinecraftServerPacketConnection,
+    ) {
         server.outgoing.send(FinishConfigurationPacket)
         server.requestFlush()
         client.incoming.receive()
@@ -327,6 +546,35 @@ class MinecraftPacketConnectionTest {
         server.incoming.receive()
         client.awaitState(ConnectionState.PLAY)
         server.awaitState(ConnectionState.PLAY)
+    }
+
+    private suspend fun enterConfiguration(
+        client: MinecraftClientPacketSession,
+        server: MinecraftServerPacketConnection,
+    ) {
+        val handshake = HandshakePacket(
+            protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
+            serverAddress = "localhost",
+            serverPort = 25_565,
+            nextState = HandshakeNextState.LOGIN,
+        )
+        client.send(handshake)
+        assertEquals(handshake, server.incoming.receive())
+        val loginStart = LoginStartPacket("SessionProbe", Uuid.fromLongs(1, 2))
+        client.send(loginStart)
+        assertEquals(loginStart, server.incoming.receive())
+        server.outgoing.send(
+            LoginSuccessPacket(
+                GameProfile(Uuid.fromLongs(1, 2), "SessionProbe", emptyList()),
+                sessionId = Uuid.fromLongs(3, 4),
+            ),
+        )
+        server.requestFlush()
+        client.receive()
+        client.send(LoginAcknowledgedPacket)
+        assertEquals(LoginAcknowledgedPacket, server.incoming.receive())
+        client.awaitState(ConnectionState.CONFIGURATION)
+        server.awaitState(ConnectionState.CONFIGURATION)
     }
 
     private fun enginePair(
@@ -359,12 +607,105 @@ class MinecraftPacketConnectionTest {
         return EnginePair(client, server, clientFrames, serverFrames)
     }
 
+    private fun controlledServerPair(
+        dispatcher: CoroutineDispatcher,
+        gateFlushes: Boolean = false,
+    ): ControlledServerPair {
+        val clientToServer = ByteChannel(autoFlush = true)
+        val serverToClient = ByteChannel(autoFlush = true)
+        val clientFrames = MinecraftFrameStream(serverToClient, clientToServer)
+        val gatedOutput = if (gateFlushes) GatedFlushByteWriteChannel(serverToClient) else null
+        val serverFrames = MinecraftFrameStream(clientToServer, gatedOutput ?: serverToClient)
+        val server = createMinecraftServerPacketConnection(
+            frameStream = serverFrames,
+            closeTransport = { serverFrames.cancel() },
+            definition = MinecraftConnectionDefinition(),
+            connectionDispatcher = dispatcher,
+        )
+        return ControlledServerPair(
+            client = MinecraftClientPacketSession(clientFrames),
+            server = server,
+            clientFrames = clientFrames,
+            gatedOutput = gatedOutput,
+        )
+    }
+
+    private fun drainingClient(dispatcher: CoroutineDispatcher): DrainingClient {
+        val clientToServer = ByteChannel()
+        val clientFrames = MinecraftFrameStream(ByteChannel(), clientToServer)
+        val serverFrames = MinecraftFrameStream(clientToServer, ByteChannel())
+        val client = createMinecraftClientPacketConnection(
+            frameStream = clientFrames,
+            closeTransport = {},
+            definition = MinecraftConnectionDefinition(),
+            connectionDispatcher = dispatcher,
+        )
+        return DrainingClient(
+            client = client,
+            server = MinecraftServerPacketSession(serverFrames),
+            clientFrames = clientFrames,
+            serverFrames = serverFrames,
+        )
+    }
+
     private data class EnginePair(
         val client: MinecraftClientPacketConnection,
         val server: MinecraftServerPacketConnection,
         val clientFrames: MinecraftFrameStream,
         val serverFrames: MinecraftFrameStream,
     )
+
+    private data class DrainingClient(
+        val client: MinecraftClientPacketConnection,
+        val server: MinecraftServerPacketSession,
+        val clientFrames: MinecraftFrameStream,
+        val serverFrames: MinecraftFrameStream,
+    ) {
+        fun close() {
+            clientFrames.cancel()
+            serverFrames.cancel()
+        }
+    }
+
+    private data class ControlledServerPair(
+        val client: MinecraftClientPacketSession,
+        val server: MinecraftServerPacketConnection,
+        val clientFrames: MinecraftFrameStream,
+        val gatedOutput: GatedFlushByteWriteChannel?,
+    ) {
+        fun close() {
+            server.close()
+            clientFrames.cancel()
+        }
+    }
+}
+
+private class GatedFlushByteWriteChannel(
+    private val delegate: ByteWriteChannel,
+) : ByteWriteChannel by delegate {
+    private var flushGate: CompletableDeferred<Unit>? = null
+    private var flushStarted: CompletableDeferred<Unit>? = null
+
+    fun blockNextFlush(): CompletableDeferred<Unit> {
+        check(flushGate == null) { "A flush is already blocked" }
+        flushGate = CompletableDeferred()
+        return CompletableDeferred<Unit>().also { started -> flushStarted = started }
+    }
+
+    fun releaseFlush() {
+        checkNotNull(flushGate).complete(Unit)
+    }
+
+    override suspend fun flush() {
+        val gate = flushGate
+        if (gate != null) {
+            checkNotNull(flushStarted).complete(Unit)
+            gate.await()
+            flushGate = null
+            flushStarted = null
+        }
+        delegate.flush()
+    }
 }
 
 private class FailingFlushByteWriteChannel(

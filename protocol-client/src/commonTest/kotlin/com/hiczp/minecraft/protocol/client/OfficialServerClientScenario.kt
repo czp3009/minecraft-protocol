@@ -183,10 +183,6 @@ internal object OfficialServerClientScenario {
                 )
 
                 is ConfigurationStoreCookiePacket -> storedConfigurationCookies[packet.key] = packet.payload
-                is ConfigurationClientboundKeepAlivePacket -> connection.outgoing.send(
-                    ConfigurationServerboundKeepAlivePacket(packet.id),
-                )
-
                 is ConfigurationPingPacket -> connection.outgoing.send(ConfigurationPongPacket(packet.id))
                 is ConfigurationAddResourcePackPacket -> connection.outgoing.send(
                     ConfigurationResourcePackResponsePacket(packet.uuid, options.resourcePackResult),

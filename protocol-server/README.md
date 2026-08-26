@@ -45,6 +45,12 @@ suspend fun negotiateConfigured(
 
 The defaults provide offline vanilla negotiation with the repository-selected release's generated vanilla protocol data.
 
+Preset negotiation also manages the official server KeepAlive lifecycle. It starts a Configuration run after Login is
+acknowledged, replaces it with a fresh Play run before the first Play packet, and defaults each run to a 15-second
+interval. Matching replies are validated and consumed. A pending challenge at the next interval, an unsolicited reply,
+or a mismatched reply closes the connection; closing the connection also cancels the run. Applications using
+`negotiate()` need neither start this service nor handle its reply packets themselves.
+
 Use `MinecraftServerNegotiationPolicy` for decisions that vary by connection: Status JSON, profile rejection, Play
 Login, extra Configuration packets, response-gated Configuration tasks, and unknown query handling. Every method has a
 default implementation, so a policy can override only what it needs. Here `allowedNames` is supplied by the
@@ -264,6 +270,30 @@ The maintained
 [`negotiate` implementation](src/commonMain/kotlin/com/hiczp/minecraft/protocol/server/MinecraftServerProtocol.kt) is
 the source-level ordering reference.
 
+A custom flow controls the state-specific KeepAlive run explicitly. After Login acknowledgement and the transition to
+Configuration, call `enableConfigurationKeepAlive()`. After receiving `AcknowledgeFinishConfigurationPacket`, disable
+that run and call `enablePlayKeepAlive()` before sending the first Play packet. Reconfiguration performs the reverse
+switch after `AcknowledgeConfigurationPacket`, then restores Play after the next finish acknowledgement:
+
+```kotlin
+fun beginReconfigurationKeepAlive(connection: MinecraftServerConnection) {
+    connection.disableKeepAlive()
+    connection.enableConfigurationKeepAlive()
+}
+
+fun finishReconfigurationKeepAlive(connection: MinecraftServerConnection) {
+    connection.disableKeepAlive()
+    connection.enablePlayKeepAlive()
+}
+```
+
+Each enable call replaces any active run and starts with no pending challenge. Do not manually enqueue a KeepAlive
+packet for the same state while its managed run is active. Mods with a different packet pair can call the lower-level
+`enableKeepAlive(extractChallenge, createRequest, interval)`: the extractor returns `null` for unrelated serverbound
+packets, and the request factory places the generated challenge in a clientbound packet. This mapping does not inspect
+the connection state, so its lifecycle remains explicit at the call site.
+
 After Play begins, enqueue ordered packets through `outgoing` and call `requestFlush()` at a tick boundary. A full
 channel is application backpressure policy; `trySend` lets a tick loop detect it without suspending. Closing the
-connection stops its packet pumps and transport.
+connection stops its packet pumps and transport. Managed KeepAlive requests use the same writer but flush themselves;
+they do not depend on the application's tick-boundary flush.

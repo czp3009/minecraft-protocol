@@ -26,17 +26,11 @@ import kotlin.uuid.Uuid
 internal object HeadlessClientEndToEndRunner {
     private const val MAXIMUM_PACKETS_PER_STAGE = 2_048
     private const val PLAYER_NAME = "KmpE2EClient"
-    private const val INITIAL_KEEP_ALIVE_ID = 0x1020_3040_5060_7080L
-    private const val PLAY_PROBE_KEEP_ALIVE_ID = 0x1122_3344_5566_7788L
-    private const val CONFIGURATION_KEEP_ALIVE_ID = 0x1234_5678_1020_3040L
-    private const val POST_CONFIGURATION_KEEP_ALIVE_ID = 0x2233_4455_6677_0102L
     private const val PLAY_PING_ID = 0x1020_3040
     private const val CONFIGURATION_PING_ID = 0x5060_7080
     private const val PRE_CONFIGURATION_PING_ID = 0x5566_7788
-    private const val PRE_CONFIGURATION_KEEP_ALIVE_ID = 0x3344_5566_7788_0102L
     private const val POST_CONFIGURATION_PING_ID = 0x1122_3344
     private const val RESPAWN_PING_ID = 0x2435_4657
-    private const val RESPAWN_KEEP_ALIVE_ID = 0x3141_5926_5358_9793L
     private val COOKIE_KEY = Identifier("minecraft-protocol:e2e")
     private val COOKIE_PAYLOAD = ByteString(
         "official-client-cookie".encodeToByteArray(),
@@ -220,6 +214,7 @@ internal object HeadlessClientEndToEndRunner {
         checkNotNull(ready) {
             "Official client connection completed Status instead of entering Play"
         }
+        val keepAlive = connection.enableRecordingPlayKeepAlive(5.seconds)
         try {
             val pig = MinecraftEntitySnapshot(
                 entityId = 2,
@@ -250,19 +245,16 @@ internal object HeadlessClientEndToEndRunner {
                 options = OPTIONS,
                 entities = listOf(pig, arrow, minecart, horse),
             )
+            runProtocolStage("managed Play KeepAlive request") {
+                keepAlive.requestCreated.await()
+            }
             runProtocolStage("initial-world synchronization") {
                 connection.synchronizeInitialWorld(world)
-                connection.outgoing.send(
-                    PlayClientboundKeepAlivePacket(
-                        INITIAL_KEEP_ALIVE_ID,
-                    ),
-                )
                 connection.requestFlush()
             }
             val observed = mutableListOf<String>()
             var teleportAcknowledged = false
             var chunkBatchAcknowledged = false
-            var keepAliveAcknowledged = false
             var clientTickObserved = false
             var initialPacketBudget = MAXIMUM_PACKETS_PER_STAGE
             while (
@@ -270,7 +262,6 @@ internal object HeadlessClientEndToEndRunner {
                 !(
                         teleportAcknowledged &&
                                 chunkBatchAcknowledged &&
-                                keepAliveAcknowledged &&
                                 clientTickObserved
                         )
             ) {
@@ -285,9 +276,6 @@ internal object HeadlessClientEndToEndRunner {
 
                     is ChunkBatchReceivedPacket -> chunkBatchAcknowledged = true
 
-                    is PlayServerboundKeepAlivePacket ->
-                        keepAliveAcknowledged = packet.id == INITIAL_KEEP_ALIVE_ID
-
                     is ClientTickEndPacket -> clientTickObserved = true
 
                     else -> Unit
@@ -296,16 +284,17 @@ internal object HeadlessClientEndToEndRunner {
             val initialState = listOf(
                 "teleport=$teleportAcknowledged",
                 "chunk=$chunkBatchAcknowledged",
-                "keepAlive=$keepAliveAcknowledged",
                 "tick=$clientTickObserved",
             ).joinToString()
             check(
                 teleportAcknowledged &&
                         chunkBatchAcknowledged &&
-                        keepAliveAcknowledged &&
                         clientTickObserved,
             ) {
                 "Initial acknowledgements incomplete: $initialState; packets=${observed.joinToString()}"
+            }
+            runProtocolStage("managed Play KeepAlive round trip") {
+                keepAlive.roundTrip.await()
             }
 
             runProtocolStage("Play packet coverage") {
@@ -1100,7 +1089,6 @@ internal object HeadlessClientEndToEndRunner {
                 connection = connection,
                 label = packet::class.simpleName ?: "clientbound packet $index",
                 pingId = PLAY_PING_ID + index,
-                keepAliveId = PLAY_PROBE_KEEP_ALIVE_ID + index,
                 observed = observed,
             )
         }
@@ -1114,7 +1102,6 @@ internal object HeadlessClientEndToEndRunner {
             connection = connection,
             label = "Play cookie store/request",
             pingId = PLAY_PING_ID + packets.size,
-            keepAliveId = PLAY_PROBE_KEEP_ALIVE_ID + packets.size,
             observed = observed,
             additionalComplete = { cookieRoundTrip },
             onPacket = { packet ->
@@ -1147,7 +1134,6 @@ internal object HeadlessClientEndToEndRunner {
             connection = connection,
             label = "second player-position synchronization",
             pingId = PLAY_PING_ID + packets.size + 1,
-            keepAliveId = PLAY_PROBE_KEEP_ALIVE_ID + packets.size + 1,
             observed = observed,
             additionalComplete = { teleportAcknowledged },
             onPacket = { packet ->
@@ -1177,13 +1163,9 @@ internal object HeadlessClientEndToEndRunner {
             ),
         )
         connection.synchronizeInitialWorld(world)
-        connection.outgoing.send(
-            PlayClientboundKeepAlivePacket(RESPAWN_KEEP_ALIVE_ID),
-        )
         connection.outgoing.send(ClientboundPingPacket(RESPAWN_PING_ID))
         connection.requestFlush()
 
-        var keepAlive = false
         var ping = false
         var tick = false
         var teleport = false
@@ -1193,8 +1175,7 @@ internal object HeadlessClientEndToEndRunner {
         while (
             packetBudget-- > 0 &&
             !(
-                    keepAlive &&
-                            ping &&
+                    ping &&
                             tick &&
                             teleport &&
                             chunkBatch &&
@@ -1207,9 +1188,6 @@ internal object HeadlessClientEndToEndRunner {
             )
             observed += packet::class.simpleName ?: "<anonymous>"
             when (packet) {
-                is PlayServerboundKeepAlivePacket ->
-                    if (packet.id == RESPAWN_KEEP_ALIVE_ID) keepAlive = true
-
                 is PlayPongPacket ->
                     if (packet.id == RESPAWN_PING_ID) ping = true
 
@@ -1225,7 +1203,6 @@ internal object HeadlessClientEndToEndRunner {
             }
         }
         val respawnState = listOf(
-            "keepAlive=$keepAlive",
             "ping=$ping",
             "tick=$tick",
             "teleport=$teleport",
@@ -1233,8 +1210,7 @@ internal object HeadlessClientEndToEndRunner {
             "loaded=$playerLoaded",
         ).joinToString()
         check(
-            keepAlive &&
-                    ping &&
+            ping &&
                     tick &&
                     teleport &&
                     chunkBatch &&
@@ -1248,23 +1224,17 @@ internal object HeadlessClientEndToEndRunner {
         connection: MinecraftServerConnection,
         label: String,
         pingId: Int,
-        keepAliveId: Long,
         observed: MutableList<String>,
         additionalComplete: () -> Boolean = { true },
         onPacket: (Packet) -> Unit = {},
     ) {
         connection.outgoing.send(ClientboundPingPacket(pingId))
-        connection.outgoing.send(
-            PlayClientboundKeepAlivePacket(keepAliveId),
-        )
         connection.requestFlush()
         var pingRoundTrip = false
-        var keepAliveRoundTrip = false
         var tickObserved = false
         var packetBudget = MAXIMUM_PACKETS_PER_STAGE
         fun barrierState(): String = listOf(
             "ping=$pingRoundTrip",
-            "keepAlive=$keepAliveRoundTrip",
             "tick=$tickObserved",
             "additional=${additionalComplete()}",
         ).joinToString()
@@ -1273,7 +1243,6 @@ internal object HeadlessClientEndToEndRunner {
                 packetBudget-- > 0 &&
                 !(
                         pingRoundTrip &&
-                                keepAliveRoundTrip &&
                                 tickObserved &&
                                 additionalComplete()
                         )
@@ -1286,11 +1255,6 @@ internal object HeadlessClientEndToEndRunner {
                 when (packet) {
                     is PlayPongPacket ->
                         if (packet.id == pingId) pingRoundTrip = true
-
-                    is PlayServerboundKeepAlivePacket ->
-                        if (packet.id == keepAliveId) {
-                            keepAliveRoundTrip = true
-                        }
 
                     is ClientTickEndPacket -> tickObserved = true
                     else -> Unit
@@ -1307,7 +1271,6 @@ internal object HeadlessClientEndToEndRunner {
         }
         check(
             pingRoundTrip &&
-                    keepAliveRoundTrip &&
                     tickObserved &&
                     additionalComplete(),
         ) {
@@ -1327,7 +1290,6 @@ internal object HeadlessClientEndToEndRunner {
                 connection = connection,
                 label = "Player Loaded readiness",
                 pingId = PRE_CONFIGURATION_PING_ID,
-                keepAliveId = PRE_CONFIGURATION_KEEP_ALIVE_ID,
                 observed = observedPlayPackets,
                 additionalComplete = { playerLoaded },
                 onPacket = { packet ->
@@ -1353,16 +1315,14 @@ internal object HeadlessClientEndToEndRunner {
         check(connection.state == ConnectionState.CONFIGURATION) {
             "Server session did not enter Configuration after acknowledgement"
         }
+        connection.disableKeepAlive()
+        val configurationKeepAlive = connection.enableRecordingConfigurationKeepAlive(5.seconds)
+        configurationKeepAlive.requestCreated.await()
 
         connection.outgoing.send(
             ConfigurationStoreCookiePacket(COOKIE_KEY, COOKIE_PAYLOAD),
         )
         connection.outgoing.send(ConfigurationCookieRequestPacket(COOKIE_KEY))
-        connection.outgoing.send(
-            ConfigurationClientboundKeepAlivePacket(
-                CONFIGURATION_KEEP_ALIVE_ID,
-            ),
-        )
         connection.outgoing.send(
             ConfigurationPingPacket(CONFIGURATION_PING_ID),
         )
@@ -1395,7 +1355,6 @@ internal object HeadlessClientEndToEndRunner {
         )
 
         var cookieRoundTrip = false
-        var keepAliveRoundTrip = false
         var pingRoundTrip = false
         var knownPacks: ConfigurationServerboundKnownPacksPacket? = null
         packetBudget = MAXIMUM_PACKETS_PER_STAGE
@@ -1403,7 +1362,6 @@ internal object HeadlessClientEndToEndRunner {
             packetBudget-- > 0 &&
             !(
                     cookieRoundTrip &&
-                            keepAliveRoundTrip &&
                             pingRoundTrip &&
                             knownPacks != null
                     )
@@ -1421,11 +1379,6 @@ internal object HeadlessClientEndToEndRunner {
                         cookieRoundTrip = true
                     }
 
-                is ConfigurationServerboundKeepAlivePacket ->
-                    if (packet.id == CONFIGURATION_KEEP_ALIVE_ID) {
-                        keepAliveRoundTrip = true
-                    }
-
                 is ConfigurationPongPacket ->
                     if (packet.id == CONFIGURATION_PING_ID) {
                         pingRoundTrip = true
@@ -1439,18 +1392,17 @@ internal object HeadlessClientEndToEndRunner {
         }
         val configurationState = listOf(
             "cookie=$cookieRoundTrip",
-            "keepAlive=$keepAliveRoundTrip",
             "ping=$pingRoundTrip",
             "knownPacks=${knownPacks != null}",
         ).joinToString()
         check(
             cookieRoundTrip &&
-                    keepAliveRoundTrip &&
                     pingRoundTrip &&
                     knownPacks != null,
         ) {
             "Configuration probes incomplete: $configurationState"
         }
+        configurationKeepAlive.roundTrip.await()
         val acceptedKnownPacks = knownPacks.knownPacks
         OPTIONS.protocolData
             .synchronizedRegistryPackets(acceptedKnownPacks)
@@ -1475,6 +1427,9 @@ internal object HeadlessClientEndToEndRunner {
         check(connection.state == ConnectionState.PLAY) {
             "Server session did not return to Play after reconfiguration"
         }
+        connection.disableKeepAlive()
+        val playKeepAlive = connection.enableRecordingPlayKeepAlive(5.seconds)
+        playKeepAlive.requestCreated.await()
 
         connection.outgoing.send(login)
         val reconfiguredWorld = world.copy(
@@ -1484,15 +1439,9 @@ internal object HeadlessClientEndToEndRunner {
         )
         connection.synchronizeInitialWorld(reconfiguredWorld)
         connection.outgoing.send(
-            PlayClientboundKeepAlivePacket(
-                POST_CONFIGURATION_KEEP_ALIVE_ID,
-            ),
-        )
-        connection.outgoing.send(
             ClientboundPingPacket(POST_CONFIGURATION_PING_ID),
         )
         connection.requestFlush()
-        var postKeepAlive = false
         var postPing = false
         var postTick = false
         var postTeleport = false
@@ -1502,8 +1451,7 @@ internal object HeadlessClientEndToEndRunner {
         while (
             packetBudget-- > 0 &&
             !(
-                    postKeepAlive &&
-                            postPing &&
+                    postPing &&
                             postTick &&
                             postTeleport &&
                             postChunkBatch &&
@@ -1517,11 +1465,6 @@ internal object HeadlessClientEndToEndRunner {
             observedPlayPackets +=
                 packet::class.simpleName ?: "<anonymous>"
             when (packet) {
-                is PlayServerboundKeepAlivePacket ->
-                    if (packet.id == POST_CONFIGURATION_KEEP_ALIVE_ID) {
-                        postKeepAlive = true
-                    }
-
                 is PlayPongPacket ->
                     if (packet.id == POST_CONFIGURATION_PING_ID) {
                         postPing = true
@@ -1541,7 +1484,6 @@ internal object HeadlessClientEndToEndRunner {
             }
         }
         val postConfigurationState = listOf(
-            "keepAlive=$postKeepAlive",
             "ping=$postPing",
             "tick=$postTick",
             "teleport=$postTeleport",
@@ -1549,8 +1491,7 @@ internal object HeadlessClientEndToEndRunner {
             "loaded=$postPlayerLoaded",
         ).joinToString()
         check(
-            postKeepAlive &&
-                    postPing &&
+            postPing &&
                     postTick &&
                     postTeleport &&
                     postChunkBatch &&
@@ -1558,6 +1499,7 @@ internal object HeadlessClientEndToEndRunner {
         ) {
             "Play did not resume: $postConfigurationState"
         }
+        playKeepAlive.roundTrip.await()
     }
 
     private suspend fun receiveForStage(

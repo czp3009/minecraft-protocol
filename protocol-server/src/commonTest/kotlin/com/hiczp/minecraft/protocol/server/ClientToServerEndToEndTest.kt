@@ -3,6 +3,7 @@ package com.hiczp.minecraft.protocol.server
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.auth.toGameProfile
 import com.hiczp.minecraft.protocol.client.MinecraftClientConnection
+import com.hiczp.minecraft.protocol.client.negotiate
 import com.hiczp.minecraft.protocol.datapack.resolveSynchronizedRegistryContext
 import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
 import com.hiczp.minecraft.protocol.datapack.withPlayLoginDimensionLayout
@@ -12,6 +13,7 @@ import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.session.*
 import io.ktor.network.selector.*
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
@@ -20,10 +22,54 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.*
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.Uuid
 import com.hiczp.minecraft.protocol.model.type.GameMode as PlayerGameMode
 
 class ClientToServerEndToEndTest {
+    @Test
+    fun vanillaDefaultsReachPlayWithOnlyConnectionFactsAndPlayerIdentity() = runTest {
+        SelectorManager(Dispatchers.Default).use { selector ->
+            MinecraftServer.bind(
+                selectorManager = selector,
+                host = "127.0.0.1",
+                port = 0,
+            ).use { server ->
+                val releaseServer = CompletableDeferred<Unit>()
+                val serverNegotiation = async {
+                    server.accept().use { connection ->
+                        val result = assertNotNull(connection.negotiate())
+                        releaseServer.await()
+                        result
+                    }
+                }
+                val identity = MinecraftOfflineIdentity("VanillaDefaults")
+                val clientResult = try {
+                    MinecraftClientConnection.connect(
+                        selectorManager = selector,
+                        host = "127.0.0.1",
+                        port = server.port,
+                    ).use { connection ->
+                        connection.negotiate(identity).also {
+                            assertEquals(ConnectionState.PLAY, connection.state)
+                        }
+                    }
+                } finally {
+                    releaseServer.complete(Unit)
+                }
+                val serverResult = serverNegotiation.await()
+
+                assertEquals(identity.id, clientResult.loginSuccessPacket.profile.id)
+                assertEquals(identity.id, serverResult.gameProfile.id)
+                assertEquals(clientResult.playLoginPacket, serverResult.playLoginPacket)
+                assertEquals(
+                    VanillaProtocolData.offeredKnownPacks,
+                    clientResult.dataPackConfigurationSnapshot.offeredKnownPacks,
+                )
+            }
+        }
+    }
+
     @Test
     fun publicNegotiationPrimitivesReachInitialPlay() = runTest {
         SelectorManager(Dispatchers.Default).use { selector ->
@@ -158,6 +204,7 @@ class ClientToServerEndToEndTest {
         connection.requestFlush()
         assertEquals(LoginAcknowledgedPacket, connection.incoming.receive())
         connection.awaitState(ConnectionState.CONFIGURATION)
+        connection.enableConfigurationKeepAlive()
 
         val clientInformation = assertIs<ConfigurationClientInformationPacket>(
             connection.incoming.receive(),
@@ -187,7 +234,9 @@ class ClientToServerEndToEndTest {
         connection.outgoing.send(FinishConfigurationPacket)
         connection.requestFlush()
         assertEquals(AcknowledgeFinishConfigurationPacket, connection.incoming.receive())
+        connection.disableKeepAlive()
         connection.awaitState(ConnectionState.PLAY)
+        val keepAlive = connection.enableRecordingPlayKeepAlive(100.milliseconds)
         profile.preparePlay(connection)
         connection.outgoing.send(playLoginPacket)
         assertSame(TestProfileResult, profile.complete(connection))
@@ -198,27 +247,22 @@ class ClientToServerEndToEndTest {
             entities = listOf(testPig()),
         )
         connection.synchronizeInitialWorld(world)
-        connection.outgoing.send(PlayClientboundKeepAlivePacket(KEEP_ALIVE_ID))
         connection.requestFlush()
 
         var teleportConfirmed = false
         var chunkBatchConfirmed = false
-        var keepAliveConfirmed = false
-        while (!(teleportConfirmed && chunkBatchConfirmed && keepAliveConfirmed)) {
+        while (!(teleportConfirmed && chunkBatchConfirmed)) {
             when (val packet = connection.incoming.receive()) {
                 is ConfirmTeleportationPacket ->
                     teleportConfirmed = packet.teleportId == world.bootstrap.teleportId
 
                 is ChunkBatchReceivedPacket -> chunkBatchConfirmed = true
-                is PlayServerboundKeepAlivePacket ->
-                    keepAliveConfirmed = packet.id == KEEP_ALIVE_ID
-
                 else -> Unit
             }
         }
+        keepAlive.roundTrip.await()
         assertTrue(teleportConfirmed)
         assertTrue(chunkBatchConfirmed)
-        assertTrue(keepAliveConfirmed)
         assertEquals("en_us", clientInformation.locale)
         assertEquals(
             PROFILE_REGISTRY_SIZE,
@@ -322,10 +366,9 @@ class ClientToServerEndToEndTest {
 
         var chunkReceived = false
         var entityReceived = false
-        var keepAliveReceived = false
         var difficultyReceived = false
         var abilities: PlayerAbilities? = null
-        while (!keepAliveReceived) {
+        while (!(chunkReceived && entityReceived && difficultyReceived && abilities != null)) {
             when (val packet = connection.incoming.receive()) {
                 is SynchronizePlayerPositionPacket -> {
                     connection.outgoing.send(ConfirmTeleportationPacket(packet.teleportId))
@@ -348,13 +391,6 @@ class ClientToServerEndToEndTest {
                     difficultyReceived = packet.difficulty == Difficulty.HARD && packet.locked
 
                 is ClientboundPlayerAbilitiesPacket -> abilities = packet.abilities
-                is PlayClientboundKeepAlivePacket -> {
-                    assertEquals(KEEP_ALIVE_ID, packet.id)
-                    connection.outgoing.send(PlayServerboundKeepAlivePacket(packet.id))
-                    connection.requestFlush()
-                    keepAliveReceived = true
-                }
-
                 else -> Unit
             }
         }
@@ -397,7 +433,6 @@ class ClientToServerEndToEndTest {
 
     private companion object {
         const val STATUS_PING_ID: Long = 42
-        const val KEEP_ALIVE_ID: Long = 0x1020_3040_5060_7080L
     }
 }
 

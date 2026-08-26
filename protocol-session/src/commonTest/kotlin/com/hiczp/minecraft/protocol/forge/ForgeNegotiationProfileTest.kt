@@ -15,6 +15,7 @@ import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
 import kotlinx.serialization.Serializable
 import kotlin.test.*
+import kotlin.time.Duration
 
 class ForgeNegotiationProfileTest {
     @Test
@@ -417,4 +418,12 @@ private class ForgeTestServerConnection(
     PacketDirection.CLIENTBOUND,
 ), MinecraftServerPacketConnection {
     override fun enableEncryption(sharedSecret: ByteArray) = Unit
+
+    override fun enableKeepAlive(
+        extractChallenge: (ServerboundPacket) -> Long?,
+        createRequest: (Long) -> ClientboundPacket,
+        interval: Duration,
+    ) = Unit
+
+    override fun disableKeepAlive() = Unit
 }

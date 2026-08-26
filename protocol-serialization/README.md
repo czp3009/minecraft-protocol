@@ -7,6 +7,10 @@ returning packet-ID and framing metadata separately from the encoded body.
 [`protocol-session`](../protocol-session/README.md) owns stateful dispatch, while
 [`protocol-transport`](../protocol-transport/README.md) owns frames, compression, encryption, and sockets.
 
+`ClientboundBundlePacket` is deliberately not a `PacketRegistry` entry: it is a logical session value without its own
+packet ID. The registered delimiter and sub-packets are encoded individually after `protocol-session` expands the
+bundle, and the client session reconstructs the logical value after decoding them.
+
 ## Encode and decode payloads
 
 `MinecraftProtocolFormat` implements `BinaryFormat` and interprets the structural serializers and wire annotations from

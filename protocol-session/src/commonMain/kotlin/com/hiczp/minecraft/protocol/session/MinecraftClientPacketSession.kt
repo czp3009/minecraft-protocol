@@ -20,6 +20,10 @@ class MinecraftClientPacketSession(
 ) {
     private var pendingEncryption: ByteArray? = null
 
+    override suspend fun receive(): ClientboundPacket = ClientboundBundleCodec.receive {
+        super.receive()
+    }
+
     /** Enables the stream cipher after the next complete Encryption Response frame. */
     fun prepareOutboundEncryption(sharedSecret: ByteArray) {
         requireMinecraftEncryptionKey(sharedSecret)

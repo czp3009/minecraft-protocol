@@ -5,9 +5,7 @@ import com.hiczp.minecraft.protocol.datapack.resolveSynchronizedRegistryContext
 import com.hiczp.minecraft.protocol.datapack.withPlayLoginDimensionLayout
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
-import com.hiczp.minecraft.protocol.session.NegotiationProfileResult
-import com.hiczp.minecraft.protocol.session.ServerNegotiationProfile
-import com.hiczp.minecraft.protocol.session.VanillaServer
+import com.hiczp.minecraft.protocol.session.*
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -144,6 +142,7 @@ private suspend fun MinecraftServerConnection.handleLogin(
     outgoing.send(LoginSuccessPacket(gameProfile, options.sessionId))
     awaitLoginPacket<LoginAcknowledgedPacket>(profile, policy)
     awaitState(ConnectionState.CONFIGURATION)
+    enableConfigurationKeepAlive()
 
     val clientInformation =
         awaitConfigurationPacket<ConfigurationClientInformationPacket>(
@@ -214,7 +213,9 @@ private suspend fun MinecraftServerConnection.handleLogin(
         profile,
         policy,
     )
+    disableKeepAlive()
     awaitState(ConnectionState.PLAY)
+    enablePlayKeepAlive()
     profile.preparePlay(this)
     outgoing.send(playLoginPacket)
     requestFlush()
