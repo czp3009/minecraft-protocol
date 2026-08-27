@@ -140,32 +140,36 @@ needs an explicit durability boundary.
 
 ## Reuse Region handles for batches
 
-Do not open a world or Region inside every per-Chunk iteration. Group positions by Region and reuse one handle:
+Open one Region handle and use one read scope to decode all of its existing Chunks:
 
 ```kotlin
-suspend fun <B : Any, M : Any> loadChunks(
+suspend fun <B : Any, M : Any> readRegionChunks(
     minecraftWorldAccess: MinecraftWorldAccess,
-    chunkPositions: Iterable<ChunkPosition>,
+    regionPosition: RegionPosition,
     chunkNbtCodec: ChunkNbtCodec<B, M>,
-): Map<ChunkPosition, Chunk<B, M>> = buildMap {
-    for ((regionPosition, regionChunkPositions) in chunkPositions.groupBy(ChunkPosition::regionPosition)) {
-        minecraftWorldAccess.openRegion(regionPosition).use { regionHandle ->
-            for (chunkPosition in regionChunkPositions) {
-                regionHandle.readChunk(chunkPosition, chunkNbtCodec)?.let { chunk -> put(chunkPosition, chunk) }
-            }
-        }
+): List<Chunk<B, M>> = minecraftWorldAccess.openRegion(regionPosition).use { regionHandle ->
+    regionHandle.withReadScope {
+        this.chunkPositions.mapNotNull { readChunk(it, chunkNbtCodec) }.toList()
     }
 }
 ```
 
+The `this` receiver inside `withReadScope` is a `RegionReadScope`; its `chunkPositions` sequence comes from the Region
+Header read for that scope.
+
 Ordinary handle calls may be concurrent. Same-Region reads can proceed together, writes serialize, and independent
 Regions progress independently.
 
-Both mutable and live Region handles expose `withReadScope`, but their guarantees follow their owner. On a mutable
-`RegionHandle`, the callback holds one shared-read admission and uses one consistent header snapshot, so coordinated
-writes cannot interleave. On a `LiveRegionHandle`, the callback merely avoids rereading the header; it provides no
-consistency guarantee against the external writer. Values, sequences, and streams borrowed from either scope do not
-escape its callback. `replaceRegion { ... }` is the mutable handle's matching staged complete-replacement scope.
+Opening a mutable Region handle pins one logical Region; its first read lazily opens the `.mca` and retains both that
+file and its maintained Header state until the final user releases it. `withReadScope` is therefore a batch admission,
+not another file cache: its callback holds one shared-read admission so coordinated writes cannot interleave between the
+Chunk reads.
+
+Ordinary and live Chunk Region handles expose `RegionReadScope`; Entity Region handles expose
+`EntityRegionReadScope`. Both inherit metadata, compressed payload, decompressed NBT stream/document, and serializer
+reads from `AnvilRegionReadScope`, while their `readChunk` methods accept only `ChunkNbtCodec` or
+`EntityChunkNbtCodec`, respectively. Values, sequences, and streams borrowed from a scope do not escape its callback.
+`replaceRegion { ... }` is the mutable handle's matching staged complete-replacement scope.
 
 List existing map or Entity Regions with `listRegionPositions()` and `listEntityRegionPositions()`. These return
 complete detached directory snapshots and are not transactionally consistent with concurrent external changes.
@@ -220,25 +224,18 @@ A handle created while its Region path is missing owns no `.mca` resource and re
 read results; open another handle for a later filesystem observation. Calls on one live handle may run concurrently, but
 `close()` does not wait for them, so finish all calls and borrowed callbacks before closing the handle.
 
-For several low-level reads from one Region, `withReadScope` also reuses one header read:
+For several reads from one live Region, `withReadScope` reuses one Header read through semantic decoding:
 
 ```kotlin
-fun readLiveCompressedChunks(
+fun <B : Any, M : Any> readLiveRegionChunks(
     liveMinecraftWorldAccess: LiveMinecraftWorldAccess,
     regionPosition: RegionPosition,
-    localChunkPositions: Iterable<LocalChunkPosition>,
-): Map<ChunkPosition, CompressedChunk> =
-    liveMinecraftWorldAccess.openRegion(regionPosition).use { liveRegionHandle ->
-        liveRegionHandle.withReadScope {
-            buildMap {
-                for (localChunkPosition in localChunkPositions) {
-                    readCompressedChunk(localChunkPosition)?.let { compressedChunk ->
-                        put(regionPosition.chunk(localChunkPosition), compressedChunk)
-                    }
-                }
-            }
-        }
+    chunkNbtCodec: ChunkNbtCodec<B, M>,
+): List<Chunk<B, M>> = liveMinecraftWorldAccess.openRegion(regionPosition).use { liveRegionHandle ->
+    liveRegionHandle.withReadScope {
+        this.chunkPositions.mapNotNull { readChunk(it, chunkNbtCodec) }.toList()
     }
+}
 ```
 
 The cached header is an optimization, not a snapshot promise. Another process may write, delete, replace, or reuse the

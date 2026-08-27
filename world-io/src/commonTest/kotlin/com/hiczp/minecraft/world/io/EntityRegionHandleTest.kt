@@ -105,6 +105,23 @@ class EntityRegionHandleTest {
         )
         assertEquals(typedNbt, entityRegionHandle.readChunkNbt<LevelDat>(localChunkPosition = typedLocal))
 
+        var escapedEntityRegionReadScope: EntityRegionReadScope? = null
+        entityRegionHandle.withReadScope {
+            escapedEntityRegionReadScope = this
+            assertEquals(
+                entity.uuid,
+                assertNotNull(readChunk(chunkPosition, entityChunkNbtCodec)).rootEntities.single().uuid
+            )
+            assertEquals(
+                externalPosition,
+                assertNotNull(readChunk(externalPosition.localChunkPosition, entityChunkNbtCodec)).chunkPosition,
+            )
+            assertEquals(typedNbt, readChunkNbt<LevelDat>(typedLocal))
+        }
+        assertFailsWith<IllegalStateException> {
+            checkNotNull(escapedEntityRegionReadScope).readChunk(chunkPosition, entityChunkNbtCodec)
+        }
+
         entityRegionHandle.close()
         regionStorage.close()
 
@@ -120,10 +137,22 @@ class EntityRegionHandleTest {
             assertNotNull(decodedExternalEntity)
             assertEquals(NbtByteArray(externalBytes), decodedExternalEntity.data["test:payload"])
             assertEquals(typedNbt, liveEntityRegionHandle.readChunkNbt<LevelDat>(localChunkPosition = typedLocal))
+            var escapedLiveEntityRegionReadScope: EntityRegionReadScope? = null
             assertEquals(
                 setOf(chunkPosition, externalPosition, regionPosition.chunk(typedLocal)),
-                liveEntityRegionHandle.withReadScope { chunkPositions.toSet() },
+                liveEntityRegionHandle.withReadScope {
+                    escapedLiveEntityRegionReadScope = this
+                    assertEquals(
+                        entity.uuid,
+                        assertNotNull(readChunk(chunkPosition, entityChunkNbtCodec)).rootEntities.single().uuid,
+                    )
+                    assertEquals(typedNbt, readChunkNbt<LevelDat>(typedLocal))
+                    chunkPositions.toSet()
+                },
             )
+            assertFailsWith<IllegalStateException> {
+                checkNotNull(escapedLiveEntityRegionReadScope).readChunk(chunkPosition, entityChunkNbtCodec)
+            }
         }
         fakeFileSystem.checkNoOpenFiles()
     }

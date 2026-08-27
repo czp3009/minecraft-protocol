@@ -89,16 +89,7 @@ class LiveRegionHandle internal constructor(
         localChunkPosition: LocalChunkPosition,
         block: (RegionChunkInfo, KotlinxSource) -> R,
     ): R? = withCompressedChunkSource(localChunkPosition) { regionChunkInfo, source ->
-        val decompressed = chunkNbtFormat.compressionRegistry
-            .decompressingSource(regionChunkInfo.compression, source)
-            .buffered()
-        decompressed.use {
-            val result = block(regionChunkInfo, decompressed)
-            if (!decompressed.exhausted()) {
-                throw WorldIOException("Chunk ${regionChunkInfo.chunkPosition} NBT source was not fully consumed")
-            }
-            result
-        }
+        withDecompressedChunkSource(chunkNbtFormat, regionChunkInfo, source, block)
     }
 
     fun <R> withChunkNbtSource(
@@ -160,9 +151,14 @@ class LiveRegionHandle internal constructor(
      * Runs [block] with one cached Region header and the handle's retained `.mca` resource.
      *
      * The header is read once for efficiency only. It may already be torn or stale, and the Chunk
-     * records or external sidecars it references may change independently while [block] runs.
+     * records or external sidecars it references may change independently while [block] runs. The
+     * typed scope can decode semantic Chunks without rereading that Header.
      */
-    fun <R> withReadScope(block: RegionReadScope.() -> R): R = liveRegionFile.withReadScope(block)
+    fun <R> withReadScope(block: RegionReadScope.() -> R): R = withReadScopeCore {
+        block(RegionReadScope(this, chunkNbtFormat))
+    }
+
+    internal fun <R> withReadScopeCore(block: RegionReadScopeCore.() -> R): R = liveRegionFile.withReadScope(block)
 
     fun close() = liveRegionFile.close()
 
@@ -263,10 +259,10 @@ private class LiveRegionFile private constructor(
         }
     }
 
-    fun <R> withReadScope(block: RegionReadScope.() -> R): R {
+    fun <R> withReadScope(block: RegionReadScopeCore.() -> R): R {
         checkOpen()
-        val fileHandle = fileHandle ?: return RegionReadScope.empty(regionPosition).use(block)
-        return RegionReadScope(this, readUsableHeader(fileHandle)).use(block)
+        val fileHandle = fileHandle ?: return RegionReadScopeCore.empty(regionPosition).use(block)
+        return RegionReadScopeCore(this, readUsableHeader(fileHandle)).use(block)
     }
 
     fun close() {

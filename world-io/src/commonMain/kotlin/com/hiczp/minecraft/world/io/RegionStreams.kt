@@ -1,8 +1,12 @@
 package com.hiczp.minecraft.world.io
 
+import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.world.format.*
 import kotlinx.io.Sink
 import kotlinx.io.Source
+import kotlinx.io.buffered
+import kotlinx.serialization.DeserializationStrategy
+import kotlinx.serialization.serializer
 import okio.Path
 
 /** A detached Anvil image paired with the Region position retained from its `.mca` path. */
@@ -94,20 +98,12 @@ internal interface RegionReadAccess {
     ): R?
 }
 
-/**
- * Borrowed streaming view that reuses one Region header view.
- *
- * Every sequence and Chunk stream is valid only inside the enclosing Region read callback.
- * Metadata is visited lazily in deterministic Region-local order. The owner of the callback
- * defines whether concurrent changes are excluded; this type alone does not make the cached
- * header and subsequently read Chunk bytes a consistent filesystem snapshot.
- */
-class RegionReadScope private constructor(
+internal class RegionReadScopeCore private constructor(
     private val regionReadAccess: RegionReadAccess?,
     val regionPosition: RegionPosition,
     private val regionHeader: RegionHeader,
 ) {
-    internal constructor(regionReadAccess: RegionReadAccess, regionHeader: RegionHeader) : this(
+    constructor(regionReadAccess: RegionReadAccess, regionHeader: RegionHeader) : this(
         regionReadAccess,
         regionReadAccess.regionPosition,
         regionHeader,
@@ -181,13 +177,13 @@ class RegionReadScope private constructor(
     fun readCompressedChunk(chunkPosition: ChunkPosition): CompressedChunk? =
         readCompressedChunk(regionPosition.local(chunkPosition))
 
-    internal fun <R> use(block: RegionReadScope.() -> R): R = try {
+    fun <R> use(block: RegionReadScopeCore.() -> R): R = try {
         block()
     } finally {
         invalidate()
     }
 
-    internal fun invalidate() {
+    private fun invalidate() {
         valid = false
     }
 
@@ -195,8 +191,181 @@ class RegionReadScope private constructor(
         check(valid) { "Region read scope is no longer valid: ${regionReadAccess?.path ?: regionPosition}" }
     }
 
-    internal companion object {
-        fun empty(regionPosition: RegionPosition): RegionReadScope = RegionReadScope(null, regionPosition, RegionHeader())
+    companion object {
+        fun empty(regionPosition: RegionPosition): RegionReadScopeCore =
+            RegionReadScopeCore(null, regionPosition, RegionHeader())
+    }
+}
+
+/**
+ * Common callback-bound read view for one ordinary or Entity Anvil Region.
+ *
+ * Every sequence and Chunk stream is valid only inside the enclosing Region read callback.
+ * Metadata is visited lazily in deterministic Region-local order. The owning handle defines
+ * whether concurrent changes are excluded; this type alone does not make the cached Header and
+ * subsequently read Chunk bytes a consistent filesystem snapshot.
+ */
+abstract class AnvilRegionReadScope internal constructor(
+    private val regionReadScopeCore: RegionReadScopeCore,
+    val chunkNbtFormat: CompressedNbtFormat,
+) {
+    val regionPosition: RegionPosition
+        get() = regionReadScopeCore.regionPosition
+
+    val chunkInfos: Sequence<RegionChunkInfo>
+        get() = regionReadScopeCore.chunkInfos
+
+    val localChunkPositions: Sequence<LocalChunkPosition>
+        get() = regionReadScopeCore.localChunkPositions
+
+    val chunkPositions: Sequence<ChunkPosition>
+        get() = regionReadScopeCore.chunkPositions
+
+    fun hasChunk(localChunkPosition: LocalChunkPosition): Boolean = regionReadScopeCore.hasChunk(localChunkPosition)
+
+    fun hasChunk(chunkPosition: ChunkPosition): Boolean = regionReadScopeCore.hasChunk(chunkPosition)
+
+    fun readChunkInfo(localChunkPosition: LocalChunkPosition): RegionChunkInfo? =
+        regionReadScopeCore.readChunkInfo(localChunkPosition)
+
+    fun readChunkInfo(chunkPosition: ChunkPosition): RegionChunkInfo? = regionReadScopeCore.readChunkInfo(chunkPosition)
+
+    fun <R> withCompressedChunkSource(
+        localChunkPosition: LocalChunkPosition,
+        block: (RegionChunkInfo, Source) -> R,
+    ): R? = regionReadScopeCore.withCompressedChunkSource(localChunkPosition, block)
+
+    fun <R> withCompressedChunkSource(
+        chunkPosition: ChunkPosition,
+        block: (RegionChunkInfo, Source) -> R,
+    ): R? = regionReadScopeCore.withCompressedChunkSource(chunkPosition, block)
+
+    /** Copies one complete compressed Chunk payload without retaining it in memory or closing [sink]. */
+    fun readCompressedChunkTo(localChunkPosition: LocalChunkPosition, sink: Sink): RegionChunkInfo? =
+        regionReadScopeCore.readCompressedChunkTo(localChunkPosition, sink)
+
+    fun readCompressedChunkTo(chunkPosition: ChunkPosition, sink: Sink): RegionChunkInfo? =
+        regionReadScopeCore.readCompressedChunkTo(chunkPosition, sink)
+
+    fun readCompressedChunk(localChunkPosition: LocalChunkPosition): CompressedChunk? =
+        regionReadScopeCore.readCompressedChunk(localChunkPosition)
+
+    fun readCompressedChunk(chunkPosition: ChunkPosition): CompressedChunk? =
+        regionReadScopeCore.readCompressedChunk(chunkPosition)
+
+    fun <R> withChunkNbtSource(
+        localChunkPosition: LocalChunkPosition,
+        block: (RegionChunkInfo, Source) -> R,
+    ): R? = withCompressedChunkSource(localChunkPosition) { regionChunkInfo, source ->
+        withDecompressedChunkSource(chunkNbtFormat, regionChunkInfo, source, block)
+    }
+
+    fun <R> withChunkNbtSource(
+        chunkPosition: ChunkPosition,
+        block: (RegionChunkInfo, Source) -> R,
+    ): R? = withChunkNbtSource(regionPosition.local(chunkPosition), block)
+
+    /** Copies one complete decompressed unnamed-root Chunk NBT stream without closing [sink]. */
+    fun readChunkNbtTo(localChunkPosition: LocalChunkPosition, sink: Sink): RegionChunkInfo? =
+        withChunkNbtSource(localChunkPosition) { regionChunkInfo, source ->
+            source.transferTo(sink)
+            regionChunkInfo
+        }
+
+    fun readChunkNbtTo(chunkPosition: ChunkPosition, sink: Sink): RegionChunkInfo? =
+        readChunkNbtTo(regionPosition.local(chunkPosition), sink)
+
+    fun readChunkNbtDocument(localChunkPosition: LocalChunkPosition): NbtDocument? =
+        withChunkNbtSource(localChunkPosition) { _, source -> chunkNbtFormat.nbtFormat.decodeDocumentFromSource(source) }
+
+    fun readChunkNbtDocument(chunkPosition: ChunkPosition): NbtDocument? =
+        readChunkNbtDocument(regionPosition.local(chunkPosition))
+
+    fun <T> readChunkNbt(
+        localChunkPosition: LocalChunkPosition,
+        deserializationStrategy: DeserializationStrategy<T>,
+    ): T? = withChunkNbtSource(localChunkPosition) { _, source ->
+        chunkNbtFormat.nbtFormat.decodeFromSource(deserializationStrategy, source)
+    }
+
+    fun <T> readChunkNbt(
+        chunkPosition: ChunkPosition,
+        deserializationStrategy: DeserializationStrategy<T>,
+    ): T? = readChunkNbt(regionPosition.local(chunkPosition), deserializationStrategy)
+
+    inline fun <reified T> readChunkNbt(localChunkPosition: LocalChunkPosition): T? =
+        readChunkNbt(localChunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
+
+    inline fun <reified T> readChunkNbt(chunkPosition: ChunkPosition): T? =
+        readChunkNbt(chunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
+}
+
+/**
+ * Callback-bound semantic read view created by an ordinary Chunk Region handle.
+ *
+ * [readChunk] accepts [ChunkNbtCodec], while an Entity Region exposes
+ * [EntityRegionReadScope] instead.
+ */
+class RegionReadScope internal constructor(
+    regionReadScopeCore: RegionReadScopeCore,
+    chunkNbtFormat: CompressedNbtFormat,
+) : AnvilRegionReadScope(regionReadScopeCore, chunkNbtFormat) {
+    fun <B : Any, M : Any> readChunk(
+        localChunkPosition: LocalChunkPosition,
+        chunkNbtCodec: ChunkNbtCodec<B, M>,
+    ): Chunk<B, M>? = withChunkNbtSource(localChunkPosition) { _, source ->
+        chunkNbtCodec.decodeFromSource(source, regionPosition.chunk(localChunkPosition))
+    }
+
+    fun <B : Any, M : Any> readChunk(
+        chunkPosition: ChunkPosition,
+        chunkNbtCodec: ChunkNbtCodec<B, M>,
+    ): Chunk<B, M>? = readChunk(regionPosition.local(chunkPosition), chunkNbtCodec)
+
+    fun <B : Any, M : Any> readChunk(
+        blockPosition: BlockPosition,
+        chunkNbtCodec: ChunkNbtCodec<B, M>,
+    ): Chunk<B, M>? = readChunk(blockPosition.chunkPosition, chunkNbtCodec)
+}
+
+/**
+ * Callback-bound semantic read view created by an Entity Region handle.
+ *
+ * [readChunk] accepts [EntityChunkNbtCodec], while an ordinary Chunk Region exposes
+ * [RegionReadScope] instead.
+ */
+class EntityRegionReadScope internal constructor(
+    regionReadScopeCore: RegionReadScopeCore,
+    chunkNbtFormat: CompressedNbtFormat,
+) : AnvilRegionReadScope(regionReadScopeCore, chunkNbtFormat) {
+    fun <E : Any> readChunk(
+        localChunkPosition: LocalChunkPosition,
+        entityChunkNbtCodec: EntityChunkNbtCodec<E>,
+    ): EntityChunk<E>? = withChunkNbtSource(localChunkPosition) { _, source ->
+        entityChunkNbtCodec.decodeFromSource(source, regionPosition.chunk(localChunkPosition))
+    }
+
+    fun <E : Any> readChunk(
+        chunkPosition: ChunkPosition,
+        entityChunkNbtCodec: EntityChunkNbtCodec<E>,
+    ): EntityChunk<E>? = readChunk(regionPosition.local(chunkPosition), entityChunkNbtCodec)
+}
+
+internal fun <R> withDecompressedChunkSource(
+    chunkNbtFormat: CompressedNbtFormat,
+    regionChunkInfo: RegionChunkInfo,
+    source: Source,
+    block: (RegionChunkInfo, Source) -> R,
+): R {
+    val decompressedSource = chunkNbtFormat.compressionRegistry
+        .decompressingSource(regionChunkInfo.compression, source)
+        .buffered()
+    return decompressedSource.use {
+        val result = block(regionChunkInfo, decompressedSource)
+        if (!decompressedSource.exhausted()) {
+            throw WorldIOException("Chunk ${regionChunkInfo.chunkPosition} NBT source was not fully consumed")
+        }
+        result
     }
 }
 

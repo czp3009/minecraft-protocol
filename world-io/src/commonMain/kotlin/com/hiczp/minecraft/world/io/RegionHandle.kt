@@ -309,9 +309,14 @@ class RegionHandle internal constructor(
 
     /**
      * Runs [block] under one shared-read admission with one consistent Region header snapshot.
-     * Coordinated writes to this Region cannot interleave with the callback.
+     * Coordinated writes to this Region cannot interleave with the callback. The typed scope can
+     * decode semantic Chunks while reusing that Header state.
      */
-    suspend fun <R> withReadScope(block: RegionReadScope.() -> R): R = withOperation {
+    suspend fun <R> withReadScope(block: RegionReadScope.() -> R): R = withReadScopeCore {
+        block(RegionReadScope(this, chunkNbtFormat))
+    }
+
+    internal suspend fun <R> withReadScopeCore(block: RegionReadScopeCore.() -> R): R = withOperation {
         owner.withReadScope(entry, block)
     }
 

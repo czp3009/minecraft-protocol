@@ -100,9 +100,9 @@ internal class MutableRegionFile private constructor(
     }
 
     /** Lends one Header snapshot and streaming access to all referenced chunks. */
-    fun <R> withReadScope(block: RegionReadScope.() -> R): R {
+    fun <R> withReadScope(block: RegionReadScopeCore.() -> R): R {
         checkOpen()
-        return RegionReadScope(this, headerForRead()).use(block)
+        return RegionReadScopeCore(this, headerForRead()).use(block)
     }
 
     /** Writes one Chunk with automatic timestamp and inline/external selection. */

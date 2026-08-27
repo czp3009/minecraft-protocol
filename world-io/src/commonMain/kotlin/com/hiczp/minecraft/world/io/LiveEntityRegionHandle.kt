@@ -93,8 +93,13 @@ class LiveEntityRegionHandle internal constructor(
     fun <E : Any> readChunk(chunkPosition: ChunkPosition, entityChunkNbtCodec: EntityChunkNbtCodec<E>): EntityChunk<E>? =
         readChunk(this.regionPosition.local(chunkPosition), entityChunkNbtCodec)
 
-    /** Reuses one Entity Region header read without promising a consistent live snapshot. */
-    fun <R> withReadScope(block: RegionReadScope.() -> R): R = delegate.withReadScope(block)
+    /**
+     * Reuses one Entity Region header read for typed Entity Chunk decoding without promising a
+     * consistent live snapshot.
+     */
+    fun <R> withReadScope(block: EntityRegionReadScope.() -> R): R = delegate.withReadScopeCore {
+        block(EntityRegionReadScope(this, chunkNbtFormat))
+    }
 
     fun close() = delegate.close()
 

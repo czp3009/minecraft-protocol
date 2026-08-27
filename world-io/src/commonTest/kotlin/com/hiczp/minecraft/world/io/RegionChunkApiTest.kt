@@ -25,6 +25,7 @@ class RegionChunkApiTest {
         val chunk = emptyChunk(firstPosition)
         chunk.setBlock(15, TEST_LAYOUT.minBlockY, 0, STONE)
         chunk.setBiome(12, TEST_LAYOUT.minBlockY, 12, "example:crystal_caves")
+        val expectedNbtDocument = TEST_CODEC.encodeDocument(chunk)
 
         try {
             regionStorage.openRegion(firstPosition.regionPosition).use { regionHandle ->
@@ -108,9 +109,49 @@ class RegionChunkApiTest {
                 val nbtSink = Buffer()
                 assertEquals(regionChunkInfo, regionHandle.readChunkNbtTo(firstPosition, nbtSink))
                 assertEquals(nbtDocument, TEST_CODEC.nbtFormat.decodeDocumentFromSource(nbtSink))
+
+                var escapedRegionReadScope: RegionReadScope? = null
+                regionHandle.withReadScope {
+                    escapedRegionReadScope = this
+                    assertEquals(firstPosition.regionPosition, regionPosition)
+                    assertEquals(firstPosition, assertNotNull(readChunk(firstPosition, TEST_CODEC)).chunkPosition)
+                    assertEquals(
+                        secondPosition,
+                        assertNotNull(readChunk(secondPosition.localChunkPosition, TEST_CODEC)).chunkPosition,
+                    )
+                    assertEquals(firstPosition, assertNotNull(readChunk(absoluteBlock, TEST_CODEC)).chunkPosition)
+                    assertEquals(nbtDocument, readChunkNbtDocument(firstPosition))
+
+                    val scopedNbtSink = Buffer()
+                    assertEquals(regionChunkInfo, readChunkNbtTo(firstPosition.localChunkPosition, scopedNbtSink))
+                    assertEquals(nbtDocument, TEST_CODEC.nbtFormat.decodeDocumentFromSource(scopedNbtSink))
+                }
+                assertFailsWith<IllegalStateException> {
+                    checkNotNull(escapedRegionReadScope).readChunk(firstPosition, TEST_CODEC)
+                }
             }
         } finally {
             regionStorage.close()
+        }
+
+        val regionPath = "/world/region/r.-1.1.mca".toPath()
+        val countingMutableRegionFileSystem = CountingMutableRegionFileSystem(fakeFileSystem, regionPath)
+        val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open("/world".toPath(), countingMutableRegionFileSystem)
+        liveMinecraftWorldAccess.openRegion(
+            firstPosition.regionPosition,
+            DimensionDirectory.LegacyOverworld,
+        ).use { liveRegionHandle ->
+            var escapedRegionReadScope: RegionReadScope? = null
+            liveRegionHandle.withReadScope {
+                escapedRegionReadScope = this
+                assertEquals(firstPosition, assertNotNull(readChunk(firstPosition, TEST_CODEC)).chunkPosition)
+                assertEquals(secondPosition, assertNotNull(readChunk(secondPosition, TEST_CODEC)).chunkPosition)
+                assertEquals(expectedNbtDocument, readChunkNbtDocument(firstPosition))
+            }
+            assertEquals(1, countingMutableRegionFileSystem.headerReads)
+            assertFailsWith<IllegalStateException> {
+                checkNotNull(escapedRegionReadScope).readChunk(firstPosition, TEST_CODEC)
+            }
         }
         fakeFileSystem.checkNoOpenFiles()
     }

@@ -18,6 +18,9 @@ configured filesystem runtimes only; browser and Wasm do not receive partial imp
 - Mutable resources provide suspend `use` around suspend `close`; live Region resources provide synchronous `use`
   around synchronous `close`. Borrowed streams and multi-operation scopes remain callback-bound so resources and
   admission cannot escape.
+- Ordinary Chunk and Entity Region handles preserve their type distinction in `RegionReadScope` and
+  `EntityRegionReadScope`. Their common Anvil, compression, and NBT reads come from `AnvilRegionReadScope`; semantic
+  `readChunk` accepts only the codec appropriate to the handle that created the scope.
 - Live Region resources intentionally do not implement `AutoCloseable`: their member `use` preserves project failure
   combination and must remain the single Kotlin completion entry instead of competing with the standard extension.
 - Do not add policy-sized read, write, decompression, tree-depth, allocation, pack-file, or file-count limits.

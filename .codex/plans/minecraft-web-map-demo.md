@@ -18,8 +18,8 @@
 
 1. 浏览器根据当前视窗计算一个包含两端的 Chunk 矩形范围，并用一个 HTTP 请求查询整个范围。
 2. 浏览器拖动或缩放时不连续请求；交互停止后经过约 200 ms 防抖再查询当前视窗。
-3. 后端按请求范围枚举 Chunk 并按 Region 分组；每个请求内为每个 Region 创建一个 `LiveRegionHandle`，在它的一次
-   `use`/`withReadScope` 回调中连续读取该组 Chunk。
+3. 后端按请求范围枚举 Chunk 并按 Region 分组；每个请求内为每个 Region 创建一个 `LiveRegionHandle`，使用
+   `openRegion(...).use { withReadScope { readChunk(...) } }` 连续解码该组 Chunk。
 4. 后端只提取每个 X/Z 列中最高的非空气方块，返回 16 × 16 的二维表面数据，不渲染图片。
 5. Region 文件不存在或 header 中没有目标 Chunk 时，响应省略该 Chunk；Chunk payload 读取、解压或解码失败时返回错误标识。
 6. 每个 HTTP 请求独立打开和关闭自己的 Region handles。后端不缓存结果，也不合并、共享或协调同时到达的请求。
@@ -124,7 +124,7 @@ flowchart LR
     Controller -->|repair request group| SurfaceRoute
     SurfaceRoute --> Query[Viewport query service]
     Query -->|group by Region| LiveAccess[LiveMinecraftWorldAccess]
-    LiveAccess -->|one owned handle per request Region| RegionHandle[LiveRegionHandle.use + withReadScope]
+    LiveAccess -->|one owned handle per request Region| RegionHandle[LiveRegionHandle.use then withReadScope/readChunk]
     RegionHandle --> RegionFiles[.mca / .mcc]
     Query --> Projection[Top non-air projection]
     Projection -->|Chunk results| Controller
@@ -256,14 +256,14 @@ wire 数据可采用每 Chunk palette + 256 个 row-major palette index，避免
 3. 每个 Region 组调用一次 `openRegion(regionPosition).use { liveRegionHandle -> ... }`，并在 handle 内进入一次
    `withReadScope`；该 scope 为组内所有目标 Chunk 共用一遍 Region header 读取。
 4. scope 中 header 没有某个 Chunk 时省略该坐标；创建 handle 时 Region 不存在会得到 empty scope，因此整组自然省略。
-5. 对 header 中存在的 Chunk，使用 scope 的 `withCompressedChunkSource` 借用 payload，通过
-   `liveRegionHandle.chunkNbtFormat.compressionRegistry` 解压并交给已有 `ChunkNbtCodec` 完整解码。不要复制 Anvil framing。
+5. 对 header 中存在的 Chunk，调用 scope 的 `readChunk(chunkPosition, chunkNbtCodec)`；`world-io` 负责读取 payload、按
+   Region 压缩标识解压、完整消费 NBT source，并用 `ChunkNbtCodec` 解码语义 Chunk。Demo 不复制 Anvil framing 或拼装解码链路。
 6. 解码成功后执行表面投影并加入 `success`；单个 Chunk 的 payload 读取、解压或解码异常加入 `read_failed`，随后继续处理同组
    其他 Chunk。`CancellationException` 必须立即传播，不能转换成错误标识。
 7. `withReadScope` 结束后其 sequence 和 stream 全部失效，`use` 随后关闭 handle；所有 Region 组完成后一次性返回响应。
 
-Demo 只需要一个私有组合函数连接 `RegionReadScope.withCompressedChunkSource`、压缩 registry 和 `ChunkNbtCodec`，并验证解压后的
-source 被完整消费；不为此在 `world-io` 增加 Demo 专用高层 API。
+这里使用的是普通 Chunk Region handle 所产生的 `RegionReadScope`；Entity Region handle 对应
+`EntityRegionReadScope`，两者的 `readChunk` 只接受各自语义匹配的 codec。Demo 不需要再提供私有组合函数。
 
 同步文件 I/O、解压和 NBT 工作不能运行在 Ktor selector loop 上。每个 HTTP 请求只把自己的完整查询流程交给后端工作上下文， 不创建
 Region 并发任务、全局 semaphore、共享 handle cache 或请求合并器。多个请求即使同时查询同一 Region，也各自独立打开、 读取和关闭自己的
@@ -315,7 +315,8 @@ route；Canvas 根据方块标识生成确定性颜色。浏览器不创建每�
 ### 阶段 B：live world 表面查询
 
 1. 启动时建立 level/datapack/dimension 解码上下文。
-2. 实现按 Region 分组的 caller-owned handle/`withReadScope` 读取、逐 Chunk 三态映射和最高非空气投影。
+2. 实现按 Region 分组的 caller-owned `openRegion(...).use { withReadScope { readChunk(...) } }` 读取、逐 Chunk
+   三态映射和最高非空气投影。
 3. 实现 Ktor metadata 与 surface routes；使用注入的 reader 测试 route，不让 HTTP 测试依赖真实 Minecraft 文件。
 4. 证明一个 Chunk 失败不会阻止同响应中的其他成功 Chunk，也不会吞掉协程取消。
 

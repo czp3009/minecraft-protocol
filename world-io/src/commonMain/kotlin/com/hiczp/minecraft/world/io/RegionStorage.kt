@@ -120,7 +120,7 @@ internal class RegionStorage internal constructor(
     suspend fun readAnvilRegion(regionPosition: RegionPosition): PositionedAnvilRegion? =
         withRegionState(regionPosition, ::readAnvilRegion)
 
-    suspend fun <R> withReadScope(regionPosition: RegionPosition, block: RegionReadScope.() -> R): R =
+    suspend fun <R> withReadScope(regionPosition: RegionPosition, block: RegionReadScopeCore.() -> R): R =
         withRegionState(regionPosition) { entry -> withReadScope(entry, block) }
 
     /** Replaces the complete logical Region with one batch header commit. */
@@ -376,11 +376,11 @@ internal class RegionStorage internal constructor(
 
     internal suspend fun <R> withReadScope(
         entry: RegionState,
-        block: RegionReadScope.() -> R,
+        block: RegionReadScopeCore.() -> R,
     ): R = withReadAccess(entry) {
         val mutableRegionFile = openedFileForRead(entry)
         if (mutableRegionFile == null) {
-            RegionReadScope.empty(entry.regionPosition).use(block)
+            RegionReadScopeCore.empty(entry.regionPosition).use(block)
         } else {
             mutableRegionFile.withReadScope(block)
         }
@@ -518,7 +518,7 @@ internal class RegionStorage internal constructor(
         block: (RegionChunkInfo, KotlinxSource) -> R,
     ): R? = withReadAccess(entry) {
         openedFileForRead(entry)?.withCompressedChunkSource(localChunkPosition) { regionChunkInfo, source ->
-            withDecompressedChunkSource(regionChunkInfo, source, block)
+            withDecompressedChunkSource(chunkNbtFormat, regionChunkInfo, source, block)
         }
     }
 
@@ -617,23 +617,6 @@ internal class RegionStorage internal constructor(
         }
         entry.logicalFileAccess.write {
             openedFileForWrite(entry).writeCompressedChunk(localChunkPosition, compressedChunk)
-        }
-    }
-
-    private fun <R> withDecompressedChunkSource(
-        regionChunkInfo: RegionChunkInfo,
-        kotlinxSource: KotlinxSource,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
-    ): R {
-        val decompressed = chunkNbtFormat.compressionRegistry
-            .decompressingSource(regionChunkInfo.compression, kotlinxSource)
-            .buffered()
-        return decompressed.use {
-            val result = block(regionChunkInfo, decompressed)
-            if (!decompressed.exhausted()) {
-                throw WorldIOException("Chunk ${regionChunkInfo.chunkPosition} NBT source was not fully consumed")
-            }
-            result
         }
     }
 

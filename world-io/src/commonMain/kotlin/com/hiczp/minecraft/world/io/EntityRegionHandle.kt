@@ -208,8 +208,13 @@ class EntityRegionHandle internal constructor(
 
     suspend fun replaceRegion(chunks: Collection<RegionChunkInput>) = delegate.replaceRegion(chunks)
 
-    /** Runs [block] under one shared-read admission with one consistent Entity Region header snapshot. */
-    suspend fun <R> withReadScope(block: RegionReadScope.() -> R): R = delegate.withReadScope(block)
+    /**
+     * Runs [block] under one shared-read admission with one consistent Entity Region header
+     * snapshot. The typed scope accepts only [EntityChunkNbtCodec] for semantic Chunk reads.
+     */
+    suspend fun <R> withReadScope(block: EntityRegionReadScope.() -> R): R = delegate.withReadScopeCore {
+        block(EntityRegionReadScope(this, chunkNbtFormat))
+    }
 
     suspend fun replaceRegion(block: RegionReplacementScope.() -> Unit) = delegate.replaceRegion(block)
 

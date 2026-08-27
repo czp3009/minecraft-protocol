@@ -303,15 +303,6 @@ internal class OpenMinecraftWorld(
         regionStorage.readAnvilRegion(regionPosition)
     }
 
-    suspend fun <T> withRegionReadScope(
-        regionPosition: RegionPosition,
-        regionStorageDirectory: RegionStorageDirectory,
-        dimensionDirectory: DimensionDirectory,
-        block: RegionReadScope.() -> T,
-    ): T = withRegionStorage(regionStorageDirectory, dimensionDirectory) { regionStorage ->
-        regionStorage.withReadScope(regionPosition, block)
-    }
-
     suspend fun replaceRegion(
         regionPosition: RegionPosition,
         anvilRegion: AnvilRegion,

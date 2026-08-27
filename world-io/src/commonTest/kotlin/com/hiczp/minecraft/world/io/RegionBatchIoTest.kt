@@ -27,7 +27,7 @@ class RegionBatchIoTest {
         val first = byteArrayOf(1, 2, 3)
         val external = ByteArray(firstExternalChunkLength().toInt()) { index -> index.toByte() }
         val replacement = byteArrayOf(7, 8, 9, 10)
-        var escapedRead: RegionReadScope? = null
+        var escapedRead: RegionReadScopeCore? = null
         var escapedWrite: RegionReplacementScope? = null
 
         try {
