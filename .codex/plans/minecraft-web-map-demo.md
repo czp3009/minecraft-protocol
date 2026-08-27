@@ -70,7 +70,17 @@
   handle，从而重新观察路径。
 - live read 允许另一个进程同时写入，因此 I/O、Anvil framing、压缩、NBT 或 Chunk 解码失败都是预期可观察结果。
 
-### 3.3 第三方能力
+### 3.3 `protocol-datapack` 与 `protocol-datapack-vanilla`
+
+- `protocol-datapack-vanilla` 提供仓库所选择版本的默认协议与数据包投影，`protocol-datapack` 负责将解析后的 dimension-type
+  registry 表达为 `MinecraftDimensionLayout`。
+- `MinecraftDimensionLayout.toChunkLayout()` 是从 active dimension bounds 到语义 Chunk layout 的公共转换。Demo 应直接
+  复用这个入口，不在自身、`protocol-client` 或 `protocol-server` 中复制最低 Section Y 的换算。
+- 本 Demo 的持久化 Chunk 自然表示仍是 `BlockStateDescriptor` 和 biome 名称字符串，因此 codec 使用
+  `DescriptorBlockStateRegistry` 与 `NamedBiomeRegistry`。不要改用 `ProtocolRegistryContext.toChunkDataRegistries()`；后者把
+  持久化名称解析为 active protocol block-state/registry 对象，适合网络 Chunk 投影，但会改变本计划的表面 DTO 输入类型。
+
+### 3.4 第三方能力
 
 - Ktor Server 提供普通 HTTP、静态内容和 JSON content negotiation。
 - 浏览器地图交互优先使用 [Leaflet](https://leafletjs.com/reference.html) 的简单平面坐标系和自定义 Canvas layer；
@@ -109,11 +119,13 @@ Gradle 接入包括：
 
 1. 在 `settings.gradle.kts` 注册 `:demo:web-map`。
 2. 在 version catalog 增加 Ktor Server content negotiation 等缺失 alias。
-3. 使用仓库根部已经声明的 Kotlin Multiplatform 和 Serialization 插件，不选择独立插件版本。
-4. 配置 Kotlin/JS browser executable 和 Node test environment，并把 browser distribution、`index.html` 和 CSS 复制到每个
+3. `serverMain` 直接依赖 `protocol-datapack`、`protocol-datapack-vanilla` 和 `world-io`；不要仅为取得 Chunk adapter 而依赖
+   `protocol-client` 或 `protocol-server`。
+4. 使用仓库根部已经声明的 Kotlin Multiplatform 和 Serialization 插件，不选择独立插件版本。
+5. 配置 Kotlin/JS browser executable 和 Node test environment，并把 browser distribution、`index.html` 和 CSS 复制到每个
    server install 目录；不要发布 Node executable。
-5. server 从明确的静态资源目录提供网页；开发运行可由参数传入 JS distribution 路径，安装产物使用相邻固定目录。
-6. 按仓库规则为新子项目提供 README 和 AGENTS；README 只描述已经完成的启动方式和支持目标。
+6. server 从明确的静态资源目录提供网页；开发运行可由参数传入 JS distribution 路径，安装产物使用相邻固定目录。
+7. 按仓库规则为新子项目提供 README 和 AGENTS；README 只描述已经完成的启动方式和支持目标。
 
 ## 5. 运行时结构
 
@@ -226,8 +238,10 @@ Chunk 时才完全省略坐标。
 
 1. 从 live world 读取 `level.dat`，取得 DataVersion、出生点和启用的数据包引用。
 2. 用仓库提供的 vanilla 默认与能够读取的世界数据包解析维度 registry；无法投影的模组 registry 保持显式不支持。
-3. 为每个支持的维度建立 `DimensionDirectory`、`ChunkLayout` 和
-   `ChunkNbtCodec<BlockStateDescriptor, String>`。
+3. 为每个支持的维度取得对应的 `MinecraftDimensionLayout`，调用 `toChunkLayout()` 建立 `ChunkLayout`，再用
+   `DescriptorBlockStateRegistry`、`NamedBiomeRegistry` 和该 layout 建立
+   `ChunkNbtCodec<BlockStateDescriptor, String>`。不要在 Demo 中手写 `minY` 到 `minSectionY` 的换算，也不要把 codec 改成
+   active protocol registry 对象类型。
 4. DataVersion 与仓库所选择版本不一致时启动失败并给出明确日志，不尝试 DataFixer。
 
 第一版至少支持仓库所选择版本的内置主世界、下界和末地。自定义维度只有在目录映射与 dimension-type layout 都能无歧义解析时
@@ -317,7 +331,8 @@ route；Canvas 根据方块标识生成确定性颜色。浏览器不创建每�
 
 ### 阶段 B：live world 表面查询
 
-1. 启动时建立 level/datapack/dimension 解码上下文。
+1. 启动时建立 level/datapack/dimension 解码上下文，并通过 `protocol-datapack` 的
+   `MinecraftDimensionLayout.toChunkLayout()` 得到每个维度的 layout。
 2. 按 `chunkRange.regionPositions()` 处理 Region，并通过 `chunkRange intersect regionPosition.chunkRange` 在 caller-owned
    `openRegion(...).use { withReadScope { readChunk(...) } }` 中读取目标 Chunk、映射三态并投影最高非空气方块。
 3. 实现 Ktor metadata 与 surface routes；使用注入的 reader 测试 route，不让 HTTP 测试依赖真实 Minecraft 文件。
@@ -362,6 +377,8 @@ configuration-cache 首次存储与再次复用。只有实现过程确实修改
 - `CancellationException` 不转换为普通失败。
 - 同一响应中 success、read_failed 和省略坐标共存。
 - 表面扫描的 Y 边界、空气判定、row-major 顺序和 block-state properties 保留。
+- 启动解码上下文使用共享的 `MinecraftDimensionLayout.toChunkLayout()`，且持久化 codec 仍保留
+  `BlockStateDescriptor`/biome 名称，不引入 client/server 依赖或复制 adapter。
 - 两个同时到达且查询相同 Region 的 HTTP 请求分别打开和关闭自己的 handle，不共享结果或 lifecycle。
 - Chunk 范围改变时，上一代视窗请求和已发出的全部补漏请求都被取消，迟到结果不能改变新代状态。
 - 每代只发一个完整视窗请求；补漏请求组只查询该代 `read_failed` 坐标，并在成功或省略后停止对应坐标的轮询。
@@ -384,5 +401,6 @@ configuration-cache 首次存储与再次复用。只有实现过程确实修改
 5. Chunk 范围改变时先取消上一代视窗请求和全部补漏请求；新响应返回前保留旧画面，返回后一次替换。
 6. 后端没有世界表面缓存、图片渲染、共享 Region coordinator 或跨请求文件生命周期；只使用请求内每 Region 一个 caller-owned
    handle 和 callback-bound read scope。
-7. 现有 `world-format`/`world-io` 边界未被反转，live observer 从不获取 `session.lock` 或修改世界。
+7. 现有 `protocol-datapack`/`world-format`/`world-io` 边界未被反转；Demo 不依赖 `protocol-client`/`protocol-server`，live
+   observer 从不获取 `session.lock` 或修改世界。
 8. JVM、Kotlin/JS Node test-runner 逻辑测试和已声明的 host target 验证通过，README 与实际产物一致。

@@ -2,7 +2,8 @@
 
 `protocol-datapack` is the vanilla-neutral bridge between filesystem-independent data-pack values and Minecraft
 Configuration data. It owns `ProtocolData`/`ResolvedProtocolData` for the server side and
-`DataPackConfigurationSnapshot`/`ClientRegistryView` for the client side.
+`DataPackConfigurationSnapshot`/`ClientRegistryView` for the client side. It also adapts active Configuration-derived
+dimension and registry facts to the semantic Chunk contracts in `world-format`.
 
 Its projector, resolved server data, received snapshot, and client view are all caller-constructible. This module
 contains no bundled vanilla values and performs no filesystem or socket I/O.
@@ -16,6 +17,8 @@ disk directory/ZIP --world-io--> DataPack --world-format--> DataPackStack -> Res
 optional raw snapshot: DataPackArchive -> DataPackFormat -> DataPack
 
 received Configuration values -> DataPackConfigurationSnapshot -> ClientRegistryView
+
+active dimension/registry context -> ChunkLayout + ChunkDataRegistries
 ```
 
 ## Inputs from data packs
@@ -84,3 +87,31 @@ An application may instead pass an already resolved `ProtocolRegistryContext`. `
 raw IDs, aliases, overrides, and blocked entries. `StaticRegistrySchema` supplies the ordered states of every locally
 implemented block. Missing block schemas fail with `MissingStaticBlockSchemas` rather than silently producing incorrect
 global block-state IDs.
+
+## Adapt protocol context to semantic Chunks
+
+`MinecraftDimensionLayout.toChunkLayout()` converts the bounds of one Configuration-resolved dimension without assuming
+a release-global default. `ProtocolRegistryContext.toChunkDataRegistries()` resolves persisted block descriptors and
+biome names against the active block-state and synchronized biome registries.
+
+The inputs in this example are explicit parameters supplied by a completed client or server negotiation:
+
+```kotlin
+fun createProtocolChunkNbtContext(
+    minecraftDimensionLayout: MinecraftDimensionLayout,
+    protocolRegistryContext: ProtocolRegistryContext,
+    expectedDataVersion: Int,
+): ChunkNbtContext<ProtocolBlockState, ProtocolRegistryEntry> {
+    val chunkLayout = minecraftDimensionLayout.toChunkLayout()
+    val chunkDataRegistries = protocolRegistryContext.toChunkDataRegistries()
+    return ChunkNbtContext(
+        chunkLayout = chunkLayout,
+        chunkDataRegistries = chunkDataRegistries,
+        expectedDataVersion = expectedDataVersion,
+    )
+}
+```
+
+The registry adapter retains the active immutable context by reference and defaults to its `minecraft:air` block state
+and `minecraft:plains` biome entry. Callers may select different defaults explicitly. Neither conversion reads a world
+file, encodes a packet, or owns connection state.

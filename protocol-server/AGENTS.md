@@ -28,8 +28,9 @@ a finite initial Chunk/entity view; it does not run gameplay.
 
 ## Initial world projection
 
-- World-format adapters convert semantic Chunks and Entities into detached clientbound packets using the installed
-  registry context.
+- Shared dimension/registry conversion to world-Chunk contracts comes from `protocol-datapack`. This module owns the
+  direction-specific encoders and adapters that convert semantic Chunks and Entities into detached clientbound packets
+  using the installed registry context.
 - The module never depends on `world-io` or opens files. Applications load data separately and pass semantic values or
   snapshots.
 - Palette/light projection remains stateless. Require caller-owned semantics when a registry ID alone cannot determine a

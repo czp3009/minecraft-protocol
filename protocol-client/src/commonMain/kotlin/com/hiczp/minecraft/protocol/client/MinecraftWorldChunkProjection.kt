@@ -3,24 +3,13 @@ package com.hiczp.minecraft.protocol.client
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtLongArray
 import com.hiczp.minecraft.nbt.NbtTag
+import com.hiczp.minecraft.protocol.datapack.toChunkDataRegistries
 import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.world.format.*
 import com.hiczp.minecraft.world.format.ChunkSection
 import com.hiczp.minecraft.world.format.PalettedContainer
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer as NetworkPalettedContainer
-
-/**
- * Converts an installed client registry context into the registries needed by strong world-Chunk NBT decoding.
- *
- * Call this after Configuration and Play Login have installed the active context. Loader-resolved block states,
- * aliases, raw IDs, and synchronized biomes are retained by reference.
- */
-fun ProtocolRegistryContext.toChunkDataRegistries(
-    defaultBlock: Identifier = Identifier("air"),
-    defaultBiome: Identifier = Identifier("plains"),
-): ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry> =
-    protocolChunkDataRegistries(this, defaultBlock, defaultBiome)
 
 /** Convenience access to [toChunkDataRegistries] through the client's currently installed registry context. */
 fun MinecraftClientConnection.chunkDataRegistries(
@@ -262,49 +251,6 @@ val ChunkDataAndUpdateLightPacket.chunkPosition: ChunkPosition
 fun ChunkDataAndUpdateLightPacket.toChunk(
     minecraftChunkPacketDecoder: MinecraftChunkPacketDecoder,
 ): Chunk<ProtocolBlockState, ProtocolRegistryEntry> = minecraftChunkPacketDecoder.decode(this)
-
-private fun protocolChunkDataRegistries(
-    protocolRegistryContext: ProtocolRegistryContext,
-    defaultBlock: Identifier,
-    defaultBiome: Identifier,
-): ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry> =
-    ChunkDataRegistries(
-        blockStates = object : BlockStateRegistry<ProtocolBlockState> {
-            override val defaultValue = protocolRegistryContext.requireDefaultBlockState(defaultBlock)
-
-            override fun resolve(blockStateDescriptor: BlockStateDescriptor): ProtocolBlockState? =
-                blockStateDescriptor.identifierOrNull()?.let { block ->
-                    protocolRegistryContext.blockState(block, blockStateDescriptor.properties)
-                }
-
-            override fun describe(value: ProtocolBlockState): BlockStateDescriptor? =
-                value.takeIf { protocolBlockState -> protocolRegistryContext.blockStates.getOrNull(protocolBlockState.id) == protocolBlockState }
-                    ?.let { protocolBlockState -> BlockStateDescriptor(protocolBlockState.block.value, protocolBlockState.properties) }
-        },
-        biomes = object : BiomeRegistry<ProtocolRegistryEntry> {
-            private val protocolRegistry =
-                protocolRegistryContext.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY)
-
-            override val defaultValue = protocolRegistryContext.requireRegistryEntry(
-                ProtocolRegistryContext.BIOME_REGISTRY,
-                defaultBiome,
-            )
-
-            override fun resolve(name: String): ProtocolRegistryEntry? =
-                identifierOrNull(name)?.let(protocolRegistry::entry)
-
-            override fun name(value: ProtocolRegistryEntry): String? =
-                value.takeIf { protocolRegistryEntry -> protocolRegistry[protocolRegistryEntry.rawId] == protocolRegistryEntry }?.id?.value
-        },
-    )
-
-private fun BlockStateDescriptor.identifierOrNull(): Identifier? = identifierOrNull(name)
-
-private fun identifierOrNull(value: String): Identifier? = try {
-    Identifier(value)
-} catch (_: IllegalArgumentException) {
-    null
-}
 
 private fun unpackValues(packedLongArray: PackedLongArray, bitsPerEntry: Int, entryCount: Int): IntArray {
     require(bitsPerEntry in 1..<Int.SIZE_BITS)

@@ -28,7 +28,7 @@ Runtime libraries are arranged from reusable formats and models toward connectio
 | `nbt-serialization`         | Binary NBT, SNBT, and their `kotlinx.serialization` formats                             |
 | `protocol-model`            | Packet payloads, shared protocol values, logical serializers, and wire annotations      |
 | `protocol-serialization`    | Physical packet payload encoding and packet registries                                  |
-| `protocol-datapack`         | Vanilla-neutral data-pack resolution and Configuration projection                       |
+| `protocol-datapack`         | Data-pack resolution, Configuration projection, and protocol/world Chunk adapters       |
 | `protocol-datapack-vanilla` | Generated defaults for the repository-selected official release                         |
 | `protocol-transport`        | Ktor sockets, framing, compression envelopes, and stream encryption                     |
 | `protocol-session`          | Typed packet dispatch, direction, state transitions, and loader negotiation profiles    |

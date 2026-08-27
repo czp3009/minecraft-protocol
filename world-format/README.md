@@ -67,7 +67,10 @@ Applications may implement `BlockStateRegistry<B>` and `BiomeRegistry<M>` to res
 objects.
 
 `ChunkLayout` has no release-wide default because height and minimum Y belong to a dimension. Supply it from the world's
-dimension metadata or the negotiated protocol data.
+dimension metadata. For negotiated protocol data,
+[`protocol-datapack`](../protocol-datapack/README.md#adapt-protocol-context-to-semantic-chunks) provides
+`MinecraftDimensionLayout.toChunkLayout()` and the matching active-registry adapter without introducing a protocol
+dependency into this module.
 
 When a Region slot is known, use the decode overload that accepts the expected `ChunkPosition`; it verifies that stored
 `xPos`/`zPos` matches the slot.

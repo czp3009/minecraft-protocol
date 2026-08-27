@@ -42,7 +42,7 @@ The project is split by capability, so applications can start at the appropriate
 | NBT            | [`nbt-serialization`](nbt-serialization/README.md)                 | Binary NBT, SNBT, and serializable Kotlin models                    |
 | Protocol       | [`protocol-model`](protocol-model/README.md)                       | Packet payloads and shared protocol values                          |
 | Protocol       | [`protocol-serialization`](protocol-serialization/README.md)       | Packet payload encoding and custom packet registries                |
-| Data packs     | [`protocol-datapack`](protocol-datapack/README.md)                 | Pack projection and received Configuration views                    |
+| Data packs     | [`protocol-datapack`](protocol-datapack/README.md)                 | Pack projection, Configuration views, and world Chunk adapters      |
 | Data packs     | [`protocol-datapack-vanilla`](protocol-datapack-vanilla/README.md) | Release-matched vanilla packs, registries, and defaults             |
 | Networking     | [`protocol-transport`](protocol-transport/README.md)               | Low-level frames, compression, encryption, and sockets              |
 | Networking     | [`protocol-session`](protocol-session/README.md)                   | Typed packet channels, state transitions, and loader profiles       |

@@ -16,9 +16,8 @@ import com.hiczp.minecraft.world.format.BlockPosition as WorldBlockPosition
 
 class MinecraftWorldChunkProjectionTest {
     @Test
-    fun convertsInstalledRegistriesForChunkNbtAndDecodesAChunkPacket() {
+    fun buildsAChunkDecoderFromInstalledRegistriesAndDecodesAChunkPacket() {
         val protocolRegistryContext = testProtocolRegistryContext()
-        val chunkDataRegistries = protocolRegistryContext.toChunkDataRegistries()
         val airProtocolBlockState = protocolRegistryContext.blockStates[0]
         val stoneProtocolBlockState = protocolRegistryContext.blockStates[1]
         val plainsProtocolRegistryEntry = protocolRegistryContext.requireRegistryEntry(
@@ -26,22 +25,11 @@ class MinecraftWorldChunkProjectionTest {
             Identifier("plains"),
         )
 
-        assertEquals(airProtocolBlockState, chunkDataRegistries.blockStates.defaultValue)
-        assertEquals(
-            stoneProtocolBlockState,
-            chunkDataRegistries.blockStates.resolve(BlockStateDescriptor("minecraft:stone")),
-        )
-        assertEquals(
-            BlockStateDescriptor("minecraft:stone"),
-            chunkDataRegistries.blockStates.describe(stoneProtocolBlockState),
-        )
-        assertEquals(plainsProtocolRegistryEntry, chunkDataRegistries.biomes.resolve("minecraft:plains"))
-        assertEquals("minecraft:plains", chunkDataRegistries.biomes.name(plainsProtocolRegistryEntry))
-
         val chunkLayout = ChunkLayout(minSectionY = -1, sectionCount = 1)
         val chunkMetadata = ChunkMetadata(dataVersion = 1, status = "full")
         val minecraftChunkPacketDecoder =
             MinecraftChunkPacketDecoder(protocolRegistryContext, chunkLayout, chunkMetadata)
+        assertEquals(airProtocolBlockState, minecraftChunkPacketDecoder.chunkDataRegistries.blockStates.defaultValue)
         val lightBytes = ByteArray(LightDataLayer.DATA_LAYER_BYTES).apply { this[0] = 7 }
         val chunkDataAndUpdateLightPacket = ChunkDataAndUpdateLightPacket(
             chunkX = -1,

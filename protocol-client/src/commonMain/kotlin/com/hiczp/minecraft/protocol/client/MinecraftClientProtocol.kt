@@ -1,10 +1,7 @@
 package com.hiczp.minecraft.protocol.client
 
 import com.hiczp.minecraft.protocol.auth.*
-import com.hiczp.minecraft.protocol.datapack.DataPackConfigurationSnapshot
-import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
-import com.hiczp.minecraft.protocol.datapack.ProtocolData
-import com.hiczp.minecraft.protocol.datapack.resolveSynchronizedRegistryContext
+import com.hiczp.minecraft.protocol.datapack.*
 import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
@@ -13,7 +10,6 @@ import com.hiczp.minecraft.protocol.session.ClientNegotiationProfile
 import com.hiczp.minecraft.protocol.session.NegotiationProfileResult
 import com.hiczp.minecraft.protocol.session.VanillaClient
 import com.hiczp.minecraft.world.format.ChunkLayout
-import com.hiczp.minecraft.world.format.MinecraftCoordinates
 import io.ktor.client.*
 
 data class MinecraftStatusExchange(
@@ -40,10 +36,7 @@ data class MinecraftClientNegotiationResult(
     val negotiationProfileResult: NegotiationProfileResult,
 ) {
     /** The world-Chunk layout selected by the server for the initial Play dimension. */
-    val chunkLayout: ChunkLayout = ChunkLayout(
-        minSectionY = MinecraftCoordinates.sectionCoordinate(minecraftDimensionLayout.minY),
-        sectionCount = minecraftDimensionLayout.sectionCount,
-    )
+    val chunkLayout: ChunkLayout = minecraftDimensionLayout.toChunkLayout()
 }
 
 sealed interface ClientNegotiationQueryResult {

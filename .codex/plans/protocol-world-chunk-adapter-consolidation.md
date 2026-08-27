@@ -1,6 +1,6 @@
 # Protocol/World Chunk 共享适配器归位计划
 
-- 状态：可交接实施，尚未开始
+- 状态：已完成；共享实现、portable tests、文档与 agent 指南均已归位，完整 `./gradlew allTests` 已通过
 - 记录日期：2026-08-27
 - 适用版本：仓库所选择的 Minecraft 官方版本；本计划不改变版本选择
 - 影响模块：`protocol-datapack`、`protocol-client`、`protocol-server`，以及对应 README/AGENTS

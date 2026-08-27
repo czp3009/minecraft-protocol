@@ -38,7 +38,7 @@ conversion, and semantic Chunk/entity values for the repository-selected release
 - Positioned `Chunk`, `EntityChunk`, and `BlockEntity` retain their persisted absolute coordinates. Absolute helpers
   validate membership and delegate to local operations.
 - Strong Chunk conversion requires caller-supplied block-state, biome, and dimension-layout data. Do not depend on
-  protocol or vanilla-default modules.
+  protocol or vanilla-default modules. Protocol-aware callers obtain the matching adapters from `protocol-datapack`.
 - Palette mutation preserves stable IDs. Encoding uses a non-mutating compact snapshot; `compact()` is the explicit
   mutating operation.
 - Receiver-oriented conversion extensions connect compressed records, `NbtDocument`, and semantic Chunks without

@@ -1,7 +1,7 @@
 package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.nbt.*
-import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
+import com.hiczp.minecraft.protocol.datapack.toChunkDataRegistries
 import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.world.format.*
@@ -9,12 +9,6 @@ import com.hiczp.minecraft.world.format.ChunkSection
 import com.hiczp.minecraft.protocol.model.type.ChunkData as NetworkChunkData
 import com.hiczp.minecraft.protocol.model.type.ChunkSection as NetworkChunkSection
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer as NetworkPalettedContainer
-
-/** Converts one configured dimension layout into the corresponding semantic world-Chunk layout. */
-fun MinecraftDimensionLayout.toChunkLayout(): ChunkLayout = ChunkLayout(
-    minSectionY = MinecraftCoordinates.sectionCoordinate(minY),
-    sectionCount = sectionCount,
-)
 
 /**
  * Stateless projection of strong world Chunks into clientbound Chunk packets.
@@ -33,7 +27,7 @@ class MinecraftChunkPacketEncoder(
     private val blockEntityUpdateTag: (NbtCompound) -> NbtCompound? = ::defaultBlockEntityUpdateTag,
 ) {
     val chunkDataRegistries: ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry> =
-        protocolChunkDataRegistries(protocolRegistryContext, defaultBlock, defaultBiome)
+        protocolRegistryContext.toChunkDataRegistries(defaultBlock, defaultBiome)
 
     private val biomeRegistrySize =
         protocolRegistryContext.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY).size
@@ -251,49 +245,6 @@ fun ChunkDataAndUpdateLightPacket.toMinecraftChunkSnapshot(): MinecraftChunkSnap
         chunkData = chunkData,
         lightUpdateData = lightData,
     )
-
-private fun protocolChunkDataRegistries(
-    protocolRegistryContext: ProtocolRegistryContext,
-    defaultBlock: Identifier,
-    defaultBiome: Identifier,
-): ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry> =
-    ChunkDataRegistries(
-        blockStates = object : BlockStateRegistry<ProtocolBlockState> {
-            override val defaultValue = protocolRegistryContext.requireDefaultBlockState(defaultBlock)
-
-            override fun resolve(blockStateDescriptor: BlockStateDescriptor): ProtocolBlockState? =
-                blockStateDescriptor.identifierOrNull()?.let { block ->
-                    protocolRegistryContext.blockState(block, blockStateDescriptor.properties)
-                }
-
-            override fun describe(value: ProtocolBlockState): BlockStateDescriptor? =
-                value.takeIf { state -> protocolRegistryContext.blockStates.getOrNull(state.id) == state }
-                    ?.let { state -> BlockStateDescriptor(state.block.value, state.properties) }
-        },
-        biomes = object : BiomeRegistry<ProtocolRegistryEntry> {
-            private val protocolRegistry =
-                protocolRegistryContext.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY)
-
-            override val defaultValue = protocolRegistryContext.requireRegistryEntry(
-                ProtocolRegistryContext.BIOME_REGISTRY,
-                defaultBiome,
-            )
-
-            override fun resolve(name: String): ProtocolRegistryEntry? =
-                identifierOrNull(name)?.let(protocolRegistry::entry)
-
-            override fun name(value: ProtocolRegistryEntry): String? =
-                value.takeIf { entry -> protocolRegistry[entry.rawId] == entry }?.id?.value
-        },
-    )
-
-private fun BlockStateDescriptor.identifierOrNull(): Identifier? = identifierOrNull(name)
-
-private fun identifierOrNull(value: String): Identifier? = try {
-    Identifier(value)
-} catch (_: IllegalArgumentException) {
-    null
-}
 
 private fun packValues(
     bitsPerEntry: Int,

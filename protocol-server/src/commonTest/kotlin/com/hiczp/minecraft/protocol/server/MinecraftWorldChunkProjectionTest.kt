@@ -6,7 +6,6 @@ import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.nbt.NbtLongArray
 import com.hiczp.minecraft.protocol.client.MinecraftChunkPacketDecoder
 import com.hiczp.minecraft.protocol.client.toChunk
-import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import com.hiczp.minecraft.world.format.*
@@ -17,23 +16,6 @@ import kotlin.test.*
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer as NetworkPalettedContainer
 
 class MinecraftWorldChunkProjectionTest {
-    @Test
-    fun convertsDimensionBlockBoundsToAChunkLayout() {
-        val minecraftDimensionLayout = MinecraftDimensionLayout(
-            dimensionTypeId = Identifier("overworld"),
-            dimensionTypeRawId = 0,
-            minY = -64,
-            height = 384,
-            hasSkyLight = true,
-        )
-
-        val chunkLayout = minecraftDimensionLayout.toChunkLayout()
-
-        assertEquals(-4, chunkLayout.minSectionY)
-        assertEquals(24, chunkLayout.sectionCount)
-        assertEquals(-64..319, chunkLayout.blockYRange)
-    }
-
     @Test
     fun projectsAStrongChunkToTheWireAndBackWithoutDensePaletteCopies() {
         val protocolRegistryContext = testProtocolRegistryContext()

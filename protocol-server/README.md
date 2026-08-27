@@ -203,6 +203,10 @@ fun encodeChunks(
 }
 ```
 
+`MinecraftChunkPacketEncoder.chunkDataRegistries` uses the shared active-context adapter from
+[`protocol-datapack`](../protocol-datapack/README.md#adapt-protocol-context-to-semantic-chunks). Palette packing,
+lighting, block-entity update tags, and the semantic Chunk-to-clientbound-packet projection remain owned by this module.
+
 `MinecraftChunkSnapshot.packet()` returns the corresponding `ChunkDataAndUpdateLightPacket`. `protocol-server` itself
 never opens a world path; use [`world-io`](../world-io/README.md) to load stored Chunks, then pass the semantic values
 through the same encoder.

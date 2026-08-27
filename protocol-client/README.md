@@ -161,6 +161,10 @@ See [`protocol-datapack`](../protocol-datapack/README.md) for all constructible 
 The negotiation result supplies the `ChunkLayout` for the dimension selected by Play Login. Combine it with the
 installed registry context to decode `ChunkDataAndUpdateLightPacket` into a semantic `Chunk`:
 
+`MinecraftClientNegotiationResult.chunkLayout` delegates the canonical dimension conversion to
+[`protocol-datapack`](../protocol-datapack/README.md#adapt-protocol-context-to-semantic-chunks). The result remains a
+client convenience describing the initial Play dimension; create a new layout and decoder after a dimension change.
+
 ```kotlin
 fun createChunkDecoder(
     minecraftClientConnection: MinecraftClientConnection,
@@ -186,8 +190,8 @@ The caller supplies the metadata template because network Chunk packets do not c
 data version, generation status, inhabited time, or scheduled ticks. Packet heightmaps, block entities, lighting,
 position, palettes, and biomes replace the corresponding values during decoding.
 
-Create a new decoder after changing dimension; the initial result's layout describes only the dimension selected by that
-Play Login.
+The decoder's registry adapter uses the active `ProtocolRegistryContext` through the same shared
+`protocol-datapack` entry point. Recreate it after Configuration, reconfiguration, or another context replacement.
 
 ## Decode Entity pairing bundles
 

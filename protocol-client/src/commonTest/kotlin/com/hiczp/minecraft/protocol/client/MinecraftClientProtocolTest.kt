@@ -7,6 +7,7 @@ import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.datapack.ProtocolData
 import com.hiczp.minecraft.protocol.datapack.requireRegistryPacket
+import com.hiczp.minecraft.protocol.datapack.toChunkLayout
 import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
@@ -168,10 +169,9 @@ class MinecraftClientProtocolTest {
             Identifier("overworld"),
         )
         assertEquals(expectedMinecraftDimensionLayout, minecraftClientNegotiationResult.minecraftDimensionLayout)
-        assertEquals(expectedMinecraftDimensionLayout.minY, minecraftClientNegotiationResult.chunkLayout.minBlockY)
         assertEquals(
-            expectedMinecraftDimensionLayout.sectionCount,
-            minecraftClientNegotiationResult.chunkLayout.sectionCount,
+            expectedMinecraftDimensionLayout.toChunkLayout(),
+            minecraftClientNegotiationResult.chunkLayout,
         )
         assertEquals(
             expectedMinecraftDimensionLayout.sectionCount,
