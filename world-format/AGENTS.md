@@ -32,6 +32,9 @@ conversion, and semantic Chunk/entity values for the repository-selected release
 
 - `MinecraftCoordinates` is the canonical implementation for scalar and typed conversions. Preserve floor semantics for
   negative coordinates and checked region membership.
+- `ChunkRange` and `RegionRange` are inclusive rectangular coordinate products. `..` preserves endpoint order, `..<`
+  excludes the upper corner on both axes, and `enclosing` is the explicit operation that normalizes unordered corners.
+  Name scale-reducing conversions `covering...` when their reverse expands to cell boundaries.
 - Positioned `Chunk`, `EntityChunk`, and `BlockEntity` retain their persisted absolute coordinates. Absolute helpers
   validate membership and delegate to local operations.
 - Strong Chunk conversion requires caller-supplied block-state, biome, and dimension-layout data. Do not depend on

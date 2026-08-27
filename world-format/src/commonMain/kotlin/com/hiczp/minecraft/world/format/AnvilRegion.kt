@@ -117,6 +117,12 @@ data class ChunkPosition(
     val blockZRange: IntRange
         get() = MinecraftCoordinates.blockZRange(this)
 
+    /** Creates a rectangular range whose two corners are inclusive. */
+    operator fun rangeTo(endInclusive: ChunkPosition): ChunkRange = ChunkRange(this, endInclusive)
+
+    /** Creates a rectangular range that includes this corner and excludes [endExclusive] on both axes. */
+    operator fun rangeUntil(endExclusive: ChunkPosition): ChunkRange = ChunkRange.until(this, endExclusive)
+
     operator fun contains(blockPosition: BlockPosition): Boolean = blockPosition.chunkPosition == this
 
     operator fun contains(sectionPosition: SectionPosition): Boolean = sectionPosition.chunkPosition == this
@@ -156,6 +162,16 @@ data class RegionPosition(
 
     val blockZRange: IntRange
         get() = MinecraftCoordinates.blockZRange(this)
+
+    /** All Chunks covered by this complete Region. */
+    val chunkRange: ChunkRange
+        get() = MinecraftCoordinates.chunkRange(this)
+
+    /** Creates a rectangular range whose two corners are inclusive. */
+    operator fun rangeTo(endInclusive: RegionPosition): RegionRange = RegionRange(this, endInclusive)
+
+    /** Creates a rectangular range that includes this corner and excludes [endExclusive] on both axes. */
+    operator fun rangeUntil(endExclusive: RegionPosition): RegionRange = RegionRange.until(this, endExclusive)
 
     /** Returns whether [chunkPosition] belongs to this 32 by 32 Region. */
     operator fun contains(chunkPosition: ChunkPosition): Boolean = chunkPosition.regionPosition == this

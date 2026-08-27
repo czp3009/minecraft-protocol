@@ -147,20 +147,21 @@ GET /api/map/{dimension}/surface?minChunkX=-10&minChunkZ=4&maxChunkX=6&maxChunkZ
 语义为：
 
 ```kotlin
-for (chunkZ in minChunkZ..maxChunkZ) {
-    for (chunkX in minChunkX..maxChunkX) {
-        // query one Chunk
-    }
+val chunkRange = ChunkRange.enclosing(
+    ChunkPosition(minChunkX, minChunkZ),
+    ChunkPosition(maxChunkX, maxChunkZ),
+)
+for (chunkPosition in chunkRange) {
+    // query one Chunk
 }
 ```
 
 - 前端只要发现一个 Chunk 有任何像素与视窗相交，就把它放进范围。
 - 精确边缘造成多包含一个 Chunk 是允许的，不为此增加开区间协议。
-- 后端用 `minOf`/`maxOf` 规范化两端，调用方传递顺序不影响结果。
+- 后端用 `ChunkRange.enclosing` 规范化两端，调用方传递顺序不影响结果。
 - 范围宽、高和总 Chunk 数使用 `Long` 计算并在读取前验证，避免 Int 溢出和无界请求。
 - 补漏请求复用同一 endpoint，并令最小、最大 Chunk 坐标相同来查询一个 Chunk；不增加第二套 HTTP 协议。
-- 前端连续世界坐标转 Chunk 坐标使用 `floor`；后端的 Chunk/Region 转换只使用 `MinecraftCoordinates`，不手写 对负数错误的
-  `/` 或 `%`。
+- 前端连续世界坐标转 Chunk 坐标使用 `floor`；后端使用 `ChunkRange`/`RegionRange` 转换，不手写对负数错误的 `/` 或 `%`。
 
 响应回显规范化后的包含边界，使前端可以把它作为该矩形的一次完整查询结果。
 
@@ -251,8 +252,9 @@ wire 数据可采用每 Chunk palette + 256 个 row-major palette index，避免
 
 一次视口请求按以下顺序执行：
 
-1. 解析和规范化包含两端的 Chunk 范围。
-2. 生成所有 `ChunkPosition` 并按 `regionPosition` 分组，然后按确定顺序逐个处理 Region 组；请求内部不再并发 fan-out。
+1. 解析两个包含端点并用 `ChunkRange.enclosing` 建立规范化的 `chunkRange`。
+2. 按 `chunkRange.regionPositions()` 的确定顺序逐个处理所需 Region；每组目标由
+   `chunkRange intersect regionPosition.chunkRange` 给出，请求内部不再并发 fan-out。
 3. 每个 Region 组调用一次 `openRegion(regionPosition).use { liveRegionHandle -> ... }`，并在 handle 内进入一次
    `withReadScope`；该 scope 为组内所有目标 Chunk 共用一遍 Region header 读取。
 4. scope 中 header 没有某个 Chunk 时省略该坐标；创建 handle 时 Region 不存在会得到 empty scope，因此整组自然省略。
@@ -309,14 +311,15 @@ route；Canvas 根据方块标识生成确定性颜色。浏览器不创建每�
 
 1. 注册 `:demo:web-map`，配置 common/server/browser source sets 和目标。
 2. 新增 README、AGENTS、安装/开发运行入口和静态资源装配。
-3. 实现包含两端的 `ChunkViewport`、surface DTO、sealed Chunk 结果和 JSON 配置。
-4. 为坐标规范化、负坐标、交集和序列化 round trip 添加 portable tests。
+3. 实现包含两端的 `ChunkViewport` 请求 DTO 到 `ChunkRange` 的转换、surface DTO、sealed Chunk 结果和 JSON 配置。
+4. 为请求范围限制、负坐标和序列化 round trip 添加 portable tests；范围规范化、交集和 Region 转换复用
+   `world-format` 的既有测试契约。
 
 ### 阶段 B：live world 表面查询
 
 1. 启动时建立 level/datapack/dimension 解码上下文。
-2. 实现按 Region 分组的 caller-owned `openRegion(...).use { withReadScope { readChunk(...) } }` 读取、逐 Chunk
-   三态映射和最高非空气投影。
+2. 按 `chunkRange.regionPositions()` 处理 Region，并通过 `chunkRange intersect regionPosition.chunkRange` 在 caller-owned
+   `openRegion(...).use { withReadScope { readChunk(...) } }` 中读取目标 Chunk、映射三态并投影最高非空气方块。
 3. 实现 Ktor metadata 与 surface routes；使用注入的 reader 测试 route，不让 HTTP 测试依赖真实 Minecraft 文件。
 4. 证明一个 Chunk 失败不会阻止同响应中的其他成功 Chunk，也不会吞掉协程取消。
 

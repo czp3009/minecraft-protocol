@@ -143,6 +143,36 @@ object MinecraftCoordinates {
     fun region(chunkPosition: ChunkPosition): RegionPosition =
         RegionPosition(regionCoordinate(chunkPosition.x), regionCoordinate(chunkPosition.z))
 
+    /** Returns the smallest rectangular Region range covering [chunkRange]. */
+    fun regionRange(chunkRange: ChunkRange): RegionRange {
+        if (chunkRange.isEmpty()) return RegionRange.EMPTY
+        return RegionRange(
+            start = region(ChunkPosition(chunkRange.xRange.first, chunkRange.zRange.first)),
+            endInclusive = region(ChunkPosition(chunkRange.xRange.last, chunkRange.zRange.last)),
+        )
+    }
+
+    /** Returns every Chunk covered by [regionPosition]. */
+    fun chunkRange(regionPosition: RegionPosition): ChunkRange = ChunkRange(
+        start = chunk(regionPosition, LocalChunkPosition(0, 0)),
+        endInclusive = chunk(regionPosition, LocalChunkPosition(REGION_SIDE - 1, REGION_SIDE - 1)),
+    )
+
+    /** Returns every Chunk covered by the complete Regions in [regionRange]. */
+    fun chunkRange(regionRange: RegionRange): ChunkRange {
+        if (regionRange.isEmpty()) return ChunkRange.EMPTY
+        return ChunkRange(
+            start = chunk(
+                RegionPosition(regionRange.xRange.first, regionRange.zRange.first),
+                LocalChunkPosition(0, 0),
+            ),
+            endInclusive = chunk(
+                RegionPosition(regionRange.xRange.last, regionRange.zRange.last),
+                LocalChunkPosition(REGION_SIDE - 1, REGION_SIDE - 1),
+            ),
+        )
+    }
+
     fun chunkBlock(blockPosition: BlockPosition): ChunkBlockPosition =
         ChunkBlockPosition(blockCoordinateInChunk(blockPosition.x), blockPosition.y, blockCoordinateInChunk(blockPosition.z))
 

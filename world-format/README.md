@@ -153,6 +153,21 @@ are available from their owning absolute values.
 Scalar helpers such as `blockCoordinate`, `sectionCoordinate`, `chunkCoordinate`, `regionCoordinate`, and their
 local/reverse variants are useful when only one axis is available.
 
+`ChunkRange` and `RegionRange` represent lazy rectangular coordinate ranges. The `..` operator includes both corners:
+
+```kotlin
+val chunkRange = ChunkPosition(-33, -1)..ChunkPosition(32, 1)
+val regionRange = chunkRange.coveringRegionRange
+
+check(chunkRange in regionRange.chunkRange)
+```
+
+Use `..<` for an upper-exclusive corner and `ChunkRange.enclosing(first, second)` when the two inclusive corners may
+arrive in either order. Both range types support position and range containment with `in`, intersection with
+`first intersect second` / `first intersects second`, direct iteration, and Z-then-X position sequences.
+`RegionRange.chunkRange` expands complete Regions exactly, while
+`ChunkRange.coveringRegionRange` returns the smallest Region-aligned rectangle containing the requested Chunks.
+
 ## Read and write compressed NBT
 
 `CompressedNbtFormat` combines a `CompressionRegistry` with the unnamed compound-root NBT used by Chunk records:
