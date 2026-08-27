@@ -1,10 +1,10 @@
 # Minecraft 网页地图 Demo 实施计划
 
-- 状态：待实施，核心交互与失败语义已经确定
-- 记录日期：2026-08-26
+- 状态：待实施，核心交互、失败语义与 live Region 生命周期已经确定
+- 记录日期：2026-08-27
 - 适用版本：仓库所选择的 Minecraft 官方版本；本计划不改变版本选择
 - 计划模块：`:demo:web-map`
-- 当前范围：独立网页地图进程、视口批量查询、Chunk 表面投影、live world 读取、Region 文件变动通知和浏览器增量刷新
+- 当前范围：独立网页地图进程、视口批量查询、Chunk 表面投影、live world 读取和错误 Chunk 轮询
 - 后端目标：`jvm`、`linuxX64`、`linuxArm64`、`mingwX64`、`macosArm64`
 - 浏览器产物：Kotlin/JS browser bundle；它是由后端提供的网页资源，不是额外的后端运行平台
 
@@ -18,31 +18,36 @@
 
 1. 浏览器根据当前视窗计算一个包含两端的 Chunk 矩形范围，并用一个 HTTP 请求查询整个范围。
 2. 浏览器拖动或缩放时不连续请求；交互停止后经过约 200 ms 防抖再查询当前视窗。
-3. 后端按请求范围枚举 Chunk、推导 Region，并通过 `LiveMinecraftWorldAccess` 分别读取每个 Chunk。
+3. 后端按请求范围枚举 Chunk 并按 Region 分组；每个请求内为每个 Region 创建一个 `LiveRegionHandle`，在它的一次
+   `use`/`withReadScope` 回调中连续读取该组 Chunk。
 4. 后端只提取每个 X/Z 列中最高的非空气方块，返回 16 × 16 的二维表面数据，不渲染图片。
-5. 后端不缓存 Chunk 表面数据或渲染结果。浏览器保留已成功显示的数据，以便单个 Chunk 暂时读取失败时继续显示旧结果。
-6. 文件系统观察器监视各维度的 Chunk Region 目录。`.mca` 或 `.mcc` 发生创建、修改或删除后，通过 SSE 推送受影响的 Region 坐标。
-7. 浏览器只在事件 Region 与当前视窗相交时重新查询，并复用同一套防抖机制合并连续事件。
-8. 一致性单位是一个成功解码的 Chunk。不同 Chunk 来自不同保存时刻是可接受的，不要求 Region 或整张地图原子一致。
+5. Region 文件不存在或 header 中没有目标 Chunk 时，响应省略该 Chunk；Chunk payload 读取、解压或解码失败时返回错误标识。
+6. 每个 HTTP 请求独立打开和关闭自己的 Region handles。后端不缓存结果，也不合并、共享或协调同时到达的请求。
+7. 视窗请求期间继续显示旧内容；新响应到达后再整体替换当前视窗状态。错误 Chunk 使用单-Chunk请求延迟轮询，直到成功或省略。
+8. 一致性单位是一个成功解码的 Chunk。每个 Region 组通过 `withReadScope` 只读取一次 header，但该 header、后续 `.mca`
+   payload 或 `.mcc` sidecar 仍可能来自不同保存时刻；不同 Chunk 来自不同保存时刻是可接受的。
 
 本设计在当前仓库能力上可行。`world-format` 已提供 Chunk/Region 坐标、Anvil 压缩与语义 Chunk；`world-io` 已提供 不会取得
-`session.lock` 的 live read-only 入口。外部依赖主要是 Ktor 的 HTTP/SSE 能力和 Kfswatch 的多平台目录事件。
+`session.lock` 的 live read-only 入口。外部依赖主要是 Ktor 的 HTTP 能力和浏览器地图组件。
 
 ## 2. 明确不做的事情
 
 第一版明确不处理以下内容：
 
-- 不修改 `LiveRegionHandle` 的逐调用打开/关闭文件语义。
-- 不合并同一 Region 的并发读取，不跨请求复用 `FileHandle`，也不增加 Region 读取缓存。
+- 不在 `LiveMinecraftWorldAccess` 或 Demo 中增加共享 Region registry、引用计数、锁或写入协调。
+- 不跨请求复用 `LiveRegionHandle`/`FileHandle`；每个请求的每个 Region 组独立持有一个 handle，并在组处理完成后关闭。
+- 不让 `RegionReadScope`、其 sequence 或借用的 Chunk stream 逃逸出回调。
 - 不构造 Region 级稳定快照、revision、ETag 或跨 Chunk 事务。
+- 不观察 Region 文件变化，不实现 SSE、服务端推送或成功 Chunk 的后台刷新。
 - 不在后端生成地图图片、地图瓦片或纹理图集。
-- 暂不决定从官方资源、资源包或模组资源中获取方块贴图的具体实现。
+- 不从官方资源、资源包或模组资源加载方块贴图；第一版只使用方块标识的确定性颜色。
 - 不实现 DataFixer，也不兼容与仓库所选择版本不匹配的旧 Chunk 数据。
 - 不观察服务端尚未保存到磁盘的内存状态。
 - 不实现用户、权限、多世界管理、远程世界目录或面向公网的部署安全策略。
 
-Region 文件句柄复用属于后续性能优化。只有测量证明逐 Chunk live read 的打开、header 读取或系统调用成本成为瓶颈后， 才另行设计
-callback-bound 的 live batch scope；本计划不预留伪抽象或改变现有生命周期。
+本计划使用现有 caller-owned live Region 生命周期：一个 `LiveRegionHandle` 在本请求的一个 Region 组内复用其 `.mca` 句柄，
+一次 `withReadScope` 再让该组所有 Chunk 共用一遍 header 读取。后续请求重新打开 handle 和 scope，外部 `.mcc` sidecar 仍由
+需要它的单个 Chunk 操作独立打开和关闭。
 
 ## 3. 已核对的仓库基础
 
@@ -57,21 +62,21 @@ callback-bound 的 live batch scope；本计划不预留伪抽象或改变现有
 ### 3.2 `world-io`
 
 - `LiveMinecraftWorldAccess` 不获取 `session.lock`、不修复或修改世界，也没有 close 生命周期。
-- `openRegion` 返回轻量 `LiveRegionHandle`；每次 `readChunk` 独立打开并关闭所需的 `.mca`/`.mcc` 资源。
+- `openRegion` 会返回 caller-owned `LiveRegionHandle` 资源；handle 独立打开并保留创建时找到的 `.mca`，必须通过其成员
+  `use` 或同步 `close()` 释放。不同 handle 不共享文件对象、registry、引用计数或生命周期。
+- 普通 handle 操作会重读 Region header；Demo 为每个 Region 组使用一次 `withReadScope`，避免组内逐 Chunk 重读 header。
+  cached header 仍不承诺 freshness、atomicity 或 header/payload 一致性，外部 `.mcc` sidecar 按 Chunk 操作打开和关闭。
+- 如果创建 handle 时 Region 不存在，该 handle 不持有 `.mca` 并持续返回缺失结果；后续视窗请求或错误 Chunk 轮询会创建新
+  handle，从而重新观察路径。
 - live read 允许另一个进程同时写入，因此 I/O、Anvil framing、压缩、NBT 或 Chunk 解码失败都是预期可观察结果。
-- `MinecraftWorldPaths.dimension` 已公开维度根路径，但 Chunk Region 目录 accessor 当前是 internal。文件观察器不应在 Demo
-  中复制维度路径规则，因此实现前需要在 `world-io` 增加一个最小的公开只读路径入口，例如
-  `chunkRegionDirectory(dimension)`；它只暴露规范路径，不改变 live-read 生命周期。
 
 ### 3.3 第三方能力
 
-- [Ktor Server](https://ktor.io/docs/server-server-sent-events.html) 提供普通 HTTP、静态内容和单向 SSE。
-- [Kfswatch](https://github.com/irgaly/kfswatch) 提供 Kotlin Multiplatform 文件系统事件 Flow。实现时把精确版本放在
-  version catalog 中，不在文档复制版本号。
+- Ktor Server 提供普通 HTTP、静态内容和 JSON content negotiation。
 - 浏览器地图交互优先使用 [Leaflet](https://leafletjs.com/reference.html) 的简单平面坐标系和自定义 Canvas layer；
   Kotlin/JS 只声明实际使用的最小外部 API。
 
-文件事件只作为“相关路径可能已变化”的提示，不能作为 Chunk 数据本身。读取结果始终以随后执行的 live read 为准。
+第一版不引入文件观察依赖。页面只在首次打开、视窗范围改变或错误 Chunk 到达轮询时间时读取 live world。
 
 ## 4. 模块和目标布局
 
@@ -85,10 +90,10 @@ demo/web-map/
 └── src/
     ├── commonMain/       # 可序列化 API DTO、包含边界的 Chunk 范围和纯逻辑
     ├── commonTest/       # 坐标、范围、响应语义和表面投影测试
-    ├── serverMain/       # JVM/desktop Native 共用的 Ktor、live world 和文件观察代码
+    ├── serverMain/       # JVM/desktop Native 共用的 Ktor 和 live world 代码
     ├── jvmMain/          # JVM executable 装配
     ├── nativeMain/       # desktop Native executable 装配
-    ├── jsMain/           # 浏览器入口、Leaflet/Canvas、fetch、EventSource
+    ├── jsMain/           # 浏览器入口、Leaflet/Canvas、fetch 和请求代次控制
     └── jsTest/           # 不依赖真实浏览器 DOM、由 Gradle-provisioned Node 执行的前端状态测试
 ```
 
@@ -98,12 +103,12 @@ bundle。Node 只可作为 Gradle 提供的 JS 测试运行器，不产生 Node 
 iOS、watchOS、tvOS、Wasm 或其他后端目标。
 
 `serverMain` 是一个真实的 JVM + desktop Native 共享能力，因此允许创建一个自定义 source set；浏览器代码不得依赖
-`world-io`、Kfswatch 或 Ktor Server。`commonMain` 只放双方真正共享的序列化模型和纯逻辑。
+`world-io` 或 Ktor Server。`commonMain` 只放双方真正共享的序列化模型和纯逻辑。
 
 Gradle 接入包括：
 
 1. 在 `settings.gradle.kts` 注册 `:demo:web-map`。
-2. 在 version catalog 增加 Kfswatch、Ktor Server SSE、Ktor content negotiation 等缺失 alias。
+2. 在 version catalog 增加 Ktor Server content negotiation 等缺失 alias。
 3. 使用仓库根部已经声明的 Kotlin Multiplatform 和 Serialization 插件，不选择独立插件版本。
 4. 配置 Kotlin/JS browser executable 和 Node test environment，并把 browser distribution、`index.html` 和 CSS 复制到每个
    server install 目录；不要发布 Node executable。
@@ -114,21 +119,20 @@ Gradle 接入包括：
 
 ```mermaid
 flowchart LR
-    Browser[Browser map] -->|inclusive Chunk bounds| SurfaceRoute[Surface HTTP route]
+    Browser[Browser map] -->|Chunk range changed| Controller[Viewport generation controller]
+    Controller -->|one viewport request| SurfaceRoute[Surface HTTP route]
+    Controller -->|repair request group| SurfaceRoute
     SurfaceRoute --> Query[Viewport query service]
-    Query -->|group coordinates logically| LiveAccess[LiveMinecraftWorldAccess]
-    LiveAccess --> RegionFiles[.mca / .mcc]
+    Query -->|group by Region| LiveAccess[LiveMinecraftWorldAccess]
+    LiveAccess -->|one owned handle per request Region| RegionHandle[LiveRegionHandle.use + withReadScope]
+    RegionHandle --> RegionFiles[.mca / .mcc]
     Query --> Projection[Top non-air projection]
-    Projection -->|Chunk results| Browser
-    Watcher[Kfswatch directory observer] --> Normalizer[Region event normalizer]
-    RegionFiles -. filesystem events .-> Watcher
-    Normalizer -->|SSE RegionChanged| Browser
-    Browser -->|intersect + debounce| SurfaceRoute
-    TextureRoute[Block texture route] --> Browser
+    Projection -->|Chunk results| Controller
+    Controller -->|atomic view replacement or repair| Browser
 ```
 
-文件观察器是进程级共享服务，不按浏览器连接或视窗重复创建。SSE 可以向所有客户端广播 Region 事件，由浏览器根据当前
-视窗过滤；第一版不维护服务端 per-client subscription。
+每个视窗代次只拥有两组请求：一个完整视窗请求，以及该响应产生的一组错误 Chunk 补漏请求。Chunk 范围改变时先取消上一代的
+视窗请求和全部补漏请求，再创建新代次。后端不知道前端代次，也不在不同请求之间共享 Region 资源或结果。
 
 ## 6. 视口查询契约
 
@@ -154,6 +158,7 @@ for (chunkZ in minChunkZ..maxChunkZ) {
 - 精确边缘造成多包含一个 Chunk 是允许的，不为此增加开区间协议。
 - 后端用 `minOf`/`maxOf` 规范化两端，调用方传递顺序不影响结果。
 - 范围宽、高和总 Chunk 数使用 `Long` 计算并在读取前验证，避免 Int 溢出和无界请求。
+- 补漏请求复用同一 endpoint，并令最小、最大 Chunk 坐标相同来查询一个 Chunk；不增加第二套 HTTP 协议。
 - 前端连续世界坐标转 Chunk 坐标使用 `floor`；后端的 Chunk/Region 转换只使用 `MinecraftCoordinates`，不手写 对负数错误的
   `/` 或 `%`。
 
@@ -197,14 +202,14 @@ Kotlin 模型优先使用带 `status` discriminator 的 sealed variants，使 `s
 
 一个请求范围内的 Chunk 有且只有以下三种可观察结果：
 
-| 状态     | Wire 表示                | 后端含义                                                      | 前端行为                                   |
-|----------|--------------------------|---------------------------------------------------------------|--------------------------------------------|
-| 不存在   | 响应中没有该坐标         | Region 文件缺失，或 Region header 没有该 Chunk                | 清除该范围内旧 Chunk；不因缺失本身安排重试 |
-| 成功     | `status = "success"`     | 完整读取、解压、NBT/Chunk 解码和表面投影成功                  | 原子替换该 Chunk 的显示数据                |
-| 读取失败 | `status = "read_failed"` | 本次 live read 在 I/O、Anvil、压缩、NBT 或 Chunk 解码阶段失败 | 保留旧成功数据；由浏览器稍后重试           |
+| 状态     | Wire 表示                | 后端含义                                                     | 前端行为                                       |
+|----------|--------------------------|--------------------------------------------------------------|------------------------------------------------|
+| 不存在   | 响应中没有该坐标         | Region 文件缺失，或本次 Region header 没有该 Chunk           | 不渲染；若来自补漏请求则停止轮询               |
+| 成功     | `status = "success"`     | 完整读取、解压、NBT/Chunk 解码和表面投影成功                 | 使用新表面；若来自补漏请求则停止轮询           |
+| 读取失败 | `status = "read_failed"` | 已定位 Chunk，但本次 payload 读取、解压或 Chunk 解码没有完成 | 暂时保留同坐标旧表面，并加入当前代次补漏请求组 |
 
-`read_failed` 不命名为 `decompression_failed`，因为另一个进程并发写入可能在多个层次表现为失败。响应不包含内部异常文本，
-具体原因只通过服务端日志记录。
+对 Demo 而言，payload 读取、解压、NBT 或语义 Chunk 解码失败都统一视为一次撕裂的 live 观察并返回 `read_failed`，不再区分错误
+层次。响应不包含内部异常文本，具体原因只通过服务端日志记录。
 
 后端按 Chunk 捕获明确的 live-read/format/decoding 异常并继续构造同一次响应。`CancellationException` 必须立即重新抛出；
 编程错误和启动配置错误不转换成 `read_failed`。
@@ -247,76 +252,58 @@ wire 数据可采用每 Chunk palette + 256 个 row-major palette index，避免
 一次视口请求按以下顺序执行：
 
 1. 解析和规范化包含两端的 Chunk 范围。
-2. 生成所有 `ChunkPosition`，并通过其 `regionPosition` 分组，以便定位文件和记录诊断信息。
-3. 对每个位置调用对应 `LiveRegionHandle.readChunk(position, codec)`；第一版即使相邻位置属于同一 Region，也保留当前逐调用
-   打开和关闭物理文件的行为。
-4. `null` 表示不存在，不向结果列表加入条目。
-5. 完整 Chunk 经过表面投影，加入 `success`。
-6. 可归类的 live read 异常加入 `read_failed`；继续处理其他 Chunk。
-7. 全部处理完成后一次性返回响应。
+2. 生成所有 `ChunkPosition` 并按 `regionPosition` 分组，然后按确定顺序逐个处理 Region 组；请求内部不再并发 fan-out。
+3. 每个 Region 组调用一次 `openRegion(regionPosition).use { liveRegionHandle -> ... }`，并在 handle 内进入一次
+   `withReadScope`；该 scope 为组内所有目标 Chunk 共用一遍 Region header 读取。
+4. scope 中 header 没有某个 Chunk 时省略该坐标；创建 handle 时 Region 不存在会得到 empty scope，因此整组自然省略。
+5. 对 header 中存在的 Chunk，使用 scope 的 `withCompressedChunkSource` 借用 payload，通过
+   `liveRegionHandle.chunkNbtFormat.compressionRegistry` 解压并交给已有 `ChunkNbtCodec` 完整解码。不要复制 Anvil framing。
+6. 解码成功后执行表面投影并加入 `success`；单个 Chunk 的 payload 读取、解压或解码异常加入 `read_failed`，随后继续处理同组
+   其他 Chunk。`CancellationException` 必须立即传播，不能转换成错误标识。
+7. `withReadScope` 结束后其 sequence 和 stream 全部失效，`use` 随后关闭 handle；所有 Region 组完成后一次性返回响应。
 
-同步文件 I/O、解压和 NBT 工作不能运行在浏览器代码或 Ktor selector loop 上。server 通过有界工作并发执行读取，限制单请求与全局
-同时解码数量；这是资源边界，不是 Region 请求合并或结果缓存。客户端取消已过时的视口请求时，后端协程取消继续正常传播。
+Demo 只需要一个私有组合函数连接 `RegionReadScope.withCompressedChunkSource`、压缩 registry 和 `ChunkNbtCodec`，并验证解压后的
+source 被完整消费；不为此在 `world-io` 增加 Demo 专用高层 API。
 
-## 9. 文件观察与 SSE
+同步文件 I/O、解压和 NBT 工作不能运行在 Ktor selector loop 上。每个 HTTP 请求只把自己的完整查询流程交给后端工作上下文， 不创建
+Region 并发任务、全局 semaphore、共享 handle cache 或请求合并器。多个请求即使同时查询同一 Region，也各自独立打开、 读取和关闭自己的
+handle，彼此不等待或复用结果。
 
-### 9.1 观察路径
+## 9. 前端请求控制与渲染状态
 
-对每个已支持维度观察其 Chunk Region 目录，而不是观察单个 `.mca` 文件：
+前端按 Chunk 范围维护单调递增的“视窗代次”。每一代最多只有两组受控请求：一个完整视窗请求，以及一个管理所有错误 Chunk 的
+补漏请求组。页面初始化创建第一代；只有拖动或缩放使所需 Chunk 范围实际改变时才创建新代。
 
-- `r.<regionX>.<regionZ>.mca` 的 Create/Modify/Delete 直接映射到一个 `RegionPosition`。
-- `c.<chunkX>.<chunkZ>.mcc` 的事件先解析绝对 Chunk 坐标，再用 `MinecraftCoordinates` 映射到 Region。
-- 忽略 entity 和 POI Region；它们不改变本平面图使用的方块表面。
-- 如果 Region 目录启动时尚不存在，观察其维度父目录，在目录出现后安装 Region 目录观察；不要靠预先观察不存在的单个文件。
+### 9.1 视窗改变
 
-路径解析必须验证完整规范文件名，不接受前缀匹配或任意路径片段。
+1. Leaflet/Canvas 只要判断一个 Chunk 有任何像素需要显示，就把它包含在当前范围中。
+2. 所需 Chunk 范围一旦改变，立即取消上一代尚未完成的视窗请求及其整个补漏请求组，并增加代次、记录新范围。补漏组使用一个 父
+   Job/AbortController 管理，使取消能够终止已发出的所有单-Chunk fetch 和后续轮询。
+3. 每次范围变化都重置约 200 ms 防抖；防抖结束且范围未再次变化时，只发出一个覆盖完整新范围的视窗请求。旧的已渲染内容在
+   取消和等待期间保持不变。
+4. 只接受代次和范围仍匹配的完整响应；取消后仍迟到的旧响应直接丢弃。
+5. 在内存中构造新视窗状态：`success` 使用新表面，省略坐标不渲染，`read_failed` 保留同坐标旧表面（若存在）并进入新代的
+   补漏集合。构造完成后一次性替换显示状态，避免请求期间先清空画面。
+6. 新视窗响应是该代补漏请求组的唯一来源；收到它之前不发补漏请求。
 
-### 9.2 SSE 事件
+若视窗请求发生网络错误或返回 500，不应用部分状态，也不清除旧画面。第一版不为完整视窗请求增加自动重试；后续有效的范围改变或页面
+重新加载会创建新代并重新请求。
 
-```json
-{
-  "type": "region_changed",
-  "dimension": "minecraft:overworld",
-  "regionX": -1,
-  "regionZ": 2
-}
-```
+### 9.2 视窗不变时补漏
 
-- SSE 只发送失效提示，不发送 Chunk 或表面内容。
-- 同一次保存产生多个文件事件是允许的；浏览器防抖会把它们合并为一次当前视窗查询。
-- 浏览器断线重连后立即查询当前视窗，不需要服务端保存事件历史、Last-Event-ID 或 replay cache。
-- 观察器 overflow 或无法确定具体文件时发送维度级 `resync`，浏览器重新查询当前视窗。
-- 新 `.mca` 创建事件使此前省略的 Chunk 在下一次查询中自然出现，不需要为不存在 Chunk 单独轮询。
+1. 若当前代没有 `read_failed`，视窗不变期间不再向后端请求。
+2. 若存在错误 Chunk，当前代只创建一个补漏请求组。该组等待固定间隔后，对补漏集合中的每个坐标使用同一 surface endpoint 发出
+   单-Chunk范围请求，并按确定顺序逐个等待结果；不重新请求整个视窗，也不增加并发调度或额外协议。
+3. 单-Chunk响应为 `success` 时更新该 Chunk 并移出补漏集合；省略该坐标时删除可能保留的旧表面并移出集合；仍为
+   `read_failed` 时保留现状，在下一轮固定间隔后继续请求。
+4. 每次应用补漏结果前再次核对视窗代次和坐标仍在当前范围内。补漏集合清空后，该请求组结束。
+5. 一旦 Chunk 范围改变，9.1 的取消步骤终止整组补漏请求；新代只从自己的完整视窗响应重新建立补漏集合。
 
-## 10. 前端状态机
+因此除页面自身的静态资源加载外，一次视窗代次没有第三类 world-data 请求：只有一个视窗请求和一组补漏请求。第一版不增加动态 贴图
+route；Canvas 根据方块标识生成确定性颜色。浏览器不创建每方块 DOM 节点。测试通过可注入的请求端和重试调度器推进状态，
+不依赖真实计时器等待。
 
-浏览器只维护当前视窗、已显示 Chunk 和失败重试集合：
-
-1. 页面初始化后，根据世界 metadata 的出生点建立首个包含边界的 Chunk 范围。
-2. Leaflet/Canvas 只要判断一个 Chunk 有一个像素需要显示，就将它包含在范围中。
-3. 拖动或缩放期间只更新本地视图；交互结束后启动约 200 ms 防抖。
-4. 防抖结束时取消旧的 fetch，发送一个当前视窗请求，并记录本地请求代次。
-5. 只应用仍对应当前视窗的响应，避免较早请求在移动后覆盖新的视图状态。
-6. 对 `success` 先在离屏 Canvas/内存表面完成绘制，再替换该 Chunk。
-7. 请求范围中省略的坐标从已显示集合移除。
-8. `read_failed` 保留旧结果并加入一个共享重试集合；前端自行选择延迟，不依赖 `Retry-After`。
-9. 重试计时到期且失败 Chunk 仍在视窗内时，只重新发送一个当前视窗请求；不要为每个失败 Chunk 创建独立请求或计时器。
-10. SSE Region 与当前视窗相交时触发同一防抖流程；离开视窗的失败项取消重试。
-
-网络错误或整个请求 500 时不应用响应，保留当前显示状态，等待客户端自己的后续刷新策略。浏览器不创建每方块 DOM 节点；地图内容使用
-Canvas layer 绘制。
-
-## 11. 方块贴图边界
-
-后端保留一个根据方块标识解析贴图资源的 HTTP 边界，浏览器只为 surface palette 中实际出现的不同方块状态请求资源，不能按 256
-个 单元逐个请求。
-
-本计划暂不决定资源来源、模型 baking、状态到纹理的选择、透明层、biome tint 或动画。实现 Chunk 数据路径时先定义一个
-`BlockTextureSource`/前端 texture resolver 边界，并使用确定性测试资源或占位颜色证明地图拼接；真实 Minecraft 贴图解析另立计划。
-
-后端仍不执行图片合成。静态贴图响应可以使用正常 HTTP/browser cache headers，这不等于缓存世界表面或渲染地图。
-
-## 12. 实施阶段
+## 10. 实施阶段
 
 ### 阶段 A：模块与共享契约
 
@@ -327,73 +314,71 @@ Canvas layer 绘制。
 
 ### 阶段 B：live world 表面查询
 
-1. 在 `world-io` 公开最小的 Chunk Region 目录路径 accessor，并补 README 与路径测试。
-2. 启动时建立 level/datapack/dimension 解码上下文。
-3. 实现逐 Chunk live read、三态映射和最高非空气投影。
-4. 实现 Ktor metadata 与 surface routes；使用注入的 reader 测试 route，不让 HTTP 测试依赖真实 Minecraft 文件。
-5. 证明一个 Chunk 失败不会阻止同响应中的其他成功 Chunk，也不会吞掉协程取消。
+1. 启动时建立 level/datapack/dimension 解码上下文。
+2. 实现按 Region 分组的 caller-owned handle/`withReadScope` 读取、逐 Chunk 三态映射和最高非空气投影。
+3. 实现 Ktor metadata 与 surface routes；使用注入的 reader 测试 route，不让 HTTP 测试依赖真实 Minecraft 文件。
+4. 证明一个 Chunk 失败不会阻止同响应中的其他成功 Chunk，也不会吞掉协程取消。
 
-### 阶段 C：文件事件与 SSE
-
-1. 引入 Kfswatch adapter，观察规范 Region 目录并解析 `.mca`/`.mcc`。
-2. 把平台事件规范化为 `RegionChanged`/`Resync` Flow。
-3. 实现一个进程级广播源和 Ktor SSE route，连接取消后移除订阅。
-4. 用 fake event source 测试 SSE 过滤、广播和关闭，不依赖 scheduler delay 证明顺序。
-
-### 阶段 D：浏览器地图
+### 阶段 C：浏览器地图与请求控制
 
 1. 建立 Leaflet 简单平面地图和 Canvas Chunk layer。
-2. 实现视窗到包含边界 Chunk 范围的转换、200 ms 防抖、fetch 取消和过时响应抑制。
-3. 实现 `success`、省略和 `read_failed` 的前端状态机及合并重试。
-4. 接入 EventSource，相交 Region 事件触发当前视窗刷新。
-5. 用占位颜色/测试纹理完成可视地图；真实贴图来源保持独立。
+2. 实现视窗到包含边界 Chunk 范围的转换、200 ms 防抖和单调递增的视窗代次。
+3. 实现新代次先取消上一代视窗请求与整个补漏请求组，再只发一个新视窗请求。
+4. 实现响应后原子替换显示状态，以及只轮询 `read_failed` 坐标的单一补漏请求组。
+5. 用方块标识的确定性颜色完成可视地图；真实贴图来源保持独立。
 
-### 阶段 E：打包与文档
+### 阶段 D：打包与文档
 
 1. 将浏览器 distribution 和 server executable 组成可运行安装目录。
 2. README 记录世界目录、监听地址、端口和支持维度的参数来源与运行步骤。
 3. 说明 live read 只能观察已保存数据、`read_failed` 的暂时性以及没有 Region/全图一致性保证。
 4. 只在相应目标实际编译和运行后，把该目标写入 README 支持矩阵。
 
-## 13. 验证计划
+## 11. 验证计划
 
 最窄验证顺序：
 
 ```shell
-./gradlew :world-io:jvmTest
 ./gradlew :demo:web-map:jvmTest
 ./gradlew :demo:web-map:jsNodeTest
 ```
 
 随后执行适用的 host Native test/compile 和安装任务。涉及 JS distribution 到 server 安装目录的 Gradle wiring 时，还要验证
-configuration-cache 首次存储与再次复用。
+configuration-cache 首次存储与再次复用。只有实现过程确实修改了 `world-io`，才额外运行 `./gradlew :world-io:jvmTest`；本计划
+预期直接使用现有公开 API。
 
 必需测试覆盖：
 
 - 包含两端的正坐标、负坐标、反向端点、单 Chunk 和跨 Region 范围。
 - Region 文件缺失、Region 中 Chunk 缺失、全空气成功 Chunk 和正常表面 Chunk。
-- I/O、Anvil、压缩、NBT、数据版本/Chunk codec 失败映射为 `read_failed`。
+- 同一请求的同一 Region 只打开一个 live handle、只读取一次 scope header，并在回调结束后关闭；新请求重新打开 handle，
+  不共享文件或生命周期。
+- payload/sidecar 读取、解压、NBT 或 Chunk codec 失败映射为 `read_failed`。
+- 单 Chunk 失败不阻止同 Region 的其他 Chunk，且 scope/stream/handle 没有资源泄漏。
 - `CancellationException` 不转换为普通失败。
 - 同一响应中 success、read_failed 和省略坐标共存。
 - 表面扫描的 Y 边界、空气判定、row-major 顺序和 block-state properties 保留。
-- `.mca` 与 `.mcc` 文件名映射、Create/Modify/Delete、无关文件忽略和 resync。
-- SSE 连接关闭、多个客户端广播以及前端 Region/视窗交集。
-- 前端移动防抖、旧 fetch 取消、过时响应忽略、成功替换、缺失清除、失败保留与单计时器重试。
+- 两个同时到达且查询相同 Region 的 HTTP 请求分别打开和关闭自己的 handle，不共享结果或 lifecycle。
+- Chunk 范围改变时，上一代视窗请求和已发出的全部补漏请求都被取消，迟到结果不能改变新代状态。
+- 每代只发一个完整视窗请求；补漏请求组只查询该代 `read_failed` 坐标，并在成功或省略后停止对应坐标的轮询。
+- 视窗请求完成前旧画面保持不变；完整响应在内存中合成后一次替换，错误坐标可保留同坐标旧表面。
+- 视窗不变且没有错误 Chunk 时不发 world-data 请求；重试测试使用注入调度器，不依赖真实 delay。
 - surface route 在完整 DTO 构造前不发布部分 HTTP 响应。
 
 真实世界 smoke test 使用仓库所选择版本生成的临时世界，并在官方服务端运行时以只读方式访问。测试不得取得
 `session.lock`、修改世界或把 Fixture Host 路径暴露为生产 API。浏览器自动化不是仓库 gate；可用 Node 测试纯前端逻辑，再进行一次人工
 浏览器渲染检查。
 
-## 14. 完成标准
+## 12. 完成标准
 
 计划完成时应满足：
 
 1. 一个独立安装产物能够用世界目录启动 Ktor 服务并提供网页。
 2. 页面首次打开和视窗停止移动后只发送一个包含边界的 surface 请求。
 3. 后端为范围内每个可读 Chunk 返回最高非空气表面，真实缺失 Chunk 被省略，读取失败返回 `read_failed`。
-4. 单个 Chunk 失败不会破坏同一响应内其他成功 Chunk；前端保留失败 Chunk 的旧画面并合并重试。
-5. `.mca`/`.mcc` 变化通过 SSE 通知，当前视窗相交时自动刷新。
-6. 后端没有世界表面缓存、图片渲染、Region 句柄合并或跨请求文件生命周期。
+4. 单个 Chunk 失败不会破坏同一响应内其他成功 Chunk；前端只通过当前代补漏请求组轮询错误 Chunk，直到成功或省略。
+5. Chunk 范围改变时先取消上一代视窗请求和全部补漏请求；新响应返回前保留旧画面，返回后一次替换。
+6. 后端没有世界表面缓存、图片渲染、共享 Region coordinator 或跨请求文件生命周期；只使用请求内每 Region 一个 caller-owned
+   handle 和 callback-bound read scope。
 7. 现有 `world-format`/`world-io` 边界未被反转，live observer 从不获取 `session.lock` 或修改世界。
 8. JVM、Kotlin/JS Node test-runner 逻辑测试和已声明的 host target 验证通过，README 与实际产物一致。
