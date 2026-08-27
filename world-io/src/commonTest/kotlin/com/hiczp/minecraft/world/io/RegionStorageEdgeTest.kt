@@ -334,7 +334,6 @@ class RegionStorageEdgeTest {
             liveMinecraftWorldAccessConfiguration = liveMinecraftWorldAccessConfiguration,
         )
         assertSame(liveMinecraftWorldAccessConfiguration, reader.liveMinecraftWorldAccessConfiguration)
-        assertSame(configuredChunkNbtFormat, reader.chunkNbtFormat)
         Compression.entries.forEachIndexed { index, compression ->
             val chunkPosition = ChunkPosition(index, -index)
             assertEquals(

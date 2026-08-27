@@ -40,9 +40,6 @@ class LiveMinecraftWorldAccess private constructor(
     val liveMinecraftWorldAccessConfiguration: LiveMinecraftWorldAccessConfiguration,
     private val worldFileAccess: WorldFileAccess,
 ) {
-    val chunkNbtFormat: CompressedNbtFormat
-        get() = liveMinecraftWorldAccessConfiguration.chunkNbtFormat
-
     private val nbtFileStore = NbtFileStore(worldFileAccess, liveMinecraftWorldAccessConfiguration.standaloneNbtFormat)
     private val levelDataStore = LevelDataStore(minecraftWorldPaths, nbtFileStore)
     private val playerDataStore = PlayerDataStore(minecraftWorldPaths, nbtFileStore)
@@ -178,7 +175,7 @@ class LiveMinecraftWorldAccess private constructor(
         fileSystem = worldFileAccess.fileSystem,
         directory = minecraftWorldPaths.regionDirectory(RegionStorageDirectory.CHUNKS, dimensionDirectory),
         regionPosition = regionPosition,
-        chunkNbtFormat = chunkNbtFormat,
+        chunkNbtFormat = liveMinecraftWorldAccessConfiguration.chunkNbtFormat,
     )
 
     /**
@@ -208,7 +205,7 @@ class LiveMinecraftWorldAccess private constructor(
             fileSystem = worldFileAccess.fileSystem,
             directory = minecraftWorldPaths.regionDirectory(RegionStorageDirectory.ENTITIES, dimensionDirectory),
             regionPosition = regionPosition,
-            chunkNbtFormat = chunkNbtFormat,
+            chunkNbtFormat = liveMinecraftWorldAccessConfiguration.chunkNbtFormat,
         ),
     )
 
