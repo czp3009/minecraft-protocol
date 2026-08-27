@@ -384,5 +384,5 @@ private fun throwPromotionFailure(
     throw primaryFailure
 }
 
-private val GZIP_MAGIC_FIRST: Byte = 0x1F
-private val GZIP_MAGIC_SECOND: Byte = 0x8B.toByte()
+private const val GZIP_MAGIC_FIRST: Byte = 0x1F
+private const val GZIP_MAGIC_SECOND: Byte = 0x8B.toByte()
