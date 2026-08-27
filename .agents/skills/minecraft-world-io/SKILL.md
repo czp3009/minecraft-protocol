@@ -42,6 +42,11 @@ lifecycle semantics. Do not add policy-sized read, write, decompression, tree-de
 only format-intrinsic bounds and exact framing lengths. Never expose Fixture Host paths or process machinery as
 production APIs.
 
+Keep live Region ownership local to the caller-owned handle: one handle may retain its own `.mca` resource for repeated
+reads, but live world access must not introduce a shared cache, reference count, lock, or mutation coordinator. Treat a
+callback-cached Region header strictly as an optimization; external mutation can still produce stale or torn
+header/payload combinations and their read failures.
+
 ## Verify and report
 
 Run:

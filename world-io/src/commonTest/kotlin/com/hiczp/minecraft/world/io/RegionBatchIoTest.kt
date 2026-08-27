@@ -223,6 +223,7 @@ internal class CountingMutableRegionFileSystem(
     var mutableOpens = 0
     var liveOpens = 0
     var closes = 0
+    var headerReads = 0
     var headerWrites = 0
 
     override fun openReadWrite(
@@ -252,7 +253,10 @@ internal class CountingMutableRegionFileSystem(
             array: ByteArray,
             arrayOffset: Int,
             byteCount: Int,
-        ): Int = delegate.read(fileOffset, array, arrayOffset, byteCount)
+        ): Int {
+            if (fileOffset == 0L) headerReads++
+            return delegate.read(fileOffset, array, arrayOffset, byteCount)
+        }
 
         override fun protectedWrite(
             fileOffset: Long,

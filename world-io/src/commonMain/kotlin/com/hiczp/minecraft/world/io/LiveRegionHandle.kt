@@ -11,83 +11,57 @@ import kotlinx.io.Sink as KotlinxSink
 import kotlinx.io.Source as KotlinxSource
 
 /**
- * Stateless, non-locking read access to one logical live Region.
+ * Caller-owned, non-locking read access to one live Region.
  *
- * Opening this handle performs no filesystem I/O and the handle itself owns no resource or close
- * lifecycle. Every method independently opens and closes the physical files it needs. Another
- * process may write, delete, or replace those files concurrently, so a call may observe stale or
- * torn input and propagate the resulting I/O or format failure.
+ * The handle independently opens and retains the `.mca` file found when it is created; it shares
+ * neither that resource nor lifecycle state with other handles. Ordinary operations reread the
+ * Region header, while [withReadScope] reuses one header read for its callback. External `.mcc`
+ * sidecars are still opened only for the Chunk operation that needs them.
+ *
+ * None of this provides a filesystem snapshot. Another process may change, delete, or replace a
+ * path or overwrite sectors at any time, so operations may observe stale or torn combinations and
+ * propagate the resulting I/O, Anvil, compression, or NBT failure. Methods may run concurrently,
+ * but [close] must be called only after their callbacks and concurrent calls have returned. Use
+ * [use] or call [close] explicitly to release the handle.
  */
 class LiveRegionHandle internal constructor(
-    private val fileSystem: FileSystem,
-    private val directory: Path,
+    fileSystem: FileSystem,
+    directory: Path,
     val regionPosition: RegionPosition,
     val chunkNbtFormat: CompressedNbtFormat,
 ) {
-    fun hasRegion(): Boolean {
-        val path = regionFilePath(directory, regionPosition)
-        val fileMetadata = fileSystem.metadataOrNull(path) ?: return false
-        if (!fileMetadata.isRegularFile) {
-            throw WorldIOException("Path is not a regular file: $path")
-        }
-        return true
-    }
+    private val liveRegionFile = LiveRegionFile.open(fileSystem, directory, regionPosition)
+
+    fun hasRegion(): Boolean = liveRegionFile.hasRegion()
 
     /** Whether the Region index contains [localChunkPosition], without reading Chunk record metadata. */
-    fun hasChunk(localChunkPosition: LocalChunkPosition): Boolean =
-        withOpenRegion { _, regionHeader -> regionHeader.hasChunk(localChunkPosition) } ?: false
+    fun hasChunk(localChunkPosition: LocalChunkPosition): Boolean = liveRegionFile.hasChunk(localChunkPosition)
 
     fun hasChunk(chunkPosition: ChunkPosition): Boolean = hasChunk(local(chunkPosition))
 
     fun hasChunk(blockPosition: BlockPosition): Boolean = hasChunk(blockPosition.chunkPosition)
 
     /** Reads the number of occupied Region header entries without reading Chunk record metadata. */
-    fun readChunkCount(): Int = withOpenRegion { _, regionHeader -> regionHeader.chunkCount } ?: 0
+    fun readChunkCount(): Int = liveRegionFile.readChunkCount()
 
     /** Reads a detached list of occupied Region-local positions in header order. */
-    fun readLocalChunkPositions(): List<LocalChunkPosition> =
-        withOpenRegion { _, regionHeader -> regionHeader.localChunkPositions().toList() }.orEmpty()
+    fun readLocalChunkPositions(): List<LocalChunkPosition> = liveRegionFile.readLocalChunkPositions()
 
     /** Reads occupied absolute Chunk positions in Region header order. */
     fun readChunkPositions(): List<ChunkPosition> = readLocalChunkPositions().map(regionPosition::chunk)
 
     fun readChunkInfo(localChunkPosition: LocalChunkPosition): RegionChunkInfo? =
-        withOpenRegion { fileHandle, regionHeader ->
-            readRegionChunkInfo(fileSystem, directory, regionPosition, fileHandle, regionHeader, localChunkPosition)
-        }
+        liveRegionFile.readChunkInfo(localChunkPosition)
 
     fun readChunkInfo(chunkPosition: ChunkPosition): RegionChunkInfo? = readChunkInfo(local(chunkPosition))
 
     /** Reads detached stored metadata for every resolvable Chunk record in Region-local order. */
-    fun readChunkInfos(): List<RegionChunkInfo> =
-        withOpenRegion { fileHandle, regionHeader ->
-            buildList {
-                for (index in 0 until REGION_CHUNK_COUNT) {
-                    val localChunkPosition = LocalChunkPosition.fromIndex(index)
-                    readRegionChunkInfo(fileSystem, directory, regionPosition, fileHandle, regionHeader, localChunkPosition)?.let(::add)
-                }
-            }
-        }.orEmpty()
+    fun readChunkInfos(): List<RegionChunkInfo> = liveRegionFile.readChunkInfos()
 
     fun <R> withCompressedChunkSource(
         localChunkPosition: LocalChunkPosition,
         block: (RegionChunkInfo, KotlinxSource) -> R,
-    ): R? = withOpenRegion { fileHandle, regionHeader ->
-        val regionChunkInfo =
-            readRegionChunkInfo(fileSystem, directory, regionPosition, fileHandle, regionHeader, localChunkPosition)
-            ?: return@withOpenRegion null
-        if (regionChunkInfo.anvilChunkPlacement == AnvilChunkPlacement.EXTERNAL) {
-            withExternalChunkSource(regionChunkInfo, block)
-        } else {
-            val regionLocation = regionHeader.location(localChunkPosition) ?: return@withOpenRegion null
-            val bufferedSource = fileHandle.source(
-                regionLocation.byteOffset + REGION_CHUNK_RECORD_HEADER_BYTES,
-            ).limit(regionChunkInfo.compressedByteCount).buffer()
-            useResource(bufferedSource, { it.close() }) {
-                readPayload(regionChunkInfo, bufferedSource, block)
-            }
-        }
-    }
+    ): R? = liveRegionFile.withCompressedChunkSource(localChunkPosition, block)
 
     fun <R> withCompressedChunkSource(
         chunkPosition: ChunkPosition,
@@ -182,16 +156,123 @@ class LiveRegionHandle internal constructor(
         chunkNbtCodec: ChunkNbtCodec<B, M>,
     ): Chunk<B, M>? = readChunk(blockPosition.chunkPosition, chunkNbtCodec)
 
-    private fun <R> withOpenRegion(block: (FileHandle, RegionHeader) -> R): R? {
-        val path = regionFilePath(directory, regionPosition)
-        val fileMetadata = fileSystem.metadataOrNull(path) ?: return null
-        if (!fileMetadata.isRegularFile) {
-            throw WorldIOException("Path is not a regular file: $path")
+    /**
+     * Runs [block] with one cached Region header and the handle's retained `.mca` resource.
+     *
+     * The header is read once for efficiency only. It may already be torn or stale, and the Chunk
+     * records or external sidecars it references may change independently while [block] runs.
+     */
+    fun <R> withReadScope(block: RegionReadScope.() -> R): R = liveRegionFile.withReadScope(block)
+
+    fun close() = liveRegionFile.close()
+
+    /** Runs [block] and closes this independently owned live Region handle afterward. */
+    fun <T> use(block: (LiveRegionHandle) -> T): T =
+        useResource(this, LiveRegionHandle::close, block)
+
+    private fun local(chunkPosition: ChunkPosition): LocalChunkPosition = this.regionPosition.local(chunkPosition)
+}
+
+/** One independently owned live `.mca` handle; no registry or reference count shares it. */
+private class LiveRegionFile private constructor(
+    private val fileSystem: FileSystem,
+    private val directory: Path,
+    override val regionPosition: RegionPosition,
+    override val path: Path,
+    private val fileHandle: FileHandle?,
+) : RegionReadAccess {
+    private var closed = false
+
+    fun hasRegion(): Boolean {
+        checkOpen()
+        return fileHandle != null
+    }
+
+    fun hasChunk(localChunkPosition: LocalChunkPosition): Boolean {
+        checkOpen()
+        val regionHeader = headerForRead() ?: return false
+        return hasChunk(localChunkPosition, regionHeader)
+    }
+
+    override fun hasChunk(localChunkPosition: LocalChunkPosition, regionHeader: RegionHeader): Boolean {
+        checkOpen()
+        return fileHandle != null && regionHeader.hasChunk(localChunkPosition)
+    }
+
+    fun readChunkCount(): Int {
+        checkOpen()
+        return headerForRead()?.chunkCount ?: 0
+    }
+
+    fun readLocalChunkPositions(): List<LocalChunkPosition> {
+        checkOpen()
+        return headerForRead()?.localChunkPositions()?.toList().orEmpty()
+    }
+
+    fun readChunkInfo(localChunkPosition: LocalChunkPosition): RegionChunkInfo? {
+        checkOpen()
+        val regionHeader = headerForRead() ?: return null
+        return readChunkInfo(localChunkPosition, regionHeader)
+    }
+
+    fun readChunkInfos(): List<RegionChunkInfo> = withReadScope { chunkInfos.toList() }
+
+    override fun readChunkInfo(
+        localChunkPosition: LocalChunkPosition,
+        regionHeader: RegionHeader,
+    ): RegionChunkInfo? {
+        checkOpen()
+        val fileHandle = fileHandle ?: return null
+        return readRegionChunkInfo(
+            fileSystem,
+            directory,
+            regionPosition,
+            fileHandle,
+            regionHeader,
+            localChunkPosition,
+        )
+    }
+
+    fun <R> withCompressedChunkSource(
+        localChunkPosition: LocalChunkPosition,
+        block: (RegionChunkInfo, KotlinxSource) -> R,
+    ): R? {
+        checkOpen()
+        val regionHeader = headerForRead() ?: return null
+        return withCompressedChunkSource(localChunkPosition, regionHeader, block)
+    }
+
+    override fun <R> withCompressedChunkSource(
+        localChunkPosition: LocalChunkPosition,
+        regionHeader: RegionHeader,
+        block: (RegionChunkInfo, KotlinxSource) -> R,
+    ): R? {
+        checkOpen()
+        val fileHandle = fileHandle ?: return null
+        val regionChunkInfo = readChunkInfo(localChunkPosition, regionHeader) ?: return null
+        return if (regionChunkInfo.anvilChunkPlacement == AnvilChunkPlacement.EXTERNAL) {
+            withExternalChunkSource(regionChunkInfo, block)
+        } else {
+            val regionLocation = regionHeader.location(localChunkPosition) ?: return null
+            val bufferedSource = fileHandle.source(
+                regionLocation.byteOffset + REGION_CHUNK_RECORD_HEADER_BYTES,
+            ).limit(regionChunkInfo.compressedByteCount).buffer()
+            useResource(bufferedSource, { it.close() }) {
+                readPayload(regionChunkInfo, bufferedSource, block)
+            }
         }
-        val fileHandle = fileSystem.openLiveReadOnly(path)
-        return useResource(fileHandle, { it.close() }) {
-            block(fileHandle, readUsableHeader(fileHandle))
-        }
+    }
+
+    fun <R> withReadScope(block: RegionReadScope.() -> R): R {
+        checkOpen()
+        val fileHandle = fileHandle ?: return RegionReadScope.empty(regionPosition).use(block)
+        return RegionReadScope(this, readUsableHeader(fileHandle)).use(block)
+    }
+
+    fun close() {
+        if (closed) return
+        closed = true
+        fileHandle?.close()
     }
 
     private fun <R> withExternalChunkSource(
@@ -232,5 +313,30 @@ class LiveRegionHandle internal constructor(
         value
     }
 
-    private fun local(chunkPosition: ChunkPosition): LocalChunkPosition = this.regionPosition.local(chunkPosition)
+    private fun headerForRead(): RegionHeader? = fileHandle?.let(::readUsableHeader)
+
+    private fun checkOpen() {
+        check(!closed) { "Live Region handle is closed: $path" }
+    }
+
+    companion object {
+        fun open(
+            fileSystem: FileSystem,
+            directory: Path,
+            regionPosition: RegionPosition,
+        ): LiveRegionFile {
+            val path = regionFilePath(directory, regionPosition)
+            val fileMetadata = fileSystem.metadataOrNull(path)
+            if (fileMetadata != null && !fileMetadata.isRegularFile) {
+                throw WorldIOException("Path is not a regular file: $path")
+            }
+            return LiveRegionFile(
+                fileSystem = fileSystem,
+                directory = directory,
+                regionPosition = regionPosition,
+                path = path,
+                fileHandle = if (fileMetadata == null) null else fileSystem.openLiveReadOnly(path),
+            )
+        }
+    }
 }

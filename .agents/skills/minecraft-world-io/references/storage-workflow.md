@@ -53,8 +53,11 @@ that starts later, while a close barrier already sealed and waiting for that cle
 close caller without retaining failures from earlier completed operations.
 
 Audit live read-only access separately as a bypass observer: it must take neither `session.lock` nor mutable per-file
-coordination, retain no cross-call resource or mutable lifecycle, and never delay or mutate an official process's world.
-Mutable stores must honor the directory lock and deterministic close behavior defined by the public API.
+coordination and never delay or mutate an official process's world. A caller-owned live Region handle may retain its own
+`.mca` file across calls, but handles must share no world-level registry, file object, reference count, or lifecycle;
+external sidecars remain per-Chunk resources. A header cached for one callback is only an I/O optimization, never a
+freshness, atomicity, or header/payload consistency promise. Mutable stores must honor the directory lock and
+deterministic close behavior defined by the public API.
 
 ## Use the existing official gate
 

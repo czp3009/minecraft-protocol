@@ -7,7 +7,7 @@ import kotlinx.serialization.serializer
 import kotlinx.io.Sink as KotlinxSink
 import kotlinx.io.Source as KotlinxSource
 
-/** Stateless, non-locking read access to one logical live Entity Region. */
+/** Caller-owned live Entity Region resource with the same read and scope semantics as [LiveRegionHandle]. */
 class LiveEntityRegionHandle internal constructor(
     private val delegate: LiveRegionHandle,
 ) {
@@ -92,4 +92,13 @@ class LiveEntityRegionHandle internal constructor(
 
     fun <E : Any> readChunk(chunkPosition: ChunkPosition, entityChunkNbtCodec: EntityChunkNbtCodec<E>): EntityChunk<E>? =
         readChunk(this.regionPosition.local(chunkPosition), entityChunkNbtCodec)
+
+    /** Reuses one Entity Region header read without promising a consistent live snapshot. */
+    fun <R> withReadScope(block: RegionReadScope.() -> R): R = delegate.withReadScope(block)
+
+    fun close() = delegate.close()
+
+    /** Runs [block] and closes this independently owned live Entity Region handle afterward. */
+    fun <T> use(block: (LiveEntityRegionHandle) -> T): T =
+        useResource(this, LiveEntityRegionHandle::close, block)
 }

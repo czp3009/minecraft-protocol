@@ -15,8 +15,11 @@ configured filesystem runtimes only; browser and Wasm do not receive partial imp
   region-bound owners accept local or validated absolute positions.
 - Public APIs expose logical stores and region handles, not exact-file owners, allocators, lock state, sidecar grouping,
   or lifecycle internals.
-- Mutable resources provide suspend `use` around suspend `close`. Borrowed streams and multi-operation scopes remain
-  callback-bound so resources and admission cannot escape.
+- Mutable resources provide suspend `use` around suspend `close`; live Region resources provide synchronous `use`
+  around synchronous `close`. Borrowed streams and multi-operation scopes remain callback-bound so resources and
+  admission cannot escape.
+- Live Region resources intentionally do not implement `AutoCloseable`: their member `use` preserves project failure
+  combination and must remain the single Kotlin completion entry instead of competing with the standard extension.
 - Do not add policy-sized read, write, decompression, tree-depth, allocation, pack-file, or file-count limits.
   Complete-value helpers may retain their documented value; streaming paths avoid unnecessary duplication.
 
@@ -57,9 +60,15 @@ configured filesystem runtimes only; browser and Wasm do not receive partial imp
 ## Live read-only access
 
 - `LiveMinecraftWorldAccess` observes a world owned by another process. It takes no `session.lock`, performs no repair
-  or mutation, and creates no logical-file coordinator.
-- `openRegion` itself performs no I/O and returns a lightweight `LiveRegionHandle`. Each operation opens and closes its
-  own resources; stale, torn, replaced, or missing input is an expected read outcome.
+  or mutation, creates no logical-file coordinator, and owns no close lifecycle.
+- `openRegion` and `openEntityRegion` return caller-owned resources. Each handle independently opens and retains the
+  `.mca` file found at creation and closes it synchronously; handles share no registry, reference count, file object, or
+  lifecycle state. External `.mcc` sidecars remain per-Chunk resources.
+- Ordinary handle operations reread the Region header. `withReadScope` caches one header read only for its callback;
+  neither path promises freshness, atomicity, or agreement between the header and subsequently read payload bytes.
+  Stale, torn, replaced, overwritten, or missing input and the resulting read failures are expected live outcomes.
+- Live Region calls may run concurrently, but close does not coordinate with them and starts only after their callbacks
+  and concurrent operations return.
 - Mutable and live entry points each carry immutable format configuration. Live configuration contains read formats
   only, not write storage policy.
 

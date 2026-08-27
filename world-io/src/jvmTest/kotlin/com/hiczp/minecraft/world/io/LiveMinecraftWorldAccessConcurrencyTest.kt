@@ -89,6 +89,7 @@ class LiveMinecraftWorldAccessConcurrencyTest {
             withContext(NonCancellable) {
                 mcaGate.open()
                 joinAll(mcaFirst, mcaSecond)
+                mcaRegion.close()
             }
         }
 
@@ -110,6 +111,7 @@ class LiveMinecraftWorldAccessConcurrencyTest {
             withContext(NonCancellable) {
                 mccGate.open()
                 joinAll(mccFirst, mccSecond)
+                mccRegion.close()
             }
         }
         base.checkNoOpenFiles()
@@ -162,7 +164,9 @@ class LiveMinecraftWorldAccessConcurrencyTest {
         val firstLocalPosition = LocalChunkPosition(0, 0)
         repeat(2_048) { index ->
             val chunkPosition = RegionPosition(index, 0).chunk(firstLocalPosition)
-            assertEquals(null, reader.openRegion(chunkPosition.regionPosition).readCompressedChunk(chunkPosition))
+            reader.openRegion(chunkPosition.regionPosition).use { liveRegionHandle ->
+                assertEquals(null, liveRegionHandle.readCompressedChunk(chunkPosition))
+            }
         }
         base.checkNoOpenFiles()
     }

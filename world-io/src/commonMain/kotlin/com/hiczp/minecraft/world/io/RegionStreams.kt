@@ -3,6 +3,7 @@ package com.hiczp.minecraft.world.io
 import com.hiczp.minecraft.world.format.*
 import kotlinx.io.Sink
 import kotlinx.io.Source
+import okio.Path
 
 /** A detached Anvil image paired with the Region position retained from its `.mca` path. */
 internal class PositionedAnvilRegion(
@@ -78,18 +79,39 @@ class RegionChunkInfo internal constructor(
         "RegionChunkInfo(regionPosition=$regionPosition, localChunkPosition=$localChunkPosition, compression=$compression, compressedByteCount=$compressedByteCount, timestampEpochSeconds=$timestampEpochSeconds)"
 }
 
+internal interface RegionReadAccess {
+    val regionPosition: RegionPosition
+    val path: Path
+
+    fun hasChunk(localChunkPosition: LocalChunkPosition, regionHeader: RegionHeader): Boolean
+
+    fun readChunkInfo(localChunkPosition: LocalChunkPosition, regionHeader: RegionHeader): RegionChunkInfo?
+
+    fun <R> withCompressedChunkSource(
+        localChunkPosition: LocalChunkPosition,
+        regionHeader: RegionHeader,
+        block: (RegionChunkInfo, Source) -> R,
+    ): R?
+}
+
 /**
- * Borrowed streaming view of one consistent Region metadata snapshot.
+ * Borrowed streaming view that reuses one Region header view.
  *
  * Every sequence and Chunk stream is valid only inside the enclosing Region read callback.
- * Metadata is visited lazily in deterministic Region-local order.
+ * Metadata is visited lazily in deterministic Region-local order. The owner of the callback
+ * defines whether concurrent changes are excluded; this type alone does not make the cached
+ * header and subsequently read Chunk bytes a consistent filesystem snapshot.
  */
 class RegionReadScope private constructor(
-    private val mutableRegionFile: MutableRegionFile?,
+    private val regionReadAccess: RegionReadAccess?,
     val regionPosition: RegionPosition,
     private val regionHeader: RegionHeader,
 ) {
-    internal constructor(mutableRegionFile: MutableRegionFile, regionHeader: RegionHeader) : this(mutableRegionFile, mutableRegionFile.regionPosition, regionHeader)
+    internal constructor(regionReadAccess: RegionReadAccess, regionHeader: RegionHeader) : this(
+        regionReadAccess,
+        regionReadAccess.regionPosition,
+        regionHeader,
+    )
 
     private var valid = true
 
@@ -100,7 +122,7 @@ class RegionReadScope private constructor(
                 for (index in 0 until REGION_CHUNK_COUNT) {
                     checkValid()
                     val localChunkPosition = LocalChunkPosition.fromIndex(index)
-                    mutableRegionFile?.readChunkInfo(localChunkPosition, regionHeader)?.let { yield(it) }
+                    regionReadAccess?.readChunkInfo(localChunkPosition, regionHeader)?.let { yield(it) }
                 }
             }
         }
@@ -116,14 +138,14 @@ class RegionReadScope private constructor(
 
     fun hasChunk(localChunkPosition: LocalChunkPosition): Boolean {
         checkValid()
-        return mutableRegionFile?.hasChunk(localChunkPosition, regionHeader) == true
+        return regionReadAccess?.hasChunk(localChunkPosition, regionHeader) == true
     }
 
     fun hasChunk(chunkPosition: ChunkPosition): Boolean = hasChunk(regionPosition.local(chunkPosition))
 
     fun readChunkInfo(localChunkPosition: LocalChunkPosition): RegionChunkInfo? {
         checkValid()
-        return mutableRegionFile?.readChunkInfo(localChunkPosition, regionHeader)
+        return regionReadAccess?.readChunkInfo(localChunkPosition, regionHeader)
     }
 
     fun readChunkInfo(chunkPosition: ChunkPosition): RegionChunkInfo? = readChunkInfo(regionPosition.local(chunkPosition))
@@ -133,7 +155,7 @@ class RegionReadScope private constructor(
         block: (RegionChunkInfo, Source) -> R,
     ): R? {
         checkValid()
-        return mutableRegionFile?.withCompressedChunkSource(localChunkPosition, regionHeader, block)
+        return regionReadAccess?.withCompressedChunkSource(localChunkPosition, regionHeader, block)
     }
 
     fun <R> withCompressedChunkSource(
@@ -170,7 +192,7 @@ class RegionReadScope private constructor(
     }
 
     private fun checkValid() {
-        check(valid) { "Region read scope is no longer valid: ${mutableRegionFile?.path ?: regionPosition}" }
+        check(valid) { "Region read scope is no longer valid: ${regionReadAccess?.path ?: regionPosition}" }
     }
 
     internal companion object {

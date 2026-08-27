@@ -33,10 +33,12 @@ class LiveFileSharingTest {
                     regionHandle.writeCompressedChunk(chunkPosition, sharingChunk(5))
                 }
                 val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(root)
-                assertContentEquals(
-                    byteArrayOf(5),
-                    liveMinecraftWorldAccess.openRegion(chunkPosition.regionPosition).readCompressedChunk(chunkPosition).bytesOrNull(),
-                )
+                liveMinecraftWorldAccess.openRegion(chunkPosition.regionPosition).use { liveRegionHandle ->
+                    assertContentEquals(
+                        byteArrayOf(5),
+                        liveRegionHandle.readCompressedChunk(chunkPosition).bytesOrNull(),
+                    )
+                }
             }
             assertFalse(MinecraftWorldAccess.isLocked(root))
         } finally {
@@ -45,7 +47,7 @@ class LiveFileSharingTest {
     }
 
     @Test
-    fun separateLiveRegionReadsObserveFreshHeaders() = runTest {
+    fun retainedLiveRegionHandleRereadsHeaderBetweenOperations() = runTest {
         val temporaryDirectory = Files.createTempDirectory(
             "world-io-live-header-",
         )
@@ -63,27 +65,31 @@ class LiveFileSharingTest {
 
             val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(root)
             val liveRegionHandle = liveMinecraftWorldAccess.openRegion(first.regionPosition)
-            assertContentEquals(
-                byteArrayOf(1),
-                liveRegionHandle.readCompressedChunk(first).bytesOrNull(),
-            )
-
-            val updater = RegionStorage(minecraftWorldPaths)
             try {
-                updater.writeCompressedChunk(first, sharingChunk(2))
-                updater.writeCompressedChunk(second, sharingChunk(3))
-            } finally {
-                updater.close()
-            }
+                assertContentEquals(
+                    byteArrayOf(1),
+                    liveRegionHandle.readCompressedChunk(first).bytesOrNull(),
+                )
 
-            assertContentEquals(
-                byteArrayOf(2),
-                liveRegionHandle.readCompressedChunk(first).bytesOrNull(),
-            )
-            assertContentEquals(
-                byteArrayOf(3),
-                liveRegionHandle.readCompressedChunk(second).bytesOrNull(),
-            )
+                val updater = RegionStorage(minecraftWorldPaths)
+                try {
+                    updater.writeCompressedChunk(first, sharingChunk(2))
+                    updater.writeCompressedChunk(second, sharingChunk(3))
+                } finally {
+                    updater.close()
+                }
+
+                assertContentEquals(
+                    byteArrayOf(2),
+                    liveRegionHandle.readCompressedChunk(first).bytesOrNull(),
+                )
+                assertContentEquals(
+                    byteArrayOf(3),
+                    liveRegionHandle.readCompressedChunk(second).bytesOrNull(),
+                )
+            } finally {
+                liveRegionHandle.close()
+            }
         } finally {
             FileSystem.SYSTEM.deleteRecursively(root, mustExist = false)
         }

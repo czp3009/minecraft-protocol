@@ -29,7 +29,9 @@ data class LiveMinecraftWorldAccessConfiguration(
  *
  * This class takes neither `session.lock` nor per-file operating-system or in-process exclusion.
  * Reads may observe stale or torn state and propagate the resulting I/O, format, or decompression
- * failure. The access never repairs or mutates files and has no close lifecycle.
+ * failure. The world access never repairs or mutates files and has no close lifecycle. Region
+ * handles returned from [openRegion] and [openEntityRegion] independently own resources and must
+ * be closed by their callers.
  *
  * Public operations may be called concurrently. This class does not create a thread pool or select
  * a dispatcher; blocking filesystem I/O, NBT work, and compression run synchronously on the
@@ -161,12 +163,13 @@ class LiveMinecraftWorldAccess private constructor(
     fun hasRegion(
         regionPosition: RegionPosition,
         dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): Boolean = openRegion(regionPosition, dimensionDirectory).hasRegion()
+    ): Boolean = openRegion(regionPosition, dimensionDirectory).use(LiveRegionHandle::hasRegion)
 
     /**
-     * Creates a stateless logical Region handle without touching the filesystem.
+     * Opens a caller-owned live Region resource without taking a lock or joining a shared cache.
      *
-     * A missing Region still has a handle; its reads return false, null, or an empty list.
+     * If the Region is missing at this point, the returned resource owns no file and its reads
+     * return false, null, or an empty list. Close the handle after its final read.
      */
     fun openRegion(
         regionPosition: RegionPosition,
@@ -194,9 +197,9 @@ class LiveMinecraftWorldAccess private constructor(
     fun hasEntityRegion(
         regionPosition: RegionPosition,
         dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): Boolean = openEntityRegion(regionPosition, dimensionDirectory).hasRegion()
+    ): Boolean = openEntityRegion(regionPosition, dimensionDirectory).use(LiveEntityRegionHandle::hasRegion)
 
-    /** Creates a stateless logical Entity Region handle without touching the filesystem. */
+    /** Opens a caller-owned live Entity Region resource with the same lifecycle as [openRegion]. */
     fun openEntityRegion(
         regionPosition: RegionPosition,
         dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,

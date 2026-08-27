@@ -144,9 +144,11 @@ suspend fun readChunk(
 }
 ```
 
-Use `LiveMinecraftWorldAccess` for read-only observation of a world that another process may be changing. See
-[`world-format`](world-format/README.md) for constructing the codec and [`world-io`](world-io/README.md) for locking,
-lifetime, writes, Entity Regions, standalone files, and data packs.
+Use `LiveMinecraftWorldAccess` for read-only observation of a world that another process may be changing. The live world
+access itself has no close lifecycle, but each live Chunk or Entity Region handle is a synchronous `use` resource that
+independently retains its `.mca` file for consecutive reads. See [`world-format`](world-format/README.md) for
+constructing the codec and [`world-io`](world-io/README.md) for scopes, consistency limits, locking, writes, Entity
+Regions, standalone files, and data packs.
 
 ## Build and test
 

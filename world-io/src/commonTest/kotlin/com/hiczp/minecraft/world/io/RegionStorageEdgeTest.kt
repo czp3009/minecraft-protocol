@@ -338,14 +338,17 @@ class RegionStorageEdgeTest {
             val chunkPosition = ChunkPosition(index, -index)
             assertEquals(
                 expected = nbtDocument,
-                actual = reader.openRegion(chunkPosition.regionPosition).readChunkNbtDocument(chunkPosition),
+                actual = reader.openRegion(chunkPosition.regionPosition).use { liveRegionHandle ->
+                    liveRegionHandle.readChunkNbtDocument(chunkPosition)
+                },
                 message = "Live reader did not preserve $compression chunk NBT",
             )
         }
         val customPosition = ChunkPosition(Compression.CUSTOM.ordinal, -Compression.CUSTOM.ordinal)
-        val liveRegionHandle = reader.openRegion(customPosition.regionPosition)
-        assertSame(configuredChunkNbtFormat, liveRegionHandle.chunkNbtFormat)
-        assertEquals(nbtDocument, liveRegionHandle.readChunkNbtDocument(customPosition))
+        reader.openRegion(customPosition.regionPosition).use { liveRegionHandle ->
+            assertSame(configuredChunkNbtFormat, liveRegionHandle.chunkNbtFormat)
+            assertEquals(nbtDocument, liveRegionHandle.readChunkNbtDocument(customPosition))
+        }
         fakeFileSystem.checkNoOpenFiles()
     }
 

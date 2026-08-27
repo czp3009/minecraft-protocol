@@ -16,7 +16,7 @@ Two access modes serve different situations:
 | Access                     | Use when                                     | Behavior                                                                              |
 |----------------------------|----------------------------------------------|---------------------------------------------------------------------------------------|
 | `MinecraftWorldAccess`     | This process owns the world                  | Acquires `session.lock`, supports reads and writes, and has a suspend close lifecycle |
-| `LiveMinecraftWorldAccess` | Another process may own and change the world | Takes no lock, never mutates or repairs, and has no close lifecycle                   |
+| `LiveMinecraftWorldAccess` | Another process may own and change the world | Takes no lock and never mutates; the world access itself has no close lifecycle       |
 
 Filesystem support is configured for JVM, Android, supported Native targets, and Kotlin/JS Node. Browser and Wasm
 applications should use the filesystem-independent modules.
@@ -161,9 +161,11 @@ suspend fun <B : Any, M : Any> loadChunks(
 Ordinary handle calls may be concurrent. Same-Region reads can proceed together, writes serialize, and independent
 Regions progress independently.
 
-`withReadScope` is available when several reads need one Region admission and one consistent header snapshot.
-`replaceRegion { ... }` is the matching staged complete-replacement scope. Values, sequences, and streams borrowed from
-either scope do not escape its callback.
+Both mutable and live Region handles expose `withReadScope`, but their guarantees follow their owner. On a mutable
+`RegionHandle`, the callback holds one shared-read admission and uses one consistent header snapshot, so coordinated
+writes cannot interleave. On a `LiveRegionHandle`, the callback merely avoids rereading the header; it provides no
+consistency guarantee against the external writer. Values, sequences, and streams borrowed from either scope do not
+escape its callback. `replaceRegion { ... }` is the mutable handle's matching staged complete-replacement scope.
 
 List existing map or Entity Regions with `listRegionPositions()` and `listEntityRegionPositions()`. These return
 complete detached directory snapshots and are not transactionally consistent with concurrent external changes.
@@ -202,14 +204,46 @@ fun readLiveChunk(
     chunkNbtCodec: ChunkNbtCodec<BlockStateDescriptor, String>,
 ): Chunk<BlockStateDescriptor, String>? {
     val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(worldPath)
-    val liveRegionHandle = liveMinecraftWorldAccess.openRegion(chunkPosition.regionPosition)
-    return liveRegionHandle.readChunk(chunkPosition, chunkNbtCodec)
+    return liveMinecraftWorldAccess.openRegion(chunkPosition.regionPosition).use { liveRegionHandle ->
+        liveRegionHandle.readChunk(chunkPosition, chunkNbtCodec)
+    }
 }
 ```
 
-Live access is read-only and has no `close()`. Each call opens and closes the physical resources it needs. Since another
-process may write, delete, or replace files during a call, stale or torn data and the resulting I/O, Anvil, compression,
-or NBT failures are part of the contract.
+`LiveMinecraftWorldAccess` itself owns no shared Region resources and has no `close()`. Each returned
+`LiveRegionHandle` or `LiveEntityRegionHandle` is instead a synchronous resource: it independently opens and retains the
+`.mca` file found at handle creation, then releases it on `close()` or `use`. Separate handles do not share a file
+object, registry, reference count, or lifecycle. Ordinary operations on one handle reread its Region header; an external
+`.mcc` sidecar is opened and closed only by the Chunk operation that needs it.
+
+A handle created while its Region path is missing owns no `.mca` resource and returns the usual false, null, or empty
+read results; open another handle for a later filesystem observation. Calls on one live handle may run concurrently, but
+`close()` does not wait for them, so finish all calls and borrowed callbacks before closing the handle.
+
+For several low-level reads from one Region, `withReadScope` also reuses one header read:
+
+```kotlin
+fun readLiveCompressedChunks(
+    liveMinecraftWorldAccess: LiveMinecraftWorldAccess,
+    regionPosition: RegionPosition,
+    localChunkPositions: Iterable<LocalChunkPosition>,
+): Map<ChunkPosition, CompressedChunk> =
+    liveMinecraftWorldAccess.openRegion(regionPosition).use { liveRegionHandle ->
+        liveRegionHandle.withReadScope {
+            buildMap {
+                for (localChunkPosition in localChunkPositions) {
+                    readCompressedChunk(localChunkPosition)?.let { compressedChunk ->
+                        put(regionPosition.chunk(localChunkPosition), compressedChunk)
+                    }
+                }
+            }
+        }
+    }
+```
+
+The cached header is an optimization, not a snapshot promise. Another process may write, delete, replace, or reuse the
+referenced files and sectors at any time. Stale or torn combinations and the resulting I/O, Anvil, compression, or NBT
+failures are part of the live contract and are propagated to the caller.
 
 Avoid a separate existence check when a following nullable read already answers the question; the direct read has a
 smaller observation window. `openEntityRegion` provides the symmetric Entity path.

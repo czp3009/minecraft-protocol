@@ -110,15 +110,21 @@ class EntityRegionHandleTest {
 
         val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(worldRoot, fakeFileSystem)
         assertEquals(listOf(regionPosition), liveMinecraftWorldAccess.listEntityRegionPositions())
-        val liveEntityRegionHandle = liveMinecraftWorldAccess.openEntityRegion(regionPosition)
-        val liveChunk = assertNotNull(liveEntityRegionHandle.readChunk(chunkPosition, entityChunkNbtCodec))
-        assertEquals(chunkPosition, liveChunk.chunkPosition)
-        assertEquals(entity.uuid, liveChunk.rootEntities.single().uuid)
-        val decodedExternalEntity =
-            liveEntityRegionHandle.readChunk(externalPosition, entityChunkNbtCodec)?.rootEntities?.single()
-        assertNotNull(decodedExternalEntity)
-        assertEquals(NbtByteArray(externalBytes), decodedExternalEntity.data["test:payload"])
-        assertEquals(typedNbt, liveEntityRegionHandle.readChunkNbt<LevelDat>(localChunkPosition = typedLocal))
+        assertTrue(liveMinecraftWorldAccess.hasEntityRegion(regionPosition))
+        liveMinecraftWorldAccess.openEntityRegion(regionPosition).use { liveEntityRegionHandle ->
+            val liveChunk = assertNotNull(liveEntityRegionHandle.readChunk(chunkPosition, entityChunkNbtCodec))
+            assertEquals(chunkPosition, liveChunk.chunkPosition)
+            assertEquals(entity.uuid, liveChunk.rootEntities.single().uuid)
+            val decodedExternalEntity =
+                liveEntityRegionHandle.readChunk(externalPosition, entityChunkNbtCodec)?.rootEntities?.single()
+            assertNotNull(decodedExternalEntity)
+            assertEquals(NbtByteArray(externalBytes), decodedExternalEntity.data["test:payload"])
+            assertEquals(typedNbt, liveEntityRegionHandle.readChunkNbt<LevelDat>(localChunkPosition = typedLocal))
+            assertEquals(
+                setOf(chunkPosition, externalPosition, regionPosition.chunk(typedLocal)),
+                liveEntityRegionHandle.withReadScope { chunkPositions.toSet() },
+            )
+        }
         fakeFileSystem.checkNoOpenFiles()
     }
 

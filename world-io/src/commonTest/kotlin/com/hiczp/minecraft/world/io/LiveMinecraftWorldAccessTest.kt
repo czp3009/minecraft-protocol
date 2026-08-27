@@ -63,6 +63,7 @@ class LiveMinecraftWorldAccessTest {
         assertEquals("{\"blocks\":1}", liveMinecraftWorldAccess.readStatisticsText(playerUuid))
         assertEquals("{\"done\":true}", liveMinecraftWorldAccess.readAdvancementsText(playerUuid))
         assertEquals(listOf(chunkPosition.regionPosition), liveMinecraftWorldAccess.listRegionPositions())
+        assertTrue(liveMinecraftWorldAccess.hasRegion(chunkPosition.regionPosition))
         assertTrue(liveRegionHandle.hasRegion())
         assertTrue(liveRegionHandle.hasChunk(chunkPosition))
         assertTrue(liveRegionHandle.hasChunk(chunkPosition.localChunkPosition))
@@ -95,6 +96,7 @@ class LiveMinecraftWorldAccessTest {
         val nbtSink = Buffer()
         assertEquals(chunkPosition, liveRegionHandle.readChunkNbtTo(chunkPosition, nbtSink)?.chunkPosition)
         assertEquals(nbtDocument, liveRegionHandle.chunkNbtFormat.nbtFormat.decodeDocumentFromSource(nbtSink))
+        liveRegionHandle.close()
 
         assertFalse(fakeFileSystem.exists(minecraftWorldPaths.sessionLock))
         fakeFileSystem.assertSnapshotEquals(root, before)
@@ -138,7 +140,7 @@ class LiveMinecraftWorldAccessTest {
     }
 
     @Test
-    fun openingMissingRegionIsPureAndEveryReadClosesItsOwnResource() = runTest {
+    fun liveRegionHandleRetainsOneMcaAndReadScopeCachesOneHeader() = runTest {
         val baseFileSystem = FakeFileSystem()
         val root = "/world".toPath()
         val minecraftWorldPaths = MinecraftWorldPaths(root)
@@ -161,6 +163,8 @@ class LiveMinecraftWorldAccessTest {
                 minecraftWorldPaths.regionDirectory(RegionStorageDirectory.CHUNKS),
             ),
         )
+        missingHandle.close()
+        assertFailsWith<IllegalStateException> { missingHandle.hasRegion() }
 
         val regionStorage = RegionStorage(minecraftWorldPaths, fileSystem = baseFileSystem)
         try {
@@ -177,35 +181,46 @@ class LiveMinecraftWorldAccessTest {
         val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(root, countingMutableRegionFileSystem)
         val liveRegionHandle = liveMinecraftWorldAccess.openRegion(regionPosition)
 
-        assertEquals(0, countingMutableRegionFileSystem.liveOpens)
+        assertEquals(1, countingMutableRegionFileSystem.liveOpens)
         assertEquals(0, countingMutableRegionFileSystem.closes)
+        assertEquals(0, countingMutableRegionFileSystem.headerReads)
         assertContentEquals(byteArrayOf(1), liveRegionHandle.readCompressedChunk(firstLocalChunkPosition).bytesOrNull())
         assertEquals(1, countingMutableRegionFileSystem.liveOpens)
-        assertEquals(1, countingMutableRegionFileSystem.closes)
+        assertEquals(0, countingMutableRegionFileSystem.closes)
+        assertEquals(1, countingMutableRegionFileSystem.headerReads)
         assertContentEquals(
             byteArrayOf(2),
             liveRegionHandle.readCompressedChunk(regionPosition.chunk(secondLocalChunkPosition)).bytesOrNull(),
         )
-        assertEquals(2, countingMutableRegionFileSystem.liveOpens)
-        assertEquals(2, countingMutableRegionFileSystem.closes)
-        assertEquals(2, liveRegionHandle.readChunkInfos().size)
-        assertEquals(3, countingMutableRegionFileSystem.liveOpens)
-        assertEquals(3, countingMutableRegionFileSystem.closes)
-        assertEquals(2, liveRegionHandle.readChunkCount())
-        assertEquals(4, countingMutableRegionFileSystem.liveOpens)
-        assertEquals(4, countingMutableRegionFileSystem.closes)
-        assertEquals(
-            listOf(firstLocalChunkPosition, secondLocalChunkPosition),
-            liveRegionHandle.readLocalChunkPositions(),
-        )
-        assertEquals(5, countingMutableRegionFileSystem.liveOpens)
-        assertEquals(5, countingMutableRegionFileSystem.closes)
+        assertEquals(2, countingMutableRegionFileSystem.headerReads)
+
+        var escapedReadScope: RegionReadScope? = null
+        liveRegionHandle.withReadScope {
+            escapedReadScope = this
+            assertEquals(
+                listOf(firstLocalChunkPosition, secondLocalChunkPosition),
+                localChunkPositions.toList(),
+            )
+            assertContentEquals(byteArrayOf(1), readCompressedChunk(firstLocalChunkPosition).bytesOrNull())
+            assertContentEquals(byteArrayOf(2), readCompressedChunk(secondLocalChunkPosition).bytesOrNull())
+        }
+        assertEquals(3, countingMutableRegionFileSystem.headerReads)
+        assertEquals(1, countingMutableRegionFileSystem.liveOpens)
+        assertEquals(0, countingMutableRegionFileSystem.closes)
+        assertFailsWith<IllegalStateException> { checkNotNull(escapedReadScope).localChunkPositions }
 
         val secondLiveRegionHandle = liveMinecraftWorldAccess.openRegion(regionPosition)
-        val value = secondLiveRegionHandle.readCompressedChunk(firstLocalChunkPosition)?.compressedByteCount
-        assertEquals(1L, value)
-        assertEquals(6, countingMutableRegionFileSystem.liveOpens)
-        assertEquals(6, countingMutableRegionFileSystem.closes)
+        assertEquals(2, countingMutableRegionFileSystem.liveOpens)
+        secondLiveRegionHandle.use {
+            val compressedByteCount = it.readCompressedChunk(firstLocalChunkPosition)?.compressedByteCount
+            assertEquals(1L, compressedByteCount)
+        }
+        assertEquals(1, countingMutableRegionFileSystem.closes)
+
+        liveRegionHandle.close()
+        liveRegionHandle.close()
+        assertEquals(2, countingMutableRegionFileSystem.closes)
+        assertFailsWith<IllegalStateException> { liveRegionHandle.readChunkCount() }
         baseFileSystem.checkNoOpenFiles()
     }
 

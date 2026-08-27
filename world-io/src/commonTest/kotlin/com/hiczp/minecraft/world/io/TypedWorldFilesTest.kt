@@ -130,7 +130,7 @@ class TypedWorldFilesTest {
     }
 
     @Test
-    fun liveReaderProvidesExplicitAndReifiedTypedReadsWithoutRetainedState() = runTest {
+    fun liveReaderProvidesExplicitAndReifiedTypedReads() = runTest {
         val fakeFileSystem = FakeFileSystem()
         val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val nbtFileStore = NbtFileStore(fakeFileSystem)
@@ -161,9 +161,10 @@ class TypedWorldFilesTest {
         assertEquals(levelDat, reader.readPlayerData<LevelDat>(player))
         assertEquals(levelDat, reader.readSavedData("example:typed", LevelDat.serializer()))
         assertEquals(levelDat, reader.readSavedData<LevelDat>("example:typed"))
-        val liveRegionHandle = reader.openRegion(regionPosition)
-        assertEquals(levelDat, liveRegionHandle.readChunkNbt(chunkPosition, LevelDat.serializer()))
-        assertEquals(levelDat, liveRegionHandle.readChunkNbt<LevelDat>(localChunkPosition = localChunkPosition))
+        reader.openRegion(regionPosition).use { liveRegionHandle ->
+            assertEquals(levelDat, liveRegionHandle.readChunkNbt(chunkPosition, LevelDat.serializer()))
+            assertEquals(levelDat, liveRegionHandle.readChunkNbt<LevelDat>(localChunkPosition = localChunkPosition))
+        }
         assertEquals(playerStatistics, reader.readStatistics(player, PlayerStatistics.serializer()))
         assertEquals(playerStatistics, reader.readStatistics<PlayerStatistics>(player))
         assertEquals(playerAdvancements, reader.readAdvancements(player, PlayerAdvancements.serializer()))

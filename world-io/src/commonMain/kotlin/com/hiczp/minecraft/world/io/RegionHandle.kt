@@ -307,6 +307,10 @@ class RegionHandle internal constructor(
         owner.replaceRegion(entry, chunks)
     }
 
+    /**
+     * Runs [block] under one shared-read admission with one consistent Region header snapshot.
+     * Coordinated writes to this Region cannot interleave with the callback.
+     */
     suspend fun <R> withReadScope(block: RegionReadScope.() -> R): R = withOperation {
         owner.withReadScope(entry, block)
     }

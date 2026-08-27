@@ -21,12 +21,12 @@ import kotlinx.io.Source as KotlinxSource
  */
 internal class MutableRegionFile private constructor(
     private val worldFileAccess: WorldFileAccess,
-    val regionPosition: RegionPosition,
+    override val regionPosition: RegionPosition,
     private val directory: Path,
-    val path: Path,
+    override val path: Path,
     private val fileHandle: FileHandle,
     private val regionWriterState: RegionWriterState,
-) {
+) : RegionReadAccess {
     private var closed = false
 
     fun hasChunk(localChunkPosition: LocalChunkPosition): Boolean {
@@ -34,7 +34,7 @@ internal class MutableRegionFile private constructor(
         return hasChunk(localChunkPosition, headerForRead())
     }
 
-    internal fun hasChunk(localChunkPosition: LocalChunkPosition, regionHeader: RegionHeader): Boolean {
+    override fun hasChunk(localChunkPosition: LocalChunkPosition, regionHeader: RegionHeader): Boolean {
         checkOpen()
         return regionHeader.hasChunk(localChunkPosition)
     }
@@ -56,7 +56,7 @@ internal class MutableRegionFile private constructor(
 
     fun readChunkInfos(): List<RegionChunkInfo> = withReadScope { chunkInfos.toList() }
 
-    internal fun readChunkInfo(localChunkPosition: LocalChunkPosition, regionHeader: RegionHeader): RegionChunkInfo? {
+    override fun readChunkInfo(localChunkPosition: LocalChunkPosition, regionHeader: RegionHeader): RegionChunkInfo? {
         checkOpen()
         return readRegionChunkInfo(worldFileAccess.fileSystem, directory, regionPosition, fileHandle, regionHeader, localChunkPosition)
     }
@@ -70,7 +70,7 @@ internal class MutableRegionFile private constructor(
         return readStoredChunk(localChunkPosition, headerForRead(), block)
     }
 
-    internal fun <R> withCompressedChunkSource(
+    override fun <R> withCompressedChunkSource(
         localChunkPosition: LocalChunkPosition,
         regionHeader: RegionHeader,
         block: (RegionChunkInfo, KotlinxSource) -> R,
