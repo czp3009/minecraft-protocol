@@ -1,0 +1,4 @@
+interface:
+  display_name: "Minecraft Project Docs"
+  short_description: "Write concise hierarchical AGENTS.md and README.md files"
+  default_prompt: "Use $minecraft-project-docs to write or reorganize this repository's AGENTS.md and README.md files."
