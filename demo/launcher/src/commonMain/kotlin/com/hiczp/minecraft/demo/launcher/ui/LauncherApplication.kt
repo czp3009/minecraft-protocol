@@ -53,7 +53,6 @@ internal fun LauncherApplication(launcherController: LauncherController, launche
             visibleRows,
             launcherController::availableVersions,
             launcherState.installedState.installations
-                .filter { it.platformKey == launcherPlatform.platformKey }
                 .mapTo(mutableSetOf()) { it.versionId },
             launcherController::confirmInstall,
             launcherController::showHome,
@@ -62,7 +61,7 @@ internal fun LauncherApplication(launcherController: LauncherController, launche
         is LauncherDestination.ConfirmInstall -> ConfirmInstallScreen(
             launcherDestination.versionEntry,
             launcherState.installedState.installations.any {
-                it.versionId == launcherDestination.versionEntry.id && it.platformKey == launcherPlatform.platformKey
+                it.versionId == launcherDestination.versionEntry.id
             },
             launcherPlatform.platformKey,
             onInstall = { launcherController.install(launcherDestination.versionEntry) },

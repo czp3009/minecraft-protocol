@@ -38,11 +38,10 @@ internal class LauncherStore(
             updated
         }
 
-    suspend fun reconcileInstalled(launcherPlatform: LauncherPlatform): InstalledState = updateInstalled { installedState ->
+    suspend fun reconcileInstalled(): InstalledState = updateInstalled { installedState ->
         installedState.copy(
             installations = installedState.installations.filter { installation ->
-                installation.platformKey != launcherPlatform.platformKey ||
-                        fileSystem.exists(gameRoot(installation.versionId))
+                fileSystem.exists(gameRoot(installation.versionId))
             },
         )
     }
@@ -124,7 +123,6 @@ private fun writeJsonAtomically(fileSystem: FileSystem, path: Path, content: Str
 }
 
 private fun validateAuth(authState: AuthState) {
-    require(authState.schemaVersion == 2) { "Unsupported auth.json schema: ${authState.schemaVersion}" }
     require(authState.accounts.map { it.minecraftIdentity.id }.distinct().size == authState.accounts.size) {
         "auth.json contains duplicate identities"
     }
@@ -145,10 +143,8 @@ private fun validateAuth(authState: AuthState) {
 }
 
 private fun validateInstalled(installedState: InstalledState) {
-    require(installedState.schemaVersion == 1) { "Unsupported installed.json schema: ${installedState.schemaVersion}" }
     installedState.installations.forEach { installation ->
         validateSinglePathComponent(installation.versionId, "version ID")
-        require(installation.platformKey.isNotBlank()) { "installed.json has a blank platform key" }
     }
     require(installedState.installations.distinct().size == installedState.installations.size) {
         "installed.json contains duplicate records"

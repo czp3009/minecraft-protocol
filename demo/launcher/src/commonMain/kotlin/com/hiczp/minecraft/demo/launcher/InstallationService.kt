@@ -24,7 +24,7 @@ internal class InstallationService(
 
     suspend fun loadManifest(): VersionManifest = mojangApi.versionManifest()
 
-    suspend fun loadInstalled(): InstalledState = launcherStore.reconcileInstalled(launcherPlatform)
+    suspend fun loadInstalled(): InstalledState = launcherStore.reconcileInstalled()
 
     suspend fun install(
         versionEntry: VersionEntry,
@@ -34,7 +34,7 @@ internal class InstallationService(
         val downloadingState = launcherStore.updateInstalled { installedState ->
             installedState.copy(
                 installations = installedState.installations.filterNot {
-                    it.versionId == versionEntry.id && it.platformKey == launcherPlatform.platformKey
+                    it.versionId == versionEntry.id
                 },
             )
         }
@@ -42,8 +42,7 @@ internal class InstallationService(
         downloadAll(preparedInstallation.downloads, preparedInstallation.gameRoot)
 
         val completedState = launcherStore.updateInstalled { installedState ->
-            val installedVersion =
-                InstalledVersion(preparedInstallation.versionMetadata.id, launcherPlatform.platformKey)
+            val installedVersion = InstalledVersion(preparedInstallation.versionMetadata.id)
             installedState.copy(installations = installedState.installations.filterNot { it == installedVersion } + installedVersion)
         }
         return CompletedInstallation(preparedInstallation.versionMetadata, completedState)
@@ -92,7 +91,7 @@ internal class InstallationService(
         launcherStore.updateInstalled { installedState ->
             installedState.copy(
                 installations = installedState.installations.filterNot {
-                    it.versionId == versionId && it.platformKey == launcherPlatform.platformKey
+                    it.versionId == versionId
                 },
             )
         }

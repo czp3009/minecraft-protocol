@@ -46,7 +46,7 @@ class InstallationServiceTest {
         assertTrue(installFixture.fakeFileSystem.exists(gameRoot / "assets/indexes/assets-id.json"))
         val assetPath = gameRoot / "assets/objects/${installFixture.assetHash.take(2)}/${installFixture.assetHash}"
         assertTrue(installFixture.fakeFileSystem.exists(assetPath))
-        val expectedInstallations = listOf(InstalledVersion("demo", installFixture.launcherPlatform.platformKey))
+        val expectedInstallations = listOf(InstalledVersion("demo"))
         assertTrue(stateWhenDownloadsStarted?.installations.orEmpty().isEmpty())
         assertEquals(expectedInstallations, installFixture.launcherStore.loadInstalled().installations)
         assertEquals(2, installFixture.countRequests(installFixture.metadataUrl))
@@ -202,7 +202,7 @@ internal class InstallFixture(
     suspend fun recordInstalled() {
         fakeFileSystem.createDirectories(launcherStore.gameRoot(versionEntry.id))
         launcherStore.updateInstalled {
-            it.copy(installations = listOf(InstalledVersion(versionEntry.id, launcherPlatform.platformKey)))
+            it.copy(installations = listOf(InstalledVersion(versionEntry.id)))
         }
     }
 

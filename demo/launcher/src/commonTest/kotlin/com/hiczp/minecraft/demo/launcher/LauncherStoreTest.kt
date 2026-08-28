@@ -2,13 +2,13 @@ package com.hiczp.minecraft.demo.launcher
 
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.put
+import kotlinx.serialization.json.*
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFails
+import kotlin.test.assertFalse
 
 class LauncherStoreTest {
     @Test
@@ -24,18 +24,32 @@ class LauncherStoreTest {
             selectedIdentityId = storedAccount.minecraftIdentity.id
             accounts = listOf(storedAccount)
         }
-        launcherStore.updateInstalled { it.copy(installations = listOf(InstalledVersion("demo", "windows-x86_64"))) }
+        launcherStore.updateInstalled { it.copy(installations = listOf(InstalledVersion("demo"))) }
 
         val reloaded = LauncherStore(fakeFileSystem, root)
         assertEquals(initial.installationId, reloaded.authMemory.read { installationId })
         assertEquals(storedAccount, reloaded.authMemory.read { accounts.single() })
         val authText = fakeFileSystem.read(root / "auth.json") { readUtf8() }
         val authDocument = launcherJson.parseToJsonElement(authText).jsonObject
+        assertFalse("schemaVersion" in authDocument)
         val persistedIdentity = authDocument.getValue("accounts").jsonArray
             .single()
             .jsonObject
             .getValue("minecraftIdentity")
         assertEquals(buildJsonObject { put("name", "Player") }, persistedIdentity)
+        val installedText = fakeFileSystem.read(root / "installed.json") { readUtf8() }
+        val installedDocument = launcherJson.parseToJsonElement(installedText)
+        assertEquals(
+            buildJsonObject {
+                put(
+                    "installations",
+                    buildJsonArray {
+                        add(buildJsonObject { put("versionId", "demo") })
+                    },
+                )
+            },
+            installedDocument,
+        )
         assertEquals("demo", reloaded.loadInstalled().installations.single().versionId)
         assertFalse(fakeFileSystem.exists(root / "auth.json.tmp"))
         assertFalse(fakeFileSystem.exists(root / "installed.json.tmp"))
@@ -72,7 +86,7 @@ class LauncherStoreTest {
     }
 
     @Test
-    fun reconcileOnlyRemovesMissingRecordsForCurrentPlatform() = runTest {
+    fun reconcileRemovesEveryRecordWhoseVersionDirectoryIsMissing() = runTest {
         val fakeFileSystem = FakeFileSystem()
         val root = "/launcher".toPath()
         fakeFileSystem.createDirectories(root)
@@ -81,17 +95,14 @@ class LauncherStoreTest {
         launcherStore.updateInstalled {
             it.copy(
                 installations = listOf(
-                    InstalledVersion("present", "windows-x86_64"),
-                    InstalledVersion("missing", "windows-x86_64"),
-                    InstalledVersion("other", "linux-x86_64"),
+                    InstalledVersion("present"),
+                    InstalledVersion("missing"),
                 ),
             )
         }
 
-        val reconciled = launcherStore.reconcileInstalled(LauncherPlatform("windows", "x86_64", ";", "windows-x86_64"))
+        val reconciled = launcherStore.reconcileInstalled()
 
-        assertTrue(reconciled.installations.any { it.versionId == "present" })
-        assertFalse(reconciled.installations.any { it.versionId == "missing" })
-        assertTrue(reconciled.installations.any { it.versionId == "other" })
+        assertEquals(listOf(InstalledVersion("present")), reconciled.installations)
     }
 }

@@ -143,8 +143,7 @@ class LauncherControllerTest {
             installFixture.activeAssetIndexDownloads.first { it == 1 }
 
             assertIs<LauncherDestination.PreparingInstall>(launcherController.state.value.launcherDestination)
-            val installedVersion =
-                InstalledVersion(installFixture.versionEntry.id, installFixture.launcherPlatform.platformKey)
+            val installedVersion = InstalledVersion(installFixture.versionEntry.id)
             assertEquals(listOf(installedVersion), launcherController.installedVersions())
             assertEquals(1, installFixture.launcherStore.loadInstalled().installations.size)
             launcherController.cancelInstallation()

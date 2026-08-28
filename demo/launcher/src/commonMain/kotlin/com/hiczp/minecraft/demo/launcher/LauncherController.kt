@@ -107,7 +107,6 @@ internal class LauncherController(
     }
 
     fun installedVersions(): List<InstalledVersion> = _state.value.installedState.installations
-        .filter { it.platformKey == launcherPlatform.platformKey }
 
     fun showHome() = show(LauncherDestination.Home)
 
@@ -183,7 +182,7 @@ internal class LauncherController(
                     launcherDestination = LauncherDestination.Installed,
                     installedState = current.installedState.copy(
                         installations = current.installedState.installations.filterNot {
-                            it.versionId == versionId && it.platformKey == launcherPlatform.platformKey
+                            it.versionId == versionId
                         },
                     ),
                     installedMetadata = current.installedMetadata - versionId,

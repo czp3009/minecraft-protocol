@@ -222,19 +222,16 @@ private fun JsonElement.asStrings(): List<String> = when (this) {
 
 @Serializable
 internal data class InstalledState(
-    val schemaVersion: Int = 1,
     val installations: List<InstalledVersion> = emptyList(),
 )
 
 @Serializable
 internal data class InstalledVersion(
     val versionId: String,
-    val platformKey: String,
 )
 
 @Serializable
 internal data class AuthState(
-    val schemaVersion: Int = 2,
     val installationId: Uuid,
     val selectedIdentityId: Uuid? = null,
     val accounts: List<StoredAccount> = emptyList(),

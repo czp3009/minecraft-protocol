@@ -9,7 +9,8 @@ accounts, and starts the official Java client.
 - `LauncherController` owns screen state and operation cancellation. UI composables render that state and delegate
   actions; they do not perform downloads, authentication, persistence, or process control directly.
 - `LauncherStore` owns `auth.json`, `installed.json`, and per-version directories below the launcher's canonical working
-  directory. Keep writes atomic, validate decoded state before use, and key installations by both version and platform.
+  directory. Keep writes atomic, validate decoded state before use, and key installations by version because all
+  launcher targets on one machine start the same official Java client from the same game directory.
 - `AccountService` owns the loopback OAuth callback, account replacement, entitlement/profile completion, and serialized
   refresh per identity. A failed refresh remains visible as expired login state until an explicit sign-in succeeds.
 - `MetadataPlanner` is intentionally strict: it accepts only metadata shapes it can evaluate safely, preserves argument
