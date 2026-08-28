@@ -14,8 +14,8 @@ This module owns client-side Status, Login, Configuration, and entry into Play.
 - Preserve the zero-configuration vanilla path: `connect` defaults the connection definition and transport, while
   `negotiate` requires only the caller's identity and defaults the vanilla profile, protocol data, Known Packs, and
   client settings. Loader or mod behavior is an explicit override.
-- Online Login borrows a caller-owned `HttpClient`; this module decides when the Session Server `/join` call occurs but
-  never configures or closes that client.
+- Online Login decides when the Session Server `/join` call occurs. It consumes a caller-supplied `HttpClient` and does
+  not own account-token acquisition.
 - The negotiation result retains the server-selected `MinecraftDimensionLayout` and derived `ChunkLayout`. The shared
   dimension conversion comes from `protocol-datapack`; there is no release-global dimension-layout default.
 - Shared active-registry conversion to `ChunkDataRegistries` comes from `protocol-datapack`. This module owns the

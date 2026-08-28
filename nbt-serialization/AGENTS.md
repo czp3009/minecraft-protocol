@@ -7,8 +7,7 @@ This module owns binary NBT, SNBT, and their `kotlinx.serialization` formats.
 - Named, unnamed, any-tag, and compound-document roots are explicit contracts. Binary numeric payloads are big-endian,
   strings use Java modified UTF, and heterogeneous logical lists use the selected release's compound-wrapper
   representation.
-- Reject invalid intrinsic lengths and the modified-UTF unsigned-short overflow, but do not add policy-sized depth,
-  collection, array, string, or total-byte limits.
+- Reject invalid intrinsic lengths and the modified-UTF unsigned-short overflow.
 - `decodeFromByteArray` rejects trailing bytes. Stream APIs consume or write one value and never close caller-owned
   `Source` or `Sink` instances.
 - Keep stream paths incremental. Tree and byte-array helpers adapt the stream/format contracts rather than becoming

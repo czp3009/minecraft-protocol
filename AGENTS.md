@@ -67,6 +67,9 @@ Keep physical byte encoding out of models, socket and framing behavior out of se
   module's tests, repository-only initialization, or implementation-only types.
 - Exposing a lower-layer type is correct when it is the natural contract. Do not create wrappers solely to conceal a
   valid downward dependency.
+- Enforce intrinsic protocol, format, and representation bounds in their owning layer. Do not add shared policy-sized
+  byte, collection, nesting, allocation, decompressed-output, or file-count limits to low-level formats and stores;
+  callers own those policies and use the available streaming or inspection paths to enforce them.
 - Keep optional `compileOnly` adapters inert unless explicitly called, document the dependency supplied by the caller,
   and test both the direct and adapter paths.
 
@@ -89,6 +92,9 @@ Keep physical byte encoding out of models, socket and framing behavior out of se
   cleanup failure as suppressed context.
 - Use maintained format-aware libraries for JSON, XML, form data, and other structured formats. Never assemble or escape
   structured data with string concatenation or templates. JSON uses `kotlinx.serialization.json`.
+- Public library HTTP APIs and online-login flows borrow a caller-configured Ktor `HttpClient`. Do not create or
+  configure an engine, install plugins on the caller's behalf, close the client, or add implicit retry, cache, or token
+  policy.
 - Every source generator uses a language-aware library such as KotlinPoet or JavaPoet. Generated declarations are not
   assembled with raw source strings.
 - In Kotlin and Java, prefer templates over `+` for text composition. Keep a complete single-line string on one source
@@ -164,6 +170,7 @@ configuration, or Fixture Host wiring.
 - Coroutine tests use `runTest`, explicit signals, and observed readiness. Do not use `runBlocking`, `Dispatchers.IO`,
   delays, sleeps, arbitrary timeouts, or scheduler luck to prove ordering. Ktor selector loops use `Dispatchers.Default`
   where Native selectors block.
+- External HTTP API tests use deterministic Ktor mock engines and never live services or credentials.
 
 Fixture preparation and lifecycle details belong in the nearest guides under `buildSrc`, `minecraft-test-support`, and
 `minecraft-test-fixture-host`; do not duplicate them here or in consumer modules.

@@ -17,8 +17,8 @@ a finite initial Chunk/entity view; it does not run gameplay.
   `configurationTasks`. Caller extension traffic is not rescanned as framework-owned traffic.
 - `ProtocolData` supplies domain values; construct Feature Flags, Known Packs, Update Tags, and registry packets at the
   Configuration send boundary without moving packet sequencing into `protocol-datapack`.
-- Online Login borrows a caller-owned `HttpClient`; this module decides when `/hasJoined` occurs but never configures or
-  closes that client.
+- Online Login decides when the Session Server `/hasJoined` call occurs. It consumes a caller-supplied `HttpClient` and
+  does not own account or admission policy.
 - Definitions, static schemas, and resolved contexts may be shared across connections. Retain large immutable data by
   reference.
 - Negotiation, codec, and state failures propagate. Do not add automatic disconnect packets or loader-failure replies;

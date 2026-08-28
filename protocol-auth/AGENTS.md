@@ -17,15 +17,13 @@ profile-key verification, and player chat signatures and chains.
 
 ## HTTP and API contract
 
-- HTTP APIs borrow a caller-owned Ktor `HttpClient` and do not install engines, close it, or own retry/cache/token
-  policy.
 - Public HTTP wire bodies are `@Serializable` `*Request`/`*Response` data classes. Decode them directly, retain
   structured error bodies, and let transport, cancellation, parsing, Base64, UUID, timestamp, and serialization failures
   keep their owning type.
 - Expose `protocol-model` values directly when they are the natural contract. Keep signature bodies, chain links,
   signable arguments, parsed keys, cryptographic results, and chain state in this module rather than adding facade
   wrappers.
-- Tests use deterministic HTTP mocks and fixed cryptographic vectors, never live credentials.
+- Cryptographic tests use fixed vectors.
 
 ## Verification
 

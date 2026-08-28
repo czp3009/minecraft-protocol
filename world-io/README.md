@@ -23,10 +23,8 @@ Filesystem support is configured for JVM, Android, supported Native targets, and
 applications should use the filesystem-independent modules.
 
 All filesystem types exposed by this module are Okio types: `Path`, `FileSystem`, `FileHandle`, `BufferedSource`, and
-`BufferedSink`. Filesystem failures visible through `world-io` are in Okio's `IOException` hierarchy. The
-filesystem-independent format modules use kotlinx-io internally; `world-io` crosses that lower boundary only through the
-official `kotlinx-io-okio` adapters, including the failure-only return boundary of terminal parser and serializer calls.
-NBT, compression, Anvil, and serialization failures retain their own semantic exception categories.
+`BufferedSink`. Filesystem failures visible through `world-io` are in Okio's `IOException` hierarchy; NBT, compression,
+Anvil, and serialization failures retain their own semantic exception categories.
 
 ## Choose an API layer
 

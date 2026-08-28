@@ -17,7 +17,7 @@ conversion, and semantic Chunk/entity values for the repository-selected release
   lossless escape hatches for unmodeled content.
 - `DataPackArchive` is raw path-to-bytes input, `DataPack` is parsed content, and `DataPackStack`/
   `ResolvedDataPackStack` own priority resolution. These values remain filesystem- and protocol-independent. Decoders
-  are caller-extensible and add no policy-sized content limits.
+  are caller-extensible.
 - `WorldDataPackLoadResult` is the detached partial-selection handoff: it retains persisted pack IDs and feature
   configuration plus packs already supplied by a lower reader. Completing it preserves enabled low-to-high priority,
   reports every unavailable ID together, and adds no vanilla-core, filesystem-discovery, or protocol policy.
@@ -29,7 +29,7 @@ conversion, and semantic Chunk/entity values for the repository-selected release
 - `AnvilRegionFormat` receives already-compressed records, preserves each record's compression registration, and does
   not choose compression. Callers can inspect or repack a region without inflating unchanged payloads.
 - Reject intrinsic corruption such as overlap, truncation, overflow, invalid Region compression identifiers, and
-  checksum failure, but do not impose policy-sized region, chunk, or decompressed-output limits.
+  checksum failure.
 - Keep CUSTOM compression injectable through the public registry. Maintained libraries own raw compression and
   checksums; this module owns Minecraft containers and validation.
 - Structural failures use `AnvilFormatException`; stream/backend I/O, NBT, cancellation, and custom-codec failures

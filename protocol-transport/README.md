@@ -10,9 +10,8 @@ The module provides:
 - AES/CFB8 stream encryption;
 - framed connections backed by Ktor `Socket`, `ByteReadChannel`, and `ByteWriteChannel`.
 
-Compression and encryption delegate to maintained platform libraries; the module contains no compression or AES
-algorithm implementation. Its public boundary ends at packet-data bytes—protocol states and typed packet encoding are
-implemented by [`protocol-session`](../protocol-session/README.md).
+Its public boundary ends at packet-data bytes—protocol states and typed packet encoding are implemented by
+[`protocol-session`](../protocol-session/README.md).
 
 `MinecraftFrameCodec` and `MinecraftFrameStream` expose caller-owned `kotlinx.io` `Source`/`Sink` operations as their
 canonical paths, with byte-array overloads as adapters. Malformed framing, compression, and transport data are exposed
@@ -70,7 +69,7 @@ For a Ktor `Socket`, `flush()` publishes the pending `ByteWriteChannel` bytes to
 suspend when Ktor's bounded channel buffer has no free space, but returning means neither that the operating system has
 delivered the bytes nor that the peer has decoded them. TCP and Minecraft acknowledgements remain separate layers. Ktor
 makes progress as its own write buffer fills. The explicit flush publishes the remaining tail at the caller's chosen
-boundary. The transport's 8192-byte scratch arrays only bound encryption/decryption copying.
+boundary.
 
 One coroutine owns sequential reads and one coroutine owns sequential writes. The two directions may run concurrently;
 callers do not issue concurrent operations within one direction. The typed connection in `protocol-session` provides

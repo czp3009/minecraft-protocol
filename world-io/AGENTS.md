@@ -36,8 +36,6 @@ configured filesystem runtimes only; browser and Wasm do not receive partial imp
   Carry the field through semantic values; callers own any compatibility check or migration decision.
 - Live Region resources intentionally do not implement `AutoCloseable`: their member `use` preserves project failure
   combination and must remain the single Kotlin completion entry instead of competing with the standard extension.
-- Do not add policy-sized read, write, decompression, tree-depth, allocation, pack-file, or file-count limits.
-  Complete-value helpers may retain their documented value; streaming paths avoid unnecessary duplication.
 - Anvil allocation is the explicit write-side exception: when the producer does not already know the compressed length,
   Region encoding may retain the one final compressed payload needed to determine record length. It must not also stage
   a complete uncompressed payload. A caller that supplies `compressedByteCount` streams directly to the Region sink.

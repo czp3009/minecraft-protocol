@@ -16,22 +16,6 @@ Use it to build tools such as:
 It is infrastructure rather than a complete game server. Gameplay, ticking, permissions, player management,
 authoritative world state, and application persistence policy remain application concerns.
 
-## What the project provides
-
-- Typed packet models and `kotlinx.serialization` codecs for the repository-selected Minecraft release.
-- Ktor-based TCP transport with Minecraft framing, compression, and encryption.
-- Typed client and server connections for Status, Login, Configuration, and entry into Play, with official
-  Configuration/Play KeepAlive handling.
-- Vanilla, Fabric API, NeoForge, and Forge negotiation profiles with composable custom packet registrations.
-- Offline and online game authentication, profile-key verification, and signed-chat primitives.
-- Separate launcher APIs for Microsoft OAuth, Xbox/XSTS, Minecraft Services tokens, entitlements, and profiles.
-- Generated release-matched vanilla registries, block states, Configuration data, and official core/built-in data-pack
-  archives.
-- Immutable NBT values, streaming binary NBT, and SNBT.
-- Filesystem-independent Anvil, Chunk, Entity, coordinate, palette, level, statistics, advancement, and data-pack
-  formats.
-- Okio-backed mutable world access and non-locking live reads of worlds owned by another process.
-
 ## Choose the modules you need
 
 The project is split by capability, so applications can start at the appropriate layer:
