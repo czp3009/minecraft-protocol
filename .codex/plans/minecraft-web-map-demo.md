@@ -31,9 +31,9 @@
 9. Demo 是现有库能力的普通使用者。完成阶段 A 的库前置能力后，它只接收世界目录，不要求调用方另外提供 data-pack references、
    registry snapshot、维度列表、dimension layout 或高度表；所需引用与数据全部由存档和仓库所选择版本的生成 vanilla 数据取得。
 
-本设计可行，但实现 Demo 前要在现有 `buildSrc`、`world-format` 和 `world-io` 边界内补齐 world version 生成、
-`world_gen_settings.dat` 模型与全局 saved-data 读取能力。`world-format` 已提供 Chunk/Region 坐标、Anvil 压缩与语义 Chunk；
-`world-io` 已提供不会取得 `session.lock` 的 live read-only 入口。无需为这些能力新建运行时模块。
+本设计可行，但实现 Demo 前还要在现有 `world-format` 和 `world-io` 边界内补齐 `world_gen_settings.dat` 模型与全局
+saved-data 读取能力。`world-format` 已提供 release-matched `MinecraftWorldFormat.WORLD_VERSION`、Chunk/Region 坐标、Anvil
+压缩与语义 Chunk；`world-io` 已提供不会取得 `session.lock` 的 live read-only 入口。无需为这些能力新建运行时模块。
 
 ## 2. 明确不做的事情
 
@@ -64,6 +64,8 @@
 
 - 当前 `LevelDat` 是仓库所选择版本的完整 `level.dat` 模型；官方当前写入路径和真实存档都不在该文件中保存维度集合，因此这里不是
   库漏读了一个 `level.dat` 字段。
+- `MinecraftWorldFormat.WORLD_VERSION` 由 matching official server 的 `version.json.world_version` 生成；磁盘 NBT 字段仍称为
+  `DataVersion`，该常量不是网络 `protocol_version`，也不是 `level.dat` 中的小写 `version` 字段。
 - `RegionPosition` 覆盖 32 × 32 个 Chunk，`ChunkPosition` 和 `MinecraftCoordinates` 提供负坐标下的 floor 语义。
 - `ChunkNbtCodec<BlockStateDescriptor, String>` 可以把持久化 Chunk 解码为语义 `Chunk`。
 - `DescriptorBlockStateRegistry` 保留方块名称和 properties，避免在地图协议中丢失方块状态。
@@ -123,24 +125,19 @@
 
 以下改动都有跨调用方价值，并放回现有所有者，不创建新模块：
 
-1. 根 official target analysis 从官方 server JAR 的 `version.json.world_version` 读取 world version，把 `world_version`
-   加入 target artifact；`world-format` 注册自己的 KotlinPoet 生成任务，生成 `MinecraftWorldFormat.WORLD_VERSION`。不要生成
-   `DATA_VERSION` 常量，也不要让 `world-format` 依赖 `protocol-model`。磁盘 NBT 字段仍按官方名称保留为 `DataVersion`，
-   `LevelDat.dataVersion` 等字段也继续表示这个序列化字段。这个值不是网络 `protocol_version`，也不是 `level.dat` 中表示底层
-   storage format 的小写 `version` 字段。
-2. `world-format` 增加仓库所选择版本的完整 `WorldGenSettings` standalone-NBT 模型：根包含 `DataVersion` 和 `data`，`data`
+1. `world-format` 增加仓库所选择版本的完整 `WorldGenSettings` standalone-NBT 模型：根包含 `DataVersion` 和 `data`，`data`
    包含 seed、结构/奖励箱选项和完整 dimensions map；每个 level stem 用 sealed serializer 无损区分 dimension type ID 与
    inline
    `NbtCompound`，并以 `NbtCompound` 保留动态 generator 子树。与其他 selected-release 模型相同，未知固定字段严格失败， 原始
    NBT API 仍是扩展逃生口。
-3. `world-io` 的 saved-data 路径与 `SavedDataStore` 明确区分世界根全局 scope 和逐维度 scope，并在 mutable 与 live
+2. `world-io` 的 saved-data 路径与 `SavedDataStore` 明确区分世界根全局 scope 和逐维度 scope，并在 mutable 与 live
    read-only 入口上提供对称的 document/serializer/stream 操作。把现有 `SavedDataFileStore` 直接改名为 `SavedDataStore`
    ，不保留兼容 别名。Demo 通过该通用入口读取 `minecraft:world_gen_settings`，不自行拼接文件路径，也不为单个文件增加 Demo 专用
    I/O；本计划 不扩展任意世界文件读写或重构 `NbtFileStore`、逻辑 store 与 world access 的整体分层。
-4. `world-format` 为 `ChunkLayout` 提供 `fromBlockBounds(minY, height)` 公共 factory，并让
+3. `world-format` 为 `ChunkLayout` 提供 `fromBlockBounds(minY, height)` 公共 factory，并让
    `MinecraftDimensionLayout.toChunkLayout()` 委托给它。referenced 和 inline dimension types 由此共享同一套倍数检查与
    Section 换算，Demo 不复制 `minY / 16` 或 `height / 16`。
-5. `ChunkNbtCodec` 在 NBT `DataVersion` 与 context 预期值不同时抛出带 expected/actual 值的专用
+4. `ChunkNbtCodec` 在 NBT `DataVersion` 与 context 预期值不同时抛出带 expected/actual 值的专用
    `ChunkWorldVersionMismatchException`，使调用方能把版本冲突与普通格式/撕裂失败稳定区分；其他结构错误仍使用既有
    `ChunkNbtFormatException` 分类。
 
@@ -432,17 +429,15 @@ route；Canvas 根据方块标识生成确定性颜色。浏览器不创建每�
 
 ### 阶段 A：已有模块前置能力
 
-1. 扩展 official target analysis，使其从 `version.json.world_version` 产生 target artifact 的 `world_version`；在
-   `world-format` 注册生成任务并生成 `MinecraftWorldFormat.WORLD_VERSION`，同时覆盖 build-logic 单元测试和生成源测试。
-2. 在 `world-format` 增加完整 `WorldGenSettings` 模型、`ChunkLayout` block-bounds factory 和
+1. 在 `world-format` 增加完整 `WorldGenSettings` 模型、`ChunkLayout` block-bounds factory 和
    `ChunkWorldVersionMismatchException`；在 portable tests 中验证严格 round trip、referenced/inline dimension types、动态
    generator 保留、统一 layout 换算和 expected/actual world version。
-3. 在 `world-io` 把全局与逐维度 saved-data scope 建模为通用路径/`SavedDataStore` 能力，把现有
+2. 在 `world-io` 把全局与逐维度 saved-data scope 建模为通用路径/`SavedDataStore` 能力，把现有
    `SavedDataFileStore` 直接改名为 `SavedDataStore`，并在 mutable/live API 上保持 document、serializer 和 stream 入口对称；
    portable tests 验证路径和 store 行为，既有 `hostFilesystemTest` official-world 场景验证真实
    `minecraft:world_gen_settings` 文件。不要保留兼容别名，不要在 Demo 模块创建第二套 host-filesystem fixture source
    set，也不在 本阶段展开任意文件访问或整体存储分层重构。
-4. 更新受影响模块的 README 和 AGENTS，使当前公共契约、路径 scope 和生成常量所有权与实现一致；不增加新模块或兼容别名。
+3. 更新受影响模块的 README 和 AGENTS，使当前公共契约与路径 scope 和实现一致；不增加新模块或兼容别名。
 
 ### 阶段 B：Demo 模块与共享契约
 
@@ -487,24 +482,19 @@ route；Canvas 根据方块标识生成确定性颜色。浏览器不创建每�
 最窄验证顺序：
 
 ```shell
-./gradlew -p buildSrc test
 ./gradlew :world-format:jvmTest
 ./gradlew :world-io:jvmTest
 ./gradlew :demo:web-map:jvmTest
 ./gradlew :demo:web-map:jsNodeTest
 ```
 
-随后执行 `:world-io:jsNodeTest`、适用的 host Native test/compile 和安装任务。official target artifact、`world-format`
-生成源注册以及 JS distribution 到 server 安装目录的 Gradle wiring 都要验证 configuration-cache 首次存储与再次复用。所有
-Gradle 调用按顺序执行。
+随后执行 `:world-io:jsNodeTest`、适用的 host Native test/compile 和安装任务。world-io wiring 以及 JS distribution 到
+server 安装目录的 Gradle wiring 都要验证 configuration-cache 首次存储与再次复用。所有 Gradle 调用按顺序执行。
 
 必需测试覆盖：
 
 - 包含两端的正坐标、负坐标、反向端点、单 Chunk 和跨 Region 范围。
 - Region 文件缺失、Region 中 Chunk 缺失、全空气成功 Chunk 和正常表面 Chunk。
-- official target artifact 的 `world_version` 来自 server JAR 的 `version.json.world_version`，生成的
-  `MinecraftWorldFormat.WORLD_VERSION` 与 official fixture 的 NBT `DataVersion` 相等；生成源不提交到仓库，也不增加
-  `DATA_VERSION` 常量或 `world-format` → `protocol-model` 依赖。
 - `LevelDat` fixture 证明当前 schema 没有维度集合；`WorldGenSettings` fixture 完整保留 seed/options、维度
   ID、referenced/inline dimension types 和动态 generator，并拒绝未知固定字段。
 - 全局 `minecraft:world_gen_settings` 精确读取世界根 `data/minecraft/world_gen_settings.dat`，逐维度 saved data 仍映射到对应
@@ -563,8 +553,7 @@ live-read smoke test 使用开发者显式设置的 `MINECRAFT_WORLD_DIRECTORY` 
 6. Chunk 范围改变时先取消上一代视窗请求和全部补漏请求；新响应返回前保留旧画面，返回后一次替换。
 7. 后端没有世界表面缓存、图片渲染、共享 Region coordinator 或跨请求文件生命周期；只使用请求内每 Region 一个 caller-owned
    handle 和 callback-bound read scope。
-8. `MinecraftWorldFormat.WORLD_VERSION` 由官方 `version.json.world_version` 生成；磁盘字段仍准确称为 `DataVersion`，两者不匹配
-   时稳定返回 409，页面不重试该状态。
+8. 磁盘 `DataVersion` 与 `MinecraftWorldFormat.WORLD_VERSION` 不匹配时稳定返回 409，页面不重试该状态。
 9. 现有 `protocol-datapack`/`world-format`/`world-io` 边界未被反转；Demo 不依赖 `protocol-client`/`protocol-server`，live
    observer 从不获取 `session.lock` 或修改世界。
 10. JVM、Kotlin/JS Node test-runner 逻辑测试和已声明的 host target 验证通过，README 与实际产物一致。

@@ -15,6 +15,7 @@ Current production source producers are:
 | Producer                                                                     | Output responsibility                                                          |
 |------------------------------------------------------------------------------|--------------------------------------------------------------------------------|
 | `:protocol-model:generateMinecraftProtocolSource`                            | `MinecraftProtocol` release and protocol constants                             |
+| `:world-format:generateMinecraftWorldFormatSource`                           | `MinecraftWorldFormat` world-format constant                                   |
 | `:protocol-model:kspCommonMainKotlinMetadata`                                | Packet definitions and data-component dispatch derived from source annotations |
 | `:protocol-datapack-vanilla:generateVanillaRegistryDataSource`               | Registry and block-state payload source                                        |
 | `:protocol-datapack-vanilla:generateVanillaConfigurationPacketPayloadSource` | Captured Configuration packet payload source                                   |

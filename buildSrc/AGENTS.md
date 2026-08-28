@@ -26,9 +26,10 @@ non-source generation, fixture templates, and Fixture Host service wiring.
 - `prepareOfficialMinecraftData`, `prepareOfficialMinecraftServer`, `prepareHeadlessClient`,
   `prepareOfficialMinecraftCodecOracle`, and `prepareMinecraftTestFixtureHostRuntime` are actionless lifecycle gates
   over their real producers.
-- `GenerateMinecraftProtocolSourceTask`, `GenerateVanillaRegistryDataSourceTask`,
-  `GenerateVanillaConfigurationPacketPayloadSourceTask`, and `GenerateVanillaDataPackSourcesTask` are task types only;
-  the runtime module that owns each generated source set registers its producer.
+- `GenerateMinecraftProtocolSourceTask`, `GenerateMinecraftWorldFormatSourceTask`,
+  `GenerateVanillaRegistryDataSourceTask`, `GenerateVanillaConfigurationPacketPayloadSourceTask`, and
+  `GenerateVanillaDataPackSourcesTask` are task types only; the runtime module that owns each generated source set
+  registers its producer.
 - `JvmProcessArguments` owns shared JVM arguments. Official processes and JVM tasks that load the affected native-backed
   libraries receive `--enable-native-access=ALL-UNNAMED` before application arguments.
 

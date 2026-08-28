@@ -1,5 +1,7 @@
 import com.hiczp.minecraft.buildlogic.BuildVersions
+import com.hiczp.minecraft.buildlogic.GenerateMinecraftWorldFormatSourceTask
 import com.hiczp.minecraft.buildlogic.JvmProcessArguments
+import com.hiczp.minecraft.buildlogic.officialMinecraftArtifactFile
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
 import org.jetbrains.kotlin.gradle.tasks.CInteropProcess
@@ -9,6 +11,21 @@ plugins {
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
     alias(libs.plugins.kotlinSerialization)
 }
+
+val officialTargetFile = officialMinecraftArtifactFile("officialMinecraftTarget")
+val generatedMinecraftWorldFormatSourceDirectory = layout.buildDirectory.dir(
+    "generated/sources/minecraftWorldFormat/commonMain/kotlin",
+)
+val generateMinecraftWorldFormatSource =
+    tasks.register<GenerateMinecraftWorldFormatSourceTask>(
+        "generateMinecraftWorldFormatSource",
+    ) {
+        description = "Generate world-format constants for the selected Minecraft release."
+        targetFile = officialTargetFile
+        outputFile = generatedMinecraftWorldFormatSourceDirectory.map {
+            it.file("com/hiczp/minecraft/world/format/MinecraftWorldFormat.kt")
+        }
+    }
 
 // NativeBuilds' published Gradle plugin still calls a Gradle Kotlin DSL internal removed in Gradle 9.6.1. Consume
 // its official binary/header artifacts directly and use public Gradle/Kotlin APIs until the plugin is compatible.
@@ -114,12 +131,18 @@ kotlin {
             }
         }
 
-        commonMain.dependencies {
-            api(project(":nbt"))
-            api(project(":nbt-serialization"))
-            api(libs.kotlinx.io.core)
-            api(libs.kotlinx.serialization.core)
-            api(libs.kotlinx.serialization.json)
+        commonMain {
+            kotlin.srcDir(
+                files(generatedMinecraftWorldFormatSourceDirectory)
+                    .builtBy(generateMinecraftWorldFormatSource),
+            )
+            dependencies {
+                api(project(":nbt"))
+                api(project(":nbt-serialization"))
+                api(libs.kotlinx.io.core)
+                api(libs.kotlinx.serialization.core)
+                api(libs.kotlinx.serialization.json)
+            }
         }
         webMain.dependencies {
             implementation(libs.kompress.core)

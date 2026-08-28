@@ -5,6 +5,8 @@ conversion, and semantic Chunk/entity values for the repository-selected release
 
 ## Structured world data
 
+- `MinecraftWorldFormat.WORLD_VERSION` is generated from the matching official server's `version.json`; serialized NBT
+  fields remain named `DataVersion`. Do not hand-copy this value or depend on `protocol-model` to obtain it.
 - `LevelDat`, advancements, and statistics model only the selected release. Audit official reader/writer behavior on
   release updates; do not keep old-schema branches or add an implicit DataFixer.
 - Fixed structures use generated serializers. The advancement root keeps its custom map-composite serializer because

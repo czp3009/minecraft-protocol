@@ -521,8 +521,8 @@ set、插件或 生成任务。
 
 ## 12. 与网页地图计划的边界
 
-[Minecraft 网页地图 Demo 计划](minecraft-web-map-demo.md) 继续拥有以下非通用工作：world version 生成、
-`WorldGenSettings` 模型、维度/active dimension type 解析、HTTP 409、未完全生成 Chunk、Region 失败映射、前端退避和世界目录发现。
+[Minecraft 网页地图 Demo 计划](minecraft-web-map-demo.md) 继续拥有以下非通用工作：`WorldGenSettings` 模型、维度/active
+dimension type 解析、HTTP 409、未完全生成 Chunk、Region 失败映射、前端退避和世界目录发现。
 
 本计划只提供它所需的通用存储结果：
 

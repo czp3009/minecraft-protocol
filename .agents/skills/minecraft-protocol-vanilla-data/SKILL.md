@@ -17,6 +17,7 @@ The handwritten surface includes official analyzer/capture/generator implementat
 used by loaders. The following generated Kotlin is read-only:
 
 - `MinecraftProtocol.kt`;
+- `MinecraftWorldFormat.kt`;
 - `VanillaRegistryDataPayloads.kt`;
 - `VanillaConfigurationPacketPayloads.kt`;
 - `VanillaDataPackPayload.kt` and every `VanillaDataPackPayloadBatch*.kt`.

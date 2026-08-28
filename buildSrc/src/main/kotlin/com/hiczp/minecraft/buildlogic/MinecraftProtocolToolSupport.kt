@@ -598,12 +598,21 @@ internal fun Path.readZipEntry(name: String): ByteArray =
 internal data class MinecraftProtocolTarget(
     val minecraftVersion: String,
     val protocolVersion: Int,
+    val worldVersion: Int,
     val javaMajorVersion: Int,
 )
 
 internal data class OfficialMinecraftTargetReport(
     val minecraftProtocolTarget: MinecraftProtocolTarget,
 )
+
+internal fun MinecraftProtocolTarget.toOfficialMinecraftTargetReportJson(): JsonObject = buildJsonObject {
+    put("schema_version", 1)
+    put("minecraft_version", minecraftVersion)
+    put("protocol_version", protocolVersion)
+    put("world_version", worldVersion)
+    put("java_major_version", javaMajorVersion)
+}
 
 internal fun Path.readOfficialMinecraftTargetReport(): OfficialMinecraftTargetReport {
     check(isRegularFile()) {
@@ -617,6 +626,7 @@ internal fun Path.readOfficialMinecraftTargetReport(): OfficialMinecraftTargetRe
         minecraftProtocolTarget = MinecraftProtocolTarget(
             minecraftVersion = report.getValue("minecraft_version").jsonPrimitive.content,
             protocolVersion = report.getValue("protocol_version").jsonPrimitive.int,
+            worldVersion = report.getValue("world_version").jsonPrimitive.int,
             javaMajorVersion = report.getValue("java_major_version").jsonPrimitive.int,
         ),
     ).also {
@@ -625,6 +635,9 @@ internal fun Path.readOfficialMinecraftTargetReport(): OfficialMinecraftTargetRe
         }
         check(it.minecraftProtocolTarget.protocolVersion >= 0) {
             "Official Minecraft target has a negative protocol version"
+        }
+        check(it.minecraftProtocolTarget.worldVersion >= 0) {
+            "Official Minecraft target has a negative world version"
         }
         check(it.minecraftProtocolTarget.javaMajorVersion > 0) {
             "Official Minecraft target has no Java requirement"
@@ -646,6 +659,7 @@ internal fun Path.readMinecraftProtocolTarget(
     return MinecraftProtocolTarget(
         minecraftVersion = minecraftVersion,
         protocolVersion = version.getValue("protocol_version").jsonPrimitive.int,
+        worldVersion = version.getValue("world_version").jsonPrimitive.int,
         javaMajorVersion = version.getValue("java_version").jsonPrimitive.int,
     )
 }

@@ -2,14 +2,12 @@ package com.hiczp.minecraft.buildlogic
 
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
-import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.*
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.*
 import java.util.zip.ZipFile
 import kotlin.io.path.createDirectories
 import kotlin.io.path.isRegularFile
@@ -114,14 +112,8 @@ abstract class AnalyzeOfficialMinecraftTargetTask :
         ) {
             "Official server metadata targets a different Minecraft release"
         }
-        val report = buildJsonObject {
-            put("schema_version", 1)
-            put("minecraft_version", minecraftProtocolTarget.minecraftVersion)
-            put("protocol_version", minecraftProtocolTarget.protocolVersion)
-            put("java_major_version", minecraftProtocolTarget.javaMajorVersion)
-        }
         val output = outputFile.asFile.get().toPath()
-        output.writeJson(report, sortKeys = true)
+        output.writeJson(minecraftProtocolTarget.toOfficialMinecraftTargetReportJson(), sortKeys = true)
         logger.lifecycle(
             "Analyzed Minecraft ${minecraftProtocolTarget.minecraftVersion} target: $output",
         )

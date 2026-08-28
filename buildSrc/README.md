@@ -9,8 +9,8 @@ release-matched source, and provide official server/client fixtures to tests.
 - one repository-wide Minecraft release selector and shared Java/Android build versions;
 - reusable Kotlin Multiplatform target and test-task configuration;
 - downloads and analysis of matching official client/server artifacts;
-- generation of protocol constants, packet reports, vanilla registries, block states, Configuration data, and data-pack
-  source consumed by the owning runtime modules;
+- generation of protocol and world-format constants, packet reports, vanilla registries, block states, Configuration
+  data, and data-pack source consumed by the owning runtime modules;
 - prepared official-server, headless-client, and codec-oracle runtimes;
 - lazy Fixture Host startup and cleanup for supported Gradle test tasks.
 

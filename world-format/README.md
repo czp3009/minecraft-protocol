@@ -7,6 +7,7 @@ Use it for:
 
 - semantic Chunk, Section, palette, Block Entity, Entity, and Entity Chunk values;
 - safe conversion between Block, Section, Chunk, and Region coordinates;
+- the generated `MinecraftWorldFormat.WORLD_VERSION` for the repository-selected official world format;
 - selected-release `level.dat`, advancement, and statistics models;
 - GZIP, ZLIB, uncompressed, Minecraft's legacy LZ4 block stream, and custom compression;
 - compressed unnamed-root Chunk NBT;
@@ -46,7 +47,7 @@ application wants:
 ```kotlin
 fun createDescriptorChunkCodec(
     chunkLayout: ChunkLayout,
-    expectedDataVersion: Int,
+    expectedDataVersion: Int = MinecraftWorldFormat.WORLD_VERSION,
 ): ChunkNbtCodec<BlockStateDescriptor, String> {
     val chunkDataRegistries = ChunkDataRegistries(
         blockStates = DescriptorBlockStateRegistry(),
@@ -61,6 +62,10 @@ fun createDescriptorChunkCodec(
     )
 }
 ```
+
+`MinecraftWorldFormat.WORLD_VERSION` comes from `world_version` in the matching official server's `version.json`.
+Persisted NBT continues to call the same value `DataVersion`; it is distinct from the network protocol version and the
+lowercase `version` field in `level.dat`.
 
 `DescriptorBlockStateRegistry` preserves block names and properties; `NamedBiomeRegistry` uses persistent biome names.
 Applications may implement `BlockStateRegistry<B>` and `BiomeRegistry<M>` to resolve directly into their own runtime

@@ -4,8 +4,8 @@
 
 The root pipeline currently exposes:
 
-- `analyzeOfficialMinecraftTarget`: Minecraft release, protocol number, and required Java major from the matching
-  official server;
+- `analyzeOfficialMinecraftTarget`: Minecraft release, protocol number, world version, and required Java major from the
+  matching official server;
 - `analyzeOfficialMinecraftReports`: vanilla `packets.json`, `registries.json`, and `blocks.json` reports;
 - `analyzeOfficialMinecraftConfiguration`: an executable Configuration capture using report-derived packet IDs;
 - `extractOfficialMinecraftDataPacks`: exact core and built-in data-pack files plus their manifest;
@@ -18,6 +18,7 @@ it.
 ## Source producers
 
 - `:protocol-model:generateMinecraftProtocolSource` renders release constants from target analysis.
+- `:world-format:generateMinecraftWorldFormatSource` renders the world-format constant from target analysis.
 - `:protocol-datapack-vanilla:generateVanillaRegistryDataSource` renders encoded registry and block-state payload source
   from target, registry, and block reports.
 - `:protocol-datapack-vanilla:generateVanillaConfigurationPacketPayloadSource` renders encoded Configuration packet
