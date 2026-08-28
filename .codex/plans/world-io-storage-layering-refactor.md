@@ -1,6 +1,6 @@
 # `world-io` 无状态存储分层与双路线重构计划
 
-- 状态：待实施，目标架构与主要语义已经确定
+- 状态：已完成；定向 JVM/JS、官方互操作与仓库 `allTests` gate 均已通过
 - 记录日期：2026-08-28
 - 适用版本：仓库所选择的 Minecraft 官方版本；本计划不改变版本选择
 - 计划模块：`:world-io`；不新增 Gradle 运行时模块
@@ -35,10 +35,26 @@
     保留现有窄 `WorldFileAccess`，只让它负责 ordinary/live 的物理打开差异和写能力检查，不得取得逻辑锁。
 11. 保留 `RequiresExclusive` 机制：mutable 的共享读发现必须执行 `_old` fallback、promotion 或损坏副本保存时，释放共享
     admission 后取得独占 admission，再执行完整读取与恢复流程；绝不在持有共享锁时原地升级。
-12. `_old` 是上一份存储快照，不是旧格式文件。库不提供 DataFixer，不升级历史 schema；强类型内容与仓库所选择版本不兼容时
-    直接报错。除 level/player 已确定的官方式 fallback 外，不增加通用损坏文件猜测、隔离或修复框架。
+12. `_old` 是上一份存储快照，不是旧格式文件。库不提供 DataFixer，不升级历史 schema，也不把 `DataVersion` 与仓库或调用方
+    指定版本比较后拒绝读取；它直接尝试解析并保留该字段，结构本身无法解析时才按 codec 契约失败。除 level/player 已确定的 官方式
+    fallback 外，不增加通用损坏文件猜测、隔离或修复框架。
 13. `SavedDataFileStore` 直接改名为 `SavedDataStore`，不保留 deprecated alias 或兼容包装。
 14. 这是早期项目的直接重构。旧的偶然分层、内部类和调用路径可以删除，不引入过渡期双实现。
+15. `world-io` 的 public/protected 文件系统类型、callback 流和 I/O 异常只使用 Okio；只在调用 filesystem-independent lower
+    layer 时通过官方 `kotlinx-io-okio` adapter 转换，不手写字节搬运或自行构造替代异常。终端 parser/serializer
+    没有可反向适配的返回流，因此其失败出口只在捕获到 kotlinx-io `IOException` 时借官方反向 adapter 映射。
+16. callback-bound source/sink 是字节层面的主路径；document、typed serializer、text/element 等完整值入口直接封装该流，不先
+    组装完整 byte array、string 或格式树。Region 写入因 Anvil 分配必须先知道压缩后长度，可保留唯一一份最终压缩结果，但不再
+    同时保留完整未压缩中间结果；已知压缩长度的入口直接流式写入。
+17. 后续确认纳入的强类型范围包括 `PlayerData`、维度 saved-data 的 `world_border`/`chunk_tickets`/`raids`/
+    `ender_dragon_fight`，以及可变的 POI Chunk/Section/record 领域模型。它们属于 `world-format`；`world-io` 只负责路径、流和
+    文件策略。
+18. `level.dat` 与 `players/data/<uuid>.dat` 复用一个 primary/previous NBT 物理机制，但保留官方不同的恢复结果：level 成功读取
+    previous 后 best-effort 提升，player 只回退读取且不提升；两份 player 数据都不可用时返回空。
+19. mutable/live 两侧为 level、player、saved data、Chunk/Entity/POI Region 提供同名同参数的读取形态；差异只来自
+    suspend、写入、协调、close 和资源所有权。强类型 shortcut 只调用一次通用 serializer 路径，不形成第二套行为。
+20. 对仓库所选择布局的维度目录，`region`、`entities`、`poi` 和 `data` 四类内容均有 mutable 协调入口与 live 读取入口； POI
+    handle 自己持有无额外上下文的 codec，调用方不重复传入。
 
 ## 2. 明确不做的事情
 
@@ -46,16 +62,17 @@
 - 不新增 `world-storage-core`、`world-storage-adapter` 或其他小运行时模块。
 - 不创建拦截所有 Okio 调用的 `FileSystem` 代理，也不依赖路径字符串猜测逻辑资源。
 - 不让 live 路线写入任何文件，不为 live 读取增加 `session.lock` 或程序内读写协调。
-- 不让 `Source`、`Sink`、Region read scope 或 replacement scope 逃逸出其回调/资源生命周期。
+- 不让 Okio `BufferedSource`、`BufferedSink`、Region read scope 或 replacement scope 逃逸出其回调/资源生命周期。
 - 不承诺 `directFiles` 与语义 API 之间的一致性，也不在 direct 操作之间隐式串行化同一路径。
 - 不禁止用户通过低层 store 或 `directFiles` 访问 world 目录外、`session.lock`、`.mca`、`.mcc` 或任何其他文件。
 - 不实现跨进程快照、事务、文件观察、DataFixer、旧 schema 迁移或通用损坏数据恢复。
 - 不把官方的多步备份替换描述为整个操作原子；只保证每一步失败时本库定义的清理和 rollback 不变量。
-- 不在这次重构中改变 Chunk、Entity、NBT 或 JSON 的数据模型。
+- 不为存储分层改变 Chunk、Entity、NBT 或 JSON 的既有语义；后来明确加入的 PlayerData、维度 saved-data 与 POI 模型是独立的
+  filesystem-independent 扩展。
 
-## 3. 已核对的现状与问题
+## 3. 已核对的重构前现状与问题
 
-### 3.1 已有可复用基础
+### 3.1 重构前已有可复用基础
 
 - `NbtFileStore` 已经提供 arbitrary `Path` 上的 `NbtDocument`、调用方 serializer 和流式读写，并支持显式
   `Compression`。
@@ -68,7 +85,7 @@
   close barrier。
 - `LiveMinecraftWorldAccess`、`LiveRegionHandle` 和平台 `openLiveReadOnly` 已定义读取正在变化的世界时所需的物理打开语义。
 
-### 3.2 当前混合职责
+### 3.2 重构前混合职责
 
 - `OpenMinecraftWorld` 同时承担公开方法的实际实现、world close 状态、metadata key registry、读写 admission、Region storage
   registry 和 store 组装，职责过多。
@@ -90,24 +107,29 @@
 - safe-replace 删除旧 backup，把当前文件 move/rename 为 `_old`，再把临时文件 move/rename 为当前文件；失败时进行检查、重试和
   必要的 old-to-current rollback。它不是 copy，也没有把整个三步过程变成单个事务。
 - 因此正常退出后同时存在 `.dat` 与 `.dat_old` 是预期行为；`_old` 保存上一份内容。
-- 官方读取路径会在当前文件失败时尝试 previous 文件，并按文件类型执行 promotion 或保留损坏副本等恢复动作。
-- 当前项目的 `RequiresExclusive` 正是在共享读检测到上述恢复可能产生写入时，要求高层重新以独占方式执行；它不是格式升级流程。
+- 官方 level 读取会在当前文件失败时使用 previous 文件并尝试提升它；一旦 previous 已成功解析，提升的布尔失败会被忽略，读取
+  仍返回该值。官方 player 读取会备份损坏的当前文件、尝试 `.dat_old`，但不提升 `.dat_old`，两份都不可用时返回空并允许进程 继续。
+- 本次实现中的 `RequiresExclusive` 正是在共享读检测到上述恢复可能产生写入时，要求高层重新以独占方式执行；它不是格式升级流程。
 
 本次重构保留这一语义和相关互操作测试，同时把它与“历史 schema/DataVersion 升级”明确分开。
 
 ## 4. 目标分层与依赖方向
 
-调用方向只能自上而下。mutable 与 live 在高层分叉，但复用相同的格式工具、路径规则和尽可能多的文件策略。
+高层只依赖更低层能力。mutable 与 live 在高层分叉，但复用相同的格式工具、路径规则和尽可能多的文件策略。下图箭头表示
+“低层能力被上层组装”，不是运行时调用方向。
 
 ```mermaid
 flowchart TB
-    Format[nbt / nbt-serialization / world-format] --> Physical[窄物理文件访问\nordinary 或 live open；无协调]
+    Format[nbt / nbt-serialization / world-format]
+    Physical[窄物理文件访问\nordinary 或 live open；无协调]
     Physical --> Raw[RawFileStore]
     Raw --> Nbt[NbtFileStore]
     Raw --> Json[Utf8JsonFileStore]
+Format --> Nbt
     Nbt --> Policy[NBT Minecraft stores\nLevel / Player / SavedData]
     Json --> JsonPolicy[JSON Minecraft stores\nStatistics / Advancements]
     Physical --> RegionPolicy[RegionFileStore\n.mca + .mcc 文件组]
+Format --> RegionPolicy
     Policy --> Mutable[mutable proxy\n生命周期 + 逻辑资源协调]
     JsonPolicy --> Mutable
     RegionPolicy --> Mutable
@@ -151,7 +173,9 @@ flowchart TB
 
 - 三者公开提供基于 `FileSystem` 的普通构造方式，供用户完全独立使用。
 - 高阶 mutable/live 组装时使用内部物理访问构造方式，以复用 ordinary/live 的正确打开语义；不要复制格式实现。
-- read/write callback 使用 `kotlinx.io.Source`/`Sink`，并在 callback 返回前消费、flush 和关闭；完整值 helper 委托给同一条流式路径。
+- read/write callback 使用 Okio `BufferedSource`/`BufferedSink`，并在 callback 返回前消费、flush 和关闭；完整值 helper
+  委托给同一条流式路径，并把选定 serializer 直接连接到借用流。仅在内部调用 lower format API 时使用官方
+  `kotlinx-io-okio` adapter，不建立完整 byte array、string 或格式树中间表示。
 - NBT 写入保留明确的 compression 参数和当前 durable-write 契约；JSON/raw 的直接写是 final-path truncate，不偷偷使用
   level/player backup 策略。
 - 调用方直接构造这些 store 时，不取得 `session.lock`、不使用协调器，也不参加任何 `MinecraftWorldAccess.close()`。
@@ -160,15 +184,15 @@ flowchart TB
 
 该层仍然无共享运行状态。每个 store 只持有不可变路径、格式工具和写入配置，并公开 document/text、serializer 及流式入口。
 
-| Store                     | 拥有的策略                                                                          |
-|---------------------------|-------------------------------------------------------------------------------------|
-| `LevelDataStore`          | `level.dat` + `level.dat_old`、临时文件、safe replacement、read fallback/promotion  |
-| `PlayerDataStore`         | 每 player UUID 的 `.dat` + `.dat_old`、临时文件、损坏 primary 副本与 fallback       |
-| `SavedDataStore`          | identifier 校验、world-root/dimension scope、压缩探测、saved-data 直接 synced write |
-| `PlayerStatisticsStore`   | player UUID → statistics JSON 路径与 text/serializer 操作                           |
-| `PlayerAdvancementsStore` | player UUID → advancements JSON 路径与 text/serializer 操作                         |
-| `WorldDataPackReader`     | world `datapacks` 下 directory/ZIP 路径与只读 archive/content 逻辑                  |
-| `RegionFileStore`         | Region directory、`.mca` 与其 `.mcc` sidecars 组成的一个逻辑文件组及物理打开策略    |
+| Store                     | 拥有的策略                                                                                     |
+|---------------------------|------------------------------------------------------------------------------------------------|
+| `LevelDataStore`          | `level.dat` + `level.dat_old`、临时文件、safe replacement、read fallback/best-effort promotion |
+| `PlayerDataStore`         | 每 player UUID 的 `.dat` + `.dat_old`、临时文件、损坏 current 副本与只读 fallback              |
+| `SavedDataStore`          | identifier 校验、world-root/dimension scope、压缩探测、saved-data 直接 synced write            |
+| `PlayerStatisticsStore`   | player UUID → statistics JSON 路径与 text/serializer 操作                                      |
+| `PlayerAdvancementsStore` | player UUID → advancements JSON 路径与 text/serializer 操作                                    |
+| `WorldDataPackReader`     | world `datapacks` 下 directory/ZIP 路径与只读 archive/content 逻辑                             |
+| `RegionFileStore`         | Region directory、`.mca` 与其 `.mcc` sidecars 组成的一个逻辑文件组及物理打开策略               |
 
 `SavedDataFileStore` 在此阶段直接改为 `SavedDataStore`。同时新增明确的 `SavedDataScope`：
 
@@ -193,10 +217,15 @@ shortcut 可以在实现内部固定正确 scope。identifier 仍由 `MinecraftW
 生命周期，不是 store 的共享状态。供高阶 registry 使用的内部 open primitive 可以把同一物理实现交给 coordinated handle，不能
 另写一套 `.mca`/`.mcc` 规则。live handles 同样复用该文件组核心。
 
+一次性方法的资源生命周期按调用划分：调用方先读 Header、再单独读内容会自然产生两次打开，这是可接受且可观察的 API 组合结果，
+不为此增加跨调用缓存。同一个语义方法内部则复用已经打开的 source/handle，例如 saved-data 的压缩探测和解析不得自行打开两次。
+
 保留两种上层资源语义：
 
-- mutable `RegionHandle`/`EntityRegionHandle` 加入 coordinated registry，方法是 suspend，close 等待已 admitted 操作；
-- `LiveRegionHandle`/`LiveEntityRegionHandle` 继续 caller-owned、同步 close、彼此完全独立，并使用 live-open 物理语义。
+- mutable `RegionHandle`/`EntityRegionHandle`/`PoiRegionHandle` 加入 coordinated registry，方法是 suspend，close 等待已
+  admitted 操作；
+- `LiveRegionHandle`/`LiveEntityRegionHandle`/`LivePoiRegionHandle` 继续 caller-owned、同步 close、彼此完全独立，并使用
+  live-open 物理语义。
 
 不要为了表面对称强迫两种 handle 实现同一接口；它们的 suspend/同步、写能力和 close 契约本来就不同。只复用下层文件组、
 framing、compression 和 scope 实现。
@@ -238,9 +267,9 @@ store：
 高阶方法调用下层 store，不重新实现 compression、serialization、路径拼接、temporary replacement 或 Region framing。mutable 方法
 是 suspend，live 方法保持同步只读；不为两者创建一个削弱语义的共同高阶接口。
 
-## 5. 当前类型到目标类型的编排
+## 5. 重构前类型到最终类型的编排
 
-| 当前类型/文件                               | 目标处理                                                                               |
+| 重构前类型/文件                             | 最终处理                                                                               |
 |---------------------------------------------|----------------------------------------------------------------------------------------|
 | `WorldFileAccess`                           | 保留现有名称和窄内部物理职责；禁止加入协调职责                                         |
 | `FileIO.kt` 内 raw helpers                  | 提炼为公开 `RawFileStore`，内部 helper 只保留平台/失败组合细节                         |
@@ -355,8 +384,8 @@ world operation pin，使 world close 等待读取完成。Region 目录 snapsho
 
 - mutable semantic read 使用上述两阶段流程。
 - live semantic read 可读取 primary，失败时只读 `_old`，但绝不 promotion、copy、replace 或返回协调请求。
-- 直接调用 `LevelDataStore`/`PlayerDataStore` 时，API 名称必须明确区分无修复 read-only 路径与可能写入的 recovery 路径；后者不替
-  调用方取得锁。
+- 直接构造的 `LevelDataStore`/`PlayerDataStore` 使用 writable physical capability，读取可能执行 promotion 或损坏证据保存，且
+  不替调用方取得锁；live facade 注入 read-only capability，复用同一读取形态但禁止这些写入动作。
 - arbitrary `NbtFileStore`/`Utf8JsonFileStore`/`RawFileStore` 失败直接传播，不尝试 companion 文件。
 
 ### 8.3 写入与版本边界
@@ -365,8 +394,8 @@ world operation pin，使 world close 等待读取完成。Region 目录 snapsho
 - Saved data 保留其 synced direct write；JSON 保留 final-path truncate write；不要把所有文件强行统一成一个 replacement
   policy。
 - Region 保留 allocator/header/sidecar 自身的提交协议；不要套 standalone-file backup。
-- 不调用 DataFixer，不把 `_old` 当成旧 schema，不转换 `DataVersion`。typed serializer 不能读取时按其异常契约失败；raw
-  `NbtDocument` 仍是保留未知字段的低层入口。
+- 不调用 DataFixer，不把 `_old` 当成旧 schema，不转换或预检 `DataVersion`，也不与仓库选择版本比较后拒绝读取。codec 直接
+  尝试解析并保留该整数；typed serializer 不能读取结构时按其异常契约失败，raw `NbtDocument` 仍是保留未知字段的低层入口。
 - 只有 already-defined level/player primary failure 才可能进入 `_old` fallback；不增加“扫描相邻文件猜一个能读的版本”等通用策略。
 
 ## 9. mutable 与 live 的复用边界
@@ -473,7 +502,11 @@ mutable `directFiles` 都不得调用它。
 
 - Level/player 正常读写生成 current + `_old`，previous 内容正确。
 - primary 失败时 shared probe 返回 `RequiresExclusive`；exclusive retry 重新观察磁盘并执行正确 fallback/recovery。
+- level previous 成功解析后，即使 best-effort promotion 最终发生 I/O 失败也返回 previous 值；取消和程序级异常仍传播。
+- 只有 filesystem、compression 或 intrinsic binary NBT 损坏使 candidate 进入 fallback；有效 NBT 仅与调用方
+  serializer/schema 不匹配时直接传播，不能 promotion、copy corrupt evidence 或改选 `.dat_old`。
 - live fallback 只读 previous 且不 promotion/copy/write。
+- player 的损坏 current 可 best-effort 保留；`.dat_old` 只作为 fallback，不提升且不再生成额外损坏副本。
 - Saved data 的 world-root 与 dimension scopes 不混淆，identifier 解析一致。
 - statistics/advancements 的 text、`JsonElement`、强类型 serializer 和 stream 全部委托对应 store。
 - 不兼容强类型 schema 失败，不执行 DataFixer；raw API 仍能在 NBT 本身合法时返回 document。
@@ -481,6 +514,8 @@ mutable `directFiles` 都不得调用它。
 ### 11.3 mutable 协调与生命周期
 
 - 同 key readers 并行、writer 独占、waiting writer 阻止 later reader、不同 key 并行。
+- 用四个物理写入 gate 验证同一 world 的 Chunk Region、Entity Region、POI Region 与 `level.dat` 四个不同逻辑身份可同时推进，
+  且合理复用 handle 的调用路径中每个底层文件只打开一次。
 - shared → `RequiresExclusive` → exclusive 之间没有锁升级死锁，且第二阶段不使用过期值。
 - close 封住新操作，等待 metadata、data-pack、directory listing、directFiles 与 Region pins，最后释放 `session.lock`。
 - directFiles 同路径操作不会被 logical coordinator 串行；使用显式 gates 证明其 bypass 是真实契约。
@@ -490,7 +525,10 @@ mutable `directFiles` 都不得调用它。
 ### 11.4 Region
 
 - uncoordinated `RegionFileStore` 可独立完成 metadata、compressed payload、NBT、semantic Chunk/Entity 的读写和 scope batch。
+- POI codec 与领域模型覆盖动态 Section key、validity、record position/type/free tickets、Chunk membership 和空 Sections；
+  mutable/live handle 与 read scope 都可直接读取 `PoiChunk`，mutable handle 可写回。
 - mutable registry 对同 Region 协调且对不同 Region 并行，最后一个 pin 负责 flush/close；没有 idle cache。
+- 同一 Region 的重叠读与排队写复用一个已打开的 `.mca`；较早操作结束不能关闭它，最后一个 operation/handle pin 才关闭。
 - `.mca` 与所属 `.mcc` 统一映射到一个 Region logical key。
 - live handles 彼此不共享 file/registry/reference count，继续重读 header 或在 `withReadScope` 内只读一次。
 - direct `.mca`/`.mcc` 与 coordinated handle 之间没有隐式锁，文档与测试不承诺 stale state 可自动恢复。
@@ -500,20 +538,20 @@ mutable `directFiles` 都不得调用它。
 先运行最窄 JVM gate：
 
 ```shell
-./gradlew :world-io:jvmTest
+./gradlew :world-io:jvmTest --max-workers=1
 ```
 
 `hostFilesystemTest` 是由 `jvmTest` 继承的 source set，不是独立 Gradle task；上面的 JVM gate 已覆盖其官方互操作场景。随后运行
 Node 文件系统测试：
 
 ```shell
-./gradlew :world-io:jsNodeTest
+./gradlew :world-io:jsNodeTest --max-workers=1
 ```
 
-按改动覆盖的已配置 targets 补运行对应标准测试；最终运行仓库 JVM gate：
+按改动覆盖的已配置 targets 补运行对应标准测试；最终运行仓库完整 gate：
 
 ```shell
-./gradlew :minecraft-test-fixture-host:test jvmTest
+./gradlew allTests --max-workers=1
 ```
 
 Gradle invocation 不并发执行。若更改 build wiring，再补 configuration-cache store/reuse；本计划原则上不需要新增 source
@@ -522,7 +560,7 @@ set、插件或 生成任务。
 ## 12. 与网页地图计划的边界
 
 [Minecraft 网页地图 Demo 计划](minecraft-web-map-demo.md) 继续拥有以下非通用工作：`WorldGenSettings` 模型、维度/active
-dimension type 解析、HTTP 409、未完全生成 Chunk、Region 失败映射、前端退避和世界目录发现。
+dimension type 解析、未完全生成 Chunk、Region 失败映射、前端退避和世界目录发现。
 
 本计划只提供它所需的通用存储结果：
 
@@ -531,7 +569,8 @@ dimension type 解析、HTTP 409、未完全生成 Chunk、Region 失败映射�
 - 无协调的 caller-owned live Region 文件生命周期；
 - 清晰的 low-level/high-level 边界。
 
-Demo 不应等待本计划中与自身无关的 mutable write API 才开始，但两项计划同时实施时先落地公共命名和 scope，避免重复迁移。
+本计划现已完成。Demo 计划只把上述入口视为既有依赖，并为真实 `world_gen_settings.dat` 增加窄互操作覆盖；它不再跟踪或重复
+`world-io` 的命名、scope、分层、协调或 mutable write 重构任务。
 
 ## 13. 完成标准
 
@@ -548,4 +587,11 @@ Demo 不应等待本计划中与自身无关的 mutable write API 才开始，�
 7. mutable direct 操作在取消/close 下完成资源清理，但不限制 `session.lock` 或其他路径，也不声称与 semantic API 协调。
 8. Level/player/saved-data/JSON/Region 的不同写入与 backup 策略保留，官方 world generate/rewrite/reload 互操作通过。
 9. 根与 `world-io` README/AGENTS 准确描述当前已实现 API，没有计划式承诺、版本字面量或重复规则。
-10. `:world-io:jvmTest`、相关 Node/host target 和仓库 JVM gate 通过，且没有新增运行时模块或依赖环。
+10. `world-io` 的公开 ABI 不含 kotlinx-io 或平台文件 I/O 类型，文件系统失败遵循 Okio 异常语义，所有跨边界映射都由官方
+    `kotlinx-io-okio` adapter 执行。
+11. `:world-io:jvmTest`、相关 Node/host target 和仓库 `allTests` 通过，且没有新增运行时模块或依赖环。
+12. `PlayerData` 与全部仓库所选择版本的维度内置 saved-data 文件有强类型模型和官方存档互操作覆盖；任意其他 identifier 仍可走
+    document、caller serializer 或 stream。
+13. POI 有 filesystem-independent 领域模型与 codec；mutable/live POI handle 的读取形态一致，且不需要调用方提供冗余 codec。
+14. mutable/live 的全部对应高层读取入口已经逐项校对名称、参数顺序、默认维度和返回类型；强类型 shortcut 不重复协调、探测或
+    打开文件。

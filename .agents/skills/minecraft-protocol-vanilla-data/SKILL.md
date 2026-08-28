@@ -36,6 +36,11 @@ directories.
 5. Derive every handwritten packet ID, ordering assumption, registry lookup, and dimension-layout field from
    selected-release evidence; do not preserve an old constant by memory.
 
+When completing a detached world data-pack selection, resolve only its selected IDs against bundled packs, preserve the
+persisted low-to-high order, and load bundled payloads independently. Required-core insertion belongs here; filesystem
+loading stays in `world-io`, generic selection/stack values stay in `world-format`, and unlisted-pack discovery is not a
+read-side default.
+
 Load the model and serialization skills when a data capture failure exposes a packet schema or codec change. Do not make
 this module an alternate packet implementation.
 

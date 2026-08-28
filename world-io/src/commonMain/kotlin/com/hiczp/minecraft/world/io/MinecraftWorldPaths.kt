@@ -91,14 +91,9 @@ class MinecraftWorldPaths(
         get() = root / "session.lock"
 
     fun dimension(dimensionDirectory: DimensionDirectory): Path = when (dimensionDirectory) {
-        DimensionDirectory.Overworld ->
-            root / "dimensions" / "minecraft" / "overworld"
-
-        DimensionDirectory.Nether ->
-            root / "dimensions" / "minecraft" / "the_nether"
-
-        DimensionDirectory.End ->
-            root / "dimensions" / "minecraft" / "the_end"
+        DimensionDirectory.Overworld -> dimension(MINECRAFT_OVERWORLD_DIRECTORY)
+        DimensionDirectory.Nether -> dimension(MINECRAFT_NETHER_DIRECTORY)
+        DimensionDirectory.End -> dimension(MINECRAFT_END_DIRECTORY)
 
         DimensionDirectory.LegacyOverworld -> root
         DimensionDirectory.LegacyNether -> root / "DIM-1"
@@ -153,17 +148,18 @@ class MinecraftWorldPaths(
     fun legacyStatistics(playerUuid: String): Path =
         root / "stats" / "${validatePlayerStorageKey(playerUuid)}.json"
 
-    fun savedDataDirectory(
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): Path = dimension(dimensionDirectory) / "data"
+    fun savedDataDirectory(savedDataScope: SavedDataScope): Path = when (savedDataScope) {
+        SavedDataScope.WorldRoot -> root / "data"
+        is SavedDataScope.Dimension -> dimension(savedDataScope.dimensionDirectory) / "data"
+    }
 
     fun savedData(
         identifier: String,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
+        savedDataScope: SavedDataScope,
     ): Path {
         val storedIdentifier = parseStoredIdentifier(identifier)
         val parent = storedIdentifier.pathSegments.dropLast(1).fold(
-            savedDataDirectory(dimensionDirectory) / storedIdentifier.namespace,
+            savedDataDirectory(savedDataScope) / storedIdentifier.namespace,
         ) { path, segment -> path / segment }
         return parent / "${storedIdentifier.pathSegments.last()}.dat"
     }
@@ -224,4 +220,7 @@ private val DIMENSION_PATH_SEGMENT_PATTERN = Regex("[a-z0-9._-]+")
 private val PLAYER_STORAGE_KEY_PATTERN = Regex("[A-Za-z0-9_-]+")
 private val STORED_IDENTIFIER_NAMESPACE_PATTERN = Regex("[a-z0-9._-]+")
 private val STORED_IDENTIFIER_SEGMENT_PATTERN = Regex("[a-z0-9._-]+")
+private val MINECRAFT_OVERWORLD_DIRECTORY = DimensionDirectory.Custom("minecraft", "overworld")
+private val MINECRAFT_NETHER_DIRECTORY = DimensionDirectory.Custom("minecraft", "the_nether")
+private val MINECRAFT_END_DIRECTORY = DimensionDirectory.Custom("minecraft", "the_end")
 private const val DEFAULT_NAMESPACE = "minecraft"

@@ -292,10 +292,10 @@ class NbtFormatBinaryTest {
 
     @Test
     fun rejectsTruncatedAndUnknownTags() {
-        assertFailsWith<NbtSerializationException> {
+        assertFailsWith<NbtBinaryFormatException> {
             NbtFormat.decodeAnyTagFromByteArray(byteArrayOf(3, 0, 0))
         }
-        assertFailsWith<NbtSerializationException> {
+        assertFailsWith<NbtBinaryFormatException> {
             NbtFormat.decodeAnyTagFromByteArray(byteArrayOf(13))
         }
     }
@@ -309,16 +309,16 @@ class NbtFormatBinaryTest {
             byteArrayOf(12, -1, -1, -1, -1),
         )
         negativeLengths.forEach { encoded ->
-            assertFailsWith<NbtSerializationException> {
+            assertFailsWith<NbtBinaryFormatException> {
                 NbtFormat.decodeAnyTagFromByteArray(encoded)
             }
         }
-        assertFailsWith<NbtSerializationException> {
+        assertFailsWith<NbtBinaryFormatException> {
             NbtFormat.decodeAnyTagFromByteArray(
                 byteArrayOf(9, 0, 0, 0, 0, 1),
             )
         }
-        assertFailsWith<NbtSerializationException> {
+        assertFailsWith<NbtBinaryFormatException> {
             NbtFormat.decodeAnyTagFromByteArray(
                 byteArrayOf(9, 13, 0, 0, 0, 1),
             )
@@ -358,9 +358,22 @@ class NbtFormatBinaryTest {
         val namedString = NbtFormat.encodeNamedTagToByteArray(
             NamedNbtTag("", NbtString("not a compound")),
         )
-        assertFailsWith<NbtSerializationException> {
+        assertFailsWith<NbtBinaryFormatException> {
             NbtFormat.decodeDocumentFromByteArray(namedString)
         }
+    }
+
+    @Test
+    fun binaryCorruptionIsDistinctFromSerializerMappingFailure() {
+        val validNbt = NbtFormat.encodeAnyTagToByteArray(
+            NbtCompound(mapOf("other" to NbtInt(42))),
+        )
+
+        val failure = assertFailsWith<NbtDecodingException> {
+            NbtFormat.decodeFromByteArray<KnownBinaryValue>(validNbt)
+        }
+
+        assertFalse(failure is NbtBinaryFormatException)
     }
 
     @Test
@@ -395,7 +408,7 @@ class NbtFormatBinaryTest {
         )
 
         malformed.forEach { encoded ->
-            assertFailsWith<NbtSerializationException> {
+            assertFailsWith<NbtBinaryFormatException> {
                 NbtFormat.decodeAnyTagFromByteArray(encoded)
             }
         }

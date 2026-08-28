@@ -6,6 +6,7 @@ work with:
 ```text
 world -> Chunk Region -> Chunk -> Section -> block or biome
 world -> Entity Region -> Entity Chunk -> Entity -> passengers
+world -> POI Region -> POI Chunk -> POI Section -> POI record
 ```
 
 Physical `.mca`/`.mcc` details are hidden behind Region handles. Filesystem-independent coordinates, compression, NBT
@@ -20,6 +21,34 @@ Two access modes serve different situations:
 
 Filesystem support is configured for JVM, Android, supported Native targets, and Kotlin/JS Node. Browser and Wasm
 applications should use the filesystem-independent modules.
+
+All filesystem types exposed by this module are Okio types: `Path`, `FileSystem`, `FileHandle`, `BufferedSource`, and
+`BufferedSink`. Filesystem failures visible through `world-io` are in Okio's `IOException` hierarchy. The
+filesystem-independent format modules use kotlinx-io internally; `world-io` crosses that lower boundary only through the
+official `kotlinx-io-okio` adapters, including the failure-only return boundary of terminal parser and serializer calls.
+NBT, compression, Anvil, and serialization failures retain their own semantic exception categories.
+
+## Choose an API layer
+
+The public stores are stateless building blocks. `RawFileStore`, `NbtFileStore`, and `Utf8JsonFileStore` operate on an
+exact caller-supplied path. `LevelDataStore`, `PlayerDataStore`, `SavedDataStore`, `PlayerStatisticsStore`, and
+`PlayerAdvancementsStore` add Minecraft path and replacement policy. `RegionFileStore` performs one-shot, uncoordinated
+`.mca`/`.mcc` operations and closes every resource before returning.
+
+These stores do not acquire `session.lock`, coordinate concurrent calls, or join a world close lifecycle. Use them when
+the caller owns those responsibilities. `MinecraftWorldAccess` composes the same stores with a world lease, logical
+resource coordination, and reusable lazy Region handles. `LiveMinecraftWorldAccess` composes their read paths with
+live-open semantics but adds no lock, coordinator, registry, or world close state.
+
+Callback-bound sources and sinks are the canonical byte paths. Typed NBT/JSON and complete document/element helpers
+attach their parser or serializer directly to that stream; they do not first construct a complete byte array, string, or
+intermediate NBT/JSON tree. Complete-value helpers necessarily retain the value they return. Each one-shot store call
+owns its own open/close lifetime, so two separate caller operations may open one file twice; a single semantic call
+reuses its source for tasks such as saved-data compression detection and decoding.
+
+Stateless does not mean read-only: a directly constructed `LevelDataStore` may promote `level.dat_old`, and a
+`PlayerDataStore` may preserve corrupt evidence. Such policy operations do not acquire a logical lock on the caller's
+behalf. The live facade supplies the same stores with a read-only physical capability, which disables those mutations.
 
 ## Open an owned world
 
@@ -79,7 +108,7 @@ Use a borrowed source when a custom incremental consumer is more appropriate:
 suspend fun <R> readChunkNbtStream(
     regionHandle: RegionHandle,
     chunkPosition: ChunkPosition,
-    decode: (RegionChunkInfo, Source) -> R,
+    decode: (RegionChunkInfo, BufferedSource) -> R,
 ): R? = regionHandle.withChunkNbtSource(chunkPosition, decode)
 ```
 
@@ -111,7 +140,11 @@ suspend fun replaceBlock(
 Other choices are `writeChunkNbtDocument`, serializer-based `writeChunkNbt`, a raw NBT sink callback, and
 `writeCompressedChunk` for a payload that is already compressed.
 
-When a producer knows the exact compressed length, it can stream the record without first creating `CompressedChunk`:
+Anvil allocation needs the exact compressed byte count before it can reserve and frame a record. Consequently, document,
+serializer, and raw-NBT Region writes retain one final compressed payload before committing it, but they stream the
+uncompressed NBT directly into compression and do not retain a second complete uncompressed representation. When the
+producer already knows the compressed length, the overload below streams straight to the allocated record without first
+creating `CompressedChunk`:
 
 ```kotlin
 suspend fun copyCompressedChunk(
@@ -119,14 +152,14 @@ suspend fun copyCompressedChunk(
     chunkPosition: ChunkPosition,
     compression: Compression,
     byteCount: Long,
-    source: Source,
+    source: BufferedSource,
 ) {
     regionHandle.writeCompressedChunk(
         chunkPosition = chunkPosition,
         compression = compression,
         compressedByteCount = byteCount,
     ) { sink ->
-        source.transferTo(sink)
+        source.readAll(sink)
     }
 }
 ```
@@ -158,21 +191,24 @@ The `this` receiver inside `withReadScope` is a `RegionReadScope`; its `chunkPos
 Header read for that scope.
 
 Ordinary handle calls may be concurrent. Same-Region reads can proceed together, writes serialize, and independent
-Regions progress independently.
+Regions progress independently. Chunk, Entity, and POI Region directories also have distinct coordination identities, so
+their writes do not serialize with one another or with an unrelated `level.dat` write.
 
-Opening a mutable Region handle pins one logical Region; its first read lazily opens the `.mca` and retains both that
-file and its maintained Header state until the final user releases it. `withReadScope` is therefore a batch admission,
-not another file cache: its callback holds one shared-read admission so coordinated writes cannot interleave between the
-Chunk reads.
+Opening a mutable Region handle pins one logical Region without opening a file. Its first operation that needs Region
+content lazily opens the `.mca` and retains both that file and its maintained Header state until the final user releases
+it. Concurrent handles opened through the same world access for that logical Region share the physical open, and the
+last handle or admitted operation closes it. `withReadScope` is therefore a batch admission, not another file cache:
+its callback holds one shared-read admission so coordinated writes cannot interleave between the Chunk reads.
 
-Ordinary and live Chunk Region handles expose `RegionReadScope`; Entity Region handles expose
-`EntityRegionReadScope`. Both inherit metadata, compressed payload, decompressed NBT stream/document, and serializer
-reads from `AnvilRegionReadScope`, while their `readChunk` methods accept only `ChunkNbtCodec` or
-`EntityChunkNbtCodec`, respectively. Values, sequences, and streams borrowed from a scope do not escape its callback.
+Ordinary and live Chunk Region handles expose `RegionReadScope`; Entity and POI Region handles expose
+`EntityRegionReadScope` and `PoiRegionReadScope`. All three inherit metadata, compressed payload, decompressed NBT
+stream/document, and serializer reads from `AnvilRegionReadScope`. Their `readChunk` methods return only the semantic
+type owned by that handle. Values, sequences, and streams borrowed from a scope do not escape its callback.
 `replaceRegion { ... }` is the mutable handle's matching staged complete-replacement scope.
 
-List existing map or Entity Regions with `listRegionPositions()` and `listEntityRegionPositions()`. These return
-complete detached directory snapshots and are not transactionally consistent with concurrent external changes.
+List existing Chunk, Entity, or POI Regions with `listRegionPositions()`, `listEntityRegionPositions()`, and
+`listPoiRegionPositions()`. These return complete detached directory snapshots and are not transactionally consistent
+with concurrent external changes.
 
 ## Read and write Entities
 
@@ -182,20 +218,46 @@ Entity storage is parallel to Chunk storage and is addressed by the Entity's abs
 suspend fun readEntities(
     minecraftWorldAccess: MinecraftWorldAccess,
     chunkPosition: ChunkPosition,
-    expectedDataVersion: Int,
 ): EntityChunk<NbtCompound>? {
-    val entityChunkNbtCodec = EntityChunkNbtCodec(expectedDataVersion, NbtEntityDataRegistry())
+    val entityChunkNbtCodec = EntityChunkNbtCodec(NbtEntityDataRegistry())
     return minecraftWorldAccess.openEntityRegion(chunkPosition.regionPosition).use { entityRegionHandle ->
         entityRegionHandle.readChunk(chunkPosition, entityChunkNbtCodec)
     }
 }
 ```
 
+Region semantic reads carry the stored `DataVersion` into the returned Chunk or Entity Chunk without a compatibility
+preflight. `world-io` does not compare it with the repository-selected world version; callers that require a version
+policy can inspect an NBT document first or validate the returned value themselves.
+
 `EntityRegionHandle` offers the same metadata, compressed stream/value, NBT document, serializer, semantic read/write,
 removal, replacement, flush, and lifecycle operations as `RegionHandle`.
 
 Writing an `EntityChunk` with no root Entities removes its indexed record. Runtime transfer of an Entity between loaded
 Entity Chunks remains an application decision.
+
+## Read and write Points of Interest
+
+POI files use the same Anvil container and lifecycle as Chunk and Entity Regions. The high-level POI codec needs no
+registry or dimension-layout input, so the handles own it directly:
+
+```kotlin
+suspend fun addPoi(
+    minecraftWorldAccess: MinecraftWorldAccess,
+    poiRecord: PoiRecord,
+) {
+    minecraftWorldAccess.openPoiRegion(poiRecord.regionPosition).use { poiRegionHandle ->
+        val poiChunk = poiRegionHandle.readChunk(poiRecord.chunkPosition)
+            ?: PoiChunk(poiRecord.chunkPosition, MinecraftWorldFormat.WORLD_VERSION)
+        poiChunk.addRecord(poiRecord)
+        poiRegionHandle.writeChunk(poiChunk)
+    }
+}
+```
+
+`PoiRegionHandle` and `LivePoiRegionHandle` expose the same read shapes: metadata, compressed payload, decompressed NBT
+stream, document/serializer decoding, semantic `PoiChunk`, and `PoiRegionReadScope`. The mutable handle additionally
+exposes the matching writes, removal, replacement, flush, and suspend lifecycle.
 
 ## Read a live world without locking it
 
@@ -215,10 +277,10 @@ fun readLiveChunk(
 ```
 
 `LiveMinecraftWorldAccess` itself owns no shared Region resources and has no `close()`. Each returned
-`LiveRegionHandle` or `LiveEntityRegionHandle` is instead a synchronous resource: it independently opens and retains the
-`.mca` file found at handle creation, then releases it on `close()` or `use`. Separate handles do not share a file
-object, registry, reference count, or lifecycle. Ordinary operations on one handle reread its Region header; an external
-`.mcc` sidecar is opened and closed only by the Chunk operation that needs it.
+`LiveRegionHandle`, `LiveEntityRegionHandle`, or `LivePoiRegionHandle` is instead a synchronous resource: it
+independently opens and retains the `.mca` file found at handle creation, then releases it on `close()` or `use`.
+Separate handles do not share a file object, registry, reference count, or lifecycle. Ordinary operations on one handle
+reread its Region header; an external `.mcc` sidecar is opened and closed only by the Chunk operation that needs it.
 
 A handle created while its Region path is missing owns no `.mca` resource and returns the usual false, null, or empty
 read results; open another handle for a later filesystem observation. Calls on one live handle may run concurrently, but
@@ -243,12 +305,13 @@ referenced files and sectors at any time. Stale or torn combinations and the res
 failures are part of the live contract and are propagated to the caller.
 
 Avoid a separate existence check when a following nullable read already answers the question; the direct read has a
-smaller observation window. `openEntityRegion` provides the symmetric Entity path.
+smaller observation window. `openEntityRegion` and `openPoiRegion` provide the symmetric Entity and POI paths.
 
 ## Read world data packs
 
-Both world access modes can inspect and read enabled directory or ZIP packs under `datapacks`. The enabled order comes
-from `level.dat`:
+Both world access modes expose the same read-only data-pack operations, with only the mutable side being `suspend`. They
+inspect and read enabled directory or ZIP packs under `datapacks`; the no-argument operations obtain the complete
+selection and feature configuration from `level.dat`:
 
 ```kotlin
 suspend fun readApprovedDataPacks(
@@ -265,21 +328,51 @@ Inspection exposes paths and declared sizes before file contents are loaded. On-
 the lifetime of their reader use, so `WorldDataPackReader` adds no data-pack read lock or mutation coordinator. The
 reader imposes no file-count or size policy.
 
-`WorldDataPackLoadResult.dataPackStack` contains loaded `file/...` entries in low-to-high priority order. Non-file
-references such as `vanilla` remain in `unresolvedDataPackReferences` for a higher layer to supply; the original ordered
-selection remains in `enabledDataPackReferences`. Use [`protocol-datapack`](../protocol-datapack/README.md) or
-[`protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md) to project the stack into Configuration data.
+`WorldDataPackLoadResult` is detached from the filesystem. It retains the complete enabled and disabled `DataPackId`
+lists, persisted enabled and removed feature IDs, loaded `file/...` packs, and the enabled IDs that still require a
+core, built-in, or loader source. `toDataPackStack` fills those IDs without changing the persisted low-to-high priority
+order and reports all missing IDs together. The overloads that accept `List<DataPackId>` skip `level.dat` and therefore
+carry no disabled-pack or feature configuration.
+
+Use [`protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md) to fill selected release-matched built-ins and
+project the complete selection directly into Configuration data. The vanilla-neutral stages remain in
+[`world-format`](../world-format/README.md#structured-files-and-data-packs) and
+[`protocol-datapack`](../protocol-datapack/README.md).
 
 `WorldDataPackReader` also exposes `inspectDataPack`, `readDataPack`, `readDataPackArchive`, and `readDataPackFile` for
 an explicitly selected directory or ZIP without opening a mutable world lease.
+
+Directory entries and Okio ZIP files use the borrowed-source path directly. Kotlin/JS Node is the platform exception:
+Okio has no ZIP filesystem there and the maintained `adm-zip` API exposes a decompressed entry only as a complete byte
+value, so a selected ZIP entry is materialized once before its borrowed Okio source is presented. Archive-returning
+methods necessarily retain each `DataPackFileBytes` value they return on every platform.
+
+## Access an exact file without semantic coordination
+
+Both world facades expose `directFiles` with matching raw, NBT, and UTF-8 JSON reads. The mutable version also exposes
+writes and makes every call participate in the world's close barrier; the live version is synchronous and read-only. For
+example:
+
+```kotlin
+suspend fun readUncoordinatedNbt(
+    minecraftWorldAccess: MinecraftWorldAccess,
+    path: Path,
+): NbtDocument = minecraftWorldAccess.directFiles.readNbtDocument(path)
+```
+
+The path is used exactly as supplied. It is not resolved below the world root, canonicalized into a logical key, or
+checked against `session.lock`, metadata files, Regions, or paths outside the world. Direct calls do not coordinate with
+each other or with semantic methods. In particular, changing an `.mca` or `.mcc` behind an open mutable Region handle
+can invalidate its retained Header/allocation state. The caller owns every such race; use semantic APIs when coordinated
+behavior is required.
 
 ## Other world files
 
 `MinecraftWorldAccess` provides typed, generic-document/text, and stream operations for:
 
 - `level.dat`;
-- player NBT by UUID;
-- dimension-scoped saved data by identifier;
+- player NBT by UUID, including the selected-release `PlayerData` model;
+- saved data by identifier and explicit `SavedDataScope.WorldRoot` or `SavedDataScope.Dimension`;
 - player statistics JSON;
 - player advancements JSON.
 
@@ -290,8 +383,29 @@ suspend fun readLevelData(minecraftWorldAccess: MinecraftWorldAccess): LevelDat 
     minecraftWorldAccess.readLevelData()
 ```
 
-The live access class exposes the corresponding read-only operations. Use `NbtDocument` or text/stream entry points when
-arbitrary modded or future fields must be retained.
+`readPlayerData(playerUuid)` similarly returns `PlayerData`. For dimension data, the built-in strong entry points are
+`readWorldBorderData`, `readChunkTicketsData`, `readRaidsData`, and `readEnderDragonFightData`; mutable access provides
+same-named writes. They all delegate the identifier and dimension to the generic saved-data methods, so each operation
+uses one resolved logical key, one coordination boundary, and one physical open. Use `readSavedData`/
+`writeSavedData` with a serializer or a borrowed `BufferedSource`/`BufferedSink` for another identifier instead of
+adding a parallel storage path.
+
+The live access class exposes every corresponding read-only operation with the same names and parameters. Its only shape
+differences are the absence of `suspend`, writes, and world-close ownership. Use `NbtDocument`, `NbtTag`,
+`JsonElement`, or stream entry points when arbitrary modded or future fields must be retained.
+
+For the repository-selected layout, each dimension can therefore use coordinated and live forms of all four on-disk
+families: `region/*.mca`, `entities/*.mca`, `poi/*.mca`, and `data/<namespace>/*.dat`. The player directory has the same
+paired strong/generic/stream paths for `players/data/*.dat`, plus typed JSON access for advancements and statistics.
+
+Level reads fall back to `level.dat_old` and mutable access attempts to promote the usable fallback under exclusive
+logical admission. Once the fallback has been parsed, an I/O failure while promoting it does not turn that successful
+read into a failure, matching the official continuation result. Player reads try the current and previous files; if
+neither is usable they return `null`, also matching the official continuation path. Mutable access additionally
+preserves a best-effort durable copy of a corrupt current file; it neither promotes nor creates an extra corrupt copy of
+`.dat_old`. A later player save installs fresh current data using the normal current-to-previous replacement policy.
+Intrinsic binary NBT, compression, and filesystem failures make a candidate unusable; a valid NBT document that merely
+does not match the caller's serializer fails normally and never triggers fallback, promotion, or corrupt-copy policy.
 
 ## Dimensions, execution, and failures
 
@@ -303,6 +417,6 @@ repository-selected release's namespaced dimension paths.
 Neither access mode selects a dispatcher. Filesystem access, compression, and NBT work run in the caller's context, so
 move them away from a UI/main thread where required.
 
-Structural Anvil, strong Chunk, strong Entity Chunk, NBT, custom codec, and underlying filesystem failures retain their
-owning exception categories. `WorldLockException` reports confirmed world-lease conflicts; `WorldIOException` reports
-world/filesystem policy failures.
+Structural Anvil, strong Chunk, strong Entity Chunk, NBT, custom codec, and other program-level failures retain their
+owning exception categories. `WorldLockException` reports confirmed world-lease conflicts; `WorldIOException` and
+underlying filesystem failures remain in Okio's `IOException` hierarchy.

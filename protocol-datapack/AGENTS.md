@@ -1,12 +1,13 @@
 # protocol-datapack
 
-This module owns vanilla-neutral, filesystem-independent data-pack resolution, Configuration projection, and the shared
+This module owns vanilla-neutral, filesystem-independent data-pack-to-Configuration projection and the shared
 adaptation of active protocol dimension/registry facts to semantic world-Chunk contracts.
 
 ## Local invariants
 
-- Own data-pack resource models, stack resolution, projection into `ResolvedProtocolData`, the constructible
-  `ProtocolData` contract, and `ClientRegistryView` values derived from `DataPackConfigurationSnapshot`.
+- Consume `world-format` data-pack resources and resolved stacks without redefining them. Own projection into
+  `ResolvedProtocolData`, the constructible `ProtocolData` contract, and `ClientRegistryView` values derived from
+  `DataPackConfigurationSnapshot`.
 - Keep `ProtocolData` domain-oriented: feature flags and registry tags are values; client/server orchestration creates
   the corresponding wire packets at the send boundary.
 - Keep every public stage manually constructible. Generic conversion requires explicit base/default data and registry

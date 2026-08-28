@@ -7,7 +7,11 @@ import com.hiczp.minecraft.nbt.serialization.NbtRootEncoding
 import kotlinx.io.Sink
 import kotlinx.io.Source
 
-/** Selected-release conversion between unnamed-root Chunk NBT and a positioned semantic [Chunk]. */
+/**
+ * Selected-release conversion between unnamed-root Chunk NBT and a positioned semantic [Chunk].
+ *
+ * `DataVersion` is carried by [ChunkMetadata] but is not compared with a library- or caller-selected version.
+ */
 class ChunkNbtCodec<B : Any, M : Any>(
     val chunkNbtContext: ChunkNbtContext<B, M>,
     val nbtFormat: NbtFormat = NbtFormat(
@@ -43,11 +47,6 @@ class ChunkNbtCodec<B : Any, M : Any>(
         root.rejectUnknownKeys(ROOT_KEYS, "Chunk")
 
         val dataVersion = root.requireInt(DATA_VERSION)
-        if (dataVersion != chunkNbtContext.expectedDataVersion) {
-            throw ChunkNbtFormatException(
-                "Expected Chunk data version ${chunkNbtContext.expectedDataVersion}, got $dataVersion",
-            )
-        }
         val actualPosition = ChunkPosition(root.requireInt(X_POS), root.requireInt(Z_POS))
         if (expectedPosition != null && actualPosition != expectedPosition) {
             throw ChunkNbtFormatException(
@@ -152,11 +151,6 @@ class ChunkNbtCodec<B : Any, M : Any>(
         if (chunk.chunkLayout != chunkNbtContext.chunkLayout) {
             throw ChunkNbtFormatException(
                 "Chunk layout ${chunk.chunkLayout} does not match codec layout ${chunkNbtContext.chunkLayout}",
-            )
-        }
-        if (chunk.chunkMetadata.dataVersion != chunkNbtContext.expectedDataVersion) {
-            throw ChunkNbtFormatException(
-                "Chunk data version ${chunk.chunkMetadata.dataVersion} does not match ${chunkNbtContext.expectedDataVersion}",
             )
         }
         if (chunk.defaultBlockState != chunkNbtContext.chunkDataRegistries.blockStates.defaultValue) {

@@ -1,32 +1,29 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
-import com.hiczp.minecraft.nbt.serialization.NbtDecodingException
-import com.hiczp.minecraft.nbt.serialization.NbtFormat
-import com.hiczp.minecraft.nbt.serialization.NbtFormatConfiguration
-import com.hiczp.minecraft.nbt.serialization.NbtRootEncoding
+import com.hiczp.minecraft.nbt.serialization.*
 import com.hiczp.minecraft.world.format.Compression
 import com.hiczp.minecraft.world.format.CompressionRegistry
 import kotlinx.io.buffered
 import kotlinx.io.okio.asKotlinxIoRawSink
 import kotlinx.io.okio.asKotlinxIoRawSource
+import kotlinx.io.okio.asOkioSink
+import kotlinx.io.okio.asOkioSource
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.modules.EmptySerializersModule
 import kotlinx.serialization.modules.SerializersModule
 import okio.*
-import kotlinx.io.Sink as KotlinxSink
-import kotlinx.io.Source as KotlinxSource
 
 /**
- * Physical unnamed-root NBT streams over Okio files.
+ * Stateless standalone unnamed-root NBT operations for caller-supplied exact paths.
  *
- * Official files use the GZIP and NONE wrappers (`level.dat`, player data, and
- * saved data); ZLIB stays selectable, and any other registered compression is
- * a caller-owned choice rather than an official file policy.
+ * Files, callback streams, and I/O failures use Okio. The only `kotlinx.io` boundary is the
+ * invocation of the NBT and compression implementations owned by lower modules; the official
+ * `kotlinx-io-okio` adapters translate failures while crossing that boundary.
  */
 class NbtFileStore internal constructor(
-    internal val worldFileAccess: WorldFileAccess,
+    val rawFileStore: RawFileStore,
     val nbtFormat: NbtFormat = minecraftWorldNbtFormat(),
     val compressionCodecs: CompressionRegistry = CompressionRegistry,
 ) {
@@ -38,51 +35,75 @@ class NbtFileStore internal constructor(
         fileSystem: FileSystem = systemFileSystem,
         nbtFormat: NbtFormat = minecraftWorldNbtFormat(),
         compressionCodecs: CompressionRegistry = CompressionRegistry,
-    ) : this(
-        worldFileAccess = WorldFileAccess.mutable(fileSystem),
-        nbtFormat = nbtFormat,
-        compressionCodecs = compressionCodecs,
-    )
+    ) : this(RawFileStore(fileSystem), nbtFormat, compressionCodecs)
+
+    internal constructor(
+        worldFileAccess: WorldFileAccess,
+        nbtFormat: NbtFormat = minecraftWorldNbtFormat(),
+        compressionCodecs: CompressionRegistry = CompressionRegistry,
+    ) : this(RawFileStore(worldFileAccess), nbtFormat, compressionCodecs)
 
     val fileSystem: FileSystem
-        get() = worldFileAccess.fileSystem
+        get() = rawFileStore.fileSystem
 
     internal val liveReadOnly: Boolean
-        get() = worldFileAccess.liveReadOnly
+        get() = rawFileStore.liveReadOnly
 
     fun readDocument(
         path: Path,
         compression: Compression = Compression.GZIP,
-    ): NbtDocument = read(path, compression) { source ->
-        nbtFormat.decodeDocumentFromSource(source)
-    }
+    ): NbtDocument = read(path, compression, nbtFormat::decodeDocumentFromOkio)
 
     fun <T> read(
         path: Path,
         deserializationStrategy: DeserializationStrategy<T>,
         compression: Compression = Compression.GZIP,
     ): T = read(path, compression) { source ->
-        nbtFormat.decodeFromSource(deserializationStrategy, source)
+        nbtFormat.decodeFromOkio(deserializationStrategy, source)
     }
 
-    /** Lends the decompressed file stream for the duration of [block]. */
+    /** Lends the complete decompressed NBT stream for the duration of [block]. */
     fun <T> read(
         path: Path,
         compression: Compression = Compression.GZIP,
-        block: (KotlinxSource) -> T,
-    ): T = worldFileAccess.readFile(path) { bufferedSource, _ ->
-        withOkioIoExceptions("Cannot read NBT file $path") {
-            val converted = bufferedSource.asKotlinxIoRawSource().buffered()
-            val opened = compressionCodecs.decompressingSource(compression, converted).buffered()
-            useResource(opened, { it.close() }) { source ->
-                val value = block(source)
-                if (!source.exhausted()) {
-                    throw NbtDecodingException(
-                        "Decompressed NBT file has trailing bytes",
-                    )
-                }
-                value
+        block: (BufferedSource) -> T,
+    ): T = rawFileStore.read(path) { compressedSource ->
+        read(compressedSource, compression, block)
+    }
+
+    internal fun <T> readDetectingCompressionOrNull(
+        path: Path,
+        compressionDetector: (BufferedSource) -> Compression,
+        block: (BufferedSource) -> T,
+    ): T? = rawFileStore.readRegularFileOrNull(path) { compressedSource ->
+        read(compressedSource, compressionDetector(compressedSource), block)
+    }
+
+    /** Reads a standalone world file whose official physical root contract is TAG_Compound. */
+    internal fun <T> readCompoundDocument(path: Path, block: (BufferedSource) -> T): T = read(path) { source ->
+        if (!source.request(1L)) throw NbtBinaryFormatException("NBT document is missing its root tag")
+        val rootType = source.buffer[0L].toInt() and 0xFF
+        if (rootType != NBT_COMPOUND_TAG_TYPE) {
+            throw NbtBinaryFormatException("NBT document root must be TAG_Compound, got tag type $rootType")
+        }
+        block(source)
+    }
+
+    private fun <T> read(
+        compressedSource: BufferedSource,
+        compression: Compression,
+        block: (BufferedSource) -> T,
+    ): T {
+        val kotlinxCompressedSource = compressedSource.asKotlinxIoRawSource().buffered()
+        val decompressedSource = withOkioIoFailures {
+            compressionCodecs.decompressingSource(compression, kotlinxCompressedSource)
+        }.asOkioSource().buffer()
+        return useResource(decompressedSource, { it.close() }) { source ->
+            val value = block(source)
+            if (!source.exhausted()) {
+                throw NbtDecodingException("Decompressed NBT file has trailing bytes")
             }
+            value
         }
     }
 
@@ -92,7 +113,7 @@ class NbtFileStore internal constructor(
         nbtDocument: NbtDocument,
         compression: Compression = Compression.GZIP,
     ) = write(path, compression) { sink ->
-        nbtFormat.encodeDocumentToSink(nbtDocument, sink)
+        nbtFormat.encodeDocumentToOkio(nbtDocument, sink)
     }
 
     fun <T> write(
@@ -101,48 +122,47 @@ class NbtFileStore internal constructor(
         value: T,
         compression: Compression = Compression.GZIP,
     ) = write(path, compression) { sink ->
-        nbtFormat.encodeToSink(serializationStrategy, value, sink)
+        nbtFormat.encodeToOkio(serializationStrategy, value, sink)
     }
 
     /** Directly truncates, streams, and durably syncs the final file. */
     fun write(
         path: Path,
         compression: Compression = Compression.GZIP,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) {
-        worldFileAccess.requireWritable()
-        val parent = path.parent
-            ?: throw WorldIOException("File has no parent directory: $path")
-        fileSystem.createDirectories(parent)
-        val fileHandle = fileSystem.openTruncatedReadWrite(path)
-        useResource(fileHandle, { it.close() }) {
-            writeHandle(path, fileHandle, compression, block)
-        }
+        rawFileStore.writeDurably(path) { sink -> encode(compression, sink, block) }
     }
 
-    internal fun writeSyncedTemporary(
+    internal fun writeSyncedTemporaryDocument(
         directory: Path,
         nbtDocument: NbtDocument,
         compression: Compression = Compression.GZIP,
     ): Path = writeSyncedTemporary(directory, compression) { sink ->
-        nbtFormat.encodeDocumentToSink(nbtDocument, sink)
+        nbtFormat.encodeDocumentToOkio(nbtDocument, sink)
+    }
+
+    internal fun <T> writeSyncedTemporary(
+        directory: Path,
+        serializationStrategy: SerializationStrategy<T>,
+        value: T,
+        compression: Compression = Compression.GZIP,
+    ): Path = writeSyncedTemporary(directory, compression) { sink ->
+        nbtFormat.encodeToOkio(serializationStrategy, value, sink)
     }
 
     internal fun writeSyncedTemporary(
         directory: Path,
         compression: Compression = Compression.GZIP,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ): Path {
-        worldFileAccess.requireWritable()
+        rawFileStore.worldFileAccess.requireWritable()
         val temporaryFileHandle = fileSystem.openUniqueTemporaryHandle(directory)
         try {
             useResource(temporaryFileHandle.fileHandle, { it.close() }) { fileHandle ->
-                writeHandle(
-                    temporaryFileHandle.path,
-                    fileHandle,
-                    compression,
-                    block,
-                )
+                rawFileStore.writeDurably(temporaryFileHandle.path, fileHandle) { sink ->
+                    encode(compression, sink, block)
+                }
             }
             return temporaryFileHandle.path
         } catch (failure: Throwable) {
@@ -151,45 +171,25 @@ class NbtFileStore internal constructor(
         }
     }
 
-    internal fun openSource(path: Path): Source = worldFileAccess.openSource(path)
-
-    private fun writeHandle(
-        path: Path,
-        fileHandle: FileHandle,
-        compression: Compression,
-        block: (KotlinxSink) -> Unit,
-    ) {
-        val countingFileSink = CountingSink(
-            fileHandle.sink(),
-            closeDelegate = true,
-        )
-        val fileSink = countingFileSink.buffer()
-        useResource(fileSink, { it.close() }) {
-            encode(compression, fileSink, block)
-            fileSink.flush()
-        }
-        fileHandle.resize(countingFileSink.bytesWritten)
-        fileHandle.flushDurably(fileSystem, path)
-    }
-
     private fun encode(
         compression: Compression,
         sink: Sink,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) {
-        withOkioIoExceptions("Cannot write NBT stream") {
-            val converted = sink.asKotlinxIoRawSink().buffered()
-            val compressed = compressionCodecs.compressingSink(
-                compression,
-                converted,
-            ).buffered()
-            useResource(compressed, { it.close() }) { sink ->
-                block(sink)
-            }
-            converted.flush()
+        val kotlinxSink = sink.asKotlinxIoRawSink().buffered()
+        val compressedSink = withOkioIoFailures {
+            compressionCodecs.compressingSink(compression, kotlinxSink)
+        }.asOkioSink().buffer()
+        useResource(compressedSink, { it.close() }) { bufferedSink ->
+            block(bufferedSink)
         }
+        // Compression decorators do not close their caller-owned endpoint. Emit their remaining
+        // bytes without adding another physical flush; RawFileStore owns the durability boundary.
+        withOkioIoFailures { kotlinxSink.emit() }
     }
 }
+
+private const val NBT_COMPOUND_TAG_TYPE = 10
 
 internal fun NbtFormat.requireStandaloneWorldRoot() {
     require(nbtFormatConfiguration.nbtRootEncoding == NbtRootEncoding.UNNAMED) {

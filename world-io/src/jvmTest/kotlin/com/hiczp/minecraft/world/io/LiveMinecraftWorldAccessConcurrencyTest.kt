@@ -22,7 +22,11 @@ class LiveMinecraftWorldAccessConcurrencyTest {
         val nbtFileStore = NbtFileStore(base)
         LevelDataStore(minecraftWorldPaths, nbtFileStore).writeDocument(nbtDocument)
         PlayerDataStore(minecraftWorldPaths, nbtFileStore).writeDocument(player, nbtDocument)
-        SavedDataFileStore(minecraftWorldPaths, nbtFileStore = nbtFileStore).writeDocument("example:data", nbtDocument)
+        SavedDataStore(
+            minecraftWorldPaths,
+            SavedDataScope.Dimension(DimensionDirectory.Overworld),
+            nbtFileStore
+        ).writeDocument("example:data", nbtDocument)
         val utf8JsonFileStore = Utf8JsonFileStore(base)
         utf8JsonFileStore.writeText(minecraftWorldPaths.statistics(player), "statistics")
         utf8JsonFileStore.writeText(minecraftWorldPaths.advancement(player), "advancements")
@@ -33,8 +37,13 @@ class LiveMinecraftWorldAccessConcurrencyTest {
         assertConcurrentSourceReads(root, base, minecraftWorldPaths.playerData(player), nbtDocument) {
             readPlayerDataDocument(player)
         }
-        assertConcurrentSourceReads(root, base, minecraftWorldPaths.savedData("example:data"), nbtDocument) {
-            readSavedDataDocument("example:data")
+        assertConcurrentSourceReads(
+            root,
+            base,
+            minecraftWorldPaths.savedData("example:data", SavedDataScope.Dimension(DimensionDirectory.Overworld)),
+            nbtDocument
+        ) {
+            readSavedDataDocument("example:data", SavedDataScope.Dimension(DimensionDirectory.Overworld))
         }
         assertConcurrentSourceReads(root, base, minecraftWorldPaths.statistics(player), "statistics") {
             readStatisticsText(player)
@@ -56,7 +65,7 @@ class LiveMinecraftWorldAccessConcurrencyTest {
                     REGION_CHUNK_RECORD_HEADER_BYTES,
         ) { index -> index.toByte() }
         val base = concurrencyFakeFileSystem()
-        val setup = RegionStorage(minecraftWorldPaths, fileSystem = base)
+        val setup = CoordinatedRegionStore(minecraftWorldPaths, fileSystem = base)
         try {
             setup.writeCompressedChunk(inlinePosition, concurrencyChunk(1))
             setup.writeCompressedChunk(

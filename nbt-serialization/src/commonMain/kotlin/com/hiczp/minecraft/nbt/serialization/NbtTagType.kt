@@ -68,6 +68,6 @@ internal fun NbtCompound.unwrapListElement(): NbtTag {
 
 internal fun validateType(type: Int) {
     if (type !in TAG_END..TAG_LONG_ARRAY) {
-        throw NbtDecodingException("Unknown NBT tag type: $type")
+        throw NbtBinaryFormatException("Unknown NBT tag type: $type")
     }
 }

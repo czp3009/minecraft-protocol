@@ -372,14 +372,48 @@ class OfficialWorldStorageInteropTest {
             "Player fallback did not preserve a corrupted copy; directory entries: $playerDirectoryEntries"
         }
         nbtFileStore.writeDocument(minecraftWorldPaths.playerData(playerKey), player)
+        val typedPlayer = checkNotNull(playerDataStore.read(playerKey, PlayerData.serializer()))
+        playerDataStore.write(playerKey, PlayerData.serializer(), typedPlayer)
+        check(playerDataStore.read(playerKey, PlayerData.serializer()) == typedPlayer) {
+            "Typed player data did not survive primary/previous replacement"
+        }
 
         val savedIdentifier = auditResult.savedDataIdentifiers.first()
-        val savedDataFileStore = SavedDataFileStore(minecraftWorldPaths, nbtFileStore = nbtFileStore)
-        val savedData = checkNotNull(savedDataFileStore.readDocument(savedIdentifier))
-        savedDataFileStore.writeDocument(savedIdentifier, savedData)
-        check(savedDataFileStore.readDocument(savedIdentifier) == savedData) {
+        val savedDataStore = SavedDataStore(
+            minecraftWorldPaths,
+            SavedDataScope.Dimension(DimensionDirectory.Overworld),
+            nbtFileStore,
+        )
+        val savedData = checkNotNull(savedDataStore.readDocument(savedIdentifier))
+        savedDataStore.writeDocument(savedIdentifier, savedData)
+        check(savedDataStore.readDocument(savedIdentifier) == savedData) {
             "Saved data did not survive direct GZIP rewrite"
         }
+        rewriteTypedSavedData(
+            savedDataStore,
+            WORLD_BORDER_IDENTIFIER,
+            SavedDataFile.serializer(WorldBorderData.serializer()),
+        )
+        rewriteTypedSavedData(
+            savedDataStore,
+            CHUNK_TICKETS_IDENTIFIER,
+            SavedDataFile.serializer(ChunkTicketsData.serializer()),
+        )
+        rewriteTypedSavedData(
+            savedDataStore,
+            RAIDS_IDENTIFIER,
+            SavedDataFile.serializer(RaidsData.serializer()),
+        )
+        val endSavedDataStore = SavedDataStore(
+            minecraftWorldPaths,
+            SavedDataScope.Dimension(DimensionDirectory.End),
+            nbtFileStore,
+        )
+        rewriteTypedSavedData(
+            endSavedDataStore,
+            ENDER_DRAGON_FIGHT_IDENTIFIER,
+            SavedDataFile.serializer(EnderDragonFightData.serializer()),
+        )
 
         val utf8JsonFileStore = Utf8JsonFileStore(fileSystem)
         val statisticsPath = minecraftWorldPaths.statistics(playerKey)
@@ -418,7 +452,7 @@ class OfficialWorldStorageInteropTest {
     private suspend fun exerciseCompressionMatrix(worldDirectory: Path) {
         val minecraftWorldPaths = MinecraftWorldPaths(worldDirectory)
         val documents = linkedMapOf<ChunkPosition, NbtDocument>()
-        val readingStore = RegionStorage(minecraftWorldPaths)
+        val readingStore = CoordinatedRegionStore(minecraftWorldPaths)
         try {
             COMPRESSION_PROBES.forEach { compressionProbe ->
                 documents[compressionProbe.chunkPosition] = checkNotNull(
@@ -434,7 +468,7 @@ class OfficialWorldStorageInteropTest {
         // One mixed region makes the official server exercise every platform codec in one restart. The marker block
         // in each original NBT document proves that the server loaded our bytes instead of accepting only the MCA
         // header or silently regenerating a missing chunk.
-        val writingStore = RegionStorage(minecraftWorldPaths)
+        val writingStore = CoordinatedRegionStore(minecraftWorldPaths)
         try {
             COMPRESSION_PROBES.forEachIndexed { index, compressionProbe ->
                 val nbtDocument = documents.getValue(compressionProbe.chunkPosition)
@@ -455,7 +489,7 @@ class OfficialWorldStorageInteropTest {
             writingStore.close()
         }
 
-        val verifyingStore = RegionStorage(minecraftWorldPaths)
+        val verifyingStore = CoordinatedRegionStore(minecraftWorldPaths)
         try {
             COMPRESSION_PROBES.forEach { compressionProbe ->
                 val stored = checkNotNull(
@@ -486,7 +520,7 @@ class OfficialWorldStorageInteropTest {
         val regionPath = minecraftWorldPaths.regionFile(regionPosition)
         val originalChunk: CompressedChunk
         val originalDocument: NbtDocument
-        val readingStore = RegionStorage(minecraftWorldPaths)
+        val readingStore = CoordinatedRegionStore(minecraftWorldPaths)
         try {
             originalChunk = checkNotNull(
                 readingStore.readCompressedChunk(absolutePosition),
@@ -511,7 +545,7 @@ class OfficialWorldStorageInteropTest {
         )
         check(oldAllocation.size == oldLocation.allocatedBytes)
 
-        val writingStore = RegionStorage(minecraftWorldPaths)
+        val writingStore = CoordinatedRegionStore(minecraftWorldPaths)
         try {
             writingStore.writeCompressedChunk(absolutePosition, originalChunk)
         } finally {
@@ -537,7 +571,7 @@ class OfficialWorldStorageInteropTest {
             "Region update shrank the MCA file"
         }
         val fixtureDocument = externalFixture(originalDocument)
-        val externalStore = RegionStorage(
+        val externalStore = CoordinatedRegionStore(
             minecraftWorldPaths = minecraftWorldPaths,
             regionStorageConfiguration = RegionStorageConfiguration(
                 syncWrites = true,
@@ -570,7 +604,7 @@ class OfficialWorldStorageInteropTest {
         entityPosition: ChunkPosition,
     ) {
         val minecraftWorldPaths = MinecraftWorldPaths(worldDirectory)
-        val terrain = RegionStorage(minecraftWorldPaths)
+        val terrain = CoordinatedRegionStore(minecraftWorldPaths)
         try {
             terrain.writeChunkNbtDocument(
                 terrainMutation.chunkPosition,
@@ -586,7 +620,7 @@ class OfficialWorldStorageInteropTest {
             "Internal rewrite retained the external chunk sidecar"
         }
 
-        val entities = RegionStorage(
+        val entities = CoordinatedRegionStore(
             minecraftWorldPaths,
             regionStorageDirectory = RegionStorageDirectory.ENTITIES,
         )
@@ -619,14 +653,52 @@ class OfficialWorldStorageInteropTest {
         val playerDataStore = PlayerDataStore(minecraftWorldPaths, nbtFileStore)
         playerKeys.forEach { playerKey ->
             checkNotNull(playerDataStore.readDocument(playerKey))
+            val playerData = checkNotNull(playerDataStore.read(playerKey, PlayerData.serializer()))
+            check(playerData.dataVersion == typedLevel.data.dataVersion) {
+                "Player DataVersion does not match level.dat: $playerKey"
+            }
         }
 
-        val savedDirectory = minecraftWorldPaths.savedDataDirectory()
+        val savedDirectory =
+            minecraftWorldPaths.savedDataDirectory(SavedDataScope.Dimension(DimensionDirectory.Overworld))
         val savedDataIdentifiers = savedDataIdentifiers(savedDirectory)
-        val savedDataFileStore = SavedDataFileStore(minecraftWorldPaths, nbtFileStore = nbtFileStore)
+        val savedDataStore = SavedDataStore(
+            minecraftWorldPaths,
+            SavedDataScope.Dimension(DimensionDirectory.Overworld),
+            nbtFileStore,
+        )
         savedDataIdentifiers.forEach { identifier ->
-            checkNotNull(savedDataFileStore.readDocument(identifier))
+            checkNotNull(savedDataStore.readDocument(identifier))
         }
+        checkNotNull(
+            savedDataStore.read(
+                WORLD_BORDER_IDENTIFIER,
+                SavedDataFile.serializer(WorldBorderData.serializer()),
+            ),
+        )
+        checkNotNull(
+            savedDataStore.read(
+                CHUNK_TICKETS_IDENTIFIER,
+                SavedDataFile.serializer(ChunkTicketsData.serializer()),
+            ),
+        )
+        checkNotNull(
+            savedDataStore.read(
+                RAIDS_IDENTIFIER,
+                SavedDataFile.serializer(RaidsData.serializer()),
+            ),
+        )
+        val endSavedDataStore = SavedDataStore(
+            minecraftWorldPaths,
+            SavedDataScope.Dimension(DimensionDirectory.End),
+            nbtFileStore,
+        )
+        checkNotNull(
+            endSavedDataStore.read(
+                ENDER_DRAGON_FIGHT_IDENTIFIER,
+                SavedDataFile.serializer(EnderDragonFightData.serializer()),
+            ),
+        )
 
         val statisticsDirectory = checkNotNull(minecraftWorldPaths.statistics("probe").parent)
         val advancementDirectory = checkNotNull(minecraftWorldPaths.advancement("probe").parent)
@@ -660,7 +732,7 @@ class OfficialWorldStorageInteropTest {
             if (fileSystem.metadataOrNull(directory)?.isDirectory != true) {
                 return@forEach
             }
-            val regionStorage = RegionStorage(minecraftWorldPaths, regionStorageDirectory)
+            val regionStorage = CoordinatedRegionStore(minecraftWorldPaths, regionStorageDirectory)
             try {
                 regionPositions(directory).forEach { regionPosition ->
                     val positionedAnvilRegion = checkNotNull(regionStorage.readAnvilRegion(regionPosition))
@@ -675,13 +747,13 @@ class OfficialWorldStorageInteropTest {
                         val nbtDocument =
                             regionStorage.chunkNbtFormat.decodeDocument(checkNotNull(anvilChunkRecord.content))
                         if (regionStorageDirectory == RegionStorageDirectory.ENTITIES) {
-                            val dataVersion = (nbtDocument.root["DataVersion"] as? NbtInt)?.value
-                                ?: error("Official Entity Chunk has no DataVersion: $chunkPosition")
-                            val entityChunk = EntityChunkNbtCodec(dataVersion, NbtEntityDataRegistry())
+                            val entityChunk = EntityChunkNbtCodec(NbtEntityDataRegistry())
                                 .decodeDocument(nbtDocument, chunkPosition)
                             check(!entityChunk.isEmpty) {
                                 "Official Entity storage retained an empty Chunk: $chunkPosition"
                             }
+                        } else if (regionStorageDirectory == RegionStorageDirectory.POINTS_OF_INTEREST) {
+                            PoiChunkNbtCodec().decodeDocument(nbtDocument, chunkPosition)
                         }
                         chunks[regionStorageDirectory] = checkNotNull(chunks[regionStorageDirectory]) + 1
                         if (!firstChunks.containsKey(regionStorageDirectory)) {
@@ -786,6 +858,20 @@ class OfficialWorldStorageInteropTest {
             .toList()
     }
 
+    private fun <T> rewriteTypedSavedData(
+        savedDataStore: SavedDataStore,
+        identifier: String,
+        serializer: kotlinx.serialization.KSerializer<T>,
+    ) {
+        val value = checkNotNull(savedDataStore.read(identifier, serializer)) {
+            "Official fixture generated no $identifier saved data"
+        }
+        savedDataStore.write(identifier, serializer, value)
+        check(savedDataStore.read(identifier, serializer) == value) {
+            "Typed $identifier saved data did not survive direct GZIP rewrite"
+        }
+    }
+
     private fun requireStructuredPlayerRewrite(
         worldDirectory: Path,
         structuredPlayerRewrite: StructuredPlayerRewrite,
@@ -854,8 +940,6 @@ class OfficialWorldStorageInteropTest {
     }
 
     private fun strongChunkCodec(nbtDocument: NbtDocument): ChunkNbtCodec<BlockStateDescriptor, String> {
-        val dataVersion = (nbtDocument.root["DataVersion"] as? NbtInt)?.value
-            ?: error("Official terrain Chunk has no integer DataVersion")
         val minSectionY = (nbtDocument.root["yPos"] as? NbtInt)?.value
             ?: error("Official terrain Chunk has no integer yPos")
         val sections = nbtDocument.root["sections"] as? NbtList
@@ -878,7 +962,6 @@ class OfficialWorldStorageInteropTest {
                     blockStates = DescriptorBlockStateRegistry(),
                     biomes = NamedBiomeRegistry(),
                 ),
-                expectedDataVersion = dataVersion,
             ),
         )
     }

@@ -5,8 +5,8 @@ import com.hiczp.minecraft.world.format.*
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.serializer
-import kotlinx.io.Sink as KotlinxSink
-import kotlinx.io.Source as KotlinxSource
+import okio.BufferedSink
+import okio.BufferedSource
 
 /**
  * Caller-owned coordinated access to one Entity Region.
@@ -46,42 +46,42 @@ class EntityRegionHandle internal constructor(
 
     suspend fun <R> withCompressedChunkSource(
         localChunkPosition: LocalChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = delegate.withCompressedChunkSource(localChunkPosition, block)
 
     suspend fun <R> withCompressedChunkSource(
         chunkPosition: ChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = delegate.withCompressedChunkSource(chunkPosition, block)
 
-    suspend fun readCompressedChunkTo(localChunkPosition: LocalChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
-        delegate.readCompressedChunkTo(localChunkPosition, kotlinxSink)
+    suspend fun readCompressedChunkTo(localChunkPosition: LocalChunkPosition, sink: BufferedSink): RegionChunkInfo? =
+        delegate.readCompressedChunkTo(localChunkPosition, sink)
 
-    suspend fun readCompressedChunkTo(chunkPosition: ChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
-        delegate.readCompressedChunkTo(chunkPosition, kotlinxSink)
+    suspend fun readCompressedChunkTo(chunkPosition: ChunkPosition, sink: BufferedSink): RegionChunkInfo? =
+        delegate.readCompressedChunkTo(chunkPosition, sink)
 
     suspend fun readCompressedChunk(localChunkPosition: LocalChunkPosition): CompressedChunk? = delegate.readCompressedChunk(localChunkPosition)
 
     suspend fun readCompressedChunk(chunkPosition: ChunkPosition): CompressedChunk? = delegate.readCompressedChunk(chunkPosition)
 
-    suspend fun writeCompressedChunk(localChunkPosition: LocalChunkPosition, compressedChunkInput: CompressedChunkInput) =
-        delegate.writeCompressedChunk(localChunkPosition, compressedChunkInput)
+    suspend fun writeCompressedChunk(localChunkPosition: LocalChunkPosition, compressedChunk: CompressedChunk) =
+        delegate.writeCompressedChunk(localChunkPosition, compressedChunk)
 
-    suspend fun writeCompressedChunk(chunkPosition: ChunkPosition, compressedChunkInput: CompressedChunkInput) =
-        delegate.writeCompressedChunk(chunkPosition, compressedChunkInput)
+    suspend fun writeCompressedChunk(chunkPosition: ChunkPosition, compressedChunk: CompressedChunk) =
+        delegate.writeCompressedChunk(chunkPosition, compressedChunk)
 
     suspend fun writeCompressedChunk(
         localChunkPosition: LocalChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) = delegate.writeCompressedChunk(localChunkPosition, compression, compressedByteCount, block)
 
     suspend fun writeCompressedChunk(
         chunkPosition: ChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) = delegate.writeCompressedChunk(chunkPosition, compression, compressedByteCount, block)
 
     suspend fun removeChunk(localChunkPosition: LocalChunkPosition): Boolean = delegate.removeChunk(localChunkPosition)
@@ -90,19 +90,19 @@ class EntityRegionHandle internal constructor(
 
     suspend fun <R> withChunkNbtSource(
         localChunkPosition: LocalChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = delegate.withChunkNbtSource(localChunkPosition, block)
 
     suspend fun <R> withChunkNbtSource(
         chunkPosition: ChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = delegate.withChunkNbtSource(chunkPosition, block)
 
-    suspend fun readChunkNbtTo(localChunkPosition: LocalChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
-        delegate.readChunkNbtTo(localChunkPosition, kotlinxSink)
+    suspend fun readChunkNbtTo(localChunkPosition: LocalChunkPosition, sink: BufferedSink): RegionChunkInfo? =
+        delegate.readChunkNbtTo(localChunkPosition, sink)
 
-    suspend fun readChunkNbtTo(chunkPosition: ChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
-        delegate.readChunkNbtTo(chunkPosition, kotlinxSink)
+    suspend fun readChunkNbtTo(chunkPosition: ChunkPosition, sink: BufferedSink): RegionChunkInfo? =
+        delegate.readChunkNbtTo(chunkPosition, sink)
 
     suspend fun readChunkNbtDocument(localChunkPosition: LocalChunkPosition): NbtDocument? =
         delegate.readChunkNbtDocument(localChunkPosition)
@@ -127,7 +127,9 @@ class EntityRegionHandle internal constructor(
         readChunkNbt(chunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
 
     suspend fun <E : Any> readChunk(localChunkPosition: LocalChunkPosition, entityChunkNbtCodec: EntityChunkNbtCodec<E>): EntityChunk<E>? =
-        withChunkNbtSource(localChunkPosition) { _, source -> entityChunkNbtCodec.decodeFromSource(source, regionPosition.chunk(localChunkPosition)) }
+        withChunkNbtSource(localChunkPosition) { _, source ->
+            entityChunkNbtCodec.decodeFromOkio(source, regionPosition.chunk(localChunkPosition))
+        }
 
     suspend fun <E : Any> readChunk(chunkPosition: ChunkPosition, entityChunkNbtCodec: EntityChunkNbtCodec<E>): EntityChunk<E>? =
         readChunk(this.regionPosition.local(chunkPosition), entityChunkNbtCodec)
@@ -153,13 +155,13 @@ class EntityRegionHandle internal constructor(
     suspend fun writeChunkNbt(
         localChunkPosition: LocalChunkPosition,
         compression: Compression = regionStorageConfiguration.writeCompression,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) = delegate.writeChunkNbt(localChunkPosition, compression, block)
 
     suspend fun writeChunkNbt(
         chunkPosition: ChunkPosition,
         compression: Compression = regionStorageConfiguration.writeCompression,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) = delegate.writeChunkNbt(chunkPosition, compression, block)
 
     suspend fun <T> writeChunkNbt(
@@ -195,18 +197,13 @@ class EntityRegionHandle internal constructor(
         compression: Compression = regionStorageConfiguration.writeCompression,
     ) {
         val localChunkPosition = regionPosition.local(entityChunk.chunkPosition)
-        if (entityChunk.isEmpty) {
-            delegate.removeChunk(localChunkPosition)
-        } else {
-            delegate.writeChunkNbt(localChunkPosition, compression) { sink ->
-                entityChunkNbtCodec.encodeToSink(entityChunk, sink)
-            }
+        delegate.writePreparedChunk(localChunkPosition) {
+            if (entityChunk.isEmpty) null
+            else entityChunkNbtCodec.encodeFromOkio(entityChunk, chunkNbtFormat, compression)
         }
     }
 
     suspend fun clear() = delegate.clear()
-
-    suspend fun replaceRegion(chunks: Collection<RegionChunkInput>) = delegate.replaceRegion(chunks)
 
     /**
      * Runs [block] under one shared-read admission with one consistent Entity Region header

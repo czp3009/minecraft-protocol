@@ -10,7 +10,7 @@ import kotlin.uuid.Uuid
 class EntityChunkNbtCodecTest {
     @Test
     fun semanticEntityChunkRoundTripsTypeSpecificDataAndPassengers() {
-        val entityChunkNbtCodec = EntityChunkNbtCodec(EXPECTED_DATA_VERSION, NbtEntityDataRegistry())
+        val entityChunkNbtCodec = EntityChunkNbtCodec(NbtEntityDataRegistry())
         val chunkPosition = ChunkPosition(-2, 3)
         val passenger = Entity(
             type = "minecraft:chicken",
@@ -56,18 +56,15 @@ class EntityChunkNbtCodecTest {
     }
 
     @Test
-    fun codecRejectsWrongPositionVersionAndStructuralPersistentFields() {
+    fun codecRejectsWrongPositionAndStructuralPersistentFields() {
         val nbtEntityDataRegistry = NbtEntityDataRegistry()
-        val entityChunkNbtCodec = EntityChunkNbtCodec(EXPECTED_DATA_VERSION, nbtEntityDataRegistry)
+        val entityChunkNbtCodec = EntityChunkNbtCodec(nbtEntityDataRegistry)
         val chunkPosition = ChunkPosition(1, 2)
         val entityChunk = EntityChunk<NbtCompound>(chunkPosition, EXPECTED_DATA_VERSION)
         val nbtDocument = entityChunkNbtCodec.encodeDocument(entityChunk)
 
         assertFailsWith<EntityChunkNbtFormatException> {
             entityChunkNbtCodec.decodeDocument(nbtDocument, ChunkPosition(2, 1))
-        }
-        assertFailsWith<EntityChunkNbtFormatException> {
-            EntityChunkNbtCodec(EXPECTED_DATA_VERSION + 1, nbtEntityDataRegistry).decodeDocument(nbtDocument, chunkPosition)
         }
         val invalid = Entity(
             type = "minecraft:pig",
@@ -83,6 +80,20 @@ class EntityChunkNbtCodecTest {
     }
 
     @Test
+    fun codecCarriesDataVersionWithoutACompatibilityGate() {
+        val entityChunkNbtCodec = EntityChunkNbtCodec(NbtEntityDataRegistry())
+        val chunkPosition = ChunkPosition(0, 0)
+        val dataVersion = Int.MIN_VALUE
+
+        val decoded = entityChunkNbtCodec.decodeDocument(
+            entityChunkNbtCodec.encodeDocument(EntityChunk<NbtCompound>(chunkPosition, dataVersion)),
+            chunkPosition,
+        )
+
+        assertEquals(dataVersion, decoded.dataVersion)
+    }
+
+    @Test
     fun callerSuppliedEntityDataBecomesTheRuntimeAndPersistenceValue() {
         val entityDataRegistry = object : EntityDataRegistry<TestEntityData> {
             override fun resolve(type: String, persistentData: NbtCompound): TestEntityData? =
@@ -91,7 +102,7 @@ class EntityChunkNbtCodecTest {
             override fun describe(type: String, value: TestEntityData): NbtCompound =
                 NbtCompound(mapOf("Silent" to NbtByte(if (value.silent) 1.toByte() else 0.toByte())))
         }
-        val entityChunkNbtCodec = EntityChunkNbtCodec(EXPECTED_DATA_VERSION, entityDataRegistry)
+        val entityChunkNbtCodec = EntityChunkNbtCodec(entityDataRegistry)
         val chunkPosition = ChunkPosition(0, 0)
         val entity = Entity(
             type = "minecraft:pig",

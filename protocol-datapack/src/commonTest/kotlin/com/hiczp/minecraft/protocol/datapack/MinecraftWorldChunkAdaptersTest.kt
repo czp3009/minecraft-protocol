@@ -2,6 +2,7 @@ package com.hiczp.minecraft.protocol.datapack
 
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.world.format.BlockStateDescriptor
+import com.hiczp.minecraft.world.format.ChunkLayout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -19,6 +20,7 @@ class MinecraftWorldChunkAdaptersTest {
 
         val chunkLayout = minecraftDimensionLayout.toChunkLayout()
 
+        assertEquals(ChunkLayout.fromBlockBounds(minY = -64, height = 384), chunkLayout)
         assertEquals(-4, chunkLayout.minSectionY)
         assertEquals(24, chunkLayout.sectionCount)
         assertEquals(-64..319, chunkLayout.blockYRange)

@@ -2,7 +2,6 @@ package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.readByteArray
 import okio.FileHandle
 import okio.FileSystem
 import okio.ForwardingFileSystem
@@ -41,9 +40,8 @@ class RegionBatchIoTest {
             assertEquals(1, countingMutableRegionFileSystem.headerWrites)
             assertEquals(AnvilChunkPlacement.INLINE, mutableRegionFile.readChunkInfo(firstPosition)?.anvilChunkPlacement)
             assertEquals(AnvilChunkPlacement.EXTERNAL, mutableRegionFile.readChunkInfo(externalPosition)?.anvilChunkPlacement)
-            assertContentEquals(first, mutableRegionFile.readCompressedChunk(firstAbsolute).bytesOrNull())
+            assertContentEquals(first, mutableRegionFile.readCompressedChunk(firstPosition).bytesOrNull())
             assertContentEquals(external, mutableRegionFile.readCompressedChunk(externalPosition).bytesOrNull())
-            assertFailsWith<IllegalArgumentException> { mutableRegionFile.readCompressedChunk(ChunkPosition(32, 0)) }
 
             mutableRegionFile.withReadScope {
                 escapedRead = this
@@ -124,7 +122,7 @@ class RegionBatchIoTest {
         val regionPosition = RegionPosition(-1, 2)
         val first = LocalChunkPosition(0, 0)
         val second = LocalChunkPosition(31, 31)
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = fakeFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
@@ -169,7 +167,7 @@ class RegionBatchIoTest {
         val regionPosition = RegionPosition(0, 0)
         val path = directory / "r.0.0.mca"
         val countingMutableRegionFileSystem = CountingMutableRegionFileSystem(base, path)
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = countingMutableRegionFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),

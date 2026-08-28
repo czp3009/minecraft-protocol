@@ -5,10 +5,10 @@ Kotlin values and caller-owned `kotlinx.io.Source`/`Sink` streams.
 
 Use it for:
 
-- semantic Chunk, Section, palette, Block Entity, Entity, and Entity Chunk values;
+- semantic Chunk, Section, palette, Block Entity, Entity, Entity Chunk, and POI Chunk values;
 - safe conversion between Block, Section, Chunk, and Region coordinates;
 - the generated `MinecraftWorldFormat.WORLD_VERSION` for the repository-selected official world format;
-- selected-release `level.dat`, advancement, and statistics models;
+- selected-release `level.dat`, player data, dimension saved-data, advancement, and statistics models;
 - GZIP, ZLIB, uncompressed, Minecraft's legacy LZ4 block stream, and custom compression;
 - compressed unnamed-root Chunk NBT;
 - low-level `.mca` Anvil containers and external Chunk records;
@@ -41,13 +41,11 @@ fun <B : Any, M : Any> decodeStoredChunk(
 }
 ```
 
-Construct a codec from a dimension-specific layout, the expected data version, and registries for the logical values the
-application wants:
+Construct a codec from a dimension-specific layout and registries for the logical values the application wants:
 
 ```kotlin
 fun createDescriptorChunkCodec(
     chunkLayout: ChunkLayout,
-    expectedDataVersion: Int = MinecraftWorldFormat.WORLD_VERSION,
 ): ChunkNbtCodec<BlockStateDescriptor, String> {
     val chunkDataRegistries = ChunkDataRegistries(
         blockStates = DescriptorBlockStateRegistry(),
@@ -57,22 +55,24 @@ fun createDescriptorChunkCodec(
         ChunkNbtContext(
             chunkLayout = chunkLayout,
             chunkDataRegistries = chunkDataRegistries,
-            expectedDataVersion = expectedDataVersion,
         ),
     )
 }
 ```
 
-`MinecraftWorldFormat.WORLD_VERSION` comes from `world_version` in the matching official server's `version.json`.
-Persisted NBT continues to call the same value `DataVersion`; it is distinct from the network protocol version and the
-lowercase `version` field in `level.dat`.
+`MinecraftWorldFormat.WORLD_VERSION` comes from `world_version` in the matching official server's `version.json` and is
+available when an application creates new values or chooses to enforce its own compatibility policy. Persisted NBT
+continues to call the field `DataVersion`; it is distinct from the network protocol version and the lowercase `version`
+field in `level.dat`. Codecs read and retain the stored integer without comparing it to this constant or any expected
+version.
 
 `DescriptorBlockStateRegistry` preserves block names and properties; `NamedBiomeRegistry` uses persistent biome names.
 Applications may implement `BlockStateRegistry<B>` and `BiomeRegistry<M>` to resolve directly into their own runtime
 objects.
 
 `ChunkLayout` has no release-wide default because height and minimum Y belong to a dimension. Supply it from the world's
-dimension metadata. For negotiated protocol data,
+dimension metadata, using `ChunkLayout.fromBlockBounds(minY, height)` when those bounds are expressed in blocks. For
+negotiated protocol data,
 [`protocol-datapack`](../protocol-datapack/README.md#adapt-protocol-context-to-semantic-chunks) provides
 `MinecraftDimensionLayout.toChunkLayout()` and the matching active-registry adapter without introducing a protocol
 dependency into this module.
@@ -105,9 +105,10 @@ Palette mutation preserves stable palette IDs. `compactSnapshot()` returns a non
 `compact()` explicitly rewrites the container. Encoding uses the snapshot path and does not mutate the Chunk merely to
 serialize it.
 
-Strong Chunk decoding validates required fields, data version, layout, coordinates, and registry resolution, but it does
-not retain unknown tags outside the semantic model. Use `NbtDocument` when arbitrary modded or future fields must
-survive a round trip.
+Strong Chunk decoding validates required fields, layout, coordinates, and registry resolution, but deliberately does not
+gate reads on `DataVersion`. It does not retain unknown tags outside the semantic model. Use `NbtDocument` when
+arbitrary modded or future fields must survive a round trip or when the application wants to inspect version metadata
+before choosing a semantic codec.
 
 ## Work with stored Entities
 
@@ -117,12 +118,8 @@ Entity Regions use the parallel `EntityChunk` model. `NbtEntityDataRegistry` pre
 ```kotlin
 fun decodeEntityChunk(
     compressedChunk: CompressedChunk,
-    expectedDataVersion: Int,
 ): EntityChunk<NbtCompound> {
-    val entityChunkNbtCodec = EntityChunkNbtCodec(
-        expectedDataVersion = expectedDataVersion,
-        entityDataRegistry = NbtEntityDataRegistry(),
-    )
+    val entityChunkNbtCodec = EntityChunkNbtCodec(NbtEntityDataRegistry())
     return compressedChunk.toEntityChunk(entityChunkNbtCodec)
 }
 ```
@@ -134,6 +131,31 @@ derived Block/Section/Chunk/Region positions. `EntityChunk.rootEntities` preserv
 Applications that want a strong subtype value implement `EntityDataRegistry<E>` to map between persistent NBT and their
 runtime type. Moving an Entity updates its value; transferring it between loaded Entity Chunks remains an application
 operation.
+
+## Work with Points of Interest
+
+POI Regions use the same Anvil container but have their own selected-release semantic value. Their NBT does not store a
+Chunk position, so the enclosing Region slot supplies it during decoding:
+
+```kotlin
+fun addHomePoi(
+    nbtDocument: NbtDocument,
+    chunkPosition: ChunkPosition,
+    blockPosition: BlockPosition,
+): NbtDocument {
+    val poiChunkNbtCodec = PoiChunkNbtCodec()
+    val poiChunk = poiChunkNbtCodec.decodeDocument(nbtDocument, chunkPosition)
+    poiChunk.addRecord(
+        PoiRecord("minecraft:home", blockPosition, freeTickets = 1),
+        sectionValid = true,
+    )
+    return poiChunkNbtCodec.encodeDocument(poiChunk)
+}
+```
+
+`PoiChunk` groups records by absolute Section Y and validates their Chunk membership. It provides Chunk-level lookup,
+add, replace, and removal operations; `PoiSection` exposes the same record operations when the caller is already working
+section by section. The codec retains `DataVersion` without comparing it to a library version.
 
 ## Convert coordinates safely
 
@@ -252,9 +274,11 @@ Unchanged compressed records can be inspected or repacked without decompression.
 
 ## Structured files and data packs
 
-The module includes serializers for the repository-selected `LevelDat`, `PlayerAdvancements`, and `PlayerStatistics`
-schemas. These models do not migrate historical files. Typed decoding is strict; use `NbtDocument`, `NbtTag`, or
-`JsonElement` for open-ended data.
+The module includes serializers for the repository-selected `LevelDat`, `PlayerData`, `PlayerAdvancements`, and
+`PlayerStatistics` schemas. `SavedDataFile<T>` models the shared `DataVersion`/`data` envelope; built-in dimension data
+models cover world borders, Chunk tickets, raids, and the Ender Dragon fight. Registry-dependent player subtrees remain
+raw NBT while their stable enclosing structure is typed. These models do not migrate historical files. Typed decoding is
+strict; use `NbtDocument`, `NbtTag`, or `JsonElement` for open-ended data.
 
 The data-pack API is also filesystem-independent:
 
@@ -273,6 +297,19 @@ Archives, typed files, overlays, filters, enabled feature flags, tags, and merge
 Compressed NBT files are decoded from retained in-memory bytes only when `NbtFile.nbtDocument` is requested; this does
 not reopen the data-pack container or require a data-pack read lock.
 `ResolvedDataPackResource.decodeDataPackTagFile()` exposes string and object tag entries as `DataPackTagFile` values.
+
+`WorldDataPackLoadResult` is the detached handoff for a world selection whose `file/...` packs have been loaded while
+core, built-in, or loader-owned packs still need their owning source. It retains strong enabled and disabled
+`DataPackId` values, the persisted feature configuration, loaded packs, and unresolved IDs without retaining paths or
+open resources. Complete the stack in the original low-to-high priority order with a caller-owned source:
+
+```kotlin
+fun completeWorldDataPackStack(
+    worldDataPackLoadResult: WorldDataPackLoadResult,
+    applicationDataPacksById: Map<DataPackId, DataPack>,
+): DataPackStack = worldDataPackLoadResult.toDataPackStack(applicationDataPacksById::get)
+```
+
 Directory and ZIP access is provided by [`world-io`](../world-io/README.md#read-world-data-packs); Configuration
 projection is provided by [`protocol-datapack`](../protocol-datapack/README.md).
 
@@ -281,6 +318,7 @@ projection is provided by [`protocol-datapack`](../protocol-datapack/README.md).
 - `AnvilFormatException` reports invalid Region/container structure.
 - `CompressionFormatException` reports invalid compression framing or unavailable CUSTOM codecs.
 - `DataPackFormatException` reports data-pack file and stack-resolution failures.
-- `ChunkNbtFormatException` reports strong Chunk schema, coordinate, layout, version, or registry failures.
+- `ChunkNbtFormatException` reports strong Chunk schema, coordinate, layout, or registry failures.
 - `EntityChunkNbtFormatException` reports strong Entity Chunk schema, position, identity, or vector failures.
+- `PoiChunkNbtFormatException` reports strong POI Chunk schema, position, or ownership failures.
 - NBT and stream/backend errors retain the exception type from their owning module.

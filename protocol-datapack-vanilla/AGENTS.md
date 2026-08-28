@@ -11,10 +11,14 @@ built on `protocol-datapack`.
   that declared artifact and emits a manifest plus independently loaded batches.
 - Do not hand-edit generated source, combine generated payloads into one eager property, or let a generator inspect the
   official server JAR directly.
-- Generic models and transformations belong in `protocol-datapack`. Vanilla helpers return the same public generic
-  stages so callers can replace defaults and continue manually.
+- Generic data-pack representations and stack transformations belong in `world-format`; vanilla-neutral protocol
+  projections and world-Chunk adapters belong in `protocol-datapack`. Vanilla helpers return those public stages so
+  callers can replace defaults and continue manually.
 - Keep `VanillaDataPacks` limited to actual archives, parsed packs, and stacks. `VanillaRegistryData` owns static
   registry/block values; `VanillaProtocolData` owns Configuration defaults and their derived client view.
+- Handwritten `WorldDataPackLoadResult` extensions may complete a persisted world selection against bundled packs and
+  project it. Preserve its low-to-high order, load only selected bundled packs, insert required core at the bottom,
+  report other unavailable IDs, and do not add filesystem access or unlisted-pack discovery policy.
 - Own release-matched `vanillaDataPackRegistryProjectors` for every synchronized registry exposed by
   `VanillaProtocolData`. Derive that registry set from generated Configuration data rather than copying IDs; caller
   projectors override matching vanilla IDs and extend new mod IDs.

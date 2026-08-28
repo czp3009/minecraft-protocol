@@ -2,7 +2,7 @@ package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.datapack.DataPackFileBytes
 import com.hiczp.minecraft.world.format.datapack.DataPackFilePath
-import kotlinx.io.Source
+import okio.BufferedSource
 import okio.FileSystem
 import okio.Path
 
@@ -17,7 +17,7 @@ internal interface DataPackZipReader {
 
     fun <T> readDataPackFile(
         dataPackFilePath: DataPackFilePath,
-        block: (Source) -> T,
+        block: (BufferedSource) -> T,
     ): T
 }
 

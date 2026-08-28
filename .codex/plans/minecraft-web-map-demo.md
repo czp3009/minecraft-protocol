@@ -25,15 +25,15 @@
    Chunk 都返回错误标识；单个 Chunk payload 读取、解压或解码失败，或者成功解码后尚未完全生成时， 只标记该 Chunk。
 6. 每个 HTTP 请求独立打开和关闭自己的 Region handles。后端不缓存结果，也不合并、共享或协调同时到达的请求。
 7. 视窗请求期间继续显示旧内容；新响应到达后再整体替换当前视窗状态。错误 Chunk 使用单-Chunk请求按指数退避和最大重试次数
-   进行有限补漏；存档 world version 冲突返回 HTTP 409，页面不对该响应重试。
+   进行有限补漏。
 8. 一致性单位是一个成功解码的 Chunk。每个 Region 组通过 `withReadScope` 只读取一次 header，但该 header、后续 `.mca`
    payload 或 `.mcc` sidecar 仍可能来自不同保存时刻；不同 Chunk 来自不同保存时刻是可接受的。
 9. Demo 是现有库能力的普通使用者。完成阶段 A 的库前置能力后，它只接收世界目录，不要求调用方另外提供 data-pack references、
    registry snapshot、维度列表、dimension layout 或高度表；所需引用与数据全部由存档和仓库所选择版本的生成 vanilla 数据取得。
 
-本设计可行，但实现 Demo 前还要在现有 `world-format` 和 `world-io` 边界内补齐 `world_gen_settings.dat` 模型与全局
-saved-data 读取能力。`world-format` 已提供 release-matched `MinecraftWorldFormat.WORLD_VERSION`、Chunk/Region 坐标、Anvil
-压缩与语义 Chunk；`world-io` 已提供不会取得 `session.lock` 的 live read-only 入口。无需为这些能力新建运行时模块。
+本设计可行，但实现 Demo 前还要在 `world-format` 补齐 `world_gen_settings.dat` 模型。`world-format` 已提供 release-matched
+`MinecraftWorldFormat.WORLD_VERSION`、Chunk/Region 坐标、block-bounds layout 换算、Anvil 压缩与语义 Chunk；`world-io`
+已提供不会取得 `session.lock` 的 live read-only 入口和 world-root saved-data 读取。无需为这些能力新建运行时模块。
 
 ## 2. 明确不做的事情
 
@@ -50,7 +50,7 @@ saved-data 读取能力。`world-format` 已提供 release-matched `MinecraftWor
   能够启用的 core、built-in 和世界目录 file data packs。
 - 不让用户或 Demo 启动参数另行提供 data-pack references、registry 内容、维度高度或其他 Minecraft 领域数据；启用列表只来自
   `level.dat`，file packs 只来自选定世界的 `datapacks` 目录。
-- 不实现 DataFixer，也不兼容与仓库所选择版本不匹配的旧 Chunk 数据。
+- 不实现 DataFixer，也不根据 `DataVersion` 主动拒绝输入；按仓库所选择版本的 schema 直接解码，结构不兼容时按普通解码失败处理。
 - 不观察服务端尚未保存到磁盘的内存状态。
 - 不实现用户、权限、多世界管理、远程世界目录或面向公网的部署安全策略。
 
@@ -69,8 +69,8 @@ saved-data 读取能力。`world-format` 已提供 release-matched `MinecraftWor
 - `RegionPosition` 覆盖 32 × 32 个 Chunk，`ChunkPosition` 和 `MinecraftCoordinates` 提供负坐标下的 floor 语义。
 - `ChunkNbtCodec<BlockStateDescriptor, String>` 可以把持久化 Chunk 解码为语义 `Chunk`。
 - `DescriptorBlockStateRegistry` 保留方块名称和 properties，避免在地图协议中丢失方块状态。
-- `ChunkLayout` 明确要求调用方提供维度的最低 Y 与高度；地图投影不能写死全局高度。
-- `Chunk.metadata.isFullyGenerated` 和原始 heightmaps 可用。第一版不依赖高度图正确性，并且只投影
+- `ChunkLayout.fromBlockBounds(minY, height)` 从按 Section 对齐的维度 block bounds 建立 layout；地图投影不能写死全局高度。
+- `Chunk.chunkMetadata.isFullyGenerated` 和原始 heightmaps 可用。第一版不依赖高度图正确性，并且只投影
   `isFullyGenerated == true`
   的 Chunk；其他生成阶段作为可重试的 `read_failed` 返回。
 
@@ -87,32 +87,26 @@ saved-data 读取能力。`world-format` 已提供 release-matched `MinecraftWor
 - 官方当前把权威的世界生成设置保存到世界根目录的 `data/minecraft/world_gen_settings.dat`。其中 `dimensions` 是 “维度 ID →
   level stem”的映射，level stem 包含 dimension type reference/inline definition 和 generator；因此它可以直接给出
   存档声明的全部维度，无需枚举维度目录，也不会把残留目录误认为当前维度。
-- 现有 `savedData` API 是相对于某个 `DimensionDirectory` 的 `data` 目录，不能表示上述世界根目录下的全局 saved data；这是
-  Demo 实现前需要补齐的真实库缺口。
-- `LevelDataStore` 与现有 `SavedDataFileStore` 都把物理 NBT 编解码委托给 `NbtFileStore`；前者另外拥有
-  `level.dat`/`level.dat_old` 的 fallback、promotion 和备份替换策略，后者拥有 saved-data identifier、路径 scope、缺失值和
-  压缩检测语义。为准确表达逻辑存储所有权，实施时把 `SavedDataFileStore` 直接改名为 `SavedDataStore`，不保留兼容别名；更广泛的
-  任意文件访问和存储分层重构不属于本计划，统一由
-  [`world-io` 无状态存储分层与双路线重构计划](world-io-storage-layering-refactor.md) 跟踪。
+- 当前 `SavedDataStore` 与 mutable/live 高阶 API 已通过 `SavedDataScope.WorldRoot` 和
+  `SavedDataScope.Dimension(...)` 明确区分全局与逐维度 `data` 目录；identifier 校验、压缩探测和 NBT 读取均由该通用入口拥有。
+  Demo 直接通过该入口读取 `minecraft:world_gen_settings`，不自行拼接文件路径。
 
 ### 3.3 `protocol-datapack` 与 `protocol-datapack-vanilla`
 
 - `protocol-datapack-vanilla` 提供仓库所选择版本的默认协议与数据包投影，`protocol-datapack` 负责将解析后的 dimension-type
   registry 表达为 `MinecraftDimensionLayout`。
-- `MinecraftDimensionLayout.toChunkLayout()` 是从 active dimension bounds 到语义 Chunk layout 的公共转换。Demo 应直接
-  复用这个入口，不在自身、`protocol-client` 或 `protocol-server` 中复制最低 Section Y 的换算。
+- `MinecraftDimensionLayout.toChunkLayout()` 委托 `ChunkLayout.fromBlockBounds(minY, height)`，是从 active dimension
+  bounds 到语义 Chunk layout 的公共转换。Demo 应直接复用这些入口，不在自身、`protocol-client` 或 `protocol-server` 中复制最低
+  Section Y 的换算。
 - 表面 Chunk 解码实际需要的维度特定语义只有 `min_y` 和 `height`；现有 `MinecraftDimensionLayout` 还保留
   `hasSkyLight`，但它不参与 `toChunkLayout()` 或本 Demo 的表面扫描。官方 level-stem codec 允许 `type` 是 registry ID 或内联
   dimension-type compound：前者必须从 active `dimension_type` registry 解析高度，后者直接使用 compound 中的高度。
 - 数据包读取只服务于 referenced dimension type 的 active-registry 解析：数据包可以替换或新增 `dimension_type`，从而改变高度
   范围。inline dimension type 已自带高度，不需要为了它额外查询 registry。两条路径都不参与方块贴图；本 Demo 也不读取任何资源包
   或贴图。方块状态和 biome 仍由开放的持久化名称 registry 解码。
-- `WorldDataPackLoadResult` 已经同时提供按输入顺序保留的 `enabledDataPackReferences`、已读取 file packs 的
-  `dataPackStack` 和
-  `unresolvedDataPackReferences`。Demo 按 enabled 顺序把 file pack 与 `VanillaDataPacks.dataPacks` 中匹配的 core/built-in
-  pack 组合成完整 stack，再使用 `VanillaDataPacks.dataPackFormatVersion` 解析为 `ResolvedDataPackStack`；未知的 unresolved
-  引用明确失败。`level.dat` 的 enabled list 是唯一引用来源，Demo 和调用方都不补充额外引用。无需修改
-  `WorldDataPackLoadResult`，也无需新增 `requireCompleteDataPackStack` 一类小适配器。
+- `WorldDataPackLoadResult` 以 `DataPackId` 保留完整 enabled/disabled 选择、feature 配置、已读取 file packs 和仍需上层提供的
+  ID。Demo 直接调用 `toVanillaProtocolData()`：库按 enabled 的低到高优先级补入匹配的 core/built-in pack，并明确拒绝其他 未提供
+  ID。`level.dat` 的 enabled list 是唯一引用来源，Demo 和调用方都不手工拼接 pack 或补充额外引用。
 - `data/minecraft/world_gen_settings.dat` 提供持久化维度集合和每个 level stem，但 referenced dimension type 只保存
   registry ID， 不保存被数据包覆盖后的定义。因此 Demo 必须读取 enabled file packs，并与生成的 vanilla core/built-in packs
   一起解析最终 active `dimension_type` registry。完成 3.4 的库前置能力后，这条完整链路由现有 `world-io`、`world-format`、
@@ -121,25 +115,14 @@ saved-data 读取能力。`world-format` 已提供 release-matched `MinecraftWor
   `DescriptorBlockStateRegistry` 与 `NamedBiomeRegistry`。不要改用 `ProtocolRegistryContext.toChunkDataRegistries()`；后者把
   持久化名称解析为 active protocol block-state/registry 对象，适合网络 Chunk 投影，但会改变本计划的表面 DTO 输入类型。
 
-### 3.4 需要补齐的库能力
+### 3.4 需要补齐的 `world-format` 能力
 
-以下改动都有跨调用方价值，并放回现有所有者，不创建新模块：
+该模型具有跨调用方价值，应放回现有所有者，不创建新模块：
 
-1. `world-format` 增加仓库所选择版本的完整 `WorldGenSettings` standalone-NBT 模型：根包含 `DataVersion` 和 `data`，`data`
-   包含 seed、结构/奖励箱选项和完整 dimensions map；每个 level stem 用 sealed serializer 无损区分 dimension type ID 与
-   inline
-   `NbtCompound`，并以 `NbtCompound` 保留动态 generator 子树。与其他 selected-release 模型相同，未知固定字段严格失败， 原始
-   NBT API 仍是扩展逃生口。
-2. `world-io` 的 saved-data 路径与 `SavedDataStore` 明确区分世界根全局 scope 和逐维度 scope，并在 mutable 与 live
-   read-only 入口上提供对称的 document/serializer/stream 操作。把现有 `SavedDataFileStore` 直接改名为 `SavedDataStore`
-   ，不保留兼容 别名。Demo 通过该通用入口读取 `minecraft:world_gen_settings`，不自行拼接文件路径，也不为单个文件增加 Demo 专用
-   I/O；本计划 不扩展任意世界文件读写或重构 `NbtFileStore`、逻辑 store 与 world access 的整体分层。
-3. `world-format` 为 `ChunkLayout` 提供 `fromBlockBounds(minY, height)` 公共 factory，并让
-   `MinecraftDimensionLayout.toChunkLayout()` 委托给它。referenced 和 inline dimension types 由此共享同一套倍数检查与
-   Section 换算，Demo 不复制 `minY / 16` 或 `height / 16`。
-4. `ChunkNbtCodec` 在 NBT `DataVersion` 与 context 预期值不同时抛出带 expected/actual 值的专用
-   `ChunkWorldVersionMismatchException`，使调用方能把版本冲突与普通格式/撕裂失败稳定区分；其他结构错误仍使用既有
-   `ChunkNbtFormatException` 分类。
+`world-format` 增加仓库所选择版本的完整 `WorldGenSettings` standalone-NBT 模型：根包含 `DataVersion` 和 `data`，`data`
+包含 seed、结构/奖励箱选项和完整 dimensions map；每个 level stem 用 sealed serializer 无损区分 dimension type ID 与 inline
+`NbtCompound`，并以 `NbtCompound` 保留动态 generator 子树。与其他 selected-release 模型相同，未知固定字段严格失败，原始 NBT
+API 仍是扩展逃生口。
 
 ### 3.5 第三方能力
 
@@ -260,8 +243,7 @@ for (chunkPosition in chunkRange) {
 ### 6.2 HTTP 结果
 
 普通视口查询返回 HTTP 200。单个 Chunk 缺失、单个 Chunk live read 失败，或者某个 Region 打开/header 读取失败，都不是整次 HTTP
-请求失败。必需 NBT 文档中的 `DataVersion` 与 `MinecraftWorldFormat.WORLD_VERSION` 不一致时返回 HTTP 409，响应不包含 部分
-Chunk 结果；未处理的程序、Ktor 或基础设施异常可以终止整个请求并成为 500。客户端不会应用 409 或 500 的不完整响应。
+请求失败。未处理的程序、Ktor 或基础设施异常可以终止整个请求并成为 500；客户端不会应用 500 的不完整响应。
 
 后端必须先完成响应 DTO 的构造，再交给 Ktor 序列化，不能一边读取 Chunk 一边向 HTTP body 发布部分结果。
 
@@ -303,9 +285,9 @@ Kotlin 模型优先使用带 `status` discriminator 的 sealed variants，使 `s
 | 读取失败 | `status = "read_failed"` | Region 元信息不可读；Chunk 读取/解码失败；或解码后尚未完全生成 | 暂时保留同坐标旧表面，并加入当前代次补漏请求组 |
 
 对 Demo 而言，Region 打开/header 读取失败会把该 Region 内本次请求涉及的全部坐标映射为 `read_failed`；payload 读取、解压、NBT
-或语义 Chunk 解码的其他失败只映射当前 Chunk。成功解码后若 `chunk.metadata.isFullyGenerated == false`，也只把当前 Chunk 映射为
-`read_failed`，不扫描或发布其部分表面，并进入相同的有限补漏流程。响应不包含内部异常文本，具体原因只通过服务端日志记录。 NBT
-`DataVersion` 所表示的 world version 不匹配是不可通过重读修复的兼容性冲突，不转换成 `read_failed`。
+或语义 Chunk 解码的其他失败只映射当前 Chunk。成功解码后若 `chunk.chunkMetadata.isFullyGenerated == false`，也只把当前
+Chunk 映射为
+`read_failed`，不扫描或发布其部分表面，并进入相同的有限补漏流程。响应不包含内部异常文本，具体原因只通过服务端日志记录。
 
 后端按 Chunk 捕获明确的 live-read/format/decoding 异常并继续构造同一次响应。`CancellationException` 必须立即重新抛出；
 编程错误和启动配置错误不转换成 `read_failed`。
@@ -324,13 +306,12 @@ metadata endpoint 返回按维度 ID 排序的维度 ID 列表，前端由列表
 
 启动时：
 
-1. 从 live world 读取 `level.dat`，取得其 `DataVersion`、出生点和有序的 `DataPacks.Enabled`。该 enabled list 是完整数据包解析的
+1. 从 live world 读取 `level.dat`，取得出生点和有序的 `DataPacks.Enabled`。该 enabled list 是完整数据包解析的
    唯一引用输入；`level.dat` 本身不承担维度发现。
-2. 把 enabled references 交给 `WorldDataPackReader`：它从世界 `datapacks` 目录读取所有 `file/...` directory/ZIP packs，并在
-   `WorldDataPackLoadResult` 中保留原始顺序、已读取 file-pack `dataPackStack` 和 unresolved references。按原始顺序用
-   `VanillaDataPacks.dataPacks` 补入匹配的 vanilla core/built-in packs，拒绝其余 unresolved references，再用
-   `VanillaDataPacks.dataPackFormatVersion` 解析完整 stack 并投影出 active protocol data。Demo 不接受任何额外 pack 或
-   registry 输入。
+2. 调用 live world 的 `readEnabledDataPacks()`，从世界 `datapacks` 目录读取 enabled `file/...` directory/ZIP packs，并取得
+   detached `WorldDataPackLoadResult`。再调用 `toVanillaProtocolData()`，由库按原始顺序补入匹配的 vanilla core/built-in
+   packs、 拒绝其余未提供 ID，并用匹配的 data-pack format 投影出 active protocol data。Demo 不接受任何额外 pack 或 registry
+   输入。
 3. 通过全局 `SavedDataStore` 读取 `minecraft:world_gen_settings`，把 `WorldGenSettings.data.dimensions` 作为权威维度目录。每个
    entry 直接给出维度 ID，以及 referenced 或 inline dimension type；维度的 Region 目录由维度 ID 按仓库所选择版本的
    canonical mapping 得到，不枚举磁盘目录。主世界、下界和末地使用各自标准映射，其他有效的 namespaced ID 使用
@@ -339,9 +320,8 @@ metadata endpoint 返回按维度 ID 排序的维度 ID 列表，前端由列表
    从 compound 读取 `min_y`/`height` 并调用 `ChunkLayout.fromBlockBounds(...)`。两条路径都不在 Demo 内换算 Section 坐标。随后用
    `DescriptorBlockStateRegistry`、`NamedBiomeRegistry` 和该 layout 建立
    `ChunkNbtCodec<BlockStateDescriptor, String>`；不要把 codec 改成 active protocol registry 对象类型。
-5. `level.dat` 或 `world_gen_settings.dat` 的 `DataVersion` 与生成的 `MinecraftWorldFormat.WORLD_VERSION` 不一致时，保留明确的
-   兼容性冲突状态并记录日志，不尝试 DataFixer。后端仍可提供静态页面，但 world-data API 返回 HTTP 409；目标 Chunk 自身的
-   `DataVersion` 与 codec 预期不一致时通过 `ChunkWorldVersionMismatchException` 同样返回 409，而不是 `read_failed`。
+5. `level.dat`、`world_gen_settings.dat` 和 Chunk 中的 `DataVersion` 作为存档数据保留，但 Demo 与 codec 都不主动将其与
+   `MinecraftWorldFormat.WORLD_VERSION` 比较。解码直接使用仓库所选择版本的 schema；调用方若需要预检版本，可在调用前自行读取并比较。
 
 缺失、不可读或结构不合法的 `world_gen_settings.dat` 是无法建立解码上下文的启动错误；不要仿照官方服务端生成随机 seed 的
 fallback。 第一版暴露该文件中每个目录映射和 dimension-type layout 都能解析的维度，包括自定义维度；不要从 world
@@ -375,10 +355,9 @@ wire 数据可采用每 Chunk palette + 256 个 row-major palette index，避免
 4. scope 中 header 没有某个 Chunk 时省略该坐标；创建 handle 时 Region 不存在会得到 empty scope，因此整组自然省略。
 5. 对 header 中存在的 Chunk，调用 scope 的 `readChunk(chunkPosition, chunkNbtCodec)`；`world-io` 负责读取 payload、按
    Region 压缩标识解压、完整消费 NBT source，并用 `ChunkNbtCodec` 解码语义 Chunk。Demo 不复制 Anvil framing 或拼装解码链路。
-6. 解码成功后先检查 `chunk.metadata.isFullyGenerated`；若为 false，则当前 Chunk 加入 `read_failed`，不执行表面投影，并继续处理
+6. 解码成功后先检查 `chunk.chunkMetadata.isFullyGenerated`；若为 false，则当前 Chunk 加入 `read_failed`，不执行表面投影，并继续处理
    同组其他 Chunk。完全生成的 Chunk 才执行表面投影并加入 `success`。单个 Chunk 的 payload 读取、解压或普通解码异常同样加入
-   `read_failed`。`ChunkWorldVersionMismatchException` 立即终止当前 DTO 构造并由 route 返回 409；`CancellationException`
-   必须立即传播，不能转换成错误标识。
+   `read_failed`。`CancellationException` 必须立即传播，不能转换成错误标识。
 7. `withReadScope` 结束后其 sequence 和 stream 全部失效，`use` 随后关闭 handle；所有 Region 组完成后一次性返回响应。
 
 这里使用的是普通 Chunk Region handle 所产生的 `RegionReadScope`；Entity Region handle 对应
@@ -406,8 +385,7 @@ handle，彼此不等待或复用结果。
 6. 新视窗响应是该代补漏请求组的唯一来源；收到它之前不发补漏请求。
 
 若视窗请求发生网络错误或返回 500，不应用部分状态，也不清除旧画面。第一版不为完整视窗请求增加自动重试；后续有效的范围改变或页面
-重新加载会创建新代并重新请求。若返回 409，页面保留旧画面、终止当前代全部补漏请求并显示存档版本不兼容状态；范围变化不会自动重试
-这个冲突，只有重新加载页面或重新启动后端后才重新检查。
+重新加载会创建新代并重新请求。
 
 ### 9.2 视窗不变时补漏
 
@@ -418,8 +396,7 @@ handle，彼此不等待或复用结果。
    `read_failed` 时保留现状、增加该坐标的尝试次数，并在指数增长且有上限的延迟后继续请求。每个坐标达到最大重试次数后停止自动
    请求并保留当前显示；新的视窗代次或页面重新加载会重新建立尝试状态。
 4. 每次应用补漏结果前再次核对视窗代次和坐标仍在当前范围内。补漏集合清空后，该请求组结束。
-5. 一旦 Chunk 范围改变，9.1 的取消步骤终止整组补漏请求；新代只从自己的完整视窗响应重新建立补漏集合。任何补漏请求返回 409 时
-   立即终止整组补漏，不消耗普通 `read_failed` 的剩余重试次数，也不调度后续请求。
+5. 一旦 Chunk 范围改变，9.1 的取消步骤终止整组补漏请求；新代只从自己的完整视窗响应重新建立补漏集合。
 
 因此除页面自身的静态资源加载外，一次视窗代次没有第三类 world-data 请求：只有一个视窗请求和一组补漏请求。第一版不增加动态 贴图
 route；Canvas 根据方块标识生成确定性颜色。浏览器不创建每方块 DOM 节点。测试通过可注入的请求端和重试调度器推进状态，
@@ -429,15 +406,12 @@ route；Canvas 根据方块标识生成确定性颜色。浏览器不创建每�
 
 ### 阶段 A：已有模块前置能力
 
-1. 在 `world-format` 增加完整 `WorldGenSettings` 模型、`ChunkLayout` block-bounds factory 和
-   `ChunkWorldVersionMismatchException`；在 portable tests 中验证严格 round trip、referenced/inline dimension types、动态
-   generator 保留、统一 layout 换算和 expected/actual world version。
-2. 在 `world-io` 把全局与逐维度 saved-data scope 建模为通用路径/`SavedDataStore` 能力，把现有
-   `SavedDataFileStore` 直接改名为 `SavedDataStore`，并在 mutable/live API 上保持 document、serializer 和 stream 入口对称；
-   portable tests 验证路径和 store 行为，既有 `hostFilesystemTest` official-world 场景验证真实
-   `minecraft:world_gen_settings` 文件。不要保留兼容别名，不要在 Demo 模块创建第二套 host-filesystem fixture source
-   set，也不在 本阶段展开任意文件访问或整体存储分层重构。
-3. 更新受影响模块的 README 和 AGENTS，使当前公共契约与路径 scope 和实现一致；不增加新模块或兼容别名。
+1. 在 `world-format` 增加完整 `WorldGenSettings` 模型；在 portable tests 中验证严格 round trip、referenced/inline
+   dimension types 和动态 generator 保留。
+2. 使用 `world-io` 现有的 `SavedDataScope.WorldRoot` 入口，在既有 `hostFilesystemTest` 增加
+   `minecraft:world_gen_settings` official-world 读取覆盖；生产 API 不需要随 Demo 改动，Demo 也不创建第二套
+   host-filesystem fixture source set。
+3. 更新受影响模块的 README 和 AGENTS，使当前公共契约与实现一致；不增加新模块。
 
 ### 阶段 B：Demo 模块与共享契约
 
@@ -459,15 +433,14 @@ route；Canvas 根据方块标识生成确定性颜色。浏览器不创建每�
    `openRegion(...).use { withReadScope { readChunk(...) } }` 中读取目标 Chunk、映射三态并投影最高非空气方块。
 3. 实现 Ktor metadata 与 surface routes；使用注入的 reader 测试 route，不让 HTTP 测试依赖真实 Minecraft 文件。
 4. 证明单个 Chunk 失败不会阻止同响应中的其他成功 Chunk；Region 打开/header 失败只把该 Region 的目标 Chunk 标记为失败；
-   未完全生成的 Chunk 返回 `read_failed` 且不发布表面；world version 冲突返回 409；所有路径都不会吞掉协程取消。
+   未完全生成的 Chunk 返回 `read_failed` 且不发布表面；所有路径都不会吞掉协程取消。
 
 ### 阶段 D：浏览器地图与请求控制
 
 1. 建立 Leaflet 简单平面地图和 Canvas Chunk layer。
 2. 实现视窗到包含边界 Chunk 范围的转换、200 ms 防抖和单调递增的视窗代次。
 3. 实现新代次先取消上一代视窗请求与整个补漏请求组，再只发一个新视窗请求。
-4. 实现响应后原子替换显示状态，以及只轮询 `read_failed` 坐标、使用指数退避和最大重试次数的单一补漏请求组；409 进入不兼容状态且
-   不参与重试。
+4. 实现响应后原子替换显示状态，以及只轮询 `read_failed` 坐标、使用指数退避和最大重试次数的单一补漏请求组。
 5. 用方块标识的确定性颜色完成可视地图；真实贴图来源保持独立。
 
 ### 阶段 E：打包与文档
@@ -488,8 +461,8 @@ route；Canvas 根据方块标识生成确定性颜色。浏览器不创建每�
 ./gradlew :demo:web-map:jsNodeTest
 ```
 
-随后执行 `:world-io:jsNodeTest`、适用的 host Native test/compile 和安装任务。world-io wiring 以及 JS distribution 到
-server 安装目录的 Gradle wiring 都要验证 configuration-cache 首次存储与再次复用。所有 Gradle 调用按顺序执行。
+随后执行适用的 host Native test/compile 和安装任务。JS distribution 到 server 安装目录的 Gradle wiring 要验证
+configuration-cache 首次存储与再次复用。所有 Gradle 调用按顺序执行。
 
 必需测试覆盖：
 
@@ -498,12 +471,11 @@ server 安装目录的 Gradle wiring 都要验证 configuration-cache 首次存�
 - `LevelDat` fixture 证明当前 schema 没有维度集合；`WorldGenSettings` fixture 完整保留 seed/options、维度
   ID、referenced/inline dimension types 和动态 generator，并拒绝未知固定字段。
 - 全局 `minecraft:world_gen_settings` 精确读取世界根 `data/minecraft/world_gen_settings.dat`，逐维度 saved data 仍映射到对应
-  dimension 的 `data`；mutable/live 的通用 API 与资源语义保持对称。公共逻辑 store 名称是 `SavedDataStore`，不存在
-  `SavedDataFileStore` 兼容别名。
+  dimension 的 `data`；Demo 只调用现有 `SavedDataStore`，不增加专用路径或 I/O 实现。
 - 世界 metadata 中的维度集合只来自 `WorldGenSettings.data.dimensions`，不枚举目录；标准维度和 namespaced 自定义维度都映射到
   canonical `DimensionDirectory`，尚无 Region 目录的已声明维度仍会列出。
 - enabled data-pack references 的顺序贯穿 vanilla/built-in/file pack 组合；file pack 覆盖 referenced dimension type 的
-  `min_y`/`height` 后会改变对应 `ChunkLayout`；inline type 不依赖 registry，并与 referenced type 共享 block-bounds
+  `min_y`/`height` 后会改变对应 `ChunkLayout`；inline type 不依赖 registry，并与 referenced type 共享现有 block-bounds
   factory。 未知 unresolved pack 明确失败。测试证明完整 stack 在仓库所选择版本的 data-pack format 下解析为最终
   `ResolvedDataPackStack`，且整个启动解码上下文除世界目录外不接受额外 data-pack reference、registry、维度或高度输入。该流程
   不读取资源包或方块贴图。
@@ -513,7 +485,7 @@ server 安装目录的 Gradle wiring 都要验证 configuration-cache 首次存�
   不共享文件或生命周期。
 - Region 打开或 header 读取失败时，该 Region 在请求范围内的全部 Chunk 都是 `read_failed`，其他 Region 仍可成功返回。
 - payload/sidecar 读取、解压、NBT 或 Chunk codec 的普通失败映射为 `read_failed`；成功解码但未完全生成的 Chunk 也映射为
-  `read_failed`，不发布部分表面并进入有限补漏。world version 冲突单独映射为 409。
+  `read_failed`，不发布部分表面并进入有限补漏。
 - 单 Chunk 失败不阻止同 Region 的其他 Chunk，且 scope/stream/handle 没有资源泄漏。
 - `CancellationException` 不转换为普通失败。
 - 同一响应中 success、read_failed 和省略坐标共存。
@@ -524,8 +496,8 @@ server 安装目录的 Gradle wiring 都要验证 configuration-cache 首次存�
 - Chunk 范围改变时，上一代视窗请求和已发出的全部补漏请求都被取消，迟到结果不能改变新代状态。
 - 每代只发一个完整视窗请求；补漏请求组只查询该代 `read_failed` 坐标，按可注入的指数退避策略调度，并在成功、省略或达到最大重试
   次数后停止对应坐标的轮询。
-- `level.dat`、`world_gen_settings.dat` 或 Chunk 的 NBT `DataVersion` 冲突返回 409、不发布部分 DTO，页面停止当前代补漏并且
-  不自动重试 409；Chunk 路径由专用 `ChunkWorldVersionMismatchException` 与普通格式错误区分。
+- `level.dat`、`world_gen_settings.dat` 和 Chunk 的 NBT `DataVersion` 被保留但不主动与生成常量比较；没有版本专用异常或
+  HTTP 状态分支，调用方仍可通过原始或强类型数据自行预检。
 - 视窗请求完成前旧画面保持不变；完整响应在内存中合成后一次替换，错误坐标可保留同坐标旧表面。
 - 视窗不变且没有错误 Chunk 时不发 world-data 请求；重试测试使用注入调度器，不依赖真实 delay。
 - surface route 在完整 DTO 构造前不发布部分 HTTP 响应。
@@ -553,7 +525,6 @@ live-read smoke test 使用开发者显式设置的 `MINECRAFT_WORLD_DIRECTORY` 
 6. Chunk 范围改变时先取消上一代视窗请求和全部补漏请求；新响应返回前保留旧画面，返回后一次替换。
 7. 后端没有世界表面缓存、图片渲染、共享 Region coordinator 或跨请求文件生命周期；只使用请求内每 Region 一个 caller-owned
    handle 和 callback-bound read scope。
-8. 磁盘 `DataVersion` 与 `MinecraftWorldFormat.WORLD_VERSION` 不匹配时稳定返回 409，页面不重试该状态。
-9. 现有 `protocol-datapack`/`world-format`/`world-io` 边界未被反转；Demo 不依赖 `protocol-client`/`protocol-server`，live
+8. 现有 `protocol-datapack`/`world-format`/`world-io` 边界未被反转；Demo 不依赖 `protocol-client`/`protocol-server`，live
    observer 从不获取 `session.lock` 或修改世界。
-10. JVM、Kotlin/JS Node test-runner 逻辑测试和已声明的 host target 验证通过，README 与实际产物一致。
+9. JVM、Kotlin/JS Node test-runner 逻辑测试和已声明的 host target 验证通过，README 与实际产物一致。

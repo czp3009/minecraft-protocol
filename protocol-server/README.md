@@ -113,15 +113,15 @@ world file packs can combine [`world-io`](../world-io/README.md) with the vanill
 suspend fun optionsFromWorldPacks(
     minecraftWorldAccess: MinecraftWorldAccess,
 ): MinecraftServerNegotiationOptions {
-    val worldDataPackLoadResult = minecraftWorldAccess.readEnabledDataPacks()
-    val protocolData = worldDataPackLoadResult.dataPackStack.toVanillaProtocolData()
+    val protocolData = minecraftWorldAccess.readEnabledDataPacks().toVanillaProtocolData()
     return MinecraftServerNegotiationOptions(protocolData = protocolData)
 }
 ```
 
-The generated vanilla core is the projection base, and release-matched defaults project every vanilla synchronized
-registry. Tags are projected generically. Recipes, functions, loot tables, and other server-only resources remain in the
-resolved data-pack stack and are not emitted as Configuration values.
+The bridge preserves the persisted core/built-in/file priority order, supplies selected release-matched bundled packs,
+and carries the world's enabled feature configuration into the generated vanilla projection base. Unknown selected pack
+IDs fail explicitly. Tags are projected generically. Recipes, functions, loot tables, and other server-only resources
+remain in the resolved data-pack stack and are not emitted as Configuration values.
 
 For a mod registry or a registry whose modded network codec differs from vanilla, pass only its projector. A matching
 registry ID replaces the vanilla default; a new ID extends it:

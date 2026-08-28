@@ -59,6 +59,7 @@ internal class GatedFileSystem(
     private val sourceGate: BlockingGate? = null,
     private val sinkGate: BlockingGate? = null,
     private val additionalWriteGates: Map<Path, BlockingGate> = emptyMap(),
+    private val dynamicWriteGate: ((Path) -> BlockingGate?)? = null,
     gateReadsInitially: Boolean = true,
     closeFailures: Int = 0,
 ) : ForwardingFileSystem(ThreadSafeFakeFileSystem(base)) {
@@ -72,6 +73,8 @@ internal class GatedFileSystem(
     val maximumConcurrentReads = AtomicInteger()
     val activeWrites = AtomicInteger()
     val maximumConcurrentWrites = AtomicInteger()
+    val trackedOpenPaths = ConcurrentLinkedQueue<Path>()
+    val trackedClosePaths = ConcurrentLinkedQueue<Path>()
 
     init {
         require(closeFailures >= 0)
@@ -83,8 +86,13 @@ internal class GatedFileSystem(
         mustExist: Boolean,
     ): FileHandle {
         val fileHandle = super.openReadWrite(file, mustCreate, mustExist)
-        val selectedWriteGate = if (file == target) writeGate else additionalWriteGates[file]
+        val selectedWriteGate = if (file == target) {
+            writeGate
+        } else {
+            additionalWriteGates[file] ?: dynamicWriteGate?.invoke(file)
+        }
         if (file != target && selectedWriteGate == null) return fileHandle
+        trackedOpenPaths += file
         return trackedHandle(
             file = file,
             fileHandle = fileHandle,
@@ -96,6 +104,7 @@ internal class GatedFileSystem(
     override fun openReadOnly(file: Path): FileHandle {
         val fileHandle = super.openReadOnly(file)
         if (file != target) return fileHandle
+        trackedOpenPaths += file
         return trackedHandle(file, fileHandle, readWrite = false, selectedWriteGate = null)
     }
 
@@ -155,15 +164,18 @@ internal class GatedFileSystem(
             override fun protectedClose() {
                 if (file != target) {
                     fileHandle.close()
+                    trackedClosePaths += file
                 } else if (closeGate != null) {
                     events += "close-start"
                     closeGate.awaitRelease()
                     fileHandle.close()
                     closes.incrementAndGet()
                     events += "close-end"
+                    trackedClosePaths += file
                 } else {
                     fileHandle.close()
                     closes.incrementAndGet()
+                    trackedClosePaths += file
                 }
                 if (file == target && remainingCloseFailures.getAndUpdate { maxOf(0, it - 1) } > 0) {
                     throw IOException("synthetic gated close failure")
@@ -300,6 +312,9 @@ private class ThreadSafeFakeFileSystem(
     }
 
     override fun createDirectory(dir: Path, mustCreate: Boolean) = access.withLock {
+        // FakeFileSystem replaces an existing directory when mustCreate is false. That differs
+        // from real filesystems and can erase a sibling created by another createDirectories call.
+        if (!mustCreate && base.metadataOrNull(dir)?.isDirectory == true) return@withLock
         base.createDirectory(dir, mustCreate)
     }
 
@@ -411,7 +426,7 @@ internal suspend fun seedConcurrencyRegion(
     directory: Path,
     chunkPosition: ChunkPosition = ChunkPosition(0, 0),
 ) {
-    val regionStorage = RegionStorage(
+    val regionStorage = CoordinatedRegionStore(
         directory = directory,
         fileSystem = fileSystem,
         regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),

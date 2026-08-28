@@ -10,8 +10,6 @@ import com.hiczp.minecraft.world.format.LevelDat
 import com.hiczp.minecraft.world.format.PlayerAdvancements
 import com.hiczp.minecraft.world.format.PlayerStatistics
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.readString
-import kotlinx.io.writeString
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.MapSerializer
@@ -59,12 +57,12 @@ class StandaloneFileStoresTest {
         standaloneFileCompressions.forEach { compression ->
             val path = "/world/stream-${compression.name}.dat".toPath()
             nbtFileStore.write(path, compression) { sink ->
-                nbtFileStore.nbtFormat.encodeDocumentToSink(nbtDocument, sink)
+                nbtFileStore.nbtFormat.encodeDocumentToOkio(nbtDocument, sink)
             }
             assertEquals(
                 nbtDocument,
                 nbtFileStore.read(path, compression) { source ->
-                    nbtFileStore.nbtFormat.decodeDocumentFromSource(source)
+                    nbtFileStore.nbtFormat.decodeDocumentFromOkio(source)
                 },
             )
         }
@@ -153,19 +151,51 @@ class StandaloneFileStoresTest {
         val fakeFileSystem = FakeFileSystem()
         val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val nbtFileStore = NbtFileStore(fakeFileSystem)
-        val savedDataFileStore = SavedDataFileStore(minecraftWorldPaths, nbtFileStore = nbtFileStore)
-        val path = minecraftWorldPaths.savedData("maps/map_1")
+        val savedDataStore = SavedDataStore(
+            minecraftWorldPaths,
+            SavedDataScope.Dimension(DimensionDirectory.Overworld),
+            nbtFileStore,
+        )
+        val path = minecraftWorldPaths.savedData("maps/map_1", SavedDataScope.Dimension(DimensionDirectory.Overworld))
         val legacy = sampleDocument(1)
         val current = sampleDocument(2)
 
         nbtFileStore.writeDocument(path, legacy, Compression.NONE)
-        assertEquals(legacy, savedDataFileStore.readDocument("maps/map_1"))
-        savedDataFileStore.writeDocument("maps/map_1", current)
-        assertEquals(current, savedDataFileStore.readDocument("maps/map_1"))
+        assertEquals(legacy, savedDataStore.readDocument("maps/map_1"))
+        savedDataStore.writeDocument("maps/map_1", current)
+        assertEquals(current, savedDataStore.readDocument("maps/map_1"))
         assertContentEquals(
             byteArrayOf(0x1F, 0x8B.toByte()),
             fakeFileSystem.readFileBytes(path).copyOfRange(0, 2),
         )
+    }
+
+    @Test
+    fun eachSavedDataReadDetectsCompressionAndConsumesContentFromOneOpenSource() {
+        val base = FakeFileSystem()
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
+        val savedDataScope = SavedDataScope.Dimension(DimensionDirectory.Overworld)
+        val path = minecraftWorldPaths.savedData("maps/map_1", savedDataScope)
+        val nbtDocument = sampleDocument(3)
+        NbtFileStore(base).writeDocument(path, nbtDocument, Compression.NONE)
+        val sourceOpeningCountingFileSystem = SourceOpeningCountingFileSystem(base)
+        val savedDataStore = SavedDataStore(
+            minecraftWorldPaths,
+            savedDataScope,
+            NbtFileStore(sourceOpeningCountingFileSystem),
+        )
+
+        assertEquals(nbtDocument, savedDataStore.readDocument("maps/map_1"))
+        assertEquals(1, sourceOpeningCountingFileSystem.sourceOpenCount)
+
+        assertEquals(
+            nbtDocument,
+            savedDataStore.read("maps/map_1") { source ->
+                minecraftWorldNbtFormat().decodeDocumentFromOkio(source)
+            },
+        )
+        assertEquals(2, sourceOpeningCountingFileSystem.sourceOpenCount)
+        base.checkNoOpenFiles()
     }
 
     @Test
@@ -195,13 +225,13 @@ class StandaloneFileStoresTest {
 
         val encoded = Json.encodeToString(jsonObject)
         utf8JsonFileStore.write(path) { sink ->
-            encoded.chunked(257).forEach(sink::writeString)
+            encoded.chunked(257).forEach(sink::writeUtf8)
         }
-        val copied = kotlinx.io.Buffer()
+        val copied = Buffer()
         val reads = mutableListOf<Long>()
         utf8JsonFileStore.read(path) { source ->
             while (true) {
-                val read = source.readAtMostTo(copied, 257L)
+                val read = source.read(copied, 257L)
                 if (read < 0L) break
                 reads += read
             }
@@ -209,7 +239,7 @@ class StandaloneFileStoresTest {
 
         assertTrue(reads.size > 1)
         assertTrue(reads.all { it in 1L..257L })
-        assertEquals(encoded, copied.readString())
+        assertEquals(encoded, copied.readUtf8())
     }
 
     @Test
@@ -378,7 +408,7 @@ class StandaloneFileStoresTest {
         val fakeFileSystem = FakeFileSystem()
         val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         assertFailsWith<IllegalArgumentException> {
-            minecraftWorldPaths.savedData("a/../b")
+            minecraftWorldPaths.savedData("a/../b", SavedDataScope.Dimension(DimensionDirectory.Overworld))
         }
         val jsonPath = "/world/value.json".toPath()
         Utf8JsonFileStore(fakeFileSystem).writeText(jsonPath, "\u00E9")
@@ -537,6 +567,16 @@ private class SegmentingFileSystem(
 
             override fun protectedClose() = fileHandle.close()
         }
+    }
+}
+
+private class SourceOpeningCountingFileSystem(delegate: FileSystem) : ForwardingFileSystem(delegate) {
+    var sourceOpenCount: Int = 0
+        private set
+
+    override fun source(file: Path): Source {
+        sourceOpenCount++
+        return super.source(file)
     }
 }
 

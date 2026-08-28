@@ -1,13 +1,14 @@
 package com.hiczp.minecraft.world.io
 
+import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.readByteArray
 import okio.FileSystem
 import okio.IOException
 import okio.Path.Companion.toPath
 import kotlin.test.*
+import kotlin.uuid.Uuid
 
 class RegionHandleConcurrencyTest {
     @Test
@@ -61,15 +62,17 @@ class RegionHandleConcurrencyTest {
     }
 
     @Test
-    fun slowSameFileReadQueuesSameFileButNotAnotherFile() = runTest {
+    fun slowSameRegionReadKeepsOnePhysicalHandleForQueuedWriteWhileAnotherRegionProgresses() = runTest {
         val directory = "/world/region".toPath()
         val base = concurrencyFakeFileSystem()
         seedConcurrencyRegion(base, directory)
         val readGate = BlockingGate()
+        val writeGate = BlockingGate()
         val gatedFileSystem = GatedFileSystem(
             base = base,
             target = directory / "r.0.0.mca",
             readGate = readGate,
+            writeGate = writeGate,
         )
         val regionStorage = concurrencyStore(gatedFileSystem)
         val sameFile = ChunkPosition(0, 0)
@@ -86,6 +89,8 @@ class RegionHandleConcurrencyTest {
             jobs += queued
             assertFalse(queued.isCompleted)
             assertEquals(2, regionStorage.activeRegionUsers(sameFile.regionPosition))
+            assertEquals(1, gatedFileSystem.opens.get())
+            assertEquals(0, gatedFileSystem.closes.get())
 
             val independent = async(Dispatchers.Default) {
                 regionStorage.writeCompressedChunk(otherFile, concurrencyChunk(9))
@@ -96,7 +101,16 @@ class RegionHandleConcurrencyTest {
 
             readGate.open()
             slow.await()
+            writeGate.awaitEntered()
+            assertFalse(queued.isCompleted)
+            assertEquals(1, regionStorage.activeRegionUsers(sameFile.regionPosition))
+            assertEquals(1, gatedFileSystem.opens.get())
+            assertEquals(0, gatedFileSystem.closes.get())
+
+            writeGate.open()
             queued.await()
+            assertEquals(1, gatedFileSystem.opens.get())
+            assertEquals(1, gatedFileSystem.closes.get())
             assertEquals(0, regionStorage.activeRegionCount())
             gatedFileSystem.base.checkNoOpenFiles()
 
@@ -107,6 +121,7 @@ class RegionHandleConcurrencyTest {
         } finally {
             withContext(NonCancellable) {
                 readGate.open()
+                writeGate.open()
                 jobs.joinAll()
                 regionStorage.close()
                 gatedFileSystem.base.checkNoOpenFiles()
@@ -227,7 +242,7 @@ class RegionHandleConcurrencyTest {
             writeGate = writeGate,
             gateReadsInitially = false,
         )
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = gatedFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = true),
@@ -288,7 +303,7 @@ class RegionHandleConcurrencyTest {
             readGate = readGate,
             gateReadsInitially = false,
         )
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = gatedFileSystem,
             chunkNbtFormat = gatedNbtFormat(decodeGate),
@@ -351,7 +366,7 @@ class RegionHandleConcurrencyTest {
         )
         val readGate = BlockingGate(expectedEntrants = positions.size)
         val encodeGate = BlockingGate(expectedEntrants = positions.size)
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = sequencedFlushFailureFileSystem,
             chunkNbtFormat = gatedNbtFormat(encodeGate),
@@ -422,7 +437,7 @@ class RegionHandleConcurrencyTest {
             target = target,
             flushGate = flushGate,
         )
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = gatedFileSystem,
             chunkNbtFormat = gatedNbtFormat(encodeGate),
@@ -626,7 +641,7 @@ class RegionHandleConcurrencyTest {
         val bytesBeforeCancellation = base.read(target) { readByteArray() }
 
         val encodeGate = BlockingGate()
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = GatedFileSystem(base, target),
             chunkNbtFormat = gatedNbtFormat(encodeGate),
@@ -653,7 +668,7 @@ class RegionHandleConcurrencyTest {
             assertContentEquals(bytesBeforeCancellation, base.read(target) { readByteArray() })
             base.checkNoOpenFiles()
 
-            val verifier = RegionStorage(
+            val verifier = CoordinatedRegionStore(
                 directory = directory,
                 fileSystem = base,
                 regionStorageConfiguration = concurrencyConfiguration(),
@@ -688,7 +703,7 @@ class RegionHandleConcurrencyTest {
         val decodeGate = BlockingGate()
         val flushGate = BlockingGate()
         val gatedFileSystem = GatedFileSystem(base, target, flushGate = flushGate)
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = gatedFileSystem,
             chunkNbtFormat = gatedNbtFormat(decodeGate),
@@ -1425,7 +1440,7 @@ class RegionHandleConcurrencyTest {
         val encodeGate = BlockingGate()
         val base = concurrencyFakeFileSystem()
         val gatedFileSystem = GatedFileSystem(base, directory / "r.0.0.mca")
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = gatedFileSystem,
             chunkNbtFormat = gatedNbtFormat(encodeGate),
@@ -1475,7 +1490,7 @@ class RegionHandleConcurrencyTest {
 
         val decodeGate = BlockingGate()
         val gatedFileSystem = GatedFileSystem(base, directory / "r.0.0.mca")
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = gatedFileSystem,
             chunkNbtFormat = gatedNbtFormat(decodeGate),
@@ -1520,9 +1535,9 @@ class RegionHandleConcurrencyTest {
         val directory = "/world/region".toPath()
         val encodeGate = BlockingGate()
         val base = concurrencyFakeFileSystem()
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
-            fileSystem = base,
+            fileSystem = threadSafeFakeFileSystem(base),
             chunkNbtFormat = gatedNbtFormat(encodeGate),
             regionStorageConfiguration = concurrencyConfiguration(),
         )
@@ -1555,6 +1570,57 @@ class RegionHandleConcurrencyTest {
     }
 
     @Test
+    fun entityHandleCloseWaitsForEncodingBeforeTheSingleWriteAdmission() = runTest {
+        val directory = "/world/entities".toPath()
+        val base = concurrencyFakeFileSystem()
+        val encodeGate = BlockingGate()
+        val regionStorage = CoordinatedRegionStore(
+            directory = directory,
+            fileSystem = threadSafeFakeFileSystem(base),
+            chunkNbtFormat = gatedNbtFormat(encodeGate),
+            regionStorageConfiguration = concurrencyConfiguration(),
+        )
+        val entityRegionHandle = EntityRegionHandle(regionStorage.openRegion(RegionPosition(0, 0)))
+        val entityChunkNbtCodec = EntityChunkNbtCodec(NbtEntityDataRegistry())
+        val entity = Entity(
+            type = "minecraft:pig",
+            uuid = Uuid.NIL,
+            data = NbtCompound(emptyMap()),
+            position = EntityVector3d(0.5, 64.0, 0.5),
+        )
+        val entityChunk = EntityChunk(ChunkPosition(0, 0), 1, listOf(entity))
+        val jobs = mutableListOf<Deferred<*>>()
+        try {
+            val writing = async(Dispatchers.Default) {
+                entityRegionHandle.writeChunk(entityChunk, entityChunkNbtCodec, Compression.NONE)
+            }
+            jobs += writing
+            encodeGate.awaitEntered()
+
+            val closing = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+                entityRegionHandle.close()
+            }
+            jobs += closing
+            assertFalse(closing.isCompleted)
+
+            encodeGate.open()
+            writing.await()
+            closing.await()
+            assertNotNull(RegionFileStore(directory, base).readCompressedChunk(entityChunk.chunkPosition))
+            regionStorage.close()
+            base.checkNoOpenFiles()
+        } finally {
+            withContext(NonCancellable) {
+                encodeGate.open()
+                jobs.joinAll()
+                entityRegionHandle.close()
+                regionStorage.close()
+                base.checkNoOpenFiles()
+            }
+        }
+    }
+
+    @Test
     fun closeWaitsForDecodingAfterSharedFileAccessEnds() = runTest {
         val directory = "/world/region".toPath()
         val base = concurrencyFakeFileSystem()
@@ -1563,7 +1629,7 @@ class RegionHandleConcurrencyTest {
         setup.close()
 
         val decodeGate = BlockingGate()
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = base,
             chunkNbtFormat = gatedNbtFormat(decodeGate),
@@ -1598,7 +1664,7 @@ class RegionHandleConcurrencyTest {
     }
 }
 
-private fun concurrencyStore(fileSystem: FileSystem): RegionStorage = RegionStorage(
+private fun concurrencyStore(fileSystem: FileSystem): CoordinatedRegionStore = CoordinatedRegionStore(
     directory = "/world/region".toPath(),
     fileSystem = if (fileSystem is okio.fakefilesystem.FakeFileSystem) {
         threadSafeFakeFileSystem(fileSystem)

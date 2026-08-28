@@ -12,10 +12,7 @@ import com.hiczp.minecraft.world.format.*
  * The receiver supplies the active dimension bounds; this conversion neither assumes a release-global default nor
  * reads a world file.
  */
-fun MinecraftDimensionLayout.toChunkLayout(): ChunkLayout = ChunkLayout(
-    minSectionY = MinecraftCoordinates.sectionCoordinate(minY),
-    sectionCount = sectionCount,
-)
+fun MinecraftDimensionLayout.toChunkLayout(): ChunkLayout = ChunkLayout.fromBlockBounds(minY, height)
 
 /**
  * Adapts one active protocol registry context to the registries used by strong world-Chunk conversion.

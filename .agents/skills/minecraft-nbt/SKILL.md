@@ -28,7 +28,9 @@ Do not put GZIP/ZLIB file policy, region compression identifiers, paths, or file
 world-format or world-io skill when those wrappers change.
 
 Reject malformed types, negative lengths, and truncated input, but do not add policy-sized byte, collection, array, or
-nesting ceilings. Preserve equivalent public result and exception semantics across supported targets.
+nesting ceilings. Preserve equivalent public result and exception semantics across supported targets. Classify intrinsic
+binary corruption as `NbtBinaryFormatException`; keep serializer/schema mapping failures as the broader
+`NbtDecodingException` so callers can distinguish invalid bytes without parsing a second tree.
 
 ## Verify and report
 

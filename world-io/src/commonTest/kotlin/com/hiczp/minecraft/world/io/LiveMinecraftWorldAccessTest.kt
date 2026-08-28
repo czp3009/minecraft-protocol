@@ -5,8 +5,7 @@ import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.Buffer
-import kotlinx.io.readByteArray
+import okio.Buffer
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
@@ -32,13 +31,13 @@ class LiveMinecraftWorldAccessTest {
         val nbtFileStore = NbtFileStore(fakeFileSystem)
         LevelDataStore(minecraftWorldPaths, nbtFileStore).writeDocument(nbtDocument)
         PlayerDataStore(minecraftWorldPaths, nbtFileStore).writeDocument(playerUuid, nbtDocument)
-        SavedDataFileStore(minecraftWorldPaths, nbtFileStore = nbtFileStore)
+        SavedDataStore(minecraftWorldPaths, SavedDataScope.WorldRoot, nbtFileStore)
             .writeDocument("example:renderer/state", nbtDocument)
         val utf8JsonFileStore = Utf8JsonFileStore(fakeFileSystem)
         utf8JsonFileStore.writeText(minecraftWorldPaths.statistics(playerUuid), "{\"blocks\":1}")
         utf8JsonFileStore.writeText(minecraftWorldPaths.advancement(playerUuid), "{\"done\":true}")
 
-        val regionStorage = RegionStorage(minecraftWorldPaths, fileSystem = fakeFileSystem)
+        val regionStorage = CoordinatedRegionStore(minecraftWorldPaths, fileSystem = fakeFileSystem)
         try {
             regionStorage.writeChunkNbtDocument(chunkPosition, nbtDocument)
             regionStorage.writeCompressedChunk(
@@ -58,7 +57,7 @@ class LiveMinecraftWorldAccessTest {
         assertEquals(nbtDocument, liveMinecraftWorldAccess.readPlayerDataDocument(playerUuid))
         assertEquals(
             nbtDocument,
-            liveMinecraftWorldAccess.readSavedDataDocument("example:renderer/state"),
+            liveMinecraftWorldAccess.readSavedDataDocument("example:renderer/state", SavedDataScope.WorldRoot),
         )
         assertEquals("{\"blocks\":1}", liveMinecraftWorldAccess.readStatisticsText(playerUuid))
         assertEquals("{\"done\":true}", liveMinecraftWorldAccess.readAdvancementsText(playerUuid))
@@ -95,7 +94,7 @@ class LiveMinecraftWorldAccessTest {
         assertContentEquals(externalPayload, compressedSink.readByteArray())
         val nbtSink = Buffer()
         assertEquals(chunkPosition, liveRegionHandle.readChunkNbtTo(chunkPosition, nbtSink)?.chunkPosition)
-        assertEquals(nbtDocument, liveRegionHandle.chunkNbtFormat.nbtFormat.decodeDocumentFromSource(nbtSink))
+        assertEquals(nbtDocument, liveRegionHandle.chunkNbtFormat.nbtFormat.decodeDocumentFromOkio(nbtSink))
         liveRegionHandle.close()
 
         assertFalse(fakeFileSystem.exists(minecraftWorldPaths.sessionLock))
@@ -166,7 +165,7 @@ class LiveMinecraftWorldAccessTest {
         missingHandle.close()
         assertFailsWith<IllegalStateException> { missingHandle.hasRegion() }
 
-        val regionStorage = RegionStorage(minecraftWorldPaths, fileSystem = baseFileSystem)
+        val regionStorage = CoordinatedRegionStore(minecraftWorldPaths, fileSystem = baseFileSystem)
         try {
             regionStorage.openRegion(regionPosition).use { regionHandle ->
                 regionHandle.writeCompressedChunk(firstLocalChunkPosition, liveChunk(1))

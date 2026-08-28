@@ -56,7 +56,7 @@ class LiveFileSharingTest {
         val first = ChunkPosition(0, 0)
         val second = ChunkPosition(1, 0)
         try {
-            val initial = RegionStorage(minecraftWorldPaths)
+            val initial = CoordinatedRegionStore(minecraftWorldPaths)
             try {
                 initial.writeCompressedChunk(first, sharingChunk(1))
             } finally {
@@ -71,7 +71,7 @@ class LiveFileSharingTest {
                     liveRegionHandle.readCompressedChunk(first).bytesOrNull(),
                 )
 
-                val updater = RegionStorage(minecraftWorldPaths)
+                val updater = CoordinatedRegionStore(minecraftWorldPaths)
                 try {
                     updater.writeCompressedChunk(first, sharingChunk(2))
                     updater.writeCompressedChunk(second, sharingChunk(3))

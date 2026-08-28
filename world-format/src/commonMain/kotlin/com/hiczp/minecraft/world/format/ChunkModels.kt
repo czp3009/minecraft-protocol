@@ -90,6 +90,22 @@ data class ChunkLayout(
         MinecraftCoordinates.blockCountForSections(sectionCount)
     }
 
+    companion object {
+        /** Creates a Section layout from block-aligned dimension bounds. */
+        fun fromBlockBounds(minY: Int, height: Int): ChunkLayout {
+            require(minY % SECTION_SIDE == 0) {
+                "Chunk minimum block Y must be a multiple of $SECTION_SIDE"
+            }
+            require(height > 0 && height % SECTION_SIDE == 0) {
+                "Chunk block height must be a positive multiple of $SECTION_SIDE"
+            }
+            return ChunkLayout(
+                minSectionY = MinecraftCoordinates.sectionCoordinate(minY),
+                sectionCount = height / SECTION_SIDE,
+            )
+        }
+    }
+
     val maxSectionY: Int
         get() = MinecraftCoordinates.offsetSectionCoordinate(minSectionY, sectionCount - 1)
 
@@ -116,10 +132,8 @@ data class ChunkLayout(
 data class ChunkNbtContext<B : Any, M : Any>(
     val chunkLayout: ChunkLayout,
     val chunkDataRegistries: ChunkDataRegistries<B, M>,
-    val expectedDataVersion: Int,
 ) {
     init {
-        require(expectedDataVersion >= 0) { "A Minecraft data version must be non-negative" }
         require(chunkLayout.minSectionY >= Byte.MIN_VALUE && chunkLayout.maxSectionY <= Byte.MAX_VALUE) {
             "A Chunk NBT layout's Section Y range must fit TAG_Byte"
         }
@@ -326,7 +340,6 @@ data class ChunkMetadata(
     val lightOnlySections: Map<Int, SectionLighting> = emptyMap(),
 ) {
     init {
-        require(dataVersion >= 0) { "A Minecraft data version must be non-negative" }
         require(status.isNotBlank()) { "A Chunk status must not be blank" }
     }
 

@@ -2,9 +2,7 @@ package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.datapack.DataPackFileBytes
 import com.hiczp.minecraft.world.format.datapack.DataPackFilePath
-import kotlinx.io.Source
-import kotlinx.io.buffered
-import kotlinx.io.okio.asKotlinxIoRawSource
+import okio.BufferedSource
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
@@ -70,19 +68,10 @@ private class OkioDataPackZipReader(
 
     override fun <T> readDataPackFile(
         dataPackFilePath: DataPackFilePath,
-        block: (Source) -> T,
+        block: (BufferedSource) -> T,
     ): T {
         val zipEntryPath = dataPackFilePath.resolveBelow(ZIP_ROOT)
-        return zipFileSystem.readFile(zipEntryPath) { bufferedSource, _ ->
-            withOkioIoExceptions("Cannot read data-pack ZIP entry $zipEntryPath") {
-                val dataPackFileSource = bufferedSource.asKotlinxIoRawSource().buffered()
-                val result = block(dataPackFileSource)
-                if (!dataPackFileSource.exhausted()) {
-                    throw WorldIOException("Data-pack ZIP entry $zipEntryPath was not fully consumed")
-                }
-                result
-            }
-        }
+        return zipFileSystem.readFile(zipEntryPath) { bufferedSource, _ -> block(bufferedSource) }
     }
 
     private fun DataPackFilePath.resolveBelow(root: Path): Path =

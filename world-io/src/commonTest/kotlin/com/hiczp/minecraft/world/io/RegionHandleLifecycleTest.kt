@@ -15,7 +15,7 @@ class RegionHandleLifecycleTest {
     @Test
     fun useClosesARegionHandle() = runTest {
         val fakeFileSystem = FakeFileSystem()
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = "/world/region".toPath(),
             fileSystem = fakeFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
@@ -49,7 +49,7 @@ class RegionHandleLifecycleTest {
         val base = FakeFileSystem()
         val flushRecordingFileSystem = FlushRecordingFileSystem(base)
         val directory = "/world/region".toPath()
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = flushRecordingFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = true),
@@ -68,7 +68,7 @@ class RegionHandleLifecycleTest {
     fun nonSyncWriteFlushesOnceWhenItsLastEntryUserReleases() = runTest {
         val base = FakeFileSystem()
         val flushRecordingFileSystem = FlushRecordingFileSystem(base)
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = "/world/region".toPath(),
             fileSystem = flushRecordingFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
@@ -87,7 +87,7 @@ class RegionHandleLifecycleTest {
     fun missingReadsCreateNeitherFilesNorIdleEntries() = runTest {
         val fakeFileSystem = FakeFileSystem()
         val firstDirectory = "/world/region".toPath()
-        val first = RegionStorage(
+        val first = CoordinatedRegionStore(
             directory = firstDirectory,
             fileSystem = fakeFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
@@ -102,7 +102,7 @@ class RegionHandleLifecycleTest {
         assertTrue(fakeFileSystem.openPaths.isEmpty())
 
         val secondDirectory = "/world/entities".toPath()
-        val second = RegionStorage(
+        val second = CoordinatedRegionStore(
             directory = secondDirectory,
             fileSystem = fakeFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
@@ -123,7 +123,7 @@ class RegionHandleLifecycleTest {
         val finiteCloseFailingFileSystem = FiniteCloseFailingFileSystem(base, failures = 1)
         val directory = "/world/region".toPath()
         base.createEmptyRegion(directory, RegionPosition(0, 0))
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = finiteCloseFailingFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
@@ -154,7 +154,7 @@ class RegionHandleLifecycleTest {
         val directory = "/world/region".toPath()
         base.createEmptyRegion(directory, RegionPosition(0, 0))
         base.createEmptyRegion(directory, RegionPosition(1, 0))
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = closingFailingFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
@@ -179,7 +179,7 @@ class RegionHandleLifecycleTest {
     fun lastReleaseStillFlushesAndClosesAfterPaddingFailure() = runTest {
         val base = FakeFileSystem()
         val resizeFailingFileSystem = ResizeFailingFileSystem(base)
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = "/world/region".toPath(),
             fileSystem = resizeFailingFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
@@ -202,7 +202,7 @@ class RegionHandleLifecycleTest {
         val directory = "/world/region".toPath()
         base.createEmptyRegion(directory, RegionPosition(0, 0))
         val sizeFailingFileSystem = SizeFailingFileSystem(base, failureCall = 1)
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = sizeFailingFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
@@ -223,7 +223,7 @@ class RegionHandleLifecycleTest {
         val directory = "/world/region".toPath()
         base.createEmptyRegion(directory, RegionPosition(0, 0))
         val sizeFailingFileSystem = SizeFailingFileSystem(base, failureCall = 2)
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = sizeFailingFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
@@ -244,7 +244,7 @@ class RegionHandleLifecycleTest {
         base.createEmptyRegion(directory, RegionPosition(0, 0))
         base.createEmptyRegion(directory, RegionPosition(1, 0))
         val finiteFlushFailingFileSystem = FiniteFlushFailingFileSystem(base, failures = 2)
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = finiteFlushFailingFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),

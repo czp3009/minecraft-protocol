@@ -5,8 +5,7 @@ import com.hiczp.minecraft.nbt.NbtByteArray
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.Buffer
-import kotlinx.io.readByteArray
+import okio.Buffer
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.*
@@ -24,7 +23,7 @@ class EntityRegionHandleTest {
         val removedPosition = regionPosition.chunk(LocalChunkPosition(7, 5))
         val typedLocal = LocalChunkPosition(8, 5)
         val typedNbt = testLevelDat(levelName = "entity-region-typed-nbt")
-        val entityChunkNbtCodec = EntityChunkNbtCodec(EXPECTED_DATA_VERSION, NbtEntityDataRegistry())
+        val entityChunkNbtCodec = EntityChunkNbtCodec(NbtEntityDataRegistry())
         val entity = Entity(
             type = "minecraft:pig",
             uuid = Uuid.fromLongs(1, 2),
@@ -60,7 +59,7 @@ class EntityRegionHandleTest {
                 MinecraftCoordinates.blockCoordinate(removedPosition.z, 1) + 0.5,
             ),
         )
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = fakeFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),

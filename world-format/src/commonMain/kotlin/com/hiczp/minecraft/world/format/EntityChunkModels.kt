@@ -46,15 +46,6 @@ class NbtEntityDataRegistry : EntityDataRegistry<NbtCompound> {
     override fun describe(type: String, value: NbtCompound): NbtCompound = value
 }
 
-data class EntityChunkNbtContext<E : Any>(
-    val entityDataRegistry: EntityDataRegistry<E>,
-    val expectedDataVersion: Int,
-) {
-    init {
-        require(expectedDataVersion >= 0) { "A Minecraft data version must be non-negative" }
-    }
-}
-
 /**
  * A mutable, detached semantic Entity loaded from an Entity Chunk.
  *
@@ -168,7 +159,6 @@ class EntityChunk<E : Any>(
     private val storedRootEntities = rootEntities.toMutableList()
 
     init {
-        require(dataVersion >= 0) { "A Minecraft data version must be non-negative" }
         requireUniqueEntityUuids(storedRootEntities)
         require(storedRootEntities.all { entity -> entity.chunkPosition == chunkPosition }) {
             "An Entity Chunk contains a root Entity outside $chunkPosition"

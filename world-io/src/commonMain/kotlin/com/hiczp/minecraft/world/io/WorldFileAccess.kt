@@ -10,9 +10,14 @@ internal class WorldFileAccess private constructor(
     val fileSystem: FileSystem,
     val liveReadOnly: Boolean,
 ) {
-    fun openRegionHandle(path: Path): FileHandle =
+    fun openReadOnlyRegionHandle(path: Path): FileHandle =
         if (liveReadOnly) fileSystem.openLiveReadOnly(path)
-        else fileSystem.openRandomAccessReadWrite(path)
+        else fileSystem.openReadOnly(path)
+
+    fun openMutableRegionHandle(path: Path): FileHandle {
+        requireWritable()
+        return fileSystem.openRandomAccessReadWrite(path)
+    }
 
     fun openSource(path: Path): Source {
         if (!liveReadOnly) return fileSystem.source(path)

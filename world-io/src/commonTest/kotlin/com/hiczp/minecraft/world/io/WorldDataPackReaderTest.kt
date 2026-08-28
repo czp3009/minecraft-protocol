@@ -1,9 +1,10 @@
 package com.hiczp.minecraft.world.io
 
+import com.hiczp.minecraft.world.format.LevelDat
 import com.hiczp.minecraft.world.format.datapack.DataPackFileContent
 import com.hiczp.minecraft.world.format.datapack.DataPackFilePath
 import com.hiczp.minecraft.world.format.datapack.DataPackId
-import kotlinx.io.readByteArray
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.*
 import okio.FileSystem
 import okio.Path
@@ -14,6 +15,62 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
 class WorldDataPackReaderTest {
+    @Test
+    fun mutableAndLiveFacadesReadTheSameStrongWorldSelection() = runTest {
+        val fakeFileSystem = FakeFileSystem()
+        val root = "/world".toPath()
+        val minecraftWorldPaths = MinecraftWorldPaths(root)
+        val levelDat = testLevelDat().let { originalLevelDat ->
+            LevelDat(
+                originalLevelDat.data.copy(
+                    dataPackSelection = LevelDat.Data.DataPackSelection(
+                        enabledDataPackReferences = listOf("vanilla", "file/example"),
+                        disabledDataPackReferences = listOf("trade_rebalance"),
+                    ),
+                    enabledFeatures = listOf("minecraft:vanilla"),
+                    removedFeatures = listOf("minecraft:retired"),
+                ),
+            )
+        }
+        LevelDataStore(minecraftWorldPaths, NbtFileStore(fakeFileSystem)).write(LevelDat.serializer(), levelDat)
+        fakeFileSystem.writeJson(
+            minecraftWorldPaths.dataPacksDirectory / "example/pack.mcmeta",
+            buildJsonObject {
+                put("pack", buildJsonObject {
+                    put("description", "example")
+                    put("pack_format", 107)
+                })
+            },
+        )
+
+        val mutableResult = MinecraftWorldAccess.create(minecraftWorldPaths, fakeFileSystem).use {
+            it.readEnabledDataPacks()
+        }
+        val liveResult = LiveMinecraftWorldAccess.open(root, fakeFileSystem).readEnabledDataPacks()
+
+        listOf(mutableResult, liveResult).forEach { worldDataPackLoadResult ->
+            assertEquals(
+                listOf(DataPackId("vanilla"), DataPackId("file/example")),
+                worldDataPackLoadResult.enabledDataPackIds,
+            )
+            assertEquals(
+                listOf(DataPackId("trade_rebalance")),
+                worldDataPackLoadResult.disabledDataPackIds,
+            )
+            assertEquals(setOf("minecraft:vanilla"), worldDataPackLoadResult.enabledFeatureFlags)
+            assertEquals(setOf("minecraft:retired"), worldDataPackLoadResult.removedFeatureFlags)
+            assertEquals(
+                listOf(DataPackId("file/example")),
+                worldDataPackLoadResult.loadedDataPacks.map { dataPack -> dataPack.dataPackId },
+            )
+            assertEquals(
+                listOf(DataPackId("vanilla")),
+                worldDataPackLoadResult.unloadedEnabledDataPackIds,
+            )
+        }
+        fakeFileSystem.checkNoOpenFiles()
+    }
+
     @Test
     fun inspectionExposesSizesBeforeUnrestrictedDetachedRead() {
         val fakeFileSystem = FakeFileSystem()
@@ -86,14 +143,43 @@ class WorldDataPackReaderTest {
         val worldDataPackReader = WorldDataPackReader(fakeFileSystem, "/world/datapacks".toPath())
 
         val worldDataPackLoadResult = worldDataPackReader.readEnabledDataPacks(
-            listOf("vanilla", "file/example"),
+            listOf(DataPackId("vanilla"), DataPackId("file/example")),
         )
 
-        assertEquals(listOf("vanilla"), worldDataPackLoadResult.unresolvedDataPackReferences)
+        assertEquals(listOf(DataPackId("vanilla")), worldDataPackLoadResult.unloadedEnabledDataPackIds)
         assertEquals(
             listOf(DataPackId("file/example")),
-            worldDataPackLoadResult.dataPackStack.dataPacks.map { it.dataPackId },
+            worldDataPackLoadResult.loadedDataPacks.map { dataPack -> dataPack.dataPackId },
         )
+        fakeFileSystem.checkNoOpenFiles()
+    }
+
+    @Test
+    fun levelDataSelectionRetainsDisabledPacksAndFeatureConfiguration() {
+        val fakeFileSystem = FakeFileSystem()
+        val levelDat = testLevelDat().let { originalLevelDat ->
+            LevelDat(
+                originalLevelDat.data.copy(
+                    dataPackSelection = LevelDat.Data.DataPackSelection(
+                        enabledDataPackReferences = listOf("vanilla"),
+                        disabledDataPackReferences = listOf("trade_rebalance"),
+                    ),
+                    enabledFeatures = listOf("minecraft:vanilla", "minecraft:trade_rebalance"),
+                    removedFeatures = listOf("minecraft:retired"),
+                ),
+            )
+        }
+        val worldDataPackReader = WorldDataPackReader(fakeFileSystem, "/world/datapacks".toPath())
+
+        val worldDataPackLoadResult = worldDataPackReader.readEnabledDataPacks(levelDat)
+
+        assertEquals(listOf(DataPackId("vanilla")), worldDataPackLoadResult.enabledDataPackIds)
+        assertEquals(listOf(DataPackId("trade_rebalance")), worldDataPackLoadResult.disabledDataPackIds)
+        assertEquals(
+            setOf("minecraft:vanilla", "minecraft:trade_rebalance"),
+            worldDataPackLoadResult.enabledFeatureFlags,
+        )
+        assertEquals(setOf("minecraft:retired"), worldDataPackLoadResult.removedFeatureFlags)
         fakeFileSystem.checkNoOpenFiles()
     }
 }

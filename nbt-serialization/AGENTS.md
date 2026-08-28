@@ -16,7 +16,10 @@ This module owns binary NBT, SNBT, and their `kotlinx.serialization` formats.
 - Generic `NbtDocument` conversion extensions live here so `nbt` remains independent of physical serialization.
 - SNBT supports the selected release's literals, arrays, heterogeneous lists, booleans, UUIDs, separators, quotes, and
   escapes. Numeric Unicode escapes are portable; named Unicode escapes require a caller-supplied resolver.
-- NBT format exceptions remain `SerializationException` values. Do not wrap them merely to rename the same failure.
+- NBT format exceptions remain `SerializationException` values. `NbtBinaryFormatException` is the
+  `NbtDecodingException` subtype for intrinsic binary corruption independent of the selected serializer; schema,
+  descriptor, unknown-field, and Kotlin-value mapping failures must not use it. Do not wrap exceptions merely to rename
+  the same failure.
 
 ## Verification
 

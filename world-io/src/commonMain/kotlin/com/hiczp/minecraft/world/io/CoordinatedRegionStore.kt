@@ -8,16 +8,14 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.io.Buffer
-import kotlinx.io.buffered
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.serializer
+import okio.BufferedSink
+import okio.BufferedSource
 import okio.FileSystem
 import okio.Path
 import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.io.Sink as KotlinxSink
-import kotlinx.io.Source as KotlinxSource
 
 /**
  * Configuration for one Region directory. The caller—not this library—decides how many Regions
@@ -41,14 +39,14 @@ data class RegionStorageConfiguration(
  * These suspend functions wait only for coordination; blocking filesystem I/O and compression run
  * on the calling coroutine's dispatcher and are not automatically main-safe.
  */
-internal class RegionStorage internal constructor(
+internal class CoordinatedRegionStore internal constructor(
     val directory: Path,
     internal val worldFileAccess: WorldFileAccess,
     val chunkNbtFormat: CompressedNbtFormat,
     val regionStorageConfiguration: RegionStorageConfiguration,
 ) {
     init {
-        require(!worldFileAccess.liveReadOnly) { "RegionStorage requires mutable file access" }
+        require(!worldFileAccess.liveReadOnly) { "CoordinatedRegionStore requires mutable file access" }
     }
 
     constructor(
@@ -94,6 +92,13 @@ internal class RegionStorage internal constructor(
     val fileSystem: FileSystem
         get() = worldFileAccess.fileSystem
 
+    internal val regionFileStore = RegionFileStore(
+        directory,
+        worldFileAccess,
+        chunkNbtFormat,
+        regionStorageConfiguration,
+    )
+
     private val bookkeeping = Mutex()
     private val regions = mutableMapOf<RegionPosition, RegionState>()
     private var closed = false
@@ -105,15 +110,16 @@ internal class RegionStorage internal constructor(
         bookkeeping.withLock {
             check(!closed) { "Region storage is closed: $directory" }
         }
-        return snapshotRegionPositions(worldFileAccess.fileSystem, directory)
+        return regionFileStore.listRegionPositions()
     }
 
     /** Opens a caller-owned resource that keeps one Region entry alive between operations. */
-    suspend fun openRegion(regionPosition: RegionPosition): RegionHandle = openRegion(regionPosition) { null }
+    suspend fun openRegion(regionPosition: RegionPosition): RegionHandle =
+        openRegion(regionPosition) { failure -> failure }
 
     internal suspend fun openRegion(
         regionPosition: RegionPosition,
-        afterRelease: suspend () -> Throwable?,
+        afterRelease: suspend (Throwable?) -> Throwable?,
     ): RegionHandle = RegionHandle(this, acquire(regionPosition), afterRelease)
 
     /** Reads one complete in-memory snapshot without creating a missing Region file. */
@@ -179,13 +185,13 @@ internal class RegionStorage internal constructor(
 
     suspend fun <R> withCompressedChunkSource(
         chunkPosition: ChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withCompressedChunkSource(chunkPosition.regionPosition, chunkPosition.localChunkPosition, block)
 
     suspend fun <R> withCompressedChunkSource(
         regionPosition: RegionPosition,
         localChunkPosition: LocalChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withRegionState(regionPosition) { entry -> withCompressedChunkSource(entry, localChunkPosition, block) }
 
     suspend fun readCompressedChunk(chunkPosition: ChunkPosition): CompressedChunk? =
@@ -213,7 +219,7 @@ internal class RegionStorage internal constructor(
         chunkPosition: ChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) = writeCompressedChunk(chunkPosition.regionPosition, chunkPosition.localChunkPosition, compression, compressedByteCount, block)
 
     suspend fun writeCompressedChunk(
@@ -221,7 +227,7 @@ internal class RegionStorage internal constructor(
         localChunkPosition: LocalChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) = withRegionState(regionPosition) { entry ->
         writeCompressedChunk(entry, localChunkPosition, compression, compressedByteCount, block)
     }
@@ -235,13 +241,13 @@ internal class RegionStorage internal constructor(
 
     suspend fun <R> withChunkNbtSource(
         chunkPosition: ChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withChunkNbtSource(chunkPosition.regionPosition, chunkPosition.localChunkPosition, block)
 
     suspend fun <R> withChunkNbtSource(
         regionPosition: RegionPosition,
         localChunkPosition: LocalChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withRegionState(regionPosition) { entry -> withChunkNbtSource(entry, localChunkPosition, block) }
 
     suspend fun readChunkNbtDocument(chunkPosition: ChunkPosition): NbtDocument? =
@@ -429,7 +435,7 @@ internal class RegionStorage internal constructor(
     }
 
     internal suspend fun hasRegion(entry: RegionState): Boolean = withReadAccess(entry) {
-        val path = regionPath(entry.regionPosition)
+        val path = regionFilePath(directory, entry.regionPosition)
         val fileMetadata = worldFileAccess.fileSystem.metadataOrNull(path) ?: return@withReadAccess false
         if (!fileMetadata.isRegularFile) {
             throw WorldIOException("Path is not a regular file: $path")
@@ -466,7 +472,7 @@ internal class RegionStorage internal constructor(
     internal suspend fun <R> withCompressedChunkSource(
         entry: RegionState,
         localChunkPosition: LocalChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withReadAccess(entry) {
         openedFileForRead(entry)?.withCompressedChunkSource(localChunkPosition, block)
     }
@@ -494,7 +500,7 @@ internal class RegionStorage internal constructor(
         localChunkPosition: LocalChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) {
         worldFileAccess.requireWritable()
         entry.logicalFileAccess.write {
@@ -515,7 +521,7 @@ internal class RegionStorage internal constructor(
     internal suspend fun <R> withChunkNbtSource(
         entry: RegionState,
         localChunkPosition: LocalChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withReadAccess(entry) {
         openedFileForRead(entry)?.withCompressedChunkSource(localChunkPosition) { regionChunkInfo, source ->
             withDecompressedChunkSource(chunkNbtFormat, regionChunkInfo, source, block)
@@ -526,7 +532,7 @@ internal class RegionStorage internal constructor(
         entry: RegionState,
         localChunkPosition: LocalChunkPosition,
     ): NbtDocument? = withChunkNbtSource(entry, localChunkPosition) { _, source ->
-        chunkNbtFormat.nbtFormat.decodeDocumentFromSource(source)
+        chunkNbtFormat.nbtFormat.decodeDocumentFromOkio(source)
     }
 
     internal suspend fun <T> readChunkNbt(
@@ -534,7 +540,7 @@ internal class RegionStorage internal constructor(
         localChunkPosition: LocalChunkPosition,
         deserializationStrategy: DeserializationStrategy<T>,
     ): T? = withChunkNbtSource(entry, localChunkPosition) { _, source ->
-        chunkNbtFormat.nbtFormat.decodeFromSource(deserializationStrategy, source)
+        chunkNbtFormat.nbtFormat.decodeFromOkio(deserializationStrategy, source)
     }
 
     internal suspend fun <B : Any, M : Any> readChunk(
@@ -542,7 +548,7 @@ internal class RegionStorage internal constructor(
         localChunkPosition: LocalChunkPosition,
         chunkNbtCodec: ChunkNbtCodec<B, M>,
     ): Chunk<B, M>? = withChunkNbtSource(entry, localChunkPosition) { _, source ->
-        chunkNbtCodec.decodeFromSource(source, entry.regionPosition.chunk(localChunkPosition))
+        chunkNbtCodec.decodeFromOkio(source, entry.regionPosition.chunk(localChunkPosition))
     }
 
     internal suspend fun writeChunkNbtDocument(
@@ -552,10 +558,7 @@ internal class RegionStorage internal constructor(
         compression: Compression,
     ) {
         worldFileAccess.requireWritable()
-        val absolute = entry.regionPosition.chunk(localChunkPosition)
-        val compressedChunk = withOkioIoExceptions("Cannot encode chunk $absolute") {
-            chunkNbtFormat.encodeDocument(nbtDocument, compression)
-        }
+        val compressedChunk = chunkNbtFormat.encodeDocumentFromOkio(nbtDocument, compression)
         entry.logicalFileAccess.write {
             openedFileForWrite(entry).writeCompressedChunk(localChunkPosition, compressedChunk)
         }
@@ -565,16 +568,10 @@ internal class RegionStorage internal constructor(
         entry: RegionState,
         localChunkPosition: LocalChunkPosition,
         compression: Compression,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) {
         worldFileAccess.requireWritable()
-        val absolute = entry.regionPosition.chunk(localChunkPosition)
-        val compressedChunk = withOkioIoExceptions("Cannot encode chunk $absolute") {
-            val compressed = Buffer()
-            val compressing = chunkNbtFormat.compressionRegistry.compressingSink(compression, compressed).buffered()
-            compressing.use(block)
-            CompressedChunk.readFromSource(compressed, compression)
-        }
+        val compressedChunk = encodeCompressedChunkFromOkio(chunkNbtFormat, compression, block)
         entry.logicalFileAccess.write {
             openedFileForWrite(entry).writeCompressedChunk(localChunkPosition, compressedChunk)
         }
@@ -588,10 +585,7 @@ internal class RegionStorage internal constructor(
         compression: Compression,
     ) {
         worldFileAccess.requireWritable()
-        val absolute = entry.regionPosition.chunk(localChunkPosition)
-        val compressedChunk = withOkioIoExceptions("Cannot encode chunk $absolute") {
-            chunkNbtFormat.encode(serializationStrategy, value, compression)
-        }
+        val compressedChunk = chunkNbtFormat.encodeFromOkio(serializationStrategy, value, compression)
         entry.logicalFileAccess.write {
             openedFileForWrite(entry).writeCompressedChunk(localChunkPosition, compressedChunk)
         }
@@ -609,12 +603,7 @@ internal class RegionStorage internal constructor(
         require(chunk.chunkPosition == absolute) {
             "Chunk position ${chunk.chunkPosition} does not match Region entry $absolute"
         }
-        val compressedChunk = withOkioIoExceptions("Cannot encode chunk $absolute") {
-            val bytes = kotlinx.io.Buffer()
-            val compressing = chunkNbtFormat.compressionRegistry.compressingSink(compression, bytes).buffered()
-            compressing.use { chunkNbtCodec.encodeToSink(chunk, compressing) }
-            CompressedChunk.readFromSource(bytes, compression)
-        }
+        val compressedChunk = chunkNbtCodec.encodeFromOkio(chunk, chunkNbtFormat, compression)
         entry.logicalFileAccess.write {
             openedFileForWrite(entry).writeCompressedChunk(localChunkPosition, compressedChunk)
         }
@@ -787,24 +776,14 @@ internal class RegionStorage internal constructor(
 
     private suspend fun openedFileForRead(entry: RegionState): MutableRegionFile? = entry.openMutex.withLock {
         entry.mutableRegionFile?.let { return@withLock it }
-        val opened = MutableRegionFile.openExistingMutable(
-            worldFileAccess = worldFileAccess,
-            directory = directory,
-            regionPosition = entry.regionPosition,
-            syncWrites = regionStorageConfiguration.syncWrites,
-        ) ?: return@withLock null
+        val opened = regionFileStore.openExistingMutable(entry.regionPosition) ?: return@withLock null
         entry.mutableRegionFile = opened
         opened
     }
 
     private suspend fun openedFileForWrite(entry: RegionState): MutableRegionFile = entry.openMutex.withLock {
         entry.mutableRegionFile?.let { return@withLock it }
-        val opened = MutableRegionFile.openMutable(
-            worldFileAccess = worldFileAccess,
-            directory = directory,
-            regionPosition = entry.regionPosition,
-            syncWrites = regionStorageConfiguration.syncWrites,
-        )
+        val opened = regionFileStore.openMutable(entry.regionPosition)
         entry.mutableRegionFile = opened
         opened
     }
@@ -819,9 +798,6 @@ internal class RegionStorage internal constructor(
     private fun checkOpen() {
         check(!closed) { "Region storage is closed: $directory" }
     }
-
-    private fun regionPath(regionPosition: RegionPosition): Path =
-        directory / "r.${regionPosition.x}.${regionPosition.z}.mca"
 
 }
 

@@ -90,6 +90,62 @@ class VanillaDataPacksTest {
     }
 
     @Test
+    fun worldSelectionResolvesCoreBuiltInAndFilePacksInPersistedOrder() {
+        val builtInDataPackId = VanillaDataPacks.dataPackIds.first { dataPackId ->
+            dataPackId != VanillaDataPacks.coreDataPackId
+        }
+        val fileDataPack = DataPack(
+            dataPackId = DataPackId("file/example"),
+            dataPackMetadata = null,
+            dataPackFileContentsByPath = mapOf(
+                DataPackFilePath("data/example/recipe/value.json") to DataPackFileContent.JsonFile(
+                    JsonPrimitive("file"),
+                ),
+            ),
+        )
+        val worldDataPackLoadResult = WorldDataPackLoadResult(
+            enabledDataPackIds = listOf(
+                VanillaDataPacks.coreDataPackId,
+                fileDataPack.dataPackId,
+                builtInDataPackId,
+            ),
+            loadedDataPacks = listOf(fileDataPack),
+        )
+
+        val dataPackStack = worldDataPackLoadResult.toVanillaDataPackStack()
+
+        assertEquals(worldDataPackLoadResult.enabledDataPackIds, dataPackStack.dataPacks.map(DataPack::dataPackId))
+    }
+
+    @Test
+    fun worldSelectionAddsRequiredCoreAndProjectsPersistedFeatureFlags() {
+        val fileDataPack = DataPack(
+            dataPackId = DataPackId("file/example"),
+            dataPackMetadata = null,
+            dataPackFileContentsByPath = mapOf(
+                DataPackFilePath("data/example/recipe/value.json") to DataPackFileContent.JsonFile(
+                    JsonPrimitive("file"),
+                ),
+            ),
+        )
+        val additionalFeatureFlag = Identifier("example:world_feature")
+        val worldDataPackLoadResult = WorldDataPackLoadResult(
+            enabledDataPackIds = listOf(fileDataPack.dataPackId),
+            enabledFeatureFlags = setOf(additionalFeatureFlag.value),
+            loadedDataPacks = listOf(fileDataPack),
+        )
+
+        val dataPackStack = worldDataPackLoadResult.toVanillaDataPackStack()
+        val resolvedProtocolData = worldDataPackLoadResult.toVanillaProtocolData()
+
+        assertEquals(
+            listOf(VanillaDataPacks.coreDataPackId, fileDataPack.dataPackId),
+            dataPackStack.dataPacks.map(DataPack::dataPackId),
+        )
+        assertTrue(additionalFeatureFlag in resolvedProtocolData.enabledFeatureFlags)
+    }
+
+    @Test
     fun callerProjectorsOverrideVanillaDefaultsWithoutRemovingTheOthers() {
         val biomeRegistryId = Identifier("worldgen/biome")
         val damageTypeRegistryId = Identifier("damage_type")

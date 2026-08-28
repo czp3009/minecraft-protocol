@@ -51,6 +51,11 @@ The format does not impose policy-sized byte, collection, array, or nesting limi
 and output incrementally; tree and byte-array methods necessarily retain the value they return. The unsigned-short
 length of Java modified UTF remains part of the NBT binary format itself.
 
+`NbtBinaryFormatException` identifies intrinsic binary corruption such as unknown tag IDs, truncation, invalid lengths,
+malformed modified UTF, or an invalid document root. It is an `NbtDecodingException`; serializer/model mapping failures
+remain the broader type so filesystem recovery code can distinguish bad bytes from an incompatible requested schema
+without prebuilding an NBT tree.
+
 ## Kotlin value mapping
 
 Classes and `Map<String, T>` values become compounds. Mixed logical lists use the compound-wrapper convention of the

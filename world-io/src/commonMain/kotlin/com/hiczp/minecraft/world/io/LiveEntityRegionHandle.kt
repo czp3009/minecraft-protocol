@@ -4,8 +4,8 @@ import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.world.format.*
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.serializer
-import kotlinx.io.Sink as KotlinxSink
-import kotlinx.io.Source as KotlinxSource
+import okio.BufferedSink
+import okio.BufferedSource
 
 /** Caller-owned live Entity Region resource with the same read and scope semantics as [LiveRegionHandle]. */
 class LiveEntityRegionHandle internal constructor(
@@ -37,19 +37,19 @@ class LiveEntityRegionHandle internal constructor(
 
     fun <R> withCompressedChunkSource(
         localChunkPosition: LocalChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = delegate.withCompressedChunkSource(localChunkPosition, block)
 
     fun <R> withCompressedChunkSource(
         chunkPosition: ChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = delegate.withCompressedChunkSource(chunkPosition, block)
 
-    fun readCompressedChunkTo(localChunkPosition: LocalChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
-        delegate.readCompressedChunkTo(localChunkPosition, kotlinxSink)
+    fun readCompressedChunkTo(localChunkPosition: LocalChunkPosition, sink: BufferedSink): RegionChunkInfo? =
+        delegate.readCompressedChunkTo(localChunkPosition, sink)
 
-    fun readCompressedChunkTo(chunkPosition: ChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
-        delegate.readCompressedChunkTo(chunkPosition, kotlinxSink)
+    fun readCompressedChunkTo(chunkPosition: ChunkPosition, sink: BufferedSink): RegionChunkInfo? =
+        delegate.readCompressedChunkTo(chunkPosition, sink)
 
     fun readCompressedChunk(localChunkPosition: LocalChunkPosition): CompressedChunk? = delegate.readCompressedChunk(localChunkPosition)
 
@@ -57,19 +57,19 @@ class LiveEntityRegionHandle internal constructor(
 
     fun <R> withChunkNbtSource(
         localChunkPosition: LocalChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = delegate.withChunkNbtSource(localChunkPosition, block)
 
     fun <R> withChunkNbtSource(
         chunkPosition: ChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = delegate.withChunkNbtSource(chunkPosition, block)
 
-    fun readChunkNbtTo(localChunkPosition: LocalChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
-        delegate.readChunkNbtTo(localChunkPosition, kotlinxSink)
+    fun readChunkNbtTo(localChunkPosition: LocalChunkPosition, sink: BufferedSink): RegionChunkInfo? =
+        delegate.readChunkNbtTo(localChunkPosition, sink)
 
-    fun readChunkNbtTo(chunkPosition: ChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
-        delegate.readChunkNbtTo(chunkPosition, kotlinxSink)
+    fun readChunkNbtTo(chunkPosition: ChunkPosition, sink: BufferedSink): RegionChunkInfo? =
+        delegate.readChunkNbtTo(chunkPosition, sink)
 
     fun readChunkNbtDocument(localChunkPosition: LocalChunkPosition): NbtDocument? = delegate.readChunkNbtDocument(localChunkPosition)
 
@@ -88,7 +88,9 @@ class LiveEntityRegionHandle internal constructor(
         readChunkNbt(chunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
 
     fun <E : Any> readChunk(localChunkPosition: LocalChunkPosition, entityChunkNbtCodec: EntityChunkNbtCodec<E>): EntityChunk<E>? =
-        withChunkNbtSource(localChunkPosition) { _, source -> entityChunkNbtCodec.decodeFromSource(source, regionPosition.chunk(localChunkPosition)) }
+        withChunkNbtSource(localChunkPosition) { _, source ->
+            entityChunkNbtCodec.decodeFromOkio(source, regionPosition.chunk(localChunkPosition))
+        }
 
     fun <E : Any> readChunk(chunkPosition: ChunkPosition, entityChunkNbtCodec: EntityChunkNbtCodec<E>): EntityChunk<E>? =
         readChunk(this.regionPosition.local(chunkPosition), entityChunkNbtCodec)

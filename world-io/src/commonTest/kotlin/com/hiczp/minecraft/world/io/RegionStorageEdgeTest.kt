@@ -65,7 +65,7 @@ class RegionStorageEdgeTest {
         }.encode()
         fakeFileSystem.writeRaw(regionPath, originalHeader)
         fakeFileSystem.writeRaw(sidecarPath, sidecarBytes)
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = fakeFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(
@@ -256,7 +256,7 @@ class RegionStorageEdgeTest {
         val directory = "/world/region".toPath()
         val chunkPosition = ChunkPosition(-33, 65)
         val beforeWrite = Clock.System.now().epochSeconds.toInt()
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = fakeFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(
@@ -298,7 +298,7 @@ class RegionStorageEdgeTest {
                 ),
             ),
         )
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             minecraftWorldPaths = MinecraftWorldPaths("/world".toPath()),
             fileSystem = fakeFileSystem,
             chunkNbtFormat = configuredChunkNbtFormat,
@@ -331,9 +331,9 @@ class RegionStorageEdgeTest {
         val reader = LiveMinecraftWorldAccess.open(
             root = "/world".toPath(),
             fileSystem = fakeFileSystem,
-            liveMinecraftWorldAccessConfiguration = liveMinecraftWorldAccessConfiguration,
+            configuration = liveMinecraftWorldAccessConfiguration,
         )
-        assertSame(liveMinecraftWorldAccessConfiguration, reader.liveMinecraftWorldAccessConfiguration)
+        assertSame(liveMinecraftWorldAccessConfiguration, reader.configuration)
         Compression.entries.forEachIndexed { index, compression ->
             val chunkPosition = ChunkPosition(index, -index)
             assertEquals(
@@ -471,7 +471,7 @@ private fun writeEdgeInt(bytes: ByteArray, offset: Int, value: Int) {
 private fun edgeStore(
     fileSystem: FileSystem,
     directory: Path,
-): RegionStorage = RegionStorage(
+): CoordinatedRegionStore = CoordinatedRegionStore(
     directory = directory,
     fileSystem = fileSystem,
     regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),

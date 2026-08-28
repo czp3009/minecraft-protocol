@@ -427,6 +427,23 @@ class ChunkNbtCodecTest {
     }
 
     @Test
+    fun codecCarriesDataVersionWithoutACompatibilityGate() {
+        val chunkPosition = ChunkPosition(0, 0)
+        val dataVersion = Int.MIN_VALUE
+        val chunk = Chunk(
+            chunkPosition = chunkPosition,
+            chunkMetadata = ChunkMetadata(dataVersion, status = "minecraft:full"),
+            chunkLayout = TEST_LAYOUT,
+            defaultBlockState = AIR,
+            defaultBiome = "minecraft:plains",
+        )
+
+        val decoded = TEST_CODEC.decodeDocument(TEST_CODEC.encodeDocument(chunk), chunkPosition)
+
+        assertEquals(dataVersion, decoded.chunkMetadata.dataVersion)
+    }
+
+    @Test
     fun encodingRejectsDefaultsThatWouldChangeWhenMissingSectionsAreDecoded() {
         val chunk = Chunk(
             chunkPosition = ChunkPosition(0, 0),
@@ -528,7 +545,6 @@ class ChunkNbtCodecTest {
             ChunkNbtContext(
                 chunkLayout = TEST_LAYOUT,
                 chunkDataRegistries = ChunkDataRegistries(blockStateRegistry, NamedBiomeRegistry()),
-                expectedDataVersion = TEST_DATA_VERSION,
             ),
         )
         val chunk = Chunk(
@@ -585,7 +601,6 @@ class ChunkNbtCodecTest {
                     blockStates = DescriptorBlockStateRegistry(AIR),
                     biomes = NamedBiomeRegistry(),
                 ),
-                expectedDataVersion = TEST_DATA_VERSION,
             ),
         )
     }

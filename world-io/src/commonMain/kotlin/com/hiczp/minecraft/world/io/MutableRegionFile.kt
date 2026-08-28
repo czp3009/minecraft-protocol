@@ -1,13 +1,8 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.*
-import kotlinx.io.buffered
-import kotlinx.io.okio.asKotlinxIoRawSink
-import kotlinx.io.okio.asKotlinxIoRawSource
 import okio.*
 import kotlin.time.Clock
-import kotlinx.io.Sink as KotlinxSink
-import kotlinx.io.Source as KotlinxSource
 
 /**
  * One open `.mca` region file together with its external `.mcc` sidecars.
@@ -16,7 +11,7 @@ import kotlinx.io.Source as KotlinxSource
  * header, and then retire old allocations; the whole file is never replaced
  * or shrunk. Timestamps and the internal/sidecar threshold are automatic.
  *
- * This mutable primitive is private to one [RegionState]. The owning [RegionStorage] provides all
+ * This mutable primitive is private to one [RegionState]. The owning [CoordinatedRegionStore] provides all
  * read/write/close coordination; callers cannot open or retain the physical file object directly.
  */
 internal class MutableRegionFile private constructor(
@@ -64,7 +59,7 @@ internal class MutableRegionFile private constructor(
     /** Lends one complete compressed Chunk stream without retaining its payload. */
     fun <R> withCompressedChunkSource(
         localChunkPosition: LocalChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? {
         checkOpen()
         return readStoredChunk(localChunkPosition, headerForRead(), block)
@@ -73,7 +68,7 @@ internal class MutableRegionFile private constructor(
     override fun <R> withCompressedChunkSource(
         localChunkPosition: LocalChunkPosition,
         regionHeader: RegionHeader,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? {
         checkOpen()
         return readStoredChunk(localChunkPosition, regionHeader, block)
@@ -81,7 +76,7 @@ internal class MutableRegionFile private constructor(
 
     fun readCompressedChunk(localChunkPosition: LocalChunkPosition): CompressedChunk? =
         withCompressedChunkSource(localChunkPosition) { regionChunkInfo, source ->
-            CompressedChunk.readFromSource(source, regionChunkInfo.compression)
+            source.readCompressedChunkFromOkio(regionChunkInfo.compression)
         }
 
     fun readAnvilRegion(): AnvilRegion = withReadScope {
@@ -90,7 +85,7 @@ internal class MutableRegionFile private constructor(
             withCompressedChunkSource(listedInfo.localChunkPosition) { regionChunkInfo, source ->
                 chunks[regionChunkInfo.localChunkPosition] = AnvilChunkRecord(
                     compression = regionChunkInfo.compression,
-                    content = CompressedChunk.readFromSource(source, regionChunkInfo.compression),
+                    content = source.readCompressedChunkFromOkio(regionChunkInfo.compression),
                     anvilChunkPlacement = regionChunkInfo.anvilChunkPlacement,
                     timestampEpochSeconds = regionChunkInfo.timestampEpochSeconds,
                 )
@@ -107,7 +102,12 @@ internal class MutableRegionFile private constructor(
 
     /** Writes one Chunk with automatic timestamp and inline/external selection. */
     fun writeCompressedChunk(localChunkPosition: LocalChunkPosition, compressedChunkInput: CompressedChunkInput) =
-        writeCompressedChunk(localChunkPosition, compressedChunkInput.compression, compressedChunkInput.compressedByteCount, compressedChunkInput::writeTo)
+        writeCompressedChunk(
+            localChunkPosition,
+            compressedChunkInput.compression,
+            compressedChunkInput.compressedByteCount,
+            compressedChunkInput::writeToOkio,
+        )
 
     /**
      * Writes one already-compressed payload directly from [block].
@@ -119,7 +119,7 @@ internal class MutableRegionFile private constructor(
         localChunkPosition: LocalChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) {
         checkOpen()
         require(compressedByteCount >= 0L) { "Compressed byte count must be non-negative" }
@@ -163,7 +163,15 @@ internal class MutableRegionFile private constructor(
 
     fun replaceRegion(chunks: Collection<RegionChunkInput>) {
         replaceRegion {
-            chunks.forEach { regionChunkInput -> writeCompressedChunk(regionChunkInput.localChunkPosition, regionChunkInput.content) }
+            chunks.forEach { regionChunkInput ->
+                val compressedChunkInput = regionChunkInput.content
+                writeCompressedChunk(
+                    localChunkPosition = regionChunkInput.localChunkPosition,
+                    compression = compressedChunkInput.compression,
+                    compressedByteCount = compressedChunkInput.compressedByteCount,
+                    block = compressedChunkInput::writeToOkio,
+                )
+            }
         }
     }
 
@@ -245,18 +253,13 @@ internal class MutableRegionFile private constructor(
     private fun <R> readStoredChunk(
         localChunkPosition: LocalChunkPosition,
         regionHeader: RegionHeader,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? {
         val regionChunkInfo = readChunkInfo(localChunkPosition, regionHeader) ?: return null
         return if (regionChunkInfo.anvilChunkPlacement == AnvilChunkPlacement.EXTERNAL) {
             val externalPath = externalPath(localChunkPosition)
-            worldFileAccess.readFile(externalPath) { bufferedSource, size ->
-                readPayload(
-                    localChunkPosition,
-                    regionChunkInfo.copy(compressedByteCount = size),
-                    bufferedSource,
-                    block,
-                )
+            worldFileAccess.readFileAtKnownSize(externalPath, regionChunkInfo.compressedByteCount) { bufferedSource ->
+                block(regionChunkInfo, bufferedSource)
             }
         } else {
             val regionLocation = regionHeader.location(localChunkPosition)!!
@@ -275,7 +278,7 @@ internal class MutableRegionFile private constructor(
         compressedLength: Long,
         allocatedSectors: Int,
         regionWriterState: RegionWriterState,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) {
         val oldLocation = regionWriterState.regionHeader.location(localChunkPosition)
         val newLocation = regionWriterState.regionSectorAllocator.allocate(allocatedSectors)
@@ -311,7 +314,7 @@ internal class MutableRegionFile private constructor(
         compression: Compression,
         compressedLength: Long,
         regionWriterState: RegionWriterState,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) {
         val oldLocation = regionWriterState.regionHeader.location(localChunkPosition)
         val newLocation = regionWriterState.regionSectorAllocator.allocate(1)
@@ -416,7 +419,7 @@ internal class MutableRegionFile private constructor(
         compression: Compression,
         compressedLength: Long,
         regionWriterState: RegionWriterState,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ): StagedRegionChunk {
         val external = shouldStoreExternally(compressedLength)
         val sectorCount = if (external) {
@@ -494,12 +497,12 @@ internal class MutableRegionFile private constructor(
     private fun writePayload(
         sink: Sink,
         compressedLength: Long,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) {
         val fixedLengthSink = FixedLengthSink(sink, compressedLength)
-        val converted = fixedLengthSink.asKotlinxIoRawSink().buffered()
-        withOkioIoExceptions("Cannot write compressed Chunk payload") {
-            useResource(converted, { it.close() }, block)
+        val bufferedSink = fixedLengthSink.buffer()
+        useResource(bufferedSink, { it.close() }) {
+            block(bufferedSink)
         }
         fixedLengthSink.requireComplete()
     }
@@ -508,14 +511,13 @@ internal class MutableRegionFile private constructor(
         localChunkPosition: LocalChunkPosition,
         regionChunkInfo: RegionChunkInfo,
         bufferedSource: BufferedSource,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
-    ): R = withOkioIoExceptions("Cannot read Chunk $localChunkPosition payload") {
-        val converted = bufferedSource.asKotlinxIoRawSource().buffered()
-        val value = block(regionChunkInfo, converted)
-        if (!converted.exhausted()) {
+        block: (RegionChunkInfo, BufferedSource) -> R,
+    ): R {
+        val value = block(regionChunkInfo, bufferedSource)
+        if (!bufferedSource.exhausted()) {
             throw WorldIOException("Chunk $localChunkPosition payload was not fully consumed")
         }
-        value
+        return value
     }
 
     private fun writeHeader(regionWriterState: RegionWriterState) {
@@ -583,7 +585,7 @@ internal class MutableRegionFile private constructor(
             syncWrites: Boolean,
         ): MutableRegionFile {
             val path = regionFilePath(directory, regionPosition)
-            val fileHandle = worldFileAccess.openRegionHandle(path)
+            val fileHandle = worldFileAccess.openMutableRegionHandle(path)
             var failure: Throwable? = null
             try {
                 val regionHeader = readUsableHeader(fileHandle)

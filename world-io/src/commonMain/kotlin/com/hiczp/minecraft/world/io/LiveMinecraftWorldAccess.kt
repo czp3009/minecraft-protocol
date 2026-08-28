@@ -2,16 +2,17 @@ package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
-import com.hiczp.minecraft.world.format.CompressedNbtFormat
-import com.hiczp.minecraft.world.format.LevelDat
-import com.hiczp.minecraft.world.format.RegionPosition
+import com.hiczp.minecraft.world.format.*
 import com.hiczp.minecraft.world.format.datapack.DataPackFormat
+import com.hiczp.minecraft.world.format.datapack.DataPackId
+import com.hiczp.minecraft.world.format.datapack.WorldDataPackLoadResult
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.serializer
+import okio.BufferedSource
 import okio.FileSystem
 import okio.Path
-import kotlinx.io.Source as KotlinxSource
 
 /** Read formats shared by every operation and logical Region opened through one live access. */
 data class LiveMinecraftWorldAccessConfiguration(
@@ -25,216 +26,248 @@ data class LiveMinecraftWorldAccessConfiguration(
 }
 
 /**
- * Non-locking read access to a world that may be modified concurrently.
+ * Synchronous non-locking read access to a world that another process may be changing.
  *
- * This class takes neither `session.lock` nor per-file operating-system or in-process exclusion.
- * Reads may observe stale or torn state and propagate the resulting I/O, format, or decompression
- * failure. The world access never repairs or mutates files and has no close lifecycle. Region
- * handles returned from [openRegion] and [openEntityRegion] independently own resources and must
- * be closed by their callers.
- *
- * Public operations may be called concurrently. This class does not create a thread pool or select
- * a dispatcher; blocking filesystem I/O, NBT work, and compression run synchronously on the
- * calling thread and are not automatically main-safe.
+ * This facade has no `session.lock`, close lifecycle, logical coordinator, or Region registry.
+ * Every returned live Region handle independently owns its physical resource.
  */
 class LiveMinecraftWorldAccess private constructor(
     val minecraftWorldPaths: MinecraftWorldPaths,
-    val liveMinecraftWorldAccessConfiguration: LiveMinecraftWorldAccessConfiguration,
+    val configuration: LiveMinecraftWorldAccessConfiguration,
     private val worldFileAccess: WorldFileAccess,
 ) {
-    private val nbtFileStore = NbtFileStore(worldFileAccess, liveMinecraftWorldAccessConfiguration.standaloneNbtFormat)
+    private val rawFileStore = RawFileStore(worldFileAccess)
+    private val nbtFileStore = NbtFileStore(rawFileStore, configuration.standaloneNbtFormat)
+    private val utf8JsonFileStore = Utf8JsonFileStore(rawFileStore)
     private val levelDataStore = LevelDataStore(minecraftWorldPaths, nbtFileStore)
     private val playerDataStore = PlayerDataStore(minecraftWorldPaths, nbtFileStore)
-    private val utf8JsonFileStore = Utf8JsonFileStore(worldFileAccess)
+    private val playerStatisticsStore = PlayerStatisticsStore(minecraftWorldPaths, utf8JsonFileStore)
+    private val playerAdvancementsStore = PlayerAdvancementsStore(minecraftWorldPaths, utf8JsonFileStore)
     private val worldDataPackReader = WorldDataPackReader(
         worldFileAccess.fileSystem,
         minecraftWorldPaths.dataPacksDirectory,
-        liveMinecraftWorldAccessConfiguration.dataPackFormat,
+        configuration.dataPackFormat,
     )
 
-    fun readEnabledDataPacks(enabledDataPackReferences: List<String>): WorldDataPackLoadResult =
-        worldDataPackReader.readEnabledDataPacks(enabledDataPackReferences)
+    val directFiles: LiveMinecraftWorldDirectFiles =
+        LiveMinecraftWorldDirectFiles(rawFileStore, nbtFileStore, utf8JsonFileStore)
 
-    fun inspectEnabledFileDataPacks(enabledDataPackReferences: List<String>): List<DataPackInspection> =
-        worldDataPackReader.inspectEnabledFileDataPacks(enabledDataPackReferences)
+    fun readEnabledDataPacks(enabledDataPackIds: List<DataPackId>): WorldDataPackLoadResult =
+        worldDataPackReader.readEnabledDataPacks(enabledDataPackIds)
+
+    fun inspectEnabledFileDataPacks(enabledDataPackIds: List<DataPackId>): List<DataPackInspection> =
+        worldDataPackReader.inspectEnabledFileDataPacks(enabledDataPackIds)
 
     fun readEnabledDataPacks(): WorldDataPackLoadResult =
-        worldDataPackReader.readEnabledDataPacks(readLevelData<LevelDat>())
+        worldDataPackReader.readEnabledDataPacks(readLevelData())
 
     fun inspectEnabledFileDataPacks(): List<DataPackInspection> =
-        worldDataPackReader.inspectEnabledFileDataPacks(readLevelData<LevelDat>())
+        worldDataPackReader.inspectEnabledFileDataPacks(readLevelData())
 
     fun readLevelDataDocument(): NbtDocument = levelDataStore.readDocument()
 
     fun <T> readLevelData(deserializationStrategy: DeserializationStrategy<T>): T =
         levelDataStore.read(deserializationStrategy)
 
-    inline fun <reified T> readLevelData(): T =
-        readLevelData(liveMinecraftWorldAccessConfiguration.standaloneNbtFormat.serializersModule.serializer())
+    fun readLevelData(): LevelDat = readLevelData(LevelDat.serializer())
 
-    fun <T> readLevelData(block: (KotlinxSource) -> T): T = levelDataStore.read(block)
+    inline fun <reified T> readLevelDataAs(): T =
+        readLevelData(configuration.standaloneNbtFormat.serializersModule.serializer())
 
-    fun readPlayerDataDocument(playerUuid: String): NbtDocument? =
-        playerDataStore.readDocument(playerUuid)
+    fun <T> readLevelData(block: (BufferedSource) -> T): T = levelDataStore.read(block)
+
+    fun readPlayerDataDocument(playerUuid: String): NbtDocument? = playerDataStore.readDocument(playerUuid)
 
     fun <T> readPlayerData(
         playerUuid: String,
         deserializationStrategy: DeserializationStrategy<T>,
     ): T? = playerDataStore.read(playerUuid, deserializationStrategy)
 
-    inline fun <reified T> readPlayerData(playerUuid: String): T? =
-        readPlayerData(playerUuid, liveMinecraftWorldAccessConfiguration.standaloneNbtFormat.serializersModule.serializer())
+    fun readPlayerData(playerUuid: String): PlayerData? = readPlayerData(playerUuid, PlayerData.serializer())
 
-    fun <T> readPlayerData(playerUuid: String, block: (KotlinxSource) -> T): T? =
+    inline fun <reified T> readPlayerDataAs(playerUuid: String): T? = readPlayerData(
+        playerUuid,
+        configuration.standaloneNbtFormat.serializersModule.serializer(),
+    )
+
+    fun <T> readPlayerData(playerUuid: String, block: (BufferedSource) -> T): T? =
         playerDataStore.read(playerUuid, block)
 
-    fun readSavedDataDocument(
-        identifier: String,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): NbtDocument? = SavedDataFileStore(minecraftWorldPaths, dimensionDirectory, nbtFileStore).readDocument(identifier)
+    fun readSavedDataDocument(identifier: String, savedDataScope: SavedDataScope): NbtDocument? =
+        SavedDataStore(minecraftWorldPaths, savedDataScope, nbtFileStore).readDocument(identifier)
 
     fun <T> readSavedData(
         identifier: String,
         deserializationStrategy: DeserializationStrategy<T>,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): T? = SavedDataFileStore(minecraftWorldPaths, dimensionDirectory, nbtFileStore).read(identifier, deserializationStrategy)
+        savedDataScope: SavedDataScope,
+    ): T? = SavedDataStore(minecraftWorldPaths, savedDataScope, nbtFileStore)
+        .read(identifier, deserializationStrategy)
 
-    inline fun <reified T> readSavedData(
-        identifier: String,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): T? = readSavedData(
+    inline fun <reified T> readSavedData(identifier: String, savedDataScope: SavedDataScope): T? = readSavedData(
         identifier,
-        liveMinecraftWorldAccessConfiguration.standaloneNbtFormat.serializersModule.serializer(),
-        dimensionDirectory,
+        configuration.standaloneNbtFormat.serializersModule.serializer(),
+        savedDataScope,
     )
 
     fun <T> readSavedData(
         identifier: String,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-        block: (KotlinxSource) -> T,
-    ): T? = SavedDataFileStore(minecraftWorldPaths, dimensionDirectory, nbtFileStore).read(identifier, block)
+        savedDataScope: SavedDataScope,
+        block: (BufferedSource) -> T,
+    ): T? = SavedDataStore(minecraftWorldPaths, savedDataScope, nbtFileStore).read(identifier, block)
 
-    fun readStatisticsText(playerUuid: String): String = utf8JsonFileStore.readText(minecraftWorldPaths.statistics(playerUuid))
+    fun readWorldBorderData(
+        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
+    ): SavedDataFile<WorldBorderData>? = readSavedData(
+        WORLD_BORDER_IDENTIFIER,
+        SavedDataFile.serializer(WorldBorderData.serializer()),
+        SavedDataScope.Dimension(dimensionDirectory),
+    )
+
+    fun readChunkTicketsData(
+        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
+    ): SavedDataFile<ChunkTicketsData>? = readSavedData(
+        CHUNK_TICKETS_IDENTIFIER,
+        SavedDataFile.serializer(ChunkTicketsData.serializer()),
+        SavedDataScope.Dimension(dimensionDirectory),
+    )
+
+    fun readRaidsData(
+        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
+    ): SavedDataFile<RaidsData>? = readSavedData(
+        RAIDS_IDENTIFIER,
+        SavedDataFile.serializer(RaidsData.serializer()),
+        SavedDataScope.Dimension(dimensionDirectory),
+    )
+
+    fun readEnderDragonFightData(
+        dimensionDirectory: DimensionDirectory = DimensionDirectory.End,
+    ): SavedDataFile<EnderDragonFightData>? = readSavedData(
+        ENDER_DRAGON_FIGHT_IDENTIFIER,
+        SavedDataFile.serializer(EnderDragonFightData.serializer()),
+        SavedDataScope.Dimension(dimensionDirectory),
+    )
+
+    fun readStatisticsText(playerUuid: String): String = playerStatisticsStore.readText(playerUuid)
+
+    fun readStatisticsJson(playerUuid: String, json: Json = Json): JsonElement =
+        playerStatisticsStore.readJson(playerUuid, json)
 
     fun <T> readStatistics(
         playerUuid: String,
         deserializationStrategy: DeserializationStrategy<T>,
         json: Json = Json,
-    ): T = utf8JsonFileStore.readJson(minecraftWorldPaths.statistics(playerUuid), deserializationStrategy, json)
+    ): T = playerStatisticsStore.read(playerUuid, deserializationStrategy, json)
 
-    inline fun <reified T> readStatistics(
-        playerUuid: String,
-        json: Json = Json,
-    ): T = readStatistics(playerUuid, json.serializersModule.serializer(), json)
+    inline fun <reified T> readStatistics(playerUuid: String, json: Json = Json): T =
+        readStatistics(playerUuid, json.serializersModule.serializer(), json)
 
-    fun <T> readStatistics(playerUuid: String, block: (KotlinxSource) -> T): T =
-        utf8JsonFileStore.read(minecraftWorldPaths.statistics(playerUuid), block)
+    fun <T> readStatistics(playerUuid: String, block: (BufferedSource) -> T): T =
+        playerStatisticsStore.read(playerUuid, block)
 
-    fun readAdvancementsText(playerUuid: String): String = utf8JsonFileStore.readText(minecraftWorldPaths.advancement(playerUuid))
+    fun readAdvancementsText(playerUuid: String): String = playerAdvancementsStore.readText(playerUuid)
+
+    fun readAdvancementsJson(playerUuid: String, json: Json = Json): JsonElement =
+        playerAdvancementsStore.readJson(playerUuid, json)
 
     fun <T> readAdvancements(
         playerUuid: String,
         deserializationStrategy: DeserializationStrategy<T>,
         json: Json = Json,
-    ): T = utf8JsonFileStore.readJson(minecraftWorldPaths.advancement(playerUuid), deserializationStrategy, json)
+    ): T = playerAdvancementsStore.read(playerUuid, deserializationStrategy, json)
 
-    inline fun <reified T> readAdvancements(
-        playerUuid: String,
-        json: Json = Json,
-    ): T = readAdvancements(playerUuid, json.serializersModule.serializer(), json)
+    inline fun <reified T> readAdvancements(playerUuid: String, json: Json = Json): T =
+        readAdvancements(playerUuid, json.serializersModule.serializer(), json)
 
-    fun <T> readAdvancements(playerUuid: String, block: (KotlinxSource) -> T): T =
-        utf8JsonFileStore.read(minecraftWorldPaths.advancement(playerUuid), block)
+    fun <T> readAdvancements(playerUuid: String, block: (BufferedSource) -> T): T =
+        playerAdvancementsStore.read(playerUuid, block)
 
-    /**
-     * Lists a detached snapshot of every canonical Chunk Region filename in one dimension.
-     *
-     * This performs one full filesystem directory listing and materializes every result. It is
-     * O(n), may be slow, and may exhaust memory for an extremely large world. Concurrent file
-     * changes are not observed transactionally.
-     */
     fun listRegionPositions(
         dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): List<RegionPosition> = snapshotRegionPositions(
-        worldFileAccess.fileSystem,
-        minecraftWorldPaths.regionDirectory(RegionStorageDirectory.CHUNKS, dimensionDirectory),
-    )
+    ): List<RegionPosition> = listRegionPositions(RegionStorageDirectory.CHUNKS, dimensionDirectory)
 
     fun hasRegion(
         regionPosition: RegionPosition,
         dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
     ): Boolean = openRegion(regionPosition, dimensionDirectory).use(LiveRegionHandle::hasRegion)
 
-    /**
-     * Opens a caller-owned live Region resource without taking a lock or joining a shared cache.
-     *
-     * If the Region is missing at this point, the returned resource owns no file and its reads
-     * return false, null, or an empty list. Close the handle after its final read.
-     */
     fun openRegion(
         regionPosition: RegionPosition,
         dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): LiveRegionHandle = LiveRegionHandle(
-        fileSystem = worldFileAccess.fileSystem,
-        directory = minecraftWorldPaths.regionDirectory(RegionStorageDirectory.CHUNKS, dimensionDirectory),
-        regionPosition = regionPosition,
-        chunkNbtFormat = liveMinecraftWorldAccessConfiguration.chunkNbtFormat,
-    )
+    ): LiveRegionHandle = openRegion(RegionStorageDirectory.CHUNKS, dimensionDirectory, regionPosition)
 
-    /**
-     * Lists a detached snapshot of every canonical Entity Region filename in one dimension.
-     *
-     * This performs one full filesystem directory listing and materializes every result. It is O(n), may be slow, and
-     * may exhaust memory for an extremely large world. Concurrent file changes are not observed transactionally.
-     */
     fun listEntityRegionPositions(
         dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): List<RegionPosition> = snapshotRegionPositions(
-        worldFileAccess.fileSystem,
-        minecraftWorldPaths.regionDirectory(RegionStorageDirectory.ENTITIES, dimensionDirectory),
-    )
+    ): List<RegionPosition> = listRegionPositions(RegionStorageDirectory.ENTITIES, dimensionDirectory)
 
     fun hasEntityRegion(
         regionPosition: RegionPosition,
         dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
     ): Boolean = openEntityRegion(regionPosition, dimensionDirectory).use(LiveEntityRegionHandle::hasRegion)
 
-    /** Opens a caller-owned live Entity Region resource with the same lifecycle as [openRegion]. */
     fun openEntityRegion(
         regionPosition: RegionPosition,
         dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
     ): LiveEntityRegionHandle = LiveEntityRegionHandle(
-        LiveRegionHandle(
-            fileSystem = worldFileAccess.fileSystem,
-            directory = minecraftWorldPaths.regionDirectory(RegionStorageDirectory.ENTITIES, dimensionDirectory),
-            regionPosition = regionPosition,
-            chunkNbtFormat = liveMinecraftWorldAccessConfiguration.chunkNbtFormat,
+        openRegion(RegionStorageDirectory.ENTITIES, dimensionDirectory, regionPosition),
+    )
+
+    fun listPoiRegionPositions(
+        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
+    ): List<RegionPosition> = listRegionPositions(RegionStorageDirectory.POINTS_OF_INTEREST, dimensionDirectory)
+
+    fun hasPoiRegion(
+        regionPosition: RegionPosition,
+        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
+    ): Boolean = openPoiRegion(regionPosition, dimensionDirectory).use(LivePoiRegionHandle::hasRegion)
+
+    fun openPoiRegion(
+        regionPosition: RegionPosition,
+        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
+    ): LivePoiRegionHandle = LivePoiRegionHandle(
+        openRegion(RegionStorageDirectory.POINTS_OF_INTEREST, dimensionDirectory, regionPosition),
+    )
+
+    private fun listRegionPositions(
+        regionStorageDirectory: RegionStorageDirectory,
+        dimensionDirectory: DimensionDirectory,
+    ): List<RegionPosition> = snapshotRegionPositions(
+        worldFileAccess.fileSystem,
+        minecraftWorldPaths.regionDirectory(regionStorageDirectory, dimensionDirectory),
+    )
+
+    private fun openRegion(
+        regionStorageDirectory: RegionStorageDirectory,
+        dimensionDirectory: DimensionDirectory,
+        regionPosition: RegionPosition,
+    ): LiveRegionHandle = LiveRegionHandle(
+        RegionFileStore(
+            directory = minecraftWorldPaths.regionDirectory(regionStorageDirectory, dimensionDirectory),
+            worldFileAccess = worldFileAccess,
+            chunkNbtFormat = configuration.chunkNbtFormat,
         ),
+        regionPosition,
     )
 
     companion object {
-        fun open(root: Path): LiveMinecraftWorldAccess =
-            open(root, LiveMinecraftWorldAccessConfiguration())
+        fun open(root: Path): LiveMinecraftWorldAccess = open(root, LiveMinecraftWorldAccessConfiguration())
 
         fun open(
             root: Path,
-            liveMinecraftWorldAccessConfiguration: LiveMinecraftWorldAccessConfiguration,
-        ): LiveMinecraftWorldAccess = open(root, systemFileSystem, liveMinecraftWorldAccessConfiguration)
+            configuration: LiveMinecraftWorldAccessConfiguration,
+        ): LiveMinecraftWorldAccess = open(root, systemFileSystem, configuration)
 
         internal fun open(
             root: Path,
             fileSystem: FileSystem,
-            liveMinecraftWorldAccessConfiguration: LiveMinecraftWorldAccessConfiguration = LiveMinecraftWorldAccessConfiguration(),
+            configuration: LiveMinecraftWorldAccessConfiguration = LiveMinecraftWorldAccessConfiguration(),
         ): LiveMinecraftWorldAccess {
             val fileMetadata = fileSystem.metadataOrNull(root)
                 ?: throw WorldIOException("World directory does not exist: $root")
-            if (!fileMetadata.isDirectory) {
-                throw WorldIOException("World path is not a directory: $root")
-            }
+            if (!fileMetadata.isDirectory) throw WorldIOException("World path is not a directory: $root")
             return LiveMinecraftWorldAccess(
-                minecraftWorldPaths = MinecraftWorldPaths(root),
-                liveMinecraftWorldAccessConfiguration = liveMinecraftWorldAccessConfiguration,
-                worldFileAccess = WorldFileAccess.liveReadOnly(fileSystem),
+                MinecraftWorldPaths(root),
+                configuration,
+                WorldFileAccess.liveReadOnly(fileSystem),
             )
         }
     }

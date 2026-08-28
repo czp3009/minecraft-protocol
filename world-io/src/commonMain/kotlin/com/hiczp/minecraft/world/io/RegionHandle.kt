@@ -10,8 +10,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.serializer
-import kotlinx.io.Sink as KotlinxSink
-import kotlinx.io.Source as KotlinxSource
+import okio.BufferedSink
+import okio.BufferedSource
 
 /**
  * Caller-owned coordinated access to one Region.
@@ -22,9 +22,9 @@ import kotlinx.io.Source as KotlinxSource
  * and codec work stays on each calling coroutine's dispatcher.
  */
 class RegionHandle internal constructor(
-    private val owner: RegionStorage,
+    private val owner: CoordinatedRegionStore,
     internal val entry: RegionState,
-    private val afterRelease: suspend () -> Throwable? = { null },
+    private val afterRelease: suspend (Throwable?) -> Throwable? = { failure -> failure },
 ) {
     val regionPosition: RegionPosition
         get() = entry.regionPosition
@@ -81,25 +81,25 @@ class RegionHandle internal constructor(
 
     suspend fun <R> withCompressedChunkSource(
         localChunkPosition: LocalChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withOperation {
         owner.withCompressedChunkSource(entry, localChunkPosition, block)
     }
 
     suspend fun <R> withCompressedChunkSource(
         chunkPosition: ChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withCompressedChunkSource(local(chunkPosition), block)
 
-    /** Copies one complete compressed Chunk payload without retaining it in memory or closing [kotlinxSink]. */
-    suspend fun readCompressedChunkTo(localChunkPosition: LocalChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
+    /** Copies one complete compressed Chunk payload without retaining it in memory or closing [sink]. */
+    suspend fun readCompressedChunkTo(localChunkPosition: LocalChunkPosition, sink: BufferedSink): RegionChunkInfo? =
         withCompressedChunkSource(localChunkPosition) { regionChunkInfo, source ->
-            source.transferTo(kotlinxSink)
+            source.readAll(sink)
             regionChunkInfo
         }
 
-    suspend fun readCompressedChunkTo(chunkPosition: ChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
-        readCompressedChunkTo(local(chunkPosition), kotlinxSink)
+    suspend fun readCompressedChunkTo(chunkPosition: ChunkPosition, sink: BufferedSink): RegionChunkInfo? =
+        readCompressedChunkTo(local(chunkPosition), sink)
 
     suspend fun readCompressedChunk(localChunkPosition: LocalChunkPosition): CompressedChunk? = withOperation {
         owner.readCompressedChunk(entry, localChunkPosition)
@@ -109,22 +109,22 @@ class RegionHandle internal constructor(
 
     suspend fun writeCompressedChunk(
         localChunkPosition: LocalChunkPosition,
-        compressedChunkInput: CompressedChunkInput,
+        compressedChunk: CompressedChunk,
     ) = withOperation {
-        owner.writeCompressedChunk(entry, localChunkPosition, compressedChunkInput)
+        owner.writeCompressedChunk(entry, localChunkPosition, compressedChunk)
     }
 
     suspend fun writeCompressedChunk(
         chunkPosition: ChunkPosition,
-        compressedChunkInput: CompressedChunkInput,
-    ) = writeCompressedChunk(local(chunkPosition), compressedChunkInput)
+        compressedChunk: CompressedChunk,
+    ) = writeCompressedChunk(local(chunkPosition), compressedChunk)
 
     /** Streams one already-compressed Chunk whose exact length is known before allocation. */
     suspend fun writeCompressedChunk(
         localChunkPosition: LocalChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) = withOperation {
         owner.writeCompressedChunk(entry, localChunkPosition, compression, compressedByteCount, block)
     }
@@ -133,8 +133,20 @@ class RegionHandle internal constructor(
         chunkPosition: ChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) = writeCompressedChunk(local(chunkPosition), compression, compressedByteCount, block)
+
+    internal suspend fun writePreparedChunk(
+        localChunkPosition: LocalChunkPosition,
+        prepare: () -> CompressedChunk?,
+    ) = withOperation {
+        val compressedChunk = prepare()
+        if (compressedChunk == null) {
+            owner.removeChunk(entry, localChunkPosition)
+        } else {
+            owner.writeCompressedChunk(entry, localChunkPosition, compressedChunk)
+        }
+    }
 
     suspend fun removeChunk(localChunkPosition: LocalChunkPosition): Boolean = withOperation {
         owner.removeChunk(entry, localChunkPosition)
@@ -144,25 +156,25 @@ class RegionHandle internal constructor(
 
     suspend fun <R> withChunkNbtSource(
         localChunkPosition: LocalChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withOperation {
         owner.withChunkNbtSource(entry, localChunkPosition, block)
     }
 
     suspend fun <R> withChunkNbtSource(
         chunkPosition: ChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withChunkNbtSource(local(chunkPosition), block)
 
-    /** Copies one complete decompressed unnamed-root Chunk NBT stream without closing [kotlinxSink]. */
-    suspend fun readChunkNbtTo(localChunkPosition: LocalChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
+    /** Copies one complete decompressed unnamed-root Chunk NBT stream without closing [sink]. */
+    suspend fun readChunkNbtTo(localChunkPosition: LocalChunkPosition, sink: BufferedSink): RegionChunkInfo? =
         withChunkNbtSource(localChunkPosition) { regionChunkInfo, source ->
-            source.transferTo(kotlinxSink)
+            source.readAll(sink)
             regionChunkInfo
         }
 
-    suspend fun readChunkNbtTo(chunkPosition: ChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
-        readChunkNbtTo(local(chunkPosition), kotlinxSink)
+    suspend fun readChunkNbtTo(chunkPosition: ChunkPosition, sink: BufferedSink): RegionChunkInfo? =
+        readChunkNbtTo(local(chunkPosition), sink)
 
     suspend fun readChunkNbtDocument(localChunkPosition: LocalChunkPosition): NbtDocument? = withOperation {
         owner.readChunkNbtDocument(entry, localChunkPosition)
@@ -241,7 +253,7 @@ class RegionHandle internal constructor(
     suspend fun writeChunkNbt(
         localChunkPosition: LocalChunkPosition,
         compression: Compression = regionStorageConfiguration.writeCompression,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) = withOperation {
         owner.writeChunkNbt(entry, localChunkPosition, compression, block)
     }
@@ -249,7 +261,7 @@ class RegionHandle internal constructor(
     suspend fun writeChunkNbt(
         chunkPosition: ChunkPosition,
         compression: Compression = regionStorageConfiguration.writeCompression,
-        block: (KotlinxSink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) = writeChunkNbt(local(chunkPosition), compression, block)
 
     suspend fun <T> writeChunkNbt(
@@ -301,10 +313,6 @@ class RegionHandle internal constructor(
 
     suspend fun clear() = withOperation {
         owner.clear(entry)
-    }
-
-    suspend fun replaceRegion(chunks: Collection<RegionChunkInput>) = withOperation {
-        owner.replaceRegion(entry, chunks)
     }
 
     /**
@@ -362,13 +370,10 @@ class RegionHandle internal constructor(
             } catch (caught: Throwable) {
                 caught
             }
-            val ownerFailure = try {
-                afterRelease()
+            result = try {
+                afterRelease(result)
             } catch (caught: Throwable) {
-                caught
-            }
-            if (ownerFailure != null) {
-                result = combineFailures(result, ownerFailure)
+                combineFailures(result, caught)
             }
             state.withLock {
                 closeFailure = result

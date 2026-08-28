@@ -243,7 +243,7 @@ class RegionStorageTest {
                 it.close()
             }
             val nthFlushFailingFileSystem = NthFlushFailingFileSystem(base, failureCall)
-            val updating = RegionStorage(
+            val updating = CoordinatedRegionStore(
                 directory = directory,
                 fileSystem = nthFlushFailingFileSystem,
                 regionStorageConfiguration = RegionStorageConfiguration(
@@ -277,7 +277,7 @@ class RegionStorageTest {
             it.writeCompressedChunk(clearChunkPosition, chunk(externalPayload(13)))
             it.close()
         }
-        val clearing = RegionStorage(
+        val clearing = CoordinatedRegionStore(
             directory = directory,
             fileSystem = NthFlushFailingFileSystem(base, failureCall = 1),
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = true),
@@ -579,7 +579,7 @@ class RegionStorageTest {
     fun storesDoNotRetainIdleRegionHandlesAndCloseRejectsNewOperations() = runTest {
         val fakeFileSystem = FakeFileSystem()
         val directory = "/world/region".toPath()
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = directory,
             fileSystem = fakeFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
@@ -601,7 +601,7 @@ class RegionStorageTest {
     private fun store(
         fileSystem: FileSystem,
         directory: Path,
-    ): RegionStorage = RegionStorage(
+    ): CoordinatedRegionStore = CoordinatedRegionStore(
         directory = directory,
         fileSystem = fileSystem,
         regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),

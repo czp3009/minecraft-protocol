@@ -2,12 +2,9 @@ package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.LevelDat
 import com.hiczp.minecraft.world.format.datapack.*
-import kotlinx.io.buffered
-import kotlinx.io.okio.asKotlinxIoRawSource
-import kotlinx.io.readByteArray
+import okio.BufferedSource
 import okio.FileSystem
 import okio.Path
-import kotlinx.io.Source as KotlinxSource
 
 enum class DataPackContainerKind {
     DIRECTORY,
@@ -45,22 +42,6 @@ class DataPackInspection(
 
     fun dataPackFileInfo(dataPackFilePath: DataPackFilePath): DataPackFileInfo? =
         dataPackFileInfos.singleOrNull { it.dataPackFilePath == dataPackFilePath }
-}
-
-/** Result of resolving the `DataPacks.Enabled` list against a world's `datapacks` directory. */
-class WorldDataPackLoadResult(
-    enabledDataPackReferences: List<String>,
-    unresolvedDataPackReferences: List<String>,
-    val dataPackStack: DataPackStack,
-) {
-    val enabledDataPackReferences: List<String> = enabledDataPackReferences.toList()
-    val unresolvedDataPackReferences: List<String> = unresolvedDataPackReferences.toList()
-
-    init {
-        require(this.unresolvedDataPackReferences.all(this.enabledDataPackReferences::contains)) {
-            "Every unresolved data-pack reference must come from the enabled selection"
-        }
-    }
 }
 
 /**
@@ -133,33 +114,47 @@ class WorldDataPackReader(
     }
 
     fun inspectEnabledFileDataPacks(
-        enabledDataPackReferences: List<String>,
-    ): List<DataPackInspection> = enabledDataPackReferences.mapNotNull { dataPackReference ->
-        val dataPackFileName = dataPackFileNameOrNull(dataPackReference) ?: return@mapNotNull null
-        inspectDataPack(dataPacksDirectory / dataPackFileName, DataPackId(dataPackReference))
+        enabledDataPackIds: List<DataPackId>,
+    ): List<DataPackInspection> = enabledDataPackIds.mapNotNull { dataPackId ->
+        val dataPackFileName = dataPackFileNameOrNull(dataPackId) ?: return@mapNotNull null
+        inspectDataPack(dataPacksDirectory / dataPackFileName, dataPackId)
     }
 
     fun inspectEnabledFileDataPacks(levelDat: LevelDat): List<DataPackInspection> =
-        inspectEnabledFileDataPacks(levelDat.data.dataPackSelection.enabledDataPackReferences)
+        inspectEnabledFileDataPacks(
+            levelDat.data.dataPackSelection.enabledDataPackReferences.map(::DataPackId),
+        )
 
-    fun readEnabledDataPacks(levelDat: LevelDat): WorldDataPackLoadResult =
-        readEnabledDataPacks(levelDat.data.dataPackSelection.enabledDataPackReferences)
+    fun readEnabledDataPacks(levelDat: LevelDat): WorldDataPackLoadResult {
+        val levelData = levelDat.data
+        return readEnabledDataPacks(
+            enabledDataPackIds = levelData.dataPackSelection.enabledDataPackReferences.map(::DataPackId),
+            disabledDataPackIds = levelData.dataPackSelection.disabledDataPackReferences.map(::DataPackId),
+            enabledFeatureFlags = levelData.enabledFeatures.toSet(),
+            removedFeatureFlags = levelData.removedFeatures.toSet(),
+        )
+    }
 
-    fun readEnabledDataPacks(enabledDataPackReferences: List<String>): WorldDataPackLoadResult {
+    fun readEnabledDataPacks(enabledDataPackIds: List<DataPackId>): WorldDataPackLoadResult =
+        readEnabledDataPacks(enabledDataPackIds, emptyList(), emptySet(), emptySet())
+
+    private fun readEnabledDataPacks(
+        enabledDataPackIds: List<DataPackId>,
+        disabledDataPackIds: List<DataPackId>,
+        enabledFeatureFlags: Set<String>,
+        removedFeatureFlags: Set<String>,
+    ): WorldDataPackLoadResult {
         val dataPacks = mutableListOf<DataPack>()
-        val unresolvedDataPackReferences = mutableListOf<String>()
-        enabledDataPackReferences.forEach { dataPackReference ->
-            val dataPackFileName = dataPackFileNameOrNull(dataPackReference)
-            if (dataPackFileName == null) {
-                unresolvedDataPackReferences += dataPackReference
-            } else {
-                dataPacks += readDataPack(dataPacksDirectory / dataPackFileName, DataPackId(dataPackReference))
-            }
+        enabledDataPackIds.forEach { dataPackId ->
+            val dataPackFileName = dataPackFileNameOrNull(dataPackId) ?: return@forEach
+            dataPacks += readDataPack(dataPacksDirectory / dataPackFileName, dataPackId)
         }
         return WorldDataPackLoadResult(
-            enabledDataPackReferences = enabledDataPackReferences,
-            unresolvedDataPackReferences = unresolvedDataPackReferences,
-            dataPackStack = DataPackStack(dataPacks),
+            enabledDataPackIds = enabledDataPackIds,
+            disabledDataPackIds = disabledDataPackIds,
+            enabledFeatureFlags = enabledFeatureFlags,
+            removedFeatureFlags = removedFeatureFlags,
+            loadedDataPacks = dataPacks,
         )
     }
 
@@ -192,7 +187,7 @@ class WorldDataPackReader(
     fun <T> readDataPackFile(
         dataPackInspection: DataPackInspection,
         dataPackFilePath: DataPackFilePath,
-        block: (KotlinxSource) -> T,
+        block: (BufferedSource) -> T,
     ): T {
         requireNotNull(dataPackInspection.dataPackFileInfo(dataPackFilePath)) {
             "$dataPackFilePath was not present in the inspected data pack ${dataPackInspection.dataPackId}"
@@ -200,16 +195,7 @@ class WorldDataPackReader(
         return when (dataPackInspection.dataPackContainerKind) {
             DataPackContainerKind.DIRECTORY -> {
                 val absoluteDataPackFilePath = dataPackFilePath.resolveBelow(dataPackInspection.dataPackContainerPath)
-                fileSystem.readFile(absoluteDataPackFilePath) { bufferedSource, _ ->
-                    withOkioIoExceptions("Cannot read data-pack file $absoluteDataPackFilePath") {
-                        val dataPackFileSource = bufferedSource.asKotlinxIoRawSource().buffered()
-                        val result = block(dataPackFileSource)
-                        if (!dataPackFileSource.exhausted()) {
-                            throw WorldIOException("Data-pack file $absoluteDataPackFilePath was not fully consumed")
-                        }
-                        result
-                    }
-                }
+                fileSystem.readFile(absoluteDataPackFilePath) { bufferedSource, _ -> block(bufferedSource) }
             }
 
             DataPackContainerKind.ZIP -> openDataPackZipReader(
@@ -307,14 +293,14 @@ class WorldDataPackReader(
     private fun DataPackFilePath.resolveBelow(root: Path): Path =
         segments.fold(root) { parent, segment -> parent / segment }
 
-    private fun dataPackFileNameOrNull(dataPackReference: String): String? {
-        if (!dataPackReference.startsWith(FILE_REFERENCE_PREFIX)) return null
-        val dataPackFileName = dataPackReference.removePrefix(FILE_REFERENCE_PREFIX)
+    private fun dataPackFileNameOrNull(dataPackId: DataPackId): String? {
+        if (!dataPackId.value.startsWith(FILE_REFERENCE_PREFIX)) return null
+        val dataPackFileName = dataPackId.value.removePrefix(FILE_REFERENCE_PREFIX)
         if (
             dataPackFileName.isEmpty() || '/' in dataPackFileName || '\\' in dataPackFileName ||
             dataPackFileName == "." || dataPackFileName == ".."
         ) {
-            throw WorldIOException("Invalid world data-pack reference: $dataPackReference")
+            throw WorldIOException("Invalid world data-pack ID: $dataPackId")
         }
         return dataPackFileName
     }

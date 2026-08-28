@@ -6,8 +6,8 @@ import com.hiczp.minecraft.world.io.internal.admzip.AdmZipEntry
 import com.hiczp.minecraft.world.io.internal.admzip.createAdmZip
 import com.hiczp.minecraft.world.io.internal.admzip.toExactByteArray
 import com.hiczp.minecraft.world.io.internal.admzip.toExactUint8Array
-import kotlinx.io.Buffer
-import kotlinx.io.Source
+import okio.Buffer
+import okio.BufferedSource
 import okio.FileSystem
 import okio.Path
 import kotlin.coroutines.cancellation.CancellationException
@@ -61,7 +61,7 @@ private class AdmZipDataPackZipReader(
 
     override fun <T> readDataPackFile(
         dataPackFilePath: DataPackFilePath,
-        block: (Source) -> T,
+        block: (BufferedSource) -> T,
     ): T {
         val admZipEntry = effectiveDataPackZipEntries().singleOrNull { it.first == dataPackFilePath }?.second
             ?: throw WorldIOException("Data-pack ZIP $dataPackZipPath is missing $dataPackFilePath")

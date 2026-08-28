@@ -3,6 +3,7 @@ package com.hiczp.minecraft.protocol.datapack.vanilla
 import com.hiczp.minecraft.protocol.datapack.DataPackProtocolProjector
 import com.hiczp.minecraft.protocol.datapack.DataPackRegistryProjector
 import com.hiczp.minecraft.protocol.datapack.ResolvedProtocolData
+import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.world.format.Compression
 import com.hiczp.minecraft.world.format.CompressionRegistry
 import com.hiczp.minecraft.world.format.datapack.*
@@ -56,6 +57,9 @@ object VanillaDataPacks {
     /** Every bundled pack parsed through [DataPackFormat], including built-in experimental packs. */
     val dataPacks: Map<DataPackId, DataPack>
         get() = defaultDataPacksById.mapValues { (_, dataPack) -> dataPack.value }
+
+    /** Returns one parsed bundled pack without forcing unrelated built-in packs to be decoded. */
+    fun dataPackOrNull(dataPackId: DataPackId): DataPack? = defaultDataPacksById[dataPackId]?.value
 
     val coreDataPack: DataPack
         get() = defaultDataPack(coreDataPackId)
@@ -186,6 +190,31 @@ fun ResolvedDataPackStack.toVanillaProtocolData(
     dataPackRegistryProjectorOverrides: List<DataPackRegistryProjector> = emptyList(),
 ): ResolvedProtocolData = vanillaDataPackProtocolProjector(dataPackRegistryProjectorOverrides).project(this)
 
+/** Completes a world's persisted selection from its file packs and the release-matched bundled packs. */
+fun WorldDataPackLoadResult.toVanillaDataPackStack(): DataPackStack {
+    val selectedDataPackStack = toDataPackStack(VanillaDataPacks::dataPackOrNull)
+    if (VanillaDataPacks.coreDataPackId in enabledDataPackIds) return selectedDataPackStack
+    return DataPackStack(listOf(VanillaDataPacks.coreDataPack) + selectedDataPackStack.dataPacks)
+}
+
+/**
+ * Resolves a world's core, built-in, and file packs and projects their Configuration-visible values.
+ *
+ * Persisted enabled feature flags augment the release defaults. Feature flags requested by selected pack metadata are
+ * then added by [DataPackProtocolProjector]. Removed historical feature IDs remain diagnostic world data and are not
+ * advertised as active features.
+ */
+fun WorldDataPackLoadResult.toVanillaProtocolData(
+    dataPackRegistryProjectorOverrides: List<DataPackRegistryProjector> = emptyList(),
+    dataPackFormatVersion: DataPackFormatVersion? = VanillaDataPacks.dataPackFormatVersion,
+): ResolvedProtocolData {
+    val worldEnabledFeatureFlags = enabledFeatureFlags.mapTo(linkedSetOf()) { featureFlag -> Identifier(featureFlag) }
+    return vanillaDataPackProtocolProjector(
+        dataPackRegistryProjectorOverrides = dataPackRegistryProjectorOverrides,
+        enabledFeatureFlags = VanillaProtocolData.enabledFeatureFlags + worldEnabledFeatureFlags,
+    ).project(toVanillaDataPackStack(), dataPackFormatVersion)
+}
+
 /**
  * Creates the bridge from parsed vanilla-based resources to Configuration protocol data.
  *
@@ -194,10 +223,12 @@ fun ResolvedDataPackStack.toVanillaProtocolData(
  */
 fun vanillaDataPackProtocolProjector(
     dataPackRegistryProjectorOverrides: List<DataPackRegistryProjector> = emptyList(),
+    enabledFeatureFlags: Set<Identifier> = VanillaProtocolData.enabledFeatureFlags,
 ): DataPackProtocolProjector = DataPackProtocolProjector(
     baseProtocolData = VanillaProtocolData,
     dataPackRegistryProjectors = vanillaDataPackRegistryProjectors.withOverrides(dataPackRegistryProjectorOverrides),
     preprojectedDataPackIds = setOf(VanillaDataPacks.coreDataPackId),
+    enabledFeatureFlags = enabledFeatureFlags,
 )
 
 private fun List<DataPackRegistryProjector>.withOverrides(

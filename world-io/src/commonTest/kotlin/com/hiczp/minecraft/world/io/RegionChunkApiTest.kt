@@ -3,9 +3,8 @@ package com.hiczp.minecraft.world.io
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.Buffer
 import kotlinx.io.Sink
-import kotlinx.io.readByteArray
+import okio.Buffer
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.*
@@ -14,7 +13,7 @@ class RegionChunkApiTest {
     @Test
     fun strongChunkDocumentAndStorageMetadataUseTheirOwningLayers() = runTest {
         val fakeFileSystem = FakeFileSystem()
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = "/world/region".toPath(),
             fileSystem = fakeFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
@@ -35,7 +34,7 @@ class RegionChunkApiTest {
                     regionHandle.writeChunk(emptyChunk(ChunkPosition(32, 32)), TEST_CODEC, Compression.NONE)
                 }
                 regionHandle.writeChunkNbt(streamedPosition, Compression.GZIP) { sink ->
-                    regionStorage.chunkNbtFormat.nbtFormat.encodeDocumentToSink(
+                    regionStorage.chunkNbtFormat.nbtFormat.encodeDocumentToOkio(
                         TEST_CODEC.encodeDocument(emptyChunk(streamedPosition)),
                         sink,
                     )
@@ -77,7 +76,7 @@ class RegionChunkApiTest {
 
             regionStorage.withChunkNbtSource(firstPosition) { sourceInfo, source ->
                 assertEquals(regionChunkInfo, sourceInfo)
-                val sourceChunk = TEST_CODEC.decodeFromSource(source, firstPosition)
+                val sourceChunk = TEST_CODEC.decodeFromOkio(source, firstPosition)
                 assertEquals(STONE, sourceChunk.block(15, TEST_LAYOUT.minBlockY, 0))
             }
 
@@ -108,7 +107,7 @@ class RegionChunkApiTest {
 
                 val nbtSink = Buffer()
                 assertEquals(regionChunkInfo, regionHandle.readChunkNbtTo(firstPosition, nbtSink))
-                assertEquals(nbtDocument, TEST_CODEC.nbtFormat.decodeDocumentFromSource(nbtSink))
+                assertEquals(nbtDocument, TEST_CODEC.nbtFormat.decodeDocumentFromOkio(nbtSink))
 
                 var escapedRegionReadScope: RegionReadScope? = null
                 regionHandle.withReadScope {
@@ -124,7 +123,7 @@ class RegionChunkApiTest {
 
                     val scopedNbtSink = Buffer()
                     assertEquals(regionChunkInfo, readChunkNbtTo(firstPosition.localChunkPosition, scopedNbtSink))
-                    assertEquals(nbtDocument, TEST_CODEC.nbtFormat.decodeDocumentFromSource(scopedNbtSink))
+                    assertEquals(nbtDocument, TEST_CODEC.nbtFormat.decodeDocumentFromOkio(scopedNbtSink))
                 }
                 assertFailsWith<IllegalStateException> {
                     checkNotNull(escapedRegionReadScope).readChunk(firstPosition, TEST_CODEC)
@@ -159,7 +158,7 @@ class RegionChunkApiTest {
     @Test
     fun compressedInputAndRegionReplacementStreamThroughWriteTo() = runTest {
         val fakeFileSystem = FakeFileSystem()
-        val regionStorage = RegionStorage(
+        val regionStorage = CoordinatedRegionStore(
             directory = "/world/region".toPath(),
             fileSystem = fakeFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
@@ -215,7 +214,6 @@ class RegionChunkApiTest {
                     blockStates = DescriptorBlockStateRegistry(AIR),
                     biomes = NamedBiomeRegistry(),
                 ),
-                expectedDataVersion = TEST_DATA_VERSION,
             ),
         )
 

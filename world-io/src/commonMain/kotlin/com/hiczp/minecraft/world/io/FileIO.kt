@@ -2,7 +2,6 @@ package com.hiczp.minecraft.world.io
 
 import okio.*
 import kotlin.random.Random
-import kotlinx.io.IOException as KotlinxIOException
 
 private const val TEMPORARY_RANDOM_RADIX = 36
 private const val TEMPORARY_RANDOM_WIDTH = 13
@@ -14,48 +13,57 @@ internal fun FileSystem.readFileBytes(path: Path): ByteArray =
         bufferedSource.readByteArray(size)
     }
 
-internal fun WorldFileAccess.readFileBytes(path: Path): ByteArray =
-    readFile(path) { bufferedSource, size ->
-        bufferedSource.readByteArray(size)
-    }
-
 internal fun <T> FileSystem.readFile(
     path: Path,
     block: (BufferedSource, Long) -> T,
-): T = readFile(
-    path = path,
-    openSource = { source(path) },
-    block = block,
-)
+): T {
+    val byteCount = regularFileByteCount(path)
+    return readFileAtKnownSize(path, byteCount, { source(path) }) { bufferedSource ->
+        block(bufferedSource, byteCount)
+    }
+}
 
 internal fun <T> WorldFileAccess.readFile(
     path: Path,
     block: (BufferedSource, Long) -> T,
-): T = fileSystem.readFile(
-    path = path,
-    openSource = { openSource(path) },
-    block = block,
-)
-
-private fun <T> FileSystem.readFile(
-    path: Path,
-    openSource: () -> Source,
-    block: (BufferedSource, Long) -> T,
 ): T {
+    val byteCount = fileSystem.regularFileByteCount(path)
+    return readFileAtKnownSize(path, byteCount) { bufferedSource ->
+        block(bufferedSource, byteCount)
+    }
+}
+
+/** Borrows one exact file stream after its size has already been observed by the owning format layer. */
+internal fun <T> WorldFileAccess.readFileAtKnownSize(
+    path: Path,
+    byteCount: Long,
+    block: (BufferedSource) -> T,
+): T = fileSystem.readFileAtKnownSize(path, byteCount, { openSource(path) }, block)
+
+private fun FileSystem.regularFileByteCount(path: Path): Long {
     val fileMetadata = metadataOrNull(path)
         ?: throw WorldIOException("File does not exist: $path")
     if (!fileMetadata.isRegularFile) {
         throw WorldIOException("Path is not a regular file: $path")
     }
-    val size = fileMetadata.size
+    val byteCount = fileMetadata.size
         ?: throw WorldIOException("Regular file has no size: $path")
-    if (size < 0L) throw WorldIOException("File has a negative size: $path")
+    if (byteCount < 0L) throw WorldIOException("File has a negative size: $path")
+    return byteCount
+}
 
+private fun <T> FileSystem.readFileAtKnownSize(
+    path: Path,
+    byteCount: Long,
+    openSource: () -> Source,
+    block: (BufferedSource) -> T,
+): T {
+    if (byteCount < 0L) throw WorldIOException("File has a negative size: $path")
     val limitedSource = openSource()
-        .limit(size, throwIfSourceIsLonger = true)
+        .limit(byteCount, throwIfSourceIsLonger = true)
         .buffer()
     return useResource(limitedSource, { it.close() }) { bufferedSource ->
-        val value = block(bufferedSource, size)
+        val value = block(bufferedSource)
         if (!bufferedSource.exhausted()) {
             throw WorldIOException("File $path was not fully consumed")
         }
@@ -250,32 +258,6 @@ internal fun FileSystem.deleteIfExistsPreserving(
         val primary = combineFailures(failure, cleanupFailure)
         if (primary !== failure) throw primary
     }
-}
-
-/*
- * kotlinx-io-okio translates failures raised while crossing an adapter. A
- * world-format operation can still originate a kotlinx-io failure after that
- * crossing, so public world-io entrypoints normalize exactly that I/O type to
- * Okio. Semantic format/NBT errors and coroutine cancellation are untouched.
- */
-internal inline fun <T> withOkioIoExceptions(
-    message: String,
-    block: () -> T,
-): T = try {
-    block()
-} catch (failure: IOException) {
-    // The two libraries use the same java.io.IOException on JVM. Avoid
-    // wrapping an exception that already satisfies world-io's Okio contract.
-    throw failure
-} catch (failure: KotlinxIOException) {
-    // They are distinct classes on JS and Native. This branch covers only a
-    // downstream kotlinx-io failure that did not cross back through an
-    // official adapter. If an Okio failure crossed into kotlinx-io earlier,
-    // restore the adapter's preserved cause instead of erasing a more precise
-    // public subtype such as WorldIOException.
-    val okioCause = failure.cause as? IOException
-    if (okioCause != null) throw okioCause
-    throw IOException(message, failure)
 }
 
 /** A filesystem-policy failure reported through Okio's I/O hierarchy. */

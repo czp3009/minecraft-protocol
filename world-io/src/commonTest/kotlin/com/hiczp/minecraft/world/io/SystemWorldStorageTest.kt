@@ -72,7 +72,7 @@ class SystemWorldStorageTest {
 
             val directory = root / "region"
             val chunkPosition = ChunkPosition(0, 0)
-            val regionStorage = RegionStorage(
+            val regionStorage = CoordinatedRegionStore(
                 directory = directory,
                 fileSystem = fileSystem,
                 regionStorageConfiguration = RegionStorageConfiguration(
@@ -113,7 +113,7 @@ class SystemWorldStorageTest {
         val first = systemExternalPayload(1)
         val second = systemExternalPayload(2)
         try {
-            val regionStorage = RegionStorage(directory, fileSystem)
+            val regionStorage = CoordinatedRegionStore(directory, fileSystem)
             try {
                 regionStorage.writeCompressedChunk(chunkPosition, zlibChunk(first))
                 assertContentEquals(
@@ -134,7 +134,7 @@ class SystemWorldStorageTest {
                 regionStorage.close()
             }
 
-            val reopened = RegionStorage(directory, fileSystem)
+            val reopened = CoordinatedRegionStore(directory, fileSystem)
             try {
                 assertContentEquals(
                     second,
@@ -189,7 +189,7 @@ class SystemWorldStorageTest {
             DimensionDirectory.Nether,
         )
         try {
-            val initialStore = RegionStorage(MinecraftWorldPaths(root))
+            val initialStore = CoordinatedRegionStore(MinecraftWorldPaths(root))
             try {
                 initialStore.writeChunkNbtDocument(
                     preservedPosition,
@@ -202,7 +202,7 @@ class SystemWorldStorageTest {
             assertFalse(MinecraftWorldAccess.isLocked(root))
             val minecraftWorldAccess = MinecraftWorldAccess.open(
                 root = root,
-                minecraftWorldAccessConfiguration = MinecraftWorldAccessConfiguration(
+                configuration = MinecraftWorldAccessConfiguration(
                     regionStorageConfiguration =
                         RegionStorageConfiguration(
                             writeCompression = Compression.LZ4,
@@ -212,7 +212,11 @@ class SystemWorldStorageTest {
             minecraftWorldAccess.use { minecraftWorldAccess ->
                 minecraftWorldAccess.writeLevelDataDocument(nbtDocument)
                 minecraftWorldAccess.writePlayerDataDocument(player, nbtDocument)
-                minecraftWorldAccess.writeSavedDataDocument("example:state/value", nbtDocument)
+                minecraftWorldAccess.writeSavedDataDocument(
+                    "example:state/value",
+                    nbtDocument,
+                    SavedDataScope.Dimension(DimensionDirectory.Overworld),
+                )
                 minecraftWorldAccess.writeStatisticsText(player, "{}")
                 minecraftWorldAccess.writeAdvancementsText(player, "{\"done\":true}")
                 dimensions.forEachIndexed { dimensionIndex, dimensionDirectory ->
@@ -242,7 +246,10 @@ class SystemWorldStorageTest {
                 assertEquals(nbtDocument, minecraftWorldAccess.readPlayerDataDocument(player))
                 assertEquals(
                     nbtDocument,
-                    minecraftWorldAccess.readSavedDataDocument("example:state/value"),
+                    minecraftWorldAccess.readSavedDataDocument(
+                        "example:state/value",
+                        SavedDataScope.Dimension(DimensionDirectory.Overworld),
+                    ),
                 )
                 assertEquals("{}", minecraftWorldAccess.readStatisticsText(player))
                 assertEquals(
@@ -303,7 +310,7 @@ class SystemWorldStorageTest {
 
             MinecraftWorldAccess.open(root).use { minecraftWorldAccess ->
                 assertEquals(levelDat, minecraftWorldAccess.readLevelData(LevelDat.serializer()))
-                assertEquals(levelDat, minecraftWorldAccess.readLevelData<LevelDat>())
+                assertEquals(levelDat, minecraftWorldAccess.readLevelData())
                 assertEquals(playerStatistics, minecraftWorldAccess.readStatistics<PlayerStatistics>(player))
                 assertEquals(
                     playerAdvancements,

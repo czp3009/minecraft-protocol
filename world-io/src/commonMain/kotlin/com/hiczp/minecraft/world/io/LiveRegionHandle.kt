@@ -2,13 +2,9 @@ package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.world.format.*
-import kotlinx.io.buffered
-import kotlinx.io.okio.asKotlinxIoRawSource
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.serializer
 import okio.*
-import kotlinx.io.Sink as KotlinxSink
-import kotlinx.io.Source as KotlinxSource
 
 /**
  * Caller-owned, non-locking read access to one live Region.
@@ -24,13 +20,27 @@ import kotlinx.io.Source as KotlinxSource
  * but [close] must be called only after their callbacks and concurrent calls have returned. Use
  * [use] or call [close] explicitly to release the handle.
  */
-class LiveRegionHandle internal constructor(
-    fileSystem: FileSystem,
-    directory: Path,
+class LiveRegionHandle private constructor(
     val regionPosition: RegionPosition,
     val chunkNbtFormat: CompressedNbtFormat,
+    private val liveRegionFile: ReadOnlyRegionFile,
 ) {
-    private val liveRegionFile = LiveRegionFile.open(fileSystem, directory, regionPosition)
+    internal constructor(
+        fileSystem: FileSystem,
+        directory: Path,
+        regionPosition: RegionPosition,
+        chunkNbtFormat: CompressedNbtFormat,
+    ) : this(
+        regionPosition,
+        chunkNbtFormat,
+        ReadOnlyRegionFile.open(WorldFileAccess.liveReadOnly(fileSystem), directory, regionPosition),
+    )
+
+    internal constructor(regionFileStore: RegionFileStore, regionPosition: RegionPosition) : this(
+        regionPosition,
+        regionFileStore.chunkNbtFormat,
+        regionFileStore.openReadOnly(regionPosition),
+    )
 
     fun hasRegion(): Boolean = liveRegionFile.hasRegion()
 
@@ -60,55 +70,55 @@ class LiveRegionHandle internal constructor(
 
     fun <R> withCompressedChunkSource(
         localChunkPosition: LocalChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = liveRegionFile.withCompressedChunkSource(localChunkPosition, block)
 
     fun <R> withCompressedChunkSource(
         chunkPosition: ChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withCompressedChunkSource(local(chunkPosition), block)
 
-    /** Copies one complete compressed Chunk payload without retaining it in memory or closing [kotlinxSink]. */
-    fun readCompressedChunkTo(localChunkPosition: LocalChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
+    /** Copies one complete compressed Chunk payload without retaining it in memory or closing [sink]. */
+    fun readCompressedChunkTo(localChunkPosition: LocalChunkPosition, sink: BufferedSink): RegionChunkInfo? =
         withCompressedChunkSource(localChunkPosition) { regionChunkInfo, source ->
-            source.transferTo(kotlinxSink)
+            source.readAll(sink)
             regionChunkInfo
         }
 
-    fun readCompressedChunkTo(chunkPosition: ChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
-        readCompressedChunkTo(local(chunkPosition), kotlinxSink)
+    fun readCompressedChunkTo(chunkPosition: ChunkPosition, sink: BufferedSink): RegionChunkInfo? =
+        readCompressedChunkTo(local(chunkPosition), sink)
 
     fun readCompressedChunk(localChunkPosition: LocalChunkPosition): CompressedChunk? =
         withCompressedChunkSource(localChunkPosition) { regionChunkInfo, source ->
-            CompressedChunk.readFromSource(source, regionChunkInfo.compression)
+            source.readCompressedChunkFromOkio(regionChunkInfo.compression)
         }
 
     fun readCompressedChunk(chunkPosition: ChunkPosition): CompressedChunk? = readCompressedChunk(local(chunkPosition))
 
     fun <R> withChunkNbtSource(
         localChunkPosition: LocalChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withCompressedChunkSource(localChunkPosition) { regionChunkInfo, source ->
         withDecompressedChunkSource(chunkNbtFormat, regionChunkInfo, source, block)
     }
 
     fun <R> withChunkNbtSource(
         chunkPosition: ChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withChunkNbtSource(local(chunkPosition), block)
 
-    /** Copies one complete decompressed unnamed-root Chunk NBT stream without closing [kotlinxSink]. */
-    fun readChunkNbtTo(localChunkPosition: LocalChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
+    /** Copies one complete decompressed unnamed-root Chunk NBT stream without closing [sink]. */
+    fun readChunkNbtTo(localChunkPosition: LocalChunkPosition, sink: BufferedSink): RegionChunkInfo? =
         withChunkNbtSource(localChunkPosition) { regionChunkInfo, source ->
-            source.transferTo(kotlinxSink)
+            source.readAll(sink)
             regionChunkInfo
         }
 
-    fun readChunkNbtTo(chunkPosition: ChunkPosition, kotlinxSink: KotlinxSink): RegionChunkInfo? =
-        readChunkNbtTo(local(chunkPosition), kotlinxSink)
+    fun readChunkNbtTo(chunkPosition: ChunkPosition, sink: BufferedSink): RegionChunkInfo? =
+        readChunkNbtTo(local(chunkPosition), sink)
 
     fun readChunkNbtDocument(localChunkPosition: LocalChunkPosition): NbtDocument? =
-        withChunkNbtSource(localChunkPosition) { _, source -> chunkNbtFormat.nbtFormat.decodeDocumentFromSource(source) }
+        withChunkNbtSource(localChunkPosition) { _, source -> chunkNbtFormat.nbtFormat.decodeDocumentFromOkio(source) }
 
     fun readChunkNbtDocument(chunkPosition: ChunkPosition): NbtDocument? = readChunkNbtDocument(local(chunkPosition))
 
@@ -116,7 +126,7 @@ class LiveRegionHandle internal constructor(
         localChunkPosition: LocalChunkPosition,
         deserializationStrategy: DeserializationStrategy<T>,
     ): T? = withChunkNbtSource(localChunkPosition) { _, source ->
-        chunkNbtFormat.nbtFormat.decodeFromSource(deserializationStrategy, source)
+        chunkNbtFormat.nbtFormat.decodeFromOkio(deserializationStrategy, source)
     }
 
     fun <T> readChunkNbt(
@@ -134,7 +144,7 @@ class LiveRegionHandle internal constructor(
         localChunkPosition: LocalChunkPosition,
         chunkNbtCodec: ChunkNbtCodec<B, M>,
     ): Chunk<B, M>? = withChunkNbtSource(localChunkPosition) { _, source ->
-        chunkNbtCodec.decodeFromSource(source, regionPosition.chunk(localChunkPosition))
+        chunkNbtCodec.decodeFromOkio(source, regionPosition.chunk(localChunkPosition))
     }
 
     fun <B : Any, M : Any> readChunk(
@@ -170,13 +180,16 @@ class LiveRegionHandle internal constructor(
 }
 
 /** One independently owned live `.mca` handle; no registry or reference count shares it. */
-private class LiveRegionFile private constructor(
-    private val fileSystem: FileSystem,
+internal class ReadOnlyRegionFile private constructor(
+    private val worldFileAccess: WorldFileAccess,
     private val directory: Path,
     override val regionPosition: RegionPosition,
     override val path: Path,
     private val fileHandle: FileHandle?,
 ) : RegionReadAccess {
+    private val fileSystem: FileSystem
+        get() = worldFileAccess.fileSystem
+
     private var closed = false
 
     fun hasRegion(): Boolean {
@@ -231,7 +244,7 @@ private class LiveRegionFile private constructor(
 
     fun <R> withCompressedChunkSource(
         localChunkPosition: LocalChunkPosition,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? {
         checkOpen()
         val regionHeader = headerForRead() ?: return null
@@ -241,7 +254,7 @@ private class LiveRegionFile private constructor(
     override fun <R> withCompressedChunkSource(
         localChunkPosition: LocalChunkPosition,
         regionHeader: RegionHeader,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? {
         checkOpen()
         val fileHandle = fileHandle ?: return null
@@ -273,40 +286,24 @@ private class LiveRegionFile private constructor(
 
     private fun <R> withExternalChunkSource(
         regionChunkInfo: RegionChunkInfo,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R {
         val path = externalChunkPath(directory, regionPosition, regionChunkInfo.localChunkPosition)
-        val fileMetadata = fileSystem.metadataOrNull(path)
-            ?: throw WorldIOException("External Chunk file does not exist: $path")
-        if (!fileMetadata.isRegularFile) {
-            throw WorldIOException("Path is not a regular file: $path")
-        }
-        val byteCount = fileMetadata.size
-            ?: throw WorldIOException("External Chunk file has no size: $path")
-        if (byteCount < 0L) {
-            throw WorldIOException("External Chunk file has a negative size: $path")
-        }
-
-        val fileHandle = fileSystem.openLiveReadOnly(path)
-        return useResource(fileHandle, { it.close() }) {
-            val bufferedSource = fileHandle.source().limit(byteCount, throwIfSourceIsLonger = true).buffer()
-            useResource(bufferedSource, { it.close() }) {
-                readPayload(regionChunkInfo.copy(compressedByteCount = byteCount), bufferedSource, block)
-            }
+        return worldFileAccess.readFileAtKnownSize(path, regionChunkInfo.compressedByteCount) { bufferedSource ->
+            block(regionChunkInfo, bufferedSource)
         }
     }
 
     private fun <R> readPayload(
         regionChunkInfo: RegionChunkInfo,
         bufferedSource: BufferedSource,
-        block: (RegionChunkInfo, KotlinxSource) -> R,
-    ): R = withOkioIoExceptions("Cannot read Chunk ${regionChunkInfo.localChunkPosition} payload") {
-        val converted = bufferedSource.asKotlinxIoRawSource().buffered()
-        val value = block(regionChunkInfo, converted)
-        if (!converted.exhausted()) {
+        block: (RegionChunkInfo, BufferedSource) -> R,
+    ): R {
+        val value = block(regionChunkInfo, bufferedSource)
+        if (!bufferedSource.exhausted()) {
             throw WorldIOException("Chunk ${regionChunkInfo.localChunkPosition} payload was not fully consumed")
         }
-        value
+        return value
     }
 
     private fun headerForRead(): RegionHeader? = fileHandle?.let(::readUsableHeader)
@@ -317,21 +314,22 @@ private class LiveRegionFile private constructor(
 
     companion object {
         fun open(
-            fileSystem: FileSystem,
+            worldFileAccess: WorldFileAccess,
             directory: Path,
             regionPosition: RegionPosition,
-        ): LiveRegionFile {
+        ): ReadOnlyRegionFile {
+            val fileSystem = worldFileAccess.fileSystem
             val path = regionFilePath(directory, regionPosition)
             val fileMetadata = fileSystem.metadataOrNull(path)
             if (fileMetadata != null && !fileMetadata.isRegularFile) {
                 throw WorldIOException("Path is not a regular file: $path")
             }
-            return LiveRegionFile(
-                fileSystem = fileSystem,
+            return ReadOnlyRegionFile(
+                worldFileAccess = worldFileAccess,
                 directory = directory,
                 regionPosition = regionPosition,
                 path = path,
-                fileHandle = if (fileMetadata == null) null else fileSystem.openLiveReadOnly(path),
+                fileHandle = if (fileMetadata == null) null else worldFileAccess.openReadOnlyRegionHandle(path),
             )
         }
     }

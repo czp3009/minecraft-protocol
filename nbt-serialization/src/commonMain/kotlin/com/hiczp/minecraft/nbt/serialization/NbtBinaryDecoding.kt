@@ -133,7 +133,7 @@ internal class NbtBinaryDecoder(
                 if (size > 0) {
                     validateType(elementType)
                     if (elementType == TAG_END) {
-                        throw NbtDecodingException(
+                        throw NbtBinaryFormatException(
                             "Non-empty NBT list has TAG_End element type at $path",
                         )
                     }

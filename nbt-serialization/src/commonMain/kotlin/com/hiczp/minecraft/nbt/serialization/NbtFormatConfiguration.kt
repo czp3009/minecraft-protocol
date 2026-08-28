@@ -47,7 +47,13 @@ class NbtEncodingException(
 ) : NbtSerializationException(message, cause)
 
 /** Malformed or unsupported NBT input. */
-class NbtDecodingException(
+open class NbtDecodingException(
     message: String,
     cause: Throwable? = null,
 ) : NbtSerializationException(message, cause)
+
+/** Intrinsically malformed binary NBT, independent of the selected Kotlin serializer. */
+class NbtBinaryFormatException(
+    message: String,
+    cause: Throwable? = null,
+) : NbtDecodingException(message, cause)

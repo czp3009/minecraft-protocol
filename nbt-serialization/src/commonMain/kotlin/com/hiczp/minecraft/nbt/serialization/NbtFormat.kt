@@ -105,7 +105,10 @@ sealed class NbtFormat(
     fun <T> decodeFromSource(
         deserializationStrategy: DeserializationStrategy<T>,
         source: Source,
-    ): T = decodeOperation("${deserializationStrategy.descriptor.serialName} binary value") {
+    ): T = decodeOperation(
+        "${deserializationStrategy.descriptor.serialName} binary value",
+        binaryInput = true,
+    ) {
         val nbtBinaryReader = NbtBinaryReader(source)
         val type = nbtBinaryReader.readUnsignedByte()
         when (nbtFormatConfiguration.nbtRootEncoding) {
@@ -119,7 +122,7 @@ sealed class NbtFormat(
 
             NbtRootEncoding.NAMED -> {
                 if (type == TAG_END) {
-                    throw NbtDecodingException(
+                    throw NbtBinaryFormatException(
                         "A named NBT root cannot be TAG_End",
                     )
                 }
@@ -148,7 +151,7 @@ sealed class NbtFormat(
 
     /** Reads one no-name any-tag value without closing [source]. */
     fun decodeAnyTagFromSource(source: Source): NbtTag =
-        decodeOperation("any NBT tag") {
+        decodeOperation("any NBT tag", binaryInput = true) {
             NbtBinaryReader(source).readAnyTag()
         }
 
@@ -160,7 +163,7 @@ sealed class NbtFormat(
 
     /** Reads one named tag without closing [source]. */
     fun decodeNamedTagFromSource(source: Source): NamedNbtTag =
-        decodeOperation("named NBT tag") {
+        decodeOperation("named NBT tag", binaryInput = true) {
             NbtBinaryReader(source).readNamedTag()
         }
 
@@ -172,7 +175,7 @@ sealed class NbtFormat(
 
     /** Reads one unnamed tag without closing [source]. */
     fun decodeUnnamedTagFromSource(source: Source): NbtTag =
-        decodeOperation("unnamed NBT tag") {
+        decodeOperation("unnamed NBT tag", binaryInput = true) {
             NbtBinaryReader(source).readUnnamedTag()
         }
 
@@ -187,7 +190,7 @@ sealed class NbtFormat(
     /** Reads one compound document without closing [source]. */
     fun decodeDocumentFromSource(source: Source): NbtDocument {
         val root = decodeUnnamedTagFromSource(source) as? NbtCompound
-            ?: throw NbtDecodingException(
+            ?: throw NbtBinaryFormatException(
                 "NBT document root must be TAG_Compound",
             )
         return NbtDocument(root)
@@ -231,7 +234,7 @@ sealed class NbtFormat(
         buffer.write(bytes)
         val value = block(buffer)
         if (!buffer.exhausted()) {
-            throw NbtDecodingException(
+            throw NbtBinaryFormatException(
                 "NBT input has ${buffer.size} trailing byte(s)",
             )
         }
@@ -266,12 +269,19 @@ private inline fun <T> encodeOperation(kind: String, block: () -> T): T =
         throw NbtEncodingException("Cannot encode $kind: ${illegalArgumentException.message}", illegalArgumentException)
     }
 
-private inline fun <T> decodeOperation(kind: String, block: () -> T): T =
+private inline fun <T> decodeOperation(
+    kind: String,
+    binaryInput: Boolean = false,
+    block: () -> T,
+): T =
     try {
         block()
     } catch (nbtSerializationException: NbtSerializationException) {
         throw nbtSerializationException
     } catch (eofException: EOFException) {
+        if (binaryInput) {
+            throw NbtBinaryFormatException("Unexpected end of $kind", eofException)
+        }
         throw NbtDecodingException("Unexpected end of $kind", eofException)
     } catch (serializationException: SerializationException) {
         throw NbtDecodingException("Cannot decode $kind: ${serializationException.message}", serializationException)

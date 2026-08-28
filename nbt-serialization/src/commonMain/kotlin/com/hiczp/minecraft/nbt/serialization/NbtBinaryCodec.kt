@@ -14,7 +14,7 @@ internal class NbtBinaryReader(
     fun readNamedTag(): NamedNbtTag {
         val type = readUnsignedByte()
         if (type == TAG_END) {
-            throw NbtDecodingException("A named NBT value cannot be TAG_End")
+            throw NbtBinaryFormatException("A named NBT value cannot be TAG_End")
         }
         validateType(type)
         return NamedNbtTag(
@@ -46,7 +46,7 @@ internal class NbtBinaryReader(
             TAG_COMPOUND -> readCompound()
             TAG_INT_ARRAY -> readIntArray()
             TAG_LONG_ARRAY -> readLongArray()
-            else -> throw NbtDecodingException("Unknown NBT tag type: $type")
+            else -> throw NbtBinaryFormatException("Unknown NBT tag type: $type")
         }
     }
 
@@ -70,7 +70,7 @@ internal class NbtBinaryReader(
         }
         validateType(elementType)
         if (elementType == TAG_END) {
-            throw NbtDecodingException(
+            throw NbtBinaryFormatException(
                 "Non-empty NBT list has TAG_End element type",
             )
         }
@@ -220,7 +220,7 @@ internal class NbtBinaryReader(
                 if (length > 0) {
                     validateType(elementType)
                     if (elementType == TAG_END) {
-                        throw NbtDecodingException(
+                        throw NbtBinaryFormatException(
                             "Non-empty NBT list has TAG_End element type",
                         )
                     }
@@ -254,7 +254,7 @@ internal class NbtBinaryReader(
                 repeat(length) { readLong() }
             }
 
-            else -> throw NbtDecodingException("Unknown NBT tag type: $type")
+            else -> throw NbtBinaryFormatException("Unknown NBT tag type: $type")
         }
     }
 
@@ -388,10 +388,10 @@ internal class NbtBinaryWriter(
 
 internal fun checkedLength(length: Int, kind: String): Int {
     if (length < 0) {
-        throw NbtDecodingException("$kind has negative length $length")
+        throw NbtBinaryFormatException("$kind has negative length $length")
     }
     return length
 }
 
 private fun malformedModifiedUtf(index: Int): Nothing =
-    throw NbtDecodingException("Malformed modified UTF-8 at byte $index")
+    throw NbtBinaryFormatException("Malformed modified UTF-8 at byte $index")

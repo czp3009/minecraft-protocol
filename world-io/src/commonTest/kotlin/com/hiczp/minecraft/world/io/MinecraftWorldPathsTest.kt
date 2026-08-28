@@ -35,15 +35,18 @@ class MinecraftWorldPathsTest {
             "world/dimensions/example/moons/blue/data/minecraft/maps/map_1.dat",
             minecraftWorldPaths.savedData(
                 identifier = "maps/map_1",
-                dimensionDirectory = DimensionDirectory.Custom(
-                    namespace = "example",
-                    path = "moons/blue",
+                savedDataScope = SavedDataScope.Dimension(
+                    DimensionDirectory.Custom(
+                        namespace = "example",
+                        path = "moons/blue",
+                    ),
                 ),
             ).portableString(),
         )
         assertEquals(
             "world/dimensions/minecraft/overworld/data/example/state/value.dat",
-            minecraftWorldPaths.savedData("example:state/value").portableString(),
+            minecraftWorldPaths.savedData("example:state/value", SavedDataScope.Dimension(DimensionDirectory.Overworld))
+                .portableString(),
         )
         assertEquals(
             "world/dimensions/minecraft/the_end/poi/r.1.-2.mca",
@@ -58,6 +61,18 @@ class MinecraftWorldPathsTest {
             minecraftWorldPaths.regionDirectory(dimensionDirectory = DimensionDirectory.LegacyOverworld).portableString()
         )
         assertEquals("world/DIM1", minecraftWorldPaths.dimension(DimensionDirectory.LegacyEnd).portableString())
+        assertEquals(
+            minecraftWorldPaths.dimension(DimensionDirectory.Overworld),
+            minecraftWorldPaths.dimension(DimensionDirectory.Custom("minecraft", "overworld")),
+        )
+        assertEquals(
+            minecraftWorldPaths.dimension(DimensionDirectory.Nether),
+            minecraftWorldPaths.dimension(DimensionDirectory.Custom("minecraft", "the_nether")),
+        )
+        assertEquals(
+            minecraftWorldPaths.dimension(DimensionDirectory.End),
+            minecraftWorldPaths.dimension(DimensionDirectory.Custom("minecraft", "the_end")),
+        )
         assertEquals("world/players/data/player.dat", minecraftWorldPaths.playerData("player").portableString())
         assertEquals("world/players/data/player.dat_old", minecraftWorldPaths.previousPlayerData("player").portableString())
         assertEquals("world/players/advancements/player.json", minecraftWorldPaths.advancement("player").portableString())
@@ -105,25 +120,25 @@ class MinecraftWorldPathsTest {
             DimensionDirectory.Custom("example", "Upper")
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftWorldPaths("world".toPath()).savedData("../escape")
+            MinecraftWorldPaths("world".toPath()).savedData("../escape", SavedDataScope.WorldRoot)
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftWorldPaths("world".toPath()).savedData("Example:value")
+            MinecraftWorldPaths("world".toPath()).savedData("Example:value", SavedDataScope.WorldRoot)
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftWorldPaths("world".toPath()).savedData("example:value:extra")
+            MinecraftWorldPaths("world".toPath()).savedData("example:value:extra", SavedDataScope.WorldRoot)
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftWorldPaths("world".toPath()).savedData("")
+            MinecraftWorldPaths("world".toPath()).savedData("", SavedDataScope.WorldRoot)
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftWorldPaths("world".toPath()).savedData(":value")
+            MinecraftWorldPaths("world".toPath()).savedData(":value", SavedDataScope.WorldRoot)
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftWorldPaths("world".toPath()).savedData("example:")
+            MinecraftWorldPaths("world".toPath()).savedData("example:", SavedDataScope.WorldRoot)
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftWorldPaths("world".toPath()).savedData("example:a//b")
+            MinecraftWorldPaths("world".toPath()).savedData("example:a//b", SavedDataScope.WorldRoot)
         }
         assertFailsWith<IllegalArgumentException> {
             MinecraftWorldPaths("world".toPath()).playerData("../player")

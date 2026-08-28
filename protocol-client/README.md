@@ -169,12 +169,12 @@ client convenience describing the initial Play dimension; create a new layout an
 fun createChunkDecoder(
     minecraftClientConnection: MinecraftClientConnection,
     minecraftClientNegotiationResult: MinecraftClientNegotiationResult,
-    expectedDataVersion: Int,
+    dataVersion: Int,
 ): MinecraftChunkPacketDecoder = MinecraftChunkPacketDecoder(
     protocolRegistryContext = minecraftClientConnection.protocolRegistryContext,
     chunkLayout = minecraftClientNegotiationResult.chunkLayout,
     chunkMetadata = ChunkMetadata(
-        dataVersion = expectedDataVersion,
+        dataVersion = dataVersion,
         status = ChunkMetadata.FULLY_GENERATED_STATUS,
     ),
 )

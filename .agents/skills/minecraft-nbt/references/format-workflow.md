@@ -30,6 +30,10 @@ Test negative lengths, unknown tag IDs, missing end tags, truncated scalars and 
 where the API requires complete consumption, and lengths that exceed their binary representation. Do not impose a
 project policy ceiling on otherwise representable bytes, collections, arrays, or nesting.
 
+Those intrinsic binary failures use `NbtBinaryFormatException`. A valid NBT value that does not match a selected
+serializer—missing or unknown fields, tag/Kotlin type mismatch, enum mismatch, or unsupported descriptor shape—uses
+`NbtDecodingException` but not its binary-format subtype.
+
 ## Use official interoperability
 
 The standard `nbt-serialization` JVM suite passes Kotlin-produced bytes through the matching official `NbtIo` root

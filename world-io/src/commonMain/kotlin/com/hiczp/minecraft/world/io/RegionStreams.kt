@@ -2,12 +2,15 @@ package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.world.format.*
-import kotlinx.io.Sink
-import kotlinx.io.Source
 import kotlinx.io.buffered
+import kotlinx.io.okio.asKotlinxIoRawSource
+import kotlinx.io.okio.asOkioSource
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.serializer
+import okio.BufferedSink
+import okio.BufferedSource
 import okio.Path
+import okio.buffer
 
 /** A detached Anvil image paired with the Region position retained from its `.mca` path. */
 internal class PositionedAnvilRegion(
@@ -52,16 +55,6 @@ class RegionChunkInfo internal constructor(
     val chunkPosition: ChunkPosition
         get() = regionPosition.chunk(localChunkPosition)
 
-    internal fun copy(compressedByteCount: Long = this.compressedByteCount): RegionChunkInfo =
-        RegionChunkInfo(
-            regionPosition = regionPosition,
-            localChunkPosition = localChunkPosition,
-            compression = compression,
-            compressedByteCount = compressedByteCount,
-            anvilChunkPlacement = anvilChunkPlacement,
-            timestampEpochSeconds = timestampEpochSeconds,
-        )
-
     override fun equals(other: Any?): Boolean =
         other is RegionChunkInfo &&
                 regionPosition == other.regionPosition &&
@@ -94,7 +87,7 @@ internal interface RegionReadAccess {
     fun <R> withCompressedChunkSource(
         localChunkPosition: LocalChunkPosition,
         regionHeader: RegionHeader,
-        block: (RegionChunkInfo, Source) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R?
 }
 
@@ -144,11 +137,12 @@ internal class RegionReadScopeCore private constructor(
         return regionReadAccess?.readChunkInfo(localChunkPosition, regionHeader)
     }
 
-    fun readChunkInfo(chunkPosition: ChunkPosition): RegionChunkInfo? = readChunkInfo(regionPosition.local(chunkPosition))
+    fun readChunkInfo(chunkPosition: ChunkPosition): RegionChunkInfo? =
+        readChunkInfo(regionPosition.local(chunkPosition))
 
     fun <R> withCompressedChunkSource(
         localChunkPosition: LocalChunkPosition,
-        block: (RegionChunkInfo, Source) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? {
         checkValid()
         return regionReadAccess?.withCompressedChunkSource(localChunkPosition, regionHeader, block)
@@ -156,22 +150,22 @@ internal class RegionReadScopeCore private constructor(
 
     fun <R> withCompressedChunkSource(
         chunkPosition: ChunkPosition,
-        block: (RegionChunkInfo, Source) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withCompressedChunkSource(regionPosition.local(chunkPosition), block)
 
     /** Copies one complete compressed Chunk payload without retaining it in memory or closing [sink]. */
-    fun readCompressedChunkTo(localChunkPosition: LocalChunkPosition, sink: Sink): RegionChunkInfo? =
+    fun readCompressedChunkTo(localChunkPosition: LocalChunkPosition, sink: BufferedSink): RegionChunkInfo? =
         withCompressedChunkSource(localChunkPosition) { regionChunkInfo, source ->
-            source.transferTo(sink)
+            source.readAll(sink)
             regionChunkInfo
         }
 
-    fun readCompressedChunkTo(chunkPosition: ChunkPosition, sink: Sink): RegionChunkInfo? =
+    fun readCompressedChunkTo(chunkPosition: ChunkPosition, sink: BufferedSink): RegionChunkInfo? =
         readCompressedChunkTo(regionPosition.local(chunkPosition), sink)
 
     fun readCompressedChunk(localChunkPosition: LocalChunkPosition): CompressedChunk? =
         withCompressedChunkSource(localChunkPosition) { regionChunkInfo, source ->
-            CompressedChunk.readFromSource(source, regionChunkInfo.compression)
+            source.readCompressedChunkFromOkio(regionChunkInfo.compression)
         }
 
     fun readCompressedChunk(chunkPosition: ChunkPosition): CompressedChunk? =
@@ -198,7 +192,7 @@ internal class RegionReadScopeCore private constructor(
 }
 
 /**
- * Common callback-bound read view for one ordinary or Entity Anvil Region.
+ * Common callback-bound read view for one Chunk, Entity, or POI Anvil Region.
  *
  * Every sequence and Chunk stream is valid only inside the enclosing Region read callback.
  * Metadata is visited lazily in deterministic Region-local order. The owning handle defines
@@ -232,19 +226,19 @@ abstract class AnvilRegionReadScope internal constructor(
 
     fun <R> withCompressedChunkSource(
         localChunkPosition: LocalChunkPosition,
-        block: (RegionChunkInfo, Source) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = regionReadScopeCore.withCompressedChunkSource(localChunkPosition, block)
 
     fun <R> withCompressedChunkSource(
         chunkPosition: ChunkPosition,
-        block: (RegionChunkInfo, Source) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = regionReadScopeCore.withCompressedChunkSource(chunkPosition, block)
 
     /** Copies one complete compressed Chunk payload without retaining it in memory or closing [sink]. */
-    fun readCompressedChunkTo(localChunkPosition: LocalChunkPosition, sink: Sink): RegionChunkInfo? =
+    fun readCompressedChunkTo(localChunkPosition: LocalChunkPosition, sink: BufferedSink): RegionChunkInfo? =
         regionReadScopeCore.readCompressedChunkTo(localChunkPosition, sink)
 
-    fun readCompressedChunkTo(chunkPosition: ChunkPosition, sink: Sink): RegionChunkInfo? =
+    fun readCompressedChunkTo(chunkPosition: ChunkPosition, sink: BufferedSink): RegionChunkInfo? =
         regionReadScopeCore.readCompressedChunkTo(chunkPosition, sink)
 
     fun readCompressedChunk(localChunkPosition: LocalChunkPosition): CompressedChunk? =
@@ -255,28 +249,28 @@ abstract class AnvilRegionReadScope internal constructor(
 
     fun <R> withChunkNbtSource(
         localChunkPosition: LocalChunkPosition,
-        block: (RegionChunkInfo, Source) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withCompressedChunkSource(localChunkPosition) { regionChunkInfo, source ->
         withDecompressedChunkSource(chunkNbtFormat, regionChunkInfo, source, block)
     }
 
     fun <R> withChunkNbtSource(
         chunkPosition: ChunkPosition,
-        block: (RegionChunkInfo, Source) -> R,
+        block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withChunkNbtSource(regionPosition.local(chunkPosition), block)
 
     /** Copies one complete decompressed unnamed-root Chunk NBT stream without closing [sink]. */
-    fun readChunkNbtTo(localChunkPosition: LocalChunkPosition, sink: Sink): RegionChunkInfo? =
+    fun readChunkNbtTo(localChunkPosition: LocalChunkPosition, sink: BufferedSink): RegionChunkInfo? =
         withChunkNbtSource(localChunkPosition) { regionChunkInfo, source ->
-            source.transferTo(sink)
+            source.readAll(sink)
             regionChunkInfo
         }
 
-    fun readChunkNbtTo(chunkPosition: ChunkPosition, sink: Sink): RegionChunkInfo? =
+    fun readChunkNbtTo(chunkPosition: ChunkPosition, sink: BufferedSink): RegionChunkInfo? =
         readChunkNbtTo(regionPosition.local(chunkPosition), sink)
 
     fun readChunkNbtDocument(localChunkPosition: LocalChunkPosition): NbtDocument? =
-        withChunkNbtSource(localChunkPosition) { _, source -> chunkNbtFormat.nbtFormat.decodeDocumentFromSource(source) }
+        withChunkNbtSource(localChunkPosition) { _, source -> chunkNbtFormat.nbtFormat.decodeDocumentFromOkio(source) }
 
     fun readChunkNbtDocument(chunkPosition: ChunkPosition): NbtDocument? =
         readChunkNbtDocument(regionPosition.local(chunkPosition))
@@ -285,7 +279,7 @@ abstract class AnvilRegionReadScope internal constructor(
         localChunkPosition: LocalChunkPosition,
         deserializationStrategy: DeserializationStrategy<T>,
     ): T? = withChunkNbtSource(localChunkPosition) { _, source ->
-        chunkNbtFormat.nbtFormat.decodeFromSource(deserializationStrategy, source)
+        chunkNbtFormat.nbtFormat.decodeFromOkio(deserializationStrategy, source)
     }
 
     fun <T> readChunkNbt(
@@ -314,7 +308,7 @@ class RegionReadScope internal constructor(
         localChunkPosition: LocalChunkPosition,
         chunkNbtCodec: ChunkNbtCodec<B, M>,
     ): Chunk<B, M>? = withChunkNbtSource(localChunkPosition) { _, source ->
-        chunkNbtCodec.decodeFromSource(source, regionPosition.chunk(localChunkPosition))
+        chunkNbtCodec.decodeFromOkio(source, regionPosition.chunk(localChunkPosition))
     }
 
     fun <B : Any, M : Any> readChunk(
@@ -342,7 +336,7 @@ class EntityRegionReadScope internal constructor(
         localChunkPosition: LocalChunkPosition,
         entityChunkNbtCodec: EntityChunkNbtCodec<E>,
     ): EntityChunk<E>? = withChunkNbtSource(localChunkPosition) { _, source ->
-        entityChunkNbtCodec.decodeFromSource(source, regionPosition.chunk(localChunkPosition))
+        entityChunkNbtCodec.decodeFromOkio(source, regionPosition.chunk(localChunkPosition))
     }
 
     fun <E : Any> readChunk(
@@ -351,16 +345,32 @@ class EntityRegionReadScope internal constructor(
     ): EntityChunk<E>? = readChunk(regionPosition.local(chunkPosition), entityChunkNbtCodec)
 }
 
+/** Callback-bound semantic read view created by a POI Region handle. */
+class PoiRegionReadScope internal constructor(
+    regionReadScopeCore: RegionReadScopeCore,
+    chunkNbtFormat: CompressedNbtFormat,
+) : AnvilRegionReadScope(regionReadScopeCore, chunkNbtFormat) {
+    private val poiChunkNbtCodec = PoiChunkNbtCodec(chunkNbtFormat.nbtFormat)
+
+    fun readChunk(localChunkPosition: LocalChunkPosition): PoiChunk? =
+        withChunkNbtSource(localChunkPosition) { _, source ->
+            poiChunkNbtCodec.decodeFromOkio(source, regionPosition.chunk(localChunkPosition))
+        }
+
+    fun readChunk(chunkPosition: ChunkPosition): PoiChunk? = readChunk(regionPosition.local(chunkPosition))
+}
+
 internal fun <R> withDecompressedChunkSource(
     chunkNbtFormat: CompressedNbtFormat,
     regionChunkInfo: RegionChunkInfo,
-    source: Source,
-    block: (RegionChunkInfo, Source) -> R,
+    source: BufferedSource,
+    block: (RegionChunkInfo, BufferedSource) -> R,
 ): R {
-    val decompressedSource = chunkNbtFormat.compressionRegistry
-        .decompressingSource(regionChunkInfo.compression, source)
-        .buffered()
-    return decompressedSource.use {
+    val kotlinxSource = source.asKotlinxIoRawSource().buffered()
+    val decompressedSource = withOkioIoFailures {
+        chunkNbtFormat.compressionRegistry.decompressingSource(regionChunkInfo.compression, kotlinxSource)
+    }.asOkioSource().buffer()
+    return useResource(decompressedSource, { it.close() }) {
         val result = block(regionChunkInfo, decompressedSource)
         if (!decompressedSource.exhausted()) {
             throw WorldIOException("Chunk ${regionChunkInfo.chunkPosition} NBT source was not fully consumed")
@@ -381,24 +391,28 @@ class RegionReplacementScope internal constructor(
         LocalChunkPosition,
         Compression,
         Long,
-        (Sink) -> Unit,
+        (BufferedSink) -> Unit,
     ) -> Unit,
 ) {
     private var valid = true
 
-    fun writeCompressedChunk(localChunkPosition: LocalChunkPosition, compressedChunkInput: CompressedChunkInput) {
+    fun writeCompressedChunk(localChunkPosition: LocalChunkPosition, compressedChunk: CompressedChunk) {
         checkValid()
-        writeCompressedChunk(localChunkPosition, compressedChunkInput.compression, compressedChunkInput.compressedByteCount, compressedChunkInput::writeTo)
+        writeCompressedChunk(
+            localChunkPosition,
+            compressedChunk.compression,
+            compressedChunk.compressedByteCount,
+        ) { sink -> compressedChunk.writeToOkio(sink) }
     }
 
-    fun writeCompressedChunk(chunkPosition: ChunkPosition, compressedChunkInput: CompressedChunkInput) =
-        writeCompressedChunk(this.regionPosition.local(chunkPosition), compressedChunkInput)
+    fun writeCompressedChunk(chunkPosition: ChunkPosition, compressedChunk: CompressedChunk) =
+        writeCompressedChunk(this.regionPosition.local(chunkPosition), compressedChunk)
 
     fun writeCompressedChunk(
         localChunkPosition: LocalChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
-        block: (Sink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) {
         checkValid()
         streamChunk(localChunkPosition, compression, compressedByteCount, block)
@@ -408,7 +422,7 @@ class RegionReplacementScope internal constructor(
         chunkPosition: ChunkPosition,
         compression: Compression,
         compressedByteCount: Long,
-        block: (Sink) -> Unit,
+        block: (BufferedSink) -> Unit,
     ) = writeCompressedChunk(this.regionPosition.local(chunkPosition), compression, compressedByteCount, block)
 
     internal fun invalidate() {
@@ -419,30 +433,3 @@ class RegionReplacementScope internal constructor(
         check(valid) { "Region replacement scope is no longer valid: $regionPosition" }
     }
 }
-
-internal fun MutableRegionFile.hasChunk(chunkPosition: ChunkPosition): Boolean =
-    hasChunk(this.regionPosition.local(chunkPosition))
-
-internal fun MutableRegionFile.readChunkInfo(chunkPosition: ChunkPosition): RegionChunkInfo? =
-    readChunkInfo(this.regionPosition.local(chunkPosition))
-
-internal fun <R> MutableRegionFile.withCompressedChunkSource(
-    chunkPosition: ChunkPosition,
-    block: (RegionChunkInfo, Source) -> R,
-): R? = withCompressedChunkSource(this.regionPosition.local(chunkPosition), block)
-
-internal fun MutableRegionFile.readCompressedChunk(chunkPosition: ChunkPosition): CompressedChunk? =
-    readCompressedChunk(this.regionPosition.local(chunkPosition))
-
-internal fun MutableRegionFile.writeCompressedChunk(chunkPosition: ChunkPosition, compressedChunkInput: CompressedChunkInput) =
-    writeCompressedChunk(this.regionPosition.local(chunkPosition), compressedChunkInput)
-
-internal fun MutableRegionFile.writeCompressedChunk(
-    chunkPosition: ChunkPosition,
-    compression: Compression,
-    compressedByteCount: Long,
-    block: (Sink) -> Unit,
-) = writeCompressedChunk(this.regionPosition.local(chunkPosition), compression, compressedByteCount, block)
-
-internal fun MutableRegionFile.removeChunk(chunkPosition: ChunkPosition): Boolean =
-    removeChunk(this.regionPosition.local(chunkPosition))

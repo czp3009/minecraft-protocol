@@ -5,7 +5,6 @@ import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.readByteArray
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.*
@@ -64,7 +63,7 @@ class MutableRegionFileTest {
         }
 
         // The directory store reads bytes produced by the file-level store.
-        val directoryStore = RegionStorage(path.parent!!, fakeFileSystem)
+        val directoryStore = CoordinatedRegionStore(path.parent!!, fakeFileSystem)
         try {
             assertEquals(nbtDocument, directoryStore.readChunkNbtDocument(chunkPosition))
         } finally {

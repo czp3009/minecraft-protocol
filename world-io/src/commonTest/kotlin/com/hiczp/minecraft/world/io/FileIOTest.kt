@@ -1,7 +1,16 @@
 package com.hiczp.minecraft.world.io
 
+import com.hiczp.minecraft.nbt.NbtCompound
+import com.hiczp.minecraft.nbt.NbtDocument
+import com.hiczp.minecraft.world.format.Compression
+import com.hiczp.minecraft.world.format.CompressionCodec
+import com.hiczp.minecraft.world.format.CompressionRegistry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
+import kotlinx.io.RawSink
+import kotlinx.io.RawSource
+import kotlinx.io.okio.asOkioSource
+import kotlinx.serialization.json.Json
 import okio.*
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
@@ -9,13 +18,94 @@ import kotlin.test.*
 
 class FileIOTest {
     @Test
-    fun kotlinxIoBoundaryFailuresUseOkioWithoutInterceptingCancellation() {
-        val kotlinxFailure = kotlinx.io.IOException("synthetic kotlinx I/O")
+    fun terminalFormatCallsDoNotExposeKotlinxIoFailures() {
+        val base = FakeFileSystem()
+        val nbtPath = "/world/value.dat".toPath()
+        val jsonPath = "/world/value.json".toPath()
+        val nbtDocument = NbtDocument(NbtCompound(emptyMap()))
+        base.createDirectories(checkNotNull(nbtPath.parent))
+        NbtFileStore(base).writeDocument(nbtPath, nbtDocument, Compression.NONE)
+        Utf8JsonFileStore(base).writeText(jsonPath, "{}")
 
-        val exposed = assertFailsWith<IOException> {
-            withOkioIoExceptions("world-io boundary") {
-                throw kotlinxFailure
+        listOf(
+            nbtPath to {
+                NbtFileStore(TerminalReadFailingFileSystem(base, nbtPath))
+                    .readDocument(nbtPath, Compression.NONE)
+            },
+            jsonPath to {
+                Utf8JsonFileStore(TerminalReadFailingFileSystem(base, jsonPath))
+                    .readJson(jsonPath, json = Json)
+            },
+        ).forEach { (path, read) ->
+            val failure = assertFails { read() }
+            assertIs<IOException>(failure, "Unexpected public I/O failure for $path")
+        }
+
+        listOf(
+            nbtPath to {
+                NbtFileStore(TerminalWriteFailingFileSystem(base, nbtPath))
+                    .writeDocument(nbtPath, nbtDocument, Compression.NONE)
+            },
+            jsonPath to {
+                Utf8JsonFileStore(TerminalWriteFailingFileSystem(base, jsonPath))
+                    .writeJson(jsonPath, Json.parseToJsonElement("{}"), Json)
+            },
+        ).forEach { (path, write) ->
+            val failure = assertFails { write() }
+            assertIs<IOException>(failure, "Unexpected public I/O failure for $path")
+        }
+
+        base.checkNoOpenFiles()
+    }
+
+    @Test
+    fun worldIoCompressionStreamsExposeKotlinxIoFailuresAsOkioFailures() {
+        val readFailure = kotlinx.io.IOException("synthetic decompression I/O")
+        val writeFailure = kotlinx.io.IOException("synthetic compression I/O")
+        val compressionCodec = object : CompressionCodec {
+            override fun compressingSink(sink: kotlinx.io.Sink): RawSink = object : RawSink {
+                override fun write(source: kotlinx.io.Buffer, byteCount: Long) = throw writeFailure
+                override fun flush() = Unit
+                override fun close() = Unit
             }
+
+            override fun decompressingSource(source: kotlinx.io.Source): RawSource = object : RawSource {
+                override fun readAtMostTo(sink: kotlinx.io.Buffer, byteCount: Long): Long = throw readFailure
+                override fun close() = Unit
+            }
+        }
+        val fakeFileSystem = FakeFileSystem()
+        val path = "/world/value.dat".toPath()
+        fakeFileSystem.createDirectories(checkNotNull(path.parent))
+        fakeFileSystem.write(path) { writeByte(0) }
+        val nbtFileStore = NbtFileStore(
+            fileSystem = fakeFileSystem,
+            compressionCodecs = CompressionRegistry(mapOf(Compression.NONE to compressionCodec)),
+        )
+
+        val exposedReadFailure = assertFailsWith<IOException> {
+            nbtFileStore.read(path, Compression.NONE) { source -> source.readByte() }
+        }
+        val readFailureThrowable: Throwable = readFailure
+        assertTrue(exposedReadFailure === readFailureThrowable || exposedReadFailure.cause === readFailure)
+
+        val exposedWriteFailure = assertFailsWith<IOException> {
+            nbtFileStore.write(path, Compression.NONE) { sink -> sink.writeByte(1) }
+        }
+        val writeFailureThrowable: Throwable = writeFailure
+        assertTrue(exposedWriteFailure === writeFailureThrowable || exposedWriteFailure.cause === writeFailure)
+        fakeFileSystem.checkNoOpenFiles()
+    }
+
+    @Test
+    fun officialAdapterMapsKotlinxIoFailuresWithoutInterceptingCancellation() {
+        val kotlinxFailure = kotlinx.io.IOException("synthetic kotlinx I/O")
+        val failingSource = object : RawSource {
+            override fun readAtMostTo(sink: kotlinx.io.Buffer, byteCount: Long): Long = throw kotlinxFailure
+            override fun close() = Unit
+        }.asOkioSource()
+        val exposed = assertFailsWith<IOException> {
+            failingSource.read(Buffer(), 1L)
         }
         val exposedFailure: Throwable = exposed
 
@@ -25,12 +115,14 @@ class FileIOTest {
         )
 
         val cancellationException = CancellationException("boundary cancelled")
+        val cancellingSource = object : RawSource {
+            override fun readAtMostTo(sink: kotlinx.io.Buffer, byteCount: Long): Long = throw cancellationException
+            override fun close() = Unit
+        }.asOkioSource()
         assertSame(
             cancellationException,
             assertFailsWith<CancellationException> {
-                withOkioIoExceptions("world-io boundary") {
-                    throw cancellationException
-                }
+                cancellingSource.read(Buffer(), 1L)
             },
         )
     }
@@ -553,6 +645,62 @@ class FileIOTest {
         assertContentEquals(byteArrayOf(1), base.readFileBytes(target))
         assertFalse(base.exists(backup))
         assertContentEquals(byteArrayOf(2), base.readFileBytes(temporary))
+    }
+}
+
+private class TerminalReadFailingFileSystem(
+    delegate: FileSystem,
+    private val target: Path,
+) : ForwardingFileSystem(delegate) {
+    override fun source(file: Path): Source {
+        val source = super.source(file)
+        if (file != target) return source
+        return object : ForwardingSource(source) {
+            override fun read(sink: Buffer, byteCount: Long): Long =
+                throw IOException("synthetic terminal format read failure")
+        }
+    }
+}
+
+private class TerminalWriteFailingFileSystem(
+    delegate: FileSystem,
+    private val target: Path,
+) : ForwardingFileSystem(delegate) {
+    override fun sink(file: Path, mustCreate: Boolean): Sink {
+        val sink = super.sink(file, mustCreate)
+        if (file != target) return sink
+        return object : Sink by sink {
+            override fun write(source: Buffer, byteCount: Long): Unit =
+                throw IOException("synthetic terminal format write failure")
+        }
+    }
+
+    override fun openReadWrite(file: Path, mustCreate: Boolean, mustExist: Boolean): FileHandle {
+        val fileHandle = super.openReadWrite(file, mustCreate, mustExist)
+        if (file != target) return fileHandle
+        return object : FileHandle(readWrite = true) {
+            override fun protectedRead(
+                fileOffset: Long,
+                array: ByteArray,
+                arrayOffset: Int,
+                byteCount: Int,
+            ): Int = fileHandle.read(fileOffset, array, arrayOffset, byteCount)
+
+            override fun protectedWrite(
+                fileOffset: Long,
+                array: ByteArray,
+                arrayOffset: Int,
+                byteCount: Int,
+            ): Unit = throw IOException("synthetic terminal format write failure")
+
+            override fun protectedFlush() = fileHandle.flush()
+
+            override fun protectedResize(size: Long) = fileHandle.resize(size)
+
+            override fun protectedSize(): Long = fileHandle.size()
+
+            override fun protectedClose() = fileHandle.close()
+        }
     }
 }
 

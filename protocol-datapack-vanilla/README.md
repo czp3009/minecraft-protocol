@@ -27,6 +27,7 @@ defaults.
 | Need                           | Entry point                                                 |
 |--------------------------------|-------------------------------------------------------------|
 | One raw official archive       | `VanillaDataPacks.dataPackArchive(dataPackId)`              |
+| One parsed bundled pack        | `VanillaDataPacks.dataPackOrNull(dataPackId)`               |
 | Parsed core pack               | `VanillaDataPacks.coreDataPack`                             |
 | Parsed core and built-in packs | `VanillaDataPacks.dataPacks`                                |
 | Core-only stack                | `VanillaDataPacks.coreDataPackStack`                        |
@@ -44,23 +45,39 @@ The remaining ready-made values stay on the stage that owns them:
 | Resolved client lookup view          | `VanillaProtocolData.clientRegistryView`            |
 | Default registry projectors          | `vanillaDataPackRegistryProjectors`                 |
 | Datapack-to-protocol conversion      | `dataPackStack.toVanillaProtocolData()`             |
+| Complete one world selection         | `worldDataPackLoadResult.toVanillaDataPackStack()`  |
+| World selection to protocol data     | `worldDataPackLoadResult.toVanillaProtocolData()`   |
 
 The high-level client and server defaults already use `VanillaProtocolData`; callers construct negotiation options only
 when overriding another behavior. The root guide owns the zero-configuration client and server examples.
 
 ## Add custom world packs
 
-Start with the generated vanilla base and project an application-supplied stack:
+The direct world bridge consumes the detached result returned by either `world-io` facade:
 
 ```kotlin
 fun resolveWorldDataPackProtocolData(
-    worldDataPackStack: DataPackStack,
-): ResolvedProtocolData = worldDataPackStack.toVanillaProtocolData()
+    worldDataPackLoadResult: WorldDataPackLoadResult,
+): ResolvedProtocolData = worldDataPackLoadResult.toVanillaProtocolData()
 ```
 
-The helper treats the official core `vanilla` pack as already projected and applies the world stack above the captured
-defaults. `vanillaDataPackRegistryProjectors` covers every synchronized registry in the repository-selected release, so
-ordinary vanilla datapacks—including packs that replace or add registry entries—need no caller-written mapping.
+The helper fills only IDs in the persisted enabled selection, loading selected bundled packs independently and keeping
+the exact low-to-high priority order. It inserts the required core pack at the bottom when the persisted list omits it,
+and reports every other unavailable ID together. It does not discover unlisted packs or simulate the official server's
+next-start repository reconfiguration. Persisted enabled features and selected pack metadata augment the generated
+vanilla defaults; disabled pack IDs and removed historical feature IDs remain diagnostic world data.
+
+The official core `vanilla` resources are already represented by the generated protocol base. The release-matched
+`vanillaDataPackRegistryProjectors` then applies file and built-in overlays for every synchronized registry, so ordinary
+vanilla datapacks—including packs that replace or add registry entries—need no caller-written mapping.
+
+An application that already owns a complete stack can use the lower conversion directly:
+
+```kotlin
+fun resolvePreparedDataPackProtocolData(
+    dataPackStack: DataPackStack,
+): ResolvedProtocolData = dataPackStack.toVanillaProtocolData()
+```
 
 Mods remain an explicit escape hatch. The `modDataPackRegistryProjectors` parameter below contains projectors supplied
 by the loader or application. A matching registry ID replaces the corresponding vanilla default and a new registry ID is

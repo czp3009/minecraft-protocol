@@ -11,7 +11,8 @@ contains no bundled vanilla values and performs no filesystem or socket I/O.
 The cross-module path keeps each representation explicit:
 
 ```text
-disk directory/ZIP --world-io--> DataPack --world-format--> DataPackStack -> ResolvedDataPackStack
+disk directory/ZIP --world-io--> WorldDataPackLoadResult --source completion--> DataPackStack
+    --world-format--> ResolvedDataPackStack
     --protocol-datapack--> ResolvedProtocolData --protocol-server--> Configuration packets
 
 optional raw snapshot: DataPackArchive -> DataPackFormat -> DataPack
@@ -23,7 +24,8 @@ active dimension/registry context -> ChunkLayout + ChunkDataRegistries
 
 ## Inputs from data packs
 
-The filesystem-independent archive, parser, resource, overlay, filter, and stack types belong to
+The filesystem-independent archive, parser, resource, overlay, filter, partial world-selection result, and stack types
+belong to
 [`world-format`](../world-format/README.md#structured-files-and-data-packs). Directory and ZIP loading belongs to
 [`world-io`](../world-io/README.md#read-world-data-packs). This module accepts those parsed stacks but does not redefine
 their parsing or filesystem policy.
@@ -90,9 +92,10 @@ global block-state IDs.
 
 ## Adapt protocol context to semantic Chunks
 
-`MinecraftDimensionLayout.toChunkLayout()` converts the bounds of one Configuration-resolved dimension without assuming
-a release-global default. `ProtocolRegistryContext.toChunkDataRegistries()` resolves persisted block descriptors and
-biome names against the active block-state and synchronized biome registries.
+`MinecraftDimensionLayout.toChunkLayout()` delegates its Configuration-resolved block bounds to
+`ChunkLayout.fromBlockBounds(minY, height)` without assuming a release-global default.
+`ProtocolRegistryContext.toChunkDataRegistries()` resolves persisted block descriptors and biome names against the
+active block-state and synchronized biome registries.
 
 The inputs in this example are explicit parameters supplied by a completed client or server negotiation:
 
@@ -100,14 +103,12 @@ The inputs in this example are explicit parameters supplied by a completed clien
 fun createProtocolChunkNbtContext(
     minecraftDimensionLayout: MinecraftDimensionLayout,
     protocolRegistryContext: ProtocolRegistryContext,
-    expectedDataVersion: Int,
 ): ChunkNbtContext<ProtocolBlockState, ProtocolRegistryEntry> {
     val chunkLayout = minecraftDimensionLayout.toChunkLayout()
     val chunkDataRegistries = protocolRegistryContext.toChunkDataRegistries()
     return ChunkNbtContext(
         chunkLayout = chunkLayout,
         chunkDataRegistries = chunkDataRegistries,
-        expectedDataVersion = expectedDataVersion,
     )
 }
 ```

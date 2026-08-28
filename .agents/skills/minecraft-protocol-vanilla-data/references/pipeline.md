@@ -38,6 +38,10 @@ extraction. Keep the three vanilla objects separated by those responsibilities. 
 handwritten Configuration packet ID or sequence assumption against the selected packet report; generated payload bytes
 do not make such assumptions generated.
 
+The handwritten world-selection bridge may lazily match a `WorldDataPackLoadResult` against bundled pack IDs, insert the
+required core at its official lowest-priority position, and project the resulting complete stack. It must retain
+persisted order, aggregate unavailable selected IDs, and avoid forcing unrelated built-in payloads to decode.
+
 `vanillaDataPackRegistryProjectors` is the release-matched default bridge from parsed vanilla registry JSON to network
 NBT. Derive its registry IDs from the complete generated Configuration snapshot, keep caller projectors as per-ID
 overrides or mod additions, and prove every bundled synchronized registry entry against the official client before

@@ -14,22 +14,16 @@ class EntityChunkNbtFormatException(
     cause: Throwable? = null,
 ) : Exception(message, cause)
 
-/** Selected-release conversion between unnamed-root Entity Chunk NBT and a positioned semantic [EntityChunk]. */
+/**
+ * Selected-release conversion between unnamed-root Entity Chunk NBT and a positioned semantic [EntityChunk].
+ *
+ * `DataVersion` is carried by [EntityChunk] but is not compared with a library- or caller-selected version.
+ */
 class EntityChunkNbtCodec<E : Any>(
-    val entityChunkNbtContext: EntityChunkNbtContext<E>,
+    val entityDataRegistry: EntityDataRegistry<E>,
     val nbtFormat: NbtFormat = NbtFormat(NbtFormatConfiguration(nbtRootEncoding = NbtRootEncoding.UNNAMED)),
 ) {
-    constructor(
-        expectedDataVersion: Int,
-        entityDataRegistry: EntityDataRegistry<E>,
-        nbtFormat: NbtFormat = NbtFormat(NbtFormatConfiguration(nbtRootEncoding = NbtRootEncoding.UNNAMED)),
-    ) : this(EntityChunkNbtContext(entityDataRegistry, expectedDataVersion), nbtFormat)
-
-    val expectedDataVersion: Int
-        get() = entityChunkNbtContext.expectedDataVersion
-
     init {
-        require(expectedDataVersion >= 0) { "A Minecraft data version must be non-negative" }
         require(nbtFormat.nbtFormatConfiguration.nbtRootEncoding == NbtRootEncoding.UNNAMED) {
             "Region Entity Chunk NBT requires NbtRootEncoding.UNNAMED"
         }
@@ -57,11 +51,6 @@ class EntityChunkNbtCodec<E : Any>(
         val root = nbtDocument.root
         root.requireOnlyKeys(ENTITY_CHUNK_ROOT_FIELDS, "Entity Chunk")
         val dataVersion = root.requireInt(DATA_VERSION, "Entity Chunk")
-        if (dataVersion != expectedDataVersion) {
-            throw EntityChunkNbtFormatException(
-                "Expected Entity Chunk data version $expectedDataVersion, got $dataVersion",
-            )
-        }
         val actualPosition = root.requireChunkPosition(POSITION)
         if (expectedPosition != null && actualPosition != expectedPosition) {
             throw EntityChunkNbtFormatException(
@@ -84,11 +73,6 @@ class EntityChunkNbtCodec<E : Any>(
     }
 
     fun encodeDocument(entityChunk: EntityChunk<E>): NbtDocument {
-        if (entityChunk.dataVersion != expectedDataVersion) {
-            throw EntityChunkNbtFormatException(
-                "Entity Chunk data version ${entityChunk.dataVersion} does not match $expectedDataVersion",
-            )
-        }
         entityChunk.rootEntities.firstOrNull { entity -> entity.chunkPosition != entityChunk.chunkPosition }?.let { entity ->
             throw EntityChunkNbtFormatException(
                 "Root Entity ${entity.uuid} belongs to Chunk ${entity.chunkPosition}, expected ${entityChunk.chunkPosition}",
@@ -116,7 +100,7 @@ class EntityChunkNbtCodec<E : Any>(
             if (name !in ENTITY_STRUCTURE_FIELDS) persistentData[name] = nbtTag
         }
         val data = try {
-            entityChunkNbtContext.entityDataRegistry.resolve(type, NbtCompound(persistentData))
+            entityDataRegistry.resolve(type, NbtCompound(persistentData))
         } catch (failure: IllegalArgumentException) {
             throw EntityChunkNbtFormatException("Invalid Entity data for $type", failure)
         } ?: throw EntityChunkNbtFormatException("Unknown Entity data for $type")
@@ -142,7 +126,7 @@ class EntityChunkNbtCodec<E : Any>(
         value[MOTION] = entity.velocity.toDoubleList()
         value[ROTATION] = NbtList(listOf(NbtFloat(entity.entityRotation.yaw), NbtFloat(entity.entityRotation.pitch)))
         val persistentData = try {
-            entityChunkNbtContext.entityDataRegistry.describe(entity.type, entity.data)?.requireNoEntityStructureFields()
+            entityDataRegistry.describe(entity.type, entity.data)?.requireNoEntityStructureFields()
         } catch (failure: IllegalArgumentException) {
             throw EntityChunkNbtFormatException("Invalid Entity data for ${entity.type}", failure)
         } ?: throw EntityChunkNbtFormatException("Unrepresentable Entity data for ${entity.type}")
@@ -211,31 +195,11 @@ private fun NbtCompound.requireUuid(name: String): Uuid {
     if (values.size != UUID_INT_COUNT) {
         throw EntityChunkNbtFormatException("Entity UUID must contain $UUID_INT_COUNT integers")
     }
-    val byteArray = ByteArray(Uuid.SIZE_BYTES)
-    repeat(UUID_INT_COUNT) { index ->
-        val value = values[index]
-        val offset = index * Int.SIZE_BYTES
-        byteArray[offset] = (value ushr 24).toByte()
-        byteArray[offset + 1] = (value ushr 16).toByte()
-        byteArray[offset + 2] = (value ushr 8).toByte()
-        byteArray[offset + 3] = value.toByte()
-    }
-    return Uuid.fromByteArray(byteArray)
+    return values.toUuid()
 }
 
 private fun EntityVector3d.toDoubleList(): NbtList =
     NbtList(listOf(NbtDouble(x), NbtDouble(y), NbtDouble(z)))
-
-private fun Uuid.toNbtIntArray(): NbtIntArray {
-    val byteArray = toByteArray()
-    return NbtIntArray(IntArray(UUID_INT_COUNT) { index ->
-        val offset = index * Int.SIZE_BYTES
-        ((byteArray[offset].toInt() and 0xFF) shl 24) or
-                ((byteArray[offset + 1].toInt() and 0xFF) shl 16) or
-                ((byteArray[offset + 2].toInt() and 0xFF) shl 8) or
-                (byteArray[offset + 3].toInt() and 0xFF)
-    })
-}
 
 private fun NbtCompound.wrongEntityFieldType(description: String, name: String, expected: String): Nothing {
     val actual = this[name]?.let { nbtTag -> nbtTag::class.simpleName } ?: "missing"

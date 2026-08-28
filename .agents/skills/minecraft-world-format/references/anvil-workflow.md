@@ -32,9 +32,10 @@ closing a compression decorator is required to finish or validate its own stream
 
 ## Compose NBT payloads
 
-Use `minecraft-nbt` for tag algebra and binary root rules. This module composes a caller-supplied `NbtDocument` with one
-region compression; it does not own domain-specific chunk/entity/POI schemas or choose filesystem placement. Preserve
-unknown NBT fields when the public composition API promises round-trip retention.
+Use `minecraft-nbt` for tag algebra and binary root rules. The Anvil container layer composes a caller-supplied
+`NbtDocument` with one region compression; it does not interpret the separate semantic Chunk, Entity Chunk, or POI Chunk
+codecs in this module and does not choose filesystem placement. Preserve unknown NBT fields when the public composition
+API promises round-trip retention.
 
 ## Verify layers
 
