@@ -3,6 +3,7 @@ package com.hiczp.minecraft.world.io
 import com.hiczp.minecraft.nbt.NbtDocument
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
+import kotlinx.serialization.serializer
 import okio.BufferedSink
 import okio.BufferedSource
 import okio.IOException
@@ -40,6 +41,9 @@ internal class BackupNbtFileStore(
         nbtFileStore.nbtFormat.decodeFromOkio(deserializationStrategy, source)
     }
 
+    inline fun <reified T> read(backupNbtCandidate: BackupNbtCandidate): T =
+        read(backupNbtCandidate, nbtFileStore.nbtFormat.serializersModule.serializer())
+
     fun <T> read(backupNbtCandidate: BackupNbtCandidate, block: (BufferedSource) -> T): T =
         nbtFileStore.readCompoundDocument(path(backupNbtCandidate), block)
 
@@ -50,6 +54,9 @@ internal class BackupNbtFileStore(
     fun <T> write(serializationStrategy: SerializationStrategy<T>, value: T) {
         replaceWithTemporary(nbtFileStore.writeSyncedTemporary(temporaryDirectory, serializationStrategy, value))
     }
+
+    inline fun <reified T> write(value: T) =
+        write(nbtFileStore.nbtFormat.serializersModule.serializer(), value)
 
     fun write(block: (BufferedSink) -> Unit) {
         replaceWithTemporary(nbtFileStore.writeSyncedTemporary(temporaryDirectory, block = block))

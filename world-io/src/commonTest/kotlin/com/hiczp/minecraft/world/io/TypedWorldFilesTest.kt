@@ -37,7 +37,9 @@ class TypedWorldFilesTest {
         val enderDragonFightData = typedEnderDragonFightData()
         try {
             minecraftWorldAccess.writeLevelData(LevelDat.serializer(), levelDat)
+            minecraftWorldAccess.writeLevelDataAs(levelDat)
             assertEquals(levelDat, minecraftWorldAccess.readLevelData(LevelDat.serializer()))
+            assertEquals(levelDat, minecraftWorldAccess.readLevelDataAs<LevelDat>())
             assertIs<NbtCompound>(minecraftWorldAccess.readLevelDataDocument().root["Data"])
             val levelRoot = minecraftWorldAccess.readLevelData(
                 MapSerializer(String.serializer(), NbtTagTreeSerializer),
@@ -45,15 +47,19 @@ class TypedWorldFilesTest {
             assertIs<NbtCompound>(levelRoot["Data"])
 
             minecraftWorldAccess.writePlayerData(player, LevelDat.serializer(), levelDat)
+            minecraftWorldAccess.writePlayerDataAs(player, levelDat)
             assertEquals(levelDat, minecraftWorldAccess.readPlayerData(player, LevelDat.serializer()))
+            assertEquals(levelDat, minecraftWorldAccess.readPlayerDataAs<LevelDat>(player))
             assertIs<NbtCompound>(minecraftWorldAccess.readPlayerDataDocument(player)?.root)
 
             val savedDataScope = SavedDataScope.Dimension(DimensionDirectory.Overworld)
             minecraftWorldAccess.writeSavedData("example:typed", LevelDat.serializer(), levelDat, savedDataScope)
+            minecraftWorldAccess.writeSavedData("example:typed", levelDat, savedDataScope)
             assertEquals(
                 levelDat,
                 minecraftWorldAccess.readSavedData("example:typed", LevelDat.serializer(), savedDataScope),
             )
+            assertEquals(levelDat, minecraftWorldAccess.readSavedData<LevelDat>("example:typed", savedDataScope))
             assertIs<NbtCompound>(minecraftWorldAccess.readSavedDataDocument("example:typed", savedDataScope)?.root)
 
             minecraftWorldAccess.writeWorldBorderData(worldBorderData)
@@ -72,13 +78,16 @@ class TypedWorldFilesTest {
                     value = levelDat,
                     compression = Compression.NONE,
                 )
+                regionHandle.writeChunkNbt(localChunkPosition, levelDat, Compression.NONE)
                 assertEquals(levelDat, regionHandle.readChunkNbt(localChunkPosition, LevelDat.serializer()))
                 assertIs<NbtCompound>(regionHandle.readChunkNbtDocument(chunkPosition)?.root)
                 assertEquals(levelDat, regionHandle.readChunkNbt<LevelDat>(localChunkPosition = localChunkPosition))
             }
 
             minecraftWorldAccess.writeStatistics(player, PlayerStatistics.serializer(), playerStatistics)
+            minecraftWorldAccess.writeStatistics(player, playerStatistics)
             assertEquals(playerStatistics, minecraftWorldAccess.readStatistics(player, PlayerStatistics.serializer()))
+            assertEquals(playerStatistics, minecraftWorldAccess.readStatistics<PlayerStatistics>(player))
             assertEquals(
                 playerStatistics,
                 minecraftWorldAccess.readStatistics(player, JsonElement.serializer()).let { jsonElement ->
@@ -93,10 +102,12 @@ class TypedWorldFilesTest {
             )
 
             minecraftWorldAccess.writeAdvancements(player, PlayerAdvancements.serializer(), playerAdvancements)
+            minecraftWorldAccess.writeAdvancements(player, playerAdvancements)
             assertEquals(
                 playerAdvancements,
                 minecraftWorldAccess.readAdvancements(player, PlayerAdvancements.serializer()),
             )
+            assertEquals(playerAdvancements, minecraftWorldAccess.readAdvancements<PlayerAdvancements>(player))
             minecraftWorldAccess.writeAdvancements(
                 player,
                 JsonElement.serializer(),
@@ -171,12 +182,30 @@ class TypedWorldFilesTest {
         )
         val regionStorage = CoordinatedRegionStore(minecraftWorldPaths, fileSystem = fakeFileSystem)
         try {
-            regionStorage.writeChunkNbt(chunkPosition, levelDat, Compression.NONE)
+            regionStorage.writeChunkNbt(chunkPosition, LevelDat.serializer(), levelDat, Compression.NONE)
+            assertEquals(levelDat, regionStorage.readChunkNbt(chunkPosition, LevelDat.serializer()))
+            regionStorage.writeChunkNbt(regionPosition, localChunkPosition, levelDat, Compression.NONE)
+            assertEquals(levelDat, regionStorage.readChunkNbt<LevelDat>(regionPosition, localChunkPosition))
+            regionStorage.openRegion(regionPosition).use { regionHandle ->
+                regionStorage.writeChunkNbt(regionHandle.entry, localChunkPosition, levelDat, Compression.NONE)
+                assertEquals(
+                    levelDat,
+                    regionStorage.readChunkNbt<LevelDat>(regionHandle.entry, localChunkPosition),
+                )
+            }
         } finally {
             regionStorage.close()
         }
-        utf8JsonFileStore.writeJson(minecraftWorldPaths.statistics(player), PlayerStatistics.serializer(), playerStatistics)
-        utf8JsonFileStore.writeJson(minecraftWorldPaths.advancement(player), PlayerAdvancements.serializer(), playerAdvancements)
+        utf8JsonFileStore.writeJson(
+            minecraftWorldPaths.statistics(player),
+            PlayerStatistics.serializer(),
+            playerStatistics,
+        )
+        utf8JsonFileStore.writeJson(
+            minecraftWorldPaths.advancement(player),
+            PlayerAdvancements.serializer(),
+            playerAdvancements,
+        )
 
         val reader = LiveMinecraftWorldAccess.open(minecraftWorldPaths.root, fakeFileSystem)
         assertEquals(levelDat, reader.readLevelData(LevelDat.serializer()))

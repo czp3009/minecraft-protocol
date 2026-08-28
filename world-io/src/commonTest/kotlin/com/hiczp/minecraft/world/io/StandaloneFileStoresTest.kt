@@ -5,10 +5,7 @@ import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
-import com.hiczp.minecraft.world.format.Compression
-import com.hiczp.minecraft.world.format.LevelDat
-import com.hiczp.minecraft.world.format.PlayerAdvancements
-import com.hiczp.minecraft.world.format.PlayerStatistics
+import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
@@ -90,6 +87,72 @@ class StandaloneFileStoresTest {
         val levelDataStore = LevelDataStore(minecraftWorldPaths, nbtFileStore)
         levelDataStore.write(LevelDat.serializer(), levelDat)
         assertEquals(levelDat, levelDataStore.read(LevelDat.serializer()))
+        fakeFileSystem.checkNoOpenFiles()
+    }
+
+    @Test
+    fun standaloneNbtStoresProvideExplicitAndReifiedTypedOperations() {
+        val fakeFileSystem = FakeFileSystem()
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
+        val nbtFileStore = NbtFileStore(fakeFileSystem)
+        val value = CallerLevelData(marker = 7, values = mapOf("one" to 1, "two" to 2))
+        val exactPath = minecraftWorldPaths.root / "custom.dat"
+        val playerUuid = "00000000-0000-0000-0000-000000000000"
+        val savedDataIdentifier = "example:typed"
+        val savedDataStore = SavedDataStore(minecraftWorldPaths, SavedDataScope.WorldRoot, nbtFileStore)
+
+        nbtFileStore.write(exactPath, CallerLevelData.serializer(), value)
+        nbtFileStore.write(exactPath, value)
+        assertEquals(value, nbtFileStore.read(exactPath, CallerLevelData.serializer()))
+        assertEquals(value, nbtFileStore.read<CallerLevelData>(exactPath))
+
+        val uncompressedNbt = Buffer()
+        nbtFileStore.nbtFormat.encodeToOkio(value, uncompressedNbt)
+        assertEquals(value, nbtFileStore.nbtFormat.decodeFromOkio<CallerLevelData>(uncompressedNbt))
+        val compressedChunk = CompressedNbtFormat(nbtFileStore.nbtFormat).encodeFromOkio(value, Compression.NONE)
+        val compressedChunkSource = Buffer().write(compressedChunk.toByteArray())
+        assertEquals(value, nbtFileStore.nbtFormat.decodeFromOkio<CallerLevelData>(compressedChunkSource))
+        val temporary = nbtFileStore.writeSyncedTemporary(minecraftWorldPaths.root, value, Compression.NONE)
+        assertEquals(value, nbtFileStore.read<CallerLevelData>(temporary, Compression.NONE))
+        val backupNbtFileStore = BackupNbtFileStore(
+            primary = minecraftWorldPaths.root / "backup.dat",
+            previous = minecraftWorldPaths.root / "backup_old.dat",
+            temporaryDirectory = minecraftWorldPaths.root,
+            nbtFileStore = nbtFileStore,
+        )
+        backupNbtFileStore.write(CallerLevelData.serializer(), value)
+        backupNbtFileStore.write(value)
+        assertEquals(value, backupNbtFileStore.read(BackupNbtCandidate.PRIMARY, CallerLevelData.serializer()))
+        assertEquals(value, backupNbtFileStore.read<CallerLevelData>(BackupNbtCandidate.PRIMARY))
+
+        val levelDataStore = LevelDataStore(minecraftWorldPaths, nbtFileStore)
+        levelDataStore.write(CallerLevelData.serializer(), value)
+        levelDataStore.write(value)
+        assertEquals(value, levelDataStore.read(CallerLevelData.serializer()))
+        assertEquals(value, levelDataStore.read<CallerLevelData>())
+        assertEquals(
+            value,
+            assertIs<CoordinatedRead.Complete<CallerLevelData>>(
+                levelDataStore.readForSharedAccess<CallerLevelData>(),
+            ).value,
+        )
+
+        val playerDataStore = PlayerDataStore(minecraftWorldPaths, nbtFileStore)
+        playerDataStore.write(playerUuid, CallerLevelData.serializer(), value)
+        playerDataStore.write(playerUuid, value)
+        assertEquals(value, playerDataStore.read(playerUuid, CallerLevelData.serializer()))
+        assertEquals(value, playerDataStore.read<CallerLevelData>(playerUuid))
+        assertEquals(
+            value,
+            assertIs<CoordinatedRead.Complete<CallerLevelData?>>(
+                playerDataStore.readForSharedAccess<CallerLevelData>(playerUuid),
+            ).value,
+        )
+
+        savedDataStore.write(savedDataIdentifier, CallerLevelData.serializer(), value)
+        savedDataStore.write(savedDataIdentifier, value)
+        assertEquals(value, savedDataStore.read(savedDataIdentifier, CallerLevelData.serializer()))
+        assertEquals(value, savedDataStore.read<CallerLevelData>(savedDataIdentifier))
         fakeFileSystem.checkNoOpenFiles()
     }
 
@@ -220,8 +283,8 @@ class StandaloneFileStoresTest {
             put("values", buildJsonArray { repeat(2_048) { add(JsonPrimitive(it)) } })
         }
 
-        utf8JsonFileStore.writeJson(path, jsonObject)
-        assertEquals(jsonObject, utf8JsonFileStore.readJson(path))
+        utf8JsonFileStore.writeJsonElement(path, jsonObject)
+        assertEquals(jsonObject, utf8JsonFileStore.readJsonElement(path))
 
         val encoded = Json.encodeToString(jsonObject)
         utf8JsonFileStore.write(path) { sink ->
@@ -258,7 +321,11 @@ class StandaloneFileStoresTest {
             stats = mapOf("minecraft:mined" to mapOf("minecraft:stone" to 42)),
             dataVersion = 4_903,
         )
-        utf8JsonFileStore.writeJson(minecraftWorldPaths.statistics(player), PlayerStatistics.serializer(), playerStatistics)
+        utf8JsonFileStore.writeJson(
+            minecraftWorldPaths.statistics(player),
+            PlayerStatistics.serializer(),
+            playerStatistics,
+        )
         assertEquals(
             playerStatistics,
             utf8JsonFileStore.readJson(minecraftWorldPaths.statistics(player), PlayerStatistics.serializer()),
@@ -273,11 +340,53 @@ class StandaloneFileStoresTest {
                 ),
             ),
         )
-        utf8JsonFileStore.writeJson(minecraftWorldPaths.advancement(player), PlayerAdvancements.serializer(), playerAdvancements)
+        utf8JsonFileStore.writeJson(
+            minecraftWorldPaths.advancement(player),
+            PlayerAdvancements.serializer(),
+            playerAdvancements,
+        )
         assertEquals(
             playerAdvancements,
             utf8JsonFileStore.readJson(minecraftWorldPaths.advancement(player), PlayerAdvancements.serializer()),
         )
+        fakeFileSystem.checkNoOpenFiles()
+    }
+
+    @Test
+    fun jsonStoresProvideExplicitAndReifiedTypedOperations() {
+        val fakeFileSystem = FakeFileSystem()
+        val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
+        val utf8JsonFileStore = Utf8JsonFileStore(fakeFileSystem)
+        val exactPath = minecraftWorldPaths.root / "custom.json"
+        val playerUuid = "00000000-0000-0000-0000-000000000000"
+        val playerStatistics = PlayerStatistics(
+            stats = mapOf("minecraft:mined" to mapOf("minecraft:stone" to 42)),
+            dataVersion = 4_903,
+        )
+        val playerAdvancements = PlayerAdvancements(
+            dataVersion = 4_903,
+            advancements = emptyMap(),
+        )
+
+        utf8JsonFileStore.writeJson(exactPath, PlayerStatistics.serializer(), playerStatistics)
+        utf8JsonFileStore.writeJson(exactPath, playerStatistics)
+        assertEquals(playerStatistics, utf8JsonFileStore.readJson(exactPath, PlayerStatistics.serializer()))
+        assertEquals(playerStatistics, utf8JsonFileStore.readJson<PlayerStatistics>(exactPath))
+
+        val playerStatisticsStore = PlayerStatisticsStore(minecraftWorldPaths, utf8JsonFileStore)
+        playerStatisticsStore.write(playerUuid, PlayerStatistics.serializer(), playerStatistics)
+        playerStatisticsStore.write(playerUuid, playerStatistics)
+        assertEquals(playerStatistics, playerStatisticsStore.read(playerUuid, PlayerStatistics.serializer()))
+        assertEquals(playerStatistics, playerStatisticsStore.read<PlayerStatistics>(playerUuid))
+
+        val playerAdvancementsStore = PlayerAdvancementsStore(minecraftWorldPaths, utf8JsonFileStore)
+        playerAdvancementsStore.write(playerUuid, PlayerAdvancements.serializer(), playerAdvancements)
+        playerAdvancementsStore.write(playerUuid, playerAdvancements)
+        assertEquals(
+            playerAdvancements,
+            playerAdvancementsStore.read(playerUuid, PlayerAdvancements.serializer()),
+        )
+        assertEquals(playerAdvancements, playerAdvancementsStore.read<PlayerAdvancements>(playerUuid))
         fakeFileSystem.checkNoOpenFiles()
     }
 
@@ -397,7 +506,10 @@ class StandaloneFileStoresTest {
         LevelDataStore(minecraftWorldPaths, NbtFileStore(base)).writeDocument(first)
         val failure = WorldIOException("synthetic streaming failure")
 
-        assertSame(failure, assertFails { LevelDataStore(minecraftWorldPaths, NbtFileStore(base)).write { throw failure } })
+        assertSame(
+            failure,
+            assertFails { LevelDataStore(minecraftWorldPaths, NbtFileStore(base)).write { throw failure } },
+        )
 
         assertEquals(first, NbtFileStore(base).readDocument(minecraftWorldPaths.levelData))
         assertTrue(base.allPaths.none { it.name.startsWith(".tmp-") })

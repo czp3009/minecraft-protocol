@@ -3,10 +3,7 @@ package com.hiczp.minecraft.world.io
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.NbtInt
-import com.hiczp.minecraft.world.format.CompressedChunk
-import com.hiczp.minecraft.world.format.Compression
-import com.hiczp.minecraft.world.format.LocalChunkPosition
-import com.hiczp.minecraft.world.format.RegionPosition
+import com.hiczp.minecraft.world.format.*
 import okio.FileHandle
 import okio.ForwardingFileSystem
 import okio.Path.Companion.toPath
@@ -14,6 +11,54 @@ import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.*
 
 class RegionFileStoreTest {
+    @Test
+    fun typedNbtOverloadsMirrorBothCoordinateFormsAndReadScopes() {
+        val fakeFileSystem = FakeFileSystem()
+        val directory = "/world/region".toPath()
+        val regionPosition = RegionPosition(-2, 3)
+        val localChunkPosition = LocalChunkPosition(5, 6)
+        val chunkPosition = regionPosition.chunk(localChunkPosition)
+        val levelDat = testLevelDat(levelName = "typed-region-file-store")
+        val regionFileStore = RegionFileStore(
+            directory,
+            fakeFileSystem,
+            regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
+        )
+
+        regionFileStore.writeChunkNbt(
+            regionPosition,
+            localChunkPosition,
+            LevelDat.serializer(),
+            levelDat,
+            Compression.NONE,
+        )
+        assertEquals(levelDat, regionFileStore.readChunkNbt(chunkPosition, LevelDat.serializer()))
+        regionFileStore.writeChunkNbt(chunkPosition, LevelDat.serializer(), levelDat, Compression.NONE)
+        assertEquals(
+            levelDat,
+            regionFileStore.readChunkNbt(regionPosition, localChunkPosition, LevelDat.serializer()),
+        )
+
+        regionFileStore.writeChunkNbt(regionPosition, localChunkPosition, levelDat, Compression.NONE)
+        assertEquals(levelDat, regionFileStore.readChunkNbt<LevelDat>(chunkPosition))
+        regionFileStore.writeChunkNbt(chunkPosition, levelDat, Compression.NONE)
+        assertEquals(levelDat, regionFileStore.readChunkNbt<LevelDat>(regionPosition, localChunkPosition))
+
+        regionFileStore.withReadScope(regionPosition) {
+            assertEquals(levelDat, readChunkNbt(localChunkPosition, LevelDat.serializer()))
+            assertEquals(levelDat, readChunkNbt<LevelDat>(chunkPosition))
+        }
+        regionFileStore.withEntityReadScope(regionPosition) {
+            assertEquals(levelDat, readChunkNbt(chunkPosition, LevelDat.serializer()))
+            assertEquals(levelDat, readChunkNbt<LevelDat>(localChunkPosition))
+        }
+        regionFileStore.withPoiReadScope(regionPosition) {
+            assertEquals(levelDat, readChunkNbt(localChunkPosition, LevelDat.serializer()))
+            assertEquals(levelDat, readChunkNbt<LevelDat>(chunkPosition))
+        }
+        fakeFileSystem.checkNoOpenFiles()
+    }
+
     @Test
     fun statelessStoreOwnsEachPhysicalOperationWithoutCoordinationState() {
         val fakeFileSystem = FakeFileSystem()

@@ -4,6 +4,7 @@ import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.world.format.Compression
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
+import kotlinx.serialization.serializer
 import okio.BufferedSink
 import okio.BufferedSource
 
@@ -29,6 +30,9 @@ class SavedDataStore(
             nbtFileStore.nbtFormat.decodeFromOkio(deserializationStrategy, source)
         }
 
+    inline fun <reified T> read(identifier: String): T? =
+        read(identifier, nbtFileStore.nbtFormat.serializersModule.serializer())
+
     /** Detects compression and lends the complete decompressed stream through one physical file open. */
     fun <T> read(identifier: String, block: (BufferedSource) -> T): T? {
         val path = minecraftWorldPaths.savedData(identifier, savedDataScope)
@@ -41,6 +45,9 @@ class SavedDataStore(
 
     fun <T> write(identifier: String, serializationStrategy: SerializationStrategy<T>, value: T) =
         nbtFileStore.write(minecraftWorldPaths.savedData(identifier, savedDataScope), serializationStrategy, value)
+
+    inline fun <reified T> write(identifier: String, value: T) =
+        write(identifier, nbtFileStore.nbtFormat.serializersModule.serializer(), value)
 
     fun write(identifier: String, block: (BufferedSink) -> Unit) {
         nbtFileStore.write(minecraftWorldPaths.savedData(identifier, savedDataScope), block = block)

@@ -484,13 +484,12 @@ class MinecraftWorldAccess private constructor(
         worldOperationLifecycle.withOperation { block() }
 
     private suspend inline fun <reified T> readLevelDataWithinOperation(): T {
-        val serializer = configuration.standaloneNbtFormat.serializersModule.serializer<T>()
         return when (val coordinatedRead = logicalResourceCoordinator.read(WorldResourceKey.LevelData) {
-            levelDataStore.readForSharedAccess(serializer)
+            levelDataStore.readForSharedAccess<T>()
         }) {
             is CoordinatedRead.Complete -> coordinatedRead.value
             CoordinatedRead.RequiresExclusive -> logicalResourceCoordinator.write(WorldResourceKey.LevelData) {
-                levelDataStore.read(serializer)
+                levelDataStore.read<T>()
             }
         }
     }

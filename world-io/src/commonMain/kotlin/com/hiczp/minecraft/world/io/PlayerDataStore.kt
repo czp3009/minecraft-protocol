@@ -3,6 +3,7 @@ package com.hiczp.minecraft.world.io
 import com.hiczp.minecraft.nbt.NbtDocument
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
+import kotlinx.serialization.serializer
 import okio.BufferedSink
 import okio.BufferedSource
 
@@ -24,6 +25,9 @@ class PlayerDataStore(
         readWithRecovery(playerUuid) { backupNbtFileStore, candidate ->
             backupNbtFileStore.read(candidate, deserializationStrategy)
         }
+
+    inline fun <reified T> read(playerUuid: String): T? =
+        read(playerUuid, nbtFileStore.nbtFormat.serializersModule.serializer())
 
     /**
      * Returns the same final result as the official player loader: no usable candidate is `null`.
@@ -67,6 +71,9 @@ class PlayerDataStore(
         backupNbtFileStore.read(candidate, deserializationStrategy)
     }
 
+    internal inline fun <reified T> readForSharedAccess(playerUuid: String): CoordinatedRead<T?> =
+        readForSharedAccess(playerUuid, nbtFileStore.nbtFormat.serializersModule.serializer())
+
     internal fun <T> readForSharedAccess(
         playerUuid: String,
         block: (BufferedSource) -> T,
@@ -103,6 +110,9 @@ class PlayerDataStore(
         serializationStrategy: SerializationStrategy<T>,
         value: T,
     ) = backupNbtFileStore(playerUuid).write(serializationStrategy, value)
+
+    inline fun <reified T> write(playerUuid: String, value: T) =
+        write(playerUuid, nbtFileStore.nbtFormat.serializersModule.serializer(), value)
 
     fun write(playerUuid: String, block: (BufferedSink) -> Unit) = backupNbtFileStore(playerUuid).write(block)
 

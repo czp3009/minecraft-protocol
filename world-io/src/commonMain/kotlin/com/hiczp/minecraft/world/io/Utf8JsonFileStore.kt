@@ -10,6 +10,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.io.decodeFromSource
 import kotlinx.serialization.json.io.encodeToSink
+import kotlinx.serialization.serializer
 import okio.BufferedSink
 import okio.BufferedSource
 import okio.FileSystem
@@ -30,7 +31,7 @@ class Utf8JsonFileStore internal constructor(
 
     fun <T> read(path: Path, block: (BufferedSource) -> T): T = rawFileStore.read(path, block)
 
-    fun readJson(path: Path, json: Json = Json): JsonElement =
+    fun readJsonElement(path: Path, json: Json = Json): JsonElement =
         readJson(path, JsonElement.serializer(), json)
 
     @OptIn(ExperimentalSerializationApi::class)
@@ -44,11 +45,14 @@ class Utf8JsonFileStore internal constructor(
         }
     }
 
+    inline fun <reified T> readJson(path: Path, json: Json = Json): T =
+        readJson(path, json.serializersModule.serializer(), json)
+
     fun writeText(path: Path, text: String) = write(path) { sink -> sink.writeUtf8(text) }
 
     fun write(path: Path, block: (BufferedSink) -> Unit) = rawFileStore.write(path, block)
 
-    fun writeJson(path: Path, jsonElement: JsonElement, json: Json = Json) =
+    fun writeJsonElement(path: Path, jsonElement: JsonElement, json: Json = Json) =
         writeJson(path, JsonElement.serializer(), jsonElement, json)
 
     @OptIn(ExperimentalSerializationApi::class)
@@ -64,4 +68,7 @@ class Utf8JsonFileStore internal constructor(
             kotlinxSink.emit()
         }
     }
+
+    inline fun <reified T> writeJson(path: Path, value: T, json: Json = Json) =
+        writeJson(path, json.serializersModule.serializer(), value, json)
 }

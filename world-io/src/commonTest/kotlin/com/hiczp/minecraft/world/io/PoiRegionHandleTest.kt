@@ -18,6 +18,9 @@ class PoiRegionHandleTest {
         val regionPosition = RegionPosition(2, -3)
         val localChunkPosition = LocalChunkPosition(4, 5)
         val chunkPosition = regionPosition.chunk(localChunkPosition)
+        val typedLocalChunkPosition = LocalChunkPosition(6, 7)
+        val typedChunkPosition = regionPosition.chunk(typedLocalChunkPosition)
+        val levelDat = testLevelDat(levelName = "typed-poi-region")
         val poiChunkNbtCodec = PoiChunkNbtCodec()
         val poiChunk = PoiChunk(
             chunkPosition = chunkPosition,
@@ -42,8 +45,21 @@ class PoiRegionHandleTest {
         assertFalse(minecraftWorldAccess.hasPoiRegion(regionPosition))
         minecraftWorldAccess.openPoiRegion(regionPosition).use { poiRegionHandle ->
             poiRegionHandle.writeChunk(poiChunk, Compression.NONE)
+            poiRegionHandle.writeChunkNbt(
+                typedLocalChunkPosition,
+                LevelDat.serializer(),
+                levelDat,
+                Compression.NONE,
+            )
+            poiRegionHandle.writeChunkNbt(typedChunkPosition, levelDat, Compression.NONE)
+            assertEquals(levelDat, poiRegionHandle.readChunkNbt(typedChunkPosition, LevelDat.serializer()))
+            assertEquals(levelDat, poiRegionHandle.readChunkNbt<LevelDat>(typedLocalChunkPosition))
             assertEquals(poiDocument, poiRegionHandle.readChunkNbtDocument(localChunkPosition))
-            assertEquals(poiDocument, poiRegionHandle.withReadScope { readChunkNbtDocument(localChunkPosition) })
+            poiRegionHandle.withReadScope {
+                assertEquals(poiDocument, readChunkNbtDocument(localChunkPosition))
+                assertEquals(levelDat, readChunkNbt(typedLocalChunkPosition, LevelDat.serializer()))
+                assertEquals(levelDat, readChunkNbt<LevelDat>(typedChunkPosition))
+            }
             assertEquals(1, poiRegionHandle.readChunk(localChunkPosition)?.recordCount)
             assertEquals(1, poiRegionHandle.withReadScope { readChunk(chunkPosition) }?.recordCount)
         }
@@ -56,11 +72,14 @@ class PoiRegionHandleTest {
         assertEquals(listOf(regionPosition), liveMinecraftWorldAccess.listPoiRegionPositions())
         liveMinecraftWorldAccess.openPoiRegion(regionPosition).use { livePoiRegionHandle ->
             assertEquals(poiDocument, livePoiRegionHandle.readChunkNbtDocument(localChunkPosition))
+            assertEquals(levelDat, livePoiRegionHandle.readChunkNbt(typedChunkPosition, LevelDat.serializer()))
+            assertEquals(levelDat, livePoiRegionHandle.readChunkNbt<LevelDat>(typedLocalChunkPosition))
             assertEquals(1, livePoiRegionHandle.readChunk(chunkPosition)?.recordCount)
-            assertEquals(
-                1,
-                livePoiRegionHandle.withReadScope { readChunk(localChunkPosition) }?.recordCount,
-            )
+            livePoiRegionHandle.withReadScope {
+                assertEquals(1, readChunk(localChunkPosition)?.recordCount)
+                assertEquals(levelDat, readChunkNbt(typedLocalChunkPosition, LevelDat.serializer()))
+                assertEquals(levelDat, readChunkNbt<LevelDat>(typedChunkPosition))
+            }
         }
         fakeFileSystem.checkNoOpenFiles()
     }

@@ -543,6 +543,15 @@ internal class CoordinatedRegionStore internal constructor(
         chunkNbtFormat.nbtFormat.decodeFromOkio(deserializationStrategy, source)
     }
 
+    internal suspend inline fun <reified T> readChunkNbt(
+        entry: RegionState,
+        localChunkPosition: LocalChunkPosition,
+    ): T? = readChunkNbt(
+        entry,
+        localChunkPosition,
+        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
+    )
+
     internal suspend fun <B : Any, M : Any> readChunk(
         entry: RegionState,
         localChunkPosition: LocalChunkPosition,
@@ -590,6 +599,19 @@ internal class CoordinatedRegionStore internal constructor(
             openedFileForWrite(entry).writeCompressedChunk(localChunkPosition, compressedChunk)
         }
     }
+
+    internal suspend inline fun <reified T> writeChunkNbt(
+        entry: RegionState,
+        localChunkPosition: LocalChunkPosition,
+        value: T,
+        compression: Compression,
+    ) = writeChunkNbt(
+        entry,
+        localChunkPosition,
+        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
+        value,
+        compression,
+    )
 
     internal suspend fun <B : Any, M : Any> writeChunk(
         entry: RegionState,

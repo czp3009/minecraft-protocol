@@ -7,6 +7,7 @@ import com.hiczp.minecraft.world.format.CompressedNbtFormat
 import com.hiczp.minecraft.world.format.Compression
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.*
@@ -84,9 +85,11 @@ class DataPackFormatTest {
                     requireNotNull(dataPack.dataPackMetadata).supportedDataPackFormatVersionRange,
         )
         assertEquals(setOf("test:feature"), dataPack.dataPackMetadata.enabledFeatureFlags)
-        assertIs<DataPackFileContent.JsonFile>(
+        val biomeJsonFile = assertIs<DataPackFileContent.JsonFile>(
             dataPack.dataPackFileContent(DataPackFilePath("data/test/worldgen/biome/example.json")),
         )
+        assertEquals(BiomeJson(0.5), biomeJsonFile.decode(BiomeJson.serializer()))
+        assertEquals(BiomeJson(0.5), biomeJsonFile.decode<BiomeJson>())
         assertEquals(
             structureDocument,
             assertIs<DataPackFileContent.NbtFile>(
@@ -280,3 +283,8 @@ class DataPackFormatTest {
         val size: Int,
     ) : DataPackFileContent
 }
+
+@Serializable
+private data class BiomeJson(
+    val temperature: Double,
+)

@@ -12,6 +12,7 @@ import kotlinx.io.okio.asOkioSink
 import kotlinx.io.okio.asOkioSource
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
+import kotlinx.serialization.serializer
 import okio.Buffer
 import okio.BufferedSink
 import okio.BufferedSource
@@ -27,6 +28,9 @@ internal fun <T> NbtFormat.decodeFromOkio(
 ): T = decodeFromOkio(source) { kotlinxSource ->
     decodeFromSource(deserializationStrategy, kotlinxSource)
 }
+
+internal inline fun <reified T> NbtFormat.decodeFromOkio(source: BufferedSource): T =
+    decodeFromOkio(serializersModule.serializer(), source)
 
 internal fun NbtFormat.encodeDocumentToOkio(nbtDocument: NbtDocument, sink: BufferedSink) {
     val kotlinxSink = sink.asKotlinxIoRawSink().buffered()
@@ -47,6 +51,9 @@ internal fun <T> NbtFormat.encodeToOkio(
         kotlinxSink.emit()
     }
 }
+
+internal inline fun <reified T> NbtFormat.encodeToOkio(value: T, sink: BufferedSink) =
+    encodeToOkio(serializersModule.serializer(), value, sink)
 
 internal fun <B : Any, M : Any> ChunkNbtCodec<B, M>.decodeFromOkio(
     source: BufferedSource,
@@ -111,6 +118,11 @@ internal fun <T> CompressedNbtFormat.encodeFromOkio(
 ): CompressedChunk = encodeCompressedChunkFromOkio(this, compression) { sink ->
     nbtFormat.encodeToOkio(serializationStrategy, value, sink)
 }
+
+internal inline fun <reified T> CompressedNbtFormat.encodeFromOkio(
+    value: T,
+    compression: Compression,
+): CompressedChunk = encodeFromOkio(nbtFormat.serializersModule.serializer(), value, compression)
 
 internal fun <B : Any, M : Any> ChunkNbtCodec<B, M>.encodeFromOkio(
     chunk: Chunk<B, M>,

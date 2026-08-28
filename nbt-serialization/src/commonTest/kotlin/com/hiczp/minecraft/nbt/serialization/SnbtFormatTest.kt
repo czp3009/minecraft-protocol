@@ -139,6 +139,10 @@ class SnbtFormatTest {
         val encoded = SnbtFormat.encodeToString(snbtSample)
 
         assertEquals(snbtSample, SnbtFormat.decodeFromString<SnbtSample>(encoded))
+        val explicitNbtTag = SnbtFormat.encodeToNbtTag(SnbtSample.serializer(), snbtSample)
+        assertEquals(snbtSample, SnbtFormat.decodeFromNbtTag(SnbtSample.serializer(), explicitNbtTag))
+        val inferredNbtTag = SnbtFormat.encodeToNbtTag(snbtSample)
+        assertEquals(snbtSample, SnbtFormat.decodeFromNbtTag<SnbtSample>(inferredNbtTag))
         val stream = Buffer()
         SnbtFormat.encodeToSink(snbtSample, stream)
         assertEquals(snbtSample, SnbtFormat.decodeFromSource<SnbtSample>(stream))

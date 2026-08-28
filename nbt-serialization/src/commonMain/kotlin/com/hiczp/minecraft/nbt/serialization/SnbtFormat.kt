@@ -133,6 +133,12 @@ sealed class SnbtFormat(
     }
 }
 
+inline fun <reified T> SnbtFormat.encodeToNbtTag(value: T): NbtTag =
+    encodeToNbtTag(serializersModule.serializer(), value)
+
+inline fun <reified T> SnbtFormat.decodeFromNbtTag(nbtTag: NbtTag): T =
+    decodeFromNbtTag(serializersModule.serializer(), nbtTag)
+
 inline fun <reified T> SnbtFormat.encodeToSink(value: T, sink: Sink) {
     encodeToSink(serializersModule.serializer(), value, sink)
 }

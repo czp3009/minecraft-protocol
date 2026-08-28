@@ -34,7 +34,7 @@ class FileIOTest {
             },
             jsonPath to {
                 Utf8JsonFileStore(TerminalReadFailingFileSystem(base, jsonPath))
-                    .readJson(jsonPath, json = Json)
+                    .readJsonElement(jsonPath, json = Json)
             },
         ).forEach { (path, read) ->
             val failure = assertFails { read() }
@@ -48,7 +48,7 @@ class FileIOTest {
             },
             jsonPath to {
                 Utf8JsonFileStore(TerminalWriteFailingFileSystem(base, jsonPath))
-                    .writeJson(jsonPath, Json.parseToJsonElement("{}"), Json)
+                    .writeJsonElement(jsonPath, Json.parseToJsonElement("{}"), Json)
             },
         ).forEach { (path, write) ->
             val failure = assertFails { write() }

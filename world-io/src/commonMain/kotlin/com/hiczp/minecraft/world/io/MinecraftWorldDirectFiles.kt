@@ -6,6 +6,7 @@ import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.serializer
 import okio.BufferedSink
 import okio.BufferedSource
 import okio.Path
@@ -39,6 +40,11 @@ class MinecraftWorldDirectFiles internal constructor(
         compression: Compression = Compression.GZIP,
     ): T = withOperation { nbtFileStore.read(path, deserializationStrategy, compression) }
 
+    suspend inline fun <reified T> readNbt(
+        path: Path,
+        compression: Compression = Compression.GZIP,
+    ): T = readNbt(path, serializer(), compression)
+
     suspend fun <T> readNbt(
         path: Path,
         compression: Compression = Compression.GZIP,
@@ -58,6 +64,12 @@ class MinecraftWorldDirectFiles internal constructor(
         compression: Compression = Compression.GZIP,
     ) = withOperation { nbtFileStore.write(path, serializationStrategy, value, compression) }
 
+    suspend inline fun <reified T> writeNbt(
+        path: Path,
+        value: T,
+        compression: Compression = Compression.GZIP,
+    ) = writeNbt(path, serializer(), value, compression)
+
     suspend fun writeNbt(
         path: Path,
         compression: Compression = Compression.GZIP,
@@ -70,7 +82,7 @@ class MinecraftWorldDirectFiles internal constructor(
         withOperation { utf8JsonFileStore.read(path, block) }
 
     suspend fun readJsonElement(path: Path, json: Json = Json): JsonElement =
-        withOperation { utf8JsonFileStore.readJson(path, json) }
+        withOperation { utf8JsonFileStore.readJsonElement(path, json) }
 
     suspend fun <T> readJson(
         path: Path,
@@ -78,13 +90,16 @@ class MinecraftWorldDirectFiles internal constructor(
         json: Json = Json,
     ): T = withOperation { utf8JsonFileStore.readJson(path, deserializationStrategy, json) }
 
+    suspend inline fun <reified T> readJson(path: Path, json: Json = Json): T =
+        readJson(path, json.serializersModule.serializer(), json)
+
     suspend fun writeJsonText(path: Path, text: String) = withOperation { utf8JsonFileStore.writeText(path, text) }
 
     suspend fun writeJson(path: Path, block: (BufferedSink) -> Unit) =
         withOperation { utf8JsonFileStore.write(path, block) }
 
     suspend fun writeJsonElement(path: Path, jsonElement: JsonElement, json: Json = Json) =
-        withOperation { utf8JsonFileStore.writeJson(path, jsonElement, json) }
+        withOperation { utf8JsonFileStore.writeJsonElement(path, jsonElement, json) }
 
     suspend fun <T> writeJson(
         path: Path,
@@ -92,6 +107,9 @@ class MinecraftWorldDirectFiles internal constructor(
         value: T,
         json: Json = Json,
     ) = withOperation { utf8JsonFileStore.writeJson(path, serializationStrategy, value, json) }
+
+    suspend inline fun <reified T> writeJson(path: Path, value: T, json: Json = Json) =
+        writeJson(path, json.serializersModule.serializer(), value, json)
 
     private suspend fun <T> withOperation(block: () -> T): T = worldOperationLifecycle.withOperation { block() }
 }
@@ -115,6 +133,11 @@ class LiveMinecraftWorldDirectFiles internal constructor(
         compression: Compression = Compression.GZIP,
     ): T = nbtFileStore.read(path, deserializationStrategy, compression)
 
+    inline fun <reified T> readNbt(
+        path: Path,
+        compression: Compression = Compression.GZIP,
+    ): T = readNbt(path, serializer(), compression)
+
     fun <T> readNbt(
         path: Path,
         compression: Compression = Compression.GZIP,
@@ -125,11 +148,15 @@ class LiveMinecraftWorldDirectFiles internal constructor(
 
     fun <T> readJson(path: Path, block: (BufferedSource) -> T): T = utf8JsonFileStore.read(path, block)
 
-    fun readJsonElement(path: Path, json: Json = Json): JsonElement = utf8JsonFileStore.readJson(path, json)
+    fun readJsonElement(path: Path, json: Json = Json): JsonElement =
+        utf8JsonFileStore.readJsonElement(path, json)
 
     fun <T> readJson(
         path: Path,
         deserializationStrategy: DeserializationStrategy<T>,
         json: Json = Json,
     ): T = utf8JsonFileStore.readJson(path, deserializationStrategy, json)
+
+    inline fun <reified T> readJson(path: Path, json: Json = Json): T =
+        readJson(path, json.serializersModule.serializer(), json)
 }

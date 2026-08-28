@@ -13,6 +13,7 @@ import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.modules.EmptySerializersModule
 import kotlinx.serialization.modules.SerializersModule
+import kotlinx.serialization.serializer
 import okio.*
 
 /**
@@ -61,6 +62,11 @@ class NbtFileStore internal constructor(
     ): T = read(path, compression) { source ->
         nbtFormat.decodeFromOkio(deserializationStrategy, source)
     }
+
+    inline fun <reified T> read(
+        path: Path,
+        compression: Compression = Compression.GZIP,
+    ): T = read(path, nbtFormat.serializersModule.serializer(), compression)
 
     /** Lends the complete decompressed NBT stream for the duration of [block]. */
     fun <T> read(
@@ -125,6 +131,12 @@ class NbtFileStore internal constructor(
         nbtFormat.encodeToOkio(serializationStrategy, value, sink)
     }
 
+    inline fun <reified T> write(
+        path: Path,
+        value: T,
+        compression: Compression = Compression.GZIP,
+    ) = write(path, nbtFormat.serializersModule.serializer(), value, compression)
+
     /** Directly truncates, streams, and durably syncs the final file. */
     fun write(
         path: Path,
@@ -150,6 +162,12 @@ class NbtFileStore internal constructor(
     ): Path = writeSyncedTemporary(directory, compression) { sink ->
         nbtFormat.encodeToOkio(serializationStrategy, value, sink)
     }
+
+    internal inline fun <reified T> writeSyncedTemporary(
+        directory: Path,
+        value: T,
+        compression: Compression = Compression.GZIP,
+    ): Path = writeSyncedTemporary(directory, nbtFormat.serializersModule.serializer(), value, compression)
 
     internal fun writeSyncedTemporary(
         directory: Path,

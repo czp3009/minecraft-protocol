@@ -6,6 +6,7 @@ import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.serializer
 import kotlin.jvm.JvmInline
 
 /** Stable application identity for one data pack. It is independent of its filesystem name. */
@@ -97,6 +98,9 @@ interface DataPackFileContent {
             deserializationStrategy: DeserializationStrategy<T>,
             json: Json = Json,
         ): T = json.decodeFromJsonElement(deserializationStrategy, jsonElement)
+
+        inline fun <reified T> decode(json: Json = Json): T =
+            decode(json.serializersModule.serializer(), json)
     }
 
     /**

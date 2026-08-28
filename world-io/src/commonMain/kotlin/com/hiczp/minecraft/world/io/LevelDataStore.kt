@@ -5,6 +5,7 @@ import com.hiczp.minecraft.nbt.serialization.NbtBinaryFormatException
 import com.hiczp.minecraft.world.format.CompressionFormatException
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
+import kotlinx.serialization.serializer
 import okio.BufferedSink
 import okio.BufferedSource
 import okio.IOException
@@ -34,6 +35,8 @@ class LevelDataStore(
 
     fun <T> read(deserializationStrategy: DeserializationStrategy<T>): T =
         readWithRecovery { backupNbtCandidate -> backupNbtFileStore.read(backupNbtCandidate, deserializationStrategy) }
+
+    inline fun <reified T> read(): T = read(nbtFileStore.nbtFormat.serializersModule.serializer())
 
     fun <T> read(block: (BufferedSource) -> T): T =
         readWithRecovery { backupNbtCandidate -> backupNbtFileStore.read(backupNbtCandidate, block) }
@@ -65,6 +68,9 @@ class LevelDataStore(
         backupNbtFileStore.read(backupNbtCandidate, deserializationStrategy)
     }
 
+    internal inline fun <reified T> readForSharedAccess(): CoordinatedRead<T> =
+        readForSharedAccess(nbtFileStore.nbtFormat.serializersModule.serializer())
+
     internal fun <T> readForSharedAccess(block: (BufferedSource) -> T): CoordinatedRead<T> =
         probeSharedCandidate { backupNbtCandidate -> backupNbtFileStore.read(backupNbtCandidate, block) }
 
@@ -81,6 +87,9 @@ class LevelDataStore(
 
     fun <T> write(serializationStrategy: SerializationStrategy<T>, value: T) =
         backupNbtFileStore.write(serializationStrategy, value)
+
+    inline fun <reified T> write(value: T) =
+        write(nbtFileStore.nbtFormat.serializersModule.serializer(), value)
 
     fun write(block: (BufferedSink) -> Unit) = backupNbtFileStore.write(block)
 }

@@ -44,6 +44,9 @@ intermediate NBT/JSON tree. Complete-value helpers necessarily retain the value 
 owns its own open/close lifetime, so two separate caller operations may open one file twice; a single semantic call
 reuses its source for tasks such as saved-data compression detection and decoding.
 
+Every typed NBT and JSON store operation has both an explicit serialization-strategy overload and a reified overload.
+JSON tree operations use the distinct `readJsonElement` and `writeJsonElement` names.
+
 Stateless does not mean read-only: a directly constructed `LevelDataStore` may promote `level.dat_old`, and a
 `PlayerDataStore` may preserve corrupt evidence. Such policy operations do not acquire a logical lock on the caller's
 behalf. The live facade supplies the same stores with a read-only physical capability, which disables those mutations.
@@ -357,6 +360,9 @@ suspend fun readUncoordinatedNbt(
     path: Path,
 ): NbtDocument = minecraftWorldAccess.directFiles.readNbtDocument(path)
 ```
+
+Serializable models can use `directFiles.readNbt<Model>(path)` and `directFiles.readJson<Model>(path)`. Corresponding
+overloads accept an explicit deserialization strategy, and mutable direct access also provides both forms for writes.
 
 The path is used exactly as supplied. It is not resolved below the world root, canonicalized into a logical key, or
 checked against `session.lock`, metadata files, Regions, or paths outside the world. Direct calls do not coordinate with
