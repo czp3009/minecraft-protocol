@@ -137,13 +137,13 @@ class VanillaProtocolDataTest {
         completeSynchronizedRegistryPackets.zip(knownPackSynchronizedRegistryPackets)
             .forEach { (completeRegistry, knownPackRegistry) ->
                 assertEquals(completeRegistry.registryId, knownPackRegistry.registryId)
-            assertEquals(
-                completeRegistry.entries.size,
-                completeRegistry.entries.map { it.id }.distinct().size,
-            )
+                assertEquals(
+                    completeRegistry.entries.size,
+                    completeRegistry.entries.map { it.id }.distinct().size,
+                )
                 assertTrue(completeRegistry.entries.all { it.data != null })
                 assertTrue(knownPackRegistry.entries.all { it.data == null })
-        }
+            }
 
         val registryTags = VanillaProtocolData.registryTags
         assertEquals(registryTags.size, registryTags.map { it.registry }.distinct().size)

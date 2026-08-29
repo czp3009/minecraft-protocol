@@ -55,7 +55,10 @@ class MinecraftUserApiTest {
             assertTrue(privileges.onlineChat?.enabled == true)
             assertFalse(privileges.multiplayerServer?.enabled ?: true)
             assertNull(privileges.optionalTelemetry)
-            assertEquals(MinecraftChatToggleValue.FRIENDS_ONLY, minecraftUserAttributesResponse.chatPreferences?.textCommunication)
+            assertEquals(
+                MinecraftChatToggleValue.FRIENDS_ONLY,
+                minecraftUserAttributesResponse.chatPreferences?.textCommunication
+            )
             assertNull(minecraftUserAttributesResponse.banStatus?.bannedScopes?.get("MULTIPLAYER")?.expires)
             assertEquals(MinecraftToggleValue.ENABLED, updated.friendsPreferences?.friends)
             assertEquals(2, minecraftBlockListResponse.blockedProfiles?.size)

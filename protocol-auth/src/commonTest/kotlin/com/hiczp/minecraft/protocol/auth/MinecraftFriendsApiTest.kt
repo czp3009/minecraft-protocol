@@ -64,7 +64,10 @@ class MinecraftFriendsApiTest {
             )
             val emptyUpdate = minecraftFriendsApi.updateFriend(
                 accessToken = "access-token",
-                minecraftFriendActionRequest = MinecraftFriendActionRequest.byName("Notch", MinecraftFriendUpdateType.ADD),
+                minecraftFriendActionRequest = MinecraftFriendActionRequest.byName(
+                    "Notch",
+                    MinecraftFriendUpdateType.ADD
+                ),
             )
             val presence = minecraftFriendsApi.updatePresence(
                 accessToken = "access-token",
@@ -169,7 +172,10 @@ class MinecraftFriendsApiTest {
             val failure = assertFailsWith<MinecraftFriendsResponseException> {
                 MinecraftFriendsApi(httpClient).updateFriend(
                     accessToken = "access-token",
-                    minecraftFriendActionRequest = MinecraftFriendActionRequest.byName("missing", MinecraftFriendUpdateType.ADD),
+                    minecraftFriendActionRequest = MinecraftFriendActionRequest.byName(
+                        "missing",
+                        MinecraftFriendUpdateType.ADD
+                    ),
                 )
             }
 

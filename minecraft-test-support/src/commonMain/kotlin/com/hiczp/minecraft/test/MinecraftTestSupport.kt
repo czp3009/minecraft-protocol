@@ -95,7 +95,11 @@ object MinecraftTestSupport {
         status(minecraftTestResource).exitCode
 
     suspend fun logText(minecraftTestResource: MinecraftTestResource): String =
-        withServiceClient { minecraftTestSupportServiceClient -> minecraftTestSupportServiceClient.logText(minecraftTestResource) }
+        withServiceClient { minecraftTestSupportServiceClient ->
+            minecraftTestSupportServiceClient.logText(
+                minecraftTestResource
+            )
+        }
 
     suspend fun waitForLog(
         minecraftTestResource: MinecraftTestResource,
@@ -140,11 +144,19 @@ object MinecraftTestSupport {
      * working directory and Fixture Host slot.
      */
     suspend fun closeProcess(minecraftTestResource: MinecraftTestResource): Int =
-        withServiceClient { minecraftTestSupportServiceClient -> minecraftTestSupportServiceClient.closeProcess(minecraftTestResource) }
+        withServiceClient { minecraftTestSupportServiceClient ->
+            minecraftTestSupportServiceClient.closeProcess(
+                minecraftTestResource
+            )
+        }
 
     /** Waits for the current process to exit without requesting shutdown. */
     suspend fun awaitExit(minecraftTestResource: MinecraftTestResource): Int =
-        withServiceClient { minecraftTestSupportServiceClient -> minecraftTestSupportServiceClient.awaitExit(minecraftTestResource) }
+        withServiceClient { minecraftTestSupportServiceClient ->
+            minecraftTestSupportServiceClient.awaitExit(
+                minecraftTestResource
+            )
+        }
 
     /**
      * Returns an absolute path in the Fixture Host's filesystem namespace.

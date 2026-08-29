@@ -646,7 +646,11 @@ internal object ParticleOptionsSerializer : KSerializer<ParticleOptions> {
 
             ParticleType.TRAIL -> {
                 val trailParticlePayload = input.payload(TRAIL, TrailParticlePayload.serializer())
-                ParticleOptions.Trail(trailParticlePayload.target, trailParticlePayload.color, trailParticlePayload.duration)
+                ParticleOptions.Trail(
+                    trailParticlePayload.target,
+                    trailParticlePayload.color,
+                    trailParticlePayload.duration
+                )
             }
 
             ParticleType.SHRIEK -> {

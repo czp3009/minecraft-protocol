@@ -170,7 +170,8 @@ suspend fun MinecraftFriendsApi.updatePresence(
     minecraftOnlineIdentity: MinecraftOnlineIdentity,
     minecraftPresenceRequest: MinecraftPresenceRequest,
     etag: String? = null,
-): MinecraftConditionalResponse<MinecraftPresenceResponse> = updatePresence(minecraftOnlineIdentity.accessToken, minecraftPresenceRequest, etag)
+): MinecraftConditionalResponse<MinecraftPresenceResponse> =
+    updatePresence(minecraftOnlineIdentity.accessToken, minecraftPresenceRequest, etag)
 
 private val MINECRAFT_FRIENDS_ENDPOINT = Url("https://api.minecraftservices.com/friends")
 private val MINECRAFT_PRESENCE_ENDPOINT = Url("https://api.minecraftservices.com/presence")

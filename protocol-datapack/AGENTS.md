@@ -1,7 +1,7 @@
 # protocol-datapack
 
-This module owns vanilla-neutral, filesystem-independent data-pack-to-Configuration projection and the shared
-adaptation of active protocol dimension/registry facts to semantic world-Chunk contracts.
+This module owns vanilla-neutral, filesystem-independent data-pack-to-Configuration projection and the shared adaptation
+of active protocol dimension/registry facts to semantic world-Chunk contracts.
 
 ## Local invariants
 

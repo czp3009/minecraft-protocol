@@ -48,7 +48,8 @@ class MinecraftEntityPacketDecoder(
     private val entityTypeProtocolRegistry =
         protocolRegistryContext.requireRegistry(ProtocolRegistryContext.ENTITY_TYPE_REGISTRY)
 
-    fun decode(spawnEntityPacket: SpawnEntityPacket): Entity<NbtCompound> = decode(spawnEntityPacket, NbtCompound(emptyMap()))
+    fun decode(spawnEntityPacket: SpawnEntityPacket): Entity<NbtCompound> =
+        decode(spawnEntityPacket, NbtCompound(emptyMap()))
 
     /** Decodes one pairing bundle and requires it to contain exactly one Entity. */
     fun decode(clientboundBundlePacket: ClientboundBundlePacket): Entity<NbtCompound> =
@@ -59,7 +60,8 @@ class MinecraftEntityPacketDecoder(
         clientboundBundlePacket.singleSpawnEntityPacketOrNull()?.let(::decode)
 
     /** Decodes every pairing sequence in [clientboundBundlePacket] without adapting runtime-only packets. */
-    fun decodeEntities(clientboundBundlePacket: ClientboundBundlePacket): List<Entity<NbtCompound>> = decodeEntities(clientboundBundlePacket.subPackets)
+    fun decodeEntities(clientboundBundlePacket: ClientboundBundlePacket): List<Entity<NbtCompound>> =
+        decodeEntities(clientboundBundlePacket.subPackets)
 
     /** Returns null when [clientboundBundlePacket] does not begin with an Entity pairing sequence. */
     fun decodeEntitiesOrNull(clientboundBundlePacket: ClientboundBundlePacket): List<Entity<NbtCompound>>? =
@@ -151,7 +153,8 @@ class MinecraftEntityPacketDecoder(
 
     /** Returns the Entity only when [clientboundBundlePacket] contains exactly one pairing sequence. */
     fun <E : Any> decodeOrNull(clientboundBundlePacket: ClientboundBundlePacket, data: E): Entity<E>? =
-        clientboundBundlePacket.singleSpawnEntityPacketOrNull()?.let { spawnEntityPacket -> decode(spawnEntityPacket, data) }
+        clientboundBundlePacket.singleSpawnEntityPacketOrNull()
+            ?.let { spawnEntityPacket -> decode(spawnEntityPacket, data) }
 
     private fun <E : Any> createAndRegister(
         spawnEntityPacket: SpawnEntityPacket,
@@ -164,8 +167,9 @@ class MinecraftEntityPacketDecoder(
         return entity
     }
 
-    private fun type(spawnEntityPacket: SpawnEntityPacket): Identifier = entityTypeProtocolRegistry[spawnEntityPacket.typeId]?.id
-        ?: throw IllegalArgumentException("Entity type registry ID ${spawnEntityPacket.typeId} has no installed entry")
+    private fun type(spawnEntityPacket: SpawnEntityPacket): Identifier =
+        entityTypeProtocolRegistry[spawnEntityPacket.typeId]?.id
+            ?: throw IllegalArgumentException("Entity type registry ID ${spawnEntityPacket.typeId} has no installed entry")
 
     private fun <E : Any> createEntity(
         spawnEntityPacket: SpawnEntityPacket,
@@ -176,7 +180,11 @@ class MinecraftEntityPacketDecoder(
         uuid = spawnEntityPacket.entityUuid,
         data = data,
         position = EntityVector3d(spawnEntityPacket.x, spawnEntityPacket.y, spawnEntityPacket.z),
-        velocity = EntityVector3d(spawnEntityPacket.velocity.x, spawnEntityPacket.velocity.y, spawnEntityPacket.velocity.z),
+        velocity = EntityVector3d(
+            spawnEntityPacket.velocity.x,
+            spawnEntityPacket.velocity.y,
+            spawnEntityPacket.velocity.z
+        ),
         entityRotation = EntityRotation(
             yaw = spawnEntityPacket.yaw.degrees,
             pitch = spawnEntityPacket.pitch.degrees,

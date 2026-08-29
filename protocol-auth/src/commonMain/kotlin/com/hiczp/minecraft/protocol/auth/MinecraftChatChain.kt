@@ -159,8 +159,13 @@ class MinecraftServerboundChatChainVerifier(
         val minecraftChatBatchVerificationResult =
             verifyAll(listOf(MinecraftChatSignatureInput(signedMessageBody, signature)))
     ) {
-        is MinecraftChatBatchVerificationResult.Valid -> MinecraftChatVerificationResult.Valid(minecraftChatBatchVerificationResult.messages.single())
-        is MinecraftChatBatchVerificationResult.Invalid -> MinecraftChatVerificationResult.Invalid(minecraftChatBatchVerificationResult.minecraftChatChainFailure)
+        is MinecraftChatBatchVerificationResult.Valid -> MinecraftChatVerificationResult.Valid(
+            minecraftChatBatchVerificationResult.messages.single()
+        )
+
+        is MinecraftChatBatchVerificationResult.Invalid -> MinecraftChatVerificationResult.Invalid(
+            minecraftChatBatchVerificationResult.minecraftChatChainFailure
+        )
     }
 
     /** Verifies and advances an entire contiguous batch atomically. */
@@ -171,10 +176,11 @@ class MinecraftServerboundChatChainVerifier(
             val verified = ArrayList<MinecraftSignedMessage>(inputs.size)
             inputs.forEachIndexed { index, minecraftChatSignatureInput ->
                 val signature =
-                    minecraftChatSignatureInput.signature ?: return@withLock MinecraftChatBatchVerificationResult.Invalid(
-                    minecraftChatChainFailure = MinecraftChatChainFailure.MISSING_SIGNATURE,
-                    failedAt = index,
-                )
+                    minecraftChatSignatureInput.signature
+                        ?: return@withLock MinecraftChatBatchVerificationResult.Invalid(
+                            minecraftChatChainFailure = MinecraftChatChainFailure.MISSING_SIGNATURE,
+                            failedAt = index,
+                        )
                 if (signature.size != PackedMessageSignature.SIGNATURE_BYTES) {
                     return@withLock MinecraftChatBatchVerificationResult.Invalid(
                         minecraftChatChainFailure = MinecraftChatChainFailure.INVALID_SIGNATURE,
@@ -191,13 +197,22 @@ class MinecraftServerboundChatChainVerifier(
                         failedAt = index,
                     )
                 }
-                if (!minecraftChatSignatureVerifier.verify(signedMessageLink, minecraftChatSignatureInput.signedMessageBody, signature)) {
+                if (!minecraftChatSignatureVerifier.verify(
+                        signedMessageLink,
+                        minecraftChatSignatureInput.signedMessageBody,
+                        signature
+                    )
+                ) {
                     return@withLock MinecraftChatBatchVerificationResult.Invalid(
                         minecraftChatChainFailure = MinecraftChatChainFailure.INVALID_SIGNATURE,
                         failedAt = index,
                     )
                 }
-                verified += MinecraftSignedMessage(signedMessageLink, minecraftChatSignatureInput.signedMessageBody, signature)
+                verified += MinecraftSignedMessage(
+                    signedMessageLink,
+                    minecraftChatSignatureInput.signedMessageBody,
+                    signature
+                )
                 candidateLink = signedMessageLink.advance()
                 candidateTimestamp = minecraftChatSignatureInput.signedMessageBody.timestampEpochMillis
             }

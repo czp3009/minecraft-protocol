@@ -58,7 +58,10 @@ class MicrosoftOAuthApiTest {
             redirectUri = "http://127.0.0.1:12345/oauth/callback",
             codeVerifier = "code-verifier",
         )
-        assertEquals(MicrosoftOAuthTools.AUTHORIZATION_CODE_GRANT_TYPE, microsoftAuthorizationCodeTokenRequest.grantType)
+        assertEquals(
+            MicrosoftOAuthTools.AUTHORIZATION_CODE_GRANT_TYPE,
+            microsoftAuthorizationCodeTokenRequest.grantType
+        )
         assertEquals(MicrosoftOAuthTools.MINECRAFT_SCOPE, microsoftAuthorizationCodeTokenRequest.scope)
         assertEquals("authorization-code", microsoftAuthorizationCodeTokenRequest.code)
 

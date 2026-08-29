@@ -116,7 +116,8 @@ internal class AccountService(
             launcherStore.authMemory.update {
                 if (replacingIdentityId == null) {
                     selectedIdentityId = storedAccount.minecraftIdentity.id
-                    accounts = accounts.filterNot { it.minecraftIdentity.id == storedAccount.minecraftIdentity.id } + storedAccount
+                    accounts =
+                        accounts.filterNot { it.minecraftIdentity.id == storedAccount.minecraftIdentity.id } + storedAccount
                 } else {
                     val index = accounts.indexOfFirst { it.minecraftIdentity.id == replacingIdentityId }
                     require(index >= 0) { "Account does not exist" }
@@ -151,7 +152,7 @@ internal class AccountService(
     suspend fun refreshIfNeeded(identityId: Uuid): StoredAccount? = refreshLock(identityId).withLock {
         val storedAccount =
             launcherStore.authMemory.read { accounts.singleOrNull { it.minecraftIdentity.id == identityId } }
-            ?: return@withLock null
+                ?: return@withLock null
         val minecraftOnlineIdentity =
             storedAccount.minecraftIdentity as? MinecraftOnlineIdentity ?: return@withLock storedAccount
         if (!needsRefresh(storedAccount)) {
@@ -231,7 +232,11 @@ internal class AccountService(
     private suspend fun completeMinecraftLogin(microsoftTokenResponse: MicrosoftTokenResponse): MinecraftLoginResult {
         val xboxAuthenticationApi = XboxAuthenticationApi(httpClient)
         val userToken =
-            xboxAuthenticationApi.authenticateUser(XboxAuthenticationTools.userAuthenticationRequest(microsoftTokenResponse))
+            xboxAuthenticationApi.authenticateUser(
+                XboxAuthenticationTools.userAuthenticationRequest(
+                    microsoftTokenResponse
+                )
+            )
         val xstsToken = xboxAuthenticationApi.authorizeXsts(XboxAuthenticationTools.xstsAuthorizationRequest(userToken))
         val minecraftServicesApi = MinecraftServicesApi(httpClient)
         val minecraftLoginResponse =
@@ -243,7 +248,11 @@ internal class AccountService(
         }
         val minecraftProfileResponse = minecraftServicesApi.getMinecraftProfile(minecraftLoginResponse.accessToken)
         val minecraftOnlineIdentity =
-            MinecraftOnlineIdentity(Uuid.parse(minecraftProfileResponse.id), minecraftProfileResponse.name, minecraftLoginResponse.accessToken)
+            MinecraftOnlineIdentity(
+                Uuid.parse(minecraftProfileResponse.id),
+                minecraftProfileResponse.name,
+                minecraftLoginResponse.accessToken
+            )
         return MinecraftLoginResult(minecraftOnlineIdentity, minecraftLoginResponse.expiresIn)
     }
 
@@ -293,7 +302,9 @@ internal class AccountService(
                             verifier,
                         )
                         val microsoftTokenResponse =
-                            MicrosoftOAuthApi(httpClient).tokenWithAuthorizationCode(microsoftAuthorizationCodeTokenRequest)
+                            MicrosoftOAuthApi(httpClient).tokenWithAuthorizationCode(
+                                microsoftAuthorizationCodeTokenRequest
+                            )
                         call.respondText(
                             "Microsoft authorization is complete. Close this page and return to the launcher.",
                             ContentType.Text.Plain.withCharset(Charsets.UTF_8),

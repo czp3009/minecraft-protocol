@@ -828,7 +828,10 @@ class AnvilRegionFormatTest {
 
         AnvilRegionFormat.decodeRecordsFromSource(Buffer().apply { write(encodedAnvilRegion.bytes) }) { anvilChunkRecordInfo, source ->
             observed[anvilChunkRecordInfo.localChunkPosition] = source.readByteArray()
-            assertEquals(observed.getValue(anvilChunkRecordInfo.localChunkPosition).size.toLong(), anvilChunkRecordInfo.compressedByteCount)
+            assertEquals(
+                observed.getValue(anvilChunkRecordInfo.localChunkPosition).size.toLong(),
+                anvilChunkRecordInfo.compressedByteCount
+            )
         }
 
         assertContentEquals(firstPayload, observed.getValue(firstPosition))

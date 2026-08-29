@@ -28,7 +28,8 @@ class EntityRegionHandle internal constructor(
 
     suspend fun hasRegion(): Boolean = delegate.hasRegion()
 
-    suspend fun readChunkInfo(localChunkPosition: LocalChunkPosition): RegionChunkInfo? = delegate.readChunkInfo(localChunkPosition)
+    suspend fun readChunkInfo(localChunkPosition: LocalChunkPosition): RegionChunkInfo? =
+        delegate.readChunkInfo(localChunkPosition)
 
     suspend fun readChunkInfo(chunkPosition: ChunkPosition): RegionChunkInfo? = delegate.readChunkInfo(chunkPosition)
 
@@ -60,9 +61,11 @@ class EntityRegionHandle internal constructor(
     suspend fun readCompressedChunkTo(chunkPosition: ChunkPosition, sink: BufferedSink): RegionChunkInfo? =
         delegate.readCompressedChunkTo(chunkPosition, sink)
 
-    suspend fun readCompressedChunk(localChunkPosition: LocalChunkPosition): CompressedChunk? = delegate.readCompressedChunk(localChunkPosition)
+    suspend fun readCompressedChunk(localChunkPosition: LocalChunkPosition): CompressedChunk? =
+        delegate.readCompressedChunk(localChunkPosition)
 
-    suspend fun readCompressedChunk(chunkPosition: ChunkPosition): CompressedChunk? = delegate.readCompressedChunk(chunkPosition)
+    suspend fun readCompressedChunk(chunkPosition: ChunkPosition): CompressedChunk? =
+        delegate.readCompressedChunk(chunkPosition)
 
     suspend fun writeCompressedChunk(localChunkPosition: LocalChunkPosition, compressedChunk: CompressedChunk) =
         delegate.writeCompressedChunk(localChunkPosition, compressedChunk)
@@ -126,12 +129,18 @@ class EntityRegionHandle internal constructor(
     suspend inline fun <reified T> readChunkNbt(chunkPosition: ChunkPosition): T? =
         readChunkNbt(chunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
 
-    suspend fun <E : Any> readChunk(localChunkPosition: LocalChunkPosition, entityChunkNbtCodec: EntityChunkNbtCodec<E>): EntityChunk<E>? =
+    suspend fun <E : Any> readChunk(
+        localChunkPosition: LocalChunkPosition,
+        entityChunkNbtCodec: EntityChunkNbtCodec<E>
+    ): EntityChunk<E>? =
         withChunkNbtSource(localChunkPosition) { _, source ->
             entityChunkNbtCodec.decodeFromOkio(source, regionPosition.chunk(localChunkPosition))
         }
 
-    suspend fun <E : Any> readChunk(chunkPosition: ChunkPosition, entityChunkNbtCodec: EntityChunkNbtCodec<E>): EntityChunk<E>? =
+    suspend fun <E : Any> readChunk(
+        chunkPosition: ChunkPosition,
+        entityChunkNbtCodec: EntityChunkNbtCodec<E>
+    ): EntityChunk<E>? =
         readChunk(this.regionPosition.local(chunkPosition), entityChunkNbtCodec)
 
     suspend fun writeChunkNbtDocument(localChunkPosition: LocalChunkPosition, nbtDocument: NbtDocument) =

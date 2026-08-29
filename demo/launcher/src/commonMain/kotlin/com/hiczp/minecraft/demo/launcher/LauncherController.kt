@@ -139,7 +139,8 @@ internal class LauncherController(
 
     fun showAddAccount() = show(LauncherDestination.AddAccount)
 
-    fun showAccountActions(storedAccount: StoredAccount) = show(LauncherDestination.AccountActions(storedAccount.minecraftIdentity.id))
+    fun showAccountActions(storedAccount: StoredAccount) =
+        show(LauncherDestination.AccountActions(storedAccount.minecraftIdentity.id))
 
     fun showOfflineInput(storedAccount: StoredAccount? = null) =
         show(LauncherDestination.OfflineInput(storedAccount?.minecraftIdentity?.id))
@@ -357,7 +358,12 @@ internal class LauncherController(
                 throw failure
             } catch (failure: Throwable) {
                 _state.update { current ->
-                    current.copy(launcherDestination = LauncherDestination.Error(safeMessage(failure), current.launcherDestination))
+                    current.copy(
+                        launcherDestination = LauncherDestination.Error(
+                            safeMessage(failure),
+                            current.launcherDestination
+                        )
+                    )
                 }
             }
         }

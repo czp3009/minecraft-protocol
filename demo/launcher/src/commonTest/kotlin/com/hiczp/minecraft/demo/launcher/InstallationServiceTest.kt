@@ -35,10 +35,15 @@ class InstallationServiceTest {
 
         assertTrue(installFixture.launcherStore.loadInstalled().installations.isEmpty())
         installFixture.installationService.install(installFixture.versionEntry)
-        assertEquals(InstallProgress(completedFiles = 3, totalFiles = 3), installFixture.installationService.progress.value)
+        assertEquals(
+            InstallProgress(completedFiles = 3, totalFiles = 3),
+            installFixture.installationService.progress.value
+        )
 
         var stateWhenDownloadsStarted: InstalledState? = null
-        installFixture.installationService.install(installFixture.versionEntry) { installedState -> stateWhenDownloadsStarted = installedState }
+        installFixture.installationService.install(installFixture.versionEntry) { installedState ->
+            stateWhenDownloadsStarted = installedState
+        }
 
         val gameRoot = installFixture.launcherStore.gameRoot("demo")
         assertTrue(installFixture.fakeFileSystem.exists(gameRoot / "client.jar"))
@@ -54,7 +59,8 @@ class InstallationServiceTest {
         assertEquals(2, installFixture.countRequests(installFixture.libraryUrl))
         assertEquals(2, installFixture.countRequests(installFixture.assetIndexUrl))
         assertEquals(2, installFixture.countRequests(installFixture.assetUrl))
-        assertFalse(installFixture.fakeFileSystem.listRecursively(installFixture.root).any { it.name.endsWith(".download") })
+        assertFalse(
+            installFixture.fakeFileSystem.listRecursively(installFixture.root).any { it.name.endsWith(".download") })
         installFixture.close()
     }
 
@@ -65,9 +71,13 @@ class InstallationServiceTest {
         installFixture.installationService.install(installFixture.versionEntry)
 
         assertEquals(3, installFixture.countRequests(installFixture.clientUrl))
-        assertEquals(InstallProgress(completedFiles = 3, totalFiles = 3), installFixture.installationService.progress.value)
+        assertEquals(
+            InstallProgress(completedFiles = 3, totalFiles = 3),
+            installFixture.installationService.progress.value
+        )
         assertEquals(1, installFixture.launcherStore.loadInstalled().installations.size)
-        assertFalse(installFixture.fakeFileSystem.listRecursively(installFixture.root).any { it.name.endsWith(".download") })
+        assertFalse(
+            installFixture.fakeFileSystem.listRecursively(installFixture.root).any { it.name.endsWith(".download") })
         installFixture.close()
     }
 }

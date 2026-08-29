@@ -33,7 +33,8 @@ sealed class MinecraftProtocolFormat(
         operator fun invoke(
             minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration = MinecraftProtocolFormatConfiguration(),
             serializersModule: SerializersModule = EmptySerializersModule(),
-        ): MinecraftProtocolFormat = ConfiguredMinecraftProtocolFormat(minecraftProtocolFormatConfiguration, serializersModule)
+        ): MinecraftProtocolFormat =
+            ConfiguredMinecraftProtocolFormat(minecraftProtocolFormatConfiguration, serializersModule)
     }
 
     final override fun <T> encodeToByteArray(

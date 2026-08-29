@@ -99,7 +99,10 @@ class NeoForgeClientProfile(
     ) {
         check(!begun) { "A NeoForgeClientProfile can negotiate only one connection" }
         begun = true
-        requireNeoForgeCodecs(minecraftClientPacketConnection, neoForgeClientProfileDefinition.neoForgeNetworkConfiguration)
+        requireNeoForgeCodecs(
+            minecraftClientPacketConnection,
+            neoForgeClientProfileDefinition.neoForgeNetworkConfiguration
+        )
         activateInitialConfigurationRoutes(
             minecraftClientPacketConnection,
             PacketDirection.CLIENTBOUND,
@@ -420,7 +423,10 @@ class NeoForgeServerProfile(
     ) {
         check(!begun) { "A NeoForgeServerProfile can negotiate only one connection" }
         begun = true
-        requireNeoForgeCodecs(minecraftServerPacketConnection, neoForgeServerProfileDefinition.neoForgeNetworkConfiguration)
+        requireNeoForgeCodecs(
+            minecraftServerPacketConnection,
+            neoForgeServerProfileDefinition.neoForgeNetworkConfiguration
+        )
         activateInitialConfigurationRoutes(
             minecraftServerPacketConnection,
             PacketDirection.SERVERBOUND,
@@ -667,7 +673,10 @@ class NeoForgeServerProfile(
         neoForgeModdedNetworkQueryPacket: NeoForgeModdedNetworkQueryPacket,
     ) {
         val neoForgeNetworkNegotiation =
-            negotiateNeoForgeNetwork(neoForgeServerProfileDefinition.neoForgeNetworkConfiguration, neoForgeModdedNetworkQueryPacket.queries)
+            negotiateNeoForgeNetwork(
+                neoForgeServerProfileDefinition.neoForgeNetworkConfiguration,
+                neoForgeModdedNetworkQueryPacket.queries
+            )
         if (!neoForgeNetworkNegotiation.successful) {
             throw NeoForgeNetworkNegotiationException(
                 NeoForgeModdedNetworkSetupFailedPacket(neoForgeNetworkNegotiation.failureReasons),

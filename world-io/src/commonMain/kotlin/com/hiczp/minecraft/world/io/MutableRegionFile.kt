@@ -53,7 +53,14 @@ internal class MutableRegionFile private constructor(
 
     override fun readChunkInfo(localChunkPosition: LocalChunkPosition, regionHeader: RegionHeader): RegionChunkInfo? {
         checkOpen()
-        return readRegionChunkInfo(worldFileAccess.fileSystem, directory, regionPosition, fileHandle, regionHeader, localChunkPosition)
+        return readRegionChunkInfo(
+            worldFileAccess.fileSystem,
+            directory,
+            regionPosition,
+            fileHandle,
+            regionHeader,
+            localChunkPosition
+        )
     }
 
     /** Lends one complete compressed Chunk stream without retaining its payload. */
@@ -182,22 +189,22 @@ internal class MutableRegionFile private constructor(
         val regionWriteBatch = RegionWriteBatch()
         val regionReplacementScope =
             RegionReplacementScope(regionPosition) { localChunkPosition, compression, compressedLength, writeBlock ->
-            check(regionWriteBatch.failure == null) { "Region write has already failed" }
-            try {
-                require(compressedLength >= 0L) { "Compressed length must be non-negative" }
-                check(regionWriteBatch.locals.add(localChunkPosition)) { "Chunk $localChunkPosition was written more than once" }
-                regionWriteBatch.staged += stageRegionChunk(
-                    localChunkPosition = localChunkPosition,
-                    compression = compression,
-                    compressedLength = compressedLength,
-                    regionWriterState = regionWriterState,
-                    block = writeBlock,
-                )
-            } catch (caught: Throwable) {
-                regionWriteBatch.failure = caught
-                throw caught
+                check(regionWriteBatch.failure == null) { "Region write has already failed" }
+                try {
+                    require(compressedLength >= 0L) { "Compressed length must be non-negative" }
+                    check(regionWriteBatch.locals.add(localChunkPosition)) { "Chunk $localChunkPosition was written more than once" }
+                    regionWriteBatch.staged += stageRegionChunk(
+                        localChunkPosition = localChunkPosition,
+                        compression = compression,
+                        compressedLength = compressedLength,
+                        regionWriterState = regionWriterState,
+                        block = writeBlock,
+                    )
+                } catch (caught: Throwable) {
+                    regionWriteBatch.failure = caught
+                    throw caught
+                }
             }
-        }
         try {
             try {
                 regionReplacementScope.block()
@@ -289,7 +296,12 @@ internal class MutableRegionFile private constructor(
                 compression = compression,
                 external = false,
             ).encode()
-            fileHandle.write(newLocation.byteOffset, encodedRegionChunkRecordHeader, 0, encodedRegionChunkRecordHeader.size)
+            fileHandle.write(
+                newLocation.byteOffset,
+                encodedRegionChunkRecordHeader,
+                0,
+                encodedRegionChunkRecordHeader.size
+            )
             writePayload(
                 fileHandle.sink(newLocation.byteOffset + REGION_CHUNK_RECORD_HEADER_BYTES),
                 compressedLength,
@@ -387,9 +399,15 @@ internal class MutableRegionFile private constructor(
             try {
                 val externalTemporary = stagedRegionChunk.externalTemporary
                 if (externalTemporary == null) {
-                    worldFileAccess.fileSystem.delete(externalPath(stagedRegionChunk.localChunkPosition), mustExist = false)
+                    worldFileAccess.fileSystem.delete(
+                        externalPath(stagedRegionChunk.localChunkPosition),
+                        mustExist = false
+                    )
                 } else {
-                    worldFileAccess.fileSystem.moveReplacing(externalTemporary, externalPath(stagedRegionChunk.localChunkPosition))
+                    worldFileAccess.fileSystem.moveReplacing(
+                        externalTemporary,
+                        externalPath(stagedRegionChunk.localChunkPosition)
+                    )
                 }
                 regionWriterState.regionSectorAllocator.free(stagedRegionChunk.oldLocation)
             } catch (caught: Throwable) {
@@ -405,7 +423,10 @@ internal class MutableRegionFile private constructor(
         }
         regionWriteBatch.cleared.forEach { clearedRegionChunk ->
             try {
-                worldFileAccess.fileSystem.delete(externalPath(clearedRegionChunk.localChunkPosition), mustExist = false)
+                worldFileAccess.fileSystem.delete(
+                    externalPath(clearedRegionChunk.localChunkPosition),
+                    mustExist = false
+                )
                 regionWriterState.regionSectorAllocator.free(clearedRegionChunk.oldLocation)
             } catch (caught: Throwable) {
                 failure = combineFailures(failure, caught)

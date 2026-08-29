@@ -55,7 +55,10 @@ class MinecraftProtocolFormatTest {
     @Test
     fun `companion is the default format and factory creates configured instances`() {
         assertSame(MinecraftProtocolFormat, MinecraftProtocolFormat.Default)
-        assertEquals(MinecraftProtocolFormatConfiguration(), MinecraftProtocolFormat.minecraftProtocolFormatConfiguration)
+        assertEquals(
+            MinecraftProtocolFormatConfiguration(),
+            MinecraftProtocolFormat.minecraftProtocolFormatConfiguration
+        )
 
         val minecraftProtocolFormatConfiguration = MinecraftProtocolFormatConfiguration(
             strictBooleans = false,

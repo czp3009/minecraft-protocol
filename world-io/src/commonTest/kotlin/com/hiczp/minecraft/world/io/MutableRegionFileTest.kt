@@ -171,18 +171,32 @@ class MutableRegionFileTest {
 
         try {
             assertFailsWith<WorldIOException> {
-                mutableRegionFile.writeCompressedChunk(localChunkPosition, Compression.NONE, compressedByteCount = 2) { sink ->
+                mutableRegionFile.writeCompressedChunk(
+                    localChunkPosition,
+                    Compression.NONE,
+                    compressedByteCount = 2
+                ) { sink ->
                     sink.writeByte(9)
                 }
             }
-            assertContentEquals(original, checkNotNull(mutableRegionFile.readCompressedChunk(localChunkPosition)).toByteArray())
+            assertContentEquals(
+                original,
+                checkNotNull(mutableRegionFile.readCompressedChunk(localChunkPosition)).toByteArray()
+            )
 
             assertFailsWith<WorldIOException> {
-                mutableRegionFile.writeCompressedChunk(localChunkPosition, Compression.NONE, compressedByteCount = 1) { sink ->
+                mutableRegionFile.writeCompressedChunk(
+                    localChunkPosition,
+                    Compression.NONE,
+                    compressedByteCount = 1
+                ) { sink ->
                     sink.write(byteArrayOf(8, 9))
                 }
             }
-            assertContentEquals(original, checkNotNull(mutableRegionFile.readCompressedChunk(localChunkPosition)).toByteArray())
+            assertContentEquals(
+                original,
+                checkNotNull(mutableRegionFile.readCompressedChunk(localChunkPosition)).toByteArray()
+            )
 
             val firstExternalLength =
                 (REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD - 1L) * REGION_SECTOR_BYTES -
@@ -190,7 +204,10 @@ class MutableRegionFileTest {
             assertFailsWith<WorldIOException> {
                 mutableRegionFile.writeCompressedChunk(localChunkPosition, Compression.NONE, firstExternalLength) { }
             }
-            assertContentEquals(original, checkNotNull(mutableRegionFile.readCompressedChunk(localChunkPosition)).toByteArray())
+            assertContentEquals(
+                original,
+                checkNotNull(mutableRegionFile.readCompressedChunk(localChunkPosition)).toByteArray()
+            )
             assertTrue(fakeFileSystem.list(directory).none { it.name.startsWith(".mcc-") })
         } finally {
             mutableRegionFile.close()

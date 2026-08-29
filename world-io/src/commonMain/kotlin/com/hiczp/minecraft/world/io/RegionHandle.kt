@@ -105,7 +105,8 @@ class RegionHandle internal constructor(
         owner.readCompressedChunk(entry, localChunkPosition)
     }
 
-    suspend fun readCompressedChunk(chunkPosition: ChunkPosition): CompressedChunk? = readCompressedChunk(local(chunkPosition))
+    suspend fun readCompressedChunk(chunkPosition: ChunkPosition): CompressedChunk? =
+        readCompressedChunk(local(chunkPosition))
 
     suspend fun writeCompressedChunk(
         localChunkPosition: LocalChunkPosition,
@@ -222,7 +223,12 @@ class RegionHandle internal constructor(
         localChunkPosition: LocalChunkPosition,
         nbtDocument: NbtDocument,
     ) = withOperation {
-        owner.writeChunkNbtDocument(entry, localChunkPosition, nbtDocument, owner.regionStorageConfiguration.writeCompression)
+        owner.writeChunkNbtDocument(
+            entry,
+            localChunkPosition,
+            nbtDocument,
+            owner.regionStorageConfiguration.writeCompression
+        )
     }
 
     suspend fun writeChunkNbtDocument(

@@ -363,7 +363,10 @@ class RegionStorageTest {
         assertNull(reopened.readCompressedChunk(chunkPosition))
         assertTrue(reopened.hasChunk(chunkPosition))
         assertEquals(1, reopened.readChunkCount(chunkPosition.regionPosition))
-        assertEquals(listOf(chunkPosition.localChunkPosition), reopened.readLocalChunkPositions(chunkPosition.regionPosition))
+        assertEquals(
+            listOf(chunkPosition.localChunkPosition),
+            reopened.readLocalChunkPositions(chunkPosition.regionPosition)
+        )
         reopened.close()
     }
 
@@ -563,7 +566,10 @@ class RegionStorageTest {
         assertNull(missing.readCompressedChunk(chunkPosition))
         assertTrue(missing.hasChunk(chunkPosition))
         assertEquals(1, missing.readChunkCount(chunkPosition.regionPosition))
-        assertEquals(listOf(chunkPosition.localChunkPosition), missing.readLocalChunkPositions(chunkPosition.regionPosition))
+        assertEquals(
+            listOf(chunkPosition.localChunkPosition),
+            missing.readLocalChunkPositions(chunkPosition.regionPosition)
+        )
         assertTrue(missing.readChunkInfos(chunkPosition.regionPosition).isEmpty())
         missing.close()
 

@@ -575,18 +575,19 @@ class ChunkNbtCodecTest {
         }
     }
 
-    private fun emptyChunk(chunkPosition: ChunkPosition = ChunkPosition(0, 0)): Chunk<BlockStateDescriptor, String> = Chunk(
-        chunkPosition = chunkPosition,
-        chunkMetadata = ChunkMetadata(
-            dataVersion = TEST_DATA_VERSION,
-            lastUpdateTime = 12,
-            inhabitedTime = 34,
-            status = "minecraft:full",
-        ),
-        chunkLayout = TEST_LAYOUT,
-        defaultBlockState = AIR,
-        defaultBiome = "minecraft:plains",
-    )
+    private fun emptyChunk(chunkPosition: ChunkPosition = ChunkPosition(0, 0)): Chunk<BlockStateDescriptor, String> =
+        Chunk(
+            chunkPosition = chunkPosition,
+            chunkMetadata = ChunkMetadata(
+                dataVersion = TEST_DATA_VERSION,
+                lastUpdateTime = 12,
+                inhabitedTime = 34,
+                status = "minecraft:full",
+            ),
+            chunkLayout = TEST_LAYOUT,
+            defaultBlockState = AIR,
+            defaultBiome = "minecraft:plains",
+        )
 
     private companion object {
         const val TEST_DATA_VERSION = 9_999

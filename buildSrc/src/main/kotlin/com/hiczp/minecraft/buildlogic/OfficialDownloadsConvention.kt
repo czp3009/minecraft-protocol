@@ -189,7 +189,8 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         GenerateOfficialMinecraftServerTemplateTask::class.java,
     ) { generateOfficialMinecraftServerTemplateTask ->
         generateOfficialMinecraftServerTemplateTask.group = FIXTURE_TASK_GROUP
-        generateOfficialMinecraftServerTemplateTask.description = "Start, stop, sanitize, and publish the official server template."
+        generateOfficialMinecraftServerTemplateTask.description =
+            "Start, stop, sanitize, and publish the official server template."
         generateOfficialMinecraftServerTemplateTask.minecraftVersion.set(minecraftVersion)
         generateOfficialMinecraftServerTemplateTask.serverJar.set(downloadServer.flatMap { it.serverJar })
         generateOfficialMinecraftServerTemplateTask.workerClasspath.from(templateWorkerRuntime)
@@ -257,7 +258,8 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         DownloadMinecraftClientAssetObjectsTask::class.java,
     ) { downloadMinecraftClientAssetObjectsTask ->
         downloadMinecraftClientAssetObjectsTask.group = FIXTURE_TASK_GROUP
-        downloadMinecraftClientAssetObjectsTask.description = "Download original client objects not replaced by HeadlessMC."
+        downloadMinecraftClientAssetObjectsTask.description =
+            "Download original client objects not replaced by HeadlessMC."
         downloadMinecraftClientAssetObjectsTask.offline.set(gradle.startParameter.isOffline)
         downloadMinecraftClientAssetObjectsTask.assetIndexesDirectory.set(
             downloadAssetIndex.flatMap { it.assetIndexesDirectory },
@@ -370,7 +372,8 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         GenerateHeadlessClientTemplateTask::class.java,
     ) { generateHeadlessClientTemplateTask ->
         generateHeadlessClientTemplateTask.group = FIXTURE_TASK_GROUP
-        generateHeadlessClientTemplateTask.description = "Start, stop, sanitize, and publish the HeadlessMC client template."
+        generateHeadlessClientTemplateTask.description =
+            "Start, stop, sanitize, and publish the HeadlessMC client template."
         generateHeadlessClientTemplateTask.dependsOn(
             downloadHeadlessLauncher,
             downloadLibraries,

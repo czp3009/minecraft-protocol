@@ -217,5 +217,5 @@ EOF, framing failures, malformed known packets, invalid transitions, and pump fa
 visible through channel operations or `awaitClosed()`.
 
 Closing `outgoing` drains values already accepted by that channel before closing the connection. Calling `close()` is
-the immediate idempotent cancellation path and may discard queued values. Cancelling an in-flight transition send
-does not commit its protocol state or Login-query correlation.
+the immediate idempotent cancellation path and may discard queued values. Cancelling an in-flight transition send does
+not commit its protocol state or Login-query correlation.

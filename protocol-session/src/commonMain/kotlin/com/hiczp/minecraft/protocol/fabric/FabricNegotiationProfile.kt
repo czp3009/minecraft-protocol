@@ -214,23 +214,23 @@ class FabricClientProfile(
     ): RemoteRegistrySnapshot {
         val compatibleRegistries =
             fabricRegistrySyncPacket.remoteRegistrySnapshot.registries.values.mapNotNull { remoteRegistry ->
-            val localEntries = staticRegistrySchema.registries[remoteRegistry.id]
-            if (localEntries == null) {
-                if (remoteRegistry.id in fabricRegistrySyncPacket.optionalRegistryIds) return@mapNotNull null
-                throw FabricNegotiationException(
-                    "Fabric server synchronized unknown mandatory registry ${remoteRegistry.id}",
-                )
+                val localEntries = staticRegistrySchema.registries[remoteRegistry.id]
+                if (localEntries == null) {
+                    if (remoteRegistry.id in fabricRegistrySyncPacket.optionalRegistryIds) return@mapNotNull null
+                    throw FabricNegotiationException(
+                        "Fabric server synchronized unknown mandatory registry ${remoteRegistry.id}",
+                    )
+                }
+                val local = localEntries.toSet()
+                val missing = remoteRegistry.entries.map(RemoteRegistryEntry::id)
+                    .filterNot(local::contains)
+                if (missing.isNotEmpty()) {
+                    throw FabricNegotiationException(
+                        "Fabric registry ${remoteRegistry.id} contains missing local entries: $missing",
+                    )
+                }
+                remoteRegistry
             }
-            val local = localEntries.toSet()
-            val missing = remoteRegistry.entries.map(RemoteRegistryEntry::id)
-                .filterNot(local::contains)
-            if (missing.isNotEmpty()) {
-                throw FabricNegotiationException(
-                    "Fabric registry ${remoteRegistry.id} contains missing local entries: $missing",
-                )
-            }
-            remoteRegistry
-        }
         return RemoteRegistrySnapshot(compatibleRegistries)
     }
 

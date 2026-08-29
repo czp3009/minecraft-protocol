@@ -386,7 +386,11 @@ class RegionHandleConcurrencyTest {
             readGate.awaitEntered()
             val encoding = positions.mapIndexed { index, chunkPosition ->
                 async(Dispatchers.Default) {
-                    regionStorage.writeChunkNbtDocument(chunkPosition, concurrencyDocument(index + 10), Compression.NONE)
+                    regionStorage.writeChunkNbtDocument(
+                        chunkPosition,
+                        concurrencyDocument(index + 10),
+                        Compression.NONE
+                    )
                 }
             }
             jobs += encoding

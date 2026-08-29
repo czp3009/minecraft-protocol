@@ -58,7 +58,8 @@ class MinecraftWorldPathsTest {
         )
         assertEquals(
             "world/region",
-            minecraftWorldPaths.regionDirectory(dimensionDirectory = DimensionDirectory.LegacyOverworld).portableString()
+            minecraftWorldPaths.regionDirectory(dimensionDirectory = DimensionDirectory.LegacyOverworld)
+                .portableString()
         )
         assertEquals("world/DIM1", minecraftWorldPaths.dimension(DimensionDirectory.LegacyEnd).portableString())
         assertEquals(
@@ -74,8 +75,14 @@ class MinecraftWorldPathsTest {
             minecraftWorldPaths.dimension(DimensionDirectory.Custom("minecraft", "the_end")),
         )
         assertEquals("world/players/data/player.dat", minecraftWorldPaths.playerData("player").portableString())
-        assertEquals("world/players/data/player.dat_old", minecraftWorldPaths.previousPlayerData("player").portableString())
-        assertEquals("world/players/advancements/player.json", minecraftWorldPaths.advancement("player").portableString())
+        assertEquals(
+            "world/players/data/player.dat_old",
+            minecraftWorldPaths.previousPlayerData("player").portableString()
+        )
+        assertEquals(
+            "world/players/advancements/player.json",
+            minecraftWorldPaths.advancement("player").portableString()
+        )
         assertEquals("world/players/stats/player.json", minecraftWorldPaths.statistics("player").portableString())
         assertEquals("world/playerdata/player.dat", minecraftWorldPaths.legacyPlayerData("player").portableString())
         assertEquals("world/advancements/player.json", minecraftWorldPaths.legacyAdvancement("player").portableString())

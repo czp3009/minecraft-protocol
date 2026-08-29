@@ -166,7 +166,8 @@ abstract class DownloadHmcSpecificsTask : DefaultTask() {
                 offline = offline.get(),
             )
         }
-        val metadata = protocolJson.decodeFromString<JsonObject>(destination.readZipEntry("fabric.mod.json").decodeToString())
+        val metadata =
+            protocolJson.decodeFromString<JsonObject>(destination.readZipEntry("fabric.mod.json").decodeToString())
         check(metadata.getValue("id").jsonPrimitive.content == "headlessmc") {
             "HMC-Specifics Fabric artifact has an unexpected mod id"
         }

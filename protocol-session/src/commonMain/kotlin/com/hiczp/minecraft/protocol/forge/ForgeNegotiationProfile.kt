@@ -203,7 +203,7 @@ class ForgeClientProfile(
         requireForgeCompatible(forgeClientProfileDefinition.staticRegistrySchema, remoteRegistrySnapshot)
         val resolvedProtocolRegistryContext =
             forgeClientProfileDefinition.staticRegistrySchema.resolve(remoteRegistrySnapshot)
-            .withForgeRegistrySizes(forgeRegistrySnapshots)
+                .withForgeRegistrySizes(forgeRegistrySnapshots)
         return protocolRegistryContext.withStaticRegistryResolution(resolvedProtocolRegistryContext)
     }
 
@@ -261,7 +261,9 @@ class ForgeClientProfile(
                     )
                 }
                 val forgeChannelValidation =
-                    forgeClientProfileDefinition.forgeNetworkConfiguration.validateServer(forgeClientboundHandshakeMessage.channels)
+                    forgeClientProfileDefinition.forgeNetworkConfiguration.validateServer(
+                        forgeClientboundHandshakeMessage.channels
+                    )
                 if (!forgeChannelValidation.successful) {
                     throw ForgeChannelNegotiationException(
                         forgeChannelValidation.toFailureMessage(),
@@ -305,7 +307,8 @@ class ForgeClientProfile(
                         "Unexpected Forge registry data ${forgeClientboundHandshakeMessage.registryId}",
                     )
                 }
-                forgeRegistrySnapshots[forgeClientboundHandshakeMessage.registryId] = forgeClientboundHandshakeMessage.forgeRegistrySnapshot
+                forgeRegistrySnapshots[forgeClientboundHandshakeMessage.registryId] =
+                    forgeClientboundHandshakeMessage.forgeRegistrySnapshot
                 acknowledge(minecraftClientPacketConnection, forgeClientboundHandshakeMessage.token)
             }
 
@@ -530,7 +533,9 @@ class ForgeServerProfile(
             is ForgeChannelVersionsMessage -> {
                 requireExpected(ForgeExpectedResponse.CHANNEL_VERSIONS)
                 val forgeChannelValidation =
-                    forgeServerProfileDefinition.forgeNetworkConfiguration.validateClient(forgeServerboundHandshakeMessage.channels)
+                    forgeServerProfileDefinition.forgeNetworkConfiguration.validateClient(
+                        forgeServerboundHandshakeMessage.channels
+                    )
                 if (!forgeChannelValidation.successful) {
                     throw ForgeChannelNegotiationException(
                         forgeChannelValidation.toFailureMessage(),

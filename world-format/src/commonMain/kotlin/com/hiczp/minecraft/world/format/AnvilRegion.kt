@@ -92,7 +92,8 @@ data class SectionPosition(
     /** Converts an absolute block position in this Section to Section-local coordinates. */
     fun local(blockPosition: BlockPosition): LocalBlockPosition = MinecraftCoordinates.local(blockPosition, this)
 
-    fun block(localBlockPosition: LocalBlockPosition): BlockPosition = MinecraftCoordinates.block(this, localBlockPosition)
+    fun block(localBlockPosition: LocalBlockPosition): BlockPosition =
+        MinecraftCoordinates.block(this, localBlockPosition)
 
     /** Every absolute Block position in this Section, in palette-index order. */
     fun blockPositions(): Sequence<BlockPosition> = MinecraftCoordinates.blockPositions(this)
@@ -134,7 +135,8 @@ data class ChunkPosition(
 
     fun section(chunkBlockPosition: ChunkBlockPosition): SectionPosition = section(chunkBlockPosition.sectionY)
 
-    fun block(chunkBlockPosition: ChunkBlockPosition): BlockPosition = MinecraftCoordinates.block(this, chunkBlockPosition)
+    fun block(chunkBlockPosition: ChunkBlockPosition): BlockPosition =
+        MinecraftCoordinates.block(this, chunkBlockPosition)
 
     fun block(localX: Int, y: Int, localZ: Int): BlockPosition =
         block(ChunkBlockPosition(localX, y, localZ))
@@ -180,7 +182,8 @@ data class RegionPosition(
     fun local(chunkPosition: ChunkPosition): LocalChunkPosition = MinecraftCoordinates.local(chunkPosition, this)
 
     /** Converts Region-local coordinates to an absolute Chunk position. */
-    fun chunk(localChunkPosition: LocalChunkPosition): ChunkPosition = MinecraftCoordinates.chunk(this, localChunkPosition)
+    fun chunk(localChunkPosition: LocalChunkPosition): ChunkPosition =
+        MinecraftCoordinates.chunk(this, localChunkPosition)
 
     /**
      * All absolute chunk positions covered by this region, in Anvil header-index order.

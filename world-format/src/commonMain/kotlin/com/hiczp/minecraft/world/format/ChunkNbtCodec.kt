@@ -36,7 +36,8 @@ class ChunkNbtCodec<B : Any, M : Any>(
     }
 
     /** Decodes a Chunk using the position carried by its NBT root. */
-    fun decodeDocument(nbtDocument: NbtDocument): Chunk<B, M> = decodeDocumentInternal(nbtDocument, expectedPosition = null)
+    fun decodeDocument(nbtDocument: NbtDocument): Chunk<B, M> =
+        decodeDocumentInternal(nbtDocument, expectedPosition = null)
 
     /** Decodes a Chunk and additionally validates its NBT position against its Region entry. */
     fun decodeDocument(nbtDocument: NbtDocument, expectedPosition: ChunkPosition): Chunk<B, M> =

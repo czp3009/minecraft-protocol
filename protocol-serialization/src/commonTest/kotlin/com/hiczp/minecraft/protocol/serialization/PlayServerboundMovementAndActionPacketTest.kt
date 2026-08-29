@@ -99,8 +99,8 @@ class PlayServerboundMovementAndActionPacketTest {
         )
         val serverboundPlayerAbilitiesPacket =
             MinecraftProtocolFormat.decodeFromByteArray<ServerboundPlayerAbilitiesPacket>(
-            "ff".hexToByteArray(),
-        )
+                "ff".hexToByteArray(),
+            )
         assertContentEquals(
             "02".hexToByteArray(),
             MinecraftProtocolFormat.encodeToByteArray(serverboundPlayerAbilitiesPacket),

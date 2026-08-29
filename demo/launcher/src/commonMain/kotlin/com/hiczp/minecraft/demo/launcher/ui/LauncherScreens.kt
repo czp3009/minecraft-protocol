@@ -423,7 +423,11 @@ internal fun AccountActionsScreen(
         listOf(ActionItem("Back", onBack))
     } else {
         buildList {
-            if (storedAccount.minecraftIdentity.id != selectedIdentityId) add(ActionItem("Select", { onSelect(storedAccount) }))
+            if (storedAccount.minecraftIdentity.id != selectedIdentityId) add(
+                ActionItem(
+                    "Select",
+                    { onSelect(storedAccount) })
+            )
             when (storedAccount.minecraftIdentity) {
                 is MinecraftOfflineIdentity -> add(ActionItem("Edit name", { onEditOffline(storedAccount) }))
                 is MinecraftOnlineIdentity -> add(ActionItem("Sign in again", onSignInAgain))

@@ -122,8 +122,10 @@ class StaticRegistrySchema(
         val resolvedBlocks = blockRegistry?.entries
             ?.sortedBy(ProtocolRegistryEntry::rawId)
             ?.map { protocolRegistryEntry ->
-                val staticBlockSchema = blocksById[protocolRegistryEntry.id] ?:
-                    protocolRegistryEntry.aliases.firstNotNullOfOrNull(blocksById::get)
+                val staticBlockSchema =
+                    blocksById[protocolRegistryEntry.id] ?: protocolRegistryEntry.aliases.firstNotNullOfOrNull(
+                        blocksById::get
+                    )
                 protocolRegistryEntry to staticBlockSchema
             }
             .orEmpty()

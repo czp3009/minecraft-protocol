@@ -84,7 +84,8 @@ abstract class GenerateVanillaConfigurationPacketPayloadSourceTask : DefaultTask
             expectedTarget = officialMinecraftTargetReport,
         )
         val generatedSource =
-            vanillaConfigurationCaptureResult.renderKotlin(officialMinecraftTargetReport.minecraftProtocolTarget).toString()
+            vanillaConfigurationCaptureResult.renderKotlin(officialMinecraftTargetReport.minecraftProtocolTarget)
+                .toString()
         val outputFilePath = outputFile.asFile.get().toPath()
         outputFilePath.atomicWriteText(generatedSource)
         logger.lifecycle(

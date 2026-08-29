@@ -3,29 +3,12 @@ package com.hiczp.minecraft.test.oracle;
 import com.google.gson.Gson;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HexFormat;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
-
 import net.minecraft.SharedConstants;
-import net.minecraft.core.Holder;
-import net.minecraft.core.HolderLookup;
-import net.minecraft.core.MappedRegistry;
-import net.minecraft.core.RegistrationInfo;
-import net.minecraft.core.Registry;
-import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.*;
 import net.minecraft.core.component.DataComponentMap;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.data.registries.VanillaRegistries;
+import net.minecraft.nbt.*;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.ProtocolInfo;
 import net.minecraft.network.RegistryFriendlyByteBuf;
@@ -36,14 +19,15 @@ import net.minecraft.network.protocol.game.GameProtocols;
 import net.minecraft.network.protocol.handshake.HandshakeProtocols;
 import net.minecraft.network.protocol.login.LoginProtocols;
 import net.minecraft.network.protocol.status.StatusProtocols;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.NbtAccounter;
-import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtOps;
-import net.minecraft.nbt.Tag;
-import net.minecraft.nbt.TagParser;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.Bootstrap;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Executes payloads emitted by the Kotlin implementation through the matching
@@ -107,8 +91,8 @@ public final class OfficialCodecOracle {
             String omitted =
                     failures.size() > MAX_REPORTED_FAILURES
                             ? "\n- ... %d additional failure(s) omitted".formatted(
-                                    failures.size() - MAX_REPORTED_FAILURES
-                            )
+                            failures.size() - MAX_REPORTED_FAILURES
+                    )
                             : "";
             throw new AssertionError(
                     "Official codec rejected %d fixture(s):\n%s%s".formatted(
@@ -120,7 +104,9 @@ public final class OfficialCodecOracle {
         }
     }
 
-    /** Cross-reads NBT bytes with the matching vanilla NbtIo root method. */
+    /**
+     * Cross-reads NBT bytes with the matching vanilla NbtIo root method.
+     */
     public static void runNbt(String fixturesJson) throws Exception {
         List<NbtFixture> fixtures = readNbtFixtures(fixturesJson);
         Set<String> fixtureNames = new HashSet<>();
@@ -152,9 +138,9 @@ public final class OfficialCodecOracle {
                 byte[] expected = nbtFixture.exactBytes()
                         ? nbtFixture.expected()
                         : passThroughOfficialNbt(
-                                nbtFixture.nbtRootMode(),
-                                nbtFixture.expected()
-                        );
+                        nbtFixture.nbtRootMode(),
+                        nbtFixture.expected()
+                );
                 if (!Arrays.equals(expected, encoded)) {
                     throw new AssertionError(
                             "Vanilla encoded %s, expected %s".formatted(
@@ -183,8 +169,8 @@ public final class OfficialCodecOracle {
             String omitted =
                     failures.size() > MAX_REPORTED_FAILURES
                             ? "\n- ... %d additional failure(s) omitted".formatted(
-                                    failures.size() - MAX_REPORTED_FAILURES
-                            )
+                            failures.size() - MAX_REPORTED_FAILURES
+                    )
                             : "";
             throw new AssertionError(
                     "Official NBT codec rejected %d fixture(s):\n%s%s".formatted(
@@ -196,7 +182,9 @@ public final class OfficialCodecOracle {
         }
     }
 
-    /** Parses SNBT with the matching vanilla grammar and compares its NBT value. */
+    /**
+     * Parses SNBT with the matching vanilla grammar and compares its NBT value.
+     */
     public static void runSnbt(String fixturesJson) throws Exception {
         List<SnbtFixture> fixtures = readSnbtFixtures(fixturesJson);
         Set<String> fixtureNames = new HashSet<>();
@@ -251,8 +239,8 @@ public final class OfficialCodecOracle {
             String omitted =
                     failures.size() > MAX_REPORTED_FAILURES
                             ? "\n- ... %d additional failure(s) omitted".formatted(
-                                    failures.size() - MAX_REPORTED_FAILURES
-                            )
+                            failures.size() - MAX_REPORTED_FAILURES
+                    )
                             : "";
             throw new AssertionError(
                     "Official SNBT parser rejected %d fixture(s):\n%s%s".formatted(
@@ -519,6 +507,12 @@ public final class OfficialCodecOracle {
         return "%s%s".formatted(current.getClass().getName(), suffix);
     }
 
+    private enum NbtRootMode {
+        ANY,
+        UNNAMED,
+        DOCUMENT
+    }
+
     private record PacketKey(String state, String direction, String id) {
         static PacketKey of(String state, String direction, int id) {
             return new PacketKey(
@@ -549,12 +543,6 @@ public final class OfficialCodecOracle {
             String sample,
             byte[] payload
     ) {
-    }
-
-    private enum NbtRootMode {
-        ANY,
-        UNNAMED,
-        DOCUMENT
     }
 
     private record NbtFixtureInput(

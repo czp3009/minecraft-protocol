@@ -220,9 +220,10 @@ class SystemWorldStorageTest {
                 minecraftWorldAccess.writeStatisticsText(player, "{}")
                 minecraftWorldAccess.writeAdvancementsText(player, "{\"done\":true}")
                 dimensions.forEachIndexed { dimensionIndex, dimensionDirectory ->
-                    minecraftWorldAccess.openRegion(chunkPosition.regionPosition, dimensionDirectory).use { regionHandle ->
-                        regionHandle.writeChunkNbtDocument(chunkPosition, systemDocument(dimensionIndex))
-                    }
+                    minecraftWorldAccess.openRegion(chunkPosition.regionPosition, dimensionDirectory)
+                        .use { regionHandle ->
+                            regionHandle.writeChunkNbtDocument(chunkPosition, systemDocument(dimensionIndex))
+                        }
                 }
                 assertEquals(
                     listOf(chunkPosition.regionPosition, preservedPosition.regionPosition),
@@ -264,16 +265,17 @@ class SystemWorldStorageTest {
                     assertEquals(preservedDocument, regionHandle.readChunkNbtDocument(preservedPosition))
                 }
                 dimensions.forEachIndexed { dimensionIndex, dimensionDirectory ->
-                    minecraftWorldAccess.openRegion(chunkPosition.regionPosition, dimensionDirectory).use { regionHandle ->
-                        assertEquals(
-                            Compression.LZ4,
-                            regionHandle.readCompressedChunk(chunkPosition)?.compression,
-                        )
-                        assertEquals(
-                            systemDocument(dimensionIndex),
-                            regionHandle.readChunkNbtDocument(chunkPosition),
-                        )
-                    }
+                    minecraftWorldAccess.openRegion(chunkPosition.regionPosition, dimensionDirectory)
+                        .use { regionHandle ->
+                            assertEquals(
+                                Compression.LZ4,
+                                regionHandle.readCompressedChunk(chunkPosition)?.compression,
+                            )
+                            assertEquals(
+                                systemDocument(dimensionIndex),
+                                regionHandle.readChunkNbtDocument(chunkPosition),
+                            )
+                        }
                 }
             }
         } finally {

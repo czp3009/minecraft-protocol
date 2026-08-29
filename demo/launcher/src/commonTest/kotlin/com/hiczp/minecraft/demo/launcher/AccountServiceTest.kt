@@ -314,7 +314,10 @@ class AccountServiceTest {
 
         val authState = launcherStore.authMemory.read { this }
         assertEquals(null, authState.selectedIdentityId)
-        assertEquals(listOf(MinecraftOfflineIdentity("First")), authState.accounts.map(StoredAccount::minecraftIdentity))
+        assertEquals(
+            listOf(MinecraftOfflineIdentity("First")),
+            authState.accounts.map(StoredAccount::minecraftIdentity)
+        )
         assertEquals(MinecraftOfflineIdentity(DEFAULT_OFFLINE_PLAYER_NAME), accountService.selectedIdentity())
         accountClient.close()
     }

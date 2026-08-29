@@ -200,7 +200,11 @@ internal object RuleEvaluator {
         return allowed
     }
 
-    private fun matches(mojangRule: MojangRule, launcherPlatform: LauncherPlatform, enabledFeatures: Set<String>): Boolean {
+    private fun matches(
+        mojangRule: MojangRule,
+        launcherPlatform: LauncherPlatform,
+        enabledFeatures: Set<String>
+    ): Boolean {
         val osMatches = mojangRule.os?.let { os ->
             val expectedName = os.name?.also {
                 require(it in setOf("windows", "linux", "osx")) { "Unknown Mojang OS name: $it" }

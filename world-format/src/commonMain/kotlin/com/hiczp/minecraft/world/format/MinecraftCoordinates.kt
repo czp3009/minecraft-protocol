@@ -174,7 +174,11 @@ object MinecraftCoordinates {
     }
 
     fun chunkBlock(blockPosition: BlockPosition): ChunkBlockPosition =
-        ChunkBlockPosition(blockCoordinateInChunk(blockPosition.x), blockPosition.y, blockCoordinateInChunk(blockPosition.z))
+        ChunkBlockPosition(
+            blockCoordinateInChunk(blockPosition.x),
+            blockPosition.y,
+            blockCoordinateInChunk(blockPosition.z)
+        )
 
     fun localBlock(blockPosition: BlockPosition): LocalBlockPosition =
         LocalBlockPosition(
@@ -286,7 +290,8 @@ object MinecraftCoordinates {
         )
     }
 
-    fun chunkIndex(localChunkPosition: LocalChunkPosition): Int = localChunkPosition.x + localChunkPosition.z * REGION_SIDE
+    fun chunkIndex(localChunkPosition: LocalChunkPosition): Int =
+        localChunkPosition.x + localChunkPosition.z * REGION_SIDE
 
     fun localChunk(index: Int): LocalChunkPosition {
         require(index in 0 until REGION_CHUNK_COUNT) { "Region Chunk index must be in 0 until $REGION_CHUNK_COUNT" }
@@ -296,19 +301,26 @@ object MinecraftCoordinates {
         )
     }
 
-    fun blockXRange(chunkPosition: ChunkPosition): IntRange = coordinateRange(chunkPosition.x, CHUNK_SIDE, "Chunk Block X")
+    fun blockXRange(chunkPosition: ChunkPosition): IntRange =
+        coordinateRange(chunkPosition.x, CHUNK_SIDE, "Chunk Block X")
 
-    fun blockZRange(chunkPosition: ChunkPosition): IntRange = coordinateRange(chunkPosition.z, CHUNK_SIDE, "Chunk Block Z")
+    fun blockZRange(chunkPosition: ChunkPosition): IntRange =
+        coordinateRange(chunkPosition.z, CHUNK_SIDE, "Chunk Block Z")
 
-    fun blockXRange(sectionPosition: SectionPosition): IntRange = coordinateRange(sectionPosition.x, SECTION_SIDE, "Section Block X")
+    fun blockXRange(sectionPosition: SectionPosition): IntRange =
+        coordinateRange(sectionPosition.x, SECTION_SIDE, "Section Block X")
 
-    fun blockYRange(sectionPosition: SectionPosition): IntRange = coordinateRange(sectionPosition.y, SECTION_SIDE, "Section Block Y")
+    fun blockYRange(sectionPosition: SectionPosition): IntRange =
+        coordinateRange(sectionPosition.y, SECTION_SIDE, "Section Block Y")
 
-    fun blockZRange(sectionPosition: SectionPosition): IntRange = coordinateRange(sectionPosition.z, SECTION_SIDE, "Section Block Z")
+    fun blockZRange(sectionPosition: SectionPosition): IntRange =
+        coordinateRange(sectionPosition.z, SECTION_SIDE, "Section Block Z")
 
-    fun chunkXRange(regionPosition: RegionPosition): IntRange = coordinateRange(regionPosition.x, REGION_SIDE, "Region Chunk X")
+    fun chunkXRange(regionPosition: RegionPosition): IntRange =
+        coordinateRange(regionPosition.x, REGION_SIDE, "Region Chunk X")
 
-    fun chunkZRange(regionPosition: RegionPosition): IntRange = coordinateRange(regionPosition.z, REGION_SIDE, "Region Chunk Z")
+    fun chunkZRange(regionPosition: RegionPosition): IntRange =
+        coordinateRange(regionPosition.z, REGION_SIDE, "Region Chunk Z")
 
     fun blockXRange(regionPosition: RegionPosition): IntRange =
         coordinateRange(regionPosition.x, REGION_SIDE * CHUNK_SIDE, "Region Block X")

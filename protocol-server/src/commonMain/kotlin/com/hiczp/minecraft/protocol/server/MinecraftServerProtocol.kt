@@ -86,7 +86,12 @@ suspend fun MinecraftServerConnection.negotiate(
                     message = message,
                 )
             }
-            handleLogin(transferred, serverNegotiationProfile, minecraftServerNegotiationOptions, minecraftServerNegotiationPolicy)
+            handleLogin(
+                transferred,
+                serverNegotiationProfile,
+                minecraftServerNegotiationOptions,
+                minecraftServerNegotiationPolicy
+            )
         }
 
         else -> throw MinecraftServerException(
@@ -124,7 +129,12 @@ private suspend fun MinecraftServerConnection.handleLogin(
     val loginStartPacket =
         awaitLoginPacket<LoginStartPacket>(serverNegotiationProfile, minecraftServerNegotiationPolicy)
     val gameProfile =
-        authenticate(loginStartPacket, serverNegotiationProfile, minecraftServerNegotiationOptions, minecraftServerNegotiationPolicy)
+        authenticate(
+            loginStartPacket,
+            serverNegotiationProfile,
+            minecraftServerNegotiationOptions,
+            minecraftServerNegotiationPolicy
+        )
     val rejection = minecraftServerNegotiationPolicy.profileRejection(
         gameProfile,
         transferred,
@@ -187,7 +197,11 @@ private suspend fun MinecraftServerConnection.handleLogin(
     extensionPackets.forEach { outgoing.send(it) }
     extensionTasks.forEach { minecraftServerNegotiationTask ->
         minecraftServerNegotiationTask.clientboundPackets.forEach { outgoing.send(it) }
-        awaitConfigurationTask(minecraftServerNegotiationTask, serverNegotiationProfile, minecraftServerNegotiationPolicy)
+        awaitConfigurationTask(
+            minecraftServerNegotiationTask,
+            serverNegotiationProfile,
+            minecraftServerNegotiationPolicy
+        )
     }
 
     val onlineMode = minecraftServerAuthentication is MinecraftServerAuthentication.Online
@@ -201,7 +215,11 @@ private suspend fun MinecraftServerConnection.handleLogin(
     val baseProtocolRegistryContext = try {
         minecraftServerNegotiationOptions.protocolData
             .resolveSynchronizedRegistryContext(synchronizedRegistryPackets)
-            .withPlayLoginDimensionLayout(playLoginPacket, synchronizedRegistryPackets, minecraftServerNegotiationOptions.protocolData)
+            .withPlayLoginDimensionLayout(
+                playLoginPacket,
+                synchronizedRegistryPackets,
+                minecraftServerNegotiationOptions.protocolData
+            )
     } catch (failure: IllegalArgumentException) {
         throw MinecraftServerException(
             failure.message ?: "Invalid Play Login or registry context",

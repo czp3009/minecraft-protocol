@@ -73,11 +73,12 @@ class EntityChunkNbtCodec<E : Any>(
     }
 
     fun encodeDocument(entityChunk: EntityChunk<E>): NbtDocument {
-        entityChunk.rootEntities.firstOrNull { entity -> entity.chunkPosition != entityChunk.chunkPosition }?.let { entity ->
-            throw EntityChunkNbtFormatException(
-                "Root Entity ${entity.uuid} belongs to Chunk ${entity.chunkPosition}, expected ${entityChunk.chunkPosition}",
-            )
-        }
+        entityChunk.rootEntities.firstOrNull { entity -> entity.chunkPosition != entityChunk.chunkPosition }
+            ?.let { entity ->
+                throw EntityChunkNbtFormatException(
+                    "Root Entity ${entity.uuid} belongs to Chunk ${entity.chunkPosition}, expected ${entityChunk.chunkPosition}",
+                )
+            }
         val root = linkedMapOf<String, NbtTag>()
         root[DATA_VERSION] = NbtInt(entityChunk.dataVersion)
         root[ENTITIES] = NbtList(entityChunk.rootEntities.map(::encodeEntity))

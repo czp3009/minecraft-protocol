@@ -272,7 +272,8 @@ internal object HeadlessClientEndToEndRunner {
                 observed += packet::class.simpleName ?: "<anonymous>"
                 when (packet) {
                     is ConfirmTeleportationPacket ->
-                        teleportAcknowledged = packet.teleportId == minecraftInitialWorld.minecraftInitialWorldBootstrap.teleportId
+                        teleportAcknowledged =
+                            packet.teleportId == minecraftInitialWorld.minecraftInitialWorldBootstrap.teleportId
 
                     is ChunkBatchReceivedPacket -> chunkBatchAcknowledged = true
 

@@ -66,7 +66,13 @@ class RegionChunkApiTest {
             assertEquals(Compression.GZIP, regionStorage.readChunkInfo(streamedPosition)?.compression)
 
             val decoded =
-                checkNotNull(regionStorage.readChunk(firstPosition.regionPosition, firstPosition.localChunkPosition, TEST_CODEC))
+                checkNotNull(
+                    regionStorage.readChunk(
+                        firstPosition.regionPosition,
+                        firstPosition.localChunkPosition,
+                        TEST_CODEC
+                    )
+                )
             val absoluteBlock = firstPosition.block(ChunkBlockPosition(15, TEST_LAYOUT.minBlockY, 0))
             assertEquals(firstPosition, decoded.chunkPosition)
             assertEquals(STONE, decoded.block(15, TEST_LAYOUT.minBlockY, 0))
@@ -83,7 +89,11 @@ class RegionChunkApiTest {
             regionStorage.openRegion(firstPosition.regionPosition).use { regionHandle ->
                 assertEquals(3, regionHandle.readChunkCount())
                 assertEquals(
-                    listOf(streamedPosition.localChunkPosition, secondPosition.localChunkPosition, firstPosition.localChunkPosition),
+                    listOf(
+                        streamedPosition.localChunkPosition,
+                        secondPosition.localChunkPosition,
+                        firstPosition.localChunkPosition
+                    ),
                     regionHandle.readLocalChunkPositions(),
                 )
                 assertEquals(

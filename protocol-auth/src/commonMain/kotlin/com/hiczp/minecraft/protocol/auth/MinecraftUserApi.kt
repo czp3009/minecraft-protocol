@@ -162,7 +162,8 @@ suspend fun MinecraftUserApi.fetchAttributes(
 suspend fun MinecraftUserApi.updateAttributes(
     minecraftOnlineIdentity: MinecraftOnlineIdentity,
     minecraftUserAttributesRequest: MinecraftUserAttributesRequest,
-): MinecraftUserAttributesResponse? = updateAttributes(minecraftOnlineIdentity.accessToken, minecraftUserAttributesRequest)
+): MinecraftUserAttributesResponse? =
+    updateAttributes(minecraftOnlineIdentity.accessToken, minecraftUserAttributesRequest)
 
 suspend fun MinecraftUserApi.fetchBlockList(
     minecraftOnlineIdentity: MinecraftOnlineIdentity,

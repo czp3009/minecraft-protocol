@@ -85,28 +85,29 @@ class DataPackStack(dataPacks: List<DataPack>) {
                 resolvedDataPackResources.keys.filter(dataPackFilterPattern::matches)
                     .forEach(resolvedDataPackResources::remove)
             }
-            dataPack.effectiveDataPackFiles(dataPackFormatVersion).forEach { (dataPackResourcePath, effectiveDataPackFile) ->
-                val previousResolvedDataPackResource = resolvedDataPackResources[dataPackResourcePath]
-                resolvedDataPackResources[dataPackResourcePath] = if (
-                    previousResolvedDataPackResource != null &&
-                    dataPackResourcePath.path.startsWith("tags/") &&
-                    dataPackResourcePath.path.endsWith(".json")
-                ) {
-                    mergeTagFile(
-                        previousResolvedDataPackResource,
-                        dataPack.dataPackId,
-                        dataPackResourcePath,
-                        effectiveDataPackFile,
-                    )
-                } else {
-                    ResolvedDataPackResource(
-                        dataPackResourcePath = dataPackResourcePath,
-                        dataPackFileContent = effectiveDataPackFile.dataPackFileContent,
-                        sourceDataPackId = dataPack.dataPackId,
-                        sourceDataPackFilePath = effectiveDataPackFile.dataPackFilePath,
-                    )
+            dataPack.effectiveDataPackFiles(dataPackFormatVersion)
+                .forEach { (dataPackResourcePath, effectiveDataPackFile) ->
+                    val previousResolvedDataPackResource = resolvedDataPackResources[dataPackResourcePath]
+                    resolvedDataPackResources[dataPackResourcePath] = if (
+                        previousResolvedDataPackResource != null &&
+                        dataPackResourcePath.path.startsWith("tags/") &&
+                        dataPackResourcePath.path.endsWith(".json")
+                    ) {
+                        mergeTagFile(
+                            previousResolvedDataPackResource,
+                            dataPack.dataPackId,
+                            dataPackResourcePath,
+                            effectiveDataPackFile,
+                        )
+                    } else {
+                        ResolvedDataPackResource(
+                            dataPackResourcePath = dataPackResourcePath,
+                            dataPackFileContent = effectiveDataPackFile.dataPackFileContent,
+                            sourceDataPackId = dataPack.dataPackId,
+                            sourceDataPackFilePath = effectiveDataPackFile.dataPackFilePath,
+                        )
+                    }
                 }
-            }
         }
         return ResolvedDataPackStack(
             dataPacks.map(DataPack::dataPackId),

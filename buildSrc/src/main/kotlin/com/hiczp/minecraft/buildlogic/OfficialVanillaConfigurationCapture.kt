@@ -552,22 +552,22 @@ internal data class VanillaConfigurationCaptureResult(
             completeSynchronizedRegistryPayloads.zip(knownPackSynchronizedRegistryPayloads)
                 .map { (completeRegistryPayload, knownPackRegistryPayload) ->
                     validateRegistryPair(completeRegistryPayload, knownPackRegistryPayload)
-                buildJsonObject {
-                    put("id", completeRegistryPayload.registryId)
-                    putJsonArray("entries") {
-                        completeRegistryPayload.registryEntryPayloads.forEach { registryEntryPayload ->
-                            add(registryEntryPayload.registryEntryId)
+                    buildJsonObject {
+                        put("id", completeRegistryPayload.registryId)
+                        putJsonArray("entries") {
+                            completeRegistryPayload.registryEntryPayloads.forEach { registryEntryPayload ->
+                                add(registryEntryPayload.registryEntryId)
+                            }
                         }
+                        put(
+                            "complete_payload_base64",
+                            Base64.getEncoder().encodeToString(completeRegistryPayload.encode()),
+                        )
+                        put(
+                            "client_known_payload_base64",
+                            Base64.getEncoder().encodeToString(knownPackRegistryPayload.encode()),
+                        )
                     }
-                    put(
-                        "complete_payload_base64",
-                        Base64.getEncoder().encodeToString(completeRegistryPayload.encode()),
-                    )
-                    put(
-                        "client_known_payload_base64",
-                        Base64.getEncoder().encodeToString(knownPackRegistryPayload.encode()),
-                    )
-                }
                 }
         val structuredRegistryTags = registryTagsPayload.registryTagsPayloads.map { registryTagsPayload ->
             buildJsonObject {

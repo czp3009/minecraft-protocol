@@ -293,7 +293,10 @@ class MinecraftInitialWorldTest {
         val spawnEntityPacket = assertIs<SpawnEntityPacket>(packets[1])
         assertEquals(17, spawnEntityPacket.entityId)
         assertEquals(uuid, spawnEntityPacket.entityUuid)
-        assertEquals(minecraftEntitySnapshot.typeId(VanillaProtocolData.completeProtocolRegistryContext), spawnEntityPacket.typeId)
+        assertEquals(
+            minecraftEntitySnapshot.typeId(VanillaProtocolData.completeProtocolRegistryContext),
+            spawnEntityPacket.typeId
+        )
         assertEquals(position.x, spawnEntityPacket.x)
         assertEquals(position.y, spawnEntityPacket.y)
         assertEquals(position.z, spawnEntityPacket.z)
@@ -335,7 +338,9 @@ class MinecraftInitialWorldTest {
         val clientboundBundlePacket = listOf(pig, cow).bundle(VanillaProtocolData.completeProtocolRegistryContext)
 
         assertEquals(4, clientboundBundlePacket.size)
-        assertEquals(listOf(17, 18), clientboundBundlePacket.subPackets.filterIsInstance<SpawnEntityPacket>().map { it.entityId })
+        assertEquals(
+            listOf(17, 18),
+            clientboundBundlePacket.subPackets.filterIsInstance<SpawnEntityPacket>().map { it.entityId })
         assertIs<SetEntityMetadataPacket>(clientboundBundlePacket.subPackets[1])
         assertIs<SetEquipmentPacket>(clientboundBundlePacket.subPackets[3])
 
@@ -528,7 +533,9 @@ class MinecraftInitialWorldTest {
             minecraftInitialWorldBootstrap = minecraftInitialWorldBootstrap,
             chunkRadius = 0,
         )
-        assertEquals(listOf(centerChunk.x to centerChunk.z), minecraftInitialWorld.chunks.map { it.chunkX to it.chunkZ })
+        assertEquals(
+            listOf(centerChunk.x to centerChunk.z),
+            minecraftInitialWorld.chunks.map { it.chunkX to it.chunkZ })
     }
 
     @Test

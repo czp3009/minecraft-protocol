@@ -123,7 +123,12 @@ class MinecraftWorldChunkProjectionTest {
             registries = listOf(
                 ProtocolRegistry(
                     StaticRegistrySchema.BLOCK_REGISTRY,
-                    blockStates.map { protocolBlockState -> ProtocolRegistryEntry(protocolBlockState.block, protocolBlockState.id) },
+                    blockStates.map { protocolBlockState ->
+                        ProtocolRegistryEntry(
+                            protocolBlockState.block,
+                            protocolBlockState.id
+                        )
+                    },
                 ),
                 ProtocolRegistry(ProtocolRegistryContext.BIOME_REGISTRY, biomeEntries),
             ),

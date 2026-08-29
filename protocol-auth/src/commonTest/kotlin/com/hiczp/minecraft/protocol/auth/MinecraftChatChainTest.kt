@@ -56,7 +56,10 @@ class MinecraftChatChainTest {
             minecraftServerboundChatChainVerifier.verifyNext(signed[0].signedMessageBody, signed[0].signature),
         )
         val invalid = assertIs<MinecraftChatVerificationResult.Invalid>(
-            minecraftServerboundChatChainVerifier.verifyNext(signed[1].signedMessageBody.copy(content = "tampered"), signed[1].signature),
+            minecraftServerboundChatChainVerifier.verifyNext(
+                signed[1].signedMessageBody.copy(content = "tampered"),
+                signed[1].signature
+            ),
         )
         assertEquals(MinecraftChatChainFailure.INVALID_SIGNATURE, invalid.minecraftChatChainFailure)
         assertEquals(1, minecraftServerboundChatChainVerifier.nextLink()?.index)
@@ -86,7 +89,10 @@ class MinecraftChatChainTest {
         )
 
         val invalid = assertIs<MinecraftChatVerificationResult.Invalid>(
-            minecraftServerboundChatChainVerifier.verifyNext(messageBody("malformed", 1_000), ByteString(byteArrayOf(1))),
+            minecraftServerboundChatChainVerifier.verifyNext(
+                messageBody("malformed", 1_000),
+                ByteString(byteArrayOf(1))
+            ),
         )
 
         assertEquals(MinecraftChatChainFailure.INVALID_SIGNATURE, invalid.minecraftChatChainFailure)
@@ -155,7 +161,11 @@ class MinecraftChatChainTest {
         assertEquals(2, minecraftServerboundChatChainVerifier.nextLink()?.index)
 
         val mismatch = assertIs<MinecraftChatBatchVerificationResult.Invalid>(
-            MinecraftServerboundChatChainVerifier(sender, session, minecraftProfileKeyPair.minecraftProfilePublicKey).verify(
+            MinecraftServerboundChatChainVerifier(
+                sender,
+                session,
+                minecraftProfileKeyPair.minecraftProfilePublicKey
+            ).verify(
                 signedChatCommandPacket,
                 listOf(SignableCommandArgument("different", "Player")),
                 lastSeen,
@@ -175,11 +185,33 @@ class MinecraftChatChainTest {
         val skipped = signedMessage(minecraftProfileKeyPair, SignedMessageLink(2, sender, session), "skipped")
         val older = signedMessage(minecraftProfileKeyPair, SignedMessageLink(1, sender, session), "older")
 
-        assertIs<MinecraftChatVerificationResult.Valid>(minecraftClientboundChatChainVerifier.verify(first.signedMessageLink, first.signedMessageBody, first.signature))
-        assertIs<MinecraftChatVerificationResult.Valid>(minecraftClientboundChatChainVerifier.verify(skipped.signedMessageLink, skipped.signedMessageBody, skipped.signature))
-        assertIs<MinecraftChatVerificationResult.Valid>(minecraftClientboundChatChainVerifier.verify(skipped.signedMessageLink, skipped.signedMessageBody, skipped.signature))
+        assertIs<MinecraftChatVerificationResult.Valid>(
+            minecraftClientboundChatChainVerifier.verify(
+                first.signedMessageLink,
+                first.signedMessageBody,
+                first.signature
+            )
+        )
+        assertIs<MinecraftChatVerificationResult.Valid>(
+            minecraftClientboundChatChainVerifier.verify(
+                skipped.signedMessageLink,
+                skipped.signedMessageBody,
+                skipped.signature
+            )
+        )
+        assertIs<MinecraftChatVerificationResult.Valid>(
+            minecraftClientboundChatChainVerifier.verify(
+                skipped.signedMessageLink,
+                skipped.signedMessageBody,
+                skipped.signature
+            )
+        )
         val invalid = assertIs<MinecraftChatVerificationResult.Invalid>(
-            minecraftClientboundChatChainVerifier.verify(older.signedMessageLink, older.signedMessageBody, older.signature),
+            minecraftClientboundChatChainVerifier.verify(
+                older.signedMessageLink,
+                older.signedMessageBody,
+                older.signature
+            ),
         )
         assertEquals(MinecraftChatChainFailure.OUT_OF_ORDER_INDEX, invalid.minecraftChatChainFailure)
         assertEquals(skipped, minecraftClientboundChatChainVerifier.lastMessage())
@@ -217,7 +249,11 @@ private fun signedMessage(
     content: String,
 ): MinecraftSignedMessage {
     val signedMessageBody = messageBody(content, signedMessageLink.index.toLong())
-    return MinecraftSignedMessage(signedMessageLink, signedMessageBody, minecraftProfileKeyPair.signChatMessage(signedMessageLink, signedMessageBody))
+    return MinecraftSignedMessage(
+        signedMessageLink,
+        signedMessageBody,
+        minecraftProfileKeyPair.signChatMessage(signedMessageLink, signedMessageBody)
+    )
 }
 
 private fun emptyLastSeenUpdate(): LastSeenMessagesUpdate = LastSeenMessagesUpdate(

@@ -21,10 +21,22 @@ class MinecraftChatSignatureTest {
         assertTrue(payload.toByteString().sha256().hex() == MinecraftChatCryptoFixtures.CHAT_PAYLOAD_SHA256)
         val signature = minecraftProfileKeyPair.signChatMessage(signedMessageLink, signedMessageBody)
         assertContentEquals(MinecraftChatCryptoFixtures.chatSignature(), signature.toByteArray())
-        assertTrue(minecraftProfileKeyPair.minecraftProfilePublicKey.verifyChatMessage(signedMessageLink, signedMessageBody, signature))
+        assertTrue(
+            minecraftProfileKeyPair.minecraftProfilePublicKey.verifyChatMessage(
+                signedMessageLink,
+                signedMessageBody,
+                signature
+            )
+        )
 
         val tampered = signedMessageBody.copy(content = "Hi?")
-        assertFalse(minecraftProfileKeyPair.minecraftProfilePublicKey.verifyChatMessage(signedMessageLink, tampered, signature))
+        assertFalse(
+            minecraftProfileKeyPair.minecraftProfilePublicKey.verifyChatMessage(
+                signedMessageLink,
+                tampered,
+                signature
+            )
+        )
         assertFalse(
             minecraftProfileKeyPair.minecraftProfilePublicKey.verifyChatMessage(
                 signedMessageLink,

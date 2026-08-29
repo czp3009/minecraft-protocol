@@ -452,7 +452,8 @@ class ChunkSection<B : Any, M : Any>(
     }
 
     /** Replaces one Section-local block and returns its previous state. */
-    fun replaceBlock(localBlockPosition: LocalBlockPosition, value: B): B = blockStates.replace(localBlockPosition.index, value)
+    fun replaceBlock(localBlockPosition: LocalBlockPosition, value: B): B =
+        blockStates.replace(localBlockPosition.index, value)
 
     fun replaceBlock(localX: Int, localY: Int, localZ: Int, value: B): B =
         replaceBlock(LocalBlockPosition(localX, localY, localZ), value)
@@ -630,7 +631,8 @@ class Chunk<B : Any, M : Any>(
         return sectionsByY.getOrPut(sectionY) {
             val sectionLighting = storedChunkMetadata.lightOnlySections[sectionY]
             if (sectionLighting != null) {
-                storedChunkMetadata = storedChunkMetadata.copy(lightOnlySections = storedChunkMetadata.lightOnlySections - sectionY)
+                storedChunkMetadata =
+                    storedChunkMetadata.copy(lightOnlySections = storedChunkMetadata.lightOnlySections - sectionY)
             }
             ChunkSection(
                 sectionY = sectionY,
@@ -653,7 +655,8 @@ class Chunk<B : Any, M : Any>(
     }
 
     /** Finds or creates the Section containing one absolute block belonging to this Chunk. */
-    fun getOrCreateSection(blockPosition: BlockPosition): ChunkSection<B, M> = getOrCreateSection(blockPosition.sectionPosition)
+    fun getOrCreateSection(blockPosition: BlockPosition): ChunkSection<B, M> =
+        getOrCreateSection(blockPosition.sectionPosition)
 
     /** Installs one Section and returns the previous Section at the same Y coordinate. */
     fun setSection(chunkSection: ChunkSection<B, M>): ChunkSection<B, M>? {
@@ -748,7 +751,8 @@ class Chunk<B : Any, M : Any>(
         require(chunkLayout.containsBlockY(chunkBlockPosition.y)) { "Block Y ${chunkBlockPosition.y} is outside $chunkLayout" }
         val chunkSection = sectionsByY[chunkBlockPosition.sectionY]
         if (chunkSection == null && value == defaultBlockState) return defaultBlockState
-        return (chunkSection ?: getOrCreateSection(chunkBlockPosition.sectionY)).replaceBlock(chunkBlockPosition.localInSection, value)
+        return (chunkSection
+            ?: getOrCreateSection(chunkBlockPosition.sectionY)).replaceBlock(chunkBlockPosition.localInSection, value)
     }
 
     /** Replaces one absolute block belonging to this Chunk and returns its previous state. */
@@ -766,7 +770,8 @@ class Chunk<B : Any, M : Any>(
             ?: defaultBiome
     }
 
-    fun biome(chunkBlockPosition: ChunkBlockPosition): M = biome(chunkBlockPosition.x, chunkBlockPosition.y, chunkBlockPosition.z)
+    fun biome(chunkBlockPosition: ChunkBlockPosition): M =
+        biome(chunkBlockPosition.x, chunkBlockPosition.y, chunkBlockPosition.z)
 
     /** Reads the biome cell containing one absolute block belonging to this Chunk. */
     fun biome(blockPosition: BlockPosition): M = biome(local(blockPosition))
@@ -791,7 +796,8 @@ class Chunk<B : Any, M : Any>(
         require(chunkLayout.containsBlockY(y)) { "Block Y $y is outside $chunkLayout" }
         val chunkSection = sectionsByY[chunkBlockPosition.sectionY]
         if (chunkSection == null && value == defaultBiome) return defaultBiome
-        return (chunkSection ?: getOrCreateSection(chunkBlockPosition.sectionY)).replaceBiome(chunkBlockPosition.localInSection, value)
+        return (chunkSection
+            ?: getOrCreateSection(chunkBlockPosition.sectionY)).replaceBiome(chunkBlockPosition.localInSection, value)
     }
 
     fun replaceBiome(chunkBlockPosition: ChunkBlockPosition, value: M): M =
@@ -800,7 +806,8 @@ class Chunk<B : Any, M : Any>(
     /** Replaces one absolute block's biome cell belonging to this Chunk and returns its previous value. */
     fun replaceBiome(blockPosition: BlockPosition, value: M): M = replaceBiome(local(blockPosition), value)
 
-    fun blockEntity(chunkBlockPosition: ChunkBlockPosition): BlockEntity? = blockEntity(this.chunkPosition.block(chunkBlockPosition))
+    fun blockEntity(chunkBlockPosition: ChunkBlockPosition): BlockEntity? =
+        blockEntity(this.chunkPosition.block(chunkBlockPosition))
 
     /** Finds an absolute Block Entity after validating that it belongs to this Chunk. */
     fun blockEntity(blockPosition: BlockPosition): BlockEntity? {
@@ -808,7 +815,8 @@ class Chunk<B : Any, M : Any>(
         return blockEntitiesByPosition[blockPosition]
     }
 
-    fun hasBlockEntity(chunkBlockPosition: ChunkBlockPosition): Boolean = hasBlockEntity(this.chunkPosition.block(chunkBlockPosition))
+    fun hasBlockEntity(chunkBlockPosition: ChunkBlockPosition): Boolean =
+        hasBlockEntity(this.chunkPosition.block(chunkBlockPosition))
 
     /** Checks an absolute Block Entity position after validating that it belongs to this Chunk. */
     fun hasBlockEntity(blockPosition: BlockPosition): Boolean {

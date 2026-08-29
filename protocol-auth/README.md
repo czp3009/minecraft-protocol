@@ -129,9 +129,8 @@ take an explicit epoch millisecond value and never read the clock implicitly.
 `MinecraftChatSignatures` is the stateless payload/sign/verify layer. `MinecraftChatChainSigner` adds only a locked
 sender/session index. A batch—especially a signed command's arguments—is allocated contiguously and committed only when
 every signature succeeds. The `online` identity and `minecraftProfileKeyPair` come from the preceding examples.
-`chatSessionId` is the
-announced chat session ID; `text`, `timestamp`, `salt`, `expandedLastSeenSignatures`, and `lastSeenUpdate` are the
-message and acknowledgement state supplied by the caller's chat loop:
+`chatSessionId` is the announced chat session ID; `text`, `timestamp`, `salt`, `expandedLastSeenSignatures`, and
+`lastSeenUpdate` are the message and acknowledgement state supplied by the caller's chat loop:
 
 ```kotlin
 val minecraftChatChainSigner = MinecraftChatChainSigner(

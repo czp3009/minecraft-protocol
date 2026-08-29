@@ -115,7 +115,12 @@ internal object OfficialServerClientScenario {
                 ),
             ),
         )
-        minecraftClientConnection.outgoing.send(LoginStartPacket(minecraftOfflineIdentity.name, minecraftOfflineIdentity.id))
+        minecraftClientConnection.outgoing.send(
+            LoginStartPacket(
+                minecraftOfflineIdentity.name,
+                minecraftOfflineIdentity.id
+            )
+        )
         minecraftClientConnection.requestFlush()
 
         var loginSuccessPacket: LoginSuccessPacket? = null
@@ -127,7 +132,10 @@ internal object OfficialServerClientScenario {
             when (val clientboundPacket = minecraftClientConnection.incoming.receive()) {
                 is SetCompressionPacket -> Unit
                 is LoginCookieRequestPacket -> minecraftClientConnection.outgoing.send(
-                    LoginCookieResponsePacket(clientboundPacket.key, minecraftClientNegotiationOptions.loginCookies[clientboundPacket.key]),
+                    LoginCookieResponsePacket(
+                        clientboundPacket.key,
+                        minecraftClientNegotiationOptions.loginCookies[clientboundPacket.key]
+                    ),
                 )
 
                 is LoginSuccessPacket -> {
@@ -182,10 +190,20 @@ internal object OfficialServerClientScenario {
                     ),
                 )
 
-                is ConfigurationStoreCookiePacket -> storedConfigurationCookies[clientboundPacket.key] = clientboundPacket.payload
-                is ConfigurationPingPacket -> minecraftClientConnection.outgoing.send(ConfigurationPongPacket(clientboundPacket.id))
+                is ConfigurationStoreCookiePacket -> storedConfigurationCookies[clientboundPacket.key] =
+                    clientboundPacket.payload
+
+                is ConfigurationPingPacket -> minecraftClientConnection.outgoing.send(
+                    ConfigurationPongPacket(
+                        clientboundPacket.id
+                    )
+                )
+
                 is ConfigurationAddResourcePackPacket -> minecraftClientConnection.outgoing.send(
-                    ConfigurationResourcePackResponsePacket(clientboundPacket.uuid, minecraftClientNegotiationOptions.resourcePackResult),
+                    ConfigurationResourcePackResponsePacket(
+                        clientboundPacket.uuid,
+                        minecraftClientNegotiationOptions.resourcePackResult
+                    ),
                 )
 
                 is CodeOfConductPacket -> {
@@ -198,9 +216,9 @@ internal object OfficialServerClientScenario {
                 is FinishConfigurationPacket -> {
                     val resolvedProtocolRegistryContext =
                         minecraftClientNegotiationOptions.protocolData.resolveSynchronizedRegistryContext(
-                        synchronizedRegistryPackets = synchronizedRegistryPackets,
-                        staticRegistrySchema = minecraftClientNegotiationOptions.staticRegistrySchema,
-                    )
+                            synchronizedRegistryPackets = synchronizedRegistryPackets,
+                            staticRegistrySchema = minecraftClientNegotiationOptions.staticRegistrySchema,
+                        )
                     val profileProtocolRegistryContext =
                         profile.resolveProtocolRegistryContext(resolvedProtocolRegistryContext)
                     minecraftClientConnection.installProtocolRegistryContext(profileProtocolRegistryContext)

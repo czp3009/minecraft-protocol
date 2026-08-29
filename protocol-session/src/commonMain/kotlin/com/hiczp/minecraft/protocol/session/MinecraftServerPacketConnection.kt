@@ -55,7 +55,10 @@ fun createMinecraftServerPacketConnection(
         minecraftConnectionDefinition = minecraftConnectionDefinition,
         connectionDispatcher = connectionDispatcher,
     )
-    return MinecraftServerPacketConnectionImplementation(minecraftServerPacketSession, minecraftPacketConnectionCore).also { minecraftServerPacketConnectionImplementation ->
+    return MinecraftServerPacketConnectionImplementation(
+        minecraftServerPacketSession,
+        minecraftPacketConnectionCore
+    ).also { minecraftServerPacketConnectionImplementation ->
         minecraftServerPacketConnectionImplementation.start()
     }
 }

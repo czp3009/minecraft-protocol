@@ -36,10 +36,18 @@ class MinecraftProfileKeyApiTest {
             val minecraftProfileKeyPair = minecraftProfileKeyPairResponse.toMinecraftProfileKeyPair()
             val minecraftServicesPublicKeySet = minecraftServicesPublicKeysResponse.toMinecraftServicesPublicKeySet()
 
-            assertContentEquals(MinecraftChatCryptoFixtures.publicKey(), minecraftProfileKeyPair.minecraftProfilePublicKey.encodedKey)
+            assertContentEquals(
+                MinecraftChatCryptoFixtures.publicKey(),
+                minecraftProfileKeyPair.minecraftProfilePublicKey.encodedKey
+            )
             assertEquals(PROFILE_KEY_EXPIRY, minecraftProfileKeyPair.profilePublicKeyData.expiresAtEpochMillis)
             assertEquals(PROFILE_KEY_REFRESH, minecraftProfileKeyPair.refreshedAfterEpochMillis)
-            assertTrue(minecraftServicesPublicKeySet.verifyProfilePublicKey(PROFILE_ID, minecraftProfileKeyPair.profilePublicKeyData))
+            assertTrue(
+                minecraftServicesPublicKeySet.verifyProfilePublicKey(
+                    PROFILE_ID,
+                    minecraftProfileKeyPair.profilePublicKeyData
+                )
+            )
             assertEquals(1, minecraftServicesPublicKeySet.profilePropertyKeys.size)
             assertEquals(1, minecraftServicesPublicKeySet.playerCertificateKeys.size)
         }

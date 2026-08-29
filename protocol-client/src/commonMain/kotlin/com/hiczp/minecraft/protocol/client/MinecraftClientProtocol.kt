@@ -135,7 +135,12 @@ suspend fun MinecraftClientConnection.negotiate(
         "Login requires a fresh Handshake connection"
     }
     val loginSuccessPacket =
-        negotiateLogin(minecraftIdentity, sessionHttpClient, clientNegotiationProfile, minecraftClientNegotiationOptions)
+        negotiateLogin(
+            minecraftIdentity,
+            sessionHttpClient,
+            clientNegotiationProfile,
+            minecraftClientNegotiationOptions
+        )
     val minecraftClientConfigurationResult =
         negotiateConfiguration(clientNegotiationProfile, minecraftClientNegotiationOptions)
     val minecraftClientPlayLogin = awaitPlayLogin(
@@ -305,7 +310,11 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
             ResetChatPacket,
                 -> Unit
 
-            else -> handleConfigurationExtension(clientNegotiationProfile, clientboundPacket, minecraftClientNegotiationOptions)
+            else -> handleConfigurationExtension(
+                clientNegotiationProfile,
+                clientboundPacket,
+                minecraftClientNegotiationOptions
+            )
         }
         requestFlush()
     }

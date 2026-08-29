@@ -59,9 +59,15 @@ class ClientToServerEndToEndTest {
                 }
                 val minecraftServerNegotiationResult = serverNegotiation.await()
 
-                assertEquals(minecraftOfflineIdentity.id, minecraftClientNegotiationResult.loginSuccessPacket.profile.id)
+                assertEquals(
+                    minecraftOfflineIdentity.id,
+                    minecraftClientNegotiationResult.loginSuccessPacket.profile.id
+                )
                 assertEquals(minecraftOfflineIdentity.id, minecraftServerNegotiationResult.gameProfile.id)
-                assertEquals(minecraftClientNegotiationResult.playLoginPacket, minecraftServerNegotiationResult.playLoginPacket)
+                assertEquals(
+                    minecraftClientNegotiationResult.playLoginPacket,
+                    minecraftServerNegotiationResult.playLoginPacket
+                )
                 assertEquals(
                     VanillaProtocolData.offeredKnownPacks,
                     minecraftClientNegotiationResult.dataPackConfigurationSnapshot.offeredKnownPacks,
@@ -199,8 +205,17 @@ class ClientToServerEndToEndTest {
         val gameProfile = MinecraftOfflineIdentity(loginStartPacket.name).toGameProfile()
 
         serverNegotiationProfile.negotiateLogin(minecraftServerConnection)
-        minecraftServerNegotiationOptions.compressionThreshold?.let { minecraftServerConnection.outgoing.send(SetCompressionPacket(it)) }
-        minecraftServerConnection.outgoing.send(LoginSuccessPacket(gameProfile, minecraftServerNegotiationOptions.sessionId))
+        minecraftServerNegotiationOptions.compressionThreshold?.let {
+            minecraftServerConnection.outgoing.send(
+                SetCompressionPacket(it)
+            )
+        }
+        minecraftServerConnection.outgoing.send(
+            LoginSuccessPacket(
+                gameProfile,
+                minecraftServerNegotiationOptions.sessionId
+            )
+        )
         minecraftServerConnection.requestFlush()
         assertEquals(LoginAcknowledgedPacket, minecraftServerConnection.incoming.receive())
         minecraftServerConnection.awaitState(ConnectionState.CONFIGURATION)
@@ -221,14 +236,22 @@ class ClientToServerEndToEndTest {
         ).knownPacks
         val synchronizedRegistryPackets =
             minecraftServerNegotiationOptions.protocolData.synchronizedRegistryPackets(acceptedKnownPacks)
-        synchronizedRegistryPackets.forEach { registryDataPacket -> minecraftServerConnection.outgoing.send(registryDataPacket) }
+        synchronizedRegistryPackets.forEach { registryDataPacket ->
+            minecraftServerConnection.outgoing.send(
+                registryDataPacket
+            )
+        }
         minecraftServerConnection.outgoing.send(ConfigurationUpdateTagsPacket(minecraftServerNegotiationOptions.protocolData.registryTags))
         serverNegotiationProfile.negotiateConfiguration(minecraftServerConnection)
 
         val playLoginPacket = minecraftServerNegotiationOptions.createPlayLoginPacket(gameProfile, onlineMode = false)
         val baseProtocolRegistryContext = minecraftServerNegotiationOptions.protocolData
             .resolveSynchronizedRegistryContext(synchronizedRegistryPackets)
-            .withPlayLoginDimensionLayout(playLoginPacket, synchronizedRegistryPackets, minecraftServerNegotiationOptions.protocolData)
+            .withPlayLoginDimensionLayout(
+                playLoginPacket,
+                synchronizedRegistryPackets,
+                minecraftServerNegotiationOptions.protocolData
+            )
         minecraftServerConnection.installProtocolRegistryContext(
             serverNegotiationProfile.resolveProtocolRegistryContext(baseProtocolRegistryContext),
         )
@@ -255,7 +278,8 @@ class ClientToServerEndToEndTest {
         while (!(teleportConfirmed && chunkBatchConfirmed)) {
             when (val serverboundPacket = minecraftServerConnection.incoming.receive()) {
                 is ConfirmTeleportationPacket ->
-                    teleportConfirmed = serverboundPacket.teleportId == minecraftInitialWorld.minecraftInitialWorldBootstrap.teleportId
+                    teleportConfirmed =
+                        serverboundPacket.teleportId == minecraftInitialWorld.minecraftInitialWorldBootstrap.teleportId
 
                 is ChunkBatchReceivedPacket -> chunkBatchConfirmed = true
                 else -> Unit
@@ -293,7 +317,12 @@ class ClientToServerEndToEndTest {
                 ),
             ),
         )
-        minecraftClientConnection.outgoing.send(LoginStartPacket(minecraftOfflineIdentity.name, minecraftOfflineIdentity.id))
+        minecraftClientConnection.outgoing.send(
+            LoginStartPacket(
+                minecraftOfflineIdentity.name,
+                minecraftOfflineIdentity.id
+            )
+        )
         minecraftClientConnection.requestFlush()
         val firstLoginPacket = minecraftClientConnection.incoming.receive()
         val loginSuccessPacket = if (firstLoginPacket is SetCompressionPacket) {
@@ -328,6 +357,7 @@ class ClientToServerEndToEndTest {
                     FeatureFlagsPacket(VanillaProtocolData.enabledFeatureFlags),
                     clientboundPacket,
                 )
+
                 is ConfigurationClientboundKnownPacksPacket -> {
                     minecraftClientConnection.outgoing.send(ConfigurationServerboundKnownPacksPacket(clientboundPacket.knownPacks))
                     minecraftClientConnection.requestFlush()
@@ -338,6 +368,7 @@ class ClientToServerEndToEndTest {
                     ConfigurationUpdateTagsPacket(VanillaProtocolData.registryTags),
                     clientboundPacket,
                 )
+
                 is FinishConfigurationPacket -> {
                     val resolvedProtocolRegistryContext = VanillaProtocolData.resolveSynchronizedRegistryContext(
                         synchronizedRegistryPackets,
@@ -359,10 +390,10 @@ class ClientToServerEndToEndTest {
         val playLoginPacket = assertIs<PlayLoginPacket>(minecraftClientConnection.incoming.receive())
         val activeProtocolRegistryContext =
             minecraftClientConnection.protocolRegistryContext.withPlayLoginDimensionLayout(
-            playLoginPacket = playLoginPacket,
-            synchronizedRegistryPackets = synchronizedRegistryPackets,
-            protocolData = VanillaProtocolData,
-        )
+                playLoginPacket = playLoginPacket,
+                synchronizedRegistryPackets = synchronizedRegistryPackets,
+                protocolData = VanillaProtocolData,
+            )
         minecraftClientConnection.installProtocolRegistryContext(activeProtocolRegistryContext)
         assertSame(TestProfileResult, clientNegotiationProfile.complete(minecraftClientConnection))
 

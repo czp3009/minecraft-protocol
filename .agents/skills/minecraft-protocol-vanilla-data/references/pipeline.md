@@ -34,9 +34,9 @@ generated-source copying, or freshness comparison tasks.
 Audit `VanillaDataPacks` archive/parse/stack loading, `VanillaRegistryData` decoding and registry APIs,
 `VanillaConfigurationSnapshot` packet decoding, `VanillaProtocolData` branch selection,
 `ProtocolData`/`ResolvedProtocolData`, `DataPackConfigurationSnapshot`/`ClientRegistryView`, and dimension-layout
-extraction. Keep the three vanilla objects separated by those responsibilities. In particular, verify any
-handwritten Configuration packet ID or sequence assumption against the selected packet report; generated payload bytes
-do not make such assumptions generated.
+extraction. Keep the three vanilla objects separated by those responsibilities. In particular, verify any handwritten
+Configuration packet ID or sequence assumption against the selected packet report; generated payload bytes do not make
+such assumptions generated.
 
 The handwritten world-selection bridge may lazily match a `WorldDataPackLoadResult` against bundled pack IDs, insert the
 required core at its official lowest-priority position, and project the resulting complete stack. It must retain

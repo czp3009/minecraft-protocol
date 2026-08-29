@@ -161,22 +161,46 @@ private object ForgeClientboundHandshakeCodec :
     ) {
         val forgeEnvelope = when (val forgeClientboundHandshakeMessage = packet.forgeClientboundHandshakeMessage) {
             is ForgeModVersionsMessage ->
-                minecraftProtocolFormat.envelope(MOD_VERSIONS, ForgeModVersionsMessage.serializer(), forgeClientboundHandshakeMessage)
+                minecraftProtocolFormat.envelope(
+                    MOD_VERSIONS,
+                    ForgeModVersionsMessage.serializer(),
+                    forgeClientboundHandshakeMessage
+                )
 
             is ForgeChannelVersionsMessage ->
-                minecraftProtocolFormat.envelope(CHANNEL_VERSIONS, ForgeChannelVersionsMessage.serializer(), forgeClientboundHandshakeMessage)
+                minecraftProtocolFormat.envelope(
+                    CHANNEL_VERSIONS,
+                    ForgeChannelVersionsMessage.serializer(),
+                    forgeClientboundHandshakeMessage
+                )
 
             is ForgeRegistryListMessage ->
-                minecraftProtocolFormat.envelope(REGISTRY_LIST, ForgeRegistryListMessage.serializer(), forgeClientboundHandshakeMessage)
+                minecraftProtocolFormat.envelope(
+                    REGISTRY_LIST,
+                    ForgeRegistryListMessage.serializer(),
+                    forgeClientboundHandshakeMessage
+                )
 
             is ForgeRegistryDataMessage ->
-                minecraftProtocolFormat.envelope(REGISTRY_DATA, ForgeRegistryDataMessage.serializer(), forgeClientboundHandshakeMessage)
+                minecraftProtocolFormat.envelope(
+                    REGISTRY_DATA,
+                    ForgeRegistryDataMessage.serializer(),
+                    forgeClientboundHandshakeMessage
+                )
 
             is ForgeConfigDataMessage ->
-                minecraftProtocolFormat.envelope(CONFIG_DATA, ForgeConfigDataMessage.serializer(), forgeClientboundHandshakeMessage)
+                minecraftProtocolFormat.envelope(
+                    CONFIG_DATA,
+                    ForgeConfigDataMessage.serializer(),
+                    forgeClientboundHandshakeMessage
+                )
 
             is ForgeMismatchDataMessage ->
-                minecraftProtocolFormat.envelope(MISMATCH_DATA, ForgeMismatchDataMessage.serializer(), forgeClientboundHandshakeMessage)
+                minecraftProtocolFormat.envelope(
+                    MISMATCH_DATA,
+                    ForgeMismatchDataMessage.serializer(),
+                    forgeClientboundHandshakeMessage
+                )
         }
         minecraftProtocolFormat.encodeToSink(forgeEnvelope, sink)
     }
@@ -241,13 +265,25 @@ private object ForgeServerboundHandshakeCodec :
     ) {
         val forgeEnvelope = when (val forgeServerboundHandshakeMessage = packet.forgeServerboundHandshakeMessage) {
             is ForgeAcknowledgeMessage ->
-                minecraftProtocolFormat.envelope(ACKNOWLEDGE, ForgeAcknowledgeMessage.serializer(), forgeServerboundHandshakeMessage)
+                minecraftProtocolFormat.envelope(
+                    ACKNOWLEDGE,
+                    ForgeAcknowledgeMessage.serializer(),
+                    forgeServerboundHandshakeMessage
+                )
 
             is ForgeModVersionsMessage ->
-                minecraftProtocolFormat.envelope(MOD_VERSIONS, ForgeModVersionsMessage.serializer(), forgeServerboundHandshakeMessage)
+                minecraftProtocolFormat.envelope(
+                    MOD_VERSIONS,
+                    ForgeModVersionsMessage.serializer(),
+                    forgeServerboundHandshakeMessage
+                )
 
             is ForgeChannelVersionsMessage ->
-                minecraftProtocolFormat.envelope(CHANNEL_VERSIONS, ForgeChannelVersionsMessage.serializer(), forgeServerboundHandshakeMessage)
+                minecraftProtocolFormat.envelope(
+                    CHANNEL_VERSIONS,
+                    ForgeChannelVersionsMessage.serializer(),
+                    forgeServerboundHandshakeMessage
+                )
         }
         minecraftProtocolFormat.encodeToSink(forgeEnvelope, sink)
     }

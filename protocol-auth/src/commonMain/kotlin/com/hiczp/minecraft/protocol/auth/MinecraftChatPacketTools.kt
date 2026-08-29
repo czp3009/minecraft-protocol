@@ -64,9 +64,9 @@ suspend fun MinecraftServerboundChatChainVerifier.verify(
     val inputs = signedChatCommandPacket.arguments.entries.mapIndexed { index, entry ->
         val signableCommandArgument =
             argumentsByName[entry.name] ?: return MinecraftChatBatchVerificationResult.Invalid(
-            minecraftChatChainFailure = MinecraftChatChainFailure.ARGUMENT_MISMATCH,
-            failedAt = index,
-        )
+                minecraftChatChainFailure = MinecraftChatChainFailure.ARGUMENT_MISMATCH,
+                failedAt = index,
+            )
         seenNames += entry.name
         MinecraftChatSignatureInput(
             signedMessageBody = signedChatCommandPacket.toSignedMessageBody(signableCommandArgument, lastSeen),

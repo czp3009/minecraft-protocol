@@ -138,46 +138,52 @@ internal class GameProcessService(
         }
     }
 
-    private suspend fun runProcess(launchPlan: LaunchPlan, argumentFile: Path, gameOutputBuffer: GameOutputBuffer) = coroutineScope {
-        val child = Command("java")
-            .args(buildList {
-                add("@${argumentFile}")
-                add(launchPlan.mainClass)
-                addAll(launchPlan.gameArguments)
-            })
-            .cwd(launchPlan.workingDirectory)
-            .stdin(Stdio.Inherit)
-            .stdout(Stdio.Pipe)
-            .stderr(Stdio.Pipe)
-            .spawn()
-        try {
-            val stdout = async(Dispatchers.Default) {
-                drain(checkNotNull(child.bufferedStdout()), OutputSource.STDOUT, gameOutputBuffer)
-            }
-            val stderr = async(Dispatchers.Default) {
-                drain(checkNotNull(child.bufferedStderr()), OutputSource.STDERR, gameOutputBuffer)
-            }
-            val exitCode = withContext(Dispatchers.Default) { child.wait() }
-            stdout.await()
-            stderr.await()
-            gameOutputBuffer.finish(exitCode)
-        } catch (failure: Throwable) {
-            withContext(NonCancellable + Dispatchers.Default) {
-                try {
-                    child.kill()
-                } catch (cleanupFailure: Throwable) {
-                    failure.addSuppressed(cleanupFailure)
+    private suspend fun runProcess(launchPlan: LaunchPlan, argumentFile: Path, gameOutputBuffer: GameOutputBuffer) =
+        coroutineScope {
+            val child = Command("java")
+                .args(buildList {
+                    add("@${argumentFile}")
+                    add(launchPlan.mainClass)
+                    addAll(launchPlan.gameArguments)
+                })
+                .cwd(launchPlan.workingDirectory)
+                .stdin(Stdio.Inherit)
+                .stdout(Stdio.Pipe)
+                .stderr(Stdio.Pipe)
+                .spawn()
+            try {
+                val stdout = async(Dispatchers.Default) {
+                    drain(checkNotNull(child.bufferedStdout()), OutputSource.STDOUT, gameOutputBuffer)
                 }
+                val stderr = async(Dispatchers.Default) {
+                    drain(checkNotNull(child.bufferedStderr()), OutputSource.STDERR, gameOutputBuffer)
+                }
+                val exitCode = withContext(Dispatchers.Default) { child.wait() }
+                stdout.await()
+                stderr.await()
+                gameOutputBuffer.finish(exitCode)
+            } catch (failure: Throwable) {
+                withContext(NonCancellable + Dispatchers.Default) {
+                    try {
+                        child.kill()
+                    } catch (cleanupFailure: Throwable) {
+                        failure.addSuppressed(cleanupFailure)
+                    }
+                }
+                throw failure
             }
-            throw failure
         }
-    }
 
-    private suspend fun drain(bufferedReader: BufferedReader, outputSource: OutputSource, gameOutputBuffer: GameOutputBuffer) {
+    private suspend fun drain(
+        bufferedReader: BufferedReader,
+        outputSource: OutputSource,
+        gameOutputBuffer: GameOutputBuffer
+    ) {
         val outputChunkDecoder = OutputChunkDecoder()
         while (true) {
             val line = bufferedReader.readLine() ?: break
-            outputChunkDecoder.feed(normalizeProcessLineEnding(line)).forEach { gameOutputBuffer.append(outputSource, it) }
+            outputChunkDecoder.feed(normalizeProcessLineEnding(line))
+                .forEach { gameOutputBuffer.append(outputSource, it) }
         }
         outputChunkDecoder.feed("", endOfInput = true).forEach { gameOutputBuffer.append(outputSource, it) }
     }

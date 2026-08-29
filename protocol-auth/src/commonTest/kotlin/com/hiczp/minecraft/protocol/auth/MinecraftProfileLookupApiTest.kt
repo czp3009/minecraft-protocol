@@ -64,7 +64,10 @@ class MinecraftProfileLookupApiTest {
             val minecraftProfileLookupApi = MinecraftProfileLookupApi(httpClient)
 
             assertNull(minecraftProfileLookupApi.findProfileByName("missing"))
-            assertEquals(emptyList(), minecraftProfileLookupApi.findProfilesByNames(MinecraftProfileLookupRequest(listOf("missing"))))
+            assertEquals(
+                emptyList(),
+                minecraftProfileLookupApi.findProfilesByNames(MinecraftProfileLookupRequest(listOf("missing")))
+            )
         }
     }
 

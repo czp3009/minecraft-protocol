@@ -213,14 +213,20 @@ class MinecraftChunkPacketDecoder(
     private fun decodeBlockEntity(chunkPosition: ChunkPosition, blockEntityInfo: BlockEntityInfo): BlockEntity {
         val blockEntityTypeRegistryEntry =
             protocolRegistryContext.requireRegistry(BLOCK_ENTITY_TYPE_REGISTRY)[blockEntityInfo.typeId]
-            ?: throw IllegalArgumentException("Block-entity type registry ID ${blockEntityInfo.typeId} has no installed entry")
+                ?: throw IllegalArgumentException("Block-entity type registry ID ${blockEntityInfo.typeId} has no installed entry")
         val values = linkedMapOf<String, NbtTag>()
         blockEntityInfo.tag?.forEachEntry { name, nbtTag ->
             if (name !in BLOCK_ENTITY_STRUCTURE_FIELDS) values[name] = nbtTag
         }
         return BlockEntity(
             type = blockEntityTypeRegistryEntry.id.value,
-            blockPosition = chunkPosition.block(ChunkBlockPosition(blockEntityInfo.localX, blockEntityInfo.y.toInt(), blockEntityInfo.localZ)),
+            blockPosition = chunkPosition.block(
+                ChunkBlockPosition(
+                    blockEntityInfo.localX,
+                    blockEntityInfo.y.toInt(),
+                    blockEntityInfo.localZ
+                )
+            ),
             persistentData = NbtCompound(values),
         )
     }

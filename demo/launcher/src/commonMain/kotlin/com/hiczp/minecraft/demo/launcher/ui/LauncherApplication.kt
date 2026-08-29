@@ -143,7 +143,12 @@ internal fun LauncherApplication(launcherController: LauncherController, launche
                 platform = launcherPlatform.platformKey,
                 initialName = storedAccount?.minecraftIdentity?.name.orEmpty(),
                 editing = launcherDestination.replacingIdentityId != null,
-                onSave = { name -> launcherController.saveOfflineIdentity(name, launcherDestination.replacingIdentityId) },
+                onSave = { name ->
+                    launcherController.saveOfflineIdentity(
+                        name,
+                        launcherDestination.replacingIdentityId
+                    )
+                },
                 onBack = launcherController::showAccounts,
             )
         }

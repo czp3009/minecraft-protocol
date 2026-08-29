@@ -38,8 +38,14 @@ class RegionBatchIoTest {
             )
 
             assertEquals(1, countingMutableRegionFileSystem.headerWrites)
-            assertEquals(AnvilChunkPlacement.INLINE, mutableRegionFile.readChunkInfo(firstPosition)?.anvilChunkPlacement)
-            assertEquals(AnvilChunkPlacement.EXTERNAL, mutableRegionFile.readChunkInfo(externalPosition)?.anvilChunkPlacement)
+            assertEquals(
+                AnvilChunkPlacement.INLINE,
+                mutableRegionFile.readChunkInfo(firstPosition)?.anvilChunkPlacement
+            )
+            assertEquals(
+                AnvilChunkPlacement.EXTERNAL,
+                mutableRegionFile.readChunkInfo(externalPosition)?.anvilChunkPlacement
+            )
             assertContentEquals(first, mutableRegionFile.readCompressedChunk(firstPosition).bytesOrNull())
             assertContentEquals(external, mutableRegionFile.readCompressedChunk(externalPosition).bytesOrNull())
 
@@ -153,7 +159,10 @@ class RegionBatchIoTest {
                 }
             }
             assertNull(regionStorage.readCompressedChunk(regionPosition.chunk(first)))
-            assertContentEquals(byteArrayOf(3), regionStorage.readCompressedChunk(regionPosition.chunk(second)).bytesOrNull())
+            assertContentEquals(
+                byteArrayOf(3),
+                regionStorage.readCompressedChunk(regionPosition.chunk(second)).bytesOrNull()
+            )
         } finally {
             regionStorage.close()
         }

@@ -129,17 +129,18 @@ data class MinecraftInitialWorld(
             )
             val protocolRegistryContext = minecraftServerNegotiationOptions.protocolData.completeProtocolRegistryContext
             val chunks =
-                MinecraftCoordinates.chunkPositionsAround(minecraftInitialWorldBootstrap.centerChunk, chunkRadius).map { position ->
-                MinecraftChunkSnapshot.flat(
-                    protocolRegistryContext = protocolRegistryContext,
-                    minecraftDimensionLayout = minecraftDimensionLayout,
-                    chunkX = position.x,
-                    chunkZ = position.z,
-                    groundY = groundY,
-                    surfaceBlockId = surfaceBlockId,
-                    biomeId = biomeId,
-                )
-            }.toList()
+                MinecraftCoordinates.chunkPositionsAround(minecraftInitialWorldBootstrap.centerChunk, chunkRadius)
+                    .map { position ->
+                        MinecraftChunkSnapshot.flat(
+                            protocolRegistryContext = protocolRegistryContext,
+                            minecraftDimensionLayout = minecraftDimensionLayout,
+                            chunkX = position.x,
+                            chunkZ = position.z,
+                            groundY = groundY,
+                            surfaceBlockId = surfaceBlockId,
+                            biomeId = biomeId,
+                        )
+                    }.toList()
             return MinecraftInitialWorld(
                 minecraftInitialWorldBootstrap = minecraftInitialWorldBootstrap,
                 chunks = chunks,

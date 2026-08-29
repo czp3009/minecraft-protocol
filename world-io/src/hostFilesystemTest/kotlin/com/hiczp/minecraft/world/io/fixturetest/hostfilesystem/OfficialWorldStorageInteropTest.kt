@@ -476,7 +476,12 @@ class OfficialWorldStorageInteropTest {
                     val chunkNbtCodec = strongChunkCodec(nbtDocument)
                     val chunk = chunkNbtCodec.decodeDocument(nbtDocument, compressionProbe.chunkPosition)
                     documents[compressionProbe.chunkPosition] = chunkNbtCodec.encodeDocument(chunk)
-                    writingStore.writeChunk(compressionProbe.chunkPosition, chunk, chunkNbtCodec, compressionProbe.compression)
+                    writingStore.writeChunk(
+                        compressionProbe.chunkPosition,
+                        chunk,
+                        chunkNbtCodec,
+                        compressionProbe.compression
+                    )
                 } else {
                     writingStore.writeChunkNbtDocument(
                         compressionProbe.chunkPosition,

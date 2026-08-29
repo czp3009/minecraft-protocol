@@ -292,7 +292,10 @@ class MinecraftServerProtocolTest {
             }
             connectionPair.client.send(handshake(HandshakeNextState.LOGIN))
             connectionPair.client.send(LoginStartPacket(minecraftOfflineIdentity.name, minecraftOfflineIdentity.id))
-            finishClientNegotiation(connectionPair.client, minecraftServerNegotiationOptions) { minecraftClientPacketSession ->
+            finishClientNegotiation(
+                connectionPair.client,
+                minecraftServerNegotiationOptions
+            ) { minecraftClientPacketSession ->
                 assertEquals(brand, minecraftClientPacketSession.receive())
                 assertEquals(ConfigurationPingPacket(91), minecraftClientPacketSession.receive())
                 minecraftClientPacketSession.send(ConfigurationPongPacket(91))
@@ -419,16 +422,24 @@ class MinecraftServerProtocolTest {
         val login = assertIs<LoginSuccessPacket>(minecraftClientPacketSession.receive()).profile
         minecraftClientPacketSession.send(LoginAcknowledgedPacket)
         minecraftClientPacketSession.send(ConfigurationClientInformationPacket(clientInformation()))
-        assertEquals(FeatureFlagsPacket(minecraftServerNegotiationOptions.protocolData.enabledFeatureFlags), minecraftClientPacketSession.receive())
+        assertEquals(
+            FeatureFlagsPacket(minecraftServerNegotiationOptions.protocolData.enabledFeatureFlags),
+            minecraftClientPacketSession.receive()
+        )
         val configurationClientboundKnownPacksPacket = assertIs<ConfigurationClientboundKnownPacksPacket>(
             minecraftClientPacketSession.receive(),
         )
         minecraftClientPacketSession.send(
             ConfigurationServerboundKnownPacksPacket(configurationClientboundKnownPacksPacket.knownPacks),
         )
-        minecraftServerNegotiationOptions.protocolData.synchronizedRegistryPackets(configurationClientboundKnownPacksPacket.knownPacks)
+        minecraftServerNegotiationOptions.protocolData.synchronizedRegistryPackets(
+            configurationClientboundKnownPacksPacket.knownPacks
+        )
             .forEach { expected -> assertEquals(expected, minecraftClientPacketSession.receive()) }
-        assertEquals(ConfigurationUpdateTagsPacket(minecraftServerNegotiationOptions.protocolData.registryTags), minecraftClientPacketSession.receive())
+        assertEquals(
+            ConfigurationUpdateTagsPacket(minecraftServerNegotiationOptions.protocolData.registryTags),
+            minecraftClientPacketSession.receive()
+        )
         afterVanillaConfiguration(minecraftClientPacketSession)
         assertEquals(FinishConfigurationPacket, minecraftClientPacketSession.receive())
         minecraftClientPacketSession.send(AcknowledgeFinishConfigurationPacket)

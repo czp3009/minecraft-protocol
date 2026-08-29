@@ -306,8 +306,8 @@ metadata endpoint 返回按维度 ID 排序的维度 ID 列表，前端由列表
 
 启动时：
 
-1. 从 live world 读取 `level.dat`，取得出生点和有序的 `DataPacks.Enabled`。该 enabled list 是完整数据包解析的
-   唯一引用输入；`level.dat` 本身不承担维度发现。
+1. 从 live world 读取 `level.dat`，取得出生点和有序的 `DataPacks.Enabled`。该 enabled list 是完整数据包解析的 唯一引用输入；
+   `level.dat` 本身不承担维度发现。
 2. 调用 live world 的 `readEnabledDataPacks()`，从世界 `datapacks` 目录读取 enabled `file/...` directory/ZIP packs，并取得
    detached `WorldDataPackLoadResult`。再调用 `toVanillaProtocolData()`，由库按原始顺序补入匹配的 vanilla core/built-in
    packs、 拒绝其余未提供 ID，并用匹配的 data-pack format 投影出 active protocol data。Demo 不接受任何额外 pack 或 registry

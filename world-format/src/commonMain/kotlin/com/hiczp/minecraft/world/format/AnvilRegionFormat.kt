@@ -172,8 +172,8 @@ sealed class AnvilRegionFormat {
             val compression =
                 RegionChunkRecordHeader.compressionFromId(compressionId)
                     ?: throw AnvilFormatException(
-                    "Chunk ${decodeChunkPlan.localChunkPosition} uses unknown compression ID $compressionId",
-                )
+                        "Chunk ${decodeChunkPlan.localChunkPosition} uses unknown compression ID $compressionId",
+                    )
             val compressedLength = length - 1
             val anvilChunkRecordInfo = AnvilChunkRecordInfo(
                 localChunkPosition = decodeChunkPlan.localChunkPosition,
