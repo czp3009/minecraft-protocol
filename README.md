@@ -134,6 +134,32 @@ that independently retains its `.mca` file for consecutive reads. See [`world-fo
 constructing the codec and [`world-io`](world-io/README.md) for scopes, consistency limits, locking, writes, Entity and
 POI Regions, stateless stores, exact-path access, standalone files, and data packs.
 
+### Move Chunks between disk and the protocol
+
+The maintained high-level paths converge on one semantic
+`Chunk<ProtocolBlockState, ProtocolRegistryEntry>`. A server-resolved world already owns one
+`MinecraftChunkContext` per dimension; a negotiated client first receives a `MinecraftDimensionContext` and chooses the
+semantic block/biome defaults when it creates its Chunk context:
+
+| Direction                      | Path                                                                                                       |
+|--------------------------------|------------------------------------------------------------------------------------------------------------|
+| Disk to memory                 | `dataPacks.readEnabled()` + `WorldGenSettingsData` → `resolveMinecraftWorld()` → `chunkNbtCodec` → `Chunk` |
+| Memory to clientbound packet   | `Chunk` → `minecraftChunkContext.packetEncoder(isAir, hasFluid)` → `ChunkDataAndUpdateLightPacket`         |
+| Server packet to client memory | `negotiate().minecraftDimensionContext.createMinecraftChunkContext().packetDecoder(metadata)` → `Chunk`    |
+
+The disk path resolves enabled packs and every persisted dimension once, so Configuration registry order, Play Login
+dimension-type raw IDs, Region decoding, and packet encoding cannot drift apart. Client negotiation validates and
+installs the dimension context before application-specific semantic defaults enter the path. Entity and POI Regions
+independently return `EntityChunk<NbtCompound>` and `PoiChunk`; they do not need the block/biome context. A persisted
+Entity becomes clientbound spawn/pairing packets only after the server supplies connection-local IDs and tracking state.
+`PoiChunk` is server-side world data and has no direct clientbound packet representation.
+
+See [`world-io`](world-io/README.md#read-computational-world-values-from-disk) for complete disk reads,
+[`protocol-server`](protocol-server/README.md#convert-semantic-chunks-to-packets) for disk/memory-to-wire projection,
+and [`protocol-client`](protocol-client/README.md#decode-chunk-packets) for wire-to-memory decoding. The lower-level
+construction and customization points are documented in
+[`protocol-datapack`](protocol-datapack/README.md#adapt-protocol-context-to-semantic-chunks).
+
 ## Build and test
 
 Requirements:

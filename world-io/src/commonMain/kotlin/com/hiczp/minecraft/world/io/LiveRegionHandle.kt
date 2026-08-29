@@ -161,6 +161,14 @@ class LiveRegionHandle private constructor(
         block(RegionReadScope(this, chunkNbtFormat))
     }
 
+    /** Reuses one live header while retaining [chunkNbtCodec] for every semantic read in [block]. */
+    fun <B : Any, M : Any, R> withReadScope(
+        chunkNbtCodec: ChunkNbtCodec<B, M>,
+        block: DecodedChunkRegionReadScope<B, M>.() -> R,
+    ): R = withReadScopeCore {
+        block(DecodedChunkRegionReadScope(this, chunkNbtFormat, chunkNbtCodec))
+    }
+
     internal fun <R> withReadScopeCore(block: RegionReadScopeCore.() -> R): R = liveRegionFile.withReadScope(block)
 
     fun close() = liveRegionFile.close()

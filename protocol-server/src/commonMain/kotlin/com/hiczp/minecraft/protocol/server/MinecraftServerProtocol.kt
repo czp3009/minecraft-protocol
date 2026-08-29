@@ -1,25 +1,28 @@
 package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.protocol.auth.*
+import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionContext
+import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.datapack.resolveSynchronizedRegistryContext
-import com.hiczp.minecraft.protocol.datapack.withPlayLoginDimensionLayout
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.session.*
+import com.hiczp.minecraft.world.format.DimensionId
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
  * Facts produced when the peer completes Login and Configuration negotiation.
  * [playLoginPacket] is the exact Play Login packet sent at the end of that successful transition, while
- * [MinecraftServerConnection.protocolRegistryContext] remains the connection's authoritative registry
- * context.
+ * [minecraftDimensionContext] validates the selected dimension against that active context. The connection's
+ * [MinecraftServerConnection.protocolRegistryContext] remains authoritative if a later reconfiguration replaces it.
  */
 data class MinecraftServerNegotiationResult(
     val gameProfile: GameProfile,
     val clientInformation: ClientInformation,
     val acceptedKnownPacks: List<KnownPack>,
     val playLoginPacket: PlayLoginPacket,
+    val minecraftDimensionContext: MinecraftDimensionContext,
     val negotiationProfileResult: NegotiationProfileResult,
     val transferred: Boolean = false,
 )
@@ -82,7 +85,7 @@ suspend fun MinecraftServerConnection.negotiate(
             if (actualVersion != expectedVersion) {
                 val message = "Unsupported protocol version $actualVersion; expected $expectedVersion"
                 throw MinecraftLoginRejectedException(
-                    reason = JsonTextComponent(buildJsonObject { put("text", message) }.toString()),
+                    reason = JsonTextComponent.literal(message),
                     message = message,
                 )
             }
@@ -107,7 +110,7 @@ private suspend fun MinecraftServerConnection.handleStatus(
     requirePacket<StatusRequestPacket>(incoming.receive())
     outgoing.send(
         StatusResponsePacket(
-            minecraftServerNegotiationPolicy.statusJson(
+            minecraftServerNegotiationPolicy.serverStatus(
                 minecraftServerNegotiationOptions,
                 minecraftServerAuthentication is MinecraftServerAuthentication.Online,
             ),
@@ -212,14 +215,26 @@ private suspend fun MinecraftServerConnection.handleLogin(
         onlineMode,
         minecraftServerNegotiationOptions,
     )
+    val minecraftDimensionLayout = try {
+        require(playLoginPacket.spawnInfo.dimension in playLoginPacket.levels) {
+            val dimensionId = playLoginPacket.spawnInfo.dimension
+            "Play Login selected dimension $dimensionId, but it is absent from the advertised levels"
+        }
+        MinecraftDimensionLayout.from(
+            playLoginPacket,
+            synchronizedRegistryPackets,
+            minecraftServerNegotiationOptions.protocolData,
+        )
+    } catch (failure: IllegalArgumentException) {
+        throw MinecraftServerException(
+            failure.message ?: "Invalid Play Login or registry context",
+            failure,
+        )
+    }
     val baseProtocolRegistryContext = try {
         minecraftServerNegotiationOptions.protocolData
             .resolveSynchronizedRegistryContext(synchronizedRegistryPackets)
-            .withPlayLoginDimensionLayout(
-                playLoginPacket,
-                synchronizedRegistryPackets,
-                minecraftServerNegotiationOptions.protocolData
-            )
+            .withChunkSectionCount(minecraftDimensionLayout.sectionCount)
     } catch (failure: IllegalArgumentException) {
         throw MinecraftServerException(
             failure.message ?: "Invalid Play Login or registry context",
@@ -227,7 +242,19 @@ private suspend fun MinecraftServerConnection.handleLogin(
         )
     }
     val protocolRegistryContext = serverNegotiationProfile.resolveProtocolRegistryContext(baseProtocolRegistryContext)
-    installProtocolRegistryContext(protocolRegistryContext)
+    val minecraftDimensionContext = try {
+        MinecraftDimensionContext.create(
+            dimensionId = DimensionId.parse(playLoginPacket.spawnInfo.dimension.toString()),
+            minecraftDimensionLayout = minecraftDimensionLayout,
+            protocolRegistryContext = protocolRegistryContext,
+        )
+    } catch (failure: IllegalArgumentException) {
+        throw MinecraftServerException(
+            failure.message ?: "Invalid Play Login or registry context",
+            failure,
+        )
+    }
+    installProtocolRegistryContext(minecraftDimensionContext.protocolRegistryContext)
 
     outgoing.send(FinishConfigurationPacket)
     awaitConfigurationPacket<AcknowledgeFinishConfigurationPacket>(
@@ -246,6 +273,7 @@ private suspend fun MinecraftServerConnection.handleLogin(
         clientInformation = clientInformation,
         acceptedKnownPacks = acceptedKnownPacks,
         playLoginPacket = playLoginPacket,
+        minecraftDimensionContext = minecraftDimensionContext,
         negotiationProfileResult = negotiationProfileResult,
         transferred = transferred,
     )

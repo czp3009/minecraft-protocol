@@ -10,6 +10,7 @@ import com.hiczp.minecraft.protocol.session.ClientNegotiationProfile
 import com.hiczp.minecraft.protocol.session.NegotiationProfileResult
 import com.hiczp.minecraft.protocol.session.VanillaClient
 import com.hiczp.minecraft.world.format.ChunkLayout
+import com.hiczp.minecraft.world.format.DimensionId
 import io.ktor.client.*
 
 data class MinecraftStatusExchange(
@@ -25,18 +26,23 @@ private data class MinecraftClientConfigurationResult(
 /**
  * Client-side negotiation facts. The installed, potentially replaceable registry context remains
  * connection state: [MinecraftClientConnection.protocolRegistryContext] holds its authoritative value once
- * negotiation reaches Play.
+ * negotiation reaches Play. [minecraftDimensionContext] is the validated handoff for the initial Play dimension;
+ * semantic block and biome defaults are selected only when the application creates a Chunk context.
  */
 data class MinecraftClientNegotiationResult(
     val loginSuccessPacket: LoginSuccessPacket,
     val dataPackConfigurationSnapshot: DataPackConfigurationSnapshot,
     val storedConfigurationCookies: Map<Identifier, ByteString>,
     val playLoginPacket: PlayLoginPacket,
-    val minecraftDimensionLayout: MinecraftDimensionLayout,
+    val minecraftDimensionContext: MinecraftDimensionContext,
     val negotiationProfileResult: NegotiationProfileResult,
 ) {
+    val minecraftDimensionLayout: MinecraftDimensionLayout
+        get() = minecraftDimensionContext.minecraftDimensionLayout
+
     /** The world-Chunk layout selected by the server for the initial Play dimension. */
-    val chunkLayout: ChunkLayout = minecraftDimensionLayout.toChunkLayout()
+    val chunkLayout: ChunkLayout
+        get() = minecraftDimensionContext.chunkLayout
 }
 
 sealed interface ClientNegotiationQueryResult {
@@ -51,6 +57,7 @@ sealed interface ClientNegotiationQueryResult {
     ) : ClientNegotiationQueryResult
 }
 
+/** Values consumed while moving one client connection from Handshake through its first Play Login. */
 class MinecraftClientNegotiationOptions(
     val clientInformation: ClientInformation = ClientInformation(
         locale = "en_us",
@@ -153,7 +160,7 @@ suspend fun MinecraftClientConnection.negotiate(
         dataPackConfigurationSnapshot = minecraftClientConfigurationResult.dataPackConfigurationSnapshot,
         storedConfigurationCookies = minecraftClientConfigurationResult.storedConfigurationCookies,
         playLoginPacket = minecraftClientPlayLogin.playLoginPacket,
-        minecraftDimensionLayout = minecraftClientPlayLogin.minecraftDimensionLayout,
+        minecraftDimensionContext = minecraftClientPlayLogin.minecraftDimensionContext,
         negotiationProfileResult = negotiationProfileResult,
     )
 }
@@ -327,17 +334,20 @@ private suspend fun MinecraftClientConnection.awaitPlayLogin(
     while (true) {
         when (val clientboundPacket = incoming.receive()) {
             is PlayLoginPacket -> {
-                val minecraftDimensionLayout = registryContextOrClientFailure {
-                    MinecraftDimensionLayout.from(
+                val minecraftDimensionContext = registryContextOrClientFailure {
+                    val minecraftDimensionLayout = MinecraftDimensionLayout.from(
                         playLoginPacket = clientboundPacket,
                         synchronizedRegistryPackets = synchronizedRegistryPackets,
                         protocolData = minecraftClientNegotiationOptions.protocolData,
                     )
+                    MinecraftDimensionContext.create(
+                        dimensionId = DimensionId.parse(clientboundPacket.spawnInfo.dimension.toString()),
+                        minecraftDimensionLayout = minecraftDimensionLayout,
+                        protocolRegistryContext = protocolRegistryContext,
+                    )
                 }
-                val activeProtocolRegistryContext =
-                    protocolRegistryContext.withChunkSectionCount(minecraftDimensionLayout.sectionCount)
-                installProtocolRegistryContext(activeProtocolRegistryContext)
-                return MinecraftClientPlayLogin(clientboundPacket, minecraftDimensionLayout)
+                installProtocolRegistryContext(minecraftDimensionContext.protocolRegistryContext)
+                return MinecraftClientPlayLogin(clientboundPacket, minecraftDimensionContext)
             }
 
             else -> {
@@ -356,7 +366,7 @@ private suspend fun MinecraftClientConnection.awaitPlayLogin(
 
 private data class MinecraftClientPlayLogin(
     val playLoginPacket: PlayLoginPacket,
-    val minecraftDimensionLayout: MinecraftDimensionLayout,
+    val minecraftDimensionContext: MinecraftDimensionContext,
 )
 
 private suspend fun MinecraftClientConnection.handleLoginExtension(

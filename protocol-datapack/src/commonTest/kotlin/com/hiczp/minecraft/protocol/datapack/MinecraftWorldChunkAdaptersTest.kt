@@ -3,9 +3,9 @@ package com.hiczp.minecraft.protocol.datapack
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.world.format.BlockStateDescriptor
 import com.hiczp.minecraft.world.format.ChunkLayout
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNull
+import com.hiczp.minecraft.world.format.DimensionId
+import com.hiczp.minecraft.world.format.DimensionTypeLayout
+import kotlin.test.*
 
 class MinecraftWorldChunkAdaptersTest {
     @Test
@@ -13,12 +13,16 @@ class MinecraftWorldChunkAdaptersTest {
         val minecraftDimensionLayout = MinecraftDimensionLayout(
             dimensionTypeId = Identifier("overworld"),
             dimensionTypeRawId = 0,
-            minY = -64,
-            height = 384,
-            hasSkyLight = true,
+            dimensionTypeLayout = DimensionTypeLayout(
+                minY = -64,
+                height = 384,
+                logicalHeight = 384,
+                hasSkyLight = true,
+                hasCeiling = false,
+            ),
         )
 
-        val chunkLayout = minecraftDimensionLayout.toChunkLayout()
+        val chunkLayout = minecraftDimensionLayout.chunkLayout
 
         assertEquals(ChunkLayout.fromBlockBounds(minY = -64, height = 384), chunkLayout)
         assertEquals(-4, chunkLayout.minSectionY)
@@ -113,6 +117,65 @@ class MinecraftWorldChunkAdaptersTest {
         )
     }
 
+    @Test
+    fun createsAValidatedDimensionHandoffBeforeChoosingSemanticDefaults() {
+        val protocolRegistryContext = testProtocolRegistryContext()
+        val minecraftDimensionLayout = testMinecraftDimensionLayout()
+
+        val minecraftDimensionContext = MinecraftDimensionContext.create(
+            dimensionId = DimensionId.Overworld,
+            minecraftDimensionLayout = minecraftDimensionLayout,
+            protocolRegistryContext = protocolRegistryContext,
+        )
+        val minecraftChunkContext = minecraftDimensionContext.createMinecraftChunkContext()
+
+        assertEquals(DimensionId.Overworld, minecraftDimensionContext.dimensionId)
+        assertEquals(minecraftDimensionLayout, minecraftDimensionContext.minecraftDimensionLayout)
+        assertEquals(24, minecraftDimensionContext.protocolRegistryContext.chunkSectionCount)
+        assertSame(minecraftDimensionContext, minecraftChunkContext.minecraftDimensionContext)
+        assertEquals(DimensionId.Overworld, minecraftChunkContext.dimensionId)
+        assertEquals(minecraftDimensionLayout, minecraftChunkContext.minecraftDimensionLayout)
+        assertEquals(24, minecraftChunkContext.protocolRegistryContext.chunkSectionCount)
+        assertEquals(minecraftDimensionLayout.chunkLayout, minecraftChunkContext.chunkCodecContext.chunkLayout)
+        assertEquals(
+            minecraftChunkContext.chunkCodecContext,
+            minecraftChunkContext.chunkNbtCodec.chunkCodecContext,
+        )
+    }
+
+    @Test
+    fun rejectsMismatchedDimensionTypeAndActiveSectionCount() {
+        val protocolRegistryContext = testProtocolRegistryContext()
+        val minecraftDimensionLayout = testMinecraftDimensionLayout()
+
+        assertFailsWith<IllegalArgumentException> {
+            MinecraftDimensionContext.create(
+                DimensionId.Overworld,
+                minecraftDimensionLayout.copy(dimensionTypeId = Identifier("the_nether")),
+                protocolRegistryContext,
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            MinecraftDimensionContext.create(
+                DimensionId.Overworld,
+                minecraftDimensionLayout,
+                protocolRegistryContext.withChunkSectionCount(16),
+            )
+        }
+    }
+
+    private fun testMinecraftDimensionLayout(): MinecraftDimensionLayout = MinecraftDimensionLayout(
+        dimensionTypeId = Identifier("overworld"),
+        dimensionTypeRawId = 0,
+        dimensionTypeLayout = DimensionTypeLayout(
+            minY = -64,
+            height = 384,
+            logicalHeight = 384,
+            hasSkyLight = true,
+            hasCeiling = false,
+        ),
+    )
+
     private fun testProtocolRegistryContext(): ProtocolRegistryContext {
         val air = Identifier("air")
         val stone = Identifier("stone")
@@ -132,6 +195,13 @@ class MinecraftWorldChunkAdaptersTest {
                     listOf(
                         ProtocolRegistryEntry(Identifier("plains"), 0),
                         ProtocolRegistryEntry(Identifier("desert"), 1),
+                    ),
+                ),
+                ProtocolRegistry(
+                    MinecraftDimensionLayout.DIMENSION_TYPE_REGISTRY,
+                    listOf(
+                        ProtocolRegistryEntry(Identifier("overworld"), 0),
+                        ProtocolRegistryEntry(Identifier("the_nether"), 1),
                     ),
                 ),
             ),

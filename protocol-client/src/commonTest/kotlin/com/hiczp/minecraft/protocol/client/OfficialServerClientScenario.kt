@@ -2,6 +2,7 @@ package com.hiczp.minecraft.protocol.client
 
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.datapack.DataPackConfigurationSnapshot
+import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionContext
 import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.datapack.resolveSynchronizedRegistryContext
 import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
@@ -12,12 +13,9 @@ import com.hiczp.minecraft.protocol.model.type.CustomPayload
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.RegistryTags
 import com.hiczp.minecraft.protocol.session.VanillaClient
+import com.hiczp.minecraft.world.format.DimensionId
 import io.ktor.network.selector.*
 import kotlinx.coroutines.Dispatchers
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 /** Portable protocol scenario driven by a platform-owned official server. */
 internal object OfficialServerClientScenario {
@@ -38,15 +36,9 @@ internal object OfficialServerClientScenario {
                 val minecraftStatusExchange = statusClient.queryStatus(
                     0x0102_0304_0506_0708,
                 )
-                val statusDocument = Json
-                    .parseToJsonElement(minecraftStatusExchange.statusResponsePacket.jsonResponse)
-                    .jsonObject
                 check(
-                    statusDocument.getValue("version")
-                        .jsonObject
-                        .getValue("protocol")
-                        .jsonPrimitive
-                        .int == MinecraftProtocol.PROTOCOL_VERSION,
+                    minecraftStatusExchange.statusResponsePacket.status.version?.protocol ==
+                            MinecraftProtocol.PROTOCOL_VERSION,
                 ) {
                     "Official status did not advertise protocol ${MinecraftProtocol.PROTOCOL_VERSION}"
                 }
@@ -263,8 +255,13 @@ internal object OfficialServerClientScenario {
             synchronizedRegistryPackets = synchronizedRegistryPackets,
             protocolData = minecraftClientNegotiationOptions.protocolData,
         )
+        val minecraftDimensionContext = MinecraftDimensionContext.create(
+            dimensionId = DimensionId.parse(playLoginPacket.spawnInfo.dimension.toString()),
+            minecraftDimensionLayout = minecraftDimensionLayout,
+            protocolRegistryContext = minecraftClientConnection.protocolRegistryContext,
+        )
         minecraftClientConnection.installProtocolRegistryContext(
-            minecraftClientConnection.protocolRegistryContext.withChunkSectionCount(minecraftDimensionLayout.sectionCount),
+            minecraftDimensionContext.protocolRegistryContext,
         )
         val negotiationProfileResult = profile.complete(minecraftClientConnection)
         return MinecraftClientNegotiationResult(
@@ -277,7 +274,7 @@ internal object OfficialServerClientScenario {
             ),
             storedConfigurationCookies = storedConfigurationCookies.toMap(),
             playLoginPacket = playLoginPacket,
-            minecraftDimensionLayout = minecraftDimensionLayout,
+            minecraftDimensionContext = minecraftDimensionContext,
             negotiationProfileResult = negotiationProfileResult,
         )
     }

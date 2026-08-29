@@ -55,7 +55,7 @@ class MinecraftClientProtocolFailureTest {
                 serverSession.receive()
                 serverSession.receive()
                 serverSession.send(
-                    StatusResponsePacket(buildJsonObject {}.toString()),
+                    StatusResponsePacket(ServerStatus()),
                 )
                 serverSession.receive()
                 serverSession.send(StatusPongResponsePacket(2))

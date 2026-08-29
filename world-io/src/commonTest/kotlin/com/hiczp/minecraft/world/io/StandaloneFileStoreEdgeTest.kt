@@ -6,6 +6,8 @@ import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.nbt.serialization.NbtDecodingException
 import com.hiczp.minecraft.world.format.Compression
+import com.hiczp.minecraft.world.format.DimensionId
+import com.hiczp.minecraft.world.format.SavedDataId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.SerialName

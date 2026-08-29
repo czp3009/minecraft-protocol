@@ -52,6 +52,11 @@ annotation class LowPrecisionVector
 @Target(AnnotationTarget.PROPERTY)
 annotation class MaxLength(val characters: Int)
 
+/** Encode the annotated logical value as one JSON protocol string. */
+@SerialInfo
+@Target(AnnotationTarget.PROPERTY)
+annotation class JsonEncoded
+
 /** A byte array whose length is known from surrounding protocol context. */
 @SerialInfo
 @Target(AnnotationTarget.PROPERTY)

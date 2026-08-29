@@ -1,10 +1,14 @@
 package com.hiczp.minecraft.protocol.server
 
+import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.protocol.auth.MinecraftClientKeyExchange
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.auth.respond
 import com.hiczp.minecraft.protocol.auth.toEncryptionResponsePacket
+import com.hiczp.minecraft.protocol.datapack.resolveMinecraftWorld
+import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaDataPacks
 import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
+import com.hiczp.minecraft.protocol.datapack.vanilla.toVanillaProtocolData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
@@ -13,14 +17,17 @@ import com.hiczp.minecraft.protocol.session.MinecraftClientPacketSession
 import com.hiczp.minecraft.protocol.session.MinecraftConnectionDefinition
 import com.hiczp.minecraft.protocol.session.createMinecraftServerPacketConnection
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
+import com.hiczp.minecraft.world.format.DimensionId
+import com.hiczp.minecraft.world.format.DimensionTypeId
+import com.hiczp.minecraft.world.format.data.WorldGenDimension
+import com.hiczp.minecraft.world.format.data.WorldGenDimensionType
+import com.hiczp.minecraft.world.format.data.WorldGenSettingsData
 import io.ktor.client.*
 import io.ktor.client.engine.mock.*
 import io.ktor.http.*
 import io.ktor.utils.io.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.Buffer
-import kotlinx.io.readString
 import kotlinx.serialization.json.*
 import kotlin.test.*
 import kotlin.uuid.Uuid
@@ -36,63 +43,63 @@ class MinecraftServerProtocolTest {
         assertTrue(minecraftServerNegotiationOptions.statusEnabled)
         assertFalse(minecraftServerNegotiationOptions.acceptsTransfers)
         assertEquals(PlayerGameMode.SURVIVAL, minecraftServerNegotiationOptions.gameMode)
-        assertEquals(Difficulty.EASY, minecraftServerNegotiationOptions.difficulty)
+        assertEquals(DimensionId.Overworld, minecraftServerNegotiationOptions.initialDimensionId)
     }
 
     @Test
-    fun buildsStructuredStatusJsonWithoutImposingServerPolicy() {
+    fun defaultPolicyBuildsStructuredStatusAndSecureChatClaims() {
         val minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(
             statusDescription = "Structured status",
             maximumPlayers = 12,
             enforcesSecureChat = true,
         )
-        val offline = Json.parseToJsonElement(
-            minecraftServerNegotiationOptions.statusJson(onlinePlayers = 3),
-        ).jsonObject
+        val offline = DefaultMinecraftServerNegotiationPolicy.createServerStatus(
+            minecraftServerNegotiationOptions,
+            onlinePlayers = 3,
+        )
         assertEquals(
             MinecraftProtocol.PROTOCOL_VERSION,
-            offline.getValue("version").jsonObject
-                .getValue("protocol").jsonPrimitive.int,
+            offline.version?.protocol,
         )
         assertEquals(
             "Structured status",
-            offline.getValue("description").jsonObject
+            Json.parseToJsonElement(offline.description.json).jsonObject
                 .getValue("text").jsonPrimitive.content,
         )
-        assertFalse(
-            offline.getValue("enforcesSecureChat").jsonPrimitive.boolean,
-        )
+        assertFalse(offline.enforcesSecureChat)
 
-        val sink = Buffer()
-        minecraftServerNegotiationOptions.statusJsonToSink(
-            sink = sink,
+        val online = DefaultMinecraftServerNegotiationPolicy.createServerStatus(
+            minecraftServerNegotiationOptions = minecraftServerNegotiationOptions,
             onlinePlayers = 3,
             onlineMode = true,
         )
-        val online = Json.parseToJsonElement(sink.readString()).jsonObject
-        assertTrue(
-            online.getValue("enforcesSecureChat").jsonPrimitive.boolean,
-        )
+        assertTrue(online.enforcesSecureChat)
         val unconventionalOptions = MinecraftServerNegotiationOptions(
             compressionThreshold = -1,
             maximumPlayers = -1,
             viewDistance = 1,
             simulationDistance = -1,
         )
-        val unconventionalStatus = Json.parseToJsonElement(
-            unconventionalOptions.statusJson(onlinePlayers = -1),
-        ).jsonObject
+        val unconventionalStatus = DefaultMinecraftServerNegotiationPolicy.createServerStatus(
+            unconventionalOptions,
+            onlinePlayers = -1,
+        )
         assertEquals(
             -1,
-            unconventionalStatus.getValue("players").jsonObject
-                .getValue("online").jsonPrimitive.int,
+            unconventionalStatus.players?.online,
         )
 
         val gameProfile = GameProfile(Uuid.fromLongs(1, 2), "Probe", emptyList())
-        val offlinePlayLoginPacket =
-            minecraftServerNegotiationOptions.createPlayLoginPacket(gameProfile, onlineMode = false)
-        val onlinePlayLoginPacket =
-            minecraftServerNegotiationOptions.createPlayLoginPacket(gameProfile, onlineMode = true)
+        val offlinePlayLoginPacket = DefaultMinecraftServerNegotiationPolicy.createPlayLoginPacket(
+            minecraftServerNegotiationOptions,
+            gameProfile,
+            onlineMode = false,
+        )
+        val onlinePlayLoginPacket = DefaultMinecraftServerNegotiationPolicy.createPlayLoginPacket(
+            minecraftServerNegotiationOptions,
+            gameProfile,
+            onlineMode = true,
+        )
         assertFalse(offlinePlayLoginPacket.enforcesSecureChat)
         assertTrue(onlinePlayLoginPacket.enforcesSecureChat)
     }
@@ -100,15 +107,24 @@ class MinecraftServerProtocolTest {
     @Test
     fun servesStatusThroughOnlyThePublicPacketChannels() = runTest {
         val connectionPair = connectionPair()
-        val responseJson = buildJsonObject { put("test", "channel-first") }
-            .toString()
+        val serverStatus = ServerStatus(
+            description = JsonTextComponent(
+                buildJsonObject { put("text", "channel-first") }.toString(),
+            ),
+        )
         val minecraftServerNegotiationPolicy = object : MinecraftServerNegotiationPolicy {
-            override suspend fun statusJson(
+            override suspend fun onlinePlayerCount(
+                minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
+            ): Int = 7
+
+            override suspend fun serverStatus(
                 minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
                 onlineMode: Boolean,
-            ): String {
+            ): ServerStatus {
                 assertFalse(onlineMode)
-                return responseJson
+                return super.serverStatus(minecraftServerNegotiationOptions, onlineMode).copy(
+                    description = serverStatus.description,
+                )
             }
         }
         try {
@@ -117,10 +133,9 @@ class MinecraftServerProtocolTest {
             }
             connectionPair.client.send(handshake(HandshakeNextState.STATUS))
             connectionPair.client.send(StatusRequestPacket)
-            assertEquals(
-                StatusResponsePacket(responseJson),
-                connectionPair.client.receive(),
-            )
+            val statusResponsePacket = assertIs<StatusResponsePacket>(connectionPair.client.receive())
+            assertEquals(serverStatus.description, statusResponsePacket.status.description)
+            assertEquals(7, statusResponsePacket.status.players?.online)
             connectionPair.client.send(StatusPingRequestPacket(42))
             assertEquals(StatusPongResponsePacket(42), connectionPair.client.receive())
             assertNull(negotiation.await())
@@ -161,6 +176,86 @@ class MinecraftServerProtocolTest {
             assertSame(
                 minecraftServerNegotiationOptions.protocolData.completeProtocolRegistryContext.blockStates,
                 connectionPair.server.protocolRegistryContext.blockStates,
+            )
+        } finally {
+            connectionPair.close()
+        }
+    }
+
+    @Test
+    fun resolvedWorldProtocolDataProducesACompatibleNegotiatedDimensionContext() = runTest {
+        val resolvedProtocolData = VanillaDataPacks.coreDataPackStack.toVanillaProtocolData()
+        val resolvedMinecraftWorld = resolvedProtocolData.resolveMinecraftWorld(
+            WorldGenSettingsData(
+                seed = 1L,
+                generateStructures = true,
+                bonusChest = false,
+                dimensions = mapOf(
+                    DimensionId.Overworld to WorldGenDimension(
+                        type = WorldGenDimensionType.Reference(DimensionTypeId("overworld")),
+                        generator = NbtCompound(emptyMap()),
+                    ),
+                ),
+            ),
+        )
+        val minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(
+            protocolData = resolvedMinecraftWorld.protocolData,
+            initialDimensionId = DimensionId.Overworld,
+            dimensionIds = resolvedMinecraftWorld.dimensions.keys,
+            compressionThreshold = null,
+            viewDistance = 3,
+        )
+        val expectedMinecraftChunkContext = resolvedMinecraftWorld.dimension(DimensionId.Overworld)
+        val playLoginPacket = DefaultMinecraftServerNegotiationPolicy.createPlayLoginPacket(
+            minecraftServerNegotiationOptions,
+            gameProfile = GameProfile(Uuid.fromLongs(1, 2), "ResolvedProbe", emptyList()),
+            onlineMode = false,
+        )
+        assertEquals(setOf(Identifier("overworld")), playLoginPacket.levels)
+        assertEquals(
+            expectedMinecraftChunkContext.minecraftDimensionLayout.dimensionTypeRawId,
+            playLoginPacket.spawnInfo.dimensionTypeId,
+        )
+        val minecraftChunkPacketEncoder = expectedMinecraftChunkContext.packetEncoder(
+            isAir = { protocolBlockState -> protocolBlockState.block == Identifier("air") },
+            hasFluid = { false },
+        )
+        assertSame(
+            expectedMinecraftChunkContext.protocolRegistryContext,
+            minecraftChunkPacketEncoder.protocolRegistryContext,
+        )
+        assertSame(expectedMinecraftChunkContext.chunkCodecContext, minecraftChunkPacketEncoder.chunkCodecContext)
+        val connectionPair = connectionPair()
+        try {
+            val negotiation = async {
+                connectionPair.server.negotiate(
+                    minecraftServerNegotiationOptions = minecraftServerNegotiationOptions,
+                )
+            }
+            val minecraftOfflineIdentity = MinecraftOfflineIdentity("ResolvedProbe")
+            connectionPair.client.send(handshake(HandshakeNextState.LOGIN))
+            connectionPair.client.send(LoginStartPacket(minecraftOfflineIdentity.name, minecraftOfflineIdentity.id))
+            finishClientNegotiation(connectionPair.client, minecraftServerNegotiationOptions)
+
+            val minecraftServerNegotiationResult = assertNotNull(negotiation.await())
+            val minecraftDimensionContext = minecraftServerNegotiationResult.minecraftDimensionContext
+            assertEquals(expectedMinecraftChunkContext.dimensionId, minecraftDimensionContext.dimensionId)
+            assertEquals(
+                expectedMinecraftChunkContext.minecraftDimensionLayout,
+                minecraftDimensionContext.minecraftDimensionLayout,
+            )
+            assertEquals(
+                expectedMinecraftChunkContext.protocolRegistryContext,
+                minecraftDimensionContext.protocolRegistryContext,
+            )
+            assertSame(minecraftDimensionContext.protocolRegistryContext, connectionPair.server.protocolRegistryContext)
+            val minecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
+                minecraftServerNegotiationResult,
+            )
+            assertEquals(3, minecraftInitialWorldBootstrap.viewDistance)
+            assertEquals(
+                Identifier("overworld"),
+                minecraftInitialWorldBootstrap.defaultSpawn.globalPosition.dimension,
             )
         } finally {
             connectionPair.close()

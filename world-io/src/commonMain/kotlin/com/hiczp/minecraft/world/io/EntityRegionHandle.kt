@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.world.io
 
+import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.world.format.*
 import kotlinx.serialization.DeserializationStrategy
@@ -17,6 +18,8 @@ import okio.BufferedSource
 class EntityRegionHandle internal constructor(
     private val delegate: RegionHandle,
 ) {
+    private val nbtEntityChunkNbtCodec = EntityChunkNbtCodec(NbtEntityDataRegistry(), delegate.chunkNbtFormat.nbtFormat)
+
     val regionPosition: RegionPosition
         get() = delegate.regionPosition
 
@@ -131,6 +134,12 @@ class EntityRegionHandle internal constructor(
     suspend inline fun <reified T> readChunkNbt(chunkPosition: ChunkPosition): T? =
         readChunkNbt(chunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
 
+    suspend fun readChunk(localChunkPosition: LocalChunkPosition): EntityChunk<NbtCompound>? =
+        readChunk(localChunkPosition, nbtEntityChunkNbtCodec)
+
+    suspend fun readChunk(chunkPosition: ChunkPosition): EntityChunk<NbtCompound>? =
+        readChunk(regionPosition.local(chunkPosition))
+
     suspend fun <E : Any> readChunk(
         localChunkPosition: LocalChunkPosition,
         entityChunkNbtCodec: EntityChunkNbtCodec<E>
@@ -208,6 +217,12 @@ class EntityRegionHandle internal constructor(
         }
     }
 
+    /** Writes an Entity Chunk while preserving every subtype-specific field as raw NBT. */
+    suspend fun writeChunk(
+        entityChunk: EntityChunk<NbtCompound>,
+        compression: Compression = regionStorageConfiguration.writeCompression,
+    ) = writeChunk(entityChunk, nbtEntityChunkNbtCodec, compression)
+
     suspend fun clear() = delegate.clear()
 
     /**
@@ -216,6 +231,14 @@ class EntityRegionHandle internal constructor(
      */
     suspend fun <R> withReadScope(block: EntityRegionReadScope.() -> R): R = delegate.withReadScopeCore {
         block(EntityRegionReadScope(this, chunkNbtFormat))
+    }
+
+    /** Retains [entityChunkNbtCodec] throughout one coordinated Entity Region read scope. */
+    suspend fun <E : Any, R> withReadScope(
+        entityChunkNbtCodec: EntityChunkNbtCodec<E>,
+        block: DecodedEntityRegionReadScope<E>.() -> R,
+    ): R = delegate.withReadScopeCore {
+        block(DecodedEntityRegionReadScope(this, chunkNbtFormat, entityChunkNbtCodec))
     }
 
     suspend fun replaceRegion(block: RegionReplacementScope.() -> Unit) = delegate.replaceRegion(block)

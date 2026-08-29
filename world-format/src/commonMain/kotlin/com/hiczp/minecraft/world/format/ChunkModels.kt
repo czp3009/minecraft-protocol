@@ -129,13 +129,13 @@ data class ChunkLayout(
     fun containsBlockY(y: Int): Boolean = y in blockYRange
 }
 
-data class ChunkNbtContext<B : Any, M : Any>(
+data class ChunkCodecContext<B : Any, M : Any>(
     val chunkLayout: ChunkLayout,
     val chunkDataRegistries: ChunkDataRegistries<B, M>,
 ) {
     init {
         require(chunkLayout.minSectionY >= Byte.MIN_VALUE && chunkLayout.maxSectionY <= Byte.MAX_VALUE) {
-            "A Chunk NBT layout's Section Y range must fit TAG_Byte"
+            "A persistent Chunk layout's Section Y range must fit TAG_Byte"
         }
     }
 }

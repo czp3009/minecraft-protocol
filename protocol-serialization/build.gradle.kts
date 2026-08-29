@@ -64,6 +64,7 @@ kotlin {
                 implementation(project(":nbt-serialization"))
                 api(libs.kotlinx.io.core)
                 api(libs.kotlinx.serialization.core)
+                implementation(libs.kotlinx.serialization.json)
             }
         }
 

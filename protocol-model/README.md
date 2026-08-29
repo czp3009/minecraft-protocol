@@ -6,7 +6,8 @@ The module provides:
 
 - packet marker interfaces grouped by connection state and direction;
 - logical clientbound Bundle snapshots with intrinsic size and nesting invariants;
-- structured values for items, chunks, chat, commands, entities, registries, recipes, and other packet fields;
+- structured values for server status, items, chunks, chat, commands, entities, registries, recipes, and other packet
+  fields;
 - sealed variants and logical `kotlinx.serialization` serializers for conditional protocol shapes;
 - open direction-specific packet extension branches plus lossless `PacketRoute`/`UnknownPacket` values;
 - immutable static, remote, and resolved registry models for dynamic block-state and registry IDs;
@@ -26,6 +27,23 @@ val handshakePacket: ServerboundPacket = HandshakePacket(
     nextState = HandshakeNextState.STATUS,
 )
 val statusRequestPacket: ServerboundPacket = StatusRequestPacket
+```
+
+`StatusResponsePacket.status` is the shared `ServerStatus` value produced by a server and consumed by a client. Its
+description, optional player sample, version, favicon bytes, and secure-chat claim remain typed here; the JSON protocol
+string is only their physical representation in `protocol-serialization`. The nested status records avoid exposing a
+second set of server-only models:
+
+```kotlin
+val serverStatus = ServerStatus(
+    description = JsonTextComponent.literal("Ready"),
+    players = ServerStatus.Players(max = 20, online = 3),
+    version = ServerStatus.Version(
+        name = MinecraftProtocol.MINECRAFT_VERSION,
+        protocol = MinecraftProtocol.PROTOCOL_VERSION,
+    ),
+)
+val statusResponsePacket: ClientboundPacket = StatusResponsePacket(serverStatus)
 ```
 
 `ClientboundBundlePacket` is one logical Play value rather than a registered packet with its own numeric ID. Its

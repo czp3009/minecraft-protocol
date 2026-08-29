@@ -1,6 +1,8 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
+import com.hiczp.minecraft.world.format.DimensionId
+import com.hiczp.minecraft.world.format.SavedDataId
 import com.hiczp.minecraft.world.format.data.*
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy

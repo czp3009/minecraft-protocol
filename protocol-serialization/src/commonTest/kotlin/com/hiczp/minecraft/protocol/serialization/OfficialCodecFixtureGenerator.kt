@@ -77,8 +77,24 @@ internal object OfficialCodecFixtureGenerator {
         when (packetClass) {
             StatusResponsePacket::class ->
                 listOf(
-                    "valid_json" to StatusResponsePacket(
-                        """{"version":{"name":"test","protocol":1},"players":{"max":0,"online":0},"description":{"text":"test"}}""",
+                    "defaults" to StatusResponsePacket(ServerStatus()),
+                    "all_fields" to StatusResponsePacket(
+                        ServerStatus(
+                            description = JsonTextComponent("""{"text":"test"}"""),
+                            players = ServerStatus.Players(
+                                max = 20,
+                                online = 1,
+                                sample = listOf(
+                                    ServerStatus.NameAndId(
+                                        Uuid.fromLongs(1, 2),
+                                        "player",
+                                    ),
+                                ),
+                            ),
+                            version = ServerStatus.Version("test", 1),
+                            favicon = ServerStatus.Favicon(ByteString(byteArrayOf(1, 2, 3))),
+                            enforcesSecureChat = true,
+                        ),
                     ),
                 )
 

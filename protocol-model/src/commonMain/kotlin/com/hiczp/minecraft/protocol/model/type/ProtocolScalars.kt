@@ -1,6 +1,16 @@
 package com.hiczp.minecraft.protocol.model.type
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonEncoder
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlin.jvm.JvmInline
 
 /** One unsigned byte interpreted as 1/256 of a full turn. */
@@ -34,6 +44,34 @@ data class PositionMoveRotation(
 )
 
 /** A text component whose wire representation is the legacy JSON string form. */
-@Serializable
+@Serializable(with = JsonTextComponentSerializer::class)
 @JvmInline
-value class JsonTextComponent(val json: String)
+value class JsonTextComponent(val json: String) {
+    companion object {
+        fun literal(text: String): JsonTextComponent = JsonTextComponent(
+            buildJsonObject { put("text", text) }.toString(),
+        )
+    }
+}
+
+internal object JsonTextComponentSerializer : KSerializer<JsonTextComponent> {
+    override val descriptor = PrimitiveSerialDescriptor(
+        "minecraft.JsonTextComponent",
+        PrimitiveKind.STRING,
+    )
+
+    override fun serialize(encoder: Encoder, value: JsonTextComponent) {
+        if (encoder is JsonEncoder) {
+            encoder.encodeJsonElement(Json.parseToJsonElement(value.json))
+        } else {
+            encoder.encodeString(value.json)
+        }
+    }
+
+    override fun deserialize(decoder: Decoder): JsonTextComponent =
+        if (decoder is JsonDecoder) {
+            JsonTextComponent(decoder.decodeJsonElement().toString())
+        } else {
+            JsonTextComponent(decoder.decodeString())
+        }
+}

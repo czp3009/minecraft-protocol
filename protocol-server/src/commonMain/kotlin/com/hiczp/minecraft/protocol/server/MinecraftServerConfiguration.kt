@@ -1,22 +1,17 @@
 package com.hiczp.minecraft.protocol.server
 
-import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.datapack.ProtocolData
 import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
-import com.hiczp.minecraft.protocol.model.packet.PlayLoginPacket
-import com.hiczp.minecraft.protocol.model.type.*
-import kotlinx.io.Buffer
-import kotlinx.io.Sink
-import kotlinx.io.readString
-import kotlinx.serialization.ExperimentalSerializationApi
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.io.encodeToSink
+import com.hiczp.minecraft.protocol.model.type.GameMode
+import com.hiczp.minecraft.world.format.DimensionId
 import kotlin.random.Random
 import kotlin.uuid.Uuid
 
+/** Values consumed while serving Status or moving one connection from Handshake through its first Play Login. */
 data class MinecraftServerNegotiationOptions(
     val protocolData: ProtocolData = VanillaProtocolData,
+    val initialDimensionId: DimensionId = DimensionId.Overworld,
+    val dimensionIds: Set<DimensionId> = setOf(initialDimensionId),
     val compressionThreshold: Int? = 256,
     val sessionId: Uuid = Uuid.fromLongs(
         Random.nextLong(),
@@ -31,8 +26,6 @@ data class MinecraftServerNegotiationOptions(
     val statusDescription: String = "A Minecraft Server",
     val hardcore: Boolean = false,
     val gameMode: GameMode = GameMode.SURVIVAL,
-    val difficulty: Difficulty = Difficulty.EASY,
-    val difficultyLocked: Boolean = false,
     /**
      * Requests the protocol-visible secure-chat claim. It is effective only in
      * Online authentication. Set it only when the consuming server actually
@@ -40,105 +33,9 @@ data class MinecraftServerNegotiationOptions(
      */
     val enforcesSecureChat: Boolean = false,
 ) {
-    fun effectiveSecureChatEnforcement(onlineMode: Boolean): Boolean =
-        onlineMode && enforcesSecureChat
-
-    /** In-memory adapter over [statusJsonToSink]. */
-    fun statusJson(
-        onlinePlayers: Int = 0,
-        onlineMode: Boolean = false,
-    ): String {
-        val sink = Buffer()
-        statusJsonToSink(sink, onlinePlayers, onlineMode)
-        return sink.readString()
+    init {
+        require(initialDimensionId in dimensionIds) {
+            "Initial dimension $initialDimensionId is absent from the advertised dimensions"
+        }
     }
-
-    /**
-     * Serializes the status response directly into [sink] without closing or
-     * flushing the caller-owned endpoint.
-     */
-    @OptIn(ExperimentalSerializationApi::class)
-    fun statusJsonToSink(
-        sink: Sink,
-        onlinePlayers: Int = 0,
-        onlineMode: Boolean = false,
-    ) {
-        serverJson.encodeToSink(
-            ServerStatus(
-                version = ServerStatusVersion(
-                    protocolData.minecraftVersion,
-                    protocolData.protocolVersion,
-                ),
-                players = ServerStatusPlayers(
-                    maximumPlayers,
-                    onlinePlayers,
-                ),
-                description = ServerStatusDescription(statusDescription),
-                enforcesSecureChat = effectiveSecureChatEnforcement(onlineMode),
-            ),
-            sink,
-        )
-    }
-
-    fun createPlayLoginPacket(
-        gameProfile: GameProfile,
-        onlineMode: Boolean,
-    ): PlayLoginPacket {
-        val dimensionId = Identifier("overworld")
-        val minecraftDimensionLayout = MinecraftDimensionLayout.from(
-            protocolData,
-            dimensionId,
-        )
-        return PlayLoginPacket(
-            playerId = gameProfile.id.hashCode(),
-            hardcore = hardcore,
-            levels = setOf(dimensionId),
-            maxPlayers = maximumPlayers,
-            chunkRadius = viewDistance,
-            simulationDistance = simulationDistance,
-            reducedDebugInfo = false,
-            showDeathScreen = true,
-            limitedCrafting = false,
-            spawnInfo = CommonPlayerSpawnInfo(
-                dimensionTypeId = minecraftDimensionLayout.dimensionTypeRawId,
-                dimension = dimensionId,
-                seed = 0,
-                gameMode = gameMode,
-                previousGameMode = null,
-                isDebug = false,
-                isFlat = true,
-                lastDeathLocation = null,
-                portalCooldown = 0,
-                seaLevel = 63,
-            ),
-            onlineMode = onlineMode,
-            enforcesSecureChat = effectiveSecureChatEnforcement(onlineMode),
-        )
-    }
-
 }
-
-@Serializable
-private data class ServerStatus(
-    val version: ServerStatusVersion,
-    val players: ServerStatusPlayers,
-    val description: ServerStatusDescription,
-    val enforcesSecureChat: Boolean,
-)
-
-@Serializable
-private data class ServerStatusVersion(
-    val name: String,
-    val protocol: Int,
-)
-
-@Serializable
-private data class ServerStatusPlayers(
-    val max: Int,
-    val online: Int,
-)
-
-@Serializable
-private data class ServerStatusDescription(val text: String)
-
-private val serverJson = Json { prettyPrint = true }

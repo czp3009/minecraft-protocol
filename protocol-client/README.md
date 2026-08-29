@@ -33,8 +33,15 @@ suspend fun queryStatus(
 ```
 
 The result exposes the server's `StatusResponsePacket` as `statusResponsePacket` and the matching
-`StatusPongResponsePacket` as `statusPongResponsePacket`. Status cannot continue into Login; close it and open a new
-connection when joining.
+`StatusPongResponsePacket` as `statusPongResponsePacket`. The response packet contains a shared, typed `ServerStatus`;
+the client never has to parse the enclosing protocol JSON:
+
+```kotlin
+fun advertisedProtocol(minecraftStatusExchange: MinecraftStatusExchange): Int? =
+    minecraftStatusExchange.statusResponsePacket.status.version?.protocol
+```
+
+Status cannot continue into Login; close it and open a new connection when joining.
 
 ## Enter Play
 
@@ -58,8 +65,9 @@ reached the transport's flush boundary.
 
 ### Configure negotiation
 
-`MinecraftClientNegotiationOptions` controls the client information, protocol data, cookies, accepted Known Packs, Code
-of Conduct decision, resource-pack response, local static registries, and handling of unrecognized negotiation queries.
+`MinecraftClientNegotiationOptions` contains only inputs used during Login, Configuration, and entry into Play: client
+information, protocol data, cookies, accepted Known Packs, the Code of Conduct decision, the resource-pack response,
+local static registries, and handling of unrecognized negotiation queries.
 Here `minecraftClientConnection` is a fresh Handshake-state value returned by `MinecraftClientConnection.connect`:
 
 ```kotlin
@@ -158,40 +166,49 @@ See [`protocol-datapack`](../protocol-datapack/README.md) for all constructible 
 
 ## Decode Chunk packets
 
-The negotiation result supplies the `ChunkLayout` for the dimension selected by Play Login. Combine it with the
-installed registry context to decode `ChunkDataAndUpdateLightPacket` into a semantic `Chunk`:
-
-`MinecraftClientNegotiationResult.chunkLayout` delegates the canonical dimension conversion to
-[`protocol-datapack`](../protocol-datapack/README.md#adapt-protocol-context-to-semantic-chunks). The result remains a
-client convenience describing the initial Play dimension; create a new layout and decoder after a dimension change.
+Configuration and Play Login are resolved together during `negotiate()`. The returned `minecraftDimensionContext`
+contains the selected `DimensionId`, synchronized dimension-type ID/raw ID, validated layout, and active registries. It
+deliberately stops before block and biome defaults because those are semantic codec choices, not negotiation input. For
+vanilla data, create the complete Chunk context with its defaults and then create the packet decoder fluently:
 
 ```kotlin
 fun createChunkDecoder(
-    minecraftClientConnection: MinecraftClientConnection,
     minecraftClientNegotiationResult: MinecraftClientNegotiationResult,
     dataVersion: Int,
-): MinecraftChunkPacketDecoder = MinecraftChunkPacketDecoder(
-    protocolRegistryContext = minecraftClientConnection.protocolRegistryContext,
-    chunkLayout = minecraftClientNegotiationResult.chunkLayout,
-    chunkMetadata = ChunkMetadata(
-        dataVersion = dataVersion,
-        status = ChunkMetadata.FULLY_GENERATED_STATUS,
-    ),
-)
+): MinecraftChunkPacketDecoder {
+    val minecraftChunkContext = minecraftClientNegotiationResult.minecraftDimensionContext
+        .createMinecraftChunkContext()
+    return minecraftChunkContext.packetDecoder(
+        ChunkMetadata(
+            dataVersion = dataVersion,
+            status = ChunkMetadata.FULLY_GENERATED_STATUS,
+        ),
+    )
+}
 
 fun decodeChunk(
     chunkDataAndUpdateLightPacket: ChunkDataAndUpdateLightPacket,
     minecraftChunkPacketDecoder: MinecraftChunkPacketDecoder,
 ): Chunk<ProtocolBlockState, ProtocolRegistryEntry> =
-    chunkDataAndUpdateLightPacket.toChunk(minecraftChunkPacketDecoder)
+    minecraftChunkPacketDecoder.decode(chunkDataAndUpdateLightPacket)
 ```
 
 The caller supplies the metadata template because network Chunk packets do not carry persistence-only fields such as
 data version, generation status, inhabited time, or scheduled ticks. Packet heightmaps, block entities, lighting,
 position, palettes, and biomes replace the corresponding values during decoding.
 
-The decoder's registry adapter uses the active `ProtocolRegistryContext` through the same shared
-`protocol-datapack` entry point. Recreate it after Configuration, reconfiguration, or another context replacement.
+The decoder validates packet Section count and palette IDs against the same context installed on the connection. The
+result is the same semantic `Chunk<ProtocolBlockState, ProtocolRegistryEntry>` used by the disk and server paths; the
+client does not need a data-pack directory or a separately assembled registry adapter.
+
+`dataPackConfigurationSnapshot`, `resolveClientRegistryView(...)`, `playLoginPacket`, `minecraftDimensionContext`,
+`minecraftDimensionLayout`, and `chunkLayout` remain available for inspection and custom decoders. The explicit
+`MinecraftChunkPacketDecoder(protocolRegistryContext, chunkCodecContext, chunkMetadata)` constructor is the low-level
+entry when a caller intentionally supplies those stages. Rebuild the context and decoder after reconfiguration or a
+dimension change.
+
+For a modded registry without `minecraft:air` or `minecraft:plains`, pass `defaultBlock` and `defaultBiome` to
+`createMinecraftChunkContext`. Changing those values never changes the packets sent during negotiation.
 
 ## Decode Entity pairing bundles
 

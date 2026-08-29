@@ -242,7 +242,7 @@ internal object HeadlessClientEndToEndRunner {
                 position = Vector3d(5.5, 65.0, 5.5),
             )
             val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(
-                minecraftServerNegotiationOptions = OPTIONS,
+                minecraftServerNegotiationResult = ready,
                 entities = listOf(pig, arrow, minecart, horse),
             )
             runProtocolStage("managed Play KeepAlive request") {

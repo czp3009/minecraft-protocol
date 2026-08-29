@@ -1,7 +1,5 @@
 package com.hiczp.minecraft.world.io
 
-internal const val DEFAULT_STORAGE_NAMESPACE = "minecraft"
-
 internal fun validateStorageNamespace(namespace: String, description: String) {
     require(
         namespace.matches(STORAGE_NAMESPACE_PATTERN) &&

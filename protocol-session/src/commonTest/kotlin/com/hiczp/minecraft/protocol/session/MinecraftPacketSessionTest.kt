@@ -34,7 +34,12 @@ class MinecraftPacketSessionTest {
         client.send(StatusRequestPacket)
         assertEquals(StatusRequestPacket, server.receive())
         val statusResponsePacket = StatusResponsePacket(
-            """{"version":{"protocol":${MinecraftProtocol.PROTOCOL_VERSION}}}""",
+            ServerStatus(
+                version = ServerStatus.Version(
+                    name = MinecraftProtocol.MINECRAFT_VERSION,
+                    protocol = MinecraftProtocol.PROTOCOL_VERSION,
+                ),
+            ),
         )
         server.send(statusResponsePacket)
         assertEquals(statusResponsePacket, client.receive())

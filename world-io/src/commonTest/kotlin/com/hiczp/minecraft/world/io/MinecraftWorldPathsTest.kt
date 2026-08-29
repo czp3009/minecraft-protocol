@@ -1,7 +1,9 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.ChunkPosition
+import com.hiczp.minecraft.world.format.DimensionId
 import com.hiczp.minecraft.world.format.RegionPosition
+import com.hiczp.minecraft.world.format.SavedDataId
 import okio.Path.Companion.toPath
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -95,8 +97,10 @@ class MinecraftWorldPathsTest {
 
     @Test
     fun rejectsPathTraversalAndInvalidStorageKeys() {
+        val minecraftWorldPaths = MinecraftWorldPaths("world".toPath())
+
         assertFailsWith<IllegalArgumentException> {
-            DimensionId("../escape", namespace = "example")
+            minecraftWorldPaths.dimension(DimensionId("../escape", namespace = "example"))
         }
         assertFailsWith<IllegalArgumentException> {
             DimensionId("valid", namespace = "Example")
@@ -105,13 +109,16 @@ class MinecraftWorldPathsTest {
             DimensionId("", namespace = "example")
         }
         assertFailsWith<IllegalArgumentException> {
-            DimensionId("two//parts", namespace = "example")
+            minecraftWorldPaths.dimension(DimensionId("two//parts", namespace = "example"))
         }
         assertFailsWith<IllegalArgumentException> {
             DimensionId("Upper", namespace = "example")
         }
         assertFailsWith<IllegalArgumentException> {
-            SavedDataId("../escape")
+            minecraftWorldPaths.savedData(
+                SavedDataId("../escape"),
+                SavedDataScope.WorldRoot,
+            )
         }
         assertFailsWith<IllegalArgumentException> {
             SavedDataId("value", namespace = "Example")
@@ -123,13 +130,19 @@ class MinecraftWorldPathsTest {
             SavedDataId("")
         }
         assertFailsWith<IllegalArgumentException> {
-            SavedDataId("a//b", namespace = "example")
+            minecraftWorldPaths.savedData(
+                SavedDataId("a//b", namespace = "example"),
+                SavedDataScope.WorldRoot,
+            )
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftWorldPaths("world".toPath()).playerData("../player")
+            minecraftWorldPaths.dimension(DimensionId("valid", namespace = ".."))
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftWorldPaths("world".toPath()).statistics("")
+            minecraftWorldPaths.playerData("../player")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            minecraftWorldPaths.statistics("")
         }
     }
 }

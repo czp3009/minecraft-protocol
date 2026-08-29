@@ -46,6 +46,71 @@ val overworld = minecraftWorldAccess.dimensions.overworld
 val chunkTicketsData = overworld.data.readChunkTicketsData()
 ```
 
+## Read computational world values from disk
+
+An ordinary stored Chunk needs the active data-pack registries and its dimension layout. Read both authoritative world
+inputs, project them once, and retain the resulting `ResolvedMinecraftWorld` for later Region reads:
+
+```kotlin
+fun resolveLiveMinecraftWorld(
+    liveMinecraftWorldAccess: LiveMinecraftWorldAccess,
+): ResolvedMinecraftWorld {
+    val worldGenSettingsData = checkNotNull(
+        liveMinecraftWorldAccess.data.read<SavedDataFile<WorldGenSettingsData>>(
+            SavedDataId("world_gen_settings"),
+        ),
+    ).data
+    return liveMinecraftWorldAccess.dataPacks.readEnabled()
+        .toVanillaProtocolData()
+        .resolveMinecraftWorld(worldGenSettingsData)
+}
+```
+
+`readEnabled()` already reads the ordered enabled selection and feature configuration from `level.dat`, loads its
+`file/...` packs, and returns a detached `WorldDataPackLoadResult`. `toVanillaProtocolData()` fills the matching bundled
+core/built-in packs and projects Configuration registries. `resolveMinecraftWorld()` then checks every persisted level
+stem against the exact projected dimension-type registry. Applications using this path add `protocol-datapack` and
+`protocol-datapack-vanilla`; `world-io` itself keeps its lower-layer dependency direction.
+
+With that one resolved value, all three Region families return computational in-memory structures:
+
+```kotlin
+data class StoredChunkContents(
+    val chunk: Chunk<ProtocolBlockState, ProtocolRegistryEntry>?,
+    val entityChunk: EntityChunk<NbtCompound>?,
+    val poiChunk: PoiChunk?,
+)
+
+fun readLiveChunkContents(
+    liveMinecraftWorldAccess: LiveMinecraftWorldAccess,
+    resolvedMinecraftWorld: ResolvedMinecraftWorld,
+    dimensionId: DimensionId,
+    chunkPosition: ChunkPosition,
+): StoredChunkContents {
+    val minecraftChunkContext = resolvedMinecraftWorld.dimension(dimensionId)
+    val liveMinecraftDimension = liveMinecraftWorldAccess.dimensions[dimensionId]
+    val regionPosition = chunkPosition.regionPosition
+    val chunk = liveMinecraftDimension.openRegion(regionPosition).use { liveRegionHandle ->
+        liveRegionHandle.withReadScope(minecraftChunkContext.chunkNbtCodec) {
+            readChunk(chunkPosition)
+        }
+    }
+    val entityChunk = liveMinecraftDimension.openEntityRegion(regionPosition).use { liveEntityRegionHandle ->
+        liveEntityRegionHandle.readChunk(chunkPosition)
+    }
+    val poiChunk = liveMinecraftDimension.openPoiRegion(regionPosition).use { livePoiRegionHandle ->
+        livePoiRegionHandle.readChunk(chunkPosition)
+    }
+    return StoredChunkContents(chunk, entityChunk, poiChunk)
+}
+```
+
+The ordinary Region result uses `ProtocolBlockState` and `ProtocolRegistryEntry`, so the same Chunk can later enter the
+server packet encoder without another registry conversion. The no-codec Entity entry uses `NbtEntityDataRegistry` and
+preserves subtype-specific fields in `NbtCompound`; pass an `EntityChunkNbtCodec<E>` when the application has a custom
+runtime entity-data type. POI handles already own their codec. `MinecraftWorldAccess` exposes the same reads as suspend
+operations and additionally provides writes under the world lease.
+
 ## Choose an API layer
 
 The public stores are stateless building blocks. `RawFileStore`, `NbtFileStore`, and `Utf8JsonFileStore` operate on an
@@ -209,14 +274,16 @@ suspend fun <B : Any, M : Any> readRegionChunks(
     regionPosition: RegionPosition,
     chunkNbtCodec: ChunkNbtCodec<B, M>,
 ): List<Chunk<B, M>> = minecraftWorldAccess.dimensions.overworld.openRegion(regionPosition).use { regionHandle ->
-    regionHandle.withReadScope {
-        this.chunkPositions.mapNotNull { readChunk(it, chunkNbtCodec) }.toList()
+    regionHandle.withReadScope(chunkNbtCodec) {
+        this.chunkPositions.mapNotNull { readChunk(it) }.toList()
     }
 }
 ```
 
-The `this` receiver inside `withReadScope` is a `RegionReadScope`; its `chunkPositions` sequence comes from the Region
-Header read for that scope.
+The receiver is a `DecodedChunkRegionReadScope<B, M>`: it retains the codec and obtains `chunkPositions` from the one
+Region Header read. Use the original `withReadScope { readChunk(position, codec) }` form when different codecs must be
+mixed within one Header scope. Entity Regions provide the corresponding codec-bound
+`DecodedEntityRegionReadScope<E>`.
 
 Ordinary handle calls may be concurrent. Same-Region reads can proceed together, writes serialize, and independent
 Regions progress independently. Chunk, Entity, and POI Region directories also have distinct coordination identities, so
@@ -246,13 +313,10 @@ Entity storage is parallel to Chunk storage and is addressed by the Entity's abs
 suspend fun readEntities(
     minecraftWorldAccess: MinecraftWorldAccess,
     chunkPosition: ChunkPosition,
-): EntityChunk<NbtCompound>? {
-    val entityChunkNbtCodec = EntityChunkNbtCodec(NbtEntityDataRegistry())
-    return minecraftWorldAccess.dimensions.overworld
-        .openEntityRegion(chunkPosition.regionPosition).use { entityRegionHandle ->
-        entityRegionHandle.readChunk(chunkPosition, entityChunkNbtCodec)
+): EntityChunk<NbtCompound>? = minecraftWorldAccess.dimensions.overworld
+    .openEntityRegion(chunkPosition.regionPosition).use { entityRegionHandle ->
+        entityRegionHandle.readChunk(chunkPosition)
     }
-}
 ```
 
 Region semantic reads carry the stored `DataVersion` into the returned Chunk or Entity Chunk without a compatibility
@@ -261,6 +325,10 @@ policy can inspect an NBT document first or validate the returned value themselv
 
 `EntityRegionHandle` offers the same metadata, compressed stream/value, NBT document, serializer, semantic read/write,
 removal, replacement, flush, and lifecycle operations as `RegionHandle`.
+
+The no-codec `writeChunk(EntityChunk<NbtCompound>)` path uses the same NBT-preserving registry. The explicit
+`EntityChunkNbtCodec<E>` overloads remain available for custom runtime data on individual reads/writes or an entire
+bound read scope.
 
 Writing an `EntityChunk` with no root Entities removes its indexed record. Runtime transfer of an Entity between loaded
 Entity Chunks remains an application decision.
@@ -325,8 +393,8 @@ fun <B : Any, M : Any> readLiveRegionChunks(
 ): List<Chunk<B, M>> = liveMinecraftWorldAccess.dimensions.overworld
     .openRegion(regionPosition)
     .use { liveRegionHandle ->
-        liveRegionHandle.withReadScope {
-            this.chunkPositions.mapNotNull { readChunk(it, chunkNbtCodec) }.toList()
+        liveRegionHandle.withReadScope(chunkNbtCodec) {
+            this.chunkPositions.mapNotNull { readChunk(it) }.toList()
         }
     }
 ```

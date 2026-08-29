@@ -7,7 +7,6 @@ import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.datapack.ProtocolData
 import com.hiczp.minecraft.protocol.datapack.requireRegistryPacket
-import com.hiczp.minecraft.protocol.datapack.toChunkLayout
 import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
@@ -18,12 +17,11 @@ import com.hiczp.minecraft.protocol.session.MinecraftConnectionDefinition
 import com.hiczp.minecraft.protocol.session.MinecraftServerPacketSession
 import com.hiczp.minecraft.protocol.session.createMinecraftClientPacketConnection
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
+import com.hiczp.minecraft.world.format.ChunkMetadata
+import com.hiczp.minecraft.world.format.DimensionTypeLayout
 import io.ktor.utils.io.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import kotlin.test.*
 import kotlin.uuid.Uuid
 
@@ -52,16 +50,11 @@ class MinecraftClientProtocolTest {
             assertEquals(StatusRequestPacket, serverSession.receive())
             serverSession.send(
                 StatusResponsePacket(
-                    Json.encodeToString(
-                        buildJsonObject {
-                            put(
-                                "version",
-                                buildJsonObject {
-                                    put("name", MinecraftProtocol.MINECRAFT_VERSION)
-                                    put("protocol", MinecraftProtocol.PROTOCOL_VERSION)
-                                },
-                            )
-                        },
+                    ServerStatus(
+                        version = ServerStatus.Version(
+                            name = MinecraftProtocol.MINECRAFT_VERSION,
+                            protocol = MinecraftProtocol.PROTOCOL_VERSION,
+                        ),
                     ),
                 ),
             )
@@ -71,6 +64,10 @@ class MinecraftClientProtocolTest {
 
         val minecraftStatusExchange = client.queryStatus(0x0102_0304_0506_0708)
 
+        assertEquals(
+            MinecraftProtocol.PROTOCOL_VERSION,
+            minecraftStatusExchange.statusResponsePacket.status.version?.protocol,
+        )
         assertEquals(0x0102_0304_0506_0708, minecraftStatusExchange.statusPongResponsePacket.timestamp)
         server.await()
         client.close()
@@ -170,7 +167,7 @@ class MinecraftClientProtocolTest {
         )
         assertEquals(expectedMinecraftDimensionLayout, minecraftClientNegotiationResult.minecraftDimensionLayout)
         assertEquals(
-            expectedMinecraftDimensionLayout.toChunkLayout(),
+            expectedMinecraftDimensionLayout.chunkLayout,
             minecraftClientNegotiationResult.chunkLayout,
         )
         assertEquals(
@@ -202,7 +199,9 @@ class MinecraftClientProtocolTest {
                         mapOf(
                             "min_y" to NbtInt(0),
                             "height" to NbtInt(32),
+                            "logical_height" to NbtInt(32),
                             "has_skylight" to NbtByte(0),
+                            "has_ceiling" to NbtByte(1),
                         ),
                     ),
                 ),
@@ -268,9 +267,13 @@ class MinecraftClientProtocolTest {
             MinecraftDimensionLayout(
                 dimensionTypeId = Identifier("test:short_dimension"),
                 dimensionTypeRawId = 0,
-                minY = 0,
-                height = 32,
-                hasSkyLight = false,
+                dimensionTypeLayout = DimensionTypeLayout(
+                    minY = 0,
+                    height = 32,
+                    logicalHeight = 32,
+                    hasSkyLight = false,
+                    hasCeiling = true,
+                ),
             ),
             minecraftClientNegotiationResult.minecraftDimensionLayout,
         )
@@ -290,6 +293,19 @@ class MinecraftClientProtocolTest {
                 ProtocolRegistryContext.BIOME_REGISTRY,
                 Identifier("test:second"),
             ).rawId,
+        )
+        val minecraftChunkContext = minecraftClientNegotiationResult.minecraftDimensionContext
+            .createMinecraftChunkContext(defaultBiome = Identifier("test:first"))
+        val minecraftChunkPacketDecoder = minecraftChunkContext.packetDecoder(
+            ChunkMetadata(dataVersion = 1, status = "minecraft:full"),
+        )
+        assertSame(
+            minecraftChunkContext.protocolRegistryContext,
+            minecraftChunkPacketDecoder.protocolRegistryContext,
+        )
+        assertSame(
+            minecraftChunkContext.chunkCodecContext,
+            minecraftChunkPacketDecoder.chunkCodecContext,
         )
         server.await()
         client.close()

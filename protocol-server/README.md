@@ -23,9 +23,11 @@ or writers. The preset has no built-in admission timeout; apply the application'
 
 ## Configure the advertised server
 
-`MinecraftServerNegotiationOptions` contains protocol-visible choices such as compression, Status availability, player
-limits, view and simulation distance, game mode, difficulty, secure-chat claim, and the `ProtocolData` sent during
-Configuration. The `minecraftServerConnection` parameter below is a value returned by `MinecraftServer.accept()`:
+`MinecraftServerNegotiationOptions` contains only values used from Handshake through the first Play Login: compression,
+Status and transfer behavior, authentication checks, player limits, advertised dimensions, view and simulation distance,
+game mode, secure-chat claim, and the `ProtocolData` sent during Configuration. Initial-world difficulty, difficulty
+locking, player abilities, and semantic Chunk defaults are separate concerns. The
+`minecraftServerConnection` parameter below is a value returned by `MinecraftServer.accept()`:
 
 ```kotlin
 suspend fun negotiateConfigured(
@@ -37,7 +39,6 @@ suspend fun negotiateConfigured(
         viewDistance = 12,
         simulationDistance = 8,
         gameMode = GameMode.CREATIVE,
-        difficulty = Difficulty.NORMAL,
     )
     return minecraftServerConnection.negotiate(
         minecraftServerNegotiationOptions = minecraftServerNegotiationOptions,
@@ -53,7 +54,7 @@ interval. Matching replies are validated and consumed. A pending challenge at th
 or a mismatched reply closes the connection; closing the connection also cancels the run. Applications using
 `negotiate()` need neither start this service nor handle its reply packets themselves.
 
-Use `MinecraftServerNegotiationPolicy` for decisions that vary by connection: Status JSON, profile rejection, Play
+Use `MinecraftServerNegotiationPolicy` for decisions that vary by connection: server status, profile rejection, Play
 Login, extra Configuration packets, response-gated Configuration tasks, and unknown query handling. Every method has a
 default implementation, so a policy can override only what it needs. Here `allowedNames` is supplied by the
 application's admission service:
@@ -68,9 +69,7 @@ fun admissionPolicy(allowedNames: Set<String>): MinecraftServerNegotiationPolicy
         ): JsonTextComponent? = if (gameProfile.name in allowedNames) {
             null
         } else {
-            JsonTextComponent(
-                buildJsonObject { put("text", "Not allowed") }.toString(),
-            )
+            JsonTextComponent.literal("Not allowed")
         }
     }
 ```
@@ -82,6 +81,33 @@ provide a whitelist, operator, or permissions system.
 
 If negotiation throws `MinecraftLoginRejectedException`, its `failurePacket` is ready to send. The library leaves the
 connection open so the application can decide whether to send that packet and when to close.
+
+The status policy returns the shared `ServerStatus` model; `protocol-serialization` alone turns it into the bounded JSON
+protocol string. Override `onlinePlayerCount(...)` for a live count. The default `serverStatus(...)` calls that method
+through the policy instance, so an override that delegates to `super.serverStatus(...)` still receives the customized
+count:
+
+```kotlin
+fun statusPolicy(
+    currentOnlinePlayers: suspend () -> Int,
+    description: JsonTextComponent,
+): MinecraftServerNegotiationPolicy = object : MinecraftServerNegotiationPolicy {
+    override suspend fun onlinePlayerCount(
+        minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
+    ): Int = currentOnlinePlayers()
+
+    override suspend fun serverStatus(
+        minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
+        onlineMode: Boolean,
+    ): ServerStatus = super.serverStatus(minecraftServerNegotiationOptions, onlineMode).copy(
+        description = description,
+    )
+}
+```
+
+`DefaultMinecraftServerNegotiationPolicy.createServerStatus(...)` and `createPlayLoginPacket(...)` expose the default
+builders for a policy that wants to construct either response directly. Keeping them on the existing default-policy
+object avoids unscoped builder names and leaves the options class as negotiation data only.
 
 ## Online authentication
 
@@ -104,24 +130,64 @@ suspend fun bindOnlineServer(
 The preset validates Encryption Response, enables stream encryption, and calls the Session Server `/hasJoined` endpoint.
 The caller configures and closes the HTTP client. Authentication failure never falls back to offline mode.
 
-## Send custom data-pack Configuration
+## Resolve a stored world for negotiation
 
-Pass any constructible `ProtocolData` through `MinecraftServerNegotiationOptions.protocolData`. Applications that use
-world file packs can combine [`world-io`](../world-io/README.md) with the vanilla projection helpers:
+A disk-backed server needs both the enabled pack selection and `world_gen_settings`. Resolve them together so
+Configuration, Play Login, disk Chunk decoding, and later packet encoding use the same registry order:
 
 ```kotlin
-suspend fun optionsFromWorldPacks(
+suspend fun resolveServerWorld(
     minecraftWorldAccess: MinecraftWorldAccess,
-): MinecraftServerNegotiationOptions {
-    val protocolData = minecraftWorldAccess.dataPacks.readEnabled().toVanillaProtocolData()
-    return MinecraftServerNegotiationOptions(protocolData = protocolData)
+): ResolvedMinecraftWorld {
+    val worldGenSettingsData = checkNotNull(
+        minecraftWorldAccess.data.read<SavedDataFile<WorldGenSettingsData>>(
+            SavedDataId("world_gen_settings"),
+        ),
+    ).data
+    return minecraftWorldAccess.dataPacks.readEnabled()
+        .toVanillaProtocolData()
+        .resolveMinecraftWorld(worldGenSettingsData)
 }
+
+fun negotiationOptions(
+    resolvedMinecraftWorld: ResolvedMinecraftWorld,
+    dimensionId: DimensionId,
+): MinecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(
+    protocolData = resolvedMinecraftWorld.protocolData,
+    initialDimensionId = dimensionId,
+    dimensionIds = resolvedMinecraftWorld.dimensions.keys,
+)
 ```
 
-The bridge preserves the persisted core/built-in/file priority order, supplies selected release-matched bundled packs,
-and carries the world's enabled feature configuration into the generated vanilla projection base. Unknown selected pack
-IDs fail explicitly. Tags are projected generically. Recipes, functions, loot tables, and other server-only resources
-remain in the resolved data-pack stack and are not emitted as Configuration values.
+Pass the resulting options to `negotiate()`. This explicit construction is intentional: the resolved world owns registry
+and codec facts, while Status policy, limits, distances, and the selected initial dimension belong to the server
+application. The default Play Login derives the selected dimension-type raw ID from the supplied protocol data.
+Negotiation returns a connection-specific `MinecraftDimensionContext`; the resolved world's per-dimension
+`MinecraftChunkContext` remains the disk decoder and packet encoder.
+
+Unknown enabled packs, inline dimension types, missing references, and invalid layouts fail before a partial server
+world is returned. Negotiation independently rejects an inconsistent Play Login or active registry context before
+entering Play.
+
+The pack bridge preserves persisted core/built-in/file priority, supplies release-matched bundled packs, and carries the
+world's enabled feature configuration into the generated vanilla projection base. Recipes, functions, loot tables, and
+other server-only resources remain server data and are not emitted as Configuration values.
+
+Pass any other constructible `ProtocolData` directly through `MinecraftServerNegotiationOptions.protocolData` when no
+stored-world resolution is needed. Add application negotiation choices directly alongside the world facts:
+
+```kotlin
+fun configuredNegotiationOptions(
+    resolvedMinecraftWorld: ResolvedMinecraftWorld,
+    dimensionId: DimensionId,
+): MinecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(
+    protocolData = resolvedMinecraftWorld.protocolData,
+    initialDimensionId = dimensionId,
+    dimensionIds = resolvedMinecraftWorld.dimensions.keys,
+    viewDistance = 12,
+    simulationDistance = 8,
+)
+```
 
 For a mod registry or a registry whose modded network codec differs from vanilla, pass only its projector. A matching
 registry ID replaces the vanilla default; a new ID extends it:
@@ -143,15 +209,20 @@ For full control, construct a `DataPackProtocolProjector` or `ResolvedProtocolDa
 
 After negotiation enters Play, the application must send whatever bootstrap and world state its client needs.
 
-`MinecraftInitialWorldBootstrap` contains the fixed initial Play packets without Chunks or Entities. The convenience
-factory derives ordinary values from the server options:
+`MinecraftInitialWorldBootstrap` contains the fixed initial Play packets without Chunks or Entities. Its result overload
+reuses the exact dimension, game mode, and distances sent in Play Login; difficulty remains an explicit initial-world
+choice:
 
 ```kotlin
 suspend fun sendBootstrap(
     minecraftServerConnection: MinecraftServerConnection,
+    minecraftServerNegotiationResult: MinecraftServerNegotiationResult,
+    difficulty: Difficulty,
     playerPosition: Vector3d,
 ) {
     val minecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
+        minecraftServerNegotiationResult = minecraftServerNegotiationResult,
+        difficulty = difficulty,
         playerPosition = playerPosition,
     )
     minecraftServerConnection.sendInitialWorldBootstrap(minecraftInitialWorldBootstrap)
@@ -159,17 +230,19 @@ suspend fun sendBootstrap(
 }
 ```
 
-The bootstrap's `teleportId` is available to the application when it handles `ConfirmTeleportationPacket`. If
-negotiation used non-default server options, pass that same options value to `vanilla` so the bootstrap uses the
-matching game mode, difficulty, and distances.
+The bootstrap's `teleportId` is available to the application when it handles `ConfirmTeleportationPacket`. Use the
+direct overload to supply dimension, game mode, distances, and positions independently when no negotiation result is
+available.
 
 For tests, previews, and simple finite views, `MinecraftInitialWorld` adds complete Chunk and Entity snapshots:
 
 ```kotlin
 suspend fun sendFlatWorld(
     minecraftServerConnection: MinecraftServerConnection,
+    minecraftServerNegotiationResult: MinecraftServerNegotiationResult,
 ) {
     val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(
+        minecraftServerNegotiationResult = minecraftServerNegotiationResult,
         chunkRadius = 1,
     )
     minecraftServerConnection.synchronizeInitialWorld(minecraftInitialWorld)
@@ -179,37 +252,62 @@ suspend fun sendFlatWorld(
 
 This sends one bootstrap, one complete Chunk batch, and the supplied Entity pairing bundles. It does not wait for
 `ChunkBatchReceivedPacket` and does not create a game loop. A long-running server should pace later batches and updates
-from its own tick/AOI state. Pass the negotiation options explicitly when they were customized.
+from its own tick/AOI state. The result overload prevents the negotiated dimension context and Play Login settings from
+being passed separately. Use the `minecraftDimensionContext` overload with a separately constructed bootstrap when an
+application intentionally needs different initial-world values.
 
 ## Convert semantic Chunks to packets
 
-Applications can load or construct `world-format` Chunks and project them with the connection's active registries:
+`Chunk<ProtocolBlockState, ProtocolRegistryEntry>` is the common in-memory value produced by the resolved disk path and
+accepted by the server encoder. A `MinecraftChunkContext` creates a validated encoder without making the caller pass its
+registry context, layout, and skylight flag back separately:
 
 ```kotlin
 fun encodeChunks(
-    minecraftServerConnection: MinecraftServerConnection,
-    minecraftDimensionLayout: MinecraftDimensionLayout,
+    minecraftChunkContext: MinecraftChunkContext,
     chunks: Iterable<Chunk<ProtocolBlockState, ProtocolRegistryEntry>>,
     isAir: (ProtocolBlockState) -> Boolean,
     hasFluid: (ProtocolBlockState) -> Boolean,
-): List<MinecraftChunkSnapshot> {
-    val minecraftChunkPacketEncoder = MinecraftChunkPacketEncoder(
-        protocolRegistryContext = minecraftServerConnection.protocolRegistryContext,
+): List<ChunkDataAndUpdateLightPacket> {
+    val minecraftChunkPacketEncoder = minecraftChunkContext.packetEncoder(
         isAir = isAir,
         hasFluid = hasFluid,
-        hasSkyLight = minecraftDimensionLayout.hasSkyLight,
     )
-    return chunks.map { chunk -> chunk.toMinecraftChunkSnapshot(minecraftChunkPacketEncoder) }
+    return chunks.map(minecraftChunkPacketEncoder::encodePacket)
 }
 ```
 
-`MinecraftChunkPacketEncoder.chunkDataRegistries` uses the shared active-context adapter from
-[`protocol-datapack`](../protocol-datapack/README.md#adapt-protocol-context-to-semantic-chunks). Palette packing,
-lighting, block-entity update tags, and the semantic Chunk-to-clientbound-packet projection remain owned by this module.
+`isAir` and `hasFluid` are game-content policies and remain caller-supplied; they cannot be inferred from numeric
+registry IDs. The optional block-entity update-tag policy is supplied at the same boundary. Palette packing, lighting,
+block-entity update tags, and the semantic Chunk-to-clientbound-packet projection remain owned by this module.
 
-`MinecraftChunkSnapshot.packet()` returns the corresponding `ChunkDataAndUpdateLightPacket`. `protocol-server` itself
-never opens a world path; use [`world-io`](../world-io/README.md) to load stored Chunks, then pass the semantic values
-through the same encoder.
+The complete disk-to-wire operation stays short once `ResolvedMinecraftWorld` has been built:
+
+```kotlin
+suspend fun readChunkPacket(
+    minecraftWorldAccess: MinecraftWorldAccess,
+    resolvedMinecraftWorld: ResolvedMinecraftWorld,
+    dimensionId: DimensionId,
+    chunkPosition: ChunkPosition,
+    isAir: (ProtocolBlockState) -> Boolean,
+    hasFluid: (ProtocolBlockState) -> Boolean,
+): ChunkDataAndUpdateLightPacket? {
+    val minecraftChunkContext = resolvedMinecraftWorld.dimension(dimensionId)
+    val chunk = minecraftWorldAccess.dimensions[dimensionId]
+        .openRegion(chunkPosition.regionPosition)
+        .use { regionHandle ->
+            regionHandle.withReadScope(minecraftChunkContext.chunkNbtCodec) {
+                readChunk(chunkPosition)
+            }
+        } ?: return null
+    return minecraftChunkContext.packetEncoder(isAir, hasFluid).encodePacket(chunk)
+}
+```
+
+Send the returned packet through `minecraftServerConnection.outgoing`. `protocol-server` itself never opens a world
+path; the example composes its encoder with [`world-io`](../world-io/README.md), which owns the filesystem lifetime.
+`MinecraftChunkSnapshot` remains available for the finite initial-world API and its `packet()` method returns the same
+packet type.
 
 ## Send Entity pairing bundles
 
@@ -227,9 +325,27 @@ suspend fun sendEntity(
 }
 ```
 
+An `EntityChunk` is the persistence grouping rather than a packet. Its Entities can enter the same projection after the
+application assigns connection-local runtime IDs:
+
+```kotlin
+suspend fun sendEntityChunk(
+    minecraftServerConnection: MinecraftServerConnection,
+    entityChunk: EntityChunk<NbtCompound>,
+    runtimeEntityId: (Uuid) -> Int,
+) {
+    val minecraftEntitySnapshots = entityChunk.allEntities().map { entity ->
+        entity.toMinecraftEntitySnapshot(entityId = runtimeEntityId(entity.uuid))
+    }.toList()
+    minecraftServerConnection.sendEntitySnapshots(minecraftEntitySnapshots)
+}
+```
+
 Persisted Entities do not contain connection-local numeric IDs, protocol metadata indices, current tracking
-relationships, or registry-resolved attributes. Supply those values to `toMinecraftEntitySnapshot` when needed.
-`sendEntitySnapshots` places several pairing sequences into one logical bundle without channel-level interleaving.
+relationships, or registry-resolved attributes. Supply those values to `toMinecraftEntitySnapshot` when needed. The
+basic example sends spawn state; build the snapshots with passenger, leash, metadata, attribute, and equipment fields
+when those states are tracked. `sendEntitySnapshots` places several pairing sequences into one logical bundle without
+channel-level interleaving. `PoiChunk` remains server-side storage state and has no direct clientbound packet.
 
 ## Loader profiles and custom packets
 

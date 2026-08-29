@@ -3,6 +3,7 @@ package com.hiczp.minecraft.protocol.client
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.nbt.NbtLongArray
+import com.hiczp.minecraft.protocol.datapack.toChunkDataRegistries
 import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.type.ChunkSection
@@ -27,8 +28,12 @@ class MinecraftWorldChunkProjectionTest {
 
         val chunkLayout = ChunkLayout(minSectionY = -1, sectionCount = 1)
         val chunkMetadata = ChunkMetadata(dataVersion = 1, status = "full")
-        val minecraftChunkPacketDecoder =
-            MinecraftChunkPacketDecoder(protocolRegistryContext, chunkLayout, chunkMetadata)
+        val chunkCodecContext = ChunkCodecContext(chunkLayout, protocolRegistryContext.toChunkDataRegistries())
+        val minecraftChunkPacketDecoder = MinecraftChunkPacketDecoder(
+            protocolRegistryContext,
+            chunkCodecContext,
+            chunkMetadata,
+        )
         assertEquals(airProtocolBlockState, minecraftChunkPacketDecoder.chunkDataRegistries.blockStates.defaultValue)
         val lightBytes = ByteArray(LightDataLayer.DATA_LAYER_BYTES).apply { this[0] = 7 }
         val chunkDataAndUpdateLightPacket = ChunkDataAndUpdateLightPacket(

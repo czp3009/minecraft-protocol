@@ -311,6 +311,14 @@ class RegionHandle internal constructor(
         block(RegionReadScope(this, chunkNbtFormat))
     }
 
+    /** Retains [chunkNbtCodec] throughout one coordinated read admission and Header snapshot. */
+    suspend fun <B : Any, M : Any, R> withReadScope(
+        chunkNbtCodec: ChunkNbtCodec<B, M>,
+        block: DecodedChunkRegionReadScope<B, M>.() -> R,
+    ): R = withReadScopeCore {
+        block(DecodedChunkRegionReadScope(this, chunkNbtFormat, chunkNbtCodec))
+    }
+
     internal suspend fun <R> withReadScopeCore(block: RegionReadScopeCore.() -> R): R = withOperation {
         owner.withReadScope(entry, block)
     }

@@ -11,11 +11,14 @@ import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormatConfigu
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.*
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.encoding.CompositeDecoder
 import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
 import kotlin.uuid.Uuid
 
@@ -25,6 +28,7 @@ internal class MinecraftDecoder(
     override val serializersModule: SerializersModule,
 ) : Decoder, CompositeDecoder, NbtTagDecoder {
     private val nbtBinaryCodec: NbtBinaryCodec = NbtBinaryCodec
+    private val json: Json = minecraftJson(serializersModule)
     private val frames: MutableList<Frame> = mutableListOf()
     private var pendingHints: List<Annotation> = emptyList()
     private var injectNotNullMark: Boolean = false
@@ -318,6 +322,14 @@ internal class MinecraftDecoder(
                     deserializationStrategy,
                     hints.filterNot { it is ByteLengthPrefixed },
                 )
+            }
+        }
+        if (hints.any { it is JsonEncoded }) {
+            val encoded = withHints(hints.filterNot { it is JsonEncoded }, ::decodeString)
+            return try {
+                json.decodeFromString(deserializationStrategy, encoded)
+            } catch (failure: SerializationException) {
+                throw MinecraftSerializationException("Cannot decode JSON protocol value", failure)
             }
         }
         return withHints(hints) {

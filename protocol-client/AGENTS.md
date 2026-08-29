@@ -16,11 +16,13 @@ This module owns client-side Status, Login, Configuration, and entry into Play.
   client settings. Loader or mod behavior is an explicit override.
 - Online Login decides when the Session Server `/join` call occurs. It consumes a caller-supplied `HttpClient` and does
   not own account-token acquisition.
-- The negotiation result retains the server-selected `MinecraftDimensionLayout` and derived `ChunkLayout`. The shared
-  dimension conversion comes from `protocol-datapack`; there is no release-global dimension-layout default.
-- Shared active-registry conversion to `ChunkDataRegistries` comes from `protocol-datapack`. This module owns the
-  connection convenience and clientbound Chunk/entity projection, which remain stateless and filesystem-independent. Do
-  not invent persistence-only data missing from packets; require caller-supplied templates or adapters for it.
+- The negotiation result retains one validated `MinecraftDimensionContext` for the Play Login dimension and exposes its
+  `MinecraftDimensionLayout`/`ChunkLayout` as derived conveniences. Install that context's registry context on the
+  connection; semantic block/biome defaults enter only when the caller creates a `MinecraftChunkContext`.
+- Shared active-registry conversion to `ChunkDataRegistries` comes from `protocol-datapack`. This module owns the fluent
+  `MinecraftChunkContext.packetDecoder` entry and clientbound Chunk/entity projection, which remain stateless and
+  filesystem-independent. Do not invent persistence-only data missing from packets; require caller-supplied templates or
+  adapters for it.
 - Received data-pack views expose only Configuration-visible resources and may resolve tags against the installed
   context or caller-supplied schemas. Do not imply that they reconstruct server-only pack content.
 - `MinecraftClientNegotiationResult` stores one `DataPackConfigurationSnapshot` directly instead of duplicating its

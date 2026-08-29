@@ -4,23 +4,22 @@ import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.auth.toGameProfile
 import com.hiczp.minecraft.protocol.client.MinecraftClientConnection
 import com.hiczp.minecraft.protocol.client.negotiate
+import com.hiczp.minecraft.protocol.datapack.MinecraftChunkContext
+import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionContext
+import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.datapack.resolveSynchronizedRegistryContext
 import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
-import com.hiczp.minecraft.protocol.datapack.withPlayLoginDimensionLayout
 import com.hiczp.minecraft.protocol.fabric.FabricProtocol
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.session.*
+import com.hiczp.minecraft.world.format.DimensionId
 import io.ktor.network.selector.*
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.*
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.Uuid
@@ -83,9 +82,9 @@ class ClientToServerEndToEndTest {
             val minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(
                 compressionThreshold = 64,
                 gameMode = PlayerGameMode.CREATIVE,
-                difficulty = Difficulty.HARD,
-                difficultyLocked = true,
             )
+            val difficulty = Difficulty.HARD
+            val difficultyLocked = true
             MinecraftServer.bind(
                 selectorManager = selectorManager,
                 host = "127.0.0.1",
@@ -116,6 +115,8 @@ class ClientToServerEndToEndTest {
                             minecraftServerConnection = minecraftServerConnection,
                             minecraftServerNegotiationOptions = minecraftServerNegotiationOptions,
                             serverNegotiationProfile = testServerProfile,
+                            difficulty = difficulty,
+                            difficultyLocked = difficultyLocked,
                         )
                     }
                 }
@@ -152,7 +153,11 @@ class ClientToServerEndToEndTest {
         assertEquals(HandshakeNextState.STATUS, handshakePacket.nextState)
         assertEquals(ConnectionState.STATUS, minecraftServerConnection.connectionState)
         assertEquals(StatusRequestPacket, minecraftServerConnection.incoming.receive())
-        minecraftServerConnection.outgoing.send(StatusResponsePacket(minecraftServerNegotiationOptions.statusJson()))
+        minecraftServerConnection.outgoing.send(
+            StatusResponsePacket(
+                DefaultMinecraftServerNegotiationPolicy.createServerStatus(minecraftServerNegotiationOptions),
+            ),
+        )
         minecraftServerConnection.requestFlush()
         val statusPingRequestPacket = assertIs<StatusPingRequestPacket>(minecraftServerConnection.incoming.receive())
         minecraftServerConnection.outgoing.send(StatusPongResponsePacket(statusPingRequestPacket.timestamp))
@@ -174,14 +179,9 @@ class ClientToServerEndToEndTest {
         minecraftClientConnection.outgoing.send(StatusRequestPacket)
         minecraftClientConnection.requestFlush()
         val statusResponsePacket = assertIs<StatusResponsePacket>(minecraftClientConnection.incoming.receive())
-        val statusDocument = Json.parseToJsonElement(statusResponsePacket.jsonResponse).jsonObject
         assertEquals(
             MinecraftProtocol.PROTOCOL_VERSION,
-            statusDocument.getValue("version")
-                .jsonObject
-                .getValue("protocol")
-                .jsonPrimitive
-                .int,
+            statusResponsePacket.status.version?.protocol,
         )
         minecraftClientConnection.outgoing.send(StatusPingRequestPacket(STATUS_PING_ID))
         minecraftClientConnection.requestFlush()
@@ -195,6 +195,8 @@ class ClientToServerEndToEndTest {
         minecraftServerConnection: MinecraftServerConnection,
         minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
         serverNegotiationProfile: ServerNegotiationProfile,
+        difficulty: Difficulty,
+        difficultyLocked: Boolean,
     ): ServerPlayOutcome {
         serverNegotiationProfile.begin(minecraftServerConnection)
         val handshakePacket = assertIs<HandshakePacket>(minecraftServerConnection.incoming.receive())
@@ -244,16 +246,29 @@ class ClientToServerEndToEndTest {
         minecraftServerConnection.outgoing.send(ConfigurationUpdateTagsPacket(minecraftServerNegotiationOptions.protocolData.registryTags))
         serverNegotiationProfile.negotiateConfiguration(minecraftServerConnection)
 
-        val playLoginPacket = minecraftServerNegotiationOptions.createPlayLoginPacket(gameProfile, onlineMode = false)
+        val playLoginPacket = DefaultMinecraftServerNegotiationPolicy.createPlayLoginPacket(
+            minecraftServerNegotiationOptions,
+            gameProfile,
+            onlineMode = false,
+        )
+        val minecraftDimensionLayout = MinecraftDimensionLayout.from(
+            playLoginPacket,
+            synchronizedRegistryPackets,
+            minecraftServerNegotiationOptions.protocolData,
+        )
         val baseProtocolRegistryContext = minecraftServerNegotiationOptions.protocolData
             .resolveSynchronizedRegistryContext(synchronizedRegistryPackets)
-            .withPlayLoginDimensionLayout(
-                playLoginPacket,
-                synchronizedRegistryPackets,
-                minecraftServerNegotiationOptions.protocolData
-            )
+            .withChunkSectionCount(minecraftDimensionLayout.chunkLayout.sectionCount)
+        val protocolRegistryContext = serverNegotiationProfile.resolveProtocolRegistryContext(
+            baseProtocolRegistryContext,
+        )
+        val minecraftDimensionContext = MinecraftDimensionContext.create(
+            DimensionId.parse(playLoginPacket.spawnInfo.dimension.toString()),
+            minecraftDimensionLayout,
+            protocolRegistryContext,
+        )
         minecraftServerConnection.installProtocolRegistryContext(
-            serverNegotiationProfile.resolveProtocolRegistryContext(baseProtocolRegistryContext),
+            minecraftDimensionContext.protocolRegistryContext,
         )
         minecraftServerConnection.outgoing.send(FinishConfigurationPacket)
         minecraftServerConnection.requestFlush()
@@ -265,8 +280,17 @@ class ClientToServerEndToEndTest {
         minecraftServerConnection.outgoing.send(playLoginPacket)
         assertSame(TestProfileResult, serverNegotiationProfile.complete(minecraftServerConnection))
 
+        val minecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
+            dimensionId = playLoginPacket.spawnInfo.dimension,
+            difficulty = difficulty,
+            difficultyLocked = difficultyLocked,
+            gameMode = playLoginPacket.spawnInfo.gameMode,
+            viewDistance = playLoginPacket.chunkRadius,
+            simulationDistance = playLoginPacket.simulationDistance,
+        )
         val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(
-            minecraftServerNegotiationOptions = minecraftServerNegotiationOptions,
+            minecraftDimensionContext = minecraftDimensionContext,
+            minecraftInitialWorldBootstrap = minecraftInitialWorldBootstrap,
             chunkRadius = 0,
             entities = listOf(testPig()),
         )
@@ -388,13 +412,17 @@ class ClientToServerEndToEndTest {
         }
 
         val playLoginPacket = assertIs<PlayLoginPacket>(minecraftClientConnection.incoming.receive())
-        val activeProtocolRegistryContext =
-            minecraftClientConnection.protocolRegistryContext.withPlayLoginDimensionLayout(
-                playLoginPacket = playLoginPacket,
-                synchronizedRegistryPackets = synchronizedRegistryPackets,
-                protocolData = VanillaProtocolData,
-            )
-        minecraftClientConnection.installProtocolRegistryContext(activeProtocolRegistryContext)
+        val minecraftDimensionLayout = MinecraftDimensionLayout.from(
+            playLoginPacket = playLoginPacket,
+            synchronizedRegistryPackets = synchronizedRegistryPackets,
+            protocolData = VanillaProtocolData,
+        )
+        val minecraftChunkContext = MinecraftChunkContext.create(
+            DimensionId.parse(playLoginPacket.spawnInfo.dimension.toString()),
+            minecraftDimensionLayout,
+            minecraftClientConnection.protocolRegistryContext,
+        )
+        minecraftClientConnection.installProtocolRegistryContext(minecraftChunkContext.protocolRegistryContext)
         assertSame(TestProfileResult, clientNegotiationProfile.complete(minecraftClientConnection))
 
         var chunkReceived = false

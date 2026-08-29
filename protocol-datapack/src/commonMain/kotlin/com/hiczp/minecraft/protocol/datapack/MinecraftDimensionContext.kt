@@ -1,0 +1,66 @@
+package com.hiczp.minecraft.protocol.datapack
+
+import com.hiczp.minecraft.protocol.model.type.Identifier
+import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
+import com.hiczp.minecraft.world.format.ChunkLayout
+import com.hiczp.minecraft.world.format.DimensionId
+
+/**
+ * The validated protocol registries and vertical layout active for one world dimension.
+ *
+ * This is the shared handoff before an application chooses the semantic block and biome defaults required by
+ * [MinecraftChunkContext]. Custom packet decoders may use the registry and layout values directly.
+ */
+class MinecraftDimensionContext private constructor(
+    val dimensionId: DimensionId,
+    val minecraftDimensionLayout: MinecraftDimensionLayout,
+    val protocolRegistryContext: ProtocolRegistryContext,
+) {
+    val chunkLayout: ChunkLayout
+        get() = minecraftDimensionLayout.chunkLayout
+
+    fun createMinecraftChunkContext(
+        defaultBlock: Identifier = Identifier("air"),
+        defaultBiome: Identifier = Identifier("plains"),
+    ): MinecraftChunkContext = MinecraftChunkContext.create(
+        minecraftDimensionContext = this,
+        defaultBlock = defaultBlock,
+        defaultBiome = defaultBiome,
+    )
+
+    companion object {
+        fun create(
+            dimensionId: DimensionId,
+            minecraftDimensionLayout: MinecraftDimensionLayout,
+            protocolRegistryContext: ProtocolRegistryContext,
+        ): MinecraftDimensionContext {
+            val dimensionTypeRawId = minecraftDimensionLayout.dimensionTypeRawId
+            val dimensionTypeRegistry = protocolRegistryContext.requireRegistry(
+                MinecraftDimensionLayout.DIMENSION_TYPE_REGISTRY,
+            )
+            val dimensionTypeRegistryEntry = dimensionTypeRegistry[dimensionTypeRawId]
+            require(dimensionTypeRegistryEntry?.id == minecraftDimensionLayout.dimensionTypeId) {
+                val actual = dimensionTypeRegistryEntry?.id ?: "missing"
+                "Raw ID $dimensionTypeRawId resolves to $actual, not ${minecraftDimensionLayout.dimensionTypeId}"
+            }
+
+            val sectionCount = minecraftDimensionLayout.sectionCount
+            val activeProtocolRegistryContext = when (protocolRegistryContext.chunkSectionCount) {
+                null -> protocolRegistryContext.withChunkSectionCount(sectionCount)
+                sectionCount -> protocolRegistryContext
+                else -> {
+                    val actualSectionCount = protocolRegistryContext.chunkSectionCount
+                    val dimensionTypeId = minecraftDimensionLayout.dimensionTypeId
+                    throw IllegalArgumentException(
+                        "Context has $actualSectionCount Chunk Sections; $dimensionTypeId requires $sectionCount",
+                    )
+                }
+            }
+            return MinecraftDimensionContext(
+                dimensionId = dimensionId,
+                minecraftDimensionLayout = minecraftDimensionLayout,
+                protocolRegistryContext = activeProtocolRegistryContext,
+            )
+        }
+    }
+}

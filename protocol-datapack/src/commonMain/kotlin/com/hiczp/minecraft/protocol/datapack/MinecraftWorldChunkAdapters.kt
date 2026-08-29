@@ -4,22 +4,12 @@ import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.ProtocolBlockState
 import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
 import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryEntry
-import com.hiczp.minecraft.world.format.*
+import com.hiczp.minecraft.world.format.BiomeRegistry
+import com.hiczp.minecraft.world.format.BlockStateDescriptor
+import com.hiczp.minecraft.world.format.BlockStateRegistry
+import com.hiczp.minecraft.world.format.ChunkDataRegistries
 
-/**
- * Converts one Configuration-resolved dimension layout into the corresponding semantic world-Chunk layout.
- *
- * The receiver supplies the active dimension bounds; this conversion neither assumes a release-global default nor
- * reads a world file.
- */
-fun MinecraftDimensionLayout.toChunkLayout(): ChunkLayout = ChunkLayout.fromBlockBounds(minY, height)
-
-/**
- * Adapts one active protocol registry context to the registries used by strong world-Chunk conversion.
- *
- * Loader-resolved block states, aliases, raw IDs, and synchronized biomes are retained through the supplied immutable
- * context. Recreate this adapter after the active connection context changes.
- */
+/** Adapts one active protocol registry context to the registries used by strong world-Chunk conversion. */
 fun ProtocolRegistryContext.toChunkDataRegistries(
     defaultBlock: Identifier = Identifier("air"),
     defaultBiome: Identifier = Identifier("plains"),

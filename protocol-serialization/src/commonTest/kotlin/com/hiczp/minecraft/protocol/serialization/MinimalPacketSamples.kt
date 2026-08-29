@@ -3,6 +3,7 @@
 package com.hiczp.minecraft.protocol.serialization
 
 import com.hiczp.minecraft.nbt.*
+import com.hiczp.minecraft.protocol.model.type.JsonTextComponent
 import com.hiczp.minecraft.protocol.model.wire.FixedLength
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.ExperimentalSerializationApi
@@ -97,6 +98,10 @@ private class MinimalProtocolValueDecoder(
             @Suppress("UNCHECKED_CAST")
             return Uuid.NIL as T
         }
+        if (deserializer.descriptor.serialName == JSON_TEXT_COMPONENT_SERIAL_NAME) {
+            @Suppress("UNCHECKED_CAST")
+            return JsonTextComponent("\"\"") as T
+        }
         return super.decodeSerializableValue(deserializer)
     }
 
@@ -132,6 +137,7 @@ private class MinimalProtocolValueDecoder(
 }
 
 private const val UUID_SERIAL_NAME: String = "kotlin.uuid.Uuid"
+private const val JSON_TEXT_COMPONENT_SERIAL_NAME: String = "minecraft.JsonTextComponent"
 
 private val minimalNbtTags: List<NbtTag> = listOf(
     NbtString("minecraft:test"),

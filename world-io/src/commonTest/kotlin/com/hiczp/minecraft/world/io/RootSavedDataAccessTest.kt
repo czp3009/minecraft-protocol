@@ -3,7 +3,10 @@ package com.hiczp.minecraft.world.io
 import com.hiczp.minecraft.nbt.NbtByteArray
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtString
+import com.hiczp.minecraft.world.format.DimensionId
+import com.hiczp.minecraft.world.format.DimensionTypeId
 import com.hiczp.minecraft.world.format.MinecraftWorldFormat
+import com.hiczp.minecraft.world.format.SavedDataId
 import com.hiczp.minecraft.world.format.data.*
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.KSerializer
@@ -23,8 +26,9 @@ class RootSavedDataAccessTest {
                 generateStructures = true,
                 bonusChest = false,
                 dimensions = mapOf(
-                    "minecraft:overworld" to NbtCompound(
-                        mapOf("type" to NbtString("minecraft:overworld")),
+                    DimensionId.Overworld to WorldGenDimension(
+                        type = WorldGenDimensionType.Reference(DimensionTypeId("overworld")),
+                        generator = NbtCompound(mapOf("type" to NbtString("minecraft:noise"))),
                     ),
                 ),
             ),

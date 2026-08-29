@@ -1,9 +1,13 @@
 package com.hiczp.minecraft.protocol.server
 
+import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionContext
 import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
+import com.hiczp.minecraft.protocol.datapack.ProtocolData
+import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.world.format.ChunkPosition
+import com.hiczp.minecraft.world.format.DimensionId
 import com.hiczp.minecraft.world.format.MinecraftCoordinates
 import com.hiczp.minecraft.protocol.model.type.GameMode as PlayerGameMode
 
@@ -60,8 +64,12 @@ data class MinecraftInitialWorldBootstrap(
          * supply each value independently.
          */
         fun vanilla(
-            minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(),
             dimensionId: Identifier = Identifier("overworld"),
+            difficulty: Difficulty = Difficulty.EASY,
+            difficultyLocked: Boolean = false,
+            gameMode: PlayerGameMode = PlayerGameMode.SURVIVAL,
+            viewDistance: Int = 10,
+            simulationDistance: Int = 10,
             defaultSpawnPosition: Vector3d = Vector3d(0.5, 65.0, 0.5),
             defaultSpawnYaw: Float = 0.0f,
             defaultSpawnPitch: Float = 0.0f,
@@ -76,16 +84,16 @@ data class MinecraftInitialWorldBootstrap(
             ).chunkPosition,
             teleportId: Int = 1,
         ): MinecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap(
-            difficulty = minecraftServerNegotiationOptions.difficulty,
-            difficultyLocked = minecraftServerNegotiationOptions.difficultyLocked,
+            difficulty = difficulty,
+            difficultyLocked = difficultyLocked,
             defaultSpawn = RespawnData(
                 globalPosition = GlobalPosition(dimensionId, defaultSpawnPosition.toBlockPosition()),
                 yaw = defaultSpawnYaw,
                 pitch = defaultSpawnPitch,
             ),
-            playerAbilities = vanillaPlayerAbilities(minecraftServerNegotiationOptions.gameMode),
-            viewDistance = minecraftServerNegotiationOptions.viewDistance,
-            simulationDistance = minecraftServerNegotiationOptions.simulationDistance,
+            playerAbilities = vanillaPlayerAbilities(gameMode),
+            viewDistance = viewDistance,
+            simulationDistance = simulationDistance,
             playerPosition = PositionMoveRotation(
                 position = playerPosition,
                 deltaMovement = playerDeltaMovement,
@@ -94,6 +102,42 @@ data class MinecraftInitialWorldBootstrap(
             ),
             teleportId = teleportId,
             centerChunk = centerChunk,
+        )
+
+        /** Creates a bootstrap from the exact dimension and view settings sent by a completed negotiation. */
+        fun vanilla(
+            minecraftServerNegotiationResult: MinecraftServerNegotiationResult,
+            difficulty: Difficulty = Difficulty.EASY,
+            difficultyLocked: Boolean = false,
+            defaultSpawnPosition: Vector3d = Vector3d(0.5, 65.0, 0.5),
+            defaultSpawnYaw: Float = 0.0f,
+            defaultSpawnPitch: Float = 0.0f,
+            playerPosition: Vector3d = defaultSpawnPosition,
+            playerDeltaMovement: Vector3d = Vector3d(0.0, 0.0, 0.0),
+            playerYaw: Float = defaultSpawnYaw,
+            playerPitch: Float = defaultSpawnPitch,
+            centerChunk: ChunkPosition = MinecraftCoordinates.block(
+                playerPosition.x,
+                playerPosition.y,
+                playerPosition.z,
+            ).chunkPosition,
+            teleportId: Int = 1,
+        ): MinecraftInitialWorldBootstrap = vanilla(
+            dimensionId = minecraftServerNegotiationResult.playLoginPacket.spawnInfo.dimension,
+            difficulty = difficulty,
+            difficultyLocked = difficultyLocked,
+            gameMode = minecraftServerNegotiationResult.playLoginPacket.spawnInfo.gameMode,
+            viewDistance = minecraftServerNegotiationResult.playLoginPacket.chunkRadius,
+            simulationDistance = minecraftServerNegotiationResult.playLoginPacket.simulationDistance,
+            defaultSpawnPosition = defaultSpawnPosition,
+            defaultSpawnYaw = defaultSpawnYaw,
+            defaultSpawnPitch = defaultSpawnPitch,
+            playerPosition = playerPosition,
+            playerDeltaMovement = playerDeltaMovement,
+            playerYaw = playerYaw,
+            playerPitch = playerPitch,
+            centerChunk = centerChunk,
+            teleportId = teleportId,
         )
     }
 }
@@ -105,42 +149,88 @@ data class MinecraftInitialWorld(
     val entities: List<MinecraftEntitySnapshot> = emptyList(),
 ) {
     companion object {
+        /** Creates the ordinary finite flat projection for the dimension selected by completed negotiation. */
+        fun flatVanilla(
+            minecraftServerNegotiationResult: MinecraftServerNegotiationResult,
+            groundY: Int = 64,
+            difficulty: Difficulty = Difficulty.EASY,
+            difficultyLocked: Boolean = false,
+            chunkRadius: Int = minecraftServerNegotiationResult.playLoginPacket.chunkRadius,
+            surfaceBlockId: Identifier = Identifier("grass_block"),
+            biomeId: Identifier = Identifier("plains"),
+            entities: List<MinecraftEntitySnapshot> = emptyList(),
+        ): MinecraftInitialWorld = flatVanilla(
+            minecraftDimensionContext = minecraftServerNegotiationResult.minecraftDimensionContext,
+            groundY = groundY,
+            minecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
+                minecraftServerNegotiationResult = minecraftServerNegotiationResult,
+                difficulty = difficulty,
+                difficultyLocked = difficultyLocked,
+                defaultSpawnPosition = Vector3d(0.5, groundY + 1.0, 0.5),
+            ),
+            chunkRadius = chunkRadius,
+            surfaceBlockId = surfaceBlockId,
+            biomeId = biomeId,
+            entities = entities,
+        )
+
         /**
          * Creates a vanilla flat-world projection around [minecraftInitialWorldBootstrap]'s Chunk
          * center. The radius is measured in Chunks.
          */
         fun flatVanilla(
-            minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(),
+            protocolData: ProtocolData = VanillaProtocolData,
             dimensionId: Identifier = Identifier("overworld"),
             groundY: Int = 64,
             minecraftInitialWorldBootstrap: MinecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
-                minecraftServerNegotiationOptions = minecraftServerNegotiationOptions,
                 dimensionId = dimensionId,
                 defaultSpawnPosition = Vector3d(0.5, groundY + 1.0, 0.5),
             ),
-            chunkRadius: Int = minecraftServerNegotiationOptions.viewDistance,
+            chunkRadius: Int = minecraftInitialWorldBootstrap.viewDistance,
+            surfaceBlockId: Identifier = Identifier("grass_block"),
+            biomeId: Identifier = Identifier("plains"),
+            entities: List<MinecraftEntitySnapshot> = emptyList(),
+        ): MinecraftInitialWorld = flatVanilla(
+            minecraftDimensionContext = MinecraftDimensionContext.create(
+                dimensionId = DimensionId.parse(dimensionId.toString()),
+                minecraftDimensionLayout = MinecraftDimensionLayout.from(protocolData, dimensionId),
+                protocolRegistryContext = protocolData.completeProtocolRegistryContext,
+            ),
+            groundY = groundY,
+            minecraftInitialWorldBootstrap = minecraftInitialWorldBootstrap,
+            chunkRadius = chunkRadius,
+            surfaceBlockId = surfaceBlockId,
+            biomeId = biomeId,
+            entities = entities,
+        )
+
+        /** Creates a flat initial projection with an already-resolved dimension context. */
+        fun flatVanilla(
+            minecraftDimensionContext: MinecraftDimensionContext,
+            groundY: Int = 64,
+            minecraftInitialWorldBootstrap: MinecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
+                dimensionId = Identifier.parse(minecraftDimensionContext.dimensionId.toString()),
+                defaultSpawnPosition = Vector3d(0.5, groundY + 1.0, 0.5),
+            ),
+            chunkRadius: Int = minecraftInitialWorldBootstrap.viewDistance,
             surfaceBlockId: Identifier = Identifier("grass_block"),
             biomeId: Identifier = Identifier("plains"),
             entities: List<MinecraftEntitySnapshot> = emptyList(),
         ): MinecraftInitialWorld {
-            val minecraftDimensionLayout = MinecraftDimensionLayout.from(
-                minecraftServerNegotiationOptions.protocolData,
-                dimensionId,
-            )
-            val protocolRegistryContext = minecraftServerNegotiationOptions.protocolData.completeProtocolRegistryContext
-            val chunks =
-                MinecraftCoordinates.chunkPositionsAround(minecraftInitialWorldBootstrap.centerChunk, chunkRadius)
-                    .map { position ->
-                        MinecraftChunkSnapshot.flat(
-                            protocolRegistryContext = protocolRegistryContext,
-                            minecraftDimensionLayout = minecraftDimensionLayout,
-                            chunkX = position.x,
-                            chunkZ = position.z,
-                            groundY = groundY,
-                            surfaceBlockId = surfaceBlockId,
-                            biomeId = biomeId,
-                        )
-                    }.toList()
+            val chunks = MinecraftCoordinates
+                .chunkPositionsAround(minecraftInitialWorldBootstrap.centerChunk, chunkRadius)
+                .map { chunkPosition ->
+                    MinecraftChunkSnapshot.flat(
+                        protocolRegistryContext = minecraftDimensionContext.protocolRegistryContext,
+                        minecraftDimensionLayout = minecraftDimensionContext.minecraftDimensionLayout,
+                        chunkX = chunkPosition.x,
+                        chunkZ = chunkPosition.z,
+                        groundY = groundY,
+                        surfaceBlockId = surfaceBlockId,
+                        biomeId = biomeId,
+                    )
+                }
+                .toList()
             return MinecraftInitialWorld(
                 minecraftInitialWorldBootstrap = minecraftInitialWorldBootstrap,
                 chunks = chunks,

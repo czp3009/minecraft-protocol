@@ -115,6 +115,7 @@ kotlin {
             dependencies {
                 api(project(":nbt"))
                 api(libs.kotlinx.serialization.core)
+                implementation(libs.kotlinx.serialization.json)
             }
         }
 

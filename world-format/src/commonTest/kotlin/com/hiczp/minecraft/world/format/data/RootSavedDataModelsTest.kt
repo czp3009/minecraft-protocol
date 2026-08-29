@@ -1,16 +1,17 @@
 package com.hiczp.minecraft.world.format.data
 
-import com.hiczp.minecraft.nbt.NbtByteArray
-import com.hiczp.minecraft.nbt.NbtCompound
-import com.hiczp.minecraft.nbt.NbtLongArray
-import com.hiczp.minecraft.nbt.NbtString
+import com.hiczp.minecraft.nbt.*
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.nbt.serialization.NbtFormatConfiguration
 import com.hiczp.minecraft.nbt.serialization.NbtRootEncoding
 import com.hiczp.minecraft.world.format.BlockPosition
+import com.hiczp.minecraft.world.format.DimensionId
+import com.hiczp.minecraft.world.format.DimensionTypeId
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerializationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.uuid.Uuid
 
@@ -28,8 +29,15 @@ class RootSavedDataModelsTest {
                 generateStructures = true,
                 bonusChest = false,
                 dimensions = mapOf(
-                    "minecraft:overworld" to NbtCompound(
-                        mapOf("type" to NbtString("minecraft:overworld")),
+                    DimensionId.Overworld to WorldGenDimension(
+                        type = WorldGenDimensionType.Reference(DimensionTypeId("overworld")),
+                        generator = NbtCompound(mapOf("type" to NbtString("minecraft:noise"))),
+                    ),
+                    DimensionId("moon", "example") to WorldGenDimension(
+                        type = WorldGenDimensionType.Inline(
+                            NbtCompound(mapOf("height" to NbtInt(384))),
+                        ),
+                        generator = NbtCompound(mapOf("type" to NbtString("example:moon"))),
                     ),
                 ),
             ),
@@ -140,6 +148,122 @@ class RootSavedDataModelsTest {
                 frames = listOf(MapData.Frame(BlockPosition(4, 5, 6), rotation = 2, entityId = 9)),
             ),
         )
+    }
+
+    @Test
+    fun worldGenDimensionsUseOfficialMapAndHolderShapes() {
+        val inlineDimensionType = NbtCompound(mapOf("height" to NbtInt(384)))
+        val referenceGenerator = NbtCompound(mapOf("type" to NbtString("minecraft:noise")))
+        val inlineGenerator = NbtCompound(mapOf("type" to NbtString("example:moon")))
+        val worldGenSettingsData = WorldGenSettingsData(
+            seed = 42,
+            generateStructures = true,
+            bonusChest = false,
+            dimensions = linkedMapOf(
+                DimensionId.Overworld to WorldGenDimension(
+                    WorldGenDimensionType.Reference(DimensionTypeId("overworld")),
+                    referenceGenerator,
+                ),
+                DimensionId("moon", "example") to WorldGenDimension(
+                    WorldGenDimensionType.Inline(inlineDimensionType),
+                    inlineGenerator,
+                ),
+            ),
+        )
+
+        val encoded = assertIs<NbtCompound>(
+            nbtFormat.encodeToNbtTag(WorldGenSettingsData.serializer(), worldGenSettingsData),
+        )
+        val dimensions = assertIs<NbtCompound>(encoded["dimensions"])
+        val overworld = assertIs<NbtCompound>(dimensions["minecraft:overworld"])
+        val moon = assertIs<NbtCompound>(dimensions["example:moon"])
+
+        assertEquals(NbtString("minecraft:overworld"), overworld["type"])
+        assertEquals(referenceGenerator, overworld["generator"])
+        assertEquals(inlineDimensionType, moon["type"])
+        assertEquals(inlineGenerator, moon["generator"])
+        assertEquals(
+            worldGenSettingsData,
+            nbtFormat.decodeFromNbtTag(WorldGenSettingsData.serializer(), encoded),
+        )
+    }
+
+    @Test
+    fun worldGenDimensionsRejectWrongHolderTagsAndMissingGenerators() {
+        fun worldGenSettingsWith(
+            dimension: NbtCompound,
+            dimensionId: String = "minecraft:overworld",
+        ): NbtCompound = NbtCompound(
+            mapOf(
+                "seed" to NbtLong(42),
+                "generate_structures" to NbtByte(1),
+                "bonus_chest" to NbtByte(0),
+                "dimensions" to NbtCompound(mapOf(dimensionId to dimension)),
+            ),
+        )
+
+        assertFailsWith<SerializationException> {
+            nbtFormat.decodeFromNbtTag(
+                WorldGenSettingsData.serializer(),
+                worldGenSettingsWith(
+                    NbtCompound(
+                        mapOf(
+                            "type" to NbtInt(0),
+                            "generator" to NbtCompound(emptyMap()),
+                        ),
+                    ),
+                ),
+            )
+        }
+        assertFailsWith<SerializationException> {
+            nbtFormat.decodeFromNbtTag(
+                WorldGenSettingsData.serializer(),
+                worldGenSettingsWith(
+                    NbtCompound(mapOf("type" to NbtString("minecraft:overworld"))),
+                ),
+            )
+        }
+        assertFailsWith<SerializationException> {
+            nbtFormat.decodeFromNbtTag(
+                WorldGenSettingsData.serializer(),
+                worldGenSettingsWith(
+                    NbtCompound(
+                        mapOf(
+                            "type" to NbtString("minecraft:overworld"),
+                            "generator" to NbtCompound(emptyMap()),
+                        ),
+                    ),
+                    "Minecraft:overworld",
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun worldGenDimensionsRejectIdsThatCollideAfterNamespaceNormalization() {
+        val worldGenDimension = NbtCompound(
+            mapOf(
+                "type" to NbtString("minecraft:overworld"),
+                "generator" to NbtCompound(emptyMap()),
+            ),
+        )
+        val encoded = NbtCompound(
+            mapOf(
+                "seed" to NbtLong(42),
+                "generate_structures" to NbtByte(1),
+                "bonus_chest" to NbtByte(0),
+                "dimensions" to NbtCompound(
+                    linkedMapOf(
+                        "overworld" to worldGenDimension,
+                        "minecraft:overworld" to worldGenDimension,
+                    ),
+                ),
+            ),
+        )
+
+        assertFailsWith<SerializationException> {
+            nbtFormat.decodeFromNbtTag(WorldGenSettingsData.serializer(), encoded)
+        }
     }
 
     @Test

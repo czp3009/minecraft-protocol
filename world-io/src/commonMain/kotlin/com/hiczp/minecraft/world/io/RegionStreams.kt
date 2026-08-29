@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.world.io
 
+import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.world.format.*
 import kotlinx.io.buffered
@@ -318,6 +319,21 @@ class RegionReadScope internal constructor(
 
 }
 
+/** Callback-bound ordinary Region view with one semantic Chunk codec retained for every read. */
+class DecodedChunkRegionReadScope<B : Any, M : Any> internal constructor(
+    regionReadScopeCore: RegionReadScopeCore,
+    chunkNbtFormat: CompressedNbtFormat,
+    val chunkNbtCodec: ChunkNbtCodec<B, M>,
+) : AnvilRegionReadScope(regionReadScopeCore, chunkNbtFormat) {
+    fun readChunk(localChunkPosition: LocalChunkPosition): Chunk<B, M>? =
+        withChunkNbtSource(localChunkPosition) { _, source ->
+            chunkNbtCodec.decodeFromOkio(source, regionPosition.chunk(localChunkPosition))
+        }
+
+    fun readChunk(chunkPosition: ChunkPosition): Chunk<B, M>? =
+        readChunk(regionPosition.local(chunkPosition))
+}
+
 /**
  * Callback-bound semantic read view created by an Entity Region handle.
  *
@@ -328,6 +344,14 @@ class EntityRegionReadScope internal constructor(
     regionReadScopeCore: RegionReadScopeCore,
     chunkNbtFormat: CompressedNbtFormat,
 ) : AnvilRegionReadScope(regionReadScopeCore, chunkNbtFormat) {
+    private val nbtEntityChunkNbtCodec = EntityChunkNbtCodec(NbtEntityDataRegistry(), chunkNbtFormat.nbtFormat)
+
+    fun readChunk(localChunkPosition: LocalChunkPosition): EntityChunk<NbtCompound>? =
+        readChunk(localChunkPosition, nbtEntityChunkNbtCodec)
+
+    fun readChunk(chunkPosition: ChunkPosition): EntityChunk<NbtCompound>? =
+        readChunk(regionPosition.local(chunkPosition))
+
     fun <E : Any> readChunk(
         localChunkPosition: LocalChunkPosition,
         entityChunkNbtCodec: EntityChunkNbtCodec<E>,
@@ -339,6 +363,21 @@ class EntityRegionReadScope internal constructor(
         chunkPosition: ChunkPosition,
         entityChunkNbtCodec: EntityChunkNbtCodec<E>,
     ): EntityChunk<E>? = readChunk(regionPosition.local(chunkPosition), entityChunkNbtCodec)
+}
+
+/** Callback-bound Entity Region view with one caller-selected Entity codec retained for every read. */
+class DecodedEntityRegionReadScope<E : Any> internal constructor(
+    regionReadScopeCore: RegionReadScopeCore,
+    chunkNbtFormat: CompressedNbtFormat,
+    val entityChunkNbtCodec: EntityChunkNbtCodec<E>,
+) : AnvilRegionReadScope(regionReadScopeCore, chunkNbtFormat) {
+    fun readChunk(localChunkPosition: LocalChunkPosition): EntityChunk<E>? =
+        withChunkNbtSource(localChunkPosition) { _, source ->
+            entityChunkNbtCodec.decodeFromOkio(source, regionPosition.chunk(localChunkPosition))
+        }
+
+    fun readChunk(chunkPosition: ChunkPosition): EntityChunk<E>? =
+        readChunk(regionPosition.local(chunkPosition))
 }
 
 /** Callback-bound semantic read view created by a POI Region handle. */

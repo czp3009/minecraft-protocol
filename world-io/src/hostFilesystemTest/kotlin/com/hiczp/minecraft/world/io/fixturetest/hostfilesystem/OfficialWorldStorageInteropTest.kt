@@ -460,6 +460,11 @@ class OfficialWorldStorageInteropTest {
             ENDER_DRAGON_FIGHT_ID,
             SavedDataFile.serializer(EnderDragonFightData.serializer()),
         )
+        rewriteTypedSavedData(
+            SavedDataStore(minecraftWorldPaths, SavedDataScope.WorldRoot, nbtFileStore),
+            SavedDataId("world_gen_settings"),
+            SavedDataFile.serializer(WorldGenSettingsData.serializer()),
+        )
 
         val utf8JsonFileStore = Utf8JsonFileStore(fileSystem)
         val statisticsPath = minecraftWorldPaths.statistics(playerKey)
@@ -1053,7 +1058,7 @@ class OfficialWorldStorageInteropTest {
             "Official terrain Chunk has a semantic Section below yPos"
         }
         return ChunkNbtCodec(
-            ChunkNbtContext(
+            ChunkCodecContext(
                 chunkLayout = ChunkLayout(
                     minSectionY = minSectionY,
                     sectionCount = maxSemanticSectionY - minSectionY + 1,

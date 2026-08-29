@@ -3,10 +3,7 @@ package com.hiczp.minecraft.world.io
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.nbt.serialization.NbtFormatConfiguration
 import com.hiczp.minecraft.nbt.serialization.NbtRootEncoding
-import com.hiczp.minecraft.world.format.CompressedNbtFormat
-import com.hiczp.minecraft.world.format.Compression
-import com.hiczp.minecraft.world.format.LocalChunkPosition
-import com.hiczp.minecraft.world.format.RegionPosition
+import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable

@@ -2,6 +2,8 @@ package com.hiczp.minecraft.world.format.datapack
 
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.NbtTag
+import com.hiczp.minecraft.world.format.NAMESPACE_PATTERN
+import com.hiczp.minecraft.world.format.RESOURCE_PATH_PATTERN
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -233,6 +235,17 @@ data class DataPackResourcePath(
     }
 
     override fun toString(): String = "$namespace:$path"
+
+    companion object {
+        fun parse(value: String): DataPackResourcePath {
+            val separator = value.indexOf(':')
+            return if (separator < 0) {
+                DataPackResourcePath("minecraft", value)
+            } else {
+                DataPackResourcePath(value.substring(0, separator), value.substring(separator + 1))
+            }
+        }
+    }
 }
 
 /** A logical data-pack resource type such as `worldgen/biome` or `tags/block`. */
@@ -274,7 +287,9 @@ data class DataPackResourceId(
     override fun toString(): String = "$namespace:$path"
 
     companion object {
-        operator fun invoke(value: String): DataPackResourceId {
+        operator fun invoke(value: String): DataPackResourceId = parse(value)
+
+        fun parse(value: String): DataPackResourceId {
             val separator = value.indexOf(':')
             return if (separator < 0) {
                 DataPackResourceId("minecraft", value)
@@ -314,6 +329,4 @@ class DataPack(
     ): DataPackFileContent? = resources(dataPackFormatVersion)[dataPackResourceType.path(dataPackResourceId)]
 }
 
-internal val NAMESPACE_PATTERN = Regex("[a-z0-9._-]+")
-internal val RESOURCE_PATH_PATTERN = Regex("[a-z0-9._/-]+")
 private val EXTENSION_PATTERN = Regex("[a-z0-9._-]+")

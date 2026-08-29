@@ -3,7 +3,7 @@ package com.hiczp.minecraft.protocol.client
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtLongArray
 import com.hiczp.minecraft.nbt.NbtTag
-import com.hiczp.minecraft.protocol.datapack.toChunkDataRegistries
+import com.hiczp.minecraft.protocol.datapack.MinecraftChunkContext
 import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.world.format.*
@@ -11,12 +11,8 @@ import com.hiczp.minecraft.world.format.ChunkSection
 import com.hiczp.minecraft.world.format.PalettedContainer
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer as NetworkPalettedContainer
 
-/** Convenience access to [toChunkDataRegistries] through the client's currently installed registry context. */
-fun MinecraftClientConnection.chunkDataRegistries(
-    defaultBlock: Identifier = Identifier("air"),
-    defaultBiome: Identifier = Identifier("plains"),
-): ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry> =
-    protocolRegistryContext.toChunkDataRegistries(defaultBlock, defaultBiome)
+fun MinecraftChunkContext.packetDecoder(chunkMetadata: ChunkMetadata): MinecraftChunkPacketDecoder =
+    MinecraftChunkPacketDecoder(this, chunkMetadata)
 
 /**
  * Stateless decoding of clientbound Chunk packets into positioned strong world Chunks.
@@ -27,13 +23,22 @@ fun MinecraftClientConnection.chunkDataRegistries(
  */
 class MinecraftChunkPacketDecoder(
     val protocolRegistryContext: ProtocolRegistryContext,
-    val chunkLayout: ChunkLayout,
+    val chunkCodecContext: ChunkCodecContext<ProtocolBlockState, ProtocolRegistryEntry>,
     private val chunkMetadata: ChunkMetadata,
-    defaultBlock: Identifier = Identifier("air"),
-    defaultBiome: Identifier = Identifier("plains"),
 ) {
+    constructor(
+        minecraftChunkContext: MinecraftChunkContext,
+        chunkMetadata: ChunkMetadata,
+    ) : this(
+        protocolRegistryContext = minecraftChunkContext.protocolRegistryContext,
+        chunkCodecContext = minecraftChunkContext.chunkCodecContext,
+        chunkMetadata = chunkMetadata,
+    )
+
+    val chunkLayout: ChunkLayout = chunkCodecContext.chunkLayout
+
     val chunkDataRegistries: ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry> =
-        protocolRegistryContext.toChunkDataRegistries(defaultBlock, defaultBiome)
+        chunkCodecContext.chunkDataRegistries
 
     private val biomeProtocolRegistry = protocolRegistryContext.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY)
     private val biomeRegistrySize = requireNotNull(protocolRegistryContext.biomeRegistrySize) {
@@ -43,11 +48,9 @@ class MinecraftChunkPacketDecoder(
     init {
         require(protocolRegistryContext.blockStateRegistrySize > 0) { "The active block-state registry is empty" }
         require(biomeRegistrySize > 0) { "The active biome registry is empty" }
-        protocolRegistryContext.chunkSectionCount?.let { sectionCount ->
-            require(sectionCount == chunkLayout.sectionCount) {
-                val actual = chunkLayout.sectionCount
-                "Chunk layout has $actual Sections, but the active protocol context expects $sectionCount"
-            }
+        require(protocolRegistryContext.chunkSectionCount == chunkLayout.sectionCount) {
+            val sectionCount = protocolRegistryContext.chunkSectionCount
+            "Chunk layout has ${chunkLayout.sectionCount} Sections, but the protocol context has $sectionCount"
         }
     }
 

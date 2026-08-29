@@ -1,6 +1,5 @@
 package com.hiczp.minecraft.protocol.datapack
 
-import com.hiczp.minecraft.protocol.model.packet.PlayLoginPacket
 import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
 import com.hiczp.minecraft.protocol.model.type.ProtocolRegistry
 import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
@@ -64,23 +63,4 @@ fun ProtocolData.resolveSynchronizedRegistryContext(
     } else {
         baseProtocolRegistryContext.withRegistries(changedProtocolRegistries)
     }
-}
-
-/**
- * Returns this context with the chunk height selected by [playLoginPacket]. The active
- * dimension type is resolved by its synchronized raw ID. When Known Packs
- * omitted the entry NBT, only that entry's matching version data is used as a
- * fallback.
- */
-fun ProtocolRegistryContext.withPlayLoginDimensionLayout(
-    playLoginPacket: PlayLoginPacket,
-    synchronizedRegistryPackets: List<RegistryDataPacket>,
-    protocolData: ProtocolData,
-): ProtocolRegistryContext {
-    val minecraftDimensionLayout = MinecraftDimensionLayout.from(
-        playLoginPacket,
-        synchronizedRegistryPackets,
-        protocolData,
-    )
-    return withChunkSectionCount(minecraftDimensionLayout.sectionCount)
 }

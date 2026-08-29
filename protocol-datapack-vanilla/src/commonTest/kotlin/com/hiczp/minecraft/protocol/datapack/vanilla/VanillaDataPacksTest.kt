@@ -3,7 +3,13 @@ package com.hiczp.minecraft.protocol.datapack.vanilla
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.protocol.datapack.DataPackRegistryProjector
+import com.hiczp.minecraft.protocol.datapack.resolveMinecraftWorld
 import com.hiczp.minecraft.protocol.model.type.Identifier
+import com.hiczp.minecraft.world.format.DimensionId
+import com.hiczp.minecraft.world.format.DimensionTypeId
+import com.hiczp.minecraft.world.format.data.WorldGenDimension
+import com.hiczp.minecraft.world.format.data.WorldGenDimensionType
+import com.hiczp.minecraft.world.format.data.WorldGenSettingsData
 import com.hiczp.minecraft.world.format.datapack.*
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.*
@@ -143,6 +149,43 @@ class VanillaDataPacksTest {
             dataPackStack.dataPacks.map(DataPack::dataPackId),
         )
         assertTrue(additionalFeatureFlag in resolvedProtocolData.enabledFeatureFlags)
+    }
+
+    @Test
+    fun persistedWorldSelectionFlowsIntoAReadyChunkContext() {
+        val worldDataPackLoadResult = WorldDataPackLoadResult(
+            enabledDataPackIds = listOf(VanillaDataPacks.coreDataPackId),
+            loadedDataPacks = emptyList(),
+        )
+        val worldGenSettingsData = WorldGenSettingsData(
+            seed = 1L,
+            generateStructures = true,
+            bonusChest = false,
+            dimensions = mapOf(
+                DimensionId.Overworld to WorldGenDimension(
+                    type = WorldGenDimensionType.Reference(DimensionTypeId("overworld")),
+                    generator = NbtCompound(emptyMap()),
+                ),
+            ),
+        )
+
+        val resolvedMinecraftWorld = worldDataPackLoadResult
+            .toVanillaProtocolData()
+            .resolveMinecraftWorld(worldGenSettingsData)
+
+        val minecraftChunkContext = resolvedMinecraftWorld.dimension(DimensionId.Overworld)
+        assertSame(
+            resolvedMinecraftWorld.protocolData.completeProtocolRegistryContext.registries,
+            minecraftChunkContext.protocolRegistryContext.registries,
+        )
+        assertEquals(
+            Identifier("overworld"),
+            minecraftChunkContext.minecraftDimensionLayout.dimensionTypeId,
+        )
+        assertEquals(
+            minecraftChunkContext.minecraftDimensionLayout.chunkLayout,
+            minecraftChunkContext.chunkNbtCodec.chunkCodecContext.chunkLayout,
+        )
     }
 
     @Test

@@ -527,11 +527,11 @@ class StandaloneFileStoresTest {
     }
 
     @Test
-    fun jsonHasNoPolicyLimitAndInvalidSavedDataIdentifiersAreRejected() = runTest {
+    fun jsonHasNoPolicyLimitAndInvalidSavedDataStoragePathsAreRejected() = runTest {
         val fakeFileSystem = FakeFileSystem()
         val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         assertFailsWith<IllegalArgumentException> {
-            SavedDataId("a/../b")
+            minecraftWorldPaths.savedData(SavedDataId("a/../b"), SavedDataScope.WorldRoot)
         }
         val jsonPath = "/world/value.json".toPath()
         Utf8JsonFileStore(fakeFileSystem).writeJson(jsonPath) { sink -> sink.writeUtf8("\u00E9") }

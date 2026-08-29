@@ -212,10 +212,30 @@ class RegionFileStore internal constructor(
             readOnlyRegionFile.withReadScope { block(RegionReadScope(this, chunkNbtFormat)) }
         }
 
+    fun <B : Any, M : Any, R> withReadScope(
+        regionPosition: RegionPosition,
+        chunkNbtCodec: ChunkNbtCodec<B, M>,
+        block: DecodedChunkRegionReadScope<B, M>.() -> R,
+    ): R = withReadFile(regionPosition) { readOnlyRegionFile ->
+        readOnlyRegionFile.withReadScope {
+            block(DecodedChunkRegionReadScope(this, chunkNbtFormat, chunkNbtCodec))
+        }
+    }
+
     fun <R> withEntityReadScope(regionPosition: RegionPosition, block: EntityRegionReadScope.() -> R): R =
         withReadFile(regionPosition) { readOnlyRegionFile ->
             readOnlyRegionFile.withReadScope { block(EntityRegionReadScope(this, chunkNbtFormat)) }
         }
+
+    fun <E : Any, R> withEntityReadScope(
+        regionPosition: RegionPosition,
+        entityChunkNbtCodec: EntityChunkNbtCodec<E>,
+        block: DecodedEntityRegionReadScope<E>.() -> R,
+    ): R = withReadFile(regionPosition) { readOnlyRegionFile ->
+        readOnlyRegionFile.withReadScope {
+            block(DecodedEntityRegionReadScope(this, chunkNbtFormat, entityChunkNbtCodec))
+        }
+    }
 
     fun <R> withPoiReadScope(regionPosition: RegionPosition, block: PoiRegionReadScope.() -> R): R =
         withReadFile(regionPosition) { readOnlyRegionFile ->

@@ -33,6 +33,12 @@ val decodedHandshakePacket = MinecraftProtocolFormat.decodeFromSource(
 )
 ```
 
+`StatusResponsePacket` demonstrates the boundary between a logical value and a physical representation. Its public field
+is `ServerStatus`; the format interprets `@JsonEncoded`, writes one bounded protocol string, and reconstructs the same
+typed value while decoding. Callers on either endpoint do not assemble or parse the enclosing status JSON. Malformed
+JSON, missing required nested fields, invalid favicon data URLs, and the packet string bound fail during decoding or
+encoding.
+
 ## Compose a packet registry
 
 `MinecraftPacketRegistry` is the immutable vanilla base for the repository-selected Minecraft release. Construct a

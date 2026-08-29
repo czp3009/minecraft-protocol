@@ -96,6 +96,30 @@ Applications can replace any stage: parse an archive with custom decoders, edit 
 `ResolvedDataPackStack`, construct `DataPackProtocolProjector` directly to replace the entire policy, or construct
 `ResolvedProtocolData` directly.
 
+## Resolve stored dimensions and Chunk codecs
+
+For a stored world, combine its enabled-pack result with its strongly decoded `world_gen_settings` payload. The first
+stage projects the exact active pack stack into server Configuration data; the second binds every persisted dimension to
+the dimension-type raw ID and registries from that projection:
+
+```kotlin
+fun resolveStoredMinecraftWorld(
+    worldDataPackLoadResult: WorldDataPackLoadResult,
+    worldGenSettingsData: WorldGenSettingsData,
+): ResolvedMinecraftWorld = worldDataPackLoadResult
+    .toVanillaProtocolData()
+    .resolveMinecraftWorld(worldGenSettingsData)
+```
+
+`ResolvedMinecraftWorld.protocolData` can be sent by `protocol-server`. Its
+`dimension(dimensionId).chunkNbtCodec` decodes ordinary Region records into
+`Chunk<ProtocolBlockState, ProtocolRegistryEntry>`. This module supplies the release-matched projection inputs but does
+not read `level.dat`, saved data, or Region files; [`world-io`](../world-io/README.md) owns those operations.
+
+Unknown enabled packs fail while building the stack. Inline or missing dimension-type references fail while resolving
+the world, before any per-dimension context is returned. Mods can supply projector overrides and explicit Chunk default
+IDs without replacing the rest of the vanilla projection.
+
 ## Select built-in packs
 
 Use the generated IDs rather than spelling release-specific pack names:

@@ -36,8 +36,9 @@ configured filesystem runtimes only; browser and Wasm do not receive partial imp
 - Ordinary Chunk, Entity, and POI Region handles preserve their type distinction in `RegionReadScope`,
   `EntityRegionReadScope`, and `PoiRegionReadScope`. Their common Anvil, compression, and NBT reads come from
   `AnvilRegionReadScope`; semantic `readChunk` returns only the value appropriate to the handle that created the scope.
-  POI has no caller-supplied registry context, so its handle owns the matching codec instead of exposing a redundant
-  codec parameter.
+  `DecodedChunkRegionReadScope` and `DecodedEntityRegionReadScope` bind a stable caller codec across one Header scope;
+  keep the unbound scopes for callers that mix codecs. The no-argument Entity path owns an
+  `NbtEntityDataRegistry` codec, while POI always owns its codec instead of exposing a redundant parameter.
 - Do not preflight or reject a read by comparing persisted `DataVersion` with a library- or caller-selected version.
   Carry the field through semantic values; callers own any compatibility check or migration decision.
 - Live Region resources intentionally do not implement `AutoCloseable`: their member `use` preserves project failure

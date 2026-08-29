@@ -15,11 +15,14 @@ disk directory/ZIP --world-io--> WorldDataPackLoadResult --source completion--> 
     --world-format--> ResolvedDataPackStack
     --protocol-datapack--> ResolvedProtocolData --protocol-server--> Configuration packets
 
+WorldGenSettingsData + ResolvedProtocolData --> ResolvedMinecraftWorld
+    --> per-dimension MinecraftChunkContext --> disk Chunk codec or network Chunk adapter
+
 optional raw snapshot: DataPackArchive -> DataPackFormat -> DataPack
 
 received Configuration values -> DataPackConfigurationSnapshot -> ClientRegistryView
 
-active dimension/registry context -> ChunkLayout + ChunkDataRegistries
+Configuration + Play Login --> MinecraftDimensionContext --> caller-selected defaults --> MinecraftChunkContext
 ```
 
 ## Inputs from data packs
@@ -61,6 +64,43 @@ release-matched projectors for every synchronized vanilla registry—and the zer
 path, add [`protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md). Mod projectors can override or extend
 those defaults, while constructing `DataPackProtocolProjector` directly remains the full replacement escape hatch.
 
+## Resolve a complete server world
+
+`ResolvedProtocolData` contains the registry order sent during Configuration. `WorldGenSettingsData` contains the
+persisted set of level stems and their dimension-type references. Resolve them together before reading Chunks for a
+server:
+
+```kotlin
+fun resolveMinecraftWorld(
+    resolvedProtocolData: ResolvedProtocolData,
+    worldGenSettingsData: WorldGenSettingsData,
+): ResolvedMinecraftWorld = resolvedProtocolData.resolveMinecraftWorld(worldGenSettingsData)
+```
+
+The result retains the same `ResolvedProtocolData` and exposes one `MinecraftChunkContext` per `DimensionId`:
+
+```kotlin
+val minecraftChunkContext = resolvedMinecraftWorld.dimension(dimensionId)
+val chunkNbtCodec = minecraftChunkContext.chunkNbtCodec
+val chunkLayout = minecraftChunkContext.chunkCodecContext.chunkLayout
+val protocolRegistryContext = minecraftChunkContext.protocolRegistryContext
+```
+
+Each context binds the persisted dimension, its synchronized dimension-type ID and raw ID, its validated
+`DimensionTypeLayout`, the active protocol registries, and a ready `ChunkNbtCodec`. Disk decoding, Play Login, and
+packet encoding use one registry order when the server passes `resolvedMinecraftWorld.protocolData`, its dimension keys,
+and the selected dimension to its negotiation options. The world object does not guess unrelated Status, connection, or
+initial-world policy.
+
+The complete server path accepts only referenced dimension types because Play Login requires a synchronized
+dimension-type raw ID. Resolution checks every declared dimension first and reports inline holders, missing references,
+and invalid dimension-type data together in `MinecraftWorldResolutionException`; it never returns a partial world or
+creates a synthetic registry entry. Tools that only inspect an inline holder can stay on the lower-level
+`DimensionTypeLayout`/`ChunkCodecContext` path in `world-format`.
+
+The default Chunk values are `minecraft:air` and `minecraft:plains`. Modded registries select different identifiers once
+through the optional `defaultBlock` and `defaultBiome` arguments to `resolveMinecraftWorld`.
+
 ## Resolve client Configuration data
 
 The wire transmits Known Packs, feature flags, synchronized registry entries, and tags. It does not transmit recipes,
@@ -92,27 +132,35 @@ global block-state IDs.
 
 ## Adapt protocol context to semantic Chunks
 
-`MinecraftDimensionLayout.toChunkLayout()` delegates its Configuration-resolved block bounds to
-`ChunkLayout.fromBlockBounds(minY, height)` without assuming a release-global default.
-`ProtocolRegistryContext.toChunkDataRegistries()` resolves persisted block descriptors and biome names against the
-active block-state and synchronized biome registries.
+`MinecraftDimensionLayout` combines one synchronized dimension-type ID/raw ID with a shared
+`DimensionTypeLayout`; its `chunkLayout` is already validated. `MinecraftDimensionContext` validates that layout against
+an active `ProtocolRegistryContext`, activates the required Section count, and retains the three values as the shared
+network-negotiation handoff. A custom decoder can branch at this point without adopting the semantic world model.
 
-The inputs in this example are explicit parameters supplied by a completed client or server negotiation:
+When the application does want semantic Chunks, `ProtocolRegistryContext.toChunkDataRegistries()` resolves persisted
+block descriptors and biome names against the active block-state and synchronized biome registries. The standard fluent
+path chooses the semantic defaults once:
+
+The standard factory performs the complete composition and cross-checks the dimension-type raw ID, Section count, and
+default registry entries:
 
 ```kotlin
-fun createProtocolChunkNbtContext(
+fun createMinecraftChunkContext(
+    dimensionId: DimensionId,
     minecraftDimensionLayout: MinecraftDimensionLayout,
     protocolRegistryContext: ProtocolRegistryContext,
-): ChunkNbtContext<ProtocolBlockState, ProtocolRegistryEntry> {
-    val chunkLayout = minecraftDimensionLayout.toChunkLayout()
-    val chunkDataRegistries = protocolRegistryContext.toChunkDataRegistries()
-    return ChunkNbtContext(
-        chunkLayout = chunkLayout,
-        chunkDataRegistries = chunkDataRegistries,
+): MinecraftChunkContext {
+    val minecraftDimensionContext = MinecraftDimensionContext.create(
+        dimensionId = dimensionId,
+        minecraftDimensionLayout = minecraftDimensionLayout,
+        protocolRegistryContext = protocolRegistryContext,
     )
+    return minecraftDimensionContext.createMinecraftChunkContext()
 }
 ```
 
-The registry adapter retains the active immutable context by reference and defaults to its `minecraft:air` block state
-and `minecraft:plains` biome entry. Callers may select different defaults explicitly. Neither conversion reads a world
-file, encodes a packet, or owns connection state.
+`MinecraftChunkContext.create(...)` remains the direct equivalent when the caller already has the three source values.
+`MinecraftChunkContext` is the normal endpoint for disk and semantic packet work. `ChunkDataRegistries` remains public
+for a caller that only needs registry mapping, while `ChunkCodecContext` remains the filesystem- and
+protocol-identity-free input for `ChunkNbtCodec` or a custom codec. Packet decoding and encoding stay in
+`protocol-client` and `protocol-server`; this module performs no filesystem or socket I/O.

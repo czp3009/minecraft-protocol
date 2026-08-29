@@ -65,6 +65,9 @@ Keep physical byte encoding out of models, socket and framing behavior out of se
   `implementation` for internal runtime dependencies and dedicated configurations for tests and generation.
 - A public declaration must be usable with the dependency metadata exposed by its module. It must not rely on another
   module's tests, repository-only initialization, or implementation-only types.
+- Put a wire-visible logical value in `protocol-model` whenever both endpoints produce or consume that same value.
+  Packet direction does not make the value private to `protocol-client` or `protocol-server`; those modules own
+  orchestration and endpoint policy around the shared model.
 - Exposing a lower-layer type is correct when it is the natural contract. Do not create wrappers solely to conceal a
   valid downward dependency.
 - Enforce intrinsic protocol, format, and representation bounds in their owning layer. Do not add shared policy-sized
@@ -105,11 +108,13 @@ Keep physical byte encoding out of models, socket and framing behavior out of se
   policy.
 - Every source generator uses a language-aware library such as KotlinPoet or JavaPoet. Generated declarations are not
   assembled with raw source strings.
-- In Kotlin and Java, prefer templates over `+` for text composition. Keep a complete single-line string on one source
-  line; use triple-quoted strings for real multiline content. Use builders only when loops or non-trivial branching
-  require them.
-- Keep assignments on one line when the complete expression fits within 120 columns. Break after `=` only when the
-  expression itself is multiline or would exceed that margin.
+- In Kotlin and Java, prefer templates over `+` for text composition. Keep one logical single-line string in one literal
+  or template and on one source line, even when it exceeds the 120-column guideline; do not split or concatenate it
+  solely for layout. Use triple-quoted strings for real multiline content. Use builders only when loops or non-trivial
+  branching require them.
+- Treat 120 columns as a soft wrapping guideline for ordinary expressions, not a hard source limit. Keep assignments on
+  one line when the complete expression fits within that margin. Break after `=` only when the expression is
+  intrinsically multiline or would exceed the guideline.
 - Omit redundant `public`. Keep helpers internal or private, but do not suppress `unused` merely because an external
   consumer is the only expected caller.
 - Production logging uses kotlin-logging, Gradle's logger, `KSPLogger`, or the hosting framework's logger. Direct

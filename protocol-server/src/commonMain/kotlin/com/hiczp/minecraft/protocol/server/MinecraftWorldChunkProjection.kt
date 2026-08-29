@@ -1,7 +1,7 @@
 package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.nbt.*
-import com.hiczp.minecraft.protocol.datapack.toChunkDataRegistries
+import com.hiczp.minecraft.protocol.datapack.MinecraftChunkContext
 import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.world.format.*
@@ -9,6 +9,17 @@ import com.hiczp.minecraft.world.format.ChunkSection
 import com.hiczp.minecraft.protocol.model.type.ChunkData as NetworkChunkData
 import com.hiczp.minecraft.protocol.model.type.ChunkSection as NetworkChunkSection
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer as NetworkPalettedContainer
+
+fun MinecraftChunkContext.packetEncoder(
+    isAir: (ProtocolBlockState) -> Boolean,
+    hasFluid: (ProtocolBlockState) -> Boolean,
+    blockEntityUpdateTag: (NbtCompound) -> NbtCompound? = ::defaultBlockEntityUpdateTag,
+): MinecraftChunkPacketEncoder = MinecraftChunkPacketEncoder(
+    minecraftChunkContext = this,
+    isAir = isAir,
+    hasFluid = hasFluid,
+    blockEntityUpdateTag = blockEntityUpdateTag,
+)
 
 /**
  * Stateless projection of strong world Chunks into clientbound Chunk packets.
@@ -19,21 +30,52 @@ import com.hiczp.minecraft.protocol.model.type.PalettedContainer as NetworkPalet
  */
 class MinecraftChunkPacketEncoder(
     val protocolRegistryContext: ProtocolRegistryContext,
+    val chunkCodecContext: ChunkCodecContext<ProtocolBlockState, ProtocolRegistryEntry>,
     private val isAir: (ProtocolBlockState) -> Boolean,
     private val hasFluid: (ProtocolBlockState) -> Boolean,
     private val hasSkyLight: Boolean,
-    defaultBlock: Identifier = Identifier("air"),
-    defaultBiome: Identifier = Identifier("plains"),
     private val blockEntityUpdateTag: (NbtCompound) -> NbtCompound? = ::defaultBlockEntityUpdateTag,
 ) {
+    constructor(
+        minecraftChunkContext: MinecraftChunkContext,
+        isAir: (ProtocolBlockState) -> Boolean,
+        hasFluid: (ProtocolBlockState) -> Boolean,
+        blockEntityUpdateTag: (NbtCompound) -> NbtCompound? = ::defaultBlockEntityUpdateTag,
+    ) : this(
+        protocolRegistryContext = minecraftChunkContext.protocolRegistryContext,
+        chunkCodecContext = minecraftChunkContext.chunkCodecContext,
+        isAir = isAir,
+        hasFluid = hasFluid,
+        hasSkyLight = minecraftChunkContext.minecraftDimensionLayout.hasSkyLight,
+        blockEntityUpdateTag = blockEntityUpdateTag,
+    )
+
     val chunkDataRegistries: ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry> =
-        protocolRegistryContext.toChunkDataRegistries(defaultBlock, defaultBiome)
+        chunkCodecContext.chunkDataRegistries
 
     private val biomeRegistrySize =
         protocolRegistryContext.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY).size
 
+    init {
+        require(protocolRegistryContext.blockStateRegistrySize > 0) { "The active block-state registry is empty" }
+        require(biomeRegistrySize > 0) { "The active biome registry is empty" }
+        require(protocolRegistryContext.chunkSectionCount == chunkCodecContext.chunkLayout.sectionCount) {
+            val sectionCount = protocolRegistryContext.chunkSectionCount
+            "Chunk layout has ${chunkCodecContext.chunkLayout.sectionCount} Sections, but the context has $sectionCount"
+        }
+    }
+
     /** Encodes [chunk] directly into the packet accepted by the connection's outgoing channel. */
     fun encodePacket(chunk: Chunk<ProtocolBlockState, ProtocolRegistryEntry>): ChunkDataAndUpdateLightPacket {
+        require(chunk.chunkLayout == chunkCodecContext.chunkLayout) {
+            "Chunk layout ${chunk.chunkLayout} does not match encoder layout ${chunkCodecContext.chunkLayout}"
+        }
+        require(chunk.defaultBlockState == chunkDataRegistries.blockStates.defaultValue) {
+            "Chunk and encoder use different default block states"
+        }
+        require(chunk.defaultBiome == chunkDataRegistries.biomes.defaultValue) {
+            "Chunk and encoder use different default biomes"
+        }
         val chunkMetadata = chunk.chunkMetadata
         val sectionsByY = chunk.sections.associateBy(ChunkSection<ProtocolBlockState, ProtocolRegistryEntry>::sectionY)
         val packetSections = chunk.chunkLayout.sectionYRange.map { sectionY ->

@@ -16,7 +16,7 @@ class ConnectionStatePacketTest {
     fun `status packet payloads have their exact empty string and long shapes`() {
         assertPacketBytes(StatusRequestPacket, StatusRequestPacket.serializer(), "")
         assertPacketBytes(
-            StatusResponsePacket("{}"),
+            StatusResponsePacket(ServerStatus()),
             StatusResponsePacket.serializer(),
             "027b7d",
         )
@@ -30,6 +30,61 @@ class ConnectionStatePacketTest {
             StatusPongResponsePacket.serializer(),
             "0102030405060708",
         )
+    }
+
+    @Test
+    fun `status response JSON preserves every logical field`() {
+        val serverStatus = ServerStatus(
+            description = JsonTextComponent("""{"text":"test"}"""),
+            players = ServerStatus.Players(
+                max = 20,
+                online = 1,
+                sample = listOf(
+                    ServerStatus.NameAndId(
+                        id = Uuid.fromLongs(1, 2),
+                        name = "player",
+                    ),
+                ),
+            ),
+            version = ServerStatus.Version("test", 1),
+            favicon = ServerStatus.Favicon(ByteString(byteArrayOf(1, 2, 3))),
+            enforcesSecureChat = true,
+        )
+        val encodedJson =
+            """{"description":{"text":"test"},"players":{"max":20,"online":1,"sample":[{"id":"00000000-0000-0001-0000-000000000002","name":"player"}]},"version":{"name":"test","protocol":1},"favicon":"data:image/png;base64,AQID","enforcesSecureChat":true}"""
+        val expected = encodeProtocolString(encodedJson)
+
+        assertContentEquals(
+            expected,
+            MinecraftProtocolFormat.encodeToByteArray(StatusResponsePacket(serverStatus)),
+        )
+        assertEquals(
+            StatusResponsePacket(serverStatus),
+            MinecraftProtocolFormat.decodeFromByteArray(StatusResponsePacket.serializer(), expected),
+        )
+    }
+
+    @Test
+    fun `status response ignores extensions and rejects malformed structured JSON`() {
+        assertEquals(
+            StatusResponsePacket(ServerStatus()),
+            MinecraftProtocolFormat.decodeFromByteArray(
+                StatusResponsePacket.serializer(),
+                encodeProtocolString("""{"extension":true}"""),
+            ),
+        )
+        assertFailsWith<MinecraftSerializationException> {
+            MinecraftProtocolFormat.decodeFromByteArray(
+                StatusResponsePacket.serializer(),
+                encodeProtocolString("""{"players":{}}"""),
+            )
+        }
+        assertFailsWith<MinecraftSerializationException> {
+            MinecraftProtocolFormat.decodeFromByteArray(
+                StatusResponsePacket.serializer(),
+                encodeProtocolString("""{"favicon":"not-a-data-url"}"""),
+            )
+        }
     }
 
     @Test
@@ -376,5 +431,18 @@ class ConnectionStatePacketTest {
             value,
             MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
         )
+    }
+
+    private fun encodeProtocolString(value: String): ByteArray {
+        val bytes = value.encodeToByteArray()
+        val length = mutableListOf<Byte>()
+        var remaining = bytes.size
+        do {
+            var next = remaining and 0x7F
+            remaining = remaining ushr 7
+            if (remaining != 0) next = next or 0x80
+            length += next.toByte()
+        } while (remaining != 0)
+        return length.toByteArray() + bytes
     }
 }

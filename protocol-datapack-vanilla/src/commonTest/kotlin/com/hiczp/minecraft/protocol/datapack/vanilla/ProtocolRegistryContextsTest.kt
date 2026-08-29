@@ -7,6 +7,7 @@ import com.hiczp.minecraft.protocol.datapack.*
 import com.hiczp.minecraft.protocol.model.packet.PlayLoginPacket
 import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
 import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.world.format.DimensionId
 import kotlin.test.*
 
 class ProtocolRegistryContextsTest {
@@ -61,10 +62,10 @@ class ProtocolRegistryContextsTest {
             synchronizedRegistryPackets = synchronizedRegistryPackets,
             protocolData = VanillaProtocolData,
         )
-        val activeProtocolRegistryContext = baseProtocolRegistryContext.withPlayLoginDimensionLayout(
-            playLoginPacket = playLoginPacket,
-            synchronizedRegistryPackets = synchronizedRegistryPackets,
-            protocolData = VanillaProtocolData,
+        val minecraftChunkContext = MinecraftChunkContext.create(
+            DimensionId.Overworld,
+            minecraftDimensionLayout,
+            baseProtocolRegistryContext,
         )
 
         assertEquals(
@@ -73,10 +74,10 @@ class ProtocolRegistryContextsTest {
         )
         assertEquals(
             minecraftDimensionLayout.sectionCount,
-            activeProtocolRegistryContext.chunkSectionCount,
+            minecraftChunkContext.protocolRegistryContext.chunkSectionCount,
         )
-        assertEquals(baseProtocolRegistryContext.registries, activeProtocolRegistryContext.registries)
-        assertEquals(baseProtocolRegistryContext.blockStates, activeProtocolRegistryContext.blockStates)
+        assertEquals(baseProtocolRegistryContext.registries, minecraftChunkContext.protocolRegistryContext.registries)
+        assertEquals(baseProtocolRegistryContext.blockStates, minecraftChunkContext.protocolRegistryContext.blockStates)
     }
 
     @Test
@@ -117,18 +118,15 @@ class ProtocolRegistryContextsTest {
         val dimensionTypeRawId = requireNotNull(
             synchronizedRegistryPackets.registryRawId(DIMENSION_TYPE_REGISTRY, OVERWORLD),
         )
-        val baseProtocolRegistryContext =
-            VanillaProtocolData.resolveSynchronizedRegistryContext(synchronizedRegistryPackets)
-
         assertFailsWith<IllegalArgumentException> {
-            baseProtocolRegistryContext.withPlayLoginDimensionLayout(
+            MinecraftDimensionLayout.from(
                 playLoginPacket = createPlayLoginPacket(Int.MAX_VALUE),
                 synchronizedRegistryPackets = synchronizedRegistryPackets,
                 protocolData = VanillaProtocolData,
             )
         }
         assertFailsWith<IllegalArgumentException> {
-            baseProtocolRegistryContext.withPlayLoginDimensionLayout(
+            MinecraftDimensionLayout.from(
                 playLoginPacket = createPlayLoginPacket(dimensionTypeRawId).copy(levels = emptySet()),
                 synchronizedRegistryPackets = synchronizedRegistryPackets,
                 protocolData = VanillaProtocolData,
@@ -140,11 +138,8 @@ class ProtocolRegistryContextsTest {
     fun missingSynchronizedDimensionRegistryDoesNotFallBack() {
         val synchronizedRegistryPackets = VanillaProtocolData.completeSynchronizedRegistryPackets()
             .filterNot { it.registryId == DIMENSION_TYPE_REGISTRY }
-        val baseProtocolRegistryContext =
-            VanillaProtocolData.resolveSynchronizedRegistryContext(synchronizedRegistryPackets)
-
         assertFailsWith<IllegalArgumentException> {
-            baseProtocolRegistryContext.withPlayLoginDimensionLayout(
+            MinecraftDimensionLayout.from(
                 playLoginPacket = createPlayLoginPacket(0),
                 synchronizedRegistryPackets = synchronizedRegistryPackets,
                 protocolData = VanillaProtocolData,
@@ -165,7 +160,9 @@ class ProtocolRegistryContextsTest {
                         mapOf(
                             "min_y" to NbtInt(-64),
                             "height" to NbtInt(512),
+                            "logical_height" to NbtInt(512),
                             "has_skylight" to NbtByte(1),
+                            "has_ceiling" to NbtByte(0),
                         ),
                     ),
                 ),
@@ -184,17 +181,17 @@ class ProtocolRegistryContextsTest {
             synchronizedRegistryPackets = synchronizedRegistryPackets,
             protocolData = VanillaProtocolData,
         )
-        val activeProtocolRegistryContext = baseProtocolRegistryContext.withPlayLoginDimensionLayout(
-            playLoginPacket = playLoginPacket,
-            synchronizedRegistryPackets = synchronizedRegistryPackets,
-            protocolData = VanillaProtocolData,
+        val minecraftChunkContext = MinecraftChunkContext.create(
+            DimensionId.parse(customLevelId.toString()),
+            minecraftDimensionLayout,
+            baseProtocolRegistryContext,
         )
 
         assertEquals(-64, minecraftDimensionLayout.minY)
         assertEquals(512, minecraftDimensionLayout.height)
         assertTrue(minecraftDimensionLayout.hasSkyLight)
-        assertEquals(32, activeProtocolRegistryContext.chunkSectionCount)
-        assertEquals(baseProtocolRegistryContext.registries, activeProtocolRegistryContext.registries)
+        assertEquals(32, minecraftChunkContext.protocolRegistryContext.chunkSectionCount)
+        assertEquals(baseProtocolRegistryContext.registries, minecraftChunkContext.protocolRegistryContext.registries)
     }
 
     private fun createPlayLoginPacket(

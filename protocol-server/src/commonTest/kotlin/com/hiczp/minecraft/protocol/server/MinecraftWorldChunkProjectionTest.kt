@@ -6,6 +6,7 @@ import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.nbt.NbtLongArray
 import com.hiczp.minecraft.protocol.client.MinecraftChunkPacketDecoder
 import com.hiczp.minecraft.protocol.client.toChunk
+import com.hiczp.minecraft.protocol.datapack.toChunkDataRegistries
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import com.hiczp.minecraft.world.format.*
@@ -19,8 +20,11 @@ class MinecraftWorldChunkProjectionTest {
     @Test
     fun projectsAStrongChunkToTheWireAndBackWithoutDensePaletteCopies() {
         val protocolRegistryContext = testProtocolRegistryContext()
+        val chunkLayout = ChunkLayout(minSectionY = -1, sectionCount = 2)
+        val chunkCodecContext = ChunkCodecContext(chunkLayout, protocolRegistryContext.toChunkDataRegistries())
         val minecraftChunkPacketEncoder = MinecraftChunkPacketEncoder(
             protocolRegistryContext = protocolRegistryContext,
+            chunkCodecContext = chunkCodecContext,
             isAir = { protocolBlockState -> protocolBlockState.block == Identifier("air") },
             hasFluid = { protocolBlockState -> protocolBlockState.block == Identifier("water") },
             hasSkyLight = true,
@@ -47,7 +51,6 @@ class MinecraftWorldChunkProjectionTest {
             blockPosition = chunkPosition.block(ChunkBlockPosition(3, -1, 4)),
             persistentData = NbtCompound(mapOf("custom" to NbtInt(7))),
         )
-        val chunkLayout = ChunkLayout(minSectionY = -1, sectionCount = 2)
         val chunk = Chunk(
             chunkPosition = chunkPosition,
             chunkMetadata = chunkMetadata,
@@ -81,8 +84,11 @@ class MinecraftWorldChunkProjectionTest {
         assertEquals(1, chunkDataAndUpdateLightPacket.lightData.blockYMask.words.countOneBits())
         assertEquals(1, chunkDataAndUpdateLightPacket.lightData.skyYMask.words.countOneBits())
 
-        val minecraftChunkPacketDecoder =
-            MinecraftChunkPacketDecoder(protocolRegistryContext, chunkLayout, ChunkMetadata(1, status = "full"))
+        val minecraftChunkPacketDecoder = MinecraftChunkPacketDecoder(
+            protocolRegistryContext,
+            chunkCodecContext,
+            ChunkMetadata(1, status = "full"),
+        )
         val decoded = chunkDataAndUpdateLightPacket.toChunk(minecraftChunkPacketDecoder)
         assertEquals(stone, decoded.block(ChunkBlockPosition(0, -16, 0)))
         assertEquals(water, decoded.block(ChunkBlockPosition(1, -16, 0)))
@@ -135,13 +141,15 @@ class MinecraftWorldChunkProjectionTest {
             blockStates = blockStates,
             chunkSectionCount = 1,
         )
+        val chunkLayout = ChunkLayout(minSectionY = 0, sectionCount = 1)
+        val chunkCodecContext = ChunkCodecContext(chunkLayout, protocolRegistryContext.toChunkDataRegistries())
         val minecraftChunkPacketEncoder = MinecraftChunkPacketEncoder(
             protocolRegistryContext = protocolRegistryContext,
+            chunkCodecContext = chunkCodecContext,
             isAir = { protocolBlockState -> protocolBlockState.id == 0 },
             hasFluid = { false },
             hasSkyLight = false,
         )
-        val chunkLayout = ChunkLayout(minSectionY = 0, sectionCount = 1)
         val chunkSection = ChunkSection(
             sectionY = 0,
             blockStates = PalettedContainer(
@@ -168,8 +176,11 @@ class MinecraftWorldChunkProjectionTest {
 
         assertIs<NetworkPalettedContainer.Direct>(chunkDataAndUpdateLightPacket.chunkData.sections.single().blockStates)
         assertIs<NetworkPalettedContainer.Direct>(chunkDataAndUpdateLightPacket.chunkData.sections.single().biomes)
-        val minecraftChunkPacketDecoder =
-            MinecraftChunkPacketDecoder(protocolRegistryContext, chunkLayout, ChunkMetadata(1, status = "full"))
+        val minecraftChunkPacketDecoder = MinecraftChunkPacketDecoder(
+            protocolRegistryContext,
+            chunkCodecContext,
+            ChunkMetadata(1, status = "full"),
+        )
         val decoded = minecraftChunkPacketDecoder.decode(chunkDataAndUpdateLightPacket)
         assertEquals(blockStates[256], decoded.section(0)?.blockStates?.get(256))
         assertEquals(biomeEntries[8], decoded.section(0)?.biomes?.get(8))

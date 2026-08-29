@@ -141,6 +141,21 @@ class RegionChunkApiTest {
                 assertFailsWith<IllegalStateException> {
                     checkNotNull(escapedRegionReadScope).readChunk(firstPosition, TEST_CODEC)
                 }
+
+                var escapedDecodedChunkRegionReadScope: DecodedChunkRegionReadScope<BlockStateDescriptor, String>? =
+                    null
+                regionHandle.withReadScope(TEST_CODEC) {
+                    escapedDecodedChunkRegionReadScope = this
+                    assertSame(TEST_CODEC, chunkNbtCodec)
+                    assertEquals(firstPosition, assertNotNull(readChunk(firstPosition)).chunkPosition)
+                    assertEquals(
+                        secondPosition,
+                        assertNotNull(readChunk(secondPosition.localChunkPosition)).chunkPosition,
+                    )
+                }
+                assertFailsWith<IllegalStateException> {
+                    checkNotNull(escapedDecodedChunkRegionReadScope).readChunk(firstPosition)
+                }
             }
         } finally {
             regionStorage.close()
@@ -150,16 +165,16 @@ class RegionChunkApiTest {
         val countingMutableRegionFileSystem = CountingMutableRegionFileSystem(fakeFileSystem, regionPath)
         val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open("/world".toPath(), countingMutableRegionFileSystem)
         liveMinecraftWorldAccess.dimensions.overworld.openRegion(firstPosition.regionPosition).use { liveRegionHandle ->
-            var escapedRegionReadScope: RegionReadScope? = null
-            liveRegionHandle.withReadScope {
+            var escapedRegionReadScope: DecodedChunkRegionReadScope<BlockStateDescriptor, String>? = null
+            liveRegionHandle.withReadScope(TEST_CODEC) {
                 escapedRegionReadScope = this
-                assertEquals(firstPosition, assertNotNull(readChunk(firstPosition, TEST_CODEC)).chunkPosition)
-                assertEquals(secondPosition, assertNotNull(readChunk(secondPosition, TEST_CODEC)).chunkPosition)
+                assertEquals(firstPosition, assertNotNull(readChunk(firstPosition)).chunkPosition)
+                assertEquals(secondPosition, assertNotNull(readChunk(secondPosition)).chunkPosition)
                 assertEquals(expectedNbtDocument, readChunkNbtDocument(firstPosition))
             }
             assertEquals(1, countingMutableRegionFileSystem.headerReads)
             assertFailsWith<IllegalStateException> {
-                checkNotNull(escapedRegionReadScope).readChunk(firstPosition, TEST_CODEC)
+                checkNotNull(escapedRegionReadScope).readChunk(firstPosition)
             }
         }
         fakeFileSystem.checkNoOpenFiles()
@@ -218,7 +233,7 @@ class RegionChunkApiTest {
         val AIR = BlockStateDescriptor("minecraft:air")
         val STONE = BlockStateDescriptor("minecraft:stone")
         val TEST_CODEC = ChunkNbtCodec(
-            ChunkNbtContext(
+            ChunkCodecContext(
                 chunkLayout = TEST_LAYOUT,
                 chunkDataRegistries = ChunkDataRegistries(
                     blockStates = DescriptorBlockStateRegistry(AIR),

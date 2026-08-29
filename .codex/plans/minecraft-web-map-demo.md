@@ -1,10 +1,10 @@
 # Minecraft 网页地图 Demo 实施计划
 
 - 状态：待实施；剩余工作均位于 `:demo:web-map`
-- 记录日期：2026-08-29
+- 记录日期：2026-08-30
 - 适用版本：仓库所选择的 Minecraft 官方版本；本计划不改变版本选择
 - 计划模块：`:demo:web-map`
-- 当前范围：独立网页地图进程、视口批量查询、Chunk 表面投影、live world 读取和错误 Chunk 轮询
+- 当前范围：独立网页地图进程、视口批量查询、维度相关的 Chunk 表面投影、live world 读取和错误 Chunk 轮询
 - 后端目标：`jvm`、`linuxX64`、`linuxArm64`、`mingwX64`、`macosArm64`
 - 浏览器产物：Kotlin/JS browser bundle；它是由后端提供的网页资源，不是额外的后端运行平台
 
@@ -19,9 +19,10 @@
 1. 浏览器根据当前视窗计算一个包含两端的 Chunk 矩形范围，并用一个 HTTP 请求查询整个范围。
 2. 浏览器拖动或缩放时不连续请求；交互停止后经过约 200 ms 防抖再查询当前视窗。
 3. 后端按请求范围枚举 Chunk 并按 Region 分组；每个请求内通过
-   `dimensions[dimensionId].openRegion(...).use { withReadScope { readChunk(...) } }` 为每个 Region 创建一个
+   `dimensions[dimensionId].openRegion(...).use { withReadScope(chunkNbtCodec) { readChunk(...) } }` 为每个 Region 创建一个
    `LiveRegionHandle` 并连续解码该组 Chunk。
-4. 后端只提取每个 X/Z 列中最高的非空气方块，返回 16 × 16 的二维表面数据，不渲染图片。
+4. 后端按 Demo 自己拥有的维度表面策略提取每个 X/Z 列的代表方块，返回 16 × 16 的二维表面数据，不渲染图片； 下界策略会跳过扫描起始处连续的
+   netherrack，再寻找第一个非空气方块，其他维度使用明确记录的 fallback。
 5. Region 文件不存在或 header 中没有目标 Chunk 时，响应省略该 Chunk；Region 打开或 header 读取失败时，该 Region 内本次请求涉及的全部
    Chunk 都返回错误标识；单个 Chunk payload 读取、解压或解码失败，或者成功解码后尚未完全生成时， 只标记该 Chunk。
 6. 每个 HTTP 请求独立打开和关闭自己的 Region handles。后端不缓存结果，也不合并、共享或协调同时到达的请求。
@@ -29,7 +30,7 @@
    进行有限补漏。
 8. 一致性单位是一个成功解码的 Chunk。每个 Region 组通过 `withReadScope` 只读取一次 header，但该 header、后续 `.mca`
    payload 或 `.mcc` sidecar 仍可能来自不同保存时刻；不同 Chunk 来自不同保存时刻是可接受的。
-9. Demo 是现有库能力的普通使用者。它只接收世界目录，不要求调用方另外提供 data-pack references、
+9. Demo 通过公开库 API 组合世界与协议数据。它只接收世界目录，不要求调用方另外提供 data-pack references、
    registry snapshot、维度列表、dimension layout 或高度表；所需引用与数据全部由存档和仓库所选择版本的生成 vanilla 数据取得。
 
 ## 2. 明确不做的事情
@@ -43,6 +44,8 @@
 - 不观察 Region 文件变化，不实现 SSE、服务端推送或成功 Chunk 的后台刷新。
 - 不在后端生成地图图片、地图瓦片或纹理图集。
 - 不从官方资源、资源包或模组资源加载方块贴图；第一版只使用方块标识的确定性颜色。
+- 不在 `world-format`、`world-io` 或 `protocol-datapack` 提供“最高方块”或地图表面查询。表面含义属于游戏内容和 Demo
+  展示策略；库只提供完整 Chunk、维度布局和 registry 事实。
 - 不支持 Fabric 等 mod loader 注入的数据包来源、动态 registry 或其他运行时扩展；支持未使用 mod loader 的原版世界，以及原版机制
   能够启用的 core、built-in 和世界目录 file data packs。
 - 不让用户或 Demo 启动参数另行提供 data-pack references、registry 内容、维度高度或其他 Minecraft 领域数据；启用列表只来自
@@ -124,7 +127,7 @@ flowchart LR
     Query -->|group by Region| LiveAccess[LiveMinecraftWorldAccess]
    LiveAccess -->|dimensions [dimensionId ] . openRegion|RegionHandle[LiveRegionHandle.use then withReadScope/readChunk]
     RegionHandle --> RegionFiles[.mca / .mcc]
-    Query --> Projection[Top non-air projection]
+Query --> Projection[Dimension-aware surface projection]
     Projection -->|Chunk results| Controller
     Controller -->|atomic view replacement or repair| Browser
 ```
@@ -170,7 +173,7 @@ for (chunkPosition in chunkRange) {
 
 后端必须先完成响应 DTO 的构造，再交给 Ktor 序列化，不能一边读取 Chunk 一边向 HTTP body 发布部分结果。
 
-初步响应形状：
+响应形状：
 
 ```json
 {
@@ -194,7 +197,7 @@ for (chunkPosition in chunkRange) {
 }
 ```
 
-Kotlin 模型优先使用带 `status` discriminator 的 sealed variants，使 `success` 必须携带 surface、`read_failed`
+Kotlin 模型使用带 `status` discriminator 的 sealed variants，使 `success` 必须携带 surface、`read_failed`
 不能意外携带半成品数据。不要使用一个 nullable surface 配合可构造出矛盾状态的普通 data class。
 
 ### 5.3 三态规则
@@ -230,46 +233,54 @@ generator 细节。
 
 启动时：
 
-1. 从 live world 调用 `readLevelData()` 读取 `level.dat`，取得出生点等世界 metadata；`level.dat` 本身不承担维度发现。Demo
-   不从 该值手工拼接或传递 data-pack references。
-2. 调用 live world 的无参 `dataPacks.readEnabled()`。该入口通过自己的高层 `level.dat` 读取取得完整 persisted
+1. 调用 live world 的无参 `dataPacks.readEnabled()`。该入口通过自己的高层 `level.dat` 读取取得完整 persisted
    selection，再从世界
-   `datapacks` 目录读取 enabled `file/...` directory/ZIP packs，并返回 detached `WorldDataPackLoadResult`。随后调用
-   `toVanillaProtocolData()`，由库按原始顺序补入匹配的 vanilla core/built-in packs、拒绝其余未提供 ID，并用匹配的 data-pack
-   format 投影出 active protocol data。Demo 不接受任何额外 pack 或 registry 输入。
-3. 通过 live world 的 `data.read<SavedDataFile<WorldGenSettingsData>>(SavedDataId("world_gen_settings"))` 读取根 saved
-   data，并把
-   `WorldGenSettingsData.dimensions` 作为权威维度集合。每个 map key 转换为 `DimensionId`，对应的 level-stem `NbtCompound`
-   提供 referenced 或 inline dimension type；Region 目录由 `dimensions[dimensionId]` 按仓库所选择版本的 namespaced layout
-   映射， 不枚举磁盘目录。目录尚未创建不影响维度出现在 metadata 中。
-4. 从每个 level-stem compound 的 `type` tag 区分 registry ID 与 inline compound。referenced type 从第 2 步的 active
-   protocol data 取得 `MinecraftDimensionLayout` 并调用 `toChunkLayout()`；inline type 从 compound 读取 `min_y`/`height`
-   并调用
-   `ChunkLayout.fromBlockBounds(...)`。两条路径都不在 Demo 内换算 Section 坐标。随后用 `DescriptorBlockStateRegistry`、
-   `NamedBiomeRegistry` 和该 layout 建立
-   `ChunkNbtCodec<BlockStateDescriptor, String>`；不要把 codec 改成 active protocol registry 对象类型。
+   `datapacks` 目录读取 enabled `file/...` directory/ZIP packs，并返回 detached `WorldDataPackLoadResult`。Demo 不另读
+   `level.dat`，也不接受任何额外 pack 或 registry 输入。
+2. 通过 live world 的 `data.read<SavedDataFile<WorldGenSettingsData>>(SavedDataId("world_gen_settings"))` 读取根 saved
+   data， 并把强类型 `WorldGenSettingsData.dimensions` 作为权威维度集合。map key 已经是 `DimensionId`，level stem 已经区分
+   referenced/inline dimension type；Demo 不检查裸 NBT tag。Region 目录由 `dimensions[dimensionId]` 按仓库所选择版本的
+   namespaced layout 映射，不枚举磁盘目录。目录尚未创建不影响维度出现在 metadata 中。
+3. 先调用 `worldDataPackLoadResult.toVanillaProtocolData()`，按 persisted 顺序补入匹配的 vanilla core/built-in packs、拒绝其余
+   未提供 ID，并得到 `ResolvedProtocolData`；再调用 `resolvedProtocolData.resolveMinecraftWorld(worldGenSettingsData)`
+   ，验证每个维度都 引用 complete dimension-type registry 中的 entry 并返回 `ResolvedMinecraftWorld`。这两步对应 data-pack
+   协议投影与世界维度解析 两个独立阶段；referenced type 查找、inline type 拒绝、dimension-type NBT 字段解析、Section 边界换算和
+   registry adapter 均不出现在 Demo。
+4. 对每个维度直接使用 `resolvedMinecraftWorld.dimension(dimensionId).chunkNbtCodec`。该 codec 解码出的语义 Chunk 可直接进入
+   使用同一 `MinecraftChunkContext` 的服务端 packet encoder；Demo 生成 surface DTO 时再通过
+   `ChunkDataRegistries.blockStates.describe` 取得 `BlockStateDescriptor`，不读取或发送进程内 raw ID。
 5. `level.dat`、`SavedDataFile<WorldGenSettingsData>` 和 Chunk 中的 `DataVersion` 作为存档数据保留，但 Demo 与 codec 都不主动
    将其与 `MinecraftWorldFormat.WORLD_VERSION` 比较。解码直接使用仓库所选择版本的 schema；调用方若需要预检版本，可在调用前
    自行读取并比较。
 
-缺失、不可读或结构不合法的 `world_gen_settings.dat` 是无法建立解码上下文的启动错误；不要仿照官方服务端生成随机 seed 的
-fallback。 第一版暴露该文件中每个目录映射和 dimension-type layout 都能解析的维度，包括自定义维度；不要从 world
-preset、玩家当前位置或 已有 Region 目录猜测维度集合、高度或路径。
+缺失、不可读或结构不合法的 `world_gen_settings.dat`，以及其中使用 inline type 或引用不存在 dimension-type entry 的维度，都是
+无法建立完整解码与协商上下文的启动错误；不要仿照官方服务端生成随机 seed 的 fallback。第一版暴露该文件中每个注册类型都能解析的
+维度，包括由 enabled data pack 注册类型的自定义维度；不要从 world preset、玩家当前位置或已有 Region 目录猜测维度集合、高度或
+路径。
 
-### 6.2 最高非空气方块
+### 6.2 维度相关的表面策略
 
-每个成功 Chunk 生成 16 × 16、按 `z * 16 + x` 排列的列结果：
+每个成功 Chunk 生成 16 × 16、按 `z * 16 + x` 排列的列结果。表面选择由 `:demo:web-map` 内可独立测试的
+`SurfaceProjectionPolicy` 负责，而不是 `Chunk`、`ChunkLayout` 或 registry 的库方法：
 
-1. 对每个 local X/Z，从 `ChunkLayout.maxBlockY` 向 `minBlockY` 扫描。
-2. 首个不满足 `isAir` 的 `BlockStateDescriptor` 是该列结果。
-3. 第一版把 `minecraft:air`、`minecraft:cave_air` 和 `minecraft:void_air` 视为空气；模组空气需要以后由调用方数据扩展。
-4. 找不到非空气方块时记录空列，而不是把整个 Chunk 判为不存在。
-5. 返回方块名称和 properties；不要只返回进程内 raw ID，因为持久化 Chunk 的自然契约是 `BlockStateDescriptor`。
+1. 列扫描函数接收可选的 `topLayerBlock: BlockStateDescriptor?`。参数为空时，它在完整
+   `ChunkLayout.blockYRange` 中返回最高非空气方块。
+2. `topLayerBlock` 非空时，函数从 `ChunkLayout.maxBlockY` 向下扫描并以“跳过顶层”为初始状态。处于该状态时，方块 ID 等于
+   `topLayerBlock` 的连续起始方块全部跳过；遇到第一个 ID 不同的方块后永久退出该状态，并从该方块开始返回第一个非空气方块。
+   因此第一个不同方块本身非空气时立即返回；它是空气时继续向下；状态转换后再次出现的 `topLayerBlock` 也按普通非空气方块处理。
+   扫描结束仍未退出初始状态或退出后没有非空气方块时，该列为空。参数只负责把内容相关的顶部岩层标记注入扫描，算法不在库中推断
+   维度语义。
+3. 调用处检测到 `DimensionId.Nether` 时传入 `BlockStateDescriptor("minecraft:netherrack")`；其他内置维度和自定义维度传入
+   `null`。
+4. `minecraft:air`、`minecraft:cave_air` 和 `minecraft:void_air` 视为空气；其他方块和流体均为候选表面。
+5. policy 选中的 `ProtocolBlockState` 必须经 active block-state registry 的 `describe` 转成方块名称和 properties；wire
+   数据不携带 进程内 raw ID。
+6. 找不到候选方块时记录空列，而不是把整个 Chunk 判为不存在。
 
-字面“最高非空气”会使下界顶部通常显示基岩屋顶，这是已经接受的语义结果，不在第一版引入维度特例或透明方块规则。
+库不新增 `highestBlock`、`surfaceBlock` 或下界特例 API。即使多个应用都需要扫描 Chunk，何为“表面”仍由应用的游戏内容语义决定。
 
-wire 数据可采用每 Chunk palette + 256 个 row-major palette index，避免重复发送相同 descriptor；这是响应表示，不是后端缓存。
-是否额外返回 Y 高度、biome 或光照在实现前保持关闭，除非前端渲染的已确认需求要求它们。
+wire 数据使用每 Chunk palette + 256 个 row-major nullable palette index，避免重复发送相同 descriptor；空列使用 `null`。
+响应不返回 Y 高度、biome 或光照。这是响应表示，不是后端缓存。
 
 ## 7. 后端查询流程
 
@@ -280,11 +291,11 @@ wire 数据可采用每 Chunk palette + 256 个 row-major palette index，避免
    `chunkRange intersect regionPosition.chunkRange` 给出，请求内部不再并发 fan-out。
 3. 每个 Region 组调用一次
    `liveMinecraftWorldAccess.dimensions[dimensionId].openRegion(regionPosition).use { liveRegionHandle -> ... }`，并在
-   handle 内进入一次
-   `withReadScope`；该 scope 为组内所有目标 Chunk 共用一遍 Region header 读取。Region 打开或 scope/header 读取抛出预期的
+   handle 内进入一次 `withReadScope(chunkNbtCodec)`；该 decoded scope 为组内所有目标 Chunk 共用一遍 Region header 读取和同一个
+   codec。Region 打开或 scope/header 读取抛出预期的
    live-read/I/O/format 异常时，将该组全部目标坐标加入 `read_failed`，随后继续处理其他 Region。
 4. scope 中 header 没有某个 Chunk 时省略该坐标；创建 handle 时 Region 不存在会得到 empty scope，因此整组自然省略。
-5. 对 header 中存在的 Chunk，调用 scope 的 `readChunk(chunkPosition, chunkNbtCodec)`；`world-io` 负责读取 payload、按
+5. 对 header 中存在的 Chunk，调用 scope 的 `readChunk(chunkPosition)`；`world-io` 负责读取 payload、按
    Region 压缩标识解压、完整消费 NBT source，并用 `ChunkNbtCodec` 解码语义 Chunk。Demo 不复制 Anvil framing 或拼装解码链路。
 6. 解码成功后先检查 `chunk.chunkMetadata.isFullyGenerated`；若为 false，则当前 Chunk 加入 `read_failed`，不执行表面投影，并继续处理
    同组其他 Chunk。完全生成的 Chunk 才执行表面投影并加入 `success`。单个 Chunk 的 payload 读取、解压或普通解码异常同样加入
@@ -347,15 +358,14 @@ route；Canvas 根据方块标识生成确定性颜色。浏览器不创建每�
 
 ### 阶段 B：live world 表面查询
 
-1. 启动时用 `readLevelData()` 读取世界 metadata；另由无参 `dataPacks.readEnabled()` 读取完整 persisted selection 和
-   enabled file packs，再通过 `toVanillaProtocolData()` 补入仓库生成的 vanilla core/built-in packs 并解析最终 active
-   registry。随后通过根
-   `data` 子入口读取 `SavedDataFile<WorldGenSettingsData>`，按 persisted dimensions map 建立 `DimensionId` 集合。referenced
-   type 从 active registry 解析，inline type 直接解析，并通过共享转换得到每个维度的 layout。Demo 的公开配置不接受额外
-   data-pack reference、registry、维度列表或高度表。
+1. 启动时只用无参 `dataPacks.readEnabled()` 读取 persisted selection 和 enabled file packs，再通过根 `data` 子入口读取强类型
+   `SavedDataFile<WorldGenSettingsData>`。依次执行 `toVanillaProtocolData()` 和
+   `resolveMinecraftWorld(worldGenSettingsData)`，取得 最终协商数据和每个维度的 protocol-backed Chunk codec。Demo
+   的公开配置不接受额外 data-pack reference、registry、维度列表或 高度表。
 2. 按 `chunkRange.regionPositions()` 处理 Region，并通过 `chunkRange intersect regionPosition.chunkRange` 在 caller-owned
-   `dimensions[dimensionId].openRegion(...).use { withReadScope { readChunk(...) } }` 中读取目标 Chunk、映射三态并投影最高
-   非空气方块。
+   `dimensions[dimensionId].openRegion(...).use { withReadScope(chunkNbtCodec) { readChunk(...) } }` 中读取目标
+   Chunk、映射三态，并按 Demo 的 dimension-aware `SurfaceProjectionPolicy` 投影表面；下界测试传入 netherrack
+   顶层标记，并覆盖跳过连续起始标记、状态转换和 转换后的第一个非空气方块。
 3. 实现 Ktor metadata 与 surface routes；使用注入的 reader 测试 route，不让 HTTP 测试依赖真实 Minecraft 文件。
 4. 证明单个 Chunk 失败不会阻止同响应中的其他成功 Chunk；Region 打开/header 失败只把该 Region 的目标 Chunk 标记为失败；
    未完全生成的 Chunk 返回 `read_failed` 且不发布表面；所有路径都不会吞掉协程取消。
@@ -391,13 +401,11 @@ configuration-cache 首次存储与再次复用，最后运行 `./gradlew allTes
 
 - 包含两端的正坐标、负坐标、反向端点、单 Chunk 和跨 Region 范围。
 - Region 文件缺失、Region 中 Chunk 缺失、全空气成功 Chunk 和正常表面 Chunk。
-- Demo 从 `WorldGenSettingsData.dimensions` 的 level-stem compound 解析 dimension type；测试分别覆盖 referenced、inline 和
-  结构不合法的 type。
-- 世界 metadata 中的维度集合只来自 `WorldGenSettingsData.dimensions`，不枚举目录；标准维度和 namespaced 自定义维度都转换为
-  `DimensionId` 并通过 `dimensions[dimensionId]` 访问，尚无 Region 目录的已声明维度仍会列出。
-- 启动解码上下文把 `dataPacks.readEnabled().toVanillaProtocolData()` 的结果用于 referenced dimension type；inline type
-  不查询 registry。未知 unresolved pack 作为启动错误传播，Demo 除世界目录外不接受额外 data-pack reference、registry、维度或
-  高度输入，也不读取资源包或方块贴图。
+- 世界 metadata 中的维度集合只来自 `WorldGenSettingsData.dimensions`，不枚举目录；标准维度和使用已注册类型的 namespaced
+  自定义 维度都转换为 `DimensionId` 并通过 `dimensions[dimensionId]` 访问，尚无 Region 目录的已声明维度仍会列出。
+- 启动解码上下文只使用 `dataPacks.readEnabled().toVanillaProtocolData()`、强类型 world-gen settings 和共享 resolution。 未知
+  unresolved pack 作为启动错误传播，Demo 除世界目录外不接受额外 data-pack reference、registry、维度或高度输入，也不读取
+  资源包或方块贴图。
 - `MINECRAFT_WORLD_DIRECTORY` 覆盖自动发现；未指定时从嵌套工作目录向上找到最近的 `.minecraft-protocol-root`，使用生成的
   Minecraft 版本常量定位 launcher saves，并按目录名称选择第一个存档；无标记、无存档和无效显式路径都明确失败。
 - 同一请求的同一 Region 只打开一个 live handle、只读取一次 scope header，并在回调结束后关闭；新请求重新打开 handle，
@@ -408,9 +416,11 @@ configuration-cache 首次存储与再次复用，最后运行 `./gradlew allTes
 - 单 Chunk 失败不阻止同 Region 的其他 Chunk，且 scope/stream/handle 没有资源泄漏。
 - `CancellationException` 不转换为普通失败。
 - 同一响应中 success、read_failed 和省略坐标共存。
-- 表面扫描的 Y 边界、空气判定、row-major 顺序和 block-state properties 保留。
-- 启动解码上下文使用共享的 `MinecraftDimensionLayout.toChunkLayout()`，且持久化 codec 仍保留
-  `BlockStateDescriptor`/biome 名称，不引入 client/server 依赖或复制 adapter。
+- 表面扫描覆盖完整 Y 边界、三种空气、row-major 顺序和 block-state properties；下界覆盖连续起始 netherrack、首个不同方块为空气、
+  首个不同方块为非空气、状态转换后再次出现 netherrack，以及全列未转换或转换后没有非空气方块时的空列。
+- 启动解码上下文使用 `ResolvedMinecraftWorld` 已构造的 `MinecraftChunkContext` 和 `ChunkNbtCodec`；持久化 codec 使用
+  `ProtocolBlockState`/`ProtocolRegistryEntry`，输出 DTO 前再转换为 `BlockStateDescriptor`，且 Demo 不引入 client/server
+  依赖。
 - 两个同时到达且查询相同 Region 的 HTTP 请求分别打开和关闭自己的 handle，不共享结果或 lifecycle。
 - Chunk 范围改变时，上一代视窗请求和已发出的全部补漏请求都被取消，迟到结果不能改变新代状态。
 - 每代只发一个完整视窗请求；补漏请求组只查询该代 `read_failed` 坐标，按可注入的指数退避策略调度，并在成功、省略或达到最大重试
@@ -422,8 +432,8 @@ configuration-cache 首次存储与再次复用，最后运行 `./gradlew allTes
 - surface route 在完整 DTO 构造前不发布部分 HTTP 响应。
 
 Demo 不新增 host-filesystem source set，也不接收 Fixture Host 路径。对运行中世界的 live-read smoke test 使用开发者显式设置的
-`MINECRAFT_WORLD_DIRECTORY` 手工执行，不是仓库 gate，不取得 `session.lock` 或修改世界。浏览器自动化同样不是仓库 gate； 可用
-Node 测试纯前端逻辑，再进行一次人工浏览器渲染检查。
+`MINECRAFT_WORLD_DIRECTORY` 手工执行，不是仓库 gate，不取得 `session.lock` 或修改世界。浏览器自动化同样不是仓库 gate；Node
+测试覆盖纯前端逻辑，并执行一次人工浏览器渲染检查。
 
 ## 11. 完成标准
 
@@ -434,10 +444,11 @@ Node 测试纯前端逻辑，再进行一次人工浏览器渲染检查。
 2. 页面首次打开和视窗停止移动后只发送一个包含边界的 surface 请求。
 3. 后端只从世界目录和仓库生成的 matching vanilla 数据建立解码上下文：`level.dat` 提供有序 enabled references，世界
    `datapacks` 目录提供 enabled file packs，`VanillaDataPacks` 提供匹配的 core/built-in packs，全局
-   `SavedDataFile<WorldGenSettingsData>` 提供权威维度集合，最终 active dimension types 提供 referenced type 高度。它不接受额外
-   Minecraft 领域输入，也不依赖目录枚举、world preset 或玩家当前维度。
-4. 后端为范围内每个可读且完全生成的 Chunk 返回最高非空气表面，真实缺失 Chunk 被省略，读取失败或未完全生成返回
-   `read_failed`。
+   `SavedDataFile<WorldGenSettingsData>` 提供权威维度集合，最终 active dimension types 提供 registered referenced type
+   高度；inline type 和缺失 reference 在启动时失败。它不接受额外 Minecraft 领域输入，也不依赖目录枚举、world preset 或玩家当前维度。
+4. 后端为范围内每个可读且完全生成的 Chunk 返回 `SurfaceProjectionPolicy` 选出的表面；下界通过调用方提供的 netherrack
+   顶层标记跳过扫描起始处连续的 netherrack，并在状态转换后选择第一个非空气方块；其他维度返回最高非空气表面。真实缺失 Chunk
+   被省略，读取失败或未完全生成返回 `read_failed`。
 5. 单个 Chunk 失败不会破坏同一响应内其他成功 Chunk；Region 元信息失败只影响该 Region 的目标 Chunk；前端只通过当前代补漏
    请求组有限重试错误 Chunk，并使用指数退避与最大重试次数。
 6. Chunk 范围改变时先取消上一代视窗请求和全部补漏请求；新响应返回前保留旧画面，返回后一次替换。

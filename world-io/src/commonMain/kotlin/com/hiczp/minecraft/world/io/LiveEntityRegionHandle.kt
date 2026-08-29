@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.world.io
 
+import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.world.format.*
 import kotlinx.serialization.DeserializationStrategy
@@ -11,6 +12,8 @@ import okio.BufferedSource
 class LiveEntityRegionHandle internal constructor(
     private val delegate: LiveRegionHandle,
 ) {
+    private val nbtEntityChunkNbtCodec = EntityChunkNbtCodec(NbtEntityDataRegistry(), delegate.chunkNbtFormat.nbtFormat)
+
     val regionPosition: RegionPosition
         get() = delegate.regionPosition
 
@@ -94,6 +97,12 @@ class LiveEntityRegionHandle internal constructor(
     inline fun <reified T> readChunkNbt(chunkPosition: ChunkPosition): T? =
         readChunkNbt(chunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
 
+    fun readChunk(localChunkPosition: LocalChunkPosition): EntityChunk<NbtCompound>? =
+        readChunk(localChunkPosition, nbtEntityChunkNbtCodec)
+
+    fun readChunk(chunkPosition: ChunkPosition): EntityChunk<NbtCompound>? =
+        readChunk(regionPosition.local(chunkPosition))
+
     fun <E : Any> readChunk(
         localChunkPosition: LocalChunkPosition,
         entityChunkNbtCodec: EntityChunkNbtCodec<E>
@@ -114,6 +123,14 @@ class LiveEntityRegionHandle internal constructor(
      */
     fun <R> withReadScope(block: EntityRegionReadScope.() -> R): R = delegate.withReadScopeCore {
         block(EntityRegionReadScope(this, chunkNbtFormat))
+    }
+
+    /** Retains [entityChunkNbtCodec] throughout one live Entity Region Header read. */
+    fun <E : Any, R> withReadScope(
+        entityChunkNbtCodec: EntityChunkNbtCodec<E>,
+        block: DecodedEntityRegionReadScope<E>.() -> R,
+    ): R = delegate.withReadScopeCore {
+        block(DecodedEntityRegionReadScope(this, chunkNbtFormat, entityChunkNbtCodec))
     }
 
     fun close() = delegate.close()

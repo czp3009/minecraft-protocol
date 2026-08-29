@@ -1,7 +1,9 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.ChunkPosition
+import com.hiczp.minecraft.world.format.DimensionId
 import com.hiczp.minecraft.world.format.RegionPosition
+import com.hiczp.minecraft.world.format.SavedDataId
 import okio.Path
 
 internal enum class RegionStorageDirectory(val directoryName: String) {
@@ -31,9 +33,12 @@ class MinecraftWorldPaths(
     internal val playerDataDirectory: Path
         get() = root / "players" / "data"
 
-    fun dimension(dimensionId: DimensionId): Path = dimensionId.pathSegments.fold(
-        root / "dimensions" / dimensionId.namespace,
-    ) { path, pathSegment -> path / pathSegment }
+    fun dimension(dimensionId: DimensionId): Path {
+        validateStorageNamespace(dimensionId.namespace, "dimension")
+        return parseStoragePath(dimensionId.path, "dimension").fold(
+            root / "dimensions" / dimensionId.namespace,
+        ) { path, pathSegment -> path / pathSegment }
+    }
 
     internal fun regionDirectory(
         regionStorageDirectory: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
@@ -79,10 +84,12 @@ class MinecraftWorldPaths(
         savedDataId: SavedDataId,
         savedDataScope: SavedDataScope,
     ): Path {
-        val parent = savedDataId.pathSegments.dropLast(1).fold(
+        validateStorageNamespace(savedDataId.namespace, "saved-data")
+        val pathSegments = parseStoragePath(savedDataId.path, "saved-data")
+        val parent = pathSegments.dropLast(1).fold(
             savedDataDirectory(savedDataScope) / savedDataId.namespace,
         ) { path, pathSegment -> path / pathSegment }
-        return parent / "${savedDataId.pathSegments.last()}.dat"
+        return parent / "${pathSegments.last()}.dat"
     }
 }
 

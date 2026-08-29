@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.world.io
 
+import com.hiczp.minecraft.world.format.DimensionId
 import com.hiczp.minecraft.world.format.RegionPosition
 
 /** Dimension selection under one mutable world lease. */

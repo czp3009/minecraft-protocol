@@ -13,7 +13,7 @@ import kotlinx.io.Source
  * `DataVersion` is carried by [ChunkMetadata] but is not compared with a library- or caller-selected version.
  */
 class ChunkNbtCodec<B : Any, M : Any>(
-    val chunkNbtContext: ChunkNbtContext<B, M>,
+    val chunkCodecContext: ChunkCodecContext<B, M>,
     val nbtFormat: NbtFormat = NbtFormat(
         NbtFormatConfiguration(nbtRootEncoding = NbtRootEncoding.UNNAMED),
     ),
@@ -55,9 +55,9 @@ class ChunkNbtCodec<B : Any, M : Any>(
             )
         }
         val minSectionY = root.requireInt(Y_POS)
-        if (minSectionY != chunkNbtContext.chunkLayout.minSectionY) {
+        if (minSectionY != chunkCodecContext.chunkLayout.minSectionY) {
             throw ChunkNbtFormatException(
-                "Expected minimum Section Y ${chunkNbtContext.chunkLayout.minSectionY}, got $minSectionY",
+                "Expected minimum Section Y ${chunkCodecContext.chunkLayout.minSectionY}, got $minSectionY",
             )
         }
 
@@ -94,9 +94,9 @@ class ChunkNbtCodec<B : Any, M : Any>(
                 if (sectionLighting != null) lightOnlySections[sectionY] = sectionLighting
                 return@forEach
             }
-            if (sectionY !in chunkNbtContext.chunkLayout) {
+            if (sectionY !in chunkCodecContext.chunkLayout) {
                 throw ChunkNbtFormatException(
-                    "Section Y $sectionY contains palettes outside ${chunkNbtContext.chunkLayout}",
+                    "Section Y $sectionY contains palettes outside ${chunkCodecContext.chunkLayout}",
                 )
             }
             val blockStates = decodeBlockStates(blockStatesTag as? NbtCompound, sectionY)
@@ -137,11 +137,11 @@ class ChunkNbtCodec<B : Any, M : Any>(
             Chunk(
                 chunkPosition = actualPosition,
                 chunkMetadata = chunkMetadata,
-                chunkLayout = chunkNbtContext.chunkLayout,
+                chunkLayout = chunkCodecContext.chunkLayout,
                 sections = sections,
                 blockEntities = blockEntities,
-                defaultBlockState = chunkNbtContext.chunkDataRegistries.blockStates.defaultValue,
-                defaultBiome = chunkNbtContext.chunkDataRegistries.biomes.defaultValue,
+                defaultBlockState = chunkCodecContext.chunkDataRegistries.blockStates.defaultValue,
+                defaultBiome = chunkCodecContext.chunkDataRegistries.biomes.defaultValue,
             )
         } catch (failure: IllegalArgumentException) {
             throw ChunkNbtFormatException("Invalid Chunk", failure)
@@ -149,22 +149,22 @@ class ChunkNbtCodec<B : Any, M : Any>(
     }
 
     fun encodeDocument(chunk: Chunk<B, M>): NbtDocument {
-        if (chunk.chunkLayout != chunkNbtContext.chunkLayout) {
+        if (chunk.chunkLayout != chunkCodecContext.chunkLayout) {
             throw ChunkNbtFormatException(
-                "Chunk layout ${chunk.chunkLayout} does not match codec layout ${chunkNbtContext.chunkLayout}",
+                "Chunk layout ${chunk.chunkLayout} does not match codec layout ${chunkCodecContext.chunkLayout}",
             )
         }
-        if (chunk.defaultBlockState != chunkNbtContext.chunkDataRegistries.blockStates.defaultValue) {
+        if (chunk.defaultBlockState != chunkCodecContext.chunkDataRegistries.blockStates.defaultValue) {
             throw ChunkNbtFormatException("Chunk and codec use different default block states")
         }
-        if (chunk.defaultBiome != chunkNbtContext.chunkDataRegistries.biomes.defaultValue) {
+        if (chunk.defaultBiome != chunkCodecContext.chunkDataRegistries.biomes.defaultValue) {
             throw ChunkNbtFormatException("Chunk and codec use different default biomes")
         }
         val chunkMetadata = chunk.chunkMetadata
         val root = linkedMapOf<String, NbtTag>()
         root[DATA_VERSION] = NbtInt(chunkMetadata.dataVersion)
         root[X_POS] = NbtInt(chunk.chunkPosition.x)
-        root[Y_POS] = NbtInt(chunkNbtContext.chunkLayout.minSectionY)
+        root[Y_POS] = NbtInt(chunkCodecContext.chunkLayout.minSectionY)
         root[Z_POS] = NbtInt(chunk.chunkPosition.z)
         root[LAST_UPDATE] = NbtLong(chunkMetadata.lastUpdateTime)
         root[INHABITED_TIME] = NbtLong(chunkMetadata.inhabitedTime)
@@ -275,7 +275,7 @@ class ChunkNbtCodec<B : Any, M : Any>(
                 throw ChunkNbtFormatException("Block-state palette entry $index has a blank property name or value")
             }
             val blockStateDescriptor = BlockStateDescriptor(stateName, properties)
-            chunkNbtContext.chunkDataRegistries.blockStates.resolve(blockStateDescriptor)
+            chunkCodecContext.chunkDataRegistries.blockStates.resolve(blockStateDescriptor)
                 ?: throw ChunkNbtFormatException("Unknown block state $blockStateDescriptor")
         }
         return decodePalette(nbtCompound, palette, SECTION_BLOCK_COUNT, BLOCK_STATE_MIN_BITS, "block_states")
@@ -287,7 +287,7 @@ class ChunkNbtCodec<B : Any, M : Any>(
         val palette = nbtCompound.requireList(PALETTE).value.mapIndexed { index, entry ->
             val name = (entry as? NbtString)?.value
                 ?: throw ChunkNbtFormatException("Biome palette entry $index is not a string")
-            chunkNbtContext.chunkDataRegistries.biomes.resolve(name)
+            chunkCodecContext.chunkDataRegistries.biomes.resolve(name)
                 ?: throw ChunkNbtFormatException("Unknown biome $name")
         }
         return decodePalette(nbtCompound, palette, SECTION_BIOME_COUNT, BIOME_MIN_BITS, "biomes")
@@ -324,7 +324,7 @@ class ChunkNbtCodec<B : Any, M : Any>(
     private fun encodeBlockStates(palettedContainer: PalettedContainer<B>): NbtCompound {
         val compactPalette = palettedContainer.compactSnapshot()
         val palette = compactPalette.values.mapIndexed { index, value ->
-            val blockStateDescriptor = chunkNbtContext.chunkDataRegistries.blockStates.describe(value)
+            val blockStateDescriptor = chunkCodecContext.chunkDataRegistries.blockStates.describe(value)
                 ?: throw ChunkNbtFormatException("Block-state value at palette index $index cannot be described")
             val state = linkedMapOf<String, NbtTag>(NAME to NbtString(blockStateDescriptor.name))
             if (blockStateDescriptor.properties.isNotEmpty()) {
@@ -340,7 +340,7 @@ class ChunkNbtCodec<B : Any, M : Any>(
     private fun encodeBiomes(palettedContainer: PalettedContainer<M>): NbtCompound {
         val compactPalette = palettedContainer.compactSnapshot()
         val palette = compactPalette.values.mapIndexed { index, value ->
-            val name = chunkNbtContext.chunkDataRegistries.biomes.name(value)
+            val name = chunkCodecContext.chunkDataRegistries.biomes.name(value)
                 ?: throw ChunkNbtFormatException("Biome value at palette index $index has no persistent name")
             if (name.isBlank()) {
                 throw ChunkNbtFormatException("Biome value at palette index $index has a blank persistent name")

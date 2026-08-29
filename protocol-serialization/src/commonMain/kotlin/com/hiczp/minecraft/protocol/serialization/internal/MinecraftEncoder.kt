@@ -14,13 +14,16 @@ import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationExceptio
 import kotlinx.io.Buffer
 import kotlinx.io.writeString
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.builtins.*
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.encoding.AbstractEncoder
 import kotlinx.serialization.encoding.CompositeEncoder
 import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
 import kotlin.uuid.Uuid
 
@@ -30,6 +33,7 @@ internal class MinecraftEncoder(
     override val serializersModule: SerializersModule,
 ) : AbstractEncoder(), NbtTagEncoder {
     private val nbtBinaryCodec: NbtBinaryCodec = NbtBinaryCodec
+    private val json: Json = minecraftJson(serializersModule)
     private val frames: MutableList<Frame> = mutableListOf()
     private var pendingHints: List<Annotation> = emptyList()
 
@@ -230,6 +234,17 @@ internal class MinecraftEncoder(
                     value,
                     hints.filterNot { it is ByteLengthPrefixed },
                 )
+            }
+            return
+        }
+        if (hints.any { it is JsonEncoded }) {
+            val encoded = try {
+                json.encodeToString(serializationStrategy, value)
+            } catch (failure: SerializationException) {
+                throw MinecraftSerializationException("Cannot encode JSON protocol value", failure)
+            }
+            withHints(hints.filterNot { it is JsonEncoded }) {
+                encodeString(encoded)
             }
             return
         }

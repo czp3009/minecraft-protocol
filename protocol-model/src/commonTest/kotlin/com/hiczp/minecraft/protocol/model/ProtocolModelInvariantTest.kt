@@ -10,6 +10,20 @@ import kotlin.uuid.Uuid
 
 class ProtocolModelInvariantTest {
     @Test
+    fun `identifiers expose one canonical parser`() {
+        assertEquals(Identifier("minecraft:overworld"), Identifier.parse("overworld"))
+        assertEquals(Identifier("example:moons/blue"), Identifier.parse("example:moons/blue"))
+        assertEquals(
+            Identifier("example:moons/blue"),
+            Identifier.parse(Identifier("example:moons/blue").toString()),
+        )
+        assertFailsWith<IllegalArgumentException> { Identifier.parse(":overworld") }
+        assertFailsWith<IllegalArgumentException> { Identifier.parse("minecraft:") }
+        assertFailsWith<IllegalArgumentException> { Identifier.parse("minecraft:over:world") }
+        assertFailsWith<IllegalArgumentException> { Identifier.parse("Minecraft:overworld") }
+    }
+
+    @Test
     fun `packed primitive values preserve boundaries and defensive copies`() {
         val packed = longArrayOf(Long.MIN_VALUE, 0, Long.MAX_VALUE)
         val packedLongArray = PackedLongArray(packed)

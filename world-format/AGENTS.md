@@ -28,6 +28,11 @@ conversion, and semantic Chunk/entity values for the repository-selected release
 - `WorldDataPackLoadResult` is the detached partial-selection handoff: it retains persisted pack IDs and feature
   configuration plus packs already supplied by a lower reader. Completing it preserves enabled low-to-high priority,
   reports every unavailable ID together, and adds no vanilla-core, filesystem-discovery, or protocol policy.
+- Keep semantic namespaced identities such as `DimensionId`, `DimensionTypeId`, and `SavedDataId` in this module.
+  External text enters through their parsing/serialization boundaries; filesystem validation remains in `world-io`.
+- `WorldGenSettingsData` retains dimension keys and the reference-or-inline dimension-type holder shape strongly.
+  `DimensionTypeLayout` is the shared decoder for layout fields in registry and inline NBT; protocol consumers must not
+  duplicate that field extraction.
 
 ## Anvil and compression
 
@@ -53,6 +58,8 @@ conversion, and semantic Chunk/entity values for the repository-selected release
   Absolute helpers validate membership and delegate to local operations.
 - Strong Chunk conversion requires caller-supplied block-state, biome, and dimension-layout data. Do not depend on
   protocol or vanilla-default modules. Protocol-aware callers obtain the matching adapters from `protocol-datapack`.
+- `ChunkDataRegistries` is the reusable mapping stage and `ChunkCodecContext` binds it to one `ChunkLayout`. Keep both
+  available to custom codecs without adding protocol identity or filesystem state.
 - Palette mutation preserves stable IDs. Encoding uses a non-mutating compact snapshot; `compact()` is the explicit
   mutating operation.
 - Receiver-oriented conversion extensions connect compressed records, `NbtDocument`, and semantic Chunk, Entity Chunk,

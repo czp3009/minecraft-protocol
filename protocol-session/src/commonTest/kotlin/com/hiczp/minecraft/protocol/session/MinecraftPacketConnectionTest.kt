@@ -4,6 +4,7 @@ import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.GameProfile
 import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
+import com.hiczp.minecraft.protocol.model.type.ServerStatus
 import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import io.ktor.utils.io.*
@@ -214,7 +215,7 @@ class MinecraftPacketConnectionTest {
         client.flush()
         assertEquals(StatusRequestPacket, server.incoming.receive())
 
-        val statusResponsePacket = StatusResponsePacket("{}")
+        val statusResponsePacket = StatusResponsePacket(ServerStatus())
         server.outgoing.send(statusResponsePacket)
         server.requestFlush()
         assertEquals(statusResponsePacket, client.incoming.receive())

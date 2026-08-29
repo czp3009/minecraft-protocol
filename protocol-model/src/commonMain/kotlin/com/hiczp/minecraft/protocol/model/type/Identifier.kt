@@ -22,7 +22,9 @@ value class Identifier private constructor(val value: String) {
     override fun toString(): String = value
 
     companion object {
-        operator fun invoke(value: String): Identifier {
+        operator fun invoke(value: String): Identifier = parse(value)
+
+        fun parse(value: String): Identifier {
             val separator = value.indexOf(':')
             return if (separator < 0) {
                 invoke("minecraft", value)

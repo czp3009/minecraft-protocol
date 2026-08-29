@@ -1,5 +1,7 @@
 package com.hiczp.minecraft.world.format.datapack
 
+import com.hiczp.minecraft.world.format.NAMESPACE_PATTERN
+import com.hiczp.minecraft.world.format.RESOURCE_PATH_PATTERN
 import kotlinx.serialization.json.*
 
 /** One effective resource with enough provenance to audit replacement and tag merging. */

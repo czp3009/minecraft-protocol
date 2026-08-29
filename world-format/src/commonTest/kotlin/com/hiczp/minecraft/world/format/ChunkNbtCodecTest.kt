@@ -542,7 +542,7 @@ class ChunkNbtCodecTest {
                 BlockStateDescriptor(value.name, value.properties)
         }
         val chunkNbtCodec = ChunkNbtCodec(
-            ChunkNbtContext(
+            ChunkCodecContext(
                 chunkLayout = TEST_LAYOUT,
                 chunkDataRegistries = ChunkDataRegistries(blockStateRegistry, NamedBiomeRegistry()),
             ),
@@ -596,7 +596,7 @@ class ChunkNbtCodecTest {
         val STONE = BlockStateDescriptor("minecraft:stone")
         val WATER = BlockStateDescriptor("minecraft:water", mapOf("level" to "0"))
         val TEST_CODEC = ChunkNbtCodec(
-            ChunkNbtContext(
+            ChunkCodecContext(
                 chunkLayout = TEST_LAYOUT,
                 chunkDataRegistries = ChunkDataRegistries(
                     blockStates = DescriptorBlockStateRegistry(AIR),

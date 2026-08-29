@@ -1,12 +1,13 @@
 package com.hiczp.minecraft.protocol.datapack
 
-import com.hiczp.minecraft.nbt.NbtByte
 import com.hiczp.minecraft.nbt.NbtCompound
-import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.protocol.model.packet.PlayLoginPacket
 import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.RegistryEntry
+import com.hiczp.minecraft.world.format.ChunkLayout
+import com.hiczp.minecraft.world.format.DimensionTypeFormatException
+import com.hiczp.minecraft.world.format.DimensionTypeLayout
 
 /**
  * The vertical layout and lighting context needed to encode/decode chunks in
@@ -15,25 +16,35 @@ import com.hiczp.minecraft.protocol.model.type.RegistryEntry
 data class MinecraftDimensionLayout(
     val dimensionTypeId: Identifier,
     val dimensionTypeRawId: Int,
-    val minY: Int,
-    val height: Int,
-    val hasSkyLight: Boolean,
+    val dimensionTypeLayout: DimensionTypeLayout,
 ) {
+    val minY: Int
+        get() = dimensionTypeLayout.minY
+
+    val height: Int
+        get() = dimensionTypeLayout.height
+
+    val logicalHeight: Int
+        get() = dimensionTypeLayout.logicalHeight
+
+    val hasSkyLight: Boolean
+        get() = dimensionTypeLayout.hasSkyLight
+
+    val hasCeiling: Boolean
+        get() = dimensionTypeLayout.hasCeiling
+
+    val chunkLayout: ChunkLayout
+        get() = dimensionTypeLayout.chunkLayout
+
     val sectionCount: Int
-        get() = height / SECTION_HEIGHT
+        get() = chunkLayout.sectionCount
 
     init {
-        require(dimensionTypeRawId >= 0)
-        require(height > 0 && height % SECTION_HEIGHT == 0) {
-            "Dimension height must be a positive multiple of $SECTION_HEIGHT"
-        }
-        require(minY % SECTION_HEIGHT == 0) {
-            "Dimension minimum Y must be a multiple of $SECTION_HEIGHT"
-        }
+        require(dimensionTypeRawId >= 0) { "Dimension-type raw ID must be non-negative" }
     }
 
     companion object {
-        private val dimensionTypeRegistry = Identifier("dimension_type")
+        val DIMENSION_TYPE_REGISTRY: Identifier = Identifier("dimension_type")
 
         fun from(
             protocolData: ProtocolData,
@@ -46,13 +57,13 @@ data class MinecraftDimensionLayout(
             dimensionTypeId: Identifier,
         ): MinecraftDimensionLayout {
             val dimensionTypeRegistryPacket = synchronizedRegistryPackets.requireRegistryPacket(
-                dimensionTypeRegistry,
+                DIMENSION_TYPE_REGISTRY,
             )
             val dimensionTypeRawId = dimensionTypeRegistryPacket.entries.indexOfFirst { registryEntry ->
                 registryEntry.id == dimensionTypeId
             }
-            check(dimensionTypeRawId >= 0) {
-                "Dimension type $dimensionTypeId is absent from $dimensionTypeRegistry"
+            require(dimensionTypeRawId >= 0) {
+                "Dimension type $dimensionTypeId is absent from $DIMENSION_TYPE_REGISTRY"
             }
             return from(dimensionTypeRegistryPacket, dimensionTypeRawId)
         }
@@ -62,7 +73,7 @@ data class MinecraftDimensionLayout(
             dimensionTypeRawId: Int,
         ): MinecraftDimensionLayout =
             from(
-                synchronizedRegistryPackets.requireRegistryPacket(dimensionTypeRegistry),
+                synchronizedRegistryPackets.requireRegistryPacket(DIMENSION_TYPE_REGISTRY),
                 dimensionTypeRawId,
             )
 
@@ -83,10 +94,10 @@ data class MinecraftDimensionLayout(
             }
             val dimensionTypeRegistryPacket = requireNotNull(
                 synchronizedRegistryPackets.singleOrNull { registryDataPacket ->
-                    registryDataPacket.registryId == dimensionTypeRegistry
+                    registryDataPacket.registryId == DIMENSION_TYPE_REGISTRY
                 },
             ) {
-                "Configuration must provide exactly one synchronized registry $dimensionTypeRegistry"
+                "Configuration must provide exactly one synchronized registry $DIMENSION_TYPE_REGISTRY"
             }
             val dimensionTypeRawId = playLoginPacket.spawnInfo.dimensionTypeId
             val dimensionTypeRegistryEntry = requireNotNull(
@@ -105,24 +116,21 @@ data class MinecraftDimensionLayout(
             dimensionTypeRegistryPacket: RegistryDataPacket,
             dimensionTypeRawId: Int,
         ): MinecraftDimensionLayout {
-            val dimensionTypeRegistryEntry = dimensionTypeRegistryPacket.entries.getOrNull(dimensionTypeRawId)
-                ?: error(
-                    "Dimension-type registry ID $dimensionTypeRawId is absent from $dimensionTypeRegistry",
-                )
+            val dimensionTypeRegistryEntry = requireNotNull(
+                dimensionTypeRegistryPacket.entries.getOrNull(dimensionTypeRawId),
+            ) {
+                "Dimension-type registry ID $dimensionTypeRawId is absent from $DIMENSION_TYPE_REGISTRY"
+            }
             val dimensionTypeData = dimensionTypeRegistryEntry.data as? NbtCompound
-                ?: error(
+                ?: throw DimensionTypeFormatException(
                     "Dimension type ${dimensionTypeRegistryEntry.id} has no compound registry data",
                 )
             return MinecraftDimensionLayout(
                 dimensionTypeId = dimensionTypeRegistryEntry.id,
                 dimensionTypeRawId = dimensionTypeRawId,
-                minY = dimensionTypeData.requireInt("min_y"),
-                height = dimensionTypeData.requireInt("height"),
-                hasSkyLight = dimensionTypeData.requireBoolean("has_skylight"),
+                dimensionTypeLayout = DimensionTypeLayout.fromNbt(dimensionTypeData),
             )
         }
-
-        private const val SECTION_HEIGHT: Int = 16
     }
 }
 
@@ -171,16 +179,3 @@ fun List<RegistryDataPacket>.registryRawId(
 ): Int? =
     registryPacket(registryId)?.entries?.indexOfFirst { registryEntry -> registryEntry.id == registryEntryId }
         ?.takeIf { it >= 0 }
-
-private fun NbtCompound.requireInt(name: String): Int =
-    (value[name] as? NbtInt)?.value
-        ?: error("Dimension type has no integer '$name'")
-
-private fun NbtCompound.requireBoolean(name: String): Boolean =
-    (value[name] as? NbtByte)?.value?.toInt()?.let {
-        when (it) {
-            0 -> false
-            1 -> true
-            else -> error("Dimension type '$name' is not a Boolean byte")
-        }
-    } ?: error("Dimension type has no Boolean '$name'")

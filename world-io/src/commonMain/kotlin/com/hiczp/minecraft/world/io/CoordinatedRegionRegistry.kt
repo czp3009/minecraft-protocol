@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.world.format.CompressedNbtFormat
+import com.hiczp.minecraft.world.format.DimensionId
 import com.hiczp.minecraft.world.format.RegionPosition
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable

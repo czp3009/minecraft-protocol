@@ -493,12 +493,10 @@ class MinecraftInitialWorldTest {
 
     @Test
     fun bootstrapKeepsDefaultSpawnPlayerPositionAndChunkCenterIndependent() {
-        val minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(compressionThreshold = null)
         val defaultSpawnPosition = Vector3d(32.0, 70.0, -48.0)
         val playerPosition = Vector3d(-17.5, 80.0, 25.5)
         val centerChunk = ChunkPosition(9, -4)
         val minecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
-            minecraftServerNegotiationOptions = minecraftServerNegotiationOptions,
             defaultSpawnPosition = defaultSpawnPosition,
             defaultSpawnYaw = 10.0f,
             defaultSpawnPitch = 20.0f,
@@ -529,7 +527,6 @@ class MinecraftInitialWorldTest {
         assertEquals(centerChunk.z, setCenterChunkPacket.chunkZ)
 
         val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(
-            minecraftServerNegotiationOptions = minecraftServerNegotiationOptions,
             minecraftInitialWorldBootstrap = minecraftInitialWorldBootstrap,
             chunkRadius = 0,
         )
@@ -579,14 +576,13 @@ class MinecraftInitialWorldTest {
             assertEquals(playerAbilities, MinecraftInitialWorldBootstrap.vanillaPlayerAbilities(gameMode))
         }
 
-        val minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(
-            compressionThreshold = null,
+        val minecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
             gameMode = PlayerGameMode.SPECTATOR,
             difficulty = Difficulty.HARD,
             difficultyLocked = true,
         )
         val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(
-            minecraftServerNegotiationOptions,
+            minecraftInitialWorldBootstrap = minecraftInitialWorldBootstrap,
             chunkRadius = 0,
         )
 

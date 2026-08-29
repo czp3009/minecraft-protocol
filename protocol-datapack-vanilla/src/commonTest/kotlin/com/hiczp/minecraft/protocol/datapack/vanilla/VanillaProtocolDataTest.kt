@@ -11,6 +11,7 @@ import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.KnownPack
 import com.hiczp.minecraft.protocol.model.type.RegistryEntry
+import com.hiczp.minecraft.world.format.DimensionTypeFormatException
 import kotlin.test.*
 
 class VanillaProtocolDataTest {
@@ -278,24 +279,28 @@ class VanillaProtocolDataTest {
                 mapOf(
                     "min_y" to NbtInt(0),
                     "height" to NbtInt(16),
+                    "logical_height" to NbtInt(16),
                     "has_skylight" to NbtByte(2),
+                    "has_ceiling" to NbtByte(0),
                 ),
             ),
         ).forEach { invalid ->
-            assertFailsWith<IllegalStateException> { minecraftDimensionLayout(invalid) }
+            assertFailsWith<DimensionTypeFormatException> { minecraftDimensionLayout(invalid) }
         }
-        assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<DimensionTypeFormatException> {
             minecraftDimensionLayout(
                 NbtCompound(
                     mapOf(
                         "min_y" to NbtInt(0),
                         "height" to NbtInt(15),
+                        "logical_height" to NbtInt(15),
                         "has_skylight" to NbtByte(1),
+                        "has_ceiling" to NbtByte(0),
                     ),
                 ),
             )
         }
-        assertFailsWith<IllegalStateException> {
+        assertFailsWith<IllegalArgumentException> {
             MinecraftDimensionLayout.from(
                 VanillaProtocolData,
                 Identifier("test:absent"),

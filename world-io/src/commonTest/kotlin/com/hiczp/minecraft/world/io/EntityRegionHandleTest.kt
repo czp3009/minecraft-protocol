@@ -66,7 +66,7 @@ class EntityRegionHandleTest {
         )
         val entityRegionHandle = EntityRegionHandle(regionStorage.openRegion(regionPosition))
 
-        entityRegionHandle.writeChunk(entityChunk, entityChunkNbtCodec, Compression.NONE)
+        entityRegionHandle.writeChunk(entityChunk, Compression.NONE)
         entityRegionHandle.writeChunk(externalEntityChunk, entityChunkNbtCodec, Compression.NONE)
         entityRegionHandle.writeChunk(
             EntityChunk(removedPosition, EXPECTED_DATA_VERSION, listOf(removedEntity)),
@@ -75,7 +75,6 @@ class EntityRegionHandleTest {
         )
         entityRegionHandle.writeChunk(
             EntityChunk<NbtCompound>(removedPosition, EXPECTED_DATA_VERSION),
-            entityChunkNbtCodec,
             Compression.NONE,
         )
 
@@ -85,6 +84,7 @@ class EntityRegionHandleTest {
         val decodedChunk = assertNotNull(entityRegionHandle.readChunk(chunkPosition, entityChunkNbtCodec))
         assertEquals(chunkPosition, decodedChunk.chunkPosition)
         assertEquals(entity.uuid, decodedChunk.rootEntities.single().uuid)
+        assertEquals(entity.data, assertNotNull(entityRegionHandle.readChunk(chunkPosition)).rootEntities.single().data)
         val compressedBuffer = Buffer()
         val streamedInfo = assertNotNull(entityRegionHandle.readCompressedChunkTo(chunkPosition, compressedBuffer))
         val streamedChunk = CompressedChunk(streamedInfo.compression, compressedBuffer.readByteArray())
@@ -109,7 +109,7 @@ class EntityRegionHandleTest {
             escapedEntityRegionReadScope = this
             assertEquals(
                 entity.uuid,
-                assertNotNull(readChunk(chunkPosition, entityChunkNbtCodec)).rootEntities.single().uuid
+                assertNotNull(readChunk(chunkPosition)).rootEntities.single().uuid
             )
             assertEquals(
                 externalPosition,
@@ -119,6 +119,16 @@ class EntityRegionHandleTest {
         }
         assertFailsWith<IllegalStateException> {
             checkNotNull(escapedEntityRegionReadScope).readChunk(chunkPosition, entityChunkNbtCodec)
+        }
+
+        var escapedDecodedEntityRegionReadScope: DecodedEntityRegionReadScope<NbtCompound>? = null
+        entityRegionHandle.withReadScope(entityChunkNbtCodec) {
+            escapedDecodedEntityRegionReadScope = this
+            assertSame(entityChunkNbtCodec, this.entityChunkNbtCodec)
+            assertEquals(entity.uuid, assertNotNull(readChunk(chunkPosition)).rootEntities.single().uuid)
+        }
+        assertFailsWith<IllegalStateException> {
+            checkNotNull(escapedDecodedEntityRegionReadScope).readChunk(chunkPosition)
         }
 
         entityRegionHandle.close()
@@ -131,26 +141,30 @@ class EntityRegionHandleTest {
             val liveChunk = assertNotNull(liveEntityRegionHandle.readChunk(chunkPosition, entityChunkNbtCodec))
             assertEquals(chunkPosition, liveChunk.chunkPosition)
             assertEquals(entity.uuid, liveChunk.rootEntities.single().uuid)
+            assertEquals(
+                entity.data,
+                assertNotNull(liveEntityRegionHandle.readChunk(chunkPosition)).rootEntities.single().data,
+            )
             val decodedExternalEntity =
                 liveEntityRegionHandle.readChunk(externalPosition, entityChunkNbtCodec)?.rootEntities?.single()
             assertNotNull(decodedExternalEntity)
             assertEquals(NbtByteArray(externalBytes), decodedExternalEntity.data["test:payload"])
             assertEquals(typedNbt, liveEntityRegionHandle.readChunkNbt<LevelDat>(localChunkPosition = typedLocal))
-            var escapedLiveEntityRegionReadScope: EntityRegionReadScope? = null
+            var escapedLiveEntityRegionReadScope: DecodedEntityRegionReadScope<NbtCompound>? = null
             assertEquals(
                 setOf(chunkPosition, externalPosition, regionPosition.chunk(typedLocal)),
-                liveEntityRegionHandle.withReadScope {
+                liveEntityRegionHandle.withReadScope(entityChunkNbtCodec) {
                     escapedLiveEntityRegionReadScope = this
                     assertEquals(
                         entity.uuid,
-                        assertNotNull(readChunk(chunkPosition, entityChunkNbtCodec)).rootEntities.single().uuid,
+                        assertNotNull(readChunk(chunkPosition)).rootEntities.single().uuid,
                     )
                     assertEquals(typedNbt, readChunkNbt<LevelDat>(typedLocal))
                     chunkPositions.toSet()
                 },
             )
             assertFailsWith<IllegalStateException> {
-                checkNotNull(escapedLiveEntityRegionReadScope).readChunk(chunkPosition, entityChunkNbtCodec)
+                checkNotNull(escapedLiveEntityRegionReadScope).readChunk(chunkPosition)
             }
         }
         fakeFileSystem.checkNoOpenFiles()

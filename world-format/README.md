@@ -52,7 +52,7 @@ fun createDescriptorChunkCodec(
         biomes = NamedBiomeRegistry(),
     )
     return ChunkNbtCodec(
-        ChunkNbtContext(
+        ChunkCodecContext(
             chunkLayout = chunkLayout,
             chunkDataRegistries = chunkDataRegistries,
         ),
@@ -71,11 +71,15 @@ Applications may implement `BlockStateRegistry<B>` and `BiomeRegistry<M>` to res
 objects.
 
 `ChunkLayout` has no release-wide default because height and minimum Y belong to a dimension. Supply it from the world's
-dimension metadata, using `ChunkLayout.fromBlockBounds(minY, height)` when those bounds are expressed in blocks. For
-negotiated protocol data,
-[`protocol-datapack`](../protocol-datapack/README.md#adapt-protocol-context-to-semantic-chunks) provides
-`MinecraftDimensionLayout.toChunkLayout()` and the matching active-registry adapter without introducing a protocol
-dependency into this module.
+dimension metadata. `DimensionTypeLayout.fromNbt(dimensionTypeData)` decodes and validates `min_y`, `height`,
+`logical_height`, `has_skylight`, and `has_ceiling`, then exposes its `chunkLayout`. Call
+`ChunkLayout.fromBlockBounds(minY, height)` when those facts already exist as typed values. For negotiated protocol
+data, [`protocol-datapack`](../protocol-datapack/README.md#adapt-protocol-context-to-semantic-chunks) combines the same
+layout decoder with active registry adapters without introducing a protocol dependency into this module.
+
+`ChunkDataRegistries<B, M>` can be reused across dimensions that share mappings. `ChunkCodecContext<B, M>` binds those
+registries to one layout and is the common input to `ChunkNbtCodec` and caller-defined codecs. The higher-level
+`MinecraftChunkContext` in `protocol-datapack` additionally binds protocol identity and raw IDs.
 
 When a Region slot is known, use the decode overload that accepts the expected `ChunkPosition`; it verifies that stored
 `xPos`/`zPos` matches the slot.
@@ -282,6 +286,12 @@ custom boss events, and map data. Dimension models cover world borders, Chunk ti
 fight. Registry-dependent or dynamically dispatched subtrees remain raw NBT while their stable enclosing structure is
 typed. These models do not migrate historical files. Typed decoding is strict; use `NbtDocument`,
 `NbtTag`, or `JsonElement` for open-ended data.
+
+`WorldGenSettingsData.dimensions` is keyed by strong `DimensionId` values. Each `WorldGenDimension.type` is either a
+`WorldGenDimensionType.Reference(DimensionTypeId)` or an inline NBT holder, matching the stored holder shape without
+reducing it to an untyped string. `DimensionId`, `DimensionTypeId`, `SavedDataId`, `DataPackResourcePath`, and
+`DataPackResourceId` validate their components and provide `parse` entry points for external text; namespaced forms
+normalize a missing namespace to `minecraft`.
 
 The data-pack API is also filesystem-independent:
 
