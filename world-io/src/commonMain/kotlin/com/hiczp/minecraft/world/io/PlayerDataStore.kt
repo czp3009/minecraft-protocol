@@ -17,6 +17,25 @@ class PlayerDataStore(
     val minecraftWorldPaths: MinecraftWorldPaths,
     val nbtFileStore: NbtFileStore = NbtFileStore(),
 ) {
+    /** Returns a sorted detached snapshot of UUIDs represented by current or previous player data files. */
+    fun listUuids(): List<String> {
+        val directory = minecraftWorldPaths.playerDataDirectory
+        val fileMetadata = nbtFileStore.fileSystem.metadataOrNull(directory) ?: return emptyList()
+        if (!fileMetadata.isDirectory) {
+            throw WorldIOException("Player data path is not a directory: $directory")
+        }
+        return nbtFileStore.fileSystem.list(directory)
+            .mapNotNull { path ->
+                if (nbtFileStore.fileSystem.metadataOrNull(path)?.isRegularFile == true) {
+                    parsePlayerDataFileName(path.name)
+                } else {
+                    null
+                }
+            }
+            .distinct()
+            .sorted()
+    }
+
     fun readDocument(playerUuid: String): NbtDocument? = readWithRecovery(playerUuid) { backupNbtFileStore, candidate ->
         backupNbtFileStore.readDocument(candidate)
     }
@@ -107,12 +126,12 @@ class PlayerDataStore(
 
     fun <T> write(
         playerUuid: String,
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
-    ) = backupNbtFileStore(playerUuid).write(serializationStrategy, value)
+        serializationStrategy: SerializationStrategy<T>,
+    ) = backupNbtFileStore(playerUuid).write(value, serializationStrategy)
 
     inline fun <reified T> write(playerUuid: String, value: T) =
-        write(playerUuid, nbtFileStore.nbtFormat.serializersModule.serializer(), value)
+        write(playerUuid, value, nbtFileStore.nbtFormat.serializersModule.serializer())
 
     fun write(playerUuid: String, block: (BufferedSink) -> Unit) = backupNbtFileStore(playerUuid).write(block)
 

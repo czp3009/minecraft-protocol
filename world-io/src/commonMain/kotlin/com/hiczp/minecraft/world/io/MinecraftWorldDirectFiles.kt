@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
+import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.world.format.Compression
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
@@ -21,6 +22,12 @@ class MinecraftWorldDirectFiles internal constructor(
     private val nbtFileStore: NbtFileStore,
     private val utf8JsonFileStore: Utf8JsonFileStore,
 ) {
+    val nbtFormat: NbtFormat
+        get() = nbtFileStore.nbtFormat
+
+    val json: Json
+        get() = utf8JsonFileStore.json
+
     suspend fun readBytes(path: Path): ByteArray = withOperation { rawFileStore.readBytes(path) }
 
     suspend fun <T> read(path: Path, block: (BufferedSource) -> T): T =
@@ -36,14 +43,14 @@ class MinecraftWorldDirectFiles internal constructor(
 
     suspend fun <T> readNbt(
         path: Path,
-        deserializationStrategy: DeserializationStrategy<T>,
         compression: Compression = Compression.GZIP,
-    ): T = withOperation { nbtFileStore.read(path, deserializationStrategy, compression) }
+        deserializationStrategy: DeserializationStrategy<T>,
+    ): T = withOperation { nbtFileStore.read(path, compression, deserializationStrategy) }
 
     suspend inline fun <reified T> readNbt(
         path: Path,
         compression: Compression = Compression.GZIP,
-    ): T = readNbt(path, serializer(), compression)
+    ): T = readNbt(path, compression, nbtFormat.serializersModule.serializer())
 
     suspend fun <T> readNbt(
         path: Path,
@@ -59,16 +66,16 @@ class MinecraftWorldDirectFiles internal constructor(
 
     suspend fun <T> writeNbt(
         path: Path,
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
         compression: Compression = Compression.GZIP,
-    ) = withOperation { nbtFileStore.write(path, serializationStrategy, value, compression) }
+        serializationStrategy: SerializationStrategy<T>,
+    ) = withOperation { nbtFileStore.write(path, value, compression, serializationStrategy) }
 
     suspend inline fun <reified T> writeNbt(
         path: Path,
         value: T,
         compression: Compression = Compression.GZIP,
-    ) = writeNbt(path, serializer(), value, compression)
+    ) = writeNbt(path, value, compression, nbtFormat.serializersModule.serializer())
 
     suspend fun writeNbt(
         path: Path,
@@ -76,40 +83,34 @@ class MinecraftWorldDirectFiles internal constructor(
         block: (BufferedSink) -> Unit,
     ) = withOperation { nbtFileStore.write(path, compression, block) }
 
-    suspend fun readJsonText(path: Path): String = withOperation { utf8JsonFileStore.readText(path) }
-
-    suspend fun <T> readJson(path: Path, block: (BufferedSource) -> T): T =
-        withOperation { utf8JsonFileStore.read(path, block) }
-
-    suspend fun readJsonElement(path: Path, json: Json = Json): JsonElement =
-        withOperation { utf8JsonFileStore.readJsonElement(path, json) }
+    suspend fun readJsonElement(path: Path): JsonElement =
+        withOperation { utf8JsonFileStore.readJsonElement(path) }
 
     suspend fun <T> readJson(
         path: Path,
         deserializationStrategy: DeserializationStrategy<T>,
-        json: Json = Json,
-    ): T = withOperation { utf8JsonFileStore.readJson(path, deserializationStrategy, json) }
+    ): T = withOperation { utf8JsonFileStore.readJson(path, deserializationStrategy) }
 
-    suspend inline fun <reified T> readJson(path: Path, json: Json = Json): T =
-        readJson(path, json.serializersModule.serializer(), json)
+    suspend inline fun <reified T> readJson(path: Path): T =
+        readJson(path, json.serializersModule.serializer())
 
-    suspend fun writeJsonText(path: Path, text: String) = withOperation { utf8JsonFileStore.writeText(path, text) }
+    suspend fun <T> readJson(path: Path, block: (BufferedSource) -> T): T =
+        withOperation { utf8JsonFileStore.readJson(path, block) }
 
-    suspend fun writeJson(path: Path, block: (BufferedSink) -> Unit) =
-        withOperation { utf8JsonFileStore.write(path, block) }
-
-    suspend fun writeJsonElement(path: Path, jsonElement: JsonElement, json: Json = Json) =
-        withOperation { utf8JsonFileStore.writeJsonElement(path, jsonElement, json) }
+    suspend fun writeJsonElement(path: Path, jsonElement: JsonElement) =
+        withOperation { utf8JsonFileStore.writeJsonElement(path, jsonElement) }
 
     suspend fun <T> writeJson(
         path: Path,
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
-        json: Json = Json,
-    ) = withOperation { utf8JsonFileStore.writeJson(path, serializationStrategy, value, json) }
+        serializationStrategy: SerializationStrategy<T>,
+    ) = withOperation { utf8JsonFileStore.writeJson(path, value, serializationStrategy) }
 
-    suspend inline fun <reified T> writeJson(path: Path, value: T, json: Json = Json) =
-        writeJson(path, json.serializersModule.serializer(), value, json)
+    suspend inline fun <reified T> writeJson(path: Path, value: T) =
+        writeJson(path, value, json.serializersModule.serializer())
+
+    suspend fun writeJson(path: Path, block: (BufferedSink) -> Unit) =
+        withOperation { utf8JsonFileStore.writeJson(path, block) }
 
     private suspend fun <T> withOperation(block: () -> T): T = worldOperationLifecycle.withOperation { block() }
 }
@@ -120,6 +121,12 @@ class LiveMinecraftWorldDirectFiles internal constructor(
     private val nbtFileStore: NbtFileStore,
     private val utf8JsonFileStore: Utf8JsonFileStore,
 ) {
+    val nbtFormat: NbtFormat
+        get() = nbtFileStore.nbtFormat
+
+    val json: Json
+        get() = utf8JsonFileStore.json
+
     fun readBytes(path: Path): ByteArray = rawFileStore.readBytes(path)
 
     fun <T> read(path: Path, block: (BufferedSource) -> T): T = rawFileStore.read(path, block)
@@ -129,14 +136,14 @@ class LiveMinecraftWorldDirectFiles internal constructor(
 
     fun <T> readNbt(
         path: Path,
-        deserializationStrategy: DeserializationStrategy<T>,
         compression: Compression = Compression.GZIP,
-    ): T = nbtFileStore.read(path, deserializationStrategy, compression)
+        deserializationStrategy: DeserializationStrategy<T>,
+    ): T = nbtFileStore.read(path, compression, deserializationStrategy)
 
     inline fun <reified T> readNbt(
         path: Path,
         compression: Compression = Compression.GZIP,
-    ): T = readNbt(path, serializer(), compression)
+    ): T = readNbt(path, compression, nbtFormat.serializersModule.serializer())
 
     fun <T> readNbt(
         path: Path,
@@ -144,19 +151,14 @@ class LiveMinecraftWorldDirectFiles internal constructor(
         block: (BufferedSource) -> T,
     ): T = nbtFileStore.read(path, compression, block)
 
-    fun readJsonText(path: Path): String = utf8JsonFileStore.readText(path)
-
-    fun <T> readJson(path: Path, block: (BufferedSource) -> T): T = utf8JsonFileStore.read(path, block)
-
-    fun readJsonElement(path: Path, json: Json = Json): JsonElement =
-        utf8JsonFileStore.readJsonElement(path, json)
+    fun readJsonElement(path: Path): JsonElement = utf8JsonFileStore.readJsonElement(path)
 
     fun <T> readJson(
         path: Path,
         deserializationStrategy: DeserializationStrategy<T>,
-        json: Json = Json,
-    ): T = utf8JsonFileStore.readJson(path, deserializationStrategy, json)
+    ): T = utf8JsonFileStore.readJson(path, deserializationStrategy)
 
-    inline fun <reified T> readJson(path: Path, json: Json = Json): T =
-        readJson(path, json.serializersModule.serializer(), json)
+    inline fun <reified T> readJson(path: Path): T = readJson(path, json.serializersModule.serializer())
+
+    fun <T> readJson(path: Path, block: (BufferedSource) -> T): T = utf8JsonFileStore.readJson(path, block)
 }

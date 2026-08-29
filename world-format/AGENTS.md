@@ -9,10 +9,17 @@ conversion, and semantic Chunk/entity values for the repository-selected release
   fields remain named `DataVersion`. Do not hand-copy this value or depend on `protocol-model` to obtain it.
 - Treat persisted `DataVersion` as content. Semantic codecs read and retain it without comparing it to a selected or
   caller-supplied version; applications own compatibility preflight and migration policy.
-- `LevelDat`, `PlayerData`, dimension saved data, advancements, and statistics model only the selected release. Audit
-  official reader/writer behavior on release updates; do not keep old-schema branches or add an implicit DataFixer.
-- Fixed structures use generated serializers. The advancement root keeps its custom map-composite serializer because
-  dynamic advancement IDs share the object with `DataVersion`.
+- `LevelDat`, `PlayerData`, root/dimension saved data, advancements, and statistics model only the selected release.
+  Audit official reader/writer behavior on release updates; do not keep old-schema branches or add an implicit
+  DataFixer. Keep the common saved-data envelope and all root/dimension saved-data models in
+  `com.hiczp.minecraft.world.format.data`; data-pack models remain in their existing `datapack` package.
+- Keep each standalone world-file schema in its own type-named source file; do not group models from unrelated storage
+  paths merely because they share a serialization library.
+- Fixed structures use generated serializers with schema annotations and defaults. Keep NBT value adapters at the model
+  property/type boundary when the official array/list representation differs from the domain type's generated shape; use
+  file-level `@UseSerializers` when one model file maps every occurrence of a repeated domain type the same way. The
+  advancement root keeps its custom map-composite serializer because dynamic advancement IDs share the object with
+  `DataVersion`; annotations cannot flatten a map into that root object.
 - Typed decoding is strict about unknown fields by default. Raw `NbtDocument`/`NbtTag` and `JsonElement` are the
   lossless escape hatches for unmodeled content.
 - `DataPackArchive` is raw path-to-bytes input, `DataPack` is parsed content, and `DataPackStack`/

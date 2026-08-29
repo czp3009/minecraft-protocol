@@ -77,8 +77,6 @@ class RegionHandle internal constructor(
 
     suspend fun hasChunk(chunkPosition: ChunkPosition): Boolean = hasChunk(local(chunkPosition))
 
-    suspend fun hasChunk(blockPosition: BlockPosition): Boolean = hasChunk(blockPosition.chunkPosition)
-
     suspend fun <R> withCompressedChunkSource(
         localChunkPosition: LocalChunkPosition,
         block: (RegionChunkInfo, BufferedSource) -> R,
@@ -110,15 +108,15 @@ class RegionHandle internal constructor(
 
     suspend fun writeCompressedChunk(
         localChunkPosition: LocalChunkPosition,
-        compressedChunk: CompressedChunk,
+        compressedChunkInput: CompressedChunkInput,
     ) = withOperation {
-        owner.writeCompressedChunk(entry, localChunkPosition, compressedChunk)
+        owner.writeCompressedChunk(entry, localChunkPosition, compressedChunkInput)
     }
 
     suspend fun writeCompressedChunk(
         chunkPosition: ChunkPosition,
-        compressedChunk: CompressedChunk,
-    ) = writeCompressedChunk(local(chunkPosition), compressedChunk)
+        compressedChunkInput: CompressedChunkInput,
+    ) = writeCompressedChunk(local(chunkPosition), compressedChunkInput)
 
     /** Streams one already-compressed Chunk whose exact length is known before allocation. */
     suspend fun writeCompressedChunk(
@@ -214,40 +212,23 @@ class RegionHandle internal constructor(
         chunkNbtCodec: ChunkNbtCodec<B, M>,
     ): Chunk<B, M>? = readChunk(local(chunkPosition), chunkNbtCodec)
 
-    suspend fun <B : Any, M : Any> readChunk(
-        blockPosition: BlockPosition,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
-    ): Chunk<B, M>? = readChunk(blockPosition.chunkPosition, chunkNbtCodec)
-
     suspend fun writeChunkNbtDocument(
         localChunkPosition: LocalChunkPosition,
         nbtDocument: NbtDocument,
+        compression: Compression = regionStorageConfiguration.writeCompression,
     ) = withOperation {
         owner.writeChunkNbtDocument(
             entry,
             localChunkPosition,
             nbtDocument,
-            owner.regionStorageConfiguration.writeCompression
+            compression,
         )
     }
 
     suspend fun writeChunkNbtDocument(
         chunkPosition: ChunkPosition,
         nbtDocument: NbtDocument,
-    ) = writeChunkNbtDocument(local(chunkPosition), nbtDocument)
-
-    suspend fun writeChunkNbtDocument(
-        localChunkPosition: LocalChunkPosition,
-        nbtDocument: NbtDocument,
-        compression: Compression,
-    ) = withOperation {
-        owner.writeChunkNbtDocument(entry, localChunkPosition, nbtDocument, compression)
-    }
-
-    suspend fun writeChunkNbtDocument(
-        chunkPosition: ChunkPosition,
-        nbtDocument: NbtDocument,
-        compression: Compression,
+        compression: Compression = regionStorageConfiguration.writeCompression,
     ) = writeChunkNbtDocument(local(chunkPosition), nbtDocument, compression)
 
     /**
@@ -272,19 +253,19 @@ class RegionHandle internal constructor(
 
     suspend fun <T> writeChunkNbt(
         localChunkPosition: LocalChunkPosition,
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
         compression: Compression = regionStorageConfiguration.writeCompression,
+        serializationStrategy: SerializationStrategy<T>,
     ) = withOperation {
-        owner.writeChunkNbt(entry, localChunkPosition, serializationStrategy, value, compression)
+        owner.writeChunkNbt(entry, localChunkPosition, value, compression, serializationStrategy)
     }
 
     suspend fun <T> writeChunkNbt(
         chunkPosition: ChunkPosition,
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
         compression: Compression = regionStorageConfiguration.writeCompression,
-    ) = writeChunkNbt(local(chunkPosition), serializationStrategy, value, compression)
+        serializationStrategy: SerializationStrategy<T>,
+    ) = writeChunkNbt(local(chunkPosition), value, compression, serializationStrategy)
 
     suspend inline fun <reified T> writeChunkNbt(
         localChunkPosition: LocalChunkPosition,
@@ -292,9 +273,9 @@ class RegionHandle internal constructor(
         compression: Compression = regionStorageConfiguration.writeCompression,
     ) = writeChunkNbt(
         localChunkPosition,
-        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
         value,
         compression,
+        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
     )
 
     /** Writes [chunk] at its retained position after validating Region membership. */
@@ -312,9 +293,9 @@ class RegionHandle internal constructor(
         compression: Compression = regionStorageConfiguration.writeCompression,
     ) = writeChunkNbt(
         chunkPosition,
-        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
         value,
         compression,
+        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
     )
 
     suspend fun clear() = withOperation {

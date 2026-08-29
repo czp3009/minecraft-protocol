@@ -64,30 +64,18 @@ object NbtUuidSerializer : KSerializer<Uuid> {
         decoder.decodeSerializableValue(NbtIntArray.serializer()).toUuid()
 }
 
-/** Encodes an ordered UUID collection as a list of Mojang four-int UUID values. */
-object NbtUuidListSerializer : KSerializer<List<Uuid>> {
-    private val delegate = ListSerializer(NbtIntArray.serializer())
+/** Encodes a UUID set as the ordered NBT list used by the official set codec. */
+object NbtUuidSetSerializer : KSerializer<Set<Uuid>> {
+    private val delegate = ListSerializer(NbtUuidSerializer)
 
     override val descriptor: SerialDescriptor = delegate.descriptor
 
-    override fun serialize(encoder: Encoder, value: List<Uuid>) {
-        encoder.encodeSerializableValue(delegate, value.map(Uuid::toNbtIntArray))
-    }
-
-    override fun deserialize(decoder: Decoder): List<Uuid> =
-        decoder.decodeSerializableValue(delegate).map(NbtIntArray::toUuid)
-}
-
-/** Encodes a UUID set as the ordered NBT list used by the official set codec. */
-object NbtUuidSetSerializer : KSerializer<Set<Uuid>> {
-    override val descriptor: SerialDescriptor = NbtUuidListSerializer.descriptor
-
     override fun serialize(encoder: Encoder, value: Set<Uuid>) {
-        encoder.encodeSerializableValue(NbtUuidListSerializer, value.toList())
+        encoder.encodeSerializableValue(delegate, value.toList())
     }
 
     override fun deserialize(decoder: Decoder): Set<Uuid> {
-        val values = decoder.decodeSerializableValue(NbtUuidListSerializer)
+        val values = decoder.decodeSerializableValue(delegate)
         if (values.distinct().size != values.size) {
             throw SerializationException("A UUID set cannot contain duplicates")
         }

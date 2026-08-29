@@ -125,9 +125,9 @@ class EntityRegionHandleTest {
         regionStorage.close()
 
         val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(worldRoot, fakeFileSystem)
-        assertEquals(listOf(regionPosition), liveMinecraftWorldAccess.listEntityRegionPositions())
-        assertTrue(liveMinecraftWorldAccess.hasEntityRegion(regionPosition))
-        liveMinecraftWorldAccess.openEntityRegion(regionPosition).use { liveEntityRegionHandle ->
+        assertEquals(listOf(regionPosition), liveMinecraftWorldAccess.dimensions.overworld.listEntityRegionPositions())
+        assertTrue(liveMinecraftWorldAccess.dimensions.overworld.hasEntityRegion(regionPosition))
+        liveMinecraftWorldAccess.dimensions.overworld.openEntityRegion(regionPosition).use { liveEntityRegionHandle ->
             val liveChunk = assertNotNull(liveEntityRegionHandle.readChunk(chunkPosition, entityChunkNbtCodec))
             assertEquals(chunkPosition, liveChunk.chunkPosition)
             assertEquals(entity.uuid, liveChunk.rootEntities.single().uuid)

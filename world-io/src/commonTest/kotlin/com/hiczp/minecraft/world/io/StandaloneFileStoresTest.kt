@@ -77,15 +77,15 @@ class StandaloneFileStoresTest {
         )
         val callerSerializer = CountingSerializer(CallerLevelData.serializer())
 
-        nbtFileStore.write(callerPath, callerSerializer, callerValue)
-        assertEquals(callerValue, nbtFileStore.read(callerPath, callerSerializer))
+        nbtFileStore.write(callerPath, callerValue, serializationStrategy = callerSerializer)
+        assertEquals(callerValue, nbtFileStore.read(callerPath, deserializationStrategy = callerSerializer))
         assertEquals(1, callerSerializer.encodeCalls)
         assertEquals(1, callerSerializer.decodeCalls)
 
         val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val levelDat = testLevelDat(levelName = "world")
         val levelDataStore = LevelDataStore(minecraftWorldPaths, nbtFileStore)
-        levelDataStore.write(LevelDat.serializer(), levelDat)
+        levelDataStore.write(levelDat, LevelDat.serializer())
         assertEquals(levelDat, levelDataStore.read(LevelDat.serializer()))
         fakeFileSystem.checkNoOpenFiles()
     }
@@ -98,12 +98,12 @@ class StandaloneFileStoresTest {
         val value = CallerLevelData(marker = 7, values = mapOf("one" to 1, "two" to 2))
         val exactPath = minecraftWorldPaths.root / "custom.dat"
         val playerUuid = "00000000-0000-0000-0000-000000000000"
-        val savedDataIdentifier = "example:typed"
+        val savedDataId = SavedDataId("typed", namespace = "example")
         val savedDataStore = SavedDataStore(minecraftWorldPaths, SavedDataScope.WorldRoot, nbtFileStore)
 
-        nbtFileStore.write(exactPath, CallerLevelData.serializer(), value)
+        nbtFileStore.write(exactPath, value, serializationStrategy = CallerLevelData.serializer())
         nbtFileStore.write(exactPath, value)
-        assertEquals(value, nbtFileStore.read(exactPath, CallerLevelData.serializer()))
+        assertEquals(value, nbtFileStore.read(exactPath, deserializationStrategy = CallerLevelData.serializer()))
         assertEquals(value, nbtFileStore.read<CallerLevelData>(exactPath))
 
         val uncompressedNbt = Buffer()
@@ -120,13 +120,13 @@ class StandaloneFileStoresTest {
             temporaryDirectory = minecraftWorldPaths.root,
             nbtFileStore = nbtFileStore,
         )
-        backupNbtFileStore.write(CallerLevelData.serializer(), value)
+        backupNbtFileStore.write(value, CallerLevelData.serializer())
         backupNbtFileStore.write(value)
         assertEquals(value, backupNbtFileStore.read(BackupNbtCandidate.PRIMARY, CallerLevelData.serializer()))
         assertEquals(value, backupNbtFileStore.read<CallerLevelData>(BackupNbtCandidate.PRIMARY))
 
         val levelDataStore = LevelDataStore(minecraftWorldPaths, nbtFileStore)
-        levelDataStore.write(CallerLevelData.serializer(), value)
+        levelDataStore.write(value, CallerLevelData.serializer())
         levelDataStore.write(value)
         assertEquals(value, levelDataStore.read(CallerLevelData.serializer()))
         assertEquals(value, levelDataStore.read<CallerLevelData>())
@@ -138,7 +138,7 @@ class StandaloneFileStoresTest {
         )
 
         val playerDataStore = PlayerDataStore(minecraftWorldPaths, nbtFileStore)
-        playerDataStore.write(playerUuid, CallerLevelData.serializer(), value)
+        playerDataStore.write(playerUuid, value, CallerLevelData.serializer())
         playerDataStore.write(playerUuid, value)
         assertEquals(value, playerDataStore.read(playerUuid, CallerLevelData.serializer()))
         assertEquals(value, playerDataStore.read<CallerLevelData>(playerUuid))
@@ -149,10 +149,10 @@ class StandaloneFileStoresTest {
             ).value,
         )
 
-        savedDataStore.write(savedDataIdentifier, CallerLevelData.serializer(), value)
-        savedDataStore.write(savedDataIdentifier, value)
-        assertEquals(value, savedDataStore.read(savedDataIdentifier, CallerLevelData.serializer()))
-        assertEquals(value, savedDataStore.read<CallerLevelData>(savedDataIdentifier))
+        savedDataStore.write(savedDataId, value, CallerLevelData.serializer())
+        savedDataStore.write(savedDataId, value)
+        assertEquals(value, savedDataStore.read(savedDataId, CallerLevelData.serializer()))
+        assertEquals(value, savedDataStore.read<CallerLevelData>(savedDataId))
         fakeFileSystem.checkNoOpenFiles()
     }
 
@@ -216,17 +216,18 @@ class StandaloneFileStoresTest {
         val nbtFileStore = NbtFileStore(fakeFileSystem)
         val savedDataStore = SavedDataStore(
             minecraftWorldPaths,
-            SavedDataScope.Dimension(DimensionDirectory.Overworld),
+            SavedDataScope.Dimension(DimensionId.Overworld),
             nbtFileStore,
         )
-        val path = minecraftWorldPaths.savedData("maps/map_1", SavedDataScope.Dimension(DimensionDirectory.Overworld))
+        val savedDataId = SavedDataId("maps/map_1")
+        val path = minecraftWorldPaths.savedData(savedDataId, SavedDataScope.Dimension(DimensionId.Overworld))
         val legacy = sampleDocument(1)
         val current = sampleDocument(2)
 
         nbtFileStore.writeDocument(path, legacy, Compression.NONE)
-        assertEquals(legacy, savedDataStore.readDocument("maps/map_1"))
-        savedDataStore.writeDocument("maps/map_1", current)
-        assertEquals(current, savedDataStore.readDocument("maps/map_1"))
+        assertEquals(legacy, savedDataStore.readDocument(savedDataId))
+        savedDataStore.writeDocument(savedDataId, current)
+        assertEquals(current, savedDataStore.readDocument(savedDataId))
         assertContentEquals(
             byteArrayOf(0x1F, 0x8B.toByte()),
             fakeFileSystem.readFileBytes(path).copyOfRange(0, 2),
@@ -237,8 +238,9 @@ class StandaloneFileStoresTest {
     fun eachSavedDataReadDetectsCompressionAndConsumesContentFromOneOpenSource() {
         val base = FakeFileSystem()
         val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
-        val savedDataScope = SavedDataScope.Dimension(DimensionDirectory.Overworld)
-        val path = minecraftWorldPaths.savedData("maps/map_1", savedDataScope)
+        val savedDataScope = SavedDataScope.Dimension(DimensionId.Overworld)
+        val savedDataId = SavedDataId("maps/map_1")
+        val path = minecraftWorldPaths.savedData(savedDataId, savedDataScope)
         val nbtDocument = sampleDocument(3)
         NbtFileStore(base).writeDocument(path, nbtDocument, Compression.NONE)
         val sourceOpeningCountingFileSystem = SourceOpeningCountingFileSystem(base)
@@ -248,12 +250,12 @@ class StandaloneFileStoresTest {
             NbtFileStore(sourceOpeningCountingFileSystem),
         )
 
-        assertEquals(nbtDocument, savedDataStore.readDocument("maps/map_1"))
+        assertEquals(nbtDocument, savedDataStore.readDocument(savedDataId))
         assertEquals(1, sourceOpeningCountingFileSystem.sourceOpenCount)
 
         assertEquals(
             nbtDocument,
-            savedDataStore.read("maps/map_1") { source ->
+            savedDataStore.read(savedDataId) { source ->
                 minecraftWorldNbtFormat().decodeDocumentFromOkio(source)
             },
         )
@@ -267,10 +269,10 @@ class StandaloneFileStoresTest {
         val utf8JsonFileStore = Utf8JsonFileStore(fakeFileSystem)
         val path = "/world/players/stats/player.json".toPath()
 
-        utf8JsonFileStore.writeText(path, "{\"long\":true}")
-        utf8JsonFileStore.writeText(path, "{}")
+        utf8JsonFileStore.writeJsonElement(path, Json.parseToJsonElement("{\"long\":true}"))
+        utf8JsonFileStore.writeJsonElement(path, Json.parseToJsonElement("{}"))
 
-        assertEquals("{}", utf8JsonFileStore.readText(path))
+        assertEquals(Json.parseToJsonElement("{}"), utf8JsonFileStore.readJsonElement(path))
         assertEquals(setOf(path), fakeFileSystem.allPaths.filter { fakeFileSystem.metadata(it).isRegularFile }.toSet())
     }
 
@@ -287,12 +289,12 @@ class StandaloneFileStoresTest {
         assertEquals(jsonObject, utf8JsonFileStore.readJsonElement(path))
 
         val encoded = Json.encodeToString(jsonObject)
-        utf8JsonFileStore.write(path) { sink ->
+        utf8JsonFileStore.writeJson(path) { sink ->
             encoded.chunked(257).forEach(sink::writeUtf8)
         }
         val copied = Buffer()
         val reads = mutableListOf<Long>()
-        utf8JsonFileStore.read(path) { source ->
+        utf8JsonFileStore.readJson(path) { source ->
             while (true) {
                 val read = source.read(copied, 257L)
                 if (read < 0L) break
@@ -314,8 +316,11 @@ class StandaloneFileStoresTest {
         val mapSerializer = MapSerializer(String.serializer(), Int.serializer())
         val callerMap = mapOf("alpha" to 1, "beta" to 2)
 
-        utf8JsonFileStore.writeJson(minecraftWorldPaths.statistics(player), mapSerializer, callerMap)
-        assertEquals(callerMap, utf8JsonFileStore.readJson(minecraftWorldPaths.statistics(player), mapSerializer))
+        utf8JsonFileStore.writeJson(minecraftWorldPaths.statistics(player), callerMap, mapSerializer)
+        assertEquals(
+            callerMap,
+            utf8JsonFileStore.readJson(minecraftWorldPaths.statistics(player), mapSerializer),
+        )
 
         val playerStatistics = PlayerStatistics(
             stats = mapOf("minecraft:mined" to mapOf("minecraft:stone" to 42)),
@@ -323,12 +328,15 @@ class StandaloneFileStoresTest {
         )
         utf8JsonFileStore.writeJson(
             minecraftWorldPaths.statistics(player),
-            PlayerStatistics.serializer(),
             playerStatistics,
+            PlayerStatistics.serializer(),
         )
         assertEquals(
             playerStatistics,
-            utf8JsonFileStore.readJson(minecraftWorldPaths.statistics(player), PlayerStatistics.serializer()),
+            utf8JsonFileStore.readJson(
+                minecraftWorldPaths.statistics(player),
+                PlayerStatistics.serializer(),
+            ),
         )
 
         val playerAdvancements = PlayerAdvancements(
@@ -341,13 +349,16 @@ class StandaloneFileStoresTest {
             ),
         )
         utf8JsonFileStore.writeJson(
-            minecraftWorldPaths.advancement(player),
-            PlayerAdvancements.serializer(),
+            minecraftWorldPaths.advancements(player),
             playerAdvancements,
+            PlayerAdvancements.serializer(),
         )
         assertEquals(
             playerAdvancements,
-            utf8JsonFileStore.readJson(minecraftWorldPaths.advancement(player), PlayerAdvancements.serializer()),
+            utf8JsonFileStore.readJson(
+                minecraftWorldPaths.advancements(player),
+                PlayerAdvancements.serializer(),
+            ),
         )
         fakeFileSystem.checkNoOpenFiles()
     }
@@ -368,19 +379,19 @@ class StandaloneFileStoresTest {
             advancements = emptyMap(),
         )
 
-        utf8JsonFileStore.writeJson(exactPath, PlayerStatistics.serializer(), playerStatistics)
+        utf8JsonFileStore.writeJson(exactPath, playerStatistics, PlayerStatistics.serializer())
         utf8JsonFileStore.writeJson(exactPath, playerStatistics)
         assertEquals(playerStatistics, utf8JsonFileStore.readJson(exactPath, PlayerStatistics.serializer()))
         assertEquals(playerStatistics, utf8JsonFileStore.readJson<PlayerStatistics>(exactPath))
 
         val playerStatisticsStore = PlayerStatisticsStore(minecraftWorldPaths, utf8JsonFileStore)
-        playerStatisticsStore.write(playerUuid, PlayerStatistics.serializer(), playerStatistics)
+        playerStatisticsStore.write(playerUuid, playerStatistics, PlayerStatistics.serializer())
         playerStatisticsStore.write(playerUuid, playerStatistics)
         assertEquals(playerStatistics, playerStatisticsStore.read(playerUuid, PlayerStatistics.serializer()))
         assertEquals(playerStatistics, playerStatisticsStore.read<PlayerStatistics>(playerUuid))
 
         val playerAdvancementsStore = PlayerAdvancementsStore(minecraftWorldPaths, utf8JsonFileStore)
-        playerAdvancementsStore.write(playerUuid, PlayerAdvancements.serializer(), playerAdvancements)
+        playerAdvancementsStore.write(playerUuid, playerAdvancements, PlayerAdvancements.serializer())
         playerAdvancementsStore.write(playerUuid, playerAdvancements)
         assertEquals(
             playerAdvancements,
@@ -400,9 +411,9 @@ class StandaloneFileStoresTest {
             values = (0 until 2_048).associate { index -> "key_$index" to index },
         )
         val nbtFileStore = NbtFileStore(segmented)
-        nbtFileStore.write(nbtPath, CallerLevelData.serializer(), nbtValue)
+        nbtFileStore.write(nbtPath, nbtValue, serializationStrategy = CallerLevelData.serializer())
         assertTrue(segmented.writeCalls > 1)
-        assertEquals(nbtValue, nbtFileStore.read(nbtPath, CallerLevelData.serializer()))
+        assertEquals(nbtValue, nbtFileStore.read(nbtPath, deserializationStrategy = CallerLevelData.serializer()))
         assertTrue(segmented.readCalls > 1)
 
         val jsonPath = "/world/segmented.json".toPath()
@@ -417,7 +428,7 @@ class StandaloneFileStoresTest {
         )
         val utf8JsonFileStore = Utf8JsonFileStore(segmented)
         val writesBeforeJson = segmented.writeCalls
-        utf8JsonFileStore.writeJson(jsonPath, PlayerAdvancements.serializer(), jsonValue)
+        utf8JsonFileStore.writeJson(jsonPath, jsonValue, PlayerAdvancements.serializer())
         assertTrue(segmented.writeCalls > writesBeforeJson + 1)
         val readsBeforeJson = segmented.readCalls
         assertEquals(jsonValue, utf8JsonFileStore.readJson(jsonPath, PlayerAdvancements.serializer()))
@@ -520,11 +531,14 @@ class StandaloneFileStoresTest {
         val fakeFileSystem = FakeFileSystem()
         val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         assertFailsWith<IllegalArgumentException> {
-            minecraftWorldPaths.savedData("a/../b", SavedDataScope.Dimension(DimensionDirectory.Overworld))
+            SavedDataId("a/../b")
         }
         val jsonPath = "/world/value.json".toPath()
-        Utf8JsonFileStore(fakeFileSystem).writeText(jsonPath, "\u00E9")
-        assertEquals("\u00E9", Utf8JsonFileStore(fakeFileSystem).readText(jsonPath))
+        Utf8JsonFileStore(fakeFileSystem).writeJson(jsonPath) { sink -> sink.writeUtf8("\u00E9") }
+        assertEquals(
+            "\u00E9",
+            Utf8JsonFileStore(fakeFileSystem).readJson(jsonPath) { source -> source.readUtf8() },
+        )
         assertNotEquals(
             sampleDocument(1),
             sampleDocument(2),

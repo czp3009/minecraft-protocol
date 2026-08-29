@@ -32,9 +32,14 @@ class DirectFilesTest {
         minecraftWorldAccess.directFiles.write(outsideRaw) { sink -> sink.writeUtf8("raw") }
         minecraftWorldAccess.directFiles.writeNbtDocument(outsideNbt, nbtDocument, Compression.NONE)
         minecraftWorldAccess.directFiles.writeJson(outsideJson) { sink -> sink.writeUtf8("7") }
-        minecraftWorldAccess.directFiles.writeNbt(typedNbt, DirectValue.serializer(), directValue, Compression.NONE)
+        minecraftWorldAccess.directFiles.writeNbt(
+            typedNbt,
+            directValue,
+            Compression.NONE,
+            DirectValue.serializer(),
+        )
         minecraftWorldAccess.directFiles.writeNbt(typedNbt, directValue, Compression.NONE)
-        minecraftWorldAccess.directFiles.writeJson(typedJson, DirectValue.serializer(), directValue)
+        minecraftWorldAccess.directFiles.writeJson(typedJson, directValue, DirectValue.serializer())
         minecraftWorldAccess.directFiles.writeJson(typedJson, directValue)
         minecraftWorldAccess.directFiles.writeBytes(minecraftWorldPaths.sessionLock, byteArrayOf(1, 2, 3))
 
@@ -46,7 +51,7 @@ class DirectFilesTest {
         )
         assertEquals(
             directValue,
-            minecraftWorldAccess.directFiles.readNbt(typedNbt, DirectValue.serializer(), Compression.NONE),
+            minecraftWorldAccess.directFiles.readNbt(typedNbt, Compression.NONE, DirectValue.serializer()),
         )
         assertEquals(directValue, minecraftWorldAccess.directFiles.readNbt<DirectValue>(typedNbt, Compression.NONE))
         assertEquals(JsonPrimitive(7), minecraftWorldAccess.directFiles.readJsonElement(outsideJson))
@@ -68,11 +73,14 @@ class DirectFilesTest {
         )
         assertEquals(
             directValue,
-            liveMinecraftWorldAccess.directFiles.readNbt(typedNbt, DirectValue.serializer(), Compression.NONE),
+            liveMinecraftWorldAccess.directFiles.readNbt(typedNbt, Compression.NONE, DirectValue.serializer()),
         )
         assertEquals(directValue, liveMinecraftWorldAccess.directFiles.readNbt<DirectValue>(typedNbt, Compression.NONE))
         assertEquals("7", liveMinecraftWorldAccess.directFiles.readJson(outsideJson) { source -> source.readUtf8() })
-        assertEquals(directValue, liveMinecraftWorldAccess.directFiles.readJson(typedJson, DirectValue.serializer()))
+        assertEquals(
+            directValue,
+            liveMinecraftWorldAccess.directFiles.readJson(typedJson, DirectValue.serializer()),
+        )
         assertEquals(directValue, liveMinecraftWorldAccess.directFiles.readJson<DirectValue>(typedJson))
         fakeFileSystem.checkNoOpenFiles()
     }

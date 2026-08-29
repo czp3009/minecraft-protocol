@@ -32,7 +32,7 @@ class WorldDataPackReaderTest {
                 ),
             )
         }
-        LevelDataStore(minecraftWorldPaths, NbtFileStore(fakeFileSystem)).write(LevelDat.serializer(), levelDat)
+        LevelDataStore(minecraftWorldPaths, NbtFileStore(fakeFileSystem)).write(levelDat, LevelDat.serializer())
         fakeFileSystem.writeJson(
             minecraftWorldPaths.dataPacksDirectory / "example/pack.mcmeta",
             buildJsonObject {
@@ -43,10 +43,15 @@ class WorldDataPackReaderTest {
             },
         )
 
-        val mutableResult = MinecraftWorldAccess.create(minecraftWorldPaths, fakeFileSystem).use {
-            it.readEnabledDataPacks()
+        val (mutableInspections, mutableResult) = MinecraftWorldAccess.create(minecraftWorldPaths, fakeFileSystem).use {
+            it.dataPacks.inspectEnabledFiles() to it.dataPacks.readEnabled()
         }
-        val liveResult = LiveMinecraftWorldAccess.open(root, fakeFileSystem).readEnabledDataPacks()
+        val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(root, fakeFileSystem)
+        val liveInspections = liveMinecraftWorldAccess.dataPacks.inspectEnabledFiles()
+        val liveResult = liveMinecraftWorldAccess.dataPacks.readEnabled()
+
+        assertEquals(listOf(DataPackId("file/example")), mutableInspections.map(DataPackInspection::dataPackId))
+        assertEquals(listOf(DataPackId("file/example")), liveInspections.map(DataPackInspection::dataPackId))
 
         listOf(mutableResult, liveResult).forEach { worldDataPackLoadResult ->
             assertEquals(
@@ -68,6 +73,101 @@ class WorldDataPackReaderTest {
                 worldDataPackLoadResult.unloadedEnabledDataPackIds,
             )
         }
+        fakeFileSystem.checkNoOpenFiles()
+    }
+
+    @Test
+    fun mutableAndLiveDataPackChildrenExposeTheSameSinglePackOperations() = runTest {
+        val fakeFileSystem = FakeFileSystem()
+        val root = "/world".toPath()
+        val minecraftWorldPaths = MinecraftWorldPaths(root)
+        val dataPackId = DataPackId("file/example")
+        val dataPackFilePath = DataPackFilePath("data/example/custom/payload.bin")
+        fakeFileSystem.writeJson(
+            minecraftWorldPaths.dataPacksDirectory / "example/pack.mcmeta",
+            buildJsonObject {
+                put("pack", buildJsonObject {
+                    put("description", "example")
+                    put("pack_format", 107)
+                })
+            },
+        )
+        val payloadPath = minecraftWorldPaths.dataPacksDirectory / "example" / dataPackFilePath.value
+        fakeFileSystem.createDirectories(requireNotNull(payloadPath.parent))
+        fakeFileSystem.write(payloadPath) { write(byteArrayOf(1, 2, 3, 4)) }
+
+        MinecraftWorldAccess.create(minecraftWorldPaths, fakeFileSystem).use { minecraftWorldAccess ->
+            val dataPackInspection = minecraftWorldAccess.dataPacks.inspect(dataPackId)
+            assertEquals(dataPackId, minecraftWorldAccess.dataPacks.read(dataPackId).dataPackId)
+            assertEquals(dataPackId, minecraftWorldAccess.dataPacks.read(dataPackInspection).dataPackId)
+            assertEquals(dataPackId, minecraftWorldAccess.dataPacks.readArchive(dataPackId).dataPackId)
+            assertEquals(dataPackId, minecraftWorldAccess.dataPacks.readArchive(dataPackInspection).dataPackId)
+            assertEquals(
+                byteArrayOf(1, 2, 3, 4).toList(),
+                minecraftWorldAccess.dataPacks.readFile(dataPackId, dataPackFilePath).toByteArray().toList(),
+            )
+            assertEquals(
+                byteArrayOf(1, 2, 3, 4).toList(),
+                minecraftWorldAccess.dataPacks.readFile(dataPackInspection, dataPackFilePath).toByteArray().toList(),
+            )
+            assertEquals(
+                byteArrayOf(1, 2, 3, 4).toList(),
+                minecraftWorldAccess.dataPacks.readFile(dataPackId, dataPackFilePath) { bufferedSource ->
+                    bufferedSource.readByteArray().toList()
+                },
+            )
+            assertEquals(
+                byteArrayOf(1, 2, 3, 4).toList(),
+                minecraftWorldAccess.dataPacks.readFile(dataPackInspection, dataPackFilePath) { bufferedSource ->
+                    bufferedSource.readByteArray().toList()
+                },
+            )
+            assertEquals(
+                listOf(dataPackId),
+                minecraftWorldAccess.dataPacks
+                    .inspectEnabledFiles(listOf(dataPackId))
+                    .map(DataPackInspection::dataPackId),
+            )
+            assertEquals(
+                listOf(dataPackId),
+                minecraftWorldAccess.dataPacks.readEnabled(listOf(dataPackId)).loadedDataPacks.map { it.dataPackId },
+            )
+        }
+
+        val liveDataPacks = LiveMinecraftWorldAccess.open(root, fakeFileSystem).dataPacks
+        val liveDataPackInspection = liveDataPacks.inspect(dataPackId)
+        assertEquals(dataPackId, liveDataPacks.read(dataPackId).dataPackId)
+        assertEquals(dataPackId, liveDataPacks.read(liveDataPackInspection).dataPackId)
+        assertEquals(dataPackId, liveDataPacks.readArchive(dataPackId).dataPackId)
+        assertEquals(dataPackId, liveDataPacks.readArchive(liveDataPackInspection).dataPackId)
+        assertEquals(
+            byteArrayOf(1, 2, 3, 4).toList(),
+            liveDataPacks.readFile(dataPackId, dataPackFilePath).toByteArray().toList(),
+        )
+        assertEquals(
+            byteArrayOf(1, 2, 3, 4).toList(),
+            liveDataPacks.readFile(liveDataPackInspection, dataPackFilePath).toByteArray().toList(),
+        )
+        assertEquals(
+            byteArrayOf(1, 2, 3, 4).toList(),
+            liveDataPacks.readFile(dataPackId, dataPackFilePath) { bufferedSource ->
+                bufferedSource.readByteArray().toList()
+            },
+        )
+        assertEquals(
+            byteArrayOf(1, 2, 3, 4).toList(),
+            liveDataPacks.readFile(liveDataPackInspection, dataPackFilePath) { bufferedSource ->
+                bufferedSource.readByteArray().toList()
+            },
+        )
+        assertEquals(
+            listOf(dataPackId),
+            liveDataPacks.inspectEnabledFiles(listOf(dataPackId)).map(DataPackInspection::dataPackId),
+        )
+        assertEquals(
+            listOf(dataPackId),
+            liveDataPacks.readEnabled(listOf(dataPackId)).loadedDataPacks.map { it.dataPackId },
+        )
         fakeFileSystem.checkNoOpenFiles()
     }
 

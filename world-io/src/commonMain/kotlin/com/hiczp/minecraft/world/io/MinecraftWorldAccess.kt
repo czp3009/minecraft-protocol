@@ -2,26 +2,27 @@ package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
-import com.hiczp.minecraft.world.format.*
-import com.hiczp.minecraft.world.format.datapack.DataPackFormat
-import com.hiczp.minecraft.world.format.datapack.DataPackId
-import com.hiczp.minecraft.world.format.datapack.WorldDataPackLoadResult
+import com.hiczp.minecraft.world.format.CompressedNbtFormat
+import com.hiczp.minecraft.world.format.LevelDat
+import com.hiczp.minecraft.world.format.RegionPosition
+import com.hiczp.minecraft.world.format.datapack.*
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.serializer
 import okio.BufferedSink
 import okio.BufferedSource
 import okio.FileSystem
 import okio.Path
+import kotlin.jvm.JvmName
 
 /** Formats and Region-storage policy shared by every dimension opened under one world lease. */
 data class MinecraftWorldAccessConfiguration(
-    val regionStorageConfiguration: RegionStorageConfiguration = RegionStorageConfiguration(),
     val chunkNbtFormat: CompressedNbtFormat = CompressedNbtFormat(),
     val standaloneNbtFormat: NbtFormat = minecraftWorldNbtFormat(),
+    val standaloneJson: Json = Json,
     val dataPackFormat: DataPackFormat = DataPackFormat(),
+    val regionStorageConfiguration: RegionStorageConfiguration = RegionStorageConfiguration(),
 ) {
     init {
         standaloneNbtFormat.requireStandaloneWorldRoot()
@@ -38,17 +39,21 @@ data class MinecraftWorldAccessConfiguration(
 class MinecraftWorldAccess private constructor(
     val minecraftWorldPaths: MinecraftWorldPaths,
     val configuration: MinecraftWorldAccessConfiguration,
+    val players: MinecraftWorldPlayers,
     private val worldOperationLifecycle: WorldOperationLifecycle,
     private val logicalResourceCoordinator: LogicalResourceCoordinator<WorldResourceKey>,
     private val coordinatedRegionRegistry: CoordinatedRegionRegistry,
     private val levelDataStore: LevelDataStore,
-    private val playerDataStore: PlayerDataStore,
-    private val playerStatisticsStore: PlayerStatisticsStore,
-    private val playerAdvancementsStore: PlayerAdvancementsStore,
     private val nbtFileStore: NbtFileStore,
     private val utf8JsonFileStore: Utf8JsonFileStore,
     private val worldDataPackReader: WorldDataPackReader,
 ) {
+    val data: MinecraftSavedData = MinecraftSavedData(this, SavedDataScope.WorldRoot)
+
+    val dataPacks: MinecraftWorldDataPacks = MinecraftWorldDataPacks(this)
+
+    val dimensions: MinecraftWorldDimensions = MinecraftWorldDimensions(this)
+
     val directFiles: MinecraftWorldDirectFiles = MinecraftWorldDirectFiles(
         worldOperationLifecycle,
         nbtFileStore.rawFileStore,
@@ -56,23 +61,68 @@ class MinecraftWorldAccess private constructor(
         utf8JsonFileStore,
     )
 
-    suspend fun readEnabledDataPacks(enabledDataPackIds: List<DataPackId>): WorldDataPackLoadResult =
+    internal suspend fun inspectDataPack(dataPackId: DataPackId): DataPackInspection =
+        withUncoordinatedOperation { worldDataPackReader.inspectDataPack(dataPackId) }
+
+    internal suspend fun readDataPack(dataPackId: DataPackId): DataPack =
+        withUncoordinatedOperation { worldDataPackReader.readDataPack(dataPackId) }
+
+    internal suspend fun readDataPack(dataPackInspection: DataPackInspection): DataPack =
+        withUncoordinatedOperation { worldDataPackReader.readDataPack(dataPackInspection) }
+
+    internal suspend fun readDataPackArchive(dataPackId: DataPackId): DataPackArchive =
+        withUncoordinatedOperation { worldDataPackReader.readDataPackArchive(dataPackId) }
+
+    internal suspend fun readDataPackArchive(dataPackInspection: DataPackInspection): DataPackArchive =
+        withUncoordinatedOperation { worldDataPackReader.readDataPackArchive(dataPackInspection) }
+
+    internal suspend fun readDataPackFile(
+        dataPackId: DataPackId,
+        dataPackFilePath: DataPackFilePath,
+    ): DataPackFileBytes = withUncoordinatedOperation {
+        worldDataPackReader.readDataPackFile(dataPackId, dataPackFilePath)
+    }
+
+    internal suspend fun <T> readDataPackFile(
+        dataPackId: DataPackId,
+        dataPackFilePath: DataPackFilePath,
+        block: (BufferedSource) -> T,
+    ): T = withUncoordinatedOperation {
+        worldDataPackReader.readDataPackFile(dataPackId, dataPackFilePath, block)
+    }
+
+    internal suspend fun readDataPackFile(
+        dataPackInspection: DataPackInspection,
+        dataPackFilePath: DataPackFilePath,
+    ): DataPackFileBytes = withUncoordinatedOperation {
+        worldDataPackReader.readDataPackFile(dataPackInspection, dataPackFilePath)
+    }
+
+    internal suspend fun <T> readDataPackFile(
+        dataPackInspection: DataPackInspection,
+        dataPackFilePath: DataPackFilePath,
+        block: (BufferedSource) -> T,
+    ): T = withUncoordinatedOperation {
+        worldDataPackReader.readDataPackFile(dataPackInspection, dataPackFilePath, block)
+    }
+
+    internal suspend fun readEnabledDataPacks(enabledDataPackIds: List<DataPackId>): WorldDataPackLoadResult =
         withUncoordinatedOperation { worldDataPackReader.readEnabledDataPacks(enabledDataPackIds) }
 
-    suspend fun inspectEnabledFileDataPacks(
+    internal suspend fun inspectEnabledFileDataPacks(
         enabledDataPackIds: List<DataPackId>,
     ): List<DataPackInspection> = withUncoordinatedOperation {
         worldDataPackReader.inspectEnabledFileDataPacks(enabledDataPackIds)
     }
 
-    suspend fun readEnabledDataPacks(): WorldDataPackLoadResult =
+    internal suspend fun readEnabledDataPacks(): WorldDataPackLoadResult =
         withUncoordinatedOperation {
-            worldDataPackReader.readEnabledDataPacks(readLevelDataWithinOperation<LevelDat>())
+            worldDataPackReader.readEnabledDataPacks(readLevelDataWithinOperation())
         }
 
-    suspend fun inspectEnabledFileDataPacks(): List<DataPackInspection> =
+    internal suspend fun inspectEnabledFileDataPacks(): List<DataPackInspection> =
         withUncoordinatedOperation {
-            worldDataPackReader.inspectEnabledFileDataPacks(readLevelDataWithinOperation<LevelDat>())
+            worldDataPackReader.inspectEnabledFileDataPacks(readLevelDataWithinOperation())
         }
 
     suspend fun readLevelDataDocument(): NbtDocument = readRecovering(
@@ -87,9 +137,10 @@ class MinecraftWorldAccess private constructor(
         { levelDataStore.read(deserializationStrategy) },
     )
 
-    suspend fun readLevelData(): LevelDat = readLevelData(LevelDat.serializer())
+    suspend fun readLevelData(): LevelDat = readLevelData<LevelDat>()
 
-    suspend inline fun <reified T> readLevelDataAs(): T =
+    @JvmName("readTypedLevelData")
+    suspend inline fun <reified T> readLevelData(): T =
         readLevelData(configuration.standaloneNbtFormat.serializersModule.serializer())
 
     suspend fun <T> readLevelData(block: (BufferedSource) -> T): T = readRecovering(
@@ -101,338 +152,64 @@ class MinecraftWorldAccess private constructor(
     suspend fun writeLevelDataDocument(nbtDocument: NbtDocument) =
         write(WorldResourceKey.LevelData) { levelDataStore.writeDocument(nbtDocument) }
 
-    suspend fun <T> writeLevelData(serializationStrategy: SerializationStrategy<T>, value: T) =
-        write(WorldResourceKey.LevelData) { levelDataStore.write(serializationStrategy, value) }
+    suspend fun <T> writeLevelData(value: T, serializationStrategy: SerializationStrategy<T>) =
+        write(WorldResourceKey.LevelData) { levelDataStore.write(value, serializationStrategy) }
 
-    suspend fun writeLevelData(levelDat: LevelDat) = writeLevelData(LevelDat.serializer(), levelDat)
+    suspend fun writeLevelData(levelDat: LevelDat) = writeLevelData<LevelDat>(levelDat)
 
-    suspend inline fun <reified T> writeLevelDataAs(value: T) =
-        writeLevelData(configuration.standaloneNbtFormat.serializersModule.serializer(), value)
+    suspend inline fun <reified T> writeLevelData(value: T) =
+        writeLevelData(value, configuration.standaloneNbtFormat.serializersModule.serializer())
 
     suspend fun writeLevelData(block: (BufferedSink) -> Unit) =
         write(WorldResourceKey.LevelData) { levelDataStore.write(block) }
 
-    suspend fun readPlayerDataDocument(playerUuid: String): NbtDocument? = readRecovering(
-        WorldResourceKey.PlayerData(playerUuid),
-        { playerDataStore.readDocumentForSharedAccess(playerUuid) },
-        { playerDataStore.readDocument(playerUuid) },
-    )
-
-    suspend fun <T> readPlayerData(
-        playerUuid: String,
-        deserializationStrategy: DeserializationStrategy<T>,
-    ): T? = readRecovering(
-        WorldResourceKey.PlayerData(playerUuid),
-        { playerDataStore.readForSharedAccess(playerUuid, deserializationStrategy) },
-        { playerDataStore.read(playerUuid, deserializationStrategy) },
-    )
-
-    suspend fun readPlayerData(playerUuid: String): PlayerData? =
-        readPlayerData(playerUuid, PlayerData.serializer())
-
-    suspend inline fun <reified T> readPlayerDataAs(playerUuid: String): T? = readPlayerData(
-        playerUuid,
-        configuration.standaloneNbtFormat.serializersModule.serializer(),
-    )
-
-    suspend fun <T> readPlayerData(playerUuid: String, block: (BufferedSource) -> T): T? = readRecovering(
-        WorldResourceKey.PlayerData(playerUuid),
-        { playerDataStore.readForSharedAccess(playerUuid, block) },
-        { playerDataStore.read(playerUuid, block) },
-    )
-
-    suspend fun writePlayerDataDocument(playerUuid: String, nbtDocument: NbtDocument) =
-        write(WorldResourceKey.PlayerData(playerUuid)) { playerDataStore.writeDocument(playerUuid, nbtDocument) }
-
-    suspend fun <T> writePlayerData(
-        playerUuid: String,
-        serializationStrategy: SerializationStrategy<T>,
-        value: T,
-    ) = write(WorldResourceKey.PlayerData(playerUuid)) {
-        playerDataStore.write(playerUuid, serializationStrategy, value)
+    internal suspend fun readSavedDataDocument(
+        savedDataId: SavedDataId,
+        savedDataScope: SavedDataScope,
+    ): NbtDocument? = withSavedData(savedDataId, savedDataScope, write = false) { savedDataStore ->
+        savedDataStore.readDocument(savedDataId)
     }
 
-    suspend fun writePlayerData(playerUuid: String, playerData: PlayerData) =
-        writePlayerData(playerUuid, PlayerData.serializer(), playerData)
-
-    suspend inline fun <reified T> writePlayerDataAs(playerUuid: String, value: T) = writePlayerData(
-        playerUuid,
-        configuration.standaloneNbtFormat.serializersModule.serializer(),
-        value,
-    )
-
-    suspend fun writePlayerData(playerUuid: String, block: (BufferedSink) -> Unit) =
-        write(WorldResourceKey.PlayerData(playerUuid)) { playerDataStore.write(playerUuid, block) }
-
-    suspend fun readSavedDataDocument(identifier: String, savedDataScope: SavedDataScope): NbtDocument? =
-        withSavedData(identifier, savedDataScope, write = false) { savedDataStore ->
-            savedDataStore.readDocument(identifier)
-        }
-
-    suspend fun <T> readSavedData(
-        identifier: String,
-        deserializationStrategy: DeserializationStrategy<T>,
+    internal suspend fun <T> readSavedData(
+        savedDataId: SavedDataId,
         savedDataScope: SavedDataScope,
-    ): T? = withSavedData(identifier, savedDataScope, write = false) { savedDataStore ->
-        savedDataStore.read(identifier, deserializationStrategy)
+        deserializationStrategy: DeserializationStrategy<T>,
+    ): T? = withSavedData(savedDataId, savedDataScope, write = false) { savedDataStore ->
+        savedDataStore.read(savedDataId, deserializationStrategy)
     }
 
-    suspend inline fun <reified T> readSavedData(
-        identifier: String,
-        savedDataScope: SavedDataScope,
-    ): T? = readSavedData(
-        identifier,
-        configuration.standaloneNbtFormat.serializersModule.serializer(),
-        savedDataScope,
-    )
-
-    suspend fun <T> readSavedData(
-        identifier: String,
+    internal suspend fun <T> readSavedData(
+        savedDataId: SavedDataId,
         savedDataScope: SavedDataScope,
         block: (BufferedSource) -> T,
-    ): T? = withSavedData(identifier, savedDataScope, write = false) { savedDataStore ->
-        savedDataStore.read(identifier, block)
+    ): T? = withSavedData(savedDataId, savedDataScope, write = false) { savedDataStore ->
+        savedDataStore.read(savedDataId, block)
     }
 
-    suspend fun writeSavedDataDocument(
-        identifier: String,
+    internal suspend fun writeSavedDataDocument(
+        savedDataId: SavedDataId,
         nbtDocument: NbtDocument,
         savedDataScope: SavedDataScope,
-    ) = withSavedData(identifier, savedDataScope, write = true) { savedDataStore ->
-        savedDataStore.writeDocument(identifier, nbtDocument)
+    ) = withSavedData(savedDataId, savedDataScope, write = true) { savedDataStore ->
+        savedDataStore.writeDocument(savedDataId, nbtDocument)
     }
 
-    suspend fun <T> writeSavedData(
-        identifier: String,
+    internal suspend fun <T> writeSavedData(
+        savedDataId: SavedDataId,
+        value: T,
+        savedDataScope: SavedDataScope,
         serializationStrategy: SerializationStrategy<T>,
-        value: T,
-        savedDataScope: SavedDataScope,
-    ) = withSavedData(identifier, savedDataScope, write = true) { savedDataStore ->
-        savedDataStore.write(identifier, serializationStrategy, value)
+    ) = withSavedData(savedDataId, savedDataScope, write = true) { savedDataStore ->
+        savedDataStore.write(savedDataId, value, serializationStrategy)
     }
 
-    suspend inline fun <reified T> writeSavedData(
-        identifier: String,
-        value: T,
-        savedDataScope: SavedDataScope,
-    ) = writeSavedData(
-        identifier,
-        configuration.standaloneNbtFormat.serializersModule.serializer(),
-        value,
-        savedDataScope,
-    )
-
-    suspend fun writeSavedData(
-        identifier: String,
+    internal suspend fun writeSavedData(
+        savedDataId: SavedDataId,
         savedDataScope: SavedDataScope,
         block: (BufferedSink) -> Unit,
-    ) = withSavedData(identifier, savedDataScope, write = true) { savedDataStore ->
-        savedDataStore.write(identifier, block)
+    ) = withSavedData(savedDataId, savedDataScope, write = true) { savedDataStore ->
+        savedDataStore.write(savedDataId, block)
     }
-
-    suspend fun readWorldBorderData(
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): SavedDataFile<WorldBorderData>? = readSavedData(
-        WORLD_BORDER_IDENTIFIER,
-        SavedDataFile.serializer(WorldBorderData.serializer()),
-        SavedDataScope.Dimension(dimensionDirectory),
-    )
-
-    suspend fun writeWorldBorderData(
-        worldBorderData: SavedDataFile<WorldBorderData>,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ) = writeSavedData(
-        WORLD_BORDER_IDENTIFIER,
-        SavedDataFile.serializer(WorldBorderData.serializer()),
-        worldBorderData,
-        SavedDataScope.Dimension(dimensionDirectory),
-    )
-
-    suspend fun readChunkTicketsData(
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): SavedDataFile<ChunkTicketsData>? = readSavedData(
-        CHUNK_TICKETS_IDENTIFIER,
-        SavedDataFile.serializer(ChunkTicketsData.serializer()),
-        SavedDataScope.Dimension(dimensionDirectory),
-    )
-
-    suspend fun writeChunkTicketsData(
-        chunkTicketsData: SavedDataFile<ChunkTicketsData>,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ) = writeSavedData(
-        CHUNK_TICKETS_IDENTIFIER,
-        SavedDataFile.serializer(ChunkTicketsData.serializer()),
-        chunkTicketsData,
-        SavedDataScope.Dimension(dimensionDirectory),
-    )
-
-    suspend fun readRaidsData(
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): SavedDataFile<RaidsData>? = readSavedData(
-        RAIDS_IDENTIFIER,
-        SavedDataFile.serializer(RaidsData.serializer()),
-        SavedDataScope.Dimension(dimensionDirectory),
-    )
-
-    suspend fun writeRaidsData(
-        raidsData: SavedDataFile<RaidsData>,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ) = writeSavedData(
-        RAIDS_IDENTIFIER,
-        SavedDataFile.serializer(RaidsData.serializer()),
-        raidsData,
-        SavedDataScope.Dimension(dimensionDirectory),
-    )
-
-    suspend fun readEnderDragonFightData(
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.End,
-    ): SavedDataFile<EnderDragonFightData>? = readSavedData(
-        ENDER_DRAGON_FIGHT_IDENTIFIER,
-        SavedDataFile.serializer(EnderDragonFightData.serializer()),
-        SavedDataScope.Dimension(dimensionDirectory),
-    )
-
-    suspend fun writeEnderDragonFightData(
-        enderDragonFightData: SavedDataFile<EnderDragonFightData>,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.End,
-    ) = writeSavedData(
-        ENDER_DRAGON_FIGHT_IDENTIFIER,
-        SavedDataFile.serializer(EnderDragonFightData.serializer()),
-        enderDragonFightData,
-        SavedDataScope.Dimension(dimensionDirectory),
-    )
-
-    suspend fun readStatisticsText(playerUuid: String): String =
-        read(WorldResourceKey.Statistics(playerUuid)) { playerStatisticsStore.readText(playerUuid) }
-
-    suspend fun readStatisticsJson(playerUuid: String, json: Json = Json): JsonElement =
-        read(WorldResourceKey.Statistics(playerUuid)) { playerStatisticsStore.readJson(playerUuid, json) }
-
-    suspend fun <T> readStatistics(
-        playerUuid: String,
-        deserializationStrategy: DeserializationStrategy<T>,
-        json: Json = Json,
-    ): T = read(WorldResourceKey.Statistics(playerUuid)) {
-        playerStatisticsStore.read(playerUuid, deserializationStrategy, json)
-    }
-
-    suspend inline fun <reified T> readStatistics(playerUuid: String, json: Json = Json): T =
-        readStatistics(playerUuid, json.serializersModule.serializer(), json)
-
-    suspend fun <T> readStatistics(playerUuid: String, block: (BufferedSource) -> T): T =
-        read(WorldResourceKey.Statistics(playerUuid)) { playerStatisticsStore.read(playerUuid, block) }
-
-    suspend fun writeStatisticsText(playerUuid: String, text: String) =
-        write(WorldResourceKey.Statistics(playerUuid)) { playerStatisticsStore.writeText(playerUuid, text) }
-
-    suspend fun writeStatisticsJson(playerUuid: String, jsonElement: JsonElement, json: Json = Json) =
-        write(WorldResourceKey.Statistics(playerUuid)) {
-            playerStatisticsStore.writeJson(playerUuid, jsonElement, json)
-        }
-
-    suspend fun <T> writeStatistics(
-        playerUuid: String,
-        serializationStrategy: SerializationStrategy<T>,
-        value: T,
-        json: Json = Json,
-    ) = write(WorldResourceKey.Statistics(playerUuid)) {
-        playerStatisticsStore.write(playerUuid, serializationStrategy, value, json)
-    }
-
-    suspend inline fun <reified T> writeStatistics(playerUuid: String, value: T, json: Json = Json) =
-        writeStatistics(playerUuid, json.serializersModule.serializer(), value, json)
-
-    suspend fun writeStatistics(playerUuid: String, block: (BufferedSink) -> Unit) =
-        write(WorldResourceKey.Statistics(playerUuid)) { playerStatisticsStore.write(playerUuid, block) }
-
-    suspend fun readAdvancementsText(playerUuid: String): String =
-        read(WorldResourceKey.Advancements(playerUuid)) { playerAdvancementsStore.readText(playerUuid) }
-
-    suspend fun readAdvancementsJson(playerUuid: String, json: Json = Json): JsonElement =
-        read(WorldResourceKey.Advancements(playerUuid)) { playerAdvancementsStore.readJson(playerUuid, json) }
-
-    suspend fun <T> readAdvancements(
-        playerUuid: String,
-        deserializationStrategy: DeserializationStrategy<T>,
-        json: Json = Json,
-    ): T = read(WorldResourceKey.Advancements(playerUuid)) {
-        playerAdvancementsStore.read(playerUuid, deserializationStrategy, json)
-    }
-
-    suspend inline fun <reified T> readAdvancements(playerUuid: String, json: Json = Json): T =
-        readAdvancements(playerUuid, json.serializersModule.serializer(), json)
-
-    suspend fun <T> readAdvancements(playerUuid: String, block: (BufferedSource) -> T): T =
-        read(WorldResourceKey.Advancements(playerUuid)) { playerAdvancementsStore.read(playerUuid, block) }
-
-    suspend fun writeAdvancementsText(playerUuid: String, text: String) =
-        write(WorldResourceKey.Advancements(playerUuid)) { playerAdvancementsStore.writeText(playerUuid, text) }
-
-    suspend fun writeAdvancementsJson(playerUuid: String, jsonElement: JsonElement, json: Json = Json) =
-        write(WorldResourceKey.Advancements(playerUuid)) {
-            playerAdvancementsStore.writeJson(playerUuid, jsonElement, json)
-        }
-
-    suspend fun <T> writeAdvancements(
-        playerUuid: String,
-        serializationStrategy: SerializationStrategy<T>,
-        value: T,
-        json: Json = Json,
-    ) = write(WorldResourceKey.Advancements(playerUuid)) {
-        playerAdvancementsStore.write(playerUuid, serializationStrategy, value, json)
-    }
-
-    suspend inline fun <reified T> writeAdvancements(playerUuid: String, value: T, json: Json = Json) =
-        writeAdvancements(playerUuid, json.serializersModule.serializer(), value, json)
-
-    suspend fun writeAdvancements(playerUuid: String, block: (BufferedSink) -> Unit) =
-        write(WorldResourceKey.Advancements(playerUuid)) { playerAdvancementsStore.write(playerUuid, block) }
-
-    suspend fun listRegionPositions(
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): List<RegionPosition> = listRegionPositions(RegionStorageDirectory.CHUNKS, dimensionDirectory)
-
-    suspend fun hasRegion(
-        regionPosition: RegionPosition,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): Boolean = openRegion(regionPosition, dimensionDirectory).use(RegionHandle::hasRegion)
-
-    suspend fun openRegion(
-        regionPosition: RegionPosition,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): RegionHandle = openRegion(RegionStorageDirectory.CHUNKS, dimensionDirectory, regionPosition)
-
-    suspend fun listEntityRegionPositions(
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): List<RegionPosition> = listRegionPositions(RegionStorageDirectory.ENTITIES, dimensionDirectory)
-
-    suspend fun hasEntityRegion(
-        regionPosition: RegionPosition,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): Boolean = openEntityRegion(regionPosition, dimensionDirectory).use(EntityRegionHandle::hasRegion)
-
-    suspend fun openEntityRegion(
-        regionPosition: RegionPosition,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): EntityRegionHandle = EntityRegionHandle(
-        openRegion(RegionStorageDirectory.ENTITIES, dimensionDirectory, regionPosition),
-    )
-
-    suspend fun listPoiRegionPositions(
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): List<RegionPosition> = listRegionPositions(RegionStorageDirectory.POINTS_OF_INTEREST, dimensionDirectory)
-
-    suspend fun hasPoiRegion(
-        regionPosition: RegionPosition,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): Boolean = openPoiRegion(regionPosition, dimensionDirectory).use(PoiRegionHandle::hasRegion)
-
-    suspend fun openPoiRegion(
-        regionPosition: RegionPosition,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): PoiRegionHandle = PoiRegionHandle(
-        openRegion(RegionStorageDirectory.POINTS_OF_INTEREST, dimensionDirectory, regionPosition),
-    )
 
     suspend fun flush() = worldOperationLifecycle.withOperation { coordinatedRegionRegistry.flush() }
 
@@ -469,12 +246,12 @@ class MinecraftWorldAccess private constructor(
     }
 
     private suspend fun <T> withSavedData(
-        identifier: String,
+        savedDataId: SavedDataId,
         savedDataScope: SavedDataScope,
         write: Boolean,
         block: (SavedDataStore) -> T,
     ): T {
-        val path = minecraftWorldPaths.savedData(identifier, savedDataScope)
+        val path = minecraftWorldPaths.savedData(savedDataId, savedDataScope)
         val key = WorldResourceKey.SavedData(path)
         val savedDataStore = SavedDataStore(minecraftWorldPaths, savedDataScope, nbtFileStore)
         return if (write) write(key) { block(savedDataStore) } else read(key) { block(savedDataStore) }
@@ -483,30 +260,30 @@ class MinecraftWorldAccess private constructor(
     private suspend fun <T> withUncoordinatedOperation(block: suspend () -> T): T =
         worldOperationLifecycle.withOperation { block() }
 
-    private suspend inline fun <reified T> readLevelDataWithinOperation(): T {
+    private suspend fun readLevelDataWithinOperation(): LevelDat {
         return when (val coordinatedRead = logicalResourceCoordinator.read(WorldResourceKey.LevelData) {
-            levelDataStore.readForSharedAccess<T>()
+            levelDataStore.readForSharedAccess<LevelDat>()
         }) {
             is CoordinatedRead.Complete -> coordinatedRead.value
             CoordinatedRead.RequiresExclusive -> logicalResourceCoordinator.write(WorldResourceKey.LevelData) {
-                levelDataStore.read<T>()
+                levelDataStore.read<LevelDat>()
             }
         }
     }
 
-    private suspend fun listRegionPositions(
+    internal suspend fun listRegionPositions(
         regionStorageDirectory: RegionStorageDirectory,
-        dimensionDirectory: DimensionDirectory,
+        dimensionId: DimensionId,
     ): List<RegionPosition> = withUncoordinatedOperation {
         snapshotRegionPositions(
             nbtFileStore.fileSystem,
-            minecraftWorldPaths.regionDirectory(regionStorageDirectory, dimensionDirectory),
+            minecraftWorldPaths.regionDirectory(regionStorageDirectory, dimensionId),
         )
     }
 
-    private suspend fun openRegion(
+    internal suspend fun openRegion(
         regionStorageDirectory: RegionStorageDirectory,
-        dimensionDirectory: DimensionDirectory,
+        dimensionId: DimensionId,
         regionPosition: RegionPosition,
     ): RegionHandle {
         val worldOperationPin = worldOperationLifecycle.acquire()
@@ -514,7 +291,7 @@ class MinecraftWorldAccess private constructor(
         return withCleanup(cleanup = { if (transferred) null else worldOperationPin.release() }) {
             val regionHandle = coordinatedRegionRegistry.openRegion(
                 regionStorageDirectory,
-                dimensionDirectory,
+                dimensionId,
                 regionPosition,
                 { failure -> worldOperationPin.release(failure) },
             )
@@ -553,13 +330,22 @@ class MinecraftWorldAccess private constructor(
                 rawFileStore,
                 configuration.standaloneNbtFormat,
             )
-            val utf8JsonFileStore = Utf8JsonFileStore(rawFileStore)
+            val utf8JsonFileStore = Utf8JsonFileStore(rawFileStore, configuration.standaloneJson)
             val worldOperationLifecycle = WorldOperationLifecycle(minecraftWorldPaths, worldDirectoryLock)
+            val logicalResourceCoordinator = LogicalResourceCoordinator<WorldResourceKey>()
             return MinecraftWorldAccess(
                 minecraftWorldPaths = minecraftWorldPaths,
                 configuration = configuration,
+                players = MinecraftWorldPlayers(
+                    configuration,
+                    worldOperationLifecycle,
+                    logicalResourceCoordinator,
+                    PlayerDataStore(minecraftWorldPaths, nbtFileStore),
+                    PlayerStatisticsStore(minecraftWorldPaths, utf8JsonFileStore),
+                    PlayerAdvancementsStore(minecraftWorldPaths, utf8JsonFileStore),
+                ),
                 worldOperationLifecycle = worldOperationLifecycle,
-                logicalResourceCoordinator = LogicalResourceCoordinator(),
+                logicalResourceCoordinator = logicalResourceCoordinator,
                 coordinatedRegionRegistry = CoordinatedRegionRegistry(
                     minecraftWorldPaths,
                     worldFileAccess,
@@ -567,9 +353,6 @@ class MinecraftWorldAccess private constructor(
                     configuration.regionStorageConfiguration,
                 ),
                 levelDataStore = LevelDataStore(minecraftWorldPaths, nbtFileStore),
-                playerDataStore = PlayerDataStore(minecraftWorldPaths, nbtFileStore),
-                playerStatisticsStore = PlayerStatisticsStore(minecraftWorldPaths, utf8JsonFileStore),
-                playerAdvancementsStore = PlayerAdvancementsStore(minecraftWorldPaths, utf8JsonFileStore),
                 nbtFileStore = nbtFileStore,
                 utf8JsonFileStore = utf8JsonFileStore,
                 worldDataPackReader = WorldDataPackReader(
@@ -584,7 +367,7 @@ class MinecraftWorldAccess private constructor(
     }
 }
 
-private sealed interface WorldResourceKey {
+internal sealed interface WorldResourceKey {
     data object LevelData : WorldResourceKey
 
     data class PlayerData(val playerUuid: String) : WorldResourceKey
@@ -595,8 +378,3 @@ private sealed interface WorldResourceKey {
 
     data class Advancements(val playerUuid: String) : WorldResourceKey
 }
-
-internal const val WORLD_BORDER_IDENTIFIER = "minecraft:world_border"
-internal const val CHUNK_TICKETS_IDENTIFIER = "minecraft:chunk_tickets"
-internal const val RAIDS_IDENTIFIER = "minecraft:raids"
-internal const val ENDER_DRAGON_FIGHT_IDENTIFIER = "minecraft:ender_dragon_fight"

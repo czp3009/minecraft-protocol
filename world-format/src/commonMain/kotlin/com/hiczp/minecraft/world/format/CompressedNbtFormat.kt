@@ -47,9 +47,9 @@ class CompressedNbtFormat(
 
     /** Decodes a caller-selected serializable value from one compressed Chunk stream. */
     fun <T> decodeFromSource(
-        deserializationStrategy: DeserializationStrategy<T>,
         source: Source,
         compression: Compression,
+        deserializationStrategy: DeserializationStrategy<T>,
     ): T = decodeCompressed(source, compression) {
         nbtFormat.decodeFromSource(deserializationStrategy, it)
     }
@@ -68,10 +68,10 @@ class CompressedNbtFormat(
 
     /** Encodes a caller-selected serializable value into one compressed Chunk stream. */
     fun <T> encodeToSink(
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
         compression: Compression,
         sink: Sink,
+        serializationStrategy: SerializationStrategy<T>,
     ) = encodeCompressed(compression, sink) {
         nbtFormat.encodeToSink(serializationStrategy, value, it)
     }
@@ -85,12 +85,12 @@ class CompressedNbtFormat(
 
     /** In-memory adapter over the typed [decodeFromSource] path. */
     fun <T> decode(
-        deserializationStrategy: DeserializationStrategy<T>,
         compressedChunk: CompressedChunk,
+        deserializationStrategy: DeserializationStrategy<T>,
     ): T {
         val source = Buffer()
         compressedChunk.writeTo(source)
-        return decodeFromSource(deserializationStrategy, source, compressedChunk.compression)
+        return decodeFromSource(source, compressedChunk.compression, deserializationStrategy)
     }
 
     /**
@@ -108,12 +108,12 @@ class CompressedNbtFormat(
 
     /** In-memory adapter over the typed [encodeToSink] path. */
     fun <T> encode(
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
         compression: Compression = Compression.ZLIB,
+        serializationStrategy: SerializationStrategy<T>,
     ): CompressedChunk {
         val compressed = Buffer()
-        encodeToSink(serializationStrategy, value, compression, compressed)
+        encodeToSink(value, compression, compressed, serializationStrategy)
         return CompressedChunk.takeOwnership(compression, compressed.readByteArray())
     }
 
@@ -143,18 +143,18 @@ class CompressedNbtFormat(
 inline fun <reified T> CompressedNbtFormat.decodeFromSource(
     source: Source,
     compression: Compression,
-): T = decodeFromSource(nbtFormat.serializersModule.serializer(), source, compression)
+): T = decodeFromSource(source, compression, nbtFormat.serializersModule.serializer())
 
 inline fun <reified T> CompressedNbtFormat.encodeToSink(
     value: T,
     compression: Compression,
     sink: Sink,
-) = encodeToSink(nbtFormat.serializersModule.serializer(), value, compression, sink)
+) = encodeToSink(value, compression, sink, nbtFormat.serializersModule.serializer())
 
 inline fun <reified T> CompressedNbtFormat.decode(compressedChunk: CompressedChunk): T =
-    decode(nbtFormat.serializersModule.serializer(), compressedChunk)
+    decode(compressedChunk, nbtFormat.serializersModule.serializer())
 
 inline fun <reified T> CompressedNbtFormat.encode(
     value: T,
     compression: Compression = Compression.ZLIB,
-): CompressedChunk = encode(nbtFormat.serializersModule.serializer(), value, compression)
+): CompressedChunk = encode(value, compression, nbtFormat.serializersModule.serializer())

@@ -2,7 +2,6 @@ package com.hiczp.minecraft.world.io
 
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.serializer
 import okio.BufferedSink
@@ -13,36 +12,30 @@ class PlayerAdvancementsStore(
     val minecraftWorldPaths: MinecraftWorldPaths,
     val utf8JsonFileStore: Utf8JsonFileStore = Utf8JsonFileStore(),
 ) {
-    fun readText(playerUuid: String): String = utf8JsonFileStore.readText(minecraftWorldPaths.advancement(playerUuid))
+    fun readJson(playerUuid: String): JsonElement? =
+        utf8JsonFileStore.readJsonElementOrNull(minecraftWorldPaths.advancements(playerUuid))
 
-    fun readJson(playerUuid: String, json: Json = Json): JsonElement =
-        utf8JsonFileStore.readJsonElement(minecraftWorldPaths.advancement(playerUuid), json)
+    fun <T> read(playerUuid: String, deserializationStrategy: DeserializationStrategy<T>): T? =
+        utf8JsonFileStore.readJsonOrNull(minecraftWorldPaths.advancements(playerUuid), deserializationStrategy)
 
-    fun <T> read(playerUuid: String, deserializationStrategy: DeserializationStrategy<T>, json: Json = Json): T =
-        utf8JsonFileStore.readJson(minecraftWorldPaths.advancement(playerUuid), deserializationStrategy, json)
+    inline fun <reified T> read(playerUuid: String): T? =
+        read(playerUuid, utf8JsonFileStore.json.serializersModule.serializer())
 
-    inline fun <reified T> read(playerUuid: String, json: Json = Json): T =
-        read(playerUuid, json.serializersModule.serializer(), json)
+    fun <T> read(playerUuid: String, block: (BufferedSource) -> T): T? =
+        utf8JsonFileStore.readJsonOrNull(minecraftWorldPaths.advancements(playerUuid), block)
 
-    fun <T> read(playerUuid: String, block: (BufferedSource) -> T): T =
-        utf8JsonFileStore.read(minecraftWorldPaths.advancement(playerUuid), block)
-
-    fun writeText(playerUuid: String, text: String) =
-        utf8JsonFileStore.writeText(minecraftWorldPaths.advancement(playerUuid), text)
-
-    fun writeJson(playerUuid: String, jsonElement: JsonElement, json: Json = Json) =
-        utf8JsonFileStore.writeJsonElement(minecraftWorldPaths.advancement(playerUuid), jsonElement, json)
+    fun writeJson(playerUuid: String, jsonElement: JsonElement) =
+        utf8JsonFileStore.writeJsonElement(minecraftWorldPaths.advancements(playerUuid), jsonElement)
 
     fun <T> write(
         playerUuid: String,
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
-        json: Json = Json,
-    ) = utf8JsonFileStore.writeJson(minecraftWorldPaths.advancement(playerUuid), serializationStrategy, value, json)
+        serializationStrategy: SerializationStrategy<T>,
+    ) = utf8JsonFileStore.writeJson(minecraftWorldPaths.advancements(playerUuid), value, serializationStrategy)
 
-    inline fun <reified T> write(playerUuid: String, value: T, json: Json = Json) =
-        write(playerUuid, json.serializersModule.serializer(), value, json)
+    inline fun <reified T> write(playerUuid: String, value: T) =
+        write(playerUuid, value, utf8JsonFileStore.json.serializersModule.serializer())
 
     fun write(playerUuid: String, block: (BufferedSink) -> Unit) =
-        utf8JsonFileStore.write(minecraftWorldPaths.advancement(playerUuid), block)
+        utf8JsonFileStore.writeJson(minecraftWorldPaths.advancements(playerUuid), block)
 }

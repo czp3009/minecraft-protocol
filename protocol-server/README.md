@@ -113,7 +113,7 @@ world file packs can combine [`world-io`](../world-io/README.md) with the vanill
 suspend fun optionsFromWorldPacks(
     minecraftWorldAccess: MinecraftWorldAccess,
 ): MinecraftServerNegotiationOptions {
-    val protocolData = minecraftWorldAccess.readEnabledDataPacks().toVanillaProtocolData()
+    val protocolData = minecraftWorldAccess.dataPacks.readEnabled().toVanillaProtocolData()
     return MinecraftServerNegotiationOptions(protocolData = protocolData)
 }
 ```

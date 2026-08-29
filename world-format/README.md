@@ -8,7 +8,7 @@ Use it for:
 - semantic Chunk, Section, palette, Block Entity, Entity, Entity Chunk, and POI Chunk values;
 - safe conversion between Block, Section, Chunk, and Region coordinates;
 - the generated `MinecraftWorldFormat.WORLD_VERSION` for the repository-selected official world format;
-- selected-release `level.dat`, player data, dimension saved-data, advancement, and statistics models;
+- selected-release `level.dat`, player data, root/dimension saved-data, advancement, and statistics models;
 - GZIP, ZLIB, uncompressed, Minecraft's legacy LZ4 block stream, and custom compression;
 - compressed unnamed-root Chunk NBT;
 - low-level `.mca` Anvil containers and external Chunk records;
@@ -275,10 +275,13 @@ Unchanged compressed records can be inspected or repacked without decompression.
 ## Structured files and data packs
 
 The module includes serializers for the repository-selected `LevelDat`, `PlayerData`, `PlayerAdvancements`, and
-`PlayerStatistics` schemas. `SavedDataFile<T>` models the shared `DataVersion`/`data` envelope; built-in dimension data
-models cover world borders, Chunk tickets, raids, and the Ender Dragon fight. Registry-dependent player subtrees remain
-raw NBT while their stable enclosing structure is typed. These models do not migrate historical files. Typed decoding is
-strict; use `NbtDocument`, `NbtTag`, or `JsonElement` for open-ended data.
+`PlayerStatistics` schemas. Saved-data models live in `com.hiczp.minecraft.world.format.data`.
+`SavedDataFile<T>` models their shared `DataVersion`/`data` envelope. Root models cover world-generation settings, world
+clocks, weather, the wandering trader, stopwatches, the scoreboard, scheduled events, random sequences, game rules,
+custom boss events, and map data. Dimension models cover world borders, Chunk tickets, raids, and the Ender Dragon
+fight. Registry-dependent or dynamically dispatched subtrees remain raw NBT while their stable enclosing structure is
+typed. These models do not migrate historical files. Typed decoding is strict; use `NbtDocument`,
+`NbtTag`, or `JsonElement` for open-ended data.
 
 The data-pack API is also filesystem-independent:
 

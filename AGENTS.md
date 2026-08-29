@@ -92,6 +92,14 @@ Keep physical byte encoding out of models, socket and framing behavior out of se
   cleanup failure as suppressed context.
 - Use maintained format-aware libraries for JSON, XML, form data, and other structured formats. Never assemble or escape
   structured data with string concatenation or templates. JSON uses `kotlinx.serialization.json`.
+- When a reified serialization overload mirrors an explicit strategy overload, preserve the shared parameter order and
+  append the `SerializationStrategy` or `DeserializationStrategy`. Resolve the reified serializer from the executing
+  format's `serializersModule`; use top-level `serializer<T>()` only when no format/module context exists.
+- Give built-in typed conveniences, explicit-strategy overloads, and reified serialization overloads the same Kotlin
+  operation name. Use `@JvmName` to resolve an erased JVM signature clash instead of adding an `As` suffix or a dummy
+  public parameter; reserve representation suffixes such as `Document` and `Json` for genuinely different value forms.
+- Validate KMP overload symmetry by inspecting source pairs and compiling ordinary Kotlin calls on every affected
+  backend. Do not make JVM reflection or erased bytecode signatures the test contract for a multiplatform source API.
 - Public library HTTP APIs and online-login flows borrow a caller-configured Ktor `HttpClient`. Do not create or
   configure an engine, install plugins on the caller's behalf, close the client, or add implicit retry, cache, or token
   policy.

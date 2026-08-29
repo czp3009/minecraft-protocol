@@ -4,9 +4,14 @@
 work with:
 
 ```text
-world -> Chunk Region -> Chunk -> Section -> block or biome
-world -> Entity Region -> Entity Chunk -> Entity -> passengers
-world -> POI Region -> POI Chunk -> POI Section -> POI record
+world -> level.dat
+world -> dimensions -> dimension -> Chunk Region -> Chunk -> Section -> block or biome
+                                -> Entity Region -> Entity Chunk -> Entity -> passengers
+                                -> POI Region -> POI Chunk -> POI Section -> POI record
+                                -> data -> namespaced saved data
+world -> players -> player data, statistics, and advancements
+world -> data -> namespaced saved data
+world -> dataPacks -> directory or ZIP pack -> data-pack file
 ```
 
 Physical `.mca`/`.mcc` details are hidden behind Region handles. Filesystem-independent coordinates, compression, NBT
@@ -25,6 +30,21 @@ applications should use the filesystem-independent modules.
 All filesystem types exposed by this module are Okio types: `Path`, `FileSystem`, `FileHandle`, `BufferedSource`, and
 `BufferedSink`. Filesystem failures visible through `world-io` are in Okio's `IOException` hierarchy; NBT, compression,
 Anvil, and serialization failures retain their own semantic exception categories.
+
+## Quick start
+
+Given an open `MinecraftWorldAccess` and a player UUID, common standalone files need no format or serializer arguments:
+
+```kotlin
+val levelData = minecraftWorldAccess.readLevelData()
+val playerUuids = minecraftWorldAccess.players.listUuids()
+val playerData = minecraftWorldAccess.players.readData(playerUuid)
+val playerStatistics = minecraftWorldAccess.players.readStatistics(playerUuid)
+val playerAdvancements = minecraftWorldAccess.players.readAdvancements(playerUuid)
+val worldDataPackLoadResult = minecraftWorldAccess.dataPacks.readEnabled()
+val overworld = minecraftWorldAccess.dimensions.overworld
+val chunkTicketsData = overworld.data.readChunkTicketsData()
+```
 
 ## Choose an API layer
 
@@ -45,7 +65,12 @@ owns its own open/close lifetime, so two separate caller operations may open one
 reuses its source for tasks such as saved-data compression detection and decoding.
 
 Every typed NBT and JSON store operation has both an explicit serialization-strategy overload and a reified overload.
-JSON tree operations use the distinct `readJsonElement` and `writeJsonElement` names.
+The reified overload resolves through the exact `NbtFormat` or `Json` instance's `serializersModule`, including
+contextual serializers. The explicit strategy is the final parameter after the arguments shared with the reified
+overload. `NbtFileStore` and `Utf8JsonFileStore` capture those format instances at construction instead of accepting a
+format on every operation. World access supplies `standaloneNbtFormat` and `standaloneJson` once through its immutable
+configuration; data-pack parsing retains its separate `DataPackFormat`. JSON tree operations use the distinct
+`readJsonElement` and `writeJsonElement` names.
 
 Stateless does not mean read-only: a directly constructed `LevelDataStore` may promote `level.dat_old`, and a
 `PlayerDataStore` may preserve corrupt evidence. Such policy operations do not acquire a logical lock on the caller's
@@ -69,10 +94,12 @@ suspend fun readBlock(
     minecraftWorldAccess: MinecraftWorldAccess,
     blockPosition: BlockPosition,
     chunkNbtCodec: ChunkNbtCodec<BlockStateDescriptor, String>,
-): BlockStateDescriptor? = minecraftWorldAccess.openRegion(blockPosition.regionPosition).use { regionHandle ->
-    val chunk = regionHandle.readChunk(blockPosition, chunkNbtCodec) ?: return@use null
-    chunk.block(blockPosition)
-}
+): BlockStateDescriptor? = minecraftWorldAccess.dimensions.overworld
+    .openRegion(blockPosition.regionPosition)
+    .use { regionHandle ->
+        val chunk = regionHandle.readChunk(blockPosition, chunkNbtCodec) ?: return@use null
+        chunk.block(blockPosition)
+    }
 ```
 
 Constructing `ChunkNbtCodec` and navigating the returned semantic Chunk are covered in
@@ -181,7 +208,7 @@ suspend fun <B : Any, M : Any> readRegionChunks(
     minecraftWorldAccess: MinecraftWorldAccess,
     regionPosition: RegionPosition,
     chunkNbtCodec: ChunkNbtCodec<B, M>,
-): List<Chunk<B, M>> = minecraftWorldAccess.openRegion(regionPosition).use { regionHandle ->
+): List<Chunk<B, M>> = minecraftWorldAccess.dimensions.overworld.openRegion(regionPosition).use { regionHandle ->
     regionHandle.withReadScope {
         this.chunkPositions.mapNotNull { readChunk(it, chunkNbtCodec) }.toList()
     }
@@ -207,9 +234,9 @@ stream/document, and serializer reads from `AnvilRegionReadScope`. Their `readCh
 type owned by that handle. Values, sequences, and streams borrowed from a scope do not escape its callback.
 `replaceRegion { ... }` is the mutable handle's matching staged complete-replacement scope.
 
-List existing Chunk, Entity, or POI Regions with `listRegionPositions()`, `listEntityRegionPositions()`, and
-`listPoiRegionPositions()`. These return complete detached directory snapshots and are not transactionally consistent
-with concurrent external changes.
+On a selected dimension, list existing Chunk, Entity, or POI Regions with `listRegionPositions()`,
+`listEntityRegionPositions()`, and `listPoiRegionPositions()`. These return complete detached directory snapshots and
+are not transactionally consistent with concurrent external changes.
 
 ## Read and write Entities
 
@@ -221,7 +248,8 @@ suspend fun readEntities(
     chunkPosition: ChunkPosition,
 ): EntityChunk<NbtCompound>? {
     val entityChunkNbtCodec = EntityChunkNbtCodec(NbtEntityDataRegistry())
-    return minecraftWorldAccess.openEntityRegion(chunkPosition.regionPosition).use { entityRegionHandle ->
+    return minecraftWorldAccess.dimensions.overworld
+        .openEntityRegion(chunkPosition.regionPosition).use { entityRegionHandle ->
         entityRegionHandle.readChunk(chunkPosition, entityChunkNbtCodec)
     }
 }
@@ -247,7 +275,7 @@ suspend fun addPoi(
     minecraftWorldAccess: MinecraftWorldAccess,
     poiRecord: PoiRecord,
 ) {
-    minecraftWorldAccess.openPoiRegion(poiRecord.regionPosition).use { poiRegionHandle ->
+    minecraftWorldAccess.dimensions.overworld.openPoiRegion(poiRecord.regionPosition).use { poiRegionHandle ->
         val poiChunk = poiRegionHandle.readChunk(poiRecord.chunkPosition)
             ?: PoiChunk(poiRecord.chunkPosition, MinecraftWorldFormat.WORLD_VERSION)
         poiChunk.addRecord(poiRecord)
@@ -271,9 +299,9 @@ fun readLiveChunk(
     chunkNbtCodec: ChunkNbtCodec<BlockStateDescriptor, String>,
 ): Chunk<BlockStateDescriptor, String>? {
     val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(worldPath)
-    return liveMinecraftWorldAccess.openRegion(chunkPosition.regionPosition).use { liveRegionHandle ->
-        liveRegionHandle.readChunk(chunkPosition, chunkNbtCodec)
-    }
+    return liveMinecraftWorldAccess.dimensions.overworld
+        .openRegion(chunkPosition.regionPosition)
+        .use { liveRegionHandle -> liveRegionHandle.readChunk(chunkPosition, chunkNbtCodec) }
 }
 ```
 
@@ -294,11 +322,13 @@ fun <B : Any, M : Any> readLiveRegionChunks(
     liveMinecraftWorldAccess: LiveMinecraftWorldAccess,
     regionPosition: RegionPosition,
     chunkNbtCodec: ChunkNbtCodec<B, M>,
-): List<Chunk<B, M>> = liveMinecraftWorldAccess.openRegion(regionPosition).use { liveRegionHandle ->
-    liveRegionHandle.withReadScope {
-        this.chunkPositions.mapNotNull { readChunk(it, chunkNbtCodec) }.toList()
+): List<Chunk<B, M>> = liveMinecraftWorldAccess.dimensions.overworld
+    .openRegion(regionPosition)
+    .use { liveRegionHandle ->
+        liveRegionHandle.withReadScope {
+            this.chunkPositions.mapNotNull { readChunk(it, chunkNbtCodec) }.toList()
+        }
     }
-}
 ```
 
 The cached header is an optimization, not a snapshot promise. Another process may write, delete, replace, or reuse the
@@ -310,20 +340,37 @@ smaller observation window. `openEntityRegion` and `openPoiRegion` provide the s
 
 ## Read world data packs
 
-Both world access modes expose the same read-only data-pack operations, with only the mutable side being `suspend`. They
-inspect and read enabled directory or ZIP packs under `datapacks`; the no-argument operations obtain the complete
-selection and feature configuration from `level.dat`:
+Both world access modes expose a `dataPacks` child with the same read-only operations; only the mutable side is
+`suspend`. They inspect and read directory or ZIP packs under `datapacks`. The no-argument enabled-pack operations
+obtain the complete selection and feature configuration from `level.dat`:
 
 ```kotlin
 suspend fun readApprovedDataPacks(
     minecraftWorldAccess: MinecraftWorldAccess,
     approve: (DataPackInspection) -> Boolean,
 ): WorldDataPackLoadResult? {
-    val dataPackInspections = minecraftWorldAccess.inspectEnabledFileDataPacks()
+    val dataPackInspections = minecraftWorldAccess.dataPacks.inspectEnabledFiles()
     if (!dataPackInspections.all(approve)) return null
-    return minecraftWorldAccess.readEnabledDataPacks()
+    return minecraftWorldAccess.dataPacks.readEnabled()
 }
 ```
+
+For a specific `file/...` pack, the same child exposes its parsed, raw archive, inspection, and borrowed-file forms:
+
+```kotlin
+suspend fun readPackMetadata(
+    minecraftWorldAccess: MinecraftWorldAccess,
+    dataPackId: DataPackId,
+): DataPackFileBytes = minecraftWorldAccess.dataPacks.readFile(
+    dataPackId,
+    DataPackFilePath("pack.mcmeta"),
+)
+```
+
+`dataPacks.read(dataPackId)` returns the parsed `DataPack`, while `readArchive(dataPackId)` returns the complete raw
+`DataPackArchive`; both also accept the result of `inspect` to reuse that inspected file set. A single-pack `DataPackId`
+must use the persisted `file/<container-name>` form; the child resolves it inside the world's `datapacks` directory.
+`readFile` likewise accepts either the ID for the shortest path or an inspection when the caller first checks sizes.
 
 Inspection exposes paths and declared sizes before file contents are loaded. On-disk data packs are immutable inputs for
 the lifetime of their reader use, so `WorldDataPackReader` adds no data-pack read lock or mutation coordinator. The
@@ -340,8 +387,9 @@ project the complete selection directly into Configuration data. The vanilla-neu
 [`world-format`](../world-format/README.md#structured-files-and-data-packs) and
 [`protocol-datapack`](../protocol-datapack/README.md).
 
-`WorldDataPackReader` also exposes `inspectDataPack`, `readDataPack`, `readDataPackArchive`, and `readDataPackFile` for
-an explicitly selected directory or ZIP without opening a mutable world lease.
+The lower-level `WorldDataPackReader` exposes matching `DataPackId` overloads as well as
+`inspectDataPack`/`readDataPack`/`readDataPackArchive` overloads for an explicitly supplied directory or ZIP path. Use
+it when the caller owns filesystem and lifetime policy instead of opening a world facade.
 
 Directory entries and Okio ZIP files use the borrowed-source path directly. Kotlin/JS Node is the platform exception:
 Okio has no ZIP filesystem there and the maintained `adm-zip` API exposes a decompressed entry only as a complete byte
@@ -350,9 +398,9 @@ methods necessarily retain each `DataPackFileBytes` value they return on every p
 
 ## Access an exact file without semantic coordination
 
-Both world facades expose `directFiles` with matching raw, NBT, and UTF-8 JSON reads. The mutable version also exposes
-writes and makes every call participate in the world's close barrier; the live version is synchronous and read-only. For
-example:
+Both world facades expose `directFiles` with matching raw, NBT, and structured JSON reads. The mutable version also
+exposes writes and makes every call participate in the world's close barrier; the live version is synchronous and
+read-only. For example:
 
 ```kotlin
 suspend fun readUncoordinatedNbt(
@@ -363,6 +411,7 @@ suspend fun readUncoordinatedNbt(
 
 Serializable models can use `directFiles.readNbt<Model>(path)` and `directFiles.readJson<Model>(path)`. Corresponding
 overloads accept an explicit deserialization strategy, and mutable direct access also provides both forms for writes.
+These operations use the formats captured by the world access configuration; they do not accept per-call format objects.
 
 The path is used exactly as supplied. It is not resolved below the world root, canonicalized into a logical key, or
 checked against `session.lock`, metadata files, Regions, or paths outside the world. Direct calls do not coordinate with
@@ -370,37 +419,114 @@ each other or with semantic methods. In particular, changing an `.mca` or `.mcc`
 can invalidate its retained Header/allocation state. The caller owns every such race; use semantic APIs when coordinated
 behavior is required.
 
-## Other world files
+## Standalone world, player, and dimension files
 
-`MinecraftWorldAccess` provides typed, generic-document/text, and stream operations for:
+`MinecraftWorldAccess` keeps `level.dat` on the world facade. Its `data` child owns namespaced saved data under the root
+`data` directory, while its `players` child owns the standard UUID-keyed player files:
 
-- `level.dat`;
-- player NBT by UUID, including the selected-release `PlayerData` model;
-- saved data by identifier and explicit `SavedDataScope.WorldRoot` or `SavedDataScope.Dimension`;
-- player statistics JSON;
-- player advancements JSON.
+- `players/data/<uuid>.dat`, including the selected-release `PlayerData` model;
+- `players/stats/<uuid>.json`;
+- `players/advancements/<uuid>.json`.
 
-For example, the built-in selected-release model can be read directly:
+`players.listUuids()` returns a sorted detached snapshot derived only from the current and previous files under
+`players/data`; statistics and advancements do not add UUIDs to that list. The mutable operation is `suspend` and joins
+the world close lifecycle, while the corresponding live operation is synchronous.
+
+These APIs provide built-in strong models, same-named serializer/reified operations for custom models, NBT documents or
+JSON elements, and callback-bound streams. The strong methods do not expose whether the file uses NBT or JSON. They also
+do not expose JSON-as-`String` convenience methods; use the structured JSON or raw callback path according to the
+representation required by the caller. Because each UUID-keyed player file is optional, every read form returns `null`
+when its file is missing.
+
+A custom schema uses the same operation name with either an explicit serializer or a type argument, such as
+`players.readStatistics<ModStatistics>(playerUuid)`. The `dimensions` child owns every dimension-scoped file. Select a
+built-in dimension through `overworld`, `nether`, or `end`, or select another namespaced dimension with `DimensionId`:
 
 ```kotlin
-suspend fun readLevelData(minecraftWorldAccess: MinecraftWorldAccess): LevelDat =
-    minecraftWorldAccess.readLevelData()
+val overworld = minecraftWorldAccess.dimensions.overworld
+val moon = minecraftWorldAccess.dimensions[
+    DimensionId(path = "moon", namespace = "example"),
+]
 ```
 
-`readPlayerData(playerUuid)` similarly returns `PlayerData`. For dimension data, the built-in strong entry points are
-`readWorldBorderData`, `readChunkTicketsData`, `readRaidsData`, and `readEnderDragonFightData`; mutable access provides
-same-named writes. They all delegate the identifier and dimension to the generic saved-data methods, so each operation
-uses one resolved logical key, one coordination boundary, and one physical open. Use `readSavedData`/
-`writeSavedData` with a serializer or a borrowed `BufferedSource`/`BufferedSink` for another identifier instead of
-adding a parallel storage path.
+The root and every selected dimension expose the same saved-data operations through their `data` child. Assume
+`ModState` is the caller's `@Serializable` model; both locations remain format-independent at the call site:
 
-The live access class exposes every corresponding read-only operation with the same names and parameters. Its only shape
-differences are the absence of `suspend`, writes, and world-close ownership. Use `NbtDocument`, `NbtTag`,
-`JsonElement`, or stream entry points when arbitrary modded or future fields must be retained.
+```kotlin
+suspend fun readRootModState(
+    minecraftWorldAccess: MinecraftWorldAccess,
+): ModState? = minecraftWorldAccess.data.read<ModState>(
+    SavedDataId(path = "state", namespace = "example"),
+)
+
+suspend fun readOverworldModState(
+    minecraftWorldAccess: MinecraftWorldAccess,
+): ModState? = minecraftWorldAccess.dimensions.overworld.data.read<ModState>(
+    SavedDataId(path = "state", namespace = "example"),
+)
+```
+
+Root vanilla files deliberately use this same generic API instead of one convenience method per file. Their models are
+in `com.hiczp.minecraft.world.format.data`; the default namespace is `minecraft`:
+
+| `SavedDataId.path`   | Strong payload type    |
+|----------------------|------------------------|
+| `world_gen_settings` | `WorldGenSettingsData` |
+| `world_clocks`       | `WorldClocksData`      |
+| `weather`            | `WeatherData`          |
+| `wandering_trader`   | `WanderingTraderData`  |
+| `stopwatches`        | `StopwatchesData`      |
+| `scoreboard`         | `ScoreboardData`       |
+| `scheduled_events`   | `ScheduledEventsData`  |
+| `random_sequences`   | `RandomSequencesData`  |
+| `game_rules`         | `GameRulesData`        |
+| `custom_boss_events` | `CustomBossEventsData` |
+| `maps/last_id`       | `MapIndexData`         |
+| `maps/<id>`          | `MapData`              |
+
+For example, this reads three different shapes and performs a strongly typed mutable write without exposing NBT at the
+call site:
+
+```kotlin
+suspend fun editRootSavedData(
+    minecraftWorldAccess: MinecraftWorldAccess,
+    mapId: Int,
+) {
+    val gameRulesId = SavedDataId("game_rules")
+    val gameRules = checkNotNull(
+        minecraftWorldAccess.data.read<SavedDataFile<GameRulesData>>(gameRulesId),
+    )
+    minecraftWorldAccess.data.write(
+        gameRulesId,
+        gameRules.copy(data = gameRules.data.copy(keepInventory = true)),
+    )
+
+    val worldClocks = minecraftWorldAccess.data.read<SavedDataFile<WorldClocksData>>(
+        SavedDataId("world_clocks"),
+    )
+    val map = minecraftWorldAccess.data.read<SavedDataFile<MapData>>(
+        SavedDataId("maps/$mapId"),
+    )
+}
+```
+
+Every file is optional, so `worldClocks` and `map` above are nullable and `checkNotNull` is only an application choice.
+The matching live calls use the same `data.read<T>(SavedDataId)` form; live access has no writes.
+
+`data.read`/`data.write` also accept an explicit serializer as their final parameter. `data.readDocument`/
+`data.writeDocument` expose NBT documents, while same-named callback overloads lend a decompressed `BufferedSource` or
+`BufferedSink`. Missing reads return `null` in every form. Dimension data additionally provides the built-in strong
+`readWorldBorderData`, `readChunkTicketsData`, `readRaidsData`, and `readEnderDragonFightData` operations; mutable
+access provides same-named writes.
+
+The live access class exposes every corresponding read-only operation, including its own `players` child, with the same
+names and parameters. Its only shape differences are the absence of `suspend`, writes, and world-close ownership. Use
+`NbtDocument`, `NbtTag`, `JsonElement`, or stream entry points when arbitrary modded or future fields must be retained.
 
 For the repository-selected layout, each dimension can therefore use coordinated and live forms of all four on-disk
-families: `region/*.mca`, `entities/*.mca`, `poi/*.mca`, and `data/<namespace>/*.dat`. The player directory has the same
-paired strong/generic/stream paths for `players/data/*.dat`, plus typed JSON access for advancements and statistics.
+families: `region/*.mca`, `entities/*.mca`, `poi/*.mca`, and `data/<namespace>/<path>.dat`. The player directory has the
+same paired strong/generic/stream paths for `players/data/*.dat`, plus typed JSON access for advancements and
+statistics.
 
 Level reads fall back to `level.dat_old` and mutable access attempts to promote the usable fallback under exclusive
 logical admission. Once the fallback has been parsed, an I/O failure while promoting it does not turn that successful
@@ -413,10 +539,10 @@ does not match the caller's serializer fails normally and never triggers fallbac
 
 ## Dimensions, execution, and failures
 
-Region methods default to `DimensionDirectory.Overworld`. Pass `DimensionDirectory.Nether`, `DimensionDirectory.End`, or
-a validated custom dimension directory for another dimension. `LegacyOverworld`, `LegacyNether`, and `LegacyEnd` are
-explicit opt-ins for the older root/`DIM-1`/`DIM1` directory layout; the ordinary built-in values use the
-repository-selected release's namespaced dimension paths.
+`DimensionId(path, namespace)` maps only to `dimensions/<namespace>/<path>`. Its namespace defaults to `minecraft`, as
+does `SavedDataId`; both validate every path component before filesystem access. This module intentionally supports only
+the repository-selected namespaced dimension layout. It does not interpret any root-level Region directory or
+`DIM-1`/`DIM1` directory as a dimension.
 
 Neither access mode selects a dispatcher. Filesystem access, compression, and NBT work run in the caller's context, so
 move them away from a UI/main thread where required.

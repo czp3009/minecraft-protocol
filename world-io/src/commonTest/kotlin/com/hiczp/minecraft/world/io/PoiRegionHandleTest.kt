@@ -42,14 +42,14 @@ class PoiRegionHandleTest {
         val poiDocument = poiChunkNbtCodec.encodeDocument(poiChunk)
         val minecraftWorldAccess = MinecraftWorldAccess.create(minecraftWorldPaths, fakeFileSystem)
 
-        assertFalse(minecraftWorldAccess.hasPoiRegion(regionPosition))
-        minecraftWorldAccess.openPoiRegion(regionPosition).use { poiRegionHandle ->
+        assertFalse(minecraftWorldAccess.dimensions.overworld.hasPoiRegion(regionPosition))
+        minecraftWorldAccess.dimensions.overworld.openPoiRegion(regionPosition).use { poiRegionHandle ->
             poiRegionHandle.writeChunk(poiChunk, Compression.NONE)
             poiRegionHandle.writeChunkNbt(
                 typedLocalChunkPosition,
-                LevelDat.serializer(),
                 levelDat,
                 Compression.NONE,
+                LevelDat.serializer(),
             )
             poiRegionHandle.writeChunkNbt(typedChunkPosition, levelDat, Compression.NONE)
             assertEquals(levelDat, poiRegionHandle.readChunkNbt(typedChunkPosition, LevelDat.serializer()))
@@ -63,14 +63,14 @@ class PoiRegionHandleTest {
             assertEquals(1, poiRegionHandle.readChunk(localChunkPosition)?.recordCount)
             assertEquals(1, poiRegionHandle.withReadScope { readChunk(chunkPosition) }?.recordCount)
         }
-        assertTrue(minecraftWorldAccess.hasPoiRegion(regionPosition))
-        assertEquals(listOf(regionPosition), minecraftWorldAccess.listPoiRegionPositions())
+        assertTrue(minecraftWorldAccess.dimensions.overworld.hasPoiRegion(regionPosition))
+        assertEquals(listOf(regionPosition), minecraftWorldAccess.dimensions.overworld.listPoiRegionPositions())
         minecraftWorldAccess.close()
 
         val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(minecraftWorldPaths.root, fakeFileSystem)
-        assertTrue(liveMinecraftWorldAccess.hasPoiRegion(regionPosition))
-        assertEquals(listOf(regionPosition), liveMinecraftWorldAccess.listPoiRegionPositions())
-        liveMinecraftWorldAccess.openPoiRegion(regionPosition).use { livePoiRegionHandle ->
+        assertTrue(liveMinecraftWorldAccess.dimensions.overworld.hasPoiRegion(regionPosition))
+        assertEquals(listOf(regionPosition), liveMinecraftWorldAccess.dimensions.overworld.listPoiRegionPositions())
+        liveMinecraftWorldAccess.dimensions.overworld.openPoiRegion(regionPosition).use { livePoiRegionHandle ->
             assertEquals(poiDocument, livePoiRegionHandle.readChunkNbtDocument(localChunkPosition))
             assertEquals(levelDat, livePoiRegionHandle.readChunkNbt(typedChunkPosition, LevelDat.serializer()))
             assertEquals(levelDat, livePoiRegionHandle.readChunkNbt<LevelDat>(typedLocalChunkPosition))

@@ -88,7 +88,7 @@ class DataPackFormatTest {
         val biomeJsonFile = assertIs<DataPackFileContent.JsonFile>(
             dataPack.dataPackFileContent(DataPackFilePath("data/test/worldgen/biome/example.json")),
         )
-        assertEquals(BiomeJson(0.5), biomeJsonFile.decode(BiomeJson.serializer()))
+        assertEquals(BiomeJson(0.5), biomeJsonFile.decode(deserializationStrategy = BiomeJson.serializer()))
         assertEquals(BiomeJson(0.5), biomeJsonFile.decode<BiomeJson>())
         assertEquals(
             structureDocument,

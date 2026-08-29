@@ -16,52 +16,66 @@ import okio.BufferedSource
 import okio.FileSystem
 import okio.Path
 
-/** Stateless UTF-8 and JSON operations for caller-supplied exact paths. */
+/** UTF-8 and configured JSON operations for caller-supplied exact paths. */
 class Utf8JsonFileStore internal constructor(
     val rawFileStore: RawFileStore,
+    val json: Json,
 ) {
-    constructor(fileSystem: FileSystem = systemFileSystem) : this(RawFileStore(fileSystem))
+    constructor(
+        fileSystem: FileSystem = systemFileSystem,
+        json: Json = Json,
+    ) : this(RawFileStore(fileSystem), json)
 
-    internal constructor(worldFileAccess: WorldFileAccess) : this(RawFileStore(worldFileAccess))
+    internal constructor(worldFileAccess: WorldFileAccess, json: Json = Json) :
+            this(RawFileStore(worldFileAccess), json)
 
     val fileSystem: FileSystem
         get() = rawFileStore.fileSystem
 
-    fun readText(path: Path): String = read(path) { source -> source.readUtf8() }
-
-    fun <T> read(path: Path, block: (BufferedSource) -> T): T = rawFileStore.read(path, block)
-
-    fun readJsonElement(path: Path, json: Json = Json): JsonElement =
-        readJson(path, JsonElement.serializer(), json)
+    fun readJsonElement(path: Path): JsonElement = readJson(path, JsonElement.serializer())
 
     @OptIn(ExperimentalSerializationApi::class)
     fun <T> readJson(
         path: Path,
         deserializationStrategy: DeserializationStrategy<T>,
-        json: Json = Json,
-    ): T = read(path) { source ->
+    ): T = readJson(path) { source ->
         withOkioIoFailures {
             json.decodeFromSource(deserializationStrategy, source.asKotlinxIoRawSource().buffered())
         }
     }
 
-    inline fun <reified T> readJson(path: Path, json: Json = Json): T =
-        readJson(path, json.serializersModule.serializer(), json)
+    inline fun <reified T> readJson(path: Path): T = readJson(path, json.serializersModule.serializer())
 
-    fun writeText(path: Path, text: String) = write(path) { sink -> sink.writeUtf8(text) }
+    fun <T> readJson(path: Path, block: (BufferedSource) -> T): T = rawFileStore.read(path, block)
 
-    fun write(path: Path, block: (BufferedSink) -> Unit) = rawFileStore.write(path, block)
+    internal fun readJsonElementOrNull(path: Path): JsonElement? =
+        readJsonOrNull(path, JsonElement.serializer())
 
-    fun writeJsonElement(path: Path, jsonElement: JsonElement, json: Json = Json) =
-        writeJson(path, JsonElement.serializer(), jsonElement, json)
+    @OptIn(ExperimentalSerializationApi::class)
+    internal fun <T> readJsonOrNull(
+        path: Path,
+        deserializationStrategy: DeserializationStrategy<T>,
+    ): T? = readJsonOrNull(path) { source ->
+        withOkioIoFailures {
+            json.decodeFromSource(deserializationStrategy, source.asKotlinxIoRawSource().buffered())
+        }
+    }
+
+    internal inline fun <reified T> readJsonOrNull(path: Path): T? =
+        readJsonOrNull(path, json.serializersModule.serializer())
+
+    internal fun <T> readJsonOrNull(path: Path, block: (BufferedSource) -> T): T? =
+        rawFileStore.readRegularFileOrNull(path, block)
+
+    fun writeJsonElement(path: Path, jsonElement: JsonElement) =
+        writeJson(path, jsonElement, JsonElement.serializer())
 
     @OptIn(ExperimentalSerializationApi::class)
     fun <T> writeJson(
         path: Path,
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
-        json: Json = Json,
-    ) = write(path) { sink ->
+        serializationStrategy: SerializationStrategy<T>,
+    ) = writeJson(path) { sink ->
         val kotlinxSink = sink.asKotlinxIoRawSink().buffered()
         withOkioIoFailures {
             json.encodeToSink(serializationStrategy, value, kotlinxSink)
@@ -69,6 +83,8 @@ class Utf8JsonFileStore internal constructor(
         }
     }
 
-    inline fun <reified T> writeJson(path: Path, value: T, json: Json = Json) =
-        writeJson(path, json.serializersModule.serializer(), value, json)
+    inline fun <reified T> writeJson(path: Path, value: T) =
+        writeJson(path, value, json.serializersModule.serializer())
+
+    fun writeJson(path: Path, block: (BufferedSink) -> Unit) = rawFileStore.write(path, block)
 }

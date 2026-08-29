@@ -28,12 +28,12 @@ class RegionFileStoreTest {
         regionFileStore.writeChunkNbt(
             regionPosition,
             localChunkPosition,
-            LevelDat.serializer(),
             levelDat,
             Compression.NONE,
+            LevelDat.serializer(),
         )
         assertEquals(levelDat, regionFileStore.readChunkNbt(chunkPosition, LevelDat.serializer()))
-        regionFileStore.writeChunkNbt(chunkPosition, LevelDat.serializer(), levelDat, Compression.NONE)
+        regionFileStore.writeChunkNbt(chunkPosition, levelDat, Compression.NONE, LevelDat.serializer())
         assertEquals(
             levelDat,
             regionFileStore.readChunkNbt(regionPosition, localChunkPosition, LevelDat.serializer()),

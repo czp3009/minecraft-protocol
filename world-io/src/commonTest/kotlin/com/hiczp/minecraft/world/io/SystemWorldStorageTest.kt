@@ -5,6 +5,7 @@ import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import okio.FileSystem
 import okio.IOException
 import okio.Path
@@ -184,9 +185,9 @@ class SystemWorldStorageTest {
         val chunkPosition = ChunkPosition(-1, 32)
         val preservedPosition = ChunkPosition(0, 0)
         val preservedDocument = systemDocument(-1)
-        val dimensions = listOf(
-            DimensionDirectory.Overworld,
-            DimensionDirectory.Nether,
+        val dimensionIds = listOf(
+            DimensionId.Overworld,
+            DimensionId.Nether,
         )
         try {
             val initialStore = CoordinatedRegionStore(MinecraftWorldPaths(root))
@@ -211,27 +212,29 @@ class SystemWorldStorageTest {
             )
             minecraftWorldAccess.use { minecraftWorldAccess ->
                 minecraftWorldAccess.writeLevelDataDocument(nbtDocument)
-                minecraftWorldAccess.writePlayerDataDocument(player, nbtDocument)
-                minecraftWorldAccess.writeSavedDataDocument(
-                    "example:state/value",
+                minecraftWorldAccess.players.writeDataDocument(player, nbtDocument)
+                minecraftWorldAccess.dimensions.overworld.data.writeDocument(
+                    SavedDataId("state/value", namespace = "example"),
                     nbtDocument,
-                    SavedDataScope.Dimension(DimensionDirectory.Overworld),
                 )
-                minecraftWorldAccess.writeStatisticsText(player, "{}")
-                minecraftWorldAccess.writeAdvancementsText(player, "{\"done\":true}")
-                dimensions.forEachIndexed { dimensionIndex, dimensionDirectory ->
-                    minecraftWorldAccess.openRegion(chunkPosition.regionPosition, dimensionDirectory)
+                minecraftWorldAccess.players.writeStatisticsJson(player, Json.parseToJsonElement("{}"))
+                minecraftWorldAccess.players.writeAdvancementsJson(
+                    player,
+                    Json.parseToJsonElement("{\"done\":true}"),
+                )
+                dimensionIds.forEachIndexed { dimensionIndex, dimensionId ->
+                    minecraftWorldAccess.dimensions[dimensionId].openRegion(chunkPosition.regionPosition)
                         .use { regionHandle ->
                             regionHandle.writeChunkNbtDocument(chunkPosition, systemDocument(dimensionIndex))
                         }
                 }
                 assertEquals(
                     listOf(chunkPosition.regionPosition, preservedPosition.regionPosition),
-                    minecraftWorldAccess.listRegionPositions(),
+                    minecraftWorldAccess.dimensions.overworld.listRegionPositions(),
                 )
                 assertEquals(
                     listOf(chunkPosition.regionPosition),
-                    minecraftWorldAccess.listRegionPositions(DimensionDirectory.Nether),
+                    minecraftWorldAccess.dimensions.nether.listRegionPositions(),
                 )
                 minecraftWorldAccess.flush()
             }
@@ -240,32 +243,32 @@ class SystemWorldStorageTest {
             assertFalse(MinecraftWorldAccess.isLocked(root))
             assertTrue(fileSystem.exists(MinecraftWorldPaths(root).sessionLock))
             assertFails { minecraftWorldAccess.readLevelDataDocument() }
-            assertFails { minecraftWorldAccess.openRegion(chunkPosition.regionPosition) }
+            assertFails { minecraftWorldAccess.dimensions.overworld.openRegion(chunkPosition.regionPosition) }
 
             MinecraftWorldAccess.open(root).use { minecraftWorldAccess ->
                 assertEquals(nbtDocument, minecraftWorldAccess.readLevelDataDocument())
-                assertEquals(nbtDocument, minecraftWorldAccess.readPlayerDataDocument(player))
+                assertEquals(nbtDocument, minecraftWorldAccess.players.readDataDocument(player))
                 assertEquals(
                     nbtDocument,
-                    minecraftWorldAccess.readSavedDataDocument(
-                        "example:state/value",
-                        SavedDataScope.Dimension(DimensionDirectory.Overworld),
+                    minecraftWorldAccess.dimensions.overworld.data.readDocument(
+                        SavedDataId("state/value", namespace = "example"),
                     ),
                 )
-                assertEquals("{}", minecraftWorldAccess.readStatisticsText(player))
+                assertEquals(Json.parseToJsonElement("{}"), minecraftWorldAccess.players.readStatisticsJson(player))
                 assertEquals(
-                    "{\"done\":true}",
-                    minecraftWorldAccess.readAdvancementsText(player),
+                    Json.parseToJsonElement("{\"done\":true}"),
+                    minecraftWorldAccess.players.readAdvancementsJson(player),
                 )
-                minecraftWorldAccess.openRegion(preservedPosition.regionPosition).use { regionHandle ->
+                minecraftWorldAccess.dimensions.overworld.openRegion(preservedPosition.regionPosition)
+                    .use { regionHandle ->
                     assertEquals(
                         Compression.GZIP,
                         regionHandle.readCompressedChunk(preservedPosition)?.compression,
                     )
                     assertEquals(preservedDocument, regionHandle.readChunkNbtDocument(preservedPosition))
                 }
-                dimensions.forEachIndexed { dimensionIndex, dimensionDirectory ->
-                    minecraftWorldAccess.openRegion(chunkPosition.regionPosition, dimensionDirectory)
+                dimensionIds.forEachIndexed { dimensionIndex, dimensionId ->
+                    minecraftWorldAccess.dimensions[dimensionId].openRegion(chunkPosition.regionPosition)
                         .use { regionHandle ->
                             assertEquals(
                                 Compression.LZ4,
@@ -306,18 +309,24 @@ class SystemWorldStorageTest {
         try {
             MinecraftWorldAccess.open(root).use { minecraftWorldAccess ->
                 minecraftWorldAccess.writeLevelData(levelDat)
-                minecraftWorldAccess.writeStatistics(player, PlayerStatistics.serializer(), playerStatistics)
-                minecraftWorldAccess.writeAdvancements(player, playerAdvancements)
+                minecraftWorldAccess.players.writeStatistics(
+                    player,
+                    playerStatistics,
+                    PlayerStatistics.serializer(),
+                )
+                minecraftWorldAccess.players.writeAdvancements(player, playerAdvancements)
             }
 
             MinecraftWorldAccess.open(root).use { minecraftWorldAccess ->
                 assertEquals(levelDat, minecraftWorldAccess.readLevelData(LevelDat.serializer()))
                 assertEquals(levelDat, minecraftWorldAccess.readLevelData())
-                assertEquals(playerStatistics, minecraftWorldAccess.readStatistics<PlayerStatistics>(player))
+                assertEquals(playerStatistics, minecraftWorldAccess.players.readStatistics(player))
+                assertEquals(playerStatistics, minecraftWorldAccess.players.readStatistics<PlayerStatistics>(player))
                 assertEquals(
                     playerAdvancements,
-                    minecraftWorldAccess.readAdvancements(player, PlayerAdvancements.serializer()),
+                    minecraftWorldAccess.players.readAdvancements(player, PlayerAdvancements.serializer()),
                 )
+                assertEquals(playerAdvancements, minecraftWorldAccess.players.readAdvancements(player))
             }
         } finally {
             fileSystem.deleteRecursively(parent, mustExist = false)

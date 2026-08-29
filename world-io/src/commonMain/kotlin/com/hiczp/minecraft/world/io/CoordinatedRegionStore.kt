@@ -64,12 +64,12 @@ internal class CoordinatedRegionStore internal constructor(
     constructor(
         minecraftWorldPaths: MinecraftWorldPaths,
         regionStorageDirectory: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
+        dimensionId: DimensionId = DimensionId.Overworld,
         fileSystem: FileSystem = systemFileSystem,
         chunkNbtFormat: CompressedNbtFormat = CompressedNbtFormat(),
         regionStorageConfiguration: RegionStorageConfiguration = RegionStorageConfiguration(),
     ) : this(
-        directory = minecraftWorldPaths.regionDirectory(regionStorageDirectory, dimensionDirectory),
+        directory = minecraftWorldPaths.regionDirectory(regionStorageDirectory, dimensionId),
         worldFileAccess = WorldFileAccess.mutable(fileSystem),
         chunkNbtFormat = chunkNbtFormat,
         regionStorageConfiguration = regionStorageConfiguration,
@@ -78,12 +78,12 @@ internal class CoordinatedRegionStore internal constructor(
     internal constructor(
         minecraftWorldPaths: MinecraftWorldPaths,
         regionStorageDirectory: RegionStorageDirectory,
-        dimensionDirectory: DimensionDirectory,
+        dimensionId: DimensionId,
         worldFileAccess: WorldFileAccess,
         chunkNbtFormat: CompressedNbtFormat = CompressedNbtFormat(),
         regionStorageConfiguration: RegionStorageConfiguration = RegionStorageConfiguration(),
     ) : this(
-        directory = minecraftWorldPaths.regionDirectory(regionStorageDirectory, dimensionDirectory),
+        directory = minecraftWorldPaths.regionDirectory(regionStorageDirectory, dimensionId),
         worldFileAccess = worldFileAccess,
         chunkNbtFormat = chunkNbtFormat,
         regionStorageConfiguration = regionStorageConfiguration,
@@ -176,6 +176,9 @@ internal class CoordinatedRegionStore internal constructor(
     suspend fun readLocalChunkPositions(regionPosition: RegionPosition): List<LocalChunkPosition> =
         withRegionState(regionPosition, ::readLocalChunkPositions)
 
+    suspend fun readChunkPositions(regionPosition: RegionPosition): List<ChunkPosition> =
+        readLocalChunkPositions(regionPosition).map(regionPosition::chunk)
+
     suspend fun hasChunk(chunkPosition: ChunkPosition): Boolean =
         hasChunk(chunkPosition.regionPosition, chunkPosition.localChunkPosition)
 
@@ -194,6 +197,18 @@ internal class CoordinatedRegionStore internal constructor(
         localChunkPosition: LocalChunkPosition,
         block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withRegionState(regionPosition) { entry -> withCompressedChunkSource(entry, localChunkPosition, block) }
+
+    suspend fun readCompressedChunkTo(chunkPosition: ChunkPosition, sink: BufferedSink): RegionChunkInfo? =
+        readCompressedChunkTo(chunkPosition.regionPosition, chunkPosition.localChunkPosition, sink)
+
+    suspend fun readCompressedChunkTo(
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
+        sink: BufferedSink,
+    ): RegionChunkInfo? = withCompressedChunkSource(regionPosition, localChunkPosition) { regionChunkInfo, source ->
+        source.readAll(sink)
+        regionChunkInfo
+    }
 
     suspend fun readCompressedChunk(chunkPosition: ChunkPosition): CompressedChunk? =
         readCompressedChunk(chunkPosition.regionPosition, chunkPosition.localChunkPosition)
@@ -264,6 +279,18 @@ internal class CoordinatedRegionStore internal constructor(
         block: (RegionChunkInfo, BufferedSource) -> R,
     ): R? = withRegionState(regionPosition) { entry -> withChunkNbtSource(entry, localChunkPosition, block) }
 
+    suspend fun readChunkNbtTo(chunkPosition: ChunkPosition, sink: BufferedSink): RegionChunkInfo? =
+        readChunkNbtTo(chunkPosition.regionPosition, chunkPosition.localChunkPosition, sink)
+
+    suspend fun readChunkNbtTo(
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
+        sink: BufferedSink,
+    ): RegionChunkInfo? = withChunkNbtSource(regionPosition, localChunkPosition) { regionChunkInfo, source ->
+        source.readAll(sink)
+        regionChunkInfo
+    }
+
     suspend fun readChunkNbtDocument(chunkPosition: ChunkPosition): NbtDocument? =
         readChunkNbtDocument(chunkPosition.regionPosition, chunkPosition.localChunkPosition)
 
@@ -306,35 +333,14 @@ internal class CoordinatedRegionStore internal constructor(
     suspend fun writeChunkNbtDocument(
         chunkPosition: ChunkPosition,
         nbtDocument: NbtDocument,
-    ) = writeChunkNbtDocument(
-        chunkPosition = chunkPosition,
-        nbtDocument = nbtDocument,
-        compression = regionStorageConfiguration.writeCompression,
-    )
-
-    suspend fun writeChunkNbtDocument(
-        regionPosition: RegionPosition,
-        localChunkPosition: LocalChunkPosition,
-        nbtDocument: NbtDocument,
-    ) = writeChunkNbtDocument(
-        regionPosition = regionPosition,
-        localChunkPosition = localChunkPosition,
-        nbtDocument = nbtDocument,
-        compression = regionStorageConfiguration.writeCompression,
-    )
-
-    /** Encodes and writes one chunk with a per-write compression selection. */
-    suspend fun writeChunkNbtDocument(
-        chunkPosition: ChunkPosition,
-        nbtDocument: NbtDocument,
-        compression: Compression,
+        compression: Compression = regionStorageConfiguration.writeCompression,
     ) = writeChunkNbtDocument(chunkPosition.regionPosition, chunkPosition.localChunkPosition, nbtDocument, compression)
 
     suspend fun writeChunkNbtDocument(
         regionPosition: RegionPosition,
         localChunkPosition: LocalChunkPosition,
         nbtDocument: NbtDocument,
-        compression: Compression,
+        compression: Compression = regionStorageConfiguration.writeCompression,
     ) = withRegionState(regionPosition) { entry ->
         writeChunkNbtDocument(
             entry,
@@ -344,32 +350,52 @@ internal class CoordinatedRegionStore internal constructor(
         )
     }
 
-    suspend fun <T> writeChunkNbt(
+    suspend fun writeChunkNbt(
         chunkPosition: ChunkPosition,
-        serializationStrategy: SerializationStrategy<T>,
-        value: T,
         compression: Compression = regionStorageConfiguration.writeCompression,
+        block: (BufferedSink) -> Unit,
     ) = writeChunkNbt(
         chunkPosition.regionPosition,
         chunkPosition.localChunkPosition,
-        serializationStrategy,
+        compression,
+        block,
+    )
+
+    suspend fun writeChunkNbt(
+        regionPosition: RegionPosition,
+        localChunkPosition: LocalChunkPosition,
+        compression: Compression = regionStorageConfiguration.writeCompression,
+        block: (BufferedSink) -> Unit,
+    ) = withRegionState(regionPosition) { entry ->
+        writeChunkNbt(entry, localChunkPosition, compression, block)
+    }
+
+    suspend fun <T> writeChunkNbt(
+        chunkPosition: ChunkPosition,
+        value: T,
+        compression: Compression = regionStorageConfiguration.writeCompression,
+        serializationStrategy: SerializationStrategy<T>,
+    ) = writeChunkNbt(
+        chunkPosition.regionPosition,
+        chunkPosition.localChunkPosition,
         value,
-        compression
+        compression,
+        serializationStrategy,
     )
 
     suspend fun <T> writeChunkNbt(
         regionPosition: RegionPosition,
         localChunkPosition: LocalChunkPosition,
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
         compression: Compression = regionStorageConfiguration.writeCompression,
+        serializationStrategy: SerializationStrategy<T>,
     ) = withRegionState(regionPosition) { entry ->
         writeChunkNbt(
             entry,
             localChunkPosition,
-            serializationStrategy,
             value,
-            compression
+            compression,
+            serializationStrategy,
         )
     }
 
@@ -379,9 +405,9 @@ internal class CoordinatedRegionStore internal constructor(
         compression: Compression = regionStorageConfiguration.writeCompression,
     ) = writeChunkNbt(
         chunkPosition,
-        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
         value,
         compression,
+        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
     )
 
     suspend inline fun <reified T> writeChunkNbt(
@@ -392,9 +418,9 @@ internal class CoordinatedRegionStore internal constructor(
     ) = writeChunkNbt(
         regionPosition,
         localChunkPosition,
-        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
         value,
         compression,
+        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
     )
 
     suspend fun <B : Any, M : Any> writeChunk(
@@ -444,7 +470,9 @@ internal class CoordinatedRegionStore internal constructor(
         worldFileAccess.requireWritable()
         anvilRegion.chunks.forEach { (localChunkPosition, anvilChunkRecord) ->
             if (anvilChunkRecord.content == null) {
-                throw AnvilFormatException("External Chunk ${entry.regionPosition.chunk(localChunkPosition)} has not been resolved")
+                throw AnvilFormatException(
+                    "External Chunk ${entry.regionPosition.chunk(localChunkPosition)} has not been resolved",
+                )
             }
         }
         entry.logicalFileAccess.write {
@@ -585,7 +613,7 @@ internal class CoordinatedRegionStore internal constructor(
         localChunkPosition: LocalChunkPosition,
         deserializationStrategy: DeserializationStrategy<T>,
     ): T? = withChunkNbtSource(entry, localChunkPosition) { _, source ->
-        chunkNbtFormat.nbtFormat.decodeFromOkio(deserializationStrategy, source)
+        chunkNbtFormat.nbtFormat.decodeFromOkio(source, deserializationStrategy)
     }
 
     internal suspend inline fun <reified T> readChunkNbt(
@@ -634,12 +662,12 @@ internal class CoordinatedRegionStore internal constructor(
     internal suspend fun <T> writeChunkNbt(
         entry: RegionState,
         localChunkPosition: LocalChunkPosition,
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
         compression: Compression,
+        serializationStrategy: SerializationStrategy<T>,
     ) {
         worldFileAccess.requireWritable()
-        val compressedChunk = chunkNbtFormat.encodeFromOkio(serializationStrategy, value, compression)
+        val compressedChunk = chunkNbtFormat.encodeFromOkio(value, compression, serializationStrategy)
         entry.logicalFileAccess.write {
             openedFileForWrite(entry).writeCompressedChunk(localChunkPosition, compressedChunk)
         }
@@ -653,9 +681,9 @@ internal class CoordinatedRegionStore internal constructor(
     ) = writeChunkNbt(
         entry,
         localChunkPosition,
-        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
         value,
         compression,
+        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
     )
 
     internal suspend fun <B : Any, M : Any> writeChunk(

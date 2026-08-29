@@ -43,4 +43,7 @@ loopback server endpoint for each finite attempt, reuse the title-ready client, 
 and aggregate command state, GUI state, and connection deadline diagnostics. Do not retry deterministic protocol
 assertions. The accepted socket and observed packets, not HMC GUI text, prove protocol progress.
 
+The scenario has a four-minute coroutine budget. Keep `jsNodeTest`'s outer Mocha watchdog longer so bounded diagnostics
+and cleanup finish before the test process is terminated.
+
 Run `:protocol-server:jvmTest`.

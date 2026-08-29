@@ -95,12 +95,12 @@ private fun Iterable<Pair<DataPackFilePath, ByteArray>>.toDataPackFileBytesMap(
 interface DataPackFileContent {
     data class JsonFile(val jsonElement: JsonElement) : DataPackFileContent {
         fun <T> decode(
-            deserializationStrategy: DeserializationStrategy<T>,
             json: Json = Json,
+            deserializationStrategy: DeserializationStrategy<T>,
         ): T = json.decodeFromJsonElement(deserializationStrategy, jsonElement)
 
         inline fun <reified T> decode(json: Json = Json): T =
-            decode(json.serializersModule.serializer(), json)
+            decode(json, json.serializersModule.serializer())
     }
 
     /**

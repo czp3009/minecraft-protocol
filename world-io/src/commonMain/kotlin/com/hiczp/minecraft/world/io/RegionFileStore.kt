@@ -36,12 +36,12 @@ class RegionFileStore internal constructor(
 
     constructor(
         minecraftWorldPaths: MinecraftWorldPaths,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
+        dimensionId: DimensionId = DimensionId.Overworld,
         fileSystem: FileSystem = systemFileSystem,
         chunkNbtFormat: CompressedNbtFormat = CompressedNbtFormat(),
         regionStorageConfiguration: RegionStorageConfiguration = RegionStorageConfiguration(),
     ) : this(
-        minecraftWorldPaths.regionDirectory(RegionStorageDirectory.CHUNKS, dimensionDirectory),
+        minecraftWorldPaths.regionDirectory(RegionStorageDirectory.CHUNKS, dimensionId),
         fileSystem,
         chunkNbtFormat,
         regionStorageConfiguration,
@@ -155,7 +155,7 @@ class RegionFileStore internal constructor(
         localChunkPosition: LocalChunkPosition,
         deserializationStrategy: DeserializationStrategy<T>,
     ): T? = withChunkNbtSource(regionPosition, localChunkPosition) { _, source ->
-        chunkNbtFormat.nbtFormat.decodeFromOkio(deserializationStrategy, source)
+        chunkNbtFormat.nbtFormat.decodeFromOkio(source, deserializationStrategy)
     }
 
     fun <T> readChunkNbt(
@@ -225,13 +225,13 @@ class RegionFileStore internal constructor(
     fun writeCompressedChunk(
         regionPosition: RegionPosition,
         localChunkPosition: LocalChunkPosition,
-        compressedChunk: CompressedChunk,
+        compressedChunkInput: CompressedChunkInput,
     ) = withWriteFile(regionPosition) { mutableRegionFile ->
-        mutableRegionFile.writeCompressedChunk(localChunkPosition, compressedChunk)
+        mutableRegionFile.writeCompressedChunk(localChunkPosition, compressedChunkInput)
     }
 
-    fun writeCompressedChunk(chunkPosition: ChunkPosition, compressedChunk: CompressedChunk) =
-        writeCompressedChunk(chunkPosition.regionPosition, chunkPosition.localChunkPosition, compressedChunk)
+    fun writeCompressedChunk(chunkPosition: ChunkPosition, compressedChunkInput: CompressedChunkInput) =
+        writeCompressedChunk(chunkPosition.regionPosition, chunkPosition.localChunkPosition, compressedChunkInput)
 
     fun writeCompressedChunk(
         regionPosition: RegionPosition,
@@ -311,26 +311,26 @@ class RegionFileStore internal constructor(
     fun <T> writeChunkNbt(
         regionPosition: RegionPosition,
         localChunkPosition: LocalChunkPosition,
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
         compression: Compression = regionStorageConfiguration.writeCompression,
+        serializationStrategy: SerializationStrategy<T>,
     ) = writeCompressedChunk(
         regionPosition,
         localChunkPosition,
-        chunkNbtFormat.encodeFromOkio(serializationStrategy, value, compression),
+        chunkNbtFormat.encodeFromOkio(value, compression, serializationStrategy),
     )
 
     fun <T> writeChunkNbt(
         chunkPosition: ChunkPosition,
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
         compression: Compression = regionStorageConfiguration.writeCompression,
+        serializationStrategy: SerializationStrategy<T>,
     ) = writeChunkNbt(
         chunkPosition.regionPosition,
         chunkPosition.localChunkPosition,
-        serializationStrategy,
         value,
         compression,
+        serializationStrategy,
     )
 
     inline fun <reified T> writeChunkNbt(
@@ -341,9 +341,9 @@ class RegionFileStore internal constructor(
     ) = writeChunkNbt(
         regionPosition,
         localChunkPosition,
-        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
         value,
         compression,
+        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
     )
 
     inline fun <reified T> writeChunkNbt(
@@ -352,9 +352,9 @@ class RegionFileStore internal constructor(
         compression: Compression = regionStorageConfiguration.writeCompression,
     ) = writeChunkNbt(
         chunkPosition,
-        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
         value,
         compression,
+        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
     )
 
     fun <B : Any, M : Any> writeChunk(

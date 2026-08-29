@@ -18,8 +18,14 @@ configured filesystem runtimes only; browser and Wasm do not receive partial imp
   callback methods are the canonical byte path. Detached-value and serializer helpers delegate to them; typed NBT and
   JSON connect the borrowed stream directly to the selected serializer without first assembling a complete byte array,
   string, NBT tree, or JSON tree.
-- Use precise complete-value names: NBT `*Document`, UTF-8 JSON `*Text`, compressed values `*CompressedChunk`, and
-  selected-release semantic values `*Chunk`.
+- `NbtFileStore` and `Utf8JsonFileStore` capture their format instances at construction. World access injects
+  `standaloneNbtFormat` and `standaloneJson` once; semantic and exact-file operations do not accept per-call format
+  objects. Keep data-pack JSON under its independent `DataPackFormat` configuration. Within one format store, keep the
+  explicit-strategy, reified, and raw callback overloads on the same operation stem; in particular, JSON callbacks use
+  `readJson`/`writeJson` rather than a parallel unsuffixed API.
+- Use precise complete-value names: NBT `*Document`, structured JSON `*Json` or `*JsonElement`, compressed values
+  `*CompressedChunk`, and selected-release semantic values `*Chunk`. Do not add JSON-as-`String` convenience APIs;
+  callers that intentionally need raw UTF-8 use the callback-bound source or sink path.
 - Keep coordinate overloads symmetric. World/directory owners accept an absolute `ChunkPosition` or a region/local pair;
   region-bound owners accept local or validated absolute positions.
 - Public APIs expose logical stores and region handles, not exact-file owners, allocators, lock state, sidecar grouping,
@@ -43,11 +49,26 @@ configured filesystem runtimes only; browser and Wasm do not receive partial imp
 ## Storage behavior
 
 - Standalone NBT stores compose `nbt-serialization` with filesystem and replacement policy but own no coordinator. The
-  mutable facade routes every typed, document, text, and raw semantic operation for one logical file through the same
+  mutable facade routes every typed, document/tree, and raw semantic operation for one logical file through the same
   coordinator entry.
 - The mutable and live facades keep corresponding read names and parameters aligned. The live side differs only by
   synchronous execution, absence of writes, and ownership of caller-closed Region resources. Strong convenience methods
-  delegate once to the generic serializer/stream path; they do not acquire a second logical admission.
+  delegate once to the generic serializer/stream path; they do not acquire a second logical admission. Their
+  configuration constructors keep shared read formats in the same leading order and append mutable-only write policy.
+- Built-in player conveniences return `PlayerData`, `PlayerStatistics`, or `PlayerAdvancements` without caller type or
+  format arguments. Their same-named explicit-strategy and reified overloads remain the custom-schema paths; only
+  document/JSON-tree and raw callbacks expose the underlying representation. Every read form for a missing standard
+  UUID-keyed player file returns `null`, independent of whether that file is NBT or JSON.
+- Keep standard UUID-keyed player files under the mutable and live `players` child facades. Keep root `level.dat` on the
+  world facade. Root and dimension saved data use matching `data` children, and world data packs use the
+  `dataPacks` child. Every dimension-owned `region`, `entities`, and `poi` file remains on its selected dimension.
+  `DimensionId` and `SavedDataId` default to the `minecraft` namespace and map only to the repository-selected
+  namespaced layout; do not add root-Region, `DIM-1`, `DIM1`, or other historical directory selectors. Arbitrary paths
+  that do not have a semantic owner use `directFiles`.
+- Root vanilla saved-data models are consumed through the generic `world.data.read`/`write` family and do not receive
+  one-method-per-file conveniences. Keep the README's root saved-data ID/type mapping current so callers can discover
+  those non-completable IDs. Retain the four dimension conveniences for world borders, Chunk tickets, raids, and the
+  Ender Dragon fight on both mutable and live read facades, with writes on the mutable facade.
 - Level/player NBT uses sibling temporary files and backups; saved data uses a synced direct write; player JSON
   truncates and writes its final path. Level and player stores delegate their common primary/previous streaming and
   replacement mechanism to one physical implementation; only their official recovery decisions differ. Preserve these
@@ -99,9 +120,9 @@ configured filesystem runtimes only; browser and Wasm do not receive partial imp
 
 - `LiveMinecraftWorldAccess` observes a world owned by another process. It takes no `session.lock`, performs no repair
   or mutation, creates no logical-file coordinator, and owns no close lifecycle.
-- `openRegion`, `openEntityRegion`, and `openPoiRegion` return caller-owned resources. Each handle independently opens
-  and retains the `.mca` file found at creation and closes it synchronously; handles share no registry, reference count,
-  file object, or lifecycle state. External `.mcc` sidecars remain per-Chunk resources.
+- A live dimension's `openRegion`, `openEntityRegion`, and `openPoiRegion` return caller-owned resources. Each handle
+  independently opens and retains the `.mca` file found at creation and closes it synchronously; handles share no
+  registry, reference count, file object, or lifecycle state. External `.mcc` sidecars remain per-Chunk resources.
 - Ordinary handle operations reread the Region header. `withReadScope` caches one header read only for its callback;
   neither path promises freshness, atomicity, or agreement between the header and subsequently read payload bytes.
   Stale, torn, replaced, overwritten, or missing input and the resulting read failures are expected live outcomes.
@@ -114,4 +135,32 @@ configured filesystem runtimes only; browser and Wasm do not receive partial imp
 
 - The official world interoperability runner and annotated entry live only in `hostFilesystemTest`. They stop the remote
   server before using the documented same-host working-directory path.
+- Its six-minute coroutine budget is local to this heavyweight fixture scenario. Keep `jsNodeTest`'s outer Mocha
+  watchdog longer so bounded diagnostics and cleanup finish before the test process is terminated.
+- For an API change, inspect and validate the source-level overload matrix explicitly; do not use JVM reflection as an
+  API symmetry test. Check every applicable pair or family side by side:
+    - `MinecraftWorldAccess` and `LiveMinecraftWorldAccess`, their `players`, `data`, `dataPacks`, `dimensions`, and
+      `directFiles` children, each selected dimension and its `data` child, and each mutable/live Region handle pair.
+      Corresponding reads keep the same Kotlin name, parameter order, return nullability, and defaults; only suspension,
+      writes, mutable policy, and resource ownership may differ.
+    - `level.dat`, player data, statistics, advancements, root saved data, and dimension saved data. Root and dimension
+      saved data keep the same `data.read`/`data.write` family. Each applicable logical file exposes its distinct
+      document/JSON-tree form, an explicit-strategy overload, a same-named reified overload, the built-in strong
+      overload where one canonical model exists, and a callback-bound raw stream form. Standard player and saved-data
+      reads are uniformly nullable.
+    - `NbtFileStore`, `Utf8JsonFileStore`, and mutable/live direct files. Keep path and value first, format-specific
+      options next, and the serialization strategy last; the reified form removes only that final strategy.
+      Representation tree names remain `*Document` or `*JsonElement`, while typed and raw callback overloads share their
+      format operation stem.
+    - `RegionFileStore`, `CoordinatedRegionStore`, `RegionHandle`, `EntityRegionHandle`, and `PoiRegionHandle`. Preserve
+      both region/local and absolute-Chunk coordinate forms at directory-owned layers, local and validated
+      absolute-Chunk forms at Region-bound layers, the same default-compression placement, and `CompressedChunkInput`
+      for detached compressed writes. Apply the same read check to their live counterparts.
+    - Every overload accepting `SerializationStrategy` or `DeserializationStrategy` has a reified counterpart that
+      resolves through the executing format's `serializersModule`; the strategy is the final logical parameter in both
+      `world-format` and `world-io`.
+- Exercise that matrix with ordinary Kotlin calls in `commonTest`, including explicit-strategy, inferred built-in,
+  explicit type-argument, representation-tree, and raw callback calls. Compile every affected KMP target so each backend
+  checks overload resolution. Reserve runtime assertions for behavior such as missing-file nullability, contextual
+  serializer lookup, coordination, recovery, and stream ownership.
 - Run `:world-io:jvmTest` first and `:world-io:jsNodeTest` for Node filesystem changes.

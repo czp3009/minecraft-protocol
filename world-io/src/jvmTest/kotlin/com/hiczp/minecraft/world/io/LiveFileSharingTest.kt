@@ -29,11 +29,12 @@ class LiveFileSharingTest {
         val chunkPosition = ChunkPosition(0, 0)
         try {
             MinecraftWorldAccess.open(root).use { minecraftWorldAccess ->
-                minecraftWorldAccess.openRegion(chunkPosition.regionPosition).use { regionHandle ->
+                minecraftWorldAccess.dimensions.overworld.openRegion(chunkPosition.regionPosition).use { regionHandle ->
                     regionHandle.writeCompressedChunk(chunkPosition, sharingChunk(5))
                 }
                 val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(root)
-                liveMinecraftWorldAccess.openRegion(chunkPosition.regionPosition).use { liveRegionHandle ->
+                liveMinecraftWorldAccess.dimensions.overworld
+                    .openRegion(chunkPosition.regionPosition).use { liveRegionHandle ->
                     assertContentEquals(
                         byteArrayOf(5),
                         liveRegionHandle.readCompressedChunk(chunkPosition).bytesOrNull(),
@@ -64,7 +65,7 @@ class LiveFileSharingTest {
             }
 
             val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open(root)
-            val liveRegionHandle = liveMinecraftWorldAccess.openRegion(first.regionPosition)
+            val liveRegionHandle = liveMinecraftWorldAccess.dimensions.overworld.openRegion(first.regionPosition)
             try {
                 assertContentEquals(
                     byteArrayOf(1),

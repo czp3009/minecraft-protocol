@@ -85,11 +85,11 @@ class LevelDataStore(
 
     fun writeDocument(nbtDocument: NbtDocument) = backupNbtFileStore.writeDocument(nbtDocument)
 
-    fun <T> write(serializationStrategy: SerializationStrategy<T>, value: T) =
-        backupNbtFileStore.write(serializationStrategy, value)
+    fun <T> write(value: T, serializationStrategy: SerializationStrategy<T>) =
+        backupNbtFileStore.write(value, serializationStrategy)
 
     inline fun <reified T> write(value: T) =
-        write(nbtFileStore.nbtFormat.serializersModule.serializer(), value)
+        write(value, nbtFileStore.nbtFormat.serializersModule.serializer())
 
     fun write(block: (BufferedSink) -> Unit) = backupNbtFileStore.write(block)
 }

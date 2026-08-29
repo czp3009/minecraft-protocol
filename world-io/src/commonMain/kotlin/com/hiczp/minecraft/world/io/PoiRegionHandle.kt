@@ -68,13 +68,13 @@ class PoiRegionHandle internal constructor(
 
     suspend fun writeCompressedChunk(
         localChunkPosition: LocalChunkPosition,
-        compressedChunk: CompressedChunk,
-    ) = delegate.writeCompressedChunk(localChunkPosition, compressedChunk)
+        compressedChunkInput: CompressedChunkInput,
+    ) = delegate.writeCompressedChunk(localChunkPosition, compressedChunkInput)
 
     suspend fun writeCompressedChunk(
         chunkPosition: ChunkPosition,
-        compressedChunk: CompressedChunk,
-    ) = delegate.writeCompressedChunk(chunkPosition, compressedChunk)
+        compressedChunkInput: CompressedChunkInput,
+    ) = delegate.writeCompressedChunk(chunkPosition, compressedChunkInput)
 
     suspend fun writeCompressedChunk(
         localChunkPosition: LocalChunkPosition,
@@ -142,22 +142,16 @@ class PoiRegionHandle internal constructor(
     suspend fun readChunk(chunkPosition: ChunkPosition): PoiChunk? =
         readChunk(regionPosition.local(chunkPosition))
 
-    suspend fun writeChunkNbtDocument(localChunkPosition: LocalChunkPosition, nbtDocument: NbtDocument) =
-        delegate.writeChunkNbtDocument(localChunkPosition, nbtDocument)
-
-    suspend fun writeChunkNbtDocument(chunkPosition: ChunkPosition, nbtDocument: NbtDocument) =
-        delegate.writeChunkNbtDocument(chunkPosition, nbtDocument)
-
     suspend fun writeChunkNbtDocument(
         localChunkPosition: LocalChunkPosition,
         nbtDocument: NbtDocument,
-        compression: Compression,
+        compression: Compression = regionStorageConfiguration.writeCompression,
     ) = delegate.writeChunkNbtDocument(localChunkPosition, nbtDocument, compression)
 
     suspend fun writeChunkNbtDocument(
         chunkPosition: ChunkPosition,
         nbtDocument: NbtDocument,
-        compression: Compression,
+        compression: Compression = regionStorageConfiguration.writeCompression,
     ) = delegate.writeChunkNbtDocument(chunkPosition, nbtDocument, compression)
 
     suspend fun writeChunkNbt(
@@ -174,17 +168,17 @@ class PoiRegionHandle internal constructor(
 
     suspend fun <T> writeChunkNbt(
         localChunkPosition: LocalChunkPosition,
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
         compression: Compression = regionStorageConfiguration.writeCompression,
-    ) = delegate.writeChunkNbt(localChunkPosition, serializationStrategy, value, compression)
+        serializationStrategy: SerializationStrategy<T>,
+    ) = delegate.writeChunkNbt(localChunkPosition, value, compression, serializationStrategy)
 
     suspend fun <T> writeChunkNbt(
         chunkPosition: ChunkPosition,
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
         compression: Compression = regionStorageConfiguration.writeCompression,
-    ) = delegate.writeChunkNbt(chunkPosition, serializationStrategy, value, compression)
+        serializationStrategy: SerializationStrategy<T>,
+    ) = delegate.writeChunkNbt(chunkPosition, value, compression, serializationStrategy)
 
     suspend inline fun <reified T> writeChunkNbt(
         localChunkPosition: LocalChunkPosition,
@@ -192,9 +186,9 @@ class PoiRegionHandle internal constructor(
         compression: Compression = regionStorageConfiguration.writeCompression,
     ) = writeChunkNbt(
         localChunkPosition,
-        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
         value,
         compression,
+        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
     )
 
     /** Writes [poiChunk] at its retained position after validating Region membership. */
@@ -214,9 +208,9 @@ class PoiRegionHandle internal constructor(
         compression: Compression = regionStorageConfiguration.writeCompression,
     ) = writeChunkNbt(
         chunkPosition,
-        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
         value,
         compression,
+        chunkNbtFormat.nbtFormat.serializersModule.serializer(),
     )
 
     suspend fun <R> withReadScope(block: PoiRegionReadScope.() -> R): R = delegate.withReadScopeCore {

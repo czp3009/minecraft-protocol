@@ -14,7 +14,7 @@ class RegionChunkApiTest {
     fun strongChunkDocumentAndStorageMetadataUseTheirOwningLayers() = runTest {
         val fakeFileSystem = FakeFileSystem()
         val regionStorage = CoordinatedRegionStore(
-            directory = "/world/region".toPath(),
+            directory = "/world/dimensions/minecraft/overworld/region".toPath(),
             fileSystem = fakeFileSystem,
             regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
         )
@@ -100,11 +100,11 @@ class RegionChunkApiTest {
                     listOf(streamedPosition, secondPosition, firstPosition),
                     regionHandle.readChunkPositions(),
                 )
-                assertTrue(regionHandle.hasChunk(absoluteBlock))
+                assertTrue(regionHandle.hasChunk(absoluteBlock.chunkPosition))
                 assertEquals(firstPosition, regionHandle.readChunkInfo(absoluteBlock.chunkPosition)?.chunkPosition)
                 val positions = regionHandle.readChunkInfos().mapTo(linkedSetOf(), RegionChunkInfo::chunkPosition)
                 assertEquals(setOf(firstPosition, secondPosition, streamedPosition), positions)
-                val regionChunk = checkNotNull(regionHandle.readChunk(absoluteBlock, TEST_CODEC))
+                val regionChunk = checkNotNull(regionHandle.readChunk(absoluteBlock.chunkPosition, TEST_CODEC))
                 assertEquals(firstPosition, regionChunk.chunkPosition)
                 assertEquals(STONE, regionChunk.block(15, TEST_LAYOUT.minBlockY, 0))
 
@@ -128,7 +128,10 @@ class RegionChunkApiTest {
                         secondPosition,
                         assertNotNull(readChunk(secondPosition.localChunkPosition, TEST_CODEC)).chunkPosition,
                     )
-                    assertEquals(firstPosition, assertNotNull(readChunk(absoluteBlock, TEST_CODEC)).chunkPosition)
+                    assertEquals(
+                        firstPosition,
+                        assertNotNull(readChunk(absoluteBlock.chunkPosition, TEST_CODEC)).chunkPosition,
+                    )
                     assertEquals(nbtDocument, readChunkNbtDocument(firstPosition))
 
                     val scopedNbtSink = Buffer()
@@ -143,13 +146,10 @@ class RegionChunkApiTest {
             regionStorage.close()
         }
 
-        val regionPath = "/world/region/r.-1.1.mca".toPath()
+        val regionPath = "/world/dimensions/minecraft/overworld/region/r.-1.1.mca".toPath()
         val countingMutableRegionFileSystem = CountingMutableRegionFileSystem(fakeFileSystem, regionPath)
         val liveMinecraftWorldAccess = LiveMinecraftWorldAccess.open("/world".toPath(), countingMutableRegionFileSystem)
-        liveMinecraftWorldAccess.openRegion(
-            firstPosition.regionPosition,
-            DimensionDirectory.LegacyOverworld,
-        ).use { liveRegionHandle ->
+        liveMinecraftWorldAccess.dimensions.overworld.openRegion(firstPosition.regionPosition).use { liveRegionHandle ->
             var escapedRegionReadScope: RegionReadScope? = null
             liveRegionHandle.withReadScope {
                 escapedRegionReadScope = this

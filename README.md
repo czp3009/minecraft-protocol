@@ -122,7 +122,7 @@ suspend fun readChunk(
     chunkPosition: ChunkPosition,
     chunkNbtCodec: ChunkNbtCodec<BlockStateDescriptor, String>,
 ): Chunk<BlockStateDescriptor, String>? = MinecraftWorldAccess.open(worldPath).use { minecraftWorldAccess ->
-    minecraftWorldAccess.openRegion(chunkPosition.regionPosition).use { regionHandle ->
+    minecraftWorldAccess.dimensions.overworld.openRegion(chunkPosition.regionPosition).use { regionHandle ->
         regionHandle.readChunk(chunkPosition, chunkNbtCodec)
     }
 }

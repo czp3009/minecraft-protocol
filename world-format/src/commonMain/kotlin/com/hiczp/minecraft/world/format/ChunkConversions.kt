@@ -29,14 +29,14 @@ fun CompressedChunk.toNbtDocument(compressedNbtFormat: CompressedNbtFormat = Com
 
 /** Decodes this compressed Chunk with a caller-selected NBT serializer. */
 fun <T> CompressedChunk.decodeNbt(
-    deserializationStrategy: DeserializationStrategy<T>,
     compressedNbtFormat: CompressedNbtFormat = CompressedNbtFormat(),
-): T = compressedNbtFormat.decode(deserializationStrategy, this)
+    deserializationStrategy: DeserializationStrategy<T>,
+): T = compressedNbtFormat.decode(this, deserializationStrategy)
 
 /** Decodes this compressed Chunk with the serializer selected from [compressedNbtFormat]. */
 inline fun <reified T> CompressedChunk.decodeNbt(
     compressedNbtFormat: CompressedNbtFormat = CompressedNbtFormat(),
-): T = decodeNbt(compressedNbtFormat.nbtFormat.serializersModule.serializer(), compressedNbtFormat)
+): T = decodeNbt(compressedNbtFormat, compressedNbtFormat.nbtFormat.serializersModule.serializer())
 
 /** Decodes this compressed content using the Chunk position carried by its NBT root. */
 fun <B : Any, M : Any> CompressedChunk.toChunk(

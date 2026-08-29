@@ -3,6 +3,7 @@ package com.hiczp.minecraft.world.io.fixturetest.hostfilesystem
 import com.hiczp.minecraft.nbt.*
 import com.hiczp.minecraft.test.*
 import com.hiczp.minecraft.world.format.*
+import com.hiczp.minecraft.world.format.data.*
 import com.hiczp.minecraft.world.io.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
@@ -13,6 +14,7 @@ import okio.Path
 import okio.Path.Companion.toPath
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Exercises the exact official release and this library against one Host-owned
@@ -86,35 +88,32 @@ class OfficialWorldStorageInteropTest {
         officialMinecraftServer: OfficialMinecraftServer,
         worldDirectory: Path,
     ) {
+        var activeOfficialMinecraftServer = officialMinecraftServer
         var headlessMinecraftClient: HeadlessMinecraftClient? = null
         var failure: Throwable? = null
         try {
             assertOfficialLockIsHeld(worldDirectory)
-            generateWorldStorage(officialMinecraftServer)
+            generateWorldStorage(activeOfficialMinecraftServer)
             headlessMinecraftClient = MinecraftTestSupport.newHeadlessClient(
                 HeadlessMinecraftClientConfiguration(
                     playerName = PLAYER_NAME,
                 ),
             )
-            MinecraftTestSupport.connectHeadlessClient(
+            activeOfficialMinecraftServer = connectOfficialClient(
+                officialMinecraftServer = activeOfficialMinecraftServer,
                 headlessMinecraftClient = headlessMinecraftClient,
-                minecraftTestEndpoint = officialMinecraftServer.minecraftTestEndpoint,
-            )
-            MinecraftTestSupport.waitForLog(
-                officialMinecraftServer,
-                "$PLAYER_NAME joined the game",
             )
             MinecraftTestSupport.sendCommand(
-                officialMinecraftServer,
+                activeOfficialMinecraftServer,
                 "advancement grant $PLAYER_NAME only minecraft:story/root",
             )
             MinecraftTestSupport.sendCommand(
-                officialMinecraftServer,
+                activeOfficialMinecraftServer,
                 "kick $PLAYER_NAME storage fixture complete",
                 expectedNewOutput = "$PLAYER_NAME left the game",
             )
             MinecraftTestSupport.closeProcess(headlessMinecraftClient)
-            saveAndStop(officialMinecraftServer)
+            saveAndStop(activeOfficialMinecraftServer)
             assertOfficialLockIsReleased(worldDirectory)
         } catch (caught: CancellationException) {
             failure = caught
@@ -122,7 +121,7 @@ class OfficialWorldStorageInteropTest {
         } catch (caught: Throwable) {
             failure = caught
             val wrapped = try {
-                officialFailure(officialMinecraftServer, headlessMinecraftClient, caught)
+                officialFailure(activeOfficialMinecraftServer, headlessMinecraftClient, caught)
             } catch (diagnosticCancellation: CancellationException) {
                 diagnosticCancellation.addSuppressed(caught)
                 failure = diagnosticCancellation
@@ -146,41 +145,41 @@ class OfficialWorldStorageInteropTest {
         officialMinecraftServer: OfficialMinecraftServer,
         verificationPhase: String,
     ) {
+        var activeOfficialMinecraftServer = officialMinecraftServer
         var headlessMinecraftClient: HeadlessMinecraftClient? = null
         var failure: Throwable? = null
         try {
-            verifyOfficialCompressionMatrix(officialMinecraftServer, verificationPhase)
-            generateWorldStorage(officialMinecraftServer)
+            verifyOfficialCompressionMatrix(activeOfficialMinecraftServer, verificationPhase)
+            generateWorldStorage(activeOfficialMinecraftServer)
             headlessMinecraftClient = MinecraftTestSupport.newHeadlessClient(
                 HeadlessMinecraftClientConfiguration(
                     playerName = PLAYER_NAME,
                 ),
             )
-            MinecraftTestSupport.connectHeadlessClient(
+            activeOfficialMinecraftServer = connectOfficialClient(
+                officialMinecraftServer = activeOfficialMinecraftServer,
                 headlessMinecraftClient = headlessMinecraftClient,
-                minecraftTestEndpoint = officialMinecraftServer.minecraftTestEndpoint,
             )
-            MinecraftTestSupport.waitForLog(officialMinecraftServer, "$PLAYER_NAME joined the game")
             val advancementToken = "minecraft_protocol_${verificationPhase}_advancement_loaded"
             MinecraftTestSupport.sendCommand(
-                officialMinecraftServer,
+                activeOfficialMinecraftServer,
                 "execute if entity @a[advancements={minecraft:story/root=true}] run say $advancementToken",
                 expectedNewOutput = advancementToken,
             )
             MinecraftTestSupport.sendCommand(
-                officialMinecraftServer,
+                activeOfficialMinecraftServer,
                 "kick $PLAYER_NAME structured files loaded",
                 expectedNewOutput = "$PLAYER_NAME left the game",
             )
             MinecraftTestSupport.closeProcess(headlessMinecraftClient)
-            saveAndStop(officialMinecraftServer)
+            saveAndStop(activeOfficialMinecraftServer)
         } catch (caught: CancellationException) {
             failure = caught
             throw caught
         } catch (caught: Throwable) {
             failure = caught
             val wrapped = try {
-                officialFailure(officialMinecraftServer, headlessMinecraftClient, caught)
+                officialFailure(activeOfficialMinecraftServer, headlessMinecraftClient, caught)
             } catch (diagnosticCancellation: CancellationException) {
                 diagnosticCancellation.addSuppressed(caught)
                 failure = diagnosticCancellation
@@ -199,6 +198,53 @@ class OfficialWorldStorageInteropTest {
             }
         }
     }
+
+    private suspend fun connectOfficialClient(
+        officialMinecraftServer: OfficialMinecraftServer,
+        headlessMinecraftClient: HeadlessMinecraftClient,
+    ): OfficialMinecraftServer {
+        var activeOfficialMinecraftServer = officialMinecraftServer
+        var lastConnectionFailure: Throwable? = null
+        val failures = mutableListOf<String>()
+        repeat(MAXIMUM_CONNECTION_ATTEMPTS) { index ->
+            val attempt = index + 1
+            val commandState = MinecraftTestSupport.connectHeadlessClient(
+                headlessMinecraftClient = headlessMinecraftClient,
+                minecraftTestEndpoint = activeOfficialMinecraftServer.minecraftTestEndpoint,
+            )
+            try {
+                MinecraftTestSupport.waitForLog(
+                    minecraftTestResource = activeOfficialMinecraftServer,
+                    marker = "$PLAYER_NAME joined the game",
+                    timeout = CONNECTION_ATTEMPT_TIMEOUT,
+                )
+                return activeOfficialMinecraftServer
+            } catch (caught: CancellationException) {
+                throw caught
+            } catch (caught: Throwable) {
+                if (!MinecraftTestSupport.isAlive(activeOfficialMinecraftServer) ||
+                    !MinecraftTestSupport.isAlive(headlessMinecraftClient)
+                ) {
+                    throw caught
+                }
+                lastConnectionFailure = caught
+                val finalState = MinecraftTestSupport.headlessClientState(headlessMinecraftClient)
+                val stateChange = "${commandState.description()} -> ${finalState.description()}"
+                failures += "attempt $attempt: no join in $CONNECTION_ATTEMPT_TIMEOUT; GUI $stateChange"
+            }
+            if (attempt < MAXIMUM_CONNECTION_ATTEMPTS) {
+                MinecraftTestSupport.disconnectHeadlessClient(headlessMinecraftClient)
+                activeOfficialMinecraftServer = MinecraftTestSupport.restartServer(activeOfficialMinecraftServer)
+            }
+        }
+        val details = failures.joinToString(separator = "\n- ", prefix = "- ")
+        throw IllegalStateException(
+            "Official client did not join after $MAXIMUM_CONNECTION_ATTEMPTS attempts:\n$details",
+            lastConnectionFailure,
+        )
+    }
+
+    private fun HeadlessMinecraftClientState.description(): String = screenClassName ?: "no displayed GUI"
 
     private suspend fun generateWorldStorage(officialMinecraftServer: OfficialMinecraftServer) {
         MinecraftTestSupport.sendCommand(
@@ -340,7 +386,7 @@ class OfficialWorldStorageInteropTest {
         val renamedLevel = typedLevel.copy(
             data = typedLevel.data.copy(levelName = "typed-storage-fixture"),
         )
-        levelDataStore.write(LevelDat.serializer(), renamedLevel)
+        levelDataStore.write(renamedLevel, LevelDat.serializer())
         check(levelDataStore.read(LevelDat.serializer()).data.levelName == "typed-storage-fixture") {
             "Typed level.dat rewrite did not retain the selected-release schema"
         }
@@ -373,45 +419,45 @@ class OfficialWorldStorageInteropTest {
         }
         nbtFileStore.writeDocument(minecraftWorldPaths.playerData(playerKey), player)
         val typedPlayer = checkNotNull(playerDataStore.read(playerKey, PlayerData.serializer()))
-        playerDataStore.write(playerKey, PlayerData.serializer(), typedPlayer)
+        playerDataStore.write(playerKey, typedPlayer, PlayerData.serializer())
         check(playerDataStore.read(playerKey, PlayerData.serializer()) == typedPlayer) {
             "Typed player data did not survive primary/previous replacement"
         }
 
-        val savedIdentifier = auditResult.savedDataIdentifiers.first()
+        val savedDataId = auditResult.savedDataIds.first()
         val savedDataStore = SavedDataStore(
             minecraftWorldPaths,
-            SavedDataScope.Dimension(DimensionDirectory.Overworld),
+            SavedDataScope.Dimension(DimensionId.Overworld),
             nbtFileStore,
         )
-        val savedData = checkNotNull(savedDataStore.readDocument(savedIdentifier))
-        savedDataStore.writeDocument(savedIdentifier, savedData)
-        check(savedDataStore.readDocument(savedIdentifier) == savedData) {
+        val savedData = checkNotNull(savedDataStore.readDocument(savedDataId))
+        savedDataStore.writeDocument(savedDataId, savedData)
+        check(savedDataStore.readDocument(savedDataId) == savedData) {
             "Saved data did not survive direct GZIP rewrite"
         }
         rewriteTypedSavedData(
             savedDataStore,
-            WORLD_BORDER_IDENTIFIER,
+            WORLD_BORDER_ID,
             SavedDataFile.serializer(WorldBorderData.serializer()),
         )
         rewriteTypedSavedData(
             savedDataStore,
-            CHUNK_TICKETS_IDENTIFIER,
+            CHUNK_TICKETS_ID,
             SavedDataFile.serializer(ChunkTicketsData.serializer()),
         )
         rewriteTypedSavedData(
             savedDataStore,
-            RAIDS_IDENTIFIER,
+            RAIDS_ID,
             SavedDataFile.serializer(RaidsData.serializer()),
         )
         val endSavedDataStore = SavedDataStore(
             minecraftWorldPaths,
-            SavedDataScope.Dimension(DimensionDirectory.End),
+            SavedDataScope.Dimension(DimensionId.End),
             nbtFileStore,
         )
         rewriteTypedSavedData(
             endSavedDataStore,
-            ENDER_DRAGON_FIGHT_IDENTIFIER,
+            ENDER_DRAGON_FIGHT_ID,
             SavedDataFile.serializer(EnderDragonFightData.serializer()),
         )
 
@@ -429,18 +475,20 @@ class OfficialWorldStorageInteropTest {
                     CUSTOM_STATISTICS to (customStatistics + (LEAVE_GAME_STATISTIC to leaveGameAfterRewrite))
                     ),
         )
-        utf8JsonFileStore.writeJson(statisticsPath, PlayerStatistics.serializer(), updatedStatistics)
+        utf8JsonFileStore.writeJson(statisticsPath, updatedStatistics, PlayerStatistics.serializer())
         check(utf8JsonFileStore.readJson(statisticsPath, PlayerStatistics.serializer()) == updatedStatistics) {
             "Typed player statistics did not survive direct JSON rewrite"
         }
 
-        val advancementPath = minecraftWorldPaths.advancement(playerKey)
+        val advancementPath = minecraftWorldPaths.advancements(playerKey)
         val playerAdvancements = utf8JsonFileStore.readJson(advancementPath, PlayerAdvancements.serializer())
         check(playerAdvancements.advancements.isNotEmpty()) {
             "Official fixture generated no advancement progress"
         }
-        utf8JsonFileStore.writeJson(advancementPath, PlayerAdvancements.serializer(), playerAdvancements)
-        check(utf8JsonFileStore.readJson(advancementPath, PlayerAdvancements.serializer()) == playerAdvancements) {
+        utf8JsonFileStore.writeJson(advancementPath, playerAdvancements, PlayerAdvancements.serializer())
+        check(
+            utf8JsonFileStore.readJson(advancementPath, PlayerAdvancements.serializer()) == playerAdvancements,
+        ) {
             "Typed player advancements did not survive direct JSON rewrite"
         }
         return StructuredPlayerRewrite(
@@ -497,17 +545,19 @@ class OfficialWorldStorageInteropTest {
         val verifyingStore = CoordinatedRegionStore(minecraftWorldPaths)
         try {
             COMPRESSION_PROBES.forEach { compressionProbe ->
+                val chunkPosition = compressionProbe.chunkPosition
+                val expectedCompression = compressionProbe.compression
                 val stored = checkNotNull(
-                    verifyingStore.readCompressedChunk(compressionProbe.chunkPosition),
+                    verifyingStore.readCompressedChunk(chunkPosition),
                 )
-                check(stored.compression == compressionProbe.compression) {
-                    "Chunk ${compressionProbe.chunkPosition} stored ${stored.compression}, expected ${compressionProbe.compression}"
+                check(stored.compression == expectedCompression) {
+                    "Chunk $chunkPosition stored ${stored.compression}, expected $expectedCompression"
                 }
                 check(
                     verifyingStore.chunkNbtFormat.decodeDocument(stored) ==
-                            documents.getValue(compressionProbe.chunkPosition),
+                            documents.getValue(chunkPosition),
                 ) {
-                    "Chunk ${compressionProbe.chunkPosition} changed while writing ${compressionProbe.compression}"
+                    "Chunk $chunkPosition changed while writing $expectedCompression"
                 }
             }
         } finally {
@@ -664,49 +714,94 @@ class OfficialWorldStorageInteropTest {
             }
         }
 
-        val savedDirectory =
-            minecraftWorldPaths.savedDataDirectory(SavedDataScope.Dimension(DimensionDirectory.Overworld))
-        val savedDataIdentifiers = savedDataIdentifiers(savedDirectory)
+        val savedDirectory = minecraftWorldPaths.savedDataDirectory(SavedDataScope.Dimension(DimensionId.Overworld))
+        val savedDataIds = savedDataIds(savedDirectory)
         val savedDataStore = SavedDataStore(
             minecraftWorldPaths,
-            SavedDataScope.Dimension(DimensionDirectory.Overworld),
+            SavedDataScope.Dimension(DimensionId.Overworld),
             nbtFileStore,
         )
-        savedDataIdentifiers.forEach { identifier ->
-            checkNotNull(savedDataStore.readDocument(identifier))
+        savedDataIds.forEach { savedDataId ->
+            checkNotNull(savedDataStore.readDocument(savedDataId))
         }
         checkNotNull(
             savedDataStore.read(
-                WORLD_BORDER_IDENTIFIER,
+                WORLD_BORDER_ID,
                 SavedDataFile.serializer(WorldBorderData.serializer()),
             ),
         )
         checkNotNull(
             savedDataStore.read(
-                CHUNK_TICKETS_IDENTIFIER,
+                CHUNK_TICKETS_ID,
                 SavedDataFile.serializer(ChunkTicketsData.serializer()),
             ),
         )
         checkNotNull(
             savedDataStore.read(
-                RAIDS_IDENTIFIER,
+                RAIDS_ID,
                 SavedDataFile.serializer(RaidsData.serializer()),
             ),
         )
         val endSavedDataStore = SavedDataStore(
             minecraftWorldPaths,
-            SavedDataScope.Dimension(DimensionDirectory.End),
+            SavedDataScope.Dimension(DimensionId.End),
             nbtFileStore,
         )
         checkNotNull(
             endSavedDataStore.read(
-                ENDER_DRAGON_FIGHT_IDENTIFIER,
+                ENDER_DRAGON_FIGHT_ID,
                 SavedDataFile.serializer(EnderDragonFightData.serializer()),
             ),
         )
 
+        val rootSavedDataStore = SavedDataStore(
+            minecraftWorldPaths,
+            SavedDataScope.WorldRoot,
+            nbtFileStore,
+        )
+        rootSavedDataStore.read(
+            SavedDataId("world_gen_settings"),
+            SavedDataFile.serializer(WorldGenSettingsData.serializer()),
+        )
+        rootSavedDataStore.read(
+            SavedDataId("world_clocks"),
+            SavedDataFile.serializer(WorldClocksData.serializer()),
+        )
+        rootSavedDataStore.read(
+            SavedDataId("weather"),
+            SavedDataFile.serializer(WeatherData.serializer()),
+        )
+        rootSavedDataStore.read(
+            SavedDataId("wandering_trader"),
+            SavedDataFile.serializer(WanderingTraderData.serializer()),
+        )
+        rootSavedDataStore.read(
+            SavedDataId("stopwatches"),
+            SavedDataFile.serializer(StopwatchesData.serializer()),
+        )
+        rootSavedDataStore.read(
+            SavedDataId("scoreboard"),
+            SavedDataFile.serializer(ScoreboardData.serializer()),
+        )
+        rootSavedDataStore.read(
+            SavedDataId("scheduled_events"),
+            SavedDataFile.serializer(ScheduledEventsData.serializer()),
+        )
+        rootSavedDataStore.read(
+            SavedDataId("random_sequences"),
+            SavedDataFile.serializer(RandomSequencesData.serializer()),
+        )
+        rootSavedDataStore.read(
+            SavedDataId("game_rules"),
+            SavedDataFile.serializer(GameRulesData.serializer()),
+        )
+        rootSavedDataStore.read(
+            SavedDataId("custom_boss_events"),
+            SavedDataFile.serializer(CustomBossEventsData.serializer()),
+        )
+
         val statisticsDirectory = checkNotNull(minecraftWorldPaths.statistics("probe").parent)
-        val advancementDirectory = checkNotNull(minecraftWorldPaths.advancement("probe").parent)
+        val advancementDirectory = checkNotNull(minecraftWorldPaths.advancements("probe").parent)
         val utf8JsonFileStore = Utf8JsonFileStore(fileSystem)
         val statisticFiles = regularFiles(statisticsDirectory, ".json")
         val advancementFiles = regularFiles(advancementDirectory, ".json")
@@ -776,7 +871,7 @@ class OfficialWorldStorageInteropTest {
             regionDiagnostics = regionDiagnostics,
             firstChunks = firstChunks,
             playerKeys = playerKeys,
-            savedDataIdentifiers = savedDataIdentifiers,
+            savedDataIds = savedDataIds,
             statisticFiles = statisticFiles,
             advancementFiles = advancementFiles,
         )
@@ -798,7 +893,7 @@ class OfficialWorldStorageInteropTest {
         check(auditResult.playerKeys.isNotEmpty()) {
             "Official fixture generated no player NBT"
         }
-        check(auditResult.savedDataIdentifiers.isNotEmpty()) {
+        check(auditResult.savedDataIds.isNotEmpty()) {
             "Official fixture generated no dimension saved-data"
         }
         check(auditResult.statisticFiles.isNotEmpty()) {
@@ -831,7 +926,7 @@ class OfficialWorldStorageInteropTest {
         }
     }
 
-    private fun savedDataIdentifiers(directory: Path): List<String> {
+    private fun savedDataIds(directory: Path): List<SavedDataId> {
         val fileSystem = systemFileSystem
         if (fileSystem.metadataOrNull(directory)?.isDirectory != true) {
             return emptyList()
@@ -857,23 +952,23 @@ class OfficialWorldStorageInteropTest {
                         }
                     }
                     .joinToString("/")
-                "$namespace:$resourcePath"
+                SavedDataId(resourcePath, namespace)
             }
-            .sorted()
+            .sortedBy(SavedDataId::toString)
             .toList()
     }
 
     private fun <T> rewriteTypedSavedData(
         savedDataStore: SavedDataStore,
-        identifier: String,
+        savedDataId: SavedDataId,
         serializer: kotlinx.serialization.KSerializer<T>,
     ) {
-        val value = checkNotNull(savedDataStore.read(identifier, serializer)) {
-            "Official fixture generated no $identifier saved data"
+        val value = checkNotNull(savedDataStore.read(savedDataId, serializer)) {
+            "Official fixture generated no $savedDataId saved data"
         }
-        savedDataStore.write(identifier, serializer, value)
-        check(savedDataStore.read(identifier, serializer) == value) {
-            "Typed $identifier saved data did not survive direct GZIP rewrite"
+        savedDataStore.write(savedDataId, value, serializer)
+        check(savedDataStore.read(savedDataId, serializer) == value) {
+            "Typed $savedDataId saved data did not survive direct GZIP rewrite"
         }
     }
 
@@ -893,7 +988,7 @@ class OfficialWorldStorageInteropTest {
             "Official server did not load and save the rewritten leave_game statistic: $leaveGame"
         }
         val playerAdvancements = utf8JsonFileStore.readJson(
-            minecraftWorldPaths.advancement(structuredPlayerRewrite.playerKey),
+            minecraftWorldPaths.advancements(structuredPlayerRewrite.playerKey),
             PlayerAdvancements.serializer(),
         )
         check(playerAdvancements.advancements[ROOT_ADVANCEMENT]?.done == true) {
@@ -1027,7 +1122,7 @@ class OfficialWorldStorageInteropTest {
         val regionDiagnostics: Map<RegionStorageDirectory, List<String>>,
         val firstChunks: Map<RegionStorageDirectory, ChunkPosition>,
         val playerKeys: List<String>,
-        val savedDataIdentifiers: List<String>,
+        val savedDataIds: List<SavedDataId>,
         val statisticFiles: List<Path>,
         val advancementFiles: List<Path>,
     )
@@ -1047,6 +1142,8 @@ class OfficialWorldStorageInteropTest {
         const val EXTERNAL_FIXTURE_TAG = "minecraft_protocol_external_fixture"
         const val EXTERNAL_FIXTURE_BYTES = 1_100_000
         const val TERRAIN_MUTATION_BLOCK_X = 64
+        const val MAXIMUM_CONNECTION_ATTEMPTS = 3
+        val CONNECTION_ATTEMPT_TIMEOUT = 20.seconds
         val TERRAIN_MUTATION_POSITION = ChunkPosition(4, 0)
         val COMPRESSION_PROBES = listOf(
             CompressionProbe(

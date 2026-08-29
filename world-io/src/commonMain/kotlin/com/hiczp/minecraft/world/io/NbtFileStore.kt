@@ -57,16 +57,16 @@ class NbtFileStore internal constructor(
 
     fun <T> read(
         path: Path,
-        deserializationStrategy: DeserializationStrategy<T>,
         compression: Compression = Compression.GZIP,
+        deserializationStrategy: DeserializationStrategy<T>,
     ): T = read(path, compression) { source ->
-        nbtFormat.decodeFromOkio(deserializationStrategy, source)
+        nbtFormat.decodeFromOkio(source, deserializationStrategy)
     }
 
     inline fun <reified T> read(
         path: Path,
         compression: Compression = Compression.GZIP,
-    ): T = read(path, nbtFormat.serializersModule.serializer(), compression)
+    ): T = read(path, compression, nbtFormat.serializersModule.serializer())
 
     /** Lends the complete decompressed NBT stream for the duration of [block]. */
     fun <T> read(
@@ -124,18 +124,18 @@ class NbtFileStore internal constructor(
 
     fun <T> write(
         path: Path,
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
         compression: Compression = Compression.GZIP,
+        serializationStrategy: SerializationStrategy<T>,
     ) = write(path, compression) { sink ->
-        nbtFormat.encodeToOkio(serializationStrategy, value, sink)
+        nbtFormat.encodeToOkio(value, sink, serializationStrategy)
     }
 
     inline fun <reified T> write(
         path: Path,
         value: T,
         compression: Compression = Compression.GZIP,
-    ) = write(path, nbtFormat.serializersModule.serializer(), value, compression)
+    ) = write(path, value, compression, nbtFormat.serializersModule.serializer())
 
     /** Directly truncates, streams, and durably syncs the final file. */
     fun write(
@@ -156,18 +156,18 @@ class NbtFileStore internal constructor(
 
     internal fun <T> writeSyncedTemporary(
         directory: Path,
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
         compression: Compression = Compression.GZIP,
+        serializationStrategy: SerializationStrategy<T>,
     ): Path = writeSyncedTemporary(directory, compression) { sink ->
-        nbtFormat.encodeToOkio(serializationStrategy, value, sink)
+        nbtFormat.encodeToOkio(value, sink, serializationStrategy)
     }
 
     internal inline fun <reified T> writeSyncedTemporary(
         directory: Path,
         value: T,
         compression: Compression = Compression.GZIP,
-    ): Path = writeSyncedTemporary(directory, nbtFormat.serializersModule.serializer(), value, compression)
+    ): Path = writeSyncedTemporary(directory, value, compression, nbtFormat.serializersModule.serializer())
 
     internal fun writeSyncedTemporary(
         directory: Path,

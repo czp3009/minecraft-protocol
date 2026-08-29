@@ -279,7 +279,7 @@ abstract class AnvilRegionReadScope internal constructor(
         localChunkPosition: LocalChunkPosition,
         deserializationStrategy: DeserializationStrategy<T>,
     ): T? = withChunkNbtSource(localChunkPosition) { _, source ->
-        chunkNbtFormat.nbtFormat.decodeFromOkio(deserializationStrategy, source)
+        chunkNbtFormat.nbtFormat.decodeFromOkio(source, deserializationStrategy)
     }
 
     fun <T> readChunkNbt(
@@ -316,10 +316,6 @@ class RegionReadScope internal constructor(
         chunkNbtCodec: ChunkNbtCodec<B, M>,
     ): Chunk<B, M>? = readChunk(regionPosition.local(chunkPosition), chunkNbtCodec)
 
-    fun <B : Any, M : Any> readChunk(
-        blockPosition: BlockPosition,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
-    ): Chunk<B, M>? = readChunk(blockPosition.chunkPosition, chunkNbtCodec)
 }
 
 /**
@@ -396,17 +392,17 @@ class RegionReplacementScope internal constructor(
 ) {
     private var valid = true
 
-    fun writeCompressedChunk(localChunkPosition: LocalChunkPosition, compressedChunk: CompressedChunk) {
+    fun writeCompressedChunk(localChunkPosition: LocalChunkPosition, compressedChunkInput: CompressedChunkInput) {
         checkValid()
         writeCompressedChunk(
             localChunkPosition,
-            compressedChunk.compression,
-            compressedChunk.compressedByteCount,
-        ) { sink -> compressedChunk.writeToOkio(sink) }
+            compressedChunkInput.compression,
+            compressedChunkInput.compressedByteCount,
+        ) { sink -> compressedChunkInput.writeToOkio(sink) }
     }
 
-    fun writeCompressedChunk(chunkPosition: ChunkPosition, compressedChunk: CompressedChunk) =
-        writeCompressedChunk(this.regionPosition.local(chunkPosition), compressedChunk)
+    fun writeCompressedChunk(chunkPosition: ChunkPosition, compressedChunkInput: CompressedChunkInput) =
+        writeCompressedChunk(this.regionPosition.local(chunkPosition), compressedChunkInput)
 
     fun writeCompressedChunk(
         localChunkPosition: LocalChunkPosition,

@@ -12,7 +12,7 @@ sealed interface SavedDataScope {
     data object WorldRoot : SavedDataScope
 
     data class Dimension(
-        val dimensionDirectory: DimensionDirectory,
+        val dimensionId: DimensionId,
     ) : SavedDataScope
 }
 
@@ -22,35 +22,39 @@ class SavedDataStore(
     val savedDataScope: SavedDataScope,
     val nbtFileStore: NbtFileStore = NbtFileStore(),
 ) {
-    fun readDocument(identifier: String): NbtDocument? =
-        read(identifier, nbtFileStore.nbtFormat::decodeDocumentFromOkio)
+    fun readDocument(savedDataId: SavedDataId): NbtDocument? =
+        read(savedDataId, nbtFileStore.nbtFormat::decodeDocumentFromOkio)
 
-    fun <T> read(identifier: String, deserializationStrategy: DeserializationStrategy<T>): T? =
-        read(identifier) { source ->
-            nbtFileStore.nbtFormat.decodeFromOkio(deserializationStrategy, source)
+    fun <T> read(savedDataId: SavedDataId, deserializationStrategy: DeserializationStrategy<T>): T? =
+        read(savedDataId) { source ->
+            nbtFileStore.nbtFormat.decodeFromOkio(source, deserializationStrategy)
         }
 
-    inline fun <reified T> read(identifier: String): T? =
-        read(identifier, nbtFileStore.nbtFormat.serializersModule.serializer())
+    inline fun <reified T> read(savedDataId: SavedDataId): T? =
+        read(savedDataId, nbtFileStore.nbtFormat.serializersModule.serializer())
 
     /** Detects compression and lends the complete decompressed stream through one physical file open. */
-    fun <T> read(identifier: String, block: (BufferedSource) -> T): T? {
-        val path = minecraftWorldPaths.savedData(identifier, savedDataScope)
+    fun <T> read(savedDataId: SavedDataId, block: (BufferedSource) -> T): T? {
+        val path = minecraftWorldPaths.savedData(savedDataId, savedDataScope)
         return nbtFileStore.readDetectingCompressionOrNull(path, ::detectCompression, block)
     }
 
-    fun writeDocument(identifier: String, nbtDocument: NbtDocument) {
-        nbtFileStore.writeDocument(minecraftWorldPaths.savedData(identifier, savedDataScope), nbtDocument)
+    fun writeDocument(savedDataId: SavedDataId, nbtDocument: NbtDocument) {
+        nbtFileStore.writeDocument(minecraftWorldPaths.savedData(savedDataId, savedDataScope), nbtDocument)
     }
 
-    fun <T> write(identifier: String, serializationStrategy: SerializationStrategy<T>, value: T) =
-        nbtFileStore.write(minecraftWorldPaths.savedData(identifier, savedDataScope), serializationStrategy, value)
+    fun <T> write(savedDataId: SavedDataId, value: T, serializationStrategy: SerializationStrategy<T>) =
+        nbtFileStore.write(
+            minecraftWorldPaths.savedData(savedDataId, savedDataScope),
+            value,
+            serializationStrategy = serializationStrategy,
+        )
 
-    inline fun <reified T> write(identifier: String, value: T) =
-        write(identifier, nbtFileStore.nbtFormat.serializersModule.serializer(), value)
+    inline fun <reified T> write(savedDataId: SavedDataId, value: T) =
+        write(savedDataId, value, nbtFileStore.nbtFormat.serializersModule.serializer())
 
-    fun write(identifier: String, block: (BufferedSink) -> Unit) {
-        nbtFileStore.write(minecraftWorldPaths.savedData(identifier, savedDataScope), block = block)
+    fun write(savedDataId: SavedDataId, block: (BufferedSink) -> Unit) {
+        nbtFileStore.write(minecraftWorldPaths.savedData(savedDataId, savedDataScope), block = block)
     }
 
     private fun detectCompression(source: BufferedSource): Compression =

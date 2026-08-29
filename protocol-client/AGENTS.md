@@ -28,4 +28,7 @@ This module owns client-side Status, Login, Configuration, and entry into Play.
 
 ## Verification
 
+The official-server scenario has a four-minute coroutine budget. Keep `jsNodeTest`'s outer Mocha watchdog longer so
+bounded diagnostics and cleanup finish before the test process is terminated.
+
 Run `:protocol-client:jvmTest`.

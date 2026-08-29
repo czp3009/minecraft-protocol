@@ -1,6 +1,8 @@
 import com.hiczp.minecraft.buildlogic.BuildVersions
 import com.hiczp.minecraft.buildlogic.useMinecraftTestFixtures
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
+import org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest
+import org.jetbrains.kotlin.gradle.targets.js.testing.mocha.KotlinMocha
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -75,5 +77,13 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
             implementation(libs.ktor.client.mock)
         }
+    }
+}
+
+tasks.withType<KotlinJsTest>().configureEach {
+    onTestFrameworkSet {
+        // The official-client fixture scenario has a four-minute coroutine budget. Keep the outer runner alive long
+        // enough for bounded diagnostics and cleanup after that budget expires.
+        if (this is KotlinMocha) timeout = "5m"
     }
 }

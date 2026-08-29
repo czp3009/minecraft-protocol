@@ -126,6 +126,8 @@ tasks.withType<Test>().configureEach {
 
 tasks.withType<KotlinJsTest>().configureEach {
     onTestFrameworkSet {
-        if (this is KotlinMocha) timeout = "6m"
+        // The host-filesystem fixture scenario has a six-minute coroutine budget. Keep the outer runner alive long
+        // enough for bounded diagnostics and NonCancellable cleanup after that budget expires.
+        if (this is KotlinMocha) timeout = "7m"
     }
 }

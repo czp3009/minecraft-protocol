@@ -25,7 +25,7 @@ class FileIOTest {
         val nbtDocument = NbtDocument(NbtCompound(emptyMap()))
         base.createDirectories(checkNotNull(nbtPath.parent))
         NbtFileStore(base).writeDocument(nbtPath, nbtDocument, Compression.NONE)
-        Utf8JsonFileStore(base).writeText(jsonPath, "{}")
+        Utf8JsonFileStore(base).writeJsonElement(jsonPath, Json.parseToJsonElement("{}"))
 
         listOf(
             nbtPath to {
@@ -34,7 +34,7 @@ class FileIOTest {
             },
             jsonPath to {
                 Utf8JsonFileStore(TerminalReadFailingFileSystem(base, jsonPath))
-                    .readJsonElement(jsonPath, json = Json)
+                    .readJsonElement(jsonPath)
             },
         ).forEach { (path, read) ->
             val failure = assertFails { read() }
@@ -48,7 +48,7 @@ class FileIOTest {
             },
             jsonPath to {
                 Utf8JsonFileStore(TerminalWriteFailingFileSystem(base, jsonPath))
-                    .writeJsonElement(jsonPath, Json.parseToJsonElement("{}"), Json)
+                    .writeJsonElement(jsonPath, Json.parseToJsonElement("{}"))
             },
         ).forEach { (path, write) ->
             val failure = assertFails { write() }

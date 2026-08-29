@@ -22,11 +22,11 @@ internal class CoordinatedRegionRegistry(
 
     suspend fun openRegion(
         regionStorageDirectory: RegionStorageDirectory,
-        dimensionDirectory: DimensionDirectory,
+        dimensionId: DimensionId,
         regionPosition: RegionPosition,
         afterRelease: suspend (Throwable?) -> Throwable?,
     ): RegionHandle {
-        val regionDirectoryEntry = acquire(regionStorageDirectory, dimensionDirectory)
+        val regionDirectoryEntry = acquire(regionStorageDirectory, dimensionId)
         return try {
             regionDirectoryEntry.coordinatedRegionStore.openRegion(regionPosition) { regionFailure ->
                 var failure = regionFailure
@@ -79,10 +79,10 @@ internal class CoordinatedRegionRegistry(
 
     private suspend fun acquire(
         regionStorageDirectory: RegionStorageDirectory,
-        dimensionDirectory: DimensionDirectory,
+        dimensionId: DimensionId,
     ): RegionDirectoryEntry {
         val regionDirectoryKey = RegionDirectoryKey(
-            minecraftWorldPaths.regionDirectory(regionStorageDirectory, dimensionDirectory),
+            minecraftWorldPaths.regionDirectory(regionStorageDirectory, dimensionId),
         )
         while (true) {
             val closing = bookkeeping.withLock {

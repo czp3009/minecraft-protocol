@@ -62,6 +62,9 @@ class WorldDataPackReader(
         dataPackFormat: DataPackFormat = DataPackFormat(),
     ) : this(systemFileSystem, minecraftWorldPaths.dataPacksDirectory, dataPackFormat)
 
+    fun readDataPack(dataPackId: DataPackId): DataPack =
+        readDataPack(fileDataPackContainerPath(dataPackId), dataPackId)
+
     fun readDataPack(
         dataPackContainerPath: Path,
         dataPackId: DataPackId = DataPackId(dataPackContainerPath.name),
@@ -87,6 +90,9 @@ class WorldDataPackReader(
             )
         }
 
+    fun readDataPackArchive(dataPackId: DataPackId): DataPackArchive =
+        readDataPackArchive(fileDataPackContainerPath(dataPackId), dataPackId)
+
     fun readDataPackArchive(
         dataPackContainerPath: Path,
         dataPackId: DataPackId = DataPackId(dataPackContainerPath.name),
@@ -94,6 +100,9 @@ class WorldDataPackReader(
         DataPackContainerKind.DIRECTORY -> readDataPackArchive(inspectDataPack(dataPackContainerPath, dataPackId))
         DataPackContainerKind.ZIP -> readZipDataPackArchive(dataPackContainerPath, dataPackId)
     }
+
+    fun inspectDataPack(dataPackId: DataPackId): DataPackInspection =
+        inspectDataPack(fileDataPackContainerPath(dataPackId), dataPackId)
 
     fun inspectDataPack(
         dataPackContainerPath: Path,
@@ -174,6 +183,19 @@ class WorldDataPackReader(
                 ),
             )
         }
+
+    /** Reads one caller-selected file after inspecting its data-pack container. */
+    fun readDataPackFile(
+        dataPackId: DataPackId,
+        dataPackFilePath: DataPackFilePath,
+    ): DataPackFileBytes = readDataPackFile(inspectDataPack(dataPackId), dataPackFilePath)
+
+    /** Lends one caller-selected file source after inspecting its data-pack container. */
+    fun <T> readDataPackFile(
+        dataPackId: DataPackId,
+        dataPackFilePath: DataPackFilePath,
+        block: (BufferedSource) -> T,
+    ): T = readDataPackFile(inspectDataPack(dataPackId), dataPackFilePath, block)
 
     /** Reads one caller-selected file from an inspected data-pack container. */
     fun readDataPackFile(
@@ -304,6 +326,11 @@ class WorldDataPackReader(
         }
         return dataPackFileName
     }
+
+    private fun fileDataPackContainerPath(dataPackId: DataPackId): Path =
+        dataPacksDirectory / requireNotNull(dataPackFileNameOrNull(dataPackId)) {
+            "Data-pack ID does not identify a file pack: $dataPackId"
+        }
 
     companion object {
         private const val FILE_REFERENCE_PREFIX = "file/"

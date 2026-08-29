@@ -1,9 +1,17 @@
+@file:UseSerializers(
+    NbtBlockPositionSerializer::class,
+    NbtEntityRotationSerializer::class,
+    NbtEntityVector3dSerializer::class,
+    NbtUuidSerializer::class,
+)
+
 package com.hiczp.minecraft.world.format
 
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtTag
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.UseSerializers
 import kotlin.uuid.Uuid
 
 /**
@@ -15,13 +23,10 @@ import kotlin.uuid.Uuid
 @Serializable
 data class PlayerData(
     @SerialName("Pos")
-    @Serializable(with = NbtEntityVector3dSerializer::class)
     val position: EntityVector3d,
     @SerialName("Motion")
-    @Serializable(with = NbtEntityVector3dSerializer::class)
     val motion: EntityVector3d,
     @SerialName("Rotation")
-    @Serializable(with = NbtEntityRotationSerializer::class)
     val entityRotation: EntityRotation,
     @SerialName("fall_distance")
     val fallDistance: Double,
@@ -36,7 +41,6 @@ data class PlayerData(
     @SerialName("PortalCooldown")
     val portalCooldown: Int,
     @SerialName("UUID")
-    @Serializable(with = NbtUuidSerializer::class)
     val uuid: Uuid,
     @SerialName("CustomName")
     val customName: NbtTag? = null,
@@ -69,7 +73,6 @@ data class PlayerData(
     @SerialName("current_impulse_context_reset_grace_time")
     val currentImpulseContextResetGraceTime: Int,
     @SerialName("current_explosion_impact_pos")
-    @Serializable(with = NbtEntityVector3dSerializer::class)
     val currentExplosionImpactPosition: EntityVector3d? = null,
     val attributes: List<Attribute>,
     @SerialName("active_effects")
@@ -77,17 +80,14 @@ data class PlayerData(
     @SerialName("FallFlying")
     val fallFlying: Boolean,
     @SerialName("sleeping_pos")
-    @Serializable(with = NbtBlockPositionSerializer::class)
     val sleepingPosition: BlockPosition? = null,
     @SerialName("Brain")
     val brain: NbtCompound,
     @SerialName("last_hurt_by_player")
-    @Serializable(with = NbtUuidSerializer::class)
     val lastHurtByPlayer: Uuid? = null,
     @SerialName("last_hurt_by_player_memory_time")
     val lastHurtByPlayerMemoryTime: Int? = null,
     @SerialName("last_hurt_by_mob")
-    @Serializable(with = NbtUuidSerializer::class)
     val lastHurtByMob: Uuid? = null,
     @SerialName("ticks_since_last_hurt_by_mob")
     val ticksSinceLastHurtByMob: Int? = null,
@@ -127,10 +127,8 @@ data class PlayerData(
     val previousPlayerGameType: Int? = null,
     val seenCredits: Boolean,
     @SerialName("entered_nether_pos")
-    @Serializable(with = NbtEntityVector3dSerializer::class)
     val enteredNetherPosition: EntityVector3d? = null,
     @SerialName("last_explosion_impact_pos")
-    @Serializable(with = NbtEntityVector3dSerializer::class)
     val lastExplosionImpactPosition: EntityVector3d? = null,
     @SerialName("RootVehicle")
     val rootVehicle: RootVehicle? = null,
@@ -141,7 +139,6 @@ data class PlayerData(
     @SerialName("spawn_extra_particles_on_fall")
     val spawnExtraParticlesOnFall: Boolean,
     @SerialName("raid_omen_position")
-    @Serializable(with = NbtBlockPositionSerializer::class)
     val raidOmenPosition: BlockPosition? = null,
     @SerialName("ender_pearls")
     val enderPearls: List<NbtCompound> = emptyList(),
@@ -208,7 +205,6 @@ data class PlayerData(
     data class GlobalPosition(
         val dimension: String,
         @SerialName("pos")
-        @Serializable(with = NbtBlockPositionSerializer::class)
         val blockPosition: BlockPosition,
     ) {
         init {
@@ -235,7 +231,6 @@ data class PlayerData(
     @Serializable
     data class RootVehicle(
         @SerialName("Attach")
-        @Serializable(with = NbtUuidSerializer::class)
         val attachedEntityUuid: Uuid,
         @SerialName("Entity")
         val entity: NbtCompound,
@@ -259,7 +254,6 @@ data class PlayerData(
     data class Respawn(
         val dimension: String,
         @SerialName("pos")
-        @Serializable(with = NbtBlockPositionSerializer::class)
         val blockPosition: BlockPosition,
         val yaw: Float,
         val pitch: Float,

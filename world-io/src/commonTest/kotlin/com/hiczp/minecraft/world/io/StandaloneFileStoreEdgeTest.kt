@@ -451,8 +451,8 @@ class StandaloneFileStoreEdgeTest {
         nbtFileStore.writeDocument(minecraftWorldPaths.levelData, primary)
         nbtFileStore.write(
             minecraftWorldPaths.previousLevelData,
-            RequiredValue.serializer(),
             compatiblePrevious,
+            serializationStrategy = RequiredValue.serializer(),
         )
         val levelDataStore = LevelDataStore(minecraftWorldPaths, nbtFileStore)
 
@@ -465,7 +465,10 @@ class StandaloneFileStoreEdgeTest {
         assertEquals(primary, nbtFileStore.readDocument(minecraftWorldPaths.levelData))
         assertEquals(
             compatiblePrevious,
-            nbtFileStore.read(minecraftWorldPaths.previousLevelData, RequiredValue.serializer()),
+            nbtFileStore.read(
+                minecraftWorldPaths.previousLevelData,
+                deserializationStrategy = RequiredValue.serializer(),
+            ),
         )
         assertTrue(
             fakeFileSystem.list(minecraftWorldPaths.root).none {
@@ -477,8 +480,8 @@ class StandaloneFileStoreEdgeTest {
         nbtFileStore.writeDocument(minecraftWorldPaths.playerData(playerUuid), primary)
         nbtFileStore.write(
             minecraftWorldPaths.previousPlayerData(playerUuid),
-            RequiredValue.serializer(),
             compatiblePrevious,
+            serializationStrategy = RequiredValue.serializer(),
         )
         val playerDataStore = PlayerDataStore(minecraftWorldPaths, nbtFileStore)
 
@@ -491,7 +494,10 @@ class StandaloneFileStoreEdgeTest {
         assertEquals(primary, nbtFileStore.readDocument(minecraftWorldPaths.playerData(playerUuid)))
         assertEquals(
             compatiblePrevious,
-            nbtFileStore.read(minecraftWorldPaths.previousPlayerData(playerUuid), RequiredValue.serializer()),
+            nbtFileStore.read(
+                minecraftWorldPaths.previousPlayerData(playerUuid),
+                deserializationStrategy = RequiredValue.serializer(),
+            ),
         )
         assertTrue(
             fakeFileSystem.list(checkNotNull(minecraftWorldPaths.playerData(playerUuid).parent)).none {
@@ -830,13 +836,13 @@ class StandaloneFileStoreEdgeTest {
         val minecraftWorldPaths = MinecraftWorldPaths("/world".toPath())
         val savedDataStore = SavedDataStore(
             minecraftWorldPaths,
-            SavedDataScope.Dimension(DimensionDirectory.Overworld),
+            SavedDataScope.Dimension(DimensionId.Overworld),
             NbtFileStore(base),
         )
-        assertNull(savedDataStore.readDocument("missing"))
+        assertNull(savedDataStore.readDocument(SavedDataId("missing")))
 
-        val identifier = "example:state/value"
-        val path = minecraftWorldPaths.savedData(identifier, SavedDataScope.Dimension(DimensionDirectory.Overworld))
+        val savedDataId = SavedDataId("state/value", namespace = "example")
+        val path = minecraftWorldPaths.savedData(savedDataId, SavedDataScope.Dimension(DimensionId.Overworld))
         NbtFileStore(base).writeDocument(
             path,
             edgeDocument(3),
@@ -847,13 +853,13 @@ class StandaloneFileStoreEdgeTest {
             edgeDocument(3),
             SavedDataStore(
                 minecraftWorldPaths,
-                SavedDataScope.Dimension(DimensionDirectory.Overworld),
+                SavedDataScope.Dimension(DimensionId.Overworld),
                 NbtFileStore(shortReads),
-            ).readDocument(identifier),
+            ).readDocument(savedDataId),
         )
 
         base.writeRaw(path, byteArrayOf(0x1F))
-        assertFails { savedDataStore.readDocument(identifier) }
+        assertFails { savedDataStore.readDocument(savedDataId) }
         base.checkNoOpenFiles()
     }
 
@@ -863,14 +869,14 @@ class StandaloneFileStoreEdgeTest {
         val utf8JsonFileStore = Utf8JsonFileStore(fakeFileSystem)
         val path = "/world/value.json".toPath()
 
-        assertFailsWith<WorldIOException> { utf8JsonFileStore.readText(path) }
+        assertFailsWith<WorldIOException> { utf8JsonFileStore.readJson(path) { source -> source.readUtf8() } }
         fakeFileSystem.createDirectories(path)
-        assertFailsWith<WorldIOException> { utf8JsonFileStore.readText(path) }
+        assertFailsWith<WorldIOException> { utf8JsonFileStore.readJson(path) { source -> source.readUtf8() } }
         fakeFileSystem.delete(path)
-        utf8JsonFileStore.writeText(path, "{}")
-        assertEquals("{}", utf8JsonFileStore.readText(path))
-        utf8JsonFileStore.writeText(path, "\u00E9x")
-        assertEquals("\u00E9x", utf8JsonFileStore.readText(path))
+        utf8JsonFileStore.writeJson(path) { sink -> sink.writeUtf8("{}") }
+        assertEquals("{}", utf8JsonFileStore.readJson(path) { source -> source.readUtf8() })
+        utf8JsonFileStore.writeJson(path) { sink -> sink.writeUtf8("\u00E9x") }
+        assertEquals("\u00E9x", utf8JsonFileStore.readJson(path) { source -> source.readUtf8() })
     }
 
     @Test
@@ -878,7 +884,7 @@ class StandaloneFileStoreEdgeTest {
         JsonFailure.entries.forEach { failurePoint ->
             val base = FakeFileSystem()
             val path = "/world-${failurePoint.name}/value.json".toPath()
-            Utf8JsonFileStore(base).writeText(path, "old")
+            Utf8JsonFileStore(base).writeJson(path) { sink -> sink.writeUtf8("old") }
             val jsonSinkFailingFileSystem = JsonSinkFailingFileSystem(
                 base,
                 path,
@@ -886,10 +892,10 @@ class StandaloneFileStoreEdgeTest {
             )
 
             assertFailsWith<IOException> {
-                Utf8JsonFileStore(jsonSinkFailingFileSystem).writeText(path, "new")
+                Utf8JsonFileStore(jsonSinkFailingFileSystem).writeJson(path) { sink -> sink.writeUtf8("new") }
             }
 
-            val actual = Utf8JsonFileStore(base).readText(path)
+            val actual = Utf8JsonFileStore(base).readJson(path) { source -> source.readUtf8() }
             when (failurePoint) {
                 JsonFailure.WRITE -> {
                     assertTrue(actual.isNotEmpty())

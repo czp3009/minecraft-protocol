@@ -10,68 +10,6 @@ internal enum class RegionStorageDirectory(val directoryName: String) {
     POINTS_OF_INTEREST("poi"),
 }
 
-sealed interface DimensionDirectory {
-    data object Overworld : DimensionDirectory
-    data object Nether : DimensionDirectory
-    data object End : DimensionDirectory
-    data object LegacyOverworld : DimensionDirectory
-    data object LegacyNether : DimensionDirectory
-    data object LegacyEnd : DimensionDirectory
-
-    class Custom(
-        val namespace: String,
-        pathSegments: List<String>,
-    ) : DimensionDirectory {
-        private val storedPathSegments = pathSegments.toList()
-
-        val pathSegments: List<String>
-            get() = storedPathSegments.toList()
-
-        constructor(namespace: String, path: String) :
-                this(namespace, parseDimensionPath(path))
-
-        init {
-            require(
-                namespace.matches(DIMENSION_NAMESPACE_PATTERN) &&
-                        namespace != "." &&
-                        namespace != ".."
-            ) {
-                "Invalid dimension namespace: $namespace"
-            }
-            require(storedPathSegments.isNotEmpty())
-            require(
-                storedPathSegments.all {
-                    it.matches(DIMENSION_PATH_SEGMENT_PATTERN) &&
-                            it != "." && it != ".."
-                },
-            ) {
-                "Invalid dimension path: ${storedPathSegments.joinToString("/")}"
-            }
-        }
-
-        operator fun component1(): String = namespace
-
-        operator fun component2(): List<String> = pathSegments
-
-        fun copy(
-            namespace: String = this.namespace,
-            pathSegments: List<String> = storedPathSegments,
-        ): Custom = Custom(namespace, pathSegments)
-
-        override fun equals(other: Any?): Boolean =
-            this === other ||
-                    other is Custom &&
-                    namespace == other.namespace &&
-                    storedPathSegments == other.storedPathSegments
-
-        override fun hashCode(): Int =
-            31 * namespace.hashCode() + storedPathSegments.hashCode()
-
-        override fun toString(): String =
-            "Custom(namespace=$namespace, pathSegments=$storedPathSegments)"
-    }
-}
-
 /**
  * Canonical paths inside a Java Edition world directory.
  */
@@ -90,47 +28,41 @@ class MinecraftWorldPaths(
     val sessionLock: Path
         get() = root / "session.lock"
 
-    fun dimension(dimensionDirectory: DimensionDirectory): Path = when (dimensionDirectory) {
-        DimensionDirectory.Overworld -> dimension(MINECRAFT_OVERWORLD_DIRECTORY)
-        DimensionDirectory.Nether -> dimension(MINECRAFT_NETHER_DIRECTORY)
-        DimensionDirectory.End -> dimension(MINECRAFT_END_DIRECTORY)
+    internal val playerDataDirectory: Path
+        get() = root / "players" / "data"
 
-        DimensionDirectory.LegacyOverworld -> root
-        DimensionDirectory.LegacyNether -> root / "DIM-1"
-        DimensionDirectory.LegacyEnd -> root / "DIM1"
-        is DimensionDirectory.Custom -> dimensionDirectory.pathSegments.fold(
-            root / "dimensions" / dimensionDirectory.namespace,
-        ) { path, segment -> path / segment }
-    }
+    fun dimension(dimensionId: DimensionId): Path = dimensionId.pathSegments.fold(
+        root / "dimensions" / dimensionId.namespace,
+    ) { path, pathSegment -> path / pathSegment }
 
     internal fun regionDirectory(
         regionStorageDirectory: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): Path = dimension(dimensionDirectory) / regionStorageDirectory.directoryName
+        dimensionId: DimensionId = DimensionId.Overworld,
+    ): Path = dimension(dimensionId) / regionStorageDirectory.directoryName
 
     internal fun regionFile(
         regionPosition: RegionPosition,
         regionStorageDirectory: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): Path = regionDirectory(regionStorageDirectory, dimensionDirectory) /
+        dimensionId: DimensionId = DimensionId.Overworld,
+    ): Path = regionDirectory(regionStorageDirectory, dimensionId) /
             "r.${regionPosition.x}.${regionPosition.z}.mca"
 
     internal fun externalChunk(
         chunkPosition: ChunkPosition,
         regionStorageDirectory: RegionStorageDirectory = RegionStorageDirectory.CHUNKS,
-        dimensionDirectory: DimensionDirectory = DimensionDirectory.Overworld,
-    ): Path = regionDirectory(regionStorageDirectory, dimensionDirectory) /
+        dimensionId: DimensionId = DimensionId.Overworld,
+    ): Path = regionDirectory(regionStorageDirectory, dimensionId) /
             "c.${chunkPosition.x}.${chunkPosition.z}.mcc"
 
     fun playerData(playerUuid: String): Path =
-        root / "players" / "data" /
+        playerDataDirectory /
                 "${validatePlayerStorageKey(playerUuid)}.dat"
 
     fun previousPlayerData(playerUuid: String): Path =
-        root / "players" / "data" /
+        playerDataDirectory /
                 "${validatePlayerStorageKey(playerUuid)}.dat_old"
 
-    fun advancement(playerUuid: String): Path =
+    fun advancements(playerUuid: String): Path =
         root / "players" / "advancements" /
                 "${validatePlayerStorageKey(playerUuid)}.json"
 
@@ -138,89 +70,40 @@ class MinecraftWorldPaths(
         root / "players" / "stats" /
                 "${validatePlayerStorageKey(playerUuid)}.json"
 
-    fun legacyPlayerData(playerUuid: String): Path =
-        root / "playerdata" / "${validatePlayerStorageKey(playerUuid)}.dat"
-
-    fun legacyAdvancement(playerUuid: String): Path =
-        root / "advancements" /
-                "${validatePlayerStorageKey(playerUuid)}.json"
-
-    fun legacyStatistics(playerUuid: String): Path =
-        root / "stats" / "${validatePlayerStorageKey(playerUuid)}.json"
-
     fun savedDataDirectory(savedDataScope: SavedDataScope): Path = when (savedDataScope) {
         SavedDataScope.WorldRoot -> root / "data"
-        is SavedDataScope.Dimension -> dimension(savedDataScope.dimensionDirectory) / "data"
+        is SavedDataScope.Dimension -> dimension(savedDataScope.dimensionId) / "data"
     }
 
     fun savedData(
-        identifier: String,
+        savedDataId: SavedDataId,
         savedDataScope: SavedDataScope,
     ): Path {
-        val storedIdentifier = parseStoredIdentifier(identifier)
-        val parent = storedIdentifier.pathSegments.dropLast(1).fold(
-            savedDataDirectory(savedDataScope) / storedIdentifier.namespace,
-        ) { path, segment -> path / segment }
-        return parent / "${storedIdentifier.pathSegments.last()}.dat"
+        val parent = savedDataId.pathSegments.dropLast(1).fold(
+            savedDataDirectory(savedDataScope) / savedDataId.namespace,
+        ) { path, pathSegment -> path / pathSegment }
+        return parent / "${savedDataId.pathSegments.last()}.dat"
     }
-}
-
-private fun parseDimensionPath(path: String): List<String> {
-    val segments = path.split('/')
-    require(segments.isNotEmpty() && segments.none(String::isEmpty)) {
-        "Invalid dimension path: $path"
-    }
-    return segments
 }
 
 private fun validatePlayerStorageKey(value: String): String {
-    require(value.matches(PLAYER_STORAGE_KEY_PATTERN)) {
+    require(isValidPlayerStorageKey(value)) {
         "Invalid player storage key: $value"
     }
     return value
 }
 
-private fun parseStoredIdentifier(value: String): StoredIdentifier {
-    val separatorIndex = value.indexOf(':')
-    require(separatorIndex == value.lastIndexOf(':')) {
-        "Invalid saved-data identifier: $value"
+internal fun parsePlayerDataFileName(name: String): String? {
+    val playerUuid = when {
+        name.endsWith(PLAYER_DATA_PREVIOUS_SUFFIX) -> name.removeSuffix(PLAYER_DATA_PREVIOUS_SUFFIX)
+        name.endsWith(PLAYER_DATA_SUFFIX) -> name.removeSuffix(PLAYER_DATA_SUFFIX)
+        else -> return null
     }
-    val namespace = if (separatorIndex < 0) {
-        DEFAULT_NAMESPACE
-    } else {
-        value.substring(0, separatorIndex)
-    }
-    val path = if (separatorIndex < 0) {
-        value
-    } else {
-        value.substring(separatorIndex + 1)
-    }
-    val segments = path.split('/')
-    require(
-        namespace.matches(STORED_IDENTIFIER_NAMESPACE_PATTERN) &&
-                namespace != "." && namespace != ".." &&
-                segments.isNotEmpty() &&
-                segments.all {
-                    it.matches(STORED_IDENTIFIER_SEGMENT_PATTERN) &&
-                            it != "." && it != ".."
-                },
-    ) {
-        "Invalid saved-data identifier: $value"
-    }
-    return StoredIdentifier(namespace, segments)
+    return playerUuid.takeIf(::isValidPlayerStorageKey)
 }
 
-private data class StoredIdentifier(
-    val namespace: String,
-    val pathSegments: List<String>,
-)
+private fun isValidPlayerStorageKey(value: String): Boolean = value.matches(PLAYER_STORAGE_KEY_PATTERN)
 
-private val DIMENSION_NAMESPACE_PATTERN = Regex("[a-z0-9._-]+")
-private val DIMENSION_PATH_SEGMENT_PATTERN = Regex("[a-z0-9._-]+")
 private val PLAYER_STORAGE_KEY_PATTERN = Regex("[A-Za-z0-9_-]+")
-private val STORED_IDENTIFIER_NAMESPACE_PATTERN = Regex("[a-z0-9._-]+")
-private val STORED_IDENTIFIER_SEGMENT_PATTERN = Regex("[a-z0-9._-]+")
-private val MINECRAFT_OVERWORLD_DIRECTORY = DimensionDirectory.Custom("minecraft", "overworld")
-private val MINECRAFT_NETHER_DIRECTORY = DimensionDirectory.Custom("minecraft", "the_nether")
-private val MINECRAFT_END_DIRECTORY = DimensionDirectory.Custom("minecraft", "the_end")
-private const val DEFAULT_NAMESPACE = "minecraft"
+private const val PLAYER_DATA_SUFFIX = ".dat"
+private const val PLAYER_DATA_PREVIOUS_SUFFIX = ".dat_old"

@@ -38,7 +38,7 @@ internal class BackupNbtFileStore(
         backupNbtCandidate: BackupNbtCandidate,
         deserializationStrategy: DeserializationStrategy<T>,
     ): T = nbtFileStore.readCompoundDocument(path(backupNbtCandidate)) { source ->
-        nbtFileStore.nbtFormat.decodeFromOkio(deserializationStrategy, source)
+        nbtFileStore.nbtFormat.decodeFromOkio(source, deserializationStrategy)
     }
 
     inline fun <reified T> read(backupNbtCandidate: BackupNbtCandidate): T =
@@ -51,12 +51,18 @@ internal class BackupNbtFileStore(
         replaceWithTemporary(nbtFileStore.writeSyncedTemporaryDocument(temporaryDirectory, nbtDocument))
     }
 
-    fun <T> write(serializationStrategy: SerializationStrategy<T>, value: T) {
-        replaceWithTemporary(nbtFileStore.writeSyncedTemporary(temporaryDirectory, serializationStrategy, value))
+    fun <T> write(value: T, serializationStrategy: SerializationStrategy<T>) {
+        replaceWithTemporary(
+            nbtFileStore.writeSyncedTemporary(
+                temporaryDirectory,
+                value,
+                serializationStrategy = serializationStrategy,
+            ),
+        )
     }
 
     inline fun <reified T> write(value: T) =
-        write(nbtFileStore.nbtFormat.serializersModule.serializer(), value)
+        write(value, nbtFileStore.nbtFormat.serializersModule.serializer())
 
     fun write(block: (BufferedSink) -> Unit) {
         replaceWithTemporary(nbtFileStore.writeSyncedTemporary(temporaryDirectory, block = block))

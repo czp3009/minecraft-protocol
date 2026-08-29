@@ -49,8 +49,6 @@ class LiveRegionHandle private constructor(
 
     fun hasChunk(chunkPosition: ChunkPosition): Boolean = hasChunk(local(chunkPosition))
 
-    fun hasChunk(blockPosition: BlockPosition): Boolean = hasChunk(blockPosition.chunkPosition)
-
     /** Reads the number of occupied Region header entries without reading Chunk record metadata. */
     fun readChunkCount(): Int = liveRegionFile.readChunkCount()
 
@@ -126,7 +124,7 @@ class LiveRegionHandle private constructor(
         localChunkPosition: LocalChunkPosition,
         deserializationStrategy: DeserializationStrategy<T>,
     ): T? = withChunkNbtSource(localChunkPosition) { _, source ->
-        chunkNbtFormat.nbtFormat.decodeFromOkio(deserializationStrategy, source)
+        chunkNbtFormat.nbtFormat.decodeFromOkio(source, deserializationStrategy)
     }
 
     fun <T> readChunkNbt(
@@ -151,11 +149,6 @@ class LiveRegionHandle private constructor(
         chunkPosition: ChunkPosition,
         chunkNbtCodec: ChunkNbtCodec<B, M>,
     ): Chunk<B, M>? = readChunk(local(chunkPosition), chunkNbtCodec)
-
-    fun <B : Any, M : Any> readChunk(
-        blockPosition: BlockPosition,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
-    ): Chunk<B, M>? = readChunk(blockPosition.chunkPosition, chunkNbtCodec)
 
     /**
      * Runs [block] with one cached Region header and the handle's retained `.mca` resource.

@@ -23,14 +23,14 @@ internal fun NbtFormat.decodeDocumentFromOkio(source: BufferedSource): NbtDocume
     decodeFromOkio(source, this::decodeDocumentFromSource)
 
 internal fun <T> NbtFormat.decodeFromOkio(
-    deserializationStrategy: DeserializationStrategy<T>,
     source: BufferedSource,
+    deserializationStrategy: DeserializationStrategy<T>,
 ): T = decodeFromOkio(source) { kotlinxSource ->
     decodeFromSource(deserializationStrategy, kotlinxSource)
 }
 
 internal inline fun <reified T> NbtFormat.decodeFromOkio(source: BufferedSource): T =
-    decodeFromOkio(serializersModule.serializer(), source)
+    decodeFromOkio(source, serializersModule.serializer())
 
 internal fun NbtFormat.encodeDocumentToOkio(nbtDocument: NbtDocument, sink: BufferedSink) {
     val kotlinxSink = sink.asKotlinxIoRawSink().buffered()
@@ -41,9 +41,9 @@ internal fun NbtFormat.encodeDocumentToOkio(nbtDocument: NbtDocument, sink: Buff
 }
 
 internal fun <T> NbtFormat.encodeToOkio(
-    serializationStrategy: SerializationStrategy<T>,
     value: T,
     sink: BufferedSink,
+    serializationStrategy: SerializationStrategy<T>,
 ) {
     val kotlinxSink = sink.asKotlinxIoRawSink().buffered()
     withOkioIoFailures {
@@ -53,7 +53,7 @@ internal fun <T> NbtFormat.encodeToOkio(
 }
 
 internal inline fun <reified T> NbtFormat.encodeToOkio(value: T, sink: BufferedSink) =
-    encodeToOkio(serializersModule.serializer(), value, sink)
+    encodeToOkio(value, sink, serializersModule.serializer())
 
 internal fun <B : Any, M : Any> ChunkNbtCodec<B, M>.decodeFromOkio(
     source: BufferedSource,
@@ -112,17 +112,17 @@ internal fun CompressedNbtFormat.encodeDocumentFromOkio(
 }
 
 internal fun <T> CompressedNbtFormat.encodeFromOkio(
-    serializationStrategy: SerializationStrategy<T>,
     value: T,
     compression: Compression,
+    serializationStrategy: SerializationStrategy<T>,
 ): CompressedChunk = encodeCompressedChunkFromOkio(this, compression) { sink ->
-    nbtFormat.encodeToOkio(serializationStrategy, value, sink)
+    nbtFormat.encodeToOkio(value, sink, serializationStrategy)
 }
 
 internal inline fun <reified T> CompressedNbtFormat.encodeFromOkio(
     value: T,
     compression: Compression,
-): CompressedChunk = encodeFromOkio(nbtFormat.serializersModule.serializer(), value, compression)
+): CompressedChunk = encodeFromOkio(value, compression, nbtFormat.serializersModule.serializer())
 
 internal fun <B : Any, M : Any> ChunkNbtCodec<B, M>.encodeFromOkio(
     chunk: Chunk<B, M>,
