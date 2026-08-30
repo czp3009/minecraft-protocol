@@ -190,13 +190,14 @@ internal object OfficialVanillaConfigurationCapture {
     }
 
     private fun Throwable.isPortBindFailure(): Boolean {
-        val diagnostic = generateSequence(this) { it.cause }
-            .joinToString("\n") { it.message.orEmpty() }
-        return listOf(
+        val markers = listOf(
             "failed to bind to port",
             "address already in use",
             "bindexception",
-        ).any { marker -> diagnostic.contains(marker, ignoreCase = true) }
+        )
+        return generateSequence(this) { it.cause }
+            .mapNotNull { throwable -> throwable.message }
+            .any { message -> markers.any { marker -> message.contains(marker, ignoreCase = true) } }
     }
 
     private fun captureConfiguration(

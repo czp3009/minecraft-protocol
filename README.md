@@ -55,49 +55,75 @@ official-version installation, and game launch.
 
 ### Connect a client
 
-For a game connection, `negotiate()` handles Handshake, Login, Configuration, dynamic registries, and entry into Play.
-The vanilla packet definition, transport settings, negotiation profile, Known Packs, registries, and client options are
-all defaults. This example therefore supplies only the server address and player identity; online identities are shown
-in the [`protocol-client` guide](protocol-client/README.md#online-login):
+For a game connection, `negotiate()` handles Handshake, Login, Configuration, dynamic registries, and the first
+`PlayLoginPacket`. The initial-world bootstrap and Chunk batches arrive afterwards through `incoming`. The vanilla
+packet definition, transport settings, negotiation profile, Known Packs, registries, and client options are all
+defaults. This example therefore supplies only the server address and player identity; online identities are shown in
+the
+[`protocol-client` guide](protocol-client/README.md#online-login):
 
 ```kotlin
 suspend fun runClient(
     selectorManager: SelectorManager,
     host: String,
-    handlePacket: suspend (ClientboundPacket) -> Unit,
+    handlePacket: suspend (
+        MinecraftClientConnection,
+        MinecraftClientNegotiationResult,
+        ClientboundPacket,
+    ) -> Unit,
 ) {
     MinecraftClientConnection.connect(selectorManager, host).use { minecraftClientConnection ->
-        minecraftClientConnection.negotiate(MinecraftOfflineIdentity("Player"))
+        val minecraftClientNegotiationResult = minecraftClientConnection.negotiate(MinecraftOfflineIdentity("Player"))
 
         for (clientboundPacket in minecraftClientConnection.incoming) {
-            handlePacket(clientboundPacket)
+            handlePacket(minecraftClientConnection, minecraftClientNegotiationResult, clientboundPacket)
         }
     }
 }
 ```
 
-The caller owns the packet loop after negotiation returns. See [`protocol-client`](protocol-client/README.md) for custom
-Configuration data, status queries, chunk/entity projection, loader profiles, and online Login. Direct official
-KeepAlive requests are answered by the client endpoint and do not appear in this application packet loop.
+The caller owns the single packet loop after negotiation returns. That loop applies the initial player position before
+replying with `ConfirmTeleportationPacket`, decodes each Chunk batch, and replies to every
+`ChunkBatchFinishedPacket` with `ChunkBatchReceivedPacket`. See
+[`protocol-client`](protocol-client/README.md#receive-the-initial-world) for that progressive flow, custom Configuration
+data, status queries, Chunk/Entity projection, loader profiles, and online Login. Direct official KeepAlive requests are
+answered by the client endpoint and do not appear in this application packet loop.
 
 ### Accept clients on a server
 
-`MinecraftServer` supplies the listener and typed connection. The application owns the accept loop and chooses one
-coroutine per connection:
+`MinecraftServer` supplies the listener and typed connection. `negotiate()` stops after the first `PlayLoginPacket`, so
+the server then sends a finite initial world before it starts its application packet loop. The application owns the
+accept loop and chooses one coroutine per connection:
 
 ```kotlin
 suspend fun runServer(
     selectorManager: SelectorManager,
-    handlePacket: suspend (MinecraftServerConnection, ServerboundPacket) -> Unit,
+    handlePacket: suspend (
+        MinecraftServerConnection,
+        MinecraftServerNegotiationResult,
+        ServerboundPacket,
+    ) -> Unit,
 ) = coroutineScope {
     MinecraftServer.bind(selectorManager).use { minecraftServer ->
         while (minecraftServer.isOpen) {
             val minecraftServerConnection = minecraftServer.accept()
             launch {
                 minecraftServerConnection.use minecraftServerConnectionUse@{
-                    minecraftServerConnection.negotiate() ?: return@minecraftServerConnectionUse
+                    val minecraftServerNegotiationResult =
+                        minecraftServerConnection.negotiate() ?: return@minecraftServerConnectionUse
+                    val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(
+                        minecraftServerNegotiationResult = minecraftServerNegotiationResult,
+                        chunkRadius = 1,
+                    )
+                    minecraftServerConnection.synchronizeInitialWorld(minecraftInitialWorld)
+                    minecraftServerConnection.requestFlush()
+
                     for (serverboundPacket in minecraftServerConnection.incoming) {
-                        handlePacket(minecraftServerConnection, serverboundPacket)
+                        handlePacket(
+                            minecraftServerConnection,
+                            minecraftServerNegotiationResult,
+                            serverboundPacket,
+                        )
                     }
                 }
             }
@@ -107,10 +133,13 @@ suspend fun runServer(
 ```
 
 `bind()` and `negotiate()` default to the vanilla packet definition, transport behavior, offline authentication,
-negotiation profile, Configuration data, and application policy. [`protocol-server`](protocol-server/README.md) shows
-online authentication, policy overrides, custom data packs, loader profiles, and finite initial Chunk/entity
-synchronization. Preset negotiation also starts the official server KeepAlive service; matching replies are validated
-and consumed before the application packet loop.
+negotiation profile, Configuration data, and negotiation policy. `synchronizeInitialWorld()` enqueues the bootstrap, one
+complete Chunk batch, and the finite Entity view; `requestFlush()` publishes them. It does not wait for
+`ConfirmTeleportationPacket` or `ChunkBatchReceivedPacket`, which arrive through the application packet loop. The
+[`protocol-server` guide](protocol-server/README.md#enter-play-and-send-a-finite-world) shows the exact boundary and how
+a long-running server replaces this finite example with feedback-controlled Chunk batches across its own ticks. Preset
+negotiation also starts the official server KeepAlive service; matching replies are validated and consumed before the
+application packet loop.
 
 ### Read a world
 

@@ -443,9 +443,7 @@ private data class ProcessSnapshot(
     val failure: Throwable? = null,
 ) {
     val text: String
-        get() = buildString {
-            lines.forEach { append(it.text) }
-        }
+        get() = lines.joinToString(separator = "", transform = SequencedOutputLine::text)
 
     fun firstMatchingLineAfter(
         sequence: Long,

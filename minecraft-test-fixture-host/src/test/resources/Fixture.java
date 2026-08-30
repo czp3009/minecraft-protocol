@@ -15,7 +15,7 @@ class Fixture {
             if (command.equals("fixture-exit")) return;
             if (command.equals("fixture-output-and-exit")) {
                 for (int index = 0; index < 10_000; index++) {
-                    output.write("exit-output-" + index + "\n");
+                    output.write("exit-output-%d\n".formatted(index));
                 }
                 output.flush();
                 return;

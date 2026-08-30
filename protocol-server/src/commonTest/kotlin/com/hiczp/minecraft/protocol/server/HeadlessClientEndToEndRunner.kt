@@ -174,8 +174,8 @@ internal object HeadlessClientEndToEndRunner {
                 MinecraftTestSupport.disconnectHeadlessClient(headlessMinecraftClient)
             }
         }
-        val details = failures.joinToString(separator = "\n- ", prefix = "- ")
-        error("Official client made no TCP connection after $MAXIMUM_CONNECTION_ATTEMPTS attempts:\n$details")
+        val details = failures.joinToString()
+        error("Official client made no TCP connection after $MAXIMUM_CONNECTION_ATTEMPTS attempts: $details")
     }
 
     private suspend fun awaitConnectionWithin(

@@ -14,12 +14,119 @@ repository's [server quick start](../README.md#accept-clients-on-a-server) shows
 
 `accept()` returns a typed connection without starting negotiation. `negotiate()` answers a Status exchange and returns
 `null` after closing that Status connection, or completes Login and Configuration and returns
-`MinecraftServerNegotiationResult` for an open Play connection.
+`MinecraftServerNegotiationResult` for an open Play connection after sending the first `PlayLoginPacket`. It
+deliberately does not send the initial-world bootstrap, Chunks, or Entities.
 
-The root quick start uses the built-in vanilla, offline, transport, Configuration, and policy defaults.
+The root quick start uses the built-in vanilla, offline, transport, Configuration, and policy defaults, then separately
+chooses a finite `MinecraftInitialWorld.flatVanilla` view. That world choice is not a negotiation default.
 
 Negotiation exclusively uses both packet channels until it returns. Run it in one coroutine without concurrent readers
 or writers. The preset has no built-in admission timeout; apply the application's own deadline around the call.
+
+## Enter Play and send a finite world
+
+The shortest complete Login path negotiates first, creates a small initial world view from the resulting dimension and
+Play settings, sends that view, and then transfers the packet channels to the application:
+
+```kotlin
+suspend fun serveFlatWorld(
+    minecraftServerConnection: MinecraftServerConnection,
+    handlePacket: suspend (
+        MinecraftServerConnection,
+        MinecraftServerNegotiationResult,
+        ServerboundPacket,
+    ) -> Unit,
+) {
+    val minecraftServerNegotiationResult = minecraftServerConnection.negotiate() ?: return
+    val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(
+        minecraftServerNegotiationResult = minecraftServerNegotiationResult,
+        chunkRadius = 1,
+    )
+    minecraftServerConnection.synchronizeInitialWorld(minecraftInitialWorld)
+    minecraftServerConnection.requestFlush()
+
+    for (serverboundPacket in minecraftServerConnection.incoming) {
+        handlePacket(
+            minecraftServerConnection,
+            minecraftServerNegotiationResult,
+            serverboundPacket,
+        )
+    }
+}
+```
+
+The `null` branch is a completed Status exchange, so it has no world to send. A non-null result means that
+`PlayLoginPacket` was sent and supplies the exact dimension context, game mode, and distances reused by the
+initial-world factory.
+`synchronizeInitialWorld()` then enqueues the fixed bootstrap, one complete Chunk batch, and every supplied Entity
+pairing bundle. It neither flushes nor waits for acknowledgements; `ConfirmTeleportationPacket` and
+`ChunkBatchReceivedPacket` arrive through `incoming` and remain application state. The flat factory is a finite
+convenience for examples, tests, and simple views, not a tick loop or authoritative world.
+
+### Send only the bootstrap
+
+A server that loads or generates its own Chunks can send only the fixed initial Play packets first. The result overload
+reuses the exact dimension, game mode, and distances sent in Play Login; difficulty and player position remain explicit
+initial-world choices:
+
+```kotlin
+suspend fun sendBootstrap(
+    minecraftServerConnection: MinecraftServerConnection,
+    minecraftServerNegotiationResult: MinecraftServerNegotiationResult,
+    difficulty: Difficulty,
+    playerPosition: Vector3d,
+) {
+    val minecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
+        minecraftServerNegotiationResult = minecraftServerNegotiationResult,
+        difficulty = difficulty,
+        playerPosition = playerPosition,
+    )
+    minecraftServerConnection.sendInitialWorldBootstrap(minecraftInitialWorldBootstrap)
+    minecraftServerConnection.requestFlush()
+}
+```
+
+`MinecraftInitialWorldBootstrap` sends difficulty, default spawn, player abilities, render and simulation distances, the
+initial player position, the start-loading game event, and the center Chunk, but no Chunk or Entity data. Its
+`teleportId` is the value the application expects in `ConfirmTeleportationPacket`. Use the direct overload to supply
+dimension, game mode, distances, and positions independently when no negotiation result is available.
+
+## Stream Chunk batches over ticks
+
+A long-running server normally keeps a per-connection queue of visible Chunks instead of placing the entire view in one
+`MinecraftInitialWorld`. On an application tick, when that connection has send quota and room for another in-flight
+batch, it selects nearby pending Chunks and sends one batch in protocol order:
+
+```kotlin
+suspend fun sendChunkBatch(
+    minecraftServerConnection: MinecraftServerConnection,
+    chunkDataAndUpdateLightPackets: List<ChunkDataAndUpdateLightPacket>,
+) {
+    require(chunkDataAndUpdateLightPackets.isNotEmpty())
+    minecraftServerConnection.outgoing.send(ChunkBatchStartPacket)
+    chunkDataAndUpdateLightPackets.forEach { chunkDataAndUpdateLightPacket ->
+        minecraftServerConnection.outgoing.send(chunkDataAndUpdateLightPacket)
+    }
+    minecraftServerConnection.outgoing.send(
+        ChunkBatchFinishedPacket(chunkDataAndUpdateLightPackets.size),
+    )
+    minecraftServerConnection.requestFlush()
+}
+```
+
+The client answers each finished batch with `ChunkBatchReceivedPacket.desiredChunksPerTick`. The application's single
+`incoming` consumer validates that response, reduces its outstanding-batch count, and uses a finite, policy-bounded form
+of the requested rate when granting later tick quotas. A simple controller can allow only one outstanding batch and wait
+for its acknowledgement before sending the next one. An official-style controller may later permit a bounded number of
+in-flight batches, but it still uses acknowledgements for flow control instead of sending the complete view without
+feedback.
+
+Do not add a second `incoming.receive()` loop inside the tick or batch sender. Let the connection's packet handler
+update or signal its Chunk-flow state, and let the next eligible tick consume that state. This module supplies the batch
+packet models and Chunk encoders; pending visibility, tick scheduling, rate policy, and acknowledgement deadlines belong
+to the server application. The [semantic Chunk encoder](#convert-semantic-chunks-to-packets) below produces the batch
+payloads, and the [`protocol-client` flow](../protocol-client/README.md#receive-the-initial-world) shows the matching
+consumer and response order.
 
 ## Configure the advertised server
 
@@ -204,57 +311,6 @@ fun resolveModdedProtocolData(
 For full control, construct a `DataPackProtocolProjector` or `ResolvedProtocolData` directly.
 [`protocol-datapack`](../protocol-datapack/README.md) explains the stages, and
 [`protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md) documents the release-matched defaults.
-
-## Send an initial world
-
-After negotiation enters Play, the application must send whatever bootstrap and world state its client needs.
-
-`MinecraftInitialWorldBootstrap` contains the fixed initial Play packets without Chunks or Entities. Its result overload
-reuses the exact dimension, game mode, and distances sent in Play Login; difficulty remains an explicit initial-world
-choice:
-
-```kotlin
-suspend fun sendBootstrap(
-    minecraftServerConnection: MinecraftServerConnection,
-    minecraftServerNegotiationResult: MinecraftServerNegotiationResult,
-    difficulty: Difficulty,
-    playerPosition: Vector3d,
-) {
-    val minecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
-        minecraftServerNegotiationResult = minecraftServerNegotiationResult,
-        difficulty = difficulty,
-        playerPosition = playerPosition,
-    )
-    minecraftServerConnection.sendInitialWorldBootstrap(minecraftInitialWorldBootstrap)
-    minecraftServerConnection.requestFlush()
-}
-```
-
-The bootstrap's `teleportId` is available to the application when it handles `ConfirmTeleportationPacket`. Use the
-direct overload to supply dimension, game mode, distances, and positions independently when no negotiation result is
-available.
-
-For tests, previews, and simple finite views, `MinecraftInitialWorld` adds complete Chunk and Entity snapshots:
-
-```kotlin
-suspend fun sendFlatWorld(
-    minecraftServerConnection: MinecraftServerConnection,
-    minecraftServerNegotiationResult: MinecraftServerNegotiationResult,
-) {
-    val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(
-        minecraftServerNegotiationResult = minecraftServerNegotiationResult,
-        chunkRadius = 1,
-    )
-    minecraftServerConnection.synchronizeInitialWorld(minecraftInitialWorld)
-    minecraftServerConnection.requestFlush()
-}
-```
-
-This sends one bootstrap, one complete Chunk batch, and the supplied Entity pairing bundles. It does not wait for
-`ChunkBatchReceivedPacket` and does not create a game loop. A long-running server should pace later batches and updates
-from its own tick/AOI state. The result overload prevents the negotiated dimension context and Play Login settings from
-being passed separately. Use the `minecraftDimensionContext` overload with a separately constructed bootstrap when an
-application intentionally needs different initial-world values.
 
 ## Convert semantic Chunks to packets
 

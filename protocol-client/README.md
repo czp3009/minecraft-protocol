@@ -46,9 +46,10 @@ Status cannot continue into Login; close it and open a new connection when joini
 ## Enter Play
 
 The preset negotiation handles compression, optional encryption, cookies, Login queries, client information, Known
-Packs, synchronized registries, tags, and Finish Configuration. The repository's
-[client quick start](../README.md#connect-a-client) owns the default offline example; this guide focuses on the options
-and results beyond that path.
+Packs, synchronized registries, tags, Finish Configuration, and the first `PlayLoginPacket`. It returns before the
+server's initial-world bootstrap, Chunk batches, and Entities. The repository's
+[client quick start](../README.md#connect-a-client) owns the default offline connection lifetime; this guide continues
+from Login into progressive world reception.
 
 `negotiate()` runs in the calling coroutine and exclusively uses both packet channels until it returns. Do not read from
 `incoming` or send to `outgoing` from another coroutine during that call. The preset has no built-in admission timeout;
@@ -62,6 +63,89 @@ extracted from that bundle.
 After Play begins, send packets through `outgoing` and publish queued data with `requestFlush()` at the application's
 normal tick boundary. Use the suspending `flush()` only when the caller must wait until all earlier queued packets have
 reached the transport's flush boundary.
+
+### Receive the initial world
+
+The client does not receive one complete world snapshot. It advances through the initial Play stream in order:
+
+1. `negotiate()` consumes `PlayLoginPacket` and returns the dimension and registry context needed to decode Chunks.
+2. Bootstrap packets establish difficulty, spawn, abilities, distances, player position, and the center Chunk. Apply a
+   `SynchronizePlayerPositionPacket` before replying with its `ConfirmTeleportationPacket`.
+3. `ChunkBatchStartPacket` opens a batch. Decode and store each `ChunkDataAndUpdateLightPacket` as it arrives rather
+   than waiting for the whole view.
+4. `ChunkBatchFinishedPacket` closes the batch and states its Chunk count. Reply with
+   `ChunkBatchReceivedPacket`, whose `desiredChunksPerTick` tells the server how quickly to send later batches.
+5. Keep the same single packet loop running for later Chunk batches, Entity bundles, updates, and ordinary Play traffic.
+
+This connection-scoped example performs the required replies while leaving player/world storage and throughput
+measurement with the application:
+
+```kotlin
+suspend fun runPlayPacketLoop(
+    minecraftClientConnection: MinecraftClientConnection,
+    minecraftOfflineIdentity: MinecraftOfflineIdentity,
+    chunkMetadata: ChunkMetadata,
+    desiredChunksPerTick: () -> Float,
+    applyPlayerPosition: suspend (SynchronizePlayerPositionPacket) -> Unit,
+    storeChunk: suspend (Chunk<ProtocolBlockState, ProtocolRegistryEntry>) -> Unit,
+    handlePacket: suspend (ClientboundPacket) -> Unit,
+) {
+    val minecraftClientNegotiationResult =
+        minecraftClientConnection.negotiate(minecraftOfflineIdentity)
+    val minecraftChunkPacketDecoder = minecraftClientNegotiationResult.minecraftDimensionContext
+        .createMinecraftChunkContext()
+        .packetDecoder(chunkMetadata)
+    var chunkBatchOpen = false
+    var receivedChunkCount = 0
+
+    for (clientboundPacket in minecraftClientConnection.incoming) {
+        when (clientboundPacket) {
+            ChunkBatchStartPacket -> {
+                check(!chunkBatchOpen) { "Received a nested Chunk batch" }
+                chunkBatchOpen = true
+                receivedChunkCount = 0
+            }
+
+            is ChunkDataAndUpdateLightPacket -> {
+                storeChunk(minecraftChunkPacketDecoder.decode(clientboundPacket))
+                if (chunkBatchOpen) receivedChunkCount++
+            }
+
+            is ChunkBatchFinishedPacket -> {
+                check(chunkBatchOpen) { "Received Chunk batch finish without a start" }
+                check(clientboundPacket.batchSize == receivedChunkCount) {
+                    "Received $receivedChunkCount Chunks in a batch declared as ${clientboundPacket.batchSize}"
+                }
+                chunkBatchOpen = false
+                val requestedChunksPerTick = desiredChunksPerTick()
+                require(requestedChunksPerTick.isFinite() && requestedChunksPerTick > 0.0f)
+                minecraftClientConnection.outgoing.send(
+                    ChunkBatchReceivedPacket(requestedChunksPerTick),
+                )
+                minecraftClientConnection.requestFlush()
+            }
+
+            is SynchronizePlayerPositionPacket -> {
+                applyPlayerPosition(clientboundPacket)
+                minecraftClientConnection.outgoing.send(
+                    ConfirmTeleportationPacket(clientboundPacket.teleportId),
+                )
+                minecraftClientConnection.requestFlush()
+            }
+
+            else -> handlePacket(clientboundPacket)
+        }
+    }
+}
+```
+
+`desiredChunksPerTick` may be a fixed application policy for a simple client or a value derived from measured batch
+processing time. The library does not calculate it, store a world, or acknowledge Chunk batches automatically. The
+server may keep a bounded number of batches in flight after receiving feedback, so the client must acknowledge every
+finished batch and continue processing packets instead of waiting for an end-of-map marker. Entity pairing bundles reach
+`handlePacket` and can be decoded with the helper described below. The
+[`protocol-server` flow](../protocol-server/README.md#stream-chunk-batches-over-ticks) describes the matching tick-side
+queue and acknowledgement state.
 
 ### Configure negotiation
 

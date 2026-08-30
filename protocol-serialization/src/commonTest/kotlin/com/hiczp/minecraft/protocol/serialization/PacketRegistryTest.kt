@@ -87,14 +87,15 @@ class PacketRegistryTest {
                         packetCodec.packetClass.simpleName,
                     )
                 } catch (cause: Throwable) {
+                    val causeMessage = cause.message.orEmpty().lineSequence().joinToString(" | ")
                     add(
-                        "${packetCodec.packetKey} ${packetCodec.packetClass.simpleName}: ${cause::class.simpleName}: ${cause.message}",
+                        "${packetCodec.packetKey} ${packetCodec.packetClass.simpleName}: ${cause::class.simpleName}: $causeMessage",
                     )
                 }
             }
         }
         if (failures.isNotEmpty()) {
-            fail(failures.joinToString(separator = "\n"))
+            fail(failures.joinToString())
         }
     }
 

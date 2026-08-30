@@ -237,9 +237,9 @@ class OfficialWorldStorageInteropTest {
                 activeOfficialMinecraftServer = MinecraftTestSupport.restartServer(activeOfficialMinecraftServer)
             }
         }
-        val details = failures.joinToString(separator = "\n- ", prefix = "- ")
+        val details = failures.joinToString()
         throw IllegalStateException(
-            "Official client did not join after $MAXIMUM_CONNECTION_ATTEMPTS attempts:\n$details",
+            "Official client did not join after $MAXIMUM_CONNECTION_ATTEMPTS attempts: $details",
             lastConnectionFailure,
         )
     }

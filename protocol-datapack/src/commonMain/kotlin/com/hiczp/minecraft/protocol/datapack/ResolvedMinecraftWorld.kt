@@ -31,10 +31,7 @@ class ResolvedMinecraftWorld internal constructor(
 class MinecraftWorldResolutionException(
     failures: Map<DimensionId, String>,
 ) : IllegalStateException(
-    buildString {
-        append("Unable to resolve Minecraft world dimensions")
-        failures.forEach { (dimensionId, reason) -> append("\n- $dimensionId: $reason") }
-    },
+    "Unable to resolve Minecraft world dimensions: ${failures.entries.joinToString { (dimensionId, reason) -> "$dimensionId: $reason" }}",
 ) {
     val failures: Map<DimensionId, String> = failures.toMap()
 

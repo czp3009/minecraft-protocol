@@ -87,15 +87,15 @@ public final class OfficialCodecOracle {
             String details = failures.stream()
                     .limit(MAX_REPORTED_FAILURES)
                     .map(failure -> "- %s".formatted(failure))
-                    .collect(Collectors.joining("\n"));
+                    .collect(Collectors.joining("; "));
             String omitted =
                     failures.size() > MAX_REPORTED_FAILURES
-                            ? "\n- ... %d additional failure(s) omitted".formatted(
+                            ? "; ... %d additional failure(s) omitted".formatted(
                             failures.size() - MAX_REPORTED_FAILURES
                     )
                             : "";
             throw new AssertionError(
-                    "Official codec rejected %d fixture(s):\n%s%s".formatted(
+                    "Official codec rejected %d fixture(s): %s%s".formatted(
                             failures.size(),
                             details,
                             omitted
@@ -165,15 +165,15 @@ public final class OfficialCodecOracle {
             String details = failures.stream()
                     .limit(MAX_REPORTED_FAILURES)
                     .map(failure -> "- %s".formatted(failure))
-                    .collect(Collectors.joining("\n"));
+                    .collect(Collectors.joining("; "));
             String omitted =
                     failures.size() > MAX_REPORTED_FAILURES
-                            ? "\n- ... %d additional failure(s) omitted".formatted(
+                            ? "; ... %d additional failure(s) omitted".formatted(
                             failures.size() - MAX_REPORTED_FAILURES
                     )
                             : "";
             throw new AssertionError(
-                    "Official NBT codec rejected %d fixture(s):\n%s%s".formatted(
+                    "Official NBT codec rejected %d fixture(s): %s%s".formatted(
                             failures.size(),
                             details,
                             omitted
@@ -235,15 +235,15 @@ public final class OfficialCodecOracle {
             String details = failures.stream()
                     .limit(MAX_REPORTED_FAILURES)
                     .map(failure -> "- %s".formatted(failure))
-                    .collect(Collectors.joining("\n"));
+                    .collect(Collectors.joining("; "));
             String omitted =
                     failures.size() > MAX_REPORTED_FAILURES
-                            ? "\n- ... %d additional failure(s) omitted".formatted(
+                            ? "; ... %d additional failure(s) omitted".formatted(
                             failures.size() - MAX_REPORTED_FAILURES
                     )
                             : "";
             throw new AssertionError(
-                    "Official SNBT parser rejected %d fixture(s):\n%s%s".formatted(
+                    "Official SNBT parser rejected %d fixture(s): %s%s".formatted(
                             failures.size(),
                             details,
                             omitted
@@ -503,7 +503,7 @@ public final class OfficialCodecOracle {
         String message = current.getMessage();
         String suffix = message == null || message.isBlank()
                 ? ""
-                : ": %s".formatted(message);
+                : ": %s".formatted(message.lines().collect(Collectors.joining(" | ")));
         return "%s%s".formatted(current.getClass().getName(), suffix);
     }
 

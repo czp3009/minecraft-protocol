@@ -108,10 +108,29 @@ Keep physical byte encoding out of models, socket and framing behavior out of se
   policy.
 - Every source generator uses a language-aware library such as KotlinPoet or JavaPoet. Generated declarations are not
   assembled with raw source strings.
-- In Kotlin and Java, prefer templates over `+` for text composition. Keep one logical single-line string in one literal
-  or template and on one source line, even when it exceeds the 120-column guideline; do not split or concatenate it
-  solely for layout. Use triple-quoted strings for real multiline content. Use builders only when loops or non-trivial
-  branching require them.
+- Apply these text-construction rules whenever the resulting value is a `String`:
+  - Never compose text with binary `+`, `String.plus`, `String.concat`, or `+=` on a String receiver. Kotlin uses a
+    string template; Java uses one literal with `formatted` or another maintained formatting API. This does not prohibit
+    numeric, collection, array, byte-sequence, coroutine-context, or other non-text `+` operations, including adding a
+    String element to a collection.
+  - Keep constant text in one literal. Keep one logical single-line value in one ordinary quoted literal or template and
+    on one source line, even when it exceeds the 120-column guideline; never split it merely to wrap source. Keep
+    program-authored exception, assertion, validation, and log prose on one logical line; aggregate uniformly generated
+    items with a single-line separator.
+  - A diagnostic may remain multiline when it embeds verbatim evidence whose line boundaries are part of that evidence,
+    such as bounded process output, compiler output, or a wire/file dump. Preserve those original line breaks and
+    introduce the evidence clearly; do not flatten it merely to satisfy the single-line prose rule.
+  - Use a triple-quoted raw string for genuinely multiline literal content whose authored line boundaries are part of
+    the value's contract, such as a file, protocol payload, source/data fixture, generated documentation, or a
+    diagnostic with structural labels around verbatim multiline evidence. A one-line diagnostic introduction followed by
+    such evidence may instead use an ordinary template with one explicit `\n`; the evidence keeps its own line breaks. A
+    single-line raw string remains appropriate when verbatim escaping materially improves readability, such as for a
+    regular expression. Do not use either form to disguise concatenation or source wrapping.
+  - Use a mutable text accumulator such as `StringBuilder`, `StringBuffer`, or `buildString` only for genuinely
+    incremental construction driven by a loop, streaming input, or multiple non-trivial branches. A collection rendered
+    uniformly uses `joinToString` with a template; a simple conditional fragment uses an intermediate value or template
+    expression. An accumulator is never a substitute for one literal or template. These rules do not override the
+    format-aware-library requirement for structured data above.
 - Treat 120 columns as a soft wrapping guideline for ordinary expressions, not a hard source limit. Keep assignments on
   one line when the complete expression fits within that margin. Break after `=` only when the expression is
   intrinsically multiline or would exceed the guideline.

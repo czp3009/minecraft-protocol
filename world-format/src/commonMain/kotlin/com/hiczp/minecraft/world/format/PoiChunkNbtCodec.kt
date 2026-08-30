@@ -56,8 +56,7 @@ class PoiChunkNbtCodec(
             poiSection.records.firstOrNull { poiRecord -> poiRecord.chunkPosition != poiChunk.chunkPosition }
                 ?.let { poiRecord ->
                     throw PoiChunkNbtFormatException(
-                        "POI ${poiRecord.blockPosition} belongs to Chunk ${poiRecord.chunkPosition}, " +
-                                "expected ${poiChunk.chunkPosition}",
+                        "POI ${poiRecord.blockPosition} belongs to Chunk ${poiRecord.chunkPosition}, expected ${poiChunk.chunkPosition}",
                     )
                 }
             sections[poiSection.sectionY.toString()] = encodeSection(poiSection)

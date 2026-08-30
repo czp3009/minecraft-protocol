@@ -284,20 +284,11 @@ internal object ProtocolHttp {
         } catch (failure: CancellationException) {
             throw failure
         } catch (failure: Throwable) {
+            val attempts = retryableResponseBody.attempts.get().coerceAtLeast(1)
+            val attemptLabel = if (attempts == 1) "attempt" else "attempts"
+            val reason = failure.friendlyDownloadReason().lineSequence().joinToString(" | ")
             throw GradleException(
-                buildString {
-                    val attempts = retryableResponseBody.attempts.get().coerceAtLeast(1)
-                    append("Could not download external resource after ")
-                    append(attempts)
-                    append(if (attempts == 1) " attempt.\n" else " attempts.\n")
-                    append("URL: ")
-                    append(url)
-                    append("\nReason: ")
-                    append(failure.friendlyDownloadReason())
-                    append('\n')
-                    append(proxyDiagnostic())
-                    append("\nCheck the network connection, proxy/VPN, and firewall, then rerun the failed Gradle task.")
-                },
+                "Could not download external resource after $attempts $attemptLabel. URL: $url. Reason: $reason. ${proxyDiagnostic()} Check the network connection, proxy/VPN, and firewall, then rerun the failed Gradle task.",
                 failure,
             )
         }
@@ -309,17 +300,9 @@ internal object ProtocolHttp {
         destination: Path? = null,
     ) {
         if (!offline) return
+        val destinationDiagnostic = destination?.let { " Missing or invalid file: $it." }.orEmpty()
         throw GradleException(
-            buildString {
-                append("Cannot download external resource because Gradle is offline.\n")
-                append("URL: ")
-                append(url)
-                destination?.let {
-                    append("\nMissing or invalid file: ")
-                    append(it)
-                }
-                append("\nRerun without --offline after network access is available.")
-            },
+            "Cannot download external resource because Gradle is offline. URL: $url.$destinationDiagnostic Rerun without --offline after network access is available.",
         )
     }
 
