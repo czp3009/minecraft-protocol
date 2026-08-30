@@ -76,6 +76,8 @@ The client does not receive one complete world snapshot. It advances through the
 4. `ChunkBatchFinishedPacket` closes the batch and states its Chunk count. Reply with
    `ChunkBatchReceivedPacket`, whose `desiredChunksPerTick` tells the server how quickly to send later batches.
 5. Keep the same single packet loop running for later Chunk batches, Entity bundles, updates, and ordinary Play traffic.
+   The library projects complete Chunk packets and Entity pairing bundles; the application applies later incremental
+   world packets to its own state.
 
 This connection-scoped example performs the required replies while leaving player/world storage and throughput
 measurement with the application:
@@ -84,7 +86,6 @@ measurement with the application:
 suspend fun runPlayPacketLoop(
     minecraftClientConnection: MinecraftClientConnection,
     minecraftOfflineIdentity: MinecraftOfflineIdentity,
-    chunkMetadata: ChunkMetadata,
     desiredChunksPerTick: () -> Float,
     applyPlayerPosition: suspend (SynchronizePlayerPositionPacket) -> Unit,
     storeChunk: suspend (Chunk<ProtocolBlockState, ProtocolRegistryEntry>) -> Unit,
@@ -94,7 +95,7 @@ suspend fun runPlayPacketLoop(
         minecraftClientConnection.negotiate(minecraftOfflineIdentity)
     val minecraftChunkPacketDecoder = minecraftClientNegotiationResult.minecraftDimensionContext
         .createMinecraftChunkContext()
-        .packetDecoder(chunkMetadata)
+       .packetDecoder()
     var chunkBatchOpen = false
     var receivedChunkCount = 0
 
@@ -151,8 +152,8 @@ queue and acknowledgement state.
 
 `MinecraftClientNegotiationOptions` contains only inputs used during Login, Configuration, and entry into Play: client
 information, protocol data, cookies, accepted Known Packs, the Code of Conduct decision, the resource-pack response,
-local static registries, and handling of unrecognized negotiation queries.
-Here `minecraftClientConnection` is a fresh Handshake-state value returned by `MinecraftClientConnection.connect`:
+local static registries, and handling of unrecognized negotiation queries. Here `minecraftClientConnection` is a fresh
+Handshake-state value returned by `MinecraftClientConnection.connect`:
 
 ```kotlin
 val minecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(
@@ -258,16 +259,10 @@ vanilla data, create the complete Chunk context with its defaults and then creat
 ```kotlin
 fun createChunkDecoder(
     minecraftClientNegotiationResult: MinecraftClientNegotiationResult,
-    dataVersion: Int,
 ): MinecraftChunkPacketDecoder {
     val minecraftChunkContext = minecraftClientNegotiationResult.minecraftDimensionContext
         .createMinecraftChunkContext()
-    return minecraftChunkContext.packetDecoder(
-        ChunkMetadata(
-            dataVersion = dataVersion,
-            status = ChunkMetadata.FULLY_GENERATED_STATUS,
-        ),
-    )
+   return minecraftChunkContext.packetDecoder()
 }
 
 fun decodeChunk(
@@ -277,9 +272,11 @@ fun decodeChunk(
     minecraftChunkPacketDecoder.decode(chunkDataAndUpdateLightPacket)
 ```
 
-The caller supplies the metadata template because network Chunk packets do not carry persistence-only fields such as
-data version, generation status, inhabited time, or scheduled ticks. Packet heightmaps, block entities, lighting,
-position, palettes, and biomes replace the corresponding values during decoding.
+Packet heightmaps, block entities, lighting, position, palettes, and biomes become a directly usable semantic Chunk. Its
+`chunkMetadata.chunkStorageMetadata` is null because network Chunk packets do not carry data version, generation status,
+inhabited time, scheduled ticks, or other persistence-only fields. Persistent encoding requires the caller to explicitly
+reconstruct or merge every omitted storage field and any persistent Block Entity data absent from the server's update
+tags; the decoder never invents or implicitly retains that state.
 
 The decoder validates packet Section count and palette IDs against the same context installed on the connection. The
 result is the same semantic `Chunk<ProtocolBlockState, ProtocolRegistryEntry>` used by the disk and server paths; the
@@ -287,9 +284,8 @@ client does not need a data-pack directory or a separately assembled registry ad
 
 `dataPackConfigurationSnapshot`, `resolveClientRegistryView(...)`, `playLoginPacket`, `minecraftDimensionContext`,
 `minecraftDimensionLayout`, and `chunkLayout` remain available for inspection and custom decoders. The explicit
-`MinecraftChunkPacketDecoder(protocolRegistryContext, chunkCodecContext, chunkMetadata)` constructor is the low-level
-entry when a caller intentionally supplies those stages. Rebuild the context and decoder after reconfiguration or a
-dimension change.
+`MinecraftChunkPacketDecoder(protocolRegistryContext, chunkCodecContext)` constructor is the low-level entry. Rebuild
+the context and decoder after reconfiguration or a dimension change.
 
 For a modded registry without `minecraft:air` or `minecraft:plains`, pass `defaultBlock` and `defaultBiome` to
 `createMinecraftChunkContext`. Changing those values never changes the packets sent during negotiation.
@@ -315,6 +311,25 @@ apply pairing metadata, attributes, equipment, passenger relationships, or leash
 
 `toEntity()` is the strict one-Entity form. `toEntities()` accepts several pairing sequences in one bundle, and the
 `OrNull` variants leave unrelated bundles available to the normal packet dispatcher.
+
+## Know the client projection boundary
+
+The connection has already decoded every registered wire payload before it places a typed `ClientboundPacket` on
+`incoming`. Semantic projection into the shared world-format values is narrower:
+
+| Received value                                                                                                                           | Current semantic path                  | Result and caller responsibility                                                               |
+|------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------|------------------------------------------------------------------------------------------------|
+| `ChunkDataAndUpdateLightPacket`                                                                                                          | `MinecraftChunkPacketDecoder.decode()` | Produces a complete computational `Chunk`; the application stores it by dimension and position |
+| Entity pairing `ClientboundBundlePacket`                                                                                                 | `MinecraftEntityPacketDecoder`         | Produces `Entity` values or invokes a caller adapter for pairing state                         |
+| `BlockUpdatePacket`, `UpdateSectionBlocksPacket`, `ChunkBiomesPacket`, `LightUpdatePacket`, `BlockEntityDataPacket`, `UnloadChunkPacket` | No high-level projector                | The application applies the typed update or removes the Chunk from its own world state         |
+| Later Entity movement, metadata, equipment, attributes, relationship, and removal packets                                                | No high-level state applier            | The application resolves the runtime Entity ID and updates its own Entity table                |
+| POI data                                                                                                                                 | No vanilla clientbound packet          | No client-side `PoiChunk` can be reconstructed from the network                                |
+
+Consequently, the full-Chunk receive path is immediately usable for computation but is not a maintained client-world
+mirror. The Entity decoder likewise restores `Entity`, not `EntityChunk`: the latter is an on-disk grouping with a data
+version and Chunk position that the network does not transmit losslessly. Applications that need long-lived state keep
+one packet consumer, route these typed updates into their own state model, and rebuild the Chunk decoder after a
+dimension change or reconfiguration.
 
 ## Loader profiles and custom packets
 

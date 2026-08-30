@@ -27,8 +27,20 @@ class ResolvedMinecraftWorldTest {
         assertEquals(listOf(DimensionId.Overworld, DimensionId.Nether), resolvedMinecraftWorld.dimensions.keys.toList())
         val overworld = resolvedMinecraftWorld.dimension(DimensionId.Overworld)
         val nether = resolvedMinecraftWorld.dimension(DimensionId.Nether)
-        assertEquals(0, overworld.minecraftDimensionLayout.dimensionTypeRawId)
-        assertEquals(1, nether.minecraftDimensionLayout.dimensionTypeRawId)
+        assertEquals(
+            0,
+            resolvedProtocolData.registryRawId(
+                MinecraftDimensionLayout.DIMENSION_TYPE_REGISTRY,
+                Identifier("overworld"),
+            ),
+        )
+        assertEquals(
+            1,
+            resolvedProtocolData.registryRawId(
+                MinecraftDimensionLayout.DIMENSION_TYPE_REGISTRY,
+                Identifier("the_nether"),
+            ),
+        )
         assertEquals(24, overworld.chunkCodecContext.chunkLayout.sectionCount)
         assertEquals(16, nether.chunkCodecContext.chunkLayout.sectionCount)
         assertEquals(
@@ -46,6 +58,29 @@ class ResolvedMinecraftWorldTest {
         assertSame(
             overworld.chunkCodecContext.chunkDataRegistries,
             nether.chunkCodecContext.chunkDataRegistries,
+        )
+    }
+
+    @Test
+    fun resolvesInlineDimensionTypesForSemanticChunkWork() {
+        val resolvedProtocolData = testResolvedProtocolData()
+        val inlineDimensionId = DimensionId("inline", "test")
+        val inlineDimensionTypeData = dimensionTypeData(-32, 128, true, false)
+        val worldGenSettingsData = worldGenSettings(
+            DimensionId.Overworld to reference("overworld"),
+            inlineDimensionId to WorldGenDimension(
+                type = WorldGenDimensionType.Inline(inlineDimensionTypeData),
+                generator = NbtCompound(emptyMap()),
+            ),
+        )
+
+        val minecraftChunkContexts = resolvedProtocolData.resolveMinecraftChunkContexts(worldGenSettingsData)
+
+        assertEquals(-32, minecraftChunkContexts.getValue(inlineDimensionId).dimensionTypeLayout.minY)
+        assertEquals(8, minecraftChunkContexts.getValue(inlineDimensionId).chunkLayout.sectionCount)
+        assertSame(
+            minecraftChunkContexts.getValue(DimensionId.Overworld).chunkCodecContext.chunkDataRegistries,
+            minecraftChunkContexts.getValue(inlineDimensionId).chunkCodecContext.chunkDataRegistries,
         )
     }
 
@@ -131,7 +166,7 @@ class ResolvedMinecraftWorldTest {
     private fun testResolvedProtocolData(
         overworldDimensionTypeData: NbtCompound = dimensionTypeData(-64, 384, true, false),
     ): ResolvedProtocolData {
-        val air = Identifier("air")
+        val air = MinecraftBlockIds.AIR
         val stone = Identifier("stone")
         val staticRegistrySchema = StaticRegistrySchema(
             registries = mapOf(StaticRegistrySchema.BLOCK_REGISTRY to listOf(air, stone)),
@@ -156,7 +191,7 @@ class ResolvedMinecraftWorldTest {
                 RegistryDataPacket(
                     ProtocolRegistryContext.BIOME_REGISTRY,
                     listOf(
-                        RegistryEntry(Identifier("plains"), null),
+                        RegistryEntry(MinecraftBiomeIds.PLAINS, null),
                         RegistryEntry(Identifier("desert"), null),
                     ),
                 ),

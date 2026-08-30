@@ -98,9 +98,9 @@ Applications can replace any stage: parse an archive with custom decoders, edit 
 
 ## Resolve stored dimensions and Chunk codecs
 
-For a stored world, combine its enabled-pack result with its strongly decoded `world_gen_settings` payload. The first
-stage projects the exact active pack stack into server Configuration data; the second binds every persisted dimension to
-the dimension-type raw ID and registries from that projection:
+For a stored server world, combine its enabled-pack result with its strongly decoded `world_gen_settings` payload. The
+first stage projects the exact active pack stack into server Configuration data; the second verifies that every
+persisted dimension has a synchronized dimension-type raw ID and creates its semantic Chunk context:
 
 ```kotlin
 fun resolveStoredMinecraftWorld(
@@ -119,6 +119,10 @@ not read `level.dat`, saved data, or Region files; [`world-io`](../world-io/READ
 Unknown enabled packs fail while building the stack. Inline or missing dimension-type references fail while resolving
 the world, before any per-dimension context is returned. Mods can supply projector overrides and explicit Chunk default
 IDs without replacing the rest of the vanilla projection.
+
+A disk-only observer uses the same projected data but calls `resolveMinecraftChunkContexts(worldGenSettingsData)`. That
+operation returns `Map<DimensionId, MinecraftChunkContext>` and accepts inline dimension types because reading Chunk NBT
+does not require a Play Login raw ID.
 
 ## Select built-in packs
 

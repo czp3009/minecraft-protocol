@@ -70,16 +70,25 @@ version.
 Applications may implement `BlockStateRegistry<B>` and `BiomeRegistry<M>` to resolve directly into their own runtime
 objects.
 
+`ChunkMetadata` contains heightmaps and boundary lighting shared by stored and network-derived Chunks. A stored decode
+also fills its optional `ChunkStorageMetadata` with `DataVersion`, generation status, timestamps, ticks, structures, and
+the other NBT-only fields. A packet-derived Chunk intentionally has no storage metadata. Before encoding such a Chunk as
+persistent NBT, the caller must explicitly reconstruct or merge omitted storage fields and any packet-limited heightmap
+or Block Entity data. `ChunkNbtCodec` rejects a missing `ChunkStorageMetadata` instead of inventing values, but the
+presence of that value alone cannot prove that a network-derived Chunk is a lossless persistent snapshot.
+
 `ChunkLayout` has no release-wide default because height and minimum Y belong to a dimension. Supply it from the world's
 dimension metadata. `DimensionTypeLayout.fromNbt(dimensionTypeData)` decodes and validates `min_y`, `height`,
-`logical_height`, `has_skylight`, and `has_ceiling`, then exposes its `chunkLayout`. Call
+`logical_height`, `has_skylight`, and `has_ceiling`, then exposes its physical `chunkLayout` and possibly shorter
+`logicalBlockYRange`. Call
 `ChunkLayout.fromBlockBounds(minY, height)` when those facts already exist as typed values. For negotiated protocol
 data, [`protocol-datapack`](../protocol-datapack/README.md#adapt-protocol-context-to-semantic-chunks) combines the same
 layout decoder with active registry adapters without introducing a protocol dependency into this module.
 
 `ChunkDataRegistries<B, M>` can be reused across dimensions that share mappings. `ChunkCodecContext<B, M>` binds those
 registries to one layout and is the common input to `ChunkNbtCodec` and caller-defined codecs. The higher-level
-`MinecraftChunkContext` in `protocol-datapack` additionally binds protocol identity and raw IDs.
+`MinecraftChunkContext` in `protocol-datapack` additionally binds a dimension ID and active protocol registries without
+requiring a network dimension-type raw ID.
 
 When a Region slot is known, use the decode overload that accepts the expected `ChunkPosition`; it verifies that stored
 `xPos`/`zPos` matches the slot.
@@ -101,7 +110,9 @@ fun replaceBlock(
 }
 ```
 
-`section`, `block`, `biome`, Block Entity, heightmap, tick, and structure operations work on the same positioned value.
+`section`, `block`, `biome`, Block Entity, heightmap, and lighting operations work on the same positioned value. Stored
+ticks, structures, generation state, and timestamps remain available through `ChunkStorageMetadata` when the Chunk came
+from persistent NBT.
 Palette-backed indexed reads do not allocate a dense list. Use `toDenseBlockStates()` or `toDenseBiomes()` only when a
 complete dense snapshot is actually needed.
 

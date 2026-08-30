@@ -1,9 +1,6 @@
 package com.hiczp.minecraft.protocol.datapack
 
-import com.hiczp.minecraft.protocol.model.type.Identifier
-import com.hiczp.minecraft.protocol.model.type.ProtocolBlockState
-import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
-import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryEntry
+import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.world.format.BiomeRegistry
 import com.hiczp.minecraft.world.format.BlockStateDescriptor
 import com.hiczp.minecraft.world.format.BlockStateRegistry
@@ -11,8 +8,8 @@ import com.hiczp.minecraft.world.format.ChunkDataRegistries
 
 /** Adapts one active protocol registry context to the registries used by strong world-Chunk conversion. */
 fun ProtocolRegistryContext.toChunkDataRegistries(
-    defaultBlock: Identifier = Identifier("air"),
-    defaultBiome: Identifier = Identifier("plains"),
+    defaultBlock: Identifier = MinecraftBlockIds.AIR,
+    defaultBiome: Identifier = MinecraftBiomeIds.PLAINS,
 ): ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry> =
     ChunkDataRegistries(
         blockStates = object : BlockStateRegistry<ProtocolBlockState> {

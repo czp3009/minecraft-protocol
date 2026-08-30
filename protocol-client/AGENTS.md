@@ -21,8 +21,8 @@ This module owns client-side Status, Login, Configuration, and entry into Play.
   connection; semantic block/biome defaults enter only when the caller creates a `MinecraftChunkContext`.
 - Shared active-registry conversion to `ChunkDataRegistries` comes from `protocol-datapack`. This module owns the fluent
   `MinecraftChunkContext.packetDecoder` entry and clientbound Chunk/entity projection, which remain stateless and
-  filesystem-independent. Do not invent persistence-only data missing from packets; require caller-supplied templates or
-  adapters for it.
+  filesystem-independent. Packet-derived Chunks have no `ChunkStorageMetadata`; persistence-only merging remains an
+  explicit caller operation after decoding.
 - Received data-pack views expose only Configuration-visible resources and may resolve tags against the installed
   context or caller-supplied schemas. Do not imply that they reconstruct server-only pack content.
 - `MinecraftClientNegotiationResult` stores one `DataPackConfigurationSnapshot` directly instead of duplicating its

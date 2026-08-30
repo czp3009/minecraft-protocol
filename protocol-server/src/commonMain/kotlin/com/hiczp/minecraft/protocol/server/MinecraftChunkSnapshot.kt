@@ -147,7 +147,7 @@ data class MinecraftChunkSnapshot(
             groundY: Int,
             surfaceBlockId: Identifier,
             biomeId: Identifier,
-            airBlockId: Identifier = Identifier("air"),
+            airBlockId: Identifier = MinecraftBlockIds.AIR,
             fullBrightSky: Boolean = minecraftDimensionLayout.hasSkyLight,
         ): MinecraftChunkSnapshot = flat(
             minecraftDimensionLayout = minecraftDimensionLayout,

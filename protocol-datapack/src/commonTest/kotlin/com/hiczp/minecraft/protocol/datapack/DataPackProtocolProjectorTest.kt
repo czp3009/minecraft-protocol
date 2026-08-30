@@ -10,7 +10,7 @@ import kotlin.test.*
 
 class DataPackProtocolProjectorTest {
     private val biomeRegistry = Identifier("worldgen/biome")
-    private val plains = Identifier("plains")
+    private val plains = MinecraftBiomeIds.PLAINS
 
     @Test
     fun refusesToGuessCustomRegistryNetworkCodec() {

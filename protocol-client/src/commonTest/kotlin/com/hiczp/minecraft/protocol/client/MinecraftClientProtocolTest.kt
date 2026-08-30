@@ -17,7 +17,6 @@ import com.hiczp.minecraft.protocol.session.MinecraftConnectionDefinition
 import com.hiczp.minecraft.protocol.session.MinecraftServerPacketSession
 import com.hiczp.minecraft.protocol.session.createMinecraftClientPacketConnection
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
-import com.hiczp.minecraft.world.format.ChunkMetadata
 import com.hiczp.minecraft.world.format.DimensionTypeLayout
 import io.ktor.utils.io.*
 import kotlinx.coroutines.async
@@ -296,9 +295,7 @@ class MinecraftClientProtocolTest {
         )
         val minecraftChunkContext = minecraftClientNegotiationResult.minecraftDimensionContext
             .createMinecraftChunkContext(defaultBiome = Identifier("test:first"))
-        val minecraftChunkPacketDecoder = minecraftChunkContext.packetDecoder(
-            ChunkMetadata(dataVersion = 1, status = "minecraft:full"),
-        )
+        val minecraftChunkPacketDecoder = minecraftChunkContext.packetDecoder()
         assertSame(
             minecraftChunkContext.protocolRegistryContext,
             minecraftChunkPacketDecoder.protocolRegistryContext,

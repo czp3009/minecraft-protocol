@@ -1,6 +1,8 @@
 package com.hiczp.minecraft.protocol.datapack
 
 import com.hiczp.minecraft.protocol.model.type.Identifier
+import com.hiczp.minecraft.protocol.model.type.MinecraftBiomeIds
+import com.hiczp.minecraft.protocol.model.type.MinecraftBlockIds
 import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
 import com.hiczp.minecraft.world.format.ChunkLayout
 import com.hiczp.minecraft.world.format.DimensionId
@@ -20,8 +22,8 @@ class MinecraftDimensionContext private constructor(
         get() = minecraftDimensionLayout.chunkLayout
 
     fun createMinecraftChunkContext(
-        defaultBlock: Identifier = Identifier("air"),
-        defaultBiome: Identifier = Identifier("plains"),
+        defaultBlock: Identifier = MinecraftBlockIds.AIR,
+        defaultBiome: Identifier = MinecraftBiomeIds.PLAINS,
     ): MinecraftChunkContext = MinecraftChunkContext.create(
         minecraftDimensionContext = this,
         defaultBlock = defaultBlock,

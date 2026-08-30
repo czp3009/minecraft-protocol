@@ -5,7 +5,10 @@ import com.hiczp.minecraft.world.format.BlockStateDescriptor
 import com.hiczp.minecraft.world.format.ChunkLayout
 import com.hiczp.minecraft.world.format.DimensionId
 import com.hiczp.minecraft.world.format.DimensionTypeLayout
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 class MinecraftWorldChunkAdaptersTest {
     @Test
@@ -38,7 +41,7 @@ class MinecraftWorldChunkAdaptersTest {
         val stoneProtocolBlockState = protocolRegistryContext.blockStates[1]
         val plainsProtocolRegistryEntry = protocolRegistryContext.requireRegistryEntry(
             ProtocolRegistryContext.BIOME_REGISTRY,
-            Identifier("plains"),
+            MinecraftBiomeIds.PLAINS,
         )
 
         assertEquals(airProtocolBlockState, chunkDataRegistries.blockStates.defaultValue)
@@ -132,14 +135,32 @@ class MinecraftWorldChunkAdaptersTest {
         assertEquals(DimensionId.Overworld, minecraftDimensionContext.dimensionId)
         assertEquals(minecraftDimensionLayout, minecraftDimensionContext.minecraftDimensionLayout)
         assertEquals(24, minecraftDimensionContext.protocolRegistryContext.chunkSectionCount)
-        assertSame(minecraftDimensionContext, minecraftChunkContext.minecraftDimensionContext)
         assertEquals(DimensionId.Overworld, minecraftChunkContext.dimensionId)
-        assertEquals(minecraftDimensionLayout, minecraftChunkContext.minecraftDimensionLayout)
+        assertEquals(minecraftDimensionLayout.dimensionTypeLayout, minecraftChunkContext.dimensionTypeLayout)
         assertEquals(24, minecraftChunkContext.protocolRegistryContext.chunkSectionCount)
         assertEquals(minecraftDimensionLayout.chunkLayout, minecraftChunkContext.chunkCodecContext.chunkLayout)
         assertEquals(
             minecraftChunkContext.chunkCodecContext,
             minecraftChunkContext.chunkNbtCodec.chunkCodecContext,
+        )
+    }
+
+    @Test
+    fun createsAChunkContextWithoutAProtocolDimensionIdentity() {
+        val protocolRegistryContext = testProtocolRegistryContext()
+        val dimensionTypeLayout = testMinecraftDimensionLayout().dimensionTypeLayout
+
+        val minecraftChunkContext = MinecraftChunkContext.create(
+            dimensionId = DimensionId.Overworld,
+            dimensionTypeLayout = dimensionTypeLayout,
+            protocolRegistryContext = protocolRegistryContext,
+        )
+
+        assertEquals(dimensionTypeLayout, minecraftChunkContext.dimensionTypeLayout)
+        assertEquals(dimensionTypeLayout.chunkLayout, minecraftChunkContext.chunkLayout)
+        assertEquals(
+            dimensionTypeLayout.chunkLayout.sectionCount,
+            minecraftChunkContext.protocolRegistryContext.chunkSectionCount,
         )
     }
 
@@ -177,7 +198,7 @@ class MinecraftWorldChunkAdaptersTest {
     )
 
     private fun testProtocolRegistryContext(): ProtocolRegistryContext {
-        val air = Identifier("air")
+        val air = MinecraftBlockIds.AIR
         val stone = Identifier("stone")
         val axisBlock = Identifier("test:axis_block")
         return ProtocolRegistryContext(
@@ -193,7 +214,7 @@ class MinecraftWorldChunkAdaptersTest {
                 ProtocolRegistry(
                     ProtocolRegistryContext.BIOME_REGISTRY,
                     listOf(
-                        ProtocolRegistryEntry(Identifier("plains"), 0),
+                        ProtocolRegistryEntry(MinecraftBiomeIds.PLAINS, 0),
                         ProtocolRegistryEntry(Identifier("desert"), 1),
                     ),
                 ),

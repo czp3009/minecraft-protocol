@@ -27,10 +27,10 @@ class MinecraftInitialWorldTest {
         val surfaceVanillaBlockState = VanillaRegistryData.vanillaBlockStateRegistry.default(
             Identifier("grass_block"),
         )
-        val airVanillaBlockState = VanillaRegistryData.vanillaBlockStateRegistry.default(Identifier("air"))
+        val airVanillaBlockState = VanillaRegistryData.vanillaBlockStateRegistry.default(MinecraftBlockIds.AIR)
         val biomeRawId = VanillaProtocolData.requireRegistryPacket(
             Identifier("worldgen/biome"),
-        ).entries.indexOfFirst { it.id == Identifier("plains") }
+        ).entries.indexOfFirst { it.id == MinecraftBiomeIds.PLAINS }
         val groundY = 64
 
         val minecraftChunkSnapshot = MinecraftChunkSnapshot.flat(
@@ -155,7 +155,7 @@ class MinecraftInitialWorldTest {
 
     @Test
     fun resolvesFlatChunkPalettesFromAModdedRegistryContext() {
-        val airBlockId = Identifier("air")
+        val airBlockId = MinecraftBlockIds.AIR
         val surfaceBlockId = Identifier("example:surface")
         val biomeId = Identifier("example:biome")
         val staticRegistrySchema = StaticRegistrySchema(
@@ -423,13 +423,14 @@ class MinecraftInitialWorldTest {
             VanillaProtocolData,
             Identifier("the_nether"),
         )
-        val defaultAirBlockStateRawId = VanillaRegistryData.vanillaBlockStateRegistry.default(Identifier("air")).rawId
+        val defaultAirBlockStateRawId =
+            VanillaRegistryData.vanillaBlockStateRegistry.default(MinecraftBlockIds.AIR).rawId
         val defaultSurfaceBlockStateRawId = VanillaRegistryData.vanillaBlockStateRegistry
             .default(Identifier("grass_block"))
             .rawId
         val defaultBiomeRawId = VanillaProtocolData.requireRegistryPacket(
             Identifier("worldgen/biome"),
-        ).entries.indexOfFirst { it.id == Identifier("plains") }
+        ).entries.indexOfFirst { it.id == MinecraftBiomeIds.PLAINS }
 
         fun create(
             minecraftDimensionLayout: MinecraftDimensionLayout = overworldMinecraftDimensionLayout,

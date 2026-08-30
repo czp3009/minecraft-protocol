@@ -249,7 +249,7 @@ private fun testStaticSchema(): StaticRegistrySchema = StaticRegistrySchema(
             Identifier("mod:block"),
         ),
         ProtocolRegistryContext.BIOME_REGISTRY to listOf(
-            Identifier("plains"),
+            MinecraftBiomeIds.PLAINS,
         ),
     ),
     blocks = listOf(

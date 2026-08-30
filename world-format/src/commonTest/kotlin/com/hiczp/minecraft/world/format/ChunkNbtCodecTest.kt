@@ -417,13 +417,13 @@ class ChunkNbtCodecTest {
     }
 
     @Test
-    fun chunkMetadataRecognizesOnlyTheTerminalWorldGenerationStatus() {
-        val chunkMetadata = ChunkMetadata(TEST_DATA_VERSION, status = "minecraft:full")
+    fun chunkStorageMetadataRecognizesOnlyTheTerminalWorldGenerationStatus() {
+        val chunkStorageMetadata = ChunkStorageMetadata(TEST_DATA_VERSION, status = "minecraft:full")
 
-        assertEquals("minecraft:full", ChunkMetadata.FULLY_GENERATED_STATUS)
-        assertTrue(chunkMetadata.isFullyGenerated)
-        assertFalse(chunkMetadata.copy(status = "minecraft:spawn").isFullyGenerated)
-        assertFalse(chunkMetadata.copy(status = "example:custom").isFullyGenerated)
+        assertEquals("minecraft:full", ChunkStorageMetadata.FULLY_GENERATED_STATUS)
+        assertTrue(chunkStorageMetadata.isFullyGenerated)
+        assertFalse(chunkStorageMetadata.copy(status = "minecraft:spawn").isFullyGenerated)
+        assertFalse(chunkStorageMetadata.copy(status = "example:custom").isFullyGenerated)
     }
 
     @Test
@@ -432,7 +432,9 @@ class ChunkNbtCodecTest {
         val dataVersion = Int.MIN_VALUE
         val chunk = Chunk(
             chunkPosition = chunkPosition,
-            chunkMetadata = ChunkMetadata(dataVersion, status = "minecraft:full"),
+            chunkMetadata = ChunkMetadata(
+                chunkStorageMetadata = ChunkStorageMetadata(dataVersion, status = "minecraft:full"),
+            ),
             chunkLayout = TEST_LAYOUT,
             defaultBlockState = AIR,
             defaultBiome = "minecraft:plains",
@@ -440,14 +442,31 @@ class ChunkNbtCodecTest {
 
         val decoded = TEST_CODEC.decodeDocument(TEST_CODEC.encodeDocument(chunk), chunkPosition)
 
-        assertEquals(dataVersion, decoded.chunkMetadata.dataVersion)
+        assertEquals(dataVersion, decoded.chunkMetadata.chunkStorageMetadata?.dataVersion)
+    }
+
+    @Test
+    fun persistentEncodingRejectsAChunkWithoutStorageMetadata() {
+        val chunk = Chunk(
+            chunkPosition = ChunkPosition(0, 0),
+            chunkMetadata = ChunkMetadata(),
+            chunkLayout = TEST_LAYOUT,
+            defaultBlockState = AIR,
+            defaultBiome = "minecraft:plains",
+        )
+
+        val failure = assertFailsWith<ChunkNbtFormatException> { TEST_CODEC.encodeDocument(chunk) }
+
+        assertContains(failure.message.orEmpty(), "ChunkStorageMetadata")
     }
 
     @Test
     fun encodingRejectsDefaultsThatWouldChangeWhenMissingSectionsAreDecoded() {
         val chunk = Chunk(
             chunkPosition = ChunkPosition(0, 0),
-            chunkMetadata = ChunkMetadata(TEST_DATA_VERSION, status = "minecraft:full"),
+            chunkMetadata = ChunkMetadata(
+                chunkStorageMetadata = ChunkStorageMetadata(TEST_DATA_VERSION, status = "minecraft:full"),
+            ),
             chunkLayout = TEST_LAYOUT,
             defaultBlockState = STONE,
             defaultBiome = "minecraft:plains",
@@ -464,8 +483,7 @@ class ChunkNbtCodecTest {
         val chunk = Chunk(
             chunkPosition = ChunkPosition(0, 0),
             chunkMetadata = ChunkMetadata(
-                dataVersion = TEST_DATA_VERSION,
-                status = "minecraft:full",
+                chunkStorageMetadata = ChunkStorageMetadata(TEST_DATA_VERSION, status = "minecraft:full"),
                 lightOnlySections = mapOf(TEST_LAYOUT.maxSectionY + 1 to sectionLighting),
             ),
             chunkLayout = TEST_LAYOUT,
@@ -489,8 +507,7 @@ class ChunkNbtCodecTest {
         val chunk = Chunk(
             chunkPosition = ChunkPosition(0, 0),
             chunkMetadata = ChunkMetadata(
-                dataVersion = TEST_DATA_VERSION,
-                status = "minecraft:full",
+                chunkStorageMetadata = ChunkStorageMetadata(TEST_DATA_VERSION, status = "minecraft:full"),
                 lightOnlySections = mapOf(sectionY to sectionLighting),
             ),
             chunkLayout = TEST_LAYOUT,
@@ -512,8 +529,7 @@ class ChunkNbtCodecTest {
         val chunk = Chunk(
             chunkPosition = ChunkPosition(0, 0),
             chunkMetadata = ChunkMetadata(
-                dataVersion = TEST_DATA_VERSION,
-                status = "minecraft:full",
+                chunkStorageMetadata = ChunkStorageMetadata(TEST_DATA_VERSION, status = "minecraft:full"),
                 lightOnlySections = lightOnlySections,
             ),
             chunkLayout = TEST_LAYOUT,
@@ -549,7 +565,9 @@ class ChunkNbtCodecTest {
         )
         val chunk = Chunk(
             chunkPosition = ChunkPosition(0, 0),
-            chunkMetadata = ChunkMetadata(TEST_DATA_VERSION, status = "minecraft:full"),
+            chunkMetadata = ChunkMetadata(
+                chunkStorageMetadata = ChunkStorageMetadata(TEST_DATA_VERSION, status = "minecraft:full"),
+            ),
             chunkLayout = TEST_LAYOUT,
             defaultBlockState = air,
             defaultBiome = "minecraft:plains",
@@ -579,10 +597,12 @@ class ChunkNbtCodecTest {
         Chunk(
             chunkPosition = chunkPosition,
             chunkMetadata = ChunkMetadata(
-                dataVersion = TEST_DATA_VERSION,
-                lastUpdateTime = 12,
-                inhabitedTime = 34,
-                status = "minecraft:full",
+                chunkStorageMetadata = ChunkStorageMetadata(
+                    dataVersion = TEST_DATA_VERSION,
+                    lastUpdateTime = 12,
+                    inhabitedTime = 34,
+                    status = "minecraft:full",
+                ),
             ),
             chunkLayout = TEST_LAYOUT,
             defaultBlockState = AIR,

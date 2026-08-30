@@ -25,7 +25,7 @@ class MinecraftWorldChunkProjectionTest {
         val minecraftChunkPacketEncoder = MinecraftChunkPacketEncoder(
             protocolRegistryContext = protocolRegistryContext,
             chunkCodecContext = chunkCodecContext,
-            isAir = { protocolBlockState -> protocolBlockState.block == Identifier("air") },
+            isAir = { protocolBlockState -> protocolBlockState.block == MinecraftBlockIds.AIR },
             hasFluid = { protocolBlockState -> protocolBlockState.block == Identifier("water") },
             hasSkyLight = true,
         )
@@ -41,8 +41,6 @@ class MinecraftWorldChunkProjectionTest {
         val skyLight = ByteArray(com.hiczp.minecraft.world.format.SECTION_LIGHT_BYTE_COUNT).apply { this[1] = -1 }
         val chunkPosition = ChunkPosition(-1, 2)
         val chunkMetadata = ChunkMetadata(
-            dataVersion = 1,
-            status = "full",
             heightmaps = NbtCompound(mapOf("WORLD_SURFACE" to NbtLongArray(longArrayOf(11L)))),
             lightOnlySections = mapOf(1 to SectionLighting(skyLight = NbtByteArray(skyLight))),
         )
@@ -87,7 +85,6 @@ class MinecraftWorldChunkProjectionTest {
         val minecraftChunkPacketDecoder = MinecraftChunkPacketDecoder(
             protocolRegistryContext,
             chunkCodecContext,
-            ChunkMetadata(1, status = "full"),
         )
         val decoded = chunkDataAndUpdateLightPacket.toChunk(minecraftChunkPacketDecoder)
         assertEquals(stone, decoded.block(ChunkBlockPosition(0, -16, 0)))
@@ -97,6 +94,7 @@ class MinecraftWorldChunkProjectionTest {
         assertEquals(NbtByteArray(blockLight), decoded.section(-1)?.blockLight)
         assertEquals(NbtByteArray(skyLight), decoded.chunkMetadata.lightOnlySections[1]?.skyLight)
         assertEquals(chunkMetadata.heightmaps, decoded.chunkMetadata.heightmaps)
+        assertNull(decoded.chunkMetadata.chunkStorageMetadata)
         assertEquals(blockEntity.type, decoded.blockEntity(blockEntity.blockPosition)?.type)
         assertEquals(blockEntity.persistentData, decoded.blockEntity(blockEntity.blockPosition)?.persistentData)
 
@@ -118,11 +116,11 @@ class MinecraftWorldChunkProjectionTest {
     @Test
     fun usesGlobalRegistryIdsWhenAPaletteExceedsTheIndirectLimit() {
         val blockStates = List(257) { id ->
-            val block = if (id == 0) Identifier("air") else Identifier("test:block_$id")
+            val block = if (id == 0) MinecraftBlockIds.AIR else Identifier("test:block_$id")
             ProtocolBlockState(id, block, emptyMap(), isDefault = true)
         }
         val biomeEntries = List(9) { rawId ->
-            val biome = if (rawId == 0) Identifier("plains") else Identifier("test:biome_$rawId")
+            val biome = if (rawId == 0) MinecraftBiomeIds.PLAINS else Identifier("test:biome_$rawId")
             ProtocolRegistryEntry(biome, rawId)
         }
         val protocolRegistryContext = ProtocolRegistryContext(
@@ -165,7 +163,7 @@ class MinecraftWorldChunkProjectionTest {
         )
         val chunk = Chunk(
             chunkPosition = ChunkPosition(0, 0),
-            chunkMetadata = ChunkMetadata(dataVersion = 1, status = "full"),
+            chunkMetadata = ChunkMetadata(),
             chunkLayout = chunkLayout,
             sections = listOf(chunkSection),
             defaultBlockState = blockStates.first(),
@@ -179,7 +177,6 @@ class MinecraftWorldChunkProjectionTest {
         val minecraftChunkPacketDecoder = MinecraftChunkPacketDecoder(
             protocolRegistryContext,
             chunkCodecContext,
-            ChunkMetadata(1, status = "full"),
         )
         val decoded = minecraftChunkPacketDecoder.decode(chunkDataAndUpdateLightPacket)
         assertEquals(blockStates[256], decoded.section(0)?.blockStates?.get(256))
@@ -187,7 +184,7 @@ class MinecraftWorldChunkProjectionTest {
     }
 
     private fun testProtocolRegistryContext(): ProtocolRegistryContext {
-        val air = Identifier("air")
+        val air = MinecraftBlockIds.AIR
         val stone = Identifier("stone")
         val water = Identifier("water")
         return ProtocolRegistryContext(
@@ -202,7 +199,7 @@ class MinecraftWorldChunkProjectionTest {
                 ),
                 ProtocolRegistry(
                     ProtocolRegistryContext.BIOME_REGISTRY,
-                    listOf(ProtocolRegistryEntry(Identifier("plains"), 0)),
+                    listOf(ProtocolRegistryEntry(MinecraftBiomeIds.PLAINS, 0)),
                 ),
                 ProtocolRegistry(
                     MinecraftChunkPacketEncoder.BLOCK_ENTITY_TYPE_REGISTRY,

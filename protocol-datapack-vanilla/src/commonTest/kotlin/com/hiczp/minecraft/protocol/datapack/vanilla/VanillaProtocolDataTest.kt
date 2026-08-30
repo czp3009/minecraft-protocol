@@ -10,6 +10,7 @@ import com.hiczp.minecraft.protocol.datapack.requireRegistryPacket
 import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.KnownPack
+import com.hiczp.minecraft.protocol.model.type.MinecraftBlockIds
 import com.hiczp.minecraft.protocol.model.type.RegistryEntry
 import com.hiczp.minecraft.world.format.DimensionTypeFormatException
 import kotlin.test.*
@@ -81,7 +82,7 @@ class VanillaProtocolDataTest {
             Identifier("entity_type"),
         )
         val pig = Identifier("pig")
-        val air = Identifier("air")
+        val air = MinecraftBlockIds.AIR
         val grass = Identifier("grass_block")
 
         assertEquals(pig, entityTypes[entityTypes.requireRawId(pig)])

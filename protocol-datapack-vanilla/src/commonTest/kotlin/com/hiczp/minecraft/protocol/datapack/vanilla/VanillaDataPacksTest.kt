@@ -179,11 +179,11 @@ class VanillaDataPacksTest {
             minecraftChunkContext.protocolRegistryContext.registries,
         )
         assertEquals(
-            Identifier("overworld"),
-            minecraftChunkContext.minecraftDimensionLayout.dimensionTypeId,
+            DimensionId.Overworld,
+            minecraftChunkContext.dimensionId,
         )
         assertEquals(
-            minecraftChunkContext.minecraftDimensionLayout.chunkLayout,
+            minecraftChunkContext.dimensionTypeLayout.chunkLayout,
             minecraftChunkContext.chunkNbtCodec.chunkCodecContext.chunkLayout,
         )
     }

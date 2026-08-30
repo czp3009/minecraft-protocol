@@ -27,6 +27,9 @@ data class MinecraftDimensionLayout(
     val logicalHeight: Int
         get() = dimensionTypeLayout.logicalHeight
 
+    val logicalBlockYRange: IntRange
+        get() = dimensionTypeLayout.logicalBlockYRange
+
     val hasSkyLight: Boolean
         get() = dimensionTypeLayout.hasSkyLight
 

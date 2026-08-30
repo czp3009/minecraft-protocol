@@ -13,7 +13,7 @@ class ClientRegistryViewTest {
         val firstBlockId = Identifier("mod:first")
         val secondBlockId = Identifier("mod:second")
         val biomeRegistryId = ProtocolRegistryContext.BIOME_REGISTRY
-        val biomeId = Identifier("minecraft:plains")
+        val biomeId = MinecraftBiomeIds.PLAINS
         val blockRegistryId = StaticRegistrySchema.BLOCK_REGISTRY
         val staticRegistrySchema = StaticRegistrySchema(
             registries = mapOf(blockRegistryId to listOf(firstBlockId, secondBlockId)),

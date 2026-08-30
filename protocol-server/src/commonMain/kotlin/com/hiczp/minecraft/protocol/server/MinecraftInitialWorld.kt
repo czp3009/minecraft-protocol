@@ -157,7 +157,7 @@ data class MinecraftInitialWorld(
             difficultyLocked: Boolean = false,
             chunkRadius: Int = minecraftServerNegotiationResult.playLoginPacket.chunkRadius,
             surfaceBlockId: Identifier = Identifier("grass_block"),
-            biomeId: Identifier = Identifier("plains"),
+            biomeId: Identifier = MinecraftBiomeIds.PLAINS,
             entities: List<MinecraftEntitySnapshot> = emptyList(),
         ): MinecraftInitialWorld = flatVanilla(
             minecraftDimensionContext = minecraftServerNegotiationResult.minecraftDimensionContext,
@@ -188,7 +188,7 @@ data class MinecraftInitialWorld(
             ),
             chunkRadius: Int = minecraftInitialWorldBootstrap.viewDistance,
             surfaceBlockId: Identifier = Identifier("grass_block"),
-            biomeId: Identifier = Identifier("plains"),
+            biomeId: Identifier = MinecraftBiomeIds.PLAINS,
             entities: List<MinecraftEntitySnapshot> = emptyList(),
         ): MinecraftInitialWorld = flatVanilla(
             minecraftDimensionContext = MinecraftDimensionContext.create(
@@ -214,7 +214,7 @@ data class MinecraftInitialWorld(
             ),
             chunkRadius: Int = minecraftInitialWorldBootstrap.viewDistance,
             surfaceBlockId: Identifier = Identifier("grass_block"),
-            biomeId: Identifier = Identifier("plains"),
+            biomeId: Identifier = MinecraftBiomeIds.PLAINS,
             entities: List<MinecraftEntitySnapshot> = emptyList(),
         ): MinecraftInitialWorld {
             val chunks = MinecraftCoordinates

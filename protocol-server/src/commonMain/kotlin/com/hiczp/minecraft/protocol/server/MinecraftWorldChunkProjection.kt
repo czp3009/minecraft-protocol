@@ -46,7 +46,7 @@ class MinecraftChunkPacketEncoder(
         chunkCodecContext = minecraftChunkContext.chunkCodecContext,
         isAir = isAir,
         hasFluid = hasFluid,
-        hasSkyLight = minecraftChunkContext.minecraftDimensionLayout.hasSkyLight,
+        hasSkyLight = minecraftChunkContext.dimensionTypeLayout.hasSkyLight,
         blockEntityUpdateTag = blockEntityUpdateTag,
     )
 

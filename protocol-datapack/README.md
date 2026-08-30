@@ -15,8 +15,11 @@ disk directory/ZIP --world-io--> WorldDataPackLoadResult --source completion--> 
     --world-format--> ResolvedDataPackStack
     --protocol-datapack--> ResolvedProtocolData --protocol-server--> Configuration packets
 
-WorldGenSettingsData + ResolvedProtocolData --> ResolvedMinecraftWorld
-    --> per-dimension MinecraftChunkContext --> disk Chunk codec or network Chunk adapter
+WorldGenSettingsData + ResolvedProtocolData --> resolveMinecraftChunkContexts()
+    --> per-dimension raw-ID-free MinecraftChunkContext --> disk Chunk codec or Chunk packet adapter
+
+referenced-only server branch --> resolveMinecraftWorld() --> ResolvedMinecraftWorld
+    --> Configuration/Play Login identity + the same semantic Chunk contexts
 
 optional raw snapshot: DataPackArchive -> DataPackFormat -> DataPack
 
@@ -64,11 +67,25 @@ release-matched projectors for every synchronized vanilla registry—and the zer
 path, add [`protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md). Mod projectors can override or extend
 those defaults, while constructing `DataPackProtocolProjector` directly remains the full replacement escape hatch.
 
-## Resolve a complete server world
+## Resolve stored dimensions
 
 `ResolvedProtocolData` contains the registry order sent during Configuration. `WorldGenSettingsData` contains the
-persisted set of level stems and their dimension-type references. Resolve them together before reading Chunks for a
-server:
+persisted set of level stems and their referenced or inline dimension types. A disk tool or custom endpoint resolves the
+semantic Chunk contexts directly:
+
+```kotlin
+fun resolveMinecraftChunkContexts(
+    resolvedProtocolData: ResolvedProtocolData,
+    worldGenSettingsData: WorldGenSettingsData,
+): Map<DimensionId, MinecraftChunkContext> =
+    resolvedProtocolData.resolveMinecraftChunkContexts(worldGenSettingsData)
+```
+
+Referenced layouts come from the exact projected dimension-type registry, while inline layouts are decoded from their
+stored NBT. Each resulting context contains the persisted `DimensionId`, `DimensionTypeLayout`, active registries, and
+ready `ChunkNbtCodec`; it deliberately contains no synchronized dimension-type raw ID.
+
+A server that will advertise the same world uses the stricter operation:
 
 ```kotlin
 fun resolveMinecraftWorld(
@@ -77,29 +94,30 @@ fun resolveMinecraftWorld(
 ): ResolvedMinecraftWorld = resolvedProtocolData.resolveMinecraftWorld(worldGenSettingsData)
 ```
 
-The result retains the same `ResolvedProtocolData` and exposes one `MinecraftChunkContext` per `DimensionId`:
+`ResolvedMinecraftWorld` retains the same `ResolvedProtocolData` and exposes one `MinecraftChunkContext` per
+`DimensionId`:
 
 ```kotlin
 val minecraftChunkContext = resolvedMinecraftWorld.dimension(dimensionId)
 val chunkNbtCodec = minecraftChunkContext.chunkNbtCodec
-val chunkLayout = minecraftChunkContext.chunkCodecContext.chunkLayout
+val chunkLayout = minecraftChunkContext.chunkLayout
+val dimensionTypeLayout = minecraftChunkContext.dimensionTypeLayout
 val protocolRegistryContext = minecraftChunkContext.protocolRegistryContext
 ```
 
-Each context binds the persisted dimension, its synchronized dimension-type ID and raw ID, its validated
-`DimensionTypeLayout`, the active protocol registries, and a ready `ChunkNbtCodec`. Disk decoding, Play Login, and
-packet encoding use one registry order when the server passes `resolvedMinecraftWorld.protocolData`, its dimension keys,
-and the selected dimension to its negotiation options. The world object does not guess unrelated Status, connection, or
-initial-world policy.
+This server branch verifies that every dimension type has a synchronized ID/raw ID before returning any Chunk context.
+Disk decoding, Play Login, and packet encoding then use one registry order when the server passes
+`resolvedMinecraftWorld.protocolData`, its dimension keys, and the selected dimension to its negotiation options. The
+raw ID remains in the network-facing protocol data and later `MinecraftDimensionContext`; it is not copied into the
+disk/Chunk-packet context. The world object does not guess unrelated Status, connection, or initial-world policy.
 
-The complete server path accepts only referenced dimension types because Play Login requires a synchronized
-dimension-type raw ID. Resolution checks every declared dimension first and reports inline holders, missing references,
-and invalid dimension-type data together in `MinecraftWorldResolutionException`; it never returns a partial world or
-creates a synthetic registry entry. Tools that only inspect an inline holder can stay on the lower-level
-`DimensionTypeLayout`/`ChunkCodecContext` path in `world-format`.
+`resolveMinecraftWorld()` accepts only referenced dimension types because Play Login requires a synchronized raw ID.
+`resolveMinecraftChunkContexts()` accepts both holder shapes because semantic Chunk work does not. Both operations check
+every declared dimension and report missing references or invalid layouts together in
+`MinecraftWorldResolutionException`; neither returns a partial result or creates a synthetic registry entry.
 
 The default Chunk values are `minecraft:air` and `minecraft:plains`. Modded registries select different identifiers once
-through the optional `defaultBlock` and `defaultBiome` arguments to `resolveMinecraftWorld`.
+through the optional `defaultBlock` and `defaultBiome` arguments on either resolver.
 
 ## Resolve client Configuration data
 
@@ -135,14 +153,13 @@ global block-state IDs.
 `MinecraftDimensionLayout` combines one synchronized dimension-type ID/raw ID with a shared
 `DimensionTypeLayout`; its `chunkLayout` is already validated. `MinecraftDimensionContext` validates that layout against
 an active `ProtocolRegistryContext`, activates the required Section count, and retains the three values as the shared
-network-negotiation handoff. A custom decoder can branch at this point without adopting the semantic world model.
+network-negotiation handoff. A custom network decoder can branch at this point without adopting the semantic world
+model.
 
 When the application does want semantic Chunks, `ProtocolRegistryContext.toChunkDataRegistries()` resolves persisted
-block descriptors and biome names against the active block-state and synchronized biome registries. The standard fluent
-path chooses the semantic defaults once:
-
-The standard factory performs the complete composition and cross-checks the dimension-type raw ID, Section count, and
-default registry entries:
+block descriptors and biome names against the active block-state and synchronized biome registries. After network
+negotiation, the standard factory cross-checks the dimension-type raw ID and Section count before adding the semantic
+defaults:
 
 ```kotlin
 fun createMinecraftChunkContext(
@@ -159,8 +176,9 @@ fun createMinecraftChunkContext(
 }
 ```
 
-`MinecraftChunkContext.create(...)` remains the direct equivalent when the caller already has the three source values.
-`MinecraftChunkContext` is the normal endpoint for disk and semantic packet work. `ChunkDataRegistries` remains public
-for a caller that only needs registry mapping, while `ChunkCodecContext` remains the filesystem- and
+For disk or custom endpoint work, `MinecraftChunkContext.create(dimensionId, dimensionTypeLayout,
+protocolRegistryContext)` performs the same semantic composition without requiring a `MinecraftDimensionLayout` or raw
+ID. `MinecraftChunkContext` is the normal endpoint for disk and semantic Chunk-packet work. `ChunkDataRegistries`
+remains public for a caller that only needs registry mapping, while `ChunkCodecContext` remains the filesystem- and
 protocol-identity-free input for `ChunkNbtCodec` or a custom codec. Packet decoding and encoding stay in
 `protocol-client` and `protocol-server`; this module performs no filesystem or socket I/O.

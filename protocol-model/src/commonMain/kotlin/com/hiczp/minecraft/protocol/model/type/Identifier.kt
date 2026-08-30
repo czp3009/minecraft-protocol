@@ -44,3 +44,13 @@ value class Identifier private constructor(val value: String) {
         }
     }
 }
+
+/** A compact set of well-known vanilla block identifiers used by the library. */
+object MinecraftBlockIds {
+    val AIR: Identifier = Identifier("air")
+}
+
+/** A compact set of well-known vanilla biome identifiers used by the library. */
+object MinecraftBiomeIds {
+    val PLAINS: Identifier = Identifier("plains")
+}

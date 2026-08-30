@@ -320,24 +320,22 @@ class CompactPalette<T : Any> internal constructor(
     }
 }
 
-/** Selected-release Chunk fields other than its position, Section palettes, and Block Entities. */
-data class ChunkMetadata(
+/** Selected-release fields that exist only in persistent Chunk NBT. */
+data class ChunkStorageMetadata(
     val dataVersion: Int,
+    val status: String,
     val lastUpdateTime: Long = 0,
     val inhabitedTime: Long = 0,
-    val status: String,
     val lightCorrect: Boolean = false,
     val upgradeData: NbtCompound? = null,
     val blendingData: NbtCompound? = null,
     val belowZeroRetrogen: NbtCompound? = null,
     val carvingMask: NbtLongArray? = null,
-    val heightmaps: NbtCompound = NbtCompound(emptyMap()),
     val blockTicks: NbtList = NbtList(emptyList()),
     val fluidTicks: NbtList = NbtList(emptyList()),
     val postProcessing: NbtList = NbtList(emptyList()),
     val entities: NbtList? = null,
     val structures: NbtCompound = NbtCompound(emptyMap()),
-    val lightOnlySections: Map<Int, SectionLighting> = emptyMap(),
 ) {
     init {
         require(status.isNotBlank()) { "A Chunk status must not be blank" }
@@ -351,6 +349,18 @@ data class ChunkMetadata(
         const val FULLY_GENERATED_STATUS: String = "minecraft:full"
     }
 }
+
+/**
+ * Auxiliary semantic Chunk state outside its Section palettes and Block Entities.
+ *
+ * Heightmaps and boundary lighting are shared by persistent and network Chunks. [chunkStorageMetadata] is absent when
+ * the Chunk came from a packet because the wire does not carry those persistence-only fields.
+ */
+data class ChunkMetadata(
+    val chunkStorageMetadata: ChunkStorageMetadata? = null,
+    val heightmaps: NbtCompound = NbtCompound(emptyMap()),
+    val lightOnlySections: Map<Int, SectionLighting> = emptyMap(),
+)
 
 data class SectionLighting(
     val blockLight: NbtByteArray? = null,

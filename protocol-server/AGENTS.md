@@ -18,8 +18,9 @@ a finite initial Chunk/entity view; it does not run gameplay.
 - `ProtocolData` supplies domain values; construct Feature Flags, Known Packs, Update Tags, and registry packets at the
   Configuration send boundary without moving packet sequencing into `protocol-datapack`.
 - A stored-world server explicitly passes `ResolvedMinecraftWorld.protocolData`, its dimension IDs, and the selected
-  dimension to negotiation options. The resolved world's `MinecraftChunkContext` remains the disk/packet codec while
-  negotiation returns the connection's validated `MinecraftDimensionContext`; do not merge those responsibilities.
+  dimension to negotiation options. The resolved world's `MinecraftChunkContext` remains the raw-ID-free disk/Chunk
+  packet codec while negotiation returns the connection's validated `MinecraftDimensionContext`; do not merge those
+  responsibilities.
 - Online Login decides when the Session Server `/hasJoined` call occurs. It consumes a caller-supplied `HttpClient` and
   does not own account or admission policy.
 - Definitions, static schemas, and resolved contexts may be shared across connections. Retain large immutable data by

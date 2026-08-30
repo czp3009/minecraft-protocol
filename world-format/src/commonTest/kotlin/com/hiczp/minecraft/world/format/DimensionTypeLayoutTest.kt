@@ -25,6 +25,21 @@ class DimensionTypeLayoutTest {
         assertTrue(dimensionTypeLayout.hasSkyLight)
         assertFalse(dimensionTypeLayout.hasCeiling)
         assertEquals(ChunkLayout.fromBlockBounds(-64, 384), dimensionTypeLayout.chunkLayout)
+        assertEquals(-64..319, dimensionTypeLayout.logicalBlockYRange)
+    }
+
+    @Test
+    fun logicalBlockRangeCanBeShorterThanThePhysicalChunkLayout() {
+        val dimensionTypeLayout = DimensionTypeLayout(
+            minY = 0,
+            height = 256,
+            logicalHeight = 128,
+            hasSkyLight = false,
+            hasCeiling = true,
+        )
+
+        assertEquals(0..127, dimensionTypeLayout.logicalBlockYRange)
+        assertEquals(0..255, dimensionTypeLayout.chunkLayout.blockYRange)
     }
 
     @Test

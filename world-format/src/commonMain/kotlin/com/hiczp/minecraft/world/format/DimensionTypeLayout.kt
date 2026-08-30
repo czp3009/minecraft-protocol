@@ -19,6 +19,13 @@ data class DimensionTypeLayout(
 ) {
     val chunkLayout: ChunkLayout = ChunkLayout.fromBlockBounds(minY, height)
 
+    /** Logical block-height interval used by dimension rules; it may be shorter than [chunkLayout]. */
+    val logicalBlockYRange: IntRange = if (logicalHeight == 0) {
+        IntRange.EMPTY
+    } else {
+        minY..MinecraftCoordinates.offsetBlockCoordinate(minY, logicalHeight - 1)
+    }
+
     init {
         require(logicalHeight in 0..height) {
             "Dimension logical height must be between zero and its block height"

@@ -4,7 +4,6 @@ import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.auth.toGameProfile
 import com.hiczp.minecraft.protocol.client.MinecraftClientConnection
 import com.hiczp.minecraft.protocol.client.negotiate
-import com.hiczp.minecraft.protocol.datapack.MinecraftChunkContext
 import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionContext
 import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.datapack.resolveSynchronizedRegistryContext
@@ -417,11 +416,11 @@ class ClientToServerEndToEndTest {
             synchronizedRegistryPackets = synchronizedRegistryPackets,
             protocolData = VanillaProtocolData,
         )
-        val minecraftChunkContext = MinecraftChunkContext.create(
-            DimensionId.parse(playLoginPacket.spawnInfo.dimension.toString()),
-            minecraftDimensionLayout,
-            minecraftClientConnection.protocolRegistryContext,
-        )
+        val minecraftChunkContext = MinecraftDimensionContext.create(
+            dimensionId = DimensionId.parse(playLoginPacket.spawnInfo.dimension.toString()),
+            minecraftDimensionLayout = minecraftDimensionLayout,
+            protocolRegistryContext = minecraftClientConnection.protocolRegistryContext,
+        ).createMinecraftChunkContext()
         minecraftClientConnection.installProtocolRegistryContext(minecraftChunkContext.protocolRegistryContext)
         assertSame(TestProfileResult, clientNegotiationProfile.complete(minecraftClientConnection))
 

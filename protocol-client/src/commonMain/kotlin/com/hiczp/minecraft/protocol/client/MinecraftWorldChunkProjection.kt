@@ -11,28 +11,22 @@ import com.hiczp.minecraft.world.format.ChunkSection
 import com.hiczp.minecraft.world.format.PalettedContainer
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer as NetworkPalettedContainer
 
-fun MinecraftChunkContext.packetDecoder(chunkMetadata: ChunkMetadata): MinecraftChunkPacketDecoder =
-    MinecraftChunkPacketDecoder(this, chunkMetadata)
+fun MinecraftChunkContext.packetDecoder(): MinecraftChunkPacketDecoder = MinecraftChunkPacketDecoder(this)
 
 /**
  * Stateless decoding of clientbound Chunk packets into positioned strong world Chunks.
  *
- * The packet does not carry a world data version, generation status, inhabited time, or other persistence-only fields;
- * [chunkMetadata] supplies those values. Packet heightmaps, block entities, and light replace the corresponding template
- * fields on each decoded Chunk. This decoder is immutable and can be shared across the active dimension.
+ * The packet does not carry a world data version, generation status, inhabited time, or other persistence-only fields,
+ * so a decoded Chunk has no [ChunkStorageMetadata]. Packet heightmaps, block entities, and light become its common
+ * semantic metadata. This decoder is immutable and can be shared across the active dimension.
  */
 class MinecraftChunkPacketDecoder(
     val protocolRegistryContext: ProtocolRegistryContext,
     val chunkCodecContext: ChunkCodecContext<ProtocolBlockState, ProtocolRegistryEntry>,
-    private val chunkMetadata: ChunkMetadata,
 ) {
-    constructor(
-        minecraftChunkContext: MinecraftChunkContext,
-        chunkMetadata: ChunkMetadata,
-    ) : this(
+    constructor(minecraftChunkContext: MinecraftChunkContext) : this(
         protocolRegistryContext = minecraftChunkContext.protocolRegistryContext,
         chunkCodecContext = minecraftChunkContext.chunkCodecContext,
-        chunkMetadata = chunkMetadata,
     )
 
     val chunkLayout: ChunkLayout = chunkCodecContext.chunkLayout
@@ -110,8 +104,7 @@ class MinecraftChunkPacketDecoder(
                 }
             }
         }
-        val decodedMetadata = chunkMetadata.copy(
-            lightCorrect = true,
+        val decodedMetadata = ChunkMetadata(
             heightmaps = NbtCompound(
                 chunkDataAndUpdateLightPacket.chunkData.heightmaps.mapKeys { (heightmapType, _) -> heightmapType.name }
                     .mapValues { (_, values) -> NbtLongArray(values) },

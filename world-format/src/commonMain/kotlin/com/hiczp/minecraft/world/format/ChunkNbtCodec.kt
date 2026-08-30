@@ -10,7 +10,8 @@ import kotlinx.io.Source
 /**
  * Selected-release conversion between unnamed-root Chunk NBT and a positioned semantic [Chunk].
  *
- * `DataVersion` is carried by [ChunkMetadata] but is not compared with a library- or caller-selected version.
+ * `DataVersion` is carried by [ChunkStorageMetadata] but is not compared with a library- or caller-selected version.
+ * Decoding always supplies that storage metadata; encoding rejects a packet-derived Chunk until the caller supplies it.
  */
 class ChunkNbtCodec<B : Any, M : Any>(
     val chunkCodecContext: ChunkCodecContext<B, M>,
@@ -116,21 +117,23 @@ class ChunkNbtCodec<B : Any, M : Any>(
             decodeBlockEntity(nbtTag, index, actualPosition)
         }
         val chunkMetadata = ChunkMetadata(
-            dataVersion = dataVersion,
-            lastUpdateTime = root.requireLong(LAST_UPDATE),
-            inhabitedTime = root.requireLong(INHABITED_TIME),
-            status = status,
-            lightCorrect = root.optionalBoolean(IS_LIGHT_ON) ?: false,
-            upgradeData = root.optionalCompound(UPGRADE_DATA),
-            blendingData = root.optionalCompound(BLENDING_DATA),
-            belowZeroRetrogen = root.optionalCompound(BELOW_ZERO_RETROGEN),
-            carvingMask = root.optionalLongArray(CARVING_MASK),
+            chunkStorageMetadata = ChunkStorageMetadata(
+                dataVersion = dataVersion,
+                lastUpdateTime = root.requireLong(LAST_UPDATE),
+                inhabitedTime = root.requireLong(INHABITED_TIME),
+                status = status,
+                lightCorrect = root.optionalBoolean(IS_LIGHT_ON) ?: false,
+                upgradeData = root.optionalCompound(UPGRADE_DATA),
+                blendingData = root.optionalCompound(BLENDING_DATA),
+                belowZeroRetrogen = root.optionalCompound(BELOW_ZERO_RETROGEN),
+                carvingMask = root.optionalLongArray(CARVING_MASK),
+                blockTicks = root.requireList(BLOCK_TICKS),
+                fluidTicks = root.requireList(FLUID_TICKS),
+                postProcessing = root.requireList(POST_PROCESSING),
+                entities = root.optionalList(ENTITIES),
+                structures = root.requireCompound(STRUCTURES),
+            ),
             heightmaps = root.requireCompound(HEIGHTMAPS),
-            blockTicks = root.requireList(BLOCK_TICKS),
-            fluidTicks = root.requireList(FLUID_TICKS),
-            postProcessing = root.requireList(POST_PROCESSING),
-            entities = root.optionalList(ENTITIES),
-            structures = root.requireCompound(STRUCTURES),
             lightOnlySections = lightOnlySections,
         )
         return try {
@@ -161,17 +164,19 @@ class ChunkNbtCodec<B : Any, M : Any>(
             throw ChunkNbtFormatException("Chunk and codec use different default biomes")
         }
         val chunkMetadata = chunk.chunkMetadata
+        val chunkStorageMetadata = chunkMetadata.chunkStorageMetadata
+            ?: throw ChunkNbtFormatException("Persistent Chunk encoding requires ChunkStorageMetadata")
         val root = linkedMapOf<String, NbtTag>()
-        root[DATA_VERSION] = NbtInt(chunkMetadata.dataVersion)
+        root[DATA_VERSION] = NbtInt(chunkStorageMetadata.dataVersion)
         root[X_POS] = NbtInt(chunk.chunkPosition.x)
         root[Y_POS] = NbtInt(chunkCodecContext.chunkLayout.minSectionY)
         root[Z_POS] = NbtInt(chunk.chunkPosition.z)
-        root[LAST_UPDATE] = NbtLong(chunkMetadata.lastUpdateTime)
-        root[INHABITED_TIME] = NbtLong(chunkMetadata.inhabitedTime)
-        root[STATUS] = NbtString(chunkMetadata.status)
-        chunkMetadata.blendingData?.let { root[BLENDING_DATA] = it }
-        chunkMetadata.belowZeroRetrogen?.let { root[BELOW_ZERO_RETROGEN] = it }
-        chunkMetadata.upgradeData?.let { root[UPGRADE_DATA] = it }
+        root[LAST_UPDATE] = NbtLong(chunkStorageMetadata.lastUpdateTime)
+        root[INHABITED_TIME] = NbtLong(chunkStorageMetadata.inhabitedTime)
+        root[STATUS] = NbtString(chunkStorageMetadata.status)
+        chunkStorageMetadata.blendingData?.let { root[BLENDING_DATA] = it }
+        chunkStorageMetadata.belowZeroRetrogen?.let { root[BELOW_ZERO_RETROGEN] = it }
+        chunkStorageMetadata.upgradeData?.let { root[UPGRADE_DATA] = it }
 
         val sections = linkedMapOf<Int, NbtCompound>()
         chunk.sections.sortedBy(ChunkSection<B, M>::sectionY).forEach { chunkSection ->
@@ -203,17 +208,17 @@ class ChunkNbtCodec<B : Any, M : Any>(
             }
         val encodedSections = sections.entries.sortedBy { it.key }.map { it.value }
         root[SECTIONS] = NbtList(encodedSections)
-        if (chunkMetadata.lightCorrect) root[IS_LIGHT_ON] = NbtByte(1)
+        if (chunkStorageMetadata.lightCorrect) root[IS_LIGHT_ON] = NbtByte(1)
         root[BLOCK_ENTITIES] = NbtList(chunk.blockEntities.map { blockEntity ->
             encodeBlockEntity(blockEntity)
         })
-        chunkMetadata.entities?.let { root[ENTITIES] = it }
-        chunkMetadata.carvingMask?.let { root[CARVING_MASK] = it }
-        root[BLOCK_TICKS] = chunkMetadata.blockTicks
-        root[FLUID_TICKS] = chunkMetadata.fluidTicks
-        root[POST_PROCESSING] = chunkMetadata.postProcessing
+        chunkStorageMetadata.entities?.let { root[ENTITIES] = it }
+        chunkStorageMetadata.carvingMask?.let { root[CARVING_MASK] = it }
+        root[BLOCK_TICKS] = chunkStorageMetadata.blockTicks
+        root[FLUID_TICKS] = chunkStorageMetadata.fluidTicks
+        root[POST_PROCESSING] = chunkStorageMetadata.postProcessing
         root[HEIGHTMAPS] = chunkMetadata.heightmaps
-        root[STRUCTURES] = chunkMetadata.structures
+        root[STRUCTURES] = chunkStorageMetadata.structures
         return NbtDocument(NbtCompound(root))
     }
 

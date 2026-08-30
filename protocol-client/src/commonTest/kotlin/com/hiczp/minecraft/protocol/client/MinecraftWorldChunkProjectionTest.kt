@@ -23,16 +23,14 @@ class MinecraftWorldChunkProjectionTest {
         val stoneProtocolBlockState = protocolRegistryContext.blockStates[1]
         val plainsProtocolRegistryEntry = protocolRegistryContext.requireRegistryEntry(
             ProtocolRegistryContext.BIOME_REGISTRY,
-            Identifier("plains"),
+            MinecraftBiomeIds.PLAINS,
         )
 
         val chunkLayout = ChunkLayout(minSectionY = -1, sectionCount = 1)
-        val chunkMetadata = ChunkMetadata(dataVersion = 1, status = "full")
         val chunkCodecContext = ChunkCodecContext(chunkLayout, protocolRegistryContext.toChunkDataRegistries())
         val minecraftChunkPacketDecoder = MinecraftChunkPacketDecoder(
             protocolRegistryContext,
             chunkCodecContext,
-            chunkMetadata,
         )
         assertEquals(airProtocolBlockState, minecraftChunkPacketDecoder.chunkDataRegistries.blockStates.defaultValue)
         val lightBytes = ByteArray(LightDataLayer.DATA_LAYER_BYTES).apply { this[0] = 7 }
@@ -76,6 +74,7 @@ class MinecraftWorldChunkProjectionTest {
         assertEquals(plainsProtocolRegistryEntry, chunk.biome(0, -16, 0))
         assertEquals(7.toByte(), chunk.section(-1)?.blockLight?.get(0))
         assertNull(chunk.section(-1)?.skyLight)
+        assertNull(chunk.chunkMetadata.chunkStorageMetadata)
         assertEquals(NbtLongArray(longArrayOf(3L)), chunk.chunkMetadata.heightmaps[HeightmapType.WORLD_SURFACE.name])
 
         val blockEntity = assertIs<BlockEntity>(chunk.blockEntity(ChunkBlockPosition(3, -1, 4)))
@@ -86,7 +85,7 @@ class MinecraftWorldChunkProjectionTest {
     }
 
     private fun testProtocolRegistryContext(): ProtocolRegistryContext {
-        val air = Identifier("air")
+        val air = MinecraftBlockIds.AIR
         val stone = Identifier("stone")
         return ProtocolRegistryContext(
             registries = listOf(
@@ -99,7 +98,7 @@ class MinecraftWorldChunkProjectionTest {
                 ),
                 ProtocolRegistry(
                     ProtocolRegistryContext.BIOME_REGISTRY,
-                    listOf(ProtocolRegistryEntry(Identifier("plains"), 0)),
+                    listOf(ProtocolRegistryEntry(MinecraftBiomeIds.PLAINS, 0)),
                 ),
                 ProtocolRegistry(
                     MinecraftChunkPacketDecoder.BLOCK_ENTITY_TYPE_REGISTRY,

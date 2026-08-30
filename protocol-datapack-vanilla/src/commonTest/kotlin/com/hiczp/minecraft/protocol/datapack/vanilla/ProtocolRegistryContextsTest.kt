@@ -62,11 +62,11 @@ class ProtocolRegistryContextsTest {
             synchronizedRegistryPackets = synchronizedRegistryPackets,
             protocolData = VanillaProtocolData,
         )
-        val minecraftChunkContext = MinecraftChunkContext.create(
-            DimensionId.Overworld,
-            minecraftDimensionLayout,
-            baseProtocolRegistryContext,
-        )
+        val minecraftChunkContext = MinecraftDimensionContext.create(
+            dimensionId = DimensionId.Overworld,
+            minecraftDimensionLayout = minecraftDimensionLayout,
+            protocolRegistryContext = baseProtocolRegistryContext,
+        ).createMinecraftChunkContext()
 
         assertEquals(
             MinecraftDimensionLayout.from(VanillaProtocolData, OVERWORLD),
@@ -181,11 +181,11 @@ class ProtocolRegistryContextsTest {
             synchronizedRegistryPackets = synchronizedRegistryPackets,
             protocolData = VanillaProtocolData,
         )
-        val minecraftChunkContext = MinecraftChunkContext.create(
-            DimensionId.parse(customLevelId.toString()),
-            minecraftDimensionLayout,
-            baseProtocolRegistryContext,
-        )
+        val minecraftChunkContext = MinecraftDimensionContext.create(
+            dimensionId = DimensionId.parse(customLevelId.toString()),
+            minecraftDimensionLayout = minecraftDimensionLayout,
+            protocolRegistryContext = baseProtocolRegistryContext,
+        ).createMinecraftChunkContext()
 
         assertEquals(-64, minecraftDimensionLayout.minY)
         assertEquals(512, minecraftDimensionLayout.height)

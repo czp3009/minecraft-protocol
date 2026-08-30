@@ -244,7 +244,9 @@ class RegionChunkApiTest {
 
         fun emptyChunk(chunkPosition: ChunkPosition): Chunk<BlockStateDescriptor, String> = Chunk(
             chunkPosition = chunkPosition,
-            chunkMetadata = ChunkMetadata(TEST_DATA_VERSION, status = "minecraft:full"),
+            chunkMetadata = ChunkMetadata(
+                chunkStorageMetadata = ChunkStorageMetadata(TEST_DATA_VERSION, status = "minecraft:full"),
+            ),
             chunkLayout = TEST_LAYOUT,
             defaultBlockState = AIR,
             defaultBiome = "minecraft:plains",

@@ -60,6 +60,9 @@ conversion, and semantic Chunk/entity values for the repository-selected release
   protocol or vanilla-default modules. Protocol-aware callers obtain the matching adapters from `protocol-datapack`.
 - `ChunkDataRegistries` is the reusable mapping stage and `ChunkCodecContext` binds it to one `ChunkLayout`. Keep both
   available to custom codecs without adding protocol identity or filesystem state.
+- Keep heightmaps and boundary lighting in common `ChunkMetadata`. Keep fields that exist only in persistent Chunk NBT
+  in optional `ChunkStorageMetadata`; packet-derived Chunks must not invent those fields, and persistent encoding must
+  reject a Chunk that has none.
 - Palette mutation preserves stable IDs. Encoding uses a non-mutating compact snapshot; `compact()` is the explicit
   mutating operation.
 - Receiver-oriented conversion extensions connect compressed records, `NbtDocument`, and semantic Chunk, Entity Chunk,

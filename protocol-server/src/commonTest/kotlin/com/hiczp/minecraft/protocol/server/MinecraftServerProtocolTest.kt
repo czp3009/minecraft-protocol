@@ -5,6 +5,7 @@ import com.hiczp.minecraft.protocol.auth.MinecraftClientKeyExchange
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.auth.respond
 import com.hiczp.minecraft.protocol.auth.toEncryptionResponsePacket
+import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.datapack.resolveMinecraftWorld
 import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaDataPacks
 import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
@@ -206,6 +207,10 @@ class MinecraftServerProtocolTest {
             viewDistance = 3,
         )
         val expectedMinecraftChunkContext = resolvedMinecraftWorld.dimension(DimensionId.Overworld)
+        val expectedMinecraftDimensionLayout = MinecraftDimensionLayout.from(
+            resolvedMinecraftWorld.protocolData,
+            Identifier("overworld"),
+        )
         val playLoginPacket = DefaultMinecraftServerNegotiationPolicy.createPlayLoginPacket(
             minecraftServerNegotiationOptions,
             gameProfile = GameProfile(Uuid.fromLongs(1, 2), "ResolvedProbe", emptyList()),
@@ -213,11 +218,11 @@ class MinecraftServerProtocolTest {
         )
         assertEquals(setOf(Identifier("overworld")), playLoginPacket.levels)
         assertEquals(
-            expectedMinecraftChunkContext.minecraftDimensionLayout.dimensionTypeRawId,
+            expectedMinecraftDimensionLayout.dimensionTypeRawId,
             playLoginPacket.spawnInfo.dimensionTypeId,
         )
         val minecraftChunkPacketEncoder = expectedMinecraftChunkContext.packetEncoder(
-            isAir = { protocolBlockState -> protocolBlockState.block == Identifier("air") },
+            isAir = { protocolBlockState -> protocolBlockState.block == MinecraftBlockIds.AIR },
             hasFluid = { false },
         )
         assertSame(
@@ -241,7 +246,7 @@ class MinecraftServerProtocolTest {
             val minecraftDimensionContext = minecraftServerNegotiationResult.minecraftDimensionContext
             assertEquals(expectedMinecraftChunkContext.dimensionId, minecraftDimensionContext.dimensionId)
             assertEquals(
-                expectedMinecraftChunkContext.minecraftDimensionLayout,
+                expectedMinecraftDimensionLayout,
                 minecraftDimensionContext.minecraftDimensionLayout,
             )
             assertEquals(

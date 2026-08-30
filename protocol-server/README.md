@@ -240,22 +240,13 @@ The caller configures and closes the HTTP client. Authentication failure never f
 ## Resolve a stored world for negotiation
 
 A disk-backed server needs both the enabled pack selection and `world_gen_settings`. Resolve them together so
-Configuration, Play Login, disk Chunk decoding, and later packet encoding use the same registry order:
+Configuration, Play Login, disk Chunk decoding, and later packet encoding use the same registry order. The
+[`world-io` disk path](../world-io/README.md#read-computational-world-values-from-disk) produces the
+`ResolvedMinecraftWorld`; this module consumes it without taking a filesystem dependency.
+
+Choose the initial dimension and expose the resolved protocol data through negotiation options:
 
 ```kotlin
-suspend fun resolveServerWorld(
-    minecraftWorldAccess: MinecraftWorldAccess,
-): ResolvedMinecraftWorld {
-    val worldGenSettingsData = checkNotNull(
-        minecraftWorldAccess.data.read<SavedDataFile<WorldGenSettingsData>>(
-            SavedDataId("world_gen_settings"),
-        ),
-    ).data
-    return minecraftWorldAccess.dataPacks.readEnabled()
-        .toVanillaProtocolData()
-        .resolveMinecraftWorld(worldGenSettingsData)
-}
-
 fun negotiationOptions(
     resolvedMinecraftWorld: ResolvedMinecraftWorld,
     dimensionId: DimensionId,
@@ -270,7 +261,7 @@ Pass the resulting options to `negotiate()`. This explicit construction is inten
 and codec facts, while Status policy, limits, distances, and the selected initial dimension belong to the server
 application. The default Play Login derives the selected dimension-type raw ID from the supplied protocol data.
 Negotiation returns a connection-specific `MinecraftDimensionContext`; the resolved world's per-dimension
-`MinecraftChunkContext` remains the disk decoder and packet encoder.
+`MinecraftChunkContext` remains the raw-ID-free disk decoder and Chunk packet encoder.
 
 Unknown enabled packs, inline dimension types, missing references, and invalid layouts fail before a partial server
 world is returned. Negotiation independently rejects an inconsistent Play Login or active registry context before
@@ -335,35 +326,49 @@ fun encodeChunks(
 
 `isAir` and `hasFluid` are game-content policies and remain caller-supplied; they cannot be inferred from numeric
 registry IDs. The optional block-entity update-tag policy is supplied at the same boundary. Palette packing, lighting,
-block-entity update tags, and the semantic Chunk-to-clientbound-packet projection remain owned by this module.
+block-entity update tags, and the semantic Chunk-to-clientbound-packet projection remain owned by this module. Encoding
+uses the common heightmaps and lighting in `ChunkMetadata`; it neither needs nor invents optional
+`ChunkStorageMetadata`, so generated and client-derived semantic Chunks can use the same path.
 
-The complete disk-to-wire operation stays short once `ResolvedMinecraftWorld` has been built:
+For the initial view, use `encode()` to create the snapshots consumed by `MinecraftInitialWorld`. The selected
+`minecraftChunkContext` must be the same dimension advertised by `minecraftServerNegotiationResult`:
 
 ```kotlin
-suspend fun readChunkPacket(
-    minecraftWorldAccess: MinecraftWorldAccess,
-    resolvedMinecraftWorld: ResolvedMinecraftWorld,
-    dimensionId: DimensionId,
-    chunkPosition: ChunkPosition,
+suspend fun sendInitialSemanticWorld(
+    minecraftServerConnection: MinecraftServerConnection,
+    minecraftServerNegotiationResult: MinecraftServerNegotiationResult,
+    minecraftChunkContext: MinecraftChunkContext,
+    chunks: List<Chunk<ProtocolBlockState, ProtocolRegistryEntry>>,
+    minecraftEntitySnapshots: List<MinecraftEntitySnapshot>,
     isAir: (ProtocolBlockState) -> Boolean,
     hasFluid: (ProtocolBlockState) -> Boolean,
-): ChunkDataAndUpdateLightPacket? {
-    val minecraftChunkContext = resolvedMinecraftWorld.dimension(dimensionId)
-    val chunk = minecraftWorldAccess.dimensions[dimensionId]
-        .openRegion(chunkPosition.regionPosition)
-        .use { regionHandle ->
-            regionHandle.withReadScope(minecraftChunkContext.chunkNbtCodec) {
-                readChunk(chunkPosition)
-            }
-        } ?: return null
-    return minecraftChunkContext.packetEncoder(isAir, hasFluid).encodePacket(chunk)
+) {
+    require(
+        minecraftChunkContext.dimensionId ==
+                minecraftServerNegotiationResult.minecraftDimensionContext.dimensionId,
+    )
+    val minecraftChunkPacketEncoder = minecraftChunkContext.packetEncoder(isAir, hasFluid)
+    val minecraftInitialWorld = MinecraftInitialWorld(
+        minecraftInitialWorldBootstrap = MinecraftInitialWorldBootstrap.vanilla(
+            minecraftServerNegotiationResult,
+        ),
+        chunks = chunks.map(minecraftChunkPacketEncoder::encode),
+        entities = minecraftEntitySnapshots,
+    )
+    minecraftServerConnection.synchronizeInitialWorld(minecraftInitialWorld)
+    minecraftServerConnection.requestFlush()
 }
 ```
 
-Send the returned packet through `minecraftServerConnection.outgoing`. `protocol-server` itself never opens a world
-path; the example composes its encoder with [`world-io`](../world-io/README.md), which owns the filesystem lifetime.
-`MinecraftChunkSnapshot` remains available for the finite initial-world API and its `packet()` method returns the same
-packet type.
+This enqueues the bootstrap, a correctly delimited complete Chunk batch, and the Entity pairing bundles, then publishes
+them at the connection's flush boundary. For later batches, map the same encoder's `encodePacket()` over the selected
+Chunks and pass those packets to the earlier [`sendChunkBatch`](#stream-chunk-batches-over-ticks) example. Sending a
+bare `ChunkDataAndUpdateLightPacket` through `outgoing` is available for custom sequencing, but batch boundaries and
+flow-control acknowledgements then remain entirely the caller's responsibility.
+
+`protocol-server` never opens a world path. Load the semantic values with the
+[`world-io` disk path](../world-io/README.md#read-computational-world-values-from-disk), keep them in application-owned
+world state, and pass them across this projection boundary.
 
 ## Send Entity pairing bundles
 
@@ -401,7 +406,9 @@ Persisted Entities do not contain connection-local numeric IDs, protocol metadat
 relationships, or registry-resolved attributes. Supply those values to `toMinecraftEntitySnapshot` when needed. The
 basic example sends spawn state; build the snapshots with passenger, leash, metadata, attribute, and equipment fields
 when those states are tracked. `sendEntitySnapshots` places several pairing sequences into one logical bundle without
-channel-level interleaving. `PoiChunk` remains server-side storage state and has no direct clientbound packet.
+channel-level interleaving. Both helpers enqueue packets but do not flush; publish them at the application's tick
+boundary with `requestFlush()`, or include the snapshots in `MinecraftInitialWorld` as shown above. `PoiChunk` remains a
+server-side storage state and has no direct clientbound packet.
 
 ## Loader profiles and custom packets
 

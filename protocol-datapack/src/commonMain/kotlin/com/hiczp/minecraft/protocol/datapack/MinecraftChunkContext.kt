@@ -1,50 +1,41 @@
 package com.hiczp.minecraft.protocol.datapack
 
-import com.hiczp.minecraft.protocol.model.type.Identifier
-import com.hiczp.minecraft.protocol.model.type.ProtocolBlockState
-import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
-import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryEntry
-import com.hiczp.minecraft.world.format.ChunkCodecContext
-import com.hiczp.minecraft.world.format.ChunkDataRegistries
-import com.hiczp.minecraft.world.format.ChunkNbtCodec
-import com.hiczp.minecraft.world.format.DimensionId
+import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.world.format.*
 
-/** A ready-to-use protocol and persistent-Chunk context for one world dimension. */
+/**
+ * A ready-to-use semantic Chunk context for one world dimension.
+ *
+ * Unlike [MinecraftDimensionContext], this value contains no synchronized dimension-type raw ID. Persistent Chunk NBT
+ * and Chunk packet bodies need the dimension layout and active block/biome registries, but not the Play Login identity.
+ */
 class MinecraftChunkContext private constructor(
-    val minecraftDimensionContext: MinecraftDimensionContext,
+    val dimensionId: DimensionId,
+    val dimensionTypeLayout: DimensionTypeLayout,
+    val protocolRegistryContext: ProtocolRegistryContext,
     val chunkCodecContext: ChunkCodecContext<ProtocolBlockState, ProtocolRegistryEntry>,
     val chunkNbtCodec: ChunkNbtCodec<ProtocolBlockState, ProtocolRegistryEntry>,
     val defaultBlockId: Identifier,
     val defaultBiomeId: Identifier,
 ) {
-    val dimensionId: DimensionId
-        get() = minecraftDimensionContext.dimensionId
-
-    val minecraftDimensionLayout: MinecraftDimensionLayout
-        get() = minecraftDimensionContext.minecraftDimensionLayout
-
-    val protocolRegistryContext: ProtocolRegistryContext
-        get() = minecraftDimensionContext.protocolRegistryContext
+    val chunkLayout: ChunkLayout
+        get() = chunkCodecContext.chunkLayout
 
     companion object {
         fun create(
             dimensionId: DimensionId,
-            minecraftDimensionLayout: MinecraftDimensionLayout,
+            dimensionTypeLayout: DimensionTypeLayout,
             protocolRegistryContext: ProtocolRegistryContext,
-            defaultBlock: Identifier = Identifier("air"),
-            defaultBiome: Identifier = Identifier("plains"),
-        ): MinecraftChunkContext {
-            val minecraftDimensionContext = MinecraftDimensionContext.create(
-                dimensionId = dimensionId,
-                minecraftDimensionLayout = minecraftDimensionLayout,
-                protocolRegistryContext = protocolRegistryContext,
-            )
-            return create(
-                minecraftDimensionContext = minecraftDimensionContext,
-                defaultBlock = defaultBlock,
-                defaultBiome = defaultBiome,
-            )
-        }
+            defaultBlock: Identifier = MinecraftBlockIds.AIR,
+            defaultBiome: Identifier = MinecraftBiomeIds.PLAINS,
+        ): MinecraftChunkContext = create(
+            dimensionId = dimensionId,
+            dimensionTypeLayout = dimensionTypeLayout,
+            protocolRegistryContext = protocolRegistryContext,
+            chunkDataRegistries = protocolRegistryContext.toChunkDataRegistries(defaultBlock, defaultBiome),
+            defaultBlock = defaultBlock,
+            defaultBiome = defaultBiome,
+        )
 
         internal fun create(
             minecraftDimensionContext: MinecraftDimensionContext,
@@ -61,35 +52,55 @@ class MinecraftChunkContext private constructor(
         )
 
         internal fun create(
-            dimensionId: DimensionId,
-            minecraftDimensionLayout: MinecraftDimensionLayout,
-            protocolRegistryContext: ProtocolRegistryContext,
+            minecraftDimensionContext: MinecraftDimensionContext,
             chunkDataRegistries: ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry>,
             defaultBlock: Identifier,
             defaultBiome: Identifier,
         ): MinecraftChunkContext = create(
-            minecraftDimensionContext = MinecraftDimensionContext.create(
-                dimensionId = dimensionId,
-                minecraftDimensionLayout = minecraftDimensionLayout,
-                protocolRegistryContext = protocolRegistryContext,
-            ),
+            dimensionId = minecraftDimensionContext.dimensionId,
+            dimensionTypeLayout = minecraftDimensionContext.minecraftDimensionLayout.dimensionTypeLayout,
+            protocolRegistryContext = minecraftDimensionContext.protocolRegistryContext,
             chunkDataRegistries = chunkDataRegistries,
             defaultBlock = defaultBlock,
             defaultBiome = defaultBiome,
         )
 
-        private fun create(
-            minecraftDimensionContext: MinecraftDimensionContext,
+        internal fun create(
+            dimensionId: DimensionId,
+            dimensionTypeLayout: DimensionTypeLayout,
+            protocolRegistryContext: ProtocolRegistryContext,
+            chunkDataRegistries: ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry>,
+            defaultBlock: Identifier,
+            defaultBiome: Identifier,
+        ): MinecraftChunkContext {
+            val chunkLayout = dimensionTypeLayout.chunkLayout
+            val activeProtocolRegistryContext = protocolRegistryContext.forChunkLayout(chunkLayout)
+            return createActive(
+                dimensionId = dimensionId,
+                dimensionTypeLayout = dimensionTypeLayout,
+                protocolRegistryContext = activeProtocolRegistryContext,
+                chunkDataRegistries = chunkDataRegistries,
+                defaultBlock = defaultBlock,
+                defaultBiome = defaultBiome,
+            )
+        }
+
+        private fun createActive(
+            dimensionId: DimensionId,
+            dimensionTypeLayout: DimensionTypeLayout,
+            protocolRegistryContext: ProtocolRegistryContext,
             chunkDataRegistries: ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry>,
             defaultBlock: Identifier,
             defaultBiome: Identifier,
         ): MinecraftChunkContext {
             val chunkCodecContext = ChunkCodecContext(
-                chunkLayout = minecraftDimensionContext.chunkLayout,
+                chunkLayout = dimensionTypeLayout.chunkLayout,
                 chunkDataRegistries = chunkDataRegistries,
             )
             return MinecraftChunkContext(
-                minecraftDimensionContext = minecraftDimensionContext,
+                dimensionId = dimensionId,
+                dimensionTypeLayout = dimensionTypeLayout,
+                protocolRegistryContext = protocolRegistryContext,
                 chunkCodecContext = chunkCodecContext,
                 chunkNbtCodec = ChunkNbtCodec(chunkCodecContext),
                 defaultBlockId = defaultBlock,
@@ -98,3 +109,12 @@ class MinecraftChunkContext private constructor(
         }
     }
 }
+
+private fun ProtocolRegistryContext.forChunkLayout(chunkLayout: ChunkLayout): ProtocolRegistryContext =
+    when (chunkSectionCount) {
+        null -> withChunkSectionCount(chunkLayout.sectionCount)
+        chunkLayout.sectionCount -> this
+        else -> throw IllegalArgumentException(
+            "Context has $chunkSectionCount Chunk Sections; layout requires ${chunkLayout.sectionCount}",
+        )
+    }

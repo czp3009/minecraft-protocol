@@ -48,19 +48,21 @@ val chunkTicketsData = overworld.data.readChunkTicketsData()
 
 ## Read computational world values from disk
 
-An ordinary stored Chunk needs the active data-pack registries and its dimension layout. Read both authoritative world
-inputs, project them once, and retain the resulting `ResolvedMinecraftWorld` for later Region reads:
+For a server that owns its world directory, resolve the advertised protocol data and every disk Chunk codec from the
+same two persisted inputs. Retain this result for the server lifetime instead of repeating data-pack and dimension
+resolution for each Chunk:
 
 ```kotlin
-fun resolveLiveMinecraftWorld(
-    liveMinecraftWorldAccess: LiveMinecraftWorldAccess,
+suspend fun resolveStoredServerWorld(
+    minecraftWorldAccess: MinecraftWorldAccess,
 ): ResolvedMinecraftWorld {
     val worldGenSettingsData = checkNotNull(
-        liveMinecraftWorldAccess.data.read<SavedDataFile<WorldGenSettingsData>>(
+        minecraftWorldAccess.data.read<SavedDataFile<WorldGenSettingsData>>(
             SavedDataId("world_gen_settings"),
         ),
     ).data
-    return liveMinecraftWorldAccess.dataPacks.readEnabled()
+    val worldDataPackLoadResult = minecraftWorldAccess.dataPacks.readEnabled()
+    return worldDataPackLoadResult
         .toVanillaProtocolData()
         .resolveMinecraftWorld(worldGenSettingsData)
 }
@@ -68,11 +70,14 @@ fun resolveLiveMinecraftWorld(
 
 `readEnabled()` already reads the ordered enabled selection and feature configuration from `level.dat`, loads its
 `file/...` packs, and returns a detached `WorldDataPackLoadResult`. `toVanillaProtocolData()` fills the matching bundled
-core/built-in packs and projects Configuration registries. `resolveMinecraftWorld()` then checks every persisted level
-stem against the exact projected dimension-type registry. Applications using this path add `protocol-datapack` and
-`protocol-datapack-vanilla`; `world-io` itself keeps its lower-layer dependency direction.
+core/built-in packs and projects Configuration registries. `resolveMinecraftWorld()` then resolves every persisted
+dimension against that exact registry order and returns both `protocolData` for server negotiation and one
+`MinecraftChunkContext` per dimension. It rejects inline dimension types because they have no synchronized raw ID for
+Play Login. Applications using this composition add `protocol-datapack` and `protocol-datapack-vanilla`; `world-io`
+itself keeps its lower-layer dependency direction.
 
-With that one resolved value, all three Region families return computational in-memory structures:
+Use the selected context's `chunkNbtCodec` for ordinary Chunk Regions. Entity and POI Region handles own their ordinary
+codecs, so all three Region families return computational in-memory structures directly:
 
 ```kotlin
 data class StoredChunkContents(
@@ -81,35 +86,42 @@ data class StoredChunkContents(
     val poiChunk: PoiChunk?,
 )
 
-fun readLiveChunkContents(
-    liveMinecraftWorldAccess: LiveMinecraftWorldAccess,
+suspend fun readStoredChunkContents(
+    minecraftWorldAccess: MinecraftWorldAccess,
     resolvedMinecraftWorld: ResolvedMinecraftWorld,
     dimensionId: DimensionId,
     chunkPosition: ChunkPosition,
 ): StoredChunkContents {
     val minecraftChunkContext = resolvedMinecraftWorld.dimension(dimensionId)
-    val liveMinecraftDimension = liveMinecraftWorldAccess.dimensions[dimensionId]
+    val minecraftDimension = minecraftWorldAccess.dimensions[dimensionId]
     val regionPosition = chunkPosition.regionPosition
-    val chunk = liveMinecraftDimension.openRegion(regionPosition).use { liveRegionHandle ->
-        liveRegionHandle.withReadScope(minecraftChunkContext.chunkNbtCodec) {
-            readChunk(chunkPosition)
-        }
+    val chunk = minecraftDimension.openRegion(regionPosition).use { regionHandle ->
+        regionHandle.readChunk(chunkPosition, minecraftChunkContext.chunkNbtCodec)
     }
-    val entityChunk = liveMinecraftDimension.openEntityRegion(regionPosition).use { liveEntityRegionHandle ->
-        liveEntityRegionHandle.readChunk(chunkPosition)
+    val entityChunk = minecraftDimension.openEntityRegion(regionPosition).use { entityRegionHandle ->
+        entityRegionHandle.readChunk(chunkPosition)
     }
-    val poiChunk = liveMinecraftDimension.openPoiRegion(regionPosition).use { livePoiRegionHandle ->
-        livePoiRegionHandle.readChunk(chunkPosition)
+    val poiChunk = minecraftDimension.openPoiRegion(regionPosition).use { poiRegionHandle ->
+        poiRegionHandle.readChunk(chunkPosition)
     }
-    return StoredChunkContents(chunk, entityChunk, poiChunk)
+    return StoredChunkContents(
+        chunk = chunk,
+        entityChunk = entityChunk,
+        poiChunk = poiChunk,
+    )
 }
 ```
 
 The ordinary Region result uses `ProtocolBlockState` and `ProtocolRegistryEntry`, so the same Chunk can later enter the
 server packet encoder without another registry conversion. The no-codec Entity entry uses `NbtEntityDataRegistry` and
 preserves subtype-specific fields in `NbtCompound`; pass an `EntityChunkNbtCodec<E>` when the application has a custom
-runtime entity-data type. POI handles already own their codec. `MinecraftWorldAccess` exposes the same reads as suspend
-operations and additionally provides writes under the world lease.
+runtime entity-data type. POI handles already own their codec. A disk-decoded Chunk has non-null
+`chunkMetadata.chunkStorageMetadata`; Entity and POI values retain their own persisted data versions.
+
+A disk tool or live observer that will not advertise the world can call `resolveMinecraftChunkContexts()` instead. That
+branch accepts both referenced and inline dimension types because it needs no Play Login raw ID. The later
+[live-world section](#read-a-live-world-without-locking-it) shows the synchronous `LiveMinecraftWorldAccess` lifetime;
+its Region reads have the same value shapes but the expected live-consistency limits.
 
 ## Choose an API layer
 
