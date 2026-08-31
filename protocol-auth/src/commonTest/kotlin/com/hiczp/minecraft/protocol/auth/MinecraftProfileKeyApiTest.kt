@@ -8,10 +8,7 @@ import io.ktor.http.*
 import io.ktor.http.content.*
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
+import kotlinx.serialization.json.*
 import kotlin.test.*
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -159,7 +156,7 @@ private fun publicKeyPem(): String = """
     -----END RSA PUBLIC KEY-----
 """.trimIndent()
 
-private fun MockRequestHandleScope.respondProfileKeyJson(body: kotlinx.serialization.json.JsonObject) = respond(
+private fun MockRequestHandleScope.respondProfileKeyJson(body: JsonObject) = respond(
     content = body.toString(),
     status = HttpStatusCode.OK,
     headers = headersOf(HttpHeaders.ContentType, "application/json"),

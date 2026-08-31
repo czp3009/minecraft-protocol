@@ -1,5 +1,3 @@
-@file:OptIn(kotlin.uuid.ExperimentalUuidApi::class)
-
 package com.hiczp.minecraft.protocol.auth
 
 import com.hiczp.minecraft.protocol.model.type.GameProfile

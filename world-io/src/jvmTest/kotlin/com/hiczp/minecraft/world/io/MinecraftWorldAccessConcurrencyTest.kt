@@ -1,13 +1,17 @@
 package com.hiczp.minecraft.world.io
 
+import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
+import okio.BufferedSource
+import okio.FileSystem
 import okio.IOException
 import okio.Path.Companion.toPath
+import okio.fakefilesystem.FakeFileSystem
 import java.util.concurrent.Executors
 import kotlin.test.*
 
@@ -1201,11 +1205,11 @@ class MinecraftWorldAccessConcurrencyTest {
 
 private fun concurrencyWorld(
     minecraftWorldPaths: MinecraftWorldPaths,
-    fileSystem: okio.FileSystem,
+    fileSystem: FileSystem,
     worldDirectoryLock: WorldDirectoryLock = RecordingWorldDirectoryLock(),
 ): MinecraftWorldAccess = MinecraftWorldAccess.create(
     minecraftWorldPaths = minecraftWorldPaths,
-    fileSystem = if (fileSystem is okio.fakefilesystem.FakeFileSystem) {
+    fileSystem = if (fileSystem is FakeFileSystem) {
         threadSafeFakeFileSystem(fileSystem)
     } else {
         fileSystem
@@ -1259,7 +1263,7 @@ private suspend fun <R> MinecraftWorldAccess.withCompressedChunkSource(
     chunkPosition: ChunkPosition,
     regionStorageDirectory: RegionStorageDirectory,
     dimensionId: DimensionId,
-    block: (RegionChunkInfo, okio.BufferedSource) -> R,
+    block: (RegionChunkInfo, BufferedSource) -> R,
 ): R? = when (regionStorageDirectory) {
     RegionStorageDirectory.CHUNKS -> dimensions[dimensionId].openRegion(chunkPosition.regionPosition).use {
         it.withCompressedChunkSource(chunkPosition, block)
@@ -1277,7 +1281,7 @@ private suspend fun <R> MinecraftWorldAccess.withCompressedChunkSource(
 
 private suspend fun MinecraftWorldAccess.writeChunkNbtDocument(
     chunkPosition: ChunkPosition,
-    nbtDocument: com.hiczp.minecraft.nbt.NbtDocument,
+    nbtDocument: NbtDocument,
     regionStorageDirectory: RegionStorageDirectory,
     dimensionId: DimensionId,
 ) = when (regionStorageDirectory) {

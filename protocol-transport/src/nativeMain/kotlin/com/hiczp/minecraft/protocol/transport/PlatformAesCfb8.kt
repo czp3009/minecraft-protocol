@@ -1,8 +1,9 @@
-@file:OptIn(dev.whyoleg.cryptography.DelicateCryptographyApi::class)
+@file:OptIn(DelicateCryptographyApi::class)
 
 package com.hiczp.minecraft.protocol.transport
 
 import dev.whyoleg.cryptography.CryptographyProvider
+import dev.whyoleg.cryptography.DelicateCryptographyApi
 import dev.whyoleg.cryptography.algorithms.AES
 import kotlinx.io.Buffer
 import kotlinx.io.RawSink

@@ -6,6 +6,7 @@ package com.hiczp.minecraft.protocol.serialization
 
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.ByteString
+import com.hiczp.minecraft.protocol.model.type.Identifier
 import kotlinx.io.Buffer
 import kotlinx.io.Sink
 import kotlinx.io.Source
@@ -481,6 +482,6 @@ private fun unknownPacket(
         UnknownPacket.Serverbound(packetRoute, ByteString(data))
 }
 
-private val BRAND_CHANNEL = com.hiczp.minecraft.protocol.model.type.Identifier(
+private val BRAND_CHANNEL = Identifier(
     "minecraft:brand",
 )

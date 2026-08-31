@@ -5,6 +5,7 @@ import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.nbt.NbtTagTreeSerializer
 import com.hiczp.minecraft.world.format.DimensionId
 import com.hiczp.minecraft.world.format.DimensionTypeId
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -36,7 +37,7 @@ data class WorldGenDimension(
     val generator: NbtCompound,
 )
 
-object WorldGenDimensionsSerializer : kotlinx.serialization.KSerializer<Map<DimensionId, WorldGenDimension>> {
+object WorldGenDimensionsSerializer : KSerializer<Map<DimensionId, WorldGenDimension>> {
     private val serializer = MapSerializer(String.serializer(), WorldGenDimension.serializer())
 
     override val descriptor: SerialDescriptor = serializer.descriptor
@@ -66,7 +67,7 @@ sealed interface WorldGenDimensionType {
     data class Inline(val dimensionTypeData: NbtCompound) : WorldGenDimensionType
 }
 
-object WorldGenDimensionTypeSerializer : kotlinx.serialization.KSerializer<WorldGenDimensionType> {
+object WorldGenDimensionTypeSerializer : KSerializer<WorldGenDimensionType> {
     override val descriptor: SerialDescriptor = NbtTagTreeSerializer.descriptor
 
     override fun serialize(encoder: Encoder, value: WorldGenDimensionType) {

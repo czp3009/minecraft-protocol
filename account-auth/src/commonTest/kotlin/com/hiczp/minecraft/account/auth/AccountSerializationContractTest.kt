@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.account.auth
 
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.*
 import kotlinx.serialization.properties.Properties
 import kotlinx.serialization.properties.encodeToStringMap
@@ -8,7 +9,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class AccountSerializationContractTest {
-    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+    @OptIn(ExperimentalSerializationApi::class)
     @Test
     fun publicFormRequestModelsExposeKotlinxSerializersAndWireFieldNames() {
         val authorizationCode = Properties.encodeToStringMap(

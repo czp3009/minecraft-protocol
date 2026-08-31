@@ -17,6 +17,9 @@ import okio.Buffer
 import okio.BufferedSink
 import okio.BufferedSource
 import okio.buffer
+import kotlinx.io.Buffer as KotlinxBuffer
+import kotlinx.io.IOException as KotlinxIOException
+import kotlinx.io.Source as KotlinxSource
 
 /** Narrow adapters at calls into the filesystem-independent kotlinx-io format modules. */
 internal fun NbtFormat.decodeDocumentFromOkio(source: BufferedSource): NbtDocument =
@@ -94,7 +97,7 @@ internal fun encodeCompressedChunkFromOkio(
     compression: Compression,
     encode: (BufferedSink) -> Unit,
 ): CompressedChunk {
-    val compressed = kotlinx.io.Buffer()
+    val compressed = KotlinxBuffer()
     val compressedSink = withOkioIoFailures {
         compressedNbtFormat.compressionRegistry.compressingSink(compression, compressed)
     }.asOkioSink().buffer()
@@ -162,7 +165,7 @@ internal fun PoiChunkNbtCodec.encodeFromOkio(
 
 private fun <T> decodeFromOkio(
     source: BufferedSource,
-    decode: (kotlinx.io.Source) -> T,
+    decode: (KotlinxSource) -> T,
 ): T {
     val kotlinxSource = source.asKotlinxIoRawSource().buffered()
     return withOkioIoFailures {
@@ -181,13 +184,13 @@ private fun <T> decodeFromOkio(
  */
 internal fun <T> withOkioIoFailures(block: () -> T): T = try {
     block()
-} catch (failure: kotlinx.io.IOException) {
+} catch (failure: KotlinxIOException) {
     rethrowKotlinxIoFailureThroughOfficialAdapter(failure)
 }
 
-private fun rethrowKotlinxIoFailureThroughOfficialAdapter(failure: kotlinx.io.IOException): Nothing {
+private fun rethrowKotlinxIoFailureThroughOfficialAdapter(failure: KotlinxIOException): Nothing {
     val source = object : RawSource {
-        override fun readAtMostTo(sink: kotlinx.io.Buffer, byteCount: Long): Long = throw failure
+        override fun readAtMostTo(sink: KotlinxBuffer, byteCount: Long): Long = throw failure
 
         override fun close() = Unit
     }.asOkioSource()

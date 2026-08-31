@@ -7,6 +7,7 @@ import com.hiczp.minecraft.world.format.data.*
 import com.hiczp.minecraft.world.io.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.KSerializer
 import okio.Buffer
 import okio.FileSystem
 import okio.IOException
@@ -966,7 +967,7 @@ class OfficialWorldStorageInteropTest {
     private fun <T> rewriteTypedSavedData(
         savedDataStore: SavedDataStore,
         savedDataId: SavedDataId,
-        serializer: kotlinx.serialization.KSerializer<T>,
+        serializer: KSerializer<T>,
     ) {
         val value = checkNotNull(savedDataStore.read(savedDataId, serializer)) {
             "Official fixture generated no $savedDataId saved data"

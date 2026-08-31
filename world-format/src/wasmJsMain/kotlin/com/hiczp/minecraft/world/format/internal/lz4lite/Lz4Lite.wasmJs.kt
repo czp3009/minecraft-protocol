@@ -1,5 +1,5 @@
 @file:JsModule("lz4-lite")
-@file:OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
+@file:OptIn(ExperimentalWasmJsInterop::class)
 
 package com.hiczp.minecraft.world.format.internal.lz4lite
 

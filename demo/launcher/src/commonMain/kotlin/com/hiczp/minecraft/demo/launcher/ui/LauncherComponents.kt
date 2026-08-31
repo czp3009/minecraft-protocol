@@ -41,7 +41,7 @@ internal fun rememberSelectionState(initialIndex: Int = 0): SelectionState = rem
 internal fun LauncherScaffold(
     platform: String,
     hints: List<KeyHint>,
-    onKeyEvent: (com.jakewharton.mosaic.layout.KeyEvent) -> Boolean,
+    onKeyEvent: (KeyEvent) -> Boolean,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val terminal = LocalTerminalState.current.size

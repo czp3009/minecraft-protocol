@@ -1,8 +1,6 @@
 package com.hiczp.minecraft.world.format
 
-import com.hiczp.minecraft.nbt.NbtCompound
-import com.hiczp.minecraft.nbt.NbtInt
-import com.hiczp.minecraft.nbt.NbtString
+import com.hiczp.minecraft.nbt.*
 import kotlin.test.*
 
 class PoiChunkNbtCodecTest {
@@ -39,7 +37,7 @@ class PoiChunkNbtCodecTest {
     @Test
     fun codecUsesOfficialDefaultsAndRejectsUnmodeledOrMispositionedData() {
         val chunkPosition = ChunkPosition(0, 0)
-        val document = com.hiczp.minecraft.nbt.NbtDocument(
+        val document = NbtDocument(
             NbtCompound(
                 mapOf(
                     "DataVersion" to NbtInt(4_903),
@@ -47,11 +45,11 @@ class PoiChunkNbtCodecTest {
                         mapOf(
                             "0" to NbtCompound(
                                 mapOf(
-                                    "Records" to com.hiczp.minecraft.nbt.NbtList(
+                                    "Records" to NbtList(
                                         listOf(
                                             NbtCompound(
                                                 mapOf(
-                                                    "pos" to com.hiczp.minecraft.nbt.NbtIntArray(intArrayOf(1, 2, 3)),
+                                                    "pos" to NbtIntArray(intArrayOf(1, 2, 3)),
                                                     "type" to NbtString("minecraft:home"),
                                                 ),
                                             ),
@@ -75,7 +73,7 @@ class PoiChunkNbtCodecTest {
         }
         assertFailsWith<PoiChunkNbtFormatException> {
             poiChunkNbtCodec.decodeDocument(
-                com.hiczp.minecraft.nbt.NbtDocument(
+                NbtDocument(
                     NbtCompound(document.root.value + ("future" to NbtInt(1))),
                 ),
                 chunkPosition,
@@ -103,5 +101,5 @@ class PoiChunkNbtCodecTest {
     }
 }
 
-private fun assertIsCompound(value: com.hiczp.minecraft.nbt.NbtTag?): NbtCompound =
+private fun assertIsCompound(value: NbtTag?): NbtCompound =
     value as? NbtCompound ?: error("Expected TAG_Compound, got ${value?.let { it::class.simpleName }}")

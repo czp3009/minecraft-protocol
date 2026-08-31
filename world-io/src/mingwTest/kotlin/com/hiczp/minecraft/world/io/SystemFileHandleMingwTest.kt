@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.world.io
 
 import okio.FileSystem
+import okio.IOException
 import okio.Path
 import okio.use
 import kotlin.random.Random
@@ -62,7 +63,7 @@ private fun createMingwSystemHandleTemporaryDirectory(
         try {
             fileSystem.createDirectory(candidate, mustCreate = true)
             return candidate
-        } catch (failure: okio.IOException) {
+        } catch (failure: IOException) {
             if (!fileSystem.exists(candidate)) throw failure
         }
     }

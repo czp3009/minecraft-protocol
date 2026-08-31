@@ -7,6 +7,7 @@ import kotlinx.coroutines.test.runTest
 import okio.FileSystem
 import okio.IOException
 import okio.Path.Companion.toPath
+import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.*
 import kotlin.uuid.Uuid
 
@@ -1670,7 +1671,7 @@ class RegionHandleConcurrencyTest {
 
 private fun concurrencyStore(fileSystem: FileSystem): CoordinatedRegionStore = CoordinatedRegionStore(
     directory = "/world/region".toPath(),
-    fileSystem = if (fileSystem is okio.fakefilesystem.FakeFileSystem) {
+    fileSystem = if (fileSystem is FakeFileSystem) {
         threadSafeFakeFileSystem(fileSystem)
     } else {
         fileSystem

@@ -1,9 +1,10 @@
-@file:OptIn(dev.whyoleg.cryptography.DelicateCryptographyApi::class)
+@file:OptIn(DelicateCryptographyApi::class)
 
 package com.hiczp.minecraft.protocol.auth
 
 import dev.whyoleg.cryptography.BinarySize.Companion.bits
 import dev.whyoleg.cryptography.CryptographyProvider
+import dev.whyoleg.cryptography.DelicateCryptographyApi
 import dev.whyoleg.cryptography.algorithms.RSA
 import dev.whyoleg.cryptography.algorithms.SHA1
 import dev.whyoleg.cryptography.algorithms.SHA256
@@ -99,7 +100,7 @@ private class NativeRsaPublicKey(
     val publicKey: RSA.PKCS1.PublicKey,
 ) : MinecraftRsaPublicKey
 
-@OptIn(dev.whyoleg.cryptography.DelicateCryptographyApi::class)
+@OptIn(DelicateCryptographyApi::class)
 private val MinecraftRsaSignatureAlgorithm.digest
     get() = when (this) {
         MinecraftRsaSignatureAlgorithm.SHA1 -> SHA1

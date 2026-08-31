@@ -6,6 +6,7 @@ import com.hiczp.minecraft.protocol.model.packet.ChunkDataAndUpdateLightPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.world.format.*
 import com.hiczp.minecraft.world.format.ChunkSection
+import com.hiczp.minecraft.world.format.PalettedContainer
 import com.hiczp.minecraft.protocol.model.type.ChunkData as NetworkChunkData
 import com.hiczp.minecraft.protocol.model.type.ChunkSection as NetworkChunkSection
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer as NetworkPalettedContainer
@@ -144,7 +145,7 @@ class MinecraftChunkPacketEncoder(
     }
 
     private fun <T : Any> encodePalette(
-        palettedContainer: com.hiczp.minecraft.world.format.PalettedContainer<T>,
+        palettedContainer: PalettedContainer<T>,
         registrySize: Int,
         minimumIndirectBits: Int,
         maximumIndirectBits: Int,

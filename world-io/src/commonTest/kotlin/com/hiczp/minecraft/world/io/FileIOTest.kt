@@ -15,6 +15,10 @@ import okio.*
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.*
+import kotlinx.io.Buffer as KotlinxBuffer
+import kotlinx.io.IOException as KotlinxIOException
+import kotlinx.io.Sink as KotlinxSink
+import kotlinx.io.Source as KotlinxSource
 
 class FileIOTest {
     @Test
@@ -60,17 +64,17 @@ class FileIOTest {
 
     @Test
     fun worldIoCompressionStreamsExposeKotlinxIoFailuresAsOkioFailures() {
-        val readFailure = kotlinx.io.IOException("synthetic decompression I/O")
-        val writeFailure = kotlinx.io.IOException("synthetic compression I/O")
+        val readFailure = KotlinxIOException("synthetic decompression I/O")
+        val writeFailure = KotlinxIOException("synthetic compression I/O")
         val compressionCodec = object : CompressionCodec {
-            override fun compressingSink(sink: kotlinx.io.Sink): RawSink = object : RawSink {
-                override fun write(source: kotlinx.io.Buffer, byteCount: Long) = throw writeFailure
+            override fun compressingSink(sink: KotlinxSink): RawSink = object : RawSink {
+                override fun write(source: KotlinxBuffer, byteCount: Long) = throw writeFailure
                 override fun flush() = Unit
                 override fun close() = Unit
             }
 
-            override fun decompressingSource(source: kotlinx.io.Source): RawSource = object : RawSource {
-                override fun readAtMostTo(sink: kotlinx.io.Buffer, byteCount: Long): Long = throw readFailure
+            override fun decompressingSource(source: KotlinxSource): RawSource = object : RawSource {
+                override fun readAtMostTo(sink: KotlinxBuffer, byteCount: Long): Long = throw readFailure
                 override fun close() = Unit
             }
         }
@@ -99,9 +103,9 @@ class FileIOTest {
 
     @Test
     fun officialAdapterMapsKotlinxIoFailuresWithoutInterceptingCancellation() {
-        val kotlinxFailure = kotlinx.io.IOException("synthetic kotlinx I/O")
+        val kotlinxFailure = KotlinxIOException("synthetic kotlinx I/O")
         val failingSource = object : RawSource {
-            override fun readAtMostTo(sink: kotlinx.io.Buffer, byteCount: Long): Long = throw kotlinxFailure
+            override fun readAtMostTo(sink: KotlinxBuffer, byteCount: Long): Long = throw kotlinxFailure
             override fun close() = Unit
         }.asOkioSource()
         val exposed = assertFailsWith<IOException> {
@@ -116,7 +120,7 @@ class FileIOTest {
 
         val cancellationException = CancellationException("boundary cancelled")
         val cancellingSource = object : RawSource {
-            override fun readAtMostTo(sink: kotlinx.io.Buffer, byteCount: Long): Long = throw cancellationException
+            override fun readAtMostTo(sink: KotlinxBuffer, byteCount: Long): Long = throw cancellationException
             override fun close() = Unit
         }.asOkioSource()
         assertSame(

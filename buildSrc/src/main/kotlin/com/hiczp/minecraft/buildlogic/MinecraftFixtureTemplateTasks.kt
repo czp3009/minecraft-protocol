@@ -7,6 +7,7 @@ import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.*
 import java.io.File
+import java.nio.file.Path
 import java.time.Duration
 
 @CacheableTask
@@ -107,7 +108,7 @@ abstract class GenerateHeadlessClientTemplateTask : DefaultTask() {
 
 private inline fun <T> DefaultTask.withIsolatedTemporaryDirectory(
     prefix: String,
-    action: (java.nio.file.Path) -> T,
+    action: (Path) -> T,
 ): T {
     val workDirectory = createIsolatedTemporaryDirectory(prefix)
     var failure: Throwable? = null
@@ -128,7 +129,7 @@ private inline fun <T> DefaultTask.withIsolatedTemporaryDirectory(
 private fun DefaultTask.runTemplateWorker(
     workerClasspath: ConfigurableFileCollection,
     arguments: List<String>,
-    workDirectory: java.nio.file.Path,
+    workDirectory: Path,
 ) {
     val classpath = workerClasspath.files
         .sortedBy(File::getAbsolutePath)

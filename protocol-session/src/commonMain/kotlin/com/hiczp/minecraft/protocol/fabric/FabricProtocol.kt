@@ -1,5 +1,3 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-
 package com.hiczp.minecraft.protocol.fabric
 
 import com.hiczp.minecraft.protocol.model.packet.ConnectionState
@@ -17,8 +15,11 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.descriptors.element
+import kotlinx.serialization.encoding.CompositeDecoder
+import kotlinx.serialization.encoding.CompositeEncoder
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlin.reflect.KClass
 
 object FabricProtocol {
     const val COMMON_PACKET_VERSION: Int = 1
@@ -90,7 +91,7 @@ object FabricProtocol {
 private fun <T : FabricBidirectionalPacket> MutableList<PacketCodecRegistration<out Packet>>.addBidirectional(
     channel: Identifier,
     packetBodyCodec: PacketBodyCodec<T>,
-    packetClass: kotlin.reflect.KClass<T>,
+    packetClass: KClass<T>,
 ) {
     listOf(ConnectionState.CONFIGURATION, ConnectionState.PLAY).forEach { state ->
         add(
@@ -343,7 +344,7 @@ private object FabricRegistrySyncSerializer : KSerializer<FabricRegistrySyncPack
         return FabricRegistrySyncPacket(remoteRegistrySnapshot, optionalRegistryIds)
     }
 
-    private fun kotlinx.serialization.encoding.CompositeDecoder.decodeCount(
+    private fun CompositeDecoder.decodeCount(
         description: String,
         allowZero: Boolean = true,
     ): Int {
@@ -356,22 +357,22 @@ private object FabricRegistrySyncSerializer : KSerializer<FabricRegistrySyncPack
         return count
     }
 
-    private fun kotlinx.serialization.encoding.CompositeEncoder.encodeVarInt(value: Int) =
+    private fun CompositeEncoder.encodeVarInt(value: Int) =
         encodeIntElement(descriptor, VAR_INT_INDEX, value)
 
-    private fun kotlinx.serialization.encoding.CompositeDecoder.decodeVarInt(): Int =
+    private fun CompositeDecoder.decodeVarInt(): Int =
         decodeIntElement(descriptor, VAR_INT_INDEX)
 
-    private fun kotlinx.serialization.encoding.CompositeEncoder.encodeString(value: String) =
+    private fun CompositeEncoder.encodeString(value: String) =
         encodeStringElement(descriptor, STRING_INDEX, value)
 
-    private fun kotlinx.serialization.encoding.CompositeDecoder.decodeString(): String =
+    private fun CompositeDecoder.decodeString(): String =
         decodeStringElement(descriptor, STRING_INDEX)
 
-    private fun kotlinx.serialization.encoding.CompositeEncoder.encodeByte(value: Int) =
+    private fun CompositeEncoder.encodeByte(value: Int) =
         encodeByteElement(descriptor, BYTE_INDEX, value.toByte())
 
-    private fun kotlinx.serialization.encoding.CompositeDecoder.decodeByte(): Byte =
+    private fun CompositeDecoder.decodeByte(): Byte =
         decodeByteElement(descriptor, BYTE_INDEX)
 
     private const val VAR_INT_INDEX = 0

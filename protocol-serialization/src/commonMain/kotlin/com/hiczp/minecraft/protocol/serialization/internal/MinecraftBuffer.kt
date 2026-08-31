@@ -233,7 +233,7 @@ private class LimitedRawSource(
 ) : RawSource {
     private var supplied: Long = 0
 
-    override fun readAtMostTo(sink: kotlinx.io.Buffer, byteCount: Long): Long {
+    override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
         if (supplied == this.byteCount.toLong()) return -1
         val allowed = minOf(byteCount, this.byteCount.toLong() - supplied)
         val read = delegate.readAtMostTo(sink, allowed)

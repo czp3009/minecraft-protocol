@@ -1,7 +1,8 @@
-@file:OptIn(com.hiczp.minecraft.protocol.session.InternalMinecraftConnectionApi::class)
+@file:OptIn(InternalMinecraftConnectionApi::class)
 
 package com.hiczp.minecraft.protocol.client
 
+import com.hiczp.minecraft.protocol.session.InternalMinecraftConnectionApi
 import com.hiczp.minecraft.protocol.session.MinecraftClientPacketConnection
 import com.hiczp.minecraft.protocol.session.MinecraftConnectionDefinition
 import com.hiczp.minecraft.protocol.session.createMinecraftClientPacketConnection

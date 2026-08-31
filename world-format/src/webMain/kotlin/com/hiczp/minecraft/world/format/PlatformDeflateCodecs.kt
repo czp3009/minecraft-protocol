@@ -127,7 +127,7 @@ private class ExactKompressFramedRawSource(
         if (read < 0 && !finished) {
             finished = true
             if (decompressor.remaining != 0 || !compressed.exhausted()) {
-                throw kotlinx.io.IOException(
+                throw IOException(
                     "Trailing bytes after $formatName stream",
                 )
             }
@@ -245,10 +245,10 @@ private class GzipDecompressor : FramingDecompressor(Inflater()) {
         val expectedCrc32 = buffer.readIntLe()
         val expectedSize = buffer.readIntLe()
         if (crc32.finalize().toInt() != expectedCrc32) {
-            throw kotlinx.io.IOException("Invalid gzip CRC-32 checksum")
+            throw IOException("Invalid gzip CRC-32 checksum")
         }
         if (outputSize.toInt() != expectedSize) {
-            throw kotlinx.io.IOException("Invalid gzip uncompressed size")
+            throw IOException("Invalid gzip uncompressed size")
         }
         return true
     }
@@ -269,14 +269,14 @@ private fun readGzipHeader(source: Source) {
     }
 
     if (readTracked() != 0x1F || readTracked() != 0x8B) {
-        throw kotlinx.io.IOException("Invalid gzip magic")
+        throw IOException("Invalid gzip magic")
     }
     if (readTracked() != DEFLATE_METHOD) {
-        throw kotlinx.io.IOException("Unsupported gzip compression method")
+        throw IOException("Unsupported gzip compression method")
     }
     val flags = readTracked()
     if (flags and GZIP_RESERVED_FLAGS != 0) {
-        throw kotlinx.io.IOException("Invalid reserved gzip flags")
+        throw IOException("Invalid reserved gzip flags")
     }
     repeat(6) { readTracked() }
 
@@ -290,7 +290,7 @@ private fun readGzipHeader(source: Source) {
         val expected = (source.readByte().toInt() and 0xFF) or
                 ((source.readByte().toInt() and 0xFF) shl 8)
         if (crc32.finalize().toInt() and 0xFFFF != expected) {
-            throw kotlinx.io.IOException("Invalid gzip header CRC")
+            throw IOException("Invalid gzip header CRC")
         }
     }
 }

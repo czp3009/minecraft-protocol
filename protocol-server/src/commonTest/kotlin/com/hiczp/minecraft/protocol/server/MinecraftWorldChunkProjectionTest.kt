@@ -33,12 +33,12 @@ class MinecraftWorldChunkProjectionTest {
         val stone = assertNotNull(minecraftChunkPacketEncoder.chunkDataRegistries.blockStates.resolve(block("stone")))
         val water = assertNotNull(minecraftChunkPacketEncoder.chunkDataRegistries.blockStates.resolve(block("water")))
         val plains = minecraftChunkPacketEncoder.chunkDataRegistries.biomes.defaultValue
-        val blockStates = PalettedContainer(com.hiczp.minecraft.world.format.SECTION_BLOCK_COUNT, air).apply {
+        val blockStates = PalettedContainer(SECTION_BLOCK_COUNT, air).apply {
             this[LocalBlockPosition(0, 0, 0).index] = stone
             this[LocalBlockPosition(1, 0, 0).index] = water
         }
-        val blockLight = ByteArray(com.hiczp.minecraft.world.format.SECTION_LIGHT_BYTE_COUNT).apply { this[0] = 4 }
-        val skyLight = ByteArray(com.hiczp.minecraft.world.format.SECTION_LIGHT_BYTE_COUNT).apply { this[1] = -1 }
+        val blockLight = ByteArray(SECTION_LIGHT_BYTE_COUNT).apply { this[0] = 4 }
+        val skyLight = ByteArray(SECTION_LIGHT_BYTE_COUNT).apply { this[1] = -1 }
         val chunkPosition = ChunkPosition(-1, 2)
         val chunkMetadata = ChunkMetadata(
             heightmaps = NbtCompound(mapOf("WORLD_SURFACE" to NbtLongArray(longArrayOf(11L)))),
@@ -57,7 +57,7 @@ class MinecraftWorldChunkProjectionTest {
                 ChunkSection(
                     sectionY = -1,
                     blockStates = blockStates,
-                    biomes = PalettedContainer(com.hiczp.minecraft.world.format.SECTION_BIOME_COUNT, plains),
+                    biomes = PalettedContainer(SECTION_BIOME_COUNT, plains),
                     blockLight = NbtByteArray(blockLight),
                 ),
             ),
@@ -151,12 +151,12 @@ class MinecraftWorldChunkProjectionTest {
         val chunkSection = ChunkSection(
             sectionY = 0,
             blockStates = PalettedContainer(
-                List(com.hiczp.minecraft.world.format.SECTION_BLOCK_COUNT) { index ->
+                List(SECTION_BLOCK_COUNT) { index ->
                     blockStates[index % blockStates.size]
                 },
             ),
             biomes = PalettedContainer(
-                List(com.hiczp.minecraft.world.format.SECTION_BIOME_COUNT) { index ->
+                List(SECTION_BIOME_COUNT) { index ->
                     biomeEntries[index % biomeEntries.size]
                 },
             ),
@@ -215,7 +215,7 @@ class MinecraftWorldChunkProjectionTest {
         )
     }
 
-    private fun block(name: String) = com.hiczp.minecraft.world.format.BlockStateDescriptor("minecraft:$name")
+    private fun block(name: String) = BlockStateDescriptor("minecraft:$name")
 
     private fun LongArray.countOneBits(): Int = sumOf { value -> value.countOneBits() }
 }

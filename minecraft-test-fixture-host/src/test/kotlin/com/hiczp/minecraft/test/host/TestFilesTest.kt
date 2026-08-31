@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import kotlin.io.path.*
 import kotlin.test.*
@@ -124,7 +125,7 @@ class TestFilesTest {
             assertFalse(
                 Files.exists(
                     destination,
-                    java.nio.file.LinkOption.NOFOLLOW_LINKS,
+                    LinkOption.NOFOLLOW_LINKS,
                 ),
             )
             assertEquals("immutable", sourceFile.readText())

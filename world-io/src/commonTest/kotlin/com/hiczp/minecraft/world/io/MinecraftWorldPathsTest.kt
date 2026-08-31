@@ -4,6 +4,7 @@ import com.hiczp.minecraft.world.format.ChunkPosition
 import com.hiczp.minecraft.world.format.DimensionId
 import com.hiczp.minecraft.world.format.RegionPosition
 import com.hiczp.minecraft.world.format.SavedDataId
+import okio.Path
 import okio.Path.Companion.toPath
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -147,5 +148,5 @@ class MinecraftWorldPathsTest {
     }
 }
 
-private fun okio.Path.portableString(): String =
+private fun Path.portableString(): String =
     toString().replace('\\', '/')

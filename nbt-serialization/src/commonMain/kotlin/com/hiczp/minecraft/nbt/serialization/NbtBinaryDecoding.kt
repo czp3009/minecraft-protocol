@@ -1,12 +1,10 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+@file:OptIn(ExperimentalSerializationApi::class)
 
 package com.hiczp.minecraft.nbt.serialization
 
-import com.hiczp.minecraft.nbt.NbtString
-import com.hiczp.minecraft.nbt.NbtTag
-import com.hiczp.minecraft.nbt.NbtTagDecoder
-import com.hiczp.minecraft.nbt.NbtTagSerializer
+import com.hiczp.minecraft.nbt.*
 import kotlinx.serialization.DeserializationStrategy
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.descriptors.PolymorphicKind
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind
@@ -29,7 +27,7 @@ internal class NbtBinaryDecoder(
         val actualType = requirePresentType()
         val nbtTag = nbtBinaryReader.readPayload(actualType)
         return if (unwrapListElement && actualType == TAG_COMPOUND) {
-            (nbtTag as com.hiczp.minecraft.nbt.NbtCompound).unwrapListElement()
+            (nbtTag as NbtCompound).unwrapListElement()
         } else {
             nbtTag
         }

@@ -1,4 +1,4 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+@file:OptIn(ExperimentalSerializationApi::class)
 
 package com.hiczp.minecraft.nbt.serialization
 
@@ -6,6 +6,7 @@ import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtTag
 import com.hiczp.minecraft.nbt.NbtTagEncoder
 import com.hiczp.minecraft.nbt.NbtTagSerializer
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.CompositeEncoder

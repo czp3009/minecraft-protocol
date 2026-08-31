@@ -5,6 +5,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
 import okio.Path
 import okio.Path.Companion.toPath
+import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -141,7 +142,7 @@ class LiveMinecraftWorldAccessConcurrencyTest {
         val sourceGate = BlockingGate()
         val gatedFileSystem = GatedFileSystem(base, target, readGate = sourceGate)
         val reader = LiveMinecraftWorldAccess.open(root, gatedFileSystem)
-        val jobs = mutableListOf<kotlinx.coroutines.Job>()
+        val jobs = mutableListOf<Job>()
         try {
             val reading = async(Dispatchers.Default) {
                 reader.players.readStatistics(player) { source -> source.readUtf8() }
@@ -188,7 +189,7 @@ class LiveMinecraftWorldAccessConcurrencyTest {
 
 private suspend fun <T> CoroutineScope.assertConcurrentSourceReads(
     root: Path,
-    base: okio.fakefilesystem.FakeFileSystem,
+    base: FakeFileSystem,
     target: Path,
     expected: T,
     operation: LiveMinecraftWorldAccess.() -> T,

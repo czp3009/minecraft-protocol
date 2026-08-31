@@ -1,5 +1,5 @@
 @file:JsModule("node:crypto")
-@file:OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
+@file:OptIn(ExperimentalWasmJsInterop::class)
 
 package com.hiczp.minecraft.protocol.transport.internal.nodecrypto
 

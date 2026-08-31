@@ -1,5 +1,3 @@
-@file:OptIn(kotlin.io.encoding.ExperimentalEncodingApi::class)
-
 package com.hiczp.minecraft.account.auth
 
 import dev.whyoleg.cryptography.random.CryptographyRandom

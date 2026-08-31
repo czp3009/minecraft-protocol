@@ -1,5 +1,5 @@
 @file:JsModule("js-xxhash")
-@file:OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
+@file:OptIn(ExperimentalWasmJsInterop::class)
 
 package com.hiczp.minecraft.world.format.internal.jsxxhash
 

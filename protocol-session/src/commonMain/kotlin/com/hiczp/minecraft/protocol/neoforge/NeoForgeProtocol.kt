@@ -1,10 +1,6 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-
 package com.hiczp.minecraft.protocol.neoforge
 
-import com.hiczp.minecraft.protocol.model.packet.ConnectionState
-import com.hiczp.minecraft.protocol.model.packet.Packet
-import com.hiczp.minecraft.protocol.model.packet.PacketRoute
+import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.wire.RemainingBytes
@@ -19,6 +15,7 @@ import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
+import kotlin.reflect.KClass
 
 object NeoForgeProtocol {
     const val COMMON_PACKET_VERSION: Int = 1
@@ -337,7 +334,7 @@ private fun <T : NeoForgeBidirectionalPacket>
         MutableList<PacketCodecRegistration<out Packet>>.addBidirectional(
     channel: Identifier,
     packetBodyCodec: PacketBodyCodec<T>,
-    packetClass: kotlin.reflect.KClass<T>,
+    packetClass: KClass<T>,
 ) {
     CONFIGURATION_AND_PLAY.forEach { state ->
         add(
@@ -359,11 +356,11 @@ private fun <T : NeoForgeBidirectionalPacket>
     }
 }
 
-private fun <T : com.hiczp.minecraft.protocol.model.packet.ClientboundPacket.Extension>
+private fun <T : ClientboundPacket.Extension>
         MutableList<PacketCodecRegistration<out Packet>>.addClientbound(
     channel: Identifier,
     packetBodyCodec: PacketBodyCodec<T>,
-    packetClass: kotlin.reflect.KClass<T>,
+    packetClass: KClass<T>,
     states: List<ConnectionState> = listOf(ConnectionState.CONFIGURATION),
 ) {
     states.forEach { state ->
@@ -378,11 +375,11 @@ private fun <T : com.hiczp.minecraft.protocol.model.packet.ClientboundPacket.Ext
     }
 }
 
-private fun <T : com.hiczp.minecraft.protocol.model.packet.ServerboundPacket.Extension>
+private fun <T : ServerboundPacket.Extension>
         MutableList<PacketCodecRegistration<out Packet>>.addServerbound(
     channel: Identifier,
     packetBodyCodec: PacketBodyCodec<T>,
-    packetClass: kotlin.reflect.KClass<T>,
+    packetClass: KClass<T>,
     states: List<ConnectionState> = listOf(ConnectionState.CONFIGURATION),
 ) {
     states.forEach { state ->

@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.protocol.client
 
+import com.hiczp.minecraft.nbt.NbtByteArray
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtLongArray
 import com.hiczp.minecraft.nbt.NbtTag
@@ -9,6 +10,7 @@ import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.world.format.*
 import com.hiczp.minecraft.world.format.ChunkSection
 import com.hiczp.minecraft.world.format.PalettedContainer
+import com.hiczp.minecraft.protocol.model.type.ChunkSection as NetworkChunkSection
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer as NetworkPalettedContainer
 
 fun MinecraftChunkContext.packetDecoder(): MinecraftChunkPacketDecoder = MinecraftChunkPacketDecoder(this)
@@ -71,7 +73,7 @@ class MinecraftChunkPacketDecoder(
                 sectionY = sectionY,
                 blockStates = decodePalette(
                     networkPalettedContainer = chunkSection.blockStates,
-                    entryCount = com.hiczp.minecraft.protocol.model.type.ChunkSection.BLOCK_COUNT,
+                    entryCount = NetworkChunkSection.BLOCK_COUNT,
                     registrySize = protocolRegistryContext.blockStateRegistrySize,
                     minimumIndirectBits = BLOCK_MINIMUM_INDIRECT_BITS,
                     maximumIndirectBits = BLOCK_MAXIMUM_INDIRECT_BITS,
@@ -80,7 +82,7 @@ class MinecraftChunkPacketDecoder(
                 ),
                 biomes = decodePalette(
                     networkPalettedContainer = chunkSection.biomes,
-                    entryCount = com.hiczp.minecraft.protocol.model.type.ChunkSection.BIOME_COUNT,
+                    entryCount = NetworkChunkSection.BIOME_COUNT,
                     registrySize = biomeRegistrySize,
                     minimumIndirectBits = BIOME_MINIMUM_INDIRECT_BITS,
                     maximumIndirectBits = BIOME_MAXIMUM_INDIRECT_BITS,
@@ -183,11 +185,11 @@ class MinecraftChunkPacketDecoder(
         emptyMask: BitSet,
         updates: List<ByteArray>,
         name: String,
-    ): Map<Int, com.hiczp.minecraft.nbt.NbtByteArray> {
+    ): Map<Int, NbtByteArray> {
         val bitCount = chunkLayout.sectionCount + LIGHT_BOUNDARY_SECTION_COUNT
         requireNoBitsOutside(updateMask, bitCount, "$name update")
         requireNoBitsOutside(emptyMask, bitCount, "$name empty")
-        val result = linkedMapOf<Int, com.hiczp.minecraft.nbt.NbtByteArray>()
+        val result = linkedMapOf<Int, NbtByteArray>()
         var updateIndex = 0
         val firstSectionY = MinecraftCoordinates.offsetSectionCoordinate(chunkLayout.minSectionY, -1)
         repeat(bitCount) { bit ->
@@ -195,11 +197,11 @@ class MinecraftChunkPacketDecoder(
             if (updateMask[bit]) {
                 val byteArray = updates.getOrNull(updateIndex++)
                     ?: throw IllegalArgumentException("$name light update mask contains more bits than payloads")
-                require(byteArray.size == com.hiczp.minecraft.world.format.SECTION_LIGHT_BYTE_COUNT) {
+                require(byteArray.size == SECTION_LIGHT_BYTE_COUNT) {
                     "$name light update has ${byteArray.size} bytes"
                 }
                 val sectionY = MinecraftCoordinates.offsetSectionCoordinate(firstSectionY, bit)
-                result[sectionY] = com.hiczp.minecraft.nbt.NbtByteArray(byteArray)
+                result[sectionY] = NbtByteArray(byteArray)
             }
         }
         require(updateIndex == updates.size) { "$name light packet has more payloads than update-mask bits" }

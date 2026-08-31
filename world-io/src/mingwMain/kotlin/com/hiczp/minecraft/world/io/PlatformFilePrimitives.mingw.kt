@@ -1,4 +1,4 @@
-@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+@file:OptIn(ExperimentalForeignApi::class)
 
 package com.hiczp.minecraft.world.io
 
@@ -386,7 +386,7 @@ private fun openWindowsFileHandle(
     return MingwSystemFileHandle(path, readWrite, handle)
 }
 
-private fun kotlinx.cinterop.MemScope.allocOffset(
+private fun MemScope.allocOffset(
     offset: Long,
 ): OVERLAPPED {
     val overlapped = alloc<OVERLAPPED>()

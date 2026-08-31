@@ -78,6 +78,9 @@ Keep physical byte encoding out of models, socket and framing behavior out of se
 
 ## Kotlin Multiplatform implementation
 
+- Use imports instead of fully qualified names in Kotlin declarations and expressions. For a nested type, import its
+  enclosing top-level type and refer to the nested type through that owner; do not import the nested type directly. If
+  imported names conflict, resolve the conflict with import aliases rather than fully qualified names.
 - By default, name variables, properties, and parameters after their full visible nominal type in lower camel case; for
   example, use `regionPosition: RegionPosition` and `localPosition: LocalPosition`. Use another name only when it
   communicates a distinct domain role, avoids a naming conflict, or satisfies another specific semantic requirement.

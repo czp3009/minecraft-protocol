@@ -61,11 +61,11 @@ private class ExactKompressZlibRawSource(
         if (zlibDecompressor.finished) {
             finished = true
             if (zlibDecompressor.remaining != 0) {
-                throw kotlinx.io.IOException("Trailing bytes after zlib stream")
+                throw IOException("Trailing bytes after zlib stream")
             }
             return -1
         }
-        throw kotlinx.io.IOException("Zlib decompressor made no progress")
+        throw IOException("Zlib decompressor made no progress")
     }
 
     override fun close() {

@@ -1,5 +1,3 @@
-@file:OptIn(kotlin.uuid.ExperimentalUuidApi::class)
-
 package com.hiczp.minecraft.demo.launcher
 
 import com.hiczp.minecraft.account.auth.*

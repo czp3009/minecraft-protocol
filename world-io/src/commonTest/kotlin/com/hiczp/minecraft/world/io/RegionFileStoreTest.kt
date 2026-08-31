@@ -6,6 +6,7 @@ import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.world.format.*
 import okio.FileHandle
 import okio.ForwardingFileSystem
+import okio.Path
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
 import kotlin.test.*
@@ -111,7 +112,7 @@ class RegionFileStoreTest {
         ).writeCompressedChunk(chunkPosition, CompressedChunk(Compression.NONE, byteArrayOf(1)))
         var writeOpenAttempts = 0
         val readOnlyFileSystem = object : ForwardingFileSystem(fakeFileSystem) {
-            override fun openReadWrite(file: okio.Path, mustCreate: Boolean, mustExist: Boolean): FileHandle {
+            override fun openReadWrite(file: Path, mustCreate: Boolean, mustExist: Boolean): FileHandle {
                 writeOpenAttempts++
                 error("A one-shot Region read requested a read/write handle")
             }

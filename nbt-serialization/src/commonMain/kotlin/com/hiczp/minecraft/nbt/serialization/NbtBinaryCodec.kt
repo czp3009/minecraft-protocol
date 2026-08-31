@@ -2,6 +2,7 @@ package com.hiczp.minecraft.nbt.serialization
 
 import com.hiczp.minecraft.nbt.*
 import kotlinx.io.*
+import com.hiczp.minecraft.nbt.serialization.checkedLength as checkedNbtLength
 
 internal class NbtBinaryReader(
     private val source: Source,
@@ -259,7 +260,7 @@ internal class NbtBinaryReader(
     }
 
     internal fun checkedLength(length: Int, kind: String): Int =
-        com.hiczp.minecraft.nbt.serialization.checkedLength(length, kind)
+        checkedNbtLength(length, kind)
 }
 
 internal class NbtBinaryWriter(

@@ -164,8 +164,8 @@ internal fun Path.copyFileTo(destination: Path) {
 }
 
 private fun linkFileOrCopy(
-    source: java.nio.file.Path,
-    destination: java.nio.file.Path,
+    source: Path,
+    destination: Path,
 ): Boolean {
     val linkFailure = try {
         Files.createLink(destination, source)

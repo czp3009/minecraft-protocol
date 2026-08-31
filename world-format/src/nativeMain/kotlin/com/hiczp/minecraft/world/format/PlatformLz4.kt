@@ -1,4 +1,4 @@
-@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+@file:OptIn(ExperimentalForeignApi::class)
 
 package com.hiczp.minecraft.world.format
 
@@ -6,6 +6,7 @@ import com.appmattus.crypto.Algorithm
 import com.hiczp.minecraft.world.format.internal.lz4.LZ4_compressBound
 import com.hiczp.minecraft.world.format.internal.lz4.LZ4_compress_default
 import com.hiczp.minecraft.world.format.internal.lz4.LZ4_decompress_safe
+import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
 import kotlinx.io.Buffer

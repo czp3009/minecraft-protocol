@@ -2,6 +2,7 @@ package com.hiczp.minecraft.world.format
 
 import com.hiczp.minecraft.nbt.*
 import kotlinx.io.Buffer
+import kotlinx.io.Sink
 import kotlinx.io.readByteArray
 import kotlinx.serialization.Serializable
 import kotlin.test.*
@@ -141,7 +142,7 @@ class ChunkNbtCodecTest {
             override val compression: Compression = Compression.NONE
             override val compressedByteCount: Long = 3
 
-            override fun writeTo(sink: kotlinx.io.Sink) {
+            override fun writeTo(sink: Sink) {
                 sink.write(byteArrayOf(1, 2, 3))
             }
         }
@@ -355,7 +356,7 @@ class ChunkNbtCodecTest {
         root["sections"] = NbtList(listOf(NbtCompound(section)))
 
         val decoded = TEST_CODEC.decodeDocument(
-            com.hiczp.minecraft.nbt.NbtDocument(NbtCompound(root)),
+            NbtDocument(NbtCompound(root)),
             chunkPosition,
         )
 
@@ -479,7 +480,7 @@ class ChunkNbtCodecTest {
 
     @Test
     fun lightOnlySectionsRemainExplicitWithoutBecomingSemanticSections() {
-        val sectionLighting = SectionLighting(blockLight = com.hiczp.minecraft.nbt.NbtByteArray(ByteArray(2_048)))
+        val sectionLighting = SectionLighting(blockLight = NbtByteArray(ByteArray(2_048)))
         val chunk = Chunk(
             chunkPosition = ChunkPosition(0, 0),
             chunkMetadata = ChunkMetadata(
@@ -503,7 +504,7 @@ class ChunkNbtCodecTest {
     @Test
     fun creatingASemanticSectionPromotesItsExistingLighting() {
         val sectionY = TEST_LAYOUT.minSectionY
-        val sectionLighting = SectionLighting(skyLight = com.hiczp.minecraft.nbt.NbtByteArray(ByteArray(2_048) { 1 }))
+        val sectionLighting = SectionLighting(skyLight = NbtByteArray(ByteArray(2_048) { 1 }))
         val chunk = Chunk(
             chunkPosition = ChunkPosition(0, 0),
             chunkMetadata = ChunkMetadata(
@@ -524,7 +525,7 @@ class ChunkNbtCodecTest {
     @Test
     fun chunkSnapshotsMetadataCollections() {
         val sectionY = TEST_LAYOUT.maxSectionY + 1
-        val sectionLighting = SectionLighting(blockLight = com.hiczp.minecraft.nbt.NbtByteArray(ByteArray(2_048)))
+        val sectionLighting = SectionLighting(blockLight = NbtByteArray(ByteArray(2_048)))
         val lightOnlySections = mutableMapOf(sectionY to sectionLighting)
         val chunk = Chunk(
             chunkPosition = ChunkPosition(0, 0),
@@ -585,7 +586,7 @@ class ChunkNbtCodecTest {
         val ordinary = TEST_CODEC.encodeDocument(emptyChunk(chunkPosition))
         val extendedRoot = ordinary.root.value.toMutableMap()
         extendedRoot["modded_payload"] = NbtInt(7)
-        val extended = com.hiczp.minecraft.nbt.NbtDocument(NbtCompound(extendedRoot))
+        val extended = NbtDocument(NbtCompound(extendedRoot))
 
         assertEquals(NbtInt(7), extended.root["modded_payload"])
         assertFailsWith<ChunkNbtFormatException> {

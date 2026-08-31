@@ -9,6 +9,7 @@ import kotlinx.io.okio.asKotlinxIoRawSource
 import kotlinx.io.okio.asOkioSink
 import kotlinx.io.okio.asOkioSource
 import okio.*
+import kotlinx.io.IOException as KotlinxIOException
 import okio.Buffer as OkioBuffer
 import okio.Source as OkioSource
 
@@ -99,7 +100,7 @@ private class ExactZlibRawSource(
         if (read < 0 && !finished) {
             finished = true
             if (!compressed.fullyConsumed) {
-                throw kotlinx.io.IOException("Trailing bytes after zlib stream")
+                throw KotlinxIOException("Trailing bytes after zlib stream")
             }
         }
         return read

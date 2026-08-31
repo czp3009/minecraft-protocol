@@ -9,6 +9,9 @@ import kotlinx.io.okio.asKotlinxIoRawSource
 import kotlinx.io.okio.asOkioSink
 import kotlinx.io.okio.asOkioSource
 import okio.*
+import kotlinx.io.IOException as KotlinxIOException
+import okio.Buffer as OkioBuffer
+import okio.Source as OkioSource
 
 internal actual fun platformZlibCompressingSink(sink: Sink): RawSink =
     sink.callerOwned().asOkioSink().deflate(Deflater())
@@ -31,16 +34,16 @@ internal actual fun platformZlibDecompressingSource(
 }
 
 private class ZlibTrailerRetainingSource(
-    private val upstream: okio.Source,
-) : okio.Source {
-    private val retained = okio.Buffer()
+    private val upstream: OkioSource,
+) : OkioSource {
+    private val retained = OkioBuffer()
     private var upstreamExhausted = false
     private var closed = false
 
     val fullyConsumed: Boolean
         get() = upstreamExhausted && retained.size == 0L
 
-    override fun read(sink: okio.Buffer, byteCount: Long): Long {
+    override fun read(sink: OkioBuffer, byteCount: Long): Long {
         check(!closed) { "Zlib source is closed" }
         require(byteCount >= 0)
         if (byteCount == 0L) return 0
@@ -82,7 +85,7 @@ private class ExactZlibRawSource(
         if (read < 0 && !finished) {
             finished = true
             if (!compressed.fullyConsumed) {
-                throw kotlinx.io.IOException("Trailing bytes after zlib stream")
+                throw KotlinxIOException("Trailing bytes after zlib stream")
             }
         }
         return read

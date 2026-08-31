@@ -1,5 +1,3 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-
 package com.hiczp.minecraft.nbt.serialization
 
 import com.hiczp.minecraft.nbt.NbtCompound
