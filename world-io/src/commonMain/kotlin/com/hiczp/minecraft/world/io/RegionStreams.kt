@@ -14,7 +14,7 @@ import okio.Path
 import okio.buffer
 
 /** A detached Anvil image paired with the Region position retained from its `.mca` path. */
-internal class PositionedAnvilRegion(
+internal data class PositionedAnvilRegion(
     val regionPosition: RegionPosition,
     val anvilRegion: AnvilRegion,
 ) {
@@ -35,46 +35,21 @@ internal class PositionedAnvilRegion(
 
     fun hasChunk(chunkPosition: ChunkPosition): Boolean = hasChunk(this.regionPosition.local(chunkPosition))
 
-    override fun equals(other: Any?): Boolean =
-        other is PositionedAnvilRegion && regionPosition == other.regionPosition && anvilRegion == other.anvilRegion
-
-    override fun hashCode(): Int = 31 * regionPosition.hashCode() + anvilRegion.hashCode()
-
-    override fun toString(): String = "PositionedAnvilRegion(regionPosition=$regionPosition, chunks=$chunks)"
 }
 
 /** Logical storage metadata for one Chunk in a Region. */
-class RegionChunkInfo internal constructor(
+data class RegionChunkInfo(
     val regionPosition: RegionPosition,
     val localChunkPosition: LocalChunkPosition,
     val compression: Compression,
     val compressedByteCount: Long,
-    internal val anvilChunkPlacement: AnvilChunkPlacement,
+    val anvilChunkPlacement: AnvilChunkPlacement,
     /** Raw signed 32-bit seconds-since-epoch value stored for this Chunk. */
     val timestampEpochSeconds: Int,
 ) {
     val chunkPosition: ChunkPosition
         get() = regionPosition.chunk(localChunkPosition)
 
-    override fun equals(other: Any?): Boolean =
-        other is RegionChunkInfo &&
-                regionPosition == other.regionPosition &&
-                localChunkPosition == other.localChunkPosition &&
-                compression == other.compression &&
-                compressedByteCount == other.compressedByteCount &&
-                timestampEpochSeconds == other.timestampEpochSeconds
-
-    override fun hashCode(): Int {
-        var result = regionPosition.hashCode()
-        result = 31 * result + localChunkPosition.hashCode()
-        result = 31 * result + compression.hashCode()
-        result = 31 * result + compressedByteCount.hashCode()
-        result = 31 * result + timestampEpochSeconds
-        return result
-    }
-
-    override fun toString(): String =
-        "RegionChunkInfo(regionPosition=$regionPosition, localChunkPosition=$localChunkPosition, compression=$compression, compressedByteCount=$compressedByteCount, timestampEpochSeconds=$timestampEpochSeconds)"
 }
 
 internal interface RegionReadAccess {

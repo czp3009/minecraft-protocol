@@ -44,12 +44,12 @@ data class PacketPayloadEncoding(
     val packetFraming: PacketFraming,
 )
 
-class PacketCodec<T : Packet> internal constructor(
+data class PacketCodec<T : Packet>(
     val packetKey: PacketKey,
     val packetFraming: PacketFraming,
     val packetClass: KClass<T>,
     val kSerializer: KSerializer<T>?,
-    private val packetBodyCodec: PacketBodyCodec<T>,
+    val packetBodyCodec: PacketBodyCodec<T>,
     val extensionRoute: PacketRouteKey? = null,
 ) {
     /**
@@ -96,16 +96,14 @@ class PacketCodec<T : Packet> internal constructor(
 }
 
 /**
- * Immutable packet table. Callers may reindex or filter
- * [MinecraftPacketRegistry.entries] once at application startup, append
- * extension [registrations], and share the result across connections.
+ * Read-only packet table. Callers may reindex or filter [MinecraftPacketRegistry.entries] once at application startup,
+ * append extension [registrations], and share the result across connections. Supplied registration lists must remain
+ * stable because lookup indexes are built during construction.
  */
 class PacketRegistry(
     baseEntries: List<PacketCodec<out Packet>>,
-    registrations: List<PacketCodecRegistration<out Packet>> = emptyList(),
+    val registrations: List<PacketCodecRegistration<out Packet>> = emptyList(),
 ) {
-    val registrations: List<PacketCodecRegistration<out Packet>> = registrations.toList()
-
     private val registrationsByRoute = uniqueIndex(
         this.registrations,
         PacketCodecRegistration<out Packet>::packetRouteKey,
@@ -120,7 +118,8 @@ class PacketRegistry(
     private val extensionTopLevelCodecs: List<PacketCodec<out Packet>> =
         this.registrations.mapNotNull(PacketCodecRegistration<out Packet>::toTopLevelCodec)
 
-    val entries: List<PacketCodec<out Packet>> = baseEntries.toList() + extensionTopLevelCodecs
+    val entries: List<PacketCodec<out Packet>> =
+        if (extensionTopLevelCodecs.isEmpty()) baseEntries else baseEntries + extensionTopLevelCodecs
 
     private val byKey = uniqueIndex(this.entries, PacketCodec<out Packet>::packetKey, "packet key")
     private val byClass: Map<KClass<out Packet>, List<PacketCodec<out Packet>>> =
@@ -151,7 +150,7 @@ class PacketRegistry(
         }
     }
 
-    val declaredExtensionRoutes: Set<PacketRouteKey> = registrationsByRoute.keys.toSet()
+    val declaredExtensionRoutes: Set<PacketRouteKey> = registrationsByRoute.keys
 
     fun codec(
         connectionState: ConnectionState,

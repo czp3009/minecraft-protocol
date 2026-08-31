@@ -67,14 +67,13 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
         )
     }
 
-    /** Atomically replaces the active subset of routes declared at construction. */
+    /** Atomically replaces the active subset of routes declared at construction. The supplied set must remain stable. */
     fun activateExtensionRoutes(routes: Set<PacketRouteKey>) {
-        val snapshot = routes.toSet()
-        val undeclared = snapshot - declaredExtensionRoutes
+        val undeclared = routes - declaredExtensionRoutes
         require(undeclared.isEmpty()) {
             "Cannot activate undeclared extension routes: $undeclared"
         }
-        activeRoutesValue.value = snapshot
+        activeRoutesValue.value = routes
     }
 
     suspend fun awaitState(expected: ConnectionState) {

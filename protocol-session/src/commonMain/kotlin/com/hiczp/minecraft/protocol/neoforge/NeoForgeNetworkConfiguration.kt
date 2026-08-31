@@ -202,9 +202,8 @@ private fun componentMap(
     components: Collection<NeoForgeNetworkComponent>,
     neoForgeConnectionProtocol: NeoForgeConnectionProtocol,
 ): Map<Identifier, NeoForgeNetworkComponent> {
-    val snapshot = components.toList()
-    val result = snapshot.associateBy(NeoForgeNetworkComponent::id)
-    require(result.size == snapshot.size) {
+    val result = components.associateBy(NeoForgeNetworkComponent::id)
+    require(result.size == components.size) {
         "NeoForge $neoForgeConnectionProtocol components contain duplicate identifiers"
     }
     require(result.keys.none { it.namespace == "minecraft" }) {

@@ -6,10 +6,12 @@ package com.hiczp.minecraft.protocol.model.packet
  * It has no packet ID of its own. The session layer expands it to a delimiter, [subPackets], and a closing delimiter,
  * and reconstructs the same logical value on receive.
  */
-class ClientboundBundlePacket(
-    subPackets: Collection<ClientboundPacket>,
+data class ClientboundBundlePacket(
+    val subPackets: List<ClientboundPacket>,
 ) : PlayStatePacket, ClientboundPacket, Iterable<ClientboundPacket> {
-    val subPackets: List<ClientboundPacket> = subPackets.toList()
+    constructor(subPackets: Collection<ClientboundPacket>) : this(
+        if (subPackets is List) subPackets else subPackets.toList(),
+    )
 
     init {
         require(this.subPackets.size <= MAX_SUB_PACKET_COUNT) {
@@ -29,13 +31,6 @@ class ClientboundBundlePacket(
         get() = subPackets.isEmpty()
 
     override fun iterator(): Iterator<ClientboundPacket> = subPackets.iterator()
-
-    override fun equals(other: Any?): Boolean =
-        other is ClientboundBundlePacket && subPackets == other.subPackets
-
-    override fun hashCode(): Int = subPackets.hashCode()
-
-    override fun toString(): String = "ClientboundBundlePacket(subPackets=$subPackets)"
 
     companion object {
         const val MAX_SUB_PACKET_COUNT: Int = 4_096

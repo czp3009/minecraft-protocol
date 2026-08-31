@@ -15,7 +15,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlin.coroutines.ContinuationInterceptor
 
-class MinecraftServer private constructor(
+class MinecraftServer(
     private val serverSocket: ServerSocket,
     private val minecraftConnectionDefinition: MinecraftConnectionDefinition,
     private val minecraftServerAuthentication: MinecraftServerAuthentication,
@@ -93,7 +93,7 @@ internal fun ByteArray.toNumericIpAddress(): String =
         )
     }
 
-class MinecraftServerConnection internal constructor(
+class MinecraftServerConnection(
     private val minecraftServerPacketConnection: MinecraftServerPacketConnection,
     val minecraftServerAuthentication: MinecraftServerAuthentication,
     val clientIpAddress: String?,

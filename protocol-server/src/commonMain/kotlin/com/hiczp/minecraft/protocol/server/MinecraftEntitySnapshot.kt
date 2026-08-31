@@ -75,21 +75,16 @@ private fun MutableList<ClientboundPacket>.addContentPackets(
             ),
         )
         entityMetadata?.takeIf { it.entries.isNotEmpty() }?.let {
-            add(SetEntityMetadataPacket(entityId, EntityMetadata(it.entries.toList())))
+            add(SetEntityMetadataPacket(entityId, it))
         }
         if (attributes.isNotEmpty()) {
-            add(
-                UpdateAttributesPacket(
-                    entityId,
-                    attributes.map { attributeSnapshot -> attributeSnapshot.copy(modifiers = attributeSnapshot.modifiers.toList()) },
-                ),
-            )
+            add(UpdateAttributesPacket(entityId, attributes))
         }
         if (equipment.isNotEmpty()) {
-            add(SetEquipmentPacket(entityId, EquipmentUpdates(equipment.toList())))
+            add(SetEquipmentPacket(entityId, EquipmentUpdates(equipment)))
         }
         if (passengerEntityIds.isNotEmpty()) {
-            add(SetPassengersPacket(entityId, passengerEntityIds.toList()))
+            add(SetPassengersPacket(entityId, passengerEntityIds))
         }
         vehiclePassengerRelation?.let { relation -> add(relation.packet()) }
         leashHolderEntityId?.let { holderId -> add(LinkEntitiesPacket(entityId, holderId)) }
@@ -135,7 +130,7 @@ data class MinecraftEntityPassengersSnapshot(
     val vehicleEntityId: Int,
     val passengerEntityIds: List<Int>,
 ) {
-    fun packet(): SetPassengersPacket = SetPassengersPacket(vehicleEntityId, passengerEntityIds.toList())
+    fun packet(): SetPassengersPacket = SetPassengersPacket(vehicleEntityId, passengerEntityIds)
 }
 
 /**

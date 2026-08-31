@@ -346,7 +346,7 @@ class EncodedAnvilRegion private constructor(
         get() = encodedExternalChunks.mapValues { (_, payload) -> payload.copyOf() }
 
     val externalChunkPositions: Set<LocalChunkPosition>
-        get() = encodedExternalChunks.keys.toSet()
+        get() = encodedExternalChunks.keys
 
     val byteCount: Long
         get() = encodedBytes.size.toLong()

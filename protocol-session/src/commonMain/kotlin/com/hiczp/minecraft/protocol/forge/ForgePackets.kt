@@ -10,29 +10,17 @@ import com.hiczp.minecraft.protocol.model.wire.VarInt
 import com.hiczp.minecraft.protocol.model.wire.VarIntElements
 import kotlinx.serialization.Serializable
 
-sealed class ForgeChannelRegistrationPacket(
-    channels: Set<Identifier>,
-) : ClientboundPacket.Extension, ServerboundPacket.Extension {
-    val channels: Set<Identifier> = channels.toSet()
-
-    override fun equals(other: Any?): Boolean =
-        other != null && other::class == this::class &&
-                other is ForgeChannelRegistrationPacket &&
-                channels == other.channels
-
-    override fun hashCode(): Int = 31 * this::class.hashCode() + channels.hashCode()
-
-    override fun toString(): String =
-        "${this::class.simpleName}(channels=$channels)"
+sealed interface ForgeChannelRegistrationPacket : ClientboundPacket.Extension, ServerboundPacket.Extension {
+    val channels: Set<Identifier>
 }
 
-class ForgeRegisterChannelsPacket(
-    channels: Set<Identifier>,
-) : ForgeChannelRegistrationPacket(channels)
+data class ForgeRegisterChannelsPacket(
+    override val channels: Set<Identifier>,
+) : ForgeChannelRegistrationPacket
 
-class ForgeUnregisterChannelsPacket(
-    channels: Set<Identifier>,
-) : ForgeChannelRegistrationPacket(channels)
+data class ForgeUnregisterChannelsPacket(
+    override val channels: Set<Identifier>,
+) : ForgeChannelRegistrationPacket
 
 sealed interface ForgeHandshakeMessage
 
@@ -189,29 +177,13 @@ data class ForgeMismatchDataMessage(
     val missing: Set<Identifier>,
 ) : ForgeClientboundHandshakeMessage
 
-class ForgeClientboundHandshakePacket(
+data class ForgeClientboundHandshakePacket(
     val forgeClientboundHandshakeMessage: ForgeClientboundHandshakeMessage,
-) : ClientboundPacket.Extension {
-    override fun equals(other: Any?): Boolean =
-        other is ForgeClientboundHandshakePacket && forgeClientboundHandshakeMessage == other.forgeClientboundHandshakeMessage
+) : ClientboundPacket.Extension
 
-    override fun hashCode(): Int = forgeClientboundHandshakeMessage.hashCode()
-
-    override fun toString(): String =
-        "ForgeClientboundHandshakePacket(message=$forgeClientboundHandshakeMessage)"
-}
-
-class ForgeServerboundHandshakePacket(
+data class ForgeServerboundHandshakePacket(
     val forgeServerboundHandshakeMessage: ForgeServerboundHandshakeMessage,
-) : ServerboundPacket.Extension {
-    override fun equals(other: Any?): Boolean =
-        other is ForgeServerboundHandshakePacket && forgeServerboundHandshakeMessage == other.forgeServerboundHandshakeMessage
-
-    override fun hashCode(): Int = forgeServerboundHandshakeMessage.hashCode()
-
-    override fun toString(): String =
-        "ForgeServerboundHandshakePacket(message=$forgeServerboundHandshakeMessage)"
-}
+) : ServerboundPacket.Extension
 
 /** Raw selected-revision Forge messages 7+ carried by forge:handshake in Play. */
 data class ForgeClientboundPlayHandshakePacket(

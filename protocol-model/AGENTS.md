@@ -10,8 +10,8 @@ metadata.
 - Application packets implement the open direction-specific extension branches. `PacketRoute` and `UnknownPacket` remain
   format-independent and lossless.
 - Models are valid in common Kotlin, contain no buffers or I/O, and enforce intrinsic invariants in their constructors.
-- Static, remote, and resolved registry models are immutable snapshots. Derived contexts retain large immutable
-  collections by reference.
+- `RemoteRegistrySnapshot` is the detached ownership boundary for loader mappings and copies nested entries and aliases.
+  Static and resolved registry values use the repository-wide caller-owned collection policy.
 - Packet and data-component annotations are KSP inputs. The processor validates source coverage and generates runtime
   handoff tables; do not maintain parallel dispatch tables by hand.
 - `MinecraftProtocol.kt` is generated from the declared target analysis and has no checked-in copy.

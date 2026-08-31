@@ -86,9 +86,8 @@ object FabricSplitPayloads {
 
 /** Stateful merger for one ordered Fabric split stream. */
 class FabricSplitAssembler(
-    splittableChannels: Set<Identifier>,
+    private val splittableChannels: Set<Identifier>,
 ) {
-    private val splittableChannels = splittableChannels.toSet()
     private var targetSize: Int? = null
     private var targetChannel: Identifier? = null
     private var bytes: ByteArray = byteArrayOf()

@@ -50,8 +50,8 @@ internal object AesCfb8Cipher {
             "AES/CFB8 initialization vector must contain 16 bytes"
         }
         return platformAesCfb8Cipher(
-            key.copyOf(),
-            initializationVector.copyOf(),
+            key,
+            initializationVector,
             decrypting,
         )
     }

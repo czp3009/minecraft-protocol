@@ -14,7 +14,7 @@ import kotlin.reflect.KClass
 annotation class InternalPacketRegistryApi
 
 @InternalPacketRegistryApi
-class PacketDefinition<T : Packet> internal constructor(
+data class PacketDefinition<T : Packet>(
     val connectionState: ConnectionState,
     val packetDirection: PacketDirection,
     val id: Int,

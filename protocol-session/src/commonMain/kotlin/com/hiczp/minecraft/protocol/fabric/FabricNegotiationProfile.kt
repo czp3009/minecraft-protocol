@@ -34,10 +34,10 @@ class FabricClientProfile(
         check(!begun) { "A FabricClientProfile can negotiate only one connection" }
         begun = true
         requireFabricCodecs(minecraftClientPacketConnection)
-        minecraftClientPacketConnection.activateExtensionRoutes(
-            minecraftClientPacketConnection.activeExtensionRoutes +
-                    initialRoutes(minecraftClientPacketConnection, PacketDirection.CLIENTBOUND),
-        )
+        minecraftClientPacketConnection.activateExtensionRoutes(buildSet {
+            addAll(minecraftClientPacketConnection.activeExtensionRoutes)
+            addAll(initialRoutes(minecraftClientPacketConnection, PacketDirection.CLIENTBOUND))
+        })
     }
 
     override suspend fun handleConfigurationPacket(
@@ -74,7 +74,7 @@ class FabricClientProfile(
             }
 
             is FabricUnregisterChannelsPacket -> {
-                remoteConfigurationChannels -= clientboundPacket.channels.toSet()
+                clientboundPacket.channels.forEach(remoteConfigurationChannels::remove)
                 activateAcceptedOutboundRoutes(
                     minecraftClientPacketConnection,
                     ConnectionState.CONFIGURATION,
@@ -258,7 +258,7 @@ class FabricClientProfile(
 /** One-connection Fabric API server profile. */
 class FabricServerProfile(
     val fabricRegistrySyncPacket: FabricRegistrySyncPacket? = null,
-    /** Caller-built immutable context; large registry structures are retained by reference. */
+    /** Caller-built context retained by reference across connections. */
     val protocolRegistryContext: ProtocolRegistryContext? = null,
     supportedCommonVersions: Set<Int> =
         setOf(FabricProtocol.COMMON_PACKET_VERSION),
@@ -280,10 +280,10 @@ class FabricServerProfile(
         check(!begun) { "A FabricServerProfile can negotiate only one connection" }
         begun = true
         requireFabricCodecs(minecraftServerPacketConnection)
-        minecraftServerPacketConnection.activateExtensionRoutes(
-            minecraftServerPacketConnection.activeExtensionRoutes +
-                    initialRoutes(minecraftServerPacketConnection, PacketDirection.SERVERBOUND),
-        )
+        minecraftServerPacketConnection.activateExtensionRoutes(buildSet {
+            addAll(minecraftServerPacketConnection.activeExtensionRoutes)
+            addAll(initialRoutes(minecraftServerPacketConnection, PacketDirection.SERVERBOUND))
+        })
     }
 
     override suspend fun negotiateConfiguration(
@@ -379,7 +379,7 @@ class FabricServerProfile(
         }
 
         is FabricUnregisterChannelsPacket -> {
-            remoteConfigurationChannels -= serverboundPacket.channels.toSet()
+            serverboundPacket.channels.forEach(remoteConfigurationChannels::remove)
             activateAcceptedOutboundRoutes(
                 minecraftServerPacketConnection,
                 ConnectionState.CONFIGURATION,
@@ -511,9 +511,11 @@ private suspend fun <Incoming : Packet, Outgoing : Packet>
     ).filter { customPayload ->
         customPayload.channel in remoteChannels || customPayload.channel in INFRASTRUCTURE_CHANNELS
     }
-    minecraftPacketConnection.activateExtensionRoutes(
-        minecraftPacketConnection.activeExtensionRoutes + inbound + outbound,
-    )
+    minecraftPacketConnection.activateExtensionRoutes(buildSet {
+        addAll(minecraftPacketConnection.activeExtensionRoutes)
+        addAll(inbound)
+        addAll(outbound)
+    })
 }
 
 private suspend fun <Incoming : Packet, Outgoing : Packet>
@@ -527,9 +529,11 @@ private suspend fun <Incoming : Packet, Outgoing : Packet>
     val accepted = candidates.filter { customPayload ->
         customPayload.channel in remoteChannels || customPayload.channel in INFRASTRUCTURE_CHANNELS
     }
-    minecraftPacketConnection.activateExtensionRoutes(
-        minecraftPacketConnection.activeExtensionRoutes - candidates.toSet() + accepted,
-    )
+    minecraftPacketConnection.activateExtensionRoutes(buildSet {
+        addAll(minecraftPacketConnection.activeExtensionRoutes)
+        removeAll(candidates)
+        addAll(accepted)
+    })
 }
 
 private fun <Incoming : Packet, Outgoing : Packet> initialRoutes(
@@ -588,14 +592,14 @@ private fun <Incoming : Packet, Outgoing : Packet> requireFabricCodecs(
 }
 
 private fun supportedVersions(versions: Set<Int>): Set<Int> =
-    versions.toSet().also { snapshot ->
-        require(snapshot.isNotEmpty()) {
+    versions.also {
+        require(versions.isNotEmpty()) {
             "Fabric common version set must not be empty"
         }
-        require(snapshot.all { it > 0 }) {
+        require(versions.all { it > 0 }) {
             "Fabric common versions must be positive"
         }
-        require(snapshot.size <= FabricProtocol.MAX_COMMON_VERSIONS) {
+        require(versions.size <= FabricProtocol.MAX_COMMON_VERSIONS) {
             "Fabric common version set is too large"
         }
     }

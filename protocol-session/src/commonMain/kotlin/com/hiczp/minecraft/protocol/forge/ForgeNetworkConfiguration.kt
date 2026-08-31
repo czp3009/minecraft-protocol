@@ -41,7 +41,7 @@ fun interface ForgeVersionAcceptance {
     }
 }
 
-class ForgeChannelDefinition(
+data class ForgeChannelDefinition(
     val id: Identifier,
     val version: Int,
     val acceptsClient: ForgeVersionAcceptance = ForgeVersionAcceptance.exact(version),
@@ -60,7 +60,7 @@ class ForgeNetworkConfiguration(
 ) {
     private val channelsById: Map<Identifier, ForgeChannelDefinition> = channels.associateBy(ForgeChannelDefinition::id)
 
-    val channels: Collection<ForgeChannelDefinition> = channelsById.values.toList()
+    val channels: Collection<ForgeChannelDefinition> = channelsById.values
 
     val payloadChannels: Set<Identifier> = buildSet {
         add(ForgeChannels.Handshake)

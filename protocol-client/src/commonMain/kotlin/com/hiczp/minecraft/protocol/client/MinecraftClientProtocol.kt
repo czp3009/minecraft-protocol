@@ -58,7 +58,7 @@ sealed interface ClientNegotiationQueryResult {
 }
 
 /** Values consumed while moving one client connection from Handshake through its first Play Login. */
-class MinecraftClientNegotiationOptions(
+data class MinecraftClientNegotiationOptions(
     val clientInformation: ClientInformation = ClientInformation(
         locale = "en_us",
         viewDistance = 8,
@@ -71,18 +71,14 @@ class MinecraftClientNegotiationOptions(
         particleStatus = ParticleStatus.ALL,
     ),
     val protocolData: ProtocolData = VanillaProtocolData,
-    loginCookies: Map<Identifier, ByteString> = emptyMap(),
-    configurationCookies: Map<Identifier, ByteString> = emptyMap(),
-    acceptedKnownPacks: Set<KnownPack> = protocolData.offeredKnownPacks.toSet(),
+    val loginCookies: Map<Identifier, ByteString> = emptyMap(),
+    val configurationCookies: Map<Identifier, ByteString> = emptyMap(),
+    val acceptedKnownPacks: Set<KnownPack> = protocolData.offeredKnownPacks.toSet(),
     val acceptCodeOfConduct: Boolean = true,
     val resourcePackResult: ResourcePackResult = ResourcePackResult.DECLINED,
     val staticRegistrySchema: StaticRegistrySchema = protocolData.staticRegistrySchema,
     val onUnhandledQuery: (suspend (UnknownPacket.Clientbound) -> ClientNegotiationQueryResult)? = null,
-) {
-    val loginCookies: Map<Identifier, ByteString> = loginCookies.toMap()
-    val configurationCookies: Map<Identifier, ByteString> = configurationCookies.toMap()
-    val acceptedKnownPacks: Set<KnownPack> = acceptedKnownPacks.toSet()
-}
+)
 
 /**
  * Runs one status exchange on a fresh Handshake connection: Handshake into Status, one

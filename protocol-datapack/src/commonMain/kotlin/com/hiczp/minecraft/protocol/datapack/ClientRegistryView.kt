@@ -15,26 +15,18 @@ data class ClientRegistryTag(
  * functions, advancements, or other server-only resources. [dataPackConfigurationSnapshot] retains the received NBT
  * for applications that provide typed codecs.
  */
-class ClientRegistryView(
+data class ClientRegistryView(
     val dataPackConfigurationSnapshot: DataPackConfigurationSnapshot,
     val protocolRegistryContext: ProtocolRegistryContext,
-    clientRegistryTags: List<ClientRegistryTag>,
+    val clientRegistryTags: List<ClientRegistryTag>,
 ) {
-    val clientRegistryTags: List<ClientRegistryTag> = clientRegistryTags.map { clientRegistryTag ->
-        ClientRegistryTag(
-            clientRegistryTag.registryId,
-            clientRegistryTag.tagId,
-            clientRegistryTag.protocolRegistryEntries.toList(),
-        )
-    }
-
     private val clientRegistryTagsById: Map<Pair<Identifier, Identifier>, ClientRegistryTag> =
-        this.clientRegistryTags.associateBy { clientRegistryTag ->
+        clientRegistryTags.associateBy { clientRegistryTag ->
             clientRegistryTag.registryId to clientRegistryTag.tagId
         }
 
     init {
-        require(clientRegistryTagsById.size == this.clientRegistryTags.size) {
+        require(clientRegistryTagsById.size == clientRegistryTags.size) {
             "Client registry view contains duplicate tags"
         }
     }

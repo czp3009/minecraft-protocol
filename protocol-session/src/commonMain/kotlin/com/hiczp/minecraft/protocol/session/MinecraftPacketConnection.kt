@@ -54,11 +54,10 @@ interface MinecraftPacketConnection<
 }
 
 /**
- * Shareable immutable definition for any number of connections. The caller
- * owns its packet and registry snapshots; connections retain those references
- * without rebuilding or cloning them.
+ * Shareable definition for any number of connections. The caller owns its packet and registry values; connections
+ * retain those references without rebuilding or cloning them.
  */
-class MinecraftConnectionDefinition(
+data class MinecraftConnectionDefinition(
     val packetRegistry: PacketRegistry = MinecraftPacketRegistry,
     val minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
     val incomingCapacity: Int = DEFAULT_CHANNEL_CAPACITY,

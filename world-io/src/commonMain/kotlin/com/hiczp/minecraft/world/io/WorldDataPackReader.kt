@@ -17,24 +17,22 @@ data class DataPackFileInfo(
 )
 
 /** Paths and declared sizes found while inspecting one on-disk data pack. */
-class DataPackInspection(
+data class DataPackInspection(
     val dataPackId: DataPackId,
     val dataPackContainerPath: Path,
     val dataPackContainerKind: DataPackContainerKind,
-    dataPackFileInfos: List<DataPackFileInfo>,
+    val dataPackFileInfos: List<DataPackFileInfo>,
 ) {
-    val dataPackFileInfos: List<DataPackFileInfo> = dataPackFileInfos.toList()
-    val totalSizeInBytes: ULong = this.dataPackFileInfos.fold(0uL) { totalSizeInBytes, dataPackFileInfo ->
+    val totalSizeInBytes: ULong = dataPackFileInfos.fold(0uL) { totalSizeInBytes, dataPackFileInfo ->
         totalSizeInBytes + dataPackFileInfo.sizeInBytes.toULong()
     }
 
     init {
-        require(this.dataPackFileInfos.all { it.sizeInBytes >= 0L }) {
+        require(dataPackFileInfos.all { it.sizeInBytes >= 0L }) {
             "Inspected data-pack file sizes must be non-negative"
         }
         require(
-            this.dataPackFileInfos.map(DataPackFileInfo::dataPackFilePath).distinct().size ==
-                    this.dataPackFileInfos.size,
+            dataPackFileInfos.map(DataPackFileInfo::dataPackFilePath).distinct().size == dataPackFileInfos.size,
         ) {
             "A data-pack inspection cannot contain duplicate paths"
         }

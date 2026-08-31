@@ -81,7 +81,7 @@ object VanillaProtocolData : ProtocolData {
             )
         }
         ProtocolRegistryContext(
-            registries = protocolRegistries.values.toList(),
+            registries = protocolRegistries,
             blockStates = staticProtocolRegistryContext.blockStates,
         )
     }

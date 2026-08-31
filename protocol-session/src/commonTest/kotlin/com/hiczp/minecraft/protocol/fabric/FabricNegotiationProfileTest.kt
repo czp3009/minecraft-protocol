@@ -179,7 +179,7 @@ private abstract class TestConnection<Incoming : Packet, Outgoing : Packet>(
 
     override fun activateExtensionRoutes(routes: Set<PacketRouteKey>) {
         require(routes.all(declaredExtensionRoutes::contains))
-        activeRoutes = routes.toSet()
+        activeRoutes = routes
     }
 
     override fun encodeCustomPayload(packet: Outgoing): RoutedCustomPayload {

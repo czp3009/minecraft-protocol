@@ -15,8 +15,8 @@ compression activation, extension routes, and loader negotiation profiles.
   packet-session boundary; the connection core never handles bundle structure. Deliberately do not inspect members for
   terminal state-transition semantics: putting `StartConfigurationPacket` in a bundle is documented invalid caller
   usage, not a library-side validation case.
-- `MinecraftConnectionDefinition` and loader definitions are immutable and shareable. Connection profiles retain
-  caller-owned schemas, snapshots, registrations, and resolved contexts by reference.
+- `MinecraftConnectionDefinition` and loader definitions are shareable while their caller-owned inputs remain stable.
+  Connection profiles retain schemas, snapshots, registrations, and resolved contexts by reference.
 - Keep `MinecraftConnectionDefinition()` and the `VanillaClient`/`VanillaServer` profiles sufficient as the high-level
   client/server defaults. Extension registrations and loader profiles remain explicit opt-ins.
 - Preserve unknown valid extension routes as `UnknownPacket`. Apart from direct official Configuration/Play KeepAlive

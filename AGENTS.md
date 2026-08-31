@@ -89,6 +89,24 @@ Keep physical byte encoding out of models, socket and framing behavior out of se
 - A single-parameter lambda may use Kotlin's implicit `it`. When declaring a lambda parameter explicitly, apply the same
   type-derived lower-camel naming rule unless one of the exceptions above applies; for example, use
   `regionPositions.map { regionPosition -> ... }`.
+- Prefer a `data class` for a type whose primary responsibility is carrying data. Use an ordinary class when generated
+  `copy`, component, or equality behavior cannot represent the contract, notably for constructor normalization, lazy
+  state, or snapshot ownership. Add explicit `equals` and `hashCode` to an ordinary data-bearing class only when its
+  public value contract or an actual use requires equality. A data class whose property has reference-identity equality
+  but represents content in that model, especially a Kotlin array, must override `equals` and `hashCode` with the
+  matching content operations; apply the same rule to array components in a Java record. `List`, `Map`, and `Set`
+  already have structural equality and need no redundant override; strategy, callback, serializer, and similar behavior
+  objects retain identity equality when no content equality exists.
+- Generated declarations follow the same data-class and equality rules. Fix the owning generator rather than editing its
+  output when a generated type violates them.
+- Read-only data types retain caller-supplied `List`, `Map`, and `Set` instances by default. Do not defensively copy a
+  collection solely because its runtime implementation might be mutable; the caller owns that choice and must keep
+  inputs stable when the value builds derived indexes. Copy only when the implementation will mutate or clear the input,
+  the contract explicitly creates a detached snapshot, an array-backed value needs stable content equality, or the API
+  must convert to a different representation.
+- Keep implementation helpers internal or private, but do not restrict a data type or constructor merely to force use of
+  a factory. Restrict construction when direct use could bypass an invariant, break resource or lifecycle ownership, or
+  expose an implementation-only type.
 - Prefer maintained Kotlin, Kotlinx, Ktor, Gradle, and other multiplatform APIs to project-specific helpers or `expect`/
   `actual`. When a platform boundary is unavoidable, expose the smallest reusable primitive.
 - Keep shared models free of buffers and I/O. Physical stream formats use `kotlinx.io.Source` and `Sink`;

@@ -125,7 +125,7 @@ The wire transmits Known Packs, feature flags, synchronized registry entries, an
 loot tables, functions, advancements, or other server-only resources, so the client result deliberately is not a
 `DataPack`.
 
-The four `received...` values below are retained from the corresponding Configuration packets. The matching protocol
+The four `received...` values below are captured from the corresponding Configuration packets. The matching protocol
 defaults and local schemas come from the client implementation, while `loaderRegistrySnapshot` is supplied by its mod
 loader, or is `RemoteRegistrySnapshot.Empty` on an unmodded client:
 

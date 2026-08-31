@@ -33,9 +33,9 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
     ): ByteArray {
         val publicKey = rsa.publicKeyDecoder(SHA256).decodeFromByteArrayBlocking(
             RSA.PublicKey.Format.DER,
-            encodedPublicKey.copyOf(),
+            encodedPublicKey,
         )
-        return publicKey.encryptor().encryptBlocking(plaintext.copyOf())
+        return publicKey.encryptor().encryptBlocking(plaintext)
     }
 
     actual override fun rsaDecrypt(
@@ -45,7 +45,7 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
         require(minecraftRsaPrivateKey is NativeRsaPrivateKey) {
             "The RSA private key was not created by this platform backend"
         }
-        return minecraftRsaPrivateKey.privateKey.decryptor().decryptBlocking(ciphertext.copyOf())
+        return minecraftRsaPrivateKey.privateKey.decryptor().decryptBlocking(ciphertext)
     }
 
     actual override fun decodePrivateKey(
@@ -53,7 +53,7 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
     ): MinecraftRsaPrivateKey = NativeRsaPrivateKey(
         rsa.privateKeyDecoder(SHA256).decodeFromByteArrayBlocking(
             RSA.PrivateKey.Format.DER,
-            encodedPrivateKey.copyOf(),
+            encodedPrivateKey,
         ),
     )
 
@@ -63,7 +63,7 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
     ): MinecraftRsaPublicKey = NativeRsaPublicKey(
         rsa.publicKeyDecoder(minecraftRsaSignatureAlgorithm.digest).decodeFromByteArrayBlocking(
             RSA.PublicKey.Format.DER,
-            encodedPublicKey.copyOf(),
+            encodedPublicKey,
         ),
     )
 
@@ -74,7 +74,7 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
         require(minecraftRsaPrivateKey is NativeRsaPrivateKey) {
             "The RSA private key was not created by this platform backend"
         }
-        return minecraftRsaPrivateKey.privateKey.signatureGenerator().generateSignatureBlocking(payload.copyOf())
+        return minecraftRsaPrivateKey.privateKey.signatureGenerator().generateSignatureBlocking(payload)
     }
 
     actual override fun rsaVerify(
@@ -86,8 +86,8 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
             "The RSA public key was not created by this platform backend"
         }
         return minecraftRsaPublicKey.publicKey.signatureVerifier().tryVerifySignatureBlocking(
-            payload.copyOf(),
-            signature.copyOf(),
+            payload,
+            signature,
         )
     }
 }

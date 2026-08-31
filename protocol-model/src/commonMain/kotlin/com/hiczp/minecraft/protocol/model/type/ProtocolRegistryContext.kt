@@ -2,88 +2,58 @@ package com.hiczp.minecraft.protocol.model.type
 
 /** Structured failure produced when a negotiated block mapping has no local state schema. */
 class MissingStaticBlockSchemas(
-    blockIds: List<Identifier>,
+    val blockIds: List<Identifier>,
 ) : IllegalArgumentException(
     "Missing local block-state schemas for ${blockIds.joinToString()}",
 ) {
-    val blockIds: List<Identifier> = blockIds.toList()
-
     init {
-        require(this.blockIds.isNotEmpty()) { "At least one missing block schema is required" }
-        require(this.blockIds.distinct().size == this.blockIds.size) { "Missing block schema IDs must be distinct" }
+        require(blockIds.isNotEmpty()) { "At least one missing block schema is required" }
+        require(blockIds.distinct().size == blockIds.size) { "Missing block schema IDs must be distinct" }
     }
 }
 
 /** One locally known state of a block, in its protocol iteration order. */
-class StaticBlockState(
-    properties: Map<String, String>,
+data class StaticBlockState(
+    val properties: Map<String, String>,
     val isDefault: Boolean,
-) {
-    val properties: Map<String, String> = properties.toMap()
-
-    override fun equals(other: Any?): Boolean =
-        other is StaticBlockState &&
-                properties == other.properties &&
-                isDefault == other.isDefault
-
-    override fun hashCode(): Int = 31 * properties.hashCode() + isDefault.hashCode()
-
-    override fun toString(): String =
-        "StaticBlockState(properties=$properties, isDefault=$isDefault)"
-}
+)
 
 /** Complete local state schema for one block. */
-class StaticBlockSchema(
+data class StaticBlockSchema(
     val id: Identifier,
-    states: List<StaticBlockState>,
+    val states: List<StaticBlockState>,
 ) {
-    val states: List<StaticBlockState> = states.toList()
-
     init {
-        require(this.states.isNotEmpty()) { "$id has no block states" }
-        require(this.states.distinctBy(StaticBlockState::properties).size == this.states.size) {
+        require(states.isNotEmpty()) { "$id has no block states" }
+        require(states.distinctBy(StaticBlockState::properties).size == states.size) {
             "$id has duplicate block-state property combinations"
         }
-        require(this.states.count(StaticBlockState::isDefault) == 1) {
+        require(states.count(StaticBlockState::isDefault) == 1) {
             "$id must have exactly one default block state"
         }
     }
 
     val defaultState: StaticBlockState
         get() = states.single(StaticBlockState::isDefault)
-
-    override fun equals(other: Any?): Boolean =
-        other is StaticBlockSchema && id == other.id && states == other.states
-
-    override fun hashCode(): Int = 31 * id.hashCode() + states.hashCode()
-
-    override fun toString(): String = "StaticBlockSchema(id=$id, states=$states)"
 }
 
-/**
- * Client- or server-known static registry order and complete block schemas.
- * All supplied collections are snapshotted during construction.
- */
-class StaticRegistrySchema(
-    registries: Map<Identifier, List<Identifier>>,
-    blocks: List<StaticBlockSchema>,
+/** Client- or server-known static registry order and complete block schemas. */
+data class StaticRegistrySchema(
+    val registries: Map<Identifier, List<Identifier>>,
+    val blocks: List<StaticBlockSchema>,
 ) {
-    val registries: Map<Identifier, List<Identifier>> =
-        registries.entries.associate { (id, entries) -> id to entries.toList() }
-    val blocks: List<StaticBlockSchema> = blocks.toList()
-
-    private val blocksById: Map<Identifier, StaticBlockSchema> = this.blocks.associateBy(StaticBlockSchema::id)
+    private val blocksById: Map<Identifier, StaticBlockSchema> = blocks.associateBy(StaticBlockSchema::id)
 
     init {
-        this.registries.forEach { (id, entries) ->
+        registries.forEach { (id, entries) ->
             require(entries.distinct().size == entries.size) {
                 "$id has duplicate static registry entries"
             }
         }
-        require(blocksById.size == this.blocks.size) {
+        require(blocksById.size == blocks.size) {
             "Static block schemas contain duplicate identifiers"
         }
-        this.registries[BLOCK_REGISTRY]?.let { blockEntries ->
+        registries[BLOCK_REGISTRY]?.let { blockEntries ->
             require(blockEntries.all(blocksById::containsKey)) {
                 "The block registry contains an entry without a local state schema"
             }
@@ -149,20 +119,10 @@ class StaticRegistrySchema(
             }
 
         return ProtocolRegistryContext(
-            registries = resolvedRegistries.values.toList(),
+            registries = resolvedRegistries,
             blockStates = blockStates,
         )
     }
-
-    override fun equals(other: Any?): Boolean =
-        other is StaticRegistrySchema &&
-                registries == other.registries &&
-                blocks == other.blocks
-
-    override fun hashCode(): Int = 31 * registries.hashCode() + blocks.hashCode()
-
-    override fun toString(): String =
-        "StaticRegistrySchema(registries=$registries, blocks=$blocks)"
 
     companion object {
         val BLOCK_REGISTRY: Identifier = Identifier("block")
@@ -172,71 +132,53 @@ class StaticRegistrySchema(
 }
 
 /** One wire-provided raw-ID mapping entry from a loader protocol. */
-class RemoteRegistryEntry(
+data class RemoteRegistryEntry(
     val id: Identifier,
     val rawId: Int,
-    aliases: Set<Identifier> = emptySet(),
+    val aliases: Set<Identifier> = emptySet(),
     val overrideTarget: Identifier? = null,
     val blocked: Boolean = false,
 ) {
-    val aliases: Set<Identifier> = aliases.toSet()
-
     init {
         require(rawId >= 0) { "Remote registry IDs must be non-negative" }
     }
-
-    override fun equals(other: Any?): Boolean =
-        other is RemoteRegistryEntry &&
-                id == other.id &&
-                rawId == other.rawId &&
-                aliases == other.aliases &&
-                overrideTarget == other.overrideTarget &&
-                blocked == other.blocked
-
-    override fun hashCode(): Int {
-        var result = id.hashCode()
-        result = 31 * result + rawId
-        result = 31 * result + aliases.hashCode()
-        result = 31 * result + (overrideTarget?.hashCode() ?: 0)
-        return 31 * result + blocked.hashCode()
-    }
-
-    override fun toString(): String =
-        "RemoteRegistryEntry(id=$id, rawId=$rawId, aliases=$aliases, overrideTarget=$overrideTarget, blocked=$blocked)"
 }
 
-class RemoteRegistry(
+data class RemoteRegistry(
     val id: Identifier,
-    entries: List<RemoteRegistryEntry>,
+    val entries: List<RemoteRegistryEntry>,
 ) {
-    val entries: List<RemoteRegistryEntry> = entries.toList()
-
     init {
-        require(this.entries.map(RemoteRegistryEntry::rawId).distinct().size == this.entries.size) {
+        require(entries.map(RemoteRegistryEntry::rawId).distinct().size == entries.size) {
             "$id has duplicate remote raw IDs"
         }
-        require(this.entries.map(RemoteRegistryEntry::id).distinct().size == this.entries.size) {
+        require(entries.map(RemoteRegistryEntry::id).distinct().size == entries.size) {
             "$id has duplicate remote identifiers"
         }
     }
-
-    override fun equals(other: Any?): Boolean =
-        other is RemoteRegistry && id == other.id && entries == other.entries
-
-    override fun hashCode(): Int = 31 * id.hashCode() + entries.hashCode()
-
-    override fun toString(): String = "RemoteRegistry(id=$id, entries=$entries)"
 }
 
-/** Loader-provided mappings, kept distinct from the local static schema. */
+/** Detached loader-provided mappings, kept distinct from the local static schema. */
 class RemoteRegistrySnapshot(
-    registries: List<RemoteRegistry>,
+    registries: Map<Identifier, RemoteRegistry>,
 ) {
-    val registries: Map<Identifier, RemoteRegistry> = registries.associateBy(RemoteRegistry::id)
+    val registries: Map<Identifier, RemoteRegistry> = registries.mapValues { (_, remoteRegistry) ->
+        remoteRegistry.copy(
+            entries = remoteRegistry.entries.map { remoteRegistryEntry ->
+                remoteRegistryEntry.copy(aliases = remoteRegistryEntry.aliases.toSet())
+            },
+        )
+    }
 
-    init {
+    constructor(registries: List<RemoteRegistry>) : this(registries.associateBy(RemoteRegistry::id)) {
         require(this.registries.size == registries.size) {
             "Remote registry snapshot contains duplicate registry identifiers"
+        }
+    }
+
+    init {
+        require(registries.all { (id, remoteRegistry) -> id == remoteRegistry.id }) {
+            "Remote registry snapshot keys must match their registry identifiers"
         }
     }
 
@@ -250,41 +192,25 @@ class RemoteRegistrySnapshot(
     override fun toString(): String = "RemoteRegistrySnapshot(registries=$registries)"
 
     companion object {
-        val Empty: RemoteRegistrySnapshot = RemoteRegistrySnapshot(emptyList())
+        val Empty: RemoteRegistrySnapshot = RemoteRegistrySnapshot(emptyMap())
     }
 }
 
-class ProtocolRegistryEntry(
+data class ProtocolRegistryEntry(
     val id: Identifier,
     val rawId: Int,
-    aliases: Set<Identifier> = emptySet(),
+    val aliases: Set<Identifier> = emptySet(),
 ) {
-    val aliases: Set<Identifier> = aliases.toSet()
-
     init {
         require(rawId >= 0) { "Protocol registry IDs must be non-negative" }
     }
-
-    override fun equals(other: Any?): Boolean =
-        other is ProtocolRegistryEntry &&
-                id == other.id &&
-                rawId == other.rawId &&
-                aliases == other.aliases
-
-    override fun hashCode(): Int =
-        31 * (31 * id.hashCode() + rawId) + aliases.hashCode()
-
-    override fun toString(): String =
-        "ProtocolRegistryEntry(id=$id, rawId=$rawId, aliases=$aliases)"
 }
 
-class ProtocolRegistry(
+data class ProtocolRegistry(
     val id: Identifier,
-    entries: List<ProtocolRegistryEntry>,
+    val entries: List<ProtocolRegistryEntry>,
 ) {
-    val entries: List<ProtocolRegistryEntry> = entries.toList()
-
-    private val byRawId: Map<Int, ProtocolRegistryEntry> = this.entries.associateBy(ProtocolRegistryEntry::rawId)
+    private val byRawId: Map<Int, ProtocolRegistryEntry> = entries.associateBy(ProtocolRegistryEntry::rawId)
     private val byIdentifier: Map<Identifier, ProtocolRegistryEntry> =
         buildMap {
             this@ProtocolRegistry.entries.forEach { protocolRegistryEntry ->
@@ -294,10 +220,10 @@ class ProtocolRegistry(
         }
 
     init {
-        require(byRawId.size == this.entries.size) {
+        require(byRawId.size == entries.size) {
             "$id has duplicate resolved raw IDs"
         }
-        val identifiers = this.entries.flatMap { protocolRegistryEntry ->
+        val identifiers = entries.flatMap { protocolRegistryEntry ->
             listOf(protocolRegistryEntry.id) + protocolRegistryEntry.aliases
         }
         require(identifiers.distinct().size == identifiers.size) {
@@ -311,50 +237,24 @@ class ProtocolRegistry(
     operator fun get(rawId: Int): ProtocolRegistryEntry? = byRawId[rawId]
 
     fun entry(id: Identifier): ProtocolRegistryEntry? = byIdentifier[id]
-
-    override fun equals(other: Any?): Boolean =
-        other is ProtocolRegistry && id == other.id && entries == other.entries
-
-    override fun hashCode(): Int = 31 * id.hashCode() + entries.hashCode()
-
-    override fun toString(): String = "ProtocolRegistry(id=$id, entries=$entries)"
 }
 
-class ProtocolBlockState(
+data class ProtocolBlockState(
     val id: Int,
     val block: Identifier,
-    properties: Map<String, String>,
+    val properties: Map<String, String>,
     val isDefault: Boolean,
 ) {
-    val properties: Map<String, String> = properties.toMap()
-
     init {
         require(id >= 0) { "Block-state IDs must be non-negative" }
     }
-
-    override fun equals(other: Any?): Boolean =
-        other is ProtocolBlockState &&
-                id == other.id &&
-                block == other.block &&
-                properties == other.properties &&
-                isDefault == other.isDefault
-
-    override fun hashCode(): Int {
-        var result = id
-        result = 31 * result + block.hashCode()
-        result = 31 * result + properties.hashCode()
-        return 31 * result + isDefault.hashCode()
-    }
-
-    override fun toString(): String =
-        "ProtocolBlockState(id=$id, block=$block, properties=$properties, isDefault=$isDefault)"
 }
 
-/** Immutable registry view used by one connection's physical codecs. */
-class ProtocolRegistryContext private constructor(
+/** Registry view used by one connection's physical codecs. */
+data class ProtocolRegistryContext(
     val registries: Map<Identifier, ProtocolRegistry>,
     val blockStates: List<ProtocolBlockState>,
-    val registrySizeOverrides: Map<Identifier, Int>,
+    val registrySizeOverrides: Map<Identifier, Int> = emptyMap(),
     val chunkSectionCount: Int? = null,
 ) {
     constructor(
@@ -363,9 +263,9 @@ class ProtocolRegistryContext private constructor(
         registrySizeOverrides: Map<Identifier, Int> = emptyMap(),
         chunkSectionCount: Int? = null,
     ) : this(
-        registries = snapshotRegistries(registries),
-        blockStates = blockStates.toList(),
-        registrySizeOverrides = registrySizeOverrides.toMap(),
+        registries = indexRegistries(registries),
+        blockStates = blockStates,
+        registrySizeOverrides = registrySizeOverrides,
         chunkSectionCount = chunkSectionCount,
     )
 
@@ -438,7 +338,7 @@ class ProtocolRegistryContext private constructor(
     fun withRegistries(
         registries: List<ProtocolRegistry>,
     ): ProtocolRegistryContext {
-        val additions = snapshotRegistries(registries)
+        val additions = indexRegistries(registries)
         return ProtocolRegistryContext(
             registries = this.registries + additions,
             blockStates = blockStates,
@@ -486,28 +386,6 @@ class ProtocolRegistryContext private constructor(
             chunkSectionCount = sectionCount,
         )
 
-    override fun equals(other: Any?): Boolean =
-        other is ProtocolRegistryContext &&
-                registries == other.registries &&
-                blockStates == other.blockStates &&
-                registrySizeOverrides == other.registrySizeOverrides &&
-                chunkSectionCount == other.chunkSectionCount
-
-    override fun hashCode(): Int {
-        var result = registries.hashCode()
-        result = 31 * result + blockStates.hashCode()
-        result = 31 * result + registrySizeOverrides.hashCode()
-        return 31 * result + (chunkSectionCount ?: 0)
-    }
-
-    override fun toString(): String {
-        val registriesPart = "registries=$registries"
-        val blockStatesPart = "blockStates=$blockStates"
-        val registrySizesPart = "registrySizeOverrides=$registrySizeOverrides"
-        val chunkSectionsPart = "chunkSectionCount=$chunkSectionCount"
-        return "ProtocolRegistryContext($registriesPart, $blockStatesPart, $registrySizesPart, $chunkSectionsPart)"
-    }
-
     companion object {
         val Empty: ProtocolRegistryContext = ProtocolRegistryContext(
             emptyList(),
@@ -518,14 +396,14 @@ class ProtocolRegistryContext private constructor(
 
         val ENTITY_TYPE_REGISTRY: Identifier = Identifier("entity_type")
 
-        private fun snapshotRegistries(
+        private fun indexRegistries(
             registries: List<ProtocolRegistry>,
         ): Map<Identifier, ProtocolRegistry> {
-            val snapshot = registries.associateBy(ProtocolRegistry::id)
-            require(snapshot.size == registries.size) {
+            val registriesById = registries.associateBy(ProtocolRegistry::id)
+            require(registriesById.size == registries.size) {
                 "Protocol registry context contains duplicate registry identifiers"
             }
-            return snapshot
+            return registriesById
         }
     }
 }

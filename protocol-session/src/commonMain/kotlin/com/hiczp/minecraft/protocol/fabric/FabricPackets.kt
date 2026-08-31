@@ -30,29 +30,17 @@ data class FabricCommonRegisterPacket(
     val channels: Set<Identifier>,
 ) : FabricBidirectionalPacket
 
-sealed class FabricChannelRegistrationPacket(
-    channels: List<Identifier>,
-) : FabricBidirectionalPacket {
-    val channels: List<Identifier> = channels.toList()
-
-    override fun equals(other: Any?): Boolean =
-        other != null && other::class == this::class &&
-                other is FabricChannelRegistrationPacket &&
-                channels == other.channels
-
-    override fun hashCode(): Int = 31 * this::class.hashCode() + channels.hashCode()
-
-    override fun toString(): String =
-        "${this::class.simpleName}(channels=$channels)"
+sealed interface FabricChannelRegistrationPacket : FabricBidirectionalPacket {
+    val channels: List<Identifier>
 }
 
-class FabricRegisterChannelsPacket(
-    channels: List<Identifier>,
-) : FabricChannelRegistrationPacket(channels)
+data class FabricRegisterChannelsPacket(
+    override val channels: List<Identifier>,
+) : FabricChannelRegistrationPacket
 
-class FabricUnregisterChannelsPacket(
-    channels: List<Identifier>,
-) : FabricChannelRegistrationPacket(channels)
+data class FabricUnregisterChannelsPacket(
+    override val channels: List<Identifier>,
+) : FabricChannelRegistrationPacket
 
 @Serializable
 data class FabricSplitPacket(
@@ -60,30 +48,16 @@ data class FabricSplitPacket(
     val data: ByteString,
 ) : FabricBidirectionalPacket
 
-class FabricRegistrySyncPacket(
+data class FabricRegistrySyncPacket(
     val remoteRegistrySnapshot: RemoteRegistrySnapshot,
-    optionalRegistryIds: Set<Identifier> = emptySet(),
+    val optionalRegistryIds: Set<Identifier> = emptySet(),
 ) : ClientboundPacket.Extension {
-    val optionalRegistryIds: Set<Identifier> = optionalRegistryIds.toSet()
-
     init {
         require(this.optionalRegistryIds.all(remoteRegistrySnapshot.registries::containsKey)) {
             "Only synchronized registries can be marked optional"
         }
     }
 
-    override fun equals(other: Any?): Boolean =
-        other is FabricRegistrySyncPacket &&
-                remoteRegistrySnapshot == other.remoteRegistrySnapshot &&
-                optionalRegistryIds == other.optionalRegistryIds
-
-    override fun hashCode(): Int =
-        31 * remoteRegistrySnapshot.hashCode() + optionalRegistryIds.hashCode()
-
-    override fun toString(): String {
-        val typeName = "FabricRegistrySyncPacket"
-        return "$typeName(remoteRegistrySnapshot=$remoteRegistrySnapshot, optionalRegistryIds=$optionalRegistryIds)"
-    }
 }
 
 @Serializable

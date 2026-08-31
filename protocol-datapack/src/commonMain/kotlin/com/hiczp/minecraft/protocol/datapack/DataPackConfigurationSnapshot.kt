@@ -42,4 +42,18 @@ class DataPackConfigurationSnapshot(
             "Data-pack Configuration contains duplicate registry tags"
         }
     }
+
+    override fun equals(other: Any?): Boolean =
+        other is DataPackConfigurationSnapshot &&
+                offeredKnownPacks == other.offeredKnownPacks &&
+                enabledFeatureFlags == other.enabledFeatureFlags &&
+                synchronizedRegistryPackets == other.synchronizedRegistryPackets &&
+                registryTags == other.registryTags
+
+    override fun hashCode(): Int {
+        var result = offeredKnownPacks.hashCode()
+        result = 31 * result + enabledFeatureFlags.hashCode()
+        result = 31 * result + synchronizedRegistryPackets.hashCode()
+        return 31 * result + registryTags.hashCode()
+    }
 }

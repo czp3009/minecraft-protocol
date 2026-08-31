@@ -279,7 +279,18 @@ class LiveMinecraftWorldAccessTest {
 private data class FilesystemSnapshot(
     val paths: Set<Path>,
     val files: Map<Path, ByteArray>,
-)
+) {
+    override fun equals(other: Any?): Boolean =
+        other is FilesystemSnapshot &&
+                paths == other.paths &&
+                files.size == other.files.size &&
+                files.all { (path, bytes) -> other.files[path]?.contentEquals(bytes) == true }
+
+    override fun hashCode(): Int {
+        val filesHashCode = files.entries.sumOf { (path, bytes) -> path.hashCode() xor bytes.contentHashCode() }
+        return 31 * paths.hashCode() + filesHashCode
+    }
+}
 
 private fun FileSystem.snapshot(root: Path): FilesystemSnapshot {
     val paths = listRecursively(root).toSet()

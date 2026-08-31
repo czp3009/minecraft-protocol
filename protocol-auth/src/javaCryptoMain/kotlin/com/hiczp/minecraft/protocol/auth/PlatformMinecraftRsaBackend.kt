@@ -24,10 +24,10 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
         plaintext: ByteArray,
     ): ByteArray {
         val publicKey = KeyFactory.getInstance("RSA")
-            .generatePublic(X509EncodedKeySpec(encodedPublicKey.copyOf()))
+            .generatePublic(X509EncodedKeySpec(encodedPublicKey))
         return Cipher.getInstance(RSA_TRANSFORMATION).run {
             init(Cipher.ENCRYPT_MODE, publicKey, secureRandom)
-            doFinal(plaintext.copyOf())
+            doFinal(plaintext)
         }
     }
 
@@ -40,7 +40,7 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
         }
         return Cipher.getInstance(RSA_TRANSFORMATION).run {
             init(Cipher.DECRYPT_MODE, minecraftRsaPrivateKey.privateKey)
-            doFinal(ciphertext.copyOf())
+            doFinal(ciphertext)
         }
     }
 
@@ -48,7 +48,7 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
         encodedPrivateKey: ByteArray,
     ): MinecraftRsaPrivateKey = JavaRsaPrivateKey(
         KeyFactory.getInstance("RSA").generatePrivate(
-            PKCS8EncodedKeySpec(encodedPrivateKey.copyOf()),
+            PKCS8EncodedKeySpec(encodedPrivateKey),
         ),
     )
 
@@ -57,7 +57,7 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
         minecraftRsaSignatureAlgorithm: MinecraftRsaSignatureAlgorithm,
     ): MinecraftRsaPublicKey = JavaRsaPublicKey(
         publicKey = KeyFactory.getInstance("RSA").generatePublic(
-            X509EncodedKeySpec(encodedPublicKey.copyOf()),
+            X509EncodedKeySpec(encodedPublicKey),
         ),
         minecraftRsaSignatureAlgorithm = minecraftRsaSignatureAlgorithm,
     )
@@ -71,7 +71,7 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
         }
         return Signature.getInstance(SHA256_WITH_RSA).run {
             initSign(minecraftRsaPrivateKey.privateKey, secureRandom)
-            update(payload.copyOf())
+            update(payload)
             sign()
         }
     }
@@ -87,8 +87,8 @@ internal actual object PlatformMinecraftRsaBackend : MinecraftRsaBackend {
         return try {
             Signature.getInstance(minecraftRsaPublicKey.minecraftRsaSignatureAlgorithm.jcaName).run {
                 initVerify(minecraftRsaPublicKey.publicKey)
-                update(payload.copyOf())
-                verify(signature.copyOf())
+                update(payload)
+                verify(signature)
             }
         } catch (_: SignatureException) {
             false

@@ -19,21 +19,16 @@ data class AppliedDataPackFilter(
 )
 
 /** A manually constructible, merged data-pack view used by downstream runtime projections. */
-class ResolvedDataPackStack(
-    dataPackIds: List<DataPackId>,
-    resolvedDataPackResources: Map<DataPackResourcePath, ResolvedDataPackResource>,
-    appliedDataPackFilters: List<AppliedDataPackFilter> = emptyList(),
+data class ResolvedDataPackStack(
+    val dataPackIds: List<DataPackId>,
+    val resolvedDataPackResources: Map<DataPackResourcePath, ResolvedDataPackResource>,
+    val appliedDataPackFilters: List<AppliedDataPackFilter> = emptyList(),
 ) {
-    val dataPackIds: List<DataPackId> = dataPackIds.toList()
-    val resolvedDataPackResources: Map<DataPackResourcePath, ResolvedDataPackResource> =
-        resolvedDataPackResources.toMap()
-    val appliedDataPackFilters: List<AppliedDataPackFilter> = appliedDataPackFilters.toList()
-
     init {
-        require(this.dataPackIds.distinct().size == this.dataPackIds.size) {
+        require(dataPackIds.distinct().size == dataPackIds.size) {
             "A resolved data-pack stack has duplicate pack IDs"
         }
-        require(this.resolvedDataPackResources.all { (dataPackResourcePath, resolvedDataPackResource) ->
+        require(resolvedDataPackResources.all { (dataPackResourcePath, resolvedDataPackResource) ->
             dataPackResourcePath == resolvedDataPackResource.dataPackResourcePath
         }) {
             "Resolved data-pack resource keys must match their paths"
@@ -67,16 +62,14 @@ class ResolvedDataPackStack(
 }
 
 /** Low-to-high-priority pack stack. Callers can construct or replace any stage in memory. */
-class DataPackStack(dataPacks: List<DataPack>) {
-    val dataPacks: List<DataPack> = dataPacks.toList()
-
+data class DataPackStack(val dataPacks: List<DataPack>) {
     init {
-        require(this.dataPacks.map(DataPack::dataPackId).distinct().size == this.dataPacks.size) {
+        require(dataPacks.map(DataPack::dataPackId).distinct().size == dataPacks.size) {
             "A data-pack stack has duplicate pack IDs"
         }
     }
 
-    constructor(vararg dataPacks: DataPack) : this(dataPacks.toList())
+    constructor(vararg dataPacks: DataPack) : this(dataPacks.asList())
 
     fun resolve(dataPackFormatVersion: DataPackFormatVersion? = null): ResolvedDataPackStack {
         val resolvedDataPackResources = linkedMapOf<DataPackResourcePath, ResolvedDataPackResource>()

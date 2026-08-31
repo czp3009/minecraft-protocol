@@ -1,9 +1,6 @@
 package com.hiczp.minecraft.protocol.model.type
 
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertSame
+import kotlin.test.*
 
 class ProtocolRegistryContextTest {
     @Test
@@ -76,12 +73,18 @@ class ProtocolRegistryContextTest {
     }
 
     @Test
-    fun derivedContextsShareCallerOwnedLargeSnapshots() {
+    fun ordinaryRegistryModelsRetainCallerOwnedCollections() {
+        val aliases = mutableSetOf(Identifier("test:alias"))
+        val entries = mutableListOf(
+            ProtocolRegistryEntry(
+                Identifier("test:entry"),
+                0,
+                aliases,
+            ),
+        )
         val protocolRegistry = ProtocolRegistry(
             Identifier("test:registry"),
-            listOf(
-                ProtocolRegistryEntry(Identifier("test:entry"), 0),
-            ),
+            entries,
         )
         val blockStates = listOf(
             ProtocolBlockState(
@@ -98,10 +101,41 @@ class ProtocolRegistryContextTest {
             10,
         )
 
+        assertSame(entries, protocolRegistry.entries)
+        assertSame(aliases, entries.single().aliases)
         assertSame(base.registries, dimension.registries)
         assertSame(base.blockStates, dimension.blockStates)
         assertSame(dimension.registries, sized.registries)
         assertSame(dimension.blockStates, sized.blockStates)
+    }
+
+    @Test
+    fun remoteRegistrySnapshotDetachesNestedCallerCollections() {
+        val registryId = Identifier("test:registry")
+        val alias = Identifier("test:alias")
+        val aliases = mutableSetOf(alias)
+        val entries = mutableListOf(
+            RemoteRegistryEntry(
+                id = Identifier("test:entry"),
+                rawId = 0,
+                aliases = aliases,
+            ),
+        )
+        val remoteRegistry = RemoteRegistry(registryId, entries)
+        val registries = linkedMapOf(registryId to remoteRegistry)
+
+        val remoteRegistrySnapshot = RemoteRegistrySnapshot(registries)
+
+        assertNotSame(registries, remoteRegistrySnapshot.registries)
+        assertNotSame(entries, remoteRegistrySnapshot.registry(registryId)?.entries)
+        assertNotSame(aliases, remoteRegistrySnapshot.registry(registryId)?.entries?.single()?.aliases)
+        aliases += Identifier("test:later_alias")
+        entries += RemoteRegistryEntry(Identifier("test:later_entry"), 1)
+        registries.clear()
+        assertEquals(
+            setOf(alias),
+            remoteRegistrySnapshot.registry(registryId)?.entries?.single()?.aliases,
+        )
     }
 
     @Test

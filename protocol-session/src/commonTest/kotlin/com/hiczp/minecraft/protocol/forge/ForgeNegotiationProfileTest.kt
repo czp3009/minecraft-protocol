@@ -19,6 +19,15 @@ import kotlin.time.Duration
 
 class ForgeNegotiationProfileTest {
     @Test
+    fun registrySyncUsesSnapshotValueEquality() {
+        val first = ForgeRegistrySync(emptyMap())
+        val second = ForgeRegistrySync(emptyMap())
+
+        assertEquals(first, second)
+        assertEquals(first.hashCode(), second.hashCode())
+    }
+
+    @Test
     fun scriptedProfilesNegotiateTasksRegistriesAndDynamicPlayPackets() = runTest {
         val customCodecs = forgeTestPlayCodecs()
         val packetRegistry = PacketRegistry(
@@ -347,7 +356,7 @@ private abstract class ForgeTestConnection<Incoming : Packet, Outgoing : Packet>
 
     override fun activateExtensionRoutes(routes: Set<PacketRouteKey>) {
         require(routes.all(declaredExtensionRoutes::contains))
-        activeRoutes = routes.toSet()
+        activeRoutes = routes
     }
 
     override fun encodeCustomPayload(packet: Outgoing): RoutedCustomPayload {

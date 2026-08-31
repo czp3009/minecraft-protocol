@@ -66,7 +66,7 @@ sealed class CompressionRegistry(
             overrides: Map<Compression, CompressionCodec> =
                 emptyMap(),
         ): CompressionRegistry =
-            ConfiguredCompressionRegistry(overrides.toMap())
+            ConfiguredCompressionRegistry(overrides)
     }
 
     fun compressingSink(

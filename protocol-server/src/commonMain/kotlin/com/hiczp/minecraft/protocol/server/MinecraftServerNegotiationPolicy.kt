@@ -89,12 +89,10 @@ sealed interface ServerNegotiationQueryResult {
     ) : ServerNegotiationQueryResult
 }
 
-class MinecraftServerNegotiationTask(
-    clientboundPackets: List<ClientboundPacket>,
-    private val completion: suspend (ServerboundPacket) -> Boolean,
+data class MinecraftServerNegotiationTask(
+    val clientboundPackets: List<ClientboundPacket>,
+    val completion: suspend (ServerboundPacket) -> Boolean,
 ) {
-    val clientboundPackets: List<ClientboundPacket> = clientboundPackets.toList()
-
     suspend fun isComplete(serverboundPacket: ServerboundPacket): Boolean =
         completion(serverboundPacket)
 }

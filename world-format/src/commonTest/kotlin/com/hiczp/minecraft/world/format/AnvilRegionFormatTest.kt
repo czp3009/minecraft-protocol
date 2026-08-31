@@ -1186,7 +1186,18 @@ class AnvilRegionFormatTest {
     private data class TestRecordContent(
         val bytes: ByteArray?,
         val anvilChunkPlacement: AnvilChunkPlacement,
-    )
+    ) {
+        override fun equals(other: Any?): Boolean =
+            other is TestRecordContent &&
+                    (
+                            bytes == null && other.bytes == null ||
+                                    bytes != null && other.bytes != null && bytes.contentEquals(other.bytes)
+                            ) &&
+                    anvilChunkPlacement == other.anvilChunkPlacement
+
+        override fun hashCode(): Int =
+            31 * (bytes?.contentHashCode() ?: 0) + anvilChunkPlacement.hashCode()
+    }
 
     private fun inlineContent(bytes: ByteArray): TestRecordContent =
         TestRecordContent(bytes, AnvilChunkPlacement.INLINE)

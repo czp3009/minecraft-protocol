@@ -15,7 +15,7 @@ internal enum class RegionStorageDirectory(val directoryName: String) {
 /**
  * Canonical paths inside a Java Edition world directory.
  */
-class MinecraftWorldPaths(
+data class MinecraftWorldPaths(
     val root: Path,
 ) {
     val dataPacksDirectory: Path

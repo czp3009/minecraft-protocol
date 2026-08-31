@@ -66,14 +66,12 @@ class DataPackFileBytes(bytes: ByteArray) {
 }
 
 /** Complete raw in-memory contents of one data pack, before file-type parsing. */
-class DataPackArchive(
+data class DataPackArchive(
     val dataPackId: DataPackId,
-    dataPackFileBytesByPath: Map<DataPackFilePath, DataPackFileBytes>,
+    val dataPackFileBytesByPath: Map<DataPackFilePath, DataPackFileBytes>,
 ) {
-    val dataPackFileBytesByPath: Map<DataPackFilePath, DataPackFileBytes> = dataPackFileBytesByPath.toMap()
-
     init {
-        require(this.dataPackFileBytesByPath.isNotEmpty()) { "Data pack $dataPackId has no files" }
+        require(dataPackFileBytesByPath.isNotEmpty()) { "Data pack $dataPackId has no files" }
     }
 
     constructor(dataPackId: DataPackId, dataPackFileBytes: Iterable<Pair<DataPackFilePath, ByteArray>>) : this(
@@ -116,7 +114,7 @@ interface DataPackFileContent {
             nbtDocumentDelegate = lazyOf(nbtDocument)
         }
 
-        internal constructor(decodeNbtDocument: () -> NbtDocument) {
+        constructor(decodeNbtDocument: () -> NbtDocument) {
             nbtDocumentDelegate = lazy(LazyThreadSafetyMode.PUBLICATION, decodeNbtDocument)
         }
 
@@ -138,14 +136,7 @@ interface DataPackFileContent {
 
     data class TextFile(val text: String) : DataPackFileContent
 
-    class BinaryFile(val dataPackFileBytes: DataPackFileBytes) : DataPackFileContent {
-        override fun equals(other: Any?): Boolean =
-            other is BinaryFile && dataPackFileBytes == other.dataPackFileBytes
-
-        override fun hashCode(): Int = dataPackFileBytes.hashCode()
-
-        override fun toString(): String = "BinaryFile(dataPackFileBytes=$dataPackFileBytes)"
-    }
+    data class BinaryFile(val dataPackFileBytes: DataPackFileBytes) : DataPackFileContent
 }
 
 /** One effective file paired with its original path while resolving overlays and stack precedence. */
@@ -301,15 +292,13 @@ data class DataPackResourceId(
 }
 
 /** Typed contents of one data pack. Every original file remains addressable in [dataPackFileContentsByPath]. */
-class DataPack(
+data class DataPack(
     val dataPackId: DataPackId,
     val dataPackMetadata: DataPackMetadata?,
-    dataPackFileContentsByPath: Map<DataPackFilePath, DataPackFileContent>,
+    val dataPackFileContentsByPath: Map<DataPackFilePath, DataPackFileContent>,
 ) {
-    val dataPackFileContentsByPath: Map<DataPackFilePath, DataPackFileContent> = dataPackFileContentsByPath.toMap()
-
     init {
-        require(this.dataPackFileContentsByPath.isNotEmpty()) { "Data pack $dataPackId has no files" }
+        require(dataPackFileContentsByPath.isNotEmpty()) { "Data pack $dataPackId has no files" }
     }
 
     fun dataPackFileContent(dataPackFilePath: DataPackFilePath): DataPackFileContent? =

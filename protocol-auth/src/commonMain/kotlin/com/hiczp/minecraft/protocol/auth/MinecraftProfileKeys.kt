@@ -9,7 +9,7 @@ import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /** A parsed RSA profile public key. Parsing does not imply that its Mojang credential was trusted. */
-class MinecraftProfilePublicKey(
+data class MinecraftProfilePublicKey(
     val profilePublicKeyData: ProfilePublicKeyData,
 ) {
     internal val minecraftRsaPublicKey = mapCryptographyFailure("Cannot decode the Minecraft profile public key") {
@@ -37,7 +37,7 @@ class MinecraftProfileKeyPair private constructor(
         refreshedAfterEpochMillis: Long,
     ) : this(
         minecraftRsaPrivateKey = mapCryptographyFailure("Cannot decode the Minecraft profile private key") {
-            PlatformMinecraftRsaBackend.decodePrivateKey(encodedPrivateKey.copyOf())
+            PlatformMinecraftRsaBackend.decodePrivateKey(encodedPrivateKey)
         },
         minecraftProfilePublicKey = MinecraftProfilePublicKey(profilePublicKeyData),
         refreshedAfterEpochMillis = refreshedAfterEpochMillis,
@@ -49,7 +49,11 @@ class MinecraftProfileKeyPair private constructor(
     fun needsRefreshAt(epochMillis: Long): Boolean = refreshedAfterEpochMillis < epochMillis
 }
 
-/** A parsed Mojang service public key used to validate profile-key credentials. */
+/**
+ * A parsed Mojang service public key used to validate profile-key credentials.
+ *
+ * The DER bytes are snapshotted so [encodedPublicKey] cannot diverge from the already decoded cryptographic key.
+ */
 class MinecraftServicesPublicKey(
     encodedPublicKey: ByteArray,
 ) {
@@ -63,15 +67,19 @@ class MinecraftServicesPublicKey(
 
     val encodedPublicKey: ByteArray
         get() = encoded.copyOf()
+
+    override fun equals(other: Any?): Boolean =
+        other is MinecraftServicesPublicKey && encoded.contentEquals(other.encoded)
+
+    override fun hashCode(): Int = encoded.contentHashCode()
+
+    override fun toString(): String = "MinecraftServicesPublicKey(encodedPublicKeySize=${encoded.size})"
 }
 
-class MinecraftServicesPublicKeySet(
-    profilePropertyKeys: List<MinecraftServicesPublicKey>,
-    playerCertificateKeys: List<MinecraftServicesPublicKey>,
+data class MinecraftServicesPublicKeySet(
+    val profilePropertyKeys: List<MinecraftServicesPublicKey>,
+    val playerCertificateKeys: List<MinecraftServicesPublicKey>,
 ) {
-    val profilePropertyKeys: List<MinecraftServicesPublicKey> = profilePropertyKeys.toList()
-    val playerCertificateKeys: List<MinecraftServicesPublicKey> = playerCertificateKeys.toList()
-
     fun verifyProfilePublicKey(
         profileId: Uuid,
         profilePublicKeyData: ProfilePublicKeyData,

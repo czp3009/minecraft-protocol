@@ -1014,11 +1014,16 @@ private data class ConfigurationCapture(
         )
 }
 
-private class CapturedPacket(
+private data class CapturedPacket(
     val name: String,
     val payload: ByteArray,
 ) {
     fun input(): PacketInput = PacketInput(payload)
+
+    override fun equals(other: Any?): Boolean =
+        other is CapturedPacket && name == other.name && payload.contentEquals(other.payload)
+
+    override fun hashCode(): Int = 31 * name.hashCode() + payload.contentHashCode()
 }
 
 private class CaptureConnection(

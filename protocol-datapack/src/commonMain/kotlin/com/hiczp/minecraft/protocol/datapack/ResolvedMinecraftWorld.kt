@@ -11,14 +11,12 @@ import com.hiczp.minecraft.world.format.data.WorldGenDimensionType
 import com.hiczp.minecraft.world.format.data.WorldGenSettingsData
 
 /** A complete server-side world projection with one ready-to-use Chunk context per declared dimension. */
-class ResolvedMinecraftWorld internal constructor(
+data class ResolvedMinecraftWorld(
     val protocolData: ResolvedProtocolData,
-    dimensions: Map<DimensionId, MinecraftChunkContext>,
+    val dimensions: Map<DimensionId, MinecraftChunkContext>,
 ) {
-    val dimensions: Map<DimensionId, MinecraftChunkContext> = dimensions.toMap()
-
     init {
-        require(this.dimensions.all { (dimensionId, minecraftChunkContext) ->
+        require(dimensions.all { (dimensionId, minecraftChunkContext) ->
             dimensionId == minecraftChunkContext.dimensionId
         }) {
             "Resolved world dimension keys must match their Chunk contexts"
@@ -31,14 +29,12 @@ class ResolvedMinecraftWorld internal constructor(
 
 /** All dimension-specific failures found before any [MinecraftChunkContext] is constructed. */
 class MinecraftWorldResolutionException(
-    failures: Map<DimensionId, String>,
+    val failures: Map<DimensionId, String>,
 ) : IllegalStateException(
     "Unable to resolve Minecraft world dimensions: ${failures.entries.joinToString { (dimensionId, reason) -> "$dimensionId: $reason" }}",
 ) {
-    val failures: Map<DimensionId, String> = failures.toMap()
-
     init {
-        require(this.failures.isNotEmpty()) { "A world-resolution failure must identify at least one dimension" }
+        require(failures.isNotEmpty()) { "A world-resolution failure must identify at least one dimension" }
     }
 }
 

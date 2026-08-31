@@ -26,10 +26,8 @@ class DataPackFormat(
     val json: Json = Json,
     val compressedNbtFormat: CompressedNbtFormat = CompressedNbtFormat(),
     val snbtFormat: SnbtFormat = SnbtFormat,
-    dataPackFileDecoders: List<DataPackFileDecoder> = emptyList(),
+    val dataPackFileDecoders: List<DataPackFileDecoder> = emptyList(),
 ) {
-    val dataPackFileDecoders: List<DataPackFileDecoder> = dataPackFileDecoders.toList()
-
     fun decode(dataPackArchive: DataPackArchive): DataPack = decode(
         dataPackArchive.dataPackId,
         dataPackArchive.dataPackFileBytesByPath.entries.sortedBy { it.key.value }.asSequence().map { entry ->
@@ -221,7 +219,7 @@ class DataPackFormat(
 }
 
 /** Incremental per-file decoder. It retains parsed values, but never requires a complete raw archive copy. */
-class DataPackDecoder internal constructor(
+class DataPackDecoder(
     val dataPackId: DataPackId,
     val dataPackFormat: DataPackFormat,
 ) {

@@ -68,29 +68,17 @@ data class NeoForgeCommonRegisterPacket(
     val channels: Set<Identifier>,
 ) : NeoForgeBidirectionalPacket
 
-sealed class NeoForgeChannelRegistrationPacket(
-    channels: Set<Identifier>,
-) : NeoForgeBidirectionalPacket {
-    val channels: Set<Identifier> = channels.toSet()
-
-    override fun equals(other: Any?): Boolean =
-        other != null && other::class == this::class &&
-                other is NeoForgeChannelRegistrationPacket &&
-                channels == other.channels
-
-    override fun hashCode(): Int = 31 * this::class.hashCode() + channels.hashCode()
-
-    override fun toString(): String =
-        "${this::class.simpleName}(channels=$channels)"
+sealed interface NeoForgeChannelRegistrationPacket : NeoForgeBidirectionalPacket {
+    val channels: Set<Identifier>
 }
 
-class NeoForgeRegisterChannelsPacket(
-    channels: Set<Identifier>,
-) : NeoForgeChannelRegistrationPacket(channels)
+data class NeoForgeRegisterChannelsPacket(
+    override val channels: Set<Identifier>,
+) : NeoForgeChannelRegistrationPacket
 
-class NeoForgeUnregisterChannelsPacket(
-    channels: Set<Identifier>,
-) : NeoForgeChannelRegistrationPacket(channels)
+data class NeoForgeUnregisterChannelsPacket(
+    override val channels: Set<Identifier>,
+) : NeoForgeChannelRegistrationPacket
 
 @Serializable
 data class NeoForgeModdedNetworkQueryPacket(
@@ -263,22 +251,10 @@ data class NeoForgeSplitPacket(
 ) : NeoForgeBidirectionalPacket
 
 @Serializable(with = NeoForgeRegistryDataMapSyncSerializer::class)
-class NeoForgeRegistryDataMapSyncPacket(
+data class NeoForgeRegistryDataMapSyncPacket(
     val registry: Identifier,
-    dataMaps: Map<Identifier, Map<Identifier, JsonElement>>,
-) : ClientboundPacket.Extension {
-    val dataMaps: Map<Identifier, Map<Identifier, JsonElement>> =
-        dataMaps.entries.associate { (id, values) -> id to values.toMap() }
-
-    override fun equals(other: Any?): Boolean =
-        other is NeoForgeRegistryDataMapSyncPacket &&
-                registry == other.registry && dataMaps == other.dataMaps
-
-    override fun hashCode(): Int = 31 * registry.hashCode() + dataMaps.hashCode()
-
-    override fun toString(): String =
-        "NeoForgeRegistryDataMapSyncPacket(registry=$registry, dataMaps=$dataMaps)"
-}
+    val dataMaps: Map<Identifier, Map<Identifier, JsonElement>>,
+) : ClientboundPacket.Extension
 
 object NeoForgeChannels {
     val Register: Identifier = Identifier("register")

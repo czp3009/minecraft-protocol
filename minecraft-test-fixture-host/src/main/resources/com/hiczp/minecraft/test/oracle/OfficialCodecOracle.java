@@ -543,6 +543,20 @@ public final class OfficialCodecOracle {
             String sample,
             byte[] payload
     ) {
+        @Override
+        public boolean equals(Object other) {
+            return this == other || other instanceof Fixture fixture
+                    && packetKey.equals(fixture.packetKey)
+                    && kotlinClass.equals(fixture.kotlinClass)
+                    && sample.equals(fixture.sample)
+                    && Arrays.equals(payload, fixture.payload);
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Objects.hash(packetKey, kotlinClass, sample);
+            return 31 * result + Arrays.hashCode(payload);
+        }
     }
 
     private record NbtFixtureInput(
@@ -563,6 +577,23 @@ public final class OfficialCodecOracle {
             boolean exactBytes,
             boolean reject
     ) {
+        @Override
+        public boolean equals(Object other) {
+            return this == other || other instanceof NbtFixture fixture
+                    && nbtRootMode == fixture.nbtRootMode
+                    && sample.equals(fixture.sample)
+                    && Arrays.equals(payload, fixture.payload)
+                    && Arrays.equals(expected, fixture.expected)
+                    && exactBytes == fixture.exactBytes
+                    && reject == fixture.reject;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Objects.hash(nbtRootMode, sample, exactBytes, reject);
+            result = 31 * result + Arrays.hashCode(payload);
+            return 31 * result + Arrays.hashCode(expected);
+        }
     }
 
     private record SnbtFixtureInput(
@@ -579,5 +610,19 @@ public final class OfficialCodecOracle {
             byte[] expected,
             boolean reject
     ) {
+        @Override
+        public boolean equals(Object other) {
+            return this == other || other instanceof SnbtFixture fixture
+                    && sample.equals(fixture.sample)
+                    && input.equals(fixture.input)
+                    && Arrays.equals(expected, fixture.expected)
+                    && reject == fixture.reject;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Objects.hash(sample, input, reject);
+            return 31 * result + Arrays.hashCode(expected);
+        }
     }
 }

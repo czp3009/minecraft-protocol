@@ -83,10 +83,11 @@ logical bundle already being written.
 
 ## Definitions and registry context
 
-`MinecraftConnectionDefinition` is an immutable, shareable description of packet codecs, the format, initial registries,
-and channel capacities. Vanilla users of `MinecraftClientConnection.connect` and `MinecraftServer.bind` do not need to
-construct one: both high-level entry points default to `MinecraftConnectionDefinition()` and the built-in vanilla packet
-registry.
+`MinecraftConnectionDefinition` is a shareable data description of packet codecs, the format, initial registries, and
+channel capacities. It retains those values rather than rebuilding them, so callers that supply collection-backed
+registries keep those inputs stable. Vanilla users of `MinecraftClientConnection.connect` and `MinecraftServer.bind` do
+not need to construct one: both high-level entry points default to `MinecraftConnectionDefinition()` and the built-in
+vanilla packet registry.
 
 Create a definition only when adding extension codecs, replacing the format, or changing channel capacities:
 

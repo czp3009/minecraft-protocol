@@ -61,16 +61,13 @@ object ForgeHandshake {
     }
 }
 
-class ForgeClientProfileDefinition(
+data class ForgeClientProfileDefinition(
     val staticRegistrySchema: StaticRegistrySchema,
     val forgeNetworkConfiguration: ForgeNetworkConfiguration = ForgeNetworkConfiguration(),
-    mods: Map<String, ForgeModInfo> = emptyMap(),
-    dataPackRegistryIds: Set<Identifier> = emptySet(),
+    val mods: Map<String, ForgeModInfo> = emptyMap(),
+    val dataPackRegistryIds: Set<Identifier> = emptySet(),
     val networkVersion: Int = ForgeProtocol.NETWORK_VERSION,
 ) {
-    val mods: Map<String, ForgeModInfo> = mods.toMap()
-    val dataPackRegistryIds: Set<Identifier> = dataPackRegistryIds.toSet()
-
     init {
         require(networkVersion >= 0) {
             "Forge network version must be non-negative"
@@ -78,18 +75,15 @@ class ForgeClientProfileDefinition(
     }
 }
 
-class ForgeServerProfileDefinition(
+data class ForgeServerProfileDefinition(
     val forgeNetworkConfiguration: ForgeNetworkConfiguration = ForgeNetworkConfiguration(),
-    mods: Map<String, ForgeModInfo> = emptyMap(),
+    val mods: Map<String, ForgeModInfo> = emptyMap(),
     val forgeRegistrySync: ForgeRegistrySync? = null,
-    /** Caller-built immutable context retained by reference across connections. */
+    /** Caller-built context retained by reference across connections. */
     val protocolRegistryContext: ProtocolRegistryContext? = null,
-    configFiles: List<ForgeConfigDataMessage> = emptyList(),
+    val configFiles: List<ForgeConfigDataMessage> = emptyList(),
     val networkVersion: Int = ForgeProtocol.NETWORK_VERSION,
 ) {
-    val mods: Map<String, ForgeModInfo> = mods.toMap()
-    val configFiles: List<ForgeConfigDataMessage> = configFiles.toList()
-
     init {
         require(networkVersion >= 0) {
             "Forge network version must be non-negative"
@@ -284,8 +278,10 @@ class ForgeClientProfile(
                         "Forge registry list arrived out of order",
                     )
                 }
-                val missingDataPackRegistryIds =
-                    forgeClientboundHandshakeMessage.dataPackRegistryIds.toSet() - forgeClientProfileDefinition.dataPackRegistryIds
+                val missingDataPackRegistryIds = forgeClientboundHandshakeMessage.dataPackRegistryIds
+                    .filterTo(linkedSetOf()) { identifier ->
+                        identifier !in forgeClientProfileDefinition.dataPackRegistryIds
+                    }
                 if (missingDataPackRegistryIds.isNotEmpty()) {
                     throw ForgeMissingDataPackRegistryIdsException(
                         missingDataPackRegistryIds,
@@ -681,9 +677,12 @@ private suspend fun <Incoming : Packet, Outgoing : Packet> updateForgeRoutes(
     val loginRoutes = minecraftPacketConnection.declaredExtensionRoutes.filter { packetRouteKey ->
         packetRouteKey is PacketRouteKey.LoginQuery
     }
-    minecraftPacketConnection.activateExtensionRoutes(
-        minecraftPacketConnection.activeExtensionRoutes - candidates + accepted + loginRoutes,
-    )
+    minecraftPacketConnection.activateExtensionRoutes(buildSet {
+        addAll(minecraftPacketConnection.activeExtensionRoutes)
+        removeAll(candidates)
+        addAll(accepted)
+        addAll(loginRoutes)
+    })
 }
 
 private fun <Incoming : Packet, Outgoing : Packet> requireForgeCodecs(

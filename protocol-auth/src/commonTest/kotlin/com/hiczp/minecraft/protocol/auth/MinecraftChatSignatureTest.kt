@@ -3,10 +3,7 @@ package com.hiczp.minecraft.protocol.auth
 import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.ProfilePublicKeyData
 import okio.ByteString.Companion.toByteString
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import kotlin.test.*
 import kotlin.uuid.Uuid
 
 class MinecraftChatSignatureTest {
@@ -52,11 +49,15 @@ class MinecraftChatSignatureTest {
         val profileId = Uuid.parse("12345678-1234-5678-9abc-def012345678")
         val payload = MinecraftProfileKeySignatures.signedPayload(profileId, profilePublicKeyData)
         val minecraftServicesPublicKey = MinecraftServicesPublicKey(MinecraftChatCryptoFixtures.publicKey())
+        val playerCertificateKeys = mutableListOf(minecraftServicesPublicKey)
         val minecraftServicesPublicKeySet = MinecraftServicesPublicKeySet(
             profilePropertyKeys = emptyList(),
-            playerCertificateKeys = listOf(minecraftServicesPublicKey),
+            playerCertificateKeys = playerCertificateKeys,
         )
 
+        assertEquals(MinecraftServicesPublicKey(MinecraftChatCryptoFixtures.publicKey()), minecraftServicesPublicKey)
+        assertSame(playerCertificateKeys, minecraftServicesPublicKeySet.playerCertificateKeys)
+        assertEquals(minecraftServicesPublicKeySet, minecraftServicesPublicKeySet.copy())
         assertTrue(payload.toByteString().sha256().hex() == MinecraftChatCryptoFixtures.CREDENTIAL_PAYLOAD_SHA256)
         assertTrue(MinecraftProfileKeySignatures.verify(minecraftServicesPublicKey, profileId, profilePublicKeyData))
         assertTrue(minecraftServicesPublicKeySet.verifyProfilePublicKey(profileId, profilePublicKeyData))

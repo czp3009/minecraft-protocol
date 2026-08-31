@@ -3,9 +3,7 @@ package com.hiczp.minecraft.protocol.datapack
 import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
 import com.hiczp.minecraft.protocol.model.type.*
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
+import kotlin.test.*
 
 class ClientRegistryViewTest {
     @Test
@@ -73,7 +71,7 @@ class ClientRegistryViewTest {
     }
 
     @Test
-    fun manuallyConstructedViewSnapshotsTagEntryLists() {
+    fun manuallyConstructedViewRetainsTagEntryLists() {
         val registryId = Identifier("test:registry")
         val tagId = Identifier("test:tag")
         val protocolRegistryEntry = ProtocolRegistryEntry(Identifier("test:value"), 0)
@@ -89,16 +87,56 @@ class ClientRegistryViewTest {
             blockStates = emptyList(),
         )
 
+        val clientRegistryTags = listOf(ClientRegistryTag(registryId, tagId, mutableRegistryEntries))
         val clientRegistryView = ClientRegistryView(
             dataPackConfigurationSnapshot,
             protocolRegistryContext,
-            listOf(ClientRegistryTag(registryId, tagId, mutableRegistryEntries)),
+            clientRegistryTags,
         )
+
+        assertSame(clientRegistryTags, clientRegistryView.clientRegistryTags)
+        assertSame(mutableRegistryEntries, clientRegistryView.clientRegistryTags.single().protocolRegistryEntries)
         mutableRegistryEntries.clear()
 
+        assertTrue(assertNotNull(clientRegistryView.tag(registryId, tagId)).protocolRegistryEntries.isEmpty())
+    }
+
+    @Test
+    fun resolvedProtocolDataRetainsCallerOwnedCollections() {
+        val offeredKnownPacks = mutableListOf<KnownPack>()
+        val enabledFeatureFlags = mutableSetOf<Identifier>()
+        val synchronizedRegistryPackets = mutableListOf<RegistryDataPacket>()
+        val registryTags = mutableListOf<RegistryTags>()
+        val resolvedProtocolData = ResolvedProtocolData(
+            minecraftVersion = "test",
+            protocolVersion = 1,
+            offeredKnownPacks = offeredKnownPacks,
+            enabledFeatureFlags = enabledFeatureFlags,
+            completeSynchronizedRegistryPackets = synchronizedRegistryPackets,
+            registryTags = registryTags,
+            staticRegistrySchema = StaticRegistrySchema.Empty,
+        )
+
+        assertSame(offeredKnownPacks, resolvedProtocolData.offeredKnownPacks)
+        assertSame(enabledFeatureFlags, resolvedProtocolData.enabledFeatureFlags)
+        assertSame(synchronizedRegistryPackets, resolvedProtocolData.completeSynchronizedRegistryPackets)
+        assertSame(synchronizedRegistryPackets, resolvedProtocolData.knownPackSynchronizedRegistryPackets)
+        assertSame(registryTags, resolvedProtocolData.registryTags)
         assertEquals(
-            protocolRegistryEntry,
-            assertNotNull(clientRegistryView.tag(registryId, tagId)).protocolRegistryEntries.single(),
+            resolvedProtocolData,
+            ResolvedProtocolData(
+                minecraftVersion = "test",
+                protocolVersion = 1,
+                offeredKnownPacks = offeredKnownPacks,
+                enabledFeatureFlags = enabledFeatureFlags,
+                completeSynchronizedRegistryPackets = synchronizedRegistryPackets,
+                registryTags = registryTags,
+                staticRegistrySchema = StaticRegistrySchema.Empty,
+            ),
+        )
+        assertEquals(
+            DataPackConfigurationSnapshot(emptyList(), emptySet(), emptyList(), emptyList()),
+            DataPackConfigurationSnapshot(emptyList(), emptySet(), emptyList(), emptyList()),
         )
     }
 

@@ -12,6 +12,11 @@ management, or an authoritative world.
 `MinecraftServer` binds a Ktor TCP listener. The application owns the accept loop and connection concurrency; the
 repository's [server quick start](../README.md#accept-clients-on-a-server) shows that complete outer lifetime.
 
+`bind()` is the maintained socket-creation path. The public `MinecraftServer` constructor also accepts an already-bound
+`ServerSocket` and its connection, authentication, transport, and dispatcher configuration. A public
+`MinecraftServerConnection` constructor can wrap a caller-supplied `MinecraftServerPacketConnection` for custom endpoint
+implementations without changing the negotiation layer.
+
 `accept()` returns a typed connection without starting negotiation. `negotiate()` answers a Status exchange and returns
 `null` after closing that Status connection, or completes Login and Configuration and returns
 `MinecraftServerNegotiationResult` for an open Play connection after sending the first `PlayLoginPacket`. It

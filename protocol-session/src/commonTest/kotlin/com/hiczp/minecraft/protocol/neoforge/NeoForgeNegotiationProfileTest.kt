@@ -390,7 +390,7 @@ private abstract class NeoForgeTestConnection<Incoming : Packet, Outgoing : Pack
 
     override fun activateExtensionRoutes(routes: Set<PacketRouteKey>) {
         require(routes.all(declaredExtensionRoutes::contains))
-        activeRoutes = routes.toSet()
+        activeRoutes = routes
     }
 
     override fun encodeCustomPayload(packet: Outgoing): RoutedCustomPayload {

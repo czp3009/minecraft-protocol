@@ -375,6 +375,10 @@ Applications may implement their own Handshake/Login/Configuration flow using `i
 the complete source-level ordering reference. Endpoint-managed direct KeepAlive replies remain active in a hand-written
 flow and must not be duplicated there.
 
+`MinecraftClientConnection` can also wrap a caller-supplied `MinecraftClientPacketConnection` together with its
+advertised server address and port. `connect()` remains the maintained socket-creation path, while the public
+constructor lets custom transports or endpoint implementations use the same high-level orchestration.
+
 Closing a connection closes its packet pumps and transport. Protocol rejection and transfer exceptions leave a usable
 lifetime decision to the caller; framing, transport, and packet-pump failures terminate the connection and remain
 visible through channel operations or `awaitClosed()`.

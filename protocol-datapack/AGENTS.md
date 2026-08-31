@@ -17,10 +17,13 @@ of active protocol dimension/registry facts to semantic world-Chunk contracts.
 - `MinecraftDimensionLayout` combines synchronized identity/raw ID with `world-format`'s `DimensionTypeLayout`, and
   `MinecraftDimensionContext` validates that network handoff. `MinecraftChunkContext` contains only the dimension ID,
   layout, active registries, `ChunkCodecContext`, and `ChunkNbtCodec`; disk and Chunk packet bodies must not require a
-  synchronized dimension-type raw ID. Retain immutable registries by reference.
+  synchronized dimension-type raw ID. Reuse active registries by reference.
 - `ResolvedProtocolData.resolveMinecraftWorld` resolves every persisted referenced dimension type against the exact
   complete synchronized registry order before constructing contexts. Aggregate dimension failures, reject inline holders
   on this server-negotiable path, and never create partial results or synthetic registry entries.
+- `ResolvedProtocolData` remains an ordinary class because its default `completeProtocolRegistryContext` is derived from
+  the static schema and complete packet sequence; a generated `copy` operation must not retain a stale derived context
+  after replacing either input.
 - `ResolvedProtocolData.resolveMinecraftChunkContexts` is the semantic disk/custom-endpoint path. Resolve referenced
   holders against the same registry data, decode inline holders directly, aggregate failures, and return no partial map.
 - Keep `ChunkDataRegistries` and `ChunkCodecContext` usable as lower-level custom-codec branch points. Do not add

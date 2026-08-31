@@ -25,6 +25,14 @@ class ForgeRegistrySync(
     fun resolve(staticRegistrySchema: StaticRegistrySchema): ProtocolRegistryContext =
         staticRegistrySchema.resolve(requireForgeCompatible(staticRegistrySchema, remoteRegistrySnapshot))
             .withForgeRegistrySizes(forgeRegistrySnapshots)
+
+    override fun equals(other: Any?): Boolean =
+        other is ForgeRegistrySync &&
+                forgeRegistrySnapshots == other.forgeRegistrySnapshots &&
+                dataPackRegistryIds == other.dataPackRegistryIds
+
+    override fun hashCode(): Int =
+        31 * forgeRegistrySnapshots.hashCode() + dataPackRegistryIds.hashCode()
 }
 
 internal fun forgeRemoteRegistrySnapshot(

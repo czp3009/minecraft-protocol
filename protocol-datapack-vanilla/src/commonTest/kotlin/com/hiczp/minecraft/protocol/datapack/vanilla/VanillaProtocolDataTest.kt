@@ -102,6 +102,26 @@ class VanillaProtocolDataTest {
     }
 
     @Test
+    fun registryModelsRetainCallerOwnedLists() {
+        val registryEntryIds = mutableListOf(Identifier("test:entry"))
+        val vanillaRegistry = VanillaRegistry(Identifier("test:registry"), registryEntryIds)
+        val vanillaBlockStates = mutableListOf(
+            VanillaBlockState(
+                rawId = 0,
+                blockId = Identifier("test:block"),
+                properties = emptyMap(),
+                isDefault = true,
+            ),
+        )
+        val vanillaBlockStateRegistry = VanillaBlockStateRegistry(vanillaBlockStates)
+
+        assertSame(registryEntryIds, vanillaRegistry.registryEntryIds)
+        assertSame(vanillaBlockStates, vanillaBlockStateRegistry.vanillaBlockStates)
+        assertEquals(vanillaRegistry, vanillaRegistry.copy())
+        assertEquals(vanillaBlockStateRegistry, vanillaBlockStateRegistry.copy())
+    }
+
+    @Test
     fun derivesChunkContextFromSynchronizedDimensionData() {
         val minecraftDimensionLayout = MinecraftDimensionLayout.from(
             VanillaProtocolData,

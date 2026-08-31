@@ -6,25 +6,17 @@ import com.hiczp.minecraft.nbt.NbtList
 import com.hiczp.minecraft.nbt.NbtLongArray
 
 /** The name and properties persisted by one block-state palette entry. */
-class BlockStateDescriptor(
+data class BlockStateDescriptor(
     val name: String,
-    properties: Map<String, String> = emptyMap(),
+    val properties: Map<String, String> = emptyMap(),
 ) {
-    val properties: Map<String, String> = properties.toMap()
-
     init {
         require(name.isNotBlank()) { "A block-state name must not be blank" }
-        require(this.properties.all { (property, value) -> property.isNotBlank() && value.isNotBlank() }) {
+        require(properties.all { (property, value) -> property.isNotBlank() && value.isNotBlank() }) {
             "Block-state property names and values must not be blank"
         }
     }
 
-    override fun equals(other: Any?): Boolean =
-        other is BlockStateDescriptor && name == other.name && properties == other.properties
-
-    override fun hashCode(): Int = 31 * name.hashCode() + properties.hashCode()
-
-    override fun toString(): String = "BlockStateDescriptor(name=$name, properties=$properties)"
 }
 
 /** Caller-supplied block-state catalogue used by strong Chunk conversion. */
@@ -46,7 +38,7 @@ interface BiomeRegistry<M : Any> {
 }
 
 /** Open block-state mapping that accepts every persisted descriptor without catalogue validation. */
-class DescriptorBlockStateRegistry(
+data class DescriptorBlockStateRegistry(
     override val defaultValue: BlockStateDescriptor = BlockStateDescriptor("minecraft:air"),
 ) : BlockStateRegistry<BlockStateDescriptor> {
     override fun resolve(blockStateDescriptor: BlockStateDescriptor): BlockStateDescriptor = blockStateDescriptor
@@ -55,7 +47,7 @@ class DescriptorBlockStateRegistry(
 }
 
 /** Open biome mapping that represents biome values by their persisted names. */
-class NamedBiomeRegistry(
+data class NamedBiomeRegistry(
     override val defaultValue: String = "minecraft:plains",
 ) : BiomeRegistry<String> {
     init {
@@ -290,7 +282,7 @@ private fun <T : Any> paletteStorage(values: List<T>): PaletteStorage<T> {
  *
  * [values] follows first-use order, while [ids] maps every logical container entry to one value.
  */
-class CompactPalette<T : Any> internal constructor(
+class CompactPalette<T : Any>(
     values: List<T>,
     ids: IntArray,
 ) {

@@ -23,8 +23,8 @@ a finite initial Chunk/entity view; it does not run gameplay.
   responsibilities.
 - Online Login decides when the Session Server `/hasJoined` call occurs. It consumes a caller-supplied `HttpClient` and
   does not own account or admission policy.
-- Definitions, static schemas, and resolved contexts may be shared across connections. Retain large immutable data by
-  reference.
+- Definitions, static schemas, and resolved contexts may be shared across connections. Retain caller-owned read-only
+  data by reference.
 - Negotiation, codec, and state failures propagate. Do not add automatic disconnect packets or loader-failure replies;
   the caller chooses the response and lifetime.
 - Preset negotiation owns the Configuration-to-Play KeepAlive switch. Custom negotiation and reconfiguration explicitly

@@ -12,7 +12,7 @@ import org.gradle.jvm.toolchain.JavaToolchainService
 import java.nio.charset.StandardCharsets
 
 /** Lazy immutable inputs consumed by standard external-peer test tasks. */
-class MinecraftTestFixtureOutputs(
+data class MinecraftTestFixtureOutputs(
     val officialServer: FileCollection,
     val headlessClient: FileCollection,
     val codecOracle: FileCollection,

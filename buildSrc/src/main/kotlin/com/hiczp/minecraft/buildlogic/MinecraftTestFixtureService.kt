@@ -187,7 +187,7 @@ abstract class MinecraftTestFixtureService :
     }
 }
 
-class MinecraftTestFixtureInfrastructure(
+data class MinecraftTestFixtureInfrastructure(
     val service: Provider<MinecraftTestFixtureService>,
     val hostClasspath: FileCollection,
 )

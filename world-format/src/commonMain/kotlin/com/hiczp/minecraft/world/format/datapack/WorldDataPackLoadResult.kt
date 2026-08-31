@@ -2,14 +2,12 @@ package com.hiczp.minecraft.world.format.datapack
 
 /** Enabled data-pack IDs that neither the world reader nor a caller-supplied source could provide. */
 class UnresolvedDataPackIdsException(
-    unresolvedDataPackIds: List<DataPackId>,
+    val unresolvedDataPackIds: List<DataPackId>,
 ) : IllegalArgumentException(
     "Unresolved enabled data packs: ${unresolvedDataPackIds.joinToString()}",
 ) {
-    val unresolvedDataPackIds: List<DataPackId> = unresolvedDataPackIds.toList()
-
     init {
-        require(this.unresolvedDataPackIds.isNotEmpty()) {
+        require(unresolvedDataPackIds.isNotEmpty()) {
             "An unresolved data-pack failure must identify at least one pack"
         }
     }
@@ -19,21 +17,18 @@ class UnresolvedDataPackIdsException(
  * Detached result of loading the file-backed members of one world's persisted data-pack selection.
  *
  * [enabledDataPackIds] retains the complete low-to-high-priority selection. [loadedDataPacks] contains the members
- * supplied by the reader, normally the world's `file/...` packs; core, built-in, and loader-defined members remain in
+ * supplied by the reader in that priority order; an already ordered input list is retained, while an out-of-order list
+ * is normalized because pack order is part of data-pack semantics. Core, built-in, and loader-defined members remain in
  * [unloadedEnabledDataPackIds] until [toDataPackStack] receives their owning source. This value contains no paths, open
  * resources, or filesystem behavior.
  */
 class WorldDataPackLoadResult(
-    enabledDataPackIds: List<DataPackId>,
+    val enabledDataPackIds: List<DataPackId>,
     loadedDataPacks: List<DataPack>,
-    disabledDataPackIds: List<DataPackId> = emptyList(),
-    enabledFeatureFlags: Set<String> = emptySet(),
-    removedFeatureFlags: Set<String> = emptySet(),
+    val disabledDataPackIds: List<DataPackId> = emptyList(),
+    val enabledFeatureFlags: Set<String> = emptySet(),
+    val removedFeatureFlags: Set<String> = emptySet(),
 ) {
-    val enabledDataPackIds: List<DataPackId> = enabledDataPackIds.toList()
-    val disabledDataPackIds: List<DataPackId> = disabledDataPackIds.toList()
-    val enabledFeatureFlags: Set<String> = enabledFeatureFlags.toSet()
-    val removedFeatureFlags: Set<String> = removedFeatureFlags.toSet()
     private val loadedDataPacksById: Map<DataPackId, DataPack> = loadedDataPacks
         .associateBy(DataPack::dataPackId)
         .also { loadedDataPacksById ->
@@ -41,18 +36,22 @@ class WorldDataPackLoadResult(
                 "Loaded data packs must have distinct IDs"
             }
         }
-    val loadedDataPacks: List<DataPack> = this.enabledDataPackIds.mapNotNull(loadedDataPacksById::get)
+    val loadedDataPacks: List<DataPack> = if (loadedDataPacks.followEnabledOrder(enabledDataPackIds)) {
+        loadedDataPacks
+    } else {
+        enabledDataPackIds.mapNotNull(loadedDataPacksById::get)
+    }
     val unloadedEnabledDataPackIds: List<DataPackId> =
-        this.enabledDataPackIds.filterNot(loadedDataPacksById::containsKey)
+        enabledDataPackIds.filterNot(loadedDataPacksById::containsKey)
 
     init {
-        require(this.enabledDataPackIds.distinct().size == this.enabledDataPackIds.size) {
+        require(enabledDataPackIds.distinct().size == enabledDataPackIds.size) {
             "Enabled data-pack IDs must be distinct"
         }
-        require(this.disabledDataPackIds.distinct().size == this.disabledDataPackIds.size) {
+        require(disabledDataPackIds.distinct().size == disabledDataPackIds.size) {
             "Disabled data-pack IDs must be distinct"
         }
-        require(loadedDataPacksById.keys.all(this.enabledDataPackIds::contains)) {
+        require(loadedDataPacksById.keys.all(enabledDataPackIds::contains)) {
             "Every loaded data pack must belong to the enabled selection"
         }
     }
@@ -75,4 +74,14 @@ class WorldDataPackLoadResult(
         }
         return DataPackStack(dataPacks)
     }
+}
+
+private fun List<DataPack>.followEnabledOrder(enabledDataPackIds: List<DataPackId>): Boolean {
+    var previousIndex = -1
+    forEach { dataPack ->
+        val index = enabledDataPackIds.indexOf(dataPack.dataPackId)
+        if (index <= previousIndex) return false
+        previousIndex = index
+    }
+    return true
 }

@@ -15,14 +15,12 @@ import kotlin.io.encoding.Base64
 /**
  * A vanilla static registry whose list position is its protocol ID.
  */
-class VanillaRegistry internal constructor(
+data class VanillaRegistry(
     val registryId: Identifier,
-    registryEntryIds: List<Identifier>,
+    val registryEntryIds: List<Identifier>,
 ) {
-    val registryEntryIds: List<Identifier> = registryEntryIds.toList()
-
     init {
-        require(this.registryEntryIds.distinct().size == this.registryEntryIds.size) {
+        require(registryEntryIds.distinct().size == registryEntryIds.size) {
             "$registryId contains duplicate vanilla registry entries"
         }
     }
@@ -53,19 +51,17 @@ data class VanillaBlockState(
     val isDefault: Boolean,
 )
 
-class VanillaBlockStateRegistry internal constructor(
-    vanillaBlockStates: List<VanillaBlockState>,
+data class VanillaBlockStateRegistry(
+    val vanillaBlockStates: List<VanillaBlockState>,
 ) {
-    val vanillaBlockStates: List<VanillaBlockState> = vanillaBlockStates.toList()
-
     init {
-        require(this.vanillaBlockStates.withIndex().all { (rawId, vanillaBlockState) ->
+        require(vanillaBlockStates.withIndex().all { (rawId, vanillaBlockState) ->
             vanillaBlockState.rawId == rawId
         }) {
             "Vanilla block-state IDs must be contiguous and ordered"
         }
         require(
-            this.vanillaBlockStates
+            vanillaBlockStates
                 .groupBy(VanillaBlockState::blockId)
                 .values
                 .all { blockStates ->

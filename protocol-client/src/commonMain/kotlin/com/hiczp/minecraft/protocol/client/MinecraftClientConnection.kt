@@ -14,7 +14,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlin.coroutines.ContinuationInterceptor
 
-class MinecraftClientConnection internal constructor(
+class MinecraftClientConnection(
     private val minecraftClientPacketConnection: MinecraftClientPacketConnection,
     val serverAddress: String,
     val serverPort: Int,

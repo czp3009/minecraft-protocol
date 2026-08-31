@@ -4,6 +4,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertSame
 
 class WorldDataPackLoadResultTest {
     @Test
@@ -12,6 +13,7 @@ class WorldDataPackLoadResultTest {
         val lowFileDataPack = dataPack("file/low")
         val builtInDataPack = dataPack("experiment")
         val highFileDataPack = dataPack("file/high")
+        val loadedDataPacks = listOf(lowFileDataPack, highFileDataPack)
         val worldDataPackLoadResult = WorldDataPackLoadResult(
             enabledDataPackIds = listOf(
                 vanillaDataPack.dataPackId,
@@ -19,16 +21,30 @@ class WorldDataPackLoadResultTest {
                 builtInDataPack.dataPackId,
                 highFileDataPack.dataPackId,
             ),
-            loadedDataPacks = listOf(lowFileDataPack, highFileDataPack),
+            loadedDataPacks = loadedDataPacks,
         )
         val externalDataPacks = listOf(vanillaDataPack, builtInDataPack).associateBy(DataPack::dataPackId)
 
         val dataPackStack = worldDataPackLoadResult.toDataPackStack(externalDataPacks::get)
 
+        assertSame(loadedDataPacks, worldDataPackLoadResult.loadedDataPacks)
         assertEquals(
             listOf(vanillaDataPack, lowFileDataPack, builtInDataPack, highFileDataPack),
             dataPackStack.dataPacks,
         )
+    }
+
+    @Test
+    fun loadedPacksAreNormalizedOnlyWhenTheirPriorityOrderDiffers() {
+        val lowDataPack = dataPack("file/low")
+        val highDataPack = dataPack("file/high")
+
+        val worldDataPackLoadResult = WorldDataPackLoadResult(
+            enabledDataPackIds = listOf(lowDataPack.dataPackId, highDataPack.dataPackId),
+            loadedDataPacks = listOf(highDataPack, lowDataPack),
+        )
+
+        assertEquals(listOf(lowDataPack, highDataPack), worldDataPackLoadResult.loadedDataPacks)
     }
 
     @Test

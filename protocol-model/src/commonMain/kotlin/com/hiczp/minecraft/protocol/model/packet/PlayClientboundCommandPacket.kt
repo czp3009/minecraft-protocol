@@ -120,7 +120,7 @@ internal object CommandsPacketSerializer : KSerializer<CommandsPacket> {
                     "Command graph contains an impossible $kind cycle",
                 )
             }
-            unresolved.removeAll(resolved.toSet())
+            resolved.forEach(unresolved::remove)
         }
     }
 

@@ -5,12 +5,12 @@ Format-independent Kotlin models for Minecraft Java Edition packet payloads and 
 The module provides:
 
 - packet marker interfaces grouped by connection state and direction;
-- logical clientbound Bundle snapshots with intrinsic size and nesting invariants;
+- logical clientbound Bundle values with intrinsic size and nesting invariants;
 - structured values for server status, items, chunks, chat, commands, entities, registries, recipes, and other packet
   fields;
 - sealed variants and logical `kotlinx.serialization` serializers for conditional protocol shapes;
 - open direction-specific packet extension branches plus lossless `PacketRoute`/`UnknownPacket` values;
-- immutable static, remote, and resolved registry models for dynamic block-state and registry IDs;
+- static, remote, and resolved registry data models for dynamic block-state and registry IDs;
 - wire-hint annotations interpreted by [`protocol-serialization`](../protocol-serialization/README.md);
 - packet and data-component identity annotations, validated at compile time and generated into dispatch tables by the
   private [`protocol-symbol-processor`](../protocol-symbol-processor/README.md).
@@ -47,8 +47,9 @@ val statusResponsePacket: ClientboundPacket = StatusResponsePacket(serverStatus)
 ```
 
 `ClientboundBundlePacket` is one logical Play value rather than a registered packet with its own numeric ID. Its
-constructor snapshots at most 4,096 ordered sub-packets and rejects nested bundles or `BundleDelimiterPacket` values.
-The delimiter remains a separate wire packet model;
+constructor retains a supplied `List` and accepts a general `Collection` by materializing it only when it is not already
+a list. It validates at most 4,096 ordered sub-packets and rejects nested bundles or `BundleDelimiterPacket` values, so
+callers must keep a retained list stable after construction. The delimiter remains a separate wire packet model;
 [`protocol-session`](../protocol-session/README.md#clientbound-bundles) owns expansion and reconstruction at the
 packet-session boundary.
 
@@ -72,9 +73,10 @@ fun itemStackCount(itemStack: ItemStack): Int = when (itemStack) {
 }
 ```
 
-Immutable registry models resolve locally known block-state schemas against a loader-provided remote snapshot. In the
-example, `staticRegistrySchema` is constructed from the client's local vanilla/mod catalogue and
-`remoteRegistrySnapshot` is received from its loader negotiation:
+Registry data classes retain caller-supplied read-only collections by reference; callers must keep them stable because
+lookup indexes are derived during construction. `RemoteRegistrySnapshot` is the explicit exception: it detaches the
+loader mappings, entries, and aliases supplied to it. In the example, `staticRegistrySchema` is constructed from the
+client's local vanilla/mod catalogue and `remoteRegistrySnapshot` is received from its loader negotiation:
 
 ```kotlin
 val protocolRegistryContext: ProtocolRegistryContext = staticRegistrySchema.resolve(remoteRegistrySnapshot)

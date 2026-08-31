@@ -53,15 +53,7 @@ class NbtFormatTreeTest {
         )
 
         val decoded = NbtFormat.decodeFromNbtTag<TreeSample>(nbtTag)
-        assertEquals(
-            treeSample,
-            decoded.copy(
-                bytes = treeSample.bytes,
-                ints = treeSample.ints,
-                longs = treeSample.longs,
-                shorts = treeSample.shorts,
-            ),
-        )
+        assertEquals(treeSample, decoded)
         assertContentEquals(treeSample.bytes, decoded.bytes)
         assertContentEquals(treeSample.ints, decoded.ints)
         assertContentEquals(treeSample.longs, decoded.longs)
@@ -141,6 +133,7 @@ class NbtFormatTreeTest {
         )
 
         val decoded = NbtFormat.decodeFromNbtTag<PrimitiveArraySample>(nbtTag)
+        assertEquals(primitiveArraySample, decoded)
         assertContentEquals(primitiveArraySample.booleans, decoded.booleans)
         assertContentEquals(primitiveArraySample.shorts, decoded.shorts)
         assertContentEquals(primitiveArraySample.floats, decoded.floats)
@@ -319,7 +312,43 @@ private data class TreeSample(
     val mode: TreeMode,
     val inline: InlineInt,
     val nested: NestedValue,
-)
+) {
+    override fun equals(other: Any?): Boolean =
+        other is TreeSample &&
+                boolean == other.boolean &&
+                byte == other.byte &&
+                short == other.short &&
+                int == other.int &&
+                long == other.long &&
+                float == other.float &&
+                double == other.double &&
+                text == other.text &&
+                bytes.contentEquals(other.bytes) &&
+                ints.contentEquals(other.ints) &&
+                longs.contentEquals(other.longs) &&
+                shorts.contentEquals(other.shorts) &&
+                mode == other.mode &&
+                inline == other.inline &&
+                nested == other.nested
+
+    override fun hashCode(): Int {
+        var result = boolean.hashCode()
+        result = 31 * result + byte
+        result = 31 * result + short
+        result = 31 * result + int
+        result = 31 * result + long.hashCode()
+        result = 31 * result + float.hashCode()
+        result = 31 * result + double.hashCode()
+        result = 31 * result + text.hashCode()
+        result = 31 * result + bytes.contentHashCode()
+        result = 31 * result + ints.contentHashCode()
+        result = 31 * result + longs.contentHashCode()
+        result = 31 * result + shorts.contentHashCode()
+        result = 31 * result + mode.hashCode()
+        result = 31 * result + inline.hashCode()
+        return 31 * result + nested.hashCode()
+    }
+}
 
 @Serializable
 private enum class TreeMode {
@@ -356,10 +385,28 @@ private data class PrimitiveArraySample(
     val shorts: ShortArray,
     val floats: FloatArray,
     val doubles: DoubleArray,
-)
+) {
+    override fun equals(other: Any?): Boolean =
+        other is PrimitiveArraySample &&
+                booleans.contentEquals(other.booleans) &&
+                shorts.contentEquals(other.shorts) &&
+                floats.contentEquals(other.floats) &&
+                doubles.contentEquals(other.doubles)
+
+    override fun hashCode(): Int {
+        var result = booleans.contentHashCode()
+        result = 31 * result + shorts.contentHashCode()
+        result = 31 * result + floats.contentHashCode()
+        return 31 * result + doubles.contentHashCode()
+    }
+}
 
 @Serializable
-private data class CharArraySample(val value: CharArray)
+private data class CharArraySample(val value: CharArray) {
+    override fun equals(other: Any?): Boolean = other is CharArraySample && value.contentEquals(other.value)
+
+    override fun hashCode(): Int = value.contentHashCode()
+}
 
 @Serializable
 private data class DefaultsSample(

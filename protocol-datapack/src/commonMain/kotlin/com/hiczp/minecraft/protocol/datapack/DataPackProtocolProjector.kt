@@ -32,16 +32,13 @@ data class DataPackRegistryProjector(
 
 /** Structured refusal to guess a registry's disk-codec to network-codec transformation. */
 class MissingDataPackRegistryProjectorsException(
-    unprojectedResourceIdsByRegistryId: Map<Identifier, List<DataPackResourceId>>,
+    val unprojectedResourceIdsByRegistryId: Map<Identifier, List<DataPackResourceId>>,
 ) : IllegalArgumentException(
     unprojectedResourceIdsByRegistryId.entries.joinToString(
         prefix = "Missing data-pack registry projectors: ",
         separator = "; ",
     ) { (registryId, dataPackResourceIds) -> "$registryId (${dataPackResourceIds.joinToString()})" },
-) {
-    val unprojectedResourceIdsByRegistryId: Map<Identifier, List<DataPackResourceId>> =
-        unprojectedResourceIdsByRegistryId.mapValues { (_, dataPackResourceIds) -> dataPackResourceIds.toList() }
-}
+)
 
 /** A caller-supplied registry entry projector failed for one identified resource. */
 class DataPackRegistryProjectionException(
@@ -69,17 +66,12 @@ class DataPackTagProjectionException(
  */
 class DataPackProtocolProjector(
     val baseProtocolData: ProtocolData,
-    dataPackRegistryProjectors: List<DataPackRegistryProjector> = emptyList(),
-    preprojectedDataPackIds: Set<DataPackId> = emptySet(),
-    offeredKnownPacks: List<KnownPack> = baseProtocolData.offeredKnownPacks,
-    enabledFeatureFlags: Set<Identifier> = baseProtocolData.enabledFeatureFlags,
+    val dataPackRegistryProjectors: List<DataPackRegistryProjector> = emptyList(),
+    val preprojectedDataPackIds: Set<DataPackId> = emptySet(),
+    val offeredKnownPacks: List<KnownPack> = baseProtocolData.offeredKnownPacks,
+    val enabledFeatureFlags: Set<Identifier> = baseProtocolData.enabledFeatureFlags,
     val staticRegistrySchema: StaticRegistrySchema = baseProtocolData.staticRegistrySchema,
 ) {
-    val dataPackRegistryProjectors: List<DataPackRegistryProjector> = dataPackRegistryProjectors.toList()
-    val preprojectedDataPackIds: Set<DataPackId> = preprojectedDataPackIds.toSet()
-    val offeredKnownPacks: List<KnownPack> = offeredKnownPacks.toList()
-    val enabledFeatureFlags: Set<Identifier> = enabledFeatureFlags.toSet()
-
     init {
         require(
             this.dataPackRegistryProjectors.map(DataPackRegistryProjector::registryId).distinct().size ==

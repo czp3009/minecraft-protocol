@@ -179,6 +179,23 @@ data class ChunkData(
     val sections: List<ChunkSection>,
     val blockEntities: List<BlockEntityInfo>,
 ) {
+    override fun equals(other: Any?): Boolean =
+        other is ChunkData &&
+                heightmaps.size == other.heightmaps.size &&
+                heightmaps.all { (heightmapType, values) ->
+                    other.heightmaps[heightmapType]?.contentEquals(values) == true
+                } &&
+                sections == other.sections &&
+                blockEntities == other.blockEntities
+
+    override fun hashCode(): Int {
+        var result = heightmaps.entries.sumOf { (heightmapType, values) ->
+            heightmapType.hashCode() xor values.contentHashCode()
+        }
+        result = 31 * result + sections.hashCode()
+        return 31 * result + blockEntities.hashCode()
+    }
+
     companion object {
         const val MAX_SECTION_BYTES: Int = 2_097_152
     }

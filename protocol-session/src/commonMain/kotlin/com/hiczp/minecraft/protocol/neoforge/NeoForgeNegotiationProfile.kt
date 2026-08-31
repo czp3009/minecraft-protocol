@@ -7,24 +7,17 @@ import com.hiczp.minecraft.protocol.model.type.RemoteRegistrySnapshot
 import com.hiczp.minecraft.protocol.model.type.StaticRegistrySchema
 import com.hiczp.minecraft.protocol.session.*
 
-class NeoForgeClientProfileDefinition(
+data class NeoForgeClientProfileDefinition(
     val staticRegistrySchema: StaticRegistrySchema,
     val neoForgeNetworkConfiguration: NeoForgeNetworkConfiguration = NeoForgeNetworkConfiguration(),
-    knownDataMaps: Map<Identifier, List<NeoForgeKnownDataMap>> = emptyMap(),
-    extensibleEnums: List<NeoForgeEnumEntry> = emptyList(),
-    featureFlags: Set<Identifier> = emptySet(),
-    supportedCommonVersions: Set<Int> =
+    val knownDataMaps: Map<Identifier, List<NeoForgeKnownDataMap>> = emptyMap(),
+    val extensibleEnums: List<NeoForgeEnumEntry> = emptyList(),
+    val featureFlags: Set<Identifier> = emptySet(),
+    val supportedCommonVersions: Set<Int> =
         setOf(NeoForgeProtocol.COMMON_PACKET_VERSION),
 ) {
-    val knownDataMaps: Map<Identifier, List<NeoForgeKnownDataMap>> =
-        knownDataMaps.entries.associate { (registry, maps) ->
-            registry to maps.toList()
-        }
-    val extensibleEnums: List<NeoForgeEnumEntry> = extensibleEnums.toList()
-    val featureFlags: Set<Identifier> = featureFlags.toSet()
-    val supportedCommonVersions: Set<Int> = validateCommonVersions(supportedCommonVersions)
-
     init {
+        validateCommonVersions(supportedCommonVersions)
         require(
             this.extensibleEnums.distinctBy(NeoForgeEnumEntry::className).size ==
                     this.extensibleEnums.size
@@ -34,28 +27,20 @@ class NeoForgeClientProfileDefinition(
     }
 }
 
-class NeoForgeServerProfileDefinition(
+data class NeoForgeServerProfileDefinition(
     val neoForgeNetworkConfiguration: NeoForgeNetworkConfiguration = NeoForgeNetworkConfiguration(),
     val neoForgeFrozenRegistrySync: NeoForgeFrozenRegistrySync? = null,
-    /** Caller-built immutable context retained by reference across connections. */
+    /** Caller-built context retained by reference across connections. */
     val protocolRegistryContext: ProtocolRegistryContext? = null,
-    configFiles: List<NeoForgeConfigFilePacket> = emptyList(),
-    knownDataMaps: Map<Identifier, List<NeoForgeKnownDataMap>> = emptyMap(),
-    extensibleEnums: List<NeoForgeEnumEntry> = emptyList(),
-    featureFlags: Set<Identifier> = emptySet(),
-    supportedCommonVersions: Set<Int> =
+    val configFiles: List<NeoForgeConfigFilePacket> = emptyList(),
+    val knownDataMaps: Map<Identifier, List<NeoForgeKnownDataMap>> = emptyMap(),
+    val extensibleEnums: List<NeoForgeEnumEntry> = emptyList(),
+    val featureFlags: Set<Identifier> = emptySet(),
+    val supportedCommonVersions: Set<Int> =
         setOf(NeoForgeProtocol.COMMON_PACKET_VERSION),
 ) {
-    val configFiles: List<NeoForgeConfigFilePacket> = configFiles.toList()
-    val knownDataMaps: Map<Identifier, List<NeoForgeKnownDataMap>> =
-        knownDataMaps.entries.associate { (registry, maps) ->
-            registry to maps.toList()
-        }
-    val extensibleEnums: List<NeoForgeEnumEntry> = extensibleEnums.toList()
-    val featureFlags: Set<Identifier> = featureFlags.toSet()
-    val supportedCommonVersions: Set<Int> = validateCommonVersions(supportedCommonVersions)
-
     init {
+        validateCommonVersions(supportedCommonVersions)
         require(
             this.extensibleEnums.distinctBy(NeoForgeEnumEntry::className).size ==
                     this.extensibleEnums.size
@@ -906,7 +891,10 @@ private suspend fun <Incoming : Packet, Outgoing : Packet>
     val loginRoutes = minecraftPacketConnection.declaredExtensionRoutes.filter { packetRouteKey ->
         packetRouteKey is PacketRouteKey.LoginQuery
     }
-    minecraftPacketConnection.activateExtensionRoutes((accepted + loginRoutes).toSet())
+    minecraftPacketConnection.activateExtensionRoutes(buildSet {
+        addAll(accepted)
+        addAll(loginRoutes)
+    })
 }
 
 private suspend fun <Incoming : Packet, Outgoing : Packet>
@@ -925,9 +913,11 @@ private suspend fun <Incoming : Packet, Outgoing : Packet>
                 (customPayload.packetDirection == incomingDirection ||
                         customPayload.packetDirection == outgoingDirection)
     }
-    minecraftPacketConnection.activateExtensionRoutes(
-        minecraftPacketConnection.activeExtensionRoutes - candidates.toSet() + accepted,
-    )
+    minecraftPacketConnection.activateExtensionRoutes(buildSet {
+        addAll(minecraftPacketConnection.activeExtensionRoutes)
+        removeAll(candidates)
+        addAll(accepted)
+    })
 }
 
 private suspend fun <Incoming : Packet, Outgoing : Packet>
@@ -950,9 +940,11 @@ private suspend fun <Incoming : Packet, Outgoing : Packet>
                                 customPayload.channel in localListening
                         )
     }
-    minecraftPacketConnection.activateExtensionRoutes(
-        minecraftPacketConnection.activeExtensionRoutes - candidates.toSet() + accepted,
-    )
+    minecraftPacketConnection.activateExtensionRoutes(buildSet {
+        addAll(minecraftPacketConnection.activeExtensionRoutes)
+        removeAll(candidates)
+        addAll(accepted)
+    })
 }
 
 private suspend fun <Incoming : Packet, Outgoing : Packet> activatePlayRoutes(
@@ -983,9 +975,11 @@ private suspend fun <Incoming : Packet, Outgoing : Packet> activatePlayRoutes(
                                 customPayload.channel in localCommonChannels
                         )
     }
-    minecraftPacketConnection.activateExtensionRoutes(
-        minecraftPacketConnection.activeExtensionRoutes - candidates.toSet() + accepted,
-    )
+    minecraftPacketConnection.activateExtensionRoutes(buildSet {
+        addAll(minecraftPacketConnection.activeExtensionRoutes)
+        removeAll(candidates)
+        addAll(accepted)
+    })
 }
 
 private fun <Incoming : Packet, Outgoing : Packet> customRoutes(
@@ -1052,18 +1046,17 @@ private fun playListeningChannels(
     }
 }
 
-private fun validateCommonVersions(versions: Set<Int>): Set<Int> =
-    versions.toSet().also { snapshot ->
-        require(snapshot.isNotEmpty()) {
-            "NeoForge common version set must not be empty"
-        }
-        require(snapshot.all { it > 0 }) {
-            "NeoForge common versions must be positive"
-        }
-        require(snapshot.size <= NeoForgeProtocol.MAX_COMMON_VERSIONS) {
-            "NeoForge common version set is too large"
-        }
+private fun validateCommonVersions(versions: Set<Int>) {
+    require(versions.isNotEmpty()) {
+        "NeoForge common version set must not be empty"
     }
+    require(versions.all { it > 0 }) {
+        "NeoForge common versions must be positive"
+    }
+    require(versions.size <= NeoForgeProtocol.MAX_COMMON_VERSIONS) {
+        "NeoForge common version set is too large"
+    }
+}
 
 private fun highestCommonVersion(
     remote: Collection<Int>,

@@ -145,6 +145,7 @@ class NbtFormatBinaryTest {
             encoded,
         )
 
+        assertEquals(directBinarySample, decoded)
         assertEquals(directBinarySample.mapping, decoded.mapping)
         assertContentEquals(directBinarySample.bytes, decoded.bytes)
         assertNull(decoded.requiredNullable)
@@ -648,7 +649,21 @@ private data class DirectBinarySample(
     val bytes: ByteArray,
     val requiredNullable: String?,
     val raw: NbtTag,
-)
+) {
+    override fun equals(other: Any?): Boolean =
+        other is DirectBinarySample &&
+                mapping == other.mapping &&
+                bytes.contentEquals(other.bytes) &&
+                requiredNullable == other.requiredNullable &&
+                raw == other.raw
+
+    override fun hashCode(): Int {
+        var result = mapping.hashCode()
+        result = 31 * result + bytes.contentHashCode()
+        result = 31 * result + requiredNullable.hashCode()
+        return 31 * result + raw.hashCode()
+    }
+}
 
 @Serializable
 private data class KnownBinaryValue(val number: Int)

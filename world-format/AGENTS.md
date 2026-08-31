@@ -26,8 +26,9 @@ conversion, and semantic Chunk/entity values for the repository-selected release
   `ResolvedDataPackStack` own priority resolution. These values remain filesystem- and protocol-independent. Decoders
   are caller-extensible.
 - `WorldDataPackLoadResult` is the detached partial-selection handoff: it retains persisted pack IDs and feature
-  configuration plus packs already supplied by a lower reader. Completing it preserves enabled low-to-high priority,
-  reports every unavailable ID together, and adds no vanilla-core, filesystem-discovery, or protocol policy.
+  configuration plus packs already supplied by a lower reader. Retain an already ordered loaded-pack list by reference;
+  normalize only an out-of-order list because enabled low-to-high priority is part of data-pack semantics. Completing it
+  reports every unavailable ID together and adds no vanilla-core, filesystem-discovery, or protocol policy.
 - Keep semantic namespaced identities such as `DimensionId`, `DimensionTypeId`, and `SavedDataId` in this module.
   External text enters through their parsing/serialization boundaries; filesystem validation remains in `world-io`.
 - `WorldGenSettingsData` retains dimension keys and the reference-or-inline dimension-type holder shape strongly.
