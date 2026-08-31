@@ -141,6 +141,14 @@ class ProtocolModelInvariantTest {
     }
 
     @Test
+    fun `chunk section exposes packet-reported occupancy`() {
+        assertTrue(chunkSection().hasOnlyAir)
+        assertFalse(chunkSection().hasFluid)
+        assertFalse(chunkSection(nonAir = 1).hasOnlyAir)
+        assertTrue(chunkSection(fluid = 1).hasFluid)
+    }
+
+    @Test
     fun `chat and metadata values enforce sentinel and fixed-size contracts`() {
         assertFailsWith<IllegalArgumentException> {
             PackedMessageSignature.Full(ByteString(ByteArray(255)))

@@ -78,6 +78,14 @@ data class ChunkSection(
     @Paletted(PaletteKind.BIOMES)
     val biomes: PalettedContainer,
 ) {
+    /** Whether the packet-reported Section contains only air block states. */
+    val hasOnlyAir: Boolean
+        get() = nonAirBlockCount == 0
+
+    /** Whether the packet-reported Section contains at least one non-empty fluid state. */
+    val hasFluid: Boolean
+        get() = fluidCount > 0
+
     init {
         require(nonAirBlockCount in 0..BLOCK_COUNT) {
             "A chunk section contains $nonAirBlockCount non-air blocks"
