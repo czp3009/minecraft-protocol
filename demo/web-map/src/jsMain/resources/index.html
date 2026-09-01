@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Minecraft Web Map</title>
+    <link href="data:," rel="icon">
+    <link href="styles.css" rel="stylesheet">
+</head>
+<body>
+<section aria-live="polite" class="startup-phase" id="startup-phase">
+    <div class="startup-card">
+        <div class="phase-label" id="startup-phase-label">Phase 1 of 2 · Official assets</div>
+        <h1 id="startup-title">Preparing official Minecraft assets</h1>
+        <div class="startup-step" id="asset-load-step">Preparing asset loader</div>
+        <p class="startup-action" id="asset-load-action">Connecting to the map service...</p>
+        <progress class="startup-progress" id="asset-load-progress"></progress>
+        <p class="startup-count" id="asset-load-count">Waiting for world metadata</p>
+        <button hidden id="retry-assets" type="button">Retry official asset loading</button>
+    </div>
+</section>
+<main aria-label="Minecraft world map" hidden id="map"></main>
+<section aria-label="Map center" class="map-status" hidden id="map-status">
+    <div class="coordinate-text" id="coordinate-text"></div>
+</section>
+<script src="web-map.js"></script>
+</body>
+</html>

@@ -35,4 +35,5 @@ include(
     ":minecraft-test-fixture-host",
     ":protocol-symbol-processor",
     ":demo:launcher",
+    ":demo:web-map",
 )

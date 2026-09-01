@@ -51,6 +51,9 @@ does not expose partial browser or Wasm filesystem APIs. Each module's build scr
 The [launcher demo](demo/launcher/README.md) is a terminal application that combines account management,
 official-version installation, and game launch.
 
+The [web map demo](demo/web-map/README.md) composes live world-file reads, vanilla data-pack projection, kRPC, and a
+Kotlin/JS browser map that prepares official block textures before displaying the world.
+
 ## Quick starts
 
 ### Connect a client
