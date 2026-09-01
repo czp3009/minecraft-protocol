@@ -45,12 +45,20 @@ internal fun LauncherScaffold(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val terminal = LocalTerminalState.current.size
+    // Wrapped fixed rows can otherwise consume more space than Mosaic can distribute to weighted content.
+    if (terminal.columns < MINIMUM_TERMINAL_COLUMNS || terminal.rows < MINIMUM_TERMINAL_ROWS) {
+        Text(
+            value = TERMINAL_TOO_SMALL_MESSAGE.take(terminal.columns.coerceAtLeast(1)),
+        )
+        return
+    }
+
     // Mosaic terminates every canvas row with CRLF, so a full-height surface would scroll its first row away.
     val canvasRows = (terminal.rows - 1).coerceAtLeast(1)
     Column(
         modifier = Modifier
             .size(terminal.columns.coerceAtLeast(1), canvasRows)
-            .onKeyEvent { keyEvent -> if (keyEvent.ctrl || keyEvent.alt) false else onKeyEvent(keyEvent) },
+            .onKeyEvent { keyEvent -> !(keyEvent.ctrl || keyEvent.alt) && onKeyEvent(keyEvent) },
     ) {
         WrappedText("$LAUNCHER_TITLE  $platform", Modifier.padding(horizontal = 2))
         Spacer(Modifier.height(1))
@@ -148,3 +156,7 @@ private const val LAUNCHER_TITLE = "Minecraft Launcher Demo"
 private const val CONTENT_HORIZONTAL_PADDING = 4
 private const val PROGRESS_BAR_MAXIMUM_WIDTH = 48
 private const val PROPERTY_SEPARATOR = ": "
+private const val MINIMUM_TERMINAL_COLUMNS = 40
+private const val MINIMUM_TERMINAL_ROWS = 14
+private const val TERMINAL_TOO_SMALL_MESSAGE =
+    "Resize terminal to at least $MINIMUM_TERMINAL_COLUMNS x $MINIMUM_TERMINAL_ROWS"
