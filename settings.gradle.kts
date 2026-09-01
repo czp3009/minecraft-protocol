@@ -25,6 +25,7 @@ include(
     ":protocol-datapack-vanilla",
     ":protocol-transport",
     ":protocol-session",
+    ":distribution-metadata",
     ":account-auth",
     ":protocol-auth",
     ":protocol-client",
