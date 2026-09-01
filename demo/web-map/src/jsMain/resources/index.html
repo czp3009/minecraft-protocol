@@ -16,12 +16,13 @@
         <p class="startup-action" id="asset-load-action">Connecting to the map service...</p>
         <progress class="startup-progress" id="asset-load-progress"></progress>
         <p class="startup-count" id="asset-load-count">Waiting for world metadata</p>
-        <button hidden id="retry-assets" type="button">Retry official asset loading</button>
     </div>
 </section>
 <main aria-label="Minecraft world map" hidden id="map"></main>
-<section aria-label="Map center" class="map-status" hidden id="map-status">
+<section aria-label="Map status" class="map-status" hidden id="map-status">
+    <div class="connection-text" id="connection-text"></div>
     <div class="coordinate-text" id="coordinate-text"></div>
+    <div class="viewport-text" id="viewport-text"></div>
 </section>
 <script src="web-map.js"></script>
 </body>

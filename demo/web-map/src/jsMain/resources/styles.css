@@ -189,11 +189,12 @@ body {
 }
 
 .leaflet-bar a {
-    display: block;
-    width: 34px;
-    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 10px;
     color: #f1f6ef;
-    font: 700 24px/34px system-ui, sans-serif;
+    font: 700 24px/1 system-ui, sans-serif;
     text-align: center;
     text-decoration: none;
     background: transparent;
@@ -215,13 +216,14 @@ body {
 }
 
 .dimension-control {
-    min-width: 130px;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: stretch;
 }
 
 .dimension-control button {
     display: block;
     box-sizing: border-box;
-    width: 100%;
     padding: 8px 10px;
     color: #f1f6ef;
     font: 650 13px/1.35 system-ui, sans-serif;
@@ -317,6 +319,17 @@ body {
 .coordinate-text {
     color: #eef5eb;
     font-variant-numeric: tabular-nums;
+}
+
+.connection-text,
+.viewport-text {
+    color: #aebba9;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.connection-text.warning {
+    color: #e3c37a;
 }
 
 .startup-card button {

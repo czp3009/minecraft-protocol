@@ -5,199 +5,314 @@ import com.hiczp.minecraft.protocol.datapack.MinecraftChunkContext
 import com.hiczp.minecraft.protocol.model.type.ProtocolBlockState
 import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryEntry
 import com.hiczp.minecraft.world.format.*
+import com.hiczp.minecraft.world.io.DecodedChunkRegionReadScope
 import com.hiczp.minecraft.world.io.LiveMinecraftWorldAccess
+import com.hiczp.minecraft.world.io.LiveRegionHandle
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okio.IOException
+import kotlin.coroutines.CoroutineContext
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
-internal sealed interface ChunkReadOutcome {
-    data object Missing : ChunkReadOutcome
+sealed interface SurfaceChunkReadOutcome {
+    data object Missing : SurfaceChunkReadOutcome
 
     data class Present(
-        val chunk: Chunk<ProtocolBlockState, ProtocolRegistryEntry>,
-    ) : ChunkReadOutcome
+        val timestampEpochSeconds: Int,
+        val surface: ChunkSurface,
+    ) : SurfaceChunkReadOutcome
 
-    data class Failed(val failure: Throwable) : ChunkReadOutcome
+    data object Failed : SurfaceChunkReadOutcome
 }
 
-internal sealed interface RegionReadOutcome {
+sealed interface SurfaceRegionReadOutcome {
     data class Success(
-        val chunks: Map<ChunkPosition, ChunkReadOutcome>,
-    ) : RegionReadOutcome
+        val chunks: Map<ChunkPosition, SurfaceChunkReadOutcome>,
+    ) : SurfaceRegionReadOutcome
 
-    data class Failed(val failure: Throwable) : RegionReadOutcome
+    data object Failed : SurfaceRegionReadOutcome
 }
 
-internal fun interface SurfaceRegionReader {
+fun interface SurfaceRegionReader {
     suspend fun readRegion(
         dimensionId: DimensionId,
         regionPosition: RegionPosition,
         chunkPositions: List<ChunkPosition>,
-    ): RegionReadOutcome
+        surfaceChunkProjector: SurfaceChunkProjector,
+        surfaceBlockTransparency: SurfaceBlockTransparency,
+    ): SurfaceRegionReadOutcome
 }
 
-internal fun interface SurfaceChunkProjector {
-    suspend fun project(chunk: Chunk<ProtocolBlockState, ProtocolRegistryEntry>): ChunkSurface
+fun interface SurfaceChunkProjector {
+    fun project(
+        chunk: Chunk<ProtocolBlockState, ProtocolRegistryEntry>,
+        surfaceBlockTransparency: SurfaceBlockTransparency,
+    ): ChunkSurface
 }
 
-internal class ProtocolSurfaceChunkProjector(
+class ProtocolSurfaceChunkProjector(
     private val minecraftChunkContext: MinecraftChunkContext,
 ) : SurfaceChunkProjector {
-    override suspend fun project(chunk: Chunk<ProtocolBlockState, ProtocolRegistryEntry>): ChunkSurface =
-        SurfaceProjectionPolicy.project(
-            dimensionId = minecraftChunkContext.dimensionId,
-            chunk = chunk,
-            dimensionTypeLayout = minecraftChunkContext.dimensionTypeLayout,
-            blockStateRegistry = minecraftChunkContext.chunkCodecContext.chunkDataRegistries.blockStates,
-        )
+    override fun project(
+        chunk: Chunk<ProtocolBlockState, ProtocolRegistryEntry>,
+        surfaceBlockTransparency: SurfaceBlockTransparency,
+    ): ChunkSurface = SurfaceProjectionPolicy.project(
+        chunk = chunk,
+        blockYRange = minecraftChunkContext.dimensionTypeLayout.logicalBlockYRange,
+        blockStateRegistry = minecraftChunkContext.chunkCodecContext.chunkDataRegistries.blockStates,
+        surfaceBlockTransparency = surfaceBlockTransparency,
+    )
 }
 
-internal class LiveSurfaceRegionReader(
+class SurfaceChunkCache {
+    private val regionsMutex = Mutex()
+    private val regions = mutableMapOf<SurfaceRegionCacheKey, SurfaceRegionCache>()
+
+    suspend fun slots(
+        dimensionId: DimensionId,
+        regionPosition: RegionPosition,
+        chunkPositions: List<ChunkPosition>,
+    ): List<SurfaceChunkCacheSlot> {
+        val surfaceRegionCache = regionsMutex.withLock {
+            regions.getOrPut(SurfaceRegionCacheKey(dimensionId, regionPosition), ::SurfaceRegionCache)
+        }
+        return surfaceRegionCache.slots(chunkPositions)
+    }
+}
+
+private data class SurfaceRegionCacheKey(
+    val dimensionId: DimensionId,
+    val regionPosition: RegionPosition,
+)
+
+private class SurfaceRegionCache {
+    private val slotsMutex = Mutex()
+    private val slots = mutableMapOf<ChunkPosition, SurfaceChunkCacheSlot>()
+
+    suspend fun slots(chunkPositions: List<ChunkPosition>): List<SurfaceChunkCacheSlot> = slotsMutex.withLock {
+        chunkPositions.map { chunkPosition -> slots.getOrPut(chunkPosition, ::SurfaceChunkCacheSlot) }
+    }
+}
+
+class SurfaceChunkCacheSlot {
+    val mutex = Mutex()
+    var entry: CachedSurfaceChunk? = null
+}
+
+data class CachedSurfaceChunk(
+    val timestampEpochSeconds: Int,
+    val surface: ChunkSurface,
+)
+
+class LiveSurfaceRegionReader(
     private val liveMinecraftWorldAccess: LiveMinecraftWorldAccess,
     private val minecraftChunkContexts: Map<DimensionId, MinecraftChunkContext>,
+    private val surfaceChunkCache: SurfaceChunkCache,
     private val readFailure: (RegionPosition, ChunkPosition?, Throwable) -> Unit,
 ) : SurfaceRegionReader {
     override suspend fun readRegion(
         dimensionId: DimensionId,
         regionPosition: RegionPosition,
         chunkPositions: List<ChunkPosition>,
-    ): RegionReadOutcome {
-        if (chunkPositions.isEmpty()) return RegionReadOutcome.Success(emptyMap())
+        surfaceChunkProjector: SurfaceChunkProjector,
+        surfaceBlockTransparency: SurfaceBlockTransparency,
+    ): SurfaceRegionReadOutcome {
+        if (chunkPositions.isEmpty()) return SurfaceRegionReadOutcome.Success(emptyMap())
         return try {
             val minecraftChunkContext = checkNotNull(minecraftChunkContexts[dimensionId]) {
                 "No Minecraft Chunk context for dimension $dimensionId"
             }
-            val workerCount = minOf(REGION_READ_WORKER_COUNT, chunkPositions.size)
-            val chunkBatchSize = (chunkPositions.size + workerCount - 1) / workerCount
-            val chunks = coroutineScope {
-                chunkPositions.chunked(chunkBatchSize).map { chunkBatch ->
-                    async {
-                        val coroutineContext = currentCoroutineContext()
-                        liveMinecraftWorldAccess.dimensions[minecraftChunkContext.dimensionId]
-                            .openRegion(regionPosition)
-                            .use { liveRegionHandle ->
-                                liveRegionHandle.withReadScope(minecraftChunkContext.chunkNbtCodec) {
-                                    buildMap {
-                                        chunkBatch.forEach { chunkPosition ->
-                                            coroutineContext.ensureActive()
-                                            val chunkReadOutcome = try {
-                                                readChunk(chunkPosition)?.let(ChunkReadOutcome::Present)
-                                                    ?: ChunkReadOutcome.Missing
-                                            } catch (failure: Throwable) {
-                                                failure.requireExpectedLiveReadFailure()
-                                                readFailure(regionPosition, chunkPosition, failure)
-                                                ChunkReadOutcome.Failed(failure)
-                                            }
-                                            put(chunkPosition, chunkReadOutcome)
-                                        }
-                                    }
-                                }
-                            }
-                    }
-                }.awaitAll().flatMap { chunkOutcomes -> chunkOutcomes.entries }.associate { entry -> entry.toPair() }
+            val chunkOutcomes = withContext(Dispatchers.Default) {
+                readChunks(
+                    minecraftChunkContext = minecraftChunkContext,
+                    regionPosition = regionPosition,
+                    chunkPositions = chunkPositions,
+                    surfaceChunkProjector = surfaceChunkProjector,
+                    surfaceBlockTransparency = surfaceBlockTransparency,
+                )
             }
-            RegionReadOutcome.Success(chunks)
+            SurfaceRegionReadOutcome.Success(chunkOutcomes)
         } catch (failure: Throwable) {
             failure.requireExpectedLiveReadFailure()
             readFailure(regionPosition, null, failure)
-            RegionReadOutcome.Failed(failure)
+            SurfaceRegionReadOutcome.Failed
+        }
+    }
+
+    private suspend fun readChunks(
+        minecraftChunkContext: MinecraftChunkContext,
+        regionPosition: RegionPosition,
+        chunkPositions: List<ChunkPosition>,
+        surfaceChunkProjector: SurfaceChunkProjector,
+        surfaceBlockTransparency: SurfaceBlockTransparency,
+    ): Map<ChunkPosition, SurfaceChunkReadOutcome> {
+        val slots = surfaceChunkCache.slots(minecraftChunkContext.dimensionId, regionPosition, chunkPositions)
+        val chunkSlots = chunkPositions.zip(slots)
+        val workerCount = minOf(REGION_READ_WORKER_COUNT, chunkSlots.size)
+        val liveRegionHandle = liveMinecraftWorldAccess.dimensions[minecraftChunkContext.dimensionId]
+            .openRegion(regionPosition)
+        return liveRegionHandle.useSuspending {
+            coroutineScope {
+                (0 until workerCount).map { workerIndex ->
+                    async {
+                        val coroutineContext = currentCoroutineContext()
+                        buildMap {
+                            var chunkIndex = workerIndex
+                            while (chunkIndex < chunkSlots.size) {
+                                coroutineContext.ensureActive()
+                                val (chunkPosition, surfaceChunkCacheSlot) = chunkSlots[chunkIndex]
+                                val surfaceChunkReadOutcome = surfaceChunkCacheSlot.mutex.withLock {
+                                    coroutineContext.ensureActive()
+                                    liveRegionHandle.withReadScope(minecraftChunkContext.chunkNbtCodec) {
+                                        readSurfaceChunk(
+                                            chunkPosition = chunkPosition,
+                                            surfaceChunkCacheSlot = surfaceChunkCacheSlot,
+                                            surfaceChunkProjector = surfaceChunkProjector,
+                                            surfaceBlockTransparency = surfaceBlockTransparency,
+                                            coroutineContext = coroutineContext,
+                                        )
+                                    }
+                                }
+                                put(chunkPosition, surfaceChunkReadOutcome)
+                                chunkIndex += workerCount
+                            }
+                        }
+                    }
+                }.awaitAll().flatMap { chunkOutcomes -> chunkOutcomes.entries }
+                    .associate { entry -> entry.toPair() }
+            }
+        }
+    }
+
+    private suspend fun <R> LiveRegionHandle.useSuspending(block: suspend (LiveRegionHandle) -> R): R {
+        var primaryFailure: Throwable? = null
+        try {
+            return block(this)
+        } catch (failure: Throwable) {
+            primaryFailure = failure
+            throw failure
+        } finally {
+            try {
+                close()
+            } catch (closeFailure: Throwable) {
+                if (primaryFailure == null) {
+                    throw closeFailure
+                } else {
+                    primaryFailure.addSuppressed(closeFailure)
+                }
+            }
+        }
+    }
+
+    private fun DecodedChunkRegionReadScope<ProtocolBlockState, ProtocolRegistryEntry>.readSurfaceChunk(
+        chunkPosition: ChunkPosition,
+        surfaceChunkCacheSlot: SurfaceChunkCacheSlot,
+        surfaceChunkProjector: SurfaceChunkProjector,
+        surfaceBlockTransparency: SurfaceBlockTransparency,
+        coroutineContext: CoroutineContext,
+    ): SurfaceChunkReadOutcome {
+        val regionChunkInfo = readChunkInfo(chunkPosition)
+        if (regionChunkInfo == null) {
+            surfaceChunkCacheSlot.entry = null
+            return SurfaceChunkReadOutcome.Missing
+        }
+        surfaceChunkCacheSlot.entry?.takeIf { cachedSurfaceChunk ->
+            cachedSurfaceChunk.timestampEpochSeconds == regionChunkInfo.timestampEpochSeconds
+        }?.let { cachedSurfaceChunk ->
+            return SurfaceChunkReadOutcome.Present(
+                timestampEpochSeconds = cachedSurfaceChunk.timestampEpochSeconds,
+                surface = cachedSurfaceChunk.surface,
+            )
+        }
+        return try {
+            val chunk = readChunk(chunkPosition) ?: return SurfaceChunkReadOutcome.Missing
+            coroutineContext.ensureActive()
+            if (chunk.chunkMetadata.chunkStorageMetadata?.isFullyGenerated != true) {
+                SurfaceChunkReadOutcome.Missing
+            } else {
+                val surface = surfaceChunkProjector.project(chunk, surfaceBlockTransparency)
+                coroutineContext.ensureActive()
+                surfaceChunkCacheSlot.entry = CachedSurfaceChunk(regionChunkInfo.timestampEpochSeconds, surface)
+                SurfaceChunkReadOutcome.Present(regionChunkInfo.timestampEpochSeconds, surface)
+            }
+        } catch (failure: Throwable) {
+            failure.requireExpectedLiveReadFailure()
+            readFailure(chunkPosition.regionPosition, chunkPosition, failure)
+            SurfaceChunkReadOutcome.Failed
         }
     }
 }
 
-internal class SurfaceQueryEngine(
+class SurfaceQueryEngine(
     private val surfaceChunkProjectors: Map<DimensionId, SurfaceChunkProjector>,
     private val surfaceRegionReader: SurfaceRegionReader,
+    private val loadBlockTransparency: suspend () -> SurfaceBlockTransparency,
     private val coroutineDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val readRetryDelay: Duration = 1.seconds,
 ) {
-    suspend fun query(surfaceRequest: SurfaceRequest): SurfaceQueryResult = withContext(coroutineDispatcher) {
+    fun query(surfaceRequest: SurfaceRequest): Flow<SurfaceQueryUpdate> = channelFlow {
         val surfaceChunkProjector = surfaceChunkProjectors[surfaceRequest.dimensionId]
-            ?: return@withContext SurfaceQueryResult.Rejected(SurfaceQueryRejection.UNKNOWN_DIMENSION)
+        if (surfaceChunkProjector == null) {
+            send(SurfaceQueryUpdate.Rejected(SurfaceQueryRejection.UNKNOWN_DIMENSION))
+            return@channelFlow
+        }
         val chunkViewport = surfaceRequest.chunkViewport.normalized
         if (!chunkViewport.isWithinQueryLimits) {
-            return@withContext SurfaceQueryResult.Rejected(SurfaceQueryRejection.RANGE_TOO_LARGE)
+            send(SurfaceQueryUpdate.Rejected(SurfaceQueryRejection.RANGE_TOO_LARGE))
+            return@channelFlow
         }
+        val surfaceBlockTransparency = loadBlockTransparency()
         val chunkRange = chunkViewport.chunkRange
-        val surfaceChunkResults = coroutineScope {
-            val regionJobs = chunkRange.regionPositions().map { regionPosition ->
-                async {
-                    val targetChunkPositions = (chunkRange intersect regionPosition.chunkRange).toList()
-                    val regionReadOutcome = surfaceRegionReader.readRegion(
-                        surfaceRequest.dimensionId,
-                        regionPosition,
-                        targetChunkPositions,
+        chunkRange.regionPositions().map { regionPosition ->
+            async(coroutineDispatcher) {
+                var pendingChunkPositions = (chunkRange intersect regionPosition.chunkRange).toList()
+                while (pendingChunkPositions.isNotEmpty()) {
+                    val surfaceRegionReadOutcome = surfaceRegionReader.readRegion(
+                        dimensionId = surfaceRequest.dimensionId,
+                        regionPosition = regionPosition,
+                        chunkPositions = pendingChunkPositions,
+                        surfaceChunkProjector = surfaceChunkProjector,
+                        surfaceBlockTransparency = surfaceBlockTransparency,
                     )
-                    projectRegion(surfaceChunkProjector, targetChunkPositions, regionReadOutcome)
-                }
-            }.toList()
-            regionJobs.awaitAll().flatten()
-        }
-        SurfaceQueryResult.Success(
-            SurfaceResponse(
-                minChunkX = chunkViewport.minChunkX,
-                minChunkZ = chunkViewport.minChunkZ,
-                maxChunkX = chunkViewport.maxChunkX,
-                maxChunkZ = chunkViewport.maxChunkZ,
-                chunks = surfaceChunkResults,
-            ),
-        )
-    }
-
-    private suspend fun projectRegion(
-        surfaceChunkProjector: SurfaceChunkProjector,
-        targetChunkPositions: List<ChunkPosition>,
-        regionReadOutcome: RegionReadOutcome,
-    ): List<SurfaceChunkResult> = when (regionReadOutcome) {
-        is RegionReadOutcome.Failed -> targetChunkPositions.map { chunkPosition ->
-            SurfaceChunkResult.ReadFailed(chunkPosition.x, chunkPosition.z)
-        }
-
-        is RegionReadOutcome.Success -> coroutineScope {
-            val workerCount = minOf(PROJECTION_WORKER_COUNT, targetChunkPositions.size)
-            (0 until workerCount).map { workerIndex ->
-                async {
-                    val indexedResults = mutableListOf<IndexedValue<SurfaceChunkResult>>()
-                    var chunkIndex = workerIndex
-                    while (chunkIndex < targetChunkPositions.size) {
-                        currentCoroutineContext().ensureActive()
-                        val chunkPosition = targetChunkPositions[chunkIndex]
-                        projectChunk(
-                            surfaceChunkProjector,
-                            chunkPosition,
-                            regionReadOutcome.chunks.getValue(chunkPosition)
-                        )
-                            ?.let { surfaceChunkResult ->
-                                indexedResults += IndexedValue(
-                                    chunkIndex,
-                                    surfaceChunkResult
-                                )
-                            }
-                        chunkIndex += workerCount
+                    val surfaceChunkResults = surfaceRegionReadOutcome.toSurfaceChunkResults(pendingChunkPositions)
+                    surfaceChunkResults.forEach { surfaceChunkResult ->
+                        send(SurfaceQueryUpdate.Chunk(surfaceChunkResult))
                     }
-                    indexedResults
+                    pendingChunkPositions = surfaceChunkResults.mapNotNull { surfaceChunkResult ->
+                        if (surfaceChunkResult is SurfaceChunkResult.ReadFailed) {
+                            surfaceChunkResult.coordinate.chunkPosition
+                        } else {
+                            null
+                        }
+                    }
+                    if (pendingChunkPositions.isNotEmpty()) delay(readRetryDelay)
                 }
-            }.awaitAll().flatten().sortedBy { indexedValue -> indexedValue.index }
-                .map { indexedValue -> indexedValue.value }
-        }
+            }
+        }.toList().awaitAll()
+    }
+}
+
+private fun SurfaceRegionReadOutcome.toSurfaceChunkResults(
+    targetChunkPositions: List<ChunkPosition>,
+): List<SurfaceChunkResult> = when (this) {
+    SurfaceRegionReadOutcome.Failed -> targetChunkPositions.map { chunkPosition ->
+        SurfaceChunkResult.ReadFailed(chunkPosition.x, chunkPosition.z)
     }
 
-    private suspend fun projectChunk(
-        surfaceChunkProjector: SurfaceChunkProjector,
-        chunkPosition: ChunkPosition,
-        chunkReadOutcome: ChunkReadOutcome,
-    ): SurfaceChunkResult? = when (chunkReadOutcome) {
-        is ChunkReadOutcome.Missing -> null
-        is ChunkReadOutcome.Failed -> SurfaceChunkResult.ReadFailed(chunkPosition.x, chunkPosition.z)
-        is ChunkReadOutcome.Present -> {
-            val chunk = chunkReadOutcome.chunk
-            if (chunk.chunkMetadata.chunkStorageMetadata?.isFullyGenerated != true) {
-                SurfaceChunkResult.ReadFailed(chunkPosition.x, chunkPosition.z)
-            } else {
-                SurfaceChunkResult.Success(
-                    chunkX = chunkPosition.x,
-                    chunkZ = chunkPosition.z,
-                    surface = surfaceChunkProjector.project(chunk),
-                )
-            }
+    is SurfaceRegionReadOutcome.Success -> targetChunkPositions.mapNotNull { chunkPosition ->
+        when (val surfaceChunkReadOutcome = chunks.getValue(chunkPosition)) {
+            SurfaceChunkReadOutcome.Missing -> null
+            SurfaceChunkReadOutcome.Failed -> SurfaceChunkResult.ReadFailed(chunkPosition.x, chunkPosition.z)
+            is SurfaceChunkReadOutcome.Present -> SurfaceChunkResult.Success(
+                chunkX = chunkPosition.x,
+                chunkZ = chunkPosition.z,
+                timestampEpochSeconds = surfaceChunkReadOutcome.timestampEpochSeconds,
+                surface = surfaceChunkReadOutcome.surface,
+            )
         }
     }
 }
@@ -215,5 +330,4 @@ private fun Throwable.requireExpectedLiveReadFailure() {
     }
 }
 
-private const val PROJECTION_WORKER_COUNT: Int = 8
 private const val REGION_READ_WORKER_COUNT: Int = 4

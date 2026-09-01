@@ -12,7 +12,7 @@ import kotlinx.rpc.krpc.ktor.server.Krpc
 import kotlinx.rpc.krpc.ktor.server.rpc
 import kotlinx.rpc.krpc.serialization.json.json
 
-internal data class WebMapServerConfiguration(
+data class WebMapServerConfiguration(
     val host: String,
     val port: Int,
     val webRoot: Path,
@@ -23,7 +23,10 @@ internal data class WebMapServerConfiguration(
     }
 }
 
-internal fun Application.webMapModule(webMapService: WebMapService, webRoot: Path) {
+fun Application.webMapModule(
+    webMapService: WebMapService,
+    webRoot: Path,
+) {
     install(Krpc) {
         serialization {
             json(WebMapJson)
@@ -40,7 +43,7 @@ internal fun Application.webMapModule(webMapService: WebMapService, webRoot: Pat
             val pathSegments = call.parameters.getAll("path")
                 .orEmpty()
                 .flatMap { value -> value.split('/') }
-            if (pathSegments.firstOrNull() == "rpc" || !pathSegments.isSafeWebPath()) {
+            if (pathSegments.firstOrNull() in RESERVED_WEB_PATHS || !pathSegments.isSafeWebPath()) {
                 call.respond(HttpStatusCode.NotFound)
             } else {
                 call.respondWebFile(webRoot, pathSegments)
@@ -49,7 +52,7 @@ internal fun Application.webMapModule(webMapService: WebMapService, webRoot: Pat
     }
 }
 
-internal fun startWebMapServer(
+fun startWebMapServer(
     webMapService: WebMapService,
     webMapServerConfiguration: WebMapServerConfiguration,
 ) {
@@ -61,6 +64,8 @@ internal fun startWebMapServer(
         webMapModule(webMapService, webMapServerConfiguration.webRoot)
     }.start(wait = true)
 }
+
+private val RESERVED_WEB_PATHS: Set<String> = setOf("assets", "rpc")
 
 private suspend fun ApplicationCall.respondWebFile(
     webRoot: Path,

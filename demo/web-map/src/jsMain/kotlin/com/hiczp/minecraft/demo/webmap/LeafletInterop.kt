@@ -2,7 +2,7 @@ package com.hiczp.minecraft.demo.webmap
 
 @JsModule("leaflet")
 @JsNonModule
-internal external object Leaflet {
+external object Leaflet {
     val CRS: dynamic
     val control: dynamic
 
@@ -12,5 +12,4 @@ internal external object Leaflet {
 
     fun point(x: Double, y: Double): dynamic
 
-    fun layerGroup(): dynamic
 }

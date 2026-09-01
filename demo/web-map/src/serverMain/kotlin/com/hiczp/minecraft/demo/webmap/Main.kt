@@ -31,14 +31,18 @@ fun main() {
         ?.toIntOrNull()
         ?: DEFAULT_PORT
     val webMapRuntime = WebMapRuntime.open(discoveredWorldDirectory.path, logger)
-    logger.info { "Serving the Minecraft web map at http://$host:$port from $webRoot" }
-    startWebMapServer(
-        webMapService = webMapRuntime.webMapService,
-        webMapServerConfiguration = WebMapServerConfiguration(host, port, webRoot),
-    )
+    try {
+        logger.info { "Serving the Minecraft web map on $host:$port from $webRoot" }
+        startWebMapServer(
+            webMapService = webMapRuntime.webMapService,
+            webMapServerConfiguration = WebMapServerConfiguration(host, port, webRoot),
+        )
+    } finally {
+        webMapRuntime.close()
+    }
 }
 
-internal expect fun platformEnvironmentVariable(name: String): String?
+expect fun platformEnvironmentVariable(name: String): String?
 
 private const val WORLD_DIRECTORY_ENVIRONMENT: String = "MINECRAFT_WORLD_DIRECTORY"
 private const val WEB_ROOT_ENVIRONMENT: String = "MINECRAFT_WEB_ROOT"

@@ -1,13 +1,13 @@
 package com.hiczp.minecraft.demo.webmap
 
-internal data class CanvasTransform(
+data class CanvasTransform(
     val translationX: Double,
     val translationY: Double,
     val scaleX: Double,
     val scaleY: Double,
 )
 
-internal fun calculateCanvasTransform(
+fun calculateCanvasTransform(
     referenceWidth: Double,
     referenceHeight: Double,
     transformedLeft: Double,

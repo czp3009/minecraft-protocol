@@ -72,10 +72,22 @@ class MinecraftAssetModelsTest {
 
     @Test
     fun resolvesTextureReferencesAndRejectsCycles() {
-        val textures = mapOf("top" to "#all", "all" to "minecraft:block/stone")
+        val textures = mapOf(
+            "top" to AssetTextureSlot("#all"),
+            "all" to AssetTextureSlot("minecraft:block/stone", forceTranslucent = true),
+        )
 
-        assertEquals("minecraft:block/stone", resolveTextureReference(textures, "#top"))
-        assertEquals(null, resolveTextureReference(mapOf("a" to "#b", "b" to "#a"), "#a"))
+        assertEquals(
+            AssetTextureSlot("minecraft:block/stone", forceTranslucent = true),
+            resolveTextureReference(textures, "#top"),
+        )
+        assertEquals(
+            null,
+            resolveTextureReference(
+                mapOf("a" to AssetTextureSlot("#b"), "b" to AssetTextureSlot("#a")),
+                "#a",
+            ),
+        )
     }
 
     @Test
@@ -109,8 +121,32 @@ class MinecraftAssetModelsTest {
             defaultNamespace = "minecraft",
         )
 
-        assertEquals("minecraft:block/water_still", model.textures["particle"])
+        assertEquals(AssetTextureSlot("minecraft:block/water_still"), model.textures["particle"])
         assertNull(model.elements)
+    }
+
+    @Test
+    fun readsObjectTextureSlots() {
+        val model = MinecraftAssetJsonParser.parseModel(
+            Json.parseToJsonElement(
+                """
+                {
+                  "textures": {
+                    "all": {
+                      "sprite": "minecraft:block/black_stained_glass",
+                      "force_translucent": true
+                    }
+                  }
+                }
+                """.trimIndent(),
+            ),
+            defaultNamespace = "minecraft",
+        )
+
+        assertEquals(
+            AssetTextureSlot("minecraft:block/black_stained_glass", forceTranslucent = true),
+            model.textures["all"],
+        )
     }
 
     @Test

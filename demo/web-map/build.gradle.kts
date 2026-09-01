@@ -53,19 +53,25 @@ kotlin {
                 implementation(libs.kotlinx.io.core)
                 implementation(libs.kotlinx.coroutines.core)
                 implementation(libs.kotlinx.rpc.krpc.ktor.server)
+                implementation(libs.ktor.client.core)
                 implementation(libs.ktor.server.core)
                 implementation(libs.ktor.server.cio)
+                implementation(libs.ktor.server.websockets)
                 implementation(libs.kotlin.logging)
             }
         }
         jvmMain {
             dependsOn(serverMain)
             dependencies {
+                implementation(libs.ktor.client.cio)
                 implementation(libs.slf4j.simple)
             }
         }
         nativeMain {
             dependsOn(serverMain)
+            dependencies {
+                implementation(libs.ktor.client.curl)
+            }
         }
 
         commonMain.dependencies {
@@ -82,7 +88,6 @@ kotlin {
             implementation(libs.kotlinx.rpc.krpc.ktor.client)
             implementation(libs.ktor.client.js)
             implementation(npm("leaflet", libs.versions.leaflet.get()))
-            implementation(npm("@zip.js/zip.js", libs.versions.zip.js.get()))
         }
 
         commonTest.dependencies {

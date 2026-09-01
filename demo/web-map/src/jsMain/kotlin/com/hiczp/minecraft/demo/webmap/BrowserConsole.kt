@@ -1,6 +1,6 @@
 package com.hiczp.minecraft.demo.webmap
 
-internal object BrowserConsole {
+object BrowserConsole {
     fun debug(message: String) {
         browserConsole.debug("$PREFIX $message")
     }

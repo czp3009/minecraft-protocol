@@ -79,6 +79,7 @@ mosaic-runtime = { module = "com.jakewharton.mosaic:mosaic-runtime", version.ref
 kommand = { module = "com.kgit2:kommand", version.ref = "kommand" }
 ktorfit-lib-light = { module = "de.jensklingenberg.ktorfit:ktorfit-lib-light", version.ref = "ktorfit" }
 ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
+ktor-server-websockets = { module = "io.ktor:ktor-server-websockets", version.ref = "ktor" }
 ktor-server-test-host = { module = "io.ktor:ktor-server-test-host", version.ref = "ktor" }
 
 [plugins]

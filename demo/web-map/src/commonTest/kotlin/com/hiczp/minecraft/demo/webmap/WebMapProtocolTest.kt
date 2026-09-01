@@ -3,7 +3,6 @@ package com.hiczp.minecraft.demo.webmap
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.world.format.DimensionId
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.*
@@ -40,37 +39,106 @@ class WebMapProtocolTest {
     }
 
     @Test
-    fun sealedResultsRoundTripWithStatusDiscriminators() {
-        val surfaceQueryResult: SurfaceQueryResult = SurfaceQueryResult.Success(
-            SurfaceResponse(
-                minChunkX = -1,
-                minChunkZ = 2,
-                maxChunkX = 0,
-                maxChunkZ = 2,
-                chunks = listOf(
-                    SurfaceChunkResult.Success(
-                        chunkX = -1,
-                        chunkZ = 2,
-                        surface = ChunkSurface(
-                            palette = listOf(SurfaceBlockState(Identifier("oak_log"), mapOf("axis" to "y"))),
-                            cells = listOf(0) + List(SURFACE_CELL_COUNT - 1) { null },
+    fun chunkUpdatesRoundTripWithTimestampsAndLayeredColumns() {
+        val surfaceQueryUpdate: SurfaceQueryUpdate = SurfaceQueryUpdate.Chunk(
+            SurfaceChunkResult.Success(
+                chunkX = 30,
+                chunkZ = 2,
+                timestampEpochSeconds = 1_234_567_890,
+                surface = ChunkSurface(
+                    palette = listOf(
+                        SurfaceColumn(
+                            listOf(
+                                SurfaceBlockState(Identifier("oak_leaves"), mapOf("persistent" to "true")),
+                                SurfaceBlockState(Identifier("grass_block"), mapOf("snowy" to "false")),
+                                SurfaceBlockState(Identifier("dirt")),
+                            ),
                         ),
                     ),
-                    SurfaceChunkResult.ReadFailed(0, 2),
+                    cells = listOf(0) + List(SURFACE_CELL_COUNT - 1) { null },
                 ),
             ),
         )
 
-        val encoded = WebMapJson.encodeToString(surfaceQueryResult)
+        val encoded = WebMapJson.encodeToString(surfaceQueryUpdate)
+        assertFalse("\"texture\"" in encoded)
         val jsonObject = Json.parseToJsonElement(encoded).jsonObject
-        assertEquals("success", jsonObject.getValue("status").jsonPrimitive.content)
-        val chunks = jsonObject.getValue("response").jsonObject.getValue("chunks").jsonArray
-        assertEquals("success", chunks[0].jsonObject.getValue("status").jsonPrimitive.content)
-        assertEquals("read_failed", chunks[1].jsonObject.getValue("status").jsonPrimitive.content)
+        assertEquals("chunk", jsonObject.getValue("status").jsonPrimitive.content)
+        assertEquals(
+            "success",
+            jsonObject.getValue("result").jsonObject.getValue("status").jsonPrimitive.content,
+        )
 
-        val decoded = WebMapJson.decodeFromString<SurfaceQueryResult>(encoded)
-        assertEquals(surfaceQueryResult, decoded)
-        assertIs<SurfaceQueryResult.Success>(decoded)
+        val decoded = WebMapJson.decodeFromString<SurfaceQueryUpdate>(encoded)
+        assertEquals(surfaceQueryUpdate, decoded)
+        assertIs<SurfaceQueryUpdate.Chunk>(decoded)
+    }
+
+    @Test
+    fun reusableBlockAndTextureResourcesRoundTripOutsideTheChunkPayload() {
+        val surfaceBlockState = SurfaceBlockState(Identifier("grass_block"), mapOf("snowy" to "false"))
+        val surfaceSpriteLayer = SurfaceSpriteLayer(
+            texture = Identifier("block/grass_block_top"),
+            destination = SurfaceSpriteRectangle(0f, 0f, 16f, 16f),
+            uv = SurfaceSpriteRectangle(0f, 0f, 16f, 16f),
+            yRotation = 0,
+            textureRotation = 0,
+            tintColor = "#78a84f",
+        )
+        val blockRenderResourceResult = BlockRenderResourceResult(
+            blockState = surfaceBlockState,
+            resource = BlockRenderResource(
+                modelChoices = listOf(
+                    SurfaceModelChoice(
+                        models = listOf(
+                            SurfaceModelResource(
+                                weight = 1,
+                                topLayers = listOf(surfaceSpriteLayer),
+                                particleLayer = null,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(
+            blockRenderResourceResult,
+            WebMapJson.decodeFromString<BlockRenderResourceResult>(
+                WebMapJson.encodeToString(blockRenderResourceResult),
+            ),
+        )
+        assertEquals(
+            SurfaceSprite(listOf(surfaceSpriteLayer)),
+            blockRenderResourceResult.resource?.sprite(surfaceBlockState, blockX = 12, blockZ = -4),
+        )
+
+        val textureResource = TextureResource(byteArrayOf(1, 2, 3), animationFrame = 2)
+        val encodedTextureResource = WebMapJson.encodeToString(textureResource)
+        assertTrue("\"AQID\"" in encodedTextureResource)
+        assertEquals(
+            textureResource,
+            WebMapJson.decodeFromString<TextureResource>(encodedTextureResource),
+        )
+    }
+
+    @Test
+    fun assetProgressRoundTripsEveryDetailedCounter() {
+        val assetLoadStatus: AssetLoadStatus = AssetLoadStatus.Loading(
+            action = "Indexing block assets",
+            detail = "Reading retained files",
+            completedSteps = 3,
+            totalSteps = 5,
+            loadedFiles = 128,
+            totalFiles = 1_024,
+            loadedBytes = 4_096,
+            totalBytes = 32_768,
+        )
+
+        assertEquals(
+            assetLoadStatus,
+            WebMapJson.decodeFromString<AssetLoadStatus>(WebMapJson.encodeToString(assetLoadStatus)),
+        )
     }
 
     @Test

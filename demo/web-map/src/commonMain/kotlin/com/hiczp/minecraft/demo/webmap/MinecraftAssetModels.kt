@@ -3,7 +3,7 @@ package com.hiczp.minecraft.demo.webmap
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import kotlinx.serialization.json.*
 
-internal data class AssetModelReference(
+data class AssetModelReference(
     val model: Identifier,
     val xRotation: Int = 0,
     val yRotation: Int = 0,
@@ -16,27 +16,29 @@ internal data class AssetModelReference(
     }
 }
 
-internal data class AssetBlockStateDefinition(
+data class AssetBlockStateDefinition(
     val variants: List<AssetVariant>,
     val multipart: List<AssetMultipart>,
 ) {
+    fun modelChoices(surfaceBlockState: SurfaceBlockState): List<List<AssetModelReference>> = buildList {
+        variants.firstOrNull { variant -> variant.matches(surfaceBlockState.properties) }
+            ?.models
+            ?.let(::add)
+        multipart.forEach { assetMultipart ->
+            if (assetMultipart.condition.matches(surfaceBlockState.properties)) add(assetMultipart.models)
+        }
+    }
+
     fun select(surfaceBlockState: SurfaceBlockState, blockX: Int, blockZ: Int): List<AssetModelReference> {
         val canonicalState = surfaceBlockState.canonicalAssetKey()
         val positionSeed = "$canonicalState@$blockX,$blockZ"
-        val selected = mutableListOf<AssetModelReference>()
-        variants.firstOrNull { variant -> variant.matches(surfaceBlockState.properties) }
-            ?.models
-            ?.let { models -> selected += models.selectWeighted("$positionSeed#variant") }
-        multipart.forEachIndexed { index, multipart ->
-            if (multipart.condition.matches(surfaceBlockState.properties)) {
-                selected += multipart.models.selectWeighted("$positionSeed#multipart-$index")
-            }
+        return modelChoices(surfaceBlockState).mapIndexed { index, models ->
+            models.selectWeighted("$positionSeed#choice-$index")
         }
-        return selected
     }
 }
 
-internal data class AssetVariant(
+data class AssetVariant(
     val requiredProperties: Map<String, String>,
     val models: List<AssetModelReference>,
 ) {
@@ -45,12 +47,12 @@ internal data class AssetVariant(
     }
 }
 
-internal data class AssetMultipart(
+data class AssetMultipart(
     val condition: AssetMultipartCondition,
     val models: List<AssetModelReference>,
 )
 
-internal sealed interface AssetMultipartCondition {
+sealed interface AssetMultipartCondition {
     fun matches(properties: Map<String, String>): Boolean
 
     data object Always : AssetMultipartCondition {
@@ -81,37 +83,42 @@ internal sealed interface AssetMultipartCondition {
     }
 }
 
-internal data class AssetModel(
+data class AssetModel(
     val parent: Identifier?,
-    val textures: Map<String, String>,
+    val textures: Map<String, AssetTextureSlot>,
     val elements: List<AssetModelElement>?,
 )
 
-internal data class ResolvedAssetModel(
-    val textures: Map<String, String>,
+data class ResolvedAssetModel(
+    val textures: Map<String, AssetTextureSlot>,
     val elements: List<AssetModelElement>,
 )
 
-internal data class AssetModelElement(
+data class AssetTextureSlot(
+    val sprite: String,
+    val forceTranslucent: Boolean = false,
+)
+
+data class AssetModelElement(
     val from: AssetVector,
     val to: AssetVector,
     val faces: Map<AssetDirection, AssetModelFace>,
 )
 
-internal data class AssetVector(
+data class AssetVector(
     val x: Float,
     val y: Float,
     val z: Float,
 )
 
-internal data class AssetModelFace(
+data class AssetModelFace(
     val texture: String,
     val uv: List<Float>?,
     val rotation: Int,
     val tintIndex: Int?,
 )
 
-internal enum class AssetDirection {
+enum class AssetDirection {
     DOWN,
     UP,
     NORTH,
@@ -120,7 +127,7 @@ internal enum class AssetDirection {
     EAST,
 }
 
-internal object MinecraftAssetJsonParser {
+object MinecraftAssetJsonParser {
     fun parseBlockState(jsonElement: JsonElement): AssetBlockStateDefinition {
         val root = jsonElement.jsonObject
         val variants = root["variants"]?.jsonObject?.map { (key, value) ->
@@ -142,7 +149,7 @@ internal object MinecraftAssetJsonParser {
         val parent = root["parent"]?.jsonPrimitive?.contentOrNull?.let { value ->
             parseAssetIdentifier(value, defaultNamespace)
         }
-        val textures = root["textures"]?.jsonObject?.mapValues { (_, value) -> value.jsonPrimitive.content }.orEmpty()
+        val textures = root["textures"]?.jsonObject?.mapValues { (_, value) -> parseTextureSlot(value) }.orEmpty()
         val elements = root["elements"]?.jsonArray?.map(::parseElement)
         return AssetModel(parent, textures, elements)
     }
@@ -184,6 +191,22 @@ internal object MinecraftAssetJsonParser {
             uvLock = modelObject["uvlock"]?.jsonPrimitive?.booleanOrNull ?: false,
             weight = modelObject["weight"]?.jsonPrimitive?.intOrNull ?: 1,
         )
+    }
+
+    private fun parseTextureSlot(jsonElement: JsonElement): AssetTextureSlot = when (jsonElement) {
+        is JsonPrimitive -> {
+            require(jsonElement.isString) { "A model texture slot string must contain a sprite reference" }
+            AssetTextureSlot(jsonElement.content)
+        }
+
+        is JsonObject -> AssetTextureSlot(
+            sprite = checkNotNull(jsonElement["sprite"]?.jsonPrimitive?.contentOrNull) {
+                "A model texture slot object has no sprite"
+            },
+            forceTranslucent = jsonElement["force_translucent"]?.jsonPrimitive?.booleanOrNull ?: false,
+        )
+
+        else -> error("A model texture slot must be a string or object")
     }
 
     private fun parseMultipartCondition(jsonElement: JsonElement): AssetMultipartCondition {
@@ -251,24 +274,24 @@ internal object MinecraftAssetJsonParser {
     }
 }
 
-internal fun resolveTextureReference(textures: Map<String, String>, value: String): String? {
-    var current = value
+fun resolveTextureReference(textures: Map<String, AssetTextureSlot>, value: String): AssetTextureSlot? {
+    var assetTextureSlot = AssetTextureSlot(value)
     val visited = mutableSetOf<String>()
-    while (current.startsWith('#')) {
-        val key = current.substring(1)
+    while (assetTextureSlot.sprite.startsWith('#')) {
+        val key = assetTextureSlot.sprite.substring(1)
         if (!visited.add(key)) return null
-        current = textures[key] ?: return null
+        val referencedTextureSlot = textures[key] ?: return null
+        assetTextureSlot = AssetTextureSlot(
+            sprite = referencedTextureSlot.sprite,
+            forceTranslucent = assetTextureSlot.forceTranslucent || referencedTextureSlot.forceTranslucent,
+        )
     }
-    return current
+    return assetTextureSlot
 }
 
-internal fun Identifier.blockStateEntryName(): String = "assets/$namespace/blockstates/$path.json"
+fun Identifier.textureEntryName(): String = "assets/$namespace/textures/$path.png"
 
-internal fun Identifier.modelEntryName(): String = "assets/$namespace/models/$path.json"
-
-internal fun Identifier.textureEntryName(): String = "assets/$namespace/textures/$path.png"
-
-internal fun parseAssetIdentifier(value: String, defaultNamespace: String): Identifier =
+fun parseAssetIdentifier(value: String, defaultNamespace: String): Identifier =
     if (':' in value) Identifier(value) else Identifier(defaultNamespace, value)
 
 private fun List<AssetModelReference>.selectWeighted(seed: String): AssetModelReference {
@@ -281,12 +304,12 @@ private fun List<AssetModelReference>.selectWeighted(seed: String): AssetModelRe
     return last()
 }
 
-internal fun SurfaceBlockState.canonicalAssetKey(): String =
+fun SurfaceBlockState.canonicalAssetKey(): String =
     properties.entries.sortedBy { entry -> entry.key }.joinToString(",", prefix = "$name[") { entry ->
         "${entry.key}=${entry.value}"
     }.let { value -> "$value]" }
 
-internal fun stableAssetHash(value: String): Int {
+fun stableAssetHash(value: String): Int {
     var hash = FNV_OFFSET_BASIS
     value.forEach { character ->
         hash = (hash xor character.code) * FNV_PRIME

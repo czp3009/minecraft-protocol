@@ -5,6 +5,8 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.server.testing.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.io.files.Path
 import java.nio.file.Files
 import kotlin.test.Test
@@ -19,7 +21,10 @@ class WebMapServerTest {
             Files.writeString(temporaryDirectory.resolve("styles.css"), "body { color: green; }")
             testApplication {
                 application {
-                    webMapModule(TestWebMapService, Path(temporaryDirectory.toString()))
+                    webMapModule(
+                        webMapService = TestWebMapService,
+                        webRoot = Path(temporaryDirectory.toString()),
+                    )
                 }
 
                 val indexResponse = client.get("/")
@@ -35,7 +40,13 @@ class WebMapServerTest {
 
                 assertEquals(HttpStatusCode.NotFound, client.get("/missing.js").status)
                 assertEquals(HttpStatusCode.NotFound, client.get("/rpc/not-a-static-file").status)
+                assertEquals(HttpStatusCode.NotFound, client.get("/assets/not-a-static-file").status)
                 assertEquals(HttpStatusCode.NotFound, client.get("/%2e%2e/index.html").status)
+
+                assertEquals(
+                    HttpStatusCode.NotFound,
+                    client.get("/assets/revision/minecraft/textures/block/stone.png").status,
+                )
             }
         } finally {
             temporaryDirectory.toFile().deleteRecursively()
@@ -46,6 +57,14 @@ class WebMapServerTest {
 private object TestWebMapService : WebMapService {
     override suspend fun worldMetadata(): WorldMetadata = WorldMetadata("test", listOf(DimensionId.Overworld))
 
-    override suspend fun querySurface(surfaceRequest: SurfaceRequest): SurfaceQueryResult =
-        SurfaceQueryResult.Rejected(SurfaceQueryRejection.UNKNOWN_DIMENSION)
+    override fun assetLoading(): Flow<AssetLoadStatus> = flowOf(AssetLoadStatus.Ready("revision", 1, 3))
+
+    override fun blockRenderResources(
+        blockRenderResourceRequest: BlockRenderResourceRequest,
+    ): Flow<BlockRenderResourceResult> = flowOf()
+
+    override suspend fun textureResource(textureResourceRequest: TextureResourceRequest): TextureResource? = null
+
+    override fun querySurface(surfaceRequest: SurfaceRequest): Flow<SurfaceQueryUpdate> =
+        flowOf(SurfaceQueryUpdate.Rejected(SurfaceQueryRejection.UNKNOWN_DIMENSION))
 }

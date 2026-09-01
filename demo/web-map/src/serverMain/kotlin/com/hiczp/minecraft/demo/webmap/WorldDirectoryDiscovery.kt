@@ -4,17 +4,17 @@ import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
 
-internal enum class WorldDirectorySource {
+enum class WorldDirectorySource {
     ENVIRONMENT,
     PROJECT_DISCOVERY,
 }
 
-internal data class DiscoveredWorldDirectory(
+data class DiscoveredWorldDirectory(
     val path: Path,
     val source: WorldDirectorySource,
 )
 
-internal fun discoverWorldDirectory(
+fun discoverWorldDirectory(
     fileSystem: FileSystem,
     currentWorkingDirectory: Path,
     explicitWorldDirectory: String?,
@@ -47,8 +47,7 @@ internal fun discoverWorldDirectory(
     check(savesMetadata?.isDirectory == true) { "Launcher saves directory does not exist: $savesDirectory" }
     val selectedWorldDirectory = fileSystem.list(savesDirectory)
         .filter { path -> fileSystem.metadataOrNull(path)?.isDirectory == true }
-        .sortedBy(Path::name)
-        .firstOrNull()
+        .minByOrNull(Path::name)
         ?: error("Launcher saves directory contains no world directories: $savesDirectory")
     val canonicalWorldDirectory = fileSystem.canonicalize(selectedWorldDirectory)
     requireWorldDirectory(fileSystem, canonicalWorldDirectory, "project discovery")
