@@ -62,18 +62,22 @@ kotlin {
         jvmMain.dependencies {
             implementation(libs.kotlinx.rpc.krpc.ktor.client)
             implementation(libs.ktor.client.cio)
+            implementation(libs.ktor.client.websockets)
         }
         androidMain.dependencies {
             implementation(libs.kotlinx.rpc.krpc.ktor.client)
             implementation(libs.ktor.client.cio)
+            implementation(libs.ktor.client.websockets)
         }
         nativeMain.dependencies {
             implementation(libs.kotlinx.rpc.krpc.ktor.client)
             implementation(libs.ktor.client.cio)
+            implementation(libs.ktor.client.websockets)
         }
         webMain.dependencies {
             implementation(libs.kotlinx.rpc.krpc.ktor.client)
             implementation(libs.ktor.client.cio)
+            implementation(libs.ktor.client.websockets)
         }
 
         commonTest.dependencies {
