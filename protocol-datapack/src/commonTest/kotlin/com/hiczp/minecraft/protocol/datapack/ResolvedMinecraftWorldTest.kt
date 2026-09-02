@@ -176,8 +176,6 @@ class ResolvedMinecraftWorldTest {
             ),
         )
         return ResolvedProtocolData(
-            minecraftVersion = "test",
-            protocolVersion = 1,
             offeredKnownPacks = emptyList(),
             enabledFeatureFlags = emptySet(),
             completeSynchronizedRegistryPackets = listOf(

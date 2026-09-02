@@ -20,11 +20,11 @@ it.
 - `:protocol-model:generateMinecraftProtocolSource` renders release constants from target analysis.
 - `:world-format:generateMinecraftWorldFormatSource` renders the world-format constant from target analysis.
 - `:protocol-datapack-vanilla:generateVanillaRegistryDataSource` renders encoded registry and block-state payload source
-  from target, registry, and block reports.
+  from registry and block reports.
 - `:protocol-datapack-vanilla:generateVanillaConfigurationPacketPayloadSource` renders encoded Configuration packet
   payload source from target and Configuration analysis.
-- `:protocol-datapack-vanilla:generateVanillaDataPackSources` renders a small manifest and independently loaded encoded
-  batch functions from extracted official data-pack content.
+- `:protocol-datapack-vanilla:generateVanillaDataPackSources` renders a small manifest and one independently loaded
+  encoded payload function per extracted official data pack.
 
 Compilation and tests are wired through the producers' artifact Providers. Do not add duplicate task ordering,
 generated-source copying, or freshness comparison tasks.

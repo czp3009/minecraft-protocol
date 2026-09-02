@@ -2,7 +2,6 @@
 
 package com.hiczp.minecraft.protocol.datapack.vanilla
 
-import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.io.Buffer
 import kotlinx.serialization.ExperimentalSerializationApi
@@ -114,12 +113,6 @@ object VanillaRegistryData {
         ::decodeVanillaRegistryData,
     )
 
-    val minecraftVersion: String
-        get() = MinecraftProtocol.MINECRAFT_VERSION
-
-    val protocolVersion: Int
-        get() = MinecraftProtocol.PROTOCOL_VERSION
-
     val vanillaRegistries: Map<Identifier, VanillaRegistry>
         get() = vanillaRegistryDataSnapshot.vanillaRegistries
 
@@ -196,17 +189,6 @@ private data class VanillaBlockStatePayload(
 )
 
 private fun decodeVanillaRegistryData(): VanillaRegistryDataSnapshot {
-    val payloadMinecraftVersion = VanillaRegistryDataPayloads.minecraftVersion
-    val modelMinecraftVersion = MinecraftProtocol.MINECRAFT_VERSION
-    check(payloadMinecraftVersion == modelMinecraftVersion) {
-        "Vanilla registry data targets $payloadMinecraftVersion, but models target $modelMinecraftVersion"
-    }
-    val payloadProtocolVersion = VanillaRegistryDataPayloads.protocolVersion
-    val modelProtocolVersion = MinecraftProtocol.PROTOCOL_VERSION
-    check(payloadProtocolVersion == modelProtocolVersion) {
-        "Vanilla registry data targets protocol $payloadProtocolVersion, but models target $modelProtocolVersion"
-    }
-
     val registryDataSource = Buffer().apply {
         write(
             Base64.Default.decode(

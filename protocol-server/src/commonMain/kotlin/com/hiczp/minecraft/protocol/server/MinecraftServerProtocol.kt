@@ -4,6 +4,7 @@ import com.hiczp.minecraft.protocol.auth.*
 import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionContext
 import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.datapack.resolveSynchronizedRegistryContext
+import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.session.*
@@ -81,7 +82,7 @@ suspend fun MinecraftServerConnection.negotiate(
                 )
             }
             val actualVersion = handshakePacket.protocolVersion
-            val expectedVersion = minecraftServerNegotiationOptions.protocolData.protocolVersion
+            val expectedVersion = MinecraftProtocol.PROTOCOL_VERSION
             if (actualVersion != expectedVersion) {
                 val message = "Unsupported protocol version $actualVersion; expected $expectedVersion"
                 throw MinecraftLoginRejectedException(

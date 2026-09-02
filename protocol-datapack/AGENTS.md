@@ -10,6 +10,8 @@ of active protocol dimension/registry facts to semantic world-Chunk contracts.
   `DataPackConfigurationSnapshot`.
 - Keep `ProtocolData` domain-oriented: feature flags and registry tags are values; client/server orchestration creates
   the corresponding wire packets at the send boundary.
+- `ProtocolData` is implicitly bound to the repository-selected packet model. Do not add Minecraft release or protocol
+  number aliases to protocol-data values; callers and connection orchestration use `MinecraftProtocol` directly.
 - Keep every public stage manually constructible. Generic conversion requires explicit base/default data and registry
   projectors.
 - Never assume disk and network codecs are equivalent; registry projection uses caller-supplied

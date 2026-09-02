@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
+import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.ClientboundPacket
 import com.hiczp.minecraft.protocol.model.packet.PlayLoginPacket
 import com.hiczp.minecraft.protocol.model.packet.ServerboundPacket
@@ -108,8 +109,8 @@ private fun MinecraftServerNegotiationOptions.createDefaultServerStatus(
             online = onlinePlayers,
         ),
         version = ServerStatus.Version(
-            protocolData.minecraftVersion,
-            protocolData.protocolVersion,
+            MinecraftProtocol.MINECRAFT_VERSION,
+            MinecraftProtocol.PROTOCOL_VERSION,
         ),
         enforcesSecureChat = effectiveSecureChatEnforcement(onlineMode),
     )

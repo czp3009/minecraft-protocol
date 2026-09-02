@@ -4,15 +4,13 @@ import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
 import com.hiczp.minecraft.protocol.model.type.*
 
 /**
- * Version-bound protocol data needed to configure a client.
+ * Protocol data needed to configure a client for the repository-selected release.
  *
  * Static client-known registries are exposed separately through typed
  * catalogues. This interface owns the registries and tags synchronized during
  * the Configuration state.
  */
 interface ProtocolData {
-    val minecraftVersion: String
-    val protocolVersion: Int
     val offeredKnownPacks: List<KnownPack>
     val enabledFeatureFlags: Set<Identifier>
     val registryTags: List<RegistryTags>

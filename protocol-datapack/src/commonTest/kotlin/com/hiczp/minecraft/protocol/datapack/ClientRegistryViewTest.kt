@@ -18,8 +18,6 @@ class ClientRegistryViewTest {
             blocks = listOf(block(firstBlockId), block(secondBlockId)),
         )
         val resolvedProtocolData = ResolvedProtocolData(
-            minecraftVersion = "test",
-            protocolVersion = 1,
             offeredKnownPacks = emptyList(),
             enabledFeatureFlags = emptySet(),
             completeSynchronizedRegistryPackets = listOf(
@@ -108,8 +106,6 @@ class ClientRegistryViewTest {
         val synchronizedRegistryPackets = mutableListOf<RegistryDataPacket>()
         val registryTags = mutableListOf<RegistryTags>()
         val resolvedProtocolData = ResolvedProtocolData(
-            minecraftVersion = "test",
-            protocolVersion = 1,
             offeredKnownPacks = offeredKnownPacks,
             enabledFeatureFlags = enabledFeatureFlags,
             completeSynchronizedRegistryPackets = synchronizedRegistryPackets,
@@ -125,8 +121,6 @@ class ClientRegistryViewTest {
         assertEquals(
             resolvedProtocolData,
             ResolvedProtocolData(
-                minecraftVersion = "test",
-                protocolVersion = 1,
                 offeredKnownPacks = offeredKnownPacks,
                 enabledFeatureFlags = enabledFeatureFlags,
                 completeSynchronizedRegistryPackets = synchronizedRegistryPackets,

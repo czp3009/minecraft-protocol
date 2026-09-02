@@ -22,12 +22,6 @@ object VanillaProtocolData : ProtocolData {
         decodeVanillaConfigurationSnapshot()
     }
 
-    override val minecraftVersion: String
-        get() = MinecraftProtocol.MINECRAFT_VERSION
-
-    override val protocolVersion: Int
-        get() = MinecraftProtocol.PROTOCOL_VERSION
-
     override val offeredKnownPacks: List<KnownPack>
         get() = vanillaConfigurationSnapshot.offeredKnownPacks
 

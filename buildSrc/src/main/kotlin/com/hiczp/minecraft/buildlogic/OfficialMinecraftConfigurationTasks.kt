@@ -83,9 +83,7 @@ abstract class GenerateVanillaConfigurationPacketPayloadSourceTask : DefaultTask
             protocolJson.decodeFromString<JsonObject>(configurationFile.asFile.get().toPath().readText()),
             expectedTarget = officialMinecraftTargetReport,
         )
-        val generatedSource =
-            vanillaConfigurationCaptureResult.renderKotlin(officialMinecraftTargetReport.minecraftProtocolTarget)
-                .toString()
+        val generatedSource = vanillaConfigurationCaptureResult.renderKotlin().toString()
         val outputFilePath = outputFile.asFile.get().toPath()
         outputFilePath.atomicWriteText(generatedSource)
         logger.lifecycle(

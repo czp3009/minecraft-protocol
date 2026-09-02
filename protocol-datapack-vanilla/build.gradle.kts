@@ -27,7 +27,6 @@ val generateVanillaRegistryDataSource =
         "generateVanillaRegistryDataSource",
     ) {
         description = "Generate typed vanilla registry and block-state source."
-        targetFile = officialTargetFile
         registriesFile = officialReportsDirectory.map {
             it.file("reports/registries.json")
         }

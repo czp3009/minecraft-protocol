@@ -10,8 +10,6 @@ import com.hiczp.minecraft.protocol.model.type.*
  * registry packet sequences let a caller use Known Packs compaction without coupling the structure to a disk data pack.
  */
 class ResolvedProtocolData(
-    override val minecraftVersion: String,
-    override val protocolVersion: Int,
     override val offeredKnownPacks: List<KnownPack>,
     override val enabledFeatureFlags: Set<Identifier>,
     val completeSynchronizedRegistryPackets: List<RegistryDataPacket>,
@@ -28,8 +26,6 @@ class ResolvedProtocolData(
 
     init {
         val completeRegistryIds = completeSynchronizedRegistryPackets.map(RegistryDataPacket::registryId)
-        require(minecraftVersion.isNotBlank()) { "Protocol data requires a Minecraft version" }
-        require(protocolVersion >= 0) { "A protocol version must be non-negative" }
         require(offeredKnownPacks.distinct().size == offeredKnownPacks.size) {
             "Offered Known Packs contains duplicates"
         }
@@ -63,8 +59,6 @@ class ResolvedProtocolData(
 
     override fun equals(other: Any?): Boolean =
         other is ResolvedProtocolData &&
-                minecraftVersion == other.minecraftVersion &&
-                protocolVersion == other.protocolVersion &&
                 offeredKnownPacks == other.offeredKnownPacks &&
                 enabledFeatureFlags == other.enabledFeatureFlags &&
                 completeSynchronizedRegistryPackets == other.completeSynchronizedRegistryPackets &&
@@ -74,9 +68,7 @@ class ResolvedProtocolData(
                 completeProtocolRegistryContext == other.completeProtocolRegistryContext
 
     override fun hashCode(): Int {
-        var result = minecraftVersion.hashCode()
-        result = 31 * result + protocolVersion
-        result = 31 * result + offeredKnownPacks.hashCode()
+        var result = offeredKnownPacks.hashCode()
         result = 31 * result + enabledFeatureFlags.hashCode()
         result = 31 * result + completeSynchronizedRegistryPackets.hashCode()
         result = 31 * result + knownPackSynchronizedRegistryPackets.hashCode()

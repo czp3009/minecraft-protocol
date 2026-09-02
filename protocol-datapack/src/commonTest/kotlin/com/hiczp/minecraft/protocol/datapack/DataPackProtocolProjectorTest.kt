@@ -253,8 +253,6 @@ class DataPackProtocolProjectorTest {
         registryEntries: List<RegistryEntry> = listOf(RegistryEntry(plains, NbtString("base"))),
         tagRawIds: List<Int> = listOf(0),
     ): ResolvedProtocolData = ResolvedProtocolData(
-        minecraftVersion = "test",
-        protocolVersion = 1,
         offeredKnownPacks = emptyList(),
         enabledFeatureFlags = emptySet(),
         completeSynchronizedRegistryPackets = listOf(

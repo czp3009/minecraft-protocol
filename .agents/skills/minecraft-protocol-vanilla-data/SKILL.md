@@ -20,7 +20,7 @@ used by loaders. The following generated Kotlin is read-only:
 - `MinecraftWorldFormat.kt`;
 - `VanillaRegistryDataPayloads.kt`;
 - `VanillaConfigurationPacketPayloads.kt`;
-- `VanillaDataPackPayload.kt` and every `VanillaDataPackPayloadBatch*.kt`.
+- `VanillaDataPackPayload.kt` and every indexed `VanillaDataPackPayload<index>.kt`.
 
 KSP-generated protocol dispatch is also read-only. Do not copy generated payloads or analysis JSON into source
 directories.

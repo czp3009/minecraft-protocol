@@ -180,8 +180,6 @@ class DataPackProtocolProjector(
                 completeSynchronizedRegistryPackets
             }
         return ResolvedProtocolData(
-            minecraftVersion = baseProtocolData.minecraftVersion,
-            protocolVersion = baseProtocolData.protocolVersion,
             offeredKnownPacks = offeredKnownPacks,
             enabledFeatureFlags = enabledFeatureFlags,
             completeSynchronizedRegistryPackets = completeSynchronizedRegistryPackets,

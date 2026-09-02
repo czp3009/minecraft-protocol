@@ -20,15 +20,11 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 internal data class VanillaDataPackPayloadDescriptor(
     val dataPackId: String,
     val dataPackIndex: Int,
-    val batchCount: Int,
 )
 
 /** Programmatic official data packs matching this build's selected release. */
 object VanillaDataPacks {
     val coreDataPackId: DataPackId = DataPackId("vanilla")
-
-    val minecraftVersion: String
-        get() = VanillaDataPackPayload.minecraftVersion
 
     val dataPackFormatVersion: DataPackFormatVersion =
         VanillaDataPackPayload.dataPackFormatVersion.let { encodedDataPackFormatVersion ->
@@ -46,12 +42,12 @@ object VanillaDataPacks {
     fun dataPackArchive(dataPackId: DataPackId): DataPackArchive =
         decodeDataPackArchive(requireDataPackPayloadDescriptor(dataPackId))
 
-    /** Parses one bundled pack with caller-selected file decoders without materializing its raw archive first. */
+    /** Parses one complete bundled pack with caller-selected file decoders. */
     fun parseDataPack(
         dataPackId: DataPackId,
         dataPackFormat: DataPackFormat = DataPackFormat(),
     ): DataPack = attachCoreDataPackMetadata(
-        dataPackFormat.decode(dataPackId, decodedDataPackFileBytes(requireDataPackPayloadDescriptor(dataPackId))),
+        dataPackFormat.decode(decodeDataPackArchive(requireDataPackPayloadDescriptor(dataPackId))),
     )
 
     /** Every bundled pack parsed through [DataPackFormat], including built-in experimental packs. */
@@ -125,47 +121,36 @@ object VanillaDataPacks {
         )
     }
 
-    private const val PAYLOAD_SCHEMA_VERSION = 3
+    private const val PAYLOAD_SCHEMA_VERSION = 4
 }
 
 @Serializable
-private data class VanillaDataPackPayloadBatch(
+private data class VanillaDataPackPayloadContent(
     @SerialName("files")
     val encodedDataPackFileBytesByPath: Map<String, String>,
 )
 
 @OptIn(ExperimentalEncodingApi::class)
-private fun decodedDataPackFileBytes(
-    vanillaDataPackPayloadDescriptor: VanillaDataPackPayloadDescriptor,
-): Sequence<Pair<DataPackFilePath, DataPackFileBytes>> = sequence {
-    repeat(vanillaDataPackPayloadDescriptor.batchCount) { batchIndex ->
-        val encodedBatchChunks = VanillaDataPackPayload.loadDataPackBatch(
-            vanillaDataPackPayloadDescriptor.dataPackIndex,
-            batchIndex,
-        )
-        decodeDataPackPayloadBatch(encodedBatchChunks).encodedDataPackFileBytesByPath
-            .forEach { (encodedPath, encodedDataPackFileBytes) ->
-                yield(DataPackFilePath(encodedPath) to DataPackFileBytes(Base64.decode(encodedDataPackFileBytes)))
-            }
-    }
-}
-
 private fun decodeDataPackArchive(
     vanillaDataPackPayloadDescriptor: VanillaDataPackPayloadDescriptor,
 ): DataPackArchive = DataPackArchive(
     dataPackId = DataPackId(vanillaDataPackPayloadDescriptor.dataPackId),
-    dataPackFileBytesByPath = decodedDataPackFileBytes(vanillaDataPackPayloadDescriptor).toMap(),
+    dataPackFileBytesByPath = decodeDataPackPayload(
+        VanillaDataPackPayload.loadDataPackPayload(vanillaDataPackPayloadDescriptor.dataPackIndex),
+    ).encodedDataPackFileBytesByPath.map { (encodedPath, encodedDataPackFileBytes) ->
+        DataPackFilePath(encodedPath) to DataPackFileBytes(Base64.decode(encodedDataPackFileBytes))
+    }.toMap(),
 )
 
 @OptIn(ExperimentalEncodingApi::class)
-private fun decodeDataPackPayloadBatch(encodedBatchChunks: List<String>): VanillaDataPackPayloadBatch {
-    val compressedBatchBytes = Base64.decode(encodedBatchChunks.joinToString(separator = ""))
-    val compressedBatchSource = Buffer().apply { write(compressedBatchBytes) }
-    val decompressedBatchBytes = CompressionRegistry.decompressingSource(Compression.GZIP, compressedBatchSource)
-        .buffered().use { decompressedBatchSource ->
-            decompressedBatchSource.readByteArray()
+private fun decodeDataPackPayload(encodedPayloadChunks: List<String>): VanillaDataPackPayloadContent {
+    val compressedPayloadBytes = Base64.decode(encodedPayloadChunks.joinToString(separator = ""))
+    val compressedPayloadSource = Buffer().apply { write(compressedPayloadBytes) }
+    val decompressedPayloadBytes = CompressionRegistry.decompressingSource(Compression.GZIP, compressedPayloadSource)
+        .buffered().use { decompressedPayloadSource ->
+            decompressedPayloadSource.readByteArray()
         }
-    return Json.decodeFromString<VanillaDataPackPayloadBatch>(decompressedBatchBytes.decodeToString())
+    return Json.decodeFromString<VanillaDataPackPayloadContent>(decompressedPayloadBytes.decodeToString())
 }
 
 /**

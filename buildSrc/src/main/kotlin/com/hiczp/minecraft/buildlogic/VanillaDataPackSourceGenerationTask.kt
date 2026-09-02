@@ -16,7 +16,7 @@ import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.readText
 
-/** Generates a portable manifest and independently loaded source batches from extracted official data packs. */
+/** Generates a portable manifest and independently loaded per-pack payloads from extracted official data packs. */
 @CacheableTask
 abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
     @get:InputDirectory
@@ -54,19 +54,14 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
         outputDirectoryPath.deleteTree()
         val packageDirectory = outputDirectoryPath.resolve(GENERATED_PACKAGE.replace('.', '/'))
         Files.createDirectories(packageDirectory)
-        renderManifestSource(
-            minecraftVersion = dataPackManifest.getValue("minecraft_version").jsonPrimitive.content,
-            dataPackFormatVersion = dataPackFormatVersion,
-            dataPackPayloads = dataPackPayloads,
-        ).writeSource(packageDirectory.resolve("VanillaDataPackPayload.kt"))
+        renderManifestSource(dataPackFormatVersion, dataPackPayloads)
+            .writeSource(packageDirectory.resolve("VanillaDataPackPayload.kt"))
         dataPackPayloads.forEachIndexed { dataPackIndex, dataPackPayload ->
-            dataPackPayload.encodedBatches.forEachIndexed { batchIndex, encodedBatchChunks ->
-                renderBatchSource(dataPackIndex, batchIndex, encodedBatchChunks).writeSource(
-                    packageDirectory.resolve("VanillaDataPackPayloadBatch${dataPackIndex}_$batchIndex.kt"),
-                )
-            }
+            renderPayloadSource(dataPackIndex, dataPackPayload.encodedPayloadChunks).writeSource(
+                packageDirectory.resolve("VanillaDataPackPayload$dataPackIndex.kt"),
+            )
         }
-        logger.lifecycle("Generated lazy vanilla data-pack sources: $outputDirectoryPath")
+        logger.lifecycle("Generated selectable vanilla data-pack sources: $outputDirectoryPath")
     }
 
     private fun buildDataPackPayload(
@@ -81,24 +76,22 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
             dataPackPaths.filter { it.isRegularFile() }.sorted().toList()
         }
         check(dataPackFilePaths.isNotEmpty()) { "Official data pack $dataPackId has no files" }
-        val encodedBatches = dataPackFilePaths.chunked(PAYLOAD_BATCH_FILE_COUNT).map { dataPackFileBatch ->
-            val dataPackPayloadJson = buildJsonObject {
-                put(
-                    "files",
-                    buildJsonObject {
-                        dataPackFileBatch.forEach { dataPackFile ->
-                            val dataPackFilePath = dataPackDirectory.relativize(dataPackFile).joinToString("/")
-                            put(
-                                dataPackFilePath,
-                                Base64.getEncoder().encodeToString(Files.readAllBytes(dataPackFile)),
-                            )
-                        }
-                    },
-                )
-            }
-            encodeDataPackPayload(dataPackPayloadJson).chunked(SOURCE_CHUNK_SIZE)
+        val dataPackPayloadJson = buildJsonObject {
+            put(
+                "files",
+                buildJsonObject {
+                    dataPackFilePaths.forEach { dataPackFile ->
+                        val dataPackFilePath = dataPackDirectory.relativize(dataPackFile).joinToString("/")
+                        put(
+                            dataPackFilePath,
+                            Base64.getEncoder().encodeToString(Files.readAllBytes(dataPackFile)),
+                        )
+                    }
+                },
+            )
         }
-        return DataPackPayload(dataPackId, dataPackFilePaths.size, encodedBatches)
+        val encodedPayloadChunks = encodeDataPackPayload(dataPackPayloadJson).chunked(SOURCE_CHUNK_SIZE)
+        return DataPackPayload(dataPackId, dataPackFilePaths.size, encodedPayloadChunks)
     }
 
     private fun encodeDataPackPayload(dataPackPayloadJson: JsonObject): String {
@@ -113,7 +106,6 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
     }
 
     private fun renderManifestSource(
-        minecraftVersion: String,
         dataPackFormatVersion: List<Int>,
         dataPackPayloads: List<DataPackPayload>,
     ): FileSpec {
@@ -124,11 +116,10 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
             .apply {
                 dataPackPayloads.forEachIndexed { dataPackIndex, dataPackPayload ->
                     add(
-                        "%T(dataPackId = %S, dataPackIndex = %L, batchCount = %L),\n",
+                        "%T(dataPackId = %S, dataPackIndex = %L),\n",
                         dataPackPayloadDescriptor,
                         dataPackPayload.dataPackId,
                         dataPackIndex,
-                        dataPackPayload.encodedBatches.size,
                     )
                 }
             }
@@ -143,15 +134,10 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
         )
         val vanillaDataPackPayload = TypeSpec.objectBuilder("VanillaDataPackPayload")
             .addModifiers(INTERNAL)
-            .addKdoc("Official data-pack manifest and lazy batch dispatch; regenerated by Gradle.\n")
+            .addKdoc("Official data-pack manifest and per-pack payload dispatch; regenerated by Gradle.\n")
             .addProperty(
                 PropertySpec.builder("schemaVersion", INT)
                     .initializer("%L", PAYLOAD_SCHEMA_VERSION)
-                    .build(),
-            )
-            .addProperty(
-                PropertySpec.builder("minecraftVersion", STRING)
-                    .initializer("%S", minecraftVersion)
                     .build(),
             )
             .addProperty(
@@ -175,60 +161,50 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
                     )
                     .build(),
             )
-            .addFunction(renderBatchDispatcher(dataPackPayloads))
+            .addFunction(renderPayloadDispatcher(dataPackPayloads))
             .build()
         return FileSpec.builder(GENERATED_PACKAGE, "VanillaDataPackPayload")
             .addType(vanillaDataPackPayload)
             .build()
     }
 
-    private fun renderBatchDispatcher(dataPackPayloads: List<DataPackPayload>): FunSpec {
+    private fun renderPayloadDispatcher(dataPackPayloads: List<DataPackPayload>): FunSpec {
         val dispatcherCode = CodeBlock.builder().beginControlFlow("return when (dataPackIndex)")
-        dataPackPayloads.forEachIndexed { dataPackIndex, dataPackPayload ->
-            dispatcherCode.beginControlFlow("%L -> when (batchIndex)", dataPackIndex)
-            dataPackPayload.encodedBatches.indices.forEach { batchIndex ->
-                dispatcherCode.addStatement(
-                    "%L -> %M()",
-                    batchIndex,
-                    MemberName(GENERATED_PACKAGE, batchFunctionName(dataPackIndex, batchIndex)),
-                )
-            }
+        dataPackPayloads.indices.forEach { dataPackIndex ->
             dispatcherCode.addStatement(
-                "else -> error(%S)",
-                "Unknown batch index for vanilla data pack ${dataPackPayload.dataPackId}",
+                "%L -> %M()",
+                dataPackIndex,
+                MemberName(GENERATED_PACKAGE, payloadFunctionName(dataPackIndex)),
             )
-            dispatcherCode.endControlFlow()
         }
         dispatcherCode.addStatement("else -> error(%S)", "Unknown vanilla data-pack index")
         dispatcherCode.endControlFlow()
-        return FunSpec.builder("loadDataPackBatch")
+        return FunSpec.builder("loadDataPackPayload")
             .addParameter("dataPackIndex", INT)
-            .addParameter("batchIndex", INT)
             .returns(LIST.parameterizedBy(STRING))
             .addCode(dispatcherCode.build())
             .build()
     }
 
-    private fun renderBatchSource(
+    private fun renderPayloadSource(
         dataPackIndex: Int,
-        batchIndex: Int,
-        encodedBatchChunks: List<String>,
+        encodedPayloadChunks: List<String>,
     ): FileSpec {
-        val encodedBatchChunksInitializer = CodeBlock.builder()
+        val encodedPayloadChunksInitializer = CodeBlock.builder()
             .add("%M(\n", LIST_OF)
             .indent()
-            .apply { encodedBatchChunks.forEach { encodedBatchChunk -> add("%S,\n", encodedBatchChunk) } }
+            .apply { encodedPayloadChunks.forEach { encodedPayloadChunk -> add("%S,\n", encodedPayloadChunk) } }
             .unindent()
             .add(")")
             .build()
-        val functionName = batchFunctionName(dataPackIndex, batchIndex)
-        return FileSpec.builder(GENERATED_PACKAGE, "VanillaDataPackPayloadBatch${dataPackIndex}_$batchIndex")
+        val functionName = payloadFunctionName(dataPackIndex)
+        return FileSpec.builder(GENERATED_PACKAGE, "VanillaDataPackPayload$dataPackIndex")
             .addFunction(
                 FunSpec.builder(functionName)
                     .addModifiers(INTERNAL)
-                    .addKdoc("Loads one compressed official data-pack batch on demand.\n")
+                    .addKdoc("Loads one complete compressed official data pack on demand.\n")
                     .returns(LIST.parameterizedBy(STRING))
-                    .addStatement("return %L", encodedBatchChunksInitializer)
+                    .addStatement("return %L", encodedPayloadChunksInitializer)
                     .build(),
             )
             .build()
@@ -241,19 +217,18 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
     private data class DataPackPayload(
         val dataPackId: String,
         val dataPackFileCount: Int,
-        val encodedBatches: List<List<String>>,
+        val encodedPayloadChunks: List<String>,
     )
 
     companion object {
         private const val EXTRACTION_SCHEMA_VERSION = 1
-        private const val PAYLOAD_SCHEMA_VERSION = 3
+        private const val PAYLOAD_SCHEMA_VERSION = 4
         private const val MANIFEST_FILE = "manifest.json"
         private const val GENERATED_PACKAGE = "com.hiczp.minecraft.protocol.datapack.vanilla"
-        private const val PAYLOAD_BATCH_FILE_COUNT = 64
         private const val SOURCE_CHUNK_SIZE = 12_000
         private val LIST_OF = MemberName("kotlin.collections", "listOf")
 
-        private fun batchFunctionName(dataPackIndex: Int, batchIndex: Int): String =
-            "loadVanillaDataPackPayloadBatch${dataPackIndex}_$batchIndex"
+        private fun payloadFunctionName(dataPackIndex: Int): String =
+            "loadVanillaDataPackPayload$dataPackIndex"
     }
 }

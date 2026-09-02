@@ -1120,13 +1120,9 @@ internal abstract class DataComponentSerializerBase(
             }
         }
         input.endStructure(descriptor)
-        val result = dataComponent ?: throw SerializationException(
+        return dataComponent ?: throw SerializationException(
             "Missing data component value for ${dataComponentType?.wireName ?: "unknown type"}",
         )
-        if (GeneratedDataComponentSerializers.type(result) != dataComponentType) {
-            throw SerializationException("Data component type/value mismatch")
-        }
-        return result
     }
 
     private fun decodeType(protocolId: Int): DataComponentType {
