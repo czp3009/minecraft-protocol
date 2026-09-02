@@ -8,9 +8,20 @@ import kotlinx.serialization.KSerializer
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.uuid.Uuid
 
 class PlayServerboundChatPacketTest {
+    @Test
+    fun `last-seen acknowledgement width belongs to the physical codec`() {
+        assertFailsWith<MinecraftSerializationException> {
+            MinecraftProtocolFormat.encodeToByteArray(
+                LastSeenMessagesUpdate.serializer(),
+                LastSeenMessagesUpdate(0, ByteString(ByteArray(2)), 0),
+            )
+        }
+    }
+
     @Test
     fun `chat message retains instant signature optional and fixed bitset`() {
         assertPacketBytes(

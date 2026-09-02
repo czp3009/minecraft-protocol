@@ -14,7 +14,7 @@ import kotlin.io.path.readText
  */
 @CacheableTask
 abstract class AnalyzeOfficialMinecraftConfigurationTask :
-    MinecraftProtocolToolTask() {
+    DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val serverJar: RegularFileProperty
@@ -28,10 +28,9 @@ abstract class AnalyzeOfficialMinecraftConfigurationTask :
 
     @TaskAction
     fun analyze() {
-        val minecraftVersion = minecraftVersion.get()
         val serverJarPath = serverJar.asFile.get().toPath()
         val packetsReportPath = packetsReport.asFile.get().toPath()
-        val minecraftProtocolTarget = serverJarPath.readMinecraftProtocolTarget(minecraftVersion)
+        val minecraftProtocolTarget = serverJarPath.readMinecraftProtocolTarget()
 
         check(packetsReportPath.isRegularFile()) {
             "Official packets report is missing: $packetsReportPath"
@@ -52,7 +51,7 @@ abstract class AnalyzeOfficialMinecraftConfigurationTask :
         }
         val outputFilePath = outputFile.asFile.get().toPath()
         outputFilePath.writeJson(
-            vanillaConfigurationCaptureResult.toAnalysisJson(minecraftProtocolTarget),
+            vanillaConfigurationCaptureResult.toAnalysisJson(),
             sortKeys = true,
         )
         logger.lifecycle(
@@ -66,10 +65,6 @@ abstract class AnalyzeOfficialMinecraftConfigurationTask :
 abstract class GenerateVanillaConfigurationPacketPayloadSourceTask : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
-    abstract val targetFile: RegularFileProperty
-
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.NONE)
     abstract val configurationFile: RegularFileProperty
 
     @get:OutputFile
@@ -77,11 +72,8 @@ abstract class GenerateVanillaConfigurationPacketPayloadSourceTask : DefaultTask
 
     @TaskAction
     fun generate() {
-        val officialMinecraftTargetReport = targetFile.asFile.get().toPath()
-            .readOfficialMinecraftTargetReport()
         val vanillaConfigurationCaptureResult = VanillaConfigurationCaptureResult.fromAnalysisJson(
             protocolJson.decodeFromString<JsonObject>(configurationFile.asFile.get().toPath().readText()),
-            expectedTarget = officialMinecraftTargetReport,
         )
         val generatedSource = vanillaConfigurationCaptureResult.renderKotlin().toString()
         val outputFilePath = outputFile.asFile.get().toPath()

@@ -357,18 +357,14 @@ internal object DebugSubscriptionUpdateSerializer :
     }
 
     override fun serialize(encoder: Encoder, value: DebugSubscriptionUpdate) {
-        val kSerializer = debugSerializer(value.type)
-        if (value.data != null && debugType(value.data) != value.type) {
-            throw SerializationException(
-                "Debug update type ${value.type} does not match ${debugType(value.data)}",
-            )
-        }
+        val debugSubscriptionType = value.data?.let(::debugType) ?: value.type
+        val kSerializer = debugSerializer(debugSubscriptionType)
         val output = encoder.beginStructure(descriptor)
         output.encodeSerializableElement(
             descriptor,
             TYPE,
             DebugSubscriptionType.serializer(),
-            value.type,
+            debugSubscriptionType,
         )
         output.encodeNullableSerializableElement(
             descriptor,

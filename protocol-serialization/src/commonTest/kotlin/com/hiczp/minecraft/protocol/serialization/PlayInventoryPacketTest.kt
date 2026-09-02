@@ -66,8 +66,14 @@ class PlayInventoryPacketTest {
             SetEquipmentPacket.serializer(),
             "0180000501010000",
         )
-        assertFailsWith<IllegalArgumentException> {
-            EquipmentUpdates(emptyList())
+        assertFailsWith<SerializationException> {
+            MinecraftProtocolFormat.encodeToByteArray(
+                SetEquipmentPacket.serializer(),
+                SetEquipmentPacket(
+                    entityId = 1,
+                    updates = EquipmentUpdates(emptyList()),
+                ),
+            )
         }
         assertFailsWith<SerializationException> {
             MinecraftProtocolFormat.decodeFromByteArray<SetEquipmentPacket>(

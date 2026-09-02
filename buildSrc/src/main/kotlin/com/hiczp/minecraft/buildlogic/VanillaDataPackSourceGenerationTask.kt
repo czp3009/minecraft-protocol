@@ -39,12 +39,6 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
         val dataPackPayloads = dataPackIds.map { dataPackId ->
             buildDataPackPayload(extractedDataPacksDirectoryPath, dataPackId)
         }
-        check(
-            dataPackPayloads.sumOf(DataPackPayload::dataPackFileCount) ==
-                    dataPackManifest.getValue("file_count").jsonPrimitive.int,
-        ) {
-            "Official data-pack file count differs from its extraction manifest"
-        }
         val dataPackFormatVersion = dataPackManifest.getValue("data_pack_format").jsonArray.map {
             it.jsonPrimitive.int
         }
@@ -91,7 +85,7 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
             )
         }
         val encodedPayloadChunks = encodeDataPackPayload(dataPackPayloadJson).chunked(SOURCE_CHUNK_SIZE)
-        return DataPackPayload(dataPackId, dataPackFilePaths.size, encodedPayloadChunks)
+        return DataPackPayload(dataPackId, encodedPayloadChunks)
     }
 
     private fun encodeDataPackPayload(dataPackPayloadJson: JsonObject): String {
@@ -216,7 +210,6 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
 
     private data class DataPackPayload(
         val dataPackId: String,
-        val dataPackFileCount: Int,
         val encodedPayloadChunks: List<String>,
     )
 

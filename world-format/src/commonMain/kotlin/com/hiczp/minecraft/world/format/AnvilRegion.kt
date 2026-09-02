@@ -271,20 +271,52 @@ enum class AnvilChunkPlacement {
 }
 
 /** One record in a detached `.mca` image. */
-data class AnvilChunkRecord(
+class AnvilChunkRecord private constructor(
     val compression: Compression,
     val content: CompressedChunk?,
     val anvilChunkPlacement: AnvilChunkPlacement,
     /** Raw signed 32-bit seconds-since-epoch value stored in the header. */
     val timestampEpochSeconds: Int = 0,
 ) {
-    init {
-        require(anvilChunkPlacement == AnvilChunkPlacement.EXTERNAL || content != null) {
-            "An inline Anvil Chunk record must contain its compressed payload"
-        }
-        require(content == null || content.compression == compression) {
-            "Anvil record compression does not match its compressed content"
-        }
+    constructor(
+        content: CompressedChunk,
+        anvilChunkPlacement: AnvilChunkPlacement,
+        timestampEpochSeconds: Int = 0,
+    ) : this(
+        compression = content.compression,
+        content = content,
+        anvilChunkPlacement = anvilChunkPlacement,
+        timestampEpochSeconds = timestampEpochSeconds,
+    )
+
+    override fun equals(other: Any?): Boolean =
+        other is AnvilChunkRecord &&
+                compression == other.compression &&
+                content == other.content &&
+                anvilChunkPlacement == other.anvilChunkPlacement &&
+                timestampEpochSeconds == other.timestampEpochSeconds
+
+    override fun hashCode(): Int {
+        var result = compression.hashCode()
+        result = 31 * result + (content?.hashCode() ?: 0)
+        result = 31 * result + anvilChunkPlacement.hashCode()
+        return 31 * result + timestampEpochSeconds
+    }
+
+    override fun toString(): String =
+        "AnvilChunkRecord(compression=$compression, content=$content, anvilChunkPlacement=$anvilChunkPlacement, timestampEpochSeconds=$timestampEpochSeconds)"
+
+    companion object {
+        /** Creates an external record whose sidecar payload has not been resolved. */
+        fun unresolvedExternal(
+            compression: Compression,
+            timestampEpochSeconds: Int = 0,
+        ): AnvilChunkRecord = AnvilChunkRecord(
+            compression = compression,
+            content = null,
+            anvilChunkPlacement = AnvilChunkPlacement.EXTERNAL,
+            timestampEpochSeconds = timestampEpochSeconds,
+        )
     }
 }
 
@@ -299,10 +331,6 @@ class AnvilRegion(
     chunks: Map<LocalChunkPosition, AnvilChunkRecord> = emptyMap(),
 ) {
     val chunks: Map<LocalChunkPosition, AnvilChunkRecord> = chunks.toMap()
-
-    init {
-        require(this.chunks.size <= REGION_CHUNK_COUNT)
-    }
 
     /** Whether this detached Region contains a Chunk record at [localChunkPosition], without inspecting its payload. */
     fun hasChunk(localChunkPosition: LocalChunkPosition): Boolean = chunks.containsKey(localChunkPosition)

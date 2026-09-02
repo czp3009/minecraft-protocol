@@ -222,7 +222,7 @@ class MinecraftPacketSessionTest {
     }
 
     @Test
-    fun propagatesPayloadDecodeFailuresWithoutChangingSessionState() =
+    fun rejectsInvalidDecodedTransitionsWithoutChangingSessionState() =
         runTest {
             val (client, server) = sessionPair()
             val malformedHandshake = encodeVarInt(0) +
@@ -230,7 +230,7 @@ class MinecraftPacketSessionTest {
                     byteArrayOf(1, 'x'.code.toByte(), 0x63, 0xDD.toByte(), 0)
             client.minecraftFrameStream.sendPacketData(malformedHandshake)
 
-            assertFailsWith<IllegalArgumentException> {
+            assertFailsWith<MinecraftSessionException> {
                 server.receive()
             }
 
@@ -273,6 +273,15 @@ class MinecraftPacketSessionTest {
 
         client.activateExtensionRoutes(setOf(customPayload))
         server.activateExtensionRoutes(setOf(customPayload))
+        val routedCustomPayload = server.encodeCustomPayload(SessionNumberPayload(300))
+        assertEquals(
+            SessionNumberPayload(300),
+            client.decodeCustomPayload(
+                routedCustomPayload.copy(
+                    route = routedCustomPayload.route.copy(packetId = routedCustomPayload.route.packetId + 1),
+                ),
+            ),
+        )
         server.send(SessionNumberPayload(300))
         assertEquals(SessionNumberPayload(300), client.receive())
     }
@@ -333,22 +342,14 @@ class MinecraftPacketSessionTest {
                     SessionQueryRequest::class,
                     sessionQueryRequestCodec,
                 ) { packet ->
-                    PacketRoute.LoginQuery(
-                        PacketDirection.CLIENTBOUND,
-                        packet.transactionId,
-                        channel,
-                    )
+                    LoginQueryRouteValues(packet.transactionId)
                 },
                 PacketCodecRegistration.serverboundLoginQuery(
                     channel,
                     SessionQueryResponse::class,
                     sessionQueryResponseCodec,
                 ) { packet ->
-                    PacketRoute.LoginQuery(
-                        PacketDirection.SERVERBOUND,
-                        packet.transactionId,
-                        channel,
-                    )
+                    LoginQueryRouteValues(packet.transactionId)
                 },
             ),
         )
@@ -467,6 +468,14 @@ class MinecraftPacketSessionTest {
             ClientboundBundlePacket.MAX_SUB_PACKET_COUNT,
             assertIs<ClientboundBundlePacket>(maximumBundle).size,
         )
+
+        assertFailsWith<MinecraftSessionException> {
+            ClientboundBundleCodec.send(
+                ClientboundBundlePacket(
+                    List(ClientboundBundlePacket.MAX_SUB_PACKET_COUNT + 1) { ChunkBatchStartPacket },
+                ),
+            ) {}
+        }
 
         packetIndex = 0
         assertFailsWith<MinecraftSessionException> {

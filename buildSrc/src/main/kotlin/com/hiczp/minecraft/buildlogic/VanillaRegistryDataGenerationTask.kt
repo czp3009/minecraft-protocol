@@ -113,9 +113,6 @@ abstract class GenerateVanillaRegistryDataSourceTask :
             }
         }
         val orderedBlockStateRawIds = blockStatePayloadsByRawId.keys.sorted()
-        check(orderedBlockStateRawIds == orderedBlockStateRawIds.indices.toList()) {
-            "Block-state IDs are not contiguous from zero"
-        }
         val vanillaRegistryDataPayload = buildJsonObject {
             put("format", REGISTRY_DATA_FORMAT)
             put("registries", registryPayloads)

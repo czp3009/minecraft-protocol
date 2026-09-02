@@ -327,13 +327,7 @@ sealed interface DataComponent {
     data class IntangibleProjectile(
         @NetworkNbt
         val data: NbtCompound = NbtCompound(emptyMap()),
-    ) : DataComponent {
-        init {
-            require(data.value.isEmpty()) {
-                "An intangible-projectile component must contain an empty compound"
-            }
-        }
-    }
+    ) : DataComponent
 
     @Serializable
     @DataComponentInfo(DataComponentType.FOOD)

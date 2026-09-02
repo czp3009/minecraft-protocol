@@ -8,7 +8,6 @@ class MissingStaticBlockSchemas(
 ) {
     init {
         require(blockIds.isNotEmpty()) { "At least one missing block schema is required" }
-        require(blockIds.distinct().size == blockIds.size) { "Missing block schema IDs must be distinct" }
     }
 }
 
@@ -45,18 +44,8 @@ data class StaticRegistrySchema(
     private val blocksById: Map<Identifier, StaticBlockSchema> = blocks.associateBy(StaticBlockSchema::id)
 
     init {
-        registries.forEach { (id, entries) ->
-            require(entries.distinct().size == entries.size) {
-                "$id has duplicate static registry entries"
-            }
-        }
         require(blocksById.size == blocks.size) {
             "Static block schemas contain duplicate identifiers"
-        }
-        registries[BLOCK_REGISTRY]?.let { blockEntries ->
-            require(blockEntries.all(blocksById::containsKey)) {
-                "The block registry contains an entry without a local state schema"
-            }
         }
     }
 
@@ -119,7 +108,7 @@ data class StaticRegistrySchema(
             }
 
         return ProtocolRegistryContext(
-            registries = resolvedRegistries,
+            registries = resolvedRegistries.values.toList(),
             blockStates = blockStates,
         )
     }
@@ -138,47 +127,28 @@ data class RemoteRegistryEntry(
     val aliases: Set<Identifier> = emptySet(),
     val overrideTarget: Identifier? = null,
     val blocked: Boolean = false,
-) {
-    init {
-        require(rawId >= 0) { "Remote registry IDs must be non-negative" }
-    }
-}
+)
 
 data class RemoteRegistry(
     val id: Identifier,
     val entries: List<RemoteRegistryEntry>,
-) {
-    init {
-        require(entries.map(RemoteRegistryEntry::rawId).distinct().size == entries.size) {
-            "$id has duplicate remote raw IDs"
-        }
-        require(entries.map(RemoteRegistryEntry::id).distinct().size == entries.size) {
-            "$id has duplicate remote identifiers"
-        }
-    }
-}
+)
 
 /** Detached loader-provided mappings, kept distinct from the local static schema. */
 class RemoteRegistrySnapshot(
-    registries: Map<Identifier, RemoteRegistry>,
+    registries: List<RemoteRegistry>,
 ) {
-    val registries: Map<Identifier, RemoteRegistry> = registries.mapValues { (_, remoteRegistry) ->
-        remoteRegistry.copy(
+    val registries: Map<Identifier, RemoteRegistry> = registries.associate { remoteRegistry ->
+        remoteRegistry.id to remoteRegistry.copy(
             entries = remoteRegistry.entries.map { remoteRegistryEntry ->
                 remoteRegistryEntry.copy(aliases = remoteRegistryEntry.aliases.toSet())
             },
         )
     }
 
-    constructor(registries: List<RemoteRegistry>) : this(registries.associateBy(RemoteRegistry::id)) {
+    init {
         require(this.registries.size == registries.size) {
             "Remote registry snapshot contains duplicate registry identifiers"
-        }
-    }
-
-    init {
-        require(registries.all { (id, remoteRegistry) -> id == remoteRegistry.id }) {
-            "Remote registry snapshot keys must match their registry identifiers"
         }
     }
 
@@ -192,7 +162,7 @@ class RemoteRegistrySnapshot(
     override fun toString(): String = "RemoteRegistrySnapshot(registries=$registries)"
 
     companion object {
-        val Empty: RemoteRegistrySnapshot = RemoteRegistrySnapshot(emptyMap())
+        val Empty: RemoteRegistrySnapshot = RemoteRegistrySnapshot(emptyList())
     }
 }
 
@@ -232,7 +202,11 @@ data class ProtocolRegistry(
     }
 
     val size: Int
-        get() = (entries.maxOfOrNull(ProtocolRegistryEntry::rawId) ?: -1) + 1
+        get() {
+            val maximumRawId = entries.maxOfOrNull(ProtocolRegistryEntry::rawId) ?: return 0
+            check(maximumRawId < Int.MAX_VALUE) { "Protocol registry $id is too large to expose an Int size" }
+            return maximumRawId + 1
+        }
 
     operator fun get(rawId: Int): ProtocolRegistryEntry? = byRawId[rawId]
 
@@ -251,7 +225,7 @@ data class ProtocolBlockState(
 }
 
 /** Registry view used by one connection's physical codecs. */
-data class ProtocolRegistryContext(
+class ProtocolRegistryContext private constructor(
     val registries: Map<Identifier, ProtocolRegistry>,
     val blockStates: List<ProtocolBlockState>,
     val registrySizeOverrides: Map<Identifier, Int> = emptyMap(),
@@ -269,12 +243,11 @@ data class ProtocolRegistryContext(
         chunkSectionCount = chunkSectionCount,
     )
 
+    private val blockStatesById: Map<Int, ProtocolBlockState> = blockStates.associateBy(ProtocolBlockState::id)
+
     init {
-        require(registries.all { (id, protocolRegistry) -> id == protocolRegistry.id }) {
-            "Protocol registry context keys must match their registry identifiers"
-        }
-        require(blockStates.withIndex().all { (index, protocolBlockState) -> protocolBlockState.id == index }) {
-            "Protocol block-state IDs must be contiguous and ordered"
+        require(blockStatesById.size == blockStates.size) {
+            "Protocol block-state IDs must be distinct"
         }
         require(registrySizeOverrides.values.all { it > 0 }) {
             "Registry size overrides must be positive"
@@ -285,7 +258,13 @@ data class ProtocolRegistryContext(
     }
 
     val blockStateRegistrySize: Int
-        get() = blockStates.size
+        get() {
+            val maximumBlockStateId = blockStates.maxOfOrNull(ProtocolBlockState::id) ?: return 0
+            check(maximumBlockStateId < Int.MAX_VALUE) {
+                "The block-state registry is too large to expose an Int size"
+            }
+            return maximumBlockStateId + 1
+        }
 
     val biomeRegistrySize: Int?
         get() = registrySize(BIOME_REGISTRY)
@@ -304,6 +283,8 @@ data class ProtocolRegistryContext(
         ?: throw IllegalArgumentException(
             "$entry is not present in protocol registry $registry",
         )
+
+    fun blockState(id: Int): ProtocolBlockState? = blockStatesById[id]
 
     fun blockStates(block: Identifier): List<ProtocolBlockState> {
         val resolved = registry(StaticRegistrySchema.BLOCK_REGISTRY)
@@ -367,9 +348,6 @@ data class ProtocolRegistryContext(
     fun withRegistrySizes(
         sizes: Map<Identifier, Int>,
     ): ProtocolRegistryContext {
-        require(sizes.values.all { it > 0 }) {
-            "Registry sizes must be positive"
-        }
         return ProtocolRegistryContext(
             registries = registries,
             blockStates = blockStates,
@@ -385,6 +363,24 @@ data class ProtocolRegistryContext(
             registrySizeOverrides = registrySizeOverrides,
             chunkSectionCount = sectionCount,
         )
+
+    override fun equals(other: Any?): Boolean =
+        other is ProtocolRegistryContext &&
+                registries == other.registries &&
+                blockStates == other.blockStates &&
+                registrySizeOverrides == other.registrySizeOverrides &&
+                chunkSectionCount == other.chunkSectionCount
+
+    override fun hashCode(): Int {
+        var result = registries.hashCode()
+        result = 31 * result + blockStates.hashCode()
+        result = 31 * result + registrySizeOverrides.hashCode()
+        result = 31 * result + (chunkSectionCount ?: 0)
+        return result
+    }
+
+    override fun toString(): String =
+        "ProtocolRegistryContext(registries=$registries, blockStates=$blockStates, registrySizeOverrides=$registrySizeOverrides, chunkSectionCount=$chunkSectionCount)"
 
     companion object {
         val Empty: ProtocolRegistryContext = ProtocolRegistryContext(

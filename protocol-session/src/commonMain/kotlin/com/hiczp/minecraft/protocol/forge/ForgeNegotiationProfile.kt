@@ -23,11 +23,7 @@ object ForgeHandshake {
             "Forge network version must be non-negative"
         }
         val marker = if (networkVersion == 0) MARKER else "$MARKER$networkVersion"
-        return "$hostName\u0000$marker".also { enhanced ->
-            require(enhanced.length <= 255) {
-                "Forge-enhanced Handshake hostname exceeds 255 characters"
-            }
-        }
+        return "$hostName\u0000$marker"
     }
 
     fun enhance(

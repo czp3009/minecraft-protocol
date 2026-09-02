@@ -202,16 +202,14 @@ data class SectionPosition(
     val y: Int,
     val z: Int,
 ) {
-    init {
+    fun packed(): Long {
         require(x in MIN_XZ..MAX_XZ) { "section x is outside 22 bits: $x" }
         require(z in MIN_XZ..MAX_XZ) { "section z is outside 22 bits: $z" }
         require(y in MIN_Y..MAX_Y) { "section y is outside 20 bits: $y" }
-    }
-
-    fun packed(): Long =
-        ((x.toLong() and XZ_MASK) shl 42) or
+        return ((x.toLong() and XZ_MASK) shl 42) or
                 ((z.toLong() and XZ_MASK) shl 20) or
                 (y.toLong() and Y_MASK)
+    }
 
     companion object {
         const val MIN_XZ: Int = -2_097_152
@@ -251,18 +249,16 @@ data class SectionBlockChange(
     val localY: Int,
     val localZ: Int,
 ) {
-    init {
+    fun packed(): Long {
         require(blockStateId >= 0) { "block state ID must be non-negative" }
         require(localX in 0..15) { "local X must be in 0..15" }
         require(localY in 0..15) { "local Y must be in 0..15" }
         require(localZ in 0..15) { "local Z must be in 0..15" }
-    }
-
-    fun packed(): Long =
-        (blockStateId.toLong() shl 12) or
+        return (blockStateId.toLong() shl 12) or
                 (localX.toLong() shl 8) or
                 (localZ.toLong() shl 4) or
                 localY.toLong()
+    }
 
     companion object {
         fun fromPacked(packed: Long): SectionBlockChange =

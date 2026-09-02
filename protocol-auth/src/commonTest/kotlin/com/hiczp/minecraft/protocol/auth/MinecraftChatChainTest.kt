@@ -216,6 +216,7 @@ class MinecraftChatChainTest {
         assertEquals(MinecraftChatChainFailure.OUT_OF_ORDER_INDEX, invalid.minecraftChatChainFailure)
         assertEquals(skipped, minecraftClientboundChatChainVerifier.lastMessage())
 
+        val packedLastSeen = listOf(PackedMessageSignature.Cached(3))
         val playerChatMessagePacket = skipped.toPlayerChatMessagePacket(
             globalIndex = 9,
             boundChatType = BoundChatType(
@@ -223,11 +224,12 @@ class MinecraftChatChainTest {
                 name = TextComponent.literal("sender"),
                 targetName = null,
             ),
-            packedLastSeen = emptyList(),
+            packedLastSeen = packedLastSeen,
             filterMask = FilterMask.PassThrough,
         )
         assertEquals(2, playerChatMessagePacket.index)
         assertEquals(9, playerChatMessagePacket.globalIndex)
+        assertEquals(packedLastSeen, playerChatMessagePacket.body.lastSeen)
         assertNull(playerChatMessagePacket.unsignedContent)
         assertTrue(playerChatMessagePacket.signature == skipped.signature)
     }

@@ -20,10 +20,6 @@ sealed interface MinecraftIdentity {
 data class MinecraftOfflineIdentity(
     override val name: String,
 ) : MinecraftIdentity {
-    init {
-        require(name.isNotEmpty()) { "Minecraft player name cannot be empty" }
-    }
-
     @Transient
     override val id: Uuid = minecraftOfflineUuid(name)
 

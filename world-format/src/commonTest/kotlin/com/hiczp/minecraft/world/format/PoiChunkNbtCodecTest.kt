@@ -35,22 +35,25 @@ class PoiChunkNbtCodecTest {
     }
 
     @Test
-    fun codecUsesOfficialDefaultsAndRejectsUnmodeledOrMispositionedData() {
+    fun codecUsesOfficialDefaultsAndIgnoresUnmodeledFields() {
         val chunkPosition = ChunkPosition(0, 0)
         val document = NbtDocument(
             NbtCompound(
                 mapOf(
                     "DataVersion" to NbtInt(4_903),
+                    "FutureRootField" to NbtInt(1),
                     "Sections" to NbtCompound(
                         mapOf(
                             "0" to NbtCompound(
                                 mapOf(
+                                    "FutureSectionField" to NbtInt(2),
                                     "Records" to NbtList(
                                         listOf(
                                             NbtCompound(
                                                 mapOf(
                                                     "pos" to NbtIntArray(intArrayOf(1, 2, 3)),
                                                     "type" to NbtString("minecraft:home"),
+                                                    "FutureRecordField" to NbtInt(3),
                                                 ),
                                             ),
                                         ),
@@ -71,14 +74,6 @@ class PoiChunkNbtCodecTest {
         assertFailsWith<PoiChunkNbtFormatException> {
             poiChunkNbtCodec.decodeDocument(document, ChunkPosition(1, 0))
         }
-        assertFailsWith<PoiChunkNbtFormatException> {
-            poiChunkNbtCodec.decodeDocument(
-                NbtDocument(
-                    NbtCompound(document.root.value + ("future" to NbtInt(1))),
-                ),
-                chunkPosition,
-            )
-        }
     }
 
     @Test
@@ -96,8 +91,22 @@ class PoiChunkNbtCodecTest {
         assertFailsWith<IllegalArgumentException> {
             poiChunk.addRecord(PoiRecord("minecraft:home", BlockPosition(17, 65, 2), 1))
         }
+        assertFailsWith<IllegalArgumentException> {
+            poiSection.addRecord(PoiRecord("minecraft:home", BlockPosition(2, 81, 2), 1))
+        }
         assertEquals(poiRecord, poiChunk.removeRecord(poiRecord.blockPosition))
         assertTrue(poiSection.isEmpty)
+    }
+
+    @Test
+    fun encodingRejectsRecordsAddedThroughAnAliasedSectionOutsideTheChunk() {
+        val poiSection = PoiSection(4, valid = true)
+        val poiChunk = PoiChunk(ChunkPosition(0, 0), dataVersion = 4_903, sections = listOf(poiSection))
+        poiSection.addRecord(PoiRecord("minecraft:home", BlockPosition(17, 65, 2), 1))
+
+        assertFailsWith<PoiChunkNbtFormatException> {
+            poiChunkNbtCodec.encodeDocument(poiChunk)
+        }
     }
 }
 

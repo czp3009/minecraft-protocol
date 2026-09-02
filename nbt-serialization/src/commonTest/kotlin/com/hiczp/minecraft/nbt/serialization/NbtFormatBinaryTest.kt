@@ -65,14 +65,15 @@ class NbtFormatBinaryTest {
         )
         assertContentEquals(namedBytes, namedFormat.encodeToByteArray(42))
         assertEquals(42, namedFormat.decodeFromByteArray<Int>(namedBytes))
-        assertFailsWith<NbtDecodingException> {
+        assertEquals(
+            42,
             NbtFormat(
                 NbtFormatConfiguration(
                     nbtRootEncoding = NbtRootEncoding.NAMED,
                     rootName = "other",
                 ),
-            ).decodeFromByteArray<Int>(namedBytes)
-        }
+            ).decodeFromByteArray<Int>(namedBytes),
+        )
     }
 
     @Test

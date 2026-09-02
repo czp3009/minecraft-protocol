@@ -16,51 +16,26 @@ fun ProtocolData.resolveSynchronizedRegistryContext(
     synchronizedRegistryPackets: List<RegistryDataPacket>,
     staticRegistrySchema: StaticRegistrySchema = this.staticRegistrySchema,
 ): ProtocolRegistryContext {
-    require(
-        synchronizedRegistryPackets.map(RegistryDataPacket::registryId).distinct().size ==
-                synchronizedRegistryPackets.size,
-    ) {
-        "Configuration provided duplicate synchronized registries"
-    }
-    val synchronizedBiomeRegistrySize = synchronizedRegistryPackets.singleOrNull { registryDataPacket ->
-        registryDataPacket.registryId == ProtocolRegistryContext.BIOME_REGISTRY
-    }?.entries?.size
-    val biomeRegistrySize = requireNotNull(
-        synchronizedBiomeRegistrySize
-            ?: staticRegistrySchema.registries[ProtocolRegistryContext.BIOME_REGISTRY]?.size,
-    ) {
-        "Configuration did not provide a biome registry and the static schema has none"
-    }
-    require(biomeRegistrySize > 0) {
-        "The synchronized biome registry is empty"
-    }
     val baseProtocolRegistryContext = if (staticRegistrySchema === this.staticRegistrySchema) {
         completeProtocolRegistryContext
     } else {
         staticRegistrySchema.resolve()
     }
-    val changedProtocolRegistries = synchronizedRegistryPackets.mapNotNull { registryDataPacket ->
-        val matchesBaseProtocolRegistry =
-            baseProtocolRegistryContext.registry(registryDataPacket.registryId)?.let { protocolRegistry ->
-                protocolRegistry.entries.size == registryDataPacket.entries.size &&
-                        registryDataPacket.entries.withIndex().all { (rawId, registryEntry) ->
-                            protocolRegistry[rawId]?.id == registryEntry.id
-                        }
-            } == true
-        if (matchesBaseProtocolRegistry) {
-            null
-        } else {
-            ProtocolRegistry(
-                registryDataPacket.registryId,
-                registryDataPacket.entries.mapIndexed { rawId, registryEntry ->
-                    ProtocolRegistryEntry(registryEntry.id, rawId)
-                },
-            )
-        }
+    val synchronizedProtocolRegistries = synchronizedRegistryPackets.map { registryDataPacket ->
+        ProtocolRegistry(
+            registryDataPacket.registryId,
+            registryDataPacket.entries.mapIndexed { rawId, registryEntry ->
+                ProtocolRegistryEntry(registryEntry.id, rawId)
+            },
+        )
     }
-    return if (changedProtocolRegistries.isEmpty()) {
+    val resolvedProtocolRegistryContext = baseProtocolRegistryContext.withRegistries(synchronizedProtocolRegistries)
+    val matchesBaseProtocolRegistryContext = synchronizedProtocolRegistries.all { protocolRegistry ->
+        baseProtocolRegistryContext.registry(protocolRegistry.id) == protocolRegistry
+    }
+    return if (matchesBaseProtocolRegistryContext) {
         baseProtocolRegistryContext
     } else {
-        baseProtocolRegistryContext.withRegistries(changedProtocolRegistries)
+        resolvedProtocolRegistryContext
     }
 }

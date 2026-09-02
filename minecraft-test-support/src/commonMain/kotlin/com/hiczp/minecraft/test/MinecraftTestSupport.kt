@@ -42,9 +42,6 @@ object MinecraftTestSupport {
         headlessMinecraftClient: HeadlessMinecraftClient,
         minecraftTestEndpoint: MinecraftTestEndpoint,
     ): HeadlessMinecraftClientState {
-        require(minecraftTestEndpoint.host == LOOPBACK && minecraftTestEndpoint.port in 1..0xFFFF) {
-            "Headless client tests require a valid loopback endpoint"
-        }
         return withServiceClient { minecraftTestSupportServiceClient ->
             minecraftTestSupportServiceClient.connectHeadlessClient(headlessMinecraftClient, minecraftTestEndpoint)
         }
@@ -69,9 +66,6 @@ object MinecraftTestSupport {
         expectedNewOutput: String? = null,
         timeout: Duration = EVENT_TIMEOUT,
     ) {
-        require(timeout.isPositive() && timeout.isFinite()) {
-            "Command timeout must be positive and finite"
-        }
         withServiceClient { minecraftTestSupportServiceClient ->
             minecraftTestSupportServiceClient.sendHeadlessClientCommand(
                 headlessMinecraftClient = headlessMinecraftClient,
@@ -106,9 +100,6 @@ object MinecraftTestSupport {
         marker: String,
         timeout: Duration = EVENT_TIMEOUT,
     ) {
-        require(timeout.isPositive() && timeout.isFinite()) {
-            "Log timeout must be positive and finite"
-        }
         withServiceClient { minecraftTestSupportServiceClient ->
             minecraftTestSupportServiceClient.waitForLog(minecraftTestResource, marker, timeout)
         }
@@ -120,9 +111,6 @@ object MinecraftTestSupport {
         expectedNewOutput: String? = null,
         timeout: Duration = EVENT_TIMEOUT,
     ) {
-        require(timeout.isPositive() && timeout.isFinite()) {
-            "Command timeout must be positive and finite"
-        }
         withServiceClient { minecraftTestSupportServiceClient ->
             minecraftTestSupportServiceClient.sendCommand(
                 officialMinecraftServer = officialMinecraftServer,
@@ -270,4 +258,3 @@ suspend inline fun <T : MinecraftTestResource, R> T.use(
 }
 
 private val EVENT_TIMEOUT = 30.seconds
-private const val LOOPBACK = "127.0.0.1"

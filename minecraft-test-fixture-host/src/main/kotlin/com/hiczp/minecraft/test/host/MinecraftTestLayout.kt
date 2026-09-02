@@ -44,9 +44,6 @@ internal object OfficialArtifacts {
             "The official server fixture is missing; run this test through its standard Gradle test task"
         }
         val manifest = testJson.decodeFromString<JsonObject>(manifestFile.readText())
-        check(manifest.getValue("minecraft_version").jsonPrimitive.content == minecraftTestLayout.minecraftVersion) {
-            "The official server fixture belongs to a different Minecraft version"
-        }
         val runtimeDirectory = directory.safeResolve(
             manifest.getValue("relative_server_runtime_directory").jsonPrimitive.content,
         )

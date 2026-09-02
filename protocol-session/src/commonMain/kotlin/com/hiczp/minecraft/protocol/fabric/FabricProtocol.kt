@@ -236,9 +236,6 @@ private object FabricRegistrySyncSerializer : KSerializer<FabricRegistrySyncPack
             output.encodeString(optimizeNamespace(namespace))
             output.encodeVarInt(registries.size)
             registries.forEach { remoteRegistry ->
-                require(remoteRegistry.entries.isNotEmpty()) {
-                    "Fabric cannot encode an empty synchronized registry ${remoteRegistry.id}"
-                }
                 output.encodeString(remoteRegistry.id.path)
                 output.encodeByte(
                     if (remoteRegistry.id in value.optionalRegistryIds) 1 else 0,
@@ -253,6 +250,12 @@ private object FabricRegistrySyncSerializer : KSerializer<FabricRegistrySyncPack
                 output.encodeVarInt(entriesByNamespace.size)
                 var lastBulkLastRawId = 0
                 entriesByNamespace.forEach { (entryNamespace, entries) ->
+                    entries.firstOrNull { remoteRegistryEntry -> remoteRegistryEntry.rawId < 0 }
+                        ?.let { remoteRegistryEntry ->
+                            throw MinecraftSerializationException(
+                                "Fabric registry ${remoteRegistry.id} cannot encode negative raw ID ${remoteRegistryEntry.rawId}",
+                            )
+                        }
                     output.encodeString(optimizeNamespace(entryNamespace))
                     val bulks = consecutiveBulks(entries.sortedBy(RemoteRegistryEntry::rawId))
                     output.encodeVarInt(bulks.size)
@@ -322,14 +325,7 @@ private object FabricRegistrySyncSerializer : KSerializer<FabricRegistrySyncPack
                         lastBulkLastRawId = currentRawId.toInt()
                     }
                 }
-                try {
-                    remoteRegistries += RemoteRegistry(registryId, entries)
-                } catch (cause: IllegalArgumentException) {
-                    throw MinecraftSerializationException(
-                        "Invalid Fabric registry mapping for $registryId",
-                        cause,
-                    )
-                }
+                remoteRegistries += RemoteRegistry(registryId, entries)
             }
         }
         input.endStructure(descriptor)

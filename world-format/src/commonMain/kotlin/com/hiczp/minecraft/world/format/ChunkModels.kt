@@ -88,8 +88,8 @@ data class ChunkLayout(
             require(minY % SECTION_SIDE == 0) {
                 "Chunk minimum block Y must be a multiple of $SECTION_SIDE"
             }
-            require(height > 0 && height % SECTION_SIDE == 0) {
-                "Chunk block height must be a positive multiple of $SECTION_SIDE"
+            require(height % SECTION_SIDE == 0) {
+                "Chunk block height must be a multiple of $SECTION_SIDE"
             }
             return ChunkLayout(
                 minSectionY = MinecraftCoordinates.sectionCoordinate(minY),
@@ -124,13 +124,7 @@ data class ChunkLayout(
 data class ChunkCodecContext<B : Any, M : Any>(
     val chunkLayout: ChunkLayout,
     val chunkDataRegistries: ChunkDataRegistries<B, M>,
-) {
-    init {
-        require(chunkLayout.minSectionY >= Byte.MIN_VALUE && chunkLayout.maxSectionY <= Byte.MAX_VALUE) {
-            "A persistent Chunk layout's Section Y range must fit TAG_Byte"
-        }
-    }
-}
+)
 
 /**
  * Read-only diagnostics for a palette-backed container.
@@ -158,7 +152,6 @@ class PalettedContainer<T : Any> private constructor(
 
     init {
         require(size > 0) { "A paletted container must not be empty" }
-        require(ids.size == size) { "A paletted container has ${ids.size} IDs for $size entries" }
         require(palette.isNotEmpty()) { "A paletted container must have at least one palette value" }
         require(ids.all { it in palette.indices }) { "A paletted container contains an invalid palette ID" }
     }
@@ -221,7 +214,7 @@ class PalettedContainer<T : Any> private constructor(
         val snapshot = compactSnapshot()
         palette.clear()
         palette.addAll(snapshot.values)
-        snapshot.copyIdsTo(ids)
+        snapshot.rawIds.copyInto(ids)
     }
 
     /** Returns a compact palette and remapped IDs without modifying this container. */
@@ -263,7 +256,6 @@ private class PaletteStorage<T : Any>(
 )
 
 private fun <T : Any> paletteStorage(values: List<T>): PaletteStorage<T> {
-    require(values.isNotEmpty()) { "A paletted container must not be empty" }
     val palette = mutableListOf<T>()
     val ids = IntArray(values.size)
     values.forEachIndexed { index, value ->
@@ -303,13 +295,6 @@ class CompactPalette<T : Any>(
 
     internal val rawIds: IntArray
         get() = idArray
-
-    internal fun copyIdsTo(destination: IntArray) {
-        require(destination.size == idArray.size) {
-            "Cannot copy ${idArray.size} compact palette IDs into ${destination.size} entries"
-        }
-        idArray.copyInto(destination)
-    }
 }
 
 /** Selected-release fields that exist only in persistent Chunk NBT. */
@@ -379,10 +364,7 @@ class BlockEntity(
         require(type.isNotBlank()) { "A Block Entity type must not be blank" }
     }
 
-    var persistentData: NbtCompound = persistentData.requireNoBlockEntityStructureFields()
-        set(value) {
-            field = value.requireNoBlockEntityStructureFields()
-        }
+    var persistentData: NbtCompound = persistentData
 
     /** Creates a detached mutable Block Entity snapshot. */
     fun snapshot(): BlockEntity = BlockEntity(type, blockPosition, persistentData)
@@ -558,33 +540,21 @@ class Chunk<B : Any, M : Any>(
 ) {
     private val sectionsByY = sections.associateByTo(linkedMapOf(), ChunkSection<B, M>::sectionY)
     private val blockEntitiesByPosition = blockEntities.associateByTo(linkedMapOf(), BlockEntity::blockPosition)
-    private var storedChunkMetadata = chunkMetadata.snapshot()
+    private var storedChunkMetadata = chunkMetadata.snapshotWithoutSections(sectionsByY.keys)
 
     var chunkMetadata: ChunkMetadata
         get() = storedChunkMetadata.snapshot()
         set(value) {
-            val snapshot = value.snapshot()
-            require(snapshot.lightOnlySections.keys.none(sectionsByY::containsKey)) {
-                "A Chunk stores the same Section lighting in both semantic and light-only sections"
-            }
-            storedChunkMetadata = snapshot
+            storedChunkMetadata = value.snapshotWithoutSections(sectionsByY.keys)
         }
 
     init {
         require(sectionsByY.size == sections.size) { "A Chunk contains duplicate Section Y coordinates" }
-        require(sectionsByY.keys.all { it in chunkLayout }) { "A Chunk contains a Section outside its layout" }
+        sectionsByY.keys.forEach(::requireSectionInLayout)
         require(blockEntitiesByPosition.size == blockEntities.size) {
             "A Chunk contains duplicate Block Entity positions"
         }
-        require(blockEntitiesByPosition.keys.all { blockPosition -> blockPosition.chunkPosition == chunkPosition }) {
-            "A Chunk contains a Block Entity outside $chunkPosition"
-        }
-        require(blockEntitiesByPosition.keys.all { position -> chunkLayout.containsBlockY(position.y) }) {
-            "A Chunk contains a Block Entity outside its layout"
-        }
-        require(storedChunkMetadata.lightOnlySections.keys.none(sectionsByY::containsKey)) {
-            "A Chunk stores the same Section lighting in both semantic and light-only sections"
-        }
+        blockEntitiesByPosition.values.forEach(::requireBlockEntityMembership)
     }
 
     val sections: Collection<ChunkSection<B, M>>
@@ -629,7 +599,7 @@ class Chunk<B : Any, M : Any>(
     fun hasSection(blockPosition: BlockPosition): Boolean = hasSection(blockPosition.sectionPosition)
 
     fun getOrCreateSection(sectionY: Int): ChunkSection<B, M> {
-        require(sectionY in chunkLayout) { "Section Y $sectionY is outside $chunkLayout" }
+        requireSectionInLayout(sectionY)
         return sectionsByY.getOrPut(sectionY) {
             val sectionLighting = storedChunkMetadata.lightOnlySections[sectionY]
             if (sectionLighting != null) {
@@ -662,22 +632,13 @@ class Chunk<B : Any, M : Any>(
 
     /** Installs one Section and returns the previous Section at the same Y coordinate. */
     fun setSection(chunkSection: ChunkSection<B, M>): ChunkSection<B, M>? {
-        require(chunkSection.sectionY in chunkLayout) { "Section Y ${chunkSection.sectionY} is outside $chunkLayout" }
+        requireSectionInLayout(chunkSection.sectionY)
         if (storedChunkMetadata.lightOnlySections.containsKey(chunkSection.sectionY)) {
             storedChunkMetadata = storedChunkMetadata.copy(
                 lightOnlySections = storedChunkMetadata.lightOnlySections - chunkSection.sectionY,
             )
         }
         return sectionsByY.put(chunkSection.sectionY, chunkSection)
-    }
-
-    /** Installs one absolute Section after validating its position and value Y coordinate. */
-    fun setSection(sectionPosition: SectionPosition, chunkSection: ChunkSection<B, M>): ChunkSection<B, M>? {
-        require(sectionPosition.chunkPosition == this.chunkPosition) { "Section $sectionPosition does not belong to Chunk ${this.chunkPosition}" }
-        require(chunkSection.sectionY == sectionPosition.y) {
-            "Section value Y ${chunkSection.sectionY} does not match position Y ${sectionPosition.y}"
-        }
-        return setSection(chunkSection)
     }
 
     /** Removes one semantic Section while retaining any lighting as a light-only Section. */
@@ -811,29 +772,18 @@ class Chunk<B : Any, M : Any>(
     fun blockEntity(chunkBlockPosition: ChunkBlockPosition): BlockEntity? =
         blockEntity(this.chunkPosition.block(chunkBlockPosition))
 
-    /** Finds an absolute Block Entity after validating that it belongs to this Chunk. */
-    fun blockEntity(blockPosition: BlockPosition): BlockEntity? {
-        local(blockPosition)
-        return blockEntitiesByPosition[blockPosition]
-    }
+    /** Finds an absolute Block Entity by its stored position. */
+    fun blockEntity(blockPosition: BlockPosition): BlockEntity? = blockEntitiesByPosition[blockPosition]
 
     fun hasBlockEntity(chunkBlockPosition: ChunkBlockPosition): Boolean =
         hasBlockEntity(this.chunkPosition.block(chunkBlockPosition))
 
-    /** Checks an absolute Block Entity position after validating that it belongs to this Chunk. */
-    fun hasBlockEntity(blockPosition: BlockPosition): Boolean {
-        local(blockPosition)
-        return blockEntitiesByPosition.containsKey(blockPosition)
-    }
+    /** Checks an absolute Block Entity position against the stored positions. */
+    fun hasBlockEntity(blockPosition: BlockPosition): Boolean = blockEntitiesByPosition.containsKey(blockPosition)
 
     /** Installs one Block Entity and returns the previous value at the same position. */
     fun setBlockEntity(blockEntity: BlockEntity): BlockEntity? {
-        require(blockEntity.blockPosition.chunkPosition == chunkPosition) {
-            "Block Entity ${blockEntity.blockPosition} does not belong to Chunk $chunkPosition"
-        }
-        require(chunkLayout.containsBlockY(blockEntity.blockPosition.y)) {
-            "Block Entity Y ${blockEntity.blockPosition.y} is outside $chunkLayout"
-        }
+        requireBlockEntityMembership(blockEntity)
         return blockEntitiesByPosition.put(blockEntity.blockPosition, blockEntity)
     }
 
@@ -843,24 +793,18 @@ class Chunk<B : Any, M : Any>(
         persistentData: NbtCompound = NbtCompound(emptyMap()),
     ): BlockEntity? = setBlockEntity(BlockEntity(type, this.chunkPosition.block(chunkBlockPosition), persistentData))
 
-    /** Installs one absolute Block Entity after validating that it belongs to this Chunk. */
+    /** Installs one Block Entity at the supplied absolute position. */
     fun setBlockEntity(
         blockPosition: BlockPosition,
         type: String,
         persistentData: NbtCompound = NbtCompound(emptyMap()),
-    ): BlockEntity? {
-        local(blockPosition)
-        return setBlockEntity(BlockEntity(type, blockPosition, persistentData))
-    }
+    ): BlockEntity? = setBlockEntity(BlockEntity(type, blockPosition, persistentData))
 
     fun removeBlockEntity(chunkBlockPosition: ChunkBlockPosition): BlockEntity? =
         removeBlockEntity(this.chunkPosition.block(chunkBlockPosition))
 
-    /** Removes an absolute Block Entity after validating that it belongs to this Chunk. */
-    fun removeBlockEntity(blockPosition: BlockPosition): BlockEntity? {
-        local(blockPosition)
-        return blockEntitiesByPosition.remove(blockPosition)
-    }
+    /** Removes a Block Entity at the supplied absolute position. */
+    fun removeBlockEntity(blockPosition: BlockPosition): BlockEntity? = blockEntitiesByPosition.remove(blockPosition)
 
     /** Compacts every present Section's block-state and biome palettes without materializing absent Sections. */
     fun compactPalettes() {
@@ -878,19 +822,27 @@ class Chunk<B : Any, M : Any>(
         defaultBiome = defaultBiome,
     )
 
+    private fun requireSectionInLayout(sectionY: Int) {
+        require(sectionY in chunkLayout) { "Section Y $sectionY is outside $chunkLayout" }
+    }
+
+    private fun requireBlockEntityMembership(blockEntity: BlockEntity) {
+        require(blockEntity.blockPosition.chunkPosition == chunkPosition) {
+            "Block Entity ${blockEntity.blockPosition} does not belong to Chunk $chunkPosition"
+        }
+        require(chunkLayout.containsBlockY(blockEntity.blockPosition.y)) {
+            "Block Entity Y ${blockEntity.blockPosition.y} is outside $chunkLayout"
+        }
+    }
+
     private fun local(blockPosition: BlockPosition): ChunkBlockPosition = this.chunkPosition.local(blockPosition)
 }
 
 private fun ChunkMetadata.snapshot(): ChunkMetadata =
     copy(lightOnlySections = lightOnlySections.toMap())
 
-private fun NbtCompound.requireNoBlockEntityStructureFields(): NbtCompound {
-    val reserved = value.keys intersect BLOCK_ENTITY_STRUCTURE_FIELDS
-    require(reserved.isEmpty()) {
-        "Block Entity persistent data cannot contain structural fields: ${reserved.sorted().joinToString()}"
-    }
-    return this
-}
+private fun ChunkMetadata.snapshotWithoutSections(sectionYs: Set<Int>): ChunkMetadata =
+    copy(lightOnlySections = lightOnlySections.filterKeys { sectionY -> sectionY !in sectionYs })
 
 class ChunkNbtFormatException(
     message: String,

@@ -35,12 +35,18 @@ sealed class AnvilRegionFormat {
             } else {
                 CompressedChunk.takeOwnership(anvilChunkRecordInfo.compression, payload.readByteArray())
             }
-            chunks[anvilChunkRecordInfo.localChunkPosition] = AnvilChunkRecord(
-                compression = anvilChunkRecordInfo.compression,
-                content = content,
-                anvilChunkPlacement = anvilChunkRecordInfo.anvilChunkPlacement,
-                timestampEpochSeconds = anvilChunkRecordInfo.timestampEpochSeconds,
-            )
+            chunks[anvilChunkRecordInfo.localChunkPosition] = if (content == null) {
+                AnvilChunkRecord.unresolvedExternal(
+                    compression = anvilChunkRecordInfo.compression,
+                    timestampEpochSeconds = anvilChunkRecordInfo.timestampEpochSeconds,
+                )
+            } else {
+                AnvilChunkRecord(
+                    content = content,
+                    anvilChunkPlacement = anvilChunkRecordInfo.anvilChunkPlacement,
+                    timestampEpochSeconds = anvilChunkRecordInfo.timestampEpochSeconds,
+                )
+            }
         }
         return AnvilRegion(chunks)
     }
@@ -194,11 +200,7 @@ sealed class AnvilRegionFormat {
                 val payload = boundedRawSource.buffered()
                 payload.use {
                     invokeRecordCallback(anvilChunkRecordInfo, payload, block)
-                    if (!payload.exhausted()) {
-                        throw AnvilFormatException(
-                            "Chunk ${decodeChunkPlan.localChunkPosition} payload was not fully consumed",
-                        )
-                    }
+                    payload.transferTo(discardingSink())
                 }
             }
             val padding = allocatedPayloadBytes - length

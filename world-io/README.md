@@ -217,8 +217,9 @@ suspend fun <R> readChunkNbtStream(
 ): R? = regionHandle.withChunkNbtSource(chunkPosition, decode)
 ```
 
-Borrowed sources and sinks are valid only inside their callback and must be consumed completely where the method
-requires it.
+Borrowed sources and sinks are valid only inside their callback. Read APIs discard unread source bytes while completing
+the underlying bounded or compressed stream; fixed-length write APIs still require the callback to emit the declared
+byte count because allocation and framing depend on it.
 
 ## Write or remove Chunks
 
@@ -334,6 +335,12 @@ suspend fun readEntities(
 Region semantic reads carry the stored `DataVersion` into the returned Chunk or Entity Chunk without a compatibility
 preflight. `world-io` does not compare it with the repository-selected world version; callers that require a version
 policy can inspect an NBT document first or validate the returned value themselves.
+
+For ordinary and Entity Regions, the requested Region slot only selects a record. Semantic decoding preserves the
+position stored in that record and does not compare it with the requested slot; callers that require placement
+validation can compare those positions themselves. POI is different because its root NBT has no Chunk position, so its
+Region slot supplies data required to construct the semantic value. Semantic writes select the Region slot from the
+value's own `chunkPosition` and do not accept a second position.
 
 `EntityRegionHandle` offers the same metadata, compressed stream/value, NBT document, serializer, semantic read/write,
 removal, replacement, flush, and lifecycle operations as `RegionHandle`.

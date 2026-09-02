@@ -12,6 +12,7 @@ import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class DamageAndSignaturePacketTest {
     @Test
@@ -76,6 +77,12 @@ class DamageAndSignaturePacketTest {
         )
         assertEquals(257, encoded.size)
         assertEquals(0, encoded.first().toInt())
+
+        assertFailsWith<MinecraftSerializationException> {
+            MinecraftProtocolFormat.encodeToByteArray(
+                DeleteMessagePacket(PackedMessageSignature.Full(ByteString(ByteArray(255)))),
+            )
+        }
         assertContentEquals(signature, encoded.copyOfRange(1, encoded.size))
         assertEquals(
             full,

@@ -1,9 +1,6 @@
 package com.hiczp.minecraft.world.format
 
-import com.hiczp.minecraft.nbt.NbtByte
-import com.hiczp.minecraft.nbt.NbtCompound
-import com.hiczp.minecraft.nbt.NbtIntArray
-import com.hiczp.minecraft.nbt.NbtString
+import com.hiczp.minecraft.nbt.*
 import kotlin.test.*
 import kotlin.uuid.Uuid
 
@@ -56,26 +53,32 @@ class EntityChunkNbtCodecTest {
     }
 
     @Test
-    fun codecRejectsWrongPositionAndStructuralPersistentFields() {
+    fun codecUsesTypedStructureAndIgnoresUnknownRootFields() {
         val nbtEntityDataRegistry = NbtEntityDataRegistry()
         val entityChunkNbtCodec = EntityChunkNbtCodec(nbtEntityDataRegistry)
-        val chunkPosition = ChunkPosition(1, 2)
-        val entityChunk = EntityChunk<NbtCompound>(chunkPosition, EXPECTED_DATA_VERSION)
-        val nbtDocument = entityChunkNbtCodec.encodeDocument(entityChunk)
-
-        assertFailsWith<EntityChunkNbtFormatException> {
-            entityChunkNbtCodec.decodeDocument(nbtDocument, ChunkPosition(2, 1))
-        }
-        val invalid = Entity(
+        val entity = Entity(
             type = "minecraft:pig",
             uuid = Uuid.NIL,
             data = NbtCompound(mapOf("Pos" to NbtString("collision"))),
             position = EntityVector3d(0.5, 64.0, 0.5),
         )
-        val invalidChunk = EntityChunk(ChunkPosition(0, 0), EXPECTED_DATA_VERSION, listOf(invalid))
-        invalid.position = EntityVector3d(16.5, 64.0, 0.5)
+        val entityChunk = EntityChunk(ChunkPosition(0, 0), EXPECTED_DATA_VERSION, listOf(entity))
+
+        val encoded = entityChunkNbtCodec.encodeDocument(entityChunk)
+        val documentWithUnknownRootField = NbtDocument(
+            NbtCompound(encoded.root.value + ("FutureField" to NbtIntArray(intArrayOf(1)))),
+        )
+        val decoded = entityChunkNbtCodec.decodeDocument(documentWithUnknownRootField)
+        val decodedEntity = assertNotNull(decoded.entity(entity.uuid))
+
+        assertEquals(ChunkPosition(0, 0), decoded.chunkPosition)
+        assertEquals(ChunkPosition(0, 0), decodedEntity.chunkPosition)
+        assertEquals(entity.position, decodedEntity.position)
+        assertNull(decodedEntity.data["Pos"])
+
+        entity.position = EntityVector3d(16.5, 64.0, 0.5)
         assertFailsWith<EntityChunkNbtFormatException> {
-            entityChunkNbtCodec.encodeDocument(invalidChunk)
+            entityChunkNbtCodec.encodeDocument(entityChunk)
         }
     }
 
@@ -87,7 +90,6 @@ class EntityChunkNbtCodecTest {
 
         val decoded = entityChunkNbtCodec.decodeDocument(
             entityChunkNbtCodec.encodeDocument(EntityChunk<NbtCompound>(chunkPosition, dataVersion)),
-            chunkPosition,
         )
 
         assertEquals(dataVersion, decoded.dataVersion)
@@ -113,7 +115,6 @@ class EntityChunkNbtCodecTest {
 
         val decoded = entityChunkNbtCodec.decodeDocument(
             entityChunkNbtCodec.encodeDocument(EntityChunk(chunkPosition, EXPECTED_DATA_VERSION, listOf(entity))),
-            chunkPosition,
         )
 
         assertEquals(TestEntityData(silent = true), decoded.entity(entity.uuid)?.data)

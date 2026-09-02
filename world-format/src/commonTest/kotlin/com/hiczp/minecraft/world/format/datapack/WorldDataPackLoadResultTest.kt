@@ -48,6 +48,19 @@ class WorldDataPackLoadResultTest {
     }
 
     @Test
+    fun enabledSelectionIsAuthoritativeWhenLoadedPacksContainOtherValues() {
+        val selectedDataPack = dataPack("selected")
+        val unrelatedDataPack = dataPack("unrelated")
+
+        val worldDataPackLoadResult = WorldDataPackLoadResult(
+            enabledDataPackIds = listOf(selectedDataPack.dataPackId),
+            loadedDataPacks = listOf(unrelatedDataPack, selectedDataPack),
+        )
+
+        assertEquals(listOf(selectedDataPack), worldDataPackLoadResult.loadedDataPacks)
+    }
+
+    @Test
     fun unresolvedIdsAreReportedTogether() {
         val worldDataPackLoadResult = WorldDataPackLoadResult(
             enabledDataPackIds = listOf(DataPackId("vanilla"), DataPackId("missing")),
@@ -59,6 +72,19 @@ class WorldDataPackLoadResultTest {
         }
 
         assertEquals(worldDataPackLoadResult.enabledDataPackIds, failure.unresolvedDataPackIds)
+    }
+
+    @Test
+    fun externalResolverMustReturnTheRequestedPack() {
+        val replacementDataPack = dataPack("replacement")
+        val worldDataPackLoadResult = WorldDataPackLoadResult(
+            enabledDataPackIds = listOf(DataPackId("requested")),
+            loadedDataPacks = emptyList(),
+        )
+
+        assertFailsWith<IllegalArgumentException> {
+            worldDataPackLoadResult.toDataPackStack { replacementDataPack }
+        }
     }
 
     private fun dataPack(dataPackId: String): DataPack = DataPack(

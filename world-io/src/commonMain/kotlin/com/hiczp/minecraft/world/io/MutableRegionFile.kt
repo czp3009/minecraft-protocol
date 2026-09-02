@@ -63,7 +63,7 @@ internal class MutableRegionFile private constructor(
         )
     }
 
-    /** Lends one complete compressed Chunk stream without retaining its payload. */
+    /** Lends one compressed Chunk stream without retaining its payload; unread bytes are discarded afterward. */
     fun <R> withCompressedChunkSource(
         localChunkPosition: LocalChunkPosition,
         block: (RegionChunkInfo, BufferedSource) -> R,
@@ -91,7 +91,6 @@ internal class MutableRegionFile private constructor(
         chunkInfos.forEach { listedInfo ->
             withCompressedChunkSource(listedInfo.localChunkPosition) { regionChunkInfo, source ->
                 chunks[regionChunkInfo.localChunkPosition] = AnvilChunkRecord(
-                    compression = regionChunkInfo.compression,
                     content = source.readCompressedChunkFromOkio(regionChunkInfo.compression),
                     anvilChunkPlacement = regionChunkInfo.anvilChunkPlacement,
                     timestampEpochSeconds = regionChunkInfo.timestampEpochSeconds,
@@ -274,7 +273,7 @@ internal class MutableRegionFile private constructor(
                 regionLocation.byteOffset + REGION_CHUNK_RECORD_HEADER_BYTES,
             ).limit(regionChunkInfo.compressedByteCount).buffer()
             useResource(bufferedSource, { it.close() }) {
-                readPayload(localChunkPosition, regionChunkInfo, bufferedSource, block)
+                readPayload(regionChunkInfo, bufferedSource, block)
             }
         }
     }
@@ -529,15 +528,12 @@ internal class MutableRegionFile private constructor(
     }
 
     private fun <R> readPayload(
-        localChunkPosition: LocalChunkPosition,
         regionChunkInfo: RegionChunkInfo,
         bufferedSource: BufferedSource,
         block: (RegionChunkInfo, BufferedSource) -> R,
     ): R {
         val value = block(regionChunkInfo, bufferedSource)
-        if (!bufferedSource.exhausted()) {
-            throw WorldIOException("Chunk $localChunkPosition payload was not fully consumed")
-        }
+        bufferedSource.readAll(blackholeSink())
         return value
     }
 

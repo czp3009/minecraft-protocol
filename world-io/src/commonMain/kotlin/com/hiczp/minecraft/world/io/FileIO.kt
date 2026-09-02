@@ -48,7 +48,6 @@ private fun FileSystem.regularFileByteCount(path: Path): Long {
     }
     val byteCount = fileMetadata.size
         ?: throw WorldIOException("Regular file has no size: $path")
-    if (byteCount < 0L) throw WorldIOException("File has a negative size: $path")
     return byteCount
 }
 
@@ -64,9 +63,7 @@ private fun <T> FileSystem.readFileAtKnownSize(
         .buffer()
     return useResource(limitedSource, { it.close() }) { bufferedSource ->
         val value = block(bufferedSource)
-        if (!bufferedSource.exhausted()) {
-            throw WorldIOException("File $path was not fully consumed")
-        }
+        bufferedSource.readAll(blackholeSink())
         value
     }
 }

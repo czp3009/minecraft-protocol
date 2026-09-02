@@ -13,17 +13,6 @@ data class ClientboundBundlePacket(
         if (subPackets is List) subPackets else subPackets.toList(),
     )
 
-    init {
-        require(this.subPackets.size <= MAX_SUB_PACKET_COUNT) {
-            "A clientbound bundle cannot contain more than $MAX_SUB_PACKET_COUNT packets"
-        }
-        require(this.subPackets.none { packet ->
-            packet === BundleDelimiterPacket || packet is ClientboundBundlePacket
-        }) {
-            "A clientbound bundle cannot contain delimiters or nested bundles"
-        }
-    }
-
     val size: Int
         get() = subPackets.size
 

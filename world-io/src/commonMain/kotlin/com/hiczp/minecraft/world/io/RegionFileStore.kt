@@ -179,7 +179,7 @@ class RegionFileStore internal constructor(
         chunkPosition: ChunkPosition,
         chunkNbtCodec: ChunkNbtCodec<B, M>,
     ): Chunk<B, M>? = withChunkNbtSource(chunkPosition) { _, source ->
-        chunkNbtCodec.decodeFromOkio(source, chunkPosition)
+        chunkNbtCodec.decodeFromOkio(source)
     }
 
     fun <B : Any, M : Any> readChunk(
@@ -196,7 +196,6 @@ class RegionFileStore internal constructor(
                 chunkInfos.forEach { listedInfo ->
                     withCompressedChunkSource(listedInfo.localChunkPosition) { regionChunkInfo, source ->
                         chunks[regionChunkInfo.localChunkPosition] = AnvilChunkRecord(
-                            compression = regionChunkInfo.compression,
                             content = source.readCompressedChunkFromOkio(regionChunkInfo.compression),
                             anvilChunkPlacement = regionChunkInfo.anvilChunkPlacement,
                             timestampEpochSeconds = regionChunkInfo.timestampEpochSeconds,

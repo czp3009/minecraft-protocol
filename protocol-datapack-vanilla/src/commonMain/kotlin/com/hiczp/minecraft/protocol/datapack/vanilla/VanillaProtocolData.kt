@@ -65,18 +65,15 @@ object VanillaProtocolData : ProtocolData {
         LazyThreadSafetyMode.PUBLICATION,
     ) {
         val staticProtocolRegistryContext = VanillaRegistryData.protocolRegistryContext
-        val protocolRegistries = staticProtocolRegistryContext.registries.toMutableMap()
-        vanillaConfigurationSnapshot.completeSynchronizedRegistryPackets.forEach { registryDataPacket ->
-            protocolRegistries[registryDataPacket.registryId] = ProtocolRegistry(
-                registryDataPacket.registryId,
-                registryDataPacket.entries.mapIndexed { rawId, registryEntry ->
-                    ProtocolRegistryEntry(registryEntry.id, rawId)
-                },
-            )
-        }
-        ProtocolRegistryContext(
-            registries = protocolRegistries,
-            blockStates = staticProtocolRegistryContext.blockStates,
-        )
+        val synchronizedProtocolRegistries =
+            vanillaConfigurationSnapshot.completeSynchronizedRegistryPackets.map { registryDataPacket ->
+                ProtocolRegistry(
+                    registryDataPacket.registryId,
+                    registryDataPacket.entries.mapIndexed { rawId, registryEntry ->
+                        ProtocolRegistryEntry(registryEntry.id, rawId)
+                    },
+                )
+            }
+        staticProtocolRegistryContext.withRegistries(synchronizedProtocolRegistries)
     }
 }

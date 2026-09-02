@@ -1,7 +1,10 @@
 package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtDocument
-import com.hiczp.minecraft.nbt.serialization.*
+import com.hiczp.minecraft.nbt.serialization.NbtBinaryFormatException
+import com.hiczp.minecraft.nbt.serialization.NbtFormat
+import com.hiczp.minecraft.nbt.serialization.NbtFormatConfiguration
+import com.hiczp.minecraft.nbt.serialization.NbtRootEncoding
 import com.hiczp.minecraft.world.format.Compression
 import com.hiczp.minecraft.world.format.CompressionRegistry
 import kotlinx.io.buffered
@@ -68,7 +71,7 @@ class NbtFileStore internal constructor(
         compression: Compression = Compression.GZIP,
     ): T = read(path, compression, nbtFormat.serializersModule.serializer())
 
-    /** Lends the complete decompressed NBT stream for the duration of [block]. */
+    /** Lends the decompressed NBT stream for the duration of [block], discarding unread bytes afterward. */
     fun <T> read(
         path: Path,
         compression: Compression = Compression.GZIP,
@@ -106,9 +109,7 @@ class NbtFileStore internal constructor(
         }.asOkioSource().buffer()
         return useResource(decompressedSource, { it.close() }) { source ->
             val value = block(source)
-            if (!source.exhausted()) {
-                throw NbtDecodingException("Decompressed NBT file has trailing bytes")
-            }
+            source.readAll(blackholeSink())
             value
         }
     }

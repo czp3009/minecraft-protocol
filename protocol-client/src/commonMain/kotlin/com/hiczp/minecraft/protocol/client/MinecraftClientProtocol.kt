@@ -104,9 +104,9 @@ suspend fun MinecraftClientConnection.queryStatus(
     outgoing.send(StatusPingRequestPacket(pingPayload))
     requestFlush()
     val statusPongResponsePacket = incoming.receive()
-    if (statusPongResponsePacket !is StatusPongResponsePacket || statusPongResponsePacket.timestamp != pingPayload) {
+    if (statusPongResponsePacket !is StatusPongResponsePacket) {
         throw MinecraftClientException(
-            "Status pong did not preserve payload $pingPayload: $statusPongResponsePacket",
+            "Expected Status Pong, received ${statusPongResponsePacket::class.simpleName}",
         )
     }
     return MinecraftStatusExchange(statusResponsePacket, statusPongResponsePacket)
@@ -247,14 +247,7 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
 
             is FeatureFlagsPacket -> featureFlagsPacket = clientboundPacket
 
-            is RegistryDataPacket -> {
-                if (synchronizedRegistryPackets.any { it.registryId == clientboundPacket.registryId }) {
-                    throw MinecraftClientException(
-                        "Server sent duplicate registry ${clientboundPacket.registryId}",
-                    )
-                }
-                synchronizedRegistryPackets += clientboundPacket
-            }
+            is RegistryDataPacket -> synchronizedRegistryPackets += clientboundPacket
 
             is ConfigurationUpdateTagsPacket -> configurationUpdateTagsPacket = clientboundPacket
 
@@ -332,7 +325,7 @@ private suspend fun MinecraftClientConnection.awaitPlayLogin(
             is PlayLoginPacket -> {
                 val minecraftDimensionContext = registryContextOrClientFailure {
                     val minecraftDimensionLayout = MinecraftDimensionLayout.from(
-                        playLoginPacket = clientboundPacket,
+                        dimensionTypeRawId = clientboundPacket.spawnInfo.dimensionTypeId,
                         synchronizedRegistryPackets = synchronizedRegistryPackets,
                         protocolData = minecraftClientNegotiationOptions.protocolData,
                     )

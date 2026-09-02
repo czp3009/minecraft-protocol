@@ -132,6 +132,28 @@ class FabricProtocolCodecTest {
     }
 
     @Test
+    fun registrySyncRejectsNegativeRawIdsOnlyWhenEncodingThem() {
+        val fabricRegistrySyncPacket = FabricRegistrySyncPacket(
+            RemoteRegistrySnapshot(
+                listOf(
+                    RemoteRegistry(
+                        Identifier("block"),
+                        listOf(RemoteRegistryEntry(Identifier("invalid"), -1)),
+                    ),
+                ),
+            ),
+        )
+
+        assertFailsWith<MinecraftSerializationException> {
+            encode(
+                fabricRegistrySyncPacket,
+                ConnectionState.CONFIGURATION,
+                PacketDirection.CLIENTBOUND,
+            )
+        }
+    }
+
+    @Test
     fun malformedKnownFabricPayloadDoesNotBecomeUnknown() {
         assertFailsWith<MinecraftSerializationException> {
             decode(

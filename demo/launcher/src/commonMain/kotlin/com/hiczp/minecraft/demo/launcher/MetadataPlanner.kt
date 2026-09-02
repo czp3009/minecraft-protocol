@@ -33,7 +33,6 @@ internal object MetadataPlanner {
         require(versionMetadata.minecraftArguments == null && versionMetadata.arguments != null) {
             "This demo does not support single-string minecraftArguments metadata"
         }
-        require(versionMetadata.assetIndex.size >= 0L)
         val downloads = mutableListOf(
             versionMetadata.downloads.client.toSpec("client.jar"),
         )
@@ -87,7 +86,6 @@ internal object MetadataPlanner {
         }
         return assetIndex.objects.values.distinctBy(AssetObject::hash).map { assetObject ->
             val hash = validateSha1(assetObject.hash)
-            require(assetObject.size >= 0L)
             DownloadSpec(
                 url = "https://resources.download.minecraft.net/${hash.take(2)}/$hash",
                 sha1 = hash,
@@ -264,7 +262,6 @@ internal fun validateSha1(value: String): String {
 }
 
 private fun Download.toSpec(relativePath: String): DownloadSpec {
-    require(size >= 0L)
     return DownloadSpec(url, validateSha1(sha1), size, validateRelativePath(relativePath, "download target"))
 }
 

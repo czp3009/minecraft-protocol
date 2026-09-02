@@ -15,7 +15,7 @@ import kotlinx.serialization.json.put
 /**
  * Facts produced when the peer completes Login and Configuration negotiation.
  * [playLoginPacket] is the exact Play Login packet sent at the end of that successful transition, while
- * [minecraftDimensionContext] validates the selected dimension against that active context. The connection's
+ * [minecraftDimensionContext] carries the selected dimension and active context. The connection's
  * [MinecraftServerConnection.protocolRegistryContext] remains authoritative if a later reconfiguration replaces it.
  */
 data class MinecraftServerNegotiationResult(
@@ -222,9 +222,9 @@ private suspend fun MinecraftServerConnection.handleLogin(
             "Play Login selected dimension $dimensionId, but it is absent from the advertised levels"
         }
         MinecraftDimensionLayout.from(
-            playLoginPacket,
-            synchronizedRegistryPackets,
-            minecraftServerNegotiationOptions.protocolData,
+            dimensionTypeRawId = playLoginPacket.spawnInfo.dimensionTypeId,
+            synchronizedRegistryPackets = synchronizedRegistryPackets,
+            protocolData = minecraftServerNegotiationOptions.protocolData,
         )
     } catch (failure: IllegalArgumentException) {
         throw MinecraftServerException(
@@ -235,7 +235,6 @@ private suspend fun MinecraftServerConnection.handleLogin(
     val baseProtocolRegistryContext = try {
         minecraftServerNegotiationOptions.protocolData
             .resolveSynchronizedRegistryContext(synchronizedRegistryPackets)
-            .withChunkSectionCount(minecraftDimensionLayout.sectionCount)
     } catch (failure: IllegalArgumentException) {
         throw MinecraftServerException(
             failure.message ?: "Invalid Play Login or registry context",

@@ -79,9 +79,6 @@ class DataPackProtocolProjector(
         ) {
             "Data-pack protocol projector has duplicate synchronized registry projectors"
         }
-        require(this.offeredKnownPacks.distinct().size == this.offeredKnownPacks.size) {
-            "Data-pack protocol projector has duplicate offered Known Packs"
-        }
     }
 
     fun project(

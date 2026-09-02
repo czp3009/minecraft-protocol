@@ -91,26 +91,39 @@ data class NeoForgeNetworkChannel(
     val chosenVersion: String,
 )
 
-@Serializable
-data class NeoForgeNetworkSetup(
-    val channels: Map<NeoForgeConnectionProtocol, Map<Identifier, NeoForgeNetworkChannel>>,
+@Serializable(with = NeoForgeNetworkSetupSerializer::class)
+class NeoForgeNetworkSetup(
+    channels: Map<NeoForgeConnectionProtocol, Collection<NeoForgeNetworkChannel>>,
 ) {
-    init {
-        channels.forEach { (protocol, protocolChannels) ->
-            require(
-                protocol == NeoForgeConnectionProtocol.CONFIGURATION ||
-                        protocol == NeoForgeConnectionProtocol.PLAY,
-            ) {
-                "NeoForge setup contains unsupported protocol $protocol"
+    val channels: Map<NeoForgeConnectionProtocol, Map<Identifier, NeoForgeNetworkChannel>> =
+        channels.mapValues { (neoForgeConnectionProtocol, neoForgeNetworkChannels) ->
+            val indexedChannels = neoForgeNetworkChannels.associateBy(NeoForgeNetworkChannel::id)
+            require(indexedChannels.size == neoForgeNetworkChannels.size) {
+                "NeoForge $neoForgeConnectionProtocol setup channels must have distinct identifiers"
             }
-            require(protocolChannels.all { (id, channel) -> id == channel.id }) {
-                "NeoForge setup map keys must match channel identifiers"
+            indexedChannels
+        }
+
+    init {
+        channels.keys.forEach { neoForgeConnectionProtocol ->
+            require(
+                neoForgeConnectionProtocol == NeoForgeConnectionProtocol.CONFIGURATION ||
+                        neoForgeConnectionProtocol == NeoForgeConnectionProtocol.PLAY,
+            ) {
+                "NeoForge setup contains unsupported protocol $neoForgeConnectionProtocol"
             }
         }
     }
 
     fun channels(neoForgeConnectionProtocol: NeoForgeConnectionProtocol): Map<Identifier, NeoForgeNetworkChannel> =
         channels[neoForgeConnectionProtocol].orEmpty()
+
+    override fun equals(other: Any?): Boolean =
+        other is NeoForgeNetworkSetup && channels == other.channels
+
+    override fun hashCode(): Int = channels.hashCode()
+
+    override fun toString(): String = "NeoForgeNetworkSetup(channels=$channels)"
 
     companion object {
         val Empty: NeoForgeNetworkSetup = NeoForgeNetworkSetup(emptyMap())
@@ -138,9 +151,6 @@ class NeoForgeRegistrySnapshot(
     init {
         require(this.ids.keys.all { it >= 0 }) {
             "NeoForge registry raw IDs must be non-negative"
-        }
-        require(this.ids.keys.zipWithNext().all { (left, right) -> left < right }) {
-            "NeoForge registry raw IDs must be strictly increasing"
         }
     }
 

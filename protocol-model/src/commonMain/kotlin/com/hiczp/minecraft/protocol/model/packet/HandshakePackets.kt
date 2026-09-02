@@ -25,13 +25,7 @@ data class HandshakePacket(
     @UnsignedShort
     val serverPort: Int,
     val nextState: HandshakeNextState,
-) : HandshakeStatePacket, ServerboundPacket {
-    init {
-        require(nextState != HandshakeNextState.UNUSED) {
-            "Handshake next-state wire value zero is invalid"
-        }
-    }
-}
+) : HandshakeStatePacket, ServerboundPacket
 
 @Serializable
 @PacketInfo(
@@ -43,8 +37,4 @@ data class HandshakePacket(
 data class LegacyServerListPingPacket(
     @UnsignedByte
     val payload: Int = 1,
-) : HandshakeStatePacket, ServerboundPacket {
-    init {
-        require(payload == 1) { "Legacy server-list ping payload must be 0x01" }
-    }
-}
+) : HandshakeStatePacket, ServerboundPacket

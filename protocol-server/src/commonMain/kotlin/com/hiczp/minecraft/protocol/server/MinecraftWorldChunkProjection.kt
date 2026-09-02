@@ -54,37 +54,23 @@ class MinecraftChunkPacketEncoder(
     val chunkDataRegistries: ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry> =
         chunkCodecContext.chunkDataRegistries
 
-    private val biomeRegistrySize =
-        protocolRegistryContext.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY).size
-
-    init {
-        require(protocolRegistryContext.blockStateRegistrySize > 0) { "The active block-state registry is empty" }
-        require(biomeRegistrySize > 0) { "The active biome registry is empty" }
-        require(protocolRegistryContext.chunkSectionCount == chunkCodecContext.chunkLayout.sectionCount) {
-            val sectionCount = protocolRegistryContext.chunkSectionCount
-            "Chunk layout has ${chunkCodecContext.chunkLayout.sectionCount} Sections, but the context has $sectionCount"
-        }
-    }
+    private val biomeRegistrySize = protocolRegistryContext.registrySize(ProtocolRegistryContext.BIOME_REGISTRY) ?: 0
 
     /** Encodes [chunk] directly into the packet accepted by the connection's outgoing channel. */
     fun encodePacket(chunk: Chunk<ProtocolBlockState, ProtocolRegistryEntry>): ChunkDataAndUpdateLightPacket {
-        require(chunk.chunkLayout == chunkCodecContext.chunkLayout) {
-            "Chunk layout ${chunk.chunkLayout} does not match encoder layout ${chunkCodecContext.chunkLayout}"
-        }
-        require(chunk.defaultBlockState == chunkDataRegistries.blockStates.defaultValue) {
-            "Chunk and encoder use different default block states"
-        }
-        require(chunk.defaultBiome == chunkDataRegistries.biomes.defaultValue) {
-            "Chunk and encoder use different default biomes"
-        }
+        val chunkLayout = chunkCodecContext.chunkLayout
         val chunkMetadata = chunk.chunkMetadata
         val sectionsByY = chunk.sections.associateBy(ChunkSection<ProtocolBlockState, ProtocolRegistryEntry>::sectionY)
-        val packetSections = chunk.chunkLayout.sectionYRange.map { sectionY ->
-            encodeSection(sectionsByY[sectionY], chunk.defaultBlockState, chunk.defaultBiome)
+        val packetSections = chunkLayout.sectionYRange.map { sectionY ->
+            encodeSection(
+                chunkSection = sectionsByY[sectionY],
+                defaultBlockState = chunkDataRegistries.blockStates.defaultValue,
+                defaultBiome = chunkDataRegistries.biomes.defaultValue,
+            )
         }
         val packetLight = encodeLight(
-            chunk.chunkLayout.minSectionY,
-            chunk.chunkLayout.sectionCount,
+            chunkLayout.minSectionY,
+            chunkLayout.sectionCount,
             sectionsByY,
             chunkMetadata.lightOnlySections,
         )
@@ -164,6 +150,7 @@ class MinecraftChunkPacketEncoder(
                 data = packValues(bits, compactPalette.entryCount) { index -> compactPalette.ids[index] },
             )
         } else {
+            require(registrySize > 0) { "A direct palette requires a non-empty registry" }
             val bits = minimumBitsForDistinctValues(registrySize)
             NetworkPalettedContainer.Direct(
                 packValues(bits, compactPalette.entryCount) { index -> registryIds[compactPalette.ids[index]] },
@@ -316,10 +303,14 @@ private fun defaultBlockEntityUpdateTag(nbtCompound: NbtCompound): NbtCompound? 
 
 private fun BlockEntity.persistedData(): NbtCompound {
     val value = linkedMapOf<String, NbtTag>()
+    persistentData.forEachEntry { name, nbtTag ->
+        if (name !in BLOCK_ENTITY_STRUCTURE_FIELDS) value[name] = nbtTag
+    }
     value["id"] = NbtString(type)
     value["x"] = NbtInt(blockPosition.x)
     value["y"] = NbtInt(blockPosition.y)
     value["z"] = NbtInt(blockPosition.z)
-    persistentData.forEachEntry { name, nbtTag -> value[name] = nbtTag }
     return NbtCompound(value)
 }
+
+private val BLOCK_ENTITY_STRUCTURE_FIELDS: Set<String> = setOf("id", "x", "y", "z")

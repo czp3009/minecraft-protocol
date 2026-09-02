@@ -16,7 +16,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
 
-/** A custom-payload body paired with its validated vanilla outer route. */
+/** A custom-payload body paired with its retained outer route. */
 data class RoutedCustomPayload(
     val route: PacketRoute.CustomPayload,
     val data: ByteString,
@@ -163,6 +163,14 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
             ?: throw MinecraftSessionException(
                 "${packet::class.simpleName} is not a custom-payload extension in $outboundState $outboundDirection",
             )
+        return encodeCustomPayload(packet, outboundState, routeKey)
+    }
+
+    private fun encodeCustomPayload(
+        packet: Outgoing,
+        outboundState: ConnectionState,
+        routeKey: PacketRouteKey.CustomPayload,
+    ): RoutedCustomPayload {
         if (routeKey !in activeRoutesValue.value) {
             throw MinecraftSessionException("Extension route $routeKey is not active")
         }
@@ -172,7 +180,6 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
             outboundDirection,
             customPayloadPacketId(routeKey),
         ) as PacketRoute.CustomPayload
-        validateRoute(customPayload, outboundDirection)
         val body = Buffer()
         packetRegistry.encodeExtensionPayloadToSink(
             packet,
@@ -189,16 +196,6 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
 
     fun decodeCustomPayload(routedCustomPayload: RoutedCustomPayload): Incoming {
         val customPayload = routedCustomPayload.route
-        validateRoute(customPayload, inboundDirection)
-        val expectedPacketId = customPayloadPacketId(
-            customPayload.packetRouteKey as PacketRouteKey.CustomPayload,
-        )
-        if (customPayload.packetId != expectedPacketId) {
-            val preservedRoute = "Custom payload route preserves outer ID ${customPayload.packetId}"
-            throw MinecraftSessionException(
-                "$preservedRoute, but the active registry uses $expectedPacketId",
-            )
-        }
         return requireIncoming(liftRoute(customPayload, routedCustomPayload.data))
     }
 
@@ -209,9 +206,9 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
                 sendRawTopLevel(packetRoute.packetId, unknownPacket.data)
             }
 
-            is PacketRoute.CustomPayload,
-            is PacketRoute.LoginQuery,
-                -> {
+            is PacketRoute.CustomPayload -> sendRawCustomPayload(packetRoute, unknownPacket.data)
+
+            is PacketRoute.LoginQuery -> {
                 val wirePacket = routedWirePacket(packetRoute, unknownPacket.data)
                 sendKnown(wirePacket)
             }
@@ -229,15 +226,15 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
                 "No extension codec for ${packet::class.simpleName}",
             )
         val declaredRoute = packetCodecRegistration.packetRouteKey
+        if (declaredRoute is PacketRouteKey.CustomPayload) {
+            val routedCustomPayload = encodeCustomPayload(packet, outboundState, declaredRoute)
+            sendKnown(routedWirePacket(routedCustomPayload.route, routedCustomPayload.data))
+            return
+        }
         if (declaredRoute !in activeRoutesValue.value) {
             throw MinecraftSessionException(
                 "Extension route $declaredRoute is not active",
             )
-        }
-        if (declaredRoute is PacketRouteKey.CustomPayload) {
-            val routedCustomPayload = encodeCustomPayload(packet)
-            sendKnown(routedWirePacket(routedCustomPayload.route, routedCustomPayload.data))
-            return
         }
         val outerPacketId: Int? = null
         val packetRoute = packetRegistry.extensionRoute(
@@ -246,7 +243,6 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
             outboundDirection,
             outerPacketId,
         )
-        validateRoute(packetRoute, outboundDirection)
         if (packetRoute is PacketRoute.TopLevel) {
             sendKnown(packet)
             return
@@ -322,6 +318,26 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
         packetData.writeVarInt(packetId)
         packetData.write(data.toByteArray())
         minecraftFrameStream.sendPacketData(packetData, packetData.size.toInt())
+    }
+
+    private suspend fun sendRawCustomPayload(
+        packetRoute: PacketRoute.CustomPayload,
+        data: ByteString,
+    ) {
+        val packet = customPayloadPacket(
+            packetRoute.connectionState,
+            packetRoute.packetDirection,
+            CustomPayload.Unknown(packetRoute.channel, data),
+        )
+        val payload = Buffer()
+        packetRegistry.encodePayloadToSink(
+            packet,
+            packetRoute.connectionState,
+            packetRoute.packetDirection,
+            payload,
+            formatValue.value,
+        )
+        sendRawTopLevel(packetRoute.packetId, ByteString(payload.readByteArray()))
     }
 
     private suspend fun liftIncoming(
@@ -439,25 +455,11 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
         }
 
         is PacketRoute.CustomPayload -> {
-            val packet = customPayloadPacket(
+            customPayloadPacket(
                 packetRoute.connectionState,
                 packetRoute.packetDirection,
                 CustomPayload.Unknown(packetRoute.channel, data),
             )
-            val actualId = packetRegistry.codec(
-                packet,
-                packetRoute.connectionState,
-                packetRoute.packetDirection,
-            )?.packetKey?.id
-                ?: throw MinecraftSessionException(
-                    "No vanilla outer custom-payload codec for ${packetRoute.connectionState} ${packetRoute.packetDirection}",
-                )
-            if (actualId != packetRoute.packetId) {
-                throw MinecraftSessionException(
-                    "Custom payload route preserves outer ID ${packetRoute.packetId}, but the active registry uses $actualId",
-                )
-            }
-            packet
         }
     }
 
@@ -630,12 +632,6 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
     companion object {
         private const val LEGACY_SERVER_LIST_PING_ID = 0xFE
         private const val LEGACY_SERVER_LIST_PING_PAYLOAD_SIZE = 1
-    }
-}
-
-internal fun requireMinecraftEncryptionKey(sharedSecret: ByteArray) {
-    require(sharedSecret.size == 16) {
-        "Minecraft stream encryption requires a 16-byte shared secret"
     }
 }
 

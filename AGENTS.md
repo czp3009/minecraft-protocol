@@ -74,6 +74,16 @@ Keep physical byte encoding out of models, socket and framing behavior out of se
 - Enforce intrinsic protocol, format, and representation bounds in their owning layer. Do not add shared policy-sized
   byte, collection, nesting, allocation, decompressed-output, or file-count limits to low-level formats and stores;
   callers own those policies and use the available streaming or inspection paths to enforce them.
+- Keep each validation at the lowest suitable layer that owns the requirement. Retain intrinsic protocol, format,
+  representation, domain, and business invariants, such as a non-blank identifier, a positive size, a coherent shape, or
+  an unambiguous mapping, as well as prerequisites the current operation needs for its own logic. A higher-level wrapper
+  does not repeat an equivalent check already guaranteed by the lower-level operation it calls; it validates only its
+  own composition, lifecycle, or business requirements. An independently callable operation may validate its own
+  prerequisite before changing state even when a later lower-level call would reject the same value. When multiple
+  inputs carry the same fact, choose the source owned by the operation and normalize or derive the other representation
+  instead of retaining both only to compare them. Do not accept an `expected` value only to compare it with decoded or
+  stored authoritative data, and do not make decoding, conversion, or storage APIs enforce optional caller policy.
+  Expose the authoritative result and let callers perform any additional consistency validation they require.
 - Keep optional `compileOnly` adapters inert unless explicitly called, document the dependency supplied by the caller,
   and test both the direct and adapter paths.
 

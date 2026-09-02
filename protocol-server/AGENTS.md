@@ -19,7 +19,7 @@ a finite initial Chunk/entity view; it does not run gameplay.
   Configuration send boundary without moving packet sequencing into `protocol-datapack`.
 - A stored-world server explicitly passes `ResolvedMinecraftWorld.protocolData`, its dimension IDs, and the selected
   dimension to negotiation options. The resolved world's `MinecraftChunkContext` remains the raw-ID-free disk/Chunk
-  packet codec while negotiation returns the connection's validated `MinecraftDimensionContext`; do not merge those
+  packet codec while negotiation returns the connection's composed `MinecraftDimensionContext`; do not merge those
   responsibilities.
 - Online Login decides when the Session Server `/hasJoined` call occurs. It consumes a caller-supplied `HttpClient` and
   does not own account or admission policy.
@@ -36,7 +36,9 @@ a finite initial Chunk/entity view; it does not run gameplay.
   direction-specific encoders and adapters that convert semantic Chunks and Entities into detached clientbound packets
   using the installed registry context.
 - Keep `MinecraftChunkContext.packetEncoder` as the standard semantic-Chunk path; explicit protocol/codec contexts
-  remain the custom encoder entry. Air, fluid, and block-entity update-tag classification remains caller game content.
+  remain the custom encoder entry. The encoder's explicit layout and defaults are authoritative; do not compare them
+  against parallel facts retained by the input Chunk or protocol context. Air, fluid, and block-entity update-tag
+  classification remains caller game content.
 - The module never depends on `world-io` or opens files. Applications load data separately and pass semantic values or
   snapshots.
 - Palette/light projection remains stateless. Require caller-owned semantics when a registry ID alone cannot determine a

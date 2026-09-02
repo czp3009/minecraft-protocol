@@ -30,12 +30,6 @@ class CompressedNbtFormat(
     ),
     val compressionRegistry: CompressionRegistry = CompressionRegistry,
 ) {
-    init {
-        require(nbtFormat.nbtFormatConfiguration.nbtRootEncoding == NbtRootEncoding.UNNAMED) {
-            "Region Chunk NBT requires NbtRootEncoding.UNNAMED"
-        }
-    }
-
     /**
      * Decodes one complete compressed NBT stream without closing [source].
      * Compression and serialization exceptions propagate unchanged.

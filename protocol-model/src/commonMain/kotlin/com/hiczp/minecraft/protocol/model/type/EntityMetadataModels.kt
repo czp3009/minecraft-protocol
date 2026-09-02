@@ -240,13 +240,7 @@ data class EntityMetadataEntry(
 @Serializable(with = EntityMetadataSerializer::class)
 data class EntityMetadata(
     val entries: List<EntityMetadataEntry>,
-) {
-    init {
-        require(entries.size <= 255) {
-            "Entity metadata cannot contain more than 255 entries"
-        }
-    }
-}
+)
 
 internal object EntityMetadataSerializer : KSerializer<EntityMetadata> {
     override val descriptor: SerialDescriptor = buildClassSerialDescriptor(
@@ -503,6 +497,9 @@ internal object EntityDataValueSerializer : KSerializer<EntityDataValue> {
                 OPTIONAL_UNSIGNED_INT,
                 19,
             ) { index ->
+                if (value.value == Int.MAX_VALUE) {
+                    throw SerializationException("Optional unsigned integer cannot be represented")
+                }
                 encodeIntElement(
                     descriptor,
                     index,

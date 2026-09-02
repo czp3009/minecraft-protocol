@@ -78,6 +78,12 @@ class MappedKotlinxPacketBodyCodec<T : Packet, Body>(
     )
 }
 
+/** Per-exchange values for a Login query whose direction and channel come from its registration. */
+data class LoginQueryRouteValues(
+    val transactionId: Int,
+    val hasPayload: Boolean = true,
+)
+
 /**
  * Immutable declaration of one application packet route. A declaration is
  * snapshotted into a connection before its pumps start and can only be
@@ -87,7 +93,7 @@ class PacketCodecRegistration<T : Packet> private constructor(
     val packetRouteKey: PacketRouteKey,
     val packetClass: KClass<T>,
     val packetBodyCodec: PacketBodyCodec<T>,
-    private val loginRoute: ((T) -> PacketRoute.LoginQuery)?,
+    private val loginRouteValues: ((T) -> LoginQueryRouteValues)?,
 ) {
     internal fun routeForPacket(
         packet: Packet,
@@ -112,16 +118,16 @@ class PacketCodecRegistration<T : Packet> private constructor(
             )
 
             is PacketRouteKey.LoginQuery -> {
-                val actual = loginRoute?.invoke(typedPacket)
+                val loginQueryRouteValues = loginRouteValues?.invoke(typedPacket)
                     ?: throw MinecraftSerializationException(
-                        "Encoding ${packetClass.simpleName} requires a Login query route selector",
+                        "Encoding ${packetClass.simpleName} requires Login query route values",
                     )
-                if (actual.packetRouteKey != packetRouteKey) {
-                    throw MinecraftSerializationException(
-                        "${packetClass.simpleName} selected ${actual.packetRouteKey}, but its declared route is $packetRouteKey",
-                    )
-                }
-                actual
+                PacketRoute.LoginQuery(
+                    packetDirection = packetRouteKey.packetDirection,
+                    transactionId = loginQueryRouteValues.transactionId,
+                    channel = packetRouteKey.channel,
+                    hasPayload = loginQueryRouteValues.hasPayload,
+                )
             }
         }
     }
@@ -156,7 +162,7 @@ class PacketCodecRegistration<T : Packet> private constructor(
             ),
             packetClass,
             packetBodyCodec,
-            loginRoute = null,
+            loginRouteValues = null,
         )
 
         fun <T : ServerboundPacket.Extension> serverboundTopLevel(
@@ -172,7 +178,7 @@ class PacketCodecRegistration<T : Packet> private constructor(
             ),
             packetClass,
             packetBodyCodec,
-            loginRoute = null,
+            loginRouteValues = null,
         )
 
         fun <T : ClientboundPacket.Extension> clientboundCustomPayload(
@@ -188,7 +194,7 @@ class PacketCodecRegistration<T : Packet> private constructor(
             ),
             packetClass,
             packetBodyCodec,
-            loginRoute = null,
+            loginRouteValues = null,
         )
 
         fun <T : ServerboundPacket.Extension> serverboundCustomPayload(
@@ -204,14 +210,14 @@ class PacketCodecRegistration<T : Packet> private constructor(
             ),
             packetClass,
             packetBodyCodec,
-            loginRoute = null,
+            loginRouteValues = null,
         )
 
         fun <T : ClientboundPacket.Extension> clientboundLoginQuery(
             channel: Identifier,
             packetClass: KClass<T>,
             packetBodyCodec: PacketBodyCodec<T>,
-            route: (T) -> PacketRoute.LoginQuery,
+            routeValues: (T) -> LoginQueryRouteValues,
         ): PacketCodecRegistration<T> = PacketCodecRegistration(
             PacketRouteKey.LoginQuery(
                 PacketDirection.CLIENTBOUND,
@@ -219,14 +225,14 @@ class PacketCodecRegistration<T : Packet> private constructor(
             ),
             packetClass,
             packetBodyCodec,
-            loginRoute = route,
+            loginRouteValues = routeValues,
         )
 
         fun <T : ServerboundPacket.Extension> serverboundLoginQuery(
             channel: Identifier,
             packetClass: KClass<T>,
             packetBodyCodec: PacketBodyCodec<T>,
-            route: (T) -> PacketRoute.LoginQuery,
+            routeValues: (T) -> LoginQueryRouteValues,
         ): PacketCodecRegistration<T> = PacketCodecRegistration(
             PacketRouteKey.LoginQuery(
                 PacketDirection.SERVERBOUND,
@@ -234,7 +240,7 @@ class PacketCodecRegistration<T : Packet> private constructor(
             ),
             packetClass,
             packetBodyCodec,
-            loginRoute = route,
+            loginRouteValues = routeValues,
         )
     }
 }

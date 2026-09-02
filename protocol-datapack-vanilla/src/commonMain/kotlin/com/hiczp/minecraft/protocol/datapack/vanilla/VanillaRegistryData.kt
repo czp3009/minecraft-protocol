@@ -48,16 +48,21 @@ data class VanillaBlockState(
     val blockId: Identifier,
     val properties: Map<String, String>,
     val isDefault: Boolean,
-)
+) {
+    init {
+        require(rawId >= 0) { "A vanilla block-state ID must be non-negative" }
+    }
+}
 
 data class VanillaBlockStateRegistry(
     val vanillaBlockStates: List<VanillaBlockState>,
 ) {
+    private val vanillaBlockStatesByRawId: Map<Int, VanillaBlockState> =
+        vanillaBlockStates.associateBy(VanillaBlockState::rawId)
+
     init {
-        require(vanillaBlockStates.withIndex().all { (rawId, vanillaBlockState) ->
-            vanillaBlockState.rawId == rawId
-        }) {
-            "Vanilla block-state IDs must be contiguous and ordered"
+        require(vanillaBlockStatesByRawId.size == vanillaBlockStates.size) {
+            "Vanilla block-state IDs must be distinct"
         }
         require(
             vanillaBlockStates
@@ -82,10 +87,16 @@ data class VanillaBlockStateRegistry(
         }
 
     val size: Int
-        get() = vanillaBlockStates.size
+        get() {
+            val maximumRawId = vanillaBlockStates.maxOfOrNull(VanillaBlockState::rawId) ?: return 0
+            check(maximumRawId < Int.MAX_VALUE) {
+                "The vanilla block-state registry is too large to expose an Int size"
+            }
+            return maximumRawId + 1
+        }
 
     operator fun get(rawId: Int): VanillaBlockState? =
-        vanillaBlockStates.getOrNull(rawId)
+        vanillaBlockStatesByRawId[rawId]
 
     fun require(rawId: Int): VanillaBlockState =
         get(rawId) ?: error("Vanilla block-state ID $rawId does not exist")
@@ -216,10 +227,7 @@ private fun decodeVanillaRegistryData(): VanillaRegistryDataSnapshot {
         }
     }
     val vanillaBlockStates =
-        vanillaRegistryDataPayload.vanillaBlockStates.mapIndexed { expectedRawId, vanillaBlockStatePayload ->
-            check(vanillaBlockStatePayload.rawId == expectedRawId) {
-                "Expected vanilla block-state ID $expectedRawId, got ${vanillaBlockStatePayload.rawId}"
-            }
+        vanillaRegistryDataPayload.vanillaBlockStates.map { vanillaBlockStatePayload ->
             VanillaBlockState(
                 rawId = vanillaBlockStatePayload.rawId,
                 blockId = Identifier(vanillaBlockStatePayload.blockId),

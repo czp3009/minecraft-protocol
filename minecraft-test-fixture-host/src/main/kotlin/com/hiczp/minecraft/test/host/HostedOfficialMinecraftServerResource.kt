@@ -391,7 +391,6 @@ private fun String.isPortBindFailure(): Boolean =
     ).any { marker -> contains(marker, ignoreCase = true) }
 
 internal suspend fun generateOfficialMinecraftServerTemplate(
-    minecraftVersion: String,
     serverJar: Path,
     outputRoot: Path,
     workRoot: Path,
@@ -468,7 +467,6 @@ internal suspend fun generateOfficialMinecraftServerTemplate(
         val manifest = JsonObject(
             linkedMapOf(
                 "schema_version" to JsonPrimitive(1),
-                "minecraft_version" to JsonPrimitive(minecraftVersion),
                 "relative_server_runtime_directory" to
                         JsonPrimitive("runtime"),
                 "relative_server_jar" to

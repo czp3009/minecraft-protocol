@@ -122,6 +122,24 @@ class VanillaProtocolDataTest {
     }
 
     @Test
+    fun blockStateRawIdsAreAuthoritativeRegardlessOfListPosition() {
+        val first = VanillaBlockState(7, Identifier("test:first"), emptyMap(), isDefault = true)
+        val second = VanillaBlockState(2, Identifier("test:second"), emptyMap(), isDefault = true)
+        val vanillaBlockStateRegistry = VanillaBlockStateRegistry(listOf(first, second))
+
+        assertSame(first, vanillaBlockStateRegistry[7])
+        assertSame(second, vanillaBlockStateRegistry[2])
+        assertEquals(8, vanillaBlockStateRegistry.size)
+    }
+
+    @Test
+    fun blockStateRawIdsRemainNonNegative() {
+        assertFailsWith<IllegalArgumentException> {
+            VanillaBlockState(-1, Identifier("test:block"), emptyMap(), isDefault = true)
+        }
+    }
+
+    @Test
     fun derivesChunkContextFromSynchronizedDimensionData() {
         val minecraftDimensionLayout = MinecraftDimensionLayout.from(
             VanillaProtocolData,
@@ -241,7 +259,7 @@ class VanillaProtocolDataTest {
     }
 
     @Test
-    fun rejectsAmbiguousRegistryCataloguesAndMalformedDimensionData() {
+    fun acceptsSparseBlockStateIdsAndRejectsAmbiguousCataloguesAndMalformedDimensionData() {
         val duplicate = Identifier("test:duplicate")
         assertFailsWith<IllegalArgumentException> {
             VanillaRegistry(
@@ -249,18 +267,16 @@ class VanillaProtocolDataTest {
                 listOf(duplicate, duplicate),
             )
         }
-        assertFailsWith<IllegalArgumentException> {
-            VanillaBlockStateRegistry(
-                listOf(
-                    VanillaBlockState(
-                        rawId = 1,
-                        blockId = Identifier("test:block"),
-                        properties = emptyMap(),
-                        isDefault = true,
-                    ),
-                ),
-            )
-        }
+        val sparseBlockState = VanillaBlockState(
+            rawId = 1,
+            blockId = Identifier("test:block"),
+            properties = emptyMap(),
+            isDefault = true,
+        )
+        val sparseBlockStateRegistry = VanillaBlockStateRegistry(listOf(sparseBlockState))
+        assertEquals(2, sparseBlockStateRegistry.size)
+        assertNull(sparseBlockStateRegistry[0])
+        assertEquals(sparseBlockState, sparseBlockStateRegistry[1])
         assertFailsWith<IllegalArgumentException> {
             VanillaBlockStateRegistry(
                 listOf(

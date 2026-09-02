@@ -24,7 +24,7 @@ class MinecraftTargetGenerationTest {
                 javaMajorVersion = 25,
             )
 
-            val minecraftProtocolTarget = serverJar.readMinecraftProtocolTarget("test-release")
+            val minecraftProtocolTarget = serverJar.readMinecraftProtocolTarget()
             assertEquals(456, minecraftProtocolTarget.worldVersion)
 
             val targetFile = root.resolve("target.json")

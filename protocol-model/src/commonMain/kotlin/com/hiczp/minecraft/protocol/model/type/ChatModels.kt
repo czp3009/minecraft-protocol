@@ -18,13 +18,7 @@ import kotlin.uuid.Uuid
 @Serializable(with = PackedMessageSignatureSerializer::class)
 sealed interface PackedMessageSignature {
     @Serializable
-    data class Full(val signature: ByteString) : PackedMessageSignature {
-        init {
-            require(signature.size == SIGNATURE_BYTES) {
-                "A full chat signature must contain $SIGNATURE_BYTES bytes"
-            }
-        }
-    }
+    data class Full(val signature: ByteString) : PackedMessageSignature
 
     @Serializable
     data class Cached(val id: Int) : PackedMessageSignature {
@@ -64,11 +58,16 @@ internal object PackedMessageSignatureSerializer :
                 )
             }
 
-            is PackedMessageSignature.Cached -> output.encodeIntElement(
-                descriptor,
-                MESSAGE_ID,
-                value.id + 1,
-            )
+            is PackedMessageSignature.Cached -> {
+                if (value.id == Int.MAX_VALUE) {
+                    throw SerializationException("Cached chat signature ID overflows its packed ID")
+                }
+                output.encodeIntElement(
+                    descriptor,
+                    MESSAGE_ID,
+                    value.id + 1,
+                )
+            }
         }
         output.endStructure(descriptor)
     }
@@ -146,12 +145,6 @@ data class LastSeenMessagesUpdate(
     val acknowledged: ByteString,
     val checksum: Byte,
 ) {
-    init {
-        require(acknowledged.size == ACKNOWLEDGED_BYTES) {
-            "A last-seen acknowledgement must contain $ACKNOWLEDGED_BYTES bytes"
-        }
-    }
-
     companion object {
         const val ACKNOWLEDGED_BYTES: Int = 3
     }

@@ -26,9 +26,6 @@ internal object HeadlessClientPreparation {
         }
         val manifest = testJson.decodeFromString<JsonObject>(manifestPath.readText())
         val minecraftVersion = manifest.getValue("minecraft_version").jsonPrimitive.content
-        check(minecraftVersion == minecraftTestLayout.minecraftVersion) {
-            "The HeadlessMC client fixture belongs to a different Minecraft release"
-        }
         val minecraftDirectory = root.safeResolve(
             manifest.getValue("relative_minecraft_directory").jsonPrimitive.content,
         )

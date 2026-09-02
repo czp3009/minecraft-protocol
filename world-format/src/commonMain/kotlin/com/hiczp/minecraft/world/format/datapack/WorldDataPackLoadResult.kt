@@ -44,18 +44,6 @@ class WorldDataPackLoadResult(
     val unloadedEnabledDataPackIds: List<DataPackId> =
         enabledDataPackIds.filterNot(loadedDataPacksById::containsKey)
 
-    init {
-        require(enabledDataPackIds.distinct().size == enabledDataPackIds.size) {
-            "Enabled data-pack IDs must be distinct"
-        }
-        require(disabledDataPackIds.distinct().size == disabledDataPackIds.size) {
-            "Disabled data-pack IDs must be distinct"
-        }
-        require(loadedDataPacksById.keys.all(enabledDataPackIds::contains)) {
-            "Every loaded data pack must belong to the enabled selection"
-        }
-    }
-
     /** Resolves unloaded members and constructs the complete stack without changing persisted priority order. */
     fun toDataPackStack(resolveUnloadedDataPack: (DataPackId) -> DataPack?): DataPackStack {
         val unresolvedDataPackIds = mutableListOf<DataPackId>()

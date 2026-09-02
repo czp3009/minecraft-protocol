@@ -68,22 +68,22 @@ class ProtocolModelInvariantTest {
         assertEquals((-64).toShort(), blockEntityInfo.y)
 
         assertFailsWith<IllegalArgumentException> {
-            SectionPosition(SectionPosition.MAX_XZ + 1, 0, 0)
+            SectionPosition(SectionPosition.MAX_XZ + 1, 0, 0).packed()
         }
         assertFailsWith<IllegalArgumentException> {
-            SectionPosition(0, SectionPosition.MIN_Y - 1, 0)
+            SectionPosition(0, SectionPosition.MIN_Y - 1, 0).packed()
         }
         assertFailsWith<IllegalArgumentException> {
-            SectionBlockChange(-1, 0, 0, 0)
+            SectionBlockChange(-1, 0, 0, 0).packed()
         }
         assertFailsWith<IllegalArgumentException> {
-            SectionBlockChange(0, 16, 0, 0)
+            SectionBlockChange(0, 16, 0, 0).packed()
         }
         assertFailsWith<IllegalArgumentException> {
-            SectionBlockChange(0, 0, -1, 0)
+            SectionBlockChange(0, 0, -1, 0).packed()
         }
         assertFailsWith<IllegalArgumentException> {
-            SectionBlockChange(0, 0, 0, 16)
+            SectionBlockChange(0, 0, 0, 16).packed()
         }
         assertFailsWith<IllegalArgumentException> {
             BlockEntityInfo.fromLocalCoordinates(16, 0, 0, 0, null)
@@ -149,16 +149,12 @@ class ProtocolModelInvariantTest {
     }
 
     @Test
-    fun `chat and metadata values enforce sentinel and fixed-size contracts`() {
-        assertFailsWith<IllegalArgumentException> {
-            PackedMessageSignature.Full(ByteString(ByteArray(255)))
-        }
+    fun `chat and metadata values enforce their logical sentinel contracts`() {
+        assertEquals(255, PackedMessageSignature.Full(ByteString(ByteArray(255))).signature.size)
         assertFailsWith<IllegalArgumentException> {
             PackedMessageSignature.Cached(-1)
         }
-        assertFailsWith<IllegalArgumentException> {
-            LastSeenMessagesUpdate(0, ByteString(ByteArray(2)), 0)
-        }
+        assertEquals(2, LastSeenMessagesUpdate(0, ByteString(ByteArray(2)), 0).acknowledged.size)
         assertFailsWith<IllegalArgumentException> {
             VillagerData(-1, 0, 1)
         }
@@ -180,13 +176,10 @@ class ProtocolModelInvariantTest {
         assertFailsWith<IllegalArgumentException> {
             EntityMetadataEntry(255, EntityDataValue.ByteValue(0))
         }
-        assertFailsWith<IllegalArgumentException> {
-            EntityMetadata(
-                List(256) {
-                    EntityMetadataEntry(0, EntityDataValue.ByteValue(0))
-                },
-            )
-        }
+        assertEquals(
+            256,
+            EntityMetadata(List(256) { EntityMetadataEntry(0, EntityDataValue.ByteValue(0)) }).entries.size,
+        )
     }
 
     @Test
@@ -287,10 +280,8 @@ class ProtocolModelInvariantTest {
     }
 
     @Test
-    fun `inventory predicate and registry models reject ambiguous values`() {
-        assertFailsWith<IllegalArgumentException> {
-            EquipmentUpdates(emptyList())
-        }
+    fun `inventory predicate and registry models enforce their owning invariants`() {
+        assertTrue(EquipmentUpdates(emptyList()).entries.isEmpty())
         assertFailsWith<IllegalArgumentException> {
             MerchantOffer(
                 firstCost = MerchantItemCost(0, 1),
@@ -338,11 +329,8 @@ class ProtocolModelInvariantTest {
         assertFailsWith<IllegalArgumentException> {
             DataComponent.StoredEnchantments(mapOf(0 to 256))
         }
-        assertFailsWith<IllegalArgumentException> {
-            DataComponent.IntangibleProjectile(
-                NbtCompound(mapOf("unexpected" to NbtInt(1))),
-            )
-        }
+        val intangibleProjectileData = NbtCompound(mapOf("unexpected" to NbtInt(1)))
+        assertEquals(intangibleProjectileData, DataComponent.IntangibleProjectile(intangibleProjectileData).data)
         assertFailsWith<IllegalArgumentException> {
             DataComponent.WrittenBookContent(
                 title = WrittenBookTitle("title"),
@@ -358,21 +346,9 @@ class ProtocolModelInvariantTest {
     }
 
     @Test
-    fun `display and debug values enforce bounded wire-width fields`() {
-        assertFailsWith<IllegalArgumentException> {
-            LightDataLayer(ByteString(ByteArray(LightDataLayer.DATA_LAYER_BYTES + 1)))
-        }
-        assertFailsWith<IllegalArgumentException> {
-            MapColorPatch(-1, 0, 1, 1, ByteString(byteArrayOf()))
-        }
-        assertFailsWith<IllegalArgumentException> {
-            MapColorPatch(0, 256, 1, 1, ByteString(byteArrayOf()))
-        }
+    fun `display and debug values enforce their semantic fields`() {
         assertFailsWith<IllegalArgumentException> {
             MapColorPatch(0, 0, 0, 1, ByteString(byteArrayOf()))
-        }
-        assertFailsWith<IllegalArgumentException> {
-            MapColorPatch(0, 0, 1, 256, ByteString(byteArrayOf()))
         }
         assertFailsWith<IllegalArgumentException> {
             DebugSubscriptionData.RedstoneWireOrientation(-1)
@@ -426,22 +402,6 @@ class ProtocolModelInvariantTest {
                 )
             },
             { BundleItemSelectedPacket(slotId = 0, selectedItemIndex = -2) },
-            {
-                PlayerChatMessagePacket(
-                    globalIndex = 0,
-                    sender = Uuid.fromLongs(0, 0),
-                    index = 0,
-                    signature = ByteString(ByteArray(255)),
-                    body = PackedSignedMessageBody("", 0, 0, emptyList()),
-                    unsignedContent = null,
-                    filterMask = FilterMask.PassThrough,
-                    chatType = BoundChatType(
-                        ChatTypeHolder.Reference(0),
-                        TextComponent.literal("sender"),
-                        null,
-                    ),
-                )
-            },
         ).forEach { invalid ->
             assertFailsWith<IllegalArgumentException> { invalid() }
         }
@@ -449,6 +409,19 @@ class ProtocolModelInvariantTest {
         assertEquals(
             -1,
             BundleItemSelectedPacket(0, -1).selectedItemIndex,
+        )
+        assertEquals(
+            255,
+            PlayerChatMessagePacket(
+                globalIndex = 0,
+                sender = Uuid.fromLongs(0, 0),
+                index = 0,
+                signature = ByteString(ByteArray(255)),
+                body = PackedSignedMessageBody("", 0, 0, emptyList()),
+                unsignedContent = null,
+                filterMask = FilterMask.PassThrough,
+                chatType = BoundChatType(ChatTypeHolder.Reference(0), TextComponent.literal("sender"), null),
+            ).signature?.size,
         )
         assertEquals(
             255,

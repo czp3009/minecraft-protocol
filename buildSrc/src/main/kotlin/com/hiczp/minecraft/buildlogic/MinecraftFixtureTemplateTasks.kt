@@ -12,9 +12,6 @@ import java.time.Duration
 
 @CacheableTask
 abstract class GenerateOfficialMinecraftServerTemplateTask : DefaultTask() {
-    @get:Input
-    abstract val minecraftVersion: Property<String>
-
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val serverJar: RegularFileProperty
@@ -32,7 +29,6 @@ abstract class GenerateOfficialMinecraftServerTemplateTask : DefaultTask() {
                 workerClasspath = workerClasspath,
                 arguments = listOf(
                     "server",
-                    minecraftVersion.get(),
                     serverJar.asFile.get().absolutePath,
                     outputDirectory.asFile.get().absolutePath,
                     workDirectory.toString(),

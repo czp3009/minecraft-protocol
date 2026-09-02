@@ -73,11 +73,6 @@ internal abstract class CustomPayloadSerializer(
             }
 
             is CustomPayload.Unknown -> {
-                if (value.channel == BRAND_CHANNEL) {
-                    throw SerializationException(
-                        "minecraft:brand must use CustomPayload.Brand",
-                    )
-                }
                 output.encodeSerializableElement(
                     descriptor,
                     CHANNEL,

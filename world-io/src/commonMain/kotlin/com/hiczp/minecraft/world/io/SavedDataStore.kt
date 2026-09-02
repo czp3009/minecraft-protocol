@@ -35,7 +35,7 @@ class SavedDataStore(
     inline fun <reified T> read(savedDataId: SavedDataId): T? =
         read(savedDataId, nbtFileStore.nbtFormat.serializersModule.serializer())
 
-    /** Detects compression and lends the complete decompressed stream through one physical file open. */
+    /** Detects compression and lends a decompressed stream through one physical file open, discarding unread bytes. */
     fun <T> read(savedDataId: SavedDataId, block: (BufferedSource) -> T): T? {
         val path = minecraftWorldPaths.savedData(savedDataId, savedDataScope)
         return nbtFileStore.readDetectingCompressionOrNull(path, ::detectCompression, block)

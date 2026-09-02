@@ -16,10 +16,11 @@ of active protocol dimension/registry facts to semantic world-Chunk contracts.
   projectors.
 - Never assume disk and network codecs are equivalent; registry projection uses caller-supplied
   `DataPackRegistryProjector` values in `DataPackProtocolProjector`.
-- `MinecraftDimensionLayout` combines synchronized identity/raw ID with `world-format`'s `DimensionTypeLayout`, and
-  `MinecraftDimensionContext` validates that network handoff. `MinecraftChunkContext` contains only the dimension ID,
-  layout, active registries, `ChunkCodecContext`, and `ChunkNbtCodec`; disk and Chunk packet bodies must not require a
-  synchronized dimension-type raw ID. Reuse active registries by reference.
+- `MinecraftDimensionLayout` combines synchronized identity/raw ID with `world-format`'s `DimensionTypeLayout`.
+  `MinecraftDimensionContext` composes that layout with active registries without cross-validating duplicate identity or
+  Section-count facts; the selected layout supplies the active Section count. `MinecraftChunkContext` contains only the
+  dimension ID, layout, active registries, `ChunkCodecContext`, and `ChunkNbtCodec`; disk and Chunk packet bodies must
+  not require a synchronized dimension-type raw ID. Reuse active registries by reference.
 - `ResolvedProtocolData.resolveMinecraftWorld` resolves every persisted referenced dimension type against the exact
   complete synchronized registry order before constructing contexts. Aggregate dimension failures, reject inline holders
   on this server-negotiable path, and never create partial results or synthetic registry entries.

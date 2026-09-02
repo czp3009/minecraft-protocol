@@ -90,8 +90,8 @@ registries to one layout and is the common input to `ChunkNbtCodec` and caller-d
 `MinecraftChunkContext` in `protocol-datapack` additionally binds a dimension ID and active protocol registries without
 requiring a network dimension-type raw ID.
 
-When a Region slot is known, use the decode overload that accepts the expected `ChunkPosition`; it verifies that stored
-`xPos`/`zPos` matches the slot.
+Chunk decoding always uses the stored `xPos`/`zPos`. A Region slot selects the record but is not an additional decoder
+input; callers that need placement validation can compare the decoded `Chunk.chunkPosition` with that slot.
 
 ## Read and modify Chunk contents
 
@@ -120,10 +120,11 @@ Palette mutation preserves stable palette IDs. `compactSnapshot()` returns a non
 `compact()` explicitly rewrites the container. Encoding uses the snapshot path and does not mutate the Chunk merely to
 serialize it.
 
-Strong Chunk decoding validates required fields, layout, coordinates, and registry resolution, but deliberately does not
-gate reads on `DataVersion`. It does not retain unknown tags outside the semantic model. Use `NbtDocument` when
-arbitrary modded or future fields must survive a round trip or when the application wants to inspect version metadata
-before choosing a semantic codec.
+Strong Chunk decoding validates required fields, coordinate representability, and registry resolution, but deliberately
+does not gate reads on `DataVersion` or compare stored `yPos` with the codec layout. The codec's injected layout and
+defaults are authoritative for conversion; applications can compare independently sourced layout facts when needed. It
+does not retain unknown tags outside the semantic model. Use `NbtDocument` when arbitrary modded or future fields must
+survive a round trip or when the application wants to inspect version metadata before choosing a semantic codec.
 
 ## Work with stored Entities
 
@@ -272,8 +273,8 @@ fun inspectRecords(
 }
 ```
 
-The callback consumes each inline payload completely. An external record supplies an empty inline stream because only a
-filesystem layer can locate its sidecar.
+The callback may consume only the bytes it needs; the format discards the remainder before advancing to the next record.
+An external record supplies an empty inline stream because only a filesystem layer can locate its sidecar.
 
 Encoding writes the main Region and returns the external payloads that the caller must place:
 

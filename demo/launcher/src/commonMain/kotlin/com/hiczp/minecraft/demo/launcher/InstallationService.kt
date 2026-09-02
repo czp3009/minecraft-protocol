@@ -97,11 +97,8 @@ internal class InstallationService(
         }
     }
 
-    suspend fun loadVersionMetadata(versionEntry: VersionEntry): VersionMetadata {
-        val versionMetadata = mojangApi.versionMetadata(versionEntry.url)
-        require(versionMetadata.id == versionEntry.id) { "Version metadata ID does not match ${versionEntry.id}" }
-        return versionMetadata
-    }
+    suspend fun loadVersionMetadata(versionEntry: VersionEntry): VersionMetadata =
+        mojangApi.versionMetadata(versionEntry.url).copy(id = versionEntry.id)
 
     private suspend fun downloadAll(specs: List<DownloadSpec>, gameRoot: Path) = coroutineScope {
         val semaphore = Semaphore(DOWNLOAD_CONCURRENCY)

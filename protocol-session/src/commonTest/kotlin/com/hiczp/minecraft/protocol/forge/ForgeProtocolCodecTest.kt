@@ -186,7 +186,7 @@ class ForgeProtocolCodecTest {
     }
 
     @Test
-    fun loginWrapperCorrelatesAndPreservesBytes() {
+    fun loginWrapperUsesItsEncodedChannelAndPreservesBytes() {
         val request = ForgeLoginQueries.query(
             7,
             Identifier("mod:query"),
@@ -200,6 +200,16 @@ class ForgeProtocolCodecTest {
 
         assertEquals(Identifier("mod:query"), unwrapped?.channel)
         assertContentEquals(byteArrayOf(1, 2, 3), unwrapped?.data?.toByteArray())
+        val reroutedResponse = UnknownPacket.Serverbound(
+            PacketRoute.LoginQuery(
+                PacketDirection.SERVERBOUND,
+                7,
+                Identifier("outer:route"),
+                hasPayload = true,
+            ),
+            response.data,
+        )
+        assertEquals(Identifier("mod:query"), ForgeLoginQueries.unwrap(reroutedResponse)?.channel)
         assertNull(ForgeLoginQueries.unwrap(ForgeLoginQueries.unsupported(request)))
     }
 

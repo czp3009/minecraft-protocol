@@ -108,7 +108,6 @@ class Entity<E : Any>(
     fun hasEntity(uuid: Uuid): Boolean = entity(uuid) != null
 
     fun addPassenger(passenger: Entity<E>) {
-        require(passenger !== this) { "An Entity cannot ride itself" }
         val passengerEntities = passenger.allEntities().toList()
         require(passengerEntities.none { entity -> entity === this }) { "An Entity passenger graph cannot cycle" }
         val addedUuids = passengerEntities.map { entity -> entity.uuid }
@@ -160,9 +159,7 @@ class EntityChunk<E : Any>(
 
     init {
         requireUniqueEntityUuids(storedRootEntities)
-        require(storedRootEntities.all { entity -> entity.chunkPosition == chunkPosition }) {
-            "An Entity Chunk contains a root Entity outside $chunkPosition"
-        }
+        requireRootEntityMembership()
     }
 
     val rootEntities: List<Entity<E>>
@@ -199,9 +196,7 @@ class EntityChunk<E : Any>(
         allEntities().filter { entity -> entity.isIn(regionPosition) }
 
     fun addEntity(entity: Entity<E>) {
-        require(entity.chunkPosition == chunkPosition) {
-            "Root Entity ${entity.uuid} belongs to Chunk ${entity.chunkPosition}, expected $chunkPosition"
-        }
+        requireRootEntityMembership(entity)
         val existingUuids = allEntities().map { existing -> existing.uuid }.toSet()
         val addedUuids = entity.allEntities().map { added -> added.uuid }.toList()
         require(addedUuids.distinct().size == addedUuids.size) { "An Entity tree contains duplicate UUIDs" }
@@ -229,6 +224,16 @@ class EntityChunk<E : Any>(
     /** Creates a detached recursive snapshot and lets the caller copy subtype values. */
     fun snapshot(copyData: (E) -> E): EntityChunk<E> =
         EntityChunk(chunkPosition, dataVersion, storedRootEntities.map { entity -> entity.snapshot(copyData) })
+
+    internal fun requireRootEntityMembership() {
+        storedRootEntities.forEach(::requireRootEntityMembership)
+    }
+
+    private fun requireRootEntityMembership(entity: Entity<E>) {
+        require(entity.chunkPosition == chunkPosition) {
+            "Root Entity ${entity.uuid} belongs to Chunk ${entity.chunkPosition}, not Entity Chunk $chunkPosition"
+        }
+    }
 }
 
 private fun <E : Any> requireUniqueEntityUuids(entities: Collection<Entity<E>>) {
@@ -237,14 +242,6 @@ private fun <E : Any> requireUniqueEntityUuids(entities: Collection<Entity<E>>) 
         .map { entity -> entity.uuid }
         .toList()
     require(uuids.distinct().size == uuids.size) { "An Entity Chunk contains duplicate UUIDs" }
-}
-
-internal fun NbtCompound.requireNoEntityStructureFields(): NbtCompound {
-    val reserved = value.keys intersect ENTITY_STRUCTURE_FIELDS
-    require(reserved.isEmpty()) {
-        "Entity persistent data cannot contain structural fields: ${reserved.sorted().joinToString()}"
-    }
-    return this
 }
 
 internal val ENTITY_STRUCTURE_FIELDS: Set<String> = setOf("id", "UUID", "Pos", "Motion", "Rotation", "Passengers")

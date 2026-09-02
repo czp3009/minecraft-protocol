@@ -5,7 +5,7 @@ Format-independent Kotlin models for Minecraft Java Edition packet payloads and 
 The module provides:
 
 - packet marker interfaces grouped by connection state and direction;
-- logical clientbound Bundle values with intrinsic size and nesting invariants;
+- logical clientbound Bundle values;
 - structured values for server status, items, chunks, chat, commands, entities, registries, recipes, and other packet
   fields;
 - sealed variants and logical `kotlinx.serialization` serializers for conditional protocol shapes;
@@ -48,10 +48,9 @@ val statusResponsePacket: ClientboundPacket = StatusResponsePacket(serverStatus)
 
 `ClientboundBundlePacket` is one logical Play value rather than a registered packet with its own numeric ID. Its
 constructor retains a supplied `List` and accepts a general `Collection` by materializing it only when it is not already
-a list. It validates at most 4,096 ordered sub-packets and rejects nested bundles or `BundleDelimiterPacket` values, so
-callers must keep a retained list stable after construction. The delimiter remains a separate wire packet model;
-[`protocol-session`](../protocol-session/README.md#clientbound-bundles) owns expansion and reconstruction at the
-packet-session boundary.
+a list, so callers must keep a retained list stable after construction. The delimiter remains a separate wire packet
+model; [`protocol-session`](../protocol-session/README.md#clientbound-bundles) owns the 4,096-packet bound, nested-value
+and delimiter restrictions, expansion, and reconstruction at the packet-session boundary.
 
 ## Structured values and sealed variants
 

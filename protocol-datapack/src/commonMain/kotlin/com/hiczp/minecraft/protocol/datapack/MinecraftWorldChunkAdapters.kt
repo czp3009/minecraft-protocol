@@ -20,13 +20,8 @@ fun ProtocolRegistryContext.toChunkDataRegistries(
                     blockState(block, blockStateDescriptor.properties)
                 }
 
-            override fun describe(value: ProtocolBlockState): BlockStateDescriptor? =
-                value.takeIf { protocolBlockState ->
-                    blockStates.getOrNull(protocolBlockState.id) == protocolBlockState
-                }
-                    ?.let { protocolBlockState ->
-                        BlockStateDescriptor(protocolBlockState.block.value, protocolBlockState.properties)
-                    }
+            override fun describe(value: ProtocolBlockState): BlockStateDescriptor =
+                BlockStateDescriptor(value.block.value, value.properties)
         },
         biomes = object : BiomeRegistry<ProtocolRegistryEntry> {
             private val protocolRegistry = requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY)
@@ -39,12 +34,7 @@ fun ProtocolRegistryContext.toChunkDataRegistries(
             override fun resolve(name: String): ProtocolRegistryEntry? =
                 identifierOrNull(name)?.let(protocolRegistry::entry)
 
-            override fun name(value: ProtocolRegistryEntry): String? =
-                value.takeIf { protocolRegistryEntry ->
-                    protocolRegistry[protocolRegistryEntry.rawId] == protocolRegistryEntry
-                }
-                    ?.id
-                    ?.value
+            override fun name(value: ProtocolRegistryEntry): String = value.id.value
         },
     )
 

@@ -29,7 +29,6 @@ class MinecraftServerPacketSession(
 
     /** Enables the stream cipher after a complete Encryption Response was received. */
     fun enableEncryption(sharedSecret: ByteArray) {
-        requireMinecraftEncryptionKey(sharedSecret)
         minecraftFrameStream.enableEncryption(sharedSecret)
     }
 

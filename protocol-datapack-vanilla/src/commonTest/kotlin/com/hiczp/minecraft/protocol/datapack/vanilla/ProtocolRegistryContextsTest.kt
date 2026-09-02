@@ -4,9 +4,11 @@ import com.hiczp.minecraft.nbt.NbtByte
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.protocol.datapack.*
-import com.hiczp.minecraft.protocol.model.packet.PlayLoginPacket
 import com.hiczp.minecraft.protocol.model.packet.RegistryDataPacket
-import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.protocol.model.type.Identifier
+import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
+import com.hiczp.minecraft.protocol.model.type.RegistryEntry
+import com.hiczp.minecraft.protocol.model.type.StaticRegistrySchema
 import com.hiczp.minecraft.world.format.DimensionId
 import kotlin.test.*
 
@@ -56,9 +58,8 @@ class ProtocolRegistryContextsTest {
             registryDataPacket.entries.all { it.data == null }
         })
         assertSame(VanillaProtocolData.completeProtocolRegistryContext, baseProtocolRegistryContext)
-        val playLoginPacket = createPlayLoginPacket(dimensionTypeRawId)
         val minecraftDimensionLayout = MinecraftDimensionLayout.from(
-            playLoginPacket = playLoginPacket,
+            dimensionTypeRawId = dimensionTypeRawId,
             synchronizedRegistryPackets = synchronizedRegistryPackets,
             protocolData = VanillaProtocolData,
         )
@@ -81,7 +82,7 @@ class ProtocolRegistryContextsTest {
     }
 
     @Test
-    fun rejectsMissingAndEmptyBiomeRegistries() {
+    fun keepsMissingAndEmptyBiomeRegistriesForCallersThatDoNotNeedChunkPalettes() {
         val completeSynchronizedRegistryPackets = VanillaProtocolData.completeSynchronizedRegistryPackets()
         val synchronizedRegistryPacketsWithoutBiome = completeSynchronizedRegistryPackets.filterNot {
             it.registryId == BIOME_REGISTRY
@@ -94,12 +95,15 @@ class ProtocolRegistryContextsTest {
             }
         }
 
-        assertFailsWith<IllegalArgumentException> {
-            VanillaProtocolData.resolveSynchronizedRegistryContext(synchronizedRegistryPacketsWithoutBiome)
-        }
-        assertFailsWith<IllegalArgumentException> {
+        val withoutBiome = VanillaProtocolData.resolveSynchronizedRegistryContext(
+            synchronizedRegistryPackets = synchronizedRegistryPacketsWithoutBiome,
+            staticRegistrySchema = StaticRegistrySchema.Empty,
+        )
+        val withEmptyBiome =
             VanillaProtocolData.resolveSynchronizedRegistryContext(synchronizedRegistryPacketsWithEmptyBiome)
-        }
+
+        assertNull(withoutBiome.registry(BIOME_REGISTRY))
+        assertEquals(0, withEmptyBiome.requireRegistry(BIOME_REGISTRY).size)
     }
 
     @Test
@@ -113,21 +117,11 @@ class ProtocolRegistryContextsTest {
     }
 
     @Test
-    fun rejectsUnknownDimensionRawIdAndDimensionOutsideAdvertisedLevels() {
+    fun rejectsUnknownDimensionRawId() {
         val synchronizedRegistryPackets = VanillaProtocolData.completeSynchronizedRegistryPackets()
-        val dimensionTypeRawId = requireNotNull(
-            synchronizedRegistryPackets.registryRawId(DIMENSION_TYPE_REGISTRY, OVERWORLD),
-        )
         assertFailsWith<IllegalArgumentException> {
             MinecraftDimensionLayout.from(
-                playLoginPacket = createPlayLoginPacket(Int.MAX_VALUE),
-                synchronizedRegistryPackets = synchronizedRegistryPackets,
-                protocolData = VanillaProtocolData,
-            )
-        }
-        assertFailsWith<IllegalArgumentException> {
-            MinecraftDimensionLayout.from(
-                playLoginPacket = createPlayLoginPacket(dimensionTypeRawId).copy(levels = emptySet()),
+                dimensionTypeRawId = Int.MAX_VALUE,
                 synchronizedRegistryPackets = synchronizedRegistryPackets,
                 protocolData = VanillaProtocolData,
             )
@@ -140,7 +134,7 @@ class ProtocolRegistryContextsTest {
             .filterNot { it.registryId == DIMENSION_TYPE_REGISTRY }
         assertFailsWith<IllegalArgumentException> {
             MinecraftDimensionLayout.from(
-                playLoginPacket = createPlayLoginPacket(0),
+                dimensionTypeRawId = 0,
                 synchronizedRegistryPackets = synchronizedRegistryPackets,
                 protocolData = VanillaProtocolData,
             )
@@ -172,12 +166,8 @@ class ProtocolRegistryContextsTest {
         val synchronizedRegistryPackets = listOf(dimensionTypeRegistryPacket, biomeRegistryPacket)
         val baseProtocolRegistryContext =
             VanillaProtocolData.resolveSynchronizedRegistryContext(synchronizedRegistryPackets)
-        val playLoginPacket = createPlayLoginPacket(
-            dimensionTypeId = 0,
-            dimension = customLevelId,
-        )
         val minecraftDimensionLayout = MinecraftDimensionLayout.from(
-            playLoginPacket = playLoginPacket,
+            dimensionTypeRawId = 0,
             synchronizedRegistryPackets = synchronizedRegistryPackets,
             protocolData = VanillaProtocolData,
         )
@@ -193,35 +183,6 @@ class ProtocolRegistryContextsTest {
         assertEquals(32, minecraftChunkContext.protocolRegistryContext.chunkSectionCount)
         assertEquals(baseProtocolRegistryContext.registries, minecraftChunkContext.protocolRegistryContext.registries)
     }
-
-    private fun createPlayLoginPacket(
-        dimensionTypeId: Int,
-        dimension: Identifier = OVERWORLD,
-    ): PlayLoginPacket = PlayLoginPacket(
-        playerId = 1,
-        hardcore = false,
-        levels = setOf(dimension),
-        maxPlayers = 20,
-        chunkRadius = 8,
-        simulationDistance = 8,
-        reducedDebugInfo = false,
-        showDeathScreen = true,
-        limitedCrafting = false,
-        spawnInfo = CommonPlayerSpawnInfo(
-            dimensionTypeId = dimensionTypeId,
-            dimension = dimension,
-            seed = 0,
-            gameMode = GameMode.SURVIVAL,
-            previousGameMode = null,
-            isDebug = false,
-            isFlat = false,
-            lastDeathLocation = null,
-            portalCooldown = 0,
-            seaLevel = 63,
-        ),
-        onlineMode = false,
-        enforcesSecureChat = false,
-    )
 
     private companion object {
         val BIOME_REGISTRY: Identifier = ProtocolRegistryContext.BIOME_REGISTRY

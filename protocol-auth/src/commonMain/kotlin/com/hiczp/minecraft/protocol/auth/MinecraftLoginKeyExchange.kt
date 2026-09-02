@@ -106,9 +106,6 @@ class MinecraftServerKeyPair private constructor(
         serverId: String = "",
         shouldAuthenticate: Boolean = true,
     ): MinecraftServerChallenge {
-        require(serverId.length <= MAX_SERVER_ID_LENGTH) {
-            "Minecraft server ID cannot exceed $MAX_SERVER_ID_LENGTH characters"
-        }
         val verifyToken = secureRandomBytes(VANILLA_VERIFY_TOKEN_BYTES)
         return MinecraftServerChallenge(
             serverId = serverId,
@@ -312,4 +309,3 @@ private inline fun <T> mapKeyExchangeFailure(
 
 private const val VANILLA_VERIFY_TOKEN_BYTES = 4
 private const val MINECRAFT_SHARED_SECRET_BYTES = 16
-private const val MAX_SERVER_ID_LENGTH = 20

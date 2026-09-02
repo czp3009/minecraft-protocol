@@ -9,14 +9,13 @@ fun main(arguments: Array<String>) = runBlocking {
     }
     when (arguments[0]) {
         "server" -> {
-            require(arguments.size == 5) {
-                "Expected server version, JAR, output root, and work root"
+            require(arguments.size == 4) {
+                "Expected server JAR, output root, and work root"
             }
             generateOfficialMinecraftServerTemplate(
-                minecraftVersion = arguments[1],
-                serverJar = Path.of(arguments[2]),
-                outputRoot = Path.of(arguments[3]),
-                workRoot = Path.of(arguments[4]),
+                serverJar = Path.of(arguments[1]),
+                outputRoot = Path.of(arguments[2]),
+                workRoot = Path.of(arguments[3]),
             )
         }
 

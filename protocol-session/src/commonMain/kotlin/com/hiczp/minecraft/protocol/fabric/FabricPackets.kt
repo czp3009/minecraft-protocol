@@ -51,14 +51,7 @@ data class FabricSplitPacket(
 data class FabricRegistrySyncPacket(
     val remoteRegistrySnapshot: RemoteRegistrySnapshot,
     val optionalRegistryIds: Set<Identifier> = emptySet(),
-) : ClientboundPacket.Extension {
-    init {
-        require(this.optionalRegistryIds.all(remoteRegistrySnapshot.registries::containsKey)) {
-            "Only synchronized registries can be marked optional"
-        }
-    }
-
-}
+) : ClientboundPacket.Extension
 
 @Serializable
 data object FabricRegistrySyncCompletePacket : ServerboundPacket.Extension

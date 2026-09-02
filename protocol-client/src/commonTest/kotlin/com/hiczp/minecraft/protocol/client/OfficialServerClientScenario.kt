@@ -251,7 +251,7 @@ internal object OfficialServerClientScenario {
         val playLoginPacket = minecraftClientConnection.incoming.receive() as? PlayLoginPacket
             ?: error("Official server did not send Play Login first")
         val minecraftDimensionLayout = MinecraftDimensionLayout.from(
-            playLoginPacket = playLoginPacket,
+            dimensionTypeRawId = playLoginPacket.spawnInfo.dimensionTypeId,
             synchronizedRegistryPackets = synchronizedRegistryPackets,
             protocolData = minecraftClientNegotiationOptions.protocolData,
         )

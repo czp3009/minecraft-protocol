@@ -27,7 +27,6 @@ internal object Zlib {
         sink: Sink,
         expectedSize: Int,
     ): Long {
-        require(expectedSize >= 0)
         return decompressingSource(
             source,
             expectedSize,

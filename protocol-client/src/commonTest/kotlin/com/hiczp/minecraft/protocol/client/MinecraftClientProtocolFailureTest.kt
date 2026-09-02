@@ -33,7 +33,7 @@ class MinecraftClientProtocolFailureTest {
     }
 
     @Test
-    fun queryStatusRejectsWrongResponseAndMismatchedPong() = runTest {
+    fun queryStatusRejectsWrongResponsesWithoutValidatingThePongPayload() = runTest {
         run {
             val (client, serverSession) = connectionPair()
             val server = async {
@@ -60,10 +60,8 @@ class MinecraftClientProtocolFailureTest {
                 serverSession.receive()
                 serverSession.send(StatusPongResponsePacket(2))
             }
-            val failure = assertFailsWith<MinecraftClientException> {
-                client.queryStatus(1)
-            }
-            assertContains(failure.message.orEmpty(), "did not preserve")
+            val minecraftStatusExchange = client.queryStatus(1)
+            assertEquals(2, minecraftStatusExchange.statusPongResponsePacket.timestamp)
             server.await()
             client.close()
         }
@@ -283,13 +281,14 @@ class MinecraftClientProtocolFailureTest {
             serverSession.receive()
             serverSession.send(registryDataPacket)
             serverSession.send(registryDataPacket)
+            serverSession.send(FinishConfigurationPacket)
         }
 
         val failure = assertFailsWith<MinecraftClientException> {
             client.negotiate(minecraftOfflineIdentity)
         }
 
-        assertContains(failure.message.orEmpty(), "duplicate registry")
+        assertContains(failure.message.orEmpty(), "duplicate registry identifiers")
         server.await()
         client.close()
     }

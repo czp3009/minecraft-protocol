@@ -18,8 +18,6 @@ import kotlinx.serialization.json.*
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.logging.Logging
-import org.gradle.api.provider.Property
-import org.gradle.api.tasks.Input
 import java.io.EOFException
 import java.io.IOException
 import java.net.Authenticator
@@ -50,15 +48,6 @@ import kotlin.time.Duration as KotlinDuration
 internal val protocolJson = Json {
     ignoreUnknownKeys = false
     prettyPrint = true
-}
-
-abstract class MinecraftProtocolToolTask : DefaultTask() {
-    @get:Input
-    abstract val minecraftVersion: Property<String>
-
-    init {
-        minecraftVersion.convention(MinecraftTarget.MINECRAFT_VERSION)
-    }
 }
 
 internal fun Path.writeJson(
@@ -583,7 +572,14 @@ internal data class MinecraftProtocolTarget(
     val protocolVersion: Int,
     val worldVersion: Int,
     val javaMajorVersion: Int,
-)
+) {
+    init {
+        require(minecraftVersion.isNotBlank()) { "Minecraft target version cannot be blank" }
+        require(protocolVersion >= 0) { "Minecraft target protocol version must be non-negative" }
+        require(worldVersion >= 0) { "Minecraft target world version must be non-negative" }
+        require(javaMajorVersion > 0) { "Minecraft target Java major version must be positive" }
+    }
+}
 
 internal data class OfficialMinecraftTargetReport(
     val minecraftProtocolTarget: MinecraftProtocolTarget,
@@ -612,33 +608,15 @@ internal fun Path.readOfficialMinecraftTargetReport(): OfficialMinecraftTargetRe
             worldVersion = report.getValue("world_version").jsonPrimitive.int,
             javaMajorVersion = report.getValue("java_major_version").jsonPrimitive.int,
         ),
-    ).also {
-        check(it.minecraftProtocolTarget.minecraftVersion.isNotBlank()) {
-            "Official Minecraft target has an empty version"
-        }
-        check(it.minecraftProtocolTarget.protocolVersion >= 0) {
-            "Official Minecraft target has a negative protocol version"
-        }
-        check(it.minecraftProtocolTarget.worldVersion >= 0) {
-            "Official Minecraft target has a negative world version"
-        }
-        check(it.minecraftProtocolTarget.javaMajorVersion > 0) {
-            "Official Minecraft target has no Java requirement"
-        }
-    }
+    )
 }
 
-internal fun Path.readMinecraftProtocolTarget(
-    expectedVersion: String,
-): MinecraftProtocolTarget {
+internal fun Path.readMinecraftProtocolTarget(): MinecraftProtocolTarget {
     check(isRegularFile()) {
         "Official server JAR is missing: $this"
     }
     val version = protocolJson.decodeFromString<JsonObject>(readZipEntry("version.json").decodeToString())
     val minecraftVersion = version.getValue("id").jsonPrimitive.content
-    check(minecraftVersion == expectedVersion) {
-        "Official server identifies Minecraft $minecraftVersion; build selects $expectedVersion"
-    }
     return MinecraftProtocolTarget(
         minecraftVersion = minecraftVersion,
         protocolVersion = version.getValue("protocol_version").jsonPrimitive.int,

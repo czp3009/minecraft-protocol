@@ -21,11 +21,7 @@ data class MinecraftWorldAccessConfiguration(
     val standaloneJson: Json = Json,
     val dataPackFormat: DataPackFormat = DataPackFormat(),
     val regionStorageConfiguration: RegionStorageConfiguration = RegionStorageConfiguration(),
-) {
-    init {
-        standaloneNbtFormat.requireStandaloneWorldRoot()
-    }
-}
+)
 
 /**
  * A mutable system-filesystem world lease backed by the vanilla `session.lock`.

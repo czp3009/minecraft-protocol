@@ -75,13 +75,7 @@ data class EquipmentUpdate(
 @Serializable(with = EquipmentUpdatesSerializer::class)
 data class EquipmentUpdates(
     val entries: List<EquipmentUpdate>,
-) {
-    init {
-        require(entries.isNotEmpty()) {
-            "An equipment update must contain at least one slot"
-        }
-    }
-}
+)
 
 @Serializable
 data class MerchantItemCost(
@@ -179,6 +173,9 @@ internal object EquipmentUpdatesSerializer :
     }
 
     override fun serialize(encoder: Encoder, value: EquipmentUpdates) {
+        if (value.entries.isEmpty()) {
+            throw SerializationException("An equipment update cannot encode an empty entry list")
+        }
         val output = encoder.beginStructure(descriptor)
         value.entries.forEachIndexed { index, entry ->
             val continuation = index != value.entries.lastIndex

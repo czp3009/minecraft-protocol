@@ -134,6 +134,35 @@ class ClientRegistryViewTest {
         )
     }
 
+    @Test
+    fun resolvedProtocolDataKeepsCompleteAndKnownPackBranchesIndependent() {
+        val knownPack = KnownPack("test", "branch", "1")
+        val completeRegistryPackets = listOf(
+            RegistryDataPacket(
+                Identifier("test:complete"),
+                listOf(RegistryEntry(Identifier("test:full"), NbtString("full"))),
+            ),
+        )
+        val knownPackRegistryPackets = listOf(
+            RegistryDataPacket(
+                Identifier("test:compact"),
+                listOf(RegistryEntry(Identifier("test:known"), null)),
+            ),
+        )
+
+        val resolvedProtocolData = ResolvedProtocolData(
+            offeredKnownPacks = listOf(knownPack),
+            enabledFeatureFlags = emptySet(),
+            completeSynchronizedRegistryPackets = completeRegistryPackets,
+            knownPackSynchronizedRegistryPackets = knownPackRegistryPackets,
+            registryTags = emptyList(),
+            staticRegistrySchema = StaticRegistrySchema.Empty,
+        )
+
+        assertSame(completeRegistryPackets, resolvedProtocolData.synchronizedRegistryPackets(emptyList()))
+        assertSame(knownPackRegistryPackets, resolvedProtocolData.synchronizedRegistryPackets(listOf(knownPack)))
+    }
+
     private fun block(id: Identifier): StaticBlockSchema = StaticBlockSchema(
         id,
         listOf(StaticBlockState(emptyMap(), true)),

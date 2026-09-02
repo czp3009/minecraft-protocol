@@ -145,7 +145,7 @@ class FileIOTest {
     }
 
     @Test
-    fun snapshotReadsRejectMissingDirectoriesAndUnderConsumption() {
+    fun snapshotReadsRejectMissingDirectoriesAndDiscardUnreadBytes() {
         val fakeFileSystem = FakeFileSystem()
         val path = "/world/value.dat".toPath()
 
@@ -162,9 +162,7 @@ class FileIOTest {
             byteArrayOf(1, 2, 3),
             fakeFileSystem.readFileBytes(path),
         )
-        assertFailsWith<WorldIOException> {
-            fakeFileSystem.readFile(path) { _, _ -> }
-        }
+        assertEquals(Unit, fakeFileSystem.readFile(path) { _, _ -> })
         fakeFileSystem.checkNoOpenFiles()
     }
 

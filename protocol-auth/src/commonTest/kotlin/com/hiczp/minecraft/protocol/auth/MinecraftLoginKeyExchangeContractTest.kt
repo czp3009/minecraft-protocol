@@ -187,14 +187,11 @@ class MinecraftLoginKeyExchangeContractTest {
     }
 
     @Test
-    fun validatesPublicKeyExchangeInputBoundaries() = runTest {
+    fun challengeRetainsTheCallerSuppliedServerId() = runTest {
         val minecraftServerKeyPair = MinecraftServerKeyPair.generate()
-        assertFailsWith<IllegalArgumentException> {
-            minecraftServerKeyPair.createChallenge(serverId = "x".repeat(21))
-        }
         assertEquals(
-            "x".repeat(20),
-            minecraftServerKeyPair.createChallenge(serverId = "x".repeat(20)).serverId,
+            "x".repeat(21),
+            minecraftServerKeyPair.createChallenge(serverId = "x".repeat(21)).serverId,
         )
     }
 

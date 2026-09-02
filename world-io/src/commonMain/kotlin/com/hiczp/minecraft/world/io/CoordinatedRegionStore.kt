@@ -424,26 +424,11 @@ internal class CoordinatedRegionStore internal constructor(
     )
 
     suspend fun <B : Any, M : Any> writeChunk(
-        chunkPosition: ChunkPosition,
         chunk: Chunk<B, M>,
         chunkNbtCodec: ChunkNbtCodec<B, M>,
         compression: Compression = regionStorageConfiguration.writeCompression,
-    ) = writeChunk(chunkPosition.regionPosition, chunkPosition.localChunkPosition, chunk, chunkNbtCodec, compression)
-
-    suspend fun <B : Any, M : Any> writeChunk(
-        regionPosition: RegionPosition,
-        localChunkPosition: LocalChunkPosition,
-        chunk: Chunk<B, M>,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
-        compression: Compression = regionStorageConfiguration.writeCompression,
-    ) = withRegionState(regionPosition) { entry ->
-        writeChunk(
-            entry,
-            localChunkPosition,
-            chunk,
-            chunkNbtCodec,
-            compression
-        )
+    ) = withRegionState(chunk.chunkPosition.regionPosition) { entry ->
+        writeChunk(entry, chunk, chunkNbtCodec, compression)
     }
 
     internal suspend fun readAnvilRegion(entry: RegionState): PositionedAnvilRegion? = withReadAccess(entry) {
@@ -630,7 +615,7 @@ internal class CoordinatedRegionStore internal constructor(
         localChunkPosition: LocalChunkPosition,
         chunkNbtCodec: ChunkNbtCodec<B, M>,
     ): Chunk<B, M>? = withChunkNbtSource(entry, localChunkPosition) { _, source ->
-        chunkNbtCodec.decodeFromOkio(source, entry.regionPosition.chunk(localChunkPosition))
+        chunkNbtCodec.decodeFromOkio(source)
     }
 
     internal suspend fun writeChunkNbtDocument(
@@ -688,16 +673,12 @@ internal class CoordinatedRegionStore internal constructor(
 
     internal suspend fun <B : Any, M : Any> writeChunk(
         entry: RegionState,
-        localChunkPosition: LocalChunkPosition,
         chunk: Chunk<B, M>,
         chunkNbtCodec: ChunkNbtCodec<B, M>,
         compression: Compression,
     ) {
         worldFileAccess.requireWritable()
-        val absolute = entry.regionPosition.chunk(localChunkPosition)
-        require(chunk.chunkPosition == absolute) {
-            "Chunk position ${chunk.chunkPosition} does not match Region entry $absolute"
-        }
+        val localChunkPosition = entry.regionPosition.local(chunk.chunkPosition)
         val compressedChunk = chunkNbtCodec.encodeFromOkio(chunk, chunkNbtFormat, compression)
         entry.logicalFileAccess.write {
             openedFileForWrite(entry).writeCompressedChunk(localChunkPosition, compressedChunk)

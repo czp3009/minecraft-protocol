@@ -24,32 +24,6 @@ class ResolvedProtocolData(
             completeSynchronizedRegistryPackets,
         )
 
-    init {
-        val completeRegistryIds = completeSynchronizedRegistryPackets.map(RegistryDataPacket::registryId)
-        require(offeredKnownPacks.distinct().size == offeredKnownPacks.size) {
-            "Offered Known Packs contains duplicates"
-        }
-        require(completeRegistryIds.distinct().size == completeRegistryIds.size) {
-            "Complete synchronized registries contains duplicate registry IDs"
-        }
-        val knownPackRegistryIds = knownPackSynchronizedRegistryPackets.map(RegistryDataPacket::registryId)
-        require(knownPackRegistryIds == completeRegistryIds) {
-            "Complete and Known Packs registry packet sequences have different registry order"
-        }
-        completeSynchronizedRegistryPackets.zip(knownPackSynchronizedRegistryPackets)
-            .forEach { (completeRegistry, knownPackRegistry) ->
-                require(
-                    completeRegistry.entries.map(RegistryEntry::id) ==
-                            knownPackRegistry.entries.map(RegistryEntry::id),
-                ) {
-                    "Complete and Known Packs entries differ for ${completeRegistry.registryId}"
-                }
-            }
-        require(registryTags.map(RegistryTags::registry).distinct().size == registryTags.size) {
-            "Registry tags contains duplicate registry IDs"
-        }
-    }
-
     override fun synchronizedRegistryPackets(acceptedKnownPacks: List<KnownPack>): List<RegistryDataPacket> =
         if (acceptedKnownPacks == offeredKnownPacks) {
             knownPackSynchronizedRegistryPackets

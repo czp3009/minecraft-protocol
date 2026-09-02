@@ -89,7 +89,7 @@ internal fun negotiateNeoForgeNetwork(
 ): NeoForgeNetworkNegotiation {
     val channels = linkedMapOf<
             NeoForgeConnectionProtocol,
-            Map<Identifier, NeoForgeNetworkChannel>,
+            Collection<NeoForgeNetworkChannel>,
             >()
     val failures = linkedMapOf<Identifier, TextComponent>()
     NEGOTIATED_PROTOCOLS.forEach { neoForgeConnectionProtocol ->
@@ -104,7 +104,7 @@ internal fun negotiateNeoForgeNetwork(
                 }
             }
             .associateBy(NeoForgeNetworkComponent::id)
-        val negotiated = linkedMapOf<Identifier, NeoForgeNetworkChannel>()
+        val negotiated = mutableListOf<NeoForgeNetworkChannel>()
         val identifiers = LinkedHashSet<Identifier>().apply {
             addAll(localById.keys)
             addAll(remoteById.keys)
@@ -139,7 +139,7 @@ internal fun negotiateNeoForgeNetwork(
                         "NeoForge $neoForgeConnectionProtocol channel $id has incompatible packet flows ${ours.neoForgePacketFlow} and ${theirs.neoForgePacketFlow}",
                     )
 
-                else -> negotiated[id] = NeoForgeNetworkChannel(
+                else -> negotiated += NeoForgeNetworkChannel(
                     id,
                     ours.version,
                 )

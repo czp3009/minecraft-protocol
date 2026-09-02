@@ -45,40 +45,21 @@ data class MinecraftChunkSnapshot(
             ) {
                 "Ground Y $groundY is outside ${minecraftDimensionLayout.dimensionTypeId}"
             }
-            require(
-                airBlockStateRawId >= 0,
-            ) {
-                "Air block-state ID must be non-negative"
-            }
-            require(
-                surfaceBlockStateRawId >= 0,
-            ) {
-                "Surface block-state ID must be non-negative"
-            }
-            require(surfaceBlockStateRawId != airBlockStateRawId) {
-                "The surface block state must differ from air"
-            }
-            require(biomeRawId >= 0) {
-                "A biome registry ID must be non-negative"
-            }
-            require(!fullBrightSky || minecraftDimensionLayout.hasSkyLight) {
-                "${minecraftDimensionLayout.dimensionTypeId} has no sky light"
-            }
-
             val minimumSectionY = MinecraftCoordinates.sectionCoordinate(minecraftDimensionLayout.minY)
             val groundSection = MinecraftCoordinates.sectionCoordinate(groundY) - minimumSectionY
             val localGroundY = MinecraftCoordinates.blockCoordinateInSection(groundY)
+            val hasNonAirSurface = surfaceBlockStateRawId != airBlockStateRawId
             val sections = List(minecraftDimensionLayout.sectionCount) { sectionIndex ->
                 ChunkSection(
                     nonAirBlockCount =
-                        if (sectionIndex == groundSection) {
+                        if (sectionIndex == groundSection && hasNonAirSurface) {
                             SURFACE_BLOCK_COUNT
                         } else {
                             0
                         },
                     fluidCount = 0,
                     blockStates =
-                        if (sectionIndex == groundSection) {
+                        if (sectionIndex == groundSection && hasNonAirSurface) {
                             surfacePalette(
                                 airBlockStateRawId = airBlockStateRawId,
                                 surfaceBlockStateRawId = surfaceBlockStateRawId,

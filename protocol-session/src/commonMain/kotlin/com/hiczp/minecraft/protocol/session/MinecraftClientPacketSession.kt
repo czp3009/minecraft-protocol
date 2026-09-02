@@ -26,7 +26,9 @@ class MinecraftClientPacketSession(
 
     /** Enables the stream cipher after the next complete Encryption Response frame. */
     fun prepareOutboundEncryption(sharedSecret: ByteArray) {
-        requireMinecraftEncryptionKey(sharedSecret)
+        require(sharedSecret.size == 16) {
+            "Minecraft stream encryption requires a 16-byte shared secret"
+        }
         check(pendingEncryption == null) {
             "Outbound stream encryption is already pending"
         }

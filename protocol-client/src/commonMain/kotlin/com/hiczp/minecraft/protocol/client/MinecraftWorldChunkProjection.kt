@@ -37,57 +37,36 @@ class MinecraftChunkPacketDecoder(
         chunkCodecContext.chunkDataRegistries
 
     private val biomeProtocolRegistry = protocolRegistryContext.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY)
-    private val biomeRegistrySize = requireNotNull(protocolRegistryContext.biomeRegistrySize) {
-        "The active biome registry has no protocol size"
-    }
-
-    init {
-        require(protocolRegistryContext.blockStateRegistrySize > 0) { "The active block-state registry is empty" }
-        require(biomeRegistrySize > 0) { "The active biome registry is empty" }
-        require(protocolRegistryContext.chunkSectionCount == chunkLayout.sectionCount) {
-            val sectionCount = protocolRegistryContext.chunkSectionCount
-            "Chunk layout has ${chunkLayout.sectionCount} Sections, but the protocol context has $sectionCount"
-        }
-    }
+    private val biomeRegistrySize = biomeProtocolRegistry.size
 
     /** Decodes one packet while retaining its x/z coordinates in the resulting Chunk. */
     fun decode(chunkDataAndUpdateLightPacket: ChunkDataAndUpdateLightPacket): Chunk<ProtocolBlockState, ProtocolRegistryEntry> {
-        require(chunkDataAndUpdateLightPacket.chunkData.sections.size == chunkLayout.sectionCount) {
-            "Chunk packet has ${chunkDataAndUpdateLightPacket.chunkData.sections.size} Sections, expected ${chunkLayout.sectionCount}"
-        }
         val blockLight = decodeLightLayers(
             updateMask = chunkDataAndUpdateLightPacket.lightData.blockYMask,
-            emptyMask = chunkDataAndUpdateLightPacket.lightData.emptyBlockYMask,
             updates = chunkDataAndUpdateLightPacket.lightData.blockUpdates.map { lightDataLayer -> lightDataLayer.bytes.toByteArray() },
             name = "block",
         )
         val skyLight = decodeLightLayers(
             updateMask = chunkDataAndUpdateLightPacket.lightData.skyYMask,
-            emptyMask = chunkDataAndUpdateLightPacket.lightData.emptySkyYMask,
             updates = chunkDataAndUpdateLightPacket.lightData.skyUpdates.map { lightDataLayer -> lightDataLayer.bytes.toByteArray() },
             name = "sky",
         )
-        val sections = chunkDataAndUpdateLightPacket.chunkData.sections.mapIndexed { index, chunkSection ->
-            val sectionY = MinecraftCoordinates.offsetSectionCoordinate(chunkLayout.minSectionY, index)
+        val sections = chunkLayout.sectionYRange.mapIndexedNotNull { index, sectionY ->
+            val chunkSection = chunkDataAndUpdateLightPacket.chunkData.sections.getOrNull(index)
+                ?: return@mapIndexedNotNull null
             ChunkSection(
                 sectionY = sectionY,
                 blockStates = decodePalette(
                     networkPalettedContainer = chunkSection.blockStates,
                     entryCount = NetworkChunkSection.BLOCK_COUNT,
                     registrySize = protocolRegistryContext.blockStateRegistrySize,
-                    minimumIndirectBits = BLOCK_MINIMUM_INDIRECT_BITS,
-                    maximumIndirectBits = BLOCK_MAXIMUM_INDIRECT_BITS,
                     valueAt = ::blockState,
-                    kind = "block-state",
                 ),
                 biomes = decodePalette(
                     networkPalettedContainer = chunkSection.biomes,
                     entryCount = NetworkChunkSection.BIOME_COUNT,
                     registrySize = biomeRegistrySize,
-                    minimumIndirectBits = BIOME_MINIMUM_INDIRECT_BITS,
-                    maximumIndirectBits = BIOME_MAXIMUM_INDIRECT_BITS,
                     valueAt = ::biome,
-                    kind = "biome",
                 ),
                 blockLight = blockLight[sectionY],
                 skyLight = skyLight[sectionY],
@@ -126,9 +105,9 @@ class MinecraftChunkPacketDecoder(
         )
     }
 
-    private fun blockState(id: Int): ProtocolBlockState = protocolRegistryContext.blockStates.getOrNull(id)
+    private fun blockState(id: Int): ProtocolBlockState = protocolRegistryContext.blockState(id)
         ?: throw IllegalArgumentException(
-            "Block-state registry ID $id is outside 0 until ${protocolRegistryContext.blockStateRegistrySize}",
+            "Block-state registry ID $id does not exist",
         )
 
     private fun biome(id: Int): ProtocolRegistryEntry = biomeProtocolRegistry[id]
@@ -138,33 +117,23 @@ class MinecraftChunkPacketDecoder(
         networkPalettedContainer: NetworkPalettedContainer,
         entryCount: Int,
         registrySize: Int,
-        minimumIndirectBits: Int,
-        maximumIndirectBits: Int,
         valueAt: (Int) -> T,
-        kind: String,
     ): PalettedContainer<T> = when (networkPalettedContainer) {
         is NetworkPalettedContainer.Single -> PalettedContainer(entryCount, valueAt(networkPalettedContainer.valueId))
 
         is NetworkPalettedContainer.Indirect -> {
-            require(networkPalettedContainer.bitsPerEntry in minimumIndirectBits..maximumIndirectBits) {
-                val bits = networkPalettedContainer.bitsPerEntry
-                "$kind indirect palette uses $bits bits, expected $minimumIndirectBits..$maximumIndirectBits"
-            }
-            require(networkPalettedContainer.palette.size <= 1.shl(networkPalettedContainer.bitsPerEntry)) {
-                "$kind indirect palette has too many values"
-            }
             val palette = networkPalettedContainer.palette.map(valueAt)
             val ids = unpackValues(networkPalettedContainer.data, networkPalettedContainer.bitsPerEntry, entryCount)
-            require(ids.all { id -> id in palette.indices }) { "$kind palette data contains an invalid local ID" }
             PalettedContainer.fromPalette(palette, ids)
         }
 
         is NetworkPalettedContainer.Direct -> {
             val bits = minimumBitsForDistinctValues(registrySize)
-            require(bits > maximumIndirectBits) {
-                "A direct $kind palette is invalid for registry size $registrySize"
+            val registryIds = if (bits == 0) {
+                IntArray(entryCount)
+            } else {
+                unpackValues(networkPalettedContainer.data, bits, entryCount)
             }
-            val registryIds = unpackValues(networkPalettedContainer.data, bits, entryCount)
             val palette = mutableListOf<T>()
             val ids = IntArray(entryCount)
             registryIds.forEachIndexed { index, registryId ->
@@ -182,29 +151,21 @@ class MinecraftChunkPacketDecoder(
 
     private fun decodeLightLayers(
         updateMask: BitSet,
-        emptyMask: BitSet,
         updates: List<ByteArray>,
         name: String,
     ): Map<Int, NbtByteArray> {
         val bitCount = chunkLayout.sectionCount + LIGHT_BOUNDARY_SECTION_COUNT
-        requireNoBitsOutside(updateMask, bitCount, "$name update")
-        requireNoBitsOutside(emptyMask, bitCount, "$name empty")
         val result = linkedMapOf<Int, NbtByteArray>()
         var updateIndex = 0
         val firstSectionY = MinecraftCoordinates.offsetSectionCoordinate(chunkLayout.minSectionY, -1)
         repeat(bitCount) { bit ->
-            require(!(updateMask[bit] && emptyMask[bit])) { "$name light bit $bit is both updated and empty" }
             if (updateMask[bit]) {
                 val byteArray = updates.getOrNull(updateIndex++)
                     ?: throw IllegalArgumentException("$name light update mask contains more bits than payloads")
-                require(byteArray.size == SECTION_LIGHT_BYTE_COUNT) {
-                    "$name light update has ${byteArray.size} bytes"
-                }
                 val sectionY = MinecraftCoordinates.offsetSectionCoordinate(firstSectionY, bit)
                 result[sectionY] = NbtByteArray(byteArray)
             }
         }
-        require(updateIndex == updates.size) { "$name light packet has more payloads than update-mask bits" }
         return result
     }
 
@@ -229,20 +190,10 @@ class MinecraftChunkPacketDecoder(
         )
     }
 
-    private fun requireNoBitsOutside(mask: BitSet, bitCount: Int, name: String) {
-        for (bit in bitCount until mask.words.size * Long.SIZE_BITS) {
-            require(!mask[bit]) { "$name light mask contains out-of-range bit $bit" }
-        }
-    }
-
     companion object {
         val BLOCK_ENTITY_TYPE_REGISTRY: Identifier = Identifier("block_entity_type")
 
         private val BLOCK_ENTITY_STRUCTURE_FIELDS = setOf("id", "x", "y", "z")
-        private const val BLOCK_MINIMUM_INDIRECT_BITS: Int = 4
-        private const val BLOCK_MAXIMUM_INDIRECT_BITS: Int = 8
-        private const val BIOME_MINIMUM_INDIRECT_BITS: Int = 1
-        private const val BIOME_MAXIMUM_INDIRECT_BITS: Int = 3
         private const val LIGHT_BOUNDARY_SECTION_COUNT: Int = 2
     }
 }
@@ -257,11 +208,10 @@ fun ChunkDataAndUpdateLightPacket.toChunk(
 ): Chunk<ProtocolBlockState, ProtocolRegistryEntry> = minecraftChunkPacketDecoder.decode(this)
 
 private fun unpackValues(packedLongArray: PackedLongArray, bitsPerEntry: Int, entryCount: Int): IntArray {
-    require(bitsPerEntry in 1..<Int.SIZE_BITS)
     val entriesPerLong = Long.SIZE_BITS / bitsPerEntry
-    val expectedSize = (entryCount + entriesPerLong - 1) / entriesPerLong
-    require(packedLongArray.size == expectedSize) {
-        "Packed palette has ${packedLongArray.size} Longs, expected $expectedSize"
+    val requiredLongCount = (entryCount + entriesPerLong - 1) / entriesPerLong
+    require(packedLongArray.size >= requiredLongCount) {
+        "Packed palette has ${packedLongArray.size} Longs, but decoding $entryCount entries requires $requiredLongCount"
     }
     val mask = (1L shl bitsPerEntry) - 1
     return IntArray(entryCount) { index ->
@@ -272,6 +222,5 @@ private fun unpackValues(packedLongArray: PackedLongArray, bitsPerEntry: Int, en
 }
 
 private fun minimumBitsForDistinctValues(count: Int): Int {
-    require(count > 0)
-    return if (count == 1) 0 else Int.SIZE_BITS - (count - 1).countLeadingZeroBits()
+    return if (count <= 1) 0 else Int.SIZE_BITS - (count - 1).countLeadingZeroBits()
 }

@@ -36,14 +36,8 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
     val downloadsRoot = versionRoot.map { it.dir("downloads") }
     val serverDownloadDirectory = downloadsRoot.map { it.dir("server") }
     val serverJarFile = serverDownloadDirectory.map { it.file("server.jar") }
-    val serverMetadataFile = serverDownloadDirectory.map {
-        it.file("download-metadata.json")
-    }
     val clientDownloadDirectory = downloadsRoot.map { it.dir("client") }
     val clientJarFile = clientDownloadDirectory.map { it.file("client.jar") }
-    val clientMetadataFile = clientDownloadDirectory.map {
-        it.file("download-metadata.json")
-    }
     val clientAssetIndexes = clientDownloadDirectory.map {
         it.dir("assets/indexes")
     }
@@ -137,7 +131,6 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         downloadVersionManifestTask.group = FIXTURE_TASK_GROUP
         downloadVersionManifestTask.description = "Download the Mojang version manifest."
         downloadVersionManifestTask.offline.set(gradle.startParameter.isOffline)
-        downloadVersionManifestTask.minecraftVersion.set(minecraftVersion)
         downloadVersionManifestTask.manifestUrl.set(VERSION_MANIFEST_URL)
         downloadVersionManifestTask.outputFile.set(versionManifestFile)
     }
@@ -163,7 +156,6 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         downloadOfficialMinecraftServerTask.offline.set(gradle.startParameter.isOffline)
         downloadOfficialMinecraftServerTask.versionMetadata.set(metadataOutput)
         downloadOfficialMinecraftServerTask.serverJar.set(serverJarFile)
-        downloadOfficialMinecraftServerTask.metadataFile.set(serverMetadataFile)
     }
 
     val templateWorkerRuntime = configurations.create(
@@ -191,7 +183,6 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         generateOfficialMinecraftServerTemplateTask.group = FIXTURE_TASK_GROUP
         generateOfficialMinecraftServerTemplateTask.description =
             "Start, stop, sanitize, and publish the official server template."
-        generateOfficialMinecraftServerTemplateTask.minecraftVersion.set(minecraftVersion)
         generateOfficialMinecraftServerTemplateTask.serverJar.set(downloadServer.flatMap { it.serverJar })
         generateOfficialMinecraftServerTemplateTask.workerClasspath.from(templateWorkerRuntime)
         generateOfficialMinecraftServerTemplateTask.outputDirectory.set(officialServerRoot)
@@ -209,10 +200,8 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         downloadMinecraftClientJarTask.group = FIXTURE_TASK_GROUP
         downloadMinecraftClientJarTask.description = "Download the selected Mojang client JAR."
         downloadMinecraftClientJarTask.offline.set(gradle.startParameter.isOffline)
-        downloadMinecraftClientJarTask.minecraftVersion.set(minecraftVersion)
         downloadMinecraftClientJarTask.metadataFile.set(metadataOutput)
         downloadMinecraftClientJarTask.clientJar.set(clientJarFile)
-        downloadMinecraftClientJarTask.downloadMetadataFile.set(clientMetadataFile)
     }
     val downloadFabricProfile = tasks.register(
         "downloadFabricLoaderProfile",
@@ -221,10 +210,6 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         downloadFabricLoaderProfileTask.group = FIXTURE_TASK_GROUP
         downloadFabricLoaderProfileTask.description = "Download the exact Fabric Loader client profile."
         downloadFabricLoaderProfileTask.offline.set(gradle.startParameter.isOffline)
-        downloadFabricLoaderProfileTask.minecraftVersion.set(minecraftVersion)
-        downloadFabricLoaderProfileTask.fabricLoaderVersion.set(
-            FabricLoaderTarget.FABRIC_LOADER_VERSION,
-        )
         downloadFabricLoaderProfileTask.profileUrl.set(FabricLoaderTarget.profileUrl(minecraftVersion))
         downloadFabricLoaderProfileTask.outputFile.set(fabricProfileFile)
     }
@@ -235,7 +220,6 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         downloadMinecraftClientLibrariesTask.group = FIXTURE_TASK_GROUP
         downloadMinecraftClientLibrariesTask.description = "Download exact Mojang and Fabric client libraries."
         downloadMinecraftClientLibrariesTask.offline.set(gradle.startParameter.isOffline)
-        downloadMinecraftClientLibrariesTask.minecraftVersion.set(minecraftVersion)
         downloadMinecraftClientLibrariesTask.metadataFile.set(metadataOutput)
         downloadMinecraftClientLibrariesTask.fabricProfileFile.set(
             downloadFabricProfile.flatMap { it.outputFile },
@@ -249,7 +233,6 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         downloadMinecraftClientAssetIndexTask.group = FIXTURE_TASK_GROUP
         downloadMinecraftClientAssetIndexTask.description = "Download the selected client asset index."
         downloadMinecraftClientAssetIndexTask.offline.set(gradle.startParameter.isOffline)
-        downloadMinecraftClientAssetIndexTask.minecraftVersion.set(minecraftVersion)
         downloadMinecraftClientAssetIndexTask.metadataFile.set(metadataOutput)
         downloadMinecraftClientAssetIndexTask.assetIndexesDirectory.set(clientAssetIndexes)
     }
@@ -303,10 +286,7 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         downloadHmcSpecificsTask.group = FIXTURE_TASK_GROUP
         downloadHmcSpecificsTask.description = "Download the selected HMC-Specifics Fabric asset."
         downloadHmcSpecificsTask.offline.set(gradle.startParameter.isOffline)
-        downloadHmcSpecificsTask.releaseTag.set(HmcSpecificsTarget.RELEASE_TAG)
-        downloadHmcSpecificsTask.assetName.set(HmcSpecificsTarget.FABRIC_ASSET_NAME)
         downloadHmcSpecificsTask.assetUrl.set(HmcSpecificsTarget.FABRIC_ASSET_URL)
-        downloadHmcSpecificsTask.minecraftVersion.set(minecraftVersion)
         downloadHmcSpecificsTask.outputFile.set(hmcSpecificsFile)
     }
 
@@ -468,7 +448,6 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         analyzeOfficialMinecraftTargetTask.group = OFFICIAL_DATA_TASK_GROUP
         analyzeOfficialMinecraftTargetTask.description = "Analyze version and protocol facts."
         analyzeOfficialMinecraftTargetTask.serverJar.set(downloadServer.flatMap { it.serverJar })
-        analyzeOfficialMinecraftTargetTask.downloadMetadata.set(downloadServer.flatMap { it.metadataFile })
         analyzeOfficialMinecraftTargetTask.outputFile.set(targetFile)
     }
     val analyzeReports = tasks.register(
@@ -478,7 +457,6 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         analyzeOfficialMinecraftReportsTask.group = OFFICIAL_DATA_TASK_GROUP
         analyzeOfficialMinecraftReportsTask.description = "Capture official packets, registries, and blocks reports."
         analyzeOfficialMinecraftReportsTask.serverJar.set(downloadServer.flatMap { it.serverJar })
-        analyzeOfficialMinecraftReportsTask.downloadMetadata.set(downloadServer.flatMap { it.metadataFile })
         analyzeOfficialMinecraftReportsTask.outputDirectory.set(reportsDirectory)
     }
     val analyzeConfiguration = tasks.register(
@@ -540,7 +518,6 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         ),
         codecOracle = files(
             serverJarFile,
-            serverMetadataFile,
             serverRuntimeDirectory,
             codecClassesDirectory,
         ).builtBy(prepareCodecOracle),

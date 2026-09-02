@@ -88,7 +88,7 @@ class EntityRegionHandleTest {
         val compressedBuffer = Buffer()
         val streamedInfo = assertNotNull(entityRegionHandle.readCompressedChunkTo(chunkPosition, compressedBuffer))
         val streamedChunk = CompressedChunk(streamedInfo.compression, compressedBuffer.readByteArray())
-            .toEntityChunk(chunkPosition, entityChunkNbtCodec)
+            .toEntityChunk(entityChunkNbtCodec)
         assertEquals(chunkPosition, streamedChunk.chunkPosition)
         assertEquals(entity.uuid, streamedChunk.rootEntities.single().uuid)
         assertEquals(
@@ -167,6 +167,60 @@ class EntityRegionHandleTest {
                 checkNotNull(escapedLiveEntityRegionReadScope).readChunk(chunkPosition)
             }
         }
+        fakeFileSystem.checkNoOpenFiles()
+    }
+
+    @Test
+    fun semanticReadsPreserveTheNbtPositionWhenItDiffersFromTheRegionSlot() = runTest {
+        val fakeFileSystem = FakeFileSystem()
+        val worldRoot = "/world".toPath()
+        val directory = MinecraftWorldPaths(worldRoot).regionDirectory(RegionStorageDirectory.ENTITIES)
+        val regionStorage = CoordinatedRegionStore(
+            directory = directory,
+            fileSystem = fakeFileSystem,
+            regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
+        )
+        val slotPosition = ChunkPosition(1, 2)
+        val storedPosition = ChunkPosition(40, -12)
+        val entityChunkNbtCodec = EntityChunkNbtCodec(NbtEntityDataRegistry())
+        val entity = Entity(
+            type = "minecraft:pig",
+            uuid = Uuid.fromLongs(9, 10),
+            data = NbtCompound(emptyMap()),
+            position = EntityVector3d(
+                MinecraftCoordinates.blockCoordinate(storedPosition.x, 1) + 0.5,
+                64.0,
+                MinecraftCoordinates.blockCoordinate(storedPosition.z, 1) + 0.5,
+            ),
+        )
+        val nbtDocument = entityChunkNbtCodec.encodeDocument(
+            EntityChunk(storedPosition, EXPECTED_DATA_VERSION, listOf(entity)),
+        )
+        val entityRegionHandle = EntityRegionHandle(regionStorage.openRegion(slotPosition.regionPosition))
+
+        try {
+            entityRegionHandle.writeChunkNbtDocument(slotPosition, nbtDocument, Compression.NONE)
+            assertEquals(
+                storedPosition,
+                assertNotNull(entityRegionHandle.readChunk(slotPosition, entityChunkNbtCodec)).chunkPosition,
+            )
+            assertEquals(storedPosition, assertNotNull(entityRegionHandle.readChunk(slotPosition)).chunkPosition)
+            entityRegionHandle.withReadScope(entityChunkNbtCodec) {
+                assertEquals(storedPosition, assertNotNull(readChunk(slotPosition)).chunkPosition)
+            }
+        } finally {
+            entityRegionHandle.close()
+            regionStorage.close()
+        }
+
+        LiveMinecraftWorldAccess.open(worldRoot, fakeFileSystem).dimensions.overworld
+            .openEntityRegion(slotPosition.regionPosition)
+            .use { liveEntityRegionHandle ->
+                assertEquals(
+                    storedPosition,
+                    assertNotNull(liveEntityRegionHandle.readChunk(slotPosition, entityChunkNbtCodec)).chunkPosition,
+                )
+            }
         fakeFileSystem.checkNoOpenFiles()
     }
 

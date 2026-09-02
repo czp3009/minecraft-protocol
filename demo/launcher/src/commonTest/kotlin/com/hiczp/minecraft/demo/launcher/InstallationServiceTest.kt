@@ -80,12 +80,26 @@ class InstallationServiceTest {
             installFixture.fakeFileSystem.listRecursively(installFixture.root).any { it.name.endsWith(".download") })
         installFixture.close()
     }
+
+    @Test
+    fun manifestEntryIdOwnsTheInstallationIdentity() = runTest {
+        val installFixture = InstallFixture(metadataVersionId = "embedded")
+
+        val completedInstallation = installFixture.installationService.install(installFixture.versionEntry)
+
+        assertEquals("demo", completedInstallation.versionMetadata.id)
+        assertEquals(listOf(InstalledVersion("demo")), completedInstallation.installedState.installations)
+        assertTrue(installFixture.fakeFileSystem.exists(installFixture.launcherStore.gameRoot("demo") / "client.jar"))
+        assertFalse(installFixture.fakeFileSystem.exists(installFixture.launcherStore.gameRoot("embedded")))
+        installFixture.close()
+    }
 }
 
 internal class InstallFixture(
     corruptClientAttempts: Int = 0,
     private val blockContentDownloads: Boolean = false,
     private val blockAssetIndexDownload: Boolean = false,
+    metadataVersionId: String = "demo",
 ) {
     val root = "/launcher root".toPath()
     val fakeFileSystem = FakeFileSystem().also { it.createDirectories(root) }
@@ -106,7 +120,7 @@ internal class InstallFixture(
     ).encodeToByteArray()
     private val metadataBytes = launcherJson.encodeToString(
         VersionMetadata(
-            id = "demo",
+            id = metadataVersionId,
             type = "release",
             mainClass = "example.Main",
             assets = "assets-id",

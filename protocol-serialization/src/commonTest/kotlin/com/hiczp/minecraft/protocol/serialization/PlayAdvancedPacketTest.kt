@@ -9,6 +9,7 @@ import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.uuid.Uuid
 
 class PlayAdvancedPacketTest {
@@ -194,6 +195,34 @@ class PlayAdvancedPacketTest {
             MapDataPacket.serializer(),
             "010100010002010304020506",
         )
+    }
+
+    @Test
+    fun `physical display codecs enforce their wire widths`() {
+        assertFailsWith<MinecraftSerializationException> {
+            MinecraftProtocolFormat.encodeToByteArray(
+                LightDataLayer.serializer(),
+                LightDataLayer(ByteString(ByteArray(LightDataLayer.DATA_LAYER_BYTES + 1))),
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            MinecraftProtocolFormat.encodeToByteArray(
+                MapDataPacket.serializer(),
+                MapDataPacket(
+                    mapId = 1,
+                    scale = 1,
+                    locked = false,
+                    decorations = null,
+                    colorPatch = MapColorPatch(
+                        startX = -1,
+                        startY = 0,
+                        width = 1,
+                        height = 1,
+                        colors = ByteString(byteArrayOf()),
+                    ),
+                ),
+            )
+        }
     }
 
     private fun <T> assertBytes(

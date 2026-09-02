@@ -2,6 +2,7 @@ package com.hiczp.minecraft.buildlogic
 
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
+import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
@@ -15,7 +16,7 @@ import kotlin.io.path.readText
 
 @CacheableTask
 abstract class DownloadOfficialMinecraftServerTask :
-    MinecraftProtocolToolTask() {
+    DefaultTask() {
     @get:Internal
     abstract val offline: Property<Boolean>
 
@@ -26,55 +27,24 @@ abstract class DownloadOfficialMinecraftServerTask :
     @get:OutputFile
     abstract val serverJar: RegularFileProperty
 
-    @get:OutputFile
-    abstract val metadataFile: RegularFileProperty
-
     init {
         offline.convention(false)
     }
 
     @TaskAction
     fun download() {
-        val version = minecraftVersion.get()
-        require(version.matches(Regex("[0-9A-Za-z._-]+"))) {
-            "Unsafe Minecraft version identifier: $version"
-        }
         val metadata = protocolJson.decodeFromString<JsonObject>(
             versionMetadata.asFile.get().toPath().readText(),
         )
-        check(metadata.getValue("id").jsonPrimitive.content == version) {
-            "Version metadata identifies a different release"
-        }
         val server = metadata.getValue("downloads").jsonObject.getValue("server").jsonObject
         val serverUrl = server.getValue("url").jsonPrimitive.content
-        val javaMajor = metadata["javaVersion"]
-            ?.jsonObject
-            ?.getValue("majorVersion")
-            ?.jsonPrimitive
-            ?.int
-            ?: 0
 
         val destination = serverJar.asFile.get().toPath()
-        val metadataPath = metadataFile.asFile.get().toPath()
         runBlocking {
             ProtocolHttp.download(
                 url = serverUrl,
                 destination = destination,
                 offline = offline.get(),
-            )
-
-            val minecraftProtocolTarget = destination.readMinecraftProtocolTarget(version)
-            check(minecraftProtocolTarget.javaMajorVersion == javaMajor) {
-                "Official server version.json and Mojang metadata disagree on the required Java version"
-            }
-            metadataPath.writeJson(
-                buildJsonObject {
-                    put("schema_version", 1)
-                    put("minecraft_version", version)
-                    put("server_url", serverUrl)
-                    put("java_major_version", javaMajor)
-                },
-                sortKeys = true,
             )
             logger.lifecycle(
                 "Downloaded Mojang server: $destination",
@@ -85,14 +55,10 @@ abstract class DownloadOfficialMinecraftServerTask :
 
 @CacheableTask
 abstract class AnalyzeOfficialMinecraftTargetTask :
-    MinecraftProtocolToolTask() {
+    DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val serverJar: RegularFileProperty
-
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.NONE)
-    abstract val downloadMetadata: RegularFileProperty
 
     @get:OutputFile
     abstract val outputFile: RegularFileProperty
@@ -100,18 +66,7 @@ abstract class AnalyzeOfficialMinecraftTargetTask :
     @TaskAction
     fun analyze() {
         val server = serverJar.asFile.get().toPath()
-        val minecraftProtocolTarget = server.readMinecraftProtocolTarget(
-            minecraftVersion.get(),
-        )
-        val metadata = protocolJson.decodeFromString<JsonObject>(
-            downloadMetadata.asFile.get().toPath().readText(),
-        )
-        check(
-            metadata.getValue("minecraft_version").jsonPrimitive.content ==
-                    minecraftProtocolTarget.minecraftVersion,
-        ) {
-            "Official server metadata targets a different Minecraft release"
-        }
+        val minecraftProtocolTarget = server.readMinecraftProtocolTarget()
         val output = outputFile.asFile.get().toPath()
         output.writeJson(minecraftProtocolTarget.toOfficialMinecraftTargetReportJson(), sortKeys = true)
         logger.lifecycle(
@@ -122,14 +77,10 @@ abstract class AnalyzeOfficialMinecraftTargetTask :
 
 @CacheableTask
 abstract class AnalyzeOfficialMinecraftReportsTask :
-    MinecraftProtocolToolTask() {
+    DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val serverJar: RegularFileProperty
-
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.NONE)
-    abstract val downloadMetadata: RegularFileProperty
 
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
@@ -137,21 +88,7 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
     @TaskAction
     fun generate() {
         val serverJar = serverJar.asFile.get().toPath()
-        val minecraftProtocolTarget = serverJar.readMinecraftProtocolTarget(
-            minecraftVersion.get(),
-        )
-        val metadata = protocolJson.decodeFromString<JsonObject>(
-            downloadMetadata.asFile.get().toPath().readText(),
-        )
-        check(serverJar.isRegularFile()) {
-            "Official server is missing; run downloadOfficialMinecraftServer"
-        }
-        check(
-            metadata.getValue("minecraft_version").jsonPrimitive.content ==
-                    minecraftProtocolTarget.minecraftVersion,
-        ) {
-            "Official server metadata targets a different Minecraft release"
-        }
+        val minecraftProtocolTarget = serverJar.readMinecraftProtocolTarget()
         val outputDirectory = outputDirectory.asFile.get().toPath()
         val workDirectory = createIsolatedTemporaryDirectory("reports")
         val reports = try {
@@ -310,7 +247,7 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
  */
 @CacheableTask
 abstract class ExtractOfficialServerRuntimeTask :
-    MinecraftProtocolToolTask() {
+    DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val serverJar: RegularFileProperty
@@ -321,7 +258,6 @@ abstract class ExtractOfficialServerRuntimeTask :
     @TaskAction
     fun extract() {
         val bundle = serverJar.asFile.get().toPath()
-        val version = minecraftVersion.get()
         val output = outputDirectory.asFile.get().toPath()
 
         output.deleteTree()
@@ -333,7 +269,6 @@ abstract class ExtractOfficialServerRuntimeTask :
                 archive.getEntry("META-INF/versions.list"),
             ).use { it.readBytes().decodeToString().trim().split('\t') }
             check(versionFields.size == 3)
-            check(versionFields[1] == version)
 
             // Extract implementation JAR
             val impl = archive.getInputStream(
@@ -361,8 +296,6 @@ abstract class ExtractOfficialServerRuntimeTask :
                     }
             }
         }
-        logger.lifecycle(
-            "Extracted official server runtime for $version: $output",
-        )
+        logger.lifecycle("Extracted official server runtime: $output")
     }
 }

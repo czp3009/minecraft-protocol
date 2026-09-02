@@ -60,23 +60,21 @@ internal inline fun <reified T> NbtFormat.encodeToOkio(value: T, sink: BufferedS
 
 internal fun <B : Any, M : Any> ChunkNbtCodec<B, M>.decodeFromOkio(
     source: BufferedSource,
-    expectedPosition: ChunkPosition,
 ): Chunk<B, M> = decodeFromOkio(source) { kotlinxSource ->
-    decodeFromSource(kotlinxSource, expectedPosition)
+    decodeFromSource(kotlinxSource)
 }
 
 internal fun <E : Any> EntityChunkNbtCodec<E>.decodeFromOkio(
     source: BufferedSource,
-    expectedPosition: ChunkPosition,
 ): EntityChunk<E> = decodeFromOkio(source) { kotlinxSource ->
-    decodeFromSource(kotlinxSource, expectedPosition)
+    decodeFromSource(kotlinxSource)
 }
 
 internal fun PoiChunkNbtCodec.decodeFromOkio(
     source: BufferedSource,
-    expectedPosition: ChunkPosition,
+    chunkPosition: ChunkPosition,
 ): PoiChunk = decodeFromOkio(source) { kotlinxSource ->
-    decodeFromSource(kotlinxSource, expectedPosition)
+    decodeFromSource(kotlinxSource, chunkPosition)
 }
 
 internal fun BufferedSource.readCompressedChunkFromOkio(compression: Compression): CompressedChunk =

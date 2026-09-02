@@ -108,12 +108,6 @@ data class LightDataLayer(
     @MaxByteLength(2_048)
     val bytes: ByteString,
 ) {
-    init {
-        require(bytes.size <= DATA_LAYER_BYTES) {
-            "A light data layer exceeds $DATA_LAYER_BYTES bytes"
-        }
-    }
-
     companion object {
         const val DATA_LAYER_BYTES: Int = 2_048
     }
@@ -142,10 +136,7 @@ data class MapColorPatch(
     val colors: ByteString,
 ) {
     init {
-        require(startX in 0..255) { "Map patch start X is outside an unsigned byte" }
-        require(startY in 0..255) { "Map patch start Y is outside an unsigned byte" }
-        require(width in 1..255) { "Map patch width must be in 1..255" }
-        require(height in 0..255) { "Map patch height is outside an unsigned byte" }
+        require(width > 0) { "A non-null map patch must have a positive width" }
     }
 }
 

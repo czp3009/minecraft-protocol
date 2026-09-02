@@ -17,12 +17,6 @@ class PoiChunkNbtFormatException(
 class PoiChunkNbtCodec(
     val nbtFormat: NbtFormat = NbtFormat(NbtFormatConfiguration(nbtRootEncoding = NbtRootEncoding.UNNAMED)),
 ) {
-    init {
-        require(nbtFormat.nbtFormatConfiguration.nbtRootEncoding == NbtRootEncoding.UNNAMED) {
-            "Region POI Chunk NBT requires NbtRootEncoding.UNNAMED"
-        }
-    }
-
     fun decodeFromSource(source: Source, chunkPosition: ChunkPosition): PoiChunk =
         decodeDocument(nbtFormat.decodeDocumentFromSource(source), chunkPosition)
 
@@ -32,7 +26,6 @@ class PoiChunkNbtCodec(
 
     fun decodeDocument(nbtDocument: NbtDocument, chunkPosition: ChunkPosition): PoiChunk {
         val root = nbtDocument.root
-        root.rejectUnknownPoiKeys(POI_CHUNK_ROOT_FIELDS, "POI Chunk")
         val dataVersion = root.requirePoiInt(DATA_VERSION, "POI Chunk")
         val sections = root.requirePoiCompound(SECTIONS, "POI Chunk").value.map { (sectionYName, nbtTag) ->
             val sectionY = sectionYName.toIntOrNull()
@@ -51,14 +44,13 @@ class PoiChunkNbtCodec(
     }
 
     fun encodeDocument(poiChunk: PoiChunk): NbtDocument {
+        try {
+            poiChunk.requireStoredRecordMembership()
+        } catch (failure: IllegalArgumentException) {
+            throw PoiChunkNbtFormatException("Invalid POI Chunk ${poiChunk.chunkPosition}", failure)
+        }
         val sections = linkedMapOf<String, NbtTag>()
         poiChunk.sections.sortedBy(PoiSection::sectionY).forEach { poiSection ->
-            poiSection.records.firstOrNull { poiRecord -> poiRecord.chunkPosition != poiChunk.chunkPosition }
-                ?.let { poiRecord ->
-                    throw PoiChunkNbtFormatException(
-                        "POI ${poiRecord.blockPosition} belongs to Chunk ${poiRecord.chunkPosition}, expected ${poiChunk.chunkPosition}",
-                    )
-                }
             sections[poiSection.sectionY.toString()] = encodeSection(poiSection)
         }
         return NbtDocument(
@@ -72,7 +64,6 @@ class PoiChunkNbtCodec(
     }
 
     private fun decodeSection(sectionY: Int, nbtCompound: NbtCompound): PoiSection {
-        nbtCompound.rejectUnknownPoiKeys(POI_SECTION_FIELDS, "POI Section $sectionY")
         val valid = nbtCompound.optionalPoiBoolean(VALID, "POI Section $sectionY") ?: false
         val records = nbtCompound.requirePoiList(RECORDS, "POI Section $sectionY").value.mapIndexed { index, nbtTag ->
             decodeRecord(
@@ -95,7 +86,6 @@ class PoiChunkNbtCodec(
     }
 
     private fun decodeRecord(nbtCompound: NbtCompound): PoiRecord {
-        nbtCompound.rejectUnknownPoiKeys(POI_RECORD_FIELDS, "POI record")
         val position = nbtCompound.requirePoiBlockPosition(POSITION)
         val type = nbtCompound.requirePoiString(TYPE, "POI record")
         val freeTickets = nbtCompound.optionalPoiInt(FREE_TICKETS, "POI record") ?: 0
@@ -118,13 +108,6 @@ class PoiChunkNbtCodec(
         value[TYPE] = NbtString(poiRecord.type)
         if (poiRecord.freeTickets != 0) value[FREE_TICKETS] = NbtInt(poiRecord.freeTickets)
         return NbtCompound(value)
-    }
-}
-
-private fun NbtCompound.rejectUnknownPoiKeys(known: Set<String>, description: String) {
-    val unknown = value.keys - known
-    if (unknown.isNotEmpty()) {
-        throw PoiChunkNbtFormatException("$description contains unmodeled fields: ${unknown.sorted().joinToString()}")
     }
 }
 
@@ -174,6 +157,3 @@ private const val RECORDS = "Records"
 private const val POSITION = "pos"
 private const val TYPE = "type"
 private const val FREE_TICKETS = "free_tickets"
-private val POI_CHUNK_ROOT_FIELDS = setOf(DATA_VERSION, SECTIONS)
-private val POI_SECTION_FIELDS = setOf(VALID, RECORDS)
-private val POI_RECORD_FIELDS = setOf(POSITION, TYPE, FREE_TICKETS)

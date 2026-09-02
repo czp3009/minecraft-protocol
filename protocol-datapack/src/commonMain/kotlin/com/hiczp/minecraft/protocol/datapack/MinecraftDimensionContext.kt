@@ -8,32 +8,16 @@ import com.hiczp.minecraft.world.format.ChunkLayout
 import com.hiczp.minecraft.world.format.DimensionId
 
 /**
- * The validated protocol registries and vertical layout active for one world dimension.
+ * The protocol registries and vertical layout active for one world dimension.
  *
  * This is the shared handoff before an application chooses the semantic block and biome defaults required by
  * [MinecraftChunkContext]. Custom packet decoders may use the registry and layout values directly.
  */
-data class MinecraftDimensionContext(
+class MinecraftDimensionContext private constructor(
     val dimensionId: DimensionId,
     val minecraftDimensionLayout: MinecraftDimensionLayout,
     val protocolRegistryContext: ProtocolRegistryContext,
 ) {
-    init {
-        val dimensionTypeRawId = minecraftDimensionLayout.dimensionTypeRawId
-        val dimensionTypeRegistry = protocolRegistryContext.requireRegistry(
-            MinecraftDimensionLayout.DIMENSION_TYPE_REGISTRY,
-        )
-        val dimensionTypeRegistryEntry = dimensionTypeRegistry[dimensionTypeRawId]
-        require(dimensionTypeRegistryEntry?.id == minecraftDimensionLayout.dimensionTypeId) {
-            val actual = dimensionTypeRegistryEntry?.id ?: "missing"
-            "Raw ID $dimensionTypeRawId resolves to $actual, not ${minecraftDimensionLayout.dimensionTypeId}"
-        }
-        require(protocolRegistryContext.chunkSectionCount == minecraftDimensionLayout.sectionCount) {
-            val dimensionTypeId = minecraftDimensionLayout.dimensionTypeId
-            "Context has ${protocolRegistryContext.chunkSectionCount} Chunk Sections; $dimensionTypeId requires ${minecraftDimensionLayout.sectionCount}"
-        }
-    }
-
     val chunkLayout: ChunkLayout
         get() = minecraftDimensionLayout.chunkLayout
 
@@ -46,6 +30,21 @@ data class MinecraftDimensionContext(
         defaultBiome = defaultBiome,
     )
 
+    override fun equals(other: Any?): Boolean =
+        other is MinecraftDimensionContext &&
+                dimensionId == other.dimensionId &&
+                minecraftDimensionLayout == other.minecraftDimensionLayout &&
+                protocolRegistryContext == other.protocolRegistryContext
+
+    override fun hashCode(): Int {
+        var result = dimensionId.hashCode()
+        result = 31 * result + minecraftDimensionLayout.hashCode()
+        return 31 * result + protocolRegistryContext.hashCode()
+    }
+
+    override fun toString(): String =
+        "MinecraftDimensionContext(dimensionId=$dimensionId, minecraftDimensionLayout=$minecraftDimensionLayout, protocolRegistryContext=$protocolRegistryContext)"
+
     companion object {
         fun create(
             dimensionId: DimensionId,
@@ -53,16 +52,10 @@ data class MinecraftDimensionContext(
             protocolRegistryContext: ProtocolRegistryContext,
         ): MinecraftDimensionContext {
             val sectionCount = minecraftDimensionLayout.sectionCount
-            val activeProtocolRegistryContext = when (protocolRegistryContext.chunkSectionCount) {
-                null -> protocolRegistryContext.withChunkSectionCount(sectionCount)
-                sectionCount -> protocolRegistryContext
-                else -> {
-                    val actualSectionCount = protocolRegistryContext.chunkSectionCount
-                    val dimensionTypeId = minecraftDimensionLayout.dimensionTypeId
-                    throw IllegalArgumentException(
-                        "Context has $actualSectionCount Chunk Sections; $dimensionTypeId requires $sectionCount",
-                    )
-                }
+            val activeProtocolRegistryContext = if (protocolRegistryContext.chunkSectionCount == sectionCount) {
+                protocolRegistryContext
+            } else {
+                protocolRegistryContext.withChunkSectionCount(sectionCount)
             }
             return MinecraftDimensionContext(
                 dimensionId = dimensionId,

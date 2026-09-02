@@ -66,7 +66,6 @@ class MinecraftFrameCodec(
             maximumBytes = 3,
             rejectNonMinimal = minecraftTransportConfiguration.rejectNonMinimalVarInts,
         ).value
-        validateFrameLength(frameLength)
         return decodeFrameBodyToSink(source, frameLength, sink)
     }
 

@@ -29,9 +29,6 @@ abstract class DownloadVersionManifestTask : DefaultTask() {
     @get:Input
     abstract val manifestUrl: Property<String>
 
-    @get:Input
-    abstract val minecraftVersion: Property<String>
-
     @get:Internal
     abstract val offline: Property<Boolean>
 
@@ -45,25 +42,8 @@ abstract class DownloadVersionManifestTask : DefaultTask() {
     @TaskAction
     fun download() {
         val destination = outputFile.asFile.get().toPath()
-        val version = minecraftVersion.get()
         runBlocking {
-            val url = manifestUrl.get()
-            val byteArray = ProtocolHttp.getBytes(
-                url = url,
-                offline = offline.get(),
-            ) { downloaded ->
-                val containsRelease = protocolJson.decodeFromString<JsonObject>(downloaded.decodeToString())
-                    .getValue("versions")
-                    .jsonArray
-                    .map { it.jsonObject }
-                    .any {
-                        it.getValue("id").jsonPrimitive.content == version &&
-                                it.getValue("type").jsonPrimitive.content == "release"
-                    }
-                check(containsRelease) {
-                    "Mojang manifest has no stable release $version"
-                }
-            }
+            val byteArray = ProtocolHttp.getBytes(url = manifestUrl.get(), offline = offline.get())
             destination.parent.createDirectories()
             destination.atomicWrite(byteArray)
         }
@@ -110,15 +90,7 @@ abstract class DownloadVersionMetadataTask : DefaultTask() {
         val metadataUrl = entry.getValue("url").jsonPrimitive.content
         val destination = outputFile.asFile.get().toPath()
         runBlocking {
-            val byteArray = ProtocolHttp.getBytes(
-                url = metadataUrl,
-                offline = offline.get(),
-            ) { downloaded ->
-                val metadata = protocolJson.decodeFromString<JsonObject>(downloaded.decodeToString())
-                check(metadata.getValue("id").jsonPrimitive.content == version) {
-                    "Mojang version metadata identifies a different release"
-                }
-            }
+            val byteArray = ProtocolHttp.getBytes(url = metadataUrl, offline = offline.get())
             destination.parent.createDirectories()
             destination.atomicWrite(byteArray)
         }
@@ -135,16 +107,7 @@ abstract class DownloadVersionMetadataTask : DefaultTask() {
 @CacheableTask
 abstract class DownloadHmcSpecificsTask : DefaultTask() {
     @get:Input
-    abstract val releaseTag: Property<String>
-
-    @get:Input
-    abstract val assetName: Property<String>
-
-    @get:Input
     abstract val assetUrl: Property<String>
-
-    @get:Input
-    abstract val minecraftVersion: Property<String>
 
     @get:Internal
     abstract val offline: Property<Boolean>
@@ -166,33 +129,12 @@ abstract class DownloadHmcSpecificsTask : DefaultTask() {
                 offline = offline.get(),
             )
         }
-        val metadata =
-            protocolJson.decodeFromString<JsonObject>(destination.readZipEntry("fabric.mod.json").decodeToString())
-        check(metadata.getValue("id").jsonPrimitive.content == "headlessmc") {
-            "HMC-Specifics Fabric artifact has an unexpected mod id"
-        }
-        val dependencies = metadata.getValue("depends").jsonObject
-        check(dependencies.getValue("fabricloader").jsonPrimitive.content == ">=0.14.19") {
-            "HMC-Specifics declares an unexpected Fabric Loader requirement"
-        }
-        val expectedMinecraft = "~${minecraftVersion.get()}.0"
-        check(dependencies.getValue("minecraft").jsonPrimitive.content == expectedMinecraft) {
-            "HMC-Specifics does not target Minecraft ${minecraftVersion.get()}"
-        }
-        logger.lifecycle(
-            "Downloaded HMC-Specifics ${releaseTag.get()} Fabric asset ${assetName.get()}: $destination",
-        )
+        logger.lifecycle("Downloaded HMC-Specifics Fabric asset: $destination")
     }
 }
 
 @CacheableTask
 abstract class DownloadFabricLoaderProfileTask : DefaultTask() {
-    @get:Input
-    abstract val minecraftVersion: Property<String>
-
-    @get:Input
-    abstract val fabricLoaderVersion: Property<String>
-
     @get:Input
     abstract val profileUrl: Property<String>
 
@@ -211,39 +153,11 @@ abstract class DownloadFabricLoaderProfileTask : DefaultTask() {
         val destination = outputFile.asFile.get().toPath()
         runBlocking {
             val url = profileUrl.get()
-            val byteArray = ProtocolHttp.getBytes(
-                url = url,
-                offline = offline.get(),
-            ) { downloaded ->
-                val profile = protocolJson.decodeFromString<JsonObject>(downloaded.decodeToString())
-                val minecraft = minecraftVersion.get()
-                val loader = fabricLoaderVersion.get()
-                check(profile.getValue("id").jsonPrimitive.content == "fabric-loader-$loader-$minecraft") {
-                    "Fabric profile has an unexpected identity"
-                }
-                check(profile.getValue("inheritsFrom").jsonPrimitive.content == minecraft) {
-                    "Fabric profile inherits from a different Minecraft release"
-                }
-                check(
-                    profile.getValue("mainClass").jsonPrimitive.content ==
-                            "net.fabricmc.loader.impl.launch.knot.KnotClient",
-                ) {
-                    "Fabric profile has an unexpected client main class"
-                }
-                check(
-                    profile.getValue("libraries").jsonArray
-                        .map { it.jsonObject.getValue("name").jsonPrimitive.content }
-                        .contains("net.fabricmc:fabric-loader:$loader"),
-                ) {
-                    "Fabric profile does not contain the selected loader"
-                }
-            }
+            val byteArray = ProtocolHttp.getBytes(url = url, offline = offline.get())
             destination.parent.createDirectories()
             destination.atomicWrite(byteArray)
         }
-        logger.lifecycle(
-            "Downloaded Fabric Loader ${fabricLoaderVersion.get()} profile for Minecraft ${minecraftVersion.get()}: $destination",
-        )
+        logger.lifecycle("Downloaded Fabric Loader profile: $destination")
     }
 }
 
@@ -356,18 +270,12 @@ abstract class GenerateHeadlessMcJsonReplacementTask : DefaultTask() {
 
 @CacheableTask
 abstract class DownloadMinecraftClientJarTask : DefaultTask() {
-    @get:Input
-    abstract val minecraftVersion: Property<String>
-
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val metadataFile: RegularFileProperty
 
     @get:OutputFile
     abstract val clientJar: RegularFileProperty
-
-    @get:OutputFile
-    abstract val downloadMetadataFile: RegularFileProperty
 
     @get:Internal
     abstract val offline: Property<Boolean>
@@ -378,11 +286,9 @@ abstract class DownloadMinecraftClientJarTask : DefaultTask() {
 
     @TaskAction
     fun download() {
-        val version = minecraftVersion.get()
         val metadata = protocolJson.decodeFromString<JsonObject>(
             metadataFile.asFile.get().toPath().readText(),
         )
-        check(metadata.getValue("id").jsonPrimitive.content == version)
         val client = metadata.getValue("downloads").jsonObject.getValue("client").jsonObject
         val destination = clientJar.asFile.get().toPath()
         runBlocking {
@@ -394,17 +300,6 @@ abstract class DownloadMinecraftClientJarTask : DefaultTask() {
         }
         logger.lifecycle(
             "Downloaded official client JAR: $destination",
-        )
-        val assetIndex = metadata.getValue("assetIndex").jsonObject
-        downloadMetadataFile.asFile.get().toPath().writeJson(
-            buildJsonObject {
-                put("schema_version", 1)
-                put("minecraft_version", version)
-                put("client_url", client.getValue("url").jsonPrimitive.content)
-                put("library_count", collectClientLibraryArtifacts(metadata).size)
-                put("asset_index_id", assetIndex.getValue("id").jsonPrimitive.content)
-                put("asset_index_url", assetIndex.getValue("url").jsonPrimitive.content)
-            },
         )
     }
 }
@@ -418,9 +313,6 @@ abstract class DownloadMinecraftClientLibrariesTask : DefaultTask() {
     companion object {
         private const val LIBRARY_CONCURRENCY = 8
     }
-
-    @get:Input
-    abstract val minecraftVersion: Property<String>
 
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
@@ -442,11 +334,9 @@ abstract class DownloadMinecraftClientLibrariesTask : DefaultTask() {
 
     @TaskAction
     fun download() {
-        val version = minecraftVersion.get()
         val metadata = protocolJson.decodeFromString<JsonObject>(
             metadataFile.asFile.get().toPath().readText(),
         )
-        check(metadata.getValue("id").jsonPrimitive.content == version)
         val libraries = linkedMapOf<String, ClientArtifactSpec>().apply {
             putAll(collectClientLibraryArtifacts(metadata))
             collectFabricLibraryArtifacts(
@@ -505,9 +395,6 @@ abstract class DownloadMinecraftClientLibrariesTask : DefaultTask() {
 
 @CacheableTask
 abstract class DownloadMinecraftClientAssetIndexTask : DefaultTask() {
-    @get:Input
-    abstract val minecraftVersion: Property<String>
-
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val metadataFile: RegularFileProperty
@@ -524,11 +411,9 @@ abstract class DownloadMinecraftClientAssetIndexTask : DefaultTask() {
 
     @TaskAction
     fun download() {
-        val version = minecraftVersion.get()
         val metadata = protocolJson.decodeFromString<JsonObject>(
             metadataFile.asFile.get().toPath().readText(),
         )
-        check(metadata.getValue("id").jsonPrimitive.content == version)
         val assetIndex = metadata.getValue("assetIndex").jsonObject
         val assetIndexId = assetIndex.getValue("id").jsonPrimitive.content
         val output = assetIndexesDirectory.asFile.get().toPath()
@@ -638,7 +523,6 @@ abstract class DownloadMinecraftClientAssetObjectsTask : DefaultTask() {
             assetIndexesDirectory.asFile.get().toPath(),
             REPLACED_ASSET_FORMATS,
         )
-        val root = outputDirectory.asFile.get().toPath()
         val officialAssets = assets.filter { it.dummyFormat == null }
         val staging = createIsolatedTemporaryDirectory("asset-objects")
         logger.lifecycle(
@@ -670,20 +554,6 @@ abstract class DownloadMinecraftClientAssetObjectsTask : DefaultTask() {
             }
         } finally {
             staging.deleteTree()
-        }
-        val expectedPaths = officialAssets.mapTo(mutableSetOf()) {
-            it.relativePath
-        }
-        val actualPaths = Files.walk(root).use { paths ->
-            paths.filter(Files::isRegularFile)
-                .map { root.relativize(it).joinToString("/") }
-                .toList()
-                .toSet()
-        }
-        check(actualPaths == expectedPaths) {
-            val missing = expectedPaths - actualPaths
-            val unexpected = actualPaths - expectedPaths
-            "Prepared asset objects do not match the official index; missing=$missing, unexpected=$unexpected"
         }
         logger.lifecycle(
             "Downloaded ${officialAssets.size} original client asset objects; ${assets.size - officialAssets.size} objects are supplied by HeadlessMC replacements",
@@ -746,27 +616,7 @@ abstract class AssembleHeadlessClientAssetsTask : DefaultTask() {
             }
             syncSpec.into(outputDirectory)
         }
-        val indexFiles = Files.list(indexes).use { paths ->
-            paths.filter { it.isRegularFile() && it.name.endsWith(".json") }
-                .toList()
-        }
-        val expectedPaths = assets.mapTo(mutableSetOf()) {
-            "objects/${it.relativePath}"
-        }.apply {
-            add("indexes/${indexFiles.single().name}")
-        }
         val root = outputDirectory.asFile.get().toPath()
-        val actualPaths = Files.walk(root).use { paths ->
-            paths.filter(Files::isRegularFile)
-                .map { root.relativize(it).joinToString("/") }
-                .toList()
-                .toSet()
-        }
-        check(actualPaths == expectedPaths) {
-            val missing = expectedPaths - actualPaths
-            val unexpected = actualPaths - expectedPaths
-            "Assembled assets do not match the selected index; missing=$missing, unexpected=$unexpected"
-        }
         logger.lifecycle(
             "Assembled ${assets.size} HeadlessMC client asset objects: $root",
         )

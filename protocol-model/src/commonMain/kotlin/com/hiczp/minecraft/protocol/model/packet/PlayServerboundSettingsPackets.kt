@@ -174,12 +174,7 @@ internal object SeenAdvancementsActionSerializer : KSerializer<SeenAdvancementsA
                     ),
                 )
 
-            SeenAdvancementsActionType.CLOSED_SCREEN -> {
-                if (tab != null) {
-                    throw SerializationException("CLOSED_SCREEN cannot contain a tab")
-                }
-                SeenAdvancementsAction.ClosedScreen
-            }
+            SeenAdvancementsActionType.CLOSED_SCREEN -> SeenAdvancementsAction.ClosedScreen
         }
     }
 

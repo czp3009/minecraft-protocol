@@ -48,6 +48,16 @@ class MinecraftServerProtocolTest {
     }
 
     @Test
+    fun negotiationOptionsRequireTheInitialDimensionToBeAdvertised() {
+        assertFailsWith<IllegalArgumentException> {
+            MinecraftServerNegotiationOptions(
+                dimensionIds = setOf(DimensionId.Overworld),
+                initialDimensionId = DimensionId("example:missing"),
+            )
+        }
+    }
+
+    @Test
     fun defaultPolicyBuildsStructuredStatusAndSecureChatClaims() {
         val minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(
             statusDescription = "Structured status",

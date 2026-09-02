@@ -56,7 +56,7 @@ class MinecraftChunkContext private constructor(
             chunkDataRegistries: ChunkDataRegistries<ProtocolBlockState, ProtocolRegistryEntry>,
             defaultBlock: Identifier,
             defaultBiome: Identifier,
-        ): MinecraftChunkContext = create(
+        ): MinecraftChunkContext = createActive(
             dimensionId = minecraftDimensionContext.dimensionId,
             dimensionTypeLayout = minecraftDimensionContext.minecraftDimensionLayout.dimensionTypeLayout,
             protocolRegistryContext = minecraftDimensionContext.protocolRegistryContext,
@@ -111,10 +111,4 @@ class MinecraftChunkContext private constructor(
 }
 
 private fun ProtocolRegistryContext.forChunkLayout(chunkLayout: ChunkLayout): ProtocolRegistryContext =
-    when (chunkSectionCount) {
-        null -> withChunkSectionCount(chunkLayout.sectionCount)
-        chunkLayout.sectionCount -> this
-        else -> throw IllegalArgumentException(
-            "Context has $chunkSectionCount Chunk Sections; layout requires ${chunkLayout.sectionCount}",
-        )
-    }
+    if (chunkSectionCount == chunkLayout.sectionCount) this else withChunkSectionCount(chunkLayout.sectionCount)

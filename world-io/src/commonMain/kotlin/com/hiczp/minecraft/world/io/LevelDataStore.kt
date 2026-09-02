@@ -27,10 +27,6 @@ class LevelDataStore(
         nbtFileStore = nbtFileStore,
     )
 
-    init {
-        require(minecraftWorldPaths.root == minecraftWorldPaths.levelData.parent)
-    }
-
     fun readDocument(): NbtDocument = readWithRecovery(backupNbtFileStore::readDocument)
 
     fun <T> read(deserializationStrategy: DeserializationStrategy<T>): T =

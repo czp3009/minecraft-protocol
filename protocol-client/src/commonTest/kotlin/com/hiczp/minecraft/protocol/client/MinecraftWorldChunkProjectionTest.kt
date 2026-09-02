@@ -17,7 +17,7 @@ import com.hiczp.minecraft.world.format.BlockPosition as WorldBlockPosition
 
 class MinecraftWorldChunkProjectionTest {
     @Test
-    fun buildsAChunkDecoderFromInstalledRegistriesAndDecodesAChunkPacket() {
+    fun decodesPacketContentWithoutCrossValidatingSectionCounts() {
         val protocolRegistryContext = testProtocolRegistryContext()
         val airProtocolBlockState = protocolRegistryContext.blockStates[0]
         val stoneProtocolBlockState = protocolRegistryContext.blockStates[1]
@@ -26,7 +26,7 @@ class MinecraftWorldChunkProjectionTest {
             MinecraftBiomeIds.PLAINS,
         )
 
-        val chunkLayout = ChunkLayout(minSectionY = -1, sectionCount = 1)
+        val chunkLayout = ChunkLayout(minSectionY = -1, sectionCount = 2)
         val chunkCodecContext = ChunkCodecContext(chunkLayout, protocolRegistryContext.toChunkDataRegistries())
         val minecraftChunkPacketDecoder = MinecraftChunkPacketDecoder(
             protocolRegistryContext,
@@ -82,6 +82,7 @@ class MinecraftWorldChunkProjectionTest {
         assertEquals(WorldBlockPosition(-13, -1, 36), blockEntity.blockPosition)
         assertEquals(NbtInt(9), blockEntity.persistentData["custom"])
         assertEquals(stoneProtocolBlockState, chunk.section(-1)?.block(LocalBlockPosition(15, 15, 15)))
+        assertEquals(airProtocolBlockState, chunk.block(ChunkBlockPosition(0, 0, 0)))
     }
 
     private fun testProtocolRegistryContext(): ProtocolRegistryContext {

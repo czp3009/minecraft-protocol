@@ -24,9 +24,6 @@ private class OkioDataPackZipReader(
                 if (!fileMetadata.isRegularFile) return@mapNotNull null
                 val sizeInBytes = fileMetadata.size
                     ?: throw WorldIOException("Data-pack ZIP entry has no size: $zipEntryPath")
-                if (sizeInBytes < 0L) {
-                    throw WorldIOException("Data-pack ZIP entry has a negative size: $zipEntryPath")
-                }
                 DataPackFileInfo(
                     DataPackFilePath(zipEntryPath.relativeTo(ZIP_ROOT).segments.joinToString("/")),
                     sizeInBytes,

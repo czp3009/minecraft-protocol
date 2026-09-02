@@ -414,7 +414,7 @@ class MinecraftInitialWorldTest {
     }
 
     @Test
-    fun flatChunkRejectsInputsThatCannotDescribeTheDimension() {
+    fun flatChunkEnforcesWireBoundsWithoutCrossCheckingCallerRoles() {
         val overworldMinecraftDimensionLayout = MinecraftDimensionLayout.from(
             VanillaProtocolData,
             Identifier("overworld"),
@@ -470,13 +470,12 @@ class MinecraftInitialWorldTest {
             create(surfaceBlockStateRawId = VanillaRegistryData.vanillaBlockStateRegistry.size)
                 .chunkData.sections.size,
         )
-        assertFailsWith<IllegalArgumentException> {
-            create(surfaceBlockStateRawId = defaultAirBlockStateRawId)
-        }
+        val allAirChunk = create(surfaceBlockStateRawId = defaultAirBlockStateRawId)
+        assertEquals(0, allAirChunk.chunkData.sections.sumOf(ChunkSection::nonAirBlockCount))
         assertFailsWith<IllegalArgumentException> { create(biomeRawId = -1) }
-        assertFailsWith<IllegalArgumentException> {
+        val fullBrightNetherChunk =
             create(minecraftDimensionLayout = netherMinecraftDimensionLayout, fullBrightSky = true)
-        }
+        assertEquals(netherMinecraftDimensionLayout.sectionCount, fullBrightNetherChunk.lightUpdateData.skyUpdates.size)
 
         listOf(
             netherMinecraftDimensionLayout.minY,

@@ -113,7 +113,7 @@ internal object MobEffectDetailsSerializer : KSerializer<MobEffectDetails> {
 
     private fun MobEffectDetailsWire.toModel(): MobEffectDetails =
         MobEffectDetails(
-            amplifier = amplifier.coerceIn(0, 255),
+            amplifier = amplifier,
             duration = duration,
             ambient = ambient,
             showParticles = showParticles,

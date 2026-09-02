@@ -142,7 +142,7 @@ class LiveRegionHandle private constructor(
         localChunkPosition: LocalChunkPosition,
         chunkNbtCodec: ChunkNbtCodec<B, M>,
     ): Chunk<B, M>? = withChunkNbtSource(localChunkPosition) { _, source ->
-        chunkNbtCodec.decodeFromOkio(source, regionPosition.chunk(localChunkPosition))
+        chunkNbtCodec.decodeFromOkio(source)
     }
 
     fun <B : Any, M : Any> readChunk(
@@ -301,9 +301,7 @@ internal class ReadOnlyRegionFile private constructor(
         block: (RegionChunkInfo, BufferedSource) -> R,
     ): R {
         val value = block(regionChunkInfo, bufferedSource)
-        if (!bufferedSource.exhausted()) {
-            throw WorldIOException("Chunk ${regionChunkInfo.localChunkPosition} payload was not fully consumed")
-        }
+        bufferedSource.readAll(blackholeSink())
         return value
     }
 

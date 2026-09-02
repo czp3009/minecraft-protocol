@@ -284,7 +284,6 @@ private fun projectedRawRectangle(assetModelElement: AssetModelElement, assetDir
     }
 
 private fun List<Float>.toSurfaceTextureUv(): SurfaceTextureUv {
-    require(size == SURFACE_SPRITE_RECTANGLE_COMPONENT_COUNT) { "A model face UV must have four components" }
     return RawRectangle(this[0], this[1], this[2], this[3]).textureUv
 }
 
@@ -363,5 +362,4 @@ private const val PNG_IHDR_BYTES: Int = 13
 private const val PNG_COLOR_TYPE_OFFSET: Int = 9
 private const val MODEL_SIDE: Float = 16f
 private const val SPRITE_SIDE: Int = 16
-private const val SURFACE_SPRITE_RECTANGLE_COMPONENT_COUNT: Int = 4
 private val FULL_SPRITE_RECTANGLE: SurfaceSpriteRectangle = SurfaceSpriteRectangle(0f, 0f, MODEL_SIDE, MODEL_SIDE)

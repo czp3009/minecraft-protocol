@@ -122,11 +122,11 @@ class ProtocolRegistryContextTest {
             ),
         )
         val remoteRegistry = RemoteRegistry(registryId, entries)
-        val registries = linkedMapOf(registryId to remoteRegistry)
+        val registries = mutableListOf(remoteRegistry)
 
         val remoteRegistrySnapshot = RemoteRegistrySnapshot(registries)
 
-        assertNotSame(registries, remoteRegistrySnapshot.registries)
+        assertEquals(setOf(registryId), remoteRegistrySnapshot.registries.keys)
         assertNotSame(entries, remoteRegistrySnapshot.registry(registryId)?.entries)
         assertNotSame(aliases, remoteRegistrySnapshot.registry(registryId)?.entries?.single()?.aliases)
         aliases += Identifier("test:later_alias")
@@ -136,6 +136,17 @@ class ProtocolRegistryContextTest {
             setOf(alias),
             remoteRegistrySnapshot.registry(registryId)?.entries?.single()?.aliases,
         )
+    }
+
+    @Test
+    fun blockStateIdsAreAuthoritativeRegardlessOfListPosition() {
+        val first = ProtocolBlockState(7, Identifier("test:first"), emptyMap(), isDefault = true)
+        val second = ProtocolBlockState(2, Identifier("test:second"), emptyMap(), isDefault = true)
+        val protocolRegistryContext = ProtocolRegistryContext(emptyList(), listOf(first, second))
+
+        assertSame(first, protocolRegistryContext.blockState(7))
+        assertSame(second, protocolRegistryContext.blockState(2))
+        assertEquals(8, protocolRegistryContext.blockStateRegistrySize)
     }
 
     @Test

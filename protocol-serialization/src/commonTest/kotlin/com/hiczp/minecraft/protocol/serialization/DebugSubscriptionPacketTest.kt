@@ -250,7 +250,7 @@ class DebugSubscriptionPacketTest {
     }
 
     @Test
-    fun `debug dispatch rejects impossible vanilla states`() {
+    fun `debug dispatch derives a non-null update type from its data`() {
         assertFailsWith<SerializationException> {
             MinecraftProtocolFormat.decodeFromByteArray<DebugSubscriptionUpdate>(
                 // Vanilla's type 0 subscription has a null valueStreamCodec,
@@ -259,14 +259,15 @@ class DebugSubscriptionPacketTest {
             )
         }
 
-        assertFailsWith<SerializationException> {
+        assertContentEquals(
+            "0a01".hexToByteArray(),
             MinecraftProtocolFormat.encodeToByteArray(
                 DebugSubscriptionUpdate(
                     DebugSubscriptionType.BEE,
                     DebugSubscriptionData.VillageSection,
                 ),
-            )
-        }
+            ),
+        )
 
         assertFailsWith<SerializationException> {
             MinecraftProtocolFormat.decodeFromByteArray<DebugSubscriptionEvent>(

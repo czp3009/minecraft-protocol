@@ -3,7 +3,6 @@ package com.hiczp.minecraft.protocol.datapack.vanilla
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.KnownPack
-import com.hiczp.minecraft.protocol.model.type.RegistryEntry
 import com.hiczp.minecraft.protocol.model.type.RegistryTags
 import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
 import kotlin.io.encoding.Base64
@@ -37,22 +36,6 @@ internal fun decodeVanillaConfigurationSnapshot(): VanillaConfigurationSnapshot 
         packetId = 0x0D,
         packetPayloadChunks = VanillaConfigurationPacketPayloads.registryTagsPayloadChunks,
     ) as ConfigurationUpdateTagsPacket
-
-    check(completeSynchronizedRegistryPackets.isNotEmpty()) {
-        "The official vanilla registry snapshot is empty"
-    }
-    check(completeSynchronizedRegistryPackets.size == knownPackSynchronizedRegistryPackets.size) {
-        "The full and Known Packs registry snapshots have different sizes"
-    }
-    completeSynchronizedRegistryPackets.zip(knownPackSynchronizedRegistryPackets)
-        .forEach { (completeRegistry, knownPackRegistry) ->
-            check(completeRegistry.registryId == knownPackRegistry.registryId) {
-                "The full and Known Packs snapshots have different registry order"
-            }
-            check(completeRegistry.entries.map(RegistryEntry::id) == knownPackRegistry.entries.map(RegistryEntry::id)) {
-                "The full and Known Packs snapshots differ for ${completeRegistry.registryId}"
-            }
-        }
 
     return VanillaConfigurationSnapshot(
         offeredKnownPacks = configurationClientboundKnownPacksPacket.knownPacks,

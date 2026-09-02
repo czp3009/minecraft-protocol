@@ -1,6 +1,6 @@
 # World 数据分层、Codec 与 Protocol 命名重构计划
 
-- 状态：架构边界已定案；Chunk 字段细节、少量 packet 命名和 Entity projection 细节仍待讨论
+- 状态：架构边界已定案；第 9 节设计事项待确认
 - 适用版本：仓库所选择的 Minecraft 官方版本
 - 兼容策略：项目仍处于早期阶段，不保留 typealias、deprecated overload、旧模块转发壳或双轨实现
 
@@ -33,6 +33,9 @@
 4. primitive encoder/decoder 是唯一规范实现；fluent API 只能显式配置并委托 primitive。
 5. 库内实现不调用 fluent extension，也不通过 `value.context` 获取 codec 配置。
 6. packet 优先使用匹配版本的官方名称；磁盘和内存类型不使用无意义的 `Protocol` 前缀。
+7. codec 和 semantic storage API 只验证完成自身转换或寻址所必需的输入内在结构；跨来源一致性检查由调用方自行完成。
+8. 两个独立输入携带同一事实且其中一个仅用于比较时，为该字段保留转换所需的唯一权威来源，不做交叉验证。此规则适用于位置、
+   identity、layout、默认值、Section count 和 registry 映射。
 
 本库不提供世界 tick loop、全局调度器、实体 tracking policy、权限、渲染、存档策略或完整游戏服务端。内存模型应保存继续计算所需的
 数据，但计算过程和权威世界状态由使用者实现。
@@ -156,10 +159,7 @@ README 与 decoder KDoc 必须维护随匹配版本审计的字段表，区分�
 
 ```kotlin
 class ChunkNbtDecoder(val chunkContext: ChunkContext) {
-    fun decode(
-        nbtDocument: NbtDocument,
-        expectedChunkPosition: ChunkPosition? = null,
-    ): ChunkNbtDecodeResult
+    fun decode(nbtDocument: NbtDocument): ChunkNbtDecodeResult
 }
 
 class ChunkNbtEncoder(val chunkContext: ChunkContext) {
@@ -171,12 +171,16 @@ class ChunkNbtEncoder(val chunkContext: ChunkContext) {
 - 不创建只包装一个字段的 `ChunkNbtCodecContext`。
 - semantic codec 只处理 `NbtDocument`↔Chunk；binary NBT、compression、Anvil 和 filesystem 各由相邻层处理。
 - decoder 将构造时注入的 `ChunkContext` 原样交给每个结果。
+- decoder 从 NBT 的 `xPos`/`zPos` 解码 Chunk 位置，不接收或校验来自 Region slot 的第二份位置；调用方需要时自行比较。
+- layout 由构造时注入的 context 唯一决定；持久化 `yPos` 不作为第二份 layout 输入或校验来源。
 - encoder 只使用构造时显式注入的 context，不读取或校验 `chunk.context`。
-- `EntityChunk`/`PoiChunk` 同样拆分定向 encoder/decoder、metadata 与 decode result；只有真实配置才进入构造器，不制造空
-  context。
+- `EntityChunk`/`PoiChunk` 同样拆分定向 encoder/decoder、metadata 与 decode result；`EntityChunk` 从自身 NBT 解码位置且不接收
+  expected position；POI 根 NBT 不携带 Chunk 位置，因此 Region slot 是构造 `PoiChunk` 的必要输入而不是附加校验参数。只有真实配置才进入
+  构造器，不制造空 context。
 
-`world-io` 的 dimension-bound handle/scope 在构造时绑定相应 codec。Region slot 向 decoder 提供预期位置，semantic write
-使用值自身位置 选择 slot，不接受第二份可能冲突的位置。
+`world-io` 的 dimension-bound handle/scope 在构造时绑定相应 codec。Region slot 只选择待读取的 record，不作为 expected
+position 传给自带位置的 semantic decoder；读取结果保留 NBT 自身的位置，调用方可将它与所请求的 slot 比较。semantic write
+使用值自身位置选择 slot，不接受第二份可能冲突的位置。
 
 ### 3.2 网络 codec
 
@@ -209,6 +213,8 @@ class ChunkPacketDecoder(val context: ChunkPacketDecoderContext) {
 - block/biome/Block Entity raw ID 都通过同一个 `PacketCodecContext`；不复制 mapping。
 - default provider 为每个 Chunk 生成需要独立修改的集合，不能共享可变默认对象。
 - 显式 mapping 无法表示 Chunk 值时失败，不回退到 `Chunk.context` 或隐藏 registry。
+- packet codec 不把已解码 packet 的 Section 数量、`PacketCodecContext` 中的旧 Section count 或输入 Chunk 携带的
+  layout/default 与自身配置交叉比较；codec context 是本次转换的权威配置，调用方需要时自行验证不同来源是否一致。
 
 `protocol-world` 只声明和执行这些策略接口；release-matched 默认策略由 client/server factory 选择并显式注入。
 
@@ -234,7 +240,7 @@ val serverPacketFormat = MinecraftPacketFormat(serverPacketFormatConfiguration)
 val clientPacketFormat = MinecraftPacketFormat(clientPacketFormatConfiguration)
 val chunkPacketDecoder = ChunkPacketDecoder(clientChunkPacketDecoderContext)
 
-val serverChunk = chunkNbtDecoder.decode(nbtDocument, expectedChunkPosition).chunk
+val serverChunk = chunkNbtDecoder.decode(nbtDocument).chunk
 val packet = chunkPacketEncoder.encode(serverChunk)
 serverPacketFormat.encodeToSink(ChunkWithLightPacket.serializer(), packet, sink)
 val receivedPacket = clientPacketFormat.decodeFromSource(ChunkWithLightPacket.serializer(), source, payloadLength)
@@ -245,7 +251,7 @@ val clientMapDocument = ChunkNbtEncoder(clientChunkContext).encode(clientChunk, 
 Fluent 路径只减少对象构造样板：
 
 ```kotlin
-val serverChunk = nbtDocument.toChunk(serverChunkContext, expectedChunkPosition).chunk
+val serverChunk = nbtDocument.toChunk(serverChunkContext).chunk
 val packet = serverChunk.toChunkWithLightPacket(serverChunkPacketEncoderContext)
 val clientChunk = packet.toChunk(clientChunkPacketDecoderContext)
 val clientMapDocument = clientChunk.toNbtDocument(clientChunkContext, clientMapChunkNbtMetadata)
@@ -299,6 +305,8 @@ direct conversion。现有 Chunk/EntityChunk/PoiChunk conversions、client/serve
 - `protocol-world` 不依赖 world-io、Ktor、auth、session、endpoint 或 vanilla singleton。
 - `protocol-configuration` 不拥有普通 Play Chunk/Entity codec。
 - `datapack-vanilla` 不依赖 protocol 模块；`protocol-configuration-vanilla` 不依赖 `datapack-vanilla`。
+- `demo:web-map` 的世界读取、surface projection 和 asset 处理不依赖 Minecraft protocol 模块；它使用 world/data-pack 所有者提供的
+  release 与 domain values，自身 browser/server 消息使用 demo-owned resource identifier。
 - 同时读取 vanilla 存档并启动网络服务的应用显式组合 DataPack stack completion 与 Configuration projection。
 
 ### 4.3 protocol-world 的范围
@@ -346,32 +354,47 @@ direct conversion。现有 Chunk/EntityChunk/PoiChunk conversions、client/serve
 ### 6.1 总规则
 
 - `Protocol` 只用于网络协议本身、协议侧 module/package、协议版本或上游正式命名的扩展机制。
+- 大小写不敏感地审计 `protocol`，覆盖 module、package、文件、类型、方法、参数、字段、局部变量、测试、agent skill、Gradle
+  task/configuration、生成目录和输出路径；不能只检查公开类型或 `Protocol` 前缀。
+- 一个值会被协议实现使用、当前位于 protocol module，或最终能够编码进 packet，都不足以让它使用 `Protocol` 命名；名称必须描述
+  该声明自身拥有的网络语义。通用下载、JSON、进程、世界、DataPack、asset 和测试样本设施使用各自领域名称。
+- package 与 module 按声明的语义所有者命名。非网络实现从 `com.hiczp.minecraft.protocol.*` 移出；真正连接 world value 与
+  packet 的 projection、Configuration stage、packet model/codec、session、transport 和 endpoint 仍属于 protocol 侧。
 - `Packet` 只用于网络 packet model；所有 packet class 以 `Packet` 结尾。
 - NBT、Anvil、Region、DataPack、ResourcePack、KnownPack、Configuration 等采用官方术语。
 - 不把官方 runtime 容器名机械带入纯数据模型，因此保留 `Chunk` 而不是 `LevelChunk`。
 
-### 6.2 主要已确定的模块与 identifier 改名
+### 6.2 已确定的模块与 identifier 改名
 
-| 当前                                                      | 目标                                                                     |
-|-----------------------------------------------------------|--------------------------------------------------------------------------|
-| protocol-datapack                                         | protocol-configuration                                                   |
-| protocol-datapack-vanilla                                 | datapack-vanilla + protocol-configuration-vanilla                        |
-| MinecraftProtocolFormat                                   | MinecraftPacketFormat                                                    |
-| MinecraftProtocolFormatConfiguration                      | MinecraftPacketFormatConfiguration                                       |
-| ConfiguredMinecraftProtocolFormat                         | ConfiguredMinecraftPacketFormat                                          |
-| ProtocolRegistryContext                                   | PacketCodecContext                                                       |
-| ProtocolRegistry / ProtocolRegistryEntry                  | RegistryIdMap / RegistryIdMapping                                        |
-| ProtocolBlockState                                        | BlockStateIdMapping                                                      |
-| MinimalProtocolValueDecoder                               | MinimalPacketValueDecoder                                                |
-| ProtocolData / ResolvedProtocolData / VanillaProtocolData | ConfigurationData / ResolvedConfigurationData / VanillaConfigurationData |
-| DataPackProtocolProjector                                 | DataPackConfigurationProjector                                           |
-| MinecraftProtocolTarget                                   | OfficialMinecraftTarget                                                  |
-| MinecraftProtocolToolTask                                 | OfficialMinecraftToolTask                                                |
-| ProtocolHttp                                              | DownloadHttp                                                             |
-| MinecraftClientProtocol / MinecraftServerProtocol         | MinecraftClientNegotiation / MinecraftServerNegotiation                  |
+| 当前                                                                                      | 目标                                                                                                       |
+|-------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
+| protocol-datapack                                                                         | protocol-configuration                                                                                     |
+| `com.hiczp.minecraft.protocol.datapack`                                                   | `com.hiczp.minecraft.protocol.configuration`                                                               |
+| protocol-datapack-vanilla                                                                 | datapack-vanilla + protocol-configuration-vanilla                                                          |
+| `com.hiczp.minecraft.protocol.datapack.vanilla`                                           | `com.hiczp.minecraft.world.format.datapack.vanilla` + `com.hiczp.minecraft.protocol.configuration.vanilla` |
+| MinecraftProtocolFormat / MinecraftProtocolFormatConfiguration                            | MinecraftPacketFormat / MinecraftPacketFormatConfiguration                                                 |
+| ConfiguredMinecraftProtocolFormat                                                         | ConfiguredMinecraftPacketFormat                                                                            |
+| ProtocolRegistryContext / installProtocolRegistryContext / resolveProtocolRegistryContext | PacketCodecContext / installPacketCodecContext / resolvePacketCodecContext                                 |
+| ProtocolRegistry / ProtocolRegistryEntry                                                  | RegistryIdMap / RegistryIdMapping                                                                          |
+| ProtocolBlockState                                                                        | BlockStateIdMapping                                                                                        |
+| ProtocolSampleProfile / MinimalProtocolValueDecoder / protocolValue                       | PacketSampleProfile / MinimalPacketValueDecoder / packetSampleValue                                        |
+| ProtocolData / ResolvedProtocolData / VanillaProtocolData                                 | ConfigurationData / ResolvedConfigurationData / VanillaConfigurationData                                   |
+| toProtocolData / toVanillaProtocolData                                                    | toConfigurationData / toVanillaConfigurationData                                                           |
+| DataPackProtocolProjector / vanillaDataPackProtocolProjector                              | DataPackConfigurationProjector / vanillaDataPackConfigurationProjector                                     |
+| MinecraftProtocolTarget / minecraftProtocolTarget / readMinecraftProtocolTarget           | OfficialMinecraftTarget / officialMinecraftTarget / readOfficialMinecraftTarget                            |
+| MinecraftProtocolToolSupport.kt / MinecraftProtocolToolSupportTest                        | MinecraftToolSupport.kt / MinecraftToolSupportTest                                                         |
+| protocolJson                                                                              | buildLogicJson                                                                                             |
+| protocolRef / `protocol-reference`                                                        | minecraftArtifactsRoot / `minecraft-artifacts`                                                             |
+| ProtocolHttp                                                                              | DownloadHttp                                                                                               |
+| ProtocolSurfaceChunkProjector                                                             | WorldSurfaceChunkProjector                                                                                 |
+| `.agents/skills/minecraft-protocol-vanilla-data`                                          | `.agents/skills/minecraft-vanilla-data`                                                                    |
+| MinecraftClientProtocol / MinecraftServerProtocol                                         | MinecraftClientNegotiation / MinecraftServerNegotiation                                                    |
 
-相应 package、文件、测试、局部变量、Gradle wiring、diagnostics 和生成目录变量同步迁移。`protocol-symbol-processor` 保留，因为它同时
-处理 packet definitions 与 data component serializers。
+类型族改名同步应用到由类型派生的参数、字段、局部变量、helper、测试与 diagnostics；不保留仅反映旧实现历史的 `protocol*` 名称。
+module/package/skill 行同时覆盖手写源码、generated package、Android namespace、skill metadata、source output path、Gradle
+project dependency 和 publication。
+`demo:web-map` 随 world/data-pack 重构移除为 `Identifier`、`MinecraftBlockIds`、`MinecraftProtocol.MINECRAFT_VERSION` 和
+`VanillaRegistryData` 引入的 protocol-module 依赖。
 
 ### 6.3 packet 官方名称审计
 
@@ -395,10 +418,13 @@ direct conversion。现有 Chunk/EntityChunk/PoiChunk conversions、client/serve
 
 ### A. 建立审计清单
 
-1. 固定当前模块依赖、跨层 conversion、`Protocol` identifier 和 `@PacketInfo` 清单。
-2. 扩展官方 packet class report，生成 packet rename 建议并审查 exception。
-3. 建立 world projection inventory。
-4. 在迁移公开类型前确定最终 rename map。
+1. 固定当前模块依赖、跨层 conversion、大小写不敏感的 `protocol` module/package/file/identifier/agent skill/Gradle 名称和
+   `@PacketInfo` 清单。
+2. 为每个 `protocol` 名称记录语义所有者；非网络项进入 rename map，保留项必须直接表示 wire、连接状态、协议版本/ID/table、
+   protocol-side boundary 或有可定位上游名称。
+3. 扩展官方 packet class report，生成 packet rename 建议并审查 exception。
+4. 建立 world projection inventory。
+5. 在迁移公开类型前确定最终 rename map，并让后续新增 `protocol` 名称接受同一语义检查。
 
 ### B. 收敛 world-format
 
@@ -446,16 +472,16 @@ direct conversion。现有 Chunk/EntityChunk/PoiChunk conversions、client/serve
 
 ### 8.1 重点测试
 
-| 范围                             | 必须证明                                                                                                                  |
-|----------------------------------|---------------------------------------------------------------------------------------------------------------------------|
-| world-format world values        | context 引用复用、sparse Section、不必要泛型消失、ticks/structures 非空语义、EntityChunk/PoiChunk 不含 DataVersion        |
-| world-format persistence         | NBT schema、metadata 无损保留、网络 Chunk 可写盘、Entity/POI 定向 codec、Anvil/compression/raw escape hatch               |
-| world-io                         | 每维度 codec 绑定、Region position、sidecar/timestamp 边界、写入恢复、无 protocol 依赖                                    |
-| protocol-model/serialization/KSP | 官方 packet identity/name/field、纯 Chunk packet payload、PacketCodecContext 无 layout、官方 codec oracle                 |
-| protocol-world                   | palettes、heightmaps、lighting、Block Entity、default provider、Entity pairing、projection inventory、无 endpoint/IO 依赖 |
-| protocol-configuration/vanilla   | Known Packs、registry order、WorldChunkContexts/PacketCodecContext resolution、两个 vanilla provider 无反向依赖           |
-| protocol-client/server           | epoch 和维度切换、initial world、Entity tracking 边界、官方 client/server interoperability                                |
-| fluent/escape hatch              | 显式配置、结果等价、资源所有权不变、库内 production source 不调用或读取便利 API                                           |
+| 范围                             | 必须证明                                                                                                                                 |
+|----------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
+| world-format world values        | context 引用复用、sparse Section、不必要泛型消失、ticks/structures 非空语义、EntityChunk/PoiChunk 不含 DataVersion                       |
+| world-format persistence         | NBT schema、metadata 无损保留、网络 Chunk 可写盘、Entity/POI 定向 codec、codec 配置权威性、Anvil/compression/raw escape hatch            |
+| world-io                         | 每维度 codec 绑定、Region slot 只选择 record、自带位置的 NBT 不做隐式 placement 校验、sidecar/timestamp 边界、写入恢复、无 protocol 依赖 |
+| protocol-model/serialization/KSP | 官方 packet identity/name/field、纯 Chunk packet payload、PacketCodecContext 无 layout、官方 codec oracle                                |
+| protocol-world                   | palettes、heightmaps、lighting、Block Entity、default provider、Entity pairing、projection inventory、无 endpoint/IO 依赖                |
+| protocol-configuration/vanilla   | Known Packs、registry order、WorldChunkContexts/PacketCodecContext resolution、两个 vanilla provider 无反向依赖                          |
+| protocol-client/server           | epoch 和维度切换、无跨来源 layout/default/Section count 校验、initial world、Entity tracking 边界、官方 interoperability                 |
+| fluent/escape hatch              | 显式配置、结果等价、资源所有权不变、库内 production source 不调用或读取便利 API                                                          |
 
 ### 8.2 验证命令
 
@@ -492,11 +518,12 @@ Gradle invocation 不并发，先运行最窄 JVM 任务：
 - 不存在 `world-model`；`world-format`、`world-io`、`protocol-world` 和 `protocol-configuration` 依赖方向符合本计划。
 - Chunk/Entity/POI 和其他 world values 的网络归属全部进入 projection inventory，不存在为对称而制造的 codec。
 - client/server 不复制 Chunk codec 或 Entity pairing conversion。
-- 所有 `Protocol` identifier 已分类并处理；packet 名称符合官方规则或存在有效 exception。
+- 所有大小写形式的 `protocol` module、package、文件、代码 identifier、agent skill、Gradle wiring 和生成路径均已分类并处理；
+  剩余名称直接表示网络协议语义或有可定位的正式上游名称，packet 名称符合官方规则或存在有效 exception。
 - 22 个目标 subprojects、publication、文档、生成器和 skills 均反映新边界。
 - 目标平台测试、官方 codec oracle 和官方 endpoint fixtures 通过。
 
-## 9. 剩余讨论项
+## 9. 待确认设计事项
 
 1. Chunk 各字段的最终 typed model，以及 `ChunkPacketDefaultProvider` 对应默认值，尤其 scheduled tick 时间基准、structure
    start 和 generation-stage entities。

@@ -20,16 +20,14 @@ data class BlockPosition(
     val y: Int,
     val z: Int,
 ) {
-    init {
+    fun packed(): Long {
         require(x in MIN_XZ..MAX_XZ) { "x is outside the 26-bit protocol range: $x" }
         require(z in MIN_XZ..MAX_XZ) { "z is outside the 26-bit protocol range: $z" }
         require(y in MIN_Y..MAX_Y) { "y is outside the 12-bit protocol range: $y" }
-    }
-
-    fun packed(): Long =
-        ((x.toLong() and XZ_MASK) shl 38) or
+        return ((x.toLong() and XZ_MASK) shl 38) or
                 ((z.toLong() and XZ_MASK) shl 12) or
                 (y.toLong() and Y_MASK)
+    }
 
     companion object {
         const val MIN_XZ: Int = -33_554_432

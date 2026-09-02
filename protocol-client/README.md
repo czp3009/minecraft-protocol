@@ -252,7 +252,7 @@ See [`protocol-datapack`](../protocol-datapack/README.md) for all constructible 
 ## Decode Chunk packets
 
 Configuration and Play Login are resolved together during `negotiate()`. The returned `minecraftDimensionContext`
-contains the selected `DimensionId`, synchronized dimension-type ID/raw ID, validated layout, and active registries. It
+contains the selected `DimensionId`, synchronized dimension-type ID/raw ID, resolved layout, and active registries. It
 deliberately stops before block and biome defaults because those are semantic codec choices, not negotiation input. For
 vanilla data, create the complete Chunk context with its defaults and then create the packet decoder fluently:
 
@@ -278,9 +278,11 @@ inhabited time, scheduled ticks, or other persistence-only fields. Persistent en
 reconstruct or merge every omitted storage field and any persistent Block Entity data absent from the server's update
 tags; the decoder never invents or implicitly retains that state.
 
-The decoder validates packet Section count and palette IDs against the same context installed on the connection. The
-result is the same semantic `Chunk<ProtocolBlockState, ProtocolRegistryEntry>` used by the disk and server paths; the
-client does not need a data-pack directory or a separately assembled registry adapter.
+The decoder uses its selected layout to place packet Sections and resolves palette IDs through the installed registry
+context. It does not compare an already decoded Section list or a parallel protocol Section count with that layout;
+applications that need those cross-source checks can perform them before decoding. The result is the same semantic
+`Chunk<ProtocolBlockState, ProtocolRegistryEntry>` used by the disk and server paths; the client does not need a
+data-pack directory or a separately assembled registry adapter.
 
 `dataPackConfigurationSnapshot`, `resolveClientRegistryView(...)`, `playLoginPacket`, `minecraftDimensionContext`,
 `minecraftDimensionLayout`, and `chunkLayout` remain available for inspection and custom decoders. The explicit

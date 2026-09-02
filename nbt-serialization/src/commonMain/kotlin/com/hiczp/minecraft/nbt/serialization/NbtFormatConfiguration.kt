@@ -12,7 +12,7 @@ enum class NbtRootEncoding {
     /** Writes an empty root name; reads and discards the encoded root name. */
     UNNAMED,
 
-    /** A tag ID, [NbtFormatConfiguration.rootName], then its payload. */
+    /** Writes [NbtFormatConfiguration.rootName]; reads and discards the encoded root name. */
     NAMED,
 }
 

@@ -1,13 +1,24 @@
 package com.hiczp.minecraft.protocol.model
 
-import com.hiczp.minecraft.protocol.model.packet.HandshakeNextState
-import com.hiczp.minecraft.protocol.model.packet.HandshakePacket
-import com.hiczp.minecraft.protocol.model.packet.LegacyServerListPingPacket
+import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlin.random.Random
 import kotlin.test.*
 
 class ProtocolModelContractTest {
+    @Test
+    fun `unknown packet subtype retains its direction invariant`() {
+        val serverboundRoute = PacketRoute.TopLevel(ConnectionState.PLAY, PacketDirection.SERVERBOUND, 0)
+        val clientboundRoute = PacketRoute.TopLevel(ConnectionState.PLAY, PacketDirection.CLIENTBOUND, 0)
+
+        assertFailsWith<IllegalArgumentException> {
+            UnknownPacket.Clientbound(serverboundRoute, ByteString(byteArrayOf()))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            UnknownPacket.Serverbound(clientboundRoute, ByteString(byteArrayOf()))
+        }
+    }
+
     @Test
     fun `identifier normalizes the default namespace and validates both parts`() {
         assertEquals(Identifier("minecraft:stone"), Identifier("stone"))
@@ -47,10 +58,10 @@ class ProtocolModelContractTest {
             assertEquals(blockPosition, BlockPosition.fromPacked(blockPosition.packed()))
         }
         assertFailsWith<IllegalArgumentException> {
-            BlockPosition(BlockPosition.MAX_XZ + 1, 0, 0)
+            BlockPosition(BlockPosition.MAX_XZ + 1, 0, 0).packed()
         }
         assertFailsWith<IllegalArgumentException> {
-            BlockPosition(0, BlockPosition.MIN_Y - 1, 0)
+            BlockPosition(0, BlockPosition.MIN_Y - 1, 0).packed()
         }
 
         val random = Random(0x504F53)
@@ -114,18 +125,17 @@ class ProtocolModelContractTest {
     }
 
     @Test
-    fun `packet and item constructors reject impossible wire states`() {
-        assertFailsWith<IllegalArgumentException> {
+    fun `packet models preserve wire values while item counts retain their representation invariant`() {
+        assertEquals(
+            HandshakeNextState.UNUSED,
             HandshakePacket(
                 protocolVersion = 0,
                 serverAddress = "localhost",
                 serverPort = 25_565,
                 nextState = HandshakeNextState.UNUSED,
-            )
-        }
-        assertFailsWith<IllegalArgumentException> {
-            LegacyServerListPingPacket(payload = 0)
-        }
+            ).nextState,
+        )
+        assertEquals(0, LegacyServerListPingPacket(payload = 0).payload)
         assertFailsWith<IllegalArgumentException> {
             ItemStack.Present(count = 0, itemId = 1)
         }

@@ -11,20 +11,30 @@ import com.hiczp.minecraft.world.format.data.WorldGenDimensionType
 import com.hiczp.minecraft.world.format.data.WorldGenSettingsData
 
 /** A complete server-side world projection with one ready-to-use Chunk context per declared dimension. */
-data class ResolvedMinecraftWorld(
+class ResolvedMinecraftWorld(
     val protocolData: ResolvedProtocolData,
-    val dimensions: Map<DimensionId, MinecraftChunkContext>,
+    minecraftChunkContexts: Collection<MinecraftChunkContext>,
 ) {
+    val dimensions: Map<DimensionId, MinecraftChunkContext> =
+        minecraftChunkContexts.associateBy(MinecraftChunkContext::dimensionId)
+
     init {
-        require(dimensions.all { (dimensionId, minecraftChunkContext) ->
-            dimensionId == minecraftChunkContext.dimensionId
-        }) {
-            "Resolved world dimension keys must match their Chunk contexts"
+        require(dimensions.size == minecraftChunkContexts.size) {
+            "Resolved world Chunk contexts must have distinct dimension identifiers"
         }
     }
 
     fun dimension(dimensionId: DimensionId): MinecraftChunkContext =
         requireNotNull(dimensions[dimensionId]) { "World does not declare dimension $dimensionId" }
+
+    override fun equals(other: Any?): Boolean =
+        other is ResolvedMinecraftWorld &&
+                protocolData == other.protocolData && dimensions == other.dimensions
+
+    override fun hashCode(): Int = 31 * protocolData.hashCode() + dimensions.hashCode()
+
+    override fun toString(): String =
+        "ResolvedMinecraftWorld(protocolData=$protocolData, dimensions=$dimensions)"
 }
 
 /** All dimension-specific failures found before any [MinecraftChunkContext] is constructed. */
@@ -76,7 +86,7 @@ fun ResolvedProtocolData.resolveMinecraftWorld(
 ): ResolvedMinecraftWorld {
     val resolvedDimensionLayouts = resolveDimensionLayouts(worldGenSettingsData, allowInlineDimensionTypes = false)
     val chunkDataRegistries = completeProtocolRegistryContext.toChunkDataRegistries(defaultBlock, defaultBiome)
-    val dimensions = resolvedDimensionLayouts.mapValues { (dimensionId, resolvedDimensionLayout) ->
+    val minecraftChunkContexts = resolvedDimensionLayouts.map { (dimensionId, resolvedDimensionLayout) ->
         val minecraftDimensionContext = MinecraftDimensionContext.create(
             dimensionId = dimensionId,
             minecraftDimensionLayout = requireNotNull(resolvedDimensionLayout.minecraftDimensionLayout),
@@ -89,7 +99,7 @@ fun ResolvedProtocolData.resolveMinecraftWorld(
             defaultBiome = defaultBiome,
         )
     }
-    return ResolvedMinecraftWorld(this, dimensions)
+    return ResolvedMinecraftWorld(this, minecraftChunkContexts)
 }
 
 private fun ResolvedProtocolData.resolveDimensionLayouts(

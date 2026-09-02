@@ -194,6 +194,37 @@ internal object NeoForgeRegistrySnapshotSerializer :
     }
 }
 
+internal object NeoForgeNetworkSetupSerializer :
+    KSerializer<NeoForgeNetworkSetup> {
+    override val descriptor: SerialDescriptor = NeoForgeNetworkSetupWire.serializer().descriptor
+
+    override fun serialize(encoder: Encoder, value: NeoForgeNetworkSetup) {
+        encoder.encodeSerializableValue(
+            NeoForgeNetworkSetupWire.serializer(),
+            NeoForgeNetworkSetupWire(value.channels),
+        )
+    }
+
+    override fun deserialize(decoder: Decoder): NeoForgeNetworkSetup {
+        val neoForgeNetworkSetupWire = decoder.decodeSerializableValue(NeoForgeNetworkSetupWire.serializer())
+        return try {
+            NeoForgeNetworkSetup(
+                neoForgeNetworkSetupWire.channels.mapValues { (_, indexedChannels) -> indexedChannels.values },
+            )
+        } catch (cause: IllegalArgumentException) {
+            throw MinecraftSerializationException(
+                "Invalid NeoForge network setup",
+                cause,
+            )
+        }
+    }
+}
+
+@Serializable
+private data class NeoForgeNetworkSetupWire(
+    val channels: Map<NeoForgeConnectionProtocol, Map<Identifier, NeoForgeNetworkChannel>>,
+)
+
 @Serializable
 private data class NeoForgeRegistrySnapshotWire(
     @VarIntElements

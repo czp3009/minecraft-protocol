@@ -126,8 +126,8 @@ class DataPackProtocolProjectorTest {
         val dataPackResourcePath = DataPackResourcePath("test", "tags/worldgen/biome/invalid.json")
         val resolvedDataPackStack = ResolvedDataPackStack(
             dataPackIds = listOf(dataPackId),
-            resolvedDataPackResources = mapOf(
-                dataPackResourcePath to ResolvedDataPackResource(
+            resolvedDataPackResources = listOf(
+                ResolvedDataPackResource(
                     dataPackResourcePath = dataPackResourcePath,
                     dataPackFileContent = DataPackFileContent.JsonFile(
                         buildJsonObject { put("values", buildJsonArray { add(buildJsonArray {}) }) },

@@ -168,7 +168,6 @@ class AnvilRegionFormatTest {
         val anvilRegion = AnvilRegion(
             mapOf(
                 localChunkPosition to AnvilChunkRecord(
-                    compression = Compression.LZ4,
                     content = content,
                     anvilChunkPlacement = AnvilChunkPlacement.EXTERNAL,
                     timestampEpochSeconds = 42,
@@ -425,7 +424,7 @@ class AnvilRegionFormatTest {
     }
 
     @Test
-    fun typedChunkNbtUsesTheSameUnnamedRootAsDocuments() = runTest {
+    fun typedCompressedNbtUsesItsConfiguredRootFraming() = runTest {
         val expected = TypedChunkNbt(4_000, "ready")
         val compressedNbtFormat = CompressedNbtFormat()
 
@@ -443,9 +442,9 @@ class AnvilRegionFormatTest {
             assertTrue(stream.exhausted())
         }
 
-        assertFailsWith<IllegalArgumentException> {
-            CompressedNbtFormat(NbtFormat)
-        }
+        val anyRootFormat = CompressedNbtFormat(NbtFormat)
+        val anyRootChunk = anyRootFormat.encode(expected, Compression.NONE)
+        assertEquals(expected, anyRootFormat.decode<TypedChunkNbt>(anyRootChunk))
     }
 
     @Test
@@ -476,7 +475,6 @@ class AnvilRegionFormatTest {
             AnvilRegion(
                 mapOf(
                     localChunkPosition to AnvilChunkRecord(
-                        compression = Compression.ZLIB,
                         content = compressedNbtFormat.encodeDocument(nbtDocument, Compression.ZLIB),
                         anvilChunkPlacement = AnvilChunkPlacement.INLINE,
                         timestampEpochSeconds = 1_234_567,
@@ -839,7 +837,7 @@ class AnvilRegionFormatTest {
     }
 
     @Test
-    fun streamingRegionPayloadMustBeFullyConsumedDespiteBufferReadAhead() {
+    fun streamingRegionDecoderDrainsPayloadBytesTheCallbackDoesNotConsume() {
         val localChunkPosition = LocalChunkPosition(0, 0)
         val encodedAnvilRegion = AnvilRegionFormat.encodeToByteArray(
             AnvilRegion(
@@ -852,11 +850,12 @@ class AnvilRegionFormatTest {
             ),
         )
 
-        assertFailsWith<AnvilFormatException> {
-            AnvilRegionFormat.decodeRecordsFromSource(Buffer().apply { write(encodedAnvilRegion.bytes) }) { _, payload ->
-                payload.readByte()
-            }
+        var consumedByte: Byte? = null
+        AnvilRegionFormat.decodeRecordsFromSource(Buffer().apply { write(encodedAnvilRegion.bytes) }) { _, payload ->
+            consumedByte = payload.readByte()
         }
+
+        assertEquals(0.toByte(), consumedByte)
     }
 
     @Test
@@ -1155,7 +1154,6 @@ class AnvilRegionFormatTest {
             AnvilRegion(
                 mapOf(
                     localChunkPosition to AnvilChunkRecord(
-                        compression = Compression.NONE,
                         content = CompressedChunk(Compression.NONE, byteArrayOf(1)),
                         anvilChunkPlacement = AnvilChunkPlacement.INLINE,
                     ),
@@ -1209,12 +1207,13 @@ class AnvilRegionFormatTest {
         compression: Compression,
         testRecordContent: TestRecordContent,
         timestampEpochSeconds: Int = 0,
-    ): AnvilChunkRecord = AnvilChunkRecord(
-        compression = compression,
-        content = testRecordContent.bytes?.let { CompressedChunk(compression, it) },
-        anvilChunkPlacement = testRecordContent.anvilChunkPlacement,
-        timestampEpochSeconds = timestampEpochSeconds,
-    )
+    ): AnvilChunkRecord = testRecordContent.bytes?.let { bytes ->
+        AnvilChunkRecord(
+            content = CompressedChunk(compression, bytes),
+            anvilChunkPlacement = testRecordContent.anvilChunkPlacement,
+            timestampEpochSeconds = timestampEpochSeconds,
+        )
+    } ?: AnvilChunkRecord.unresolvedExternal(compression, timestampEpochSeconds)
 
     private fun singleRecord(length: Int, version: Int): ByteArray =
         ByteArray(3 * REGION_SECTOR_BYTES).also {

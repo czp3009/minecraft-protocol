@@ -535,10 +535,8 @@ class RegionStorageTest {
                 chunkPosition.regionPosition,
                 AnvilRegion(
                     mapOf(
-                        chunkPosition.localChunkPosition to AnvilChunkRecord(
+                        chunkPosition.localChunkPosition to AnvilChunkRecord.unresolvedExternal(
                             compression = Compression.NONE,
-                            content = null,
-                            anvilChunkPlacement = AnvilChunkPlacement.EXTERNAL,
                         ),
                     ),
                 ),

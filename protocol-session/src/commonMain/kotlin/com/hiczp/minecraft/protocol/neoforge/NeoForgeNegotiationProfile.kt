@@ -848,9 +848,9 @@ class NeoForgeServerProfile(
             ?.containsKey(channel) == true
 
     private fun requireExpected(expectedResponse: ExpectedResponse) {
-        if (expectedResponse != expectedResponse) {
+        if (this.expectedResponse != expectedResponse) {
             throw NeoForgeNegotiationException(
-                "NeoForge response $expectedResponse arrived while waiting for $expectedResponse",
+                "NeoForge response $expectedResponse arrived while waiting for ${this.expectedResponse}",
             )
         }
     }

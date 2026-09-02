@@ -28,21 +28,6 @@ class DataPackConfigurationSnapshot(
         )
     }
 
-    init {
-        require(this.offeredKnownPacks.distinct().size == this.offeredKnownPacks.size) {
-            "Offered Known Packs contains duplicates"
-        }
-        require(
-            this.synchronizedRegistryPackets.map(RegistryDataPacket::registryId).distinct().size ==
-                    this.synchronizedRegistryPackets.size,
-        ) {
-            "Data-pack Configuration contains duplicate synchronized registries"
-        }
-        require(this.registryTags.map(RegistryTags::registry).distinct().size == this.registryTags.size) {
-            "Data-pack Configuration contains duplicate registry tags"
-        }
-    }
-
     override fun equals(other: Any?): Boolean =
         other is DataPackConfigurationSnapshot &&
                 offeredKnownPacks == other.offeredKnownPacks &&

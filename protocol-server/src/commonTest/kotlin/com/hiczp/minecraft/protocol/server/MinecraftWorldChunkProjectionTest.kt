@@ -18,6 +18,40 @@ import com.hiczp.minecraft.protocol.model.type.PalettedContainer as NetworkPalet
 
 class MinecraftWorldChunkProjectionTest {
     @Test
+    fun encoderUsesItsOwnLayoutAndDefaultsWithoutCrossValidation() {
+        val protocolRegistryContext = testProtocolRegistryContext().withChunkSectionCount(1)
+        val encoderLayout = ChunkLayout(minSectionY = -1, sectionCount = 2)
+        val minecraftChunkPacketEncoder = MinecraftChunkPacketEncoder(
+            protocolRegistryContext = protocolRegistryContext,
+            chunkCodecContext = ChunkCodecContext(
+                encoderLayout,
+                protocolRegistryContext.toChunkDataRegistries(),
+            ),
+            isAir = { protocolBlockState -> protocolBlockState.block == MinecraftBlockIds.AIR },
+            hasFluid = { false },
+            hasSkyLight = true,
+        )
+        val chunk = Chunk(
+            chunkPosition = ChunkPosition(0, 0),
+            chunkMetadata = ChunkMetadata(),
+            chunkLayout = ChunkLayout(minSectionY = 0, sectionCount = 1),
+            defaultBlockState = protocolRegistryContext.blockStates[1],
+            defaultBiome = ProtocolRegistryEntry(Identifier("example:other_biome"), 99),
+        )
+
+        val packet = minecraftChunkPacketEncoder.encodePacket(chunk)
+
+        assertEquals(encoderLayout.sectionCount, packet.chunkData.sections.size)
+        packet.chunkData.sections.forEach { chunkSection ->
+            assertEquals(
+                protocolRegistryContext.blockStates[0].id,
+                assertIs<NetworkPalettedContainer.Single>(chunkSection.blockStates).valueId,
+            )
+            assertEquals(0, assertIs<NetworkPalettedContainer.Single>(chunkSection.biomes).valueId)
+        }
+    }
+
+    @Test
     fun projectsAStrongChunkToTheWireAndBackWithoutDensePaletteCopies() {
         val protocolRegistryContext = testProtocolRegistryContext()
         val chunkLayout = ChunkLayout(minSectionY = -1, sectionCount = 2)

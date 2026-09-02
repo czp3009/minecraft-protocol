@@ -528,10 +528,9 @@ class OfficialWorldStorageInteropTest {
                 val nbtDocument = documents.getValue(compressionProbe.chunkPosition)
                 if (index == 0) {
                     val chunkNbtCodec = strongChunkCodec(nbtDocument)
-                    val chunk = chunkNbtCodec.decodeDocument(nbtDocument, compressionProbe.chunkPosition)
+                    val chunk = chunkNbtCodec.decodeDocument(nbtDocument)
                     documents[compressionProbe.chunkPosition] = chunkNbtCodec.encodeDocument(chunk)
                     writingStore.writeChunk(
-                        compressionProbe.chunkPosition,
                         chunk,
                         chunkNbtCodec,
                         compressionProbe.compression
@@ -854,7 +853,7 @@ class OfficialWorldStorageInteropTest {
                             regionStorage.chunkNbtFormat.decodeDocument(checkNotNull(anvilChunkRecord.content))
                         if (regionStorageDirectory == RegionStorageDirectory.ENTITIES) {
                             val entityChunk = EntityChunkNbtCodec(NbtEntityDataRegistry())
-                                .decodeDocument(nbtDocument, chunkPosition)
+                                .decodeDocument(nbtDocument)
                             check(!entityChunk.isEmpty) {
                                 "Official Entity storage retained an empty Chunk: $chunkPosition"
                             }

@@ -7,7 +7,6 @@ plugins {
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
 }
 
-val officialTargetFile = officialMinecraftArtifactFile("officialMinecraftTarget")
 val officialReportsDirectory = officialMinecraftArtifactDirectory("officialMinecraftReports")
 val officialConfigurationFile = officialMinecraftArtifactFile("officialMinecraftConfiguration")
 val officialDataPacksDirectory = officialMinecraftArtifactDirectory("officialMinecraftDataPacks")
@@ -44,7 +43,6 @@ val generateVanillaConfigurationPacketPayloadSource =
         "generateVanillaConfigurationPacketPayloadSource",
     ) {
         description = "Generate vanilla Configuration source from analysis data."
-        targetFile = officialTargetFile
         configurationFile = officialConfigurationFile
         outputFile =
             generatedConfigurationPacketPayloadDirectory.map {

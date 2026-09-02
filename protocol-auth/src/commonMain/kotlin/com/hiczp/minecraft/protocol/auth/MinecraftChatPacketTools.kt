@@ -113,9 +113,6 @@ suspend fun MinecraftChatChainSigner.signCommandArguments(
     salt: Long,
     lastSeen: List<ByteString>,
 ): SignedCommandArguments {
-    require(arguments.size <= MAX_SIGNED_COMMAND_ARGUMENTS) {
-        "A signed command cannot contain more than $MAX_SIGNED_COMMAND_ARGUMENTS arguments"
-    }
     val messages = signAll(
         arguments.map { signableCommandArgument ->
             SignedMessageBody(
@@ -150,25 +147,18 @@ fun MinecraftSignedMessage.toPlayerChatMessagePacket(
     packedLastSeen: List<PackedMessageSignature>,
     unsignedContent: TextComponent? = null,
     filterMask: FilterMask = FilterMask.PassThrough,
-): PlayerChatMessagePacket {
-    require(packedLastSeen.size == signedMessageBody.lastSeen.size) {
-        "Packed last-seen signatures must preserve the signed body's entry count"
-    }
-    return PlayerChatMessagePacket(
-        globalIndex = globalIndex,
-        sender = signedMessageLink.sender,
-        index = signedMessageLink.index,
-        signature = signature,
-        body = PackedSignedMessageBody(
-            content = signedMessageBody.content,
-            timestampEpochMillis = signedMessageBody.timestampEpochMillis,
-            salt = signedMessageBody.salt,
-            lastSeen = packedLastSeen,
-        ),
-        unsignedContent = unsignedContent,
-        filterMask = filterMask,
-        chatType = boundChatType,
-    )
-}
-
-private const val MAX_SIGNED_COMMAND_ARGUMENTS: Int = 8
+): PlayerChatMessagePacket = PlayerChatMessagePacket(
+    globalIndex = globalIndex,
+    sender = signedMessageLink.sender,
+    index = signedMessageLink.index,
+    signature = signature,
+    body = PackedSignedMessageBody(
+        content = signedMessageBody.content,
+        timestampEpochMillis = signedMessageBody.timestampEpochMillis,
+        salt = signedMessageBody.salt,
+        lastSeen = packedLastSeen,
+    ),
+    unsignedContent = unsignedContent,
+    filterMask = filterMask,
+    chatType = boundChatType,
+)

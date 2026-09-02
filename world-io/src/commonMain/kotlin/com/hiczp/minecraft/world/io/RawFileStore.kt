@@ -7,7 +7,7 @@ import okio.*
  *
  * This store does not resolve paths relative to a world, coordinate logical files, acquire
  * `session.lock`, or participate in a [MinecraftWorldAccess] lifecycle. Callback streams are
- * borrowed only for the duration of the call and must be consumed completely.
+ * borrowed only for the duration of the call; unread bytes are discarded before the stream closes.
  */
 class RawFileStore internal constructor(
     internal val worldFileAccess: WorldFileAccess,
@@ -22,7 +22,7 @@ class RawFileStore internal constructor(
 
     fun readBytes(path: Path): ByteArray = read(path) { source -> source.readByteArray() }
 
-    /** Lends the complete file source for the duration of [block]. */
+    /** Lends the file source for the duration of [block]. */
     fun <T> read(path: Path, block: (BufferedSource) -> T): T =
         worldFileAccess.readFile(path) { bufferedSource, _ -> block(bufferedSource) }
 
@@ -34,7 +34,6 @@ class RawFileStore internal constructor(
         }
         val byteCount = fileMetadata.size
             ?: throw WorldIOException("Regular file has no size: $path")
-        if (byteCount < 0L) throw WorldIOException("File has a negative size: $path")
         return worldFileAccess.readFileAtKnownSize(path, byteCount, block)
     }
 

@@ -54,9 +54,6 @@ fun DataPackConfigurationSnapshot.resolveClientRegistryView(
     val protocolRegistryContext = protocolData.completeProtocolRegistryContext
         .withStaticRegistryResolution(resolvedStaticRegistryContext)
         .withRegistries(synchronizedProtocolRegistries)
-    require(protocolRegistryContext.requireRegistry(ProtocolRegistryContext.BIOME_REGISTRY).size > 0) {
-        "The synchronized biome registry is empty"
-    }
     return resolveClientRegistryView(protocolRegistryContext)
 }
 

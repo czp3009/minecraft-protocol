@@ -116,7 +116,12 @@ data class AssetModelFace(
     val uv: List<Float>?,
     val rotation: Int,
     val tintIndex: Int?,
-)
+) {
+    init {
+        require(uv == null || uv.size == MODEL_FACE_UV_COMPONENT_COUNT) { "A model face UV must have four components" }
+        require(rotation in ROTATIONS) { "Model face rotation must be a multiple of 90 degrees" }
+    }
+}
 
 enum class AssetDirection {
     DOWN,
@@ -262,9 +267,8 @@ object MinecraftAssetJsonParser {
         val faceObject = jsonElement.jsonObject
         val uv = faceObject["uv"]?.jsonArray?.map { value ->
             value.jsonPrimitive.floatOrNull ?: error("Invalid model face UV component")
-        }?.also { values -> require(values.size == 4) { "A model face UV must have four components" } }
+        }
         val rotation = faceObject["rotation"]?.jsonPrimitive?.intOrNull ?: 0
-        require(rotation in ROTATIONS) { "Model face rotation must be a multiple of 90 degrees" }
         return AssetModelFace(
             texture = checkNotNull(faceObject["texture"]?.jsonPrimitive?.contentOrNull) { "Model face has no texture" },
             uv = uv,
@@ -318,5 +322,6 @@ fun stableAssetHash(value: String): Int {
 }
 
 private val ROTATIONS: Set<Int> = setOf(0, 90, 180, 270)
+private const val MODEL_FACE_UV_COMPONENT_COUNT: Int = 4
 private const val FNV_OFFSET_BASIS: Int = -2128831035
 private const val FNV_PRIME: Int = 16777619

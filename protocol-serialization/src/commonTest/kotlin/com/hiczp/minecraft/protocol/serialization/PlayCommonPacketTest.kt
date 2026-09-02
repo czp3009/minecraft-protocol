@@ -96,5 +96,16 @@ class PlayCommonPacketTest {
             ),
         )
 
+        assertContentEquals(
+            "0f6d696e6563726166743a6272616e6403616263".hexToByteArray(),
+            MinecraftProtocolFormat.encodeToByteArray(
+                PlayClientboundPluginMessagePacket(
+                    CustomPayload.Unknown(
+                        Identifier("minecraft:brand"),
+                        ByteString(byteArrayOf(0x03, 0x61, 0x62, 0x63)),
+                    ),
+                ),
+            ),
+        )
     }
 }

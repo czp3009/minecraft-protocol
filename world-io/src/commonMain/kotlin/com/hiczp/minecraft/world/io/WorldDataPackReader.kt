@@ -14,7 +14,11 @@ enum class DataPackContainerKind {
 data class DataPackFileInfo(
     val dataPackFilePath: DataPackFilePath,
     val sizeInBytes: Long,
-)
+) {
+    init {
+        require(sizeInBytes >= 0L) { "A data-pack file size must be non-negative" }
+    }
+}
 
 /** Paths and declared sizes found while inspecting one on-disk data pack. */
 data class DataPackInspection(
@@ -28,9 +32,6 @@ data class DataPackInspection(
     }
 
     init {
-        require(dataPackFileInfos.all { it.sizeInBytes >= 0L }) {
-            "Inspected data-pack file sizes must be non-negative"
-        }
         require(
             dataPackFileInfos.map(DataPackFileInfo::dataPackFilePath).distinct().size == dataPackFileInfos.size,
         ) {
@@ -209,9 +210,6 @@ class WorldDataPackReader(
         dataPackFilePath: DataPackFilePath,
         block: (BufferedSource) -> T,
     ): T {
-        requireNotNull(dataPackInspection.dataPackFileInfo(dataPackFilePath)) {
-            "$dataPackFilePath was not present in the inspected data pack ${dataPackInspection.dataPackId}"
-        }
         return when (dataPackInspection.dataPackContainerKind) {
             DataPackContainerKind.DIRECTORY -> {
                 val absoluteDataPackFilePath = dataPackFilePath.resolveBelow(dataPackInspection.dataPackContainerPath)
@@ -236,9 +234,6 @@ class WorldDataPackReader(
             if (!fileMetadata.isRegularFile) return@forEach
             val sizeInBytes = fileMetadata.size
                 ?: throw WorldIOException("Data-pack file has no size: $absoluteDataPackFilePath")
-            if (sizeInBytes < 0L) {
-                throw WorldIOException("Data-pack file has a negative size: $absoluteDataPackFilePath")
-            }
             val relativeDataPackFilePath = DataPackFilePath(
                 absoluteDataPackFilePath.relativeTo(dataPackRoot).segments.joinToString("/"),
             )

@@ -251,9 +251,9 @@ class ClientToServerEndToEndTest {
             onlineMode = false,
         )
         val minecraftDimensionLayout = MinecraftDimensionLayout.from(
-            playLoginPacket,
-            synchronizedRegistryPackets,
-            minecraftServerNegotiationOptions.protocolData,
+            dimensionTypeRawId = playLoginPacket.spawnInfo.dimensionTypeId,
+            synchronizedRegistryPackets = synchronizedRegistryPackets,
+            protocolData = minecraftServerNegotiationOptions.protocolData,
         )
         val baseProtocolRegistryContext = minecraftServerNegotiationOptions.protocolData
             .resolveSynchronizedRegistryContext(synchronizedRegistryPackets)
@@ -412,7 +412,7 @@ class ClientToServerEndToEndTest {
 
         val playLoginPacket = assertIs<PlayLoginPacket>(minecraftClientConnection.incoming.receive())
         val minecraftDimensionLayout = MinecraftDimensionLayout.from(
-            playLoginPacket = playLoginPacket,
+            dimensionTypeRawId = playLoginPacket.spawnInfo.dimensionTypeId,
             synchronizedRegistryPackets = synchronizedRegistryPackets,
             protocolData = VanillaProtocolData,
         )

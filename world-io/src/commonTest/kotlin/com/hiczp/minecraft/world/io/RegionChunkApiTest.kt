@@ -82,7 +82,7 @@ class RegionChunkApiTest {
 
             regionStorage.withChunkNbtSource(firstPosition) { sourceInfo, source ->
                 assertEquals(regionChunkInfo, sourceInfo)
-                val sourceChunk = TEST_CODEC.decodeFromOkio(source, firstPosition)
+                val sourceChunk = TEST_CODEC.decodeFromOkio(source)
                 assertEquals(STONE, sourceChunk.block(15, TEST_LAYOUT.minBlockY, 0))
             }
 
@@ -210,6 +210,47 @@ class RegionChunkApiTest {
         } finally {
             regionStorage.close()
         }
+        fakeFileSystem.checkNoOpenFiles()
+    }
+
+    @Test
+    fun semanticReadsPreserveTheNbtPositionWhenItDiffersFromTheRegionSlot() = runTest {
+        val fakeFileSystem = FakeFileSystem()
+        val worldRoot = "/world".toPath()
+        val directory = MinecraftWorldPaths(worldRoot).regionDirectory(RegionStorageDirectory.CHUNKS)
+        val regionStorage = CoordinatedRegionStore(
+            directory = directory,
+            fileSystem = fakeFileSystem,
+            regionStorageConfiguration = RegionStorageConfiguration(syncWrites = false),
+        )
+        val slotPosition = ChunkPosition(1, 2)
+        val storedPosition = ChunkPosition(40, -12)
+        val nbtDocument = TEST_CODEC.encodeDocument(emptyChunk(storedPosition))
+
+        try {
+            regionStorage.writeChunkNbtDocument(slotPosition, nbtDocument, Compression.NONE)
+            assertEquals(storedPosition, assertNotNull(regionStorage.readChunk(slotPosition, TEST_CODEC)).chunkPosition)
+            regionStorage.openRegion(slotPosition.regionPosition).use { regionHandle ->
+                assertEquals(
+                    storedPosition,
+                    assertNotNull(regionHandle.readChunk(slotPosition, TEST_CODEC)).chunkPosition
+                )
+                regionHandle.withReadScope(TEST_CODEC) {
+                    assertEquals(storedPosition, assertNotNull(readChunk(slotPosition)).chunkPosition)
+                }
+            }
+        } finally {
+            regionStorage.close()
+        }
+
+        LiveMinecraftWorldAccess.open(worldRoot, fakeFileSystem).dimensions.overworld
+            .openRegion(slotPosition.regionPosition)
+            .use { liveRegionHandle ->
+                assertEquals(
+                    storedPosition,
+                    assertNotNull(liveRegionHandle.readChunk(slotPosition, TEST_CODEC)).chunkPosition
+                )
+            }
         fakeFileSystem.checkNoOpenFiles()
     }
 

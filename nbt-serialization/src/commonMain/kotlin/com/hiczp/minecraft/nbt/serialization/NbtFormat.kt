@@ -125,12 +125,7 @@ sealed class NbtFormat(
                     )
                 }
                 validateType(type)
-                val name = nbtBinaryReader.readModifiedUtf()
-                if (name != nbtFormatConfiguration.rootName) {
-                    throw NbtDecodingException(
-                        "Expected NBT root name '${nbtFormatConfiguration.rootName}', got '$name'",
-                    )
-                }
+                nbtBinaryReader.readModifiedUtf()
             }
         }
         NbtBinaryDecoder(

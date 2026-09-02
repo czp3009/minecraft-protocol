@@ -273,17 +273,7 @@ data class PlayerChatMessagePacket(
     val unsignedContent: TextComponent?,
     val filterMask: FilterMask,
     val chatType: BoundChatType,
-) : PlayStatePacket, SkippableClientboundPacket {
-    init {
-        require(signature == null || signature.size == SIGNATURE_BYTES) {
-            "A message signature must contain $SIGNATURE_BYTES bytes"
-        }
-    }
-
-    companion object {
-        const val SIGNATURE_BYTES: Int = 256
-    }
-}
+) : PlayStatePacket, SkippableClientboundPacket
 
 @Serializable
 @PacketInfo(

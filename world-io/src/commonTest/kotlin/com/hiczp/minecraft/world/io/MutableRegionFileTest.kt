@@ -216,7 +216,7 @@ class MutableRegionFileTest {
     }
 
     @Test
-    fun streamingReadsMustConsumeTheLentPayload() {
+    fun streamingReadsDiscardTheUnreadPayload() {
         val fakeFileSystem = FakeFileSystem()
         val mutableRegionFile = MutableRegionFile.open("/world/region/r.0.0.mca".toPath(), fakeFileSystem)
         val localChunkPosition = LocalChunkPosition(0, 0)
@@ -226,9 +226,10 @@ class MutableRegionFileTest {
         )
 
         try {
-            assertFailsWith<WorldIOException> {
-                mutableRegionFile.withCompressedChunkSource(localChunkPosition) { _, source -> source.readByte() }
+            val firstByte = mutableRegionFile.withCompressedChunkSource(localChunkPosition) { _, source ->
+                source.readByte()
             }
+            assertEquals(1, firstByte)
             assertContentEquals(
                 byteArrayOf(1, 2, 3),
                 checkNotNull(mutableRegionFile.readCompressedChunk(localChunkPosition)).toByteArray(),

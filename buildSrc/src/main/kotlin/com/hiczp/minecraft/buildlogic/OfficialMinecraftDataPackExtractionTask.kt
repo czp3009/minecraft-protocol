@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.buildlogic
 
 import kotlinx.serialization.json.*
+import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.*
@@ -9,7 +10,7 @@ import kotlin.io.path.isRegularFile
 
 /** Extracts the selected release's core and built-in data packs from the official implementation JAR. */
 @CacheableTask
-abstract class ExtractOfficialMinecraftDataPacksTask : MinecraftProtocolToolTask() {
+abstract class ExtractOfficialMinecraftDataPacksTask : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val implementationJar: RegularFileProperty
@@ -23,7 +24,6 @@ abstract class ExtractOfficialMinecraftDataPacksTask : MinecraftProtocolToolTask
         check(implementationJarPath.isRegularFile()) {
             "Official server implementation JAR is missing: $implementationJarPath"
         }
-        val minecraftVersion = minecraftVersion.get()
         val outputDirectoryPath = outputDirectory.asFile.get().toPath()
         outputDirectoryPath.deleteTree()
         val dataPackIds = linkedSetOf(CORE_DATA_PACK_ID)
@@ -34,9 +34,6 @@ abstract class ExtractOfficialMinecraftDataPacksTask : MinecraftProtocolToolTask
             val versionJson = protocolJson.decodeFromString<JsonObject>(
                 implementationArchive.getInputStream(versionArchiveEntry).use { it.readBytes() }.decodeToString(),
             )
-            check(versionJson.getValue("id").jsonPrimitive.content == minecraftVersion) {
-                "Official implementation JAR targets a different Minecraft release"
-            }
             val dataPackFormatJson = versionJson.getValue("pack_version").jsonObject
             val dataPackFormatMajor = dataPackFormatJson.getValue("data_major").jsonPrimitive.int
             val dataPackFormatMinor = dataPackFormatJson.getValue("data_minor").jsonPrimitive.int
@@ -58,7 +55,6 @@ abstract class ExtractOfficialMinecraftDataPacksTask : MinecraftProtocolToolTask
             check(dataPackFileCount > 0) { "Official implementation JAR contains no data-pack files" }
             val dataPackManifest = buildJsonObject {
                 put("schema_version", EXTRACTION_SCHEMA_VERSION)
-                put("minecraft_version", minecraftVersion)
                 put(
                     "data_pack_format",
                     buildJsonArray {
@@ -72,7 +68,6 @@ abstract class ExtractOfficialMinecraftDataPacksTask : MinecraftProtocolToolTask
                         dataPackIds.forEach { dataPackId -> add(dataPackId) }
                     },
                 )
-                put("file_count", dataPackFileCount)
             }
             outputDirectoryPath.resolve(MANIFEST_FILE).writeJson(dataPackManifest, sortKeys = true)
         }

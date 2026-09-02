@@ -284,7 +284,7 @@ class RegionHandle internal constructor(
         chunkNbtCodec: ChunkNbtCodec<B, M>,
         compression: Compression = regionStorageConfiguration.writeCompression,
     ) = withOperation {
-        owner.writeChunk(entry, regionPosition.local(chunk.chunkPosition), chunk, chunkNbtCodec, compression)
+        owner.writeChunk(entry, chunk, chunkNbtCodec, compression)
     }
 
     suspend inline fun <reified T> writeChunkNbt(

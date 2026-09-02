@@ -6,7 +6,6 @@ import com.hiczp.minecraft.protocol.model.packet.UnknownPacket
 import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
-import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromByteArray
 import kotlinx.serialization.encodeToByteArray
@@ -71,11 +70,6 @@ object ForgeLoginQueries {
         val forgeLoginWrapperWire = MinecraftProtocolFormat.Default.decodeFromByteArray<ForgeLoginWrapperWire>(
             response.data.toByteArray(),
         )
-        if (forgeLoginWrapperWire.channel != loginQuery.channel) {
-            throw MinecraftSerializationException(
-                "Forge Login wrapper uses ${forgeLoginWrapperWire.channel}, but transaction ${loginQuery.transactionId} belongs to ${loginQuery.channel}",
-            )
-        }
         return ForgeLoginQueryPayload(forgeLoginWrapperWire.channel, forgeLoginWrapperWire.data)
     }
 

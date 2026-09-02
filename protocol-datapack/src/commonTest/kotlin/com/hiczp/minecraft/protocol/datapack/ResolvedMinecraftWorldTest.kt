@@ -62,6 +62,55 @@ class ResolvedMinecraftWorldTest {
     }
 
     @Test
+    fun indexesDimensionsByTheirContextIdentifiers() {
+        val resolvedProtocolData = testResolvedProtocolData()
+        val resolvedMinecraftWorld = resolvedProtocolData.resolveMinecraftWorld(
+            worldGenSettings(DimensionId.Overworld to reference("overworld")),
+        )
+        val minecraftChunkContext = resolvedMinecraftWorld.dimension(DimensionId.Overworld)
+        val reindexedWorld = ResolvedMinecraftWorld(resolvedProtocolData, listOf(minecraftChunkContext))
+
+        assertSame(minecraftChunkContext, reindexedWorld.dimension(DimensionId.Overworld))
+    }
+
+    @Test
+    fun rejectsDuplicateDimensionContextsBecauseTheLookupWouldBeAmbiguous() {
+        val resolvedProtocolData = testResolvedProtocolData()
+        val minecraftChunkContext = resolvedProtocolData.resolveMinecraftWorld(
+            worldGenSettings(DimensionId.Overworld to reference("overworld")),
+        ).dimension(DimensionId.Overworld)
+
+        assertFailsWith<IllegalArgumentException> {
+            ResolvedMinecraftWorld(resolvedProtocolData, listOf(minecraftChunkContext, minecraftChunkContext))
+        }
+    }
+
+    @Test
+    fun knownPackFallbackRetainsTheSynchronizedRawIdWithoutCrossValidation() {
+        val resolvedProtocolData = testResolvedProtocolData()
+        val synchronizedRegistryPackets = listOf(
+            RegistryDataPacket(
+                MinecraftDimensionLayout.DIMENSION_TYPE_REGISTRY,
+                listOf(
+                    RegistryEntry(Identifier("the_nether"), null),
+                    RegistryEntry(Identifier("overworld"), null),
+                ),
+            ),
+        )
+
+        val minecraftDimensionLayout = MinecraftDimensionLayout.from(
+            dimensionTypeRawId = 0,
+            synchronizedRegistryPackets = synchronizedRegistryPackets,
+            protocolData = resolvedProtocolData,
+        )
+
+        assertEquals(Identifier("the_nether"), minecraftDimensionLayout.dimensionTypeId)
+        assertEquals(0, minecraftDimensionLayout.dimensionTypeRawId)
+        assertEquals(0, minecraftDimensionLayout.minY)
+        assertEquals(16, minecraftDimensionLayout.sectionCount)
+    }
+
+    @Test
     fun resolvesInlineDimensionTypesForSemanticChunkWork() {
         val resolvedProtocolData = testResolvedProtocolData()
         val inlineDimensionId = DimensionId("inline", "test")

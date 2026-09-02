@@ -42,7 +42,7 @@ sealed interface PacketRouteKey {
 }
 
 /**
- * The complete route of one packet after its validated outer header has been
+ * The complete route of one packet after its outer header has been
  * removed. [packetRouteKey] is stable across exchanges and is used for codec activation.
  */
 sealed interface PacketRoute {
@@ -60,10 +60,6 @@ sealed interface PacketRoute {
             packetDirection,
             packetId,
         )
-
-        init {
-            require(packetId >= 0) { "Packet ID must be non-negative" }
-        }
     }
 
     data class LoginQuery(
@@ -83,7 +79,7 @@ sealed interface PacketRoute {
     data class CustomPayload(
         override val connectionState: ConnectionState,
         override val packetDirection: PacketDirection,
-        /** The validated vanilla outer packet ID used for lossless replay. */
+        /** The retained outer packet ID used for lossless replay. */
         val packetId: Int,
         val channel: Identifier,
     ) : PacketRoute {
@@ -94,12 +90,6 @@ sealed interface PacketRoute {
         )
 
         init {
-            require(
-                connectionState == ConnectionState.CONFIGURATION ||
-                        connectionState == ConnectionState.PLAY,
-            ) {
-                "Custom payload routes require Configuration or Play state"
-            }
             require(packetId >= 0) { "Packet ID must be non-negative" }
         }
     }

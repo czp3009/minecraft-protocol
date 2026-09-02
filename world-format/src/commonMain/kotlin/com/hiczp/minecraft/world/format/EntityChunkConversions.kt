@@ -9,23 +9,9 @@ fun <E : Any> CompressedChunk.toEntityChunk(
     compressedNbtFormat: CompressedNbtFormat = CompressedNbtFormat(nbtFormat = entityChunkNbtCodec.nbtFormat),
 ): EntityChunk<E> = toNbtDocument(compressedNbtFormat).toEntityChunk(entityChunkNbtCodec)
 
-/** Decodes this compressed content while validating its NBT position against [chunkPosition]. */
-fun <E : Any> CompressedChunk.toEntityChunk(
-    chunkPosition: ChunkPosition,
-    entityChunkNbtCodec: EntityChunkNbtCodec<E>,
-    compressedNbtFormat: CompressedNbtFormat = CompressedNbtFormat(nbtFormat = entityChunkNbtCodec.nbtFormat),
-): EntityChunk<E> = toNbtDocument(compressedNbtFormat).toEntityChunk(chunkPosition, entityChunkNbtCodec)
-
 /** Projects this generic NBT tree into a semantic Entity Chunk using its stored position. */
 fun <E : Any> NbtDocument.toEntityChunk(entityChunkNbtCodec: EntityChunkNbtCodec<E>): EntityChunk<E> =
     entityChunkNbtCodec.decodeDocument(this)
-
-/** Projects this generic NBT tree into a semantic Entity Chunk while validating [chunkPosition]. */
-fun <E : Any> NbtDocument.toEntityChunk(
-    chunkPosition: ChunkPosition,
-    entityChunkNbtCodec: EntityChunkNbtCodec<E>,
-): EntityChunk<E> =
-    entityChunkNbtCodec.decodeDocument(this, chunkPosition)
 
 /** Converts this semantic Entity Chunk to a generic NBT tree at its retained position. */
 fun <E : Any> EntityChunk<E>.toNbtDocument(

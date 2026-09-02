@@ -8,10 +8,7 @@ import kotlinx.io.okio.asKotlinxIoRawSource
 import kotlinx.io.okio.asOkioSource
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.serializer
-import okio.BufferedSink
-import okio.BufferedSource
-import okio.Path
-import okio.buffer
+import okio.*
 
 /** A detached Anvil image paired with the Region position retained from its `.mca` path. */
 internal data class PositionedAnvilRegion(
@@ -284,7 +281,7 @@ class RegionReadScope internal constructor(
         localChunkPosition: LocalChunkPosition,
         chunkNbtCodec: ChunkNbtCodec<B, M>,
     ): Chunk<B, M>? = withChunkNbtSource(localChunkPosition) { _, source ->
-        chunkNbtCodec.decodeFromOkio(source, regionPosition.chunk(localChunkPosition))
+        chunkNbtCodec.decodeFromOkio(source)
     }
 
     fun <B : Any, M : Any> readChunk(
@@ -302,7 +299,7 @@ class DecodedChunkRegionReadScope<B : Any, M : Any> internal constructor(
 ) : AnvilRegionReadScope(regionReadScopeCore, chunkNbtFormat) {
     fun readChunk(localChunkPosition: LocalChunkPosition): Chunk<B, M>? =
         withChunkNbtSource(localChunkPosition) { _, source ->
-            chunkNbtCodec.decodeFromOkio(source, regionPosition.chunk(localChunkPosition))
+            chunkNbtCodec.decodeFromOkio(source)
         }
 
     fun readChunk(chunkPosition: ChunkPosition): Chunk<B, M>? =
@@ -331,7 +328,7 @@ class EntityRegionReadScope internal constructor(
         localChunkPosition: LocalChunkPosition,
         entityChunkNbtCodec: EntityChunkNbtCodec<E>,
     ): EntityChunk<E>? = withChunkNbtSource(localChunkPosition) { _, source ->
-        entityChunkNbtCodec.decodeFromOkio(source, regionPosition.chunk(localChunkPosition))
+        entityChunkNbtCodec.decodeFromOkio(source)
     }
 
     fun <E : Any> readChunk(
@@ -348,7 +345,7 @@ class DecodedEntityRegionReadScope<E : Any> internal constructor(
 ) : AnvilRegionReadScope(regionReadScopeCore, chunkNbtFormat) {
     fun readChunk(localChunkPosition: LocalChunkPosition): EntityChunk<E>? =
         withChunkNbtSource(localChunkPosition) { _, source ->
-            entityChunkNbtCodec.decodeFromOkio(source, regionPosition.chunk(localChunkPosition))
+            entityChunkNbtCodec.decodeFromOkio(source)
         }
 
     fun readChunk(chunkPosition: ChunkPosition): EntityChunk<E>? =
@@ -382,9 +379,7 @@ internal fun <R> withDecompressedChunkSource(
     }.asOkioSource().buffer()
     return useResource(decompressedSource, { it.close() }) {
         val result = block(regionChunkInfo, decompressedSource)
-        if (!decompressedSource.exhausted()) {
-            throw WorldIOException("Chunk ${regionChunkInfo.chunkPosition} NBT source was not fully consumed")
-        }
+        decompressedSource.readAll(blackholeSink())
         result
     }
 }

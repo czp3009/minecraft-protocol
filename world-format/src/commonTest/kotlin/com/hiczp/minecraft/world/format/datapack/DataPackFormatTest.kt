@@ -14,6 +14,43 @@ import kotlin.test.*
 
 class DataPackFormatTest {
     @Test
+    fun resolvedResourcesAreIndexedByTheirPaths() {
+        val dataPackResourcePath = DataPackResourcePath("test", "worldgen/biome/indexed.json")
+        val dataPackId = DataPackId("test")
+        val resolvedDataPackResource = ResolvedDataPackResource(
+            dataPackResourcePath = dataPackResourcePath,
+            dataPackFileContent = DataPackFileContent.BinaryFile(DataPackFileBytes(byteArrayOf(1))),
+            sourceDataPackId = dataPackId,
+            sourceDataPackFilePath = DataPackFilePath("data/test/worldgen/biome/indexed.json"),
+        )
+        val resolvedDataPackStack = ResolvedDataPackStack(
+            dataPackIds = listOf(dataPackId),
+            resolvedDataPackResources = listOf(resolvedDataPackResource),
+        )
+
+        assertSame(resolvedDataPackResource, resolvedDataPackStack.resource(dataPackResourcePath))
+    }
+
+    @Test
+    fun resolvedStackRejectsDuplicateEffectiveResourcePaths() {
+        val dataPackResourcePath = DataPackResourcePath("test", "worldgen/biome/indexed.json")
+        val dataPackId = DataPackId("test")
+        val resolvedDataPackResource = ResolvedDataPackResource(
+            dataPackResourcePath = dataPackResourcePath,
+            dataPackFileContent = DataPackFileContent.BinaryFile(DataPackFileBytes(byteArrayOf(1))),
+            sourceDataPackId = dataPackId,
+            sourceDataPackFilePath = DataPackFilePath("data/test/worldgen/biome/indexed.json"),
+        )
+
+        assertFailsWith<IllegalArgumentException> {
+            ResolvedDataPackStack(
+                dataPackIds = listOf(dataPackId),
+                resolvedDataPackResources = listOf(resolvedDataPackResource, resolvedDataPackResource),
+            )
+        }
+    }
+
+    @Test
     fun customDecoderReceivesPackIdentityAndStreamingInputRejectsDuplicates() {
         val dataPackId = DataPackId("mod:generated")
         val dataPackFilePath = DataPackFilePath("data/mod/custom/value.mod")

@@ -17,9 +17,6 @@ fun CompressedChunkInput.toCompressedChunk(): CompressedChunk {
 
     val buffer = Buffer()
     writeTo(buffer)
-    require(buffer.size == compressedByteCount) {
-        "Compressed Chunk input declared $compressedByteCount bytes but wrote ${buffer.size}"
-    }
     return buffer.readCompressedChunk(compression)
 }
 
@@ -44,18 +41,6 @@ fun <B : Any, M : Any> CompressedChunk.toChunk(
     compressedNbtFormat: CompressedNbtFormat = CompressedNbtFormat(nbtFormat = chunkNbtCodec.nbtFormat),
 ): Chunk<B, M> = toNbtDocument(compressedNbtFormat).toChunk(chunkNbtCodec)
 
-/**
- * Decodes this compressed content and validates its NBT position against [chunkPosition].
- *
- * [chunkNbtCodec] supplies the selected-release layout and caller-owned block-state and biome registries. Pass
- * [compressedNbtFormat] when custom compression is registered.
- */
-fun <B : Any, M : Any> CompressedChunk.toChunk(
-    chunkPosition: ChunkPosition,
-    chunkNbtCodec: ChunkNbtCodec<B, M>,
-    compressedNbtFormat: CompressedNbtFormat = CompressedNbtFormat(nbtFormat = chunkNbtCodec.nbtFormat),
-): Chunk<B, M> = toNbtDocument(compressedNbtFormat).toChunk(chunkPosition, chunkNbtCodec)
-
 /** Writes the complete decompressed Chunk NBT bytes without closing [sink]. */
 fun CompressedChunk.writeDecompressedTo(
     sink: Sink,
@@ -70,12 +55,6 @@ fun CompressedChunk.writeDecompressedTo(
 fun <B : Any, M : Any> NbtDocument.toChunk(
     chunkNbtCodec: ChunkNbtCodec<B, M>,
 ): Chunk<B, M> = chunkNbtCodec.decodeDocument(this)
-
-/** Projects this generic NBT tree into a semantic Chunk while validating [chunkPosition]. */
-fun <B : Any, M : Any> NbtDocument.toChunk(
-    chunkPosition: ChunkPosition,
-    chunkNbtCodec: ChunkNbtCodec<B, M>,
-): Chunk<B, M> = chunkNbtCodec.decodeDocument(this, chunkPosition)
 
 /** Compresses this generic NBT tree as detached Chunk content. */
 fun NbtDocument.toCompressedChunk(

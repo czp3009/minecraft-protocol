@@ -41,6 +41,10 @@ internal object ClientboundBundleCodec {
         clientboundBundlePacket: ClientboundBundlePacket,
         sendPacket: suspend (ClientboundPacket) -> Unit,
     ) {
+        if (clientboundBundlePacket.size > ClientboundBundlePacket.MAX_SUB_PACKET_COUNT) {
+            val maximum = ClientboundBundlePacket.MAX_SUB_PACKET_COUNT
+            throw MinecraftSessionException("A clientbound bundle exceeds $maximum packets")
+        }
         clientboundBundlePacket.forEach(::requireSubPacket)
         sendPacket(BundleDelimiterPacket)
         clientboundBundlePacket.forEach { clientboundPacket -> sendPacket(clientboundPacket) }

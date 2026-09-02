@@ -66,11 +66,7 @@ private class AdmZipDataPackZipReader(
         val admZipEntry = effectiveDataPackZipEntries().singleOrNull { it.first == dataPackFilePath }?.second
             ?: throw WorldIOException("Data-pack ZIP $dataPackZipPath is missing $dataPackFilePath")
         val dataPackFileSource = Buffer().apply { write(admZipEntry.dataPackFileBytes()) }
-        val result = block(dataPackFileSource)
-        if (!dataPackFileSource.exhausted()) {
-            throw WorldIOException("Data-pack ZIP entry $dataPackFilePath was not fully consumed")
-        }
-        return result
+        return block(dataPackFileSource)
     }
 
     private fun admZipEntries(): Array<AdmZipEntry> = zipOperation("Cannot read data-pack ZIP $dataPackZipPath") {
@@ -100,7 +96,7 @@ private class AdmZipDataPackZipReader(
 
     private fun AdmZipEntry.uncompressedSizeInBytes(): Long {
         val sizeInBytes = header.size
-        if (!sizeInBytes.isFinite() || sizeInBytes < 0.0 || sizeInBytes.toLong().toDouble() != sizeInBytes) {
+        if (!sizeInBytes.isFinite() || sizeInBytes.toLong().toDouble() != sizeInBytes) {
             throw WorldIOException("Data-pack ZIP entry $entryName has an invalid uncompressed size: $sizeInBytes")
         }
         return sizeInBytes.toLong()

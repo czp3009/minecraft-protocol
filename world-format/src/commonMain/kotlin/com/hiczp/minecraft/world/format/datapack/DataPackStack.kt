@@ -19,19 +19,17 @@ data class AppliedDataPackFilter(
 )
 
 /** A manually constructible, merged data-pack view used by downstream runtime projections. */
-data class ResolvedDataPackStack(
+class ResolvedDataPackStack(
     val dataPackIds: List<DataPackId>,
-    val resolvedDataPackResources: Map<DataPackResourcePath, ResolvedDataPackResource>,
+    resolvedDataPackResources: Collection<ResolvedDataPackResource>,
     val appliedDataPackFilters: List<AppliedDataPackFilter> = emptyList(),
 ) {
+    val resolvedDataPackResources: Map<DataPackResourcePath, ResolvedDataPackResource> =
+        resolvedDataPackResources.associateBy(ResolvedDataPackResource::dataPackResourcePath)
+
     init {
-        require(dataPackIds.distinct().size == dataPackIds.size) {
-            "A resolved data-pack stack has duplicate pack IDs"
-        }
-        require(resolvedDataPackResources.all { (dataPackResourcePath, resolvedDataPackResource) ->
-            dataPackResourcePath == resolvedDataPackResource.dataPackResourcePath
-        }) {
-            "Resolved data-pack resource keys must match their paths"
+        require(this.resolvedDataPackResources.size == resolvedDataPackResources.size) {
+            "A resolved data-pack stack must have at most one effective resource per path"
         }
     }
 
@@ -59,16 +57,25 @@ data class ResolvedDataPackStack(
             }
         }
     }
+
+    override fun equals(other: Any?): Boolean =
+        other is ResolvedDataPackStack &&
+                dataPackIds == other.dataPackIds &&
+                resolvedDataPackResources == other.resolvedDataPackResources &&
+                appliedDataPackFilters == other.appliedDataPackFilters
+
+    override fun hashCode(): Int {
+        var result = dataPackIds.hashCode()
+        result = 31 * result + resolvedDataPackResources.hashCode()
+        return 31 * result + appliedDataPackFilters.hashCode()
+    }
+
+    override fun toString(): String =
+        "ResolvedDataPackStack(dataPackIds=$dataPackIds, resolvedDataPackResources=$resolvedDataPackResources, appliedDataPackFilters=$appliedDataPackFilters)"
 }
 
 /** Low-to-high-priority pack stack. Callers can construct or replace any stage in memory. */
 data class DataPackStack(val dataPacks: List<DataPack>) {
-    init {
-        require(dataPacks.map(DataPack::dataPackId).distinct().size == dataPacks.size) {
-            "A data-pack stack has duplicate pack IDs"
-        }
-    }
-
     constructor(vararg dataPacks: DataPack) : this(dataPacks.asList())
 
     fun resolve(dataPackFormatVersion: DataPackFormatVersion? = null): ResolvedDataPackStack {
@@ -106,7 +113,7 @@ data class DataPackStack(val dataPacks: List<DataPack>) {
         }
         return ResolvedDataPackStack(
             dataPacks.map(DataPack::dataPackId),
-            resolvedDataPackResources,
+            resolvedDataPackResources.values,
             appliedDataPackFilters,
         )
     }

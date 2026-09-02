@@ -24,6 +24,23 @@ class NeoForgeProtocolCodecTest {
     )
 
     @Test
+    fun networkSetupIndexesChannelsByTheirEncodedIdentifiers() {
+        val channelId = Identifier("test:channel")
+        val neoForgeNetworkSetup = NeoForgeNetworkSetup(
+            mapOf(
+                NeoForgeConnectionProtocol.CONFIGURATION to listOf(
+                    NeoForgeNetworkChannel(channelId, "1"),
+                ),
+            ),
+        )
+
+        assertEquals(
+            channelId,
+            neoForgeNetworkSetup.channels(NeoForgeConnectionProtocol.CONFIGURATION).getValue(channelId).id
+        )
+    }
+
+    @Test
     fun commonPacketsMatchSourceDerivedBytes() {
         assertContentEquals(
             byteArrayOf(1, 1),
@@ -130,8 +147,8 @@ class NeoForgeProtocolCodecTest {
             Identifier("block"),
             NeoForgeRegistrySnapshot(
                 linkedMapOf(
-                    0 to Identifier("stone"),
                     2 to Identifier("mod:block"),
+                    0 to Identifier("stone"),
                 ),
                 mapOf(Identifier("mod:old_block") to Identifier("mod:block")),
             ),

@@ -269,8 +269,8 @@ Negotiation returns a connection-specific `MinecraftDimensionContext`; the resol
 `MinecraftChunkContext` remains the raw-ID-free disk decoder and Chunk packet encoder.
 
 Unknown enabled packs, inline dimension types, missing references, and invalid layouts fail before a partial server
-world is returned. Negotiation independently rejects an inconsistent Play Login or active registry context before
-entering Play.
+world is returned. Negotiation resolves the Play Login raw ID and selected layout, but does not add cross-source
+identity or Section-count policy checks; applications can validate independently supplied configuration when needed.
 
 The pack bridge preserves persisted core/built-in/file priority, supplies release-matched bundled packs, and carries the
 world's enabled feature configuration into the generated vanilla projection base. Recipes, functions, loot tables, and
@@ -311,7 +311,8 @@ For full control, construct a `DataPackProtocolProjector` or `ResolvedProtocolDa
 ## Convert semantic Chunks to packets
 
 `Chunk<ProtocolBlockState, ProtocolRegistryEntry>` is the common in-memory value produced by the resolved disk path and
-accepted by the server encoder. A `MinecraftChunkContext` creates a validated encoder without making the caller pass its
+accepted by the server encoder. A `MinecraftChunkContext` creates a configured encoder without making the caller pass
+its
 registry context, layout, and skylight flag back separately:
 
 ```kotlin

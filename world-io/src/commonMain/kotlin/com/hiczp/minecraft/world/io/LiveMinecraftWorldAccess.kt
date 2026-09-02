@@ -18,11 +18,7 @@ data class LiveMinecraftWorldAccessConfiguration(
     val standaloneNbtFormat: NbtFormat = minecraftWorldNbtFormat(),
     val standaloneJson: Json = Json,
     val dataPackFormat: DataPackFormat = DataPackFormat(),
-) {
-    init {
-        standaloneNbtFormat.requireStandaloneWorldRoot()
-    }
-}
+)
 
 /**
  * Synchronous non-locking read access to a world that another process may be changing.

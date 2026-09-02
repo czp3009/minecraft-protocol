@@ -37,9 +37,7 @@ class PoiSection(
 
     init {
         require(recordsByPosition.size == records.size) { "A POI Section contains duplicate Block positions" }
-        require(records.all { poiRecord -> poiRecord.sectionPosition.y == sectionY }) {
-            "A POI Section contains a record outside Section Y $sectionY"
-        }
+        recordsByPosition.values.forEach(::requireRecordMembership)
     }
 
     var valid: Boolean = valid
@@ -58,9 +56,7 @@ class PoiSection(
     fun hasRecord(blockPosition: BlockPosition): Boolean = blockPosition in recordsByPosition
 
     fun addRecord(poiRecord: PoiRecord) {
-        require(poiRecord.sectionPosition.y == sectionY) {
-            "POI ${poiRecord.blockPosition} belongs to Section Y ${poiRecord.sectionPosition.y}, expected $sectionY"
-        }
+        requireRecordMembership(poiRecord)
         require(poiRecord.blockPosition !in recordsByPosition) {
             "A POI is already registered at ${poiRecord.blockPosition}"
         }
@@ -68,15 +64,19 @@ class PoiSection(
     }
 
     fun replaceRecord(poiRecord: PoiRecord): PoiRecord? {
-        require(poiRecord.sectionPosition.y == sectionY) {
-            "POI ${poiRecord.blockPosition} belongs to Section Y ${poiRecord.sectionPosition.y}, expected $sectionY"
-        }
+        requireRecordMembership(poiRecord)
         return recordsByPosition.put(poiRecord.blockPosition, poiRecord)
     }
 
     fun removeRecord(blockPosition: BlockPosition): PoiRecord? = recordsByPosition.remove(blockPosition)
 
     fun snapshot(): PoiSection = PoiSection(sectionY, valid, recordsByPosition.values.map(PoiRecord::snapshot))
+
+    private fun requireRecordMembership(poiRecord: PoiRecord) {
+        require(poiRecord.sectionPosition.y == sectionY) {
+            "POI ${poiRecord.blockPosition} belongs to Section Y ${poiRecord.sectionPosition.y}, not Section Y $sectionY"
+        }
+    }
 }
 
 /** A mutable selected-release POI Chunk stored at one absolute X/Z position. */
@@ -89,7 +89,7 @@ class PoiChunk(
 
     init {
         require(sectionsByY.size == sections.size) { "A POI Chunk contains duplicate Section Y coordinates" }
-        sections.forEach(::requireSectionMembership)
+        requireStoredRecordMembership()
     }
 
     val regionPosition: RegionPosition
@@ -142,31 +142,23 @@ class PoiChunk(
     fun getOrCreateSection(blockPosition: BlockPosition, valid: Boolean = true): PoiSection =
         getOrCreateSection(blockPosition.sectionPosition, valid)
 
-    fun record(blockPosition: BlockPosition): PoiRecord? {
-        require(blockPosition.chunkPosition == chunkPosition) {
-            "Block $blockPosition does not belong to POI Chunk $chunkPosition"
-        }
-        return section(blockPosition.sectionPosition)?.record(blockPosition)
-    }
+    fun record(blockPosition: BlockPosition): PoiRecord? =
+        sectionsByY[blockPosition.sectionPosition.y]?.record(blockPosition)
 
     fun hasRecord(blockPosition: BlockPosition): Boolean = record(blockPosition) != null
 
     fun addRecord(poiRecord: PoiRecord, sectionValid: Boolean = true) {
         requireRecordMembership(poiRecord)
-        getOrCreateSection(poiRecord.sectionPosition, sectionValid).addRecord(poiRecord)
+        getOrCreateSection(poiRecord.sectionPosition.y, sectionValid).addRecord(poiRecord)
     }
 
     fun replaceRecord(poiRecord: PoiRecord, sectionValid: Boolean = true): PoiRecord? {
         requireRecordMembership(poiRecord)
-        return getOrCreateSection(poiRecord.sectionPosition, sectionValid).replaceRecord(poiRecord)
+        return getOrCreateSection(poiRecord.sectionPosition.y, sectionValid).replaceRecord(poiRecord)
     }
 
-    fun removeRecord(blockPosition: BlockPosition): PoiRecord? {
-        require(blockPosition.chunkPosition == chunkPosition) {
-            "Block $blockPosition does not belong to POI Chunk $chunkPosition"
-        }
-        return section(blockPosition.sectionPosition)?.removeRecord(blockPosition)
-    }
+    fun removeRecord(blockPosition: BlockPosition): PoiRecord? =
+        sectionsByY[blockPosition.sectionPosition.y]?.removeRecord(blockPosition)
 
     fun addSection(poiSection: PoiSection) {
         requireSectionMembership(poiSection)
@@ -185,17 +177,17 @@ class PoiChunk(
 
     fun snapshot(): PoiChunk = PoiChunk(chunkPosition, dataVersion, sectionsByY.values.map(PoiSection::snapshot))
 
+    internal fun requireStoredRecordMembership() {
+        sectionsByY.values.forEach(::requireSectionMembership)
+    }
+
     private fun requireSectionMembership(poiSection: PoiSection) {
-        poiSection.records.firstOrNull { poiRecord -> poiRecord.chunkPosition != chunkPosition }?.let { poiRecord ->
-            throw IllegalArgumentException(
-                "POI ${poiRecord.blockPosition} belongs to Chunk ${poiRecord.chunkPosition}, expected $chunkPosition",
-            )
-        }
+        poiSection.records.forEach(::requireRecordMembership)
     }
 
     private fun requireRecordMembership(poiRecord: PoiRecord) {
         require(poiRecord.chunkPosition == chunkPosition) {
-            "POI ${poiRecord.blockPosition} belongs to Chunk ${poiRecord.chunkPosition}, expected $chunkPosition"
+            "POI ${poiRecord.blockPosition} belongs to Chunk ${poiRecord.chunkPosition}, not POI Chunk $chunkPosition"
         }
     }
 }

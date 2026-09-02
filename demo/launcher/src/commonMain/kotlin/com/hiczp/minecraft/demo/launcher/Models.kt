@@ -247,7 +247,11 @@ internal data class DownloadSpec(
     val sha1: String,
     val size: Long,
     val relativePath: String,
-)
+) {
+    init {
+        require(size >= 0L) { "A download size must be non-negative" }
+    }
+}
 
 internal data class InstallPlan(
     val versionMetadata: VersionMetadata,

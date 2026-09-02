@@ -145,7 +145,7 @@ class EntityRegionHandle internal constructor(
         entityChunkNbtCodec: EntityChunkNbtCodec<E>
     ): EntityChunk<E>? =
         withChunkNbtSource(localChunkPosition) { _, source ->
-            entityChunkNbtCodec.decodeFromOkio(source, regionPosition.chunk(localChunkPosition))
+            entityChunkNbtCodec.decodeFromOkio(source)
         }
 
     suspend fun <E : Any> readChunk(

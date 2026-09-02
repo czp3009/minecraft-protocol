@@ -150,16 +150,17 @@ global block-state IDs.
 
 ## Adapt protocol context to semantic Chunks
 
-`MinecraftDimensionLayout` combines one synchronized dimension-type ID/raw ID with a shared
-`DimensionTypeLayout`; its `chunkLayout` is already validated. `MinecraftDimensionContext` validates that layout against
-an active `ProtocolRegistryContext`, activates the required Section count, and retains the three values as the shared
-network-negotiation handoff. A custom network decoder can branch at this point without adopting the semantic world
-model.
+`MinecraftDimensionLayout` combines one synchronized dimension-type ID/raw ID with a shared `DimensionTypeLayout`.
+`MinecraftDimensionContext` composes that layout with an active `ProtocolRegistryContext`, installs the selected
+layout's Section count, and retains the three values as the shared network-negotiation handoff. It does not compare the
+layout's identity or Section count with parallel facts already present in the registry context. A custom network decoder
+can branch at this point without adopting the semantic world model.
 
 When the application does want semantic Chunks, `ProtocolRegistryContext.toChunkDataRegistries()` resolves persisted
 block descriptors and biome names against the active block-state and synchronized biome registries. After network
-negotiation, the standard factory cross-checks the dimension-type raw ID and Section count before adding the semantic
-defaults:
+negotiation, the standard factory treats the selected layout and synchronized raw ID as authoritative for their own
+fields before adding the semantic defaults. Applications that need cross-source consistency checks perform them before
+calling the factory:
 
 ```kotlin
 fun createMinecraftChunkContext(
