@@ -1,1158 +1,505 @@
-# Region 语义值、Chunk 上下文与网络投影重构计划
+# World 数据分层、Codec 与 Protocol 命名重构计划
 
-- 状态：设计已确认，待实施
-- 记录日期：2026-09-02
-- 适用版本：仓库所选择的 Minecraft 官方版本；本计划不改变版本选择
-- 主要模块：`world-format`、`world-io`、`protocol-datapack`、`protocol-client`、`protocol-server`
-- 验证模块：`protocol-model`、`protocol-serialization`、`protocol-datapack-vanilla`、`demo/web-map`
+- 状态：架构边界已定案；Chunk 字段细节、少量 packet 命名和 Entity projection 细节仍待讨论
+- 适用版本：仓库所选择的 Minecraft 官方版本
+- 兼容策略：项目仍处于早期阶段，不保留 typealias、deprecated overload、旧模块转发壳或双轨实现
 
-## 1. 最终结论
+## 1. 目标与约束
 
-本次重构采用“数据只保存本层事实，上下文只保存在转换器或临时 view 中”的设计。
+### 1.1 标准数据流
 
-1. 标准领域 Chunk 统一为 `Chunk<BlockStateValue, BiomeValue>`。`BlockStateValue` 只保存持久化名称与 properties，
-   `BiomeValue` 只保存持久化名称；两者都不保存协议 raw ID、alias 集合或 protocol default 标记。
-2. 保留 `Chunk<B, M>` 泛型以及 caller-supplied registries，作为自定义运行时值和 mod 的逃生窗口；但仓库提供的标准磁盘、服务端和
-   客户端路径不得再实例化 `Chunk<ProtocolBlockState, ProtocolRegistryEntry>`。
-3. `Chunk` 不持有 `ChunkContext`，也不持有 `ChunkLayout`、默认方块或默认 biome。不可变且可复用的
-   `ChunkContext<B, M>` 由 `ChunkNbtCodec`、packet encoder/decoder、factory 或临时 `ChunkView` 持有。
-4. 磁盘独有状态与网络/领域公共状态使用两个名义层次：
-   `StoredChunk<B, M>(chunk, storageMetadata)` 是可持久化结果，`Chunk<B, M>` 是协议无关的可计算 core。网络解码只返回
-   `Chunk`，绝不虚构 `StoredChunk`。
-5. 网络 numeric IDs 只存在于当前连接的 `ProtocolRegistryContext`、显式 `ChunkProtocolMapping` 和官方 packet model 中。
-   packet encoder/decoder 捕获一个协商 epoch 的 context；Chunk 本身在 data-pack reload、registry reorder 或重协商之间保持稳定。
-6. `EntityChunk<E>` 与 `PoiChunk` 已经基本遵守这个边界：保留逐记录的持久化事实，不加入协议 ID 或 Chunk layout/default。
-   本计划会补齐 API 对称性、上下文所有权、测试和文档，但不会为了形式统一制造无意义的 `EntityChunkContext` 或
-   `PoiChunkContext`。
-7. 删除与官方 Chunk packet 一对一重复的 `MinecraftChunkSnapshot`；网络层直接使用
-   `ChunkDataAndUpdateLightPacket`。`MinecraftEntitySnapshot` 暂时保留，因为它是一个 Entity 到多条 pairing packets 的必要投影，
-   并非单个官方 packet 的同构副本。
-8. 不提供旧 API typealias、deprecated overload 或双轨 adapter。本仓库处于早期阶段，实施时一次性迁移源码、测试、README 和
-   `AGENTS.md`。
+    world folder / files
+        ↕ world-io
+    Anvil record / compressed NBT
+        ↕ Region / compression / NBT formats
+    NbtDocument
+        ↕ ChunkNbtDecoder / ChunkNbtEncoder
+    Chunk
+        ↕ ChunkPacketDecoder / ChunkPacketEncoder
+    ChunkWithLightPacket
+        ↕ MinecraftPacketFormat
+    packet payload bytes
 
-## 2. 最终数据流架构
+持久化层、内存层和网络层只保存本层事实。转换只发生在相邻层之间；不存在 packet↔NBT、Region↔packet 的直接 codec。
 
-### 2.1 普通 Chunk Region
+磁盘和网络使用同一个非泛型 `Chunk`。网络没有发送的字段由 decoder 的显式默认策略变成客户端本地值，不使用
+`DiskChunk`、`ClientChunk`、`CompleteChunk`、nullable availability 或来源标记。
 
-```text
-region/.mca + optional .mcc
-  │  Region container context: position, timestamp, compression, sidecar placement
-  ▼
-compressed Region record
-  │  world-io decompression + ChunkNbtCodec(ChunkContext, NbtFormat)
-  ▼
-StoredChunk<BlockStateValue, BiomeValue>
-  ├─ chunk: Chunk<BlockStateValue, BiomeValue>       协议无关的稳定领域 core
-  └─ storageMetadata: ChunkStorageMetadata           只属于持久化 NBT
-            │
-            │  只把 storedChunk.chunk 交给网络投影
-            ▼
-MinecraftChunkPacketEncoder(
-    ChunkContext,
-    ChunkProtocolMapping from the active negotiated registry snapshot,
-    block semantics and Block Entity update-tag policy,
-)
-  ▼
-ChunkDataAndUpdateLightPacket                         只含官方 packet 字段和 wire IDs
-  │  MinecraftProtocolFormat(active ProtocolRegistryContext)
-  ▼
-wire bytes
-  │  client MinecraftProtocolFormat(the same negotiated epoch)
-  ▼
-ChunkDataAndUpdateLightPacket
-  │  MinecraftChunkPacketDecoder(ChunkContext, ChunkProtocolMapping)
-  ▼
-Chunk<BlockStateValue, BiomeValue>                   与服务端使用同一领域类型和语义
-```
+### 1.2 设计规则
 
-这里必须明确一个信息论边界：官方 Chunk packet 不包含 `DataVersion`、生成状态、timestamps、ticks、structures、升级/混合数据和
-其他持久化字段；它还可能只携带 client heightmaps 和 Block Entity update tag。因此客户端返回的只能是同一 `Chunk` core
-类型，不能是 与磁盘解码结果相同的 `StoredChunk`。本计划所说的“客户端与服务端一致”具体保证：
+1. 数据值不保存 codec、连接状态或其他层的 metadata。
+2. encoder/decoder 是固定逻辑与不可变配置的组合，构造时显式接收完整配置。
+3. 数据自身需要的 context 与 codec context 是不同概念；二者即使类型相同也不能互相推导。
+4. primitive encoder/decoder 是唯一规范实现；fluent API 只能显式配置并委托 primitive。
+5. 库内实现不调用 fluent extension，也不通过 `value.context` 获取 codec 配置。
+6. packet 优先使用匹配版本的官方名称；磁盘和内存类型不使用无意义的 `Protocol` 前缀。
 
-- 两端使用完全相同的 `Chunk<BlockStateValue, BiomeValue>` 名义类型；
-- block-state、biome、坐标、Section 逻辑值、可在线表达的 lighting/heightmap/Block Entity 投影语义一致；
-- 一致性按逻辑值比较，不要求保留磁盘 local palette 的闲置条目、palette ID 排列或 alias 拼写；
-- packet 没有携带的持久化事实不会被默认值冒充，也不参与这一相等性承诺。
+本库不提供世界 tick loop、全局调度器、实体 tracking policy、权限、渲染、存档策略或完整游戏服务端。内存模型应保存继续计算所需的
+数据，但计算过程和权威世界状态由使用者实现。
 
-### 2.2 Entity Region
+## 2. 数据模型
 
-```text
-entities/r.<x>.<z>.mca
-  │  world-io decompression + EntityChunkNbtCodec(EntityDataRegistry, NbtFormat)
-  ▼
-EntityChunk<E>
-  ├─ Chunk position and DataVersion
-  └─ root Entity<E> trees with persisted common state and subtype data
-```
+### 2.1 三层所有权
 
-Entity Region 没有对应的单个官方“Entity Chunk packet”。服务端只能把其中的单个 `Entity<E>` 再结合运行时 entity
-ID、tracking、metadata、 attributes、equipment 和关系状态投影为一组 pairing packets；客户端也只能从这些 packets 恢复线上可见的
-Entity 状态。因此：
+| 层     | 典型类型和内容                                                                                    | 禁止携带                                           |
+|--------|---------------------------------------------------------------------------------------------------|----------------------------------------------------|
+| 持久化 | NbtDocument、Anvil header/record、compression、DataVersion、Region timestamp、DataPack 各表示阶段 | ChunkContext、packet raw ID、连接状态              |
+| 内存   | Chunk、Entity、EntityChunk、PoiChunk 及其语义状态                                                 | NBT 字段名、Region metadata、packet、连接 registry |
+| 网络   | Packet、packet-owned values、raw ID、packed palette、bit mask、network NBT、payload bytes         | Chunk、持久化 metadata、文件系统对象               |
 
-- `EntityChunk` 停留在持久化/服务端世界层，不进入 packet model；
-- `Entity` 可以作为两端共享的公共模型，但客户端值不冒充完整 subtype persistent NBT；
-- 连接 entity ID、registry raw ID、metadata indices 和 tracking state 继续只在网络 encoder/snapshot context 中；
-- `EntityDataRegistry<E>` 继续由 `EntityChunkNbtCodec` 捕获，不放进 `Entity` 或 `EntityChunk`。
+同一 Gradle 模块可以声明多个层的类型和连接它们的 codec；层次边界由类型与 API 保证，不要求一层对应一个模块。
 
-### 2.3 POI Region
+### 2.2 Chunk 与 ChunkContext
 
-```text
-poi/r.<x>.<z>.mca
-  │  world-io decompression + PoiChunkNbtCodec(NbtFormat)
-  │  Region slot supplies ChunkPosition because POI NBT has no x/z root field
-  ▼
-PoiChunk
-  ├─ ChunkPosition and DataVersion
-  └─ Section validity and PoiRecord values
-```
+`Chunk` 是纯数据型世界模型，不等同于官方带生命周期和行为的 `LevelChunk`。它至少保存：
 
-POI 没有普通客户端 Chunk 同步包。debug subscription 中的 POI 数据只是另一种有限网络投影，不能当作 `PoiChunk` codec。POI
-type 本来就是 持久化字符串，所以默认 codec 不需要 registry context；modded type 自然保留。需要不同 schema 的调用方继续使用
-raw NBT 或自定义 codec。
+- position、sections、Block Entities、heightmaps、lighting；
+- generation status、inhabited time、light correctness；
+- scheduled block/fluid ticks、structure starts/references；
+- UpgradeData、blending、below-zero retrogen、carving mask、post-processing；
+- 匹配版本中未完成生成 Chunk 所保存的其他语义状态。
 
-## 3. 每层数据所有权与禁止项
+最终字段以匹配版本的 `ChunkAccess`、`ProtoChunk`、`LevelChunk` 和 `SerializableChunkData` producer/consumer 审计为准。
 
-| 层                           | 允许保存                                                                               | 明确禁止保存                                                                                                        |
-|------------------------------|----------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------|
-| Region container             | local position、timestamp、compression ID、inline/external placement、compressed bytes | block/biome 领域对象、协议 registry、dimension defaults                                                             |
-| `ChunkContext<B, M>`         | dimension layout、默认 B/M、磁盘名称与 B/M 的双向 mapper                               | Chunk position、Section、timestamp、DataVersion、协议 raw ID                                                        |
-| `StoredChunk<B, M>`          | 一个 `Chunk` 引用和该记录真实的 `ChunkStorageMetadata`                                 | codec/context、Region compression/timestamp、连接 registry                                                          |
-| `Chunk<B, M>`                | position、Section palettes、Block Entities、公共 heightmap/lighting 数据               | `ChunkContext`、layout/default 副本、storage nullable 分支、`ProtocolBlockState`/`ProtocolRegistryEntry` 的标准实例 |
-| `EntityChunk<E>`             | position、DataVersion、root entity trees                                               | Entity codec/registry、dimension layout、连接 entity ID、protocol raw ID                                            |
-| `PoiChunk`                   | position、DataVersion、POI sections/records                                            | POI codec、dimension layout/default、protocol raw ID、Region timestamp/compression                                  |
-| `ChunkProtocolMapping<B, M>` | 当前协商快照中的 value↔wire-ID lookup、registry sizes、aliases                         | Chunk 内容、持久化 metadata、Region 信息                                                                            |
-| official packet models       | 官方字段、官方 numeric IDs、官方 packed palettes/masks                                 | 磁盘 metadata、domain context、library-only snapshot wrapper                                                        |
-
-`DataVersion` 即使常常相同，也必须留在每个存储记录中：文件本身逐记录保存它，真实存档可以混有不同版本，codec 不得拿一个世界级默认值覆盖。
-`ChunkPosition` 也不是可复用 context：它随 Region slot 改变，是记录身份和绝对坐标操作所必需的值。POI 的 position 虽不在 NBT
-root 中，仍是 由 Region container 提供的记录身份，而不是 dimension context。
-
-## 4. 当前实现的切实审计
-
-### 4.1 普通 Chunk 的问题
-
-当前 `ChunkModels.kt`、`ChunkNbtCodec.kt` 和 client/server projection 存在这些交叉污染或重复：
-
-1. `Chunk<ProtocolBlockState, ProtocolRegistryEntry>` 把一次 registry snapshot 带进磁盘领域值。
-    - 磁盘 block palette 只有 `Name` 与 `Properties`；`ProtocolBlockState.id` 和 `isDefault` 不在文件里。
-    - 磁盘 biome palette 只有名称；`ProtocolRegistryEntry.rawId` 与 `aliases` 不在文件里。
-    - registry reorder 会改变对象 equality 和 palette 去重，即使磁盘内容完全没变。
-    - alias 可在磁盘 decode 时命中 registry，随后 encode 却写回 canonical ID，产生不必要的跨层规范化。
-2. 每个 `Chunk` 重复保存 `chunkLayout`、`defaultBlockState` 和 `defaultBiome`，而 `ChunkNbtCodec` 的
-   `ChunkCodecContext` 已经保存相同事实。packet encoder/decoder 又各保存一份相同 context。
-3. `ChunkMetadata.chunkStorageMetadata: ChunkStorageMetadata?` 把两个能力不同的来源塞进一个可空字段。磁盘 decode
-   总有该值，packet decode 永远无法得到它，而 disk encoder 又拒绝 null。
-4. `BlockEntity.persistentData` 在 packet decoder 中实际接收的可能只是 update tag。名字把一个有限网络投影误称为完整持久化数据；计划中要
-   改成显式 persistent/update provenance variants，并让 `StoredChunk`/disk codec 验证“可持久化完整性”。
-5. 磁盘 Chunk 可稀疏保存 Section，packet 却总含 dimension 高度内的完整 Section 列表。当前 server encoder 会补默认
-   Section，client decoder 会保留所有 Section，因此两端虽是同一 class，却没有统一 canonical sparse 规则。
-6. `MinecraftChunkContext` 同时保存 `dimensionId`、`DimensionTypeLayout`、`ProtocolRegistryContext`、协议值 registries、
-   `ChunkCodecContext`、`ChunkNbtCodec`、`defaultBlockId` 和 `defaultBiomeId`。其中多项互相可导出，后两个字段当前没有生产读取者。
-7. `ResolvedMinecraftWorld.dimensions` 的 map key 已经是 `DimensionId`，value 中再保存同一个 ID 是重复身份。
-8. `MinecraftChunkSnapshot` 与 `ChunkDataAndUpdateLightPacket` 字段一一对应，只多一次包装和 `.packet()` 转换，应删除。
-
-### 4.2 Entity Chunk 审计
-
-`EntityChunkModels.kt` 与 `EntityChunkNbtCodec.kt` 的默认路径没有协议污染：
-
-- `EntityChunk` 只保存 NBT root 的 `DataVersion`、`Position` 和 `Entities` 对应语义；
-- `Entity.type`、UUID、Pos、Motion、Rotation、Passengers 都来自文件；structural fields 会从 subtype `persistentData` 中剥离，避免重复；
-- 默认 `NbtEntityDataRegistry` 原样保留其他 subtype/mod NBT；自定义 `EntityDataRegistry<E>` 是显式逃生窗口；
-- codec 捕获 registry 和 NBT format，解码结果不保存它们；
-- root Entity 的当前 position 必须属于 `EntityChunk.chunkPosition`，passenger 可以按自己的位置落在其他 Chunk；
-- empty Entity Chunk 写入会清除 Region slot，这是 store policy，不应成为 EntityChunk 字段。
-
-应保留的看似重复字段：root `EntityChunk.chunkPosition` 与每个 Entity 的 position 不能互相替代。前者是 Region record
-identity，后者是实体实际 坐标；空 Entity Chunk 和跨 Chunk passenger 也使推导不可行。
-
-需要补强的边界：网络只投影单个 Entity 的线上公共状态，不能构造带 `DataVersion` 和完整 root/passenger 持久化树的
-`EntityChunk`。
-`MinecraftEntitySnapshot` 中的 connection entity ID 和 pairing state 属于网络投影层，不能反向移动到 `Entity`。
-
-### 4.3 POI Chunk 审计
-
-`PoiChunkModels.kt` 与 `PoiChunkNbtCodec.kt` 同样没有协议污染：
-
-- NBT root 只含 `DataVersion` 与 `Sections`；`PoiChunk.chunkPosition` 正确地由 Region slot 注入；
-- Section Y 是持久化 compound key；record 的绝对 `pos` 也是真实持久化字段。空 Section 仍可携带 `Valid`，所以不能从 records
-  推导并删除 Section Y；
-- `type` 和 `free_tickets` 原样保存，没有 registry raw ID；
-- codec 只捕获 unnamed-root `NbtFormat`，没有值得抽成数据字段的上下文；
-- mutable/live POI handles 已经内置一个 codec，读写时从对象 position 选择 Region slot。
-
-需要保留的逃生窗口是 raw NBT/document/source APIs。当前 POI codec 对未知 schema 字段是严格的；mod 如果扩展了
-root/section/record schema， 应显式选择 raw path 或自定义 `RegionValueCodec<PoiChunkLike>`，而不是让标准 `PoiChunk`
-悄悄吞掉未知数据。
-
-### 4.4 world-io Region API 审计
-
-三类 handle 的容器职责目前是正确分开的：普通、Entity、POI 分别使用 `RegionReadScope`、`EntityRegionReadScope` 和
-`PoiRegionReadScope`，并共享更低层的 Anvil/decompression/NBT stream 能力。还需要统一以下语义：
-
-- 普通 Chunk typed read/write 改为 `StoredChunk<B, M>`，因为它是唯一需要同时表达 network-shared core 和 NBT-only metadata
-  的类型；
-- `DecodedChunkRegionReadScope` 捕获一个 `ChunkNbtCodec`，调用 `readChunk(position)` 时不再重复传 context；
-- Entity 的默认 NBT registry、caller-supplied codec 和 decoded scope 继续沿用现有模式；
-- POI codec 继续由 handle/scope 捕获，不增加无意义参数；
-- read 时 Region slot position 必须传给 codec：普通/Entity 用于校验 NBT 自带 position，POI 用于补全记录身份；
-- semantic write 继续从 value 自带 position 选择 slot，不再同时要求一个可能冲突的目标 position；raw NBT write 仍显式指定
-  slot；
-- `RegionChunkInfo.timestampEpochSeconds`、compression 和 sidecar 信息不进入任何 semantic Chunk。需要 timestamp 的 web map
-  继续从 Region metadata 读取并与 semantic result 在应用层组合。
-
-## 5. 目标领域类型
-
-以下声明是目标 API 的设计草图，具体文件拆分可在实现时按现有 package 约定调整；语义和依赖方向不得改变。
-
-### 5.1 稳定 block-state 与 biome
+`Chunk`、`ChunkContext` 和 `ChunkSection` 不保留 block/biome/来源泛型。标准 palette 值为：
 
 ```kotlin
-data class BlockStateValue(
+data class BlockState(
     val name: String,
     val properties: Map<String, String> = emptyMap(),
 )
 
 @JvmInline
-value class BiomeValue(val name: String)
+value class BiomeId(val value: String)
 ```
 
-- `BlockStateDescriptor` 重命名为 `BlockStateValue`，因为它不只是 codec descriptor，而是标准领域 palette value；
-- `String` biome 包装为 `BiomeValue`，防止与任意字符串混用，并让 `Chunk` 的两个泛型角色清晰；
-- 两者保存磁盘和跨端都稳定的 namespaced text，不依赖 `protocol-model.Identifier`，保持 `world-format` 依赖方向；
-- 默认只验证所选版本持久化 schema 的内在要求。modded 名称是否允许额外形式由 caller registry 决定；不要用当前连接 registry
-  决定磁盘 值是否合法。
-
-保留并调整现有逃生接口：
+`ChunkContext` 只保存多个 Chunk 共享且 Chunk 自身查询或不变量需要的事实：
 
 ```kotlin
-interface BlockStateRegistry<B : Any> {
-    val defaultValue: B
-
-    fun resolve(blockStateValue: BlockStateValue): B?
-
-    fun describe(value: B): BlockStateValue?
-}
-
-interface BiomeRegistry<M : Any> {
-    val defaultValue: M
-
-    fun resolve(biomeValue: BiomeValue): M?
-
-    fun describe(value: M): BiomeValue?
-}
-```
-
-标准实现是开放映射 `BlockStateValueRegistry` 和 `BiomeValueRegistry`；custom/mod callers 可继续把磁盘值映射为自己的
-B/M。标准实现不得查询
-`ProtocolRegistryContext`。
-
-### 5.2 codec-owned `ChunkContext<B, M>`
-
-```kotlin
-class ChunkContext<B : Any, M : Any>(
+class ChunkContext(
+    val dimensionId: DimensionId,
     val dimensionTypeLayout: DimensionTypeLayout,
-    val blockStates: BlockStateRegistry<B>,
-    val biomes: BiomeRegistry<M>,
+    val defaultBlockState: BlockState,
+    val defaultBiome: BiomeId,
 ) {
     val chunkLayout: ChunkLayout
         get() = dimensionTypeLayout.chunkLayout
 }
 ```
 
-选择保存 `DimensionTypeLayout` 而不是同时保存它和 `ChunkLayout`：disk codec 使用 `chunkLayout` getter，packet codec 还可使用
-`hasSkyLight`；没有两份可能失配的 layout state。context 是普通 class，registry/strategy 保持 identity
-semantics，不生成会意外复制旧策略的
-`copy()`。
+- `DimensionTypeLayout` 是 minY、height、logicalHeight、hasSkyLight、hasCeiling 和派生 section layout 的唯一来源。
+- 缺失 Section 虚拟读取默认 block/biome，不因读取而物化；写入非默认值才创建 Section。
+- 同一配置域的 Chunk、snapshot 和 decoder 结果复用同一个 `ChunkContext` 引用。
+- `Chunk.context` 是公开只读的用户便利 API；库内 codec、store、endpoint 和 extension 不读取它。
+- context 变化时创建新 context 和新 Chunk，不原地修改旧配置。
 
-硬约束：
+`WorldChunkContexts` 按 `DimensionId` 索引每个维度的共享引用。持久化路径从 `level.dat`、world generation settings 和已解析的
+dimension type 构造它；网络路径从 Configuration capture 和 Play 当前维度构造它。来源不保存在 Chunk 中。
 
-- `ChunkContext` immutable，可在同一 dimension 的所有 Chunk codec、views 和 packet projectors 之间按引用复用；
-- `ChunkContext` 不得成为 `Chunk` constructor property，`Chunk.snapshot()` 也不复制或保留它；
-- codec/view 构造时捕获 context，逐次 encode/decode 不重复传 layout/default/registries；
-- 不以 context identity 作为数据相等性。encoder 通过 context 验证 Chunk 的 Section Y、Block Entity Y 和可表示值；
-- persistent TAG_Byte Section-Y 限制由 `ChunkNbtCodec` 校验，不污染可供自定义非 NBT codec 使用的 `ChunkContext`。
+### 2.3 持久化 metadata
 
-### 5.3 context-free `Chunk<B, M>`
+DataVersion、LastUpdate 和 Region metadata 不属于 Chunk 计算语义：
 
 ```kotlin
-class Chunk<B : Any, M : Any>(
-    val chunkPosition: ChunkPosition,
-    chunkMetadata: ChunkMetadata,
-    sections: Collection<ChunkSection<B, M>> = emptyList(),
-    blockEntities: Collection<BlockEntity> = emptyList(),
+data class ChunkNbtMetadata(
+    val dataVersion: Int,
+    val lastUpdateTime: Long,
+)
+
+data class ChunkNbtDecodeResult(
+    val chunk: Chunk,
+    val metadata: ChunkNbtMetadata,
 )
 ```
 
-删除 `chunkLayout`、`defaultBlockState`、`defaultBiome` 和任何 context 引用。`Chunk` 自身只执行不需要 dimension context
-的操作：
+decode result 是短生命周期的转换边界结果，不是新的数据层，也不能成为 packet 或 Chunk 的字段。
 
-- position/XZ membership、显式 Section/Block Entity lookup；
-- 已存在 Section 内 palette 的读写；
-- palette snapshot/compact；
-- metadata 和 Block Entity 的逐记录操作；
-- detached snapshot。
+同一规则适用于表示无关的 `EntityChunk` 和 `PoiChunk`：从语义对象移除 `dataVersion`，由各自的 NBT metadata/decode result
+保留并 显式写回。不要建立万能 `WorldNbtMetadata`。`LevelDat`、`PlayerData`、`SavedDataFile` 等本来就表示完整文件 schema
+的类型，可以按 其职责携带格式字段。
 
-依赖缺省语义或 layout 的操作迁入 context-bound view：
+codec 不把 DataVersion 与仓库版本比较；迁移和兼容策略属于调用方。Region timestamp、compression、sector 和 sidecar placement
+继续由 Region 层保存。
 
-```kotlin
-val chunkView: ChunkView<B, M> = chunkContext.bind(chunk)
-val blockState: B = chunkView.block(blockPosition)
-chunkView.setBlock(blockPosition, replacement)
-val biome: M = chunkView.biome(blockPosition)
-```
+### 2.4 Block Entity
 
-`ChunkView` 只是 `(ChunkContext, Chunk)` 的临时操作 facade：不序列化、不进入 packet、不作为 Chunk property、不拥有
-snapshot。它在 bind 时验证 所有 Section 和 Block Entity 的 vertical membership。`getOrCreateSection`、absent-section
-default reads、写入默认值时的 Section pruning 等操作 都由 view 完成。
-
-### 5.4 sparse canonical 规则
-
-为使 disk decode、server Chunk 和 client packet decode 使用同一逻辑表示，`ChunkContext` 定义统一规范化规则：
-
-1. block palette 全为 context default、biome palette 全为 context default 且没有 Section lighting 时，语义 Section 省略；
-2. 内容全为 defaults 但有 lighting 时，只在 `ChunkMetadata.lightOnlySections` 保存 lighting；
-3. 其他 Section 保存一个 `ChunkSection`；
-4. disk decoder 与 packet decoder 都执行这一规则；context-bound mutation 在一个 Section 回到默认状态时可显式 prune；
-5. encoder 接受非 canonical caller-created Chunk，但先创建非突变 compact/canonical view，或在严格模式下报告；不得悄悄修改
-   caller Chunk。
-
-这样 absent Section 的含义只由绑定 context 解释，Chunk 不需要保存 defaults。内部 local palette IDs 只是
-`PalettedContainer` 的压缩实现，不是 protocol IDs；它们不参与逻辑 equality。mutation 期间允许暂存未使用 palette
-entries，disk/network encode 使用 non-mutating compact snapshot。
-
-### 5.5 `StoredChunk<B, M>` 与 metadata
+磁盘完整数据和网络 update tag 使用同一个中性模型：
 
 ```kotlin
-data class ChunkMetadata(
-    val heightmaps: NbtCompound = NbtCompound(emptyMap()),
-    val lightOnlySections: Map<Int, SectionLighting> = emptyMap(),
-)
-
-interface BlockEntityData
-
-data class PersistentBlockEntityData(
-    val nbtCompound: NbtCompound,
-) : BlockEntityData
-
-data class BlockEntityUpdateData(
-    val updateTag: NbtCompound?,
-) : BlockEntityData
-
-class BlockEntity(
-    val type: String,
-    val blockPosition: BlockPosition,
-    data: BlockEntityData,
-) {
-    var data: BlockEntityData = data
-}
-
-data class StoredChunk<B : Any, M : Any>(
-    val chunk: Chunk<B, M>,
-    val storageMetadata: ChunkStorageMetadata,
-) {
-    init {
-        require(chunk.blockEntities.all { blockEntity -> blockEntity.data is PersistentBlockEntityData })
-    }
-}
-```
-
-`ChunkStorageMetadata` 保留当前逐记录字段：`DataVersion`、status、last/inhabited time、`isLightOn`
-、upgrade/blending/retrogen、carving mask、ticks、post-processing、legacy entities 和 structures。它不保存 context、compression
-或 timestamp。
-
-- `ChunkNbtCodec.decode...` 返回 `StoredChunk<B, M>`；
-- `ChunkNbtCodec.encode...` 只接受 `StoredChunk<B, M>`；
-- typed Region read/write 使用相同类型；
-- packet encoder 接受 `Chunk<B, M>`；packet decoder 返回 `Chunk<B, M>`；
-- 不提供从 packet Chunk 自动生成 `StoredChunk` 的 convenience。调用方必须显式提供全部 storage metadata，并负责 packet 未携带的
-  heightmaps；所有 Block Entity 还必须是 `PersistentBlockEntityData`；
-- `StoredChunk` 不复制 Sections 或 metadata common fields，只引用一个 core Chunk。
-
-Block Entity payload 不再只靠一个中性 NBT 字段和文档约定区分来源。disk decoder 构造 `PersistentBlockEntityData`，packet
-decoder 构造
-`BlockEntityUpdateData`；nullable update tag 与 empty compound 继续保持不同。`BlockEntityData` 故意是非 sealed
-interface，mod 可以增加自己的 payload variant，并通过自定义 disk codec 或 `BlockEntityPacketProjector` 解释它。标准
-`StoredChunk` constructor 先做 provenance 检查；由于 Chunk 和 Block Entity 是 mutable values，`ChunkNbtCodec.encode`
-必须在每次写入边界重新检查，不能依赖一次性的 constructor validation。这样 packet Chunk 即使被调用方强行包装，也不会把
-update tag 当成完整 subtype NBT 写回磁盘。
-
-### 5.6 Entity 与 POI 目标模型
-
-`EntityChunk<E>`、`Entity<E>`、`EntityDataRegistry<E>`、`PoiChunk`、`PoiSection` 和 `PoiRecord` 的主要 shape 保持。只做以下收口：
-
-- 将可复用的默认 `NbtEntityDataRegistry` 实例化一次并由 handle/read scope 捕获；不放进 value；
-- 保留 explicit `EntityChunkNbtCodec<E>` 入口以及 decoded read scope；
-- POI handle/read scope 继续捕获一个 codec，不增加每次 read 参数；
-- 若增加通用 `RegionValueCodec<T>` 以统一 world-io typed scopes，`ChunkNbtCodec`、`EntityChunkNbtCodec`、`PoiChunkNbtCodec`
-  可实现它， 但接口只表达 `Source + ChunkPosition ↔ T`，不得塞入 filesystem、compression 或 protocol 概念；
-- Entity/POI 的 raw NBT、document、serializer 和 compressed paths 全部保留，作为未知 mod schema 的 lossless escape hatch。
-
-## 6. 网络投影上下文
-
-### 6.1 `ChunkProtocolMapping<B, M>`
-
-```kotlin
-interface ChunkProtocolMapping<B : Any, M : Any> {
-    val blockStateRegistrySize: Int
-
-    val biomeRegistrySize: Int
-
-    fun blockStateId(value: B): Int?
-
-    fun blockState(id: Int): B?
-
-    fun biomeId(value: M): Int?
-
-    fun biome(id: Int): M?
-
-    fun blockEntityTypeId(type: String): Int?
-
-    fun blockEntityType(id: Int): String?
-}
-```
-
-标准 factory：
-
-```kotlin
-val chunkProtocolMapping: ChunkProtocolMapping<BlockStateValue, BiomeValue> =
-    protocolRegistryContext.toChunkProtocolMapping()
-```
-
-factory 捕获 exact `ProtocolRegistryContext` snapshot，进行以下转换：
-
-- `ProtocolBlockState.id ↔ BlockStateValue(name, properties)`；
-- biome `ProtocolRegistryEntry.rawId ↔ BiomeValue(name)`；
-- block-entity-type raw ID ↔ persisted type name；
-- loader aliases 只参与 lookup；packet decode 返回 context 的 canonical name；
-- block-state/biome registry sizes 从同一个 snapshot 取得，供 direct palette bit width 使用，不从 global vanilla constants
-  推断；
-- Section count 由 `ChunkContext.dimensionTypeLayout` 提供，并在 factory/connection boundary 与 active physical format
-  context 校验。
-
-`ChunkProtocolMapping` 不公开或要求保存整个 `ProtocolRegistryContext`。标准实现只保留上述三类 registry 的必要 view、两个
-size 和所需 inverse index，不复制无关 registries；这些 lookup/index 是 encoder/decoder context 的实现状态，不进入 Chunk 或
-packet。physical
-`MinecraftProtocolFormat` 仍持有完整 active context，mapping 和 format 必须从同一个 negotiation epoch 创建。
-
-`ProtocolBlockState` 与 `ProtocolRegistryEntry` 继续保留在 `protocol-model`，因为它们准确描述协议 registry
-snapshot；只是不能再作为标准 world Chunk palette values。
-
-### 6.2 packet encoder/decoder
-
-目标 constructors：
-
-```kotlin
-class MinecraftChunkPacketEncoder<B : Any, M : Any>(
-    val chunkContext: ChunkContext<B, M>,
-    val chunkProtocolMapping: ChunkProtocolMapping<B, M>,
-    val blockSemantics: ChunkBlockSemantics<B>,
-    val blockEntityPacketProjector: BlockEntityPacketProjector,
-)
-
-class MinecraftChunkPacketDecoder<B : Any, M : Any>(
-    val chunkContext: ChunkContext<B, M>,
-    val chunkProtocolMapping: ChunkProtocolMapping<B, M>,
+data class BlockEntity(
+    val type: BlockEntityTypeId,
+    val position: BlockPosition,
+    val data: NbtCompound,
 )
 ```
 
-`ChunkBlockSemantics<B>` 提供 `isAir` 与 `hasFluid`；`BlockEntityPacketProjector` 提供 update tag 策略。它们是
-application/game-content policy，协议 raw ID 本身无法推导，继续显式注入。为保持现有轻量用法，可提供 lambda overload，但核心
-constructor 必须完整 caller-constructible。
+结构字段不在 `data` 中重复。packet encoder 通过显式 `BlockEntityUpdateTagEncoder` 生成 update tag；网络来源写盘时只保存客户端已知
+内容，不因缺少服务端私有字段拒绝整个 Chunk。
 
-encoder：
+### 2.5 网络可恢复范围
 
-- 用 `chunkContext` 解释 sparse defaults、layout 和 skylight；
-- 用 mapping 解析 numeric IDs；
-- 只把官方 client heightmaps 与 Block Entity update tags 投影进 packet；
-- 返回 `ChunkDataAndUpdateLightPacket`，不返回平行 snapshot；
-- 遇到磁盘合法但当前连接 registry 不可表示的 mod value 时，在这一边界给出带 position/palette value 的错误，不在 disk
-  decode 提前拒绝。
+| 类别             | 内容                                                                                                                       |
+|------------------|----------------------------------------------------------------------------------------------------------------------------|
+| packet 精确提供  | position、全部 block states/biomes、section counters、客户端 heightmaps、当前 light layers/masks、Block Entity update view |
+| 可从 packet 推导 | 当前 fluid state 等由 block state 和匹配定义决定的事实                                                                     |
+| decoder 默认值   | scheduled ticks、structures、inhabited time、generation continuation 和其他未发送的逐 Chunk 状态                           |
+| 仅持久化表示     | DataVersion、LastUpdate、Region metadata、Block Entity 未公开保存数据                                                      |
 
-decoder：
+网络 decoder 返回普通 `Chunk`，默认值一旦采用就是客户端本地状态。`ChunkNbtEncoder` 接受该 Chunk 和调用方显式提供的
+metadata， 不检查来源或“完整性”。这是一种受支持的有损地图保存用途，但不能宣传为服务端世界备份。
 
-- 用 packet 中的 IDs 经 mapping 还原稳定 B/M；
-- 用 context layout/defaults 执行 sparse canonicalization；
-- block-entity type ID 还原为名称，tag 明确标为 update payload；
-- 返回普通 `Chunk<B, M>`，不产生 storage metadata。
+README 与 decoder KDoc 必须维护随匹配版本审计的字段表，区分精确提供、可推导、默认产生和纯持久化内容。
 
-physical `MinecraftProtocolFormat` 仍使用相同 epoch 的 `ProtocolRegistryContext` 解释 Section count、palette widths 和其他
-registry-aware wire values。semantic packet adapter 不接触 Source/Sink，physical format 不接触 world Chunk。
+## 3. Codec 与公开 API
 
-## 7. 上下文从哪里取得
-
-### 7.1 服务端磁盘 context：world metadata + data-pack 编排
-
-标准 stored-world 路径继续使用两个真实输入：
-
-1. `WorldGenSettingsData` 给出存档声明的 dimensions 以及 referenced/inline dimension-type holder；
-2. `WorldDataPackLoadResult -> DataPackStack -> ResolvedProtocolData` 给出启用 pack 后的完整 dimension-type registry
-   data。
-
-`resolveMinecraftChunkContexts`/`resolveMinecraftWorld` 只用这些数据解析 `DimensionTypeLayout`，然后创建开放的 stable
-`ChunkContext<BlockStateValue, BiomeValue>`。它不得再调用
-`completeProtocolRegistryContext.toChunkDataRegistries()` 把 block/biome raw IDs 注入 disk context。
-
-输出建议调整为：
+### 3.1 持久化 codec
 
 ```kotlin
-data class ResolvedMinecraftWorld(
-    val protocolData: ResolvedProtocolData,
-    val chunkContexts: Map<DimensionId, ChunkContext<BlockStateValue, BiomeValue>>,
-) {
-    fun chunkContext(dimensionId: DimensionId): ChunkContext<BlockStateValue, BiomeValue>
+class ChunkNbtDecoder(val chunkContext: ChunkContext) {
+    fun decode(
+        nbtDocument: NbtDocument,
+        expectedChunkPosition: ChunkPosition? = null,
+    ): ChunkNbtDecodeResult
+}
+
+class ChunkNbtEncoder(val chunkContext: ChunkContext) {
+    fun encode(chunk: Chunk, metadata: ChunkNbtMetadata): NbtDocument
 }
 ```
 
-map key 是唯一 dimension identity，value 不再重复保存 `dimensionId`。server-negotiable `resolveMinecraftWorld` 仍额外验证
-referenced dimension type 能在 synchronized registry 中取得 raw ID；disk-only `resolveMinecraftChunkContexts` 继续允许
-inline holders。
+- encoder 和 decoder 分离，不恢复只有转发作用的 `ChunkNbtCodec` facade。
+- 不创建只包装一个字段的 `ChunkNbtCodecContext`。
+- semantic codec 只处理 `NbtDocument`↔Chunk；binary NBT、compression、Anvil 和 filesystem 各由相邻层处理。
+- decoder 将构造时注入的 `ChunkContext` 原样交给每个结果。
+- encoder 只使用构造时显式注入的 context，不读取或校验 `chunk.context`。
+- `EntityChunk`/`PoiChunk` 同样拆分定向 encoder/decoder、metadata 与 decode result；只有真实配置才进入构造器，不制造空
+  context。
 
-默认 air/plains 是 resolver 的显式可覆盖参数，并被解析为 stable values，而不是 Protocol objects。mod 可通过以下方式替换：
+`world-io` 的 dimension-bound handle/scope 在构造时绑定相应 codec。Region slot 向 decoder 提供预期位置，semantic write
+使用值自身位置 选择 slot，不接受第二份可能冲突的位置。
 
-- 自定义 `DataPackProtocolProjector`/`DataPackRegistryProjector` 编排 mod dimension-type registry；
-- 直接提供 caller-created `ChunkContext<B, M>`；
-- 对不能走标准 schema 的存档使用 raw NBT/custom codec。
-
-### 7.2 服务端网络 context：完成协商后的当前连接
-
-服务端 packet mapping 不能从长期保存的 disk context 或假定的 vanilla registry 创建。标准来源是：
-
-```text
-ResolvedMinecraftWorld.protocolData
-  -> Configuration packets
-  -> ServerNegotiationProfile.resolveProtocolRegistryContext(...)
-  -> MinecraftServerConnection.protocolRegistryContext (authoritative active snapshot)
-  -> ChunkProtocolMapping
-```
-
-`MinecraftServerNegotiationResult.minecraftDimensionContext` 验证所选 dimension identity/layout 与该 snapshot
-一致；真正编码前仍读取
-`minecraftServerConnection.protocolRegistryContext`，因为后续 reconfiguration 可替换它。packet encoder 构造时验证它的
-`ChunkContext.dimensionTypeLayout` 与 negotiation dimension layout 一致。
-
-### 7.3 客户端网络 context：Configuration capture + Play Login
-
-客户端标准来源是现有协商链：
-
-```text
-RegistryDataPacket sequence + local StaticRegistrySchema
-  -> ProtocolData.resolveSynchronizedRegistryContext(...)
-  -> ClientNegotiationProfile.resolveProtocolRegistryContext(...)
-  -> MinecraftClientConnection.protocolRegistryContext
-
-PlayLoginPacket + synchronized dimension_type registry
-  -> MinecraftDimensionLayout
-  -> MinecraftDimensionContext
-  -> stable ChunkContext selected by the application
-```
-
-client 创建 `ChunkContext` 时只从 `MinecraftDimensionContext` 取得 `DimensionTypeLayout`，默认 B/M 由应用或标准 stable
-factory 选择；IDs 仍由 connection 的 current `ProtocolRegistryContext` 创建 mapping。这样 loader profile 已经应用的 remote
-registry、alias、override 和 blocked entry 都能进入 mapping，而不会进入 Chunk。
-
-### 7.4 context epoch 与失效规则
-
-- `ChunkContext` 的生命周期跟 dimension layout/default/mapping policy 一致；普通 registry raw-ID reorder 不使它失效；
-- `ChunkProtocolMapping` 和 packet encoder/decoder 的生命周期跟 exact active `ProtocolRegistryContext` epoch 一致；
-- Configuration/reconfiguration、loader remap 或 registry reorder 后必须创建新的 mapping 和 packet codecs；
-- 已加载的 stable Chunk 无需重读、改写或 remap；下一次发送时使用新 mapping；
-- dimension 切换但 layout/defaults 相同也要显式选择对应 context，不能从 Chunk 猜 dimension；
-- 如果 data-pack reload 改变 dimension layout 或应用选择的 defaults，则创建新 `ChunkContext`，并由 application 决定如何处理旧
-  loaded Chunks；
-- 一个已经包含 numeric IDs 的 packet 只属于创建它的 registry epoch。不要跨 reconfiguration 缓存并重发；也不要为了标记
-  epoch 给官方 packet 添加 library-only 字段。
-
-## 8. 理想状态示例代码
-
-以下代码描述重构完成后的目标 API。每个外部值都通过参数或前置 producer 获得；示例不依赖隐藏全局默认或 repository-only
-initialization。
-
-### 8.1 从存档和 data packs 创建每维度 disk contexts
+### 3.2 网络 codec
 
 ```kotlin
-suspend fun resolveStoredServerWorld(
-    minecraftWorldAccess: MinecraftWorldAccess,
-): ResolvedMinecraftWorld {
-    val worldGenSettingsData = checkNotNull(
-        minecraftWorldAccess.data.read<SavedDataFile<WorldGenSettingsData>>(
-            SavedDataId("world_gen_settings"),
-        ),
-    ).data
-    val worldDataPackLoadResult = minecraftWorldAccess.dataPacks.readEnabled()
-    val resolvedProtocolData = worldDataPackLoadResult.toVanillaProtocolData()
-    return resolvedProtocolData.resolveMinecraftWorld(worldGenSettingsData)
-}
-
-val resolvedMinecraftWorld = resolveStoredServerWorld(minecraftWorldAccess)
-val chunkContext = resolvedMinecraftWorld.chunkContext(dimensionId)
-val chunkNbtCodec = ChunkNbtCodec(chunkContext)
-```
-
-复核：
-
-- `worldGenSettingsData` 来自该存档；layout 不是 hardcode；
-- `resolvedProtocolData` 来自该存档启用的 pack stack；referenced dimension type 可解析；
-- `chunkContext` 只含 layout、stable defaults 和 disk value mappers，不含 protocol raw IDs；
-- `chunkNbtCodec` 捕获 context，后续每次 read 不重复传 layout/defaults；
-- `dimensionId` 只作为 map key/选择条件，不复制进 context value。
-
-### 8.2 使用 LiveMinecraftWorldAccess 读取三类 Region
-
-```kotlin
-fun readLiveRegionValues(
-    liveMinecraftWorldAccess: LiveMinecraftWorldAccess,
-    dimensionId: DimensionId,
-    regionPosition: RegionPosition,
-    chunkNbtCodec: ChunkNbtCodec<BlockStateValue, BiomeValue>,
-    entityChunkNbtCodec: EntityChunkNbtCodec<NbtCompound>,
-): Triple<StoredChunk<BlockStateValue, BiomeValue>?, EntityChunk<NbtCompound>?, PoiChunk?> {
-    val liveMinecraftDimension = liveMinecraftWorldAccess.dimensions[dimensionId]
-    val localChunkPosition = LocalChunkPosition(0, 0)
-
-    val storedChunk = liveMinecraftDimension.openRegion(regionPosition).use { liveRegionHandle ->
-        liveRegionHandle.withReadScope(chunkNbtCodec) {
-            readChunk(localChunkPosition)
-        }
-    }
-    val entityChunk = liveMinecraftDimension.openEntityRegion(regionPosition).use { liveEntityRegionHandle ->
-        liveEntityRegionHandle.withReadScope(entityChunkNbtCodec) {
-            readChunk(localChunkPosition)
-        }
-    }
-    val poiChunk = liveMinecraftDimension.openPoiRegion(regionPosition).use { livePoiRegionHandle ->
-        livePoiRegionHandle.withReadScope {
-            readChunk(localChunkPosition)
-        }
-    }
-    return Triple(storedChunk, entityChunk, poiChunk)
-}
-```
-
-复核：
-
-- ordinary scope 捕获 `ChunkNbtCodec`，所以 read 只需要 record position；
-- Entity scope 捕获 `EntityChunkNbtCodec`，`EntityDataRegistry` 不进入 Entity values；
-- POI scope 自己拥有 codec，因为没有额外 semantic context；
-- Region position/local position 是每条记录身份，不是重复 dimension context；
-- timestamp/compression 仍在 Region scope。如果调用方需要 timestamp，应另读 `RegionChunkInfo` 并在应用 DTO 中组合，不修改
-  semantic values。
-
-### 8.3 读取磁盘 Chunk 并发送给一个已协商客户端
-
-```kotlin
-suspend fun sendStoredChunk(
-    minecraftServerConnection: MinecraftServerConnection,
-    minecraftServerNegotiationResult: MinecraftServerNegotiationResult,
-    chunkContext: ChunkContext<BlockStateValue, BiomeValue>,
-    storedChunk: StoredChunk<BlockStateValue, BiomeValue>,
-    chunkBlockSemantics: ChunkBlockSemantics<BlockStateValue>,
-    blockEntityPacketProjector: BlockEntityPacketProjector,
-) {
-    require(
-        chunkContext.dimensionTypeLayout ==
-                minecraftServerNegotiationResult.minecraftDimensionContext.minecraftDimensionLayout.dimensionTypeLayout,
-    )
-    val protocolRegistryContext = minecraftServerConnection.protocolRegistryContext
-    val chunkProtocolMapping = protocolRegistryContext.toChunkProtocolMapping()
-    val minecraftChunkPacketEncoder = MinecraftChunkPacketEncoder(
-        chunkContext = chunkContext,
-        chunkProtocolMapping = chunkProtocolMapping,
-        blockSemantics = chunkBlockSemantics,
-        blockEntityPacketProjector = blockEntityPacketProjector,
-    )
-    val chunkDataAndUpdateLightPacket = minecraftChunkPacketEncoder.encode(storedChunk.chunk)
-    minecraftServerConnection.outgoing.send(chunkDataAndUpdateLightPacket)
-}
-```
-
-复核：
-
-- packet encoder 只接收 `storedChunk.chunk`，storage metadata 没有机会进入 packet；
-- mapping 来自该 connection 的 authoritative negotiated context，不来自文件或 Chunk；
-- air/fluid 和 update-tag policy 有明确 producer，不从 numeric ID 猜；
-- output 已是官方 packet model，没有 `MinecraftChunkSnapshot` 中间副本；
-- outgoing physical format 已安装同一 connection context。实现必须保证 encode/enqueue 不跨 reconfiguration epoch。
-
-### 8.4 客户端把官方 packet 解码为相同领域 Chunk
-
-```kotlin
-fun createClientChunkDecoder(
-    minecraftClientConnection: MinecraftClientConnection,
-    minecraftClientNegotiationResult: MinecraftClientNegotiationResult,
-): MinecraftChunkPacketDecoder<BlockStateValue, BiomeValue> {
-    val minecraftDimensionContext = minecraftClientNegotiationResult.minecraftDimensionContext
-    val chunkContext = minecraftDimensionContext.createStableChunkContext()
-    val protocolRegistryContext = minecraftClientConnection.protocolRegistryContext
-    val chunkProtocolMapping = protocolRegistryContext.toChunkProtocolMapping()
-    return MinecraftChunkPacketDecoder(chunkContext, chunkProtocolMapping)
-}
-
-val minecraftChunkPacketDecoder = createClientChunkDecoder(
-    minecraftClientConnection,
-    minecraftClientNegotiationResult,
-)
-val chunk: Chunk<BlockStateValue, BiomeValue> =
-    minecraftChunkPacketDecoder.decode(chunkDataAndUpdateLightPacket)
-```
-
-复核：
-
-- layout 来自 Configuration + Play Login 验证后的 dimension context；
-- IDs 来自 connection 当前协商 registry snapshot；
-- decoder 返回与服务端 core 相同的 stable generic specialization；
-- returned Chunk 不保存两个 context，也没有 nullable storage metadata；
-- 若随后 reconfiguration，丢弃 decoder 并用新的 connection context 重建；`chunk` 本身继续有效。
-
-### 8.5 使用 context-bound view 计算和修改 Chunk
-
-```kotlin
-fun replaceBlock(
-    chunkContext: ChunkContext<BlockStateValue, BiomeValue>,
-    chunk: Chunk<BlockStateValue, BiomeValue>,
-    blockPosition: BlockPosition,
-    replacement: BlockStateValue,
-): BlockStateValue {
-    val chunkView = chunkContext.bind(chunk)
-    val previous = chunkView.block(blockPosition)
-    chunkView.setBlock(blockPosition, replacement)
-    return previous
-}
-```
-
-复核：defaults/layout 只在 `chunkContext` 中；Chunk 数据没有重复字段。view 是调用期间的能力对象，不进入 storage/network
-data。
-
-### 8.6 mod 客户端/服务端替换上下文
-
-```kotlin
-val modChunkContext = ChunkContext(
-    dimensionTypeLayout = modDimensionTypeLayout,
-    blockStates = modBlockStateRegistry,
-    biomes = modBiomeRegistry,
-)
-val modChunkNbtCodec = ChunkNbtCodec(
-    chunkContext = modChunkContext,
-    nbtFormat = modRegionNbtFormat,
+class ChunkPacketEncoderContext(
+    val chunkContext: ChunkContext,
+    val packetCodecContext: PacketCodecContext,
+    val blockStateClassifier: ChunkPacketBlockStateClassifier,
+    val blockEntityUpdateTagEncoder: BlockEntityUpdateTagEncoder,
 )
 
-val loaderAdjustedProtocolRegistryContext =
-    modNegotiationProfile.resolveProtocolRegistryContext(baseProtocolRegistryContext)
-val modChunkProtocolMapping = ModChunkProtocolMapping(
-    blockStateRegistrySize = loaderAdjustedProtocolRegistryContext.blockStateRegistrySize,
-    biomeRegistrySize = requireNotNull(loaderAdjustedProtocolRegistryContext.biomeRegistrySize),
-    blockStateMapping = modBlockStateMapping,
-    biomeMapping = modBiomeMapping,
-    blockEntityTypeMapping = modBlockEntityTypeMapping,
+class ChunkPacketDecoderContext(
+    val chunkContext: ChunkContext,
+    val packetCodecContext: PacketCodecContext,
+    val chunkPacketDefaultProvider: ChunkPacketDefaultProvider,
 )
-val modPacketDecoder = MinecraftChunkPacketDecoder(
-    chunkContext = modChunkContext,
-    chunkProtocolMapping = modChunkProtocolMapping,
-)
-```
 
-示例中的每个 mod value 都由调用方参数或 loader negotiation producer 提供。标准 factory 是 convenience，显式 constructors
-是完整替换窗口。 custom mapping 可以处理 loader aliases、非连续 remote IDs 或额外 registry policy，但必须向 physical
-protocol format 提供与之匹配的
-`ProtocolRegistryContext`；mapping 本身只保存 Chunk projection 所需的 registry views/sizes，不嵌套整个 context。
+class ChunkPacketEncoder(val context: ChunkPacketEncoderContext) {
+    fun encode(chunk: Chunk): ChunkWithLightPacket
+}
 
-### 8.7 raw schema 逃生窗口
-
-```kotlin
-val nbtDocument = liveRegionHandle.readChunkNbtDocument(chunkPosition)
-val customValue = liveRegionHandle.withChunkNbtSource(chunkPosition) { _, source ->
-    customRegionValueCodec.decode(source, chunkPosition)
+class ChunkPacketDecoder(val context: ChunkPacketDecoderContext) {
+    fun decode(packet: ChunkWithLightPacket): Chunk
 }
 ```
 
-当 mod 改变 root schema，而不只是增加 block/biome/entity type 时，调用方不应被迫通过标准 semantic model。现有
-compressed、NBT source、
-`NbtDocument`、explicit serializer 路径全部保留；自定义 codec 可以直接复用 Region/decompression 层。
-
-## 9. 示例代码的无冗余复核
-
-| 示例变量                        | 来源                                                         | 它拥有的唯一事实                                     | 没有携带的事实                                         |
-|---------------------------------|--------------------------------------------------------------|------------------------------------------------------|--------------------------------------------------------|
-| `worldGenSettingsData`          | 存档 root saved data                                         | dimension declarations/holders                       | protocol IDs、Chunk contents                           |
-| `resolvedProtocolData`          | enabled data-pack stack + explicit projectors                | server Configuration projection和完整 registry order | Region bytes、loaded Chunks                            |
-| `chunkContext`                  | resolved dimension layout + selected stable defaults/mappers | 跨该 dimension Chunks 可复用的解释规则               | position、Sections、DataVersion、raw IDs               |
-| `chunkNbtCodec`                 | `chunkContext` + unnamed-root NBT format                     | disk NBT↔semantic conversion                         | Region filesystem policy、connection context           |
-| `storedChunk`                   | one Region record decoded by the codec                       | one core Chunk + one record's storage metadata       | codec、compression、timestamp、protocol IDs            |
-| `storedChunk.chunk`             | stored semantic core                                         | stable per-Chunk logical content                     | storage-only metadata、layout/default/context、raw IDs |
-| `protocolRegistryContext`       | completed negotiation/active connection                      | this epoch's wire registry facts                     | disk metadata、Chunk values                            |
-| `chunkProtocolMapping`          | exact `protocolRegistryContext` + optional mod policy        | stable values↔wire IDs                               | Chunk contents、disk codec                             |
-| `minecraftChunkPacketEncoder`   | `chunkContext` + mapping + content policy                    | one epoch's projection capability                    | persistent storage metadata、filesystem                |
-| `chunkDataAndUpdateLightPacket` | encoder output                                               | only official packet payload fields                  | contexts、disk metadata、snapshot wrapper              |
-| client `chunk`                  | packet decoder output                                        | stable client-visible Chunk core                     | numeric IDs、codec refs、invented storage metadata     |
-
-逐箭头复核：
-
-1. Region → disk codec：position 从 Region slot 进入一次调用；跨记录稳定的 layout/default/mappers 已被 codec 捕获。
-2. disk codec → `StoredChunk`：只产出 NBT/record 内容；context、NbtFormat、compression 不随结果移动。
-3. `StoredChunk` → packet encoder：只取 `.chunk`；storage metadata 在类型上被截断。
-4. packet encoder → packet：numeric IDs 在这一刻产生并且只保存在官方 wire fields；mapping 不放进 packet。
-5. packet → physical bytes：format 使用 connection 已安装 context，不给 packet 增加字段。
-6. bytes → client packet：同一 epoch context 决定 physical decoding；packet 仍是官方模型。
-7. packet → client Chunk：numeric IDs 立即还原为 stable values；decoder context 不放进结果。
-8. Chunk calculation：需要 defaults/layout 时显式 bind context；不为了方便把 context 永久塞回 Chunk。
-
-结论：目标示例不存在同一个 layout/default/raw-ID/context 在多个数据对象中逐层复制的问题。唯一的组合 wrapper 是
-`StoredChunk`，它组合两个 互斥来源能力而不复制 core；唯一的临时组合是 `ChunkView`，它是操作 facade 而不是数据层。
+- 两个方向配置不同，不建立万能 `ChunkPacketCodecContext` 或公共 base context。
+- `PacketCodecContext` 是当前连接 epoch 的 registry/raw-ID 配置，不保存 Chunk layout 或 section count。
+- section count、height 和 skylight 只来自 `ChunkContext.dimensionTypeLayout`。
+- block/biome/Block Entity raw ID 都通过同一个 `PacketCodecContext`；不复制 mapping。
+- default provider 为每个 Chunk 生成需要独立修改的集合，不能共享可变默认对象。
+- 显式 mapping 无法表示 Chunk 值时失败，不回退到 `Chunk.context` 或隐藏 registry。
+
+`protocol-world` 只声明和执行这些策略接口；release-matched 默认策略由 client/server factory 选择并显式注入。
 
-## 10. 逃生窗口设计
+`ChunkWithLightPacket` 只保存官方网络字段，Section payload 使用网络 `ByteString`/等价值，不包含 Chunk、ChunkContext 或
+decoder。
+`MinecraftPacketFormat` 只负责 packet model↔payload bytes，并显式接收 `MinecraftPacketFormatConfiguration`。
+
+每个连接 epoch 和当前维度复用一组 context/codec；reconfiguration 或换维度创建新对象。对应
+`MinecraftPacketFormatConfiguration` 与 Chunk packet codec 必须引用同一个 `PacketCodecContext` 快照。
+
+### 3.3 三类公开 API
+
+1. **Primitive API**：应用和库内实现显式构造 encoder/decoder；这是测试和文档首先展示的规范路径。
+2. **Fluent API**：面向用户的扩展函数显式接收完整配置，在内部构造并调用 primitive；可以组合连续的相邻转换。
+3. **开放细节 API**：`value.context`、palette snapshot、raw NBT、Region diagnostics 等只读 escape hatch；仅供用户使用。
+
+Primitive 路径示意：
+
+```kotlin
+val chunkNbtDecoder = ChunkNbtDecoder(serverChunkContext)
+val chunkPacketEncoder = ChunkPacketEncoder(serverChunkPacketEncoderContext)
+val serverPacketFormat = MinecraftPacketFormat(serverPacketFormatConfiguration)
+val clientPacketFormat = MinecraftPacketFormat(clientPacketFormatConfiguration)
+val chunkPacketDecoder = ChunkPacketDecoder(clientChunkPacketDecoderContext)
+
+val serverChunk = chunkNbtDecoder.decode(nbtDocument, expectedChunkPosition).chunk
+val packet = chunkPacketEncoder.encode(serverChunk)
+serverPacketFormat.encodeToSink(ChunkWithLightPacket.serializer(), packet, sink)
+val receivedPacket = clientPacketFormat.decodeFromSource(ChunkWithLightPacket.serializer(), source, payloadLength)
+val clientChunk = chunkPacketDecoder.decode(receivedPacket)
+val clientMapDocument = ChunkNbtEncoder(clientChunkContext).encode(clientChunk, clientMapChunkNbtMetadata)
+```
+
+Fluent 路径只减少对象构造样板：
 
-高层默认路径与低层替换路径必须同时存在，并沿用仓库现有“zero-configuration vanilla convenience + explicit constructible
-core”模式。
+```kotlin
+val serverChunk = nbtDocument.toChunk(serverChunkContext, expectedChunkPosition).chunk
+val packet = serverChunk.toChunkWithLightPacket(serverChunkPacketEncoderContext)
+val clientChunk = packet.toChunk(clientChunkPacketDecoderContext)
+val clientMapDocument = clientChunk.toNbtDocument(clientChunkContext, clientMapChunkNbtMetadata)
+```
 
-### 10.1 磁盘值与 schema
+Fluent API 不得读取 receiver.context、使用进程全局 mutable context、吞掉 primitive 错误、改变资源所有权或创建非相邻层
+direct conversion。现有 Chunk/EntityChunk/PoiChunk conversions、client/server extensions 和 world-io shortcuts 全部按此审计。
 
-- `BlockStateRegistry<B>` / `BiomeRegistry<M>`：替换 stable value representation、defaults 和双向持久化 mapping；
-- `EntityDataRegistry<E>`：替换 Entity subtype data；
-- `ChunkNbtCodec` / `EntityChunkNbtCodec` 的 explicit `NbtFormat`；
-- raw compressed chunk、NBT Source/Sink、`NbtDocument` 和 serializer overloads；
-- registered CUSTOM Region compression 保持不变；
-- 可选小型 `RegionValueCodec<T>` 只统一 semantic codec shape，不强制所有 mod 使用仓库 model。
+## 4. 模块边界
 
-### 10.2 data-pack 与 dimension 编排
+本项目中的 `world` 指一个 Minecraft 存档文件夹及其文件系统无关表示，不指官方可运行程序中的 Level/World runtime。
+
+不新增 `world-model`：如果它只包含 Chunk，会错误排除 EntityChunk、PoiChunk 和其他存档值；如果包含全部解码结果，则只会与
+`world-format` 形成机械拆分。`world-format` 统一拥有存档模型、持久化表示和 semantic codecs，`world-io` 拥有实际文件夹 I/O。
+
+### 4.1 会变化的模块
+
+| 模块                           | 重构后职责                                                                                              |
+|--------------------------------|---------------------------------------------------------------------------------------------------------|
+| world-format                   | Chunk/EntityChunk/PoiChunk、standalone schemas、DataPack、坐标、NBT semantic codecs、Anvil、compression |
+| world-io                       | Okio 路径、世界/维度目录、文件、lease、Region store、锁、替换与恢复                                     |
+| protocol-model                 | packet payload、packet-owned values、wire annotations                                                   |
+| protocol-serialization         | packet payload↔bytes、packet registry 和通用 wire primitives                                            |
+| protocol-world                 | 有官方网络表示的纯 Play world-value↔packet projection primitives                                        |
+| protocol-configuration         | DataPack→Configuration projection，以及 Configuration capture→registry/layout lookup                    |
+| datapack-vanilla               | 匹配版本的官方 raw/parsed DataPack、内建 pack 集合与 vanilla stack completion                           |
+| protocol-configuration-vanilla | 匹配版本的静态 registry、Configuration defaults、capture/projector                                      |
+| protocol-client                | 客户端协商、生命周期、默认策略选择和 codec factory                                                      |
+| protocol-server                | 服务端协商、生命周期、有限 initial view、tracking/排序策略和 codec factory                              |
+
+其余 12 个 subprojects 保持主边界：`nbt`、`nbt-serialization`、`protocol-transport`、`protocol-session`、
+`distribution-metadata`、`account-auth`、`protocol-auth`、`protocol-symbol-processor`、`minecraft-test-support`、
+`minecraft-test-fixture-host`、`demo:launcher`、`demo:web-map`。目标共 22 个 Gradle subprojects；`buildSrc` 不计入。
+
+### 4.2 关键依赖
+
+    world-format -> nbt, nbt-serialization
+    world-io -> world-format
+
+    protocol-serialization -> protocol-model, nbt-serialization
+    protocol-world -> world-format, protocol-model, protocol-serialization
+    protocol-configuration -> world-format, protocol-model, protocol-serialization
+
+    datapack-vanilla -> world-format
+    protocol-configuration-vanilla -> protocol-configuration, world-format, protocol-serialization
+
+    protocol-client/server -> protocol-world, protocol-configuration
+    vanilla endpoint defaults -> protocol-configuration-vanilla
+
+- `world-format`/`world-io` 不依赖 protocol 模块。
+- `protocol-world` 不依赖 world-io、Ktor、auth、session、endpoint 或 vanilla singleton。
+- `protocol-configuration` 不拥有普通 Play Chunk/Entity codec。
+- `datapack-vanilla` 不依赖 protocol 模块；`protocol-configuration-vanilla` 不依赖 `datapack-vanilla`。
+- 同时读取 vanilla 存档并启动网络服务的应用显式组合 DataPack stack completion 与 Configuration projection。
+
+### 4.3 protocol-world 的范围
 
-- `DataPackProtocolProjector` 完整构造器继续允许替换 base、registry projectors、merge mode、Known Packs、flags 和 static
-  schema；
-- `DataPackRegistryEntryProjector` 继续负责 disk JSON → synchronized NBT 的显式有损边界；
-- `resolveMinecraftChunkContexts` 提供 stable default overrides；
-- caller 可绕过 resolver，直接以自有 `DimensionTypeLayout` 和 registries 构造 `ChunkContext<B, M>`；
-- inline dimension types 保留在 disk/custom endpoint branch。
+只有同时满足以下条件的转换才进入 `protocol-world`：
+
+1. 一端是稳定的 `world-format` 语义值，另一端是 packet 或 detached packet state；
+2. 转换不需要文件系统、session、endpoint 或进程全局状态；
+3. tracking、可见性、runtime ID 分配和时序可由调用方提前处理；
+4. 官方有限 view 被明确建模为单向/有损 projection，而不是伪装成完整 round trip。
+
+| world value                             | 网络关系                                                                                   | 归属                                                                                    |
+|-----------------------------------------|--------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
+| Chunk                                   | full Chunk payload 可双向转换，但部分字段由客户端默认                                      | protocol-world 双向 codec                                                               |
+| Entity                                  | 以单个 Entity 和 spawn/metadata/attributes/equipment/passengers/leash pairing packets 表达 | protocol-world primitive；tracking/runtime ID/ordering 留在 endpoint                    |
+| EntityChunk                             | 网络没有 Region slot、DataVersion 或 root tree 边界                                        | 不建立 EntityChunk packet codec                                                         |
+| PoiChunk                                | 无普通完整同步；debug view 有限                                                            | 无整体 codec；需要时提供明确单向有损 projector                                          |
+| DataPack、registry、tags、feature flags | Configuration 阶段专门投影                                                                 | protocol-configuration                                                                  |
+| LevelDat、world generation settings     | 无整体 packet，只提供配置和 bootstrap 事实                                                 | world-format resolver + world-io orchestration；网络 resolver 在 protocol-configuration |
+| PlayerData                              | 多组连接期状态的有限视图                                                                   | 不建整体 codec；逐功能 projector 需单独证据                                             |
+| MapData、ScoreboardData                 | snapshot/delta 或 ordered packet view                                                      | 纯 projector 可进 protocol-world，订阅和顺序归调用方                                    |
+| advancements、statistics                | 仅部分对应 clientbound updates                                                             | 只建立证据支持的单向/delta projector                                                    |
+| raids、tickets、random sequences 等     | 无通用客户端等价表示                                                                       | 不建立网络转换                                                                          |
+| Anvil、compression、DataVersion         | 纯持久化表示                                                                               | 永不进入 protocol-world                                                                 |
 
-### 10.3 协议与 loader
+阶段 A 建立 world projection inventory，将每项标为 `bidirectional-codec`、`one-way-projector`、
+`endpoint-orchestration` 或 `no-network-representation`。
 
-- `ClientNegotiationProfile.resolveProtocolRegistryContext` 与
-  `ServerNegotiationProfile.resolveProtocolRegistryContext` 继续作为 Fabric/Forge/NeoForge 等 loader 的 registry hook；
-- `ProtocolRegistryContext.withRegistries`、`withStaticRegistryResolution`、size/section-count overlays 保留；
-- 标准 `toChunkProtocolMapping()` 与 explicit `ChunkProtocolMapping<B, M>` 并存；
-- `ChunkBlockSemantics<B>` 与 `BlockEntityPacketProjector` caller-supplied；
-- packet encoder/decoder constructors public 且完整，不要求 vanilla module；
-- `protocol-model` packet constructors 和 `MinecraftProtocolFormat` explicit configuration 仍可直接使用，供完全自定义
-  endpoint 跳过 semantic adapter。
+## 5. DataPack 与 Configuration 拆分
 
-### 10.4 逃生窗口的责任边界
+`protocol-datapack` 改为 `protocol-configuration`。当前 `protocol-datapack-vanilla` 拆成：
 
-标准路径保证无协议污染；泛型/custom 路径允许用户故意选择 `ProtocolBlockState` 或包含额外 runtime state 的 B/M/E，库不应禁止。但
-API 和测试 必须区分：
+- `datapack-vanilla`：`VanillaDataPacks`、官方 DataPack archive/parsed payload、core/built-in packs 和 stack completion；
+- `protocol-configuration-vanilla`：`VanillaRegistryData`、`VanillaConfigurationData`、静态 registry、Configuration defaults
+  和 projector。
 
-- library-owned convenience 永远返回 stable standard values；
-- generic constructors 是 caller-owned representation，caller 负责其 equality、可逆性和 lifecycle；
-- 无法映射的值在当前 conversion boundary 失败，不能 silent fallback 到默认值；
-- raw path 明确放弃 semantic schema validation，但不放弃 Region/NBT intrinsic corruption checks。
+通用 `DataPackArchive`、`DataPack`、`DataPackStack`、`ResolvedDataPackStack` 和 `WorldDataPackLoadResult` 仍在
+`world-format`。 两个 vanilla provider 不互相依赖，也不共享生成输出。
 
-## 11. 模块与文件级改造
+`WorldChunkContexts` 的持久化 adapter 属于 `world-format`；Configuration evidence adapter 属于 `protocol-configuration`。
+`ResolvedMinecraftWorld` 拆为 `WorldChunkContexts`、`ResolvedConfigurationData` 和连接期 context，不保留同职责的改名聚合物。
 
-### 11.1 `world-format`
-
-`ChunkModels.kt`：
-
-- `BlockStateDescriptor` → `BlockStateValue`；`NamedBiomeRegistry` 的 String value → `BiomeValue`；
-- `ChunkDataRegistries`/`ChunkCodecContext` 合并并明确命名为 codec-owned `ChunkContext`；
-- `Chunk` constructor 移除 layout/default/context；
-- 增加 `ChunkView` 或等价 context-receiver facade；
-- `ChunkMetadata` 移除 nullable storage field；新增 `StoredChunk`；
-- Block Entity data 改用 caller-extensible 的显式 persistent/update provenance variants；
-- snapshot 只复制 data，不携带 context。
+## 6. 命名重构
 
-`ChunkNbtCodec.kt`：
+### 6.1 总规则
 
-- 持有 `ChunkContext`；decode/encode 改为 `StoredChunk`；
-- standard stable registries接受所有合法持久化 names；
-- decode 与 packet decoder 共用 canonical sparse helper；
-- encode validation 使用 codec context，不比较 Chunk 内不存在的 layout/default；
-- error 明确区分 unknown caller mapping、invalid layout 和持久化 schema。
+- `Protocol` 只用于网络协议本身、协议侧 module/package、协议版本或上游正式命名的扩展机制。
+- `Packet` 只用于网络 packet model；所有 packet class 以 `Packet` 结尾。
+- NBT、Anvil、Region、DataPack、ResourcePack、KnownPack、Configuration 等采用官方术语。
+- 不把官方 runtime 容器名机械带入纯数据模型，因此保留 `Chunk` 而不是 `LevelChunk`。
 
-`ChunkConversions.kt`：
+### 6.2 主要已确定的模块与 identifier 改名
 
-- compressed/NBT receiver extensions 使用 `StoredChunk` 名义；
-- 命名应明确 `toStoredChunk`，避免暗示 packet-derived Chunk 可直接写回；
-- 保留 explicit codec/format overload。
+| 当前                                                      | 目标                                                                     |
+|-----------------------------------------------------------|--------------------------------------------------------------------------|
+| protocol-datapack                                         | protocol-configuration                                                   |
+| protocol-datapack-vanilla                                 | datapack-vanilla + protocol-configuration-vanilla                        |
+| MinecraftProtocolFormat                                   | MinecraftPacketFormat                                                    |
+| MinecraftProtocolFormatConfiguration                      | MinecraftPacketFormatConfiguration                                       |
+| ConfiguredMinecraftProtocolFormat                         | ConfiguredMinecraftPacketFormat                                          |
+| ProtocolRegistryContext                                   | PacketCodecContext                                                       |
+| ProtocolRegistry / ProtocolRegistryEntry                  | RegistryIdMap / RegistryIdMapping                                        |
+| ProtocolBlockState                                        | BlockStateIdMapping                                                      |
+| MinimalProtocolValueDecoder                               | MinimalPacketValueDecoder                                                |
+| ProtocolData / ResolvedProtocolData / VanillaProtocolData | ConfigurationData / ResolvedConfigurationData / VanillaConfigurationData |
+| DataPackProtocolProjector                                 | DataPackConfigurationProjector                                           |
+| MinecraftProtocolTarget                                   | OfficialMinecraftTarget                                                  |
+| MinecraftProtocolToolTask                                 | OfficialMinecraftToolTask                                                |
+| ProtocolHttp                                              | DownloadHttp                                                             |
+| MinecraftClientProtocol / MinecraftServerProtocol         | MinecraftClientNegotiation / MinecraftServerNegotiation                  |
 
-Entity/POI files：
+相应 package、文件、测试、局部变量、Gradle wiring、diagnostics 和生成目录变量同步迁移。`protocol-symbol-processor` 保留，因为它同时
+处理 packet definitions 与 data component serializers。
 
-- 不做无必要的 model rewrite；
-- 如引入 `RegionValueCodec<T>`，让三个 codec 以同一 position-aware shape 实现；
-- 为 default/custom/raw paths 增加契约测试；
-- 更新 README/AGENTS，删除“Chunk 内保存 context/default”以及 nullable storage metadata 的旧规则。
+### 6.3 packet 官方名称审计
 
-### 11.2 `world-io`
+所有 `@PacketInfo` 声明都与匹配版本的官方 packet report、class、producer 和 consumer 对照，不只审计 Chunk packet。
 
-以下普通 Chunk API 从 `Chunk<B, M>` 迁移为 `StoredChunk<B, M>`：
+默认命名规则：
 
-- `RegionFileStore`、`CoordinatedRegionStore`；
-- mutable `RegionHandle` 与 live `LiveRegionHandle`；
-- `RegionReadScope`、`DecodedChunkRegionReadScope`；
-- one-shot read/write、bound read scopes、Region replacement semantic callbacks。
+1. 使用官方 Java simple name，去掉 `Clientbound`/`Serverbound`。
+2. 去掉方向后冲突时保留方向；跨状态仍冲突时增加最小状态前缀。
+3. 字段采用官方 record component/稳定字段名和顺序；Kotlin 关键字使用反引号。
+4. 偏离官方名称只能因为冲突、Kotlin 限制、强类型聚合或刻意排除 runtime 容器概念，并记录 exception。
 
-Entity/POI API 保持各自结果类型，逐项复核 mutable/live、local/absolute position、explicit/default codec overload 对称性。不得改变
-admission、header snapshot、sidecar、compression、replacement、session lock 或 live consistency 行为。
+`ChunkDataAndUpdateLightPacket` 推荐改为 `ChunkWithLightPacket`：保留官方 `WithLight`，省略方向和不适用于本库模型的
+`Level`。
+`WorldEventPacket` 同样是允许的已说明偏离。其他 packet 由生成的 rename map 和 exception 清单决定，不在计划中维护手工样例列表。
 
-可以保留 per-call codec overload 作为混合 codec 场景；批量/普通路径优先使用捕获 codec 的 decoded scope。不要把 semantic
-codec 放进 world access configuration，因为不同 dimension 需要不同 context，且 world-io 不应依赖 protocol/data-pack
-resolution。
+扩展官方 packet class report，并让 KSP/测试保证：每个本地 packet 有官方对应、名称符合规则或存在有效 exception、exception
+无失效项、 字段审计完成。
 
-### 11.3 `protocol-datapack`
+## 7. 实施顺序
 
-`MinecraftWorldChunkAdapters.kt`：
+### A. 建立审计清单
 
-- 删除 `ProtocolRegistryContext.toChunkDataRegistries()` 作为标准 disk mapping；
-- 新增 `ProtocolRegistryContext.toChunkProtocolMapping()`，只服务网络边界；
-- stable value ↔ protocol value/ID 的 alias-aware mapping 在此模块实现；
-- generic mapping constructor 保持 caller-supplied。
+1. 固定当前模块依赖、跨层 conversion、`Protocol` identifier 和 `@PacketInfo` 清单。
+2. 扩展官方 packet class report，生成 packet rename 建议并审查 exception。
+3. 建立 world projection inventory。
+4. 在迁移公开类型前确定最终 rename map。
 
-`MinecraftChunkContext.kt`：
+### B. 收敛 world-format
 
-- 删除当前混合对象，或将其收敛为不重复 map key、不保存 protocol registry、且不同时保存 codec/context derived copies 的极薄
-  convenience；
-- 首选直接公开 `ChunkContext<BlockStateValue, BiomeValue>`，由 `ChunkNbtCodec(chunkContext)` 创建 codec；
-- 删除 `defaultBlockId`、`defaultBiomeId`、`protocolRegistryContext` 和协议值 `ChunkCodecContext` fields。
+1. 不新增 `world-model`，按 chunk/entity/poi/saveddata/datapack/anvil 子域整理现有文件。
+2. 建立四项 `ChunkContext`、`WorldChunkContexts`、标准 `BlockState`/`BiomeId` 和非泛型 Chunk。
+3. 把 ticks、structures、generation continuation 和统一 Block Entity data 纳入 Chunk。
+4. 从 Chunk/EntityChunk/PoiChunk 分离纯持久化 metadata；完整文件 schema 不做机械拆分。
+5. 保持 DataPack 表示阶段和 Anvil/container 边界不变。
 
-`ResolvedMinecraftWorld.kt`：
+### C. 重建持久化路径
 
-- map value 改为 stable `ChunkContext`；
-- resolver 只从 projected dimension-type data 取得 layout，不用协议 registries 验证每个 disk palette value；
-- server branch 仍验证 dimension-type synchronized identity；disk branch 保留 inline holder；
-- aggregate failures 和 no-partial-result contract 不变。
+1. 拆出 Chunk、EntityChunk、PoiChunk 的定向 NBT encoder/decoder 和 decode result。
+2. `world-io` handle/scope 在构造时绑定 codec，typed write 接受任意合法语义值和显式 metadata。
+3. 审计并重写现有 conversions；raw NBT/compressed/Region API 保留为 escape hatch。
 
-更新 `protocol-datapack/AGENTS.md` 和 README，使“disk context raw-ID-free”成为真实结构而非注释承诺。
+### D. 重建网络 model 与 protocol-world
 
-### 11.4 `protocol-model` 与 `protocol-serialization`
+1. 完成 `PacketCodecContext`、`MinecraftPacketFormat` 和 packet 命名迁移。
+2. `ChunkWithLightPacket` 改为纯网络 payload，移除依赖 Chunk layout 的 physical serializer 分支。
+3. 新建 `protocol-world`，实现 Chunk 双向 primitive 和不对称 context。
+4. 迁移 client/server 中可复用的 Entity pairing conversion；EntityChunk、POI 和其他 world value 按 inventory 处理。
+5. 删除 `MinecraftChunkSnapshot`；`MinecraftEntitySnapshot` 改成有独立网络语义的名称并迁移，或由 primitive encoder 取代。
 
-- `ProtocolBlockState`、`ProtocolRegistryEntry`、`ProtocolRegistryContext` 保留；它们是正确的协议 registry model；
-- `ChunkDataAndUpdateLightPacket`、nested `ChunkData`、network `ChunkSection`、network `PalettedContainer` 和
-  `BlockEntityInfo` 字段不改变；
-- 不给 packet 添加 context、epoch、storage metadata 或 stable values；
-- physical palette widths 继续来自 format configuration 的 current `ProtocolRegistryContext`；
-- 增加 exact-byte/oracle regression，证明 semantic adapter rewrite 没有改变官方 bytes；
-- 不修改 KSP/generated packet registry output。
+### E. 拆分 Configuration 与 vanilla providers
 
-### 11.5 `protocol-server`
+1. 完成 `protocol-configuration` 类型/package 迁移，移出普通 Play world codec。
+2. 拆出 `datapack-vanilla` 与 `protocol-configuration-vanilla`，重新归属生成器及其唯一输出。
+3. 保持 DataPack stack completion 与 Configuration projection 为两个显式步骤。
 
-- `MinecraftWorldChunkProjection.kt` 泛型化到 stable B/M + `ChunkProtocolMapping`；标准 overload 使用 stable values；
-- `encodePacket` 接受 `Chunk`，不接受 `StoredChunk`，从类型上阻止 storage metadata 泄漏；
-- 删除 `MinecraftChunkSnapshot.kt`，`MinecraftInitialWorld.chunks` 使用官方 packets 或在 send boundary 使用 semantic
-  chunks + encoder；不得再保留 与 packet 同构的 snapshot；
-- flat initial-world convenience 先创建 stable semantic Chunk 再走同一 encoder，或直接返回 official packet；不能另建
-  raw-ID-only Chunk domain；
-- `MinecraftEntitySnapshot` 和 Entity pairing projection 保留，明确它需要 application runtime state；
-- negotiation result/context 与 connection active context 的 epoch 验证写入测试。
+### F. 收敛 endpoint
 
-### 11.6 `protocol-client`
+1. client/server 只调用 `protocol-world` primitive，不保留可复用的 Chunk/Entity projection 实现。
+2. endpoint 保留 negotiation、epoch/dimension context factory、tracking、runtime ID、可见性、packet ordering 和 enqueue。
+3. reconfiguration/respawn 原子切换后续 codec context，已开始的 flow 使用旧快照。
+4. vanilla 默认策略由 endpoint factory 选择，mod override 仍显式。
 
-- `MinecraftChunkPacketDecoder` 返回 `Chunk<BlockStateValue, BiomeValue>`；
-- constructor 接收 stable `ChunkContext` + mapping，不依赖 disk codec bundle；
-- packet Block Entity tag 不再伪称完整 persistent data；
-- decode 使用 canonical sparse rule；
-- negotiation result 提供从 validated dimension layout 创建 stable `ChunkContext` 的 convenience；
-- reconfiguration/dimension-change 调用方必须重建 decoder，现有 Chunks 保留；
-- Entity packet decoder 继续只返回线上可恢复的 `Entity`，不构造 `EntityChunk`。
+### G. 重建便利 API 与文档
 
-### 11.7 `protocol-datapack-vanilla` 与 `demo/web-map`
-
-`protocol-datapack-vanilla`：
-
-- 更新默认 factories，使 stable disk context 与 protocol mapping 分开产生；
-- 修 generator 仅当生成声明需要变化；绝不手改 generated payload source；
-- vanilla defaults 仍是 convenience，显式 projector/mapping 路径不依赖本模块。
-
-`demo/web-map`：
-
-- `LiveSurfaceRegionReader` 使用 `StoredChunk<BlockStateValue, BiomeValue>`；
-- generation status 从 `storedChunk.storageMetadata.isFullyGenerated` 读取，surface 从 `storedChunk.chunk` 读取；
-- 删除从 `ProtocolBlockState` 反向组装 `BlockStateDescriptor` 的当前转换；
-- timestamp 继续来自 `RegionChunkInfo`，不塞入 Chunk；
-- context map value 改为 stable `ChunkContext`，批量 read scope 捕获 `ChunkNbtCodec`。
-
-## 12. 实施顺序
-
-### 阶段 A：world-format 领域边界
-
-1. 引入 `BlockStateValue`、`BiomeValue`、codec-owned `ChunkContext`。
-2. 重构 `Chunk` constructor 与 context-bound view；建立 canonical sparse helper。
-3. 拆分 `ChunkMetadata`/`StoredChunk`，实现 Block Entity persistent/update payload provenance。
-4. 迁移 `ChunkNbtCodec` 和 conversions。
-5. 逐项验证 Entity/POI，无必要不改 shape；只增加共同 codec interface 时再迁移。
-6. 更新 `world-format` tests、README、AGENTS。
-
-这是破坏性 API 变更的根阶段。后续模块在同一 change set 直接迁移，不引入临时 alias。
-
-### 阶段 B：world-io 三类 Region API
-
-1. 普通 Region typed API 全部迁移 `StoredChunk`。
-2. 对照 mutable/live、store/handle/scope、local/absolute overload matrix。
-3. 对照 Entity default/custom codec paths。
-4. 对照 POI built-in codec paths。
-5. 验证 empty Entity clearing、POI position injection、ordinary/Entity position mismatch rejection。
-6. 更新 world-io README 的 simplest LiveMinecraftWorldAccess 示例。
-
-### 阶段 C：data-pack context 与 protocol mapping 分离
-
-1. 重写 stable context resolvers。
-2. 新增标准和 custom `ChunkProtocolMapping`。
-3. 精简/删除 `MinecraftChunkContext` 混合对象。
-4. 迁移 `ResolvedMinecraftWorld`、dimension context conveniences 和 vanilla factories。
-5. 加入 loader alias、registry reorder、inline dimension 和 aggregate failure tests。
-
-### 阶段 D：server/client packet projection
-
-1. server encoder 接受 stable Chunk + mapping/context policies。
-2. client decoder返回 stable Chunk并共用 sparse canonicalization。
-3. 删除 `MinecraftChunkSnapshot`，迁移 initial-world composition。
-4. 保持 Entity pairing 与 POI debug projection边界独立。
-5. 覆盖 initial negotiation、dimension selection、reconfiguration epoch。
-
-### 阶段 E：调用方、文档与全面清理
-
-1. 迁移 web-map 和所有 tests/fixtures/examples。
-2. 删除所有标准路径中的 `Chunk<ProtocolBlockState, ProtocolRegistryEntry>`。
-3. 删除旧 `BlockStateDescriptor`、String biome convenience、nullable storage metadata 和 stale context fields。
-4. 更新涉及模块 README/AGENTS，确保当前 source 是唯一事实。
-5. 检查 module dependencies，确认 `world-format`/`world-io` 没有新增 protocol dependency。
-
-## 13. 测试矩阵
-
-### 13.1 `world-format`
-
-- stable block/biome disk NBT round trip，包括 mod names、properties、single/indirect palettes；
-- disk decode 不需要 `ProtocolRegistryContext`，也不因当前协议 registry 缺少合法 persisted value 而失败；
-- `Chunk` constructor/snapshot 不接收或保留 context/layout/defaults；
-- `ChunkContext.bind` 验证 layout、Block Entity Y 和 position membership；
-- absent Section default reads、default writes、create/prune behavior；
-- disk 与 packet helper 对 default-only、light-only、non-default Section 产生同一 canonical shape；
-- `StoredChunk` storage metadata mandatory，plain Chunk 不能调用 persistent encode；constructor 与每次 encode 都拒绝
-  update-only Block Entity；
-- storage fields、heightmaps、lighting、Block Entities round trip；
-- packet update payload 不被标成完整 persistent payload；
-- palette local IDs/unused entries 不影响 logical equality，encode 不突变 input；
-- custom `BlockStateRegistry<B>`/`BiomeRegistry<M>` 双向 round trip；
-- Entity default raw NBT registry、自定义 registry、passenger、empty root、mixed positions；
-- POI empty Section/Valid、position from Region、mod type、strict unknown fields；
-- raw NBT paths 可保留标准 semantic codec 不认识的字段。
-
-### 13.2 `world-io`
-
-- `RegionFileStore`、coordinated store、mutable/live handles、decoded scopes 返回 `StoredChunk`；
-- ordinary/Entity NBT position 与 Region slot mismatch 被 semantic codec 拒绝；
-- POI 使用 Region slot 注入 position；
-- semantic writes 从 value position 选 slot并验证 Region membership；
-- Entity empty Chunk 清除 slot；POI empty value按现有 official policy写入；
-- timestamp、compression、external sidecar 只通过 Region APIs 可见，不出现在 semantic values；
-- mutable/live overload matrix 和 source-level KMP call compilation；
-- live header snapshot、coordination、replacement、stream ownership 行为无回归。
-
-### 13.3 `protocol-datapack`
-
-- referenced/inline dimension layouts 都生成 stable context；server branch 仍拒绝没有 synchronized identity 的 inline
-  type；
-- map key 与 context value 不重复 dimension ID；
-- resolved context 不含 `ProtocolRegistryContext`、raw IDs 或 ready codec duplicate；
-- `toChunkProtocolMapping()` 双向映射 block state、biome、block entity type；
-- alias lookup decode/encode canonicalization明确；
-- registry reorder 生成不同 IDs，但同一 stable Chunk 不变；
-- missing value 只在 packet mapping/encode boundary 失败；
-- custom mapping、custom registries、custom data-pack projectors 可替换标准路径；
-- `MinecraftWorldResolutionException` 继续聚合所有 dimensions。
-
-### 13.4 `protocol-client` / `protocol-server`
-
-- disk stable Chunk → packet → client stable Chunk 的 block/biome dense logical values一致；
-- sparse/default/light-only canonical shape一致；
-- official packet fields、palette thresholds、direct/indirect/single branches不变；
-- unknown current-registry value 的 encode failure 包含 Chunk position/value；
-- server-only storage metadata、extra heightmaps 和 full Block Entity data 没有出现在客户端；
-- client result 不能 persistent encode；caller 即使显式构造 `StoredChunk`，也必须补齐 storage metadata、缺失 heightmaps 和所有
-  Block Entity persistent payload，并通过 encode-time validation；
-- initial world 不再经过 `MinecraftChunkSnapshot`；
-- reconfiguration 后新 mapping 使用新 IDs，旧 stable Chunks 无需改写；
-- stale packet codec 不被自动复用；
-- Fabric/Forge/NeoForge negotiation profile adjusted contexts 可创建 custom mapping；
-- Entity pairing 仍要求 runtime context，不能错误创建 EntityChunk；
-- POI debug packets 不被接到 PoiChunk codec。
-
-### 13.5 `protocol-serialization`
-
-- `ChunkDataAndUpdateLightPacket` ordinary exact-byte sample；
-- block/biome single、indirect threshold、direct palette branches；
-- section count 与 registry sizes 来自 active format context；
-- block entity type IDs、heightmaps、light masks/arrays；
-- truncation、invalid ID/length/mask、trailing bytes；
-- matching official codec oracle decode/re-encode；
-- semantic adapter changes 不要求或导致 packet model extra fields。
-
-### 13.6 escape-hatch tests
-
-- custom B/M registries生成可写回 disk values；
-- custom Entity data registry；
-- custom `ChunkProtocolMapping` 使用非 vanilla order/aliases；
-- negotiation profile 替换 registry context 后 standard/custom mapping 都读取最终 snapshot；
-- custom NBT format 和 raw document/source APIs；
-- custom Region codec 可复用 decompression/position path；
-- vanilla convenience 与 explicit constructor 产生等价标准行为，但 explicit path 不依赖 vanilla module。
-
-## 14. 验证命令
-
-按最窄 JVM gate 顺序执行，Gradle wrapper 不并发：
+1. Primitive API 稳定并通过测试后再实现 fluent extensions。
+2. 每个 extension 显式接收配置并以等价测试证明其委托 primitive。
+3. 清理跨层 shortcut、隐式默认、旧 module/package、兼容 alias 和未使用 naming exception。
+4. 更新 settings、publication、README、AGENTS、demo、测试和相关 `.agents` skills；README 只描述已经实现的 API。
+
+## 8. 验证与完成标准
+
+### 8.1 重点测试
+
+| 范围                             | 必须证明                                                                                                                  |
+|----------------------------------|---------------------------------------------------------------------------------------------------------------------------|
+| world-format world values        | context 引用复用、sparse Section、不必要泛型消失、ticks/structures 非空语义、EntityChunk/PoiChunk 不含 DataVersion        |
+| world-format persistence         | NBT schema、metadata 无损保留、网络 Chunk 可写盘、Entity/POI 定向 codec、Anvil/compression/raw escape hatch               |
+| world-io                         | 每维度 codec 绑定、Region position、sidecar/timestamp 边界、写入恢复、无 protocol 依赖                                    |
+| protocol-model/serialization/KSP | 官方 packet identity/name/field、纯 Chunk packet payload、PacketCodecContext 无 layout、官方 codec oracle                 |
+| protocol-world                   | palettes、heightmaps、lighting、Block Entity、default provider、Entity pairing、projection inventory、无 endpoint/IO 依赖 |
+| protocol-configuration/vanilla   | Known Packs、registry order、WorldChunkContexts/PacketCodecContext resolution、两个 vanilla provider 无反向依赖           |
+| protocol-client/server           | epoch 和维度切换、initial world、Entity tracking 边界、官方 client/server interoperability                                |
+| fluent/escape hatch              | 显式配置、结果等价、资源所有权不变、库内 production source 不调用或读取便利 API                                           |
+
+### 8.2 验证命令
+
+Gradle invocation 不并发，先运行最窄 JVM 任务：
 
 ```shell
-gradlew.bat :world-format:jvmTest
-gradlew.bat :world-io:jvmTest
-gradlew.bat :protocol-datapack:jvmTest
-gradlew.bat :protocol-model:jvmTest :protocol-serialization:jvmTest
-gradlew.bat :protocol-client:jvmTest :protocol-server:jvmTest
-gradlew.bat :protocol-datapack-vanilla:jvmTest :demo:web-map:jvmTest
+./gradlew :world-format:jvmTest
+./gradlew :world-io:jvmTest
+./gradlew :protocol-model:jvmTest
+./gradlew :protocol-serialization:jvmTest
+./gradlew :protocol-world:jvmTest
+./gradlew :protocol-configuration:jvmTest
+./gradlew :datapack-vanilla:jvmTest
+./gradlew :protocol-configuration-vanilla:jvmTest
+./gradlew :protocol-client:jvmTest
+./gradlew :protocol-server:jvmTest
 ```
 
-再运行受影响的 portable targets：
+涉及 build logic、KSP、官方 endpoint 或全平台时继续运行：
 
 ```shell
-gradlew.bat :world-format:jsNodeTest :world-io:jsNodeTest
-gradlew.bat :protocol-datapack:jsNodeTest :protocol-client:jsNodeTest :protocol-server:jsNodeTest
-gradlew.bat :demo:web-map:jsNodeTest
+./gradlew -p buildSrc test
+./gradlew :minecraft-test-fixture-host:test jvmTest
+./gradlew allTests
 ```
 
-最终 JVM gate：
+模块/source-set wiring 变更还需验证 configuration-cache store 与 reuse。
 
-```shell
-gradlew.bat :minecraft-test-fixture-host:test jvmTest
-```
+### 8.3 完成标准
 
-官方 world interoperability 要覆盖普通 Chunk、Entity Chunk 和 POI 的 generate/read/rewrite/reload；官方 client/server peer
-scenarios 覆盖 Configuration registry、Play Login、Chunk packet 和 reconfiguration。若实现实际修改 physical codec，再按
-serialization workflow 扩充官方 oracle fixtures；否则仍运行现有 oracle 作为 bytes 不变证明。
+- 三层类型只保存本层事实，所有转换只经过相邻 primitive codec。
+- 磁盘和网络使用同一个 Chunk；客户端默认值和有损写盘行为有明确文档。
+- codec 始终使用显式配置，库内不读取 `Chunk.context` 或调用 fluent API。
+- 不存在 `world-model`；`world-format`、`world-io`、`protocol-world` 和 `protocol-configuration` 依赖方向符合本计划。
+- Chunk/Entity/POI 和其他 world values 的网络归属全部进入 projection inventory，不存在为对称而制造的 codec。
+- client/server 不复制 Chunk codec 或 Entity pairing conversion。
+- 所有 `Protocol` identifier 已分类并处理；packet 名称符合官方规则或存在有效 exception。
+- 22 个目标 subprojects、publication、文档、生成器和 skills 均反映新边界。
+- 目标平台测试、官方 codec oracle 和官方 endpoint fixtures 通过。
 
-## 15. 完成标准
+## 9. 剩余讨论项
 
-1. 标准磁盘结果为 `StoredChunk<BlockStateValue, BiomeValue>`，其中 core 是 context-free
-   `Chunk<BlockStateValue, BiomeValue>`。
-2. `Chunk` constructor/public state 没有 context、layout、defaults、storage nullable branch、protocol objects 或 numeric
-   IDs。
-3. 需要 defaults/layout 的计算只通过 `ChunkContext.bind(chunk)` 或显式 codec 完成。
-4. 同一 dimension 的 codecs/views 复用 immutable context；context 不随每个 Chunk 复制。
-5. disk codec 接受当前协议 registry 不认识的合法 persisted mod values；失败推迟到具体 packet mapping boundary。
-6. packet encoder/decoder 捕获当前 negotiation epoch 的 mapping；reorder/reconfiguration 不修改 loaded stable Chunks。
-7. official packet model 没有 library-only fields，`MinecraftChunkSnapshot` 已删除。
-8. packet-derived Chunk 不会被 disk encoder 当作完整 persisted value；`StoredChunk` storage metadata non-null，disk encode
-   还逐次验证所有 Block Entity payload 都是 persistent variant。
-9. Block Entity update tag 与 full persistent payload 由 caller-extensible 的显式 provenance types 区分。
-10. disk/client decoders按同一 sparse canonical rule产生逻辑相同的 Sections；palette内部 IDs 不进入相等性承诺。
-11. EntityChunk 与 PoiChunk 不含 codec/protocol context；逐记录 `DataVersion` 和 position 正确保留。
-12. EntityChunk 不被伪装为单个网络包，PoiChunk 不被伪装为 debug POI packet。
-13. Region timestamp/compression/sidecar 只在 Region layer；semantic values不重复保存。
-14. vanilla高层 factory、generic custom context/mapping、raw NBT三档逃生窗口都经过测试。
-15. `world-format`/`world-io` module graph 仍无 protocol dependency；所有 README/AGENTS 与 source 同步。
-16. focused tests、official world reload、official codec oracle、client/server peer scenarios 和最终 JVM gate通过。
-
-## 16. 不随本计划实施
-
-- 修改所选 Minecraft release、NBT schema revision、Anvil framing、compression ID 或 sidecar policy；
-- 实现 DataFixer、历史 Chunk schema compatibility 或跨版本迁移；
-- gameplay、world ticking、Chunk cache/loading、entity tracking 或权限系统；
-- 自动迁移 data-pack reload 后 layout 已改变的 loaded Chunks；
-- 把全部 Entity persistent subtype data 编排成客户端 runtime state；
-- 把 POI debug subscription 设计成持久化 POI 同步协议；
-- 重构所有 `Protocol*` 命名；这些类型在协议层仍然准确；
-- 改变 Known Packs、feature flags、tags、Login/Configuration/Play sequencing；
-- 处理与本链无关的 `DataPackMetadata` parsed/raw duplicate representation；
-- 为旧 Chunk API 添加 compatibility shims、deprecated aliases 或双轨实现。
+1. Chunk 各字段的最终 typed model，以及 `ChunkPacketDefaultProvider` 对应默认值，尤其 scheduled tick 时间基准、structure
+   start 和 generation-stage entities。
+2. Entity 的 subtype 泛型、网络缺失字段默认策略，以及 `MinecraftEntitySnapshot` 的最终替代形态。
+3. `ChunkWithLightPacket` 和 packet 方向前缀规则的最终确认。
+4. 是否把现有 `Identifier` 提升为层无关 `ResourceLocation`；不能因此引入反向依赖或宽泛 core 模块。
