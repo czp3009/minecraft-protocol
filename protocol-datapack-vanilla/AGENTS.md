@@ -7,6 +7,11 @@ built on `protocol-datapack`.
 
 - Own the official data-pack archives, static registries, block states, Known Packs branches, feature flags, tags, and
   Configuration defaults. Runtime APIs never read the filesystem.
+- Configuration and registry defaults owned here are not defaults for semantic fields omitted by world packets. A
+  client-side Chunk or Entity decoder receives every such field from its caller-supplied decoder context.
+- Decoding generated Configuration packet payloads is the only reason this combined module depends on
+  `protocol-serialization`. When it is split, that dependency follows `protocol-configuration-vanilla`; the
+  `datapack-vanilla` archive/stack provider remains protocol-independent.
 - `extractOfficialMinecraftDataPacks` alone extracts core and built-in packs. `generateVanillaDataPackSources` consumes
   that declared artifact and emits a manifest plus one independently loaded complete payload per pack.
 - Do not hand-edit generated source, combine every pack into one eager property, split one selected pack into

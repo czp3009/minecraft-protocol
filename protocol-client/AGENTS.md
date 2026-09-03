@@ -18,12 +18,17 @@ This module owns client-side Status, Login, Configuration, and entry into Play.
   not own account-token acquisition.
 - The negotiation result retains one composed `MinecraftDimensionContext` for the Play Login dimension and exposes its
   `MinecraftDimensionLayout`/`ChunkLayout` as derived conveniences. Install that context's registry context on the
-  connection; semantic block/biome defaults enter only when the caller creates a `MinecraftChunkContext`. Do not add
-  cross-source identity, layout, or Section-count validation to negotiation or semantic packet decoding.
-- Shared active-registry conversion to `ChunkDataRegistries` comes from `protocol-datapack`. This module owns the fluent
-  `MinecraftChunkContext.packetDecoder` entry and clientbound Chunk/entity projection, which remain stateless and
-  filesystem-independent. Packet-derived Chunks have no `ChunkStorageMetadata`; persistence-only merging remains an
-  explicit caller operation after decoding.
+  connection; semantic block/biome defaults enter only when the caller constructs the `ChunkContext` and
+  `ChunkPacketDecoderContext`. Do not add cross-source identity, layout, or Section-count validation to negotiation or
+  semantic packet decoding.
+- Shared registry/layout adaptation comes from the Configuration module, while reusable clientbound Chunk/entity plain
+  codecs belong to the world-protocol adapter module. Bind caller-provided contexts or prebuilt codecs to the current
+  connection epoch and dimension, reuse them there, and replace them on reconfiguration or dimension change. This
+  endpoint invokes the plain codecs directly rather than a fluent conversion and does not own a duplicate decoder or
+  projection implementation. Every field absent
+  from a packet, including local Chunk status and other save-oriented state, comes from the caller's provider rather
+  than a hidden client or vanilla default. Packet-derived Chunks have no persistence metadata; supplying that metadata
+  and encoding them for storage remain explicit caller operations after decoding.
 - Received data-pack views expose only Configuration-visible resources and may resolve tags against the installed
   context or caller-supplied schemas. Do not imply that they reconstruct server-only pack content.
 - `MinecraftClientNegotiationResult` stores one `DataPackConfigurationSnapshot` directly instead of duplicating its

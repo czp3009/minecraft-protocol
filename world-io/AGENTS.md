@@ -36,11 +36,21 @@ configured filesystem runtimes only; browser and Wasm do not receive partial imp
 - Ordinary Chunk, Entity, and POI Region handles preserve their type distinction in `RegionReadScope`,
   `EntityRegionReadScope`, and `PoiRegionReadScope`. Their common Anvil, compression, and NBT reads come from
   `AnvilRegionReadScope`; semantic `readChunk` returns only the value appropriate to the handle that created the scope.
-  `DecodedChunkRegionReadScope` and `DecodedEntityRegionReadScope` bind a stable caller codec across one Header scope;
-  keep the unbound scopes for callers that mix codecs. The no-argument Entity path owns an
-  `NbtEntityDataRegistry` codec, while POI always owns its codec instead of exposing a redundant parameter.
+  The common typed Chunk path accepts a prebuilt decoder, or its complete context, when selecting the dimension view and
+  reuses it across that dimension's Region handles and reads. Keep a distinct unbound/per-read entry point for callers
+  whose decoder genuinely varies by Chunk; do not model the choice as a nullable decoder or repeatedly request a stable
+  one inside each Header scope. Each semantic write accepts that operation's prebuilt encoder or complete encoder
+  context and delegates it directly; the context overload only constructs the encoder. Never reconstruct codec input
+  from the value, accept persistence metadata separately only to splice it into hidden configuration, or retain a
+  changing `LastUpdate` in a long-lived handle. The no-argument Entity path owns its required decoder configuration,
+  while POI keeps its position as a per-read required input and does not expose a redundant empty context.
+- Typed Chunk shortcuts open the Region record and compression boundary, adapt the borrowed Okio endpoint once, and
+  pass the decompressed NBT `Source`/`Sink` directly to the world-format decoder/encoder. Do not stage an intermediate
+  `NbtDocument` or byte array. Raw Region, compressed-payload, document, and callback APIs remain codec-free escape
+  hatches.
 - Do not preflight or reject a read by comparing persisted `DataVersion` with a library- or caller-selected version.
-  Carry the field through semantic values; callers own any compatibility check or migration decision.
+  Return it through the semantic decoder's persistence metadata result rather than the representation-independent value;
+  callers own any compatibility check or migration decision.
 - Live Region resources intentionally do not implement `AutoCloseable`: their member `use` preserves project failure
   combination and must remain the single Kotlin completion entry instead of competing with the standard extension.
 - Anvil allocation is the explicit write-side exception: when the producer does not already know the compressed length,
@@ -86,6 +96,9 @@ configured filesystem runtimes only; browser and Wasm do not receive partial imp
   MCC sidecars.
 - Compression choice and internal/external placement apply only to newly encoded chunks. Raw writes accept
   already-compressed built-in or registered CUSTOM payloads; callers do not control timestamps or external markers.
+- Keep the Region-header timestamp policy separate from Chunk NBT metadata. Callers supply the Chunk `LastUpdate` world
+  game-time value to each semantic write; Region timestamps remain Unix epoch seconds owned by the Region/store policy,
+  and neither value is derived from the other.
 - Reads, existence checks, and clears do not create missing region directories or files. A write may create them;
   clearing an existing final chunk leaves a valid empty MCA.
 - Stateless one-shot methods own one open/close lifetime per call. Separate caller operations such as reading metadata

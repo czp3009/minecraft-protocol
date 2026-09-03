@@ -12,26 +12,32 @@ of active protocol dimension/registry facts to semantic world-Chunk contracts.
   the corresponding wire packets at the send boundary.
 - `ProtocolData` is implicitly bound to the repository-selected packet model. Do not add Minecraft release or protocol
   number aliases to protocol-data values; callers and connection orchestration use `MinecraftProtocol` directly.
+- Keep this generic Configuration projection module free of `protocol-serialization`; a module rename alone does not
+  justify a new physical-codec dependency. The vanilla provider that decodes generated Configuration packet payloads
+  owns that dependency instead.
 - Keep every public stage manually constructible. Generic conversion requires explicit base/default data and registry
   projectors.
+- Configuration and registry projection may expose facts used to construct world packet codec contexts, but neither
+  this module nor a convenience factory chooses semantic fields omitted by a packet. Decoder defaults remain explicit
+  caller input and are forwarded unchanged.
 - Never assume disk and network codecs are equivalent; registry projection uses caller-supplied
   `DataPackRegistryProjector` values in `DataPackProtocolProjector`.
 - `MinecraftDimensionLayout` combines synchronized identity/raw ID with `world-format`'s `DimensionTypeLayout`.
   `MinecraftDimensionContext` composes that layout with active registries without cross-validating duplicate identity or
-  Section-count facts; the selected layout supplies the active Section count. `MinecraftChunkContext` contains only the
-  dimension ID, layout, active registries, `ChunkCodecContext`, and `ChunkNbtCodec`; disk and Chunk packet bodies must
-  not require a synchronized dimension-type raw ID. Reuse active registries by reference.
+  Section-count facts; the selected layout supplies the active Section count. Resolve raw-ID-free `ChunkContext` values
+  separately from the connection's `PacketCodecContext`, reuse stable inputs by reference, and leave their composition
+  to direction-specific codecs in the world-protocol adapter module. Do not retain an NBT or packet codec here.
 - `ResolvedProtocolData.resolveMinecraftWorld` resolves every persisted referenced dimension type against the exact
   complete synchronized registry order before constructing contexts. Aggregate dimension failures, reject inline holders
   on this server-negotiable path, and never create partial results or synthetic registry entries.
 - `ResolvedProtocolData` remains an ordinary class because its default `completeProtocolRegistryContext` is derived from
   the static schema and complete packet sequence; a generated `copy` operation must not retain a stale derived context
   after replacing either input.
-- `ResolvedProtocolData.resolveMinecraftChunkContexts` is the semantic disk/custom-endpoint path. Resolve referenced
-  holders against the same registry data, decode inline holders directly, aggregate failures, and return no partial map.
-- Keep `ChunkDataRegistries` and `ChunkCodecContext` usable as lower-level custom-codec branch points. Do not add
-  synonymous composition helpers that only pass their properties onward.
-- Do not move packet encoding/decoding, connection state, initial-world snapshots, or filesystem behavior into these
+- The semantic disk/custom-endpoint resolver produces `WorldChunkContexts`. Resolve referenced holders against the same
+  registry data, decode inline holders directly, aggregate failures, and return no partial map.
+- Keep registry projection values usable as lower-level custom-codec branch points. Do not add synonymous composition
+  helpers that only pass their properties onward or place direction-specific codec contexts in this module.
+- Do not move packet encoding/decoding, connection state, initial-world projection, or filesystem behavior into these
   shared adapters.
 - Do not depend on `protocol-datapack-vanilla`, access a filesystem, open a socket, or supply release-specific defaults.
 - Received Configuration data contains only what the server transmitted. Do not present it as a reconstruction of

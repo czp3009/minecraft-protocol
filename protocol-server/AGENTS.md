@@ -18,9 +18,9 @@ a finite initial Chunk/entity view; it does not run gameplay.
 - `ProtocolData` supplies domain values; construct Feature Flags, Known Packs, Update Tags, and registry packets at the
   Configuration send boundary without moving packet sequencing into `protocol-datapack`.
 - A stored-world server explicitly passes `ResolvedMinecraftWorld.protocolData`, its dimension IDs, and the selected
-  dimension to negotiation options. The resolved world's `MinecraftChunkContext` remains the raw-ID-free disk/Chunk
-  packet codec while negotiation returns the connection's composed `MinecraftDimensionContext`; do not merge those
-  responsibilities.
+  dimension to negotiation options. Its `WorldChunkContexts` remain raw-ID-free semantic disk contexts, while
+  negotiation returns the connection's registry/raw-ID context. The world-protocol adapter composes those facts in an
+  explicit encoder context; do not merge them into a bidirectional codec or derive encoder configuration from a Chunk.
 - Online Login decides when the Session Server `/hasJoined` call occurs. It consumes a caller-supplied `HttpClient` and
   does not own account or admission policy.
 - Definitions, static schemas, and resolved contexts may be shared across connections. Retain caller-owned read-only
@@ -32,15 +32,20 @@ a finite initial Chunk/entity view; it does not run gameplay.
 
 ## Initial world projection
 
-- Shared dimension/registry conversion to world-Chunk contracts comes from `protocol-datapack`. This module owns the
-  direction-specific encoders and adapters that convert semantic Chunks and Entities into detached clientbound packets
-  using the installed registry context.
-- Keep `MinecraftChunkContext.packetEncoder` as the standard semantic-Chunk path; explicit protocol/codec contexts
-  remain the custom encoder entry. The encoder's explicit layout and defaults are authoritative; do not compare them
-  against parallel facts retained by the input Chunk or protocol context. Air, fluid, and block-entity update-tag
-  classification remains caller game content.
+- Shared dimension/registry conversion facts come from the Configuration module, and reusable plain encoders that
+  project
+  semantic Chunks and Entities into detached clientbound packets belong to the world-protocol adapter module. This
+  endpoint binds explicit direction-specific contexts or prebuilt codecs at the current connection epoch/dimension and
+  invokes them directly; it does not own duplicate conversion logic or call a fluent convenience API. Replace that
+  binding on reconfiguration or dimension change. The encoder context is authoritative and is not compared with
+  parallel facts retained by the input Chunk. Air, fluid, and block-entity update-tag classification remains caller game
+  content.
+- Entity synchronization delegates stable subtype/registry conversion to `EntityPacketEncoder`; this endpoint supplies
+  each connection-local `EntityPairingData`, including runtime entity IDs, tracking relations, passengers, vehicles,
+  and leash state. The encoder owns the matching release's per-Entity pairing sequence; the endpoint owns visibility,
+  ordering across Entities and Chunks, and enqueue. These facts do not become persistent Entity fields.
 - The module never depends on `world-io` or opens files. Applications load data separately and pass semantic values or
-  snapshots.
+  pairing data.
 - Palette/light projection remains stateless. Require caller-owned semantics when a registry ID alone cannot determine a
   value.
 

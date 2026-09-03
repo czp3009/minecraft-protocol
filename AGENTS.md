@@ -11,8 +11,9 @@ and verification steps, but must not repeat this file.
 - This is an early-stage project. Prefer a coherent design over compatibility shims, deprecated aliases, transitional
   paths, or preserving an accidental module boundary.
 - Keep the high-level vanilla client and server paths zero-configuration beyond facts the application must supply, such
-  as a selector, remote address, or player identity. Connection definitions, negotiation profiles, protocol data, and
-  vanilla data-pack registry projectors have release-matched defaults; mods remain explicit overrides or extensions.
+  as a selector, remote address, player identity, or semantic values omitted by the selected representation but needed
+  to construct an in-memory value. Connection definitions, negotiation profiles, protocol data, and vanilla data-pack
+  registry projectors have release-matched defaults; mods remain explicit overrides or extensions.
 - Inspect existing code and tests before editing. Preserve unrelated work in a dirty worktree and change the layer that
   owns the behavior.
 - Gameplay, authoritative world ticking, permission systems, persistence policy, and a general-purpose Minecraft server
@@ -69,8 +70,38 @@ Keep physical byte encoding out of models, socket and framing behavior out of se
 - Put a wire-visible logical value in `protocol-model` whenever both endpoints produce or consume that same value.
   Packet direction does not make the value private to `protocol-client` or `protocol-server`; those modules own
   orchestration and endpoint policy around the shared model.
+- Name packet declarations, packet-owned nested values, and fields after the matching official Java simple names,
+  record components, and stable members by default, preserving direction, runtime terms, nesting, and field order.
+  Document a narrowly scoped exception only for a real shared logical model, name conflict, Kotlin representation
+  limit, intentional stronger aggregate, or an official runtime/container type that cannot cross the current layer;
+  an in-memory domain type's reason for omitting an official runtime-container term does not apply to a packet.
 - Exposing a lower-layer type is correct when it is the natural contract. Do not create wrappers solely to conceal a
   valid downward dependency.
+- Name representation-boundary directions relative to the in-memory domain value: decoding converts a persisted or
+  network representation into that value, and encoding converts the value into the representation. This rule does not
+  split a bidirectional physical `Format` that operates wholly inside one representation layer.
+- Give every directional encoder and decoder its own explicitly named context, such as `ChunkNbtEncoderContext` or
+  `ChunkNbtDecoderContext`, and supply that complete context when constructing the codec. A codec context may contain a
+  domain context; a decoder may pass the same domain-context reference to its result, but an encoder never derives its
+  configuration from `value.context`.
+- Treat explicitly constructed directional encoders/decoders and their complete contexts as the plain, normative API
+  for representation-to-domain conversion. Fluent extensions and orchestration facades are caller conveniences: they
+  accept prebuilt codecs, or complete contexts from which they construct them, and delegate one or more adjacent plain
+  conversions or physical formats without implementing conversion again. They may provide end-to-end orchestration but
+  do not create a separate cross-layer codec or bypass the intermediate domain value. Production components do not
+  consume those conveniences outside the adapter that defines them, and read-only context properties or raw inspection
+  escape hatches never become implicit codec input.
+- Request or bind a codec at the narrowest owner whose lifetime covers all facts in its construction context. Bind
+  world-, dimension-, connection-epoch-, or batch-stable codecs once at that scope; accept a codec at the individual
+  conversion when its configuration varies per value. Do not repeatedly request stable configuration or retain a
+  per-operation value in a longer-lived handle.
+- Reuse endpoint-neutral conversion codecs, contexts, and shared logical values between client and server when their
+  contracts and required inputs are the same. Split them only for an actual difference in fields, policy, or lifecycle
+  inputs, not to create endpoint symmetry; this does not shorten or erase the official direction in a packet class name.
+- When a representation has no way to carry a domain fact required to construct an in-memory value, the caller supplies
+  that fact or its provider in the decoder's construction context. This differs from an intrinsic default explicitly
+  defined by the representation schema. A decoder does not choose a hidden endpoint or vanilla default, read
+  configuration from the output value, or infer missing state from a global or later incremental update.
 - Enforce intrinsic protocol, format, and representation bounds in their owning layer. Do not add shared policy-sized
   byte, collection, nesting, allocation, decompressed-output, or file-count limits to low-level formats and stores;
   callers own those policies and use the available streaming or inspection paths to enforce them.
@@ -120,7 +151,8 @@ Keep physical byte encoding out of models, socket and framing behavior out of se
   expose an implementation-only type.
 - Prefer maintained Kotlin, Kotlinx, Ktor, Gradle, and other multiplatform APIs to project-specific helpers or `expect`/
   `actual`. When a platform boundary is unavoidable, expose the smallest reusable primitive.
-- Keep shared models free of buffers and I/O. Physical stream formats use `kotlinx.io.Source` and `Sink`;
+- Keep shared models free of mutable buffers and I/O. An immutable byte sequence explicitly owned by a wire value is
+  still model data, not a stream or parsing API. Physical stream formats use `kotlinx.io.Source` and `Sink`;
   filesystem-backed code in `world-io` uses Okio `Path`, `FileSystem`, and `FileHandle`.
 - Never let broad `catch`, `runCatching`, or another `Result` helper convert `CancellationException` into an ordinary
   failure. Complete mandatory rollback in `NonCancellable`, preserve cancellation as the primary failure, and attach
@@ -199,6 +231,12 @@ When implementing Minecraft-dependent behavior, use evidence in this order:
 Official behavior resolves conflicts. Keep unresolved nullability nullable and mark it `@UnknownNullability`. Put
 deterministic facts in Gradle-produced analysis or generated source; keep semantic decisions in handwritten source,
 tests, and public documentation.
+
+Use the matching official producer/consumer data partition, container shape, and terminology as the default model
+baseline. Diverge only when the official shape would import runtime, lifecycle, I/O, or mutable-owner coupling that this
+library does not own, violate the representation-stage boundaries above, or create a concrete Kotlin/API correctness
+problem. Record the official counterpart and the reason for each such deviation; personal preference alone is not a
+design reason.
 
 The Java toolchain and bytecode target come from `BuildVersions.JAVA_VERSION`, which follows the selected Minecraft
 release. Official child processes use `java` from `PATH` at that major version or newer.

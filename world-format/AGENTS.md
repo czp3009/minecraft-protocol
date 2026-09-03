@@ -7,8 +7,10 @@ conversion, and semantic Chunk/entity values for the repository-selected release
 
 - `MinecraftWorldFormat.WORLD_VERSION` is generated from the matching official server's `version.json`; serialized NBT
   fields remain named `DataVersion`. Do not hand-copy this value or depend on `protocol-model` to obtain it.
-- Treat persisted `DataVersion` as content. Semantic codecs read and retain it without comparing it to a selected or
-  caller-supplied version; applications own compatibility preflight and migration policy.
+- Treat persisted `DataVersion` as persistence metadata. Complete standalone-file schemas may own it, but
+  representation-independent Chunk, Entity Chunk, and POI Chunk values do not; their NBT decoders return it in the
+  corresponding decode result without comparing it to a selected or caller-supplied version. Applications own
+  compatibility preflight and migration policy.
 - `LevelDat`, `PlayerData`, root/dimension saved data, advancements, and statistics model only the selected release.
   Audit official reader/writer behavior on release updates; do not keep old-schema branches or add an implicit
   DataFixer. Keep the common saved-data envelope and all root/dimension saved-data models in
@@ -57,17 +59,44 @@ conversion, and semantic Chunk/entity values for the repository-selected release
   Name scale-reducing conversions `covering...` when their reverse expands to cell boundaries.
 - Positioned `Chunk`, `EntityChunk`, `PoiChunk`, and `BlockEntity` retain or receive their absolute coordinates.
   Absolute helpers validate membership and delegate to local operations.
-- Strong Chunk conversion requires caller-supplied block-state, biome, and dimension-layout data. Do not depend on
-  protocol or vanilla-default modules. Protocol-aware callers obtain the matching adapters from `protocol-datapack`.
-- `ChunkDataRegistries` is the reusable mapping stage and `ChunkCodecContext` binds it to one `ChunkLayout`. Keep both
-  available to custom codecs without adding protocol identity or filesystem state.
-- Keep heightmaps and boundary lighting in common `ChunkMetadata`. Keep fields that exist only in persistent Chunk NBT
-  in optional `ChunkStorageMetadata`; packet-derived Chunks must not invent those fields, and persistent encoding must
-  reject a Chunk that has none.
+- The computation-facing `Chunk` contract is a fully generated final value; this module does not model `ProtoChunk`
+  progression or provide APIs that fill generation-stage data according to status. A disk decoder still exposes a
+  persisted nonterminal status so callers can identify, reject, or route that input, but such a value is not a supported
+  computation input. Use raw `NbtDocument` when unfinished generation data must be preserved losslessly.
+- `ChunkContext` owns the dimension identity/layout and default block-state/biome facts needed by semantic Chunk
+  operations. A Chunk exposes its context as a read-only caller convenience; library codecs and stores do not read it.
+  Do not depend on protocol or vanilla-default modules to construct this context; protocol-aware callers obtain
+  matching adapters from the owning protocol modules.
+- Chunk NBT encoding and decoding use separate `ChunkNbtEncoderContext` and `ChunkNbtDecoderContext` values. The decoder
+  context contains the `ChunkContext` whose same reference is attached to every decoded Chunk. The encoder receives its
+  own `ChunkContext` explicitly and never obtains or cross-validates it through `chunk.context`. Each context also owns
+  the `NbtFormat` used by that direction; encoder-only persistence metadata remains in the encoder context.
+- Keep `DataVersion` and `LastUpdate` outside the semantic Chunk in `ChunkNbtMetadata`; decoding returns both alongside
+  the Chunk, and encoding receives them through `ChunkNbtEncoderContext`. `LastUpdate` is a caller-supplied absolute
+  world game-time value, not wall-clock time; do not invent it from a clock, default, callback, or save snapshot.
+- Preserve the selected release's scheduled-tick persistence semantics: `block_ticks` and `fluid_ticks` store an `Int`
+  relative delay in `t`, and list order participates in restoring sub-tick order. Do not reinterpret that delay as an
+  absolute timestamp or derive it from `LastUpdate`.
+- Strongly type stable Chunk structure. An explicitly open, mod-extensible content subtree such as Block Entity data
+  may remain an `NbtCompound`; do not duplicate structural fields already promoted into typed properties inside it.
+- Retain caller-selected subtype generics on `Entity<E>` and `EntityChunk<E>`. Strongly type stable common fields, use
+  explicit registries or adapters for vanilla and mod subtype data, and keep `NbtCompound` as the lossless fallback for
+  content that cannot be closed over by this library.
+- A packet-derived Chunk may be NBT-encoded when the caller supplies the encoder context and persistence metadata. Do
+  not add nullable source markers or reject it as incomplete; every field absent from the network value comes from the
+  caller-supplied packet decoder context, not a library default. Document that those values are client-local and that
+  the resulting save is lossy rather than an equivalent server backup.
 - Palette mutation preserves stable IDs. Encoding uses a non-mutating compact snapshot; `compact()` is the explicit
   mutating operation.
-- Receiver-oriented conversion extensions connect compressed records, `NbtDocument`, and semantic Chunk, Entity Chunk,
-  and POI Chunk values without reversing the `nbt` dependency.
+- Directional Chunk, Entity Chunk, and POI Chunk codecs canonically decode one decompressed binary NBT `Source` into the
+  semantic value or encode that value to a `Sink`; they neither close caller-owned streams nor flush a sink. Their raw
+  `NbtDocument` entry points are explicit tree-level branches over the same private semantic implementation, not a
+  required intermediate in the ordinary stream path. Only retaining and rewriting the raw document preserves unmodeled
+  fields; conversion through a typed semantic value remains intentionally lossy for those fields.
+- Receiver-oriented conversion extensions are conveniences over those plain directional codecs. Accept either the
+  already constructed encoder/decoder or its complete context, delegate exactly once, and never read a receiver context
+  or duplicate the conversion. Compressed-record helpers additionally compose the owning compression format without
+  creating a direct packet-to-persistence conversion.
 
 ## Verification
 
