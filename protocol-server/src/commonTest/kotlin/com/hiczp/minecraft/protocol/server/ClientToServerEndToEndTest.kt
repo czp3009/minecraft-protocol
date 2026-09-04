@@ -20,7 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import kotlin.test.*
-import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 import com.hiczp.minecraft.protocol.model.type.GameMode as PlayerGameMode
 
@@ -274,7 +274,7 @@ class ClientToServerEndToEndTest {
         assertEquals(AcknowledgeFinishConfigurationPacket, minecraftServerConnection.incoming.receive())
         minecraftServerConnection.disableKeepAlive()
         minecraftServerConnection.awaitState(ConnectionState.PLAY)
-        val recordingKeepAlive = minecraftServerConnection.enableRecordingPlayKeepAlive(100.milliseconds)
+        val recordingKeepAlive = minecraftServerConnection.enableRecordingPlayKeepAlive(5.seconds)
         serverNegotiationProfile.preparePlay(minecraftServerConnection)
         minecraftServerConnection.outgoing.send(playLoginPacket)
         assertSame(TestProfileResult, serverNegotiationProfile.complete(minecraftServerConnection))
